@@ -92,3 +92,15 @@ decompressed script inline. Earlier revisions remain retained. The generator
 resolves repository formatting settings. A DOM smoke check of `v004` passed
 document rendering, all three labelled controls, light Teal/Georgia and composer
 navigation without DOM errors; rendered acceptance still requires the next CI run.
+
+Run `41445654113` passed the desktop compact-display cases and preview controls
+on all three projects. Both phone projects exposed a focused File options target
+shrinking to 36px after its dialog restored focus: the later global
+`.share-btn:focus-visible` rule tied the viewer selector's specificity. The viewer
+now scopes its shared control geometry through its header, retaining 44px sizing
+while focused. The browser fixture explicitly focuses each header action before
+measuring and includes its name and viewport width in failure diagnostics.
+Preview `v005` includes the corrected real component; earlier revisions remain.
+Local design checks passed (108 tests, one existing skip), as did all 25 focused
+viewer/draft tests, source verification and browser test discovery. Rendered
+acceptance for this correction remains a CI requirement.

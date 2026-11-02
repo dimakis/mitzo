@@ -63,7 +63,7 @@
 
 .viewer-page .viewer-header-back,
 .viewer-page .viewer-header-action,
-.viewer-page .viewer-header-share,
+.viewer-page .viewer-header .viewer-header-share,
 .viewer-page .viewer-root-btn {
   display: inline-flex;
   align-items: center;

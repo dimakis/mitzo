@@ -54,7 +54,7 @@ test.beforeEach(async ({ page }) => {
 });
 
 test('preview controls share one row on phones and retain local interactions', async ({ page }) => {
-  const html = await readFile('mockups/compact-file-viewer/v004.html', 'utf8');
+  const html = await readFile('mockups/compact-file-viewer/v005.html', 'utf8');
   await page.route('**/preview', (route) =>
     route.fulfill({ contentType: 'text/html', body: html }),
   );
@@ -116,9 +116,12 @@ for (const theme of ['dark', 'light']) {
     for (const width of isMobile ? [320, 393] : [1280]) {
       await page.setViewportSize({ width, height: 852 });
       for (const button of await header.getByRole('button').all()) {
+        // Focus must preserve touch geometry, including after dialog focus restoration.
+        await button.focus();
+        const name = (await button.getAttribute('aria-label')) ?? (await button.innerText());
         const box = (await button.boundingBox())!;
-        expect(box.width).toBeGreaterThanOrEqual(44);
-        expect(box.height).toBeGreaterThanOrEqual(44);
+        expect(box.width, `${name} focused width at ${width}px`).toBeGreaterThanOrEqual(44);
+        expect(box.height, `${name} focused height at ${width}px`).toBeGreaterThanOrEqual(44);
         await expect(button).toBeInViewport();
       }
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
