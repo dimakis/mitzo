@@ -1,4 +1,5 @@
 import { reconcilableLocalCodexCommand } from './retained-local-codex-effects.js';
+import { sessionMetadataDiagnostic } from './session-metadata-error.js';
 import { createQueuedMessageReceiptHandler } from './queued-message-receipt.js';
 import { assertOrdinaryContributorControlAllowed } from './ordinary-contributor-execution.js';
 import { installChatCommandJson } from './chat-command-json.js';
@@ -3581,8 +3582,11 @@ mountObservedRouter(
 );
 
 app.get('/api/sessions/:id/meta', (req, res, next) => {
-  void readSessionMetadata(req, res).catch(() => {
-    log.warn('Session metadata request failed', { sessionId: req.params.id });
+  void readSessionMetadata(req, res).catch((error: unknown) => {
+    log.warn('Session metadata request failed', {
+      sessionId: req.params.id,
+      ...sessionMetadataDiagnostic(error),
+    });
     const message = 'Conversation metadata is temporarily unavailable.';
     if (res.headersSent) {
       next(new Error(message));
@@ -3592,7 +3596,7 @@ app.get('/api/sessions/:id/meta', (req, res, next) => {
   });
 });
 
-async function readSessionMetadata(req: express.Request, res: express.Response) {
+async function readSessionMetadata(req: express.Request<{ id: string }>, res: express.Response) {
   const meta = eventStore.getSession(req.params.id);
   if (!meta) {
     res.status(404).json({ error: 'Session not found' });
@@ -3613,18 +3617,39 @@ async function readSessionMetadata(req: express.Request, res: express.Response) 
     lastAdmittedSelection = eventStore.getLatestOrdinaryCommandAdmission?.(
       meta.sessionId,
     )?.selection;
-  } catch {
+  } catch (error) {
+    log.warn('Session metadata request failed', {
+      sessionId: meta.sessionId,
+      ...sessionMetadataDiagnostic(error),
+    });
     res.status(409).json({
       error:
         'The original conversation workspace identity is unavailable. Preserve this conversation and recover its original settings.',
     });
     return;
   }
+  // Synchronous presentation classification only. Authority checks below keep
+  // reading current ownership at their own I/O and async boundaries.
+  const runtimeBinding = eventStore.getSessionRuntimeBinding(meta.sessionId);
+  const symposiumConfigured = Boolean(meta.symposiumConfig);
+  const ownedLocalCodex =
+    runtimeBinding?.harness.implementation === 'codex' &&
+    runtimeBinding.execution.location === 'local';
+  const codexBacked =
+    !symposiumConfigured &&
+    (runtimeBinding?.harness.implementation === 'codex' ||
+      meta.accountBinding?.provider === 'openai-codex' ||
+      (meta.accountBinding?.provider === 'openai' &&
+        !!meta.cwd?.startsWith('/sandbox/workspaces/')));
+  const responsesBacked = ['responses', 'gemini'].includes(
+    runtimeBinding?.harness.implementation ?? '',
+  );
+  const vertexBacked = runtimeBinding?.harness.implementation === 'claude-sdk';
   const runtimeMetadata = {
     ...routingMetadata,
     ...(continuationStatus.reason ? { runtimeCommandReason: continuationStatus.reason } : {}),
     ...(meta.accountBinding?.provider === 'google-vertex' &&
-    eventStore.getSessionRuntimeBinding(meta.sessionId)?.harness.implementation === 'gemini'
+    runtimeBinding?.harness.implementation === 'gemini'
       ? {
           runtimeNativeConstraint: readOwnedNativeContinuationConstraint(
             getNativeResponsesStore(),
@@ -3636,22 +3661,6 @@ async function readSessionMetadata(req: express.Request, res: express.Response) 
   };
   const totalTokens =
     meta.inputTokens + meta.outputTokens + meta.cacheReadTokens + meta.cacheCreationTokens;
-  const symposiumConfigured = Boolean(meta.symposiumConfig);
-  const runtimeBinding = eventStore.getSessionRuntimeBinding(meta.sessionId);
-  const ownedLocalCodex =
-    runtimeBinding?.harness.implementation === 'codex' &&
-    runtimeBinding.execution.location === 'local';
-  const codexBacked =
-    !symposiumConfigured &&
-    (runtimeBinding?.harness.implementation === 'codex' ||
-      meta.accountBinding?.provider === 'openai-codex' ||
-      (meta.accountBinding?.provider === 'openai' &&
-        !!meta.cwd?.startsWith('/sandbox/workspaces/')));
-  const responsesBacked = ['responses', 'gemini'].includes(
-    eventStore.getSessionRuntimeBinding(meta.sessionId)?.harness.implementation ?? '',
-  );
-  const vertexBacked =
-    eventStore.getSessionRuntimeBinding(meta.sessionId)?.harness.implementation === 'claude-sdk';
   let codexQueue = vertexBacked
     ? readOwnedVertexQueue(
         eventStore,

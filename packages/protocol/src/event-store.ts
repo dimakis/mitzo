@@ -1549,16 +1549,19 @@ export class EventStore {
     commandId: string,
   ): OrdinaryLocalCommandAdmission | undefined {
     const row = this.db!.prepare(
-      'SELECT transition_id FROM ordinary_execution_admissions WHERE command_id=? ORDER BY revision DESC LIMIT 1',
-    ).get(commandId) as { transition_id: string } | undefined;
+      `SELECT execution.transition_id,source.session_id FROM ordinary_execution_admissions execution
+      LEFT JOIN send_commands source ON source.client_msg_id=execution.command_id
+      WHERE execution.command_id=? ORDER BY execution.revision DESC LIMIT 1`,
+    ).get(commandId) as { transition_id: string; session_id: string | null } | undefined;
     if (!row) return this.getOrdinaryLocalCommandAdmission(commandId);
     const execution = this.readPreparedRepositoryCommandExecutionEvidence(
       commandId,
       row.transition_id,
     );
-    const session = this.getSession(this.getSendCommand(commandId)!.sessionId!);
+    const session = row.session_id ? this.getSession(row.session_id) : undefined;
     if (
       !session ||
+      !isDeepStrictEqual(this.getSessionRuntimeBinding(session.sessionId), execution.binding) ||
       sessionWorkspaceId(session) !== execution.workspace.workspaceId ||
       session.cwd !== execution.workspace.cwd
     )

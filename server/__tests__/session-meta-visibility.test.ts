@@ -10,6 +10,17 @@ import type { EventStore } from '../event-store.js';
 
 const catalog = vi.hoisted(() => ({ refresh: vi.fn(async () => {}), catalog: () => [] }));
 const native = vi.hoisted(() => ({ hasConversation: vi.fn(() => false) }));
+const diagnostics = vi.hoisted(() => ({ warn: vi.fn() }));
+vi.mock('../logger.js', async (original) => {
+  const actual = await original<typeof import('../logger.js')>();
+  return {
+    ...actual,
+    createLogger: (module: string) => {
+      const logger = actual.createLogger(module);
+      return module === 'server' ? { ...logger, warn: diagnostics.warn } : logger;
+    },
+  };
+});
 vi.mock('../account-profiles.js', async (original) => ({
   ...(await original<object>()),
   loadAccountProfiles: () => ({ ...catalog, privateCodexRoots: () => [] }),
@@ -106,14 +117,29 @@ it.each([
     const id = 'metadata-read-failure';
     store.upsertSession({ sessionId: id, cwd: root });
     const before = store.getSession(id);
+    diagnostics.warn.mockClear();
     const read = vi.spyOn(store, method).mockImplementationOnce(() => {
-      throw Error('Private retained admission /private/operator-store is unavailable');
+      if (method === 'getSession')
+        throw Object.assign(
+          Error('Private retained admission /private/operator-store is unavailable'),
+          { code: 'SQLITE_BUSY' },
+        );
+      throw Error('Ordinary command admission does not match durable session identity', {
+        cause: Error('Private retained admission /private/operator-store is unavailable'),
+      });
     });
     try {
       const failed = await request(server).get(`/api/sessions/${id}/meta`);
       expect(failed.status).toBe(status);
       expect(failed.body.error).toBeTypeOf('string');
       expect(JSON.stringify(failed.body)).not.toContain('/private/operator-store');
+      expect(diagnostics.warn).toHaveBeenCalledWith('Session metadata request failed', {
+        sessionId: id,
+        ...(method === 'getSession'
+          ? { metadataFailure: 'storage_busy', metadataErrorCode: 'SQLITE_BUSY' }
+          : { metadataFailure: 'admission_identity_changed' }),
+      });
+      expect(JSON.stringify(diagnostics.warn.mock.calls)).not.toContain('/private/operator-store');
     } finally {
       read.mockRestore();
     }
