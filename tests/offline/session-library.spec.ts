@@ -206,6 +206,83 @@ for (const theme of ['dark', 'light'])
       lastEventAt: sessions[index].lastModified,
       ...extra,
     });
+    const rows = page.locator('.session-list .session-item-summary');
+    const initialOrder = await rows.allTextContents();
+    const emit = async (state: string, extra: Record<string, unknown> = {}) => {
+      await page.evaluate(
+        (activities) => {
+          window.dispatchEvent(new CustomEvent('offline-session-activity', { detail: activities }));
+        },
+        [activity(11, state, { waitReason: 'permission', lastEventAt: Date.now(), ...extra })],
+      );
+    };
+    await emit('working');
+    await expect(page.locator('.session-list .session-item').last()).toContainText('Working');
+    await expect(rows).toHaveText(initialOrder);
+    await page.emulateMedia({ reducedMotion: 'no-preference' });
+    await page.locator('.session-list').evaluate((element) => {
+      new MutationObserver(() => {
+        if (
+          [...element.children].some((row) =>
+            row.getAnimations().some((a) => a.id === 'mitzo:reorder'),
+          )
+        )
+          element.setAttribute('data-observed-move', 'true');
+      }).observe(element, { childList: true });
+      element.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, pointerId: 77 }));
+    });
+    await emit('waiting');
+    await expect(page.locator('.session-list .session-item').last()).toContainText(
+      'Permission needed',
+    );
+    // Wait beyond the batch window: a held pointer must keep its target still.
+    await page.waitForTimeout(800);
+    await expect(rows).toHaveText(initialOrder);
+    await page.evaluate(() =>
+      document.dispatchEvent(new PointerEvent('pointerup', { pointerId: 77 })),
+    );
+    await expect(rows.first()).toHaveText('Conversation 11');
+    await expect(page.locator('.session-list')).toHaveAttribute('data-observed-move', 'true');
+    await page.screenshot({ path: testInfo.outputPath(`session-library-reordered-${theme}.png`) });
+    await emit('done');
+    await expect(page.locator('.session-list .session-item').first()).toContainText('Finished');
+    await emit('idle');
+    await expect(page.locator('.session-list .session-item').first()).toContainText('Idle');
+    await expect(rows).toHaveText(['Conversation 11', ...initialOrder.slice(0, -1)]);
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    // A new user message promotes an already working chat without animation.
+    await page.evaluate(
+      (detail) => window.dispatchEvent(new CustomEvent('offline-session-activity', { detail })),
+      [activity(10, 'working', { lastUserMessageAt: Date.now() + 1000 })],
+    );
+    await expect(rows.first()).toHaveText('Conversation 10');
+    expect(
+      await page
+        .locator('.session-list')
+        .evaluate(
+          (el) =>
+            [...el.children]
+              .flatMap((row) => row.getAnimations())
+              .filter((a) => a.id === 'mitzo:reorder').length,
+        ),
+    ).toBe(0);
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    const scroller = page.locator('.session-list-scroll');
+    const searchBox = page.getByRole('searchbox', { name: 'Search conversations' });
+    await searchBox.focus();
+    await page.keyboard.press('Tab');
+    await expect(page.getByRole('button', { name: 'All', exact: true })).toBeFocused();
+    await scroller.evaluate((element) => {
+      element.scrollTop = 400;
+    });
+    await expect(searchBox).not.toBeInViewport();
+    await expect(page.getByRole('button', { name: 'All', exact: true })).not.toBeInViewport();
+    await expect(page.getByRole('heading', { name: 'Chats', exact: true })).toBeInViewport();
+    await page.screenshot({ path: testInfo.outputPath(`session-library-scrolled-${theme}.png`) });
+    await scroller.evaluate((element) => {
+      element.scrollTop = 0;
+    });
+    await expect(searchBox).toBeInViewport();
     await page.evaluate(
       (activities) => {
         window.dispatchEvent(new CustomEvent('offline-session-activity', { detail: activities }));
@@ -257,8 +334,9 @@ for (const theme of ['dark', 'light'])
       await page.screenshot({ path: testInfo.outputPath(`session-preview-usage-${theme}.png`) });
       await dialog.getByRole('button', { name: 'Close preview' }).click();
       await page.locator('.session-list-scroll').evaluate((el) => (el.scrollTop = el.scrollHeight));
-      await expect(page.getByText('Conversation 11', { exact: true })).toBeVisible();
-      const last = await page.getByText('Conversation 11', { exact: true }).boundingBox(),
+      const lastRow = page.locator('.session-list .session-item-navigation').last();
+      await expect(lastRow).toBeInViewport();
+      const last = await lastRow.boundingBox(),
         nav = await page.locator('.workspace-tabs').boundingBox();
       expect(last!.y + last!.height).toBeLessThanOrEqual(nav!.y + 1);
       await page.setViewportSize({ width: 320, height: 740 });

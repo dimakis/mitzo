@@ -988,6 +988,26 @@ describe('SessionOverviewEmitter', () => {
     expect(emitter.getSnapshot()[0].awaitingReply).toBe(false);
   });
 
+  it('retains a distinct user-message timestamp through assistant and activity updates', () => {
+    deps = makeDeps({
+      registry: {
+        getActiveSessions: vi.fn(() => [makeActiveSession()]),
+      } as unknown as SessionOverviewDeps['registry'],
+    });
+    emitter = new SessionOverviewEmitter(deps);
+    emitter.updateSpeaker('session-1', 'user');
+    const sentAt = Date.now();
+    expect(emitter.getSnapshot()[0]).toMatchObject({ lastUserMessageAt: sentAt });
+    vi.advanceTimersByTime(1000);
+    emitter.updateSpeaker('session-1', 'assistant');
+    emitter.touch('client-1');
+    expect(emitter.getSnapshot()[0]).toMatchObject({ lastUserMessageAt: sentAt });
+    emitter.updateSpeaker('session-1', 'user');
+    expect(emitter.getSnapshot()[0]).toMatchObject({ lastUserMessageAt: Date.now() });
+    emitter.forget('client-1', 'session-1');
+    expect(emitter.getSnapshot()[0]).not.toHaveProperty('lastUserMessageAt', sentAt);
+  });
+
   it('forget clears speakerCache when sessionId is provided', () => {
     const getSessionMock = vi.fn(() => null);
     deps = makeDeps({
