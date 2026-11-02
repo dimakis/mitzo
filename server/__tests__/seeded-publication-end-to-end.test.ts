@@ -72,6 +72,12 @@ it.each([
     await writeFile(join(seed, 'note.txt'), 'changed\n');
     git(seed, 'commit', '-qam', 'task change');
     const original = git(seed, 'rev-parse', 'HEAD');
+    await writeFile(join(seed, 'note.txt'), 'staged work\n');
+    git(seed, 'add', 'note.txt');
+    await writeFile(join(seed, 'note.txt'), 'unstaged work\n');
+    await writeFile(join(seed, 'preview.html'), 'untracked preview\n');
+    const pendingStatus = git(seed, 'status', '--short');
+    const pendingIndex = await readFile(join(seed, '.git/index'));
     const header =
       '#!/usr/bin/env node\nconst fs=require("fs"),cp=require("child_process");const root=' +
       JSON.stringify(root) +
@@ -189,6 +195,16 @@ const p=cp.spawnSync('/bin/sh',mapped,{encoding:'utf8',env:process.env});process
     const auth = await authenticateToken((await login(process.env.AUTH_PASSPHRASE!))!);
     if (!auth) throw Error('Offline signed publication operator required');
     const releaseOperator = bindAgentLibraryTransport(session.ownerConnectionId!, auth);
+    let releaseReconnectedOperator: (() => void) | undefined;
+    // Reuse this real publication journey to cover the phone reconnect that
+    // production observed between owner capture and capability preflight.
+    const invoke = runtime.capabilities.invoke.bind(runtime.capabilities);
+    vi.spyOn(runtime.capabilities, 'invoke').mockImplementation((...args) => {
+      releaseOperator();
+      session.ownerConnectionId = 'reconnected-publishing-operator';
+      releaseReconnectedOperator = bindAgentLibraryTransport(session.ownerConnectionId, auth);
+      return invoke(...args);
+    });
     mocks.reviewSession
       .mockReset()
       .mockRejectedValue(new Error('No publication review model configured'));
@@ -276,10 +292,15 @@ const p=cp.spawnSync('/bin/sh',mapped,{encoding:'utf8',env:process.env});process
       expect(git(upstream, 'show', branch + ':note.txt')).toBe('changed');
       expect(git(upstream, 'show', branch + ':upstream-only.txt')).toBe('must survive');
       expect(git(seed, 'rev-parse', 'HEAD')).toBe(original);
-      expect(git(seed, 'status', '--short')).toBe('');
+      expect(git(seed, 'status', '--short')).toBe(pendingStatus);
+      expect(await readFile(join(seed, '.git/index'))).toEqual(pendingIndex);
+      expect(await readFile(join(seed, 'note.txt'), 'utf8')).toBe('unstaged work\n');
+      expect(await readFile(join(seed, 'preview.html'), 'utf8')).toBe('untracked preview\n');
+      expect(git(upstream, 'ls-tree', '--name-only', branch)).not.toContain('preview.html');
       expect(git(seed, 'remote')).toBe('');
     } finally {
       releaseOperator();
+      releaseReconnectedOperator?.();
       revokeAuthSession(auth);
       tool.close();
       runtime.store.close();

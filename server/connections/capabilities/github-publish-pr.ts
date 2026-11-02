@@ -43,7 +43,8 @@ export interface GithubSandboxInspection {
   };
   canonicalRepositoryPath: string;
   /** Empty means clean. This is deliberately not a user-provided porcelain string. */
-  status: string;
+  /** Historical diagnostic only; publication exports committed objects. */
+  status?: string;
   sourceBranch: string | null;
   sourceOid: string;
   defaultBranch: string;
@@ -440,7 +441,6 @@ export function createGithubArtifactPublishPrExecutor(
     phase('validation');
     if (inspection.canonicalRepositoryPath !== repositoryPath || !inspection.symlinkFree)
       reject('Repository path is ambiguous');
-    if (inspection.status !== '') reject('Repository working tree is dirty');
     if (!inspection.sourceBranch || !validBranch(inspection.sourceBranch))
       reject('Repository HEAD is detached');
     if (!Number.isSafeInteger(inspection.commitsAhead) || inspection.commitsAhead < 1)

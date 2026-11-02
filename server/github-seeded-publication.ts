@@ -6,7 +6,8 @@ import type { GithubPublishingSource } from './github-publishing-tool.js';
 import type { GithubSeedBaseline } from './github-seed-baselines.js';
 import { GithubSeedPublicationError, type SeededChangeInput } from './github-seeded-source.js';
 export interface SeededGitState {
-  status: string;
+  /** Historical diagnostic only; publication exports committed objects. */
+  status?: string;
   seedOid: string;
   seedTreeOid: string;
   originalSourceOid: string;
@@ -39,11 +40,6 @@ export class GithubSeededPublication {
   ) {}
   private async selection(input: SeedPublicationSource) {
     const state = await this.deps.read(input);
-    if (state.status !== '')
-      throw new GithubSeedPublicationError(
-        'SEEDED_WORKSPACE_DIRTY',
-        'Commit or preserve outstanding workspace changes before publishing',
-      );
     if (
       state.changedFiles.length > 64 ||
       state.changedFiles.some(
@@ -129,7 +125,6 @@ export class GithubSeededPublication {
     while (this.cache.size > 16) this.cache.delete(this.cache.keys().next().value!);
     return {
       canonicalRepositoryPath: input.repositoryPath,
-      status: state.status,
       sourceBranch: projection.sourceBranch,
       sourceOid: projection.sourceOid,
       originUrl: `https://github.com/${binding.repository}.git`,
