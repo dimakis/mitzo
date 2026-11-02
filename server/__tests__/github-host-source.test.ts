@@ -8,6 +8,7 @@ import {
   exportHostGithubBundle,
   resolveHostGithubRepository,
 } from '../github-host-source.js';
+import { hostGithubPublishingSource } from '../github-publishing-tool.js';
 vi.mock('node:fs/promises', async (original) => {
   const actual = await original<typeof import('node:fs/promises')>();
   return { ...actual, readdir: vi.fn(actual.readdir) };
@@ -74,9 +75,34 @@ it('inspects and exports committed host work without network or credentials', as
     symlinkFree: true,
     status: '',
   });
+  // Prepared standalone tasks retain the acquired base in controller metadata,
+  // while their private Git metadata contains only the feature branch.
+  const baseOid = f.git('rev-parse', 'origin/main');
+  const exportInput = {
+    ...f.input,
+    sourceBranch: 'feature',
+    sourceOid: result.sourceOid,
+    maxBytes: 1024 * 1024,
+  };
+  expect((await exportHostGithubBundle(exportInput)).toString('utf8', 0, 16)).toContain(
+    'git bundle',
+  );
+  f.git('update-ref', '-d', 'refs/remotes/origin/main');
+  await writeFile(join(f.root, '.git/shallow'), baseOid + '\n');
+  const source = hostGithubPublishingSource({ cwd: f.root }, [], {
+    directory: f.root,
+    connectionId: 'local',
+    repository: 'local/source-id',
+    baseBranch: 'main',
+    baseOid,
+  });
+  const preparedInput = { ...f.input, ...source };
+  expect(source).toHaveProperty('preparedBase.baseOid', baseOid);
+  expect(source!.preparedBase).not.toHaveProperty('repository');
+  expect(await inspectHostGithubRepository(preparedInput)).toEqual(result);
   vi.mocked(readdir).mockClear();
   const bundle = await exportHostGithubBundle({
-    ...f.input,
+    ...preparedInput,
     sourceBranch: 'feature',
     sourceOid: result.sourceOid,
     maxBytes: 1024 * 1024,
@@ -85,6 +111,26 @@ it('inspects and exports committed host work without network or credentials', as
     vi.mocked(readdir).mock.calls.filter(([path]) => path === join(f.root, '.git')),
   ).toHaveLength(1);
   expect(bundle.toString('utf8', 0, 16)).toContain('git bundle');
+  await expect(
+    inspectHostGithubRepository({
+      ...preparedInput,
+      preparedBase: { ...source!.preparedBase!, repository: 'other/repo' },
+    }),
+  ).rejects.toThrow('Prepared publishing base does not match');
+  // Other configured PR targets keep their real tracking-ref path; the main
+  // preparation OID cannot stand in for an unrelated requested base.
+  f.git('update-ref', 'refs/remotes/origin/release', baseOid);
+  const alternate = { ...preparedInput, baseBranch: 'release' };
+  expect(await inspectHostGithubRepository(alternate)).toEqual(result);
+  expect(
+    (await exportHostGithubBundle({ ...exportInput, ...alternate })).toString('utf8', 0, 16),
+  ).toContain('git bundle');
+  await expect(
+    inspectHostGithubRepository({
+      ...preparedInput,
+      preparedBase: { ...source!.preparedBase!, baseBranch: 'other' },
+    }),
+  ).rejects.toThrow('Publishing base branch is unavailable');
   await expect(
     exportHostGithubBundle({
       ...f.input,

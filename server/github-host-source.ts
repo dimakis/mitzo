@@ -17,13 +17,24 @@ import { codexPrivateDirectory } from './codex-private-path.js';
 import { githubRepositoryFromOrigin } from './connections/capabilities/github-publish-pr.js';
 import type { GithubSandboxInspection } from './connections/capabilities/github-publish-pr.js';
 import { GithubSeedPublicationError } from './github-seeded-source.js';
+import { GithubPublicationValidationError } from './github-publication-preflight.js';
 const exec = promisify(execFile);
+/** Controller-captured acquisition metadata, never accepted from tool input. */
+export interface PreparedGithubBase {
+  repositoryPath: string;
+  /** GitHub acquisitions have a canonical identity. Local preparations use a
+   * synthetic controller label; their actual origin is authorized separately. */
+  repository?: string;
+  baseBranch: string;
+  baseOid: string;
+}
 interface Source {
   workspace: string;
   gitStorageRoots: readonly string[];
   repositoryPath: string;
   baseBranch: string;
   signal: AbortSignal;
+  preparedBase?: PreparedGithubBase;
   /** Controller-owned staging; tests use an isolated private directory. */
   privateDirectory?: string;
 }
@@ -285,14 +296,17 @@ export async function inspectHostGithubRepository(
 ): Promise<GithubSandboxInspection> {
   ref(source.baseBranch);
   await boundary(source);
+  const originUrl = (await git(source, ['remote', 'get-url', 'origin'])).stdout
+    .toString('utf8')
+    .trim();
+  const base = await publicationBase(source, originUrl);
   const read = async (...args: string[]) =>
     (await git(source, args)).stdout.toString('utf8').trimEnd();
-  const [status, sourceOid, sourceBranch, originUrl, count, files] = await Promise.all([
+  const [status, sourceOid, sourceBranch, count, files] = await Promise.all([
     safeStatus(source),
     read('rev-parse', 'HEAD'),
     read('symbolic-ref', '--quiet', '--short', 'HEAD'),
-    read('remote', 'get-url', 'origin'),
-    read('rev-list', '--count', `origin/${source.baseBranch}..HEAD`),
+    read('rev-list', '--count', `${base}..HEAD`),
     read(
       '-c',
       'core.quotepath=true',
@@ -302,7 +316,7 @@ export async function inspectHostGithubRepository(
       '-r',
       '--name-only',
       '--no-renames',
-      `origin/${source.baseBranch}..HEAD`,
+      `${base}..HEAD`,
     ),
   ]);
   const commitsAhead = Number(count);
@@ -326,6 +340,52 @@ export async function inspectHostGithubRepository(
     symlinkFree: true,
   };
 }
+/** Prepared tasks deliberately own only their feature ref. Use their verified
+ * acquisition OID for both inspection and export; never guess from HEAD or
+ * fetch/mutate an active task just to reconstruct a missing tracking ref. */
+async function publicationBase(source: Source, originUrl?: string): Promise<string> {
+  const selected = source.preparedBase;
+  if (
+    selected &&
+    (selected.repositoryPath !== source.repositoryPath ||
+      !/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/.test(selected.baseOid) ||
+      (selected.repository !== undefined &&
+        githubRepositoryFromOrigin(
+          originUrl ??
+            (await git(source, ['remote', 'get-url', 'origin'])).stdout.toString('utf8').trim(),
+        ) !== selected.repository))
+  )
+    throw new GithubPublicationValidationError(
+      'Prepared publishing base does not match the selected repository',
+    );
+  if (!selected || selected.baseBranch !== source.baseBranch) {
+    try {
+      return (
+        await git(source, [
+          'rev-parse',
+          '--verify',
+          `refs/remotes/origin/${source.baseBranch}^{commit}`,
+        ])
+      ).stdout
+        .toString('utf8')
+        .trim();
+    } catch {
+      source.signal.throwIfAborted();
+      throw new GithubPublicationValidationError(
+        'Publishing base branch is unavailable in this checkout and no matching prepared base was retained',
+      );
+    }
+  }
+  try {
+    await git(source, ['merge-base', '--is-ancestor', selected.baseOid, 'HEAD']);
+  } catch {
+    source.signal.throwIfAborted();
+    throw new GithubPublicationValidationError(
+      'Prepared publishing base is unavailable in the current task history',
+    );
+  }
+  return selected.baseOid;
+}
 export async function exportHostGithubBundle(
   source: Source & { sourceBranch: string; sourceOid: string; maxBytes: number },
 ): Promise<Buffer> {
@@ -345,9 +405,10 @@ export async function exportHostGithubBundle(
     .trim()
     .split('\n');
   if (current.some((oid) => oid !== source.sourceOid)) throw new Error('Source commit changed');
+  const base = await publicationBase(source);
   const result = await git(
     source,
-    ['bundle', 'create', '-', `origin/${source.baseBranch}..${source.sourceBranch}`],
+    ['bundle', 'create', '-', `${base}..${source.sourceBranch}`],
     source.maxBytes,
   );
   if (!result.stdout.length || result.stdout.length > source.maxBytes)

@@ -44,6 +44,43 @@ const input = {
   body: 'Change',
   draft: true,
 };
+it('reports owner capture failures with a diagnostic ID without asserting revoked access', async () => {
+  const f = fixture('openai-codex');
+  mocks.captureAuthorization.mockImplementation(() => {
+    throw Error('private credential diagnostics');
+  });
+  const result = await f.execute(input, new AbortController().signal, {
+    turnId: 'turn',
+    callId: 'call',
+  });
+  expect(JSON.parse(result.content)).toMatchObject({
+    code: 'GITHUB_PUBLICATION_FAILED',
+    stage: 'owner_capture',
+    reason: 'operator_unavailable',
+    requestId: expect.any(String),
+    operationRecorded: false,
+  });
+  expect(result.content).not.toMatch(/no longer authorized|private credential/);
+  expect(f.invoke).not.toHaveBeenCalled();
+  f.execute.close();
+});
+it('retains the explicit runtime session before its registry registration is published', async () => {
+  const f = fixture('openai-codex');
+  f.execute.close();
+  const find = f.registry.findBySessionId;
+  f.registry.findBySessionId = () => undefined;
+  const execute = createGithubPublishingTool(
+    'conversation',
+    f.registry,
+    () => ({ runtime: 'host', workspace: '/workspace', gitStorageRoots: [] }),
+    f.session,
+  );
+  f.registry.findBySessionId = find;
+  expect(
+    await execute(input, new AbortController().signal, { turnId: 'turn', callId: 'call' }),
+  ).toMatchObject({ isError: false });
+  execute.close();
+});
 it('publishes without a model or inference selection', async () => {
   const f = fixture('openai-codex');
   f.session.model = undefined;

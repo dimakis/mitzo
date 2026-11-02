@@ -436,6 +436,7 @@ export function createConnectionsRuntime(options: {
               runtime: 'host',
               workspace: live.workspace,
               gitStorageRoots: live.gitStorageRoots ?? [],
+              preparedBase: live.preparedBase,
             }
           : { runtime: 'openshell', workspace: live.workspace, sandboxName: live.sandboxName! };
       if (!(await sourceOrigin(source, input.repositoryPath, input.baseBranch, input.signal)))
@@ -454,6 +455,7 @@ export function createConnectionsRuntime(options: {
               ...input,
               workspace: live.workspace,
               gitStorageRoots: live.gitStorageRoots ?? [],
+              preparedBase: live.preparedBase,
             })
           : await new OpenShellGithubSandboxTransport(
               runControl,
@@ -480,6 +482,7 @@ export function createConnectionsRuntime(options: {
               runtime: 'host',
               workspace: live.workspace,
               gitStorageRoots: live.gitStorageRoots ?? [],
+              preparedBase: live.preparedBase,
             }
           : { runtime: 'openshell', workspace: live.workspace, sandboxName: live.sandboxName! },
         input.repositoryPath,
@@ -493,6 +496,7 @@ export function createConnectionsRuntime(options: {
               runtime: 'host',
               workspace: live.workspace,
               gitStorageRoots: live.gitStorageRoots ?? [],
+              preparedBase: live.preparedBase,
             }
           : { runtime: 'openshell', workspace: live.workspace, sandboxName: live.sandboxName! };
       if (!(await sourceOrigin(source, input.repositoryPath, input.baseBranch, input.signal))) {
@@ -512,6 +516,7 @@ export function createConnectionsRuntime(options: {
           ...input,
           workspace: live.workspace,
           gitStorageRoots: live.gitStorageRoots ?? [],
+          preparedBase: live.preparedBase,
         });
       return new OpenShellGithubSandboxTransport(
         runControl,
