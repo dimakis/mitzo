@@ -823,9 +823,7 @@ describe('enrolled mutable controller commands', () => {
       }
       return {
         stdout: JSON.stringify(
-          args.includes('--list') || args.includes('--refresh')
-            ? { profiles: ['work'], items: [] }
-            : { ok: true, created: true },
+          args.includes('--list') ? { profiles: ['work'], items: [] } : { ok: true, created: true },
         ),
         stderr: '',
       };
@@ -870,7 +868,7 @@ describe('enrolled mutable controller commands', () => {
   });
 
   it.each([
-    ['get', '/api/todos?refresh=true&profile=work', undefined, 200, '--refresh'],
+    ['get', '/api/todos?profile=work', undefined, 200, '--list'],
     ['post', '/api/todos', { summary: 'Fixture', profile: 'work' }, 201, '--create'],
     ['post', '/api/todos/item-1/action', { action: 'ack' }, 200, '--action'],
     ['post', '/api/todos/outcomes', outcome, 201, '--create-outcome-json'],
