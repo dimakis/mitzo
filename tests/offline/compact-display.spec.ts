@@ -54,7 +54,7 @@ test.beforeEach(async ({ page }) => {
 });
 
 test('preview controls share one row on phones and retain local interactions', async ({ page }) => {
-  const html = await readFile('mockups/compact-file-viewer/v005.html', 'utf8');
+  const html = await readFile('mockups/compact-file-viewer/v006.html', 'utf8');
   await page.route('**/preview', (route) =>
     route.fulfill({ contentType: 'text/html', body: html }),
   );
@@ -108,6 +108,11 @@ for (const theme of ['dark', 'light']) {
     }, theme);
     await page.goto('/files?path=v001.md');
     const header = page.locator('.viewer-header');
+    const home = page.getByRole('link', { name: 'Mitzo home', exact: true });
+    await expect(home).toHaveCount(1);
+    await expect(home).toBeInViewport();
+    await expect(home.locator('img')).toHaveAttribute('src', '/mitzo-wordmark.png');
+    await expect(header.locator('.mitzo-logo, .mitzo-brand')).toHaveCount(0);
     await expect(header.getByRole('button', { name: 'Read', exact: true })).toBeVisible();
     if (isMobile) expect((await header.boundingBox())!.height).toBeLessThanOrEqual(64);
     await page.screenshot({

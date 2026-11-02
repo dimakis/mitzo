@@ -48,6 +48,7 @@ body{margin:0;background:var(--color-bg);color:var(--color-text);font-family:var
 .preview-stage{overflow:auto;padding:var(--space-3);display:flex;justify-content:center}
 #root{position:relative;isolation:isolate;transform:translateZ(0);flex-shrink:0;border:1px solid var(--color-border);max-width:100%;height:852px;background:var(--color-bg);overflow:hidden}
 #root .mobile-workspace{position:absolute;inset:0;height:100%}
+#root .desktop-shell{height:100%}
 #root .chat-page,#root .viewer-page{height:100%}
 </style></head><body>
 <div class="preview-controls">

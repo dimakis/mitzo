@@ -8,7 +8,6 @@ import {
   artifactUrlTransform,
 } from '../lib/markdown-config';
 import { ShareButton } from '../components/ShareButton';
-import { MitzoLogo } from '../components/MitzoLogo';
 import { useFileNavigation } from '../hooks/useFileNavigation';
 import { useEditorViewport } from '../hooks/useEditorViewport';
 import { useFileEditor } from '../hooks/useFileEditor';
@@ -103,7 +102,6 @@ function FileViewerDocument() {
   return (
     <div className="viewer-page" ref={viewportRef}>
       <header className={`viewer-header${editor.editing ? ' viewer-header--editing' : ''}`}>
-        <MitzoLogo />
         {(state.isViewing || state.canGoUp || fromRoute) && (
           <button
             type="button"

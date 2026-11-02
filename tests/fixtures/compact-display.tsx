@@ -2,11 +2,14 @@ import { createRoot } from 'react-dom/client';
 import { MemoryRouter, useLocation } from 'react-router-dom';
 import { FileViewer } from '../../frontend/src/pages/FileViewer';
 import { MobileShell } from '../../frontend/src/components/MobileShell';
+import { DesktopShell } from '../../frontend/src/components/DesktopShell';
+import { useIsDesktop } from '../../frontend/src/hooks/useMediaQuery';
 import { ChatInput } from '../../frontend/src/components/ChatInput';
 import { createChatDraft } from '../../frontend/src/lib/chat-drafts';
 import { chatStorage } from '../../frontend/src/lib/large-chat-storage';
 import '../../frontend/src/styles/tokens.css';
 import '../../frontend/src/styles/global.css';
+import '../../frontend/src/styles/desktop.css';
 import '../../frontend/src/styles/appearance.css';
 import '../../frontend/src/styles/workspace.css';
 import '../../frontend/src/styles/mobile-workspace.css';
@@ -30,10 +33,11 @@ Object.assign(window, { displayStorage: chatStorage });
 
 function Surface() {
   const { pathname } = useLocation();
+  const desktop = useIsDesktop();
   if (pathname === '/files')
     return (
       <MobileShell>
-        <FileViewer />
+        {desktop ? <DesktopShell center={<FileViewer />} /> : <FileViewer />}
       </MobileShell>
     );
   return (

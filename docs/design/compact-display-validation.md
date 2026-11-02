@@ -117,3 +117,21 @@ local attempt was blocked by the host's private-directory fence. With its
 supported private-directory setting pointed at a temporary fixture path, all 56
 bootstrap tests also pass: 215 passing checks in total. CI remains required for
 the real joined browser journey and the focused header correction.
+
+The user requested consistent branding on 2 November 2026. Files no longer owns
+the legacy standalone M/home button or its page-specific logo sizing. It inherits
+the same full wordmark from MobileShell or DesktopShell as other collection
+pages; document Back and its edit guards remain in the compact toolbar. The
+preview/browser fixture now includes the real DesktopShell on desktop. The
+browser regression requires exactly one visible shared home wordmark and no
+page-level logo in either theme. Preview `v006` includes this refinement while
+retaining earlier versions. The new no-duplicate-branding/navigation unit test
+failed on the old button and passes with its removal. All nine viewer control
+tests and 108 design checks pass (one existing skip). Browser execution remains
+required in CI under the existing macOS host restriction.
+The generated `v006` was read back and its embedded components passed a DOM smoke
+check: mobile and desktop each render one shared home wordmark, the file toolbar
+contains no M button, and switching to the draft view works without DOM errors.
+This is structural/interaction evidence, not rendered layout validation.
+Run `41484090893` passed both phone projects' shard 1, which includes the earlier
+focused-target regression; the new branding assertions require the next run.

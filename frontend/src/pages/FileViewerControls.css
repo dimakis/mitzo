@@ -16,17 +16,6 @@
   min-width: 0;
 }
 
-.viewer-page .viewer-header .mitzo-logo {
-  min-width: var(--control-height);
-  min-height: var(--control-height);
-  border-radius: var(--radius-control);
-}
-
-.viewer-page .viewer-header .mitzo-logo img {
-  width: calc(var(--control-height) - var(--space-4));
-  height: calc(var(--control-height) - var(--space-4));
-}
-
 .viewer-page .viewer-header-title {
   flex: unset;
   font-size: var(--text-md);

@@ -240,6 +240,8 @@ or Save. Discard remains a visibly labelled destructive action; Done remains
 neutral. Save, loading, error and conflict states retain the existing behavior.
 Colors, fonts, spacing, focus, radii and motion come from the shared token source.
 Viewing keeps Back, a compact filename/branch column and file actions in one row.
+Files uses the shared shell's branding: the full mobile masthead and the normal
+desktop navigation wordmark. Its document toolbar has no separate M/home button.
 Long names truncate visually while retaining their full text and title. On phones,
 Read uses its named icon without a visible label; Edit stays labelled. Preserve
 44px targets and let explicit editing actions wrap when required. The shell owns

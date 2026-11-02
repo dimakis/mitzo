@@ -99,6 +99,14 @@ function showViewer() {
 }
 
 describe('FileViewer quiet controls', () => {
+  it('leaves home branding to the shared shell and retains document navigation', () => {
+    const { container } = showViewer();
+    expect(container.querySelector('.mitzo-logo')).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Home', exact: true })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Back', exact: true }));
+    expect(mocks.nav.handleBack).toHaveBeenCalledWith(false);
+  });
+
   it('keeps full document and branch names available when compact labels are truncated', () => {
     showViewer();
     expect(screen.getByText('document.md').getAttribute('title')).toBe('document.md');
