@@ -190,41 +190,68 @@ it('reads Google documents through an admitted Local Mac chat while credentials 
   // executing GitHub commands, contacting GitHub or creating another app journey.
   expect(names).not.toContain('GitHubCli');
   expect(thread.developerInstructions).toContain('Use native gh');
+  expect(thread.developerInstructions).toContain('git remote set-url');
+  expect(thread.developerInstructions).not.toContain(
+    'Another repository needs its own verified preparation',
+  );
   expect(JSON.stringify(thread.config)).not.toContain('.config/gh');
-  for (const decision of ['once', 'deny'] as const) {
-    const before = approvals().length;
-    const command = 'gh pr checks 358 --repo owner/repo';
-    const fences: Array<() => void> = [];
-    const pending = callbacks!.onRequest(
-      'item/commandExecution/requestApproval',
-      {
-        threadId: 'real-host-thread',
-        turnId: 'real-host-turn',
-        itemId: `native-gh-${decision}`,
-        startedAtMs: Date.now(),
-        kind: 'command',
-        environmentId: 'local',
-        command,
-        additionalPermissions: {
-          network: { enabled: true },
-          fileSystem: { read: [join(homedir(), '.config', 'gh')], write: null },
-        },
-        availableDecisions: ['accept', 'decline'],
+  const project = join(f.root, 'new projects', 'example');
+  for (const operation of [
+    {
+      id: 'gh',
+      command: 'gh pr checks 358 --repo owner/repo',
+      additionalPermissions: {
+        network: { enabled: true },
+        fileSystem: { read: [join(homedir(), '.config', 'gh')], write: null },
       },
-      new AbortController().signal,
-      { requestId: `native-gh-${decision}`, registerResponseFence: (fence) => fences.push(fence) },
-    );
-    const approval = await Promise.race([
-      nextApproval(before),
-      pending.then((result) => {
-        throw Error(`Native request settled before approval: ${JSON.stringify(result)}`);
-      }),
-    ]);
-    expect(approval.toolName).toBe('NativeCommandApproval');
-    expect(JSON.parse(approval.toolInput).params.command).toBe(command);
-    resolvePending(approval.permId, decision, undefined, f.reservation.conversationId);
-    expect(await pending).toEqual({ decision: decision === 'once' ? 'accept' : 'decline' });
-    for (const fence of fences) expect(fence).not.toThrow();
+    },
+    {
+      id: 'project',
+      command: `mkdir -p '${project}/src' && git -C '${project}' init -b main && git -C '${project}' remote add origin https://example.invalid/team/project.git && git -C '${project}' remote set-url origin https://example.invalid/team/renamed.git`,
+      additionalPermissions: {
+        network: null,
+        fileSystem: { read: null, write: [join(f.root, 'new projects')] },
+      },
+    },
+  ]) {
+    for (const decision of ['once', 'deny'] as const) {
+      const before = approvals().length;
+      const command = operation.command;
+      const fences: Array<() => void> = [];
+      const pending = callbacks!.onRequest(
+        'item/commandExecution/requestApproval',
+        {
+          threadId: 'real-host-thread',
+          turnId: 'real-host-turn',
+          itemId: `native-${operation.id}-${decision}`,
+          startedAtMs: Date.now(),
+          kind: 'command',
+          environmentId: 'local',
+          command,
+          additionalPermissions: operation.additionalPermissions,
+          availableDecisions: ['accept', 'decline'],
+        },
+        new AbortController().signal,
+        {
+          requestId: `native-${operation.id}-${decision}`,
+          registerResponseFence: (fence) => fences.push(fence),
+        },
+      );
+      const approval = await Promise.race([
+        nextApproval(before),
+        pending.then((result) => {
+          throw Error(`Native request settled before approval: ${JSON.stringify(result)}`);
+        }),
+      ]);
+      expect(approval.toolName).toBe('NativeCommandApproval');
+      expect(JSON.parse(approval.toolInput).params.command).toBe(command);
+      expect(JSON.parse(approval.toolInput).params.additionalPermissions).toEqual(
+        operation.additionalPermissions,
+      );
+      resolvePending(approval.permId, decision, undefined, f.reservation.conversationId);
+      expect(await pending).toEqual({ decision: decision === 'once' ? 'accept' : 'decline' });
+      for (const fence of fences) expect(fence).not.toThrow();
+    }
   }
   expect(names).toContain('GoogleWorkspaceRead');
   const listing = await call(

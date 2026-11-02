@@ -1241,6 +1241,14 @@ export class EventStore {
     childCommandId: string,
     bootstrapCommandId: string,
   ): OrdinaryLocalCommandAdmission {
+    try {
+      // A resumed runtime can prepare a repository in a later explicit message.
+      // Its earlier bootstrap is already covered by the canonical ancestry check.
+      return this.observePreparedRepositoryBootstrapAdmission(childCommandId, bootstrapCommandId);
+    } catch {
+      // A cold resume after a failed transfer can be newer than the retained
+      // child row. Qualify that historical bridge separately below.
+    }
     const read = (id: string) => {
       const row = this.db!.prepare(
         'SELECT rowid,session_id,error,ordinary_admission FROM send_commands WHERE client_msg_id=?',

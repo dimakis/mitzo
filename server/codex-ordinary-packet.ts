@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import type { ToolDefinition } from '@mitzo/harness';
 import type { WebSearchAccess } from './web-search-policy.js';
 import { codexResearchInstructions } from './research-instructions.js';
+import { NATIVE_PROJECT_SETUP_INSTRUCTIONS } from './native-project-instructions.js';
 import {
   codexNativeExecutionParams,
   type CodexNativeExecutionPolicy,
@@ -48,7 +49,7 @@ export function codexThreadOptions(input: {
             workingDirectory: input.nativeExecution.cwd,
             permissionProfile: input.nativeExecution.permissions,
             networkAccess: input.nativeExecution.networkAccess,
-          })}\nUse this admitted workspace for local work. Another repository needs its own verified preparation and permissions; a source export alone does not establish Git/task custody.\n`
+          })}\n${NATIVE_PROJECT_SETUP_INSTRUCTIONS}\n`
         : '') +
       codexResearchInstructions(input.webSearch),
   };
@@ -134,7 +135,7 @@ export function codexTurnStartParams(input: {
       ? {
           'mitzo.active-workspace': {
             kind: 'application' as const,
-            value: `Current admitted workspace: ${JSON.stringify({ workingDirectory: input.nativeExecution.cwd })}\nUse native tools directly for work in this directory. PrepareLocalRepository is for selecting another repository or an explicitly requested new checkout. If an existing preparation needs reconciliation, use the current task directory and base {kind:"ref",ref:"HEAD"}; do not allocate a replacement.`,
+            value: `Current admitted workspace: ${JSON.stringify({ workingDirectory: input.nativeExecution.cwd })}\nUse native tools directly for work in this directory. ${NATIVE_PROJECT_SETUP_INSTRUCTIONS}`,
           },
         }
       : {}),

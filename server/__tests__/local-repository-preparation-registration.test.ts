@@ -73,6 +73,7 @@ it.each([
   });
   expect(result.content).toContain('destination');
   expect(result.content).toContain('source');
+  expect(result.content).toContain('native shell');
   expect(result.content).not.toContain('SECRET');
 });
 it.each([
@@ -96,6 +97,14 @@ it('publishes executable examples and explains that task locations are assigned'
     expect(() => parseLocalRepositoryPreparationInput(example)).not.toThrow();
   expect(LOCAL_REPOSITORY_PREPARATION_INSTRUCTIONS).toContain('not a destination');
   expect(LOCAL_REPOSITORY_PREPARATION_INSTRUCTIONS).toContain('Do not promise');
+  for (const guidance of [
+    localRepositoryPreparationDefinition.description,
+    LOCAL_REPOSITORY_PREPARATION_INSTRUCTIONS,
+  ]) {
+    expect(guidance).toContain('native shell');
+    expect(guidance).toContain('optional');
+    expect(guidance).toContain('requested directory');
+  }
 });
 it('retains explicit profile exclusion and legacy admission without making Prepare available on other routes', () => {
   const selected = { tools: [{ id: 'mitzo:PrepareLocalRepository', version: 1 }] } as never;
