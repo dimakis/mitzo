@@ -225,7 +225,12 @@ export function buildPermissionHandler(
       questions?: UserQuestion[];
       /** Trusted native boundary request: exact operation consent can cross Ask's
        * read-only ceiling, but must never inherit or create a broad tool grant. */
-      nativeApproval?: { assertCurrentSync(): void; allowSessionScope?: boolean };
+      nativeApproval?: {
+        assertCurrentSync(): void;
+        allowSessionScope?: boolean;
+        /** Adapter-owned exact scope. Absent when the provider retains its own grant. */
+        sessionGrantKey?: string;
+      };
       /** Private original native scope, never permission response or tool JSON. */
       nativeSourceScope?: { readonly operatorId: string; assertCurrentSync(): void };
     },
@@ -241,12 +246,19 @@ export function buildPermissionHandler(
     const originalOptions = opts;
     const nativeApproval = opts.nativeApproval;
     const nativeApprovalAssertion = nativeApproval?.assertCurrentSync;
+    const nativeSessionGrantKey =
+      nativeApproval?.allowSessionScope === true && nativeApproval.sessionGrantKey?.trim()
+        ? nativeApproval.sessionGrantKey
+        : undefined;
     const nativeApprovalCurrent = () => {
       if (!nativeApproval) return true;
       try {
         if (
           typeof nativeApprovalAssertion !== 'function' ||
-          nativeApproval.assertCurrentSync !== nativeApprovalAssertion
+          nativeApproval.assertCurrentSync !== nativeApprovalAssertion ||
+          (nativeSessionGrantKey !== undefined &&
+            (nativeApproval.allowSessionScope !== true ||
+              nativeApproval.sessionGrantKey !== nativeSessionGrantKey))
         )
           return false;
         const result: unknown = nativeApprovalAssertion.call(nativeApproval);
@@ -264,7 +276,8 @@ export function buildPermissionHandler(
         ...opts,
         forcePrompt: true,
         allowSessionGrant: nativeApproval.allowSessionScope === true,
-        rememberSessionGrant: false,
+        sessionGrantKey: nativeSessionGrantKey,
+        rememberSessionGrant: nativeSessionGrantKey !== undefined,
         approvalScope: nativeApproval.allowSessionScope === true ? 'session' : 'request',
       };
     const onDecision = originalOptions.onDecision;
@@ -436,6 +449,16 @@ export function buildPermissionHandler(
     if (deniedAfterWorktree) return deniedAfterWorktree;
     if (!observationCurrent())
       return { behavior: 'deny', message: 'Original approval input or invocation changed' };
+    if (nativeApproval) {
+      const activeClient = currentClientId();
+      if (
+        originalSignal.aborted ||
+        !nativeScopeCurrent() ||
+        !activeClient ||
+        (!opts.controlPlane && checkSkillPolicy(registry, activeClient, toolName) === 'deny')
+      )
+        return { behavior: 'deny', message: 'Session permissions changed; retry the tool' };
+    }
 
     if (
       !questions &&
@@ -448,7 +471,7 @@ export function buildPermissionHandler(
     // A user session grant satisfies a forced ask prompt, while mode, skill and
     // workspace checks still run first. Scoped adapters must supply their own key.
     if (
-      !nativeApproval &&
+      (!nativeApproval || nativeSessionGrantKey !== undefined) &&
       !questions &&
       opts.allowSessionGrant !== false &&
       (opts.sessionGrantKey

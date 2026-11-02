@@ -22,6 +22,36 @@ function fakeTransport(): SessionTransport & { sent: Record<string, unknown>[] }
 }
 
 describe('buildPermissionHandler', () => {
+  it('rechecks a skill restriction installed while retained native consent awaits workspace policy', async () => {
+    const registry = new SessionRegistry();
+    registry.register('native-client', {
+      transport: fakeTransport(),
+      abortController: new AbortController(),
+      mode: 'agent',
+      sessionId: 'native-session',
+      sessionAllowList: new Set(['exact-command']),
+    });
+    try {
+      const pending = buildPermissionHandler('native-client', registry)(
+        'NativeCommandApproval',
+        {},
+        {
+          signal: new AbortController().signal,
+          toolUseID: 'rpc',
+          nativeApproval: {
+            assertCurrentSync() {},
+            allowSessionScope: true,
+            sessionGrantKey: 'exact-command',
+          },
+        },
+      );
+      setSkillPolicy(registry, 'native-client', []);
+      expect(await pending).toMatchObject({ behavior: 'deny' });
+    } finally {
+      registry.dispose();
+    }
+  });
+
   it.each(['ask', 'auto'] as const)(
     'requires an exact native approval in %s without retaining a tool grant',
     async (mode) => {
