@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { build } from 'esbuild';
-import { readFile, mkdir } from 'node:fs/promises';
+import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { chatStorageBootstrap } from '../support/chat-storage-bootstrap';
 import { compactDisplayResponse } from '../fixtures/compact-display-data';
@@ -110,8 +110,9 @@ for (const theme of ['dark', 'light']) {
     const header = page.locator('.viewer-header');
     await expect(header.getByRole('button', { name: 'Read', exact: true })).toBeVisible();
     if (isMobile) expect((await header.boundingBox())!.height).toBeLessThanOrEqual(64);
-    await mkdir('artifacts/compact-display', { recursive: true });
-    await page.screenshot({ path: `artifacts/compact-display/${info.project.name}-${theme}.png` });
+    await page.screenshot({
+      path: info.outputPath(`responsiveness-compact-display-${theme}-header.png`),
+    });
     for (const width of isMobile ? [320, 393] : [1280]) {
       await page.setViewportSize({ width, height: 852 });
       for (const button of await header.getByRole('button').all()) {
@@ -166,7 +167,7 @@ for (const theme of ['dark', 'light']) {
       }),
     ).toBe(true);
     await page.screenshot({
-      path: `artifacts/compact-display/${info.project.name}-${theme}-draft.png`,
+      path: info.outputPath(`responsiveness-compact-display-${theme}-draft.png`),
     });
   });
 }

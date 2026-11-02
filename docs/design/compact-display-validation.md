@@ -33,7 +33,9 @@ The new all-intercept `compact-display.spec.ts` covers mobile WebKit/Chromium an
 desktop Chromium in both themes, Mint/System and Teal/Georgia, 320px width, larger
 text, 44px controls, options/focus restoration, final paragraph scrolling and
 typing with an actual IndexedDB-backed screenshot draft. It generates captures
-under `artifacts/compact-display/`. Its bundle and test listing succeed.
+under each test's output directory as `responsiveness-compact-display-*.png`,
+retained by CI's existing responsiveness visual artifacts. Its bundle and test
+listing succeed.
 
 Rendered browser acceptance is pending: the approved escalated Playwright command
 still reported `CODEX_SANDBOX=seatbelt`, so the repository host guard stopped it
