@@ -1,3 +1,4 @@
+import { callbackOutcome } from '../turn-callbacks.js';
 import { expect, it } from 'vitest';
 import { z } from 'zod';
 import { toolInputError } from '../tool-input-error.js';
@@ -7,6 +8,8 @@ it('returns field limits that let an agent correct a rejected publication', () =
   const parsed = schema.safeParse({ body: 'private draft'.repeat(80) });
   if (parsed.success) throw new Error('Expected invalid fixture');
   const result = toolInputError('GitHub publishing request', schema, parsed.error);
+  expect(callbackOutcome(result)).toBe('settled');
+  expect(callbackOutcome({ ...result })).toBe('unknown');
   expect(result.isError).toBe(true);
   expect(result.content).toContain('body');
   expect(result.content).toContain('512');

@@ -1,3 +1,4 @@
+import { copyCallbackOutcome } from './turn-callbacks.js';
 import {
   RepositoryMaterializationSchema,
   repositoryMaterializationMigrationMatches,
@@ -4163,7 +4164,10 @@ async function openCodexChatBound(
                 ...(input.view === 'summary' || input.view === 'full' ? { view: input.view } : {}),
               },
             };
-          return { content: result.content, isError: !!result.is_error };
+          return copyCallbackOutcome(result, {
+            content: result.content,
+            isError: !!result.is_error,
+          });
         },
       ) ?? Promise.reject(new Error('Host tools are unavailable inside OpenShell')));
       if (!options.ownedLocal || name !== 'GitHubRead' || result.isError || !approvedGitHubRead)

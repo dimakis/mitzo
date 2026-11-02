@@ -1,3 +1,6 @@
+import { createHash } from 'node:crypto';
+import { isDeepStrictEqual } from 'node:util';
+import type { EventStore } from './event-store.js';
 import type { PendingHostTaskRequest } from './pending-host-task.js';
 import type { RepositoryTaskCheckout } from './repository-task-checkout.js';
 import type { AccountBinding } from '@mitzo/protocol';
@@ -61,4 +64,37 @@ export interface PreparedRepositoryTransitionCaptureOwners {
   /** Existing durable native owner validates the exact successful persisted
    * result/call/requestHash/ACK/completed terminal, then returns its digest. */
   resultSha256(request: Readonly<PendingHostTaskRequest>): string;
+}
+
+/** Join the original approval/result commitments across independently owned ledgers.
+ * Neither ledger's internally valid hashes can substitute for this exact match. */
+export function assertPreparedRepositoryAdmissionFacts(
+  facts: PreparedRepositoryTransitionFacts,
+  anchor: ReturnType<EventStore['observePreparedRepositoryContinuation']>,
+  conversationId: string,
+  binding: AccountBinding,
+): void {
+  const transition = anchor.preparedRepositoryTransition;
+  if (
+    !transition ||
+    facts.request.conversationId !== conversationId ||
+    !isDeepStrictEqual(facts.request.binding, binding) ||
+    !isDeepStrictEqual(anchor.binding, facts.request.runtimeBinding) ||
+    !isDeepStrictEqual(transition.source, {
+      ...facts.request.nativeTarget,
+      callId: facts.request.prepareCallId,
+      requestHash: facts.request.requestHash,
+      resultSha256: facts.resultSha256,
+    }) ||
+    !isDeepStrictEqual(transition.oldWorkspace, facts.oldWorkspace) ||
+    transition.newWorkspace.id !== facts.newWorkspace.id ||
+    transition.newWorkspace.directory !== facts.newWorkspace.directory ||
+    transition.newWorkspace.featureBranch !== facts.newWorkspace.featureBranch ||
+    transition.newWorkspace.baseOid !== facts.newWorkspace.baseOid ||
+    transition.newWorkspace.taskIdentitySha256 !==
+      createHash('sha256').update(JSON.stringify(facts.newWorkspace.taskIdentity)).digest('hex') ||
+    transition.consumedScopeSha256 !== facts.consumedScopeSha256 ||
+    transition.materializedRecordSha256 !== facts.materializedRecordSha256
+  )
+    throw Error('Prepared repository recovery evidence changed');
 }

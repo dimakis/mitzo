@@ -1,3 +1,4 @@
+import { callbackOutcome } from '../turn-callbacks.js';
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -610,6 +611,7 @@ it('preserves the actual approval failure reason instead of claiming the user de
         new AbortController().signal,
       );
       expect(result.isError).toBe(true);
+      expect(callbackOutcome(result)).toBe('settled');
       expect(JSON.parse(result.content)).toMatchObject({
         reason: message,
         error: message.startsWith('Tool approval')

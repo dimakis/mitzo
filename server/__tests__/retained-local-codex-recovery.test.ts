@@ -1,3 +1,5 @@
+import { composeOwnedLocalNativeExecutionPolicyForWorkspace } from '../owned-local-codex-native-policy.js';
+import { reconcilableLocalCodexCommand } from '../retained-local-codex-effects.js';
 import { afterEach, expect, it, vi } from 'vitest';
 import { createHash, randomUUID } from 'node:crypto';
 import { join } from 'node:path';
@@ -408,3 +410,178 @@ it.each([
     expect(native.commands(original.sessionId, original.lease.binding)).toEqual(queue);
   },
 );
+
+it('reconciles an already dispatched cold turn with a failed read and no successor without replay', async () => {
+  const f = await ownedRuntimeFixture(cleanups);
+  const first = f.create();
+  await first.admit(f.request);
+  const original = f.dispatch.mock.calls[0][0];
+  const native = new CodexConversationStore(join(f.root, 'effects.db'));
+  cleanups.push(() => native.close());
+  const id = original.sessionId,
+    binding = original.lease.binding;
+  native.create(id, binding, original.workspace.directory!);
+  original.admission.persistCustody(native);
+  native.bindThread(id, binding, 'original-thread');
+  native.enqueue(id, binding, { id: f.request.clientMsgId, prompt: f.request.payload.text });
+  const command = native.claimNext(id, binding)!;
+  const policy = composeOwnedLocalNativeExecutionPolicyForWorkspace(
+    {
+      binding,
+      assertCurrentSync: () => original.admission.assertCurrentSync(),
+    },
+    () => ({
+      cwd: original.workspace.directory!,
+      mode: original.expected.selection.permission.mode,
+      workspaceRoots: [original.workspace.directory!],
+      authSessionId: native.readHostCustody(id, binding)!.authSessionId,
+    }),
+  );
+  native.prepareNativeExecution(id, binding, command, 'original-thread', policy);
+  native.recordNativeTurnAck(id, binding, command, 'original-thread', 'original-turn');
+  native.acceptNativeExecution(id, binding, command, 'original-thread', 'original-turn');
+  const arguments_ = {
+    operation: 'fetch',
+    url: 'http://localhost:16686/api/v3/traces',
+    reason: 'inspect',
+  };
+  const identity = {
+    turnId: 'original-turn',
+    toolName: 'RequestWebAccess',
+    requestHash: createHash('sha256').update(JSON.stringify(arguments_)).digest('hex'),
+  };
+  native.claimTool(id, binding, command.id, 'failed-read', identity);
+  native.recordToolResult(id, binding, command.id, 'failed-read', identity, {
+    content: 'Approved read exceeded the 2 MB download safety limit.',
+    isError: true,
+  });
+  const db = (native as unknown as { db: Database.Database }).db;
+  db.prepare('UPDATE codex_tools SET result_effect_outcome=NULL').run(); // original legacy receipt
+  native.observeEmptyCompletionPhase(
+    id,
+    binding,
+    command,
+    'original-thread',
+    'original-turn',
+    createHash('sha256').update(original.workspace.directory!).digest('hex'),
+    policy.policyRevision,
+  );
+  native.pauseForRecovery(id, binding, command.id, 'interrupted', 'resume', undefined, true, true);
+  const custody = native.readHostCustody(id, binding)!;
+  const before = {
+    send: f.events.getSendCommand(command.id),
+    admission: f.events.getOrdinaryLocalCommandExecutionAdmission(command.id),
+    command: native.commands(id, binding),
+    tools: db.prepare('SELECT * FROM codex_tools').all(),
+  };
+  first.close();
+  const probe = f.commandFor(f.reservation, f.request, true);
+  const baseRequest = probe.rpc.request.getMockImplementation()!;
+  let afterItem = () => {};
+  probe.rpc.request.mockImplementation(async (method, params) => {
+    if (method === 'thread/turns/list')
+      return { data: [{ id: 'original-turn', status: 'interrupted', error: null }] };
+    if (method === 'thread/items/list') {
+      afterItem();
+      return {
+        data: [
+          {
+            turnId: 'original-turn',
+            item: {
+              id: 'failed-read',
+              type: 'dynamicToolCall',
+              tool: 'RequestWebAccess',
+              arguments: arguments_,
+              status: 'failed',
+              success: false,
+            },
+          },
+        ],
+        nextCursor: null,
+      };
+    }
+    return baseRequest(method, params);
+  });
+  const driver = new OrdinaryLocalCodexOwnedRuntime({ ...probe.dependencies, nativeStore: native });
+  cleanups.push(() => driver.close());
+  expect(
+    reconcilableLocalCodexCommand(f.events, native, id, custody.authSessionId, f.workspace),
+  ).toBe(command.id);
+  const claims = vi.spyOn(f.events, 'claimOrdinaryLocalCommandDispatch');
+  const latest = f.events.getLatestEvent.bind(f.events);
+  for (const scope of [
+    'adviser_task_scope',
+    'telos_work_role_context',
+    'contributor_guidance',
+    'contributor_execution',
+    'ordinary_task_worker_allocation',
+  ]) {
+    const readScope = vi
+      .spyOn(f.events, 'getLatestEvent')
+      .mockImplementation((session, type) =>
+        type === scope ? ({ payload: {} } as never) : latest(session, type),
+      );
+    expect(
+      reconcilableLocalCodexCommand(f.events, native, id, custody.authSessionId, f.workspace),
+    ).toBeUndefined();
+    readScope.mockRestore();
+  }
+  const readWorkspace = f.workspace.get.bind(f.workspace);
+  const prepared = vi.spyOn(f.workspace, 'get').mockImplementation((workspaceId) => ({
+    ...readWorkspace(workspaceId),
+    qualifiedLocalPreparation: {} as never,
+  }));
+  expect(
+    reconcilableLocalCodexCommand(f.events, native, id, custody.authSessionId, f.workspace),
+  ).toBeUndefined();
+  prepared.mockRestore();
+
+  expect(
+    reconcilableLocalCodexCommand(f.events, native, id, 'foreign-operator', f.workspace),
+  ).toBeUndefined();
+  // Reuse the same retained checkout and still-fenced command for adverse
+  // receipt observations. No extra repository, database or native journey.
+  for (const [column, value] of [
+    ['result_effect_outcome', 'unknown'],
+    ['result_content', null],
+    ['request_hash', 'f'.repeat(64)],
+  ] as const) {
+    db.prepare(`UPDATE codex_tools SET ${column}=?`).run(value);
+    await expect(driver.reconcileRetainedEffects()).rejects.toThrow();
+    expect(native.read(id, binding).recovery).toBe(1);
+    expect(native.commandStatus(id, binding, command.id)).toBe('interrupted');
+    const originalTool = before.tools[0] as Record<string, unknown>;
+    db.prepare(`UPDATE codex_tools SET ${column}=?`).run(originalTool[column]);
+  }
+  const originalEmail = f.configuration[0].email;
+  let changedAccount = false;
+  afterItem = () => {
+    if (!changedAccount) {
+      changedAccount = true;
+      f.configuration[0].email = 'other@example.test';
+      f.writeProfiles();
+    }
+  };
+  await expect(driver.reconcileRetainedEffects()).rejects.toThrow();
+  expect(changedAccount).toBe(true);
+  expect(native.read(id, binding).recovery).toBe(1);
+  f.configuration[0].email = originalEmail;
+  f.writeProfiles();
+  await driver.reconcileRetainedEffects();
+  expect(native.read(id, binding).recovery).toBe(0);
+  expect(native.continuationBlocker(id, binding)).toBeUndefined();
+  expect(
+    native.commands(id, binding).map(({ status, attempt, id }) => ({ status, attempt, id })),
+  ).toEqual(before.command.map(({ status, attempt, id }) => ({ status, attempt, id })));
+  expect(f.events.getSendCommand(command.id)).toEqual(before.send);
+  expect(f.events.getOrdinaryLocalCommandExecutionAdmission(command.id)).toEqual(before.admission);
+  expect(db.prepare('SELECT * FROM codex_tools').all()).toEqual(before.tools);
+  expect(probe.dispatch).not.toHaveBeenCalled();
+  expect(claims).not.toHaveBeenCalled();
+  expect(
+    probe.rpc.request.mock.calls.some(([method]) =>
+      ['thread/start', 'thread/resume', 'turn/start'].includes(method),
+    ),
+  ).toBe(false);
+  expect(probe.rpc.close).toHaveBeenCalled();
+});

@@ -1,3 +1,4 @@
+import { callbackOutcome, retainCallbackOutcome } from '../turn-callbacks.js';
 import { afterEach, expect, it, vi } from 'vitest';
 import { existsSync, mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
@@ -49,6 +50,24 @@ it('preserves rich results and sends only text to project hooks', async () => {
     { tool_name: 'Screenshot', tool_input: {}, tool_response: 'screen' },
     expect.any(AbortSignal),
   );
+  const refusal = retainCallbackOutcome(
+    { content: 'validation rejected', isError: true },
+    'settled',
+  );
+  expect(
+    callbackOutcome(
+      await hooks.executeTool('Write', {}, new AbortController().signal, async () => refusal),
+    ),
+  ).toBe('settled');
+  run.mockRejectedValueOnce(Error('read hook partially ran'));
+  expect(
+    callbackOutcome(
+      await hooks.executeTool('Read', {}, new AbortController().signal, async () => ({
+        content: 'unused',
+        isError: false,
+      })),
+    ),
+  ).toBe('unknown');
 });
 
 it('diagnoses oversized post-hook rich output without repeating the effect or exposing image bytes', async () => {
@@ -71,6 +90,7 @@ it('diagnoses oversized post-hook rich output without repeating the effect or ex
   expect(result.content).toMatch(/Tool ran.*bound/);
   expect(JSON.stringify(result)).not.toContain(data);
   expect(execute).toHaveBeenCalledOnce();
+  expect(callbackOutcome(result)).toBe('unknown');
 });
 it.each([true, false])(
   'preserves ordinary custom data in hooks and execution (enabled=%s)',
