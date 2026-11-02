@@ -1,4 +1,5 @@
 import { reconcilableLocalCodexCommand } from './retained-local-codex-effects.js';
+import { sessionMetadataDiagnostic } from './session-metadata-error.js';
 import { createQueuedMessageReceiptHandler } from './queued-message-receipt.js';
 import { assertOrdinaryContributorControlAllowed } from './ordinary-contributor-execution.js';
 import { installChatCommandJson } from './chat-command-json.js';
@@ -3580,7 +3581,22 @@ mountObservedRouter(
   }),
 );
 
-app.get('/api/sessions/:id/meta', async (req, res) => {
+app.get('/api/sessions/:id/meta', (req, res, next) => {
+  void readSessionMetadata(req, res).catch((error: unknown) => {
+    log.warn('Session metadata request failed', {
+      sessionId: req.params.id,
+      ...sessionMetadataDiagnostic(error),
+    });
+    const message = 'Conversation metadata is temporarily unavailable.';
+    if (res.headersSent) {
+      next(new Error(message));
+      return;
+    }
+    res.status(503).json({ error: message });
+  });
+});
+
+async function readSessionMetadata(req: express.Request<{ id: string }>, res: express.Response) {
   const meta = eventStore.getSession(req.params.id);
   if (!meta) {
     res.status(404).json({ error: 'Session not found' });
@@ -3591,40 +3607,31 @@ app.get('/api/sessions/:id/meta', async (req, res) => {
     res.locals.authSession?.id,
   );
   let routingMetadata: ReturnType<typeof ownedLocalCodexMetadata>;
+  let lastAdmittedSelection: import('@mitzo/protocol').OrdinaryLocalCommandSelection | undefined;
   try {
     routingMetadata = ownedLocalCodexMetadata(
       eventStore,
       meta.sessionId,
       continuationStatus.available,
     );
-  } catch {
+    lastAdmittedSelection = eventStore.getLatestOrdinaryCommandAdmission?.(
+      meta.sessionId,
+    )?.selection;
+  } catch (error) {
+    log.warn('Session metadata request failed', {
+      sessionId: meta.sessionId,
+      ...sessionMetadataDiagnostic(error),
+    });
     res.status(409).json({
       error:
         'The original conversation workspace identity is unavailable. Preserve this conversation and recover its original settings.',
     });
     return;
   }
-  const runtimeMetadata = {
-    ...routingMetadata,
-    ...(continuationStatus.reason ? { runtimeCommandReason: continuationStatus.reason } : {}),
-    ...(meta.accountBinding?.provider === 'google-vertex' &&
-    eventStore.getSessionRuntimeBinding(meta.sessionId)?.harness.implementation === 'gemini'
-      ? {
-          runtimeNativeConstraint: readOwnedNativeContinuationConstraint(
-            getNativeResponsesStore(),
-            meta.sessionId,
-            meta.accountBinding,
-          ),
-        }
-      : {}),
-  };
-  const lastAdmittedSelection = eventStore.getLatestOrdinaryCommandAdmission?.(
-    meta.sessionId,
-  )?.selection;
-  const totalTokens =
-    meta.inputTokens + meta.outputTokens + meta.cacheReadTokens + meta.cacheCreationTokens;
-  const symposiumConfigured = Boolean(meta.symposiumConfig);
+  // Synchronous presentation classification only. Authority checks below keep
+  // reading current ownership at their own I/O and async boundaries.
   const runtimeBinding = eventStore.getSessionRuntimeBinding(meta.sessionId);
+  const symposiumConfigured = Boolean(meta.symposiumConfig);
   const ownedLocalCodex =
     runtimeBinding?.harness.implementation === 'codex' &&
     runtimeBinding.execution.location === 'local';
@@ -3635,10 +3642,25 @@ app.get('/api/sessions/:id/meta', async (req, res) => {
       (meta.accountBinding?.provider === 'openai' &&
         !!meta.cwd?.startsWith('/sandbox/workspaces/')));
   const responsesBacked = ['responses', 'gemini'].includes(
-    eventStore.getSessionRuntimeBinding(meta.sessionId)?.harness.implementation ?? '',
+    runtimeBinding?.harness.implementation ?? '',
   );
-  const vertexBacked =
-    eventStore.getSessionRuntimeBinding(meta.sessionId)?.harness.implementation === 'claude-sdk';
+  const vertexBacked = runtimeBinding?.harness.implementation === 'claude-sdk';
+  const runtimeMetadata = {
+    ...routingMetadata,
+    ...(continuationStatus.reason ? { runtimeCommandReason: continuationStatus.reason } : {}),
+    ...(meta.accountBinding?.provider === 'google-vertex' &&
+    runtimeBinding?.harness.implementation === 'gemini'
+      ? {
+          runtimeNativeConstraint: readOwnedNativeContinuationConstraint(
+            getNativeResponsesStore(),
+            meta.sessionId,
+            meta.accountBinding,
+          ),
+        }
+      : {}),
+  };
+  const totalTokens =
+    meta.inputTokens + meta.outputTokens + meta.cacheReadTokens + meta.cacheCreationTokens;
   let codexQueue = vertexBacked
     ? readOwnedVertexQueue(
         eventStore,
@@ -3894,7 +3916,7 @@ app.get('/api/sessions/:id/meta', async (req, res) => {
     totalCostUsd: meta.totalCostUsd,
     numTurns: meta.numTurns,
   });
-});
+}
 
 async function reattachCodexQueue(
   id: string,

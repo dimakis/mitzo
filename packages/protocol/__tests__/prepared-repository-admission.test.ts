@@ -210,7 +210,7 @@ it('retains durable uncertainty across process death after metadata commit witho
   expect(cold.getSendCommand('original')?.payload).toEqual(original.payload);
 });
 
-it('preserves current draft settings and retained history while the new-workspace child is only reserved', () => {
+it('preserves pending draft settings and rebound execution settings across database reopen', () => {
   const root = mkdtempSync(join(tmpdir(), 'prepared-settings-cold-'));
   roots.push(root);
   const path = join(root, 'events.db');
@@ -219,17 +219,52 @@ it('preserves current draft settings and retained history while the new-workspac
   first.append('session', 'message_start', { messageId: 'retained-reply' });
   const history = first.getSessionEvents('session');
   const previous = first.getOrdinaryConversationSettings('session');
+  const origin = first.getOrdinaryLocalCommandAdmission('original');
   const reserved = first.reservePreparedRepositoryContinuation('session', transition);
+  first.close();
   const cold = new EventStore(path);
   stores.push(cold);
   expect(cold.getOrdinaryConversationSettings('session')).toEqual(previous);
-  expect(cold.getLatestOrdinaryCommandAdmission('session')).toEqual(
-    first.getOrdinaryLocalCommandAdmission('original'),
-  );
+  expect(cold.getLatestOrdinaryCommandAdmission('session')).toEqual(origin);
   expect(cold.getSessionEvents('session')).toEqual(history);
   expect(() => cold.getOrdinaryLocalCommandAdmission(reserved.childCommandId)).toThrow();
   expect(cold.claimOrdinaryLocalCommandDispatch('original')).toBe(false);
   expect(cold.hasUncertainOrdinaryCommand('session')).toBe(true);
+  cold.suspendUntransferredPreparedRepositoryContinuation(
+    'session',
+    transition.source,
+    transition.oldWorkspace,
+    transition.preparationId,
+  );
+  const resume = {
+    ...original,
+    clientMsgId: 'durable-resume',
+    requestFingerprint: 'durable-resume',
+  };
+  cold.admitOrdinaryLocalContinuation(meta, binding, resume);
+  cold.claimOrdinaryLocalCommandDispatch(resume.clientMsgId);
+  cold.completeOrdinaryLocalCommand(resume.clientMsgId);
+  const originalResume = cold.getOrdinaryLocalCommandAdmission(resume.clientMsgId);
+  cold.reservePreparedRepositoryContinuation('session', transition);
+  cold.commitPreparedRepositoryContinuation('session', reserved.childCommandId, transition);
+  cold.rebindPreparedRepositoryQueuedCommands('session', reserved.childCommandId, transition, [
+    resume.clientMsgId,
+  ]);
+  const execution = cold.getOrdinaryCommandExecutionAdmission(resume.clientMsgId);
+  cold.close();
+  const reopened = new EventStore(path);
+  stores.push(reopened);
+  expect(reopened.getLatestOrdinaryCommandAdmission('session')).toEqual(execution);
+  expect(
+    reopened.getPreparedRepositoryCommandAdmissionEvidence(
+      resume.clientMsgId,
+      reserved.childCommandId,
+    ),
+  ).toEqual(originalResume);
+  expect(reopened.getSendCommand(resume.clientMsgId)?.payload).toEqual(resume.payload);
+  expect(reopened.getSessionEvents('session')).toEqual(history);
+  expect(reopened.hasUncertainOrdinaryCommand('session')).toBe(true);
+  expect(reopened.claimOrdinaryLocalCommandDispatch(reserved.childCommandId)).toBe(false);
 });
 
 it('observes the same immutable bootstrap across two private adoptions separated by an explicit follow-up', () => {
@@ -789,4 +824,76 @@ it('observes a fresh cold bootstrap between the original prepared source and its
   expect(() =>
     store.observePreparedRepositoryBootstrapAdmission(reserved.childCommandId, resume.clientMsgId),
   ).toThrow();
+  store.commitPreparedRepositoryContinuation('session', reserved.childCommandId, transition);
+  store.rebindPreparedRepositoryQueuedCommands('session', reserved.childCommandId, transition, [
+    resume.clientMsgId,
+  ]);
+  expect(store.getLatestOrdinaryCommandAdmission('session')).toEqual(
+    store.getOrdinaryCommandExecutionAdmission(resume.clientMsgId),
+  );
+  expect(() => store.getOrdinaryCommandAdmission(resume.clientMsgId)).toThrow(
+    'does not match durable session identity',
+  );
+  expect(
+    store.getPreparedRepositoryCommandAdmissionEvidence(
+      resume.clientMsgId,
+      reserved.childCommandId,
+    ),
+  ).toEqual(expected);
+  const assertRuntimeChangeRefused = () => {
+    database.prepare('UPDATE sessions SET runtime_binding=? WHERE session_id=?').run(
+      JSON.stringify({
+        ...binding,
+        execution: { ...binding.execution, targetRevision: 'changed-target' },
+      }),
+      'session',
+    );
+    try {
+      expect(() => store.getLatestOrdinaryCommandAdmission('session')).toThrow(
+        'Explicit command execution selection changed',
+      );
+      expect(() => store.getOrdinaryLocalCommandExecutionAdmission(resume.clientMsgId)).toThrow(
+        'Explicit command execution selection changed',
+      );
+    } finally {
+      database
+        .prepare('UPDATE sessions SET runtime_binding=? WHERE session_id=?')
+        .run(JSON.stringify(binding), 'session');
+    }
+  };
+  assertRuntimeChangeRefused();
+  const nextTransition = {
+    ...transition,
+    preparationId: '3dbdc62d-20ab-4144-b210-c55bc7f39cda',
+    priorPrimaryCommandId: reserved.childCommandId,
+    source: {
+      ...transition.source,
+      commandId: resume.clientMsgId,
+      turnId: 'second-resumed-turn',
+      callId: 'second-prepare',
+    },
+    oldWorkspace: { kind: 'repository' as const, id: 'new', directory: '/new' },
+    newWorkspace: { ...transition.newWorkspace, id: 'third', directory: '/third' },
+  };
+  store.finalizePreparedRepositoryContinuation(
+    'session',
+    reserved.childCommandId,
+    transition,
+    () => {},
+  );
+  const next = store.reservePreparedRepositoryContinuation('session', nextTransition);
+  expect(store.getLatestOrdinaryCommandAdmission('session')).toEqual(
+    store.getOrdinaryCommandExecutionAdmission(resume.clientMsgId),
+  );
+  expect(store.observePreparedRepositoryContinuation(next.childCommandId).state).toBe('uncertain');
+  expect(store.hasUncertainOrdinaryCommand('session')).toBe(true);
+  expect(() => store.claimOrdinaryLocalCommandDispatch(next.childCommandId)).toThrow();
+  expect(store.getSendCommand(resume.clientMsgId)?.payload).toEqual(resume.payload);
+  assertRuntimeChangeRefused();
+  database
+    .prepare('DELETE FROM ordinary_execution_admissions WHERE command_id=?')
+    .run(resume.clientMsgId);
+  expect(() => store.getLatestOrdinaryCommandAdmission('session')).toThrow(
+    'does not match durable session identity',
+  );
 });
