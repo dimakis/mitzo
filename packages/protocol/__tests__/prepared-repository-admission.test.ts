@@ -630,6 +630,85 @@ it('observes a resumed bootstrap when a later message prepares the first reposit
 it('observes a fresh cold bootstrap between the original prepared source and its later workspace transition', () => {
   const store = fixture();
   const initial = store.reservePreparedRepositoryContinuation('session', transition);
+  expect(
+    store.observeUntransferredPreparedRepositoryContinuation(
+      'session',
+      transition.source,
+      transition.oldWorkspace,
+      transition.preparationId,
+    )?.childCommandId,
+  ).toBe(initial.childCommandId);
+  expect(store.observePreparedRepositoryContinuation(initial.childCommandId).state).toBe(
+    'uncertain',
+  );
+  expect(() =>
+    store.observeUntransferredPreparedRepositoryContinuation(
+      'session',
+      transition.source,
+      transition.oldWorkspace,
+      'foreign-preparation',
+    ),
+  ).toThrow();
+  expect(() =>
+    store.observeUntransferredPreparedRepositoryContinuation(
+      'session',
+      transition.source,
+      { ...transition.oldWorkspace, id: 'foreign-workspace' },
+      transition.preparationId,
+    ),
+  ).toThrow();
+  const database = (store as unknown as { db: import('better-sqlite3').Database }).db;
+  for (const id of [transition.source.commandId, initial.childCommandId]) {
+    database
+      .prepare('UPDATE send_commands SET error=? WHERE client_msg_id=?')
+      .run('Retained failure', id);
+    expect(() =>
+      store.observeUntransferredPreparedRepositoryContinuation(
+        'session',
+        transition.source,
+        transition.oldWorkspace,
+        transition.preparationId,
+      ),
+    ).toThrow();
+    database.prepare('UPDATE send_commands SET error=NULL WHERE client_msg_id=?').run(id);
+  }
+  store.admitOrdinaryLocalCommand({ ...meta, sessionId: 'foreign-session' }, binding, {
+    ...original,
+    clientMsgId: 'foreign-command',
+    requestFingerprint: 'foreign-fingerprint',
+  });
+  database
+    .prepare('UPDATE send_commands SET session_id=? WHERE client_msg_id=?')
+    .run('foreign-session', transition.source.commandId);
+  expect(() =>
+    store.observeUntransferredPreparedRepositoryContinuation(
+      'session',
+      transition.source,
+      transition.oldWorkspace,
+      transition.preparationId,
+    ),
+  ).toThrow();
+  database
+    .prepare('UPDATE send_commands SET session_id=? WHERE client_msg_id=?')
+    .run('session', transition.source.commandId);
+  const retained = store.observePreparedRepositoryContinuation(initial.childCommandId);
+  database
+    .prepare('UPDATE send_commands SET ordinary_admission=? WHERE client_msg_id=?')
+    .run(
+      JSON.stringify({ ...retained, selection: { ...retained.selection, model: 'changed-model' } }),
+      initial.childCommandId,
+    );
+  expect(() =>
+    store.observeUntransferredPreparedRepositoryContinuation(
+      'session',
+      transition.source,
+      transition.oldWorkspace,
+      transition.preparationId,
+    ),
+  ).toThrow();
+  database
+    .prepare('UPDATE send_commands SET ordinary_admission=? WHERE client_msg_id=?')
+    .run(JSON.stringify(retained), initial.childCommandId);
   store.suspendUntransferredPreparedRepositoryContinuation(
     'session',
     transition.source,

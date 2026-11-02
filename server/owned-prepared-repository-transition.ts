@@ -289,11 +289,7 @@ export async function performPreparedRepositoryPrimaryTransition(
   }
 }
 
-/** Reconcile only projections of the existing authoritative custody marker.
- * Safe before cold bootstrap: current operator authorization is required here,
- * and the normal admission owner still obtains fresh physical/runtime proofs
- * before any provider dispatch. No allocation, transfer or automatic turn. */
-export function reconcilePreparedRepositoryTransitionProjection(owners: {
+interface PreparedRepositoryProjectionOwners {
   workspace: Pick<
     import('./repository-workspaces.js').RepositoryWorkspaces,
     | 'getForConversation'
@@ -306,14 +302,11 @@ export function reconcilePreparedRepositoryTransitionProjection(owners: {
   conversationId: string;
   binding: AccountBinding;
   assertCurrentSync(): void;
-}) {
-  const assertCurrent = owners.assertCurrentSync;
-  const current = () => {
-    if (owners.assertCurrentSync !== assertCurrent)
-      throw Error('Prepared repository recovery owner changed');
-    sync(Reflect.apply(assertCurrent, owners, []));
-  };
-  current();
+}
+
+function readPreparedRepositoryProjection(
+  owners: Omit<PreparedRepositoryProjectionOwners, 'assertCurrentSync'>,
+) {
   const record = owners.workspace.getForConversation(owners.conversationId);
   const marker = record?.preparedRepositoryTransitionAdoption;
   const held = owners.native.preparedRepositoryTransitionHold(
@@ -327,57 +320,110 @@ export function reconcilePreparedRepositoryTransitionProjection(owners: {
     : ordinary
       ? { kind: 'ordinary' as const, id: ordinary.id, directory: ordinary.directory }
       : undefined;
-  if (held && oldWorkspace && held.fromCwd === oldWorkspace.directory) {
-    const candidate = owners.workspace.findPreparedRepositoryTransitionCandidate({
-      binding: owners.binding,
-      conversationId: owners.conversationId,
-      sourceTarget: held.source,
+  const snapshot = { record, marker, held, oldWorkspace };
+  if (!held || !oldWorkspace || held.fromCwd !== oldWorkspace.directory)
+    return { ...snapshot, pending: undefined };
+  const candidate = owners.workspace.findPreparedRepositoryTransitionCandidate({
+    binding: owners.binding,
+    conversationId: owners.conversationId,
+    sourceTarget: held.source,
+    oldWorkspace,
+  });
+  if (!candidate) return { ...snapshot, pending: undefined };
+  const request = candidate.request;
+  const result = owners.native.replayToolResult(
+    owners.conversationId,
+    owners.binding,
+    held.source.commandId,
+    request.prepareCallId,
+    {
+      turnId: held.source.turnId,
+      toolName: 'PrepareLocalRepository',
+      requestHash: request.requestHash,
+    },
+  );
+  if (!result || result.isError) throw Error('Untransferred repository result unavailable');
+  return {
+    ...snapshot,
+    pending: {
+      request,
       oldWorkspace,
-    });
-    if (candidate) {
-      const request = candidate.request;
-      const result = owners.native.replayToolResult(
-        owners.conversationId,
-        owners.binding,
-        held.source.commandId,
-        request.prepareCallId,
-        {
-          turnId: held.source.turnId,
-          toolName: 'PrepareLocalRepository',
-          requestHash: request.requestHash,
-        },
-      );
-      if (!result || result.isError) throw Error('Untransferred repository result unavailable');
-      const source = {
+      source: {
         ...held.source,
         callId: request.prepareCallId,
         requestHash: request.requestHash,
         resultSha256: preparedRepositoryResultSha256(result),
-      };
-      current();
-      const fence = owners.native.reconcilePreparedRepositoryWorkspaceProjection(
-        owners.conversationId,
-        owners.binding,
-        { ...source, toolName: 'PrepareLocalRepository' },
-        oldWorkspace.directory,
-        oldWorkspace.directory,
-      );
-      owners.events.suspendUntransferredPreparedRepositoryContinuation(
-        owners.conversationId,
-        source,
-        oldWorkspace,
-        request.id,
-      );
-      owners.native.suspendUntransferredPreparedRepositoryTransition(
-        owners.conversationId,
-        owners.binding,
-        fence,
-      );
-      current();
-      return undefined;
-    }
-    if (!marker) throw Error('Untransferred repository candidate requires inspection');
+      },
+    },
+  };
+}
+
+/** Read-only support for a fresh explicit resume. The resume owner must freshly
+ * reconcile this exact unclaimed candidate before admitting any provider work. */
+export function canResumeUntransferredPreparedRepository(
+  owners: Omit<PreparedRepositoryProjectionOwners, 'assertCurrentSync'>,
+): boolean {
+  try {
+    const pending = readPreparedRepositoryProjection(owners).pending;
+    if (!pending) return false;
+    const child = owners.events.observeUntransferredPreparedRepositoryContinuation(
+      owners.conversationId,
+      pending.source,
+      pending.oldWorkspace,
+      pending.request.id,
+    );
+    return (
+      !!child &&
+      !owners.events.hasUncertainOrdinaryCommand(owners.conversationId, child.childCommandId) &&
+      !owners.native.commandStatus(owners.conversationId, owners.binding, child.childCommandId)
+    );
+  } catch {
+    return false;
   }
+}
+
+/** Reconcile only projections of the existing authoritative custody marker.
+ * Safe before cold bootstrap: current operator authorization is required here,
+ * and the normal admission owner still obtains fresh physical/runtime proofs
+ * before any provider dispatch. No allocation, transfer or automatic turn. */
+export function reconcilePreparedRepositoryTransitionProjection(
+  owners: PreparedRepositoryProjectionOwners,
+) {
+  const assertCurrent = owners.assertCurrentSync;
+  const current = () => {
+    if (owners.assertCurrentSync !== assertCurrent)
+      throw Error('Prepared repository recovery owner changed');
+    sync(Reflect.apply(assertCurrent, owners, []));
+  };
+  current();
+  const { record, marker, held, oldWorkspace, pending } = readPreparedRepositoryProjection(owners);
+  if (pending) {
+    const { source, request } = pending;
+    const oldWorkspace = pending.oldWorkspace;
+    current();
+    const fence = owners.native.reconcilePreparedRepositoryWorkspaceProjection(
+      owners.conversationId,
+      owners.binding,
+      { ...source, toolName: 'PrepareLocalRepository' },
+      oldWorkspace.directory,
+      oldWorkspace.directory,
+    );
+    owners.events.suspendUntransferredPreparedRepositoryContinuation(
+      owners.conversationId,
+      source,
+      oldWorkspace,
+      request.id,
+    );
+    owners.native.suspendUntransferredPreparedRepositoryTransition(
+      owners.conversationId,
+      owners.binding,
+      fence,
+    );
+    current();
+    return undefined;
+  }
+  if (held && oldWorkspace && held.fromCwd === oldWorkspace.directory && !marker)
+    throw Error('Untransferred repository candidate requires inspection');
   if (!record || !marker) return undefined;
   const facts = freezePendingHostTaskData(structuredClone(marker.facts));
   owners.workspace.assertPreparedRepositoryTransitionAdopted(facts, marker.childCommandId);

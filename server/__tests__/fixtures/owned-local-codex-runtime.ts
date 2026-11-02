@@ -445,6 +445,9 @@ export async function ownedRuntimeFixture(
       expect(await readFile(join(value.workspace.directory!, 'task.txt'), 'utf8')).toBe(
         'accepted source',
       );
+      open(value);
+    });
+    const open = (value: OrdinaryLocalCodexOwnedDispatch, resume = false) => {
       value.admission.assertOptions({
         conversationId: reservation.conversationId,
         messageId: commandId,
@@ -460,6 +463,7 @@ export async function ownedRuntimeFixture(
         agentProfile: value.expected.agentProfile,
         agentContext: value.expected.agentContext,
         repositoryWorkspace: value.workspace,
+        resume,
       });
       expect(
         value.admission.attach({
@@ -468,7 +472,7 @@ export async function ownedRuntimeFixture(
           onClose: () => {},
         }),
       ).toBe(rpc);
-    });
+    };
     const dependencies = {
       enabled: true,
       eventStore: events,
@@ -509,7 +513,7 @@ export async function ownedRuntimeFixture(
       cleanups.push(() => driver.close());
       return driver;
     };
-    return { rpc, launch, dispatch, dependencies, create };
+    return { rpc, launch, dispatch, open, dependencies, create };
   }
   const owner = commandFixture(reservation, request);
   const prepareRepository = async () => {
