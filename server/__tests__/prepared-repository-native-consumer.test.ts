@@ -437,6 +437,10 @@ it('renews an untransferred preparation after restart without treating its reser
   ).toBe(true);
   expect(f.events.hasUncertainOrdinaryCommand(f.first.sessionId)).toBe(true);
   const originalSource = f.events.getSendCommand(f.source.commandId);
+  const childId = reservation.mock.results[0].value.childCommandId;
+  const startupError =
+    'Recovery required: historical command workspace differs from the current conversation. Original uncertain admission retained; do not replay before reconciliation.';
+  f.events.failSendCommand(childId, startupError);
   const probe = {
     workspace: f.workspace,
     events: f.events,
@@ -447,7 +451,6 @@ it('renews an untransferred preparation after restart without treating its reser
   expect(canResumeUntransferredPreparedRepository(probe)).toBe(true);
   expect(f.events.hasUncertainOrdinaryCommand(f.first.sessionId)).toBe(true);
   expect(custody).toHaveBeenCalledOnce();
-  const childId = reservation.mock.results[0].value.childCommandId;
   const database = (f.native as unknown as { db: import('better-sqlite3').Database }).db;
   const rollback = Error('Rollback isolated native row');
   expect(() =>
@@ -458,6 +461,14 @@ it('renews an untransferred preparation after restart without treating its reser
         model: f.first.lease.binding.model,
       });
       expect(canResumeUntransferredPreparedRepository(probe)).toBe(false);
+      const operator = captureAgentLibraryAuthorization(f.dependencies.operatorConnectionId);
+      expect(() =>
+        reconcilePreparedRepositoryTransitionProjection({
+          ...probe,
+          assertCurrentSync: () => operator.assertCurrent(),
+        }),
+      ).toThrow('Untransferred repository reservation has other work');
+      expect(f.events.getSendCommand(childId)?.error).toBe(startupError);
       throw rollback;
     })(),
   ).toThrow(rollback);
@@ -473,6 +484,8 @@ it('renews an untransferred preparation after restart without treating its reser
     available: true,
   });
   expect(f.events.hasUncertainOrdinaryCommand(f.first.sessionId)).toBe(true);
+  expect(f.events.getSendCommand(childId)?.error).toBe(startupError);
+  expect(f.events.getEventsOfType(f.first.sessionId, 'command_preparation_recovered')).toEqual([]);
   const request = {
     ...structuredClone(f.request),
     clientMsgId: randomUUID(),
@@ -492,6 +505,20 @@ it('renews an untransferred preparation after restart without treating its reser
   });
   cleanups.push(() => resumed.close());
   await expect(resumed.admitResume(request)).resolves.toEqual({ dispatched: true });
+  expect(f.events.getSendCommand(childId)?.error).toBeNull();
+  expect(
+    f.events
+      .getEventsOfType(f.first.sessionId, 'command_preparation_recovered')
+      .map((e) => e.payload),
+  ).toEqual([
+    {
+      commandId: childId,
+      preparationId: f.record.id,
+      sourceCommandId: f.source.commandId,
+      reason: 'untransferred_prepared_repository',
+      previousError: startupError,
+    },
+  ]);
   expect(dispatch).toHaveBeenCalledOnce();
   expect(
     f.native

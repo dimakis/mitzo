@@ -1,7 +1,11 @@
 import { createHash } from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
 import { freezePendingHostTaskData } from './pending-host-task.js';
-import { PreparedRepositoryTransitionSchema, type AccountBinding } from '@mitzo/protocol';
+import {
+  PreparedRepositoryTransitionSchema,
+  type PreparedRepositoryTransition,
+  type AccountBinding,
+} from '@mitzo/protocol';
 import type { EventStore } from './event-store.js';
 import {
   preparedRepositoryResultSha256,
@@ -360,22 +364,38 @@ function readPreparedRepositoryProjection(
 
 /** Read-only support for a fresh explicit resume. The resume owner must freshly
  * reconcile this exact unclaimed candidate before admitting any provider work. */
+function readUntransferredPreparedRepositoryReservation(
+  owners: Omit<PreparedRepositoryProjectionOwners, 'assertCurrentSync'>,
+  source: PreparedRepositoryTransition['source'],
+  oldWorkspace: PreparedRepositoryTransition['oldWorkspace'],
+  preparationId: string,
+) {
+  const child = owners.events.observeUntransferredPreparedRepositoryContinuation(
+    owners.conversationId,
+    source,
+    oldWorkspace,
+    preparationId,
+  );
+  if (
+    owners.events.hasUncertainOrdinaryCommand(owners.conversationId, child?.childCommandId) ||
+    (child &&
+      owners.native.commandStatus(owners.conversationId, owners.binding, child.childCommandId))
+  )
+    throw Error('Untransferred repository reservation has other work');
+  return child;
+}
+
 export function canResumeUntransferredPreparedRepository(
   owners: Omit<PreparedRepositoryProjectionOwners, 'assertCurrentSync'>,
 ): boolean {
   try {
     const pending = readPreparedRepositoryProjection(owners).pending;
     if (!pending) return false;
-    const child = owners.events.observeUntransferredPreparedRepositoryContinuation(
-      owners.conversationId,
+    return !!readUntransferredPreparedRepositoryReservation(
+      owners,
       pending.source,
       pending.oldWorkspace,
       pending.request.id,
-    );
-    return (
-      !!child &&
-      !owners.events.hasUncertainOrdinaryCommand(owners.conversationId, child.childCommandId) &&
-      !owners.native.commandStatus(owners.conversationId, owners.binding, child.childCommandId)
     );
   } catch {
     return false;
@@ -400,6 +420,7 @@ export function reconcilePreparedRepositoryTransitionProjection(
   if (pending) {
     const { source, request } = pending;
     const oldWorkspace = pending.oldWorkspace;
+    readUntransferredPreparedRepositoryReservation(owners, source, oldWorkspace, request.id);
     current();
     const fence = owners.native.reconcilePreparedRepositoryWorkspaceProjection(
       owners.conversationId,

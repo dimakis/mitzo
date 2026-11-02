@@ -292,6 +292,20 @@ export function toClientState(state: SessionState): ClientSessionState {
 
 const noopLogger: EventStoreLogger = { info() {} };
 
+// Older startup recovery compared this untransferred child against the old
+// conversation workspace. This exact annotation is not a native dispatch error.
+const LEGACY_UNTRANSFERRED_REPOSITORY_ERROR =
+  'Recovery required: historical command workspace differs from the current conversation. Original uncertain admission retained; do not replay before reconciliation.';
+
+function preparedRepositoryChildCommandId(
+  sessionId: string,
+  transition: PreparedRepositoryTransition,
+) {
+  return `prepared-repository-${createHash('sha256')
+    .update(JSON.stringify([sessionId, transition.preparationId, transition.source]))
+    .digest('hex')}`;
+}
+
 interface EventRow {
   seat_id: string | null;
   symposium_provenance: string | null;
@@ -996,9 +1010,7 @@ export class EventStore {
    * cross-store CAS. A duplicate is observation only and MUST NOT repeat effects. */
   reservePreparedRepositoryContinuation(sessionId: string, raw: PreparedRepositoryTransition) {
     const transition = PreparedRepositoryTransitionSchema.parse(raw);
-    const childCommandId = `prepared-repository-${createHash('sha256')
-      .update(JSON.stringify([sessionId, transition.preparationId, transition.source]))
-      .digest('hex')}`;
+    const childCommandId = preparedRepositoryChildCommandId(sessionId, transition);
     return this.db!.transaction(() => {
       const session = this.getSession(sessionId);
       const source = this.getOrdinaryLocalCommandExecutionAdmission(transition.source.commandId);
@@ -2033,7 +2045,11 @@ export class EventStore {
     if (rows.length > 1) throw Error('Prepared repository reservation lineage ambiguous');
     if (!rows.length) return undefined;
     const row = rows[0];
-    if (row.error || row.source_error || row.source_session_id !== sessionId)
+    if (
+      (row.error && row.error !== LEGACY_UNTRANSFERRED_REPOSITORY_ERROR) ||
+      row.source_error ||
+      row.source_session_id !== sessionId
+    )
       throw Error('Untransferred repository reservation changed');
     const id = row.client_msg_id;
     const receipt = this.readPreparedRepositoryTransition(id);
@@ -2042,6 +2058,8 @@ export class EventStore {
     const source = this.readPreparedRepositorySourceExecution(target.commandId, transition);
     if (
       !['uncertain', 'reserved'].includes(receipt.state) ||
+      (row.error && receipt.state !== 'uncertain') ||
+      id !== preparedRepositoryChildCommandId(sessionId, transition) ||
       source.state !== 'consumed' ||
       !isDeepStrictEqual(receipt.binding, source.binding) ||
       !isDeepStrictEqual(receipt.selection, source.selection) ||
@@ -2052,7 +2070,7 @@ export class EventStore {
       sessionWorkspaceId(session) !== oldWorkspace.id
     )
       throw Error('Untransferred repository reservation changed');
-    return { childCommandId: id, admission: receipt };
+    return { childCommandId: id, admission: receipt, previousError: row.error };
   }
 
   /** A verified still-unclaimed materialized candidate proves no custody CAS
@@ -2071,10 +2089,17 @@ export class EventStore {
         preparationId,
       );
       if (!observed) return;
-      this.db!.prepare('UPDATE send_commands SET ordinary_admission=? WHERE client_msg_id=?').run(
-        JSON.stringify({ ...observed.admission, state: 'reserved' }),
-        observed.childCommandId,
-      );
+      if (observed.previousError)
+        this.append(sessionId, 'command_preparation_recovered', {
+          commandId: observed.childCommandId,
+          preparationId,
+          sourceCommandId: target.commandId,
+          reason: 'untransferred_prepared_repository',
+          previousError: observed.previousError,
+        });
+      this.db!.prepare(
+        'UPDATE send_commands SET ordinary_admission=?,error=NULL WHERE client_msg_id=?',
+      ).run(JSON.stringify({ ...observed.admission, state: 'reserved' }), observed.childCommandId);
     }).immediate();
   }
   /** Idempotent projection after the repository owner independently proves

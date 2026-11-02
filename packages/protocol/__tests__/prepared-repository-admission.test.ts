@@ -709,12 +709,65 @@ it('observes a fresh cold bootstrap between the original prepared source and its
   database
     .prepare('UPDATE send_commands SET ordinary_admission=? WHERE client_msg_id=?')
     .run(JSON.stringify(retained), initial.childCommandId);
-  store.suspendUntransferredPreparedRepositoryContinuation(
-    'session',
-    transition.source,
-    transition.oldWorkspace,
-    transition.preparationId,
-  );
+  const startupError =
+    'Recovery required: historical command workspace differs from the current conversation. Original uncertain admission retained; do not replay before reconciliation.';
+  store.failSendCommand(initial.childCommandId, startupError);
+  store.failSendCommand(transition.source.commandId, startupError);
+  expect(() =>
+    store.observeUntransferredPreparedRepositoryContinuation(
+      'session',
+      transition.source,
+      transition.oldWorkspace,
+      transition.preparationId,
+    ),
+  ).toThrow();
+  database
+    .prepare('UPDATE send_commands SET error=NULL WHERE client_msg_id=?')
+    .run(transition.source.commandId);
+  expect(
+    store.observeUntransferredPreparedRepositoryContinuation(
+      'session',
+      transition.source,
+      transition.oldWorkspace,
+      transition.preparationId,
+    )?.childCommandId,
+  ).toBe(initial.childCommandId);
+  expect(store.getSendCommand(initial.childCommandId)?.error).toBe(startupError);
+  database
+    .prepare('UPDATE send_commands SET ordinary_admission=? WHERE client_msg_id=?')
+    .run(JSON.stringify({ ...retained, state: 'reserved' }), initial.childCommandId);
+  expect(() =>
+    store.suspendUntransferredPreparedRepositoryContinuation(
+      'session',
+      transition.source,
+      transition.oldWorkspace,
+      transition.preparationId,
+    ),
+  ).toThrow();
+  expect(store.getSendCommand(initial.childCommandId)?.error).toBe(startupError);
+  expect(store.getEventsOfType('session', 'command_preparation_recovered')).toEqual([]);
+  database
+    .prepare('UPDATE send_commands SET ordinary_admission=? WHERE client_msg_id=?')
+    .run(JSON.stringify(retained), initial.childCommandId);
+  for (let repeat = 0; repeat < 2; repeat++)
+    store.suspendUntransferredPreparedRepositoryContinuation(
+      'session',
+      transition.source,
+      transition.oldWorkspace,
+      transition.preparationId,
+    );
+  expect(store.getSendCommand(initial.childCommandId)?.error).toBeNull();
+  expect(
+    store.getEventsOfType('session', 'command_preparation_recovered').map((e) => e.payload),
+  ).toEqual([
+    {
+      commandId: initial.childCommandId,
+      preparationId: transition.preparationId,
+      sourceCommandId: transition.source.commandId,
+      reason: 'untransferred_prepared_repository',
+      previousError: startupError,
+    },
+  ]);
   const resume = {
     ...original,
     clientMsgId: 'fresh-resume',
