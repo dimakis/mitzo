@@ -159,6 +159,7 @@ import { loadAccountProfiles } from './account-profiles.js';
 import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
+import { authorizeGitHubRead, githubReadApproval } from './github-read-approval.js';
 import { isDeepStrictEqual } from 'node:util';
 import { codexPrivateDirectory } from './codex-private-path.js';
 import type { AccountBinding, ProviderAttemptToken } from '@mitzo/protocol';
@@ -2440,6 +2441,11 @@ async function openCodexChatBound(
   const githubReadOutputScope = createHash('sha256')
     .update(`GitHubRead:${nativeHostRuntimeId}`)
     .digest('hex');
+  type RetainedGitHubRead = {
+    input: { endpoint: string; view?: 'summary' | 'full' };
+    scopeKey: string;
+  };
+  const githubRetainedReads = new Map<string, RetainedGitHubRead>();
   // Retained host reads are scoped to this live sandbox owner, never sandbox MCP
   // output. Keep the original parsed read arguments so paging reuses its permission route.
   const openShellRetainedReads = new Map<
@@ -2632,6 +2638,7 @@ async function openCodexChatBound(
               registry: options.registry,
               runtimeId: nativeHostRuntimeId,
               environmentId: 'local',
+              policyRevision: nativeExecution!.policyRevision,
               deniedRoots: nativeExecution!.deniedRoots,
               writeProtectedRoots: nativeExecution!.writeProtectedRoots,
               approvePreparedWorkspaceGrant: options.approvePreparedWorkspaceGrant,
@@ -3326,15 +3333,42 @@ async function openCodexChatBound(
           await googleWorkspaceTools.assertCurrent();
         } else if (output.toolName === 'GitHubRead') {
           assertHostCurrentSync();
-          if (output.sourceScope !== githubReadOutputScope)
+          const original = githubRetainedReads.get(request.data.outputId);
+          if (
+            !original ||
+            output.sourceScope !== githubReadOutputScope ||
+            githubReadApproval(original.input.endpoint, options.session, nativeHostRuntimeId)
+              .sessionGrantKey !== original.scopeKey
+          )
             return {
               content: JSON.stringify({
                 error: 'output_unavailable',
                 action:
-                  'The original GitHub read runtime ended. Use a fresh narrow read if needed.',
+                  'The original GitHub read scope is unavailable. Use a fresh narrow read if needed.',
               }),
               isError: true,
             };
+          const owner = options.registry.findBySessionId(options.conversationId);
+          if (owner?.session !== options.session) throw new CodexToolFailure('stale_owner');
+          const assertCurrent = await authorizeGitHubRead(original.input, {
+            clientId: owner.clientId,
+            registry: options.registry,
+            session: options.session,
+            runtimeId: nativeHostRuntimeId,
+            signal,
+            toolUseID: randomUUID(),
+            decide: buildPermissionHandler(owner.clientId, options.registry),
+            assertCurrentAsync: assertHostCurrent,
+            assertCurrentSync: () => {
+              assertHostCurrentSync();
+              assertAgentToolSelected(options.session, 'GitHubRead');
+            },
+          });
+          callContext.registerResponseFence?.(assertCurrent);
+          const result = readToolOutputPage(output.content, request.data);
+          callContext.assertCurrentSync?.();
+          assertCurrent();
+          return { content: JSON.stringify(result), isError: false };
         } else {
           if (!mcp.assertToolCurrent) throw new CodexToolFailure('stale_owner');
           mcp.assertToolCurrent(output.toolName);
@@ -4097,6 +4131,7 @@ async function openCodexChatBound(
       }
       if (mcp.definitions.some((tool) => tool.name === name))
         return executeMcpTool(name, input, signal);
+      let approvedGitHubRead: RetainedGitHubRead | undefined;
       const result = await (hooks?.executeTool(
         mcp.displayName(name),
         input,
@@ -4104,7 +4139,14 @@ async function openCodexChatBound(
         async (input, forcePrompt) => {
           const owner = options.registry.findBySessionId(options.conversationId);
           if (!owner) throw new Error('Codex session unavailable');
+          const githubScope =
+            name === 'GitHubRead' && typeof input.endpoint === 'string'
+              ? githubReadApproval(input.endpoint, options.session, nativeHostRuntimeId)
+                  .sessionGrantKey
+              : undefined;
           const execute = createNativeToolExecutor(owner.clientId, options.registry, {
+            githubReadRuntimeId: nativeHostRuntimeId,
+            registerResponseFence: callContext.registerResponseFence,
             assertRuntimeCurrent: options.ownedLocal
               ? () => options.ownedLocal!.assertCurrentSync()
               : undefined,
@@ -4113,25 +4155,41 @@ async function openCodexChatBound(
             onDemandCreate: options.onDemandCreate,
           });
           const result = await execute({ type: 'tool_use', id: randomUUID(), name, input }, signal);
+          if (githubScope && !result.is_error && typeof input.endpoint === 'string')
+            approvedGitHubRead = {
+              scopeKey: githubScope,
+              input: {
+                endpoint: input.endpoint,
+                ...(input.view === 'summary' || input.view === 'full' ? { view: input.view } : {}),
+              },
+            };
           return { content: result.content, isError: !!result.is_error };
         },
       ) ?? Promise.reject(new Error('Host tools are unavailable inside OpenShell')));
-      if (!options.ownedLocal || name !== 'GitHubRead') return result;
+      if (!options.ownedLocal || name !== 'GitHubRead' || result.isError || !approvedGitHubRead)
+        return result;
       signal.throwIfAborted();
       callContext.assertCurrentSync?.();
       assertHostCurrentSync();
+      if (
+        githubReadApproval(approvedGitHubRead.input.endpoint, options.session, nativeHostRuntimeId)
+          .sessionGrantKey !== approvedGitHubRead.scopeKey
+      )
+        throw new CodexToolFailure('stale_owner');
       // Keep hook responses and authority-bearing commit/publication receipts exact.
       return {
         ...result,
-        content: projectToolOutput(result.content, (full) =>
-          privateStorage.retainToolOutput(
+        content: projectToolOutput(result.content, (full) => {
+          const outputId = privateStorage.retainToolOutput(
             options.conversationId,
             options.binding,
             name,
             full,
             githubReadOutputScope,
-          ),
-        ),
+          );
+          githubRetainedReads.set(outputId, approvedGitHubRead!);
+          return outputId;
+        }),
       };
     },
     onQueueChange: () => {

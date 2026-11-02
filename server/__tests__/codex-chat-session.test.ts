@@ -3723,6 +3723,10 @@ it('qualifies owned native, MCP, profile and publishing tools and rejects other 
     expect(publishingFactory.mock.calls[0]![3]).toBe(f.opts.session);
     const config = mocks.conversationOptions!;
     expect(config.systemPrompt).toContain('RequestGithubPublish');
+    expect(config.systemPrompt).toContain(
+      'Use GitHubRead for routine repository, PR, review and CI reads',
+    );
+    expect(config.systemPrompt).toContain('Run offline tests with the existing workspace');
     expect((config.tools as Array<{ name: string }>).map((tool) => tool.name).sort()).toEqual(
       [
         ...native.nativeToolDefinitions
@@ -6445,6 +6449,10 @@ it.each(['local', 'openshell'] as const)(
 );
 
 it('projects large GitHub reads after hooks and refuses output from a former native runtime', async () => {
+  mocks.permissionHandler.mockImplementation(async (_name, input) => ({
+    behavior: 'allow',
+    updatedInput: input,
+  }));
   const native = await import('../native-tool-executor.js');
   const full = 'github record '.repeat(1500) + 'tail-record';
   const factory = vi
@@ -6471,11 +6479,16 @@ it('projects large GitHub reads after hooks and refuses output from a former nat
         (tool) => tool.name === 'ReadToolOutput',
       ),
     ).toBe(true);
-    const context = { turnId: 'turn', callId: 'read' };
+    const context = { turnId: 'turn', callId: 'read', registerResponseFence: vi.fn() };
     const hook = vi.spyOn((await import('../native-hooks.js')).NativeHooks.prototype, 'run');
     const preview = JSON.parse(
       (await execute('GitHubRead', { endpoint: '/user' }, new AbortController().signal, context))
         .content,
+    );
+    expect(factory).toHaveBeenLastCalledWith(
+      'owned-client',
+      f.opts.registry,
+      expect.objectContaining({ githubReadRuntimeId: expect.any(String) }),
     );
     expect(preview).toMatchObject({
       complete: false,
@@ -6503,6 +6516,26 @@ it('projects large GitHub reads after hooks and refuses output from a former nat
       );
     mocks.readToolOutput.mockReturnValue({ toolName: 'GitHubRead', content: full, sourceScope });
     expect(JSON.parse((await readOutput()).content).content).toBe('tail-record');
+    expect(mocks.permissionHandler).toHaveBeenLastCalledWith(
+      'GitHubRead',
+      { endpoint: '/user' },
+      expect.objectContaining({ sessionGrantKey: expect.stringMatching(/^github-read-v1:/) }),
+    );
+    mocks.permissionHandler.mockResolvedValueOnce({
+      behavior: 'deny',
+      message: 'GitHub read consent revoked',
+    });
+    await expect(readOutput()).rejects.toThrow('GitHub read consent revoked');
+    const originalBinding = f.opts.session.accountBinding;
+    f.opts.session.accountBinding = { ...f.opts.binding, accountId: 'another-account' };
+    expect(await readOutput()).toMatchObject({
+      isError: true,
+      content: expect.stringContaining('output_unavailable'),
+    });
+    f.opts.session.accountBinding = originalBinding;
+    f.opts.session.activeSkillPolicy = new Set(['ReadToolOutput']);
+    expect(context.registerResponseFence.mock.calls.at(-1)![0]).toThrow();
+    f.opts.session.activeSkillPolicy = null;
     mocks.readToolOutput.mockReturnValueOnce({
       toolName: 'GitHubRead',
       content: full,

@@ -80,6 +80,7 @@ export async function executeTrustedGitHubRead(
   timeoutMs = 30_000,
   maxOutputBytes = 64 * 1024,
   view: 'summary' | 'full' = 'summary',
+  assertCurrent?: () => void,
 ): Promise<string> {
   const home = process.env.HOME;
   if (!home) throw new Error('Trusted GitHub credentials are unavailable');
@@ -89,7 +90,10 @@ export async function executeTrustedGitHubRead(
     timeoutMs,
     maxOutputBytes,
     env: { HOME: home, GH_HOST: 'github.com' },
+    assertRuntimeCurrent: assertCurrent,
   });
+  signal.throwIfAborted();
+  assertCurrent?.();
   return view === 'full' ? body : githubReadSummary(body, `https://api.github.com${endpoint}`);
 }
 

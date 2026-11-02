@@ -183,25 +183,79 @@ describe('native tool execution through session permissions', () => {
       undefined,
       undefined,
       undefined,
+      expect.any(Function),
     );
   });
-  it('retains an authenticated GitHub read approval for the session', async () => {
+  it('reuses repository GitHub read consent for PRs and CI without granting other repositories', async () => {
     registry.get('client')!.mode = 'ask';
     const execute = executor();
-    const first = execute(call('GitHubRead', { endpoint: '/user' }), abort.signal);
+    const first = execute(
+      call('GitHubRead', { endpoint: '/repos/owner/repo/pulls/1' }),
+      abort.signal,
+    );
     await vi.waitFor(() => expect(sent.some((e) => e.type === 'permission_request')).toBe(true));
-    resolvePending(sent.find((e) => e.type === 'permission_request')!.permId as string, 'always');
+    const card = sent.find((e) => e.type === 'permission_request')!;
+    expect(card.title).toBe('Read GitHub repository owner/repo');
+    expect(card.sessionGrantDescription).toContain('writes and shell network access');
+    resolvePending(card.permId as string, 'always');
     expect(await first).toMatchObject({ is_error: false });
 
     sent.length = 0;
     const second = await execute(
-      call('GitHubRead', { endpoint: '/repos/owner/repo/pulls/1' }),
+      call('GitHubRead', { endpoint: '/repos/owner/repo/actions/runs/123/jobs' }),
       abort.signal,
     );
     expect(second).toMatchObject({ is_error: false });
     expect(sent).toEqual([]);
-    expect(registry.get('client')!.sessionAllowList).toContain('GitHubRead');
+    expect([...registry.get('client')!.sessionAllowList]).toEqual([
+      expect.stringMatching(/^github-read-v1:/),
+    ]);
+    for (const endpoint of ['/repos/owner/other/pulls/1', '/user']) {
+      sent.length = 0;
+      const next = execute(call('GitHubRead', { endpoint }), abort.signal);
+      await vi.waitFor(() => expect(sent.some((e) => e.type === 'permission_request')).toBe(true));
+      resolvePending(sent.find((e) => e.type === 'permission_request')!.permId as string, 'deny');
+      expect(await next).toMatchObject({ is_error: true });
+    }
   });
+
+  it.each(['account', 'runtime', 'revoked'] as const)(
+    'does not deliver a GitHub read through a retained %s boundary',
+    async (change) => {
+      const options = { env: { PATH: '/usr/bin:/bin' }, githubReadRuntimeId: 'runtime' };
+      const input = call('GitHubRead', { endpoint: '/repos/owner/repo/actions/runs/123/jobs' });
+      const first = createNativeToolExecutor('client', registry, options)(input, abort.signal);
+      await vi.waitFor(() => expect(sent.some((e) => e.type === 'permission_request')).toBe(true));
+      resolvePending(sent.find((e) => e.type === 'permission_request')!.permId as string, 'always');
+      expect(await first).toMatchObject({ is_error: false });
+      sent.length = 0;
+      const before = vi.mocked(executeTrustedGitHubRead).mock.calls.length;
+      if (change === 'account')
+        registry.get('client')!.accountBinding = {
+          accountId: 'new-account',
+          provider: 'openai-codex',
+          profileRevision: 'new-revision',
+        } as never;
+      if (change === 'runtime') options.githubReadRuntimeId = 'new-runtime';
+      let checks = 0;
+      const next = createNativeToolExecutor('client', registry, {
+        ...options,
+        assertRuntimeCurrentAsync: async () => {
+          if (change === 'revoked' && ++checks === 2)
+            registry.get('client')!.sessionAllowList.clear();
+        },
+      })(input, abort.signal);
+      if (change !== 'revoked') {
+        await vi.waitFor(() =>
+          expect(sent.some((e) => e.type === 'permission_request')).toBe(true),
+        );
+        resolvePending(sent.find((e) => e.type === 'permission_request')!.permId as string, 'deny');
+      }
+      expect(await next).toMatchObject({ is_error: true });
+      if (change === 'revoked') expect(sent).toEqual([]);
+      expect(vi.mocked(executeTrustedGitHubRead).mock.calls).toHaveLength(before);
+    },
+  );
   it('includes an explicit full GitHub view in the original approved request', async () => {
     const before = vi.mocked(executeTrustedGitHubRead).mock.calls.length;
     const pending = executor()(
@@ -218,6 +272,7 @@ describe('native tool execution through session permissions', () => {
       undefined,
       undefined,
       'full',
+      expect.any(Function),
     );
   });
   it('rejects GitHub traversal before requesting approval', async () => {

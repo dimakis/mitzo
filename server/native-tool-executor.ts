@@ -17,6 +17,7 @@ import { isDeepStrictEqual } from 'node:util';
 import { z } from 'zod';
 import { loadAccountProfiles } from './account-profiles.js';
 import { toolInputError } from './tool-input-error.js';
+import { authorizeGitHubRead } from './github-read-approval.js';
 import { createCodexPathProtection, privateCodexRoots } from './codex-private-path.js';
 import {
   workspaceRuntimeAuthorityPaths,
@@ -132,6 +133,10 @@ export interface NativeToolOptions {
   assertRuntimeCurrent?: () => void;
   /** Enrolled source/credential owners may need asynchronous grant reconciliation. */
   assertRuntimeCurrentAsync?: () => Promise<void>;
+  /** Selected credential runtime identity; reconnecting a transport does not change it. */
+  githubReadRuntimeId?: string;
+  /** Native RPC owner rechecks consent immediately before delivering its reply. */
+  registerResponseFence?: (assertCurrent: () => void) => void;
   /** Explicit child environment. The executor never inherits process.env or API credentials. */
   env: Record<string, string>;
   /** Server-owned, explicitly enabled host route. Requires the network-aware Bash grant. */
@@ -208,32 +213,28 @@ export function createNativeToolExecutor(
           endpoint: parsed.data.endpoint,
           ...('view' in parsed.data && parsed.data.view ? { view: parsed.data.view } : {}),
         };
-        const permission = await canUseTool(block.name, input, {
+        const assertReadCurrent = await authorizeGitHubRead(input, {
+          clientId,
+          registry,
+          session,
+          runtimeId: options.githubReadRuntimeId,
           signal,
           toolUseID: block.id,
-          forcePrompt: true,
-          allowSessionGrant: true,
+          decide: canUseTool,
+          assertCurrentSync: options.assertRuntimeCurrent,
+          assertCurrentAsync: options.assertRuntimeCurrentAsync,
         });
-        signal.throwIfAborted();
-        if (permission.behavior !== 'allow') return result(permission.message, true);
-        if (!isDeepStrictEqual(permission.updatedInput, input))
-          return result('Tool input changed during approval; retry the tool', true);
-        if (
-          registry.get(clientId) !== session ||
-          checkSkillPolicy(registry, clientId, block.name) === 'deny'
-        )
-          return result('Session permissions changed; retry the tool', true);
-        await options.assertRuntimeCurrentAsync?.();
-        options.assertRuntimeCurrent?.();
-        return result(
-          await executeTrustedGitHubRead(
-            input.endpoint,
-            signal,
-            options.timeoutMs,
-            options.maxOutputBytes,
-            input.view,
-          ),
+        options.registerResponseFence?.(assertReadCurrent);
+        const content = await executeTrustedGitHubRead(
+          input.endpoint,
+          signal,
+          options.timeoutMs,
+          options.maxOutputBytes,
+          input.view,
+          assertReadCurrent,
         );
+        assertReadCurrent();
+        return result(content);
       }
       if (block.name === 'GitCommit' && 'files' in parsed.data) {
         const root = await realpath(session.cwd);

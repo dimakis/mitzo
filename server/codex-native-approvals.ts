@@ -8,6 +8,8 @@ import { buildPermissionHandler } from './permission-handler.js';
 import type { SessionRegistry } from './session-registry.js';
 import { nativeGrantFence } from './codex-native-grant-fence.js';
 import { PERMISSION_TIMEOUT_MS } from './constants.js';
+import { checkSkillPolicy, effectivePermissionMode } from '@mitzo/harness';
+import { nativeCommandApprovalScope } from './codex-native-approval-scope.js';
 
 export interface PreparedWorkspaceGrantScope {
   readonly runtimeId: string;
@@ -54,6 +56,7 @@ export function createCodexNativeApprovalHandler(options: {
   registry: SessionRegistry;
   runtimeId: string;
   environmentId: string;
+  policyRevision?: string;
   timeoutMs?: number;
   approvePreparedWorkspaceGrant?: ApprovePreparedWorkspaceGrant;
   deniedRoots: readonly string[];
@@ -92,6 +95,16 @@ export function createCodexNativeApprovalHandler(options: {
     const parsed = NativeApprovalRequestSchema.safeParse({ method, id: context.requestId, params });
     if (!parsed.success) return deny();
     const request = parsed.data;
+    const session = registry.get(clientId);
+    if (!session) return deny();
+    const mode = effectivePermissionMode(session);
+    const cwd = session.cwd;
+    const toolName =
+      request.method === 'item/commandExecution/requestApproval'
+        ? 'NativeCommandApproval'
+        : request.method === 'item/fileChange/requestApproval'
+          ? 'NativeFileApproval'
+          : 'NativePermissionsApproval';
     const identity = {
       requestId: context.requestId,
       commandId: context.commandId,
@@ -105,7 +118,18 @@ export function createCodexNativeApprovalHandler(options: {
     const currentSignal = AbortSignal.any([signal, expiry.signal]);
     const assertCurrent = (allowExpiredDenial = false) => {
       (allowExpiredDenial ? signal : currentSignal).throwIfAborted();
+      const owner = session.sessionId
+        ? registry.findBySessionId(session.sessionId, true)
+        : undefined;
+      const activeClient =
+        owner?.session === session
+          ? owner.clientId
+          : !session.sessionId && registry.get(clientId) === session
+            ? clientId
+            : undefined;
       if (
+        !activeClient ||
+        (!allowExpiredDenial && checkSkillPolicy(registry, activeClient, toolName) === 'deny') ||
         !request.params.itemId.trim() ||
         !identity.threadId.trim() ||
         !identity.turnId.trim() ||
@@ -116,6 +140,8 @@ export function createCodexNativeApprovalHandler(options: {
         context.threadId !== identity.threadId ||
         context.turnId !== identity.turnId ||
         context.assertCurrentSync !== assertOwner ||
+        effectivePermissionMode(session) !== mode ||
+        session.cwd !== cwd ||
         !isDeepStrictEqual(context.fileChangePaths, fileChangePaths) ||
         (!allowExpiredDenial && Date.now() >= expiresAt) ||
         request.params.startedAtMs > Date.now() + 30_000
@@ -129,6 +155,7 @@ export function createCodexNativeApprovalHandler(options: {
     };
     let assertGrantCurrent = () => {};
     let assertPreparedCurrent = () => {};
+    let assertConsentCurrent = () => {};
     let timer: ReturnType<typeof setTimeout> | undefined;
     try {
       assertCurrent();
@@ -161,6 +188,7 @@ export function createCodexNativeApprovalHandler(options: {
         assertCurrent(returningDenial);
         assertGrantCurrent();
         assertPreparedCurrent();
+        if (!returningDenial) assertConsentCurrent();
       };
       context.registerResponseFence?.(finalFence);
       timer = setTimeout(() => expiry.abort(), Math.max(0, expiresAt - Date.now()));
@@ -237,12 +265,6 @@ export function createCodexNativeApprovalHandler(options: {
           }
         }
       }
-      const toolName =
-        request.method === 'item/commandExecution/requestApproval'
-          ? 'NativeCommandApproval'
-          : request.method === 'item/fileChange/requestApproval'
-            ? 'NativeFileApproval'
-            : 'NativePermissionsApproval';
       // Generic JSON display preserves every parameter, including requested
       // filesystem scope and callback identity. Bash display would omit them.
       const input = {
@@ -253,6 +275,17 @@ export function createCodexNativeApprovalHandler(options: {
         params: request.params,
         ...(request.method === 'item/fileChange/requestApproval' ? { fileChangePaths } : {}),
       };
+      const sessionGrantKey = nativeCommandApprovalScope(request, {
+        runtimeId,
+        environmentId,
+        policyRevision: options.policyRevision,
+        mode,
+        cwd,
+        deniedRoots,
+        writeProtectedRoots,
+      });
+      const commandRequest = request.method === 'item/commandExecution/requestApproval';
+      const network = commandRequest && request.params.additionalPermissions?.network?.enabled;
       const result = await permission(toolName, input, {
         signal: currentSignal,
         toolUseID: JSON.stringify([
@@ -262,9 +295,23 @@ export function createCodexNativeApprovalHandler(options: {
           identity.turnId,
           request.params.itemId,
         ]),
-        title: 'Approve native execution boundary',
+        title: commandRequest
+          ? request.params.networkApprovalContext
+            ? `Connect to ${request.params.networkApprovalContext.host}`
+            : network
+              ? 'Run command with network access'
+              : 'Run local command'
+          : request.method === 'item/fileChange/requestApproval'
+            ? 'Apply file changes'
+            : 'Allow requested access',
         description:
-          'Automatic review is not yet qualified for this account and runtime. Human review is required for this exact pending operation and scope.',
+          'Review the displayed operation, working directory and requested access. Existing workspace and credential protections still apply.',
+        ...(sessionGrantKey
+          ? {
+              sessionGrantDescription:
+                'Allow for session repeats this exact command with the displayed access in this directory until this native thread ends. Changed commands or access require another approval.',
+            }
+          : {}),
         ...(request.method === 'item/permissions/requestApproval'
           ? {
               sessionGrantDescription:
@@ -272,7 +319,9 @@ export function createCodexNativeApprovalHandler(options: {
             }
           : {}),
         nativeApproval: {
-          allowSessionScope: request.method === 'item/permissions/requestApproval',
+          allowSessionScope:
+            request.method === 'item/permissions/requestApproval' || sessionGrantKey !== undefined,
+          sessionGrantKey,
           assertCurrentSync: () => {
             assertCurrent();
             assertGrantCurrent();
@@ -283,6 +332,13 @@ export function createCodexNativeApprovalHandler(options: {
       assertGrantCurrent();
       if (result.behavior !== 'allow' || !isDeepStrictEqual(result.updatedInput, input))
         return deny();
+      if (sessionGrantKey && result.decisionClassification === 'user_permanent') {
+        assertConsentCurrent = () => {
+          if (!session.sessionAllowList.has(sessionGrantKey))
+            throw Error('Native command consent was revoked');
+        };
+        assertConsentCurrent();
+      }
       const response =
         request.method === 'item/permissions/requestApproval'
           ? {

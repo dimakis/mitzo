@@ -24,6 +24,7 @@ function fixture(
     transport: { send: (message) => sent.push(message), isOpen: () => true },
     abortController: new AbortController(),
     mode,
+    cwd: '/workspace',
     sessionId: 'session',
     sessionAllowList: new Set(),
   });
@@ -96,6 +97,21 @@ function setup(
 async function request(f: ReturnType<typeof fixture>) {
   await vi.waitFor(() => expect(f.sent[0]?.permId).toBeDefined());
   return f.sent[0].permId as string;
+}
+
+function commandParams() {
+  return {
+    threadId: 'thread',
+    turnId: 'turn',
+    itemId: 'item',
+    startedAtMs: Date.now(),
+    environmentId: 'local',
+    cwd: '/workspace',
+    kind: 'command',
+    command: 'gh run view 123',
+    additionalPermissions: { network: { enabled: true }, fileSystem: null },
+    availableDecisions: ['accept', 'cancel'],
+  };
 }
 
 describe('native approval adapter with the existing pending owner', () => {
@@ -293,14 +309,135 @@ describe('native approval adapter with the existing pending owner', () => {
       f.context,
     );
     const id = await request(f);
-    expect(f.sent[0].description).toContain(
-      'Automatic review is not yet qualified for this account and runtime',
-    );
-    expect(f.sent[0].description).toContain('Human review');
+    expect(f.sent[0].title).toBe('Run local command');
+    expect(f.sent[0].description).toContain('requested access');
+    expect(f.sent[0].allowSessionGrant).toBe(false);
     expect(JSON.parse(f.sent[0].toolInput as string).params).toEqual(params);
     resolvePending(id, 'always', undefined, 'session');
     expect(await result).toEqual({ decision: 'accept' });
     expect(f.registry.get('client')!.sessionAllowList.size).toBe(0);
+  });
+
+  it('reuses explicit exact-command consent across turns, while checking revocation at delivery', async () => {
+    const f = setup();
+    const params = {
+      ...commandParams(),
+      command: 'node node_modules/vitest/vitest.mjs run focused.test.ts --maxWorkers=1',
+    };
+    const first = f.handler(
+      'item/commandExecution/requestApproval',
+      params,
+      f.controller.signal,
+      f.context,
+    );
+    resolvePending(await request(f), 'always', undefined, 'session');
+    expect(await first).toEqual({ decision: 'accept' });
+    expect(f.sent[0]).toMatchObject({
+      title: 'Run command with network access',
+      approvalScope: 'session',
+      sessionGrantDescription: expect.stringContaining('exact command'),
+    });
+    expect(f.registry.get('client')!.sessionAllowList).toEqual(
+      new Set([expect.stringMatching(/^native-command-v1:/)]),
+    );
+    f.sent.length = 0;
+    const nextContext = { ...f.context, requestId: 'rpc-next', turnId: 'next-turn' };
+    expect(
+      await f.handler(
+        'item/commandExecution/requestApproval',
+        { ...params, itemId: 'new-item', turnId: 'next-turn', startedAtMs: Date.now() },
+        f.controller.signal,
+        nextContext,
+      ),
+    ).toEqual({ decision: 'accept' });
+    expect(f.sent).toEqual([]);
+    f.registry.get('client')!.activeSkillPolicy = new Set();
+    expect(f.fences.at(-1)).toThrow('Native approval is no longer current');
+    f.registry.get('client')!.activeSkillPolicy = null;
+    f.registry.get('client')!.sessionAllowList.clear();
+    expect(f.fences.at(-1)).toThrow('Native command consent was revoked');
+    f.revoke();
+    expect(f.fences.at(-1)).toThrow('revoked');
+    expect(
+      await f.handler(
+        'item/commandExecution/requestApproval',
+        params,
+        f.controller.signal,
+        f.context,
+      ),
+    ).toEqual({ decision: 'cancel' });
+  });
+
+  it.each([
+    'command',
+    'network',
+    'thread',
+    'mode',
+    'directory',
+    'runtime',
+    'policy',
+    'cleared',
+  ] as const)('does not reuse native command consent after its %s changes', async (change) => {
+    const f = setup();
+    const params = commandParams();
+    const first = f.handler(
+      'item/commandExecution/requestApproval',
+      params,
+      f.controller.signal,
+      f.context,
+    );
+    resolvePending(await request(f), 'always', undefined, 'session');
+    expect(await first).toEqual({ decision: 'accept' });
+    f.sent.length = 0;
+    let handler = f.handler;
+    const context = { ...f.context };
+    if (change === 'command') params.command = 'gh pr merge 123';
+    if (change === 'network') params.additionalPermissions.network.enabled = false;
+    if (change === 'thread') params.threadId = context.threadId = 'another-thread';
+    if (change === 'mode') f.registry.get('client')!.mode = 'ask';
+    if (change === 'directory') params.cwd = f.registry.get('client')!.cwd = '/another-workspace';
+    if (change === 'cleared') f.registry.get('client')!.sessionAllowList.clear();
+    if (change === 'runtime' || change === 'policy')
+      handler = createCodexNativeApprovalHandler({
+        registry: f.registry,
+        clientId: 'client',
+        runtimeId: change === 'runtime' ? 'new-runtime' : 'owned-runtime',
+        environmentId: 'local',
+        policyRevision: change === 'policy' ? 'new-policy' : undefined,
+        deniedRoots: ['/credentials'],
+        writeProtectedRoots: ['/authority'],
+      });
+    const next = handler(
+      'item/commandExecution/requestApproval',
+      params,
+      f.controller.signal,
+      context,
+    );
+    resolvePending(await request(f), 'deny', undefined, 'session');
+    expect(await next).toEqual({ decision: 'cancel' });
+  });
+
+  it('settles matching concurrent native commands after session consent, preserving each response fence', async () => {
+    const f = setup();
+    const params = commandParams();
+    const first = f.handler(
+      'item/commandExecution/requestApproval',
+      params,
+      f.controller.signal,
+      f.context,
+    );
+    const second = f.handler(
+      'item/commandExecution/requestApproval',
+      { ...params, itemId: 'second' },
+      f.controller.signal,
+      { ...f.context, requestId: 'second-rpc' },
+    );
+    await vi.waitFor(() => expect(getPendingRequestsBySession('session')).toHaveLength(2));
+    resolvePending(await request(f), 'always', undefined, 'session');
+    expect(await first).toEqual({ decision: 'accept' });
+    expect(await second).toEqual({ decision: 'accept' });
+    expect(f.fences).toHaveLength(2);
+    expect(getPendingRequestsBySession('session')).toEqual([]);
   });
 
   it.each(['deny', 'cancel'] as const)(
