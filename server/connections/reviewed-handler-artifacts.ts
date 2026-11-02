@@ -23,7 +23,7 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../retained-local-codex-effects.ts':
-    '2900a0f435af419b7ef4a870f54b6b57acba4ec304a154243b456c795dc06bd1',
+    '1b7b812998df8f6df4b21d7da6327580416ffa53d98a6bf1a9964d7935809b96',
   '../builtin-tool-behavior.ts': '683d38d640c8761277009183b8d0f9aca56da587a78b37a97d774f2d16a382a5',
   '../prepared-repository-workspace-read.ts':
     '3594b274540f0f422b4a3b5f29b45c8792e7e283fe0becf2838191ec089c16ee',
@@ -673,11 +673,11 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/protocol/__tests__/prepared-repository-admission.test.ts':
     'bb98573e74ae4c9762bb9fb2f4afbf058f62fec7e3b7aeef5bed7bee3044b607',
   '../prepared-repository-transition.ts':
-    '090a092cb5dbe9b9ad67a111e8bec9e7a8812f00cfcbb936636530713b9de925',
+    '466d540ffee4222135f87cc54e97093a2a0e4ae53cdc7dbb61624dc37b79bf59',
   '../prepared-repository-barrier-read.ts':
     '9cf246cd92a0af6b2d2f86ba1708caaecb6db1e6213c313b0bacc3752a08d0f8',
   '../owned-prepared-repository-transition.ts':
-    'e9baf231fddb2978f81f929f9dffd7871b85fa2439042a249bc86cf97fd1b824',
+    '1a8df8afe05a06b7abf3be9e5b00b8058a1de74b3c611c5c833149c1eaf27f14',
   '../__tests__/prepared-repository-barrier-read.test.ts':
     'ec51b1508ffd3bb482d849d71697060cbcb43281a0f906757829cd2fee6ce9d4',
   '../__tests__/codex-prepared-repository-boundary.test.ts':

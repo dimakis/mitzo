@@ -46,7 +46,8 @@ function capture(
     events.getLatestEvent(id, 'contributor_execution') ||
     events.getLatestEvent(id, 'ordinary_task_worker_allocation') ||
     meta.isHidden ||
-    runtime?.harness.implementation !== 'codex' ||
+    runtime?.version !== 2 ||
+    runtime.harness.implementation !== 'codex' ||
     runtime.execution.location !== 'local' ||
     events.hasUncertainOrdinaryCommand(id) ||
     native.hasRunningCommand(id, binding)
@@ -116,7 +117,7 @@ function capture(
  * inspection-only recovery. Ordinary roots retain their allocation fingerprint. */
 export function retainedLocalCodexRecoveryReservation(
   meta: NonNullable<ReturnType<EventStore['getSession']>>,
-  workspace: LocalWorkspaceRecord,
+  workspace: LocalWorkspaceRecord<LocalWorkspaceKind>,
   binding: SessionRuntimeBindingV2,
 ): Omit<HostRepositoryReservationInput, 'signal'> {
   const taskRoot = workspace.hostReservation?.taskRoot;

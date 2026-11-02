@@ -383,7 +383,12 @@ export function reconcilePreparedRepositoryTransitionProjection(owners: {
   const facts = freezePendingHostTaskData(structuredClone(marker.facts));
   owners.workspace.assertPreparedRepositoryTransitionAdopted(facts, marker.childCommandId);
   const anchor = owners.events.observePreparedRepositoryContinuation(marker.childCommandId);
-  assertPreparedRepositoryAdmissionFacts(facts, anchor, owners.conversationId, owners.binding);
+  const transition = assertPreparedRepositoryAdmissionFacts(
+    facts,
+    anchor,
+    owners.conversationId,
+    owners.binding,
+  );
   const meta = owners.events.getSession(owners.conversationId);
   const native = owners.native.read(owners.conversationId, owners.binding);
   if (

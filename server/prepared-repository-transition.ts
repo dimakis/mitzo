@@ -73,7 +73,7 @@ export function assertPreparedRepositoryAdmissionFacts(
   anchor: ReturnType<EventStore['observePreparedRepositoryContinuation']>,
   conversationId: string,
   binding: AccountBinding,
-): void {
+) {
   const transition = anchor.preparedRepositoryTransition;
   if (
     !transition ||
@@ -97,4 +97,5 @@ export function assertPreparedRepositoryAdmissionFacts(
     transition.materializedRecordSha256 !== facts.materializedRecordSha256
   )
     throw Error('Prepared repository recovery evidence changed');
+  return transition;
 }
