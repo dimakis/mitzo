@@ -195,6 +195,8 @@ export interface CodexConversationOptions {
       /** Actual native callbacks supply this fence. Legacy non-native bridges
        * keep labels only; new authority-bearing owners must refuse its absence. */
       assertCurrentSync?(): void;
+      /** Trusted RPC delivery owner; registration is limited to this original call. */
+      registerResponseFence?(assertCurrent: () => void): void;
       /** Nonenumerable original-call capability, absent without a native base policy. */
       captureNativeBaseReadScope?(): NativeBaseReadScope;
     }>,
@@ -3871,6 +3873,13 @@ export class CodexConversation {
       callId: call.callId,
     };
     Object.defineProperty(invocation, 'assertCurrentSync', { value: assertOriginalCallCurrent });
+    if (requestContext?.registerResponseFence)
+      Object.defineProperty(invocation, 'registerResponseFence', {
+        value: (assertCurrent: () => void) => {
+          assertOriginalCallCurrent();
+          requestContext.registerResponseFence!(assertCurrent);
+        },
+      });
     const nativePolicy = active.nativeExecution;
     if (nativePolicy) {
       const pending = observeOriginalCallCurrent();
