@@ -267,9 +267,14 @@ try {
   const nativeGit = await command('mitzo-native-agent', [
     '/bin/sh',
     '-c',
-    'git add task.txt && git commit -qm "task" && git merge --no-ff --no-edit upstream',
+    'mkdir -p "new project/src" && git -C "new project" init --template= -q -b main && git -C "new project" remote add origin https://example.invalid/team/project.git && git -C "new project" remote set-url origin https://example.invalid/team/renamed.git && git add task.txt && git commit -qm "task" && git merge --no-ff --no-edit upstream',
   ]);
   assert.equal(nativeGit.exitCode, 0, JSON.stringify(nativeGit));
+  assert.ok(existsSync(join(workspace, 'new project', 'src')));
+  assert.match(
+    readFileSync(join(workspace, 'new project', '.git', 'config'), 'utf8'),
+    /url = https:\/\/example\.invalid\/team\/renamed\.git/,
+  );
   assert.equal(git('rev-parse', 'HEAD^2'), upstream);
   assert.equal(git('status', '--porcelain', '--', 'unselected.txt'), '?? unselected.txt');
   assert.notEqual((await command('mitzo-native-agent', ['/bin/cat', secret])).exitCode, 0);
@@ -298,9 +303,19 @@ try {
   const blocked = await command('base', ['/usr/bin/touch', join(extra, 'blocked')]);
   assert.notEqual(blocked.exitCode, 0, JSON.stringify(blocked));
   assert.ok(!existsSync(join(extra, 'blocked')));
-  const granted = await command('granted', ['/usr/bin/touch', join(extra, 'granted')]);
+  const granted = await command('granted', [
+    '/bin/sh',
+    '-c',
+    'mkdir -p "$1/granted/src" && git -C "$1/granted" init --template= -q -b main && git -C "$1/granted" remote add origin https://example.invalid/team/project.git && git -C "$1/granted" remote set-url origin https://example.invalid/team/renamed.git',
+    'project-setup',
+    extra,
+  ]);
   assert.equal(granted.exitCode, 0, JSON.stringify(granted));
-  assert.ok(existsSync(join(extra, 'granted')));
+  assert.ok(existsSync(join(extra, 'granted', 'src')));
+  assert.match(
+    readFileSync(join(extra, 'granted', '.git', 'config'), 'utf8'),
+    /url = https:\/\/example\.invalid\/team\/renamed\.git/,
+  );
   const deniedCredential = await command('granted', ['/bin/cat', secret]);
   assert.notEqual(deniedCredential.exitCode, 0, JSON.stringify(deniedCredential));
   assert.ok(!deniedCredential.stdout.includes('synthetic credential marker'));
@@ -528,6 +543,7 @@ try {
           askGitWrite: 'denied',
           credentialRead: 'denied',
           outsideWrite: 'denied',
+          nestedProjectSetup: 'mkdir, git init, remote add and set-url passed',
         },
         workspaceWrite: 'allowed',
         runtimeScratch: {
@@ -538,6 +554,7 @@ try {
         },
         outsideWrite: 'denied',
         exactAddedRootWrite: 'allowed',
+        projectSetupInAddedRoot: 'mkdir, git init, remote add and set-url passed',
         credentialReadAfterGrant: 'denied',
         helperWithNarrowCredentialFence: 'allowed',
         helperWithBroadHomeDenyWithoutException: 'denied',
