@@ -254,6 +254,14 @@ describe('owned Codex lifecycle bridge', () => {
     try {
       await vi.advanceTimersByTimeAsync(100);
       await pending;
+      expect(f.lease.assertToolCurrent).toHaveBeenCalledWith(expect.any(AbortSignal));
+      expect(vi.mocked(f.lease.assertToolCurrent!).mock.calls[0][0].aborted).toBe(true);
+      expect(f.owner.onClose).toHaveBeenCalledWith(
+        expect.objectContaining({
+          category: 'timeout',
+          diagnostic: { reason: 'host_tool_admission_timeout' },
+        }),
+      );
       release();
       await Promise.resolve();
       expect(f.owner.onRequest).not.toHaveBeenCalled();

@@ -14,12 +14,10 @@ import { FrozenHostCodexExecutable } from '../frozen-host-codex-executable.js';
 import type { OrdinaryLocalCodexAdmissionExpectation } from '../ordinary-local-codex-admission.js';
 import { execFile, execFileSync } from 'node:child_process';
 import { promisify } from 'node:util';
-import { capturePreparedRepositoryReader } from '../local-repository-native-read.js';
-import { LocalRepositoryReadAccess } from '../local-repository-read-access.js';
+import { withPreparedRepositoryWorkspaceRead } from '../prepared-repository-workspace-read.js';
 import { assertPreparedRepositoryTaskTopology } from '../prepared-repository-workspace-owner.js';
 import { snapshotRepositoryTaskCheckout } from '../repository-task-checkout.js';
 import { codexNativeExecutionPolicy } from '../codex-native-execution-policy.js';
-import { withPreparedRepositoryBarrierReadScope } from '../prepared-repository-barrier-read.js';
 import { repositoryObservationProgram } from '../native-repository-observation.js';
 import * as topologyTransport from '../sandboxed-command.js';
 const roots: string[] = [];
@@ -40,7 +38,9 @@ afterEach(() => {
   deployment.controller = false;
 });
 
-it.runIf(process.platform === 'darwin').each(['current', 'account', 'credential'] as const)(
+it
+  .runIf(process.platform === 'darwin')
+  .each(['current', 'account', 'credential', 'before-read-account'] as const)(
   'composes one topology phase with the real bootstrap credential owner (%s)',
   async (change) => {
     const f = fixture(),
@@ -86,17 +86,24 @@ it.runIf(process.platform === 'darwin').each(['current', 'account', 'credential'
     const rpc = f.rpc.request.getMockImplementation()!;
     let changed = false;
     f.rpc.request.mockImplementation(async (method, params) => {
-      if (changed && change === 'account' && method === 'account/read')
+      if (
+        changed &&
+        ['account', 'before-read-account'].includes(change) &&
+        method === 'account/read'
+      )
         return {
           account: { type: 'chatgpt', email: 'revoked@example.invalid', planType: 'plus' },
         } as never;
       return rpc(method, params);
     });
+    let helperSpawns = 0;
     const helper = vi
       .spyOn(topologyTransport, 'executePrivateRepositoryObservation')
       .mockImplementation(async (options) => {
+        if (change === 'before-read-account') changed = true;
         await options.beforeSpawnAsync?.();
         options.beforeSpawn?.();
+        helperSpawns++;
         const pending = promisify(execFile)(
           '/usr/bin/python3',
           ['-I', '-c', repositoryObservationProgram],
@@ -129,32 +136,15 @@ it.runIf(process.platform === 'darwin').each(['current', 'account', 'credential'
               deniedRoots: [f.privateRoot, f.configuration[0].credentialRef],
               writeProtectedRoots: [],
             });
-            await withPreparedRepositoryBarrierReadScope(
+            await withPreparedRepositoryWorkspaceRead(
+              owner,
               policy,
               'command',
               {
-                signal: owner.signal,
                 selectedPolicy: () => policy,
-                assertCurrentSync: () => owner.assertCurrentSync(),
-                revalidate: () => owner.revalidate(),
               },
-              async (scope) => {
-                const reader = await capturePreparedRepositoryReader(scope, {
-                  deadline: Date.now() + 30000,
-                });
-                try {
-                  await assertPreparedRepositoryTaskTopology(
-                    new LocalRepositoryReadAccess(reader),
-                    identity,
-                    join(task, '.git'),
-                  );
-                } finally {
-                  try {
-                    await reader.dispose();
-                  } finally {
-                    await scope.revalidate();
-                  }
-                }
+              async (access) => {
+                await assertPreparedRepositoryTaskTopology(access, identity, join(task, '.git'));
               },
             );
           });
@@ -184,12 +174,13 @@ it.runIf(process.platform === 'darwin').each(['current', 'account', 'credential'
                 helperSpawns: helper.mock.calls.length,
               }) + '\n',
             );
-          expect(accountReads).toEqual(Array(samples).fill(6));
+          expect(accountReads).toEqual(Array(samples).fill(3));
           expect(helper).toHaveBeenCalledTimes(samples);
         } else {
           await expect(physical()).rejects.toThrow();
           expect(f.rpc.close).toHaveBeenCalled();
           expect(helper).toHaveBeenCalledTimes(1);
+          expect(helperSpawns).toBe(change === 'before-read-account' ? 0 : 1);
         }
       });
     } catch (error) {
@@ -1346,6 +1337,22 @@ it.each([false, true])(
     }
   },
 );
+
+it('forwards the tool admission cancellation signal to workspace validation', async () => {
+  const f = fixture();
+  const workspace = vi.fn(async (_expected: unknown, _signal?: AbortSignal) => {});
+  Object.assign(f.options, { assertToolSelectionCurrent: workspace });
+  try {
+    await f.authority.withBootstrap(f.expected, f.claim, async (lease) => {
+      const admission = new AbortController();
+      await lease.assertToolCurrent!(admission.signal);
+      expect(workspace).toHaveBeenLastCalledWith(f.expected, admission.signal);
+    });
+  } finally {
+    f.authority.currentLease()?.close();
+    f.store.close();
+  }
+});
 
 it('bounds the qualified workspace physical read owner to the same real lease without recursive physical validation', async () => {
   const f = fixture();

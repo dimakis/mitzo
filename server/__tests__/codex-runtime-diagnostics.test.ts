@@ -26,6 +26,14 @@ it('retains safe transport failure classes', () => {
   expect(codexRuntimeDiagnostic(error)).toMatch(/timed out/);
   expect(codexRuntimeErrorTelemetry(error)).toEqual({ transportErrorCategory: 'timeout' });
 });
+it('identifies a host tool admission timeout without blaming the provider or user', () => {
+  const error = new CodexTransportError('timeout', { reason: 'host_tool_admission_timeout' });
+  expect(codexRuntimeDiagnostic(error)).toMatch(/workspace validation.*timed out/i);
+  expect(codexRuntimeErrorTelemetry(error)).toMatchObject({
+    transportErrorCategory: 'timeout',
+    transportFailureReason: 'host_tool_admission_timeout',
+  });
+});
 it('explains reply provenance failure without hiding it behind a generic disconnection', () => {
   const error = new CodexTransportError('connection', { reason: 'reply_provenance_failed' });
   expect(codexRuntimeDiagnostic(error)).toMatch(/reply.*execution identity/i);

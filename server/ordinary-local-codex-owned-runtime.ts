@@ -65,12 +65,7 @@ import {
   performPreparedRepositoryPrimaryTransition,
   reconcilePreparedRepositoryTransitionProjection,
 } from './owned-prepared-repository-transition.js';
-import { withPreparedRepositoryBarrierReadScope } from './prepared-repository-barrier-read.js';
-import {
-  capturePreparedRepositoryReader,
-  preparedRepositoryValidationReadMs,
-} from './local-repository-native-read.js';
-import { LocalRepositoryReadAccess } from './local-repository-read-access.js';
+import { withPreparedRepositoryWorkspaceRead } from './prepared-repository-workspace-read.js';
 import { composeOwnedLocalNativeExecutionPolicyForWorkspace } from './owned-local-codex-native-policy.js';
 import { freezePendingHostTaskData } from './pending-host-task.js';
 import type { CredentialSetupNotification } from './credential-setup-continuation.js';
@@ -587,32 +582,14 @@ export class OrdinaryLocalCodexOwnedRuntime<K extends LocalWorkspaceKind = 'repo
                           authSessionId: this.#authSessionId,
                         }),
                       );
-                    await withPreparedRepositoryBarrierReadScope(
+                    await withPreparedRepositoryWorkspaceRead(
+                      current,
                       selectedPolicy(),
                       this.owners.commandId,
                       {
-                        signal: current.signal,
                         selectedPolicy,
-                        assertCurrentSync: () => current.assertCurrentSync(),
-                        revalidate: () => current.revalidate(),
                       },
-                      async (scope) => {
-                        const reader = await capturePreparedRepositoryReader(scope, {
-                          deadline: Date.now() + preparedRepositoryValidationReadMs,
-                        });
-                        try {
-                          const result: unknown = await action(
-                            new LocalRepositoryReadAccess(reader),
-                          );
-                          if (result !== undefined) throw unavailable();
-                        } finally {
-                          try {
-                            await reader.dispose();
-                          } finally {
-                            await scope.revalidate();
-                          }
-                        }
-                      },
+                      action,
                     );
                     completed = true;
                   },
@@ -728,7 +705,8 @@ export class OrdinaryLocalCodexOwnedRuntime<K extends LocalWorkspaceKind = 'repo
               },
             }
           : {}),
-        assertToolSelectionCurrent: (expected) => selection.assertToolCurrent(expected),
+        assertToolSelectionCurrent: (expected, signal) =>
+          selection.assertToolCurrent(expected, signal),
         assertSelectionCurrentSync: (expected) => selection.assertCurrentSync(expected),
         signal: this.#signal,
         privateRoot: this.owners.privateRoot,
@@ -1101,21 +1079,14 @@ export class OrdinaryLocalCodexOwnedRuntime<K extends LocalWorkspaceKind = 'repo
                                   started = true;
                                   assertPolicyOwner();
                                   const policy = Reflect.apply(selectedPolicy, policyOwner, []);
-                                  await withPreparedRepositoryBarrierReadScope(
+                                  await withPreparedRepositoryWorkspaceRead(
+                                    current,
                                     policy,
                                     childId,
                                     {
-                                      signal: current.signal,
                                       selectedPolicy: () =>
                                         Reflect.apply(selectedPolicy, policyOwner, []),
-                                      assertCurrentSync: () => {
-                                        current.assertCurrentSync();
-                                        assertPolicyOwner();
-                                      },
-                                      revalidate: async () => {
-                                        await current.revalidate();
-                                        assertPolicyOwner();
-                                      },
+                                      assertCurrentSync: assertPolicyOwner,
                                       assertNativeExecutionCurrent:
                                         nativeCurrent &&
                                         ((policy, commandId) =>
@@ -1124,26 +1095,7 @@ export class OrdinaryLocalCodexOwnedRuntime<K extends LocalWorkspaceKind = 'repo
                                             commandId,
                                           ])),
                                     },
-                                    async (readScope) => {
-                                      const reader = await capturePreparedRepositoryReader(
-                                        readScope,
-                                        {
-                                          deadline: Date.now() + preparedRepositoryValidationReadMs,
-                                        },
-                                      );
-                                      try {
-                                        const result: unknown = await action(
-                                          new LocalRepositoryReadAccess(reader),
-                                        );
-                                        if (result !== undefined) throw unavailable();
-                                      } finally {
-                                        try {
-                                          await reader.dispose();
-                                        } finally {
-                                          await readScope.revalidate();
-                                        }
-                                      }
-                                    },
+                                    action,
                                   );
                                   completed = true;
                                 },

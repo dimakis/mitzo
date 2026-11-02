@@ -137,9 +137,10 @@ export async function captureLocalRepositoryReader(
   ownerSignal: AbortSignal,
   assertCurrentSync: () => void,
   revalidate: () => Promise<void>,
-  options: { deadline: number },
+  options: { deadline: number; beforePhysicalRead?(): Promise<void> },
 ): Promise<LocalRepositoryReadAuthority & { dispose(): Promise<void> }> {
   const deadline = options.deadline;
+  const beforePhysicalRead = options.beforePhysicalRead ?? revalidate;
   let disposed = false;
   let closing: Promise<void> | undefined;
   const abort = new AbortController();
@@ -207,7 +208,7 @@ export async function captureLocalRepositoryReader(
           timeoutMs: Math.max(1, Math.min(request.timeoutMs, deadline - Date.now())),
           maxOutputBytes: request.maxOutputBytes,
           beforeSpawnAsync: async () => {
-            await revalidate();
+            await beforePhysicalRead();
             current();
           },
           beforeSpawn: () => {
