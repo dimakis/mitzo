@@ -75,6 +75,14 @@ timer-based unmount delays.
 
 ## Accessibility and verification
 
+`MotionList` snapshots keyed row positions before React's DOM mutation, preserves
+the first visible row in the chat scroller, then animates individual `translate`
+through `animateMotion`'s reorder role and the standard timing/easing tokens.
+It retains the same DOM rows and focus. Unchanged key order does not replay
+movement; interrupted moves begin at their visible position. Reduce Motion and
+unmount cancel active movement. The caller owns meaningful ordering and browsing
+delays; motion never schedules or withholds metadata updates.
+
 `useReducedMotion` subscribes to preference changes and cancels active Web
 Animations. `motion.css` disables CSS animations, transitions, smooth scrolling,
 and press scaling under Reduce Motion. Missing animation support or missing

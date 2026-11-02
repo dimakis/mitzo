@@ -405,6 +405,8 @@ export interface SessionActivity {
   waitReason?: WaitReason;
   progress?: { done: number; total: number };
   lastEventAt: number;
+  /** Most recent observed user message; tool/status events never advance this. */
+  lastUserMessageAt?: number;
   taskId?: string;
   /** True when the session worktree has uncommitted changes. */
   uncommittedWork?: boolean;

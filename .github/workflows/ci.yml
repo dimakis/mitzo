@@ -299,6 +299,15 @@ jobs:
           retention-days: 7
           if-no-files-found: warn
 
+      - name: Retain conversation library visual evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: conversation-library-visuals-${{ matrix.project }}-shard-${{ matrix.shard }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: test-results/offline/**/session-library-*.png
+          retention-days: 7
+          if-no-files-found: ignore
+
       - name: Retain agent tool selection visual evidence
         if: always()
         uses: actions/upload-artifact@v7

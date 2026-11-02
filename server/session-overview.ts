@@ -83,7 +83,7 @@ export class SessionOverviewEmitter {
   /** Cached lastSpeakerAt + lastSpeaker per sessionId — avoids per-broadcast SQLite lookups. */
   private speakerCache = new Map<
     string,
-    { speaker: 'user' | 'assistant' | null; at: number | null }
+    { speaker: 'user' | 'assistant' | null; at: number | null; lastUserMessageAt?: number }
   >();
   /** Background refresh interval for uncommitted work checks. */
   private uncommittedRefreshTimer: ReturnType<typeof setInterval> | null = null;
@@ -327,6 +327,7 @@ export class SessionOverviewEmitter {
       waitReason: primaryState === 'waiting' ? waitReason : undefined,
       progress,
       lastEventAt,
+      lastUserMessageAt: speaker.lastUserMessageAt,
       taskId,
       uncommittedWork,
       awaitingReply,
@@ -376,12 +377,17 @@ export class SessionOverviewEmitter {
   private getCachedSpeaker(sessionId: string): {
     speaker: 'user' | 'assistant' | null;
     at: number | null;
+    lastUserMessageAt?: number;
   } {
     const cached = this.speakerCache.get(sessionId);
     if (cached) return cached;
     const meta = this.deps.eventStore.getSession(sessionId);
     const speaker = meta?.lastSpeaker as 'user' | 'assistant' | undefined;
-    const entry = { speaker: speaker ?? null, at: meta?.lastSpeakerAt ?? null };
+    const entry = {
+      speaker: speaker ?? null,
+      at: meta?.lastSpeakerAt ?? null,
+      lastUserMessageAt: speaker === 'user' ? (meta?.lastSpeakerAt ?? undefined) : undefined,
+    };
     this.speakerCache.set(sessionId, entry);
     return entry;
   }
@@ -391,7 +397,13 @@ export class SessionOverviewEmitter {
    * Call this from the turn_end / user_message event handlers.
    */
   updateSpeaker(sessionId: string, speaker: 'user' | 'assistant'): void {
-    this.speakerCache.set(sessionId, { speaker, at: Date.now() });
+    const at = Date.now();
+    this.speakerCache.set(sessionId, {
+      speaker,
+      at,
+      lastUserMessageAt:
+        speaker === 'user' ? at : this.speakerCache.get(sessionId)?.lastUserMessageAt,
+    });
   }
 
   /**
