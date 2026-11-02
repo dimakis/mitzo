@@ -208,6 +208,35 @@ async function createReviewedOutcome(
 }
 
 describe('todo routes', () => {
+  it.each([{}, { profile: 'work' }])(
+    'GET /api/todos rejects legacy source-import requests without running a command (%j)',
+    async (query) => {
+      const execute = vi.fn().mockResolvedValue({
+        stdout: JSON.stringify({ profiles: [], items: [] }),
+        stderr: '',
+      });
+      const factory = vi
+        .spyOn(commands, 'createWorkspaceRuntimeCommandRunner')
+        .mockReturnValue(execute);
+      writeFileSync(TODO_SCRIPT, '# source import must not execute\n');
+      try {
+        const response = await request(app)
+          .get('/api/todos')
+          .query({ ...query, refresh: 'true' })
+          .set('Cookie', authCookie);
+        expect(response.status).toBe(400);
+        expect(response.body).toEqual({
+          code: 'source_refresh_not_supported',
+          error: 'This endpoint only reloads saved Telos items.',
+        });
+        expect(execute).not.toHaveBeenCalled();
+      } finally {
+        factory.mockRestore();
+        rmSync(TODO_SCRIPT, { force: true });
+      }
+    },
+  );
+
   it('mounts agent item routes behind host authentication and active session identity', async () => {
     expect(
       (await request(app).post('/api/internal/telos/items/get').send({ itemId: 'task' })).status,
@@ -794,9 +823,7 @@ describe('enrolled mutable controller commands', () => {
       }
       return {
         stdout: JSON.stringify(
-          args.includes('--list') || args.includes('--refresh')
-            ? { profiles: ['work'], items: [] }
-            : { ok: true, created: true },
+          args.includes('--list') ? { profiles: ['work'], items: [] } : { ok: true, created: true },
         ),
         stderr: '',
       };
@@ -841,7 +868,7 @@ describe('enrolled mutable controller commands', () => {
   });
 
   it.each([
-    ['get', '/api/todos?refresh=true&profile=work', undefined, 200, '--refresh'],
+    ['get', '/api/todos?profile=work', undefined, 200, '--list'],
     ['post', '/api/todos', { summary: 'Fixture', profile: 'work' }, 201, '--create'],
     ['post', '/api/todos/item-1/action', { action: 'ack' }, 200, '--action'],
     ['post', '/api/todos/outcomes', outcome, 201, '--create-outcome-json'],
