@@ -38,7 +38,7 @@ export async function captureNativeLocalRepositoryReader(
  * its receiver/lifetime; no expired tool context or descriptive receipt is used. */
 export async function capturePreparedRepositoryReader(
   scope: PreparedRepositoryBarrierReadScope,
-  options: { deadline: number },
+  options: { deadline: number; beforePhysicalRead?(): Promise<void> },
 ): Promise<LocalRepositoryReadAuthority & { dispose(): Promise<void> }> {
   return captureReader(
     scope,

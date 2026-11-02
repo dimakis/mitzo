@@ -617,13 +617,15 @@ export class CodexConversation {
             'stream_error',
             'reply_provenance_failed',
             'notification_handler_failed',
+            'host_tool_admission_timeout',
           ].includes(diagnostic.reason)
             ? (diagnostic.reason as
                 | 'child_exit'
                 | 'process_error'
                 | 'stream_error'
                 | 'reply_provenance_failed'
-                | 'notification_handler_failed')
+                | 'notification_handler_failed'
+                | 'host_tool_admission_timeout')
             : error instanceof CodexTransportError && error.category === 'timeout'
               ? 'timeout'
               : error instanceof CodexTransportError && error.category === 'protocol'
