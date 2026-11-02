@@ -520,7 +520,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/prepared-repository-workspace-owner.test.ts':
     '78f6ad2279528ca46bfe6d0c9123feca28aa0d7645116351f14e3e48d71916c4',
   '../__tests__/prepared-repository-native-consumer.test.ts':
-    'f43cb798bcd12f3a55520893fd0ffdd02f715f05e1a9a60c0e8552c7cd795d3c',
+    '43934378ef8d4bd2ef289586f7dd87f83a79a863762f6c1803f713cd6ac1619e',
   '../__tests__/prepared-repository-workspace-owner-sync.test.ts':
     '6becef99ab58ea97ba98700c719405f31cb49d1500fc85f7e8c91292d31aaf8e',
   '../local-repository-preparation-packed-refs.ts':

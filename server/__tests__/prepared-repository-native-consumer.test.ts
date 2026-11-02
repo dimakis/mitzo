@@ -7,6 +7,7 @@ import {
 import { CodexConversation } from '../codex-conversation.js';
 import { expect, it, vi } from 'vitest';
 import { join } from 'node:path';
+import { randomUUID } from 'node:crypto';
 import { writeFile, readFile } from 'node:fs/promises';
 import { CodexConversationStore } from '../codex-conversation-store.js';
 import { codexNativeExecutionPolicy } from '../codex-native-execution-policy.js';
@@ -474,7 +475,7 @@ it('renews an untransferred preparation after restart without treating its reser
   expect(f.events.hasUncertainOrdinaryCommand(f.first.sessionId)).toBe(true);
   const request = {
     ...structuredClone(f.request),
-    clientMsgId: 'resume-untransferred',
+    clientMsgId: randomUUID(),
     payload: { ...f.request.payload, text: 'Continue with the already created repository' },
   };
   const command = f.commandFor(f.reservation, request);
