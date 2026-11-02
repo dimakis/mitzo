@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { callbackOutcome } from '../turn-callbacks.js';
 import { AdviserTaskScope } from '../adviser-task-scope.js';
 import { retainTelosWorkRoleContext } from '../telos-work-role-context.js';
 import { buildAgentProfilePrompt } from '../agent-library-prompt.js';
@@ -5747,6 +5748,7 @@ it('composes explicitly selected native artifacts and task MCP on the same owned
   f.opts.mcpServers = { 'task-board': taskConfig, ambient: { command: 'unselected-peer' } };
   const taskCall = vi.fn(async ({ name }: { name: string }) => ({
     content: [{ type: 'text', text: `original ${name} receipt` }],
+    isError: false,
   }));
   const taskClose = vi.fn(async () => {});
   const connect = vi.fn(async (config: unknown) => {
@@ -5850,18 +5852,32 @@ it('composes explicitly selected native artifacts and task MCP on the same owned
     const status = await describeTask('TaskStatus');
     taskCall.mockClear();
     mocks.permissionHandler.mockResolvedValueOnce({ behavior: 'deny', message: 'Denied' });
-    expect(
-      await execute(
-        'InvokeIntegrationTool',
-        { toolId: status.toolId, catalogRevision: status.catalogRevision, arguments: {} },
-        new AbortController().signal,
-        {
-          turnId: 'original-turn',
-          callId: 'denied',
-        },
-      ),
-    ).toMatchObject({ isError: true });
+    const denied = await execute(
+      'InvokeIntegrationTool',
+      { toolId: status.toolId, catalogRevision: status.catalogRevision, arguments: {} },
+      new AbortController().signal,
+      {
+        turnId: 'original-turn',
+        callId: 'denied',
+      },
+    );
+    expect(denied).toMatchObject({ isError: true });
+    expect(callbackOutcome(denied)).toBe('settled');
     expect(taskCall).not.toHaveBeenCalled();
+    taskCall.mockResolvedValueOnce({
+      content: [{ type: 'text', text: 'Task status unavailable' }],
+      isError: true,
+    });
+    const failedRead = await execute(
+      'InvokeIntegrationTool',
+      { toolId: status.toolId, catalogRevision: status.catalogRevision, arguments: {} },
+      new AbortController().signal,
+      { turnId: 'original-turn', callId: 'failed-status' },
+    );
+    expect(failedRead).toMatchObject({ isError: true });
+    expect(callbackOutcome(failedRead)).toBe('settled');
+    expect(taskCall).toHaveBeenCalledOnce();
+    taskCall.mockClear();
     await expect(
       execute('mcp__task-board__TaskBlock', {}, new AbortController().signal, {
         turnId: 'original-turn',

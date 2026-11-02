@@ -282,7 +282,7 @@ export async function reconcileRetainedLocalCodexEffects(options: {
                   cwd: expected.workspace.cwd,
                   workspaceRoots: [expected.workspace.cwd],
                   mode: expected.selection.permission.mode,
-                  authSessionId: auth,
+                  authSessionId: original.custody.authSessionId,
                 }),
               ),
             action,
@@ -355,7 +355,9 @@ export async function reconcileRetainedLocalCodexEffects(options: {
             cwd: expected.workspace.cwd,
             mode: expected.selection.permission.mode,
             workspaceRoots: [expected.workspace.cwd],
-            authSessionId: auth,
+            // Preserve the original policy's identity for historical matching.
+            // Current operator authority is still checked by every owner above.
+            authSessionId: original.custody.authSessionId,
           }),
         );
         // Native metadata/items do not read checkout contents. Reuse the

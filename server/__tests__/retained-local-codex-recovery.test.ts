@@ -1,4 +1,6 @@
 import { composeOwnedLocalNativeExecutionPolicyForWorkspace } from '../owned-local-codex-native-policy.js';
+import { login, authenticateToken, revokeAuthSession } from '../auth.js';
+import { bindAgentLibraryTransport } from '../agent-library-transport.js';
 import { reconcilableLocalCodexCommand } from '../retained-local-codex-effects.js';
 import { afterEach, expect, it, vi } from 'vitest';
 import { createHash, randomUUID } from 'node:crypto';
@@ -476,6 +478,11 @@ it('reconciles an already dispatched cold turn with a failed read and no success
   };
   first.close();
   const probe = f.commandFor(f.reservation, f.request, true);
+  const token = await login(process.env.AUTH_PASSPHRASE!);
+  const actor = (await authenticateToken(token!))!;
+  expect(actor.id).not.toBe(custody.authSessionId);
+  const connectionId = randomUUID();
+  cleanups.push(() => revokeAuthSession(actor), bindAgentLibraryTransport(connectionId, actor));
   const baseRequest = probe.rpc.request.getMockImplementation()!;
   let afterItem = () => {};
   probe.rpc.request.mockImplementation(async (method, params) => {
@@ -502,11 +509,15 @@ it('reconciles an already dispatched cold turn with a failed read and no success
     }
     return baseRequest(method, params);
   });
-  const driver = new OrdinaryLocalCodexOwnedRuntime({ ...probe.dependencies, nativeStore: native });
+  const driver = new OrdinaryLocalCodexOwnedRuntime({
+    ...probe.dependencies,
+    operatorConnectionId: connectionId,
+    nativeStore: native,
+  });
   cleanups.push(() => driver.close());
-  expect(
-    reconcilableLocalCodexCommand(f.events, native, id, custody.authSessionId, f.workspace),
-  ).toBe(command.id);
+  expect(reconcilableLocalCodexCommand(f.events, native, id, actor.id, f.workspace)).toBe(
+    command.id,
+  );
   const claims = vi.spyOn(f.events, 'claimOrdinaryLocalCommandDispatch');
   const latest = f.events.getLatestEvent.bind(f.events);
   for (const scope of [
@@ -570,6 +581,10 @@ it('reconciles an already dispatched cold turn with a failed read and no success
   await driver.reconcileRetainedEffects();
   expect(native.read(id, binding).recovery).toBe(0);
   expect(native.continuationBlocker(id, binding)).toBeUndefined();
+  expect(native.readHostCustody(id, binding)).toEqual(custody);
+  expect(native.readNativeExecution(id, binding, command)?.policy.bindingRevision).toBe(
+    policy.bindingRevision,
+  );
   expect(
     native.commands(id, binding).map(({ status, attempt, id }) => ({ status, attempt, id })),
   ).toEqual(before.command.map(({ status, attempt, id }) => ({ status, attempt, id })));

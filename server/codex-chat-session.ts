@@ -2012,7 +2012,7 @@ async function openCodexChatBound(
       rawOutputBytes: Buffer.byteLength(result.content),
       deliveredOutputBytes: Buffer.byteLength(content),
     });
-    return { ...result, content };
+    return copyCallbackOutcome(result, { ...result, content });
   };
   const connectionTools = sessionCredentialTools(
     options.conversationId,
@@ -2516,7 +2516,7 @@ async function openCodexChatBound(
       rawOutputBytes: Buffer.byteLength(result.content),
       deliveredOutputBytes: Buffer.byteLength(content),
     });
-    return { ...result, content };
+    return copyCallbackOutcome(result, { ...result, content });
   };
   let acceptedReplyExecution: ReturnType<typeof captureOrdinaryReplyExecution> | undefined;
   const runtimeOptions: CodexConversationOptions = {
