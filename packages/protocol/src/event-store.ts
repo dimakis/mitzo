@@ -2494,7 +2494,7 @@ export class EventStore {
             ? session.ordinaryWorkspaceId === old.id && session.repositoryWorkspaceId == null
             : session.repositoryWorkspaceId === old.id && session.ordinaryWorkspaceId == null)
         ) {
-          const source = this.getOrdinaryLocalCommandAdmission(
+          const source = this.getOrdinaryCommandExecutionAdmission(
             pending.preparedRepositoryTransition!.source.commandId,
           );
           if (
@@ -2507,7 +2507,7 @@ export class EventStore {
         }
       }
     }
-    return row ? this.getOrdinaryCommandAdmission(row.client_msg_id) : undefined;
+    return row ? this.getOrdinaryCommandExecutionAdmission(row.client_msg_id) : undefined;
   }
 
   getOrdinaryOpenShellCommandAdmission(clientMsgId: string) {

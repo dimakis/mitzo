@@ -3580,7 +3580,19 @@ mountObservedRouter(
   }),
 );
 
-app.get('/api/sessions/:id/meta', async (req, res) => {
+app.get('/api/sessions/:id/meta', (req, res, next) => {
+  void readSessionMetadata(req, res).catch(() => {
+    log.warn('Session metadata request failed', { sessionId: req.params.id });
+    const message = 'Conversation metadata is temporarily unavailable.';
+    if (res.headersSent) {
+      next(new Error(message));
+      return;
+    }
+    res.status(503).json({ error: message });
+  });
+});
+
+async function readSessionMetadata(req: express.Request, res: express.Response) {
   const meta = eventStore.getSession(req.params.id);
   if (!meta) {
     res.status(404).json({ error: 'Session not found' });
@@ -3591,12 +3603,16 @@ app.get('/api/sessions/:id/meta', async (req, res) => {
     res.locals.authSession?.id,
   );
   let routingMetadata: ReturnType<typeof ownedLocalCodexMetadata>;
+  let lastAdmittedSelection: import('@mitzo/protocol').OrdinaryLocalCommandSelection | undefined;
   try {
     routingMetadata = ownedLocalCodexMetadata(
       eventStore,
       meta.sessionId,
       continuationStatus.available,
     );
+    lastAdmittedSelection = eventStore.getLatestOrdinaryCommandAdmission?.(
+      meta.sessionId,
+    )?.selection;
   } catch {
     res.status(409).json({
       error:
@@ -3618,9 +3634,6 @@ app.get('/api/sessions/:id/meta', async (req, res) => {
         }
       : {}),
   };
-  const lastAdmittedSelection = eventStore.getLatestOrdinaryCommandAdmission?.(
-    meta.sessionId,
-  )?.selection;
   const totalTokens =
     meta.inputTokens + meta.outputTokens + meta.cacheReadTokens + meta.cacheCreationTokens;
   const symposiumConfigured = Boolean(meta.symposiumConfig);
@@ -3894,7 +3907,7 @@ app.get('/api/sessions/:id/meta', async (req, res) => {
     totalCostUsd: meta.totalCostUsd,
     numTurns: meta.numTurns,
   });
-});
+}
 
 async function reattachCodexQueue(
   id: string,

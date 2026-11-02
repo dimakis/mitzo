@@ -789,4 +789,26 @@ it('observes a fresh cold bootstrap between the original prepared source and its
   expect(() =>
     store.observePreparedRepositoryBootstrapAdmission(reserved.childCommandId, resume.clientMsgId),
   ).toThrow();
+  store.commitPreparedRepositoryContinuation('session', reserved.childCommandId, transition);
+  store.rebindPreparedRepositoryQueuedCommands('session', reserved.childCommandId, transition, [
+    resume.clientMsgId,
+  ]);
+  expect(store.getLatestOrdinaryCommandAdmission('session')).toEqual(
+    store.getOrdinaryCommandExecutionAdmission(resume.clientMsgId),
+  );
+  expect(() => store.getOrdinaryCommandAdmission(resume.clientMsgId)).toThrow(
+    'does not match durable session identity',
+  );
+  expect(
+    store.getPreparedRepositoryCommandAdmissionEvidence(
+      resume.clientMsgId,
+      reserved.childCommandId,
+    ),
+  ).toEqual(expected);
+  database
+    .prepare('DELETE FROM ordinary_execution_admissions WHERE command_id=?')
+    .run(resume.clientMsgId);
+  expect(() => store.getLatestOrdinaryCommandAdmission('session')).toThrow(
+    'does not match durable session identity',
+  );
 });

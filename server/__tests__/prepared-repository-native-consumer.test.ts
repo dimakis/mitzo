@@ -8,6 +8,8 @@ import { CodexConversation } from '../codex-conversation.js';
 import { expect, it, vi } from 'vitest';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
+import httpRequest from 'supertest';
+import { listenOnLoopback, closeTestServer } from './loopback-test-server.js';
 import { writeFile, readFile } from 'node:fs/promises';
 import { CodexConversationStore } from '../codex-conversation-store.js';
 import { codexNativeExecutionPolicy } from '../codex-native-execution-policy.js';
@@ -535,6 +537,22 @@ it('renews an untransferred preparation after restart without treating its reser
   expect(resumedAdmission.nativeExecutionWorkspace(request.clientMsgId).cwd).toBe(
     adopted!.directory,
   );
+  const { app } = await import('../app.js');
+  const { COOKIE_NAME } = await import('../auth.js');
+  const metadataServer = await listenOnLoopback(app);
+  try {
+    const metadata = await httpRequest(metadataServer)
+      .get(`/api/sessions/${f.first.sessionId}/meta`)
+      .set('Cookie', `${COOKIE_NAME}=${f.operatorToken}`);
+    expect(metadata.status).toBe(200);
+    expect(metadata.body.cwd).toBe(adopted!.directory);
+    expect(metadata.body.modelSelection).toMatchObject({
+      model: dispatch.mock.calls[0][0].expected.selection.model,
+      reasoningEffort: dispatch.mock.calls[0][0].expected.selection.thinking,
+    });
+  } finally {
+    await closeTestServer(metadataServer);
+  }
   expect(f.events.getSendCommand(f.source.commandId)).toEqual(originalSource);
   expect(
     f.native
