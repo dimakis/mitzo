@@ -153,6 +153,7 @@ import * as lifecycleController from '../openshell-lifecycle-controller.js';
 import * as knowledgeStoreConfig from '../knowledge-store-config.js';
 import { ConnectionsService } from '../connections-service.js';
 import { setConnectionsRuntime } from '../connections-runtime.js';
+import * as githubPublishing from '../github-publishing-tool.js';
 import { getLiveCapabilityConversationBinding } from '../capability-conversation-binding.js';
 import { SymposiumProfileProposalStore } from '../symposium-profile-proposals.js';
 import { SymposiumProfileStore } from '../symposium-profiles.js';
@@ -3698,6 +3699,12 @@ it('qualifies owned native, MCP, profile and publishing tools and rejects other 
     .spyOn(native, 'createNativeToolExecutor')
     .mockReturnValue(nativeExecute as never);
   const f = ownedLocalOptions();
+  f.opts.repositoryWorkspace = {
+    ...f.opts.repositoryWorkspace!,
+    connectionId: 'local',
+    repository: 'local/source-id',
+  };
+  const publishingFactory = vi.spyOn(githubPublishing, 'createGithubPublishingTool');
   f.opts.session.accountBinding = f.opts.binding;
   f.opts.registry = {
     ...f.opts.registry,
@@ -3713,6 +3720,7 @@ it('qualifies owned native, MCP, profile and publishing tools and rejects other 
   let chat: Awaited<ReturnType<typeof openCodexChat>> | undefined;
   try {
     chat = await openCodexChat(f.opts);
+    expect(publishingFactory.mock.calls[0]![3]).toBe(f.opts.session);
     const config = mocks.conversationOptions!;
     expect(config.systemPrompt).toContain('RequestGithubPublish');
     expect((config.tools as Array<{ name: string }>).map((tool) => tool.name).sort()).toEqual(
@@ -3776,14 +3784,14 @@ it('qualifies owned native, MCP, profile and publishing tools and rejects other 
       templateId: 'github-readonly',
       status: 'active',
       desiredAccountIds: [f.opts.binding.accountId],
-      publicConfig: { allowedRepositories: ['example/repo'] },
+      publicConfig: { allowedRepositories: ['fixture/repo'] },
     };
     const invoke = vi.fn(async () => ({
       id: 'published',
       status: 'succeeded',
-      result: { url: 'https://github.com/example/repo/pull/1' },
+      result: { url: 'https://github.com/fixture/repo/pull/1' },
     }));
-    const resolve = vi.fn(async () => 'example/repo');
+    const resolve = vi.fn(async () => 'fixture/repo');
     setConnectionsRuntime({
       store: { list: () => [connection], get: () => connection },
       verifyGithubPublishingIdentity: vi.fn(async () => true),
@@ -3809,7 +3817,15 @@ it('qualifies owned native, MCP, profile and publishing tools and rejects other 
       ),
     ).resolves.toMatchObject({ isError: false });
     expect(resolve).toHaveBeenCalledWith(
-      expect.objectContaining({ runtime: 'host', workspace: realpathSync(f.opts.session.cwd!) }),
+      expect.objectContaining({
+        runtime: 'host',
+        workspace: realpathSync(f.opts.session.cwd!),
+        preparedBase: {
+          repositoryPath: realpathSync(f.opts.session.cwd!),
+          baseBranch: 'main',
+          baseOid: 'a'.repeat(40),
+        },
+      }),
       f.opts.session.cwd,
       'main',
       expect.any(AbortSignal),
@@ -3863,6 +3879,7 @@ it('qualifies owned native, MCP, profile and publishing tools and rejects other 
     f.eventStore.close();
     nativeFactory.mockRestore();
     connectionFactory.mockRestore();
+    publishingFactory.mockRestore();
   }
 });
 

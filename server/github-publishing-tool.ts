@@ -5,6 +5,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
 import { z } from 'zod';
 import { toolInputError } from './tool-input-error.js';
+import type { PreparedGithubBase } from './github-host-source.js';
 import { createLogger } from '@mitzo/harness';
 import { safeGithubSeedFailure, githubSeedFailureMessage } from './github-seeded-source.js';
 import {
@@ -69,29 +70,57 @@ interface OperatorPublishingRegistration {
 }
 // Runtime identity is stable before an SDK assigns its conversation ID.
 const operatorPublishing = new Map<string, OperatorPublishingRegistration>();
+class PublicationOwnerError extends Error {
+  constructor(
+    readonly reason:
+      | 'runtime_changed'
+      | 'session_unavailable'
+      | 'operator_unavailable'
+      | 'operator_mismatch'
+      | 'native_call_stale'
+      | 'native_call_required'
+      | 'owner_changed',
+  ) {
+    super('Publishing owner could not be captured: ' + reason);
+  }
+}
 /** Capture the signed publisher and exact live call, independently of any model. */
 function captureGithubPublicationOwner(runtimeId: string, conversationId: string, turnId?: string) {
   const active = operatorPublishing.get(runtimeId);
   if (!active || active.conversationId() !== conversationId)
-    throw Error('Exact live publishing runtime required');
+    throw new PublicationOwnerError('runtime_changed');
   const assertRuntimeCurrent = active.assertRuntimeCurrent;
   const current = active.registry.findBySessionId(conversationId);
   const session = current?.session;
   const operatorConnectionId = session?.ownerConnectionId;
   if (!session || !operatorConnectionId || session !== active.session || !session.accountBinding)
-    throw Error('Authenticated original publishing owner required for publication');
-  const authorization = captureAgentLibraryAuthorization(operatorConnectionId);
+    throw new PublicationOwnerError('session_unavailable');
+  const authorization = (() => {
+    try {
+      return captureAgentLibraryAuthorization(operatorConnectionId);
+    } catch {
+      throw new PublicationOwnerError('operator_unavailable');
+    }
+  })();
   const authSessionId = authorization.auth.id;
   const ownedAuth = session.ownedLocalAuthSessionId ?? session.ordinaryRuntimeOwner?.authSessionId;
   if (ownedAuth && !ordinaryOperatorOwnsConversation(ownedAuth, authSessionId))
-    throw Error('Original publishing operator required for publication');
+    throw new PublicationOwnerError('operator_mismatch');
   const binding = structuredClone(session.accountBinding);
   const invocation = turnId === undefined ? undefined : active.activeInvocation;
   if (turnId !== undefined && (!invocation || invocation.turnId !== turnId))
-    throw Error('Exact active publication invocation required for publication');
+    throw new PublicationOwnerError('native_call_stale');
   const assertSync = () => {
-    authorization.assertCurrent();
-    invocation?.assertCurrentSync?.();
+    try {
+      authorization.assertCurrent();
+    } catch {
+      throw new PublicationOwnerError('operator_unavailable');
+    }
+    try {
+      invocation?.assertCurrentSync?.();
+    } catch {
+      throw new PublicationOwnerError('native_call_stale');
+    }
     if (
       operatorPublishing.get(runtimeId) !== active ||
       active.assertRuntimeCurrent !== assertRuntimeCurrent ||
@@ -105,7 +134,7 @@ function captureGithubPublicationOwner(runtimeId: string, conversationId: string
       effectivePermissionMode(session) === 'ask' ||
       checkSkillPolicy(active.registry, current!.clientId, REQUEST_GITHUB_PUBLISH) === 'deny'
     )
-      throw Error('Original publishing owner changed');
+      throw new PublicationOwnerError('owner_changed');
   };
   assertSync();
   const owner = Object.freeze({
@@ -211,7 +240,12 @@ export const githubPublishingDefinition: ToolDefinition = {
 export const GITHUB_PUBLISHING_INSTRUCTIONS =
   '\nUse RequestGithubPublish to publish committed local changes to a GitHub feature branch and pull request. PR creation and updates require no AI code review or review-model selection. Code review, CI and merge approval happen through the normal PR workflow; opening a PR does not authorize merging or deployment. Preserve a failed or pending result without claiming publication succeeded. Prefer a draft PR unless the user requested a ready PR. This tool is available across account runtimes and resolves access for the current AI account; a provider being read-only does not mean this approval-backed tool is unavailable. If a managed GitHub connection is missing, explain the returned setup requirement and preserve the local commit. Do not substitute direct git push or gh API writes after denial.\n';
 export type GithubPublishingSource =
-  | { runtime: 'host'; workspace: string; gitStorageRoots: readonly string[] }
+  | {
+      runtime: 'host';
+      workspace: string;
+      gitStorageRoots: readonly string[];
+      preparedBase?: PreparedGithubBase;
+    }
   | { runtime: 'openshell'; workspace: string; sandboxName: string };
 export function createGithubPublishingTool(
   conversation: string | (() => string),
@@ -509,12 +543,19 @@ export function createGithubPublishingTool(
             stage +
             '. Use the diagnostic request ID to inspect controller logs before retrying.',
         };
-      publicationLog.warn('GitHub publication failed', { requestId, stage, code: failure.code });
+      const reason = error instanceof PublicationOwnerError ? error.reason : undefined;
+      publicationLog.warn('GitHub publication failed', {
+        requestId,
+        stage,
+        code: failure.code,
+        ...(reason ? { reason } : {}),
+      });
       return {
         content: JSON.stringify({
           requestId,
           stage,
           ...failure,
+          ...(reason ? { reason } : {}),
           operationRecorded:
             stage === 'operation_dispatch' || stage === 'operation_recovery' ? 'unknown' : false,
         }),
@@ -523,6 +564,7 @@ export function createGithubPublishingTool(
     }
   };
   const execute = async (input: unknown, signal: AbortSignal, call: PublicationCall) => {
+    const requestId = randomUUID();
     const conversationId = typeof conversation === 'function' ? conversation() : conversation;
     if (publishingAdmissions.has(conversationId))
       return {
@@ -538,14 +580,25 @@ export function createGithubPublishingTool(
         !operatorCalls.has(call) &&
         typeof call.assertCurrentSync !== 'function'
       )
-        throw Error('Original native publication call required');
+        throw new PublicationOwnerError('native_call_required');
       const owner = captureGithubPublicationOwner(runtimeOwnerId, conversationId, call.turnId);
       return await run(input, signal, call, owner.assertCurrent);
-    } catch {
+    } catch (error) {
+      const reason = error instanceof PublicationOwnerError ? error.reason : 'owner_capture_failed';
+      publicationLog.warn('GitHub publication owner capture failed', {
+        requestId,
+        stage: 'owner_capture',
+        reason,
+        code: 'GITHUB_PUBLICATION_FAILED',
+      });
       return {
         content: JSON.stringify({
           code: 'GITHUB_PUBLICATION_FAILED',
-          message: 'The publishing account, operator or active call is no longer authorized.',
+          requestId,
+          stage: 'owner_capture',
+          reason,
+          message:
+            'Mitzo could not capture the live publishing owner. Use the diagnostic request ID to inspect controller logs; this result does not establish that GitHub access was revoked.',
           operationRecorded: false,
         }),
         isError: true,
@@ -594,13 +647,30 @@ export function createGithubPublishingTool(
 export function hostGithubPublishingSource(
   session: { cwd?: string },
   gitStorageRoots: readonly string[] = [],
-): GithubPublishingSource | undefined {
+  prepared?: {
+    directory?: string;
+    repository: string;
+    baseBranch: string;
+    baseOid: string;
+    connectionId?: string;
+  },
+): Extract<GithubPublishingSource, { runtime: 'host' }> | undefined {
   try {
     if (!session.cwd) return undefined;
     return {
       runtime: 'host',
       workspace: realpathSync(session.cwd),
       gitStorageRoots: gitStorageRoots.map((root) => realpathSync(root)),
+      ...(prepared?.directory === session.cwd
+        ? {
+            preparedBase: {
+              repositoryPath: realpathSync(session.cwd),
+              ...(prepared.connectionId === 'local' ? {} : { repository: prepared.repository }),
+              baseBranch: prepared.baseBranch,
+              baseOid: prepared.baseOid,
+            },
+          }
+        : {}),
     };
   } catch {
     return undefined;

@@ -15,6 +15,7 @@ export interface LiveCapabilityConversationBinding {
   runtime?: 'host' | 'openshell';
   runtimeOwnerId?: string;
   gitStorageRoots?: readonly string[];
+  preparedBase?: import('./github-host-source.js').PreparedGithubBase;
 }
 
 const bindings = new Map<string, Readonly<LiveCapabilityConversationBinding>>();
