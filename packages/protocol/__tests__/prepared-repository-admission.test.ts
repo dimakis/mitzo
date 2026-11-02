@@ -586,6 +586,47 @@ it('appends a prepared-workspace execution admission while preserving explicit i
   ).toThrow();
 });
 
+it('observes a resumed bootstrap when a later message prepares the first repository transfer', () => {
+  const store = fixture();
+  const followup = {
+    ...original,
+    clientMsgId: 'prepare-in-followup',
+    requestFingerprint: 'followup-fingerprint',
+    payload: { ...original.payload, text: 'Create the new project now' },
+  };
+  store.admitOrdinaryLocalContinuation(meta, binding, followup);
+  store.claimOrdinaryLocalCommandDispatch(followup.clientMsgId);
+  store.completeOrdinaryLocalCommand(followup.clientMsgId);
+  const reserved = store.reservePreparedRepositoryContinuation('session', {
+    ...transition,
+    source: { ...transition.source, commandId: followup.clientMsgId },
+  });
+  expect(
+    store.observePreparedRepositoryResumedBootstrapAdmission(
+      reserved.childCommandId,
+      original.clientMsgId,
+    ),
+  ).toEqual(store.getOrdinaryLocalCommandAdmission(original.clientMsgId));
+  expect(store.getSession('session')?.cwd).toBe('/old');
+  const db = (store as unknown as { db: import('better-sqlite3').Database }).db;
+  const bootstrap = store.getOrdinaryLocalCommandAdmission(original.clientMsgId)!;
+  for (const invalid of [
+    { ...bootstrap, state: 'uncertain' },
+    { ...bootstrap, workspace: { workspaceId: 'other', cwd: '/other' } },
+  ]) {
+    db.prepare('UPDATE send_commands SET ordinary_admission=? WHERE client_msg_id=?').run(
+      JSON.stringify(invalid),
+      original.clientMsgId,
+    );
+    expect(() =>
+      store.observePreparedRepositoryResumedBootstrapAdmission(
+        reserved.childCommandId,
+        original.clientMsgId,
+      ),
+    ).toThrow();
+  }
+});
+
 it('observes a fresh cold bootstrap between the original prepared source and its later workspace transition', () => {
   const store = fixture();
   const initial = store.reservePreparedRepositoryContinuation('session', transition);

@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.828-native-project-setup';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.829-native-project-handoff';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -659,7 +659,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/protocol/src/prepared-repository-transition.ts':
     'c624eeb6fa3e7313b4e314532244b4d1bca27f3b87f96cdccf3cd5e90fa7ffb4',
   '../../packages/protocol/__tests__/prepared-repository-admission.test.ts':
-    'd3058539a2f2f1c62fefd3540864a96979a4b0cac799b49fae0e8a6f48284975',
+    'bb98573e74ae4c9762bb9fb2f4afbf058f62fec7e3b7aeef5bed7bee3044b607',
   '../prepared-repository-transition.ts':
     'c301c1915b0ecca42983365e71364589cb20799caba6b4dfa69a05f16ddfe06d',
   '../prepared-repository-barrier-read.ts':
@@ -1639,7 +1639,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/protocol/src/session-metadata-store.ts':
     '27de6e399040ee80c78416a5023f27d42f6a5ccfbe707ffd58bd09bd2e7b4ef9',
   '../../packages/protocol/src/event-store.ts':
-    'f89e8149db4f9a54ad95787beec93f8a767d250f09398bd58eb54608c2b00123',
+    '29039232a7fa58cd6c1ff9b09c9dc5269b7370f37a61dd359261caccd71bebe8',
   '../../packages/protocol/src/session-lifecycle-store.ts':
     '2a219b360a5fbe72b0a550c714bf76a15c6f5969cbbe4251671050257b98e267',
   '../../packages/protocol/src/conversation-replay-store.ts':
@@ -2349,7 +2349,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/worktree-fetch-observation.test.ts':
     '15d3a88708e22b72e498dbc924555d4c1eb0b562de8dc43554b8f382d406b440',
   '../../tests/fixtures/agent-tool-catalog.json':
-    '15df2dbe984acd9e19b602a291f0d30812b5e3c01f60f6f98a38e16f92124ea6',
+    '662abc2a7f0c7216adbd3e44036f27dc092a34dd677e3434e912cd497b174325',
   '../../tests/integration/ordinary-local-vertex-chat.test.ts':
     '5e8b2f0829cbd05ecfead981b3f74b1edef9de7e005eb7344e04c909304206b3',
   '../../packages/sqlite-file-owner/package.json':
