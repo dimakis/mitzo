@@ -148,7 +148,6 @@ it('publishes native commits from a copied task after source release and control
     gitStorageRoots: [],
     baseBranch: 'main',
     signal,
-    privateDirectory: join(root, 'publication'),
   };
   const inspection = await inspectHostGithubRepository(source);
   expect(inspection).toMatchObject({
@@ -156,7 +155,6 @@ it('publishes native commits from a copied task after source release and control
     commitsAhead: 2,
     changedFiles: ['file.txt', 'payload.bin', 'run.sh'],
     originUrl: 'https://github.com/example/repo.git',
-    status: '',
   });
   if (!inspection.sourceBranch) throw new Error('Prepared task has no publication branch');
   const bundlePath = join(root, 'task.bundle');
