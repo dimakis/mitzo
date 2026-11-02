@@ -17,6 +17,7 @@ export type CapabilityOperationStatus =
 
 /** Observational only: phases never replace mutation/recovery state or grants. */
 export const CAPABILITY_OPERATION_PHASES = [
+  'authority',
   'preflight',
   'workspace',
   'inspection',

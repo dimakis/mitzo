@@ -44,6 +44,71 @@ const input = {
   body: 'Change',
   draft: true,
 };
+it('reports owner capture failures with a diagnostic ID without asserting revoked access', async () => {
+  const f = fixture('openai-codex');
+  mocks.captureAuthorization.mockImplementation(() => {
+    throw Error('private credential diagnostics');
+  });
+  const result = await f.execute(input, new AbortController().signal, {
+    turnId: 'turn',
+    callId: 'call',
+  });
+  expect(JSON.parse(result.content)).toMatchObject({
+    code: 'GITHUB_PUBLICATION_FAILED',
+    stage: 'owner_capture',
+    reason: 'operator_unavailable',
+    requestId: expect.any(String),
+    operationRecorded: false,
+  });
+  expect(result.content).not.toMatch(/no longer authorized|private credential/);
+  expect(f.invoke).not.toHaveBeenCalled();
+  f.execute.close();
+});
+it('retains the explicit runtime session before its registry registration is published', async () => {
+  const f = fixture('openai-codex');
+  f.execute.close();
+  const find = f.registry.findBySessionId;
+  f.registry.findBySessionId = () => null;
+  const execute = createGithubPublishingTool(
+    'conversation',
+    f.registry,
+    () => ({ runtime: 'host', workspace: '/workspace', gitStorageRoots: [] }),
+    f.session,
+  );
+  f.registry.findBySessionId = find;
+  expect(
+    await execute(input, new AbortController().signal, { turnId: 'turn', callId: 'call' }),
+  ).toMatchObject({ isError: false });
+  execute.close();
+});
+it.each(['native call', 'runtime'] as const)(
+  'preserves %s cancellation at the effect fence',
+  async (boundary) => {
+    let cancelled = false;
+    const check = () => {
+      if (cancelled) throw new DOMException('Cancelled', 'AbortError');
+    };
+    const f = fixture('openai-codex', boundary === 'runtime' ? async () => check() : undefined);
+    f.invoke.mockImplementation(async (_request, _signal, _approval, current) => {
+      cancelled = true;
+      await expect(current()).rejects.toMatchObject({ name: 'AbortError' });
+      return { id: 'operation', status: 'cancelled', failureCode: 'CANCELLED' };
+    });
+    try {
+      const result = await f.execute(input, new AbortController().signal, {
+        turnId: 'turn',
+        callId: 'call',
+        ...(boundary === 'native call' ? { assertCurrentSync: check } : {}),
+      });
+      expect(JSON.parse(result.content)).toMatchObject({
+        status: 'cancelled',
+        failureCode: 'CANCELLED',
+      });
+    } finally {
+      f.execute.close();
+    }
+  },
+);
 it('publishes without a model or inference selection', async () => {
   const f = fixture('openai-codex');
   f.session.model = undefined;

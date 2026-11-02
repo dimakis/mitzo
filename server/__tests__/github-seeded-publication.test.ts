@@ -87,10 +87,16 @@ it('rejects changed source and revoked access before projecting or exporting a b
   expect(f.deps.project).not.toHaveBeenCalled();
   expect(() => f.publisher.bundle('operation', 'wrong', 100)).toThrow();
 });
-it('rejects dirty or excessive task scope before controller network reads', async () => {
+it('publishes committed seed changes independently of the working tree', async () => {
   const f = fixture();
-  f.deps.read.mockResolvedValue({ ...state, status: ' M note.txt' });
-  await expect(f.publisher.inspect(f.input)).rejects.toThrow(/workspace/);
+  f.deps.read.mockResolvedValue({ ...state, status: 'MM note.txt\n?? preview.html' });
+  await expect(f.publisher.inspect(f.input)).resolves.toMatchObject({
+    sourceOid: 'd'.repeat(40),
+    changedFiles: ['note.txt'],
+  });
+});
+it('rejects excessive committed task scope before controller network reads', async () => {
+  const f = fixture();
   f.deps.read.mockResolvedValue({
     ...state,
     changedFiles: Array.from({ length: 65 }, (_, i) => `file${i}`),

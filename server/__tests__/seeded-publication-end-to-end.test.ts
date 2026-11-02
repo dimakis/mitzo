@@ -4,8 +4,9 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, expect, it, vi } from 'vitest';
 import type { ManagedSession, SessionRegistry } from '@mitzo/harness';
-import { login, authenticateToken, revokeAuthSession } from '../auth.js';
+import { login, authenticateToken, revokeAuthSession, setAuthRevocationStore } from '../auth.js';
 import { bindAgentLibraryTransport } from '../agent-library-transport.js';
+import { retainNativeHostToolOperator } from '../native-host-tool-operator.js';
 const mocks = vi.hoisted(() => ({ approve: vi.fn(), reviewSession: vi.fn() }));
 vi.mock('../terminal-adviser-model.js', () => ({
   createTerminalAdviserSession: mocks.reviewSession,
@@ -17,6 +18,13 @@ vi.mock('@mitzo/harness', async (original) => ({
 import { createConnectionsRuntime, setConnectionsRuntime } from '../connections-runtime.js';
 import { createGithubPublishingTool } from '../github-publishing-tool.js';
 const roots: string[] = [];
+const revokedLogins = new Set<string>();
+setAuthRevocationStore({
+  isAuthSessionRevoked: (auth) => revokedLogins.has(auth.id),
+  revokeAuthSession: (auth) => {
+    revokedLogins.add(auth.id);
+  },
+});
 afterEach(async () => {
   setConnectionsRuntime(null);
   vi.unstubAllEnvs();
@@ -72,6 +80,12 @@ it.each([
     await writeFile(join(seed, 'note.txt'), 'changed\n');
     git(seed, 'commit', '-qam', 'task change');
     const original = git(seed, 'rev-parse', 'HEAD');
+    await writeFile(join(seed, 'note.txt'), 'staged work\n');
+    git(seed, 'add', 'note.txt');
+    await writeFile(join(seed, 'note.txt'), 'unstaged work\n');
+    await writeFile(join(seed, 'preview.html'), 'untracked preview\n');
+    const pendingStatus = git(seed, 'status', '--short');
+    const pendingIndex = await readFile(join(seed, '.git/index'));
     const header =
       '#!/usr/bin/env node\nconst fs=require("fs"),cp=require("child_process");const root=' +
       JSON.stringify(root) +
@@ -189,6 +203,26 @@ const p=cp.spawnSync('/bin/sh',mapped,{encoding:'utf8',env:process.env});process
     const auth = await authenticateToken((await login(process.env.AUTH_PASSPHRASE!))!);
     if (!auth) throw Error('Offline signed publication operator required');
     const releaseOperator = bindAgentLibraryTransport(session.ownerConnectionId!, auth);
+    session.ownedLocalAuthSessionId = auth.id;
+    const releaseRetainedOperator =
+      kind === 'host'
+        ? retainNativeHostToolOperator(session, session.ownerConnectionId!)
+        : () => {};
+    // Native host work has already been admitted: publication may start while
+    // the viewer is entirely offline, using the same retained native owner.
+    if (kind === 'host') releaseOperator();
+    let releaseReconnectedOperator: (() => void) | undefined;
+    let publicationCurrent: (() => Promise<void>) | undefined;
+    // Reuse this real publication journey to cover the phone reconnect that
+    // production observed between owner capture and capability preflight.
+    const invoke = runtime.capabilities.invoke.bind(runtime.capabilities);
+    vi.spyOn(runtime.capabilities, 'invoke').mockImplementation((...args) => {
+      publicationCurrent = args[3];
+      releaseOperator();
+      session.ownerConnectionId = 'reconnected-publishing-operator';
+      releaseReconnectedOperator = bindAgentLibraryTransport(session.ownerConnectionId, auth);
+      return invoke(...args);
+    });
     mocks.reviewSession
       .mockReset()
       .mockRejectedValue(new Error('No publication review model configured'));
@@ -196,6 +230,24 @@ const p=cp.spawnSync('/bin/sh',mapped,{encoding:'utf8',env:process.env});process
     mocks.approve.mockReset();
     mocks.approve.mockImplementation(async (_name, input) => {
       approvalReviewCounts.push(mocks.reviewSession.mock.calls.length);
+      if (!approved && kind === 'host') {
+        // A revocation written by another owner must be observed without a
+        // local transport callback. The still-bound login cannot authorize it.
+        revokedLogins.add(auth.id);
+        await expect(publicationCurrent!()).rejects.toMatchObject({
+          code: 'PUBLICATION_AUTHORITY_CHANGED',
+          reason: 'operator_unavailable',
+        });
+        revokedLogins.delete(auth.id);
+        await expect(publicationCurrent!()).resolves.toBeUndefined();
+        // Releasing the admitted server owner must fence even an in-flight
+        // publication; a connected viewer cannot replace that authority.
+        releaseRetainedOperator();
+        await expect(publicationCurrent!()).rejects.toMatchObject({
+          code: 'PUBLICATION_AUTHORITY_CHANGED',
+          reason: 'operator_unavailable',
+        });
+      }
       return { behavior: approved ? 'allow' : 'deny', updatedInput: input };
     });
     const tool = createGithubPublishingTool('conversation', registry, () =>
@@ -276,10 +328,16 @@ const p=cp.spawnSync('/bin/sh',mapped,{encoding:'utf8',env:process.env});process
       expect(git(upstream, 'show', branch + ':note.txt')).toBe('changed');
       expect(git(upstream, 'show', branch + ':upstream-only.txt')).toBe('must survive');
       expect(git(seed, 'rev-parse', 'HEAD')).toBe(original);
-      expect(git(seed, 'status', '--short')).toBe('');
+      expect(git(seed, 'status', '--short')).toBe(pendingStatus);
+      expect(await readFile(join(seed, '.git/index'))).toEqual(pendingIndex);
+      expect(await readFile(join(seed, 'note.txt'), 'utf8')).toBe('unstaged work\n');
+      expect(await readFile(join(seed, 'preview.html'), 'utf8')).toBe('untracked preview\n');
+      expect(git(upstream, 'ls-tree', '--name-only', branch)).not.toContain('preview.html');
       expect(git(seed, 'remote')).toBe('');
     } finally {
       releaseOperator();
+      releaseRetainedOperator();
+      releaseReconnectedOperator?.();
       revokeAuthSession(auth);
       tool.close();
       runtime.store.close();

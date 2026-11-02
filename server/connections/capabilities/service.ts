@@ -445,6 +445,7 @@ export class CapabilityService {
       Object.assign(operation, this.options.store.recordPhase(operation.id, phase));
     };
     try {
+      observePhase('authority');
       assertRuntimeCurrent =
         this.options.captureMutationAuthority?.(operation, assertRuntimeCurrent) ??
         assertRuntimeCurrent;

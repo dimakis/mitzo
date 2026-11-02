@@ -7,14 +7,24 @@ import { readBuiltinAgentLibraryProfile } from './builtin-agent-library-profile.
 export { readBuiltinAgentLibraryProfile } from './builtin-agent-library-profile.js';
 
 const operators = new Map<string, AuthSession>();
-export function captureAgentLibraryAuthorization(connectionId?: string) {
+export function captureAgentLibraryAuthorization(
+  connectionId?: string,
+  options?: { lifetime: 'operation' },
+) {
   const auth = connectionId ? operators.get(connectionId) : undefined;
   if (!auth || auth.expiresAt <= Date.now())
     throw Error('Interactive operator authentication is required to select an agent profile');
   return {
     auth,
     assertCurrent() {
-      if (operators.get(connectionId!) !== auth || auth.expiresAt <= Date.now())
+      // An admitted operation retains its verified login across transport
+      // disconnects. Logout and expiry still revoke that exact login.
+      if (
+        auth.expiresAt <= Date.now() ||
+        (options?.lifetime === 'operation'
+          ? !isAuthSessionCurrent(auth)
+          : operators.get(connectionId!) !== auth)
+      )
         throw Error('Agent profile authorization expired or revoked');
     },
   };
