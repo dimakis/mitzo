@@ -6014,6 +6014,113 @@ it('preserves accepted tools and adoption after capacity failure without adverti
   expect(f.execute).toHaveBeenCalledOnce();
 });
 
+it.each(
+  (['local', 'openshell'] as const).flatMap((route) =>
+    [false, true].flatMap((settledTool) =>
+      [false, true].map((reattach) => ({ route, settledTool, reattach })),
+    ),
+  ),
+)(
+  'admits explicit input after owned $route capacity (settled tool: $settledTool, reattach: $reattach)',
+  async ({ route, settledTool, reattach }) => {
+    vi.useFakeTimers();
+    try {
+      const args: Parameters<typeof setup> = [];
+      args[4] = async () => binding;
+      const f = await setup(...args);
+      Object.assign(f.conversationOptions, {
+        canClaimCommand: () => true,
+        deferToolSurfaceReplacement: true,
+        verifyBinding: async () => binding,
+        ...(route === 'local'
+          ? { transportClosure: 'terminal' }
+          : { recoveryReconciliation: 'exact-turn' }),
+      });
+      await f.c.send({ id: 'owned-capacity', prompt: 'Original work' });
+      if (settledTool)
+        await f.callbacks.onRequest(
+          'item/tool/call',
+          {
+            threadId: 'provider-thread',
+            turnId: 'turn-1',
+            callId: 'saved-tool',
+            tool: 'Read',
+            arguments: {},
+          },
+          new AbortController().signal,
+        );
+      f.c.enqueue({ id: 'saved-follow-up', prompt: 'Saved work' });
+      const acceptance = f.store.readThreadAcceptances('app', binding);
+      f.callbacks.onNotification('turn/completed', {
+        threadId: 'provider-thread',
+        turn: { id: 'turn-1', status: 'failed', error: { codex_error_info: 'server_overloaded' } },
+      });
+      const original = f.c.queue()[0];
+      expect(f.store.continuationBlocker('app', binding)).toBeUndefined();
+      expect(f.store.readThreadAcceptances('app', binding)).toEqual(acceptance);
+      expect(await f.c.retryLatestFailed(true)).toBe('not_retryable');
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(f.requests.filter(({ method }) => method === 'turn/start')).toHaveLength(1);
+      expect(f.c.queue()[1].status).toBe('queued');
+
+      if (reattach) f.c.close();
+      args[0] = f.store;
+      const next = reattach ? await setup(...args) : f;
+      if (reattach) {
+        Object.assign(next.conversationOptions, {
+          canClaimCommand: () => true,
+          ...(route === 'local'
+            ? { transportClosure: 'terminal' }
+            : { recoveryReconciliation: 'exact-turn' }),
+        });
+        const request = next.rpc.request.getMockImplementation()!;
+        next.rpc.request.mockImplementation(async (method, params) =>
+          method === 'thread/turns/list'
+            ? { data: [{ id: 'turn-1', status: 'failed', items: [] }], nextCursor: null }
+            : request(method, params),
+        );
+      }
+      await next.c.send({ id: 'explicit-continue', prompt: 'Please continue.' });
+      expect(next.c.queue()).toMatchObject([
+        original,
+        { id: 'saved-follow-up', status: 'running' },
+        { id: 'explicit-continue', status: 'queued' },
+      ]);
+      const starts = next.requests.filter(({ method }) => method === 'turn/start');
+      expect(starts).toHaveLength(reattach ? 1 : 2);
+      expect(starts.at(-1)?.params).toMatchObject({
+        threadId: 'provider-thread',
+        input: [{ type: 'text', text: 'Saved work' }],
+      });
+      expect(f.execute).toHaveBeenCalledTimes(settledTool ? 1 : 0);
+      expect(next.store.continuationBlocker('app', binding)).toBeUndefined();
+    } finally {
+      vi.useRealTimers();
+    }
+  },
+);
+
+it('retains unknown tool effects after owned capacity instead of releasing saved work', async () => {
+  const args: Parameters<typeof setup> = [];
+  args[4] = async () => binding;
+  const f = await setup(...args);
+  Object.assign(f.conversationOptions, { canClaimCommand: () => true });
+  await f.c.send({ id: 'owned-capacity', prompt: 'Original work' });
+  f.store.claimTool('app', binding, 'owned-capacity', 'unsettled-tool');
+  f.callbacks.onNotification('turn/completed', {
+    threadId: 'provider-thread',
+    turn: { id: 'turn-1', status: 'failed', error: { codex_error_info: 'server_overloaded' } },
+  });
+  expect(f.store.continuationBlocker('app', binding)).toMatchObject({
+    commandId: 'owned-capacity',
+    kind: 'tool_effects',
+  });
+  await expect(f.c.send({ id: 'explicit-continue', prompt: 'Continue.' })).rejects.toMatchObject({
+    code: 'unsettled_effects',
+  });
+  expect(f.requests.filter(({ method }) => method === 'turn/start')).toHaveLength(1);
+});
+
 it('does not fork or automatically continue queued work for capacity with a misleading stream message', async () => {
   const args: Parameters<typeof setup> = [];
   args[4] = async () => binding;
