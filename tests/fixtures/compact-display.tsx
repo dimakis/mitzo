@@ -1,10 +1,11 @@
 import { createRoot } from 'react-dom/client';
-import { MemoryRouter, useLocation } from 'react-router-dom';
+import { MemoryRouter, useLocation, Link } from 'react-router-dom';
 import { FileViewer } from '../../frontend/src/pages/FileViewer';
 import { MobileShell } from '../../frontend/src/components/MobileShell';
 import { DesktopShell } from '../../frontend/src/components/DesktopShell';
 import { useIsDesktop } from '../../frontend/src/hooks/useMediaQuery';
 import { ChatInput } from '../../frontend/src/components/ChatInput';
+import { SessionList } from '../../frontend/src/pages/SessionList';
 import { createChatDraft } from '../../frontend/src/lib/chat-drafts';
 import { chatStorage } from '../../frontend/src/lib/large-chat-storage';
 import '../../frontend/src/styles/tokens.css';
@@ -16,6 +17,7 @@ import '../../frontend/src/styles/mobile-workspace.css';
 import '../../frontend/src/styles/workspace-chat.css';
 import '../../frontend/src/styles/chat-drafts.css';
 import '../../frontend/src/styles/motion.css';
+import '../../frontend/src/styles/session-library.css';
 
 const draft = createChatDraft();
 // IndexedDB bootstrap makes even small screenshot drafts asynchronous in browser tests.
@@ -34,12 +36,20 @@ Object.assign(window, { displayStorage: chatStorage });
 function Surface() {
   const { pathname } = useLocation();
   const desktop = useIsDesktop();
-  if (pathname === '/files')
-    return (
-      <MobileShell>
-        {desktop ? <DesktopShell center={<FileViewer />} /> : <FileViewer />}
-      </MobileShell>
-    );
+  if (pathname !== '/chat') {
+    const content =
+      pathname === '/files' ? (
+        <FileViewer />
+      ) : pathname === '/sessions' ? (
+        <SessionList />
+      ) : (
+        <main className="workspace-page">
+          <h1>Page outside this preview</h1>
+          <Link to="/files?path=v001.md">Back to file</Link>
+        </main>
+      );
+    return <MobileShell>{desktop ? <DesktopShell center={content} /> : content}</MobileShell>;
+  }
   return (
     <main className="chat-page workspace-chat chat-page--new">
       <header className="chat-header">New chat</header>

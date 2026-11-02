@@ -135,3 +135,23 @@ contains no M button, and switching to the draft view works without DOM errors.
 This is structural/interaction evidence, not rendered layout validation.
 Run `41484090893` passed both phone projects' shard 1, which includes the earlier
 focused-target regression; the new branding assertions require the next run.
+
+Preview `v007` corrects two misleading fixture behaviors reported by the user:
+the phone shell's React breakpoint used the selected width while CSS used the
+outer artifact window, and unhandled navigation (including Search chats) rendered
+the draft composer. The generated artifact now applies production width media
+conditions to its named preview container. React reads that same box and observes
+width changes; pointer and motion media conditions remain intact. No shared
+masthead scale or production navigation behavior changes. The phone masthead
+retains the shared 64px height and 96px wordmark width.
+
+The fixture explicitly renders the actual SessionList for `/sessions` with valid
+empty sample list/search responses. Only `/chat` renders the composer; unsupported
+preview destinations show a labelled return link. A DOM smoke check reproduced
+the incorrect `v006` search-to-composer navigation, then verified that `v007`
+opens actual conversation search, settles a query and never opens a composer.
+All embedded width media conditions were checked for conversion. Three focused
+CSS transformation tests cover phone/desktop bounds, comma alternatives and
+retained pointer/motion conditions. The browser fixture now checks the masthead
+geometry even at a wide outer viewport and verifies search navigation/querying.
+Rendered acceptance and screenshots remain required in CI.

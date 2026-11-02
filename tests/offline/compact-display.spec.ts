@@ -54,7 +54,7 @@ test.beforeEach(async ({ page }) => {
 });
 
 test('preview controls share one row on phones and retain local interactions', async ({ page }) => {
-  const html = await readFile('mockups/compact-file-viewer/v006.html', 'utf8');
+  const html = await readFile('mockups/compact-file-viewer/v007.html', 'utf8');
   await page.route('**/preview', (route) =>
     route.fulfill({ contentType: 'text/html', body: html }),
   );
@@ -78,7 +78,16 @@ test('preview controls share one row on phones and retain local interactions', a
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
       true,
     );
+    expect((await page.locator('.mobile-workspace-masthead').boundingBox())!.height).toBe(64);
+    expect(
+      (await page.getByRole('link', { name: 'Mitzo home', exact: true }).boundingBox())!.width,
+    ).toBe(96);
   }
+  await page.getByRole('link', { name: 'Search chats', exact: true }).click();
+  await expect(page.getByRole('searchbox', { name: 'Search conversations' })).toBeVisible();
+  await expect(page.getByRole('textbox', { name: 'Message Mitzo', exact: true })).toHaveCount(0);
+  await page.getByRole('searchbox', { name: 'Search conversations' }).fill('notes');
+  await expect(page.getByText('No matching conversations')).toBeVisible();
   await page.setViewportSize({ width: 320, height: 852 });
   await page.getByLabel('Theme', { exact: true }).selectOption('light');
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');

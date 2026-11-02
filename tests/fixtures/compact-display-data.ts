@@ -1,5 +1,7 @@
 export const displayBranch = 'auto/session-memory-20260704-094957';
 export function compactDisplayResponse(path: string, search: URLSearchParams): unknown {
+  if (path === '/api/sessions') return { sessions: [], hasMore: false };
+  if (path === '/api/sessions/search') return { results: [] };
   if (path === '/api/git/info')
     return { branch: displayBranch, repoPath: '/workspace', worktrees: [], worktreesLoaded: true };
   if (path === '/api/files/read')

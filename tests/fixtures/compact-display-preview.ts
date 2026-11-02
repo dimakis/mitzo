@@ -22,17 +22,62 @@ for (const name of ['localStorage', 'sessionStorage']) {
   });
 }
 Object.defineProperty(window, 'indexedDB', { value: undefined });
-// A bounded phone preview also uses the phone layout on a desktop window.
+// React and the generated container queries use the same actual preview width.
+const nativeMatchMedia = window.matchMedia?.bind(window);
+const widthListeners = new Set<() => void>();
+new ResizeObserver(() => widthListeners.forEach((notify) => notify())).observe(
+  document.getElementById('root')!,
+);
 window.matchMedia = (query) => {
-  const width = Number((window as unknown as { compactDisplayWidth: string }).compactDisplayWidth);
-  const min = /min-width:\s*(\d+)px/.exec(query);
-  const max = /max-width:\s*(\d+)px/.exec(query);
+  const bounds = [...query.matchAll(/\((min|max)-width:\s*(\d+)px\)/g)];
+  if (!bounds.length)
+    return (
+      nativeMatchMedia?.(query) ?? {
+        media: query,
+        matches: false,
+        onchange: null,
+        addEventListener() {},
+        removeEventListener() {},
+        addListener() {},
+        removeListener() {},
+        dispatchEvent: () => true,
+      }
+    );
+  const listeners = new Map<EventListenerOrEventListenerObject, () => void>();
+  const matches = () => {
+    const width =
+      document.getElementById('root')!.clientWidth ||
+      Number((window as unknown as { compactDisplayWidth: string }).compactDisplayWidth);
+    return bounds.every(([, kind, value]) =>
+      kind === 'min' ? width >= Number(value) : width <= Number(value),
+    );
+  };
   return {
     media: query,
-    matches: min ? width >= Number(min[1]) : max ? width <= Number(max[1]) : false,
+    get matches() {
+      return matches();
+    },
     onchange: null,
-    addEventListener() {},
-    removeEventListener() {},
+    addEventListener(_type, listener) {
+      if (!listener || listeners.has(listener)) return;
+      let previous = matches();
+      const notify = () => {
+        const next = matches();
+        if (next === previous) return;
+        previous = next;
+        const event = new MediaQueryListEvent('change', { matches: next, media: query });
+        if (typeof listener === 'function') listener(event);
+        else listener.handleEvent(event);
+      };
+      listeners.set(listener, notify);
+      widthListeners.add(notify);
+    },
+    removeEventListener(_type, listener) {
+      if (!listener) return;
+      const notify = listeners.get(listener);
+      if (notify) widthListeners.delete(notify);
+      listeners.delete(listener);
+    },
     addListener() {},
     removeListener() {},
     dispatchEvent: () => true,

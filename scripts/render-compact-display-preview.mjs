@@ -4,6 +4,7 @@ import { resolve } from 'node:path';
 import process from 'node:process';
 import { gzipSync } from 'node:zlib';
 import { format, resolveConfig } from 'prettier';
+import { compactDisplayPreviewCss } from './compact-display-preview-css.mjs';
 
 // Bundle the real components with a sample backend and memory-only storage.
 const result = await build({
@@ -22,7 +23,9 @@ const result = await build({
   },
 });
 let code = result.outputFiles.find((file) => file.path.endsWith('.js')).text;
-let css = result.outputFiles.find((file) => file.path.endsWith('.css')).text;
+let css = compactDisplayPreviewCss(
+  result.outputFiles.find((file) => file.path.endsWith('.css')).text,
+);
 for (const name of [
   'mitzo-icon.png',
   'mitzo-wordmark.png',
@@ -46,7 +49,7 @@ body{margin:0;background:var(--color-bg);color:var(--color-text);font-family:var
 .preview-controls select:focus-visible{outline:2px solid var(--color-accent);outline-offset:2px}
 .preview-caption{font-size:var(--text-sm);color:var(--color-muted);padding:0 var(--space-3)}
 .preview-stage{overflow:auto;padding:var(--space-3);display:flex;justify-content:center}
-#root{position:relative;isolation:isolate;transform:translateZ(0);flex-shrink:0;border:1px solid var(--color-border);max-width:100%;height:852px;background:var(--color-bg);overflow:hidden}
+#root{position:relative;isolation:isolate;transform:translateZ(0);container:compact-preview / inline-size;flex-shrink:0;border:1px solid var(--color-border);max-width:100%;height:852px;background:var(--color-bg);overflow:hidden}
 #root .mobile-workspace{position:absolute;inset:0;height:100%}
 #root .desktop-shell{height:100%}
 #root .chat-page,#root .viewer-page{height:100%}
