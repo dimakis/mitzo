@@ -21,6 +21,9 @@ import { useLongPress } from '../hooks/useLongPress';
 import { computeSwipeState, REVEAL_WIDTH } from '../lib/swipe-reveal';
 import { selectionChanged } from '../lib/haptics';
 import { useSessionList } from '../hooks/useSessionList';
+import { useSessionOrder } from '../hooks/useSessionOrder';
+import { useListBrowsing } from '../hooks/useListBrowsing';
+import { MotionList } from '../components/MotionList';
 import type { QuickAction } from '../hooks/useSessionList';
 import { useSessionSearch } from '../hooks/useSessionSearch';
 import { useSessionOverview, type SessionActivity } from '../hooks/useSessionOverview';
@@ -38,12 +41,14 @@ function SwipeableSession({
   selected = false,
   onPreview,
   onActions,
+  onInteractionChange,
 }: {
   session: Session;
   desktop?: boolean;
   selected?: boolean;
   onPreview?: (session: Session) => void;
   onActions?: (session: Session, trigger: HTMLElement, point?: SessionActionPoint) => void;
+  onInteractionChange?: (id: string, busy: boolean) => void;
   snippet?: string;
   activity?: SessionActivity;
   onDismiss: (id: string) => void;
@@ -62,6 +67,11 @@ function SwipeableSession({
   const [editValue, setEditValue] = useState('');
   const [revealed, setRevealed] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    onInteractionChange?.(session.id, editing || previewing || revealed);
+    return () => onInteractionChange?.(session.id, false);
+  }, [onInteractionChange, session.id, editing, previewing, revealed]);
 
   const enterEditMode = useCallback(() => {
     setEditValue(session.summary || '');
@@ -204,7 +214,7 @@ function SwipeableSession({
   }
 
   return (
-    <div className="session-item-wrapper" data-selected={selected}>
+    <div className="session-item-wrapper" data-selected={selected} data-motion-key={session.id}>
       <div
         className="session-item-delete-action"
         onClick={handleDeleteTap}
@@ -360,6 +370,7 @@ export function SessionList() {
   const [menu, setMenu] = useState<SessionMenuState | null>(null);
   const [renaming, setRenaming] = useState<Session | null>(null);
   const [details, setDetails] = useState<Session | null>(null);
+  const [optionsOpen, setOptionsOpen] = useState(false);
   const closeMenu = useCallback(() => setMenu(null), []);
   const showActions = useCallback(
     (session: Session, trigger: HTMLElement, point?: SessionActionPoint) => {
@@ -385,6 +396,31 @@ export function SessionList() {
   const search = useSessionSearch();
   const [importOpen, setImportOpen] = useState(false);
   const conversationOptions = useRef<HTMLElement>(null);
+  const scroller = useRef<HTMLDivElement>(null);
+  const [busyRows, setBusyRows] = useState(() => new Set<string>());
+  const onInteractionChange = useCallback((id: string, busy: boolean) => {
+    setBusyRows((previous) => {
+      if (previous.has(id) === busy) return previous;
+      const next = new Set(previous);
+      if (busy) next.add(id);
+      else next.delete(id);
+      return next;
+    });
+  }, []);
+  const paused = useListBrowsing(
+    scroller,
+    Boolean(
+      menu ||
+      renaming ||
+      details ||
+      removing ||
+      mobilePinPreview ||
+      importOpen ||
+      search.active ||
+      optionsOpen ||
+      busyRows.size,
+    ),
+  );
 
   const { activities } = useSessionOverview();
   const [filter, setFilter] = useState<'all' | 'active' | 'attention'>('all');
@@ -402,7 +438,7 @@ export function SessionList() {
       isActive: !['idle', 'done'].includes(a.state),
     });
   }
-  const all = [...combined.values()].sort((a, b) => b.lastModified - a.lastModified);
+  const all = useSessionOrder([...combined.values()], activities, paused);
   const active = all.filter((s) => s.isActive);
   const attention = all.filter((s) => {
     const activity = byId.get(s.id);
@@ -478,7 +514,10 @@ export function SessionList() {
             <UiIcon name="edit" size={16} />
             <span className="conversation-new-label">New chat</span>
           </button>
-          <details className="conversation-options">
+          <details
+            className="conversation-options"
+            onToggle={(event) => setOptionsOpen(event.currentTarget.open)}
+          >
             <summary ref={conversationOptions} aria-label="Conversation options">
               <UiIcon name="more" />
             </summary>
@@ -513,29 +552,6 @@ export function SessionList() {
           </details>
         </div>
       </header>
-      <div className="conversation-search">
-        <input
-          type="search"
-          aria-label="Search conversations"
-          placeholder="Search conversations…"
-          value={search.query}
-          onChange={(e) => search.setQuery(e.target.value)}
-        />
-        {search.active && <button onClick={search.clear}>Clear search</button>}
-      </div>
-      {!search.active && (
-        <div className="conversation-filters" aria-label="Conversation filters">
-          <button aria-pressed={filter === 'all'} onClick={() => setFilter('all')}>
-            All
-          </button>
-          <button aria-pressed={filter === 'active'} onClick={() => setFilter('active')}>
-            Active <span>{active.length}</span>
-          </button>
-          <button aria-pressed={filter === 'attention'} onClick={() => setFilter('attention')}>
-            Needs you <span>{attention.length}</span>
-          </button>
-        </div>
-      )}
       <ResizableSessionLayout
         preview={
           desktop && selectedPreview ? (
@@ -547,7 +563,30 @@ export function SessionList() {
           ) : undefined
         }
       >
-        <div className="session-list-scroll">
+        <div className="session-list-scroll" ref={scroller}>
+          <div className="conversation-search">
+            <input
+              type="search"
+              aria-label="Search conversations"
+              placeholder="Search conversations…"
+              value={search.query}
+              onChange={(e) => search.setQuery(e.target.value)}
+            />
+            {search.active && <button onClick={search.clear}>Clear search</button>}
+          </div>
+          {!search.active && (
+            <div className="conversation-filters" aria-label="Conversation filters">
+              <button aria-pressed={filter === 'all'} onClick={() => setFilter('all')}>
+                All
+              </button>
+              <button aria-pressed={filter === 'active'} onClick={() => setFilter('active')}>
+                Active <span>{active.length}</span>
+              </button>
+              <button aria-pressed={filter === 'attention'} onClick={() => setFilter('attention')}>
+                Needs you <span>{attention.length}</span>
+              </button>
+            </div>
+          )}
           <ConversationPins
             sessions={all}
             selectedId={desktop ? selectedPreview?.id : undefined}
@@ -646,7 +685,7 @@ export function SessionList() {
                       : 'Start your first conversation'}
                 </p>
               )}
-              <div className="session-list">
+              <MotionList className="session-list">
                 {visible.map((s) => (
                   <SwipeableSession
                     key={s.id}
@@ -659,9 +698,10 @@ export function SessionList() {
                     onActions={showActions}
                     onClick={openSession}
                     onRename={handleRename}
+                    onInteractionChange={onInteractionChange}
                   />
                 ))}
-              </div>
+              </MotionList>
               {hasMore && filter === 'all' && (
                 <button className="session-load-more" onClick={loadMore} disabled={loadingMore}>
                   {loadingMore ? 'Loading…' : 'Load more conversations'}

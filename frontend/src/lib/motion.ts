@@ -1,4 +1,4 @@
-export type MotionKind = 'page' | 'fade' | 'popover' | 'sheet' | 'disclosure';
+export type MotionKind = 'page' | 'fade' | 'popover' | 'sheet' | 'disclosure' | 'reorder';
 
 export const REDUCED_MOTION_QUERY = '(prefers-reduced-motion: reduce)';
 
@@ -27,6 +27,12 @@ export function animateMotion(
   const easing = styles.getPropertyValue('--motion-ease').trim();
   const closed: Keyframe = { opacity: 0 };
   const opened: Keyframe = { opacity: 1 };
+  if (kind === 'reorder') {
+    delete closed.opacity;
+    delete opened.opacity;
+    opened.translate = '0 0';
+    opened.zIndex = from?.zIndex ?? 'auto';
+  }
   // Pages use opacity only: transforms would move the containing block for fixed
   // chat controls, keyboards and portals. Content updates never call this helper.
   if (kind === 'popover' || kind === 'sheet') {
