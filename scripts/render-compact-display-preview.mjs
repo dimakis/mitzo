@@ -3,6 +3,7 @@ import { readFile, mkdir, readdir, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import process from 'node:process';
 import { gzipSync } from 'node:zlib';
+import { format } from 'prettier';
 
 // Bundle the real components with a sample backend and memory-only storage.
 const result = await build({
@@ -82,5 +83,5 @@ const existing = new Set(await readdir(directory));
 let revision = 1;
 while (existing.has(`v${String(revision).padStart(3, '0')}.html`)) revision++;
 const path = `${directory}/v${String(revision).padStart(3, '0')}.html`;
-await writeFile(path, html, { flag: 'wx' });
+await writeFile(path, await format(html, { parser: 'html' }), { flag: 'wx' });
 process.stdout.write(path + '\n');
