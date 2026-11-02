@@ -10,6 +10,7 @@ const fixture = vi.hoisted(() => ({
   auth: { id: 'original-operator', expiresAt: Date.now() + 3600000 },
   native: { hasConversation: () => false },
   eligible: vi.fn((): string | undefined => 'saved-command'),
+  effectsEligible: vi.fn((): string | undefined => undefined),
   continue: vi.fn(async () => {}),
   authorize: vi.fn(),
   queue: { paused: true, connected: false, queued: 1, interrupted: 0 },
@@ -34,6 +35,10 @@ vi.mock('../codex-chat-session.js', async (original) => ({
 vi.mock('../retained-local-codex-recovery.js', async (original) => ({
   ...(await original<object>()),
   recoverableLocalCodexCommand: fixture.eligible,
+}));
+vi.mock('../retained-local-codex-effects.js', async (original) => ({
+  ...(await original<object>()),
+  reconcilableLocalCodexCommand: fixture.effectsEligible,
 }));
 vi.mock('../chat.js', async (original) => ({
   ...(await original<object>()),
@@ -114,9 +119,11 @@ beforeAll(async () => {
 });
 beforeEach(() => {
   vi.clearAllMocks();
+  vi.stubEnv('MITZO_ORDINARY_LOCAL_CODEX_ENABLED', '1');
   fixture.queue.paused = true;
   fixture.queue.connected = false;
   fixture.eligible.mockReturnValue('saved-command');
+  fixture.effectsEligible.mockReturnValue(undefined);
   fixture.authorize.mockImplementation(() => {});
   fixture.continue.mockResolvedValue();
 });
@@ -135,6 +142,25 @@ it('projects local Work API Codex queue and actor-qualified saved continuation',
   expect((await request(app).get(`/api/sessions/${id}/meta`)).body.codexQueue.canContinue).toBe(
     false,
   );
+  fixture.effectsEligible.mockReturnValue('interrupted-command');
+  expect((await request(app).get(`/api/sessions/${id}/meta`)).body.codexQueue.canContinue).toBe(
+    true,
+  );
+  expect(fixture.effectsEligible).toHaveBeenCalledWith(
+    store,
+    fixture.native,
+    id,
+    fixture.auth.id,
+    expect.anything(),
+  );
+  vi.stubEnv('MITZO_ORDINARY_LOCAL_CODEX_ENABLED', '0');
+  fixture.eligible.mockClear();
+  fixture.effectsEligible.mockClear();
+  expect((await request(app).get(`/api/sessions/${id}/meta`)).body.codexQueue.canContinue).toBe(
+    false,
+  );
+  expect(fixture.eligible).not.toHaveBeenCalled();
+  expect(fixture.effectsEligible).not.toHaveBeenCalled();
   expect(fixture.continue).not.toHaveBeenCalled();
 });
 it('includes local Work API Codex in existing queue details route', async () => {
