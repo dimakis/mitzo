@@ -322,7 +322,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/fixtures/prepared-repository-delivery-flow.ts':
     '90bc4310ca5b2d4c10f0bbc69747982f2d405ad7fbbe0359b0a1656fd7448a73',
   '../__tests__/github-publishing-tool.test.ts':
-    '98db902f15de164e1d6ff360578666f0460ab467b95ea6d860bb94b04d6771fd',
+    'c4cf6823bc677f2d96fb34afcae9d1aaa83345776951acce241f1adbdf5b28eb',
   '../__tests__/ordinary-publication-review-composition.test.ts':
     '95cea4bbb8daf3916641c49aa9516723bbee14cff130ee363e4fb8734146d14b',
   '../__tests__/prepared-repository-delivery-flow.test.ts':

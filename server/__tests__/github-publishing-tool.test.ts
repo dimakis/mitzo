@@ -68,7 +68,7 @@ it('retains the explicit runtime session before its registry registration is pub
   const f = fixture('openai-codex');
   f.execute.close();
   const find = f.registry.findBySessionId;
-  f.registry.findBySessionId = () => undefined;
+  f.registry.findBySessionId = () => null;
   const execute = createGithubPublishingTool(
     'conversation',
     f.registry,
