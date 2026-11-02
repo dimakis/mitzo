@@ -292,6 +292,20 @@ export function toClientState(state: SessionState): ClientSessionState {
 
 const noopLogger: EventStoreLogger = { info() {} };
 
+// Older startup recovery compared this untransferred child against the old
+// conversation workspace. This exact annotation is not a native dispatch error.
+const LEGACY_UNTRANSFERRED_REPOSITORY_ERROR =
+  'Recovery required: historical command workspace differs from the current conversation. Original uncertain admission retained; do not replay before reconciliation.';
+
+function preparedRepositoryChildCommandId(
+  sessionId: string,
+  transition: PreparedRepositoryTransition,
+) {
+  return `prepared-repository-${createHash('sha256')
+    .update(JSON.stringify([sessionId, transition.preparationId, transition.source]))
+    .digest('hex')}`;
+}
+
 interface EventRow {
   seat_id: string | null;
   symposium_provenance: string | null;
@@ -996,9 +1010,7 @@ export class EventStore {
    * cross-store CAS. A duplicate is observation only and MUST NOT repeat effects. */
   reservePreparedRepositoryContinuation(sessionId: string, raw: PreparedRepositoryTransition) {
     const transition = PreparedRepositoryTransitionSchema.parse(raw);
-    const childCommandId = `prepared-repository-${createHash('sha256')
-      .update(JSON.stringify([sessionId, transition.preparationId, transition.source]))
-      .digest('hex')}`;
+    const childCommandId = preparedRepositoryChildCommandId(sessionId, transition);
     return this.db!.transaction(() => {
       const session = this.getSession(sessionId);
       const source = this.getOrdinaryLocalCommandExecutionAdmission(transition.source.commandId);
@@ -1985,6 +1997,82 @@ export class EventStore {
     }).immediate();
   }
 
+  /** Read-only identity check, never permission to dispatch or release custody. */
+  observeUntransferredPreparedRepositoryContinuation(
+    sessionId: string,
+    target: PreparedRepositoryTransition['source'],
+    oldWorkspace: PreparedRepositoryTransition['oldWorkspace'],
+    preparationId: string,
+  ) {
+    return this.db!.transaction(() =>
+      this.readUntransferredPreparedRepositoryContinuation(
+        sessionId,
+        target,
+        oldWorkspace,
+        preparationId,
+      ),
+    ).deferred();
+  }
+  private readUntransferredPreparedRepositoryContinuation(
+    sessionId: string,
+    target: PreparedRepositoryTransition['source'],
+    oldWorkspace: PreparedRepositoryTransition['oldWorkspace'],
+    preparationId: string,
+  ) {
+    const rows = this.db!.prepare(
+      `SELECT child.client_msg_id,child.error,source.session_id AS source_session_id,source.error AS source_error
+      FROM send_commands child LEFT JOIN send_commands source
+      ON source.client_msg_id=json_extract(child.ordinary_admission,'$.preparedRepositoryTransition.source.commandId')
+      WHERE child.session_id=?
+      AND json_extract(child.ordinary_admission,'$.preparedRepositoryTransition.source.commandId')=?
+      AND json_extract(child.ordinary_admission,'$.preparedRepositoryTransition.source.attempt')=?
+      AND json_extract(child.ordinary_admission,'$.preparedRepositoryTransition.source.threadId')=?
+      AND json_extract(child.ordinary_admission,'$.preparedRepositoryTransition.source.turnId')=?
+      AND json_extract(child.ordinary_admission,'$.preparedRepositoryTransition.source.generation')=? LIMIT 2`,
+    ).all(
+      sessionId,
+      target.commandId,
+      target.attempt,
+      target.threadId,
+      target.turnId,
+      target.generation,
+    ) as Array<{
+      client_msg_id: string;
+      error: string | null;
+      source_session_id: string | null;
+      source_error: string | null;
+    }>;
+    if (rows.length > 1) throw Error('Prepared repository reservation lineage ambiguous');
+    if (!rows.length) return undefined;
+    const row = rows[0];
+    if (
+      (row.error && row.error !== LEGACY_UNTRANSFERRED_REPOSITORY_ERROR) ||
+      row.source_error ||
+      row.source_session_id !== sessionId
+    )
+      throw Error('Untransferred repository reservation changed');
+    const id = row.client_msg_id;
+    const receipt = this.readPreparedRepositoryTransition(id);
+    const transition = receipt.preparedRepositoryTransition!;
+    const session = this.getSession(sessionId);
+    const source = this.readPreparedRepositorySourceExecution(target.commandId, transition);
+    if (
+      !['uncertain', 'reserved'].includes(receipt.state) ||
+      (row.error && receipt.state !== 'uncertain') ||
+      id !== preparedRepositoryChildCommandId(sessionId, transition) ||
+      source.state !== 'consumed' ||
+      !isDeepStrictEqual(receipt.binding, source.binding) ||
+      !isDeepStrictEqual(receipt.selection, source.selection) ||
+      transition.preparationId !== preparationId ||
+      !isDeepStrictEqual(transition.source, target) ||
+      !isDeepStrictEqual(transition.oldWorkspace, oldWorkspace) ||
+      session?.cwd !== oldWorkspace.directory ||
+      sessionWorkspaceId(session) !== oldWorkspace.id
+    )
+      throw Error('Untransferred repository reservation changed');
+    return { childCommandId: id, admission: receipt, previousError: row.error };
+  }
+
   /** A verified still-unclaimed materialized candidate proves no custody CAS
    * occurred. Keep the same operation identity for fresh requalification. */
   suspendUntransferredPreparedRepositoryContinuation(
@@ -1994,40 +2082,24 @@ export class EventStore {
     preparationId: string,
   ): void {
     this.db!.transaction(() => {
-      const rows = this.db!.prepare(
-        `SELECT client_msg_id FROM send_commands WHERE session_id=?
-        AND json_extract(ordinary_admission,'$.preparedRepositoryTransition.source.commandId')=?
-        AND json_extract(ordinary_admission,'$.preparedRepositoryTransition.source.attempt')=?
-        AND json_extract(ordinary_admission,'$.preparedRepositoryTransition.source.threadId')=?
-        AND json_extract(ordinary_admission,'$.preparedRepositoryTransition.source.turnId')=?
-        AND json_extract(ordinary_admission,'$.preparedRepositoryTransition.source.generation')=? LIMIT 2`,
-      ).all(
+      const observed = this.readUntransferredPreparedRepositoryContinuation(
         sessionId,
-        target.commandId,
-        target.attempt,
-        target.threadId,
-        target.turnId,
-        target.generation,
-      ) as Array<{ client_msg_id: string }>;
-      if (rows.length > 1) throw Error('Prepared repository reservation lineage ambiguous');
-      if (!rows.length) return;
-      const id = rows[0].client_msg_id;
-      const receipt = this.readPreparedRepositoryTransition(id);
-      const transition = receipt.preparedRepositoryTransition!;
-      const session = this.getSession(sessionId);
-      if (
-        !['uncertain', 'reserved'].includes(receipt.state) ||
-        transition.preparationId !== preparationId ||
-        !isDeepStrictEqual(transition.source, target) ||
-        !isDeepStrictEqual(transition.oldWorkspace, oldWorkspace) ||
-        session?.cwd !== oldWorkspace.directory ||
-        sessionWorkspaceId(session) !== oldWorkspace.id
-      )
-        throw Error('Untransferred repository reservation changed');
-      this.db!.prepare('UPDATE send_commands SET ordinary_admission=? WHERE client_msg_id=?').run(
-        JSON.stringify({ ...receipt, state: 'reserved' }),
-        id,
+        target,
+        oldWorkspace,
+        preparationId,
       );
+      if (!observed) return;
+      if (observed.previousError)
+        this.append(sessionId, 'command_preparation_recovered', {
+          commandId: observed.childCommandId,
+          preparationId,
+          sourceCommandId: target.commandId,
+          reason: 'untransferred_prepared_repository',
+          previousError: observed.previousError,
+        });
+      this.db!.prepare(
+        'UPDATE send_commands SET ordinary_admission=?,error=NULL WHERE client_msg_id=?',
+      ).run(JSON.stringify({ ...observed.admission, state: 'reserved' }), observed.childCommandId);
     }).immediate();
   }
   /** Idempotent projection after the repository owner independently proves

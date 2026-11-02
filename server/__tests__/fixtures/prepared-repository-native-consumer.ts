@@ -9,7 +9,11 @@ import { execFileSync } from 'node:child_process';
 import { join } from 'node:path';
 import { ownedRuntimeFixture } from './owned-local-codex-runtime.js';
 import { fixtureReadAnchor, fixtureReadDescriptor } from './local-repository-read-owner.js';
-import { OrdinaryLocalCodexOwnedRuntime } from '../../ordinary-local-codex-owned-runtime.js';
+import {
+  OrdinaryLocalCodexOwnedRuntime,
+  type OrdinaryLocalCodexOwnedDispatch,
+} from '../../ordinary-local-codex-owned-runtime.js';
+import type { LocalWorkspaceKind } from '../../ordinary-local-workspace-owner.js';
 import { CodexConversationStore } from '../../codex-conversation-store.js';
 import { codexNativeExecutionPolicy } from '../../codex-native-execution-policy.js';
 import { withPreparedRepositoryBarrierReadScope } from '../../prepared-repository-barrier-read.js';
@@ -161,34 +165,26 @@ async function fixture(
   if (chatRoute) publicNativeStores.add(native);
   else cleanups.push(() => native.close());
   native.create(f.reservation.conversationId, f.reservation.binding, f.reserved.directory!);
+  const enqueue = (value: OrdinaryLocalCodexOwnedDispatch<LocalWorkspaceKind>) => {
+    const input = {
+      id: value.commandId,
+      prompt: value.payload.text,
+      intent: value.payload.intent,
+      images: value.payload.images,
+      model: value.expected.selection.model,
+      reasoningEffort: value.expected.selection.thinking,
+    };
+    value.admission.assertBeforeEnqueue(input);
+    native.enqueue(value.sessionId, value.lease.binding, input);
+  };
   const runtime = new OrdinaryLocalCodexOwnedRuntime({
     ...f.dependencies,
     nativeStore: native,
-    dispatchContinuation: async (value) => {
-      const input = {
-        id: value.commandId,
-        prompt: value.payload.text,
-        intent: value.payload.intent,
-        images: value.payload.images,
-        model: value.expected.selection.model,
-        reasoningEffort: value.expected.selection.thinking,
-      };
-      value.admission.assertBeforeEnqueue(input);
-      native.enqueue(value.sessionId, value.lease.binding, input);
-    },
+    dispatchContinuation: async (value) => enqueue(value),
     dispatch: async (value) => {
       await f.dispatch(value);
       value.admission.persistCustody(native);
-      const input = {
-        id: value.commandId,
-        prompt: value.payload.text,
-        intent: value.payload.intent,
-        images: value.payload.images,
-        model: value.expected.selection.model,
-        reasoningEffort: value.expected.selection.thinking,
-      };
-      value.admission.assertBeforeEnqueue(input);
-      native.enqueue(value.sessionId, value.lease.binding, input);
+      enqueue(value);
     },
   });
   cleanups.push(() => runtime.close());
@@ -301,24 +297,26 @@ async function fixture(
       deniedRoots: [join(f.root, 'login'), join(f.root, 'custody')],
       writeProtectedRoots: [],
     });
-  const owner = Object.freeze({
-    signal: f.signal.signal,
-    selectedPolicy: currentPolicy,
-    assertCurrentSync: () => admission.assertCurrentSync(),
-  });
   const conversation = vi.fn();
-  const adopt = async () =>
-    withPreparedRepositoryBarrierReadScope(
+  const adopt = async (currentAdmission = admission) => {
+    const owner = Object.freeze({
+      signal: f.signal.signal,
+      selectedPolicy: currentPolicy,
+      assertCurrentSync: () => currentAdmission.assertCurrentSync(),
+    });
+    return withPreparedRepositoryBarrierReadScope(
       currentPolicy(),
       source.commandId,
       {
         signal: f.signal.signal,
         selectedPolicy: currentPolicy,
-        assertCurrentSync: () => admission.assertPreparedRepositoryBoundaryCurrentSync(),
-        revalidate: () => admission.assertCurrent(),
+        assertCurrentSync: () => currentAdmission.assertPreparedRepositoryBoundaryCurrentSync(),
+        revalidate: () => currentAdmission.assertCurrent(),
       },
-      (scope) => admission.adoptPreparedRepositoryAtBoundary(scope, source, conversation, owner),
+      (scope) =>
+        currentAdmission.adoptPreparedRepositoryAtBoundary(scope, source, conversation, owner),
     );
+  };
   return {
     ...f,
     request: initialRequest,
@@ -327,6 +325,7 @@ async function fixture(
     native,
     first,
     admission,
+    enqueue,
     record,
     source,
     adopt,
