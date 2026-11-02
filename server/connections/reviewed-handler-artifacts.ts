@@ -23,6 +23,8 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
+  '../native-host-tool-operator.ts':
+    '8bb2fe36927384d48ff092a7b480bd22c9fba60fa98b8aaa5fdc09c8ec3fc641',
   '../github-publication-approval.ts':
     'b0cd80c4578b8d3ef19d40817c369d39860be0c94013dcc2d4b470478d4a865d',
   '../__tests__/fixtures/legacy-backup-seed.ts':
@@ -290,7 +292,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../private-repository-publication-entries.ts':
     '53eff4aa7fe9aa5cee5648e2908dd76f421446b78c865f6d52f3a1386047181f',
   '../__tests__/seeded-publication-end-to-end.test.ts':
-    '848611ab5df08d8a32cba92a12e46e2b147ef4f0c6299345440b3d4f688a6c41',
+    'c5d8ee5a5bb00b9b1273793b624b4390eca0035a63120473924cb2d0ed941650',
   '../../skills/auto-pr-shepherd/SKILL.md':
     '0ff883dfdf11953bded6163fe2dd030ee1a2a88fc004d6002bcd7d5ea6d2d68d',
   '../../skills/autopilot/SKILL.md':
@@ -1556,7 +1558,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../session-credential-tools.ts':
     '64f298b06072fa8486b424b91f5e3c6dd4f5bd01a8501fc69817901e5b2f27ef',
   'policy-compiler.ts': '59579f9eb69a3129dd2d8e1676fa46bd21da45c07f58752183416c82c0986014',
-  'registry.ts': '12a0fe8b3d4a9aea09340fcb8cb677a7e5db138cb90fbeea3beef6cc56c2e6ed',
+  'registry.ts': '6007fe9878fc70d915890dcbaf04d5428113597f599a595acd2fd0a9ff8cc615',
   'iana-address-policy.ts': '899b0b5ad66f5cbe72224b34c29ff7a88e32c2a6f5b2987e4d18cfc64f862b4e',
   'iana-address-data.generated.ts':
     '58f91383fa17ab9612d24bc113d011ece63bfc06b4635ba99f108bb05aa34038',
@@ -1566,7 +1568,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     '831c78e9dfdfa73248d275a5557c2d5228aa46ab8b35e06ea75102f9ec49ac1a',
   '../github-host-source.ts': 'f4bbeed0658457f3f62e3458f2f7c22d61a7ce2f817427c8d47ab84b2e7df34b',
   '../github-publishing-tool.ts':
-    '46a395315628bfcbdf706c2936fa98e10b304d3de98006054615abba3d300287',
+    '7be1e427b22a27b370125c9832b925d78fffa16f341e31bac4f6fb65efed8f3a',
   '../capability-conversation-binding.ts':
     'ca904a33baba632924a52d4da741c917064b454397f73e689bf68825a5a7c218',
   '../openai-key-management.ts': '450dec85b8cb0f483a218b2da8e1362f3d7c6c7ec378f95ab6b4727fc52187cd',
@@ -2001,7 +2003,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     '1116a555e86fbd95a99c4addd1d00c55480928d4d277d9c33bb11e7b430465af',
   '../chat-event-stream.ts': 'a77fdefdccda2b8bb2c5e3c53d84c161cf145d43e3e014db1083ec40cf891037',
   '../native-host-tool-context.ts':
-    '22d7e2fc67862327d9f9868f2c7b01b685f8d790ab5789c847ef3a4f310cea44',
+    'e1e043f04aaab23d20ae2aa27694405fe9571879ba67535874617fcab781a6a2',
   '../symposium-publication-credentials.ts':
     'e1c578eec9297cf567c6ef31ac3443ad8a36a3fb40ccda2149ac18d18362346d',
   '../openshell-artifact-reader.ts':

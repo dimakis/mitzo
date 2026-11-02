@@ -1,3 +1,5 @@
+import { retainedNativeHostToolOperator } from './native-host-tool-operator.js';
+import { isAuthSessionCurrent } from './auth.js';
 import { githubRepositoryConnections } from './github-repository-connections.js';
 import { GITHUB_PR_DESCRIPTION_MAX_LENGTH } from './github-publication-approval.js';
 import { realpathSync } from 'node:fs';
@@ -95,12 +97,16 @@ function captureGithubPublicationOwner(runtimeId: string, conversationId: string
   const assertRuntimeCurrent = active.assertRuntimeCurrent;
   const current = active.registry.findBySessionId(conversationId);
   const session = current?.session;
-  const operatorConnectionId = session?.ownerConnectionId;
+  const retainedOperator = session && retainedNativeHostToolOperator(session);
+  const operatorConnectionId = retainedOperator ?? session?.ownerConnectionId;
   if (!session || !operatorConnectionId || session !== active.session || !session.accountBinding)
     throw new PublicationOwnerError('session_unavailable');
   const authorization = (() => {
     try {
-      return captureAgentLibraryAuthorization(operatorConnectionId, { lifetime: 'operation' });
+      return captureAgentLibraryAuthorization(
+        operatorConnectionId,
+        retainedOperator ? undefined : { lifetime: 'operation' },
+      );
     } catch {
       throw new PublicationOwnerError('operator_unavailable');
     }
@@ -116,6 +122,8 @@ function captureGithubPublicationOwner(runtimeId: string, conversationId: string
   const assertSync = () => {
     try {
       authorization.assertCurrent();
+      if (retainedOperator && !isAuthSessionCurrent(authorization.auth))
+        throw Error('Publishing login revoked');
     } catch {
       throw new PublicationOwnerError('operator_unavailable');
     }
@@ -128,6 +136,7 @@ function captureGithubPublicationOwner(runtimeId: string, conversationId: string
     if (
       operatorPublishing.get(runtimeId) !== active ||
       active.assertRuntimeCurrent !== assertRuntimeCurrent ||
+      retainedNativeHostToolOperator(session) !== retainedOperator ||
       active.registry.findBySessionId(conversationId)?.session !== session ||
       !isDeepStrictEqual(session.accountBinding, binding) ||
       !isDeepStrictEqual(active.account, binding) ||

@@ -4,8 +4,9 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, expect, it, vi } from 'vitest';
 import type { ManagedSession, SessionRegistry } from '@mitzo/harness';
-import { login, authenticateToken, revokeAuthSession } from '../auth.js';
+import { login, authenticateToken, revokeAuthSession, setAuthRevocationStore } from '../auth.js';
 import { bindAgentLibraryTransport } from '../agent-library-transport.js';
+import { retainNativeHostToolOperator } from '../native-host-tool-operator.js';
 const mocks = vi.hoisted(() => ({ approve: vi.fn(), reviewSession: vi.fn() }));
 vi.mock('../terminal-adviser-model.js', () => ({
   createTerminalAdviserSession: mocks.reviewSession,
@@ -17,6 +18,13 @@ vi.mock('@mitzo/harness', async (original) => ({
 import { createConnectionsRuntime, setConnectionsRuntime } from '../connections-runtime.js';
 import { createGithubPublishingTool } from '../github-publishing-tool.js';
 const roots: string[] = [];
+const revokedLogins = new Set<string>();
+setAuthRevocationStore({
+  isAuthSessionRevoked: (auth) => revokedLogins.has(auth.id),
+  revokeAuthSession: (auth) => {
+    revokedLogins.add(auth.id);
+  },
+});
 afterEach(async () => {
   setConnectionsRuntime(null);
   vi.unstubAllEnvs();
@@ -195,11 +203,21 @@ const p=cp.spawnSync('/bin/sh',mapped,{encoding:'utf8',env:process.env});process
     const auth = await authenticateToken((await login(process.env.AUTH_PASSPHRASE!))!);
     if (!auth) throw Error('Offline signed publication operator required');
     const releaseOperator = bindAgentLibraryTransport(session.ownerConnectionId!, auth);
+    session.ownedLocalAuthSessionId = auth.id;
+    const releaseRetainedOperator =
+      kind === 'host'
+        ? retainNativeHostToolOperator(session, session.ownerConnectionId!)
+        : () => {};
+    // Native host work has already been admitted: publication may start while
+    // the viewer is entirely offline, using the same retained native owner.
+    if (kind === 'host') releaseOperator();
     let releaseReconnectedOperator: (() => void) | undefined;
+    let publicationCurrent: (() => Promise<void>) | undefined;
     // Reuse this real publication journey to cover the phone reconnect that
     // production observed between owner capture and capability preflight.
     const invoke = runtime.capabilities.invoke.bind(runtime.capabilities);
     vi.spyOn(runtime.capabilities, 'invoke').mockImplementation((...args) => {
+      publicationCurrent = args[3];
       releaseOperator();
       session.ownerConnectionId = 'reconnected-publishing-operator';
       releaseReconnectedOperator = bindAgentLibraryTransport(session.ownerConnectionId, auth);
@@ -212,6 +230,24 @@ const p=cp.spawnSync('/bin/sh',mapped,{encoding:'utf8',env:process.env});process
     mocks.approve.mockReset();
     mocks.approve.mockImplementation(async (_name, input) => {
       approvalReviewCounts.push(mocks.reviewSession.mock.calls.length);
+      if (!approved && kind === 'host') {
+        // A revocation written by another owner must be observed without a
+        // local transport callback. The still-bound login cannot authorize it.
+        revokedLogins.add(auth.id);
+        await expect(publicationCurrent!()).rejects.toMatchObject({
+          code: 'PUBLICATION_AUTHORITY_CHANGED',
+          reason: 'operator_unavailable',
+        });
+        revokedLogins.delete(auth.id);
+        await expect(publicationCurrent!()).resolves.toBeUndefined();
+        // Releasing the admitted server owner must fence even an in-flight
+        // publication; a connected viewer cannot replace that authority.
+        releaseRetainedOperator();
+        await expect(publicationCurrent!()).rejects.toMatchObject({
+          code: 'PUBLICATION_AUTHORITY_CHANGED',
+          reason: 'operator_unavailable',
+        });
+      }
       return { behavior: approved ? 'allow' : 'deny', updatedInput: input };
     });
     const tool = createGithubPublishingTool('conversation', registry, () =>
@@ -300,6 +336,7 @@ const p=cp.spawnSync('/bin/sh',mapped,{encoding:'utf8',env:process.env});process
       expect(git(seed, 'remote')).toBe('');
     } finally {
       releaseOperator();
+      releaseRetainedOperator();
       releaseReconnectedOperator?.();
       revokeAuthSession(auth);
       tool.close();
