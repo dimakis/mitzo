@@ -1651,7 +1651,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../codex-admission-preparation.ts':
     '0cb595a8fed20de735d4fa718544baf1a36ccebf3beecc763badd696e4af3098',
   '../codex-chat-session.ts': '4715fb21cf930d0ef34264bf2317dfe65aa490344f15fb6f966d93ece4e1973a',
-  '../connections-runtime.ts': '930d0519a7acbc89fc4ed3a48ff9117460684428b67bb55c77feb8446a27ae4b',
+  '../connections-runtime.ts': 'c5c0da8aa548c029b1dbe7c1eb880311f35c6dfab26ff0e437db6134455089ef',
   'capabilities/operation-store.ts':
     '60c15c84c9cfddbbf30b01b215b1d7551271715f5cce5b3b4fd85092f7e575eb',
   'capabilities/service.ts': '509712c26d0cfa1709f5ed612a7da79e2a2c686aa53ca93419db1ef18c0f8d56',
