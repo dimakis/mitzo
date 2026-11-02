@@ -3,7 +3,7 @@ import { afterEach, expect, it, vi } from 'vitest';
 import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { SessionList } from '../SessionList';
-import type { SessionSearchResult } from '@mitzo/protocol';
+import type { SessionActivity, SessionSearchResult } from '@mitzo/protocol';
 
 const mocks = vi.hoisted(() => ({
   inspect: vi.fn(),
@@ -30,8 +30,10 @@ const mocks = vi.hoisted(() => ({
     activities: [
       {
         sessionId: 'one',
+        clientId: 'one',
         title: 'Review UI',
         state: 'waiting',
+        flags: ['waiting'],
         waitReason: 'review',
         lastEventAt: 40,
         awaitingReply: false,
@@ -39,15 +41,17 @@ const mocks = vi.hoisted(() => ({
       },
       {
         sessionId: 'three',
+        clientId: 'three',
         title: 'Live chat outside history page',
         state: 'working',
+        flags: ['working'],
         lastEventAt: 50,
         awaitingReply: false,
         uncommittedWork: false,
         model: 'claude-opus-4-8',
         accountLabel: 'Work',
       },
-    ],
+    ] as SessionActivity[],
     connected: true,
   },
   search: {
@@ -97,7 +101,7 @@ it('batches meaningful promotions after browsing while tool updates stay in plac
     );
   const initial = titles();
   try {
-    for (const state of ['working', 'waiting']) {
+    for (const state of ['working', 'waiting'] as const) {
       fireEvent.pointerDown(screen.getByRole('link', { name: 'Open Review UI' }), { pointerId: 1 });
       mocks.overview.activities = [...previous].reverse().map((activity) => ({
         ...activity,
