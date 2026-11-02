@@ -170,11 +170,13 @@ export class OrdinaryLocalWorkspaceOwner<K extends LocalWorkspaceKind = 'reposit
     this.assertCurrentSync(record.directory!);
     if (record.state === 'claimed') await this.validate(record.directory!);
   }
-  async validate(cwd: string): Promise<void> {
+  async validate(cwd: string, signal?: AbortSignal): Promise<void> {
+    signal?.throwIfAborted();
     this.assertCurrentSync(cwd);
     if (this.kind === 'ordinary')
       this.workspace.validateOrdinaryWorkspace(this.reservation.conversationId, cwd);
     else await this.workspace.validateHostTask(this.reservation.conversationId, cwd);
+    signal?.throwIfAborted();
     this.assertCurrentSync(cwd);
   }
   async claim(signal: AbortSignal): Promise<LocalWorkspaceRecord<K>> {

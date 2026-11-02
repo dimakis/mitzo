@@ -104,7 +104,7 @@ export class FrozenHostCodexBootstrapAuthority implements OrdinaryLocalCodexBoot
       assertRuntimeCurrentSync(): void;
       assertSelectionCurrent(expected: Readonly<Expected>): Promise<void>;
       /** Current physical checkout only; full preparation was qualified at bootstrap. */
-      assertToolSelectionCurrent?(expected: Readonly<Expected>): Promise<void>;
+      assertToolSelectionCurrent?(expected: Readonly<Expected>, signal: AbortSignal): Promise<void>;
       assertSelectionCurrentSync(expected: Readonly<Expected>): void;
       /** Private clean-qualified cold entry only. This independent authority
        * defers the recursive async workspace stage until the real lease exists;
@@ -570,7 +570,7 @@ export class FrozenHostCodexBootstrapAuthority implements OrdinaryLocalCodexBoot
           current();
           strictVoid(
             await observeLocalCodexPhase('workspace_check', () =>
-              Reflect.apply(workspaceCurrent, this.owners, [expected]),
+              Reflect.apply(workspaceCurrent, this.owners, [expected, signal]),
             ),
           );
           current();

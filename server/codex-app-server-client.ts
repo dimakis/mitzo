@@ -195,6 +195,7 @@ export class CodexTransportError extends Error {
         | 'invalid_json'
         | 'invalid_envelope'
         | 'notification_handler_failed'
+        | 'host_tool_admission_timeout'
         | 'reply_provenance_failed'
         | 'child_exit'
         | 'process_error'

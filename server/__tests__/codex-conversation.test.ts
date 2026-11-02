@@ -1465,8 +1465,8 @@ async function setup(
     callbacks: {
       onNotification: (method: string, params: Record<string, unknown>) =>
         callbacks.onNotification(method, params),
-      onRequest: (method: string, params: Record<string, unknown>, signal: AbortSignal) =>
-        callbacks.onRequest(method, params, signal),
+      onRequest: (...args: Parameters<CodexLifecycleTransport['onRequest']>) =>
+        callbacks.onRequest(...args),
       onClose: (error: Error) => callbacks.onClose(error),
     },
     getCallbacks: () => callbacks,
@@ -2554,10 +2554,16 @@ it.each(['native', 'no-policy'] as const)(
     };
     let retained: Parameters<CodexConversationOptions['executeTool']>[3] | undefined;
     let scope: NativeBaseReadScope | undefined;
+    const registerResponseFence = vi.fn();
+    const responseFence = vi.fn();
     f.conversationOptions.executeTool = async (_name, _args, _signal, invocation) => {
       retained = invocation;
       expect(Object.isFrozen(invocation)).toBe(true);
       expect(Object.keys(invocation)).toEqual(['turnId', 'callId']);
+      expect(Object.getOwnPropertyDescriptor(invocation, 'registerResponseFence')).toMatchObject({
+        enumerable: false,
+      });
+      invocation.registerResponseFence!(responseFence);
       expect(structuredClone(invocation)).not.toHaveProperty('captureNativeBaseReadScope');
       expect(JSON.parse(JSON.stringify(invocation))).not.toHaveProperty(
         'captureNativeBaseReadScope',
@@ -2600,8 +2606,15 @@ it.each(['native', 'no-policy'] as const)(
       return { content: 'original', isError: false };
     };
     await expect(
-      f.callbacks.onRequest('item/tool/call', call, new AbortController().signal),
+      f.callbacks.onRequest('item/tool/call', call, new AbortController().signal, {
+        requestId: 'read-rpc',
+        registerResponseFence,
+      }),
     ).resolves.toMatchObject({ success: true });
+    expect(registerResponseFence).toHaveBeenCalledWith(responseFence);
+    expect(() => retained!.registerResponseFence!(responseFence)).toThrow(
+      'Original native tool callback is no longer current',
+    );
     if (mode === 'native') {
       expect(() => retained!.captureNativeBaseReadScope!()).toThrow(
         'Original native tool callback is no longer current',
@@ -8213,6 +8226,7 @@ it.each([
   { phase: 'transport', diagnostic: { reason: 'child_exit', exitCode: null, signal: 'SIGKILL' } },
   { phase: 'transport', diagnostic: { reason: 'reply_provenance_failed' } },
   { phase: 'transport', diagnostic: { reason: 'notification_handler_failed' } },
+  { phase: 'transport', diagnostic: { reason: 'host_tool_admission_timeout' } },
   { phase: 'ack', diagnostic: { reason: 'reply_provenance_failed' } },
   { phase: 'buffered', diagnostic: { reason: 'reply_provenance_failed' } },
 ] as const)(

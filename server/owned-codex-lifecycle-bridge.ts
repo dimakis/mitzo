@@ -121,10 +121,15 @@ export class OwnedCodexLifecycleBridge {
   private async admit(lease: FrozenHostCodexBootstrapLease, signal: AbortSignal): Promise<void> {
     const controller = new AbortController();
     const current = AbortSignal.any([signal, this.#abort.signal, controller.signal]);
-    const timer = setTimeout(
-      () => controller.abort(unavailable()),
-      this.options.admissionTimeoutMs ?? 15_000,
-    );
+    const timer = setTimeout(() => {
+      const error = new CodexTransportError('timeout', {
+        reason: 'host_tool_admission_timeout',
+      });
+      // Retain the cause before cancellation makes the physical reader retire
+      // its lease and synchronously reenter with a generic transport closure.
+      this.close(error);
+      controller.abort(error);
+    }, this.options.admissionTimeoutMs ?? 15_000);
     let abort: () => void = () => {};
     try {
       await Promise.race([

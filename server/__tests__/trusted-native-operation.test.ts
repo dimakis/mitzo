@@ -16,9 +16,59 @@ import {
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { executeTrustedGitCommit, trustedGitHubReadRequest } from '../trusted-native-operation.js';
+const githubProcess = vi.hoisted(() => ({ execute: vi.fn() }));
+vi.mock('node:child_process', async (original) => {
+  const actual = await original<typeof import('node:child_process')>();
+  const execute = (...args: Parameters<typeof actual.execFile>) =>
+    args[0] === 'gh' ? githubProcess.execute(...args) : actual.execFile(...args);
+  // Git custody fixtures consume promisified execFile's .child stdin handle.
+  const custom = Symbol.for('nodejs.util.promisify.custom');
+  Object.defineProperty(execute, custom, Object.getOwnPropertyDescriptor(actual.execFile, custom)!);
+  return {
+    ...actual,
+    execFile: execute,
+  };
+});
+import {
+  executeTrustedGitCommit,
+  executeTrustedGitHubRead,
+  trustedGitHubReadRequest,
+} from '../trusted-native-operation.js';
 import { captureLocalRepository } from '../local-repository-worktree.js';
 import { snapshotRepositoryTaskCheckout } from '../repository-task-checkout.js';
+
+it.each(['dispatch', 'delivery'] as const)(
+  'rechecks GitHub read authority at %s without a real network process',
+  async (boundary) => {
+    githubProcess.execute.mockReset();
+    let complete: ((error: null, stdout: string, stderr: string) => void) | undefined;
+    githubProcess.execute.mockImplementation((_file, _args, _options, callback) => {
+      complete = callback;
+      return {};
+    });
+    let revoked = false;
+    const pending = executeTrustedGitHubRead(
+      '/user',
+      new AbortController().signal,
+      undefined,
+      undefined,
+      'full',
+      () => {
+        if (revoked) throw Error('read revoked');
+      },
+    );
+    if (boundary === 'delivery') {
+      await vi.waitFor(() => expect(githubProcess.execute).toHaveBeenCalledOnce());
+      revoked = true;
+      complete!(null, '{"login":"private-result"}', '');
+    } else {
+      // run() yields before dispatch; revocation during that yield must win.
+      revoked = true;
+    }
+    await expect(pending).rejects.toThrow('read revoked');
+    if (boundary === 'dispatch') expect(githubProcess.execute).not.toHaveBeenCalled();
+  },
+);
 
 describe('trusted native Git operation', () => {
   let root = '';

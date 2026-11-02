@@ -261,7 +261,7 @@ export function codexToolFailureResult(
     content: JSON.stringify({
       error: code,
       action: correctRepositoryInput
-        ? 'Choose exactly one selector: path for an existing absolute checkout OR source for existing/clone/new, never both. For a new project use {"source":{"kind":"new","name":"my-project"}} without path. path is not a destination; Mitzo assigns the task directory and custom destinations are unsupported. Use only documented fields. Correct the arguments and retry; this call did not start repository preparation. Do not reconcile an unrelated repository.'
+        ? 'Choose exactly one selector: path for an existing absolute checkout OR source for existing/clone/new, never both. For a new managed checkout use {"source":{"kind":"new","name":"my-project"}} without path. path is not a destination; this tool assigns the task directory. For a project at a requested destination, use native shell with exact filesystem permission instead. Use only documented fields. Correct the arguments and retry; this call did not start repository preparation. Do not reconcile an unrelated repository.'
         : actions[code],
       diagnosticId: randomUUID(),
       diagnostic,

@@ -104,3 +104,16 @@ Preview `v005` includes the corrected real component; earlier revisions remain.
 Local design checks passed (108 tests, one existing skip), as did all 25 focused
 viewer/draft tests, source verification and browser test discovery. Rendered
 acceptance for this correction remains a CI requirement.
+
+The same run's joined repository journey returned an uncertain send receipt after
+native bootstrap failed at 11 seconds. Main subsequently accepted workspace
+admission improvements in `e0b918d`; this branch integrates that base. The only
+conflict was the runtime revision marker, now
+`v1.0.832-workspace-admission-and-compact-display`, with all source fingerprints
+from both branches retained and verified. No admission deadline or assertion was
+weakened. The combined branch passes the 133 design/viewer/draft checks and 26
+selection-owner tests (one existing design skip). The bootstrap fixture's initial
+local attempt was blocked by the host's private-directory fence. With its
+supported private-directory setting pointed at a temporary fixture path, all 56
+bootstrap tests also pass: 215 passing checks in total. CI remains required for
+the real joined browser journey and the focused header correction.

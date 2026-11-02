@@ -450,14 +450,18 @@ export class OrdinaryLocalCodexSelectionOwner {
   }
   async assertToolCurrent(
     expected: Readonly<OrdinaryLocalCodexAdmissionExpectation>,
+    signal: AbortSignal = this.owners.signal,
   ): Promise<void> {
+    signal.throwIfAborted();
     this.assertCurrentSync(expected);
     const primary = this.preparedPrimary();
     const workspace = primary?.workspace ?? this.#workspace;
     if (workspace.get().state === 'claimed')
       await workspace.validate(
         primary ? primary.transition.newWorkspace.directory : expected.workspace.cwd,
+        signal,
       );
+    signal.throwIfAborted();
     this.assertCurrentSync(expected);
   }
 }
