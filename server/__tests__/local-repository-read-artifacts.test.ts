@@ -8,6 +8,7 @@ import {
 it('pins effective read scope, private call authority and repository read fixtures', async () => {
   const artifacts: Readonly<Record<string, string>> = reviewedHandlerSourceArtifacts;
   for (const file of [
+    '../prepared-repository-workspace-read.ts',
     '../local-repository-discovery.ts',
     '../local-repository-git-inspection.ts',
     '../local-repository-git-snapshot.ts',
