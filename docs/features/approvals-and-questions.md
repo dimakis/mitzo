@@ -61,4 +61,39 @@ Native publication controllers retain scoped consent for the logical conversatio
 
 Matching already-pending shared-handler approvals settle after a session grant only when their server-owned scope matches and their current mode, skill, owner and workspace checks still pass. Changed worktree identities across asynchronous revalidation deny the queued request. External consent brokers retain their own narrow scope and cancellation rules.
 
+## Native Mac development
+
+Routine PR, review and CI diagnostics use `GitHubRead`, an authenticated GET service,
+rather than repeated shell networking approvals. Its session choice covers one
+repository, or `/user` separately, bound to the selected account/profile, operator
+and credential runtime. Another repository or runtime requires fresh consent.
+Each read rechecks current authority before I/O; clearing consent also blocks a
+read waiting at asynchronous revalidation. This grant does not authorize GitHub
+writes, publication, merges or general shell networking.
+Retained output pages keep their originating read input and account/runtime
+scope, and use the same permission owner before delivery. Revoked consent must
+be explicitly renewed; changed source identity requires a fresh read. Native RPC
+reply fences recheck read consent and skill restrictions after result processing.
+
+Native command cards describe the requested command/network operation. Commands
+in the current task directory can offer **Allow for session** for the exact
+command text and requested access in the current native thread. Changes to the
+command, directory, mode, policy or runtime require fresh approval. Filesystem
+expansions, file changes, stdin callbacks and managed-network callbacks remain
+separate exact requests. A one-time decision adds no retained consent.
+
+Mitzo retains the scoped command choice through its existing session grant owner;
+each subsequent native callback still validates current ownership, cancellation,
+skill policy and filesystem fences before returning an ordinary `accept` for that
+RPC. It does not install a shell-prefix rule or an upstream policy amendment.
+Matching pending requests can settle together only after those same checks.
+Transport reattachment can reuse the live owner's consent; a new native thread,
+runtime or server lifetime cannot. Native permission-profile grants keep their
+existing upstream turn/session lifetime. Automatic review remains unavailable
+until its account, reviewer and billing route are qualified.
+
+Offline tests start with existing workspace/scratch access. Request networking
+only when an observed failure establishes a concrete need, such as a local test
+listener. Existing browser host rules and live-test authorization still apply.
+
 Environment-key checks establish availability in the launching shell, not rotation freshness or live service access. A trusted successful integration attachment can queue one bounded continuation for an ordinary locally owned turn. Externally owned reviewed turns instead return typed `environment_pending` unfinished work after the actual provider terminal outcome; the owner must issue its reviewed next command. Neither path manufactures execution admission or retries cancelled/failed work.
