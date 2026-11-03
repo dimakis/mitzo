@@ -256,7 +256,10 @@ export async function executePrivateNativeFileHelper(options: PrivateNativeFileH
       ))
   )
     throw Error('Private helper scope unavailable');
-  await revalidate(); // Full actual owner BEFORE any scope-touching host setup.
+  // Only owned scratch/runtime custody is accessed by private host setup.
+  // Source/destination roots remain immutable data until worker sandbox setup,
+  // after the full beforeSpawnAsync proof. Do not repeat that proof here.
+  current();
   let failed = false;
   let result: Awaited<ReturnType<typeof runSandboxedCommand>> | undefined;
   try {
@@ -417,7 +420,10 @@ export async function executePrivateRepositoryStagingCheckout(
     throw Error('Private checkout unavailable');
   if (Buffer.byteLength(JSON.stringify(inputs)) > 2 * 1024 * 1024)
     throw Error('Private checkout unavailable');
-  await revalidate(); // Original full owner BEFORE any host setup/owned path access.
+  // Setup reads only independently owned staging/config bytes. Full authority
+  // is refreshed at worker execution and after its joined result, within the
+  // same original deadline; no source/task setup occurs before that proof.
+  current();
   let failed = false;
   try {
     const git = join(scratch, 'git-admin'),

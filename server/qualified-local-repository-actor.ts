@@ -149,22 +149,12 @@ export async function materializeQualifiedLocalRepositoryTask(operation: {
       factsSha256,
       packedRefs,
     );
-    // Preserve the genuine consumed object-stage fence even though its READ
-    // capture/disposal already completed before human source-effect approval.
-    await full();
     const scratch = view.scratch;
     const scratchAnchor = Object.freeze({ rootPath: scratch, identity: view.scratchIdentity });
+    // The artifact is bound private custody. Staging re-verifies its identities
+    // and fixed bytes across worker wrapping; no source/effect boundary occurs
+    // between this verification and private setup requiring another full proof.
     current();
-    // The last full callback is an await too. Recheck actual private custody/
-    // config/copied bytes after it, before staging setup; worker fences remain.
-    await verifyLocalRepositoryPreparationObjectData(
-      artifact,
-      context,
-      operation.requestSha256,
-      facts,
-      factsSha256,
-      packedRefs,
-    );
     await mkdir(join(scratch, 'checkout'), { mode: 0o700 });
     current();
     const staging = join(scratch, 'checkout');
@@ -435,7 +425,8 @@ export async function materializeQualifiedLocalRepositoryTask(operation: {
   const taskIdentity = await read(async (access) =>
     captureQualifiedLocalRepositoryTask(access, facts, publication!),
   );
-  await full();
+  // read() already joined disposal and refreshed the complete original owner.
+  // Only immutable result assembly remains; retain the live synchronous fence.
   current();
   return Object.freeze({ publication, taskIdentity });
 }

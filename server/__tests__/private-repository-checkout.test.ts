@@ -1,5 +1,8 @@
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawn } from 'node:child_process';
+import { EventEmitter } from 'node:events';
+import { PassThrough } from 'node:stream';
+import { SandboxManager } from '@anthropic-ai/sandbox-runtime';
 import { lstat, mkdir, mkdtemp, readFile, realpath, rename, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -9,6 +12,11 @@ import {
   privateRepositoryCheckoutAttributes,
   privateRepositoryCheckoutConfig,
 } from '../private-repository-checkout.js';
+
+vi.mock('node:child_process', async (original) => {
+  const actual = await original<typeof import('node:child_process')>();
+  return { ...actual, spawn: vi.fn(actual.spawn) };
+});
 
 let root: string, scratch: string, git: string, baseOid: string;
 const environment = {
@@ -32,6 +40,7 @@ const execute = (args: string[], input?: string) =>
     input,
   }).trim();
 beforeEach(async () => {
+  vi.mocked(spawn).mockReset();
   root = await realpath(await mkdtemp(join(tmpdir(), 'mitzo-private-checkout-')));
   scratch = join(root, 'owned');
   git = join(scratch, 'git-admin');
@@ -95,7 +104,11 @@ it('refuses replaced owned staging and executable config before launching', asyn
   await expect(sandbox.executePrivateRepositoryStagingCheckout(updated)).rejects.toThrow();
   await expect(lstat(join(git, 'index'))).rejects.toMatchObject({ code: 'ENOENT' });
 });
-it('checks full original owner before any private setup and after joined failures', async () => {
+it('refuses async revocation before worker execution and rechecks after the joined refusal', async () => {
+  vi.spyOn(SandboxManager, 'checkDependencies').mockReturnValue({ errors: [], warnings: [] });
+  vi.mocked(spawn).mockImplementation(() => {
+    throw Error('Worker MUST NOT be reached');
+  });
   const input = await options(),
     error = Error('CURRENT OWNER REVOKED');
   const revalidate = vi.fn(async () => {
@@ -104,6 +117,55 @@ it('checks full original owner before any private setup and after joined failure
   await expect(
     sandbox.executePrivateRepositoryStagingCheckout({ ...input, revalidate }),
   ).rejects.toThrow('CURRENT OWNER REVOKED');
-  expect(revalidate).toHaveBeenCalledOnce();
+  expect(revalidate).toHaveBeenCalledTimes(2);
+  expect(spawn).not.toHaveBeenCalled();
   await expect(lstat(join(git, 'index'))).rejects.toMatchObject({ code: 'ENOENT' });
+});
+
+// Reuse the owned private fixture and synthetic child for both outcomes. This
+// isolates slow proof/result delivery without another real checkout journey.
+it('fits two slow current proofs in the original checkout deadline and withholds a revoked joined result', async () => {
+  vi.spyOn(SandboxManager, 'checkDependencies').mockReturnValue({ errors: [], warnings: [] });
+  vi.spyOn(process, 'kill').mockImplementation((pid, signal) => {
+    expect(pid).toBe(-12345678);
+    expect(signal).toBe('SIGKILL');
+    return true;
+  });
+  for (const mode of ['current', 'revoked'] as const) {
+    let now = Date.now(),
+      checks = 0,
+      joined = false;
+    const input = { ...(await options()), timeoutMs: 30000, deadline: now + 30000 };
+    const clock = vi.spyOn(Date, 'now').mockImplementation(() => now);
+    input.revalidate = async function () {
+      expect(this).toBe(input);
+      checks++;
+      now += 10000;
+      if (joined && mode === 'revoked') throw Error('Original physical owner revoked');
+    };
+    vi.mocked(spawn).mockClear();
+    vi.mocked(spawn).mockImplementation(() => {
+      const child = Object.assign(new EventEmitter(), {
+        pid: 12345678,
+        stdout: new PassThrough(),
+        stderr: new PassThrough(),
+      });
+      setImmediate(() => {
+        child.stdout.end();
+        child.stderr.end();
+        joined = true;
+        child.emit('close', 0, null);
+      });
+      return child as unknown as ReturnType<typeof spawn>;
+    });
+    const running = sandbox.executePrivateRepositoryStagingCheckout(input);
+    if (mode === 'current') await expect(running).resolves.toBeUndefined();
+    else await expect(running).rejects.toThrow('Original physical owner revoked');
+    expect(checks).toBe(2);
+    expect(joined).toBe(true);
+    expect(spawn).toHaveBeenCalledOnce();
+    expect(now).toBeLessThan(input.deadline);
+    await expect(lstat(join(git, 'index'))).rejects.toMatchObject({ code: 'ENOENT' });
+    clock.mockRestore();
+  }
 });

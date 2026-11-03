@@ -26,6 +26,7 @@ import {
   runRecordedPreparationAttempt,
 } from './fixtures/preparation-attempt-diagnostics.js';
 import { observePreparationService } from './fixtures/preparation-service-diagnostics.js';
+import { observePrivateHelperBoundary } from './fixtures/private-helper-boundary-diagnostics.js';
 import * as actor from '../qualified-local-repository-actor.js';
 import * as sandbox from '../sandboxed-command.js';
 import { OwnedLocalCodexChatAdmission } from '../owned-local-codex-chat-admission.js';
@@ -209,6 +210,7 @@ actual(
     );
     const originalFs = await vi.importActual<typeof import('node:fs/promises')>('node:fs/promises');
     const cleanupCounts = { reader: 0, objects: 0, artifact: 0 };
+    const privateHelpers = { checkout: [] as unknown[], publication: [] as unknown[] };
     vi.mocked(filesystem.rm).mockImplementation(async (...args) => {
       const name = typeof args[0] === 'string' ? basename(args[0]) : '';
       const kind = name.startsWith('mitzo-native-read-')
@@ -325,7 +327,13 @@ actual(
       const start = performance.now();
       metrics.effectTransports.calls++;
       try {
-        return await diagnostics.capture('publication', () => effectTransport(...args));
+        return await diagnostics.capture('publication', () =>
+          observePrivateHelperBoundary(
+            args[0],
+            () => effectTransport(...args),
+            privateHelpers.publication,
+          ),
+        );
       } finally {
         metrics.effectTransports.ms += performance.now() - start;
       }
@@ -335,7 +343,9 @@ actual(
         const start = performance.now();
         metrics.checkouts.calls++;
         try {
-          return await diagnostics.capture('checkout', () => checkout(...args));
+          return await diagnostics.capture('checkout', () =>
+            observePrivateHelperBoundary(args[0], () => checkout(...args), privateHelpers.checkout),
+          );
         } finally {
           metrics.checkouts.ms += performance.now() - start;
         }
@@ -401,9 +411,9 @@ actual(
                     combinedPublicationHelpers: 1,
                     stagingHelpers: 1,
                     effectHelperCount: 2,
-                    originalFullCallbacksOnSuccess: 11,
+                    originalFullCallbacksOnSuccess: 7,
                     explanation:
-                      'Static success-path count from current actor: 3 original full callbacks for separate staging checkout, 3 for combined publication, plus 5 actor/read/cleanup callbacks. The consumed operation already includes the native context owner. Does not measure object/task read cost or establish whole-window viability.',
+                      'Static success-path count from current actor: 2 original full callbacks for separate staging checkout, 2 for combined publication, plus 3 actor/read/cleanup callbacks. The consumed operation already includes the native context owner. Does not measure object/task read cost or establish whole-window viability.',
                   },
                 },
                 null,
@@ -790,6 +800,7 @@ actual(
             receiptState,
             postPreparation,
             secondPreparation,
+            privateHelpers,
             serviceState: serviceState(),
             cleanup: {
               returnedReaders: returnedReaders.length,

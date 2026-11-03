@@ -108,3 +108,30 @@ the failing second helper against its unchanged 30-second bound. Repeated full
 source/context checks consumed that helper window. The follow-up removes two
 of the five repeated workspace checks per full source proof without rebasing the
 worker deadline or relaxing its pre-spawn/post-result gates.
+
+The next CI attempt reduced second-preparation admission calls from 112 to 88 and
+elapsed time to 189.341 seconds, but still refused checkout. That failed-attempt
+count stops before second publication and is not comparable to a successful
+whole-operation count. The remaining duplication was in private host setup and
+the actor, rather than a missing authority grant.
+
+Private helper setup reads only owned scratch/config bytes and runtime custody;
+source/destination roots remain data until worker execution. Synchronous current
+checks own that setup; full proofs remain before the worker and after its joined
+result. The actor verifies bound object data once after its original consumed
+proof, and its read-cleanup proof also owns outward delivery. It no longer
+repeats either proof around immutable/private work. The static materialization
+success path therefore has seven full proofs rather than eleven: artifact use,
+two staging-worker boundaries, two publication-worker boundaries, actor cleanup,
+and reader cleanup/delivery. All original operation, approval, read and helper
+bounds remain unchanged.
+
+Controlled-clock tests charge ten seconds per full proof: the previous duplicate
+setup gate exhausted the 30-second helper window, while the two actual worker
+boundaries fit. Pre-spawn expiry, post-join expiry/revocation, unchanged source
+bytes, retained publication/refused replay and original receiver checks remain.
+Existing private checkout setup is reused with synthetic children for its
+separate result-delivery contract. The two selected real publication boundaries
+passed in 1.79 seconds execution/2.09 elapsed; no additional complete-app journey
+was introduced. The signed materializer artifact now retains bounded per-helper
+gate timings as well as whole-phase timings, without adding product I/O.
