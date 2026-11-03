@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.844-integrated-preparation-boundaries';
+  'v1.0.845-native-github-publication';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -23,6 +23,8 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
+  '../github-publishing-source.ts':
+    '97c1d2f24308e430973afdf4492a9513fda9e7eedcb80464fac71e8fcbc9ca01',
   '../retained-local-codex-effects.ts':
     'a417f932f6300d9b583ab012da310534b146fccb2ef446fa023d8b2d81fdc29d',
   '../builtin-tool-behavior.ts': '683d38d640c8761277009183b8d0f9aca56da587a78b37a97d774f2d16a382a5',
@@ -82,7 +84,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../builtin-agent-library-profile.ts':
     '278d9a286a27cb76740ac5f821bc3bb03175471b58af371f3bd4fe9c6ad022bc',
   '../__tests__/github-host-source.test.ts':
-    'eb4edae65222b665a2aec881789876aa35499dca9e7a5289f5f91d19c3df46b3',
+    'dac3a1757062df7e65544d8da2216bf040a2d868e36771341533177c2550022e',
   '../github-publication-preflight.ts':
     '14c9b9e4982f751289e3c56ce80caba6ac61866b6d9c769ca401328764bd1192',
   '../__tests__/github-publication-preflight.test.ts':
@@ -358,7 +360,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/fixtures/prepared-repository-delivery-flow.ts':
     '90bc4310ca5b2d4c10f0bbc69747982f2d405ad7fbbe0359b0a1656fd7448a73',
   '../__tests__/github-publishing-tool.test.ts':
-    '30081926adac773d0b4670062154d5200684ede7fe70356b30ebe0e1eb09f09a',
+    'de4405d937cfb53104e70eaf4f7dc4b2227b76b75b1e7bb997e39311e1314175',
   '../__tests__/ordinary-publication-review-composition.test.ts':
     '4c9a788ea95d744e8205c48a8b1fdd8736ccee0cc5c7c39fd37287fe547c7035',
   '../__tests__/prepared-repository-delivery-flow.test.ts':
@@ -697,7 +699,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../scripts/qualify-codex-native-permissions.mjs':
     '848148f0e305800ab30aa84899798c0b4034c9fe2f062045d8a5672cfc09ae59',
   '../__tests__/codex-chat-session.test.ts':
-    '307d68909920aff9f8fa78956276202f44e0e9310d9361ab8a352f229b1101a1',
+    'e962a9975575bbda677f42e5b276c6f8075d8c675dc19d3deaac58af846e26ae',
 
   '../__tests__/codex-conversation.test.ts':
     '2c43a67186c9a8cf00e1ecb000085e224a6859a98bd0dc17d1286c90299b023a',
@@ -1475,7 +1477,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     'c103af10de4adc81cdc474b3e69ef2b3de5e447d4dcf15da4fc1894c422b913b',
   '../../packages/protocol/src/session-output-reference-store.ts':
     'de139a8dae52cc0294f50e13fdb96d0666c81e376e282e84c640a0b187dc3014',
-  '../chat.ts': '2908e85e50d6b7f51da803ed75449a5efb0f3c6ecdd09fb5f517f7caea498ea0',
+  '../chat.ts': '75fc25327451c5bf137e8ed0da6c4d469b09b0319bd597e4b567e3c3a8c0ec30',
   '../../packages/harness/src/session-registry.ts':
     '25e0ae6a62c005b0b53596834cc193512a7bb09c1b7dd8d72fe8bd4ddf184795',
   '../agent-context-binding.ts': '4917ff83899105b7ac2c537c8db18111eeb97386d1ca0a2d2b576d872e1db360',
@@ -1604,7 +1606,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     '831c78e9dfdfa73248d275a5557c2d5228aa46ab8b35e06ea75102f9ec49ac1a',
   '../github-host-source.ts': 'cd0468ec4645d6aacd91b59c70ee5957e4d40e154851af3a569638e3e6083390',
   '../github-publishing-tool.ts':
-    '7be1e427b22a27b370125c9832b925d78fffa16f341e31bac4f6fb65efed8f3a',
+    '18f4482ae7958a82ee73d5ed114f64d07a3faa1b683fea99bb2886e7207e19f1',
   '../capability-conversation-binding.ts':
     'ca904a33baba632924a52d4da741c917064b454397f73e689bf68825a5a7c218',
   '../openai-key-management.ts': '450dec85b8cb0f483a218b2da8e1362f3d7c6c7ec378f95ab6b4727fc52187cd',
@@ -2370,7 +2372,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/worktree-fetch-observation.test.ts':
     '15d3a88708e22b72e498dbc924555d4c1eb0b562de8dc43554b8f382d406b440',
   '../../tests/fixtures/agent-tool-catalog.json':
-    '662abc2a7f0c7216adbd3e44036f27dc092a34dd677e3434e912cd497b174325',
+    '7aa482c5edfadc49633a3a6d12db4ab897064a7498a0eaff2a943c2becfdbcd7',
   '../../tests/integration/ordinary-local-vertex-chat.test.ts':
     '5e8b2f0829cbd05ecfead981b3f74b1edef9de7e005eb7344e04c909304206b3',
   '../../packages/sqlite-file-owner/package.json':
