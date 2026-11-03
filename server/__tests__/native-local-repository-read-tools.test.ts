@@ -13,6 +13,7 @@ import * as gitFacts from '../local-repository-git-snapshot.js';
 import { captureNativeLocalRepositoryReader } from '../local-repository-native-read.js';
 import { sessionLocalRepositoryTools } from '../session-local-repository-tools.js';
 import type { NativeHostToolContext } from '../native-host-tool-context.js';
+import { CodexTurnCompletedError } from '../codex-app-server-client.js';
 import {
   SynchronousStageProfiler,
   installSignedNativeReadStages,
@@ -396,11 +397,12 @@ it.runIf(process.platform === 'darwin')(
   },
 );
 
-it.runIf(process.platform === 'darwin')(
-  'cancels an actual helper wait and joins reader disposal without a fallback read',
-  async () => {
+it.runIf(process.platform === 'darwin').each(['cancel', 'provider-completed'] as const)(
+  'cancels an actual helper wait on %s and joins reader disposal without a fallback read',
+  async (reason) => {
     const abort = new AbortController();
-    const runs = offlineHelper(() => abort.abort(Error('Controlled cancellation')));
+    let complete = () => {};
+    const runs = offlineHelper(() => complete());
     let source = '';
     const f = await localRepositoryNativeToolFixture(
       cleanups,
@@ -413,8 +415,25 @@ it.runIf(process.platform === 'darwin')(
     );
     source = join(f.f.root, 'cancel-source');
     await mkdir(source);
-    const result = await f.a.call({ path: source }, undefined, abort.signal);
-    expect(result.response.success).toBe(false);
+    let completion: Promise<void> | undefined;
+    const requestId = 'original-read';
+    const binding = f.a.initial.lease.binding;
+    const id = f.a.initial.sessionId;
+    complete = () => {
+      if (reason === 'provider-completed') {
+        completion = f.a.complete();
+        abort.abort(
+          new CodexTurnCompletedError(requestId, f.native.read(id, binding).threadId!, 'turn-1'),
+        );
+      } else abort.abort(Error('Controlled cancellation'));
+    };
+    const work = f.a.call({ path: source }, undefined, abort.signal, { requestId });
+    expect((await work).response.success).toBe(false);
+    if (reason === 'provider-completed') {
+      await completion;
+      await vi.waitFor(() => expect(f.native.continuationBlocker(id, binding)).toBeUndefined());
+      expect(f.native.read(id, binding).recovery).toBe(0);
+    }
     expect(runs).toHaveLength(1);
     for (const scratch of new Set(runs.map((r) => r.cwd)))
       await expect(stat(scratch)).rejects.toMatchObject({ code: 'ENOENT' });

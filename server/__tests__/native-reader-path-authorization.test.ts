@@ -15,6 +15,8 @@ import {
 } from '../local-repository-read-access.js';
 import { FrozenHostCodexExecutable } from '../frozen-host-codex-executable.js';
 import * as sandbox from '../sandboxed-command.js';
+import * as fs from 'node:fs/promises';
+import { nativeRepositoryReadCleanupSettled } from '../local-repository-native-reader.js';
 
 const cleanups: Array<() => Promise<void>> = [];
 afterEach(async () => {
@@ -107,7 +109,28 @@ it.runIf(process.platform === 'darwin')(
       await access.assertPath(f.root);
       expect(read).toHaveBeenCalledTimes(4);
       expect(f.current).toHaveBeenCalledTimes(4);
+      expect(nativeRepositoryReadCleanupSettled(f.reader)).toBe(false);
+      await f.reader.dispose();
+      expect(nativeRepositoryReadCleanupSettled(f.reader)).toBe(true);
+      expect(nativeRepositoryReadCleanupSettled({ ...f.reader })).toBe(false);
     });
+  },
+);
+
+it.runIf(process.platform === 'darwin')(
+  'retains uncertainty when private read cleanup fails',
+  async () => {
+    await expect(
+      withReader(async (f) => {
+        const remove = vi.spyOn(fs, 'rm').mockRejectedValue(Error('Controlled cleanup failure'));
+        try {
+          await expect(f.reader.dispose()).rejects.toThrow();
+          expect(nativeRepositoryReadCleanupSettled(f.reader)).toBe(false);
+        } finally {
+          remove.mockRestore();
+        }
+      }),
+    ).rejects.toThrow();
   },
 );
 
