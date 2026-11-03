@@ -15,6 +15,8 @@ vi.mock('@mitzo/harness', async (original) => ({
 }));
 import {
   createGithubPublishingTool,
+  GITHUB_PUBLISHING_INSTRUCTIONS,
+  githubPublishingDefinition,
   requestOperatorGithubPublication,
 } from '../github-publishing-tool.js';
 import {
@@ -81,6 +83,62 @@ it('retains the explicit runtime session before its registry registration is pub
   ).toMatchObject({ isError: false });
   execute.close();
 });
+it('explains an external repository before GitHub reads or publication instead of suggesting reconnect', async () => {
+  const f = fixture('openai-codex');
+  const runtime = mocks.runtime as {
+    resolveGithubPublishingRepository: ReturnType<typeof vi.fn>;
+  };
+  const result = await f.execute(
+    { ...input, repositoryPath: '/other-project' },
+    new AbortController().signal,
+    { turnId: 'turn', callId: 'call' },
+  );
+  expect(result.isError).toBe(true);
+  expect(JSON.parse(result.content)).toMatchObject({
+    code: 'GITHUB_PUBLICATION_WORKSPACE_MISMATCH',
+    operationRecorded: false,
+    message: expect.stringContaining('native git/gh'),
+  });
+  expect(result.content).not.toContain('reconnect');
+  expect(runtime.resolveGithubPublishingRepository).not.toHaveBeenCalled();
+  expect(f.invoke).not.toHaveBeenCalled();
+  expect(mocks.approve).not.toHaveBeenCalled();
+  f.execute.close();
+});
+it.each([
+  ['source', 'GITHUB_PUBLICATION_SOURCE_UNAVAILABLE'],
+  ['runtime', 'GITHUB_PUBLICATION_RUNTIME_UNAVAILABLE'],
+] as const)(
+  'identifies missing %s without inventing a publication or reconnect requirement',
+  async (missing, code) => {
+    const f = fixture('openai-codex');
+    f.execute.close();
+    const resolve = (
+      mocks.runtime as { resolveGithubPublishingRepository: ReturnType<typeof vi.fn> }
+    ).resolveGithubPublishingRepository;
+    if (missing === 'runtime')
+      Reflect.deleteProperty(mocks.runtime as object, 'resolveGithubPublishingRepository');
+    const execute = createGithubPublishingTool('conversation', f.registry, () =>
+      missing === 'source'
+        ? undefined
+        : { runtime: 'host', workspace: '/workspace', gitStorageRoots: [] },
+    );
+    try {
+      const result = await execute(input, new AbortController().signal, {
+        turnId: 'turn',
+        callId: 'call',
+      });
+      expect(result.isError).toBe(true);
+      expect(JSON.parse(result.content)).toMatchObject({ code, operationRecorded: false });
+      expect(result.content).not.toContain('reconnect');
+      expect(resolve).not.toHaveBeenCalled();
+      expect(mocks.approve).not.toHaveBeenCalled();
+      expect(f.invoke).not.toHaveBeenCalled();
+    } finally {
+      execute.close();
+    }
+  },
+);
 it.each(['native call', 'runtime'] as const)(
   'preserves %s cancellation at the effect fence',
   async (boundary) => {
@@ -218,6 +276,22 @@ it('publishes with a renewed verified operator, preserves creator provenance and
   } finally {
     f.execute.close();
   }
+});
+it('offers one authorized native CLI route while retaining managed scope and denial fences', () => {
+  expect(GITHUB_PUBLISHING_INSTRUCTIONS).toContain('prefer native git/gh');
+  expect(GITHUB_PUBLISHING_INSTRUCTIONS).toContain(
+    'when the user requests the CLI, use it directly',
+  );
+  expect(GITHUB_PUBLISHING_INSTRUCTIONS).toContain('without authorized native GitHub tools');
+  expect(GITHUB_PUBLISHING_INSTRUCTIONS).toContain('inside the admitted chat workspace');
+  expect(GITHUB_PUBLISHING_INSTRUCTIONS).toContain(
+    'do not run both or bypass a policy or authorization denial',
+  );
+  expect(GITHUB_PUBLISHING_INSTRUCTIONS).toContain(
+    'An uncertain write requires read-only inspection',
+  );
+  expect(githubPublishingDefinition.description).toContain('Native Local Mac git/gh publication');
+  expect(githubPublishingDefinition.description).not.toContain('do not use direct GitHub writes');
 });
 it('explains rejected publishing fields and accepts a corrected retry without weakening bounds', async () => {
   const f = fixture('openai');

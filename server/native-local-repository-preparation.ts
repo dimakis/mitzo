@@ -96,8 +96,6 @@ export async function executeNativeLocalRepositoryPreparation(
         const sourceIntent = input.source ?? { kind: 'existing' as const, path: input.path! };
         const sourceIdentity = repositorySourceIdentity(sourceIntent);
         if (pendingHostTaskDecisionHash(rawInput) !== context.requestHash) throw unavailable();
-        await context.assertCurrent();
-        current();
         let existing;
         try {
           existing = workspaces.findLocalRepositoryPreparation({
@@ -121,6 +119,7 @@ export async function executeNativeLocalRepositoryPreparation(
             error.code !== 'pending_host_task_base_conflict'
           )
             throw error;
+          await context.assertCurrent();
           current();
           return {
             error: 'repository_base_conflict' as const,
@@ -152,9 +151,8 @@ export async function executeNativeLocalRepositoryPreparation(
                 taskIdentity,
                 sourceGitDirectory,
               );
-              await context.assertCurrent();
               current();
-            }, [() => reader.dispose()]);
+            }, [() => reader.dispose(), () => context.assertCurrent(), current]);
             current();
             return {
               preparationId: existing.id,
@@ -210,8 +208,8 @@ export async function executeNativeLocalRepositoryPreparation(
           ),
         );
         current();
-        strict(await Reflect.apply(full, context, []));
-        current();
+        // The original operation already joined object cleanup and refreshed
+        // this native owner. Receipt parsing below is immutable data only.
         if (
           receipt.state !== 'materialized' ||
           receipt.request.conversationId !== context.conversationId ||

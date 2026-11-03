@@ -1,5 +1,8 @@
 import type { NativeHostToolContext } from '../native-host-tool-context.js';
 import { afterEach, expect, it, vi } from 'vitest';
+import { mkdtemp, mkdir, realpath, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { materializeQualifiedLocalRepositoryTask } from '../qualified-local-repository-actor.js';
 import { captureLocalRepositoryPreparationObjects } from '../local-repository-preparation-objects.js';
 import { captureLocalRepositoryAllocationFacts } from '../local-repository-allocation-facts.js';
@@ -11,7 +14,7 @@ vi.mock('../native-host-tool-context.js', () => ({
   captureNativeHostReadOwner: (context: NativeHostToolContext) => ({
     scope: { deniedRoots: [] },
     assertCurrentSync: context.assertCurrentSync,
-    assertCurrent: vi.fn(async () => {}),
+    assertCurrent: context.assertCurrent,
   }),
 }));
 vi.mock('../local-repository-native-read.js', () => ({
@@ -91,29 +94,48 @@ it('uses the original bound private data verifier without a second source-object
   expect(f.objects.dispose).toHaveBeenCalledOnce();
   expect(captureLocalRepositoryAllocationFacts).not.toHaveBeenCalled();
   expect(captureNativeLocalRepositoryReader).not.toHaveBeenCalled();
-  expect(f.operation.assertCurrent).toHaveBeenCalledTimes(3);
-  expect(f.operation.assertCurrent.mock.invocationCallOrder[1]).toBeLessThan(
+  expect(f.operation.assertCurrent).not.toHaveBeenCalled();
+  expect(f.operation.context.assertCurrent).toHaveBeenCalledTimes(2);
+  expect(f.operation.context.assertCurrent.mock.invocationCallOrder[0]).toBeLessThan(
     vi.mocked(verifyLocalRepositoryPreparationObjectData).mock.invocationCallOrder[0],
   );
   expect(vi.mocked(verifyLocalRepositoryPreparationObjectData).mock.calls[0][5]).toBe(
     f.operation.publicationPackedRefs,
   );
 });
-it('retains the genuine consumed full callback at the former object-reader boundary', async () => {
+it('retains the original native proof at private worker execution after private verification', async () => {
   const f = fixture();
-  vi.mocked(verifyLocalRepositoryPreparationObjectData).mockResolvedValue({
-    scratch: '/not-used',
-    privateAuthority: [],
-  } as never);
-  f.operation.assertCurrent.mockImplementation(async () => {
-    if (f.operation.assertCurrent.mock.calls.length === 3)
-      throw Error('original async source owner revoked');
-  });
-  await expect(materializeQualifiedLocalRepositoryTask(f.operation as never)).rejects.toThrow(
-    'original async source owner revoked',
-  );
-  expect(f.operation.assertCurrent.mock.calls.length).toBeGreaterThanOrEqual(3);
-  expect(executePrivateRepositoryStagingCheckout).not.toHaveBeenCalled();
-  expect(captureLocalRepositoryPreparationObjects).not.toHaveBeenCalled();
-  expect(f.objects.dispose).toHaveBeenCalledOnce();
+  const scratch = await realpath(await mkdtemp(join(tmpdir(), 'mitzo-precopy-owner-')));
+  try {
+    const gitDirectory = join(scratch, 'git-admin');
+    await mkdir(gitDirectory);
+    let live = true,
+      workerCalls = 0;
+    vi.mocked(verifyLocalRepositoryPreparationObjectData).mockImplementation(async () => {
+      live = false; // Private verification may await; the execution gate must refresh authority.
+      return { scratch, gitDirectory, privateAuthority: [] } as never;
+    });
+    f.operation.context.assertCurrent.mockImplementation(async () => {
+      if (!live) throw Error('original async source owner revoked');
+    });
+    vi.mocked(executePrivateRepositoryStagingCheckout).mockImplementation(async (options) => {
+      // Controlled execution port only. The separate real helper tests cover
+      // its pre-spawn/post-result gates; this proves the actor wires its owner.
+      await options.revalidate();
+      workerCalls++;
+    });
+    await expect(materializeQualifiedLocalRepositoryTask(f.operation as never)).rejects.toThrow(
+      'original async source owner revoked',
+    );
+    expect(f.operation.context.assertCurrent).toHaveBeenCalledTimes(3); // artifact use, execution, cleanup
+    expect(f.operation.assertCurrent).not.toHaveBeenCalled();
+    expect(verifyLocalRepositoryPreparationObjectData).toHaveBeenCalledOnce();
+    expect(executePrivateRepositoryStagingCheckout).toHaveBeenCalledOnce();
+    expect(workerCalls).toBe(0);
+    expect(captureLocalRepositoryPreparationObjects).not.toHaveBeenCalled();
+    expect(captureNativeLocalRepositoryReader).not.toHaveBeenCalled();
+    expect(f.objects.dispose).toHaveBeenCalledOnce();
+  } finally {
+    await rm(scratch, { recursive: true, force: true });
+  }
 });

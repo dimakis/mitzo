@@ -2346,7 +2346,6 @@ export class RepositoryWorkspaces {
           throw new PendingHostTaskError('pending_host_task_authority_required');
         current();
       };
-      await revalidate();
       const repositoryId = `existing-${createHash('sha256').update(labels.source.path).digest('hex')}`;
       const localSource: LocalRepositorySource = {
         selection: 'existing',
@@ -2364,6 +2363,7 @@ export class RepositoryWorkspaces {
         .prepare('SELECT id FROM repository_workspaces WHERE id=?')
         .get(request.id);
       if (retained) {
+        await revalidate();
         const record = this.get(request.id);
         if (
           record.state !== 'ready' ||

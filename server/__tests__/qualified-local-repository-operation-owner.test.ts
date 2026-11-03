@@ -6,6 +6,9 @@ import { setAuthRevocationStore } from '../auth.js';
 import { captureLocalRepositoryPreparationAuthorization } from '../local-repository-preparation-authorization.js';
 import { captureNativeHostReadOwner } from '../native-host-tool-context.js';
 import * as readers from '../local-repository-native-read.js';
+import * as objectData from '../local-repository-preparation-object-data.js';
+import * as objectProducer from '../local-repository-preparation-objects.js';
+import * as sandbox from '../sandboxed-command.js';
 import { localPreparationNativeFixture } from './fixtures/local-preparation-native.js';
 import { fixtureQualifiedLocalPreparationSource } from './fixtures/qualified-local-preparation-source.js';
 
@@ -18,8 +21,8 @@ afterEach(async () => {
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
 });
-it.runIf(process.platform === 'darwin')(
-  'awaits the actual consumed async decision owner before setup while its native base-read owner stays current',
+it.runIf(process.platform === 'darwin' && process.env.MITZO_SANDBOX_INTEGRATION === '1')(
+  'refuses source effects after private checkout when only the consumed source owner is revoked',
   async () => {
     vi.stubGlobal(
       'fetch',
@@ -59,23 +62,67 @@ it.runIf(process.platform === 'darwin')(
           },
           input,
         );
+        const captureObjects = objectProducer.captureLocalRepositoryPreparationObjects;
+        let artifactClosed = false;
+        const dispose = vi.fn<() => Promise<void>>();
+        vi.spyOn(objectProducer, 'captureLocalRepositoryPreparationObjects').mockImplementation(
+          async (...args) => {
+            const artifact = await captureObjects(...args);
+            dispose.mockImplementation(async () => {
+              await artifact.dispose();
+              artifactClosed = true;
+            });
+            return Object.freeze({ ...artifact, dispose });
+          },
+        );
+        // Use the genuine object producer before approval, as the real operation
+        // does. Private artifact/staging custody is a distinct authority from
+        // source/destination publication, so a header-only refusal cannot prove it.
+        const objects = await objectData.captureLocalRepositoryPreparationObjectData(
+          context,
+          held.request,
+          held.allocationFacts,
+          held.allocationFactsSha256,
+          Date.now() + 300000,
+          held.publicationPackedRefs,
+          held.objectSource,
+        );
+        cleanups.push(async () => {
+          if (!artifactClosed) await objects.dispose();
+        });
         await held.approve();
         stage = 'approved';
-        live = false;
         const native = captureNativeHostReadOwner(context)!;
         expect(native).toBeDefined();
         await expect(native.assertCurrent()).resolves.toBeUndefined();
-        stage = 'native-current-after-source-revoke';
-        const setup = vi
-          .spyOn(readers, 'captureNativeLocalRepositoryReader')
-          .mockRejectedValue(Error('Setup MUST NOT be reached'));
-        await expect(held.materialize()).rejects.toMatchObject({
+        stage = 'native-current-before-private-checkout';
+        const originalCheckout = sandbox.executePrivateRepositoryStagingCheckout;
+        const staging = vi
+          .spyOn(sandbox, 'executePrivateRepositoryStagingCheckout')
+          .mockImplementation(async (options) => {
+            await originalCheckout(options);
+            live = false; // Private computation completed; source effects must still refuse.
+            await expect(native.assertCurrent()).resolves.toBeUndefined();
+            stage = 'native-current-after-source-revoke';
+          });
+        const publication = vi.spyOn(sandbox, 'executePrivateNativeFileHelper');
+        const setup = vi.spyOn(readers, 'captureNativeLocalRepositoryReader');
+        await expect(held.materialize(objects)).rejects.toMatchObject({
           code: 'pending_host_task_uncertain',
         });
+        expect(staging).toHaveBeenCalledOnce();
+        // Enter the publication executor, whose original pre-worker full source
+        // proof refuses. The actual native program must create no user paths.
+        expect(publication).toHaveBeenCalledOnce();
+        const record = f.f.workspace.get(held.request.id);
+        expect(record.pendingHostTask?.state).toBe('materializing');
+        expect(record.pendingHostTaskDecision?.state).toBe('consumed');
+        expect(record.qualifiedLocalPreparation?.publication).toBeUndefined();
+        expect(dispose).toHaveBeenCalledOnce();
         setupCalls = setup.mock.calls.length;
         stage = 'materialize-refused';
-        expect(asyncDenials).toBeGreaterThan(0);
-        expect(setup).not.toHaveBeenCalled();
+        expect(asyncDenials).toBe(2); // Before publication worker, then after joined refusal.
+        expect(setup).not.toHaveBeenCalled(); // No published-task reader after source refusal.
         names.forEach((name, index) =>
           expect(readFileSync(join(source, name))).toEqual(before[index]),
         );
@@ -99,5 +146,5 @@ it.runIf(process.platform === 'darwin')(
     expect(refused).toBe(true);
     expect(f.permissions).toHaveLength(1);
   },
-  30000,
+  60000,
 );

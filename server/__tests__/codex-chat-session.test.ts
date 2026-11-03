@@ -1128,10 +1128,10 @@ it('advertises reviewed per-chat provider grants to a managed OpenShell runtime'
     );
     expect(mocks.conversationOptions?.systemPrompt).toContain('GrantIntegrationAccess');
     expect(mocks.conversationOptions?.systemPrompt).toContain(
-      'Use RequestGithubPublish to publish committed local changes',
+      'the publication route for runtimes without authorized native GitHub tools',
     );
     expect(mocks.conversationOptions?.systemPrompt).toContain(
-      'Do not substitute direct git push or gh API writes after denial',
+      'do not run both or bypass a policy or authorization denial',
     );
     const adoptionEvidence = {
       storeId: 'notes',
@@ -1696,7 +1696,9 @@ it('preserves image attachments while binding a trusted capability, forcing appr
       item.name.startsWith('Capability_github_publish_pr'),
     );
     expect(tool).toBeDefined();
-    expect(mocks.conversationOptions?.systemPrompt).toContain('Use RequestGithubPublish');
+    expect(mocks.conversationOptions?.systemPrompt).toContain(
+      'RequestGithubPublish is the managed alternative',
+    );
     expect(mocks.conversationOptions?.systemPrompt).not.toContain(
       'GitHub publishing is unavailable',
     );
@@ -3811,7 +3813,7 @@ it('qualifies owned native, MCP, profile and publishing tools and rejects other 
       execute(
         'RequestGithubPublish',
         {
-          repositoryPath: f.opts.session.cwd,
+          repositoryPath: realpathSync(f.opts.session.cwd!),
           baseBranch: 'main',
           title: 'Owned work',
           body: 'Review',
@@ -3831,7 +3833,7 @@ it('qualifies owned native, MCP, profile and publishing tools and rejects other 
           baseOid: 'a'.repeat(40),
         },
       }),
-      f.opts.session.cwd,
+      realpathSync(f.opts.session.cwd!),
       'main',
       expect.any(AbortSignal),
     );

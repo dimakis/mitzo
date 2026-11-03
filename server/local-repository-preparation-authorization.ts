@@ -9,7 +9,10 @@ import { z } from 'zod';
 import type { EventStore } from './event-store.js';
 import type { NativeHostToolContext } from './native-host-tool-context.js';
 import type { RepositoryWorkspaces } from './repository-workspaces.js';
-import type { NativeQualifiedLocalRepositoryPreparationSource } from './local-repository-preparation-source.js';
+import {
+  preparationSourceIncludesContext,
+  type NativeQualifiedLocalRepositoryPreparationSource,
+} from './local-repository-preparation-source.js';
 import {
   PendingHostTaskError,
   PendingHostTaskRequestSchema,
@@ -135,9 +138,8 @@ export async function captureLocalRepositoryPreparationAuthorization(
   const hostReservation = freezePendingHostTaskData(
     structuredClone(initialDestination.hostReservation),
   );
-  const assertOriginal = () => {
+  const assertOriginalLabels = () => {
     context.signal.throwIfAborted();
-    synchronous(() => context.assertCurrentSync());
     const current = destination();
     if (
       !current ||
@@ -152,6 +154,10 @@ export async function captureLocalRepositoryPreparationAuthorization(
       )
     )
       throw new PendingHostTaskError('pending_host_task_ownership_changed');
+  };
+  const assertOriginal = () => {
+    synchronous(() => context.assertCurrentSync());
+    assertOriginalLabels();
   };
   assertOriginal();
   await context.assertCurrent();
@@ -221,9 +227,17 @@ export async function captureLocalRepositoryPreparationAuthorization(
   )
     throw new PendingHostTaskError('pending_host_task_ownership_changed');
   const assertSourceLabels = () => {
-    assertOriginal();
-    synchronous(() => qualified.assertCurrentSync());
-    assertOriginal();
+    if (preparationSourceIncludesContext(qualified, context)) {
+      // This exact factory assertion already includes the original context and
+      // read ceiling. Check the remaining labels once, without another native
+      // admission/database walk around an immutable pure assertion.
+      synchronous(() => qualified.assertCurrentSync());
+      assertOriginalLabels();
+    } else {
+      assertOriginal();
+      synchronous(() => qualified.assertCurrentSync());
+      assertOriginal();
+    }
     if (
       qualified.anchorsSha256 !== anchorsSha256 ||
       qualified.referenceCoverage !== referenceCoverage ||
@@ -346,19 +360,22 @@ export async function captureLocalRepositoryPreparationAuthorization(
     assertCurrentSync,
     async assertCurrent() {
       assertCurrentSync();
-      await context.assertCurrent();
-      assertCurrentSync();
+      // The original factory source performs this exact context's full gate at
+      // its physical read boundaries. Generic/borrowed sources retain both
+      // independent proofs; matching methods or copied data cannot coalesce it.
+      if (!preparationSourceIncludesContext(qualified, context)) {
+        await context.assertCurrent();
+        assertCurrentSync();
+      }
       await qualified.assertCurrent(
         observedReadDeadline === undefined
           ? undefined
           : Object.freeze({ deadline: observedReadDeadline }),
       );
       assertCurrentSync();
-      synchronous(() => qualified.assertCurrentSync());
       // The ORIGINAL context's full async admission/physical-owner fence and
       // the exact source capability own these validations. Legacy status/source
       // inspection cannot substitute for either current authority.
-      assertCurrentSync();
     },
   };
   Object.defineProperty(owner, 'publicationPackedRefs', { value: publicationPackedRefs });
@@ -374,7 +391,10 @@ export async function captureLocalRepositoryPreparationAuthorization(
         throw new PendingHostTaskError('pending_host_task_authority_required');
     }),
   });
-  await owner.assertCurrent();
+  // Selection just performed the fresh source proof at its retained-row return
+  // or allocation CAS. Only bound immutable descriptor assembly intervenes;
+  // the next source proof belongs to the actual approval boundary.
+  owner.assertCurrentSync();
   let approvalStarted = false;
   return Object.freeze({
     request,

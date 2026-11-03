@@ -1,6 +1,8 @@
 import { afterAll, beforeAll, expect, it, vi } from 'vitest';
 import request from 'supertest';
-import type { Express, NextFunction, Request, Response } from 'express';
+import type { NextFunction, Request, Response } from 'express';
+import type { Server } from 'node:http';
+import { listenOnLoopback, closeTestServer } from './loopback-test-server.js';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -8,6 +10,17 @@ import type { EventStore } from '../event-store.js';
 
 const catalog = vi.hoisted(() => ({ refresh: vi.fn(async () => {}), catalog: () => [] }));
 const native = vi.hoisted(() => ({ hasConversation: vi.fn(() => false) }));
+const diagnostics = vi.hoisted(() => ({ warn: vi.fn() }));
+vi.mock('../logger.js', async (original) => {
+  const actual = await original<typeof import('../logger.js')>();
+  return {
+    ...actual,
+    createLogger: (module: string) => {
+      const logger = actual.createLogger(module);
+      return module === 'server' ? { ...logger, warn: diagnostics.warn } : logger;
+    },
+  };
+});
 vi.mock('../account-profiles.js', async (original) => ({
   ...(await original<object>()),
   loadAccountProfiles: () => ({ ...catalog, privateCodexRoots: () => [] }),
@@ -29,7 +42,7 @@ vi.mock('../internal-token.js', () => ({
   createSignalCallbackToken: vi.fn(),
   revokeSignalCallbackToken: vi.fn(),
 }));
-let app: Express;
+let server: Server;
 let store: EventStore;
 let root: string;
 
@@ -53,7 +66,7 @@ it.each([false, true, 'unavailable'] as const)(
         throw Error('Native read unavailable');
       });
     else native.hasConversation.mockReturnValueOnce(presence);
-    const response = await request(app).get(`/api/sessions/${id}/meta`);
+    const response = await request(server).get(`/api/sessions/${id}/meta`);
     expect(response.status).toBe(200);
     if (presence === 'unavailable')
       expect(response.body).not.toHaveProperty('hasNativeCodexConversation');
@@ -73,10 +86,11 @@ beforeAll(async () => {
     }),
   );
   const loaded = await import('../app.js');
-  app = loaded.app;
+  server = await listenOnLoopback(loaded.app);
   store = (await import('../chat.js')).eventStore;
 });
-afterAll(() => {
+afterAll(async () => {
+  if (server) await closeTestServer(server);
   store?.close();
   if (root) rmSync(root, { recursive: true, force: true });
   vi.unstubAllEnvs();
@@ -84,16 +98,57 @@ afterAll(() => {
 });
 it('reports authoritative visibility while preserving hidden session metadata and missing 404', async () => {
   store.upsertSession({ sessionId: 'retained-briefing', summary: 'Report discussion' });
-  const visible = await request(app).get('/api/sessions/retained-briefing/meta');
+  const visible = await request(server).get('/api/sessions/retained-briefing/meta');
   expect(visible.status).toBe(200);
   expect(visible.body).toMatchObject({ sessionId: 'retained-briefing', isHidden: false });
-  expect((await request(app).delete('/api/sessions/retained-briefing')).status).toBe(200);
-  const hidden = await request(app).get('/api/sessions/retained-briefing/meta');
+  expect((await request(server).delete('/api/sessions/retained-briefing')).status).toBe(200);
+  const hidden = await request(server).get('/api/sessions/retained-briefing/meta');
   expect(hidden.status).toBe(200);
   expect(hidden.body).toMatchObject({ sessionId: 'retained-briefing', isHidden: true });
   expect(store.getSession('retained-briefing')?.isHidden).toBe(true);
-  expect((await request(app).get('/api/sessions/missing/meta')).status).toBe(404);
+  expect((await request(server).get('/api/sessions/missing/meta')).status).toBe(404);
 });
+it.each([
+  ['getSession', 503],
+  ['getLatestOrdinaryCommandAdmission', 409],
+] as const)(
+  'contains a failed metadata %s read without terminating the server',
+  async (method, status) => {
+    const id = 'metadata-read-failure';
+    store.upsertSession({ sessionId: id, cwd: root });
+    const before = store.getSession(id);
+    diagnostics.warn.mockClear();
+    const read = vi.spyOn(store, method).mockImplementationOnce(() => {
+      if (method === 'getSession')
+        throw Object.assign(
+          Error('Private retained admission /private/operator-store is unavailable'),
+          { code: 'SQLITE_BUSY' },
+        );
+      throw Error('Ordinary command admission does not match durable session identity', {
+        cause: Error('Private retained admission /private/operator-store is unavailable'),
+      });
+    });
+    try {
+      const failed = await request(server).get(`/api/sessions/${id}/meta`);
+      expect(failed.status).toBe(status);
+      expect(failed.body.error).toBeTypeOf('string');
+      expect(JSON.stringify(failed.body)).not.toContain('/private/operator-store');
+      expect(diagnostics.warn).toHaveBeenCalledWith('Session metadata request failed', {
+        sessionId: id,
+        ...(method === 'getSession'
+          ? { metadataFailure: 'storage_busy', metadataErrorCode: 'SQLITE_BUSY' }
+          : { metadataFailure: 'admission_identity_changed' }),
+      });
+      expect(JSON.stringify(diagnostics.warn.mock.calls)).not.toContain('/private/operator-store');
+    } finally {
+      read.mockRestore();
+    }
+    const healthy = await request(server).get(`/api/sessions/${id}/meta`);
+    expect(healthy.status).toBe(200);
+    expect(healthy.body.cwd).toBe(root);
+    expect(store.getSession(id)).toEqual(before);
+  },
+);
 it('projects the persisted conversation creation time without changing it on metadata reads or later updates', async () => {
   const createdAt = Date.parse('2026-10-16T10:00:00Z');
   store.upsertSession({
@@ -102,12 +157,12 @@ it('projects the persisted conversation creation time without changing it on met
     createdAt,
   });
   const before = store.getSession('chooser-created');
-  const first = await request(app).get('/api/sessions/chooser-created/meta');
+  const first = await request(server).get('/api/sessions/chooser-created/meta');
   expect(first.status).toBe(200);
   expect(first.body.createdAt).toBe(createdAt);
   expect(store.getSession('chooser-created')).toEqual(before);
   store.upsertSession({ sessionId: 'chooser-created', summary: 'Renamed later' });
-  expect((await request(app).get('/api/sessions/chooser-created/meta')).body.createdAt).toBe(
+  expect((await request(server).get('/api/sessions/chooser-created/meta')).body.createdAt).toBe(
     createdAt,
   );
 });
@@ -123,7 +178,7 @@ it.each([undefined, -1, Number.NaN, Number.POSITIVE_INFINITY, 8640000000000001, 
         : meta;
     });
     try {
-      const response = await request(app).get('/api/sessions/chooser-invalid-created/meta');
+      const response = await request(server).get('/api/sessions/chooser-invalid-created/meta');
       expect(response.status).toBe(200);
       expect(response.body).toMatchObject({ sessionId: 'chooser-invalid-created' });
       expect(response.body).not.toHaveProperty('createdAt');
@@ -147,7 +202,7 @@ it('observes deletion during optional catalog refresh before returning reuse eli
   catalog.refresh.mockImplementationOnce(async () => {
     store.hideSession('during-refresh');
   });
-  const response = await request(app).get('/api/sessions/during-refresh/meta?refresh=1');
+  const response = await request(server).get('/api/sessions/during-refresh/meta?refresh=1');
   expect(response.status).toBe(200);
   expect(response.body.isHidden).toBe(true);
   expect(catalog.refresh).toHaveBeenCalledWith(true, { discoverApi: true });
@@ -204,7 +259,7 @@ it('retains the last admitted model and thinking when optional account refresh f
     },
   );
   catalog.refresh.mockRejectedValueOnce(Error('Optional catalogue unreadable'));
-  const response = await request(app).get(
+  const response = await request(server).get(
     '/api/sessions/ordinary-retained-settings/meta?refresh=1',
   );
   expect(response.status).toBe(200);
@@ -226,7 +281,7 @@ it('reads a pinned session’s recorded context by ID without catalog, runtime o
   });
   catalog.refresh.mockClear();
   const before = store.getLatestEvent('older-pin', 'token_update');
-  const response = await request(app).get('/api/sessions/older-pin/context');
+  const response = await request(server).get('/api/sessions/older-pin/context');
   expect(response.status).toBe(200);
   expect(response.body).toEqual({
     sessionId: 'older-pin',
@@ -239,11 +294,11 @@ it('reads a pinned session’s recorded context by ID without catalog, runtime o
   expect(catalog.refresh).not.toHaveBeenCalled();
   expect(store.getLatestEvent('older-pin', 'token_update')).toEqual(before);
   store.upsertSession({ sessionId: 'no-measurement', inputTokens: 900000 });
-  expect((await request(app).get('/api/sessions/no-measurement/context')).body).toEqual({
+  expect((await request(server).get('/api/sessions/no-measurement/context')).body).toEqual({
     sessionId: 'no-measurement',
     contextUsage: null,
   });
   store.hideSession('older-pin');
-  expect((await request(app).get('/api/sessions/older-pin/context')).status).toBe(404);
-  expect((await request(app).get('/api/sessions/missing/context')).status).toBe(404);
+  expect((await request(server).get('/api/sessions/older-pin/context')).status).toBe(404);
+  expect((await request(server).get('/api/sessions/missing/context')).status).toBe(404);
 });

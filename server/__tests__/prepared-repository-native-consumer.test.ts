@@ -1,11 +1,23 @@
-import { fixture, physical, git } from './fixtures/prepared-repository-native-consumer.js';
+import {
+  fixture,
+  physical,
+  git,
+  cleanups,
+} from './fixtures/prepared-repository-native-consumer.js';
 import { CodexConversation } from '../codex-conversation.js';
 import { expect, it, vi } from 'vitest';
 import { join } from 'node:path';
+import { randomUUID } from 'node:crypto';
+import httpRequest from 'supertest';
+import { listenOnLoopback, closeTestServer } from './loopback-test-server.js';
 import { writeFile, readFile } from 'node:fs/promises';
 import { CodexConversationStore } from '../codex-conversation-store.js';
 import { codexNativeExecutionPolicy } from '../codex-native-execution-policy.js';
-import { reconcilePreparedRepositoryTransitionProjection } from '../owned-prepared-repository-transition.js';
+import {
+  canResumeUntransferredPreparedRepository,
+  reconcilePreparedRepositoryTransitionProjection,
+} from '../owned-prepared-repository-transition.js';
+import { OrdinaryLocalCodexOwnedRuntime } from '../ordinary-local-codex-owned-runtime.js';
 import { captureAgentLibraryAuthorization } from '../agent-library-transport.js';
 import { RetainedLocalCodexRecovery } from '../retained-local-codex-recovery.js';
 import {
@@ -413,7 +425,8 @@ it.each(['close-during-capture', 'queue-during-capture'] as const)(
 );
 
 it('renews an untransferred preparation after restart without treating its reservation as an executed custody effect', async () => {
-  const f = await fixture();
+  const f = await fixture(true);
+  const reservation = vi.spyOn(f.events, 'reservePreparedRepositoryContinuation');
   const custody = vi
     .spyOn(f.workspace, 'adoptPreparedRepositoryTransition')
     .mockImplementationOnce(() => {
@@ -425,22 +438,133 @@ it('renews an untransferred preparation after restart without treating its reser
     f.native.hasPreparedRepositoryTransitionHold(f.first.sessionId, f.first.lease.binding),
   ).toBe(true);
   expect(f.events.hasUncertainOrdinaryCommand(f.first.sessionId)).toBe(true);
-  const operator = captureAgentLibraryAuthorization(f.dependencies.operatorConnectionId);
-  reconcilePreparedRepositoryTransitionProjection({
+  const originalSource = f.events.getSendCommand(f.source.commandId);
+  const childId = reservation.mock.results[0].value.childCommandId;
+  const startupError =
+    'Recovery required: historical command workspace differs from the current conversation. Original uncertain admission retained; do not replay before reconciliation.';
+  f.events.failSendCommand(childId, startupError);
+  const probe = {
     workspace: f.workspace,
     events: f.events,
     native: f.native,
     conversationId: f.first.sessionId,
     binding: f.first.lease.binding,
-    assertCurrentSync: () => operator.assertCurrent(),
-  });
-  expect(f.events.hasUncertainOrdinaryCommand(f.first.sessionId)).toBe(false);
-  expect(f.workspace.getForConversation(f.first.sessionId)?.id).toBe(f.first.workspace.id);
+  };
+  expect(canResumeUntransferredPreparedRepository(probe)).toBe(true);
+  expect(f.events.hasUncertainOrdinaryCommand(f.first.sessionId)).toBe(true);
   expect(custody).toHaveBeenCalledOnce();
+  const database = (f.native as unknown as { db: import('better-sqlite3').Database }).db;
+  const rollback = Error('Rollback isolated native row');
+  expect(() =>
+    database.transaction(() => {
+      f.native.enqueue(f.first.sessionId, f.first.lease.binding, {
+        id: childId,
+        prompt: 'A retained native child',
+        model: f.first.lease.binding.model,
+      });
+      expect(canResumeUntransferredPreparedRepository(probe)).toBe(false);
+      const operator = captureAgentLibraryAuthorization(f.dependencies.operatorConnectionId);
+      expect(() =>
+        reconcilePreparedRepositoryTransitionProjection({
+          ...probe,
+          assertCurrentSync: () => operator.assertCurrent(),
+        }),
+      ).toThrow('Untransferred repository reservation has other work');
+      expect(f.events.getSendCommand(childId)?.error).toBe(startupError);
+      throw rollback;
+    })(),
+  ).toThrow(rollback);
+  expect(canResumeUntransferredPreparedRepository(probe)).toBe(true);
+  f.runtime.close();
+  vi.spyOn(
+    await import('../repository-workspace-runtime.js'),
+    'getRepositoryWorkspaces',
+  ).mockReturnValue(f.workspace);
+  const { ordinaryCodexContinuationStatus } =
+    await import('../ordinary-codex-continuation-status.js');
+  expect(ordinaryCodexContinuationStatus(f.first.sessionId, f.auth.id)).toEqual({
+    available: true,
+  });
+  expect(f.events.hasUncertainOrdinaryCommand(f.first.sessionId)).toBe(true);
+  expect(f.events.getSendCommand(childId)?.error).toBe(startupError);
+  expect(f.events.getEventsOfType(f.first.sessionId, 'command_preparation_recovered')).toEqual([]);
+  const request = {
+    ...structuredClone(f.request),
+    clientMsgId: randomUUID(),
+    payload: { ...f.request.payload, text: 'Continue with the already created repository' },
+  };
+  const command = f.commandFor(f.reservation, request);
+  const dispatch = vi.fn(async (value: typeof f.first) => {
+    command.open(value, true);
+    f.enqueue(value);
+  });
+  const resumed = new OrdinaryLocalCodexOwnedRuntime({
+    ...f.dependencies,
+    nativeStore: f.native,
+    commandId: request.clientMsgId,
+    launch: () => command.rpc,
+    dispatch,
+  });
+  cleanups.push(() => resumed.close());
+  await expect(resumed.admitResume(request)).resolves.toEqual({ dispatched: true });
+  expect(f.events.getSendCommand(childId)?.error).toBeNull();
+  expect(
+    f.events
+      .getEventsOfType(f.first.sessionId, 'command_preparation_recovered')
+      .map((e) => e.payload),
+  ).toEqual([
+    {
+      commandId: childId,
+      preparationId: f.record.id,
+      sourceCommandId: f.source.commandId,
+      reason: 'untransferred_prepared_repository',
+      previousError: startupError,
+    },
+  ]);
+  expect(dispatch).toHaveBeenCalledOnce();
   expect(
     f.native
       .commands(f.first.sessionId, f.first.lease.binding)
-      .filter((command) => command.status === 'queued'),
+      .find((command) => command.id === f.source.commandId)?.status,
+  ).toBe('completed');
+  expect(f.events.hasUncertainOrdinaryCommand(f.first.sessionId)).toBe(false);
+  expect(f.workspace.getForConversation(f.first.sessionId)?.id).toBe(f.first.workspace.id);
+  const resumedAdmission = dispatch.mock.calls[0][0].admission;
+  const adopted = await f.adopt(resumedAdmission);
+  expect(adopted?.directory).toBe(f.record.pendingHostTask!.directory);
+  expect(f.workspace.getForConversation(f.first.sessionId)?.id).toBe(f.record.id);
+  expect(f.events.getSession(f.first.sessionId)?.cwd).toBe(adopted!.directory);
+  expect(resumedAdmission.nativeExecutionWorkspace(request.clientMsgId).cwd).toBe(
+    adopted!.directory,
+  );
+  const { app } = await import('../app.js');
+  const { COOKIE_NAME } = await import('../auth.js');
+  const metadataServer = await listenOnLoopback(app);
+  try {
+    const metadata = await httpRequest(metadataServer)
+      .get(`/api/sessions/${f.first.sessionId}/meta`)
+      .set('Cookie', `${COOKIE_NAME}=${f.operatorToken}`);
+    expect(metadata.status).toBe(200);
+    expect(metadata.body.cwd).toBe(adopted!.directory);
+    expect(metadata.body.modelSelection).toMatchObject({
+      model: dispatch.mock.calls[0][0].expected.selection.model,
+      reasoningEffort: dispatch.mock.calls[0][0].expected.selection.thinking,
+    });
+  } finally {
+    await closeTestServer(metadataServer);
+  }
+  expect(f.events.getSendCommand(f.source.commandId)).toEqual(originalSource);
+  expect(
+    f.native
+      .commands(f.first.sessionId, f.first.lease.binding)
+      .filter((command) => command.status === 'queued')
+      .map((command) => command.id),
+  ).toEqual([request.clientMsgId]);
+  expect(custody).toHaveBeenCalledTimes(2);
+  expect(
+    f.native
+      .commands(f.first.sessionId, f.first.lease.binding)
+      .filter((command) => command.environmentContinuation),
   ).toHaveLength(0);
 });
 

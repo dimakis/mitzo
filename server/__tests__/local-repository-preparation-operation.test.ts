@@ -73,6 +73,9 @@ it('joins object copy before approval and keeps its cleanup inside the original 
   });
   expect(f.order).toEqual(['copy-and-close-reader', 'approve', 'materialize', 'dispose']);
   expect(f.held.approve).toHaveBeenCalledOnce();
+  // The inner reader and approval own fresh checks at their real boundaries.
+  // This wrapper must not add another complete source read before each one.
+  expect(f.held.owner.assertCurrent).not.toHaveBeenCalled();
   expect(f.objects.dispose).toHaveBeenCalledOnce();
   expect(vi.mocked(captureLocalRepositoryPreparationObjectData).mock.calls[0][5]).toBe(
     f.held.publicationPackedRefs,

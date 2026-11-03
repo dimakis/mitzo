@@ -234,8 +234,8 @@ export async function localPreparationNativeFixture(
                 agentContext: dispatch.expected.agentContext,
                 workspace: {
                   kind: meta.ordinaryWorkspaceId ? 'ordinary' : 'repository',
-                  id: dispatch.workspace.id,
-                  directory: dispatch.workspace.directory!,
+                  id: (meta.ordinaryWorkspaceId ?? meta.repositoryWorkspaceId)!,
+                  directory: meta.cwd!,
                 },
                 toolName: name,
                 input,

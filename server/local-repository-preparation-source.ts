@@ -25,6 +25,7 @@ import type { QualifiedLocalRepositoryPreparationSource } from './local-reposito
 import { captureNativeLocalRepositoryReader } from './local-repository-native-read.js';
 import {
   captureLocalRepositoryAllocationFacts,
+  projectLocalRepositoryAllocationBase,
   type LocalRepositoryAllocationFacts as AllocationFacts,
 } from './local-repository-allocation-facts.js';
 import { LocalRepositoryReadAccess } from './local-repository-read-access.js';
@@ -53,6 +54,22 @@ export interface NativeQualifiedLocalRepositoryPreparationSource extends Qualifi
   /** Original absence facts only, before effects. After owned creation, the
    * materializer must validate its phase-specific actual owned identities. */
   revalidateAllocationFacts(): Promise<void>;
+}
+// Factory provenance, never a cached owner result. Each source assertion still
+// opens a fresh physical read phase under this exact original context.
+const sourceContexts = new WeakMap<object, NativeHostToolContext>();
+function originalSource(
+  context: NativeHostToolContext,
+  source: NativeQualifiedLocalRepositoryPreparationSource,
+) {
+  sourceContexts.set(source, context);
+  return source;
+}
+export function preparationSourceIncludesContext(
+  source: QualifiedLocalRepositoryPreparationSource,
+  context: NativeHostToolContext,
+) {
+  return sourceContexts.get(source) === context;
 }
 const unavailable = () => Error('Local repository preparation source unavailable');
 const hash = (value: unknown) => createHash('sha256').update(JSON.stringify(value)).digest('hex');
@@ -157,24 +174,27 @@ async function captureOwnedRepositoryPreparationSource(
         ownedSource: true,
       }),
     );
-    return Object.freeze(
-      Object.defineProperties(
-        {},
-        {
-          ...Object.getOwnPropertyDescriptors(qualified),
-          dispose: {
-            value: async () => {
-              try {
-                await qualified.dispose?.();
-              } finally {
-                await dispose();
-              }
+    return originalSource(
+      context,
+      Object.freeze(
+        Object.defineProperties(
+          {},
+          {
+            ...Object.getOwnPropertyDescriptors(qualified),
+            dispose: {
+              value: async () => {
+                try {
+                  await qualified.dispose?.();
+                } finally {
+                  await dispose();
+                }
+              },
+              enumerable: true,
             },
-            enumerable: true,
           },
-        },
-      ),
-    ) as NativeQualifiedLocalRepositoryPreparationSource;
+        ),
+      ) as NativeQualifiedLocalRepositoryPreparationSource,
+    );
   } catch (error) {
     if (!(error instanceof RepositoryHostProcessUncertainError)) await dispose();
     throw error;
@@ -285,22 +305,39 @@ export async function captureNativeLocalRepositoryPreparationSource(
     });
   let initial = await captureAllocation();
   try {
-    if (input.base && !resolvedBase) {
-      const selected = await read(async (reader) => {
-        const access = new LocalRepositoryReadAccess(reader);
-        await access.pinRoot(input.sourcePath);
-        await access.pinRoot(initial.facts.source.commonDirectory);
-        const value =
-          input.base!.kind === 'default'
-            ? {
-                url: await localRepositoryRemote(
-                  await access.read(join(initial.facts.source.commonDirectory, 'config'), 65536),
-                ),
-              }
-            : await readLocalRepositoryBaseReference(access, initial.facts.source, input.base!.ref);
-        await access.verify();
-        return value;
-      });
+    // The first allocation already resolved and verified HEAD, including its
+    // branch/detached selection. Reuse those immutable facts rather than open
+    // a separate reference phase and repeat the complete allocation read.
+    // Other refs and remote/default acquisition still need their own resolver.
+    if (input.base && !resolvedBase && !(input.base.kind === 'ref' && input.base.ref === 'HEAD')) {
+      const explicitOid =
+        input.base.kind === 'ref' && /^[a-f0-9]{40}(?:[a-f0-9]{24})?$/.test(input.base.ref)
+          ? input.base.ref
+          : undefined;
+      const selected: { url: string } | { oid: string; branch?: string } = explicitOid
+        ? { oid: explicitOid }
+        : await read(async (reader) => {
+            const access = new LocalRepositoryReadAccess(reader);
+            await access.pinRoot(input.sourcePath);
+            await access.pinRoot(initial.facts.source.commonDirectory);
+            const value =
+              input.base!.kind === 'default'
+                ? {
+                    url: await localRepositoryRemote(
+                      await access.read(
+                        join(initial.facts.source.commonDirectory, 'config'),
+                        65536,
+                      ),
+                    ),
+                  }
+                : await readLocalRepositoryBaseReference(
+                    access,
+                    initial.facts.source,
+                    input.base!.ref,
+                  );
+            await access.verify();
+            return value;
+          });
       const repositoryId = `existing-${createHash('sha256').update(input.sourcePath).digest('hex')}`;
       if ('url' in selected) {
         remote = selected.url;
@@ -358,7 +395,10 @@ export async function captureNativeLocalRepositoryPreparationSource(
           ...(selected.branch ? { branch: selected.branch } : {}),
           origin: 'local',
         };
-      initial = await captureAllocation();
+      initial = {
+        ...initial,
+        ...projectLocalRepositoryAllocationBase(initial.facts, resolvedBase, remote),
+      };
     }
     const original = localRepositoryPreparationSourceFacts(initial.facts);
     const originalBaseHash = hash({
@@ -438,30 +478,33 @@ export async function captureNativeLocalRepositoryPreparationSource(
         if (reader.verifyRepositoryBaseObservation)
           baseObservation = access.repositoryBaseObservation;
       }, earlierDeadline);
-    return Object.freeze({
-      ...original,
-      allocationFacts: initial.facts,
-      allocationFactsSha256: initial.factsSha256,
-      publicationPackedRefs: initial.publicationPackedRefs,
-      ...(objectSource ? { objectSource: Object.freeze(objectSource) } : {}),
-      ...(disposeAcquired ? { dispose: disposeAcquired } : {}),
-      assertCurrentSync: current,
-      async assertCurrent(options?: Readonly<{ deadline: number }>) {
-        current();
-        const earlierDeadline = options?.deadline ?? deadline;
-        preparationReadDeadline(Math.min(deadline, earlierDeadline), context.signal);
-        // baseCurrent captures a fresh reader whose owner gate runs before
-        // scratch allocation or source I/O. Repeating it here adds no boundary.
-        await baseCurrent(earlierDeadline);
-        current();
-        preparationReadDeadline(Math.min(deadline, earlierDeadline), context.signal);
-      },
-      async revalidateAllocationFacts() {
-        const actual = await captureAllocation();
-        if (actual.factsSha256 !== initial.factsSha256) throw unavailable();
-        current();
-      },
-    });
+    return originalSource(
+      context,
+      Object.freeze({
+        ...original,
+        allocationFacts: initial.facts,
+        allocationFactsSha256: initial.factsSha256,
+        publicationPackedRefs: initial.publicationPackedRefs,
+        ...(objectSource ? { objectSource: Object.freeze(objectSource) } : {}),
+        ...(disposeAcquired ? { dispose: disposeAcquired } : {}),
+        assertCurrentSync: current,
+        async assertCurrent(options?: Readonly<{ deadline: number }>) {
+          current();
+          const earlierDeadline = options?.deadline ?? deadline;
+          preparationReadDeadline(Math.min(deadline, earlierDeadline), context.signal);
+          // baseCurrent captures a fresh reader with synchronous private-setup
+          // checks and full physical-I/O/cleanup gates for this exact context.
+          await baseCurrent(earlierDeadline);
+          current();
+          preparationReadDeadline(Math.min(deadline, earlierDeadline), context.signal);
+        },
+        async revalidateAllocationFacts() {
+          const actual = await captureAllocation();
+          if (actual.factsSha256 !== initial.factsSha256) throw unavailable();
+          current();
+        },
+      }),
+    );
   } catch (error) {
     if (!(error instanceof RepositoryHostProcessUncertainError)) await disposeAcquired?.();
     throw error;

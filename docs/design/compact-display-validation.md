@@ -1,5 +1,13 @@
 # Compact file viewer and stable draft feedback
 
+Recovery preflight on 3 November 2026 integrated current accepted main. The sole
+conflict was the runtime revision marker; the combined revision is
+`v1.0.846-compact-display-integration`, retaining main's implementation and all
+matching source fingerprints. The nine focused viewer, saved-draft, design and
+preview-CSS test files passed 137 tests with one existing skip. Source artifact
+verification, focused formatting and whitespace checks passed. Full combined
+CI, rendered acceptance and final current-head Centaur review remain required.
+
 The user requested a smaller Markdown/HTML display header and investigation and
 repair of the draft-status flicker while typing with a screenshot attached on
 1 November 2026. This is a local implementation record, not deployment evidence.
