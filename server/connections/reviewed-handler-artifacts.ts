@@ -5,7 +5,7 @@ import { createHash } from 'node:crypto';
  * verifies the two source artifacts below, so modifying a validator/helper
  * outside a golden input cannot silently retain this implementation revision.
  */
-export const reviewedHandlerImplementationRevision = 'v1.0.3';
+export const reviewedHandlerImplementationRevision = 'v1.0.4';
 
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
@@ -702,7 +702,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     'e962a9975575bbda677f42e5b276c6f8075d8c675dc19d3deaac58af846e26ae',
 
   '../__tests__/codex-conversation.test.ts':
-    'a5c5ac9878611ad588b9a659cb0a4dd69613cb284c3e170d355668295bfd3137',
+    'd1df6ee3a642870da87680d88e3b8054902d9cb43489ffaa295639a3bf5aa110',
   '../__tests__/codex-native-approvals.test.ts':
     '83c2a7a0457cefbc7a4586c4a440d024060fe44297bdd35fdc17017f4a446071',
   '../__tests__/codex-native-artifact-qualification.test.ts':
@@ -1518,7 +1518,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../agent-context-sandbox.ts': '8b61edc17ccc94bc95eae3796e68a0beb9540534e3bfbb348a04154c41995416',
   '../codex-conversation.ts': '01db18ee61e73bf515359f76ae37bcac854cdb0a01052da822c3c4f2911fe39d',
   '../codex-conversation-store.ts':
-    'b265ddb64a092cad6792cf40758ed71e9a294b7a68e1126e58ea1b4529c0afd6',
+    '818b8c012fee3b0913f5c4102f1d31c008bed8971c54ae4356b28061d656c0e0',
   '../symposium-custodian-ipc.ts':
     '8dcbf6aefbf29742b2828b7e8ca657aa294e8ee9601f52422ada469fac1731cc',
   '../symposium-custodian-authority.ts':
@@ -1596,7 +1596,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../session-credential-tools.ts':
     '64f298b06072fa8486b424b91f5e3c6dd4f5bd01a8501fc69817901e5b2f27ef',
   'policy-compiler.ts': '59579f9eb69a3129dd2d8e1676fa46bd21da45c07f58752183416c82c0986014',
-  'registry.ts': '383723e8880aac626c634f4475e1e5e61a0eaa6011ba1942bd1da600d7bb89ba',
+  'registry.ts': 'db3e10f01e8284d8459494e8a748e8a31edc57cb5e3db93f7931b57955e0221e',
   'iana-address-policy.ts': '899b0b5ad66f5cbe72224b34c29ff7a88e32c2a6f5b2987e4d18cfc64f862b4e',
   'iana-address-data.generated.ts':
     '58f91383fa17ab9612d24bc113d011ece63bfc06b4635ba99f108bb05aa34038',

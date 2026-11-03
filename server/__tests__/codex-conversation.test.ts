@@ -6108,6 +6108,11 @@ it('retains unknown tool effects after owned capacity instead of releasing saved
   Object.assign(f.conversationOptions, { canClaimCommand: () => true });
   await f.c.send({ id: 'owned-capacity', prompt: 'Original work' });
   f.store.claimTool('app', binding, 'owned-capacity', 'unsettled-tool');
+  const db = (f.store as unknown as { db: Database.Database }).db;
+  db.prepare(
+    `UPDATE codex_tools SET result_content=?,result_is_error=1,result_effect_outcome='unknown'
+     WHERE conversation_id=? AND command_id=? AND call_id=?`,
+  ).run('Tool failed after a possible mutation', 'app', 'owned-capacity', 'unsettled-tool');
   f.callbacks.onNotification('turn/completed', {
     threadId: 'provider-thread',
     turn: { id: 'turn-1', status: 'failed', error: { codex_error_info: 'server_overloaded' } },
