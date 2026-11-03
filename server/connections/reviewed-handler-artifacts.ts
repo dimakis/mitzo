@@ -542,7 +542,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/local-repository-preparation-envelope.test.ts':
     'e8fafe9b00cd04875b39aca6a00d8f3073991c8dbd8f2141c48f3d0a71dcc440',
   '../__tests__/local-repository-preparation-object-data.test.ts':
-    '9f38cc972fef91f04523af005e376d0bcc3d26f98116348799912f6d81a4b5f4',
+    'c25546ef1f75b7e01ecb246b06d2eaaf4e665028d5cd4fa558557128a9705e7b',
   '../__tests__/local-repository-preparation-operation-native.test.ts':
     'c2e053f558803d3b2814519483cef924a7c050c3b2e66a75e187adf9889264e9',
   '../__tests__/local-repository-preparation-operation.test.ts':

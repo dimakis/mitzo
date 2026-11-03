@@ -68,7 +68,7 @@ async function fixture() {
     assertCurrent: vi.fn(async () => {
       controller.signal.throwIfAborted();
     }),
-  }) as NativeHostToolContext;
+  }) as unknown as NativeHostToolContext;
   const facts = {
     source: {
       path: '/fixture/source',
