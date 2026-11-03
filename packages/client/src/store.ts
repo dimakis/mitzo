@@ -2660,8 +2660,13 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
       store.setState((state) => ({ queueRevision: state.queueRevision + 1 }));
     if (
       selectedEventSession &&
-      (msg.type === 'session_info' || msg.type === 'session_reconnect_snapshot')
+      (msg.type === 'session_info' ||
+        msg.type === 'session_reconnect_snapshot' ||
+        msg.type === 'session_end' ||
+        commandPreparationEnded)
     )
+      // A mounted chat may have read eligibility while dispatch was uncertain.
+      // Completion invalidates that read; only fresh metadata can unblock sending.
       store.setState((state) => ({ sessionMetadataRevision: state.sessionMetadataRevision + 1 }));
 
     if (msg.type === 'error' && msg.sessionId === awaitingModeHydration)
