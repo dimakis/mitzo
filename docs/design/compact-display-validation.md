@@ -12,6 +12,12 @@ Run `41741156677` found two unsupported Testing Library `exact` role-query optio
 in the newer branding regression. Anchored accessible-name expressions retain the
 same Home/Back assertions while satisfying the compiler's `ByRoleOptions` type.
 
+Run `41741847798` passed compiler/build and core checks, then exposed one stale
+desktop editor fixture expecting the removed page-owned Home button. The fixture
+now requires one visible shared shell wordmark, no duplicate header logo and the
+same image-within-control geometry. All editor reachability, keyboard, touch and
+save/discard assertions remain in place; rendered verification stays a CI gate.
+
 The user requested a smaller Markdown/HTML display header and investigation and
 repair of the draft-status flicker while typing with a screenshot attached on
 1 November 2026. This is a local implementation record, not deployment evidence.
