@@ -39,21 +39,53 @@ def git(root, *args):
     return subprocess.check_output(["git", *args], cwd=root, text=True).strip()
 
 
-def portable_lock(root):
-    # npm installs platform-optional packages absent from a lockfile generated on
-    # another OS. Bind all source-locked resolutions; permit only extra optional
-    # entries, never a changed existing dependency or a new ordinary dependency.
-    committed = subprocess.check_output(["git", "show", "HEAD:package-lock.json"], cwd=root)
-    locked = json.loads(committed)["packages"]
-    installed = json.loads((root / "package-lock.json").read_bytes())["packages"]
+def require_portable_dependencies(locked, installed):
+    """Permit only exact platform variants directly declared by locked parents."""
     for name, expected in locked.items():
         actual = installed.get(name)
         if actual is None and expected.get("optional"):
             continue
         if actual is None or any(actual.get(key) != expected.get(key) for key in ("version", "resolved", "integrity", "link")):
             raise ValueError("Portable build dependencies differ from the source lock")
-    if any(name not in locked and not value.get("optional") for name, value in installed.items()):
-        raise ValueError("Portable build has an unpinned ordinary dependency")
+    allowed = {}
+    for parent, expected in locked.items():
+        if parent not in installed:
+            continue
+        for dependency, version in expected.get("optionalDependencies", {}).items():
+            if (not re.fullmatch(r"(?:@[a-z0-9_.-]+/)?[a-z0-9_.-]+", dependency)
+                    or not re.fullmatch(r"\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?", version)):
+                continue
+            # Follow Node's nearest installed slot, including scoped packages
+            # and hoisted dependencies. A hidden duplicate is not that edge.
+            owner = parent
+            for _ in range(parent.count("node_modules") + 2):
+                target = (owner + "/" if owner else "") + "node_modules/" + dependency
+                if target in installed:
+                    allowed.setdefault(target, set()).add(version)
+                    break
+                if not owner:
+                    break
+                owner = owner.rsplit("/node_modules/", 1)[0] if "/node_modules/" in owner else ""
+    for name, value in installed.items():
+        if name in locked:
+            continue
+        constraints = [value.get(field) for field in ("os", "cpu")]
+        if (value.get("optional") is not True or value.get("version") not in allowed.get(name, set())
+                or any(not isinstance(values, list) or not 1 <= len(values) <= 32
+                       or any(not isinstance(item, str) or item == "any"
+                              or not re.fullmatch(r"[a-z0-9_-]+", item) for item in values)
+                       for values in constraints)):
+            raise ValueError("Portable build has an unproven platform dependency")
+
+
+def portable_lock(root):
+    # Bind source resolutions, not arbitrary optional metadata introduced by
+    # npm. Unpinned ranges and installed-only parent chains require a reviewed
+    # source lock update; source-only edges cannot pin absent tarball integrity.
+    committed = subprocess.check_output(["git", "show", "HEAD:package-lock.json"], cwd=root)
+    locked = json.loads(committed)["packages"]
+    installed = json.loads((root / "package-lock.json").read_bytes())["packages"]
+    require_portable_dependencies(locked, installed)
     compiler = json.loads((root / "node_modules/typescript/package.json").read_bytes())["version"]
     if compiler != locked["node_modules/typescript"]["version"]:
         raise ValueError("Portable compiler differs from the source lock")

@@ -2,6 +2,7 @@
 """Offline rejection tests for the actual candidate-bound build transfer."""
 
 import importlib.util
+from copy import deepcopy
 import json
 import os
 from pathlib import Path
@@ -249,19 +250,13 @@ class PortableBuildOutputTests(unittest.TestCase):
                     self.rewrite(change)
                     self.rejected()
 
-    def test_portable_identity_allows_only_optional_platform_lock_additions(self):
+    def test_portable_identity_keeps_producer_lock_and_rejects_compiler_drift(self):
         lock = self.root / "package-lock.json"
         installed = json.loads(lock.read_text())
-        installed["packages"]["node_modules/linux-optional"] = {"optional": True, "version": "1.0.0"}
-        lock.write_text(json.dumps(installed))
         transfer.restore(self.root, self.scope, self.archive)
         with zipfile.ZipFile(self.archive) as archive:
             manifest = json.loads(archive.read("manifest.json"))
         self.assertIn("installedLock", manifest["producer"])
-        installed["packages"]["node_modules/linux-optional"]["optional"] = False
-        lock.write_text(json.dumps(installed))
-        self.rejected()
-        installed["packages"]["node_modules/linux-optional"]["optional"] = True
         installed["packages"]["node_modules/typescript"]["version"] = "different"
         lock.write_text(json.dumps(installed))
         self.rejected()
@@ -333,6 +328,77 @@ class PortableBuildOutputTests(unittest.TestCase):
                     entries[name] = (extra, b"x")
                 self.rewrite(change)
                 self.rejected()
+
+
+class PortableDependencyTests(unittest.TestCase):
+    """Pure lock-graph checks need no Git, compiler, package install or process."""
+    def fixture(self):
+        locked = {
+            "node_modules/esbuild": {
+                "version": "0.28.2",
+                "optionalDependencies": {"@esbuild/linux-x64": "0.28.2"},
+            },
+            "node_modules/rollup": {
+                "version": "4.63.1",
+                "optionalDependencies": {"@rollup/rollup-linux-x64-gnu": "4.63.1"},
+            },
+        }
+        installed = deepcopy(locked)
+        for name, version in [("@esbuild/linux-x64", "0.28.2"), ("@rollup/rollup-linux-x64-gnu", "4.63.1")]:
+            installed["node_modules/" + name] = {"version": version, "optional": True, "os": ["linux"], "cpu": ["x64"]}
+        return locked, installed
+
+    def test_accepts_exact_platform_variants_reachable_from_the_source_lock(self):
+        locked, installed = self.fixture()
+        transfer.require_portable_dependencies(locked, installed)
+        # The committed platform variants may themselves be omitted by npm on
+        # another host, while every ordinary source-locked dependency remains.
+        locked["node_modules/optional-mac"] = {"version": "1.0.0", "optional": True}
+        transfer.require_portable_dependencies(locked, installed)
+
+    def test_rejects_unproven_extra_graphs_versions_and_constraints(self):
+        for failure in ("arbitrary", "wrong-version", "range", "unreachable", "no-os", "no-cpu", "negative-os", "any-cpu", "not-optional", "unproven-chain", "shadowed"):
+            with self.subTest(failure=failure):
+                locked, installed = self.fixture()
+                variant = installed["node_modules/@esbuild/linux-x64"]
+                if failure == "arbitrary":
+                    installed["node_modules/arbitrary"] = {"version": "1.0.0", "optional": True}
+                elif failure == "wrong-version":
+                    variant["version"] = "0.28.3"
+                elif failure == "range":
+                    locked["node_modules/esbuild"]["optionalDependencies"]["@esbuild/linux-x64"] = "^0.28.2"
+                elif failure == "unreachable":
+                    installed["node_modules/esbuild"]["optionalDependencies"]["arbitrary"] = "1.0.0"
+                    installed["node_modules/arbitrary"] = {"version": "1.0.0", "optional": True, "os": ["linux"], "cpu": ["x64"]}
+                elif failure == "no-os":
+                    del variant["os"]
+                elif failure == "no-cpu":
+                    del variant["cpu"]
+                elif failure == "negative-os":
+                    variant["os"] = ["!darwin"]
+                elif failure == "any-cpu":
+                    variant["cpu"] = ["any"]
+                elif failure == "not-optional":
+                    variant["optional"] = False
+                elif failure == "unproven-chain":
+                    variant["optionalDependencies"] = {"arbitrary": "1.0.0"}
+                    installed["node_modules/arbitrary"] = {"version": "1.0.0", "optional": True, "os": ["linux"], "cpu": ["x64"]}
+                else:
+                    installed["node_modules/esbuild/node_modules/@esbuild/linux-x64"] = deepcopy(variant)
+                with self.assertRaises(ValueError):
+                    transfer.require_portable_dependencies(locked, installed)
+
+    def test_resolves_nested_optional_versions_from_their_actual_parent(self):
+        locked, installed = self.fixture()
+        locked["node_modules/vite/node_modules/esbuild"] = {
+            "version": "0.25.12",
+            "optionalDependencies": {"@esbuild/linux-x64": "0.25.12"},
+        }
+        installed["node_modules/vite/node_modules/esbuild"] = deepcopy(locked["node_modules/vite/node_modules/esbuild"])
+        installed["node_modules/vite/node_modules/@esbuild/linux-x64"] = {
+            "version": "0.25.12", "optional": True, "os": ["linux"], "cpu": ["x64"],
+        }
+        transfer.require_portable_dependencies(locked, installed)
 
 
 if __name__ == "__main__":
