@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.842-minimum-preparation-owner-phases';
+  'v1.0.843-native-worker-boundary-controls';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -522,7 +522,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../prepared-repository-workspace-owner.ts':
     'a8efcd4ed7ff323bbc532454177c045b4c6368316f47b70f68b094a0277b4989',
   '../__tests__/prepared-repository-workspace-owner.test.ts':
-    '78f6ad2279528ca46bfe6d0c9123feca28aa0d7645116351f14e3e48d71916c4',
+    '262ffe8d690ad41cb36b57f219ef9e9877a5e6f8535909e837e267d106737b5b',
   '../__tests__/prepared-repository-native-consumer.test.ts':
     '29320da1eabfca7e3d3b41201ad06068aec742f2c05ce77ae25013de6821e294',
   '../__tests__/prepared-repository-workspace-owner-sync.test.ts':
@@ -564,7 +564,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/native-preparation-observation.test.ts':
     'eae5a26c4d61233732a9c79ba9483f983d4e728bb2fca03995b2fc69dcab242e',
   '../__tests__/native-exclusive-file-batch.test.ts':
-    'ec4e064004085ac04b6ec81a2ede0701d9d9c74cc4ae36cfe1039b08d484c370',
+    'e83be7e4aed241378797adc3a376582040b1660819e77434c76206c2b0624d08',
   '../__tests__/private-helper-deadline.test.ts':
     '4e81924049e47ca6f12b7500c74791cf1ef22eeede85e37501ed20833fb2430e',
   '../native-tree-publication.ts':
@@ -590,7 +590,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/local-repository-preparation-objects.test.ts':
     '13847bcfbcf58e47def15a1c607e1773bd3b99ebb6c99bc375673c3e5f29d2c5',
   '../__tests__/native-exclusive-file.test.ts':
-    '905d1fa0deceadd24aeee5809ae3f91ab843f7b00541c6996d11400d0cf6de17',
+    '902bb6263650e586a731f5ccbe3c2253971b1fe87b1ea6946d8ae12957f699f0',
   '../__tests__/sandboxed-command-worker.test.ts':
     '7a3d508961813de34db0c504a63d200f52f29ea666c1833b6863c0df30bc1878',
   '../prepared-repository-transition-capture.ts':
@@ -610,7 +610,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/local-repository-read-ceiling.test.ts':
     '4a69dd1577ad68e5369c869dca12e62b517ee2d36b9cb9f32e822890e1df49e3',
   '../__tests__/prepared-repository-native-read.test.ts':
-    '2581e242ceead4561a677fde0155f7d3f607bd782bfd8c8b3998b268cabd238c',
+    '824afafa239ca542e84a91ef4e8055c1b42046bd64015b7de1a416fc9277aef3',
   '../local-repository-allocation-facts.ts':
     'd256fedf59eaccb3d6224ed1c180eefa308eb79fde1070989a3a2f53f9b3ad8e',
   '../__tests__/local-repository-allocation-facts.test.ts':
@@ -2698,7 +2698,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/pages/__tests__/ChatViewSavedDrafts.test.tsx':
     '1c96f88be3f0faa381d42d7dffd126f9080629e5cf1b0d4fb352f8bdad9ed7b1',
   '../../scripts/__tests__/ci-native-operator.test.ts':
-    'c5d84d54b5b2995a07ab8992406cf5903f458349c6854a4584c17e562f25f881',
+    '2c4e06935c344cd10377022cdfe285492552d4f7e3041340342ce78a8b9d6ef8',
   '../__tests__/agent-tool-catalog.test.ts':
     'e8775d2c7f6af004cf8d4b6c118788a9e1d61bc3f9052becaefc19b275b13531',
   '../__tests__/telos-item-store.test.ts':
@@ -2766,7 +2766,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/harness/__tests__/live-prefix-delivery.test.ts':
     '7c18084f6e5b9996b25e4ce44d351ab56cb4bcae2d86abf23d25cc48efc3321f',
   '../../scripts/__tests__/fixtures/native-authorization-report.ts':
-    'fb672181d877d6c6c0789fc72272abbee022827d70aa9cdbe5495e442f49e0a2',
+    '49c93189420656cd9993fbaeccd31e584fa8e3b3e5464a4580b4049e2a6c65c7',
   '../../scripts/__tests__/ci-native-authorization.test.ts':
     '82434797f28aa756e76a3451874db247f7abfe385af0779ba4a773327cf607de',
   '../../scripts/__tests__/ci-unit-gate.test.ts':
@@ -3019,7 +3019,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../.github/workflows/ci-recovery.yml':
     '5d4e9a6560e549d2879ef776c2b4d321d420c25b22ec3a7741390e5bf617111a',
   '../../.github/workflows/ci.yml':
-    '727da644fa1f18ae63e552b0b33f434207a79cf006ffc2300d976d8650652862',
+    'db79a811537afd695e62190ce3d8174bc52e6ed635c454cf39f56bf45289d5fb',
   '../../playwright.config.ts': '6c61752a4a2e9cab19d8217b46080c5898bc79c5a0fde1f2b703a254d278daa0',
   '../../playwright.offline.config.ts':
     'fb694df154a2cb402c7f46b417efb357b6d19a72210d269ad0b1580798392adc',
