@@ -2877,25 +2877,31 @@ export class CodexConversationStore {
   }
   /** Reconciliation-only cold entry. The original terminal and error history
    * survive; fresh native evidence cannot admit input or run a queue. */
-  reconcileRetainedInterruptedEffects(
+  reconcileRetainedNativeEffects(
     id: string,
     binding: AccountBinding,
     target: CodexNativeTurnTarget,
     expectedPhase: CompletionPhaseReceipt,
     policy: CodexNativeExecutionPolicy,
-    effects: SettledInterruptedEffects,
+    status: 'completed' | 'interrupted',
+    effects: SettledInterruptedEffects | undefined,
     assertCurrent: () => void,
+    assertOriginal: () => void,
   ): void {
     this.db
       .transaction(() => {
         assertCurrent();
+        assertOriginal();
         if (
           !isDeepStrictEqual(
             this.completionPhase(id, binding, target.commandId, target.attempt),
             expectedPhase,
           ) ||
           !isDeepStrictEqual(this.nativeRecoveryTarget(id, binding), target) ||
-          this.commandStatus(id, binding, target.commandId) !== 'interrupted'
+          this.commandStatus(id, binding, target.commandId) !== 'interrupted' ||
+          expectedPhase.observedOutcome !== 'completed' ||
+          expectedPhase.priorEffectsUnknown ||
+          (status !== 'completed' && (status !== 'interrupted' || !effects))
         )
           throw Error('Retained reconciliation target changed');
         // Revalidate original external authority under the writer lock. The
@@ -2904,7 +2910,7 @@ export class CodexConversationStore {
           id,
           binding,
           target,
-          'interrupted',
+          status,
           target.threadId,
           target.generation,
         );

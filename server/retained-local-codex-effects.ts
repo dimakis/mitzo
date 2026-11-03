@@ -404,25 +404,26 @@ export async function reconcileRetainedLocalCodexEffects(options: {
         if (
           lease.withQualifiedWorkspaceReadOwner !== withReadOwner ||
           !observed ||
-          observed.status !== 'interrupted' ||
-          !observed.settledEffects
+          !(
+            observed.status === 'completed' ||
+            (observed.status === 'interrupted' && observed.settledEffects)
+          )
         )
           throw unavailable();
         current();
         await lease.assertCurrent();
         current();
         authority();
-        native.reconcileRetainedInterruptedEffects(
+        native.reconcileRetainedNativeEffects(
           id,
           original.binding,
           original.target,
           original.phase,
           policy,
+          observed.status,
           observed.settledEffects,
-          () => {
-            authority();
-            current();
-          },
+          authority,
+          current,
         );
         return true;
       },
