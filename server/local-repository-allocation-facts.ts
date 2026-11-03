@@ -48,6 +48,40 @@ const validPath = (path: unknown): path is string =>
   !path.includes('\0') &&
   !isLocalRepositoryCredentialPath(path);
 
+function allocationSnapshot<T extends object>(value: T) {
+  const facts = freezePendingHostTaskData(value);
+  const serialized = JSON.stringify(facts);
+  if (Buffer.byteLength(serialized) > 32768) throw unavailable();
+  return Object.freeze({
+    facts,
+    factsSha256: createHash('sha256').update(serialized).digest('hex'),
+  });
+}
+
+/** Selected base data does not renew authority or namespace witnesses. Preserve
+ * the original source HEAD/anchors and packed-ref witness; current source/effect
+ * checks remain with the original owner. No second allocation read is needed. */
+export function projectLocalRepositoryAllocationBase(
+  original: LocalRepositoryAllocationFacts,
+  base: ResolvedRepositoryBase,
+  remote?: string,
+) {
+  if (
+    original.layout !== 'standalone' ||
+    !original.baseIntent ||
+    !original.sourceBaseOid ||
+    !original.sourceBaseBranch
+  )
+    throw unavailable();
+  return allocationSnapshot({
+    ...original,
+    baseOid: base.oid,
+    baseBranch: base.branch ?? base.oid,
+    ...(remote !== undefined ? { remote } : {}),
+    ...(base.origin === 'remote' ? { shallow: base.oid + '\n' } : {}),
+  });
+}
+
 /** Read-only original pre-approval facts from the EXACT retained qualified read
  * owner. Caller owns/awaits its disposal. These data confer no native or effect
  * authority and do not expose Prepare or replace the existing workspace ledger. */
@@ -229,7 +263,7 @@ export async function captureLocalRepositoryAllocationFacts(
         }
       }
     }
-    const facts = freezePendingHostTaskData({
+    const snapshot = allocationSnapshot({
       version: 1 as const,
       workspaceId,
       baseOid: input.resolvedBase?.oid ?? head,
@@ -254,10 +288,7 @@ export async function captureLocalRepositoryAllocationFacts(
         .map(([directory, identity]) => ({ directory, identity })),
       absentPaths,
     });
-    // Fixed path/step/count bounds cap serialization at <256KiB even before
-    // this stricter outward evidence bound. No unrelated caller data is copied.
-    const serialized = JSON.stringify(facts);
-    if (Buffer.byteLength(serialized) > 32768) throw unavailable();
+    const { facts } = snapshot;
     const verify = async () => {
       try {
         await access.verify();
@@ -287,7 +318,7 @@ export async function captureLocalRepositoryAllocationFacts(
     return Object.freeze({
       publicationPackedRefs,
       facts,
-      factsSha256: createHash('sha256').update(serialized).digest('hex'),
+      factsSha256: snapshot.factsSha256,
       verify,
     });
   } catch {

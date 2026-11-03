@@ -256,7 +256,7 @@ it('keeps exact original grants and refuses missing private transport', async ()
   ).rejects.toThrow();
 });
 
-actual.each([1, 2, 3])(
+actual.each([1, 2])(
   'retains the full original async owner at fixed phase gate %s',
   async (gate) => {
     const f = await fixture();
@@ -267,8 +267,8 @@ actual.each([1, 2, 3])(
     await expect(
       publishNativePreparedRepository(f.plan, new AbortController().signal, 15000, f.launches),
     ).rejects.toThrow();
-    expect(checks).toBe(gate === 1 ? 1 : 3);
-    if (gate < 3) {
+    expect(checks).toBe(2);
+    if (gate === 1) {
       await expect(lstat(f.task)).rejects.toMatchObject({ code: 'ENOENT' });
       await expect(lstat(join(f.common, 'worktrees'))).rejects.toMatchObject({ code: 'ENOENT' });
     } else {

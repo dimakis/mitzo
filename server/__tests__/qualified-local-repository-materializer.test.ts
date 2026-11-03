@@ -15,8 +15,8 @@ import { createRequire } from 'node:module';
 import { createHash } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { afterAll, afterEach, expect, it, vi } from 'vitest';
-import { lstat, readFile, readdir, readlink, writeFile } from 'node:fs/promises';
-import { basename, join } from 'node:path';
+import { lstat, mkdir, readFile, readdir, readlink, writeFile } from 'node:fs/promises';
+import { basename, dirname, join } from 'node:path';
 import * as filesystem from 'node:fs/promises';
 import * as readers from '../local-repository-native-read.js';
 import * as objectData from '../local-repository-preparation-object-data.js';
@@ -26,6 +26,7 @@ import {
   runRecordedPreparationAttempt,
 } from './fixtures/preparation-attempt-diagnostics.js';
 import { observePreparationService } from './fixtures/preparation-service-diagnostics.js';
+import { observePrivateHelperBoundary } from './fixtures/private-helper-boundary-diagnostics.js';
 import * as actor from '../qualified-local-repository-actor.js';
 import * as sandbox from '../sandboxed-command.js';
 import { OwnedLocalCodexChatAdmission } from '../owned-local-codex-chat-admission.js';
@@ -56,6 +57,33 @@ const actual = it.runIf(
   process.platform === 'darwin' && process.env.MITZO_SANDBOX_INTEGRATION === '1',
 );
 const profileOnly = process.env.MITZO_PREPARATION_OWNER_PROFILE === '1';
+const fixtureGit = (directory: string, ...args: string[]) =>
+  execFileSync(
+    '/usr/bin/git',
+    [
+      '-C',
+      directory,
+      '-c',
+      'core.hooksPath=/dev/null',
+      '-c',
+      'core.fsmonitor=false',
+      '-c',
+      'commit.gpgsign=false',
+      '-c',
+      'user.name=Offline',
+      '-c',
+      'user.email=offline@example.invalid',
+      ...args,
+    ],
+    {
+      encoding: 'utf8',
+      env: {
+        PATH: '/usr/bin:/bin',
+        GIT_CONFIG_GLOBAL: '/dev/null',
+        GIT_CONFIG_SYSTEM: '/dev/null',
+      },
+    },
+  ).trim();
 actual(
   profileOnly
     ? 'profiles one genuine consumed original full gate without actor effects'
@@ -137,7 +165,13 @@ actual(
       workerEntrySha256: atRunSources['server/sandboxed-command-worker.ts'],
       workerRuntime: 'existing sourceRuntime tsx/esm worker; no separately compiled worker binary',
     };
-    const actorEvidencePath = `/private/tmp/mitzo-qualified-preparation-actor-${inputIdentity.slice(0, 16)}.json`;
+    const actorEvidencePath =
+      process.env.CI === 'true'
+        ? fileURLToPath(
+            new URL('../../test-results/qualified-preparation-actor.json', import.meta.url),
+          )
+        : `/private/tmp/mitzo-qualified-preparation-actor-${inputIdentity.slice(0, 16)}.json`;
+    await mkdir(dirname(actorEvidencePath), { recursive: true });
     if (atRunRepository.trackedStatus !== '') {
       await writeFile(
         actorEvidencePath,
@@ -176,6 +210,7 @@ actual(
     );
     const originalFs = await vi.importActual<typeof import('node:fs/promises')>('node:fs/promises');
     const cleanupCounts = { reader: 0, objects: 0, artifact: 0 };
+    const privateHelpers = { checkout: [] as unknown[], publication: [] as unknown[] };
     vi.mocked(filesystem.rm).mockImplementation(async (...args) => {
       const name = typeof args[0] === 'string' ? basename(args[0]) : '';
       const kind = name.startsWith('mitzo-native-read-')
@@ -199,6 +234,12 @@ actual(
     const postPreparation: { status: string; elapsedMs?: number; rowSha256?: string } = {
       status: 'not-reached',
     };
+    const secondPreparation: {
+      state: string;
+      elapsedMs?: number;
+      admissionCalls?: number;
+      continuation?: boolean;
+    } = { state: 'not-reached' };
     let observedReceipt: Awaited<ReturnType<typeof executeLocalRepositoryPreparation>> | undefined;
     let authorization:
       Awaited<ReturnType<typeof captureLocalRepositoryPreparationAuthorization>> | undefined;
@@ -286,7 +327,13 @@ actual(
       const start = performance.now();
       metrics.effectTransports.calls++;
       try {
-        return await diagnostics.capture('publication', () => effectTransport(...args));
+        return await diagnostics.capture('publication', () =>
+          observePrivateHelperBoundary(
+            args[0],
+            () => effectTransport(...args),
+            privateHelpers.publication,
+          ),
+        );
       } finally {
         metrics.effectTransports.ms += performance.now() - start;
       }
@@ -296,7 +343,9 @@ actual(
         const start = performance.now();
         metrics.checkouts.calls++;
         try {
-          return await diagnostics.capture('checkout', () => checkout(...args));
+          return await diagnostics.capture('checkout', () =>
+            observePrivateHelperBoundary(args[0], () => checkout(...args), privateHelpers.checkout),
+          );
         } finally {
           metrics.checkouts.ms += performance.now() - start;
         }
@@ -362,9 +411,11 @@ actual(
                     combinedPublicationHelpers: 1,
                     stagingHelpers: 1,
                     effectHelperCount: 2,
-                    originalFullCallbacksOnSuccess: 13,
+                    originalFullCallbacksOnSuccess: 7,
+                    nativeOnlyFullCallbacksOnSuccess: 4,
+                    sourceFullCallbacksOnSuccess: 3,
                     explanation:
-                      'Static success-path count from current actor: 3 original full callbacks for separate staging checkout, 3 for combined publication, plus 7 actor/read/cleanup callbacks. The measured operation gate excludes the additional native read-owner wait inside actor full(). Does not measure object/task read cost or establish whole-window viability.',
+                      'Static success-path count from current actor: 4 native-only full callbacks for private artifact/staging/cleanup and 3 consumed-source full callbacks for publication/delivery. The consumed operation already includes the native context owner. Does not measure object/task read cost or establish whole-window viability.',
                   },
                 },
                 null,
@@ -405,19 +456,7 @@ actual(
       // Real staged content change reuses an existing accepted blob, so the
       // object-count budget stays five while index preservation is meaningful.
       await writeFile(join(source, 'context.md'), 'accepted source');
-      const git = (...args: string[]) =>
-        execFileSync(
-          '/usr/bin/git',
-          ['-C', source, '-c', 'core.hooksPath=/dev/null', '-c', 'core.fsmonitor=false', ...args],
-          {
-            encoding: 'utf8',
-            env: {
-              PATH: '/usr/bin:/bin',
-              GIT_CONFIG_GLOBAL: '/dev/null',
-              GIT_CONFIG_SYSTEM: '/dev/null',
-            },
-          },
-        ).trim();
+      const git = (...args: string[]) => fixtureGit(source, ...args);
       git('add', '--', 'context.md');
       await diagnostics.check(
         'setup-staged-name',
@@ -610,6 +649,7 @@ actual(
       prepared = true;
       return normalizedResult ?? { prepared: true };
     };
+    let preparationCalls = 0;
     const f = await localPreparationNativeFixture(cleanups, executeAttempt, {
       nativeBaseReads: true,
       preparationEnvelope: profileOnly,
@@ -617,6 +657,12 @@ actual(
       ...(!profileOnly
         ? {
             executeOriginalCapture: async (capture, input, signal) => {
+              if (preparationCalls++ > 0)
+                return executeNativeLocalRepositoryPreparation(
+                  { capture, events: f.f.events, registry: f.registry, workspaces: f.f.workspace },
+                  input,
+                  signal,
+                );
               const result = await executeAttempt(undefined, input, undefined, () =>
                 executeNativeLocalRepositoryPreparation(
                   { capture, events: f.f.events, registry: f.registry, workspaces: f.f.workspace },
@@ -636,6 +682,104 @@ actual(
     });
     cleanups.push(serviceState.restore);
     const assertInitialPrimary = capturePreparationPrimaryCustody(f);
+    async function completePrepared(
+      original: NativeHostToolContext,
+      receipt: Awaited<ReturnType<typeof executeLocalRepositoryPreparation>>,
+      afterAdopt: () => Promise<void> = async () => {},
+      expectedResult?: Awaited<ReturnType<typeof executeNativeLocalRepositoryPreparation>>,
+    ) {
+      const source = original.nativeTarget;
+      const binding = f.a.initial.lease.binding;
+      const admission = f.a.initial.admission;
+      const known = new Set(f.native.commands(f.a.sessionId, binding).map((command) => command.id));
+      const turnsBefore = f.a.requests.filter((request) => request.method === 'turn/start').length;
+      let entered = false,
+        settled = false,
+        failure: unknown;
+      f.a.installPreparedBoundary(async (assertConversationCurrentSync) => {
+        if (entered) return;
+        entered = true;
+        try {
+          if (expectedResult) {
+            const durable = f.native.completedPreparedRepositoryResultSha256(
+              f.a.sessionId,
+              binding,
+              source,
+              original.callId,
+              original.requestHash,
+            );
+            if (durable !== preparedRepositoryResultSha256(expectedResult))
+              throw Error('Actual completed preparation result mismatch');
+          }
+          const selectedPolicy = () =>
+            composeOwnedLocalNativeExecutionPolicy({
+              session: f.a.session,
+              binding,
+              assertCurrentSync: () => admission.assertPreparedRepositoryBoundaryCurrentSync(),
+            });
+          const owner = Object.freeze({
+            signal: f.f.signal.signal,
+            selectedPolicy,
+            assertCurrentSync: () => admission.assertPreparedRepositoryBoundaryCurrentSync(),
+          });
+          const adopted = await diagnostics.capture('prepared-boundary', () =>
+            withPreparedRepositoryBarrierReadScope(
+              selectedPolicy(),
+              source.commandId,
+              {
+                signal: f.f.signal.signal,
+                selectedPolicy,
+                assertCurrentSync: () => {
+                  assertConversationCurrentSync();
+                  admission.assertPreparedRepositoryBoundaryCurrentSync();
+                },
+                revalidate: async () => {
+                  await admission.assertCurrent();
+                  assertConversationCurrentSync();
+                },
+              },
+              (scope) =>
+                admission.adoptPreparedRepositoryAtBoundary(
+                  scope,
+                  source,
+                  assertConversationCurrentSync,
+                  owner,
+                ),
+            ),
+          );
+          expect(adopted).toMatchObject({ id: receipt.request.id, directory: receipt.directory });
+          await afterAdopt();
+        } catch (error) {
+          failure = error;
+          throw error;
+        } finally {
+          settled = true;
+        }
+      });
+      await f.a.complete();
+      await vi.waitFor(
+        () => {
+          if (!settled) throw Error('Waiting for original completed boundary');
+        },
+        { timeout: 210000 },
+      ); // harness only; original authority deadlines are unchanged
+      if (failure) throw failure;
+      await vi.waitFor(
+        () => {
+          const children = f.native
+            .commands(f.a.sessionId, binding)
+            .filter((command) => !known.has(command.id));
+          if (
+            f.a.requests.filter((request) => request.method === 'turn/start').length !==
+              turnsBefore + 1 ||
+            children.length !== 1 ||
+            f.native.readNativeExecution(f.a.sessionId, binding, children[0])?.phase !== 'accepted'
+          )
+            throw Error('Waiting for actual queued child turn');
+        },
+        { timeout: 150000 },
+      );
+    }
     const finalize = f.f.workspace.finalizePendingHostTaskDecision;
     vi.spyOn(f.f.workspace, 'finalizePendingHostTaskDecision').mockImplementation((...args) => {
       const result = Reflect.apply(finalize, f.f.workspace, args);
@@ -657,6 +801,8 @@ actual(
             rowState,
             receiptState,
             postPreparation,
+            secondPreparation,
+            privateHelpers,
             serviceState: serviceState(),
             cleanup: {
               returnedReaders: returnedReaders.length,
@@ -700,9 +846,6 @@ actual(
       const binding = f.a.initial.lease.binding;
       const custodyBefore = f.native.readHostCustody(f.a.sessionId, binding);
       const taskCanary = join(receipt.directory, 'host-acceptance-task.txt');
-      let boundaryEntered = false;
-      let boundarySettled = false;
-      let boundaryError: unknown;
       await recordPreparationAttempt(
         diagnostics,
         'post-prepare-admission',
@@ -710,90 +853,14 @@ actual(
           const start = performance.now();
           postPreparation.status = 'waiting-for-completed-boundary';
           try {
-            f.a.installPreparedBoundary(async (assertConversationCurrentSync) => {
-              if (boundaryEntered) return;
-              boundaryEntered = true;
-              try {
-                const durable = f.native.completedPreparedRepositoryResultSha256(
-                  f.a.sessionId,
-                  binding,
-                  source,
-                  original.callId,
-                  original.requestHash,
-                );
-                if (durable !== preparedRepositoryResultSha256(normalized))
-                  throw Error('Actual completed preparation result mismatch');
-                const admission = f.a.initial.admission;
-                const selectedPolicy = () =>
-                  composeOwnedLocalNativeExecutionPolicy({
-                    session: f.a.session,
-                    binding,
-                    assertCurrentSync: () =>
-                      admission.assertPreparedRepositoryBoundaryCurrentSync(),
-                  });
-                const owner = Object.freeze({
-                  signal: f.f.signal.signal,
-                  selectedPolicy,
-                  assertCurrentSync: () => admission.assertPreparedRepositoryBoundaryCurrentSync(),
-                });
-                const adopted = await diagnostics.capture('prepared-boundary', () =>
-                  withPreparedRepositoryBarrierReadScope(
-                    selectedPolicy(),
-                    source.commandId,
-                    {
-                      signal: f.f.signal.signal,
-                      selectedPolicy,
-                      assertCurrentSync: () => {
-                        assertConversationCurrentSync();
-                        admission.assertPreparedRepositoryBoundaryCurrentSync();
-                      },
-                      revalidate: async () => {
-                        await admission.assertCurrent();
-                        assertConversationCurrentSync();
-                      },
-                    },
-                    (scope) =>
-                      admission.adoptPreparedRepositoryAtBoundary(
-                        scope,
-                        source,
-                        assertConversationCurrentSync,
-                        owner,
-                      ),
-                  ),
-                );
-                if (adopted?.id !== receipt.request.id || adopted.directory !== receipt.directory)
-                  throw Error('Actual materialized primary was not adopted');
+            await completePrepared(
+              original,
+              receipt,
+              async () => {
                 postPreparation.status = 'actual-primary-adopted';
                 await writeFile(taskCanary, 'Retain new task work');
-              } catch (error) {
-                boundaryError = error;
-                throw error;
-              } finally {
-                boundarySettled = true;
-              }
-            });
-            await f.a.complete();
-            await vi.waitFor(
-              () => {
-                if (!boundarySettled) throw Error('Waiting for original completed boundary');
               },
-              { timeout: 210000 },
-            ); // harness wait only; original authority deadlines remain unchanged
-            if (boundaryError) throw boundaryError;
-            await vi.waitFor(
-              () => {
-                const children = f.native
-                  .commands(f.a.sessionId, binding)
-                  .filter((command) => command.id !== source.commandId);
-                if (
-                  f.a.requests.filter((request) => request.method === 'turn/start').length !== 2 ||
-                  children.length !== 1 ||
-                  f.native.readNativeExecution(f.a.sessionId, binding, children[0])?.phase !==
-                    'accepted'
-                )
-                  throw Error('Waiting for actual queued child turn');
-              },
-              { timeout: 150000 }, // two fresh workspace checks precede controlled child RPC
+              normalized,
             );
             postPreparation.status = 'second-turn-acknowledged-by-controlled-rpc';
           } finally {
@@ -897,12 +964,96 @@ actual(
       expect(metrics.checkouts.calls).toBe(0);
     }
     expect(f.permissions).toHaveLength(1);
+    if (!profileOnly) {
+      // Reuse this genuine adopted runtime and populated source. The old first
+      // preparation fixture had never exercised its more expensive custody
+      // owner as the starting point for another actual preparation.
+      // Reuse the primary-error-preserving recorder for every second-attempt
+      // assertion, so CI retains the actual failing owner/helper stage too.
+      await recordPreparationAttempt(
+        diagnostics,
+        'native-call',
+        async () => {
+          const current = f.f.workspace.getForConversation(f.a.sessionId)!;
+          const nextSource = join(f.f.root, 'next-source');
+          fixtureGit(
+            f.f.root,
+            'clone',
+            '--no-hardlinks',
+            '-q',
+            join(f.f.root, 'source'),
+            nextSource,
+          );
+          await Promise.all(
+            Array.from({ length: 13 }, (_, index) =>
+              writeFile(join(nextSource, `plan-${index}.md`), `Planning document ${index}\n`),
+            ),
+          );
+          fixtureGit(nextSource, 'add', '.');
+          fixtureGit(nextSource, 'commit', '-qm', 'populated second source');
+          const selectedHead = fixtureGit(nextSource, 'rev-parse', 'HEAD');
+          const [sourceHead, sourceIndex] = await Promise.all([
+            readFile(join(nextSource, '.git', 'HEAD')),
+            readFile(join(nextSource, '.git', 'index')),
+          ]);
+          const started = performance.now();
+          const callsBefore = metrics.admission.calls;
+          const next = await f.a.call({
+            path: nextSource,
+            base: { kind: 'ref', ref: 'HEAD' },
+          });
+          secondPreparation.elapsedMs = Math.round(performance.now() - started);
+          secondPreparation.admissionCalls = metrics.admission.calls - callsBefore;
+          secondPreparation.state = next.value.state ?? 'failed';
+          console.info('Second preparation', JSON.stringify(secondPreparation));
+          expect(
+            next.response.success,
+            JSON.stringify({ value: next.value, diagnostics: diagnostics.snapshot() }),
+          ).toBe(true);
+          expect(next.value).toMatchObject({ state: 'materialized' });
+          expect(next.value.preparationId).not.toBe(current.id);
+          expect(f.f.workspace.getForConversation(f.a.sessionId)?.id).toBe(current.id);
+          expect(f.permissions).toHaveLength(2);
+          await sourcePreservation?.('adopted', true);
+          const secondContext = observedContext!;
+          const secondReceipt = f.f.workspace.get(next.value.preparationId).pendingHostTask!;
+          expect(secondReceipt.state).toBe('materialized');
+          await completePrepared(secondContext, secondReceipt);
+          const adopted = f.f.workspace.getForConversation(f.a.sessionId)!;
+          expect(adopted.id).toBe(next.value.preparationId);
+          expect(f.f.events.getSession(f.a.sessionId)?.cwd).toBe(secondReceipt.directory);
+          expect(f.native.read(f.a.sessionId, f.a.initial.lease.binding).cwd).toBe(
+            secondReceipt.directory,
+          );
+          expect(
+            f.a.requests.filter((request) => request.method === 'turn/start').at(-1)?.params.cwd,
+          ).toBe(secondReceipt.directory);
+          expect(fixtureGit(secondReceipt.directory, 'rev-parse', 'HEAD')).toBe(selectedHead);
+          expect(fixtureGit(nextSource, 'rev-parse', 'HEAD')).toBe(selectedHead);
+          expect(await readFile(join(nextSource, '.git', 'HEAD'))).toEqual(sourceHead);
+          expect(await readFile(join(nextSource, '.git', 'index'))).toEqual(sourceIndex);
+          await Promise.all(
+            Array.from({ length: 13 }, async (_, index) => {
+              expect(
+                await readFile(join(secondReceipt.directory, `plan-${index}.md`), 'utf8'),
+              ).toBe(`Planning document ${index}\n`);
+            }),
+          );
+          expect(cleanupCounts.reader).toBe(returnedReaders.length);
+          expect(cleanupCounts.objects).toBe(2);
+          secondPreparation.continuation = true;
+          for (const [name, check] of Object.entries(diagnostics.snapshot().checks))
+            expect(check.status, JSON.stringify({ name, check })).toBe('passed');
+        },
+        async () => {},
+        async () => persistAttempt(),
+      );
+    }
   },
-  // Test-harness budget for consecutive stages only: unchanged preparation
-  // envelope (300s), THREE independently60s fresh phases plus joined owner/
-  // cleanup work (210s boundary), two post-boundary workspace checks + child
-  // RPC (150s), setup/evidence (60s). Completion-row settlement is not adoption.
-  // No approval/read/helper/native authority is extended.
+  // Retain the existing overall harness bound while exercising a second source
+  // through the same setup. Each operation still has its own 300s envelope,
+  // 120s approval, 60s read phases and 30s helper bounds. Completed receipts
+  // alone are insufficient: both actual handoffs and child RPCs must succeed.
   720000,
 );
 

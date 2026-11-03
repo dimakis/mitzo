@@ -95,8 +95,9 @@ export async function captureLocalRepositoryPreparationObjectData(
   };
   try {
     current();
-    await owner.assertCurrent();
-    current();
+    // The original reader retains this same owner's full gate immediately
+    // before physical source I/O. Private scratch uses the synchronous owner;
+    // this wrapper adds no separate source or approval boundary.
     reader = await captureNativeLocalRepositoryReader(context, {
       deadline: preparationReadDeadline(deadline, context.signal),
     });

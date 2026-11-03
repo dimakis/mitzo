@@ -7,6 +7,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { EventStore } from '../event-store.js';
 import { setAuthRevocationStore } from '../auth.js';
+import { OwnedLocalCodexChatAdmission } from '../owned-local-codex-chat-admission.js';
 import { RepositoryWorkspaces } from '../repository-workspaces.js';
 import { localPreparationNativeFixture } from './fixtures/local-preparation-native.js';
 import { captureLocalRepositoryPreparationAuthorization } from '../local-repository-preparation-authorization.js';
@@ -72,6 +73,7 @@ it('fails closed without a qualified read-only source owner in an actual signed 
 
 it('retains actual permission evidence before outward allow and finalizes only the same existing row, without source effects', async () => {
   noLiveCalls();
+  const admissionChecks = vi.spyOn(OwnedLocalCodexChatAdmission.prototype, 'assertCurrent');
   let held: Awaited<ReturnType<typeof captureLocalRepositoryPreparationAuthorization>> | undefined;
   let observedId: string | undefined;
   let assertEffectsUnchanged!: () => void;
@@ -115,6 +117,11 @@ it('retains actual permission evidence before outward allow and finalizes only t
       },
       input,
     );
+    // A generic fixture source cannot claim the original factory's combined
+    // context proof, even when it supplies compatible assertion methods.
+    const checksBefore = admissionChecks.mock.calls.length;
+    await held.owner.assertCurrent();
+    expect(admissionChecks.mock.calls.length).toBeGreaterThan(checksBefore);
     originalWorkspaceInScope = { actual: held.scope.oldWorkspace, expected: context.workspace };
     expect(held.scope.oldWorkspace).toEqual(context.workspace);
     expect(held.scope.allocationFactsSha256).toBe(

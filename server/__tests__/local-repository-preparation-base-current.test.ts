@@ -1,6 +1,7 @@
 import { afterEach, expect, it, vi } from 'vitest';
 import type { NativeHostToolContext } from '../native-host-tool-context.js';
 import { captureNativeLocalRepositoryPreparationSource } from '../local-repository-preparation-source.js';
+import { readLocalRepositoryBaseReference } from '../local-repository-base.js';
 import { captureLocalRepositoryAllocationFacts } from '../local-repository-allocation-facts.js';
 import { captureNativeLocalRepositoryReader } from '../local-repository-native-read.js';
 import { inspectLocalRepositoryGitMetadata } from '../local-repository-git-inspection.js';
@@ -30,8 +31,13 @@ vi.mock('../native-host-tool-context.js', () => ({
 vi.mock('../local-repository-native-read.js', () => ({
   captureNativeLocalRepositoryReader: vi.fn(),
 }));
-vi.mock('../local-repository-allocation-facts.js', () => ({
+vi.mock('../local-repository-allocation-facts.js', async (original) => ({
+  ...(await original<typeof import('../local-repository-allocation-facts.js')>()),
   captureLocalRepositoryAllocationFacts: vi.fn(),
+}));
+vi.mock('../local-repository-base.js', async (original) => ({
+  ...(await original<typeof import('../local-repository-base.js')>()),
+  readLocalRepositoryBaseReference: vi.fn(),
 }));
 vi.mock('../local-repository-git-inspection.js', () => ({
   inspectLocalRepositoryGitMetadata: vi.fn(),
@@ -45,6 +51,10 @@ const anchor = (rootPath: string) => ({
 });
 vi.mock('../local-repository-read-access.js', () => ({
   LocalRepositoryReadAccess: class {
+    async pinRoot(path: string) {
+      return anchor(path);
+    }
+    async verify() {}
     static async capturePreparationBase() {
       return {
         async pinRoot(path: string) {
@@ -57,7 +67,7 @@ vi.mock('../local-repository-read-access.js', () => ({
   },
 }));
 afterEach(() => vi.resetAllMocks());
-async function fixture() {
+async function fixture(base?: { kind: 'ref'; ref: string }, detached = false) {
   const context = {
     signal: new AbortController().signal,
     nativeBaseReadScope: { assertCurrentSync() {} },
@@ -73,7 +83,25 @@ async function fixture() {
     sourceAnchor: anchor('/fixture/source'),
     commonAnchor: anchor('/fixture/source/.git'),
   };
-  const facts = { source, baseBranch: 'base', baseOid: 'a'.repeat(40) };
+  const facts = {
+    source,
+    baseBranch: detached ? 'a'.repeat(40) : 'base',
+    baseOid: 'a'.repeat(40),
+    ...(base
+      ? {
+          layout: 'standalone' as const,
+          baseIntent: base,
+          sourceBaseOid: 'a'.repeat(40),
+          sourceBaseBranch: detached ? 'a'.repeat(40) : 'base',
+        }
+      : {}),
+  };
+  vi.mocked(readLocalRepositoryBaseReference).mockImplementation(
+    async (_access, _metadata, selected) => ({
+      oid: selected === 'HEAD' ? facts.baseOid : 'c'.repeat(40),
+      ...(selected === 'HEAD' ? (detached ? {} : { branch: 'base' }) : { branch: 'chosen' }),
+    }),
+  );
   const witness = Object.freeze({ kind: 'absent' as const });
   vi.mocked(captureLocalRepositoryAllocationFacts).mockResolvedValue({
     facts,
@@ -86,13 +114,14 @@ async function fixture() {
   );
   vi.mocked(inspectLocalRepositoryGitMetadata).mockResolvedValue(source as never);
   vi.mocked(readLocalRepositoryPreparationBaseReferences).mockResolvedValue({
-    branch: facts.baseBranch,
+    branch: detached ? null : facts.baseBranch,
     head: facts.baseOid,
   } as never);
   const held = await captureNativeLocalRepositoryPreparationSource(context, {
     workspaceId: 'fixture',
     sourcePath: source.path,
     taskRoot: '/fixture/tasks',
+    ...(base ? { base } : {}),
   });
   return { held, source, witness, dispose, context };
 }
@@ -188,3 +217,37 @@ it('propagates the existing unsafe metadata parser refusal and joins reader disp
   await expect(f.held.assertCurrent()).rejects.toThrow();
   expect(f.dispose).toHaveBeenCalledTimes(2);
 });
+
+// Pure composition variants; the allocation/reference tests prove actual Git
+// bytes and the signed journey qualifies native source ownership separately.
+it.each([false, true])(
+  'reuses one verified HEAD allocation but refreshes later source proofs (detached=%s)',
+  async (detached) => {
+    const f = await fixture({ kind: 'ref', ref: 'HEAD' }, detached);
+    expect(captureLocalRepositoryAllocationFacts).toHaveBeenCalledOnce();
+    expect(captureNativeLocalRepositoryReader).toHaveBeenCalledOnce();
+    await expect(f.held.assertCurrent()).resolves.toBeUndefined();
+    expect(captureLocalRepositoryAllocationFacts).toHaveBeenCalledOnce();
+    expect(captureNativeLocalRepositoryReader).toHaveBeenCalledTimes(2);
+    vi.mocked(readLocalRepositoryPreparationBaseReferences).mockResolvedValue({
+      branch: detached ? null : 'base',
+      head: 'c'.repeat(40),
+    } as never);
+    vi.mocked(readLocalRepositoryBaseReference).mockResolvedValue({ oid: 'c'.repeat(40) });
+    await expect(f.held.assertCurrent()).rejects.toThrow();
+  },
+);
+
+it.each(['chosen', 'c'.repeat(40)])(
+  'projects selected %s data without another allocation read',
+  async (ref) => {
+    const f = await fixture({ kind: 'ref', ref });
+    expect(captureLocalRepositoryAllocationFacts).toHaveBeenCalledOnce();
+    expect(captureNativeLocalRepositoryReader).toHaveBeenCalledTimes(ref === 'chosen' ? 2 : 1);
+    expect(f.held.baseOid).toBe('c'.repeat(40));
+    expect(f.held.baseBranch).toBe(ref === 'chosen' ? 'chosen' : 'c'.repeat(40));
+    expect(f.held.allocationFacts.sourceBaseOid).toBe('a'.repeat(40));
+    await expect(f.held.assertCurrent()).resolves.toBeUndefined();
+    expect(captureLocalRepositoryAllocationFacts).toHaveBeenCalledOnce();
+  },
+);

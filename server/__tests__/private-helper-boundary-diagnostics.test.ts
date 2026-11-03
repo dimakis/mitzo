@@ -81,3 +81,26 @@ it('retains a failing owner error and restores callbacks after rejection', async
   ]);
   expect(JSON.stringify(rows)).not.toContain('/private/secret');
 });
+
+it('does not repair a borrowed callback receiver while observing it', async () => {
+  const failure = Error('Original receiver changed');
+  const input = {
+    timeoutMs: 30,
+    signal: new AbortController().signal,
+    assertCurrentSync() {},
+    async revalidate() {
+      if (this !== input) throw failure;
+    },
+  };
+  const original = input.revalidate;
+  await expect(
+    observePrivateHelperBoundary(
+      input,
+      async (same) => {
+        await same.revalidate.call({} as typeof input);
+      },
+      [],
+    ),
+  ).rejects.toBe(failure);
+  expect(input.revalidate).toBe(original);
+});

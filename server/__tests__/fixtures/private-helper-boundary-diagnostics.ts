@@ -35,7 +35,7 @@ export async function observePrivateHelperBoundary<T extends Owner, R>(
   for (const { key, descriptor } of descriptors) {
     Object.defineProperty(input, key, {
       ...descriptor,
-      value: function (...args: unknown[]) {
+      value: function (this: unknown, ...args: unknown[]) {
         const begin = clock();
         const gate: Record<string, unknown> = {
           kind: key === 'revalidate' ? 'async' : 'sync',
@@ -50,7 +50,7 @@ export async function observePrivateHelperBoundary<T extends Owner, R>(
           if (error !== undefined) gate.error = preparationDiagnosticFailure(error);
         };
         try {
-          const result: unknown = Reflect.apply(descriptor.value, input, args);
+          const result: unknown = Reflect.apply(descriptor.value, this, args);
           if (result instanceof Promise)
             void result.then(
               () => finish('returned'),
