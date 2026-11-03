@@ -25,7 +25,10 @@ class BuildOutputTests(unittest.TestCase):
         self.root = Path(self.temp.name)
         self.archive = self.root / "compiled.zip"
         self.git("init", "-q")
-        (self.root / "package-lock.json").write_text('{"dependencies": {}}\n')
+        (self.root / "package-lock.json").write_text(json.dumps({"packages": {"node_modules/typescript": {"version": "5.9.3", "integrity": "fixture-integrity"}}}) + "\n")
+        compiler = self.root / "node_modules/typescript/package.json"
+        compiler.parent.mkdir(parents=True)
+        compiler.write_text('{"version":"5.9.3"}')
         (self.root / "source.ts").write_text("export const value = 1;\n")
         self.git("add", "package-lock.json", "source.ts")
         self.git("-c", "user.name=CI Fixture", "-c", "user.email=fixture@example.invalid", "-c", "commit.gpgsign=false", "commit", "-qm", "fixture")
@@ -219,6 +222,117 @@ class BuildOutputTests(unittest.TestCase):
 
 class FrontendBuildOutputTests(BuildOutputTests):
     scope = "frontend"
+
+
+class PortableBuildOutputTests(unittest.TestCase):
+    """Reuse the bounded transfer fixture for the distinct cross-host contract."""
+    scope = "workspace"
+    setUp = BuildOutputTests.setUp
+    git = BuildOutputTests.git
+    rewrite = BuildOutputTests.rewrite
+    rejected = BuildOutputTests.rejected
+
+    def test_portable_scopes_cross_hosts_but_keep_candidate_node_and_lock_identity(self):
+        for scope in ("workspace", "ios-web"):
+            with self.subTest(scope=scope):
+                self.scope = scope
+                transfer.pack(self.root, scope, self.archive)
+                with patch.object(transfer.sys, "platform", "different-host"), patch.object(transfer.platform, "machine", return_value="different-architecture"):
+                    transfer.restore(self.root, scope, self.archive)
+                for field in ("commit", "tree", "run", "node", "sourceLock", "compiler"):
+                    transfer.pack(self.root, scope, self.archive)
+                    def change(entries):
+                        info, data = entries["manifest.json"]
+                        manifest = json.loads(data)
+                        manifest["identity"][field] = "different"
+                        entries["manifest.json"] = (info, json.dumps(manifest).encode())
+                    self.rewrite(change)
+                    self.rejected()
+
+    def test_portable_identity_allows_only_optional_platform_lock_additions(self):
+        lock = self.root / "package-lock.json"
+        installed = json.loads(lock.read_text())
+        installed["packages"]["node_modules/linux-optional"] = {"optional": True, "version": "1.0.0"}
+        lock.write_text(json.dumps(installed))
+        transfer.restore(self.root, self.scope, self.archive)
+        with zipfile.ZipFile(self.archive) as archive:
+            manifest = json.loads(archive.read("manifest.json"))
+        self.assertIn("installedLock", manifest["producer"])
+        installed["packages"]["node_modules/linux-optional"]["optional"] = False
+        lock.write_text(json.dumps(installed))
+        self.rejected()
+        installed["packages"]["node_modules/linux-optional"]["optional"] = True
+        installed["packages"]["node_modules/typescript"]["version"] = "different"
+        lock.write_text(json.dumps(installed))
+        self.rejected()
+
+    def test_ios_web_preserves_existing_pdf_worker_fonts_cmaps_and_browser_wasm(self):
+        self.scope = "ios-web"
+        assets = {
+            "pdfjs/pdf.worker.min.mjs": b"export const worker = true;",
+            "pdfjs/cmaps/UniJIS-UCS2-H.bcmap": b"\x00\x01fixture cmap",
+            "pdfjs/cmaps/LICENSE": b"fixture license",
+            "pdfjs/standard_fonts/FoxitFixed.pfb": b"\x80\x01fixture font",
+            "pdfjs/standard_fonts/LICENSE_FOXIT": b"fixture license",
+            "pdfjs/wasm/openjpeg.wasm": b"\x00asm\x01\x00\x00\x00",
+            "pdfjs/wasm/LICENSE_OPENJPEG": b"fixture license",
+        }
+        for name, data in assets.items():
+            path = self.root / "frontend/dist-ios" / name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(data)
+        transfer.pack(self.root, self.scope, self.archive)
+        transfer.restore(self.root, self.scope, self.archive)
+        for name, data in assets.items():
+            self.assertEqual((self.root / "frontend/dist-ios" / name).read_bytes(), data)
+        native = self.root / "frontend/dist-ios/pdfjs/wasm/native.wasm"
+        native.write_bytes(b"\x7fELFhidden host executable")
+        with self.assertRaises(ValueError):
+            transfer.pack(self.root, self.scope, self.archive)
+
+    def test_portable_scopes_reject_native_payloads_executable_modes_and_wrong_roots(self):
+        for scope in ("workspace", "ios-web"):
+            with self.subTest(scope=scope):
+                self.scope = scope
+                root = self.root / transfer.ROOTS[scope][0]
+                native = root / "runtime.node"
+                native.write_bytes(b"native output")
+                with self.assertRaises(ValueError):
+                    transfer.pack(self.root, scope, self.archive)
+                native.unlink()
+                entry = self.root / transfer.REQUIRED[scope][0]
+                original = entry.read_bytes()
+                entry.write_bytes(b"\x7fELFnative output")
+                with self.assertRaises(ValueError):
+                    transfer.pack(self.root, scope, self.archive)
+                entry.write_bytes(original)
+                entry.chmod(0o755)
+                with self.assertRaises(ValueError):
+                    transfer.pack(self.root, scope, self.archive)
+                entry.chmod(0o644)
+                transfer.pack(self.root, scope, self.archive)
+                def native_payload(entries):
+                    name = transfer.REQUIRED[scope][0]
+                    entry_info, _ = entries[name]
+                    payload = b"\x7fELFhidden host executable"
+                    entries[name] = (entry_info, payload)
+                    info, data = entries["manifest.json"]
+                    manifest = json.loads(data)
+                    manifest["files"][name].update(size=len(payload), sha256=transfer.digest(payload))
+                    entries["manifest.json"] = (info, json.dumps(manifest).encode())
+                self.rewrite(native_payload)
+                self.rejected()
+                transfer.pack(self.root, scope, self.archive)
+                def change(entries):
+                    info, data = entries["manifest.json"]
+                    manifest = json.loads(data)
+                    name = "node_modules/native.node"
+                    manifest["files"][name] = {"size": 1, "sha256": transfer.digest(b"x"), "mode": 0o644}
+                    entries["manifest.json"] = (info, json.dumps(manifest).encode())
+                    extra = zipfile.ZipInfo(name)
+                    entries[name] = (extra, b"x")
+                self.rewrite(change)
+                self.rejected()
 
 
 if __name__ == "__main__":

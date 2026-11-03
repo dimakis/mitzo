@@ -65,16 +65,14 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       build_artifact_id: ${{ steps.compiled-output.outputs.artifact-id }}
+      workspace_artifact_id: ${{ steps.workspace-output.outputs.artifact-id }}
     permissions:
       contents: read
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-node@v7
+      - uses: ./.github/actions/ci-node
         with:
           node-version: ${{ env.MITZO_CI_NODE_VERSION }}
-          cache: npm
-      - run: npm install --global npm@11.18.0
-      - run: npm install --no-audit
       - name: Compile server and verify reviewed runtime artifacts
         id: preflight-build-server
         if: ${{ !cancelled() }}
@@ -91,6 +89,9 @@ jobs:
         id: preflight-source-pins
         if: ${{ !cancelled() }}
         run: npm run check:source-artifacts
+      - name: Test native cold-boot orchestration with offline process fixtures
+        if: ${{ !cancelled() }}
+        run: python3 scripts/test-native-notification-boot.py
       - name: Verify candidate-bound build transfer rejection tests
         if: ${{ !cancelled() }}
         run: python3 scripts/test-ci-build-output.py
@@ -104,24 +105,34 @@ jobs:
           path: ${{ runner.temp }}/ci-server.zip
           if-no-files-found: error
           retention-days: 7
+      - name: Package generated workspace outputs for portable consumers
+        run: python3 scripts/ci-build-output.py pack workspace "$RUNNER_TEMP/ci-workspace.zip"
+      - name: Publish immutable generated workspace output
+        id: workspace-output
+        uses: actions/upload-artifact@v7
+        with:
+          name: ci-workspace-${{ github.sha }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/ci-workspace.zip
+          if-no-files-found: error
+          retention-days: 7
 
-  # Compile web assets alongside preflight so native owners need not wait for Vite.
+  # Build ordinary and iOS-mode web assets beside server preflight.
   frontend-build:
     name: Build shared frontend assets
+    needs: [changes]
+    if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     outputs:
       build_artifact_id: ${{ steps.compiled-output.outputs.artifact-id }}
+      ios_web_artifact_id: ${{ steps.ios-web-output.outputs.artifact-id }}
     permissions:
       contents: read
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-node@v7
+      - uses: ./.github/actions/ci-node
         with:
           node-version: ${{ env.MITZO_CI_NODE_VERSION }}
-          cache: npm
-      - run: npm install --global npm@11.18.0
-      - run: npm install --no-audit
       - name: Compile frontend workspace dependencies
         run: npx tsc -b packages/protocol packages/harness packages/client
       - name: Build frontend once for Linux CI consumers
@@ -154,6 +165,21 @@ jobs:
           path: ${{ runner.temp }}/ci-frontend.zip
           if-no-files-found: error
           retention-days: 7
+      - name: Build distinct iOS-mode web assets before native synchronization
+        if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.native == 'true') }}
+        run: cd frontend && npx tsc -b && npx vite build --mode ios --outDir dist-ios
+      - name: Package generated iOS web assets
+        if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.native == 'true') }}
+        run: python3 scripts/ci-build-output.py pack ios-web "$RUNNER_TEMP/ci-ios-web.zip"
+      - name: Publish immutable iOS web output
+        if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.native == 'true') }}
+        id: ios-web-output
+        uses: actions/upload-artifact@v7
+        with:
+          name: ci-ios-web-${{ github.sha }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/ci-ios-web.zip
+          if-no-files-found: error
+          retention-days: 7
 
   browser:
     needs: [changes, preflight]
@@ -166,12 +192,9 @@ jobs:
       contents: read
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-node@v7
+      - uses: ./.github/actions/ci-node
         with:
           node-version: ${{ env.MITZO_CI_NODE_VERSION }}
-          cache: npm
-      - run: npm install --global npm@11.18.0
-      - run: npm install --no-audit
       - name: Prefer HTTPS Ubuntu mirrors for browser dependencies
         run: |
           sudo sed -i '\|^http://azure\.archive\.ubuntu\.com/ubuntu/|d' /etc/apt/apt-mirrors.txt
@@ -251,12 +274,9 @@ jobs:
             shards: 3
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-node@v7
+      - uses: ./.github/actions/ci-node
         with:
           node-version: ${{ env.MITZO_CI_NODE_VERSION }}
-          cache: npm
-      - run: npm install --global npm@11.18.0
-      - run: npm install --no-audit
       - name: Require both immutable producer artifact IDs
         env:
           CI_SERVER_ARTIFACT_ID: ${{ needs.preflight.outputs.build_artifact_id }}
@@ -395,8 +415,8 @@ jobs:
         run: node scripts/ci-browser-gate.mjs
 
   native:
-    needs: [changes, preflight]
-    if: ${{ !cancelled() && needs.preflight.result == 'success' && (needs.changes.result != 'success' || needs.changes.outputs.native == 'true') }}
+    needs: [changes, preflight, frontend-build]
+    if: ${{ !cancelled() && needs.preflight.result == 'success' && needs['frontend-build'].result == 'success' && (needs.changes.result != 'success' || needs.changes.outputs.native == 'true') }}
     name: Native Swift tests and builds
     runs-on: macos-26
     # Cold boot, first launch and WebKit readiness have separate bounded waits.
@@ -410,17 +430,26 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - uses: actions/setup-node@v7
+      - uses: ./.github/actions/ci-node
         with:
           node-version: ${{ env.MITZO_CI_NODE_VERSION }}
-          cache: npm
-      - run: npm install --global npm@11.18.0
-      - run: npm install --no-audit
 
-      - name: Prepare native web assets and plugins
+      - uses: ./.github/actions/ci-workspace
+        with:
+          artifact-id: ${{ needs.preflight.outputs.workspace_artifact_id }}
+      - name: Require immutable iOS web output
+        env:
+          CI_IOS_WEB_ARTIFACT_ID: ${{ needs['frontend-build'].outputs.ios_web_artifact_id }}
+        run: '[[ "$CI_IOS_WEB_ARTIFACT_ID" =~ ^[0-9]+$ ]]'
+      - name: Download generated iOS web assets
+        uses: actions/download-artifact@v8
+        with:
+          artifact-ids: ${{ needs['frontend-build'].outputs.ios_web_artifact_id }}
+          path: ${{ runner.temp }}/ci-ios-web
+      - name: Restore exact iOS-mode web assets and synchronize native plugins
         run: |
-          npx tsc -b packages/protocol packages/harness packages/client
-          npm run build:ios
+          python3 scripts/ci-build-output.py restore ios-web "$RUNNER_TEMP/ci-ios-web/ci-ios-web.zip"
+          cd frontend && CAPACITOR_WEB_DIR=dist-ios npx cap sync ios
 
       - name: Test Keychain helper with disposable credentials
         run: python3 scripts/test-keychain-helper.py
@@ -442,9 +471,6 @@ jobs:
       - name: Verify embedded Watch companion
         run: python3 scripts/check-watch-bundle.py "$RUNNER_TEMP/mitzo-ios-build/Build/Products/Debug-iphonesimulator/App.app"
 
-      - name: Test native cold-boot wait with offline process fixtures
-        run: python3 scripts/test-native-notification-boot.py
-
       - name: Test real notification bridge in an offline disposable simulator
         id: native-notification
         run: >-
@@ -463,7 +489,7 @@ jobs:
   ordinary-journey:
     needs: [changes, preflight]
     if: ${{ !cancelled() && needs.preflight.result == 'success' && (needs.changes.result != 'success' || needs.changes.outputs.ordinary == 'true') }}
-    name: Telos canonical ordinary journey (macOS)
+    name: Native repository and authorization workflows
     runs-on: macos-26
     # Native workflows and signed authority checks; joined cases have their own matrix.
     # Individual acceptance, first-response and reader deadlines stay unchanged.
@@ -478,39 +504,13 @@ jobs:
           # Native observation deliberately refuses external Git config includes.
           # Checkout credentials are unnecessary for this fully offline job.
           persist-credentials: false
-      - uses: actions/setup-node@v7
+      - uses: ./.github/actions/ci-node
         with:
           node-version: ${{ env.MITZO_CI_NODE_VERSION }}
-          cache: npm
-      - run: npm install --global npm@11.18.0
-      - run: npm install --no-audit
-      - run: npx tsc -b packages/protocol packages/harness packages/client
-      - uses: actions/setup-python@v7
+      - uses: ./.github/actions/ci-workspace
         with:
-          python-version: '3.13'
-      - name: Prepare hash-qualified offline native Codex fixture
-        env:
-          GH_TOKEN: ${{ github.token }}
-        shell: bash
-        run: |
-          PROVENANCE=server/__tests__/fixtures/codex-native-permission-protocol-0.160.0.json
-          VERSION=$(node -p "require('./$PROVENANCE').provenance.version")
-          BINARY=$(node -p "require('./$PROVENANCE').provenance.binary")
-          EXPECTED_SHA=$(node -p "require('./$PROVENANCE').provenance.binarySha256")
-          FIXTURE_DIR="$RUNNER_TEMP/telos-s9-native"
-          mkdir -p "$FIXTURE_DIR"
-          gh release download "rust-v$VERSION" --repo openai/codex \
-            --pattern "$BINARY.tar.gz" --dir "$FIXTURE_DIR"
-          tar -xzf "$FIXTURE_DIR/$BINARY.tar.gz" -C "$FIXTURE_DIR"
-          echo "$EXPECTED_SHA  $FIXTURE_DIR/$BINARY" | shasum -a 256 -c -
-          echo "S9_CODEX_NATIVE_FIXTURE=$FIXTURE_DIR/$BINARY" >> "$GITHUB_ENV"
-      - name: Prepare isolated canonical CLI and browser dependencies
-        shell: bash
-        run: |
-          python -m venv "$RUNNER_TEMP/telos-s9-python"
-          "$RUNNER_TEMP/telos-s9-python/bin/python" -m pip install --require-hashes -r tests/integration/telos-s9/integrated-candidate/fixtures/mgmt-read-requirements.txt
-          echo "S9_MGMT_PYTHON=$RUNNER_TEMP/telos-s9-python/bin/python" >> "$GITHUB_ENV"
-          npx playwright install chromium
+          artifact-id: ${{ needs.preflight.outputs.workspace_artifact_id }}
+      - uses: ./.github/actions/ci-native-fixture
       - name: Verify standalone repository proof mutation checks
         if: ${{ !cancelled() }}
         run: |
@@ -556,19 +556,6 @@ jobs:
             test-results/native-repository-workflows-processes/
             test-results/native-repository-workflows/
           if-no-files-found: warn
-      - name: Run the complete offline journey with the real macOS artifact boundary
-        run: |
-          node -e "if (process.platform !== 'darwin') process.exit(1)"
-          npx vitest run server/__tests__/telos-ordinary-canonical-journey.test.ts server/__tests__/telos-ordinary-artifact-platform.test.ts --maxWorkers=1 --reporter=default --reporter=json --outputFile=test-results/ordinary-journey.json
-          node --input-type=module <<'NODE'
-          import { readFileSync } from 'node:fs';
-          const result = JSON.parse(readFileSync('test-results/ordinary-journey.json', 'utf8'));
-          const journey = result.testResults.find(test => test.name.endsWith('/telos-ordinary-canonical-journey.test.ts'));
-          if (!result.success || result.numPassedTests !== 2 || result.numPendingTests !== 0 ||
-              journey?.assertionResults.length !== 1 || journey.assertionResults[0].status !== 'passed') {
-            throw new Error('Complete CT09 macOS execution is required; a skip is not qualification');
-          }
-          NODE
       - name: Verify signed native operator lifetime and repository tools
         if: ${{ !cancelled() }}
         run: |
@@ -599,12 +586,9 @@ jobs:
         with:
           name: telos-ordinary-journey-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
-            test-results/ordinary-journey.json
             test-results/native-host-authorization.json
             test-results/native-repository-workflows-processes/
             test-results/native-repository-workflows/
-            test-results/telos-s9-joined/
-            test-results/telos-s9-supplemental/
           if-no-files-found: error
 
   ordinary-joined:
@@ -623,39 +607,14 @@ jobs:
       NODE_OPTIONS: --max-old-space-size=1024
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-node@v7
+      - uses: ./.github/actions/ci-node
         with:
           node-version: ${{ env.MITZO_CI_NODE_VERSION }}
-          cache: npm
-      - run: npm install --global npm@11.18.0
-      - run: npm install --no-audit
-      - run: npx tsc -b packages/protocol packages/harness packages/client
-      - uses: actions/setup-python@v7
+      - uses: ./.github/actions/ci-workspace
         with:
-          python-version: '3.13'
-      - name: Prepare hash-qualified offline native Codex fixture
-        env:
-          GH_TOKEN: ${{ github.token }}
-        shell: bash
-        run: |
-          PROVENANCE=server/__tests__/fixtures/codex-native-permission-protocol-0.160.0.json
-          VERSION=$(node -p "require('./$PROVENANCE').provenance.version")
-          BINARY=$(node -p "require('./$PROVENANCE').provenance.binary")
-          EXPECTED_SHA=$(node -p "require('./$PROVENANCE').provenance.binarySha256")
-          FIXTURE_DIR="$RUNNER_TEMP/telos-s9-native"
-          mkdir -p "$FIXTURE_DIR"
-          gh release download "rust-v$VERSION" --repo openai/codex \
-            --pattern "$BINARY.tar.gz" --dir "$FIXTURE_DIR"
-          tar -xzf "$FIXTURE_DIR/$BINARY.tar.gz" -C "$FIXTURE_DIR"
-          echo "$EXPECTED_SHA  $FIXTURE_DIR/$BINARY" | shasum -a 256 -c -
-          echo "S9_CODEX_NATIVE_FIXTURE=$FIXTURE_DIR/$BINARY" >> "$GITHUB_ENV"
-      - name: Prepare isolated canonical CLI and browser dependencies
-        shell: bash
-        run: |
-          python -m venv "$RUNNER_TEMP/telos-s9-python"
-          "$RUNNER_TEMP/telos-s9-python/bin/python" -m pip install --require-hashes -r tests/integration/telos-s9/integrated-candidate/fixtures/mgmt-read-requirements.txt
-          echo "S9_MGMT_PYTHON=$RUNNER_TEMP/telos-s9-python/bin/python" >> "$GITHUB_ENV"
-          npx playwright install chromium
+          artifact-id: ${{ needs.preflight.outputs.workspace_artifact_id }}
+      - uses: ./.github/actions/ci-native-fixture
+      - uses: ./.github/actions/ci-canonical-browser
       - name: Run every case in the required joined shard
         run: node tests/integration/telos-s9/integrated-candidate/run-joined-ci.mjs --shard=${{ matrix.shard }}/3
       - name: Retain exact joined acceptance results
@@ -695,8 +654,8 @@ jobs:
   ordinary-supplemental:
     needs: [changes, preflight]
     if: ${{ !cancelled() && needs.preflight.result == 'success' && (needs.changes.result != 'success' || needs.changes.outputs.ordinary == 'true') }}
-    name: Telos supplemental owner journeys (macOS ${{ matrix.shard }}/2)
-    runs-on: macos-26
+    name: Telos supplemental owner journeys (Linux ${{ matrix.shard }}/2)
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     permissions:
       contents: read
@@ -706,41 +665,16 @@ jobs:
         shard: [1, 2]
     env:
       NODE_OPTIONS: --max-old-space-size=1024
+      S9_SUPPLEMENTAL_PORTABLE_CLI: '1'
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-node@v7
+      - uses: ./.github/actions/ci-node
         with:
           node-version: ${{ env.MITZO_CI_NODE_VERSION }}
-          cache: npm
-      - run: npm install --global npm@11.18.0
-      - run: npm install --no-audit
-      - run: npx tsc -b packages/protocol packages/harness packages/client
-      - uses: actions/setup-python@v7
+      - uses: ./.github/actions/ci-workspace
         with:
-          python-version: '3.13'
-      - name: Prepare hash-qualified offline native Codex fixture
-        env:
-          GH_TOKEN: ${{ github.token }}
-        shell: bash
-        run: |
-          PROVENANCE=server/__tests__/fixtures/codex-native-permission-protocol-0.160.0.json
-          VERSION=$(node -p "require('./$PROVENANCE').provenance.version")
-          BINARY=$(node -p "require('./$PROVENANCE').provenance.binary")
-          EXPECTED_SHA=$(node -p "require('./$PROVENANCE').provenance.binarySha256")
-          FIXTURE_DIR="$RUNNER_TEMP/telos-s9-native"
-          mkdir -p "$FIXTURE_DIR"
-          gh release download "rust-v$VERSION" --repo openai/codex \
-            --pattern "$BINARY.tar.gz" --dir "$FIXTURE_DIR"
-          tar -xzf "$FIXTURE_DIR/$BINARY.tar.gz" -C "$FIXTURE_DIR"
-          echo "$EXPECTED_SHA  $FIXTURE_DIR/$BINARY" | shasum -a 256 -c -
-          echo "S9_CODEX_NATIVE_FIXTURE=$FIXTURE_DIR/$BINARY" >> "$GITHUB_ENV"
-      - name: Prepare isolated canonical CLI and browser dependencies
-        shell: bash
-        run: |
-          python -m venv "$RUNNER_TEMP/telos-s9-python"
-          "$RUNNER_TEMP/telos-s9-python/bin/python" -m pip install --require-hashes -r tests/integration/telos-s9/integrated-candidate/fixtures/mgmt-read-requirements.txt
-          echo "S9_MGMT_PYTHON=$RUNNER_TEMP/telos-s9-python/bin/python" >> "$GITHUB_ENV"
-          npx playwright install chromium
+          artifact-id: ${{ needs.preflight.outputs.workspace_artifact_id }}
+      - uses: ./.github/actions/ci-canonical-browser
       - name: Run the required closed supplemental shard
         run: node tests/integration/telos-s9/integrated-candidate/run-supplemental-ci.mjs --shard=${{ matrix.shard }}/2
       - name: Retain exact supplemental owner results
@@ -762,18 +696,9 @@ jobs:
         with:
           fetch-depth: 0
 
-      - uses: actions/setup-node@v7
+      - uses: ./.github/actions/ci-node
         with:
           node-version: ${{ env.MITZO_CI_NODE_VERSION }}
-          cache: npm
-      - run: npm install --global npm@11.18.0
-
-      - name: Install dependencies
-        # TODO: Restore `npm ci` once lockfile is generated on Linux.
-        # jsdom's optional @emnapi/* native deps vary by platform — a macOS-generated
-        # lockfile omits Linux variants, causing npm ci to fail on Ubuntu runners.
-        # Fix: run `npm install` in a Linux container and commit that lockfile.
-        run: npm install --no-audit
 
       - name: Verify native knowledge write boundary
         run: |
@@ -894,10 +819,10 @@ jobs:
       fail-fast: false
       matrix:
         group: [delivery, publication]
-    name: Composed prepared repository consumers (macOS ${{ matrix.group }})
+    name: Composed prepared repository consumers (Linux ${{ matrix.group }})
     needs: [changes, preflight]
     if: ${{ !cancelled() && needs.preflight.result == 'success' && (needs.changes.result != 'success' || needs.changes.outputs.prepared == 'true') }}
-    runs-on: macos-26
+    runs-on: ubuntu-24.04
     # Measured composed journeys plus setup; individual 15-minute cases stay intact.
     # Hosted contention still fails closed at this finite lane boundary.
     timeout-minutes: 40
@@ -909,13 +834,12 @@ jobs:
       - uses: actions/checkout@v7
         with:
           persist-credentials: false
-      - uses: actions/setup-node@v7
+      - uses: ./.github/actions/ci-node
         with:
           node-version: ${{ env.MITZO_CI_NODE_VERSION }}
-          cache: npm
-      - run: npm install --global npm@11.18.0
-      - run: npm install --no-audit
-      - run: npx tsc -b packages/protocol packages/harness packages/client
+      - uses: ./.github/actions/ci-workspace
+        with:
+          artifact-id: ${{ needs.preflight.outputs.workspace_artifact_id }}
       - name: Run all seven offline delivery and publication cases in isolated processes
         run: node scripts/ci-prepared-consumers.mjs ${{ matrix.group }}
       - name: Retain exact consumer reports, exits and resource evidence
@@ -969,12 +893,9 @@ jobs:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
-      - uses: actions/setup-node@v7
+      - uses: ./.github/actions/ci-node
         with:
           node-version: ${{ env.MITZO_CI_NODE_VERSION }}
-          cache: npm
-      - run: npm install --global npm@11.18.0
-      - run: npm install --no-audit
       - name: Require both immutable producer artifact IDs
         env:
           CI_SERVER_ARTIFACT_ID: ${{ needs.preflight.outputs.build_artifact_id }}
