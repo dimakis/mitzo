@@ -2372,7 +2372,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/worktree-fetch-observation.test.ts':
     '15d3a88708e22b72e498dbc924555d4c1eb0b562de8dc43554b8f382d406b440',
   '../../tests/fixtures/agent-tool-catalog.json':
-    '662abc2a7f0c7216adbd3e44036f27dc092a34dd677e3434e912cd497b174325',
+    '7aa482c5edfadc49633a3a6d12db4ab897064a7498a0eaff2a943c2becfdbcd7',
   '../../tests/integration/ordinary-local-vertex-chat.test.ts':
     '5e8b2f0829cbd05ecfead981b3f74b1edef9de7e005eb7344e04c909304206b3',
   '../../packages/sqlite-file-owner/package.json':
