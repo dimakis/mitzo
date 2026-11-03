@@ -14,7 +14,7 @@ vi.mock('../native-host-tool-context.js', () => ({
   captureNativeHostReadOwner: (context: NativeHostToolContext) => ({
     scope: { deniedRoots: [] },
     assertCurrentSync: context.assertCurrentSync,
-    assertCurrent: vi.fn(async () => {}),
+    assertCurrent: context.assertCurrent,
   }),
 }));
 vi.mock('../local-repository-native-read.js', () => ({
@@ -94,15 +94,16 @@ it('uses the original bound private data verifier without a second source-object
   expect(f.objects.dispose).toHaveBeenCalledOnce();
   expect(captureLocalRepositoryAllocationFacts).not.toHaveBeenCalled();
   expect(captureNativeLocalRepositoryReader).not.toHaveBeenCalled();
-  expect(f.operation.assertCurrent).toHaveBeenCalledTimes(2);
-  expect(f.operation.assertCurrent.mock.invocationCallOrder[0]).toBeLessThan(
+  expect(f.operation.assertCurrent).not.toHaveBeenCalled();
+  expect(f.operation.context.assertCurrent).toHaveBeenCalledTimes(2);
+  expect(f.operation.context.assertCurrent.mock.invocationCallOrder[0]).toBeLessThan(
     vi.mocked(verifyLocalRepositoryPreparationObjectData).mock.invocationCallOrder[0],
   );
   expect(vi.mocked(verifyLocalRepositoryPreparationObjectData).mock.calls[0][5]).toBe(
     f.operation.publicationPackedRefs,
   );
 });
-it('retains the genuine consumed source proof at worker execution after private verification', async () => {
+it('retains the original native proof at private worker execution after private verification', async () => {
   const f = fixture();
   const scratch = await realpath(await mkdtemp(join(tmpdir(), 'mitzo-precopy-owner-')));
   try {
@@ -114,7 +115,7 @@ it('retains the genuine consumed source proof at worker execution after private 
       live = false; // Private verification may await; the execution gate must refresh authority.
       return { scratch, gitDirectory, privateAuthority: [] } as never;
     });
-    f.operation.assertCurrent.mockImplementation(async () => {
+    f.operation.context.assertCurrent.mockImplementation(async () => {
       if (!live) throw Error('original async source owner revoked');
     });
     vi.mocked(executePrivateRepositoryStagingCheckout).mockImplementation(async (options) => {
@@ -126,7 +127,8 @@ it('retains the genuine consumed source proof at worker execution after private 
     await expect(materializeQualifiedLocalRepositoryTask(f.operation as never)).rejects.toThrow(
       'original async source owner revoked',
     );
-    expect(f.operation.assertCurrent).toHaveBeenCalledTimes(3); // artifact use, execution, cleanup
+    expect(f.operation.context.assertCurrent).toHaveBeenCalledTimes(3); // artifact use, execution, cleanup
+    expect(f.operation.assertCurrent).not.toHaveBeenCalled();
     expect(verifyLocalRepositoryPreparationObjectData).toHaveBeenCalledOnce();
     expect(executePrivateRepositoryStagingCheckout).toHaveBeenCalledOnce();
     expect(workerCalls).toBe(0);

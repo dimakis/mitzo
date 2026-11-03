@@ -76,17 +76,21 @@ export async function materializeQualifiedLocalRepositoryTask(operation: {
     operation.assertCurrentSync();
     owner.assertCurrentSync();
   };
-  const full = async () => {
+  const nativeProof = () => owner.assertCurrent();
+  const sourceProof = () => operation.assertCurrent();
+  // Private captured bytes need the original native owner and their own
+  // physical custody. Source authority is refreshed when source/destination
+  // effects or outward task delivery are actually exercised.
+  const assertOwner = async (proof: () => Promise<void>) => {
     current();
-    // The consumed original decision owner includes the actual source owner;
-    // a still-current native read facet alone cannot substitute for that proof.
-    const pending: unknown = operation.assertCurrent();
+    const pending: unknown = proof();
     if (!(pending instanceof Promise) || (await pending) !== undefined) throw unavailable();
-    // The consumed decision's full callback already checks this exact original
-    // native context as well as its source. The read facet adds no independent
-    // asynchronous owner; its synchronous fence still guards every boundary.
     current();
   };
+  const nativeFull = () => assertOwner(nativeProof);
+  // The consumed source proof already includes the native context. Its source
+  // predicates are required for publication/delivery, not private computation.
+  const sourceFull = () => assertOwner(sourceProof);
   const read = async <T>(
     action: (
       access: LocalRepositoryReadAccess,
@@ -103,7 +107,7 @@ export async function materializeQualifiedLocalRepositoryTask(operation: {
       try {
         await reader.dispose();
       } finally {
-        await full();
+        await sourceFull();
       }
     }
   };
@@ -139,8 +143,8 @@ export async function materializeQualifiedLocalRepositoryTask(operation: {
     // alongside every original root/parent/edge/absence BEFORE the first write.
     packedRefs = retainPreparationPackedRefs(operation.publicationPackedRefs);
     // Relocate (do not remove) the original allocation-reader disposal fence to
-    // this actual artifact-use boundary. Source metadata/base is freshly checked.
-    await full();
+    // this actual private artifact-use boundary under its original native owner.
+    await nativeFull();
     const view = await verifyLocalRepositoryPreparationObjectData(
       artifact,
       context,
@@ -170,7 +174,9 @@ export async function materializeQualifiedLocalRepositoryTask(operation: {
       timeoutMs: 30000,
       deadline,
       assertCurrentSync: current,
-      revalidate: full,
+      // The executor guards current() before and after its proof, so passing
+      // the original native proof avoids wrapping the same SQL guards twice.
+      revalidate: nativeProof,
     });
     const entries: NativeExclusiveTreeEntry[] = [];
     // Git can retain empty trees and uninitialized gitlinks. Materialize any
@@ -221,6 +227,30 @@ export async function materializeQualifiedLocalRepositoryTask(operation: {
       }
     }
     current();
+    const publishTask = async (plan: NativePreparationPublicationPlan) => {
+      const roots = nativePreparationPublicationWriteRoots(plan);
+      const transport: NativeFileHelperTransport = async (invocation) => {
+        // The executor owns live sync checks and the full source proof at the
+        // actual pre-worker/post-result boundaries. Do not repeat them in this
+        // data-only transport wrapper; both publication layouts use it.
+        const result = await executePrivateNativeFileHelper({
+          requestJson: invocation.requestJson,
+          cwd: scratch,
+          writableRoots: roots,
+          deniedRoots: denied,
+          signal: context.signal,
+          timeoutMs: invocation.timeoutMs,
+          deadline,
+          maxOutputBytes: invocation.maxOutputBytes,
+          assertCurrentSync: current,
+          revalidate: sourceProof,
+        });
+        return { stdout: result.stdout ?? '', isError: result.isError };
+      };
+      return snapshotQualifiedLocalRepositoryPublication(
+        await publishNativePreparedRepository(plan, context.signal, 30000, transport),
+      );
+    };
     if (facts.layout === 'standalone') {
       const git = join(scratch, 'standalone-git');
       await mkdir(git, { mode: 0o700 });
@@ -298,27 +328,7 @@ export async function materializeQualifiedLocalRepositoryTask(operation: {
         metadata: [],
         deniedRoots: denied,
       };
-      const roots = nativePreparationPublicationWriteRoots(plan);
-      const transport: NativeFileHelperTransport = async (invocation) => {
-        current();
-        const result = await executePrivateNativeFileHelper({
-          requestJson: invocation.requestJson,
-          cwd: scratch,
-          writableRoots: roots,
-          deniedRoots: denied,
-          signal: context.signal,
-          timeoutMs: invocation.timeoutMs,
-          deadline,
-          maxOutputBytes: invocation.maxOutputBytes,
-          assertCurrentSync: current,
-          revalidate: full,
-        });
-        current();
-        return { stdout: result.stdout ?? '', isError: result.isError };
-      };
-      publication = snapshotQualifiedLocalRepositoryPublication(
-        await publishNativePreparedRepository(plan, context.signal, 30000, transport),
-      );
+      publication = await publishTask(plan);
     } else {
       const metadataFiles: NativePreparationPublicationPlan['metadata'][number][] = [];
       const publish = async (bytes: Buffer) => {
@@ -392,33 +402,13 @@ export async function materializeQualifiedLocalRepositoryTask(operation: {
         metadata: metadataFiles,
         deniedRoots: denied,
       };
-      const roots = nativePreparationPublicationWriteRoots(plan);
-      const transport: NativeFileHelperTransport = async (invocation) => {
-        current();
-        const result = await executePrivateNativeFileHelper({
-          requestJson: invocation.requestJson,
-          cwd: scratch,
-          writableRoots: roots,
-          deniedRoots: denied,
-          signal: context.signal,
-          timeoutMs: invocation.timeoutMs,
-          deadline,
-          maxOutputBytes: invocation.maxOutputBytes,
-          assertCurrentSync: current,
-          revalidate: full,
-        });
-        current();
-        return { stdout: result.stdout ?? '', isError: result.isError };
-      };
-      publication = snapshotQualifiedLocalRepositoryPublication(
-        await publishNativePreparedRepository(plan, context.signal, 30000, transport),
-      );
+      publication = await publishTask(plan);
     }
   } finally {
     try {
       await disposeArtifact();
     } finally {
-      await full();
+      await nativeFull();
     }
   }
   if (!publication) throw unavailable();

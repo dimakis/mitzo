@@ -412,8 +412,10 @@ actual(
                     stagingHelpers: 1,
                     effectHelperCount: 2,
                     originalFullCallbacksOnSuccess: 7,
+                    nativeOnlyFullCallbacksOnSuccess: 4,
+                    sourceFullCallbacksOnSuccess: 3,
                     explanation:
-                      'Static success-path count from current actor: 2 original full callbacks for separate staging checkout, 2 for combined publication, plus 3 actor/read/cleanup callbacks. The consumed operation already includes the native context owner. Does not measure object/task read cost or establish whole-window viability.',
+                      'Static success-path count from current actor: 4 native-only full callbacks for private artifact/staging/cleanup and 3 consumed-source full callbacks for publication/delivery. The consumed operation already includes the native context owner. Does not measure object/task read cost or establish whole-window viability.',
                   },
                 },
                 null,

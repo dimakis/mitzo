@@ -14,10 +14,15 @@ import {
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import * as files from 'node:fs/promises';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawn } from 'node:child_process';
 import * as operations from '../native-file-operation.js';
 import * as sandbox from '../sandboxed-command.js';
 import { SandboxManager } from '@anthropic-ai/sandbox-runtime';
+
+vi.mock('node:child_process', async (original) => {
+  const actual = await original<typeof import('node:child_process')>();
+  return { ...actual, spawn: vi.fn(actual.spawn) };
+});
 
 const rmHarness = vi.hoisted(() => ({
   real: undefined as typeof import('node:fs/promises').rm | undefined,
@@ -36,6 +41,7 @@ const identity = async (path: string) => {
   return { dev: String(info.dev), ino: String(info.ino) };
 };
 beforeEach(async () => {
+  vi.mocked(spawn).mockReset();
   root = await realpath(await mkdtemp(join(tmpdir(), 'mitzo-exclusive-file-')));
   parent = join(root, 'qualified-parent');
   scratch = join(root, 'owned-scratch');
@@ -221,7 +227,7 @@ it('refuses private file publication through the legacy direct-host dispatcher',
   await expect(lstat(target)).rejects.toMatchObject({ code: 'ENOENT' });
 });
 
-it('checks the actual full owner before sandbox dependency or scope setup', async () => {
+it('checks synchronous setup authority and full worker authority without publishing on refusal', async () => {
   const input = {
     ...(await request()),
     operation: 'CreateFile',
@@ -229,30 +235,47 @@ it('checks the actual full owner before sandbox dependency or scope setup', asyn
     limit: 1,
     timeoutMs: 15000,
   };
-  const dependencies = vi.spyOn(SandboxManager, 'checkDependencies');
-  const current = vi.fn();
-  const revalidate = vi.fn(async () => {
-    throw Error('Original owner revoked');
-  });
-  await expect(
-    sandbox.executePrivateNativeFileHelper({
-      requestJson: JSON.stringify(input),
-      cwd: scratch,
-      writableRoots: [
-        { path: scratch, parentAnchor: input.payload.rootAnchor },
-        { path: target, parentAnchor: input.rootAnchor },
-      ],
-      deniedRoots: [],
-      signal: new AbortController().signal,
-      timeoutMs: 15000,
-      maxOutputBytes: 32768,
-      assertCurrentSync: current,
-      revalidate,
-    }),
-  ).rejects.toThrow('Original owner revoked');
-  expect(revalidate).toHaveBeenCalledOnce();
-  expect(dependencies).not.toHaveBeenCalled();
-  await expect(lstat(target)).rejects.toMatchObject({ code: 'ENOENT' });
+  const dependencies = vi
+    .spyOn(SandboxManager, 'checkDependencies')
+    .mockReturnValue({ errors: [], warnings: [] });
+  for (const mode of ['sync', 'async'] as const) {
+    dependencies.mockClear();
+    vi.mocked(spawn).mockClear();
+    const current = vi.fn(() => {
+      if (mode === 'sync') throw Error('Original owner revoked');
+    });
+    const revalidate = vi.fn(async () => {
+      throw Error('Original owner revoked');
+    });
+    await expect(
+      sandbox.executePrivateNativeFileHelper({
+        requestJson: JSON.stringify(input),
+        cwd: scratch,
+        writableRoots: [
+          { path: scratch, parentAnchor: input.payload.rootAnchor },
+          { path: target, parentAnchor: input.rootAnchor },
+        ],
+        deniedRoots: [],
+        signal: new AbortController().signal,
+        timeoutMs: 15000,
+        maxOutputBytes: 32768,
+        assertCurrentSync: current,
+        revalidate,
+      }),
+    ).rejects.toThrow(
+      mode === 'sync' ? 'Original owner revoked' : 'Private native file helper unavailable',
+    );
+    expect(revalidate).toHaveBeenCalledTimes(mode === 'sync' ? 0 : 2);
+    expect(spawn).not.toHaveBeenCalled();
+    if (mode === 'sync') expect(dependencies).not.toHaveBeenCalled();
+    else {
+      expect(dependencies).toHaveBeenCalledOnce();
+      expect(current.mock.invocationCallOrder[0]).toBeLessThan(
+        dependencies.mock.invocationCallOrder[0],
+      );
+    }
+    await expect(lstat(target)).rejects.toMatchObject({ code: 'ENOENT' });
+  }
 });
 
 actual(

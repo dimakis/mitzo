@@ -131,11 +131,15 @@ it('fits two slow current proofs in the original checkout deadline and withholds
     expect(signal).toBe('SIGKILL');
     return true;
   });
-  for (const mode of ['current', 'revoked'] as const) {
+  for (const mode of ['current', 'revoked', 'scope-revoked'] as const) {
     let now = Date.now(),
       checks = 0,
       joined = false;
     const input = { ...(await options()), timeoutMs: 30000, deadline: now + 30000 };
+    input.assertCurrentSync = function () {
+      expect(this).toBe(input);
+      if (joined && mode === 'scope-revoked') throw Error('Original scope revoked');
+    };
     const clock = vi.spyOn(Date, 'now').mockImplementation(() => now);
     input.revalidate = async function () {
       expect(this).toBe(input);
@@ -160,8 +164,11 @@ it('fits two slow current proofs in the original checkout deadline and withholds
     });
     const running = sandbox.executePrivateRepositoryStagingCheckout(input);
     if (mode === 'current') await expect(running).resolves.toBeUndefined();
-    else await expect(running).rejects.toThrow('Original physical owner revoked');
-    expect(checks).toBe(2);
+    else
+      await expect(running).rejects.toThrow(
+        mode === 'scope-revoked' ? 'Original scope revoked' : 'Original physical owner revoked',
+      );
+    expect(checks).toBe(mode === 'scope-revoked' ? 1 : 2);
     expect(joined).toBe(true);
     expect(spawn).toHaveBeenCalledOnce();
     expect(now).toBeLessThan(input.deadline);

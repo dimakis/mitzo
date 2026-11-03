@@ -44,94 +44,87 @@ These are observations, not performance guarantees or a five-second target claim
 
 ## Preparing another repository after adoption
 
-Full workspace validation is more expensive once the chat owns an adopted
-repository: the current topology is checked through its native read owner. Do not
-repeat that complete source/context validation in a composing wrapper immediately
-before the original reader or approval operation performs the same check.
-The consumed materialization operation already includes the original native
-context and source owner. Its native read facet does not add another independent
-asynchronous owner. Synchronous identity checks and fresh approval, physical I/O,
-mutation, cleanup and delivery checks remain required; no authority is cached.
+Full workspace validation is more expensive after adoption because the original
+native owner also verifies the adopted repository topology. Preparation avoids
+repeating that complete proof in composing wrappers and private scratch setup.
+This applies to the shared preparation path, including new chats and subsequent
+preparations; it is not a repair of one retained operation.
 
-Preparation emits fixed phase timings for source qualification, object capture,
-approval and materialization. Approval timing includes the wait for a decision.
-These phases retain the existing operation and approval deadlines. Diagnostic
-finalization cannot replace an operation result or its original failure, including
-an object-capture result whose disposer the caller must retain.
+Allocation captures the source once. Explicit HEAD reuses that verified selection;
+an explicit object ID needs no reference lookup. Other refs and remote/default
+bases retain their necessary selection/acquisition phase. Selecting a different
+base projects immutable allocation data, preserving the original source HEAD,
+root/absence anchors and packed-reference witness instead of rereading allocation.
+The projected snapshot retains the same serialization bound and digest contract.
+Selection refreshes the source immediately before allocation CAS or retained-row
+delivery. Approval and actual effects still obtain fresh authority.
 
-The original source factory records only the exact frozen source/context pair.
-Its current assertion already revalidates that native context at physical I/O and
-again after reader disposal. Only that original pair can omit the separate
-composing context proof; copied, borrowed and generic source owners retain both.
-Reader setup creates independently owned scratch under the original synchronous
-policy, revocation, cancellation and lifetime checks. Full physical-owner checks
-still run immediately before helper spawn, after its result and at outward
-verification. Setup never reads the source or task. Read scopes are never kept
-alive across human approval.
+Only the exact frozen source/context pair recorded by the original factory can
+omit an independent composing-context proof. Copied, borrowed and generic source
+owners retain both proofs. No authority result is cached. Synchronous checks
+continue to verify the consumed decision, original scope, policy, cancellation,
+read ceiling and absolute expiry at I/O and delivery boundaries.
 
-On 3 November 2026, the reused signed offline fixture prepared a distinct source
-with 13 planning files from an already adopted workspace. Before this change that
-second preparation took 190.056 seconds and 178 full admission checks; the initial
-wrapper cleanup reduced it to 160.781 seconds and 144 checks. This reproduces validation amplification,
-not the exact production timeout, and is not a production latency guarantee.
+The materialization success path has seven full owner proofs, divided by the
+resource each phase exercises:
 
-The extended native test reuses one account, runtime and repository setup for two
-preparations, both actual handoffs and their next controlled provider turns. It
-checks the selected HEAD, all 13 file contents, source HEAD/index preservation
-and joined scratch cleanup. Existing cold-resume tests retain restart/FIFO and API
-account coverage. The mandatory macOS signed-native gate enables this test's OS
-integration path, disables profile-only execution and requires both cases to pass;
-missing or skipped materialization evidence fails that gate. The same gate also
-requires the existing consumed-source revocation control: a current native read
-owner cannot substitute for a revoked source owner before object verification or
-staging. Its test-only unverified artifact header reaches that refusal boundary
-without adding a physical object-capture journey. No model or network
-calls are made. Local test execution grew
-from 62.20 seconds for the prior one-transition journey to 247.01 seconds for the
-two-transition journey (249.61 seconds elapsed); the additional native journey
-covers the distinct already-adopted custody boundary. The first mandatory CI run exposed a further materialization failure: its second
-preparation failed after 229.505 seconds, below the unchanged 300-second envelope.
-The five-file gate took 394.27 seconds elapsed; the extended native test executed
-for 326.864 seconds before that failure. Final successful CI cost and the latency
-of the subsequent original-source/private-scratch changes remain unmeasured.
-Every second attempt, including a failed assertion, now retains its bounded
-stage/cause diagnostics in the CI artifact. Generic responses cannot erase that
-underlying evidence.
+| Boundary                                           | Full owner proof             |
+| -------------------------------------------------- | ---------------------------- |
+| Bound private artifact use                         | Original native owner        |
+| Private checkout before worker and after join      | Original native owner, twice |
+| Publication before worker and after join           | Consumed source owner, twice |
+| Private artifact cleanup                           | Original native owner        |
+| Published task reader cleanup and outward delivery | Consumed source owner        |
 
-The diagnostic follow-up confirmed the staging checkout boundary: the second
-preparation failed after 217.357 seconds, with the original `Private checkout
-unavailable` error retained at the checkout stage. All 284 admission calls
-returned, all 153 returned readers were cleaned up, both object disposers ran,
-and the second publication was never invoked. The two checkout calls totalled
-41.414 seconds; the first took about 8.276 seconds, leaving about 33 seconds for
-the failing second helper against its unchanged 30-second bound. Repeated full
-source/context checks consumed that helper window. The follow-up removes two
-of the five repeated workspace checks per full source proof without rebasing the
-worker deadline or relaxing its pre-spawn/post-result gates.
+A consumed source proof already includes its native context. Private captured
+bytes instead require that original native owner and their own physical custody;
+they do not exercise source or destination paths. Both publication layouts share
+one transport. Executors check original synchronous authority before either full
+proof, including after a worker has joined. A revoked scope therefore cannot
+start more owner I/O. Worker timeout does not reset the operation deadline or
+suppress an otherwise authorized joined-result proof. All operation, approval,
+read and helper bounds remain unchanged, including the 30-second worker window.
 
-The next CI attempt reduced second-preparation admission calls from 112 to 88 and
-elapsed time to 189.341 seconds, but still refused checkout. That failed-attempt
-count stops before second publication and is not comparable to a successful
-whole-operation count. The remaining duplication was in private host setup and
-the actor, rather than a missing authority grant.
+Phase diagnostics cover source qualification, object capture, approval (including
+human wait) and materialization. Bounded per-helper diagnostics retain actual
+gate timings and failure hashes without product I/O. Finalization cannot replace
+a result or original error, including an object artifact whose disposer must be
+retained. CI always retains the second-attempt artifact, including failed assertions.
 
-Private helper setup reads only owned scratch/config bytes and runtime custody;
-source/destination roots remain data until worker execution. Synchronous current
-checks own that setup; full proofs remain before the worker and after its joined
-result. The actor verifies bound object data once after its original consumed
-proof, and its read-cleanup proof also owns outward delivery. It no longer
-repeats either proof around immutable/private work. The static materialization
-success path therefore has seven full proofs rather than eleven: artifact use,
-two staging-worker boundaries, two publication-worker boundaries, actor cleanup,
-and reader cleanup/delivery. All original operation, approval, read and helper
-bounds remain unchanged.
+### Coverage and measured cost
 
-Controlled-clock tests charge ten seconds per full proof: the previous duplicate
-setup gate exhausted the 30-second helper window, while the two actual worker
-boundaries fit. Pre-spawn expiry, post-join expiry/revocation, unchanged source
-bytes, retained publication/refused replay and original receiver checks remain.
-Existing private checkout setup is reused with synthetic children for its
-separate result-delivery contract. The two selected real publication boundaries
-passed in 1.79 seconds execution/2.09 elapsed; no additional complete-app journey
-was introduced. The signed materializer artifact now retains bounded per-helper
-gate timings as well as whole-phase timings, without adding product I/O.
+The existing signed native journey reuses one account/runtime setup for two
+preparations, two adoptions and subsequent controlled provider turns. Its second
+source has 13 planning files and an explicit HEAD selection. Assertions cover the
+selected commit, every imported file, source HEAD/index preservation, continuation
+metadata and joined cleanup. The mandatory macOS gate enables actual integration,
+disables profile-only execution and refuses missing or skipped evidence. Provider
+RPC is intercepted; these tests make no model or network calls.
+
+The consumed-source negative control now captures genuine object data and performs
+private checkout before revoking the independent source. A current native owner
+cannot authorize publication: both pre-worker and post-join source proofs refuse,
+no task/admin/ref/log paths appear, the artifact is disposed once, and the consumed
+materializing record remains retained. This replaces the old header-only refusal,
+which could fail before reaching the source gate. The new native work is necessary
+to reach this distinct boundary; the existing journey/setup is reused. It measured
+16.67 seconds execution/19.37 elapsed locally before the final guard tightening.
+
+Cheap controlled-clock cases charge ten seconds per full proof: two worker
+boundaries fit the original window, while duplicate setup proofs would exhaust it.
+The same fixtures cover pre-spawn expiry, post-join expiry, async revocation and
+synchronous scope revocation. Selection and pure projection cases reuse existing
+fixtures; the real-Git equivalence/projection case uses a controlled read port over
+actual file bytes and measured 0.991 seconds execution/1.60 elapsed. Existing
+physical transport/custody tests remain separate. No new complete-app success
+journey or timeout increase is required.
+
+The earlier failed second preparation reported 88 underlying native admissions
+before checkout refusal. That count includes nested owner work and stops before
+publication; it is not the number of full materialization proofs. The successful
+pre-refactor CI baseline (`bed86d885`, run 41622453461) completed both preparations,
+adoptions and continuation, with the second preparation taking 246.339 seconds
+and 97 native admissions. Both helper windows passed and cleanup completed. Its
+whole workflow failed an obsolete setup-contract unit assertion, corrected here.
+Final minimum-phase CI timing and admission counts remain unmeasured until that
+head completes. These measurements are observations, not production guarantees.

@@ -25,6 +25,7 @@ import type { QualifiedLocalRepositoryPreparationSource } from './local-reposito
 import { captureNativeLocalRepositoryReader } from './local-repository-native-read.js';
 import {
   captureLocalRepositoryAllocationFacts,
+  projectLocalRepositoryAllocationBase,
   type LocalRepositoryAllocationFacts as AllocationFacts,
 } from './local-repository-allocation-facts.js';
 import { LocalRepositoryReadAccess } from './local-repository-read-access.js';
@@ -304,22 +305,39 @@ export async function captureNativeLocalRepositoryPreparationSource(
     });
   let initial = await captureAllocation();
   try {
-    if (input.base && !resolvedBase) {
-      const selected = await read(async (reader) => {
-        const access = new LocalRepositoryReadAccess(reader);
-        await access.pinRoot(input.sourcePath);
-        await access.pinRoot(initial.facts.source.commonDirectory);
-        const value =
-          input.base!.kind === 'default'
-            ? {
-                url: await localRepositoryRemote(
-                  await access.read(join(initial.facts.source.commonDirectory, 'config'), 65536),
-                ),
-              }
-            : await readLocalRepositoryBaseReference(access, initial.facts.source, input.base!.ref);
-        await access.verify();
-        return value;
-      });
+    // The first allocation already resolved and verified HEAD, including its
+    // branch/detached selection. Reuse those immutable facts rather than open
+    // a separate reference phase and repeat the complete allocation read.
+    // Other refs and remote/default acquisition still need their own resolver.
+    if (input.base && !resolvedBase && !(input.base.kind === 'ref' && input.base.ref === 'HEAD')) {
+      const explicitOid =
+        input.base.kind === 'ref' && /^[a-f0-9]{40}(?:[a-f0-9]{24})?$/.test(input.base.ref)
+          ? input.base.ref
+          : undefined;
+      const selected: { url: string } | { oid: string; branch?: string } = explicitOid
+        ? { oid: explicitOid }
+        : await read(async (reader) => {
+            const access = new LocalRepositoryReadAccess(reader);
+            await access.pinRoot(input.sourcePath);
+            await access.pinRoot(initial.facts.source.commonDirectory);
+            const value =
+              input.base!.kind === 'default'
+                ? {
+                    url: await localRepositoryRemote(
+                      await access.read(
+                        join(initial.facts.source.commonDirectory, 'config'),
+                        65536,
+                      ),
+                    ),
+                  }
+                : await readLocalRepositoryBaseReference(
+                    access,
+                    initial.facts.source,
+                    input.base!.ref,
+                  );
+            await access.verify();
+            return value;
+          });
       const repositoryId = `existing-${createHash('sha256').update(input.sourcePath).digest('hex')}`;
       if ('url' in selected) {
         remote = selected.url;
@@ -377,7 +395,10 @@ export async function captureNativeLocalRepositoryPreparationSource(
           ...(selected.branch ? { branch: selected.branch } : {}),
           origin: 'local',
         };
-      initial = await captureAllocation();
+      initial = {
+        ...initial,
+        ...projectLocalRepositoryAllocationBase(initial.facts, resolvedBase, remote),
+      };
     }
     const original = localRepositoryPreparationSourceFacts(initial.facts);
     const originalBaseHash = hash({

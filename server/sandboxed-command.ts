@@ -112,6 +112,15 @@ function privateDeadline(original: object, timeout: number) {
     throw Error('Private helper deadline unavailable');
   return Math.min(Date.now() + timeout, descriptor.value);
 }
+function assertPrivateOwnerCurrent(receiver: object, assertion: unknown, message: string) {
+  if (typeof assertion !== 'function') throw Error(message);
+  const returned: unknown = Reflect.apply(assertion, receiver, []);
+  if (returned !== undefined) {
+    void Promise.resolve(returned).catch(() => {});
+    throw Error(message);
+  }
+}
+
 /** SAME runner, fixed private file program only. This is deliberately not a
  * public Bash option to skip Git/authority checks. No source/Git path is passed
  * to host AuthoritySnapshot or gitMetadataRoots. SRT itself normalizes literal
@@ -136,11 +145,7 @@ export async function executePrivateNativeFileHelper(options: PrivateNativeFileH
   const current = () => {
     signal.throwIfAborted();
     if (Date.now() >= deadline) throw Error('Private helper owner unavailable');
-    const returned: unknown = Reflect.apply(sync, original, []);
-    if (returned !== undefined) {
-      void Promise.resolve(returned).catch(() => {});
-      throw Error('Private helper owner unavailable');
-    }
+    assertPrivateOwnerCurrent(original, sync, 'Private helper owner unavailable');
   };
   const revalidate = async () => {
     current();
@@ -288,11 +293,14 @@ export async function executePrivateNativeFileHelper(options: PrivateNativeFileH
     failed = true;
   }
   try {
+    // Refuse revoked original authority before starting more owner I/O. A
+    // joined worker still receives its proof after its own timer expires.
+    signal.throwIfAborted();
+    assertPrivateOwnerCurrent(original, sync, 'Private helper owner unavailable');
     const pending: unknown = Reflect.apply(async, original, []);
     if (!(pending instanceof Promise) || (await pending) !== undefined)
       throw Error('Private helper owner unavailable');
     current(); // ALSO after rejected joined-worker/cleanup awaits and absolute expiry.
-    current();
   } catch {
     throw Error('Private native file helper unavailable');
   }
@@ -366,11 +374,7 @@ export async function executePrivateRepositoryStagingCheckout(
   const current = () => {
     signal.throwIfAborted();
     if (Date.now() >= deadline) throw Error('Private checkout unavailable');
-    const result: unknown = Reflect.apply(sync, options, []);
-    if (result !== undefined) {
-      void Promise.resolve(result).catch(() => {});
-      throw Error('Private checkout unavailable');
-    }
+    assertPrivateOwnerCurrent(options, sync, 'Private checkout unavailable');
   };
   const revalidate = async () => {
     current();
@@ -490,6 +494,8 @@ export async function executePrivateRepositoryStagingCheckout(
   } catch {
     failed = true;
   }
+  signal.throwIfAborted();
+  assertPrivateOwnerCurrent(options, sync, 'Private checkout unavailable');
   const joinedOwner: unknown = Reflect.apply(async, options, []);
   if (!(joinedOwner instanceof Promise) || (await joinedOwner) !== undefined)
     throw Error('Private checkout unavailable');
