@@ -56,6 +56,33 @@ const actual = it.runIf(
   process.platform === 'darwin' && process.env.MITZO_SANDBOX_INTEGRATION === '1',
 );
 const profileOnly = process.env.MITZO_PREPARATION_OWNER_PROFILE === '1';
+const fixtureGit = (directory: string, ...args: string[]) =>
+  execFileSync(
+    '/usr/bin/git',
+    [
+      '-C',
+      directory,
+      '-c',
+      'core.hooksPath=/dev/null',
+      '-c',
+      'core.fsmonitor=false',
+      '-c',
+      'commit.gpgsign=false',
+      '-c',
+      'user.name=Offline',
+      '-c',
+      'user.email=offline@example.invalid',
+      ...args,
+    ],
+    {
+      encoding: 'utf8',
+      env: {
+        PATH: '/usr/bin:/bin',
+        GIT_CONFIG_GLOBAL: '/dev/null',
+        GIT_CONFIG_SYSTEM: '/dev/null',
+      },
+    },
+  ).trim();
 actual(
   profileOnly
     ? 'profiles one genuine consumed original full gate without actor effects'
@@ -199,6 +226,12 @@ actual(
     const postPreparation: { status: string; elapsedMs?: number; rowSha256?: string } = {
       status: 'not-reached',
     };
+    const secondPreparation: {
+      state: string;
+      elapsedMs?: number;
+      admissionCalls?: number;
+      continuation?: boolean;
+    } = { state: 'not-reached' };
     let observedReceipt: Awaited<ReturnType<typeof executeLocalRepositoryPreparation>> | undefined;
     let authorization:
       Awaited<ReturnType<typeof captureLocalRepositoryPreparationAuthorization>> | undefined;
@@ -405,19 +438,7 @@ actual(
       // Real staged content change reuses an existing accepted blob, so the
       // object-count budget stays five while index preservation is meaningful.
       await writeFile(join(source, 'context.md'), 'accepted source');
-      const git = (...args: string[]) =>
-        execFileSync(
-          '/usr/bin/git',
-          ['-C', source, '-c', 'core.hooksPath=/dev/null', '-c', 'core.fsmonitor=false', ...args],
-          {
-            encoding: 'utf8',
-            env: {
-              PATH: '/usr/bin:/bin',
-              GIT_CONFIG_GLOBAL: '/dev/null',
-              GIT_CONFIG_SYSTEM: '/dev/null',
-            },
-          },
-        ).trim();
+      const git = (...args: string[]) => fixtureGit(source, ...args);
       git('add', '--', 'context.md');
       await diagnostics.check(
         'setup-staged-name',
@@ -643,6 +664,92 @@ actual(
     });
     cleanups.push(serviceState.restore);
     const assertInitialPrimary = capturePreparationPrimaryCustody(f);
+    async function completePrepared(
+      original: NativeHostToolContext,
+      receipt: Awaited<ReturnType<typeof executeLocalRepositoryPreparation>>,
+      afterAdopt: () => Promise<void> = async () => {},
+    ) {
+      const source = original.nativeTarget;
+      const binding = f.a.initial.lease.binding;
+      const admission = f.a.initial.admission;
+      const known = new Set(f.native.commands(f.a.sessionId, binding).map((command) => command.id));
+      const turnsBefore = f.a.requests.filter((request) => request.method === 'turn/start').length;
+      let entered = false,
+        settled = false,
+        failure: unknown;
+      f.a.installPreparedBoundary(async (assertConversationCurrentSync) => {
+        if (entered) return;
+        entered = true;
+        try {
+          const selectedPolicy = () =>
+            composeOwnedLocalNativeExecutionPolicy({
+              session: f.a.session,
+              binding,
+              assertCurrentSync: () => admission.assertPreparedRepositoryBoundaryCurrentSync(),
+            });
+          const owner = Object.freeze({
+            signal: f.f.signal.signal,
+            selectedPolicy,
+            assertCurrentSync: () => admission.assertPreparedRepositoryBoundaryCurrentSync(),
+          });
+          const adopted = await diagnostics.capture('prepared-boundary', () =>
+            withPreparedRepositoryBarrierReadScope(
+              selectedPolicy(),
+              source.commandId,
+              {
+                signal: f.f.signal.signal,
+                selectedPolicy,
+                assertCurrentSync: () => {
+                  assertConversationCurrentSync();
+                  admission.assertPreparedRepositoryBoundaryCurrentSync();
+                },
+                revalidate: async () => {
+                  await admission.assertCurrent();
+                  assertConversationCurrentSync();
+                },
+              },
+              (scope) =>
+                admission.adoptPreparedRepositoryAtBoundary(
+                  scope,
+                  source,
+                  assertConversationCurrentSync,
+                  owner,
+                ),
+            ),
+          );
+          expect(adopted).toMatchObject({ id: receipt.request.id, directory: receipt.directory });
+          await afterAdopt();
+        } catch (error) {
+          failure = error;
+          throw error;
+        } finally {
+          settled = true;
+        }
+      });
+      await f.a.complete();
+      await vi.waitFor(
+        () => {
+          if (!settled) throw Error('Waiting for original completed boundary');
+        },
+        { timeout: 210000 },
+      ); // harness only; original authority deadlines are unchanged
+      if (failure) throw failure;
+      await vi.waitFor(
+        () => {
+          const children = f.native
+            .commands(f.a.sessionId, binding)
+            .filter((command) => !known.has(command.id));
+          if (
+            f.a.requests.filter((request) => request.method === 'turn/start').length !==
+              turnsBefore + 1 ||
+            children.length !== 1 ||
+            f.native.readNativeExecution(f.a.sessionId, binding, children[0])?.phase !== 'accepted'
+          )
+            throw Error('Waiting for actual queued child turn');
+        },
+        { timeout: 150000 },
+      );
+    }
     const finalize = f.f.workspace.finalizePendingHostTaskDecision;
     vi.spyOn(f.f.workspace, 'finalizePendingHostTaskDecision').mockImplementation((...args) => {
       const result = Reflect.apply(finalize, f.f.workspace, args);
@@ -664,6 +771,7 @@ actual(
             rowState,
             receiptState,
             postPreparation,
+            secondPreparation,
             serviceState: serviceState(),
             cleanup: {
               returnedReaders: returnedReaders.length,
@@ -707,9 +815,6 @@ actual(
       const binding = f.a.initial.lease.binding;
       const custodyBefore = f.native.readHostCustody(f.a.sessionId, binding);
       const taskCanary = join(receipt.directory, 'host-acceptance-task.txt');
-      let boundaryEntered = false;
-      let boundarySettled = false;
-      let boundaryError: unknown;
       await recordPreparationAttempt(
         diagnostics,
         'post-prepare-admission',
@@ -717,91 +822,19 @@ actual(
           const start = performance.now();
           postPreparation.status = 'waiting-for-completed-boundary';
           try {
-            f.a.installPreparedBoundary(async (assertConversationCurrentSync) => {
-              if (boundaryEntered) return;
-              boundaryEntered = true;
-              try {
-                const durable = f.native.completedPreparedRepositoryResultSha256(
-                  f.a.sessionId,
-                  binding,
-                  source,
-                  original.callId,
-                  original.requestHash,
-                );
-                if (durable !== preparedRepositoryResultSha256(normalized))
-                  throw Error('Actual completed preparation result mismatch');
-                const admission = f.a.initial.admission;
-                const selectedPolicy = () =>
-                  composeOwnedLocalNativeExecutionPolicy({
-                    session: f.a.session,
-                    binding,
-                    assertCurrentSync: () =>
-                      admission.assertPreparedRepositoryBoundaryCurrentSync(),
-                  });
-                const owner = Object.freeze({
-                  signal: f.f.signal.signal,
-                  selectedPolicy,
-                  assertCurrentSync: () => admission.assertPreparedRepositoryBoundaryCurrentSync(),
-                });
-                const adopted = await diagnostics.capture('prepared-boundary', () =>
-                  withPreparedRepositoryBarrierReadScope(
-                    selectedPolicy(),
-                    source.commandId,
-                    {
-                      signal: f.f.signal.signal,
-                      selectedPolicy,
-                      assertCurrentSync: () => {
-                        assertConversationCurrentSync();
-                        admission.assertPreparedRepositoryBoundaryCurrentSync();
-                      },
-                      revalidate: async () => {
-                        await admission.assertCurrent();
-                        assertConversationCurrentSync();
-                      },
-                    },
-                    (scope) =>
-                      admission.adoptPreparedRepositoryAtBoundary(
-                        scope,
-                        source,
-                        assertConversationCurrentSync,
-                        owner,
-                      ),
-                  ),
-                );
-                if (adopted?.id !== receipt.request.id || adopted.directory !== receipt.directory)
-                  throw Error('Actual materialized primary was not adopted');
-                postPreparation.status = 'actual-primary-adopted';
-                await writeFile(taskCanary, 'Retain new task work');
-              } catch (error) {
-                boundaryError = error;
-                throw error;
-              } finally {
-                boundarySettled = true;
-              }
-            });
-            await f.a.complete();
-            await vi.waitFor(
-              () => {
-                if (!boundarySettled) throw Error('Waiting for original completed boundary');
-              },
-              { timeout: 210000 },
-            ); // harness wait only; original authority deadlines remain unchanged
-            if (boundaryError) throw boundaryError;
-            await vi.waitFor(
-              () => {
-                const children = f.native
-                  .commands(f.a.sessionId, binding)
-                  .filter((command) => command.id !== source.commandId);
-                if (
-                  f.a.requests.filter((request) => request.method === 'turn/start').length !== 2 ||
-                  children.length !== 1 ||
-                  f.native.readNativeExecution(f.a.sessionId, binding, children[0])?.phase !==
-                    'accepted'
-                )
-                  throw Error('Waiting for actual queued child turn');
-              },
-              { timeout: 150000 }, // two fresh workspace checks precede controlled child RPC
+            const durable = f.native.completedPreparedRepositoryResultSha256(
+              f.a.sessionId,
+              binding,
+              source,
+              original.callId,
+              original.requestHash,
             );
+            if (durable !== preparedRepositoryResultSha256(normalized))
+              throw Error('Actual completed preparation result mismatch');
+            await completePrepared(original, receipt, async () => {
+              postPreparation.status = 'actual-primary-adopted';
+              await writeFile(taskCanary, 'Retain new task work');
+            });
             postPreparation.status = 'second-turn-acknowledged-by-controlled-rpc';
           } finally {
             postPreparation.elapsedMs = performance.now() - start;
@@ -909,31 +942,72 @@ actual(
       // preparation fixture had never exercised its more expensive custody
       // owner as the starting point for another actual preparation.
       const current = f.f.workspace.getForConversation(f.a.sessionId)!;
+      const nextSource = join(f.f.root, 'next-source');
+      fixtureGit(f.f.root, 'clone', '--no-hardlinks', '-q', join(f.f.root, 'source'), nextSource);
+      await Promise.all(
+        Array.from({ length: 13 }, (_, index) =>
+          writeFile(join(nextSource, `plan-${index}.md`), `Planning document ${index}\n`),
+        ),
+      );
+      fixtureGit(nextSource, 'add', '.');
+      fixtureGit(nextSource, 'commit', '-qm', 'populated second source');
+      const selectedHead = fixtureGit(nextSource, 'rev-parse', 'HEAD');
+      const [sourceHead, sourceIndex] = await Promise.all([
+        readFile(join(nextSource, '.git', 'HEAD')),
+        readFile(join(nextSource, '.git', 'index')),
+      ]);
       const started = performance.now();
       const callsBefore = metrics.admission.calls;
       const next = await f.a.call({
-        path: join(f.f.root, 'source'),
+        path: nextSource,
         base: { kind: 'ref', ref: 'HEAD' },
       });
-      console.info('Second preparation', JSON.stringify({
-        elapsedMs: Math.round(performance.now() - started),
-        admissionCalls: metrics.admission.calls - callsBefore,
-        success: next.response.success,
-        result: next.value,
-      }));
+      secondPreparation.elapsedMs = Math.round(performance.now() - started);
+      secondPreparation.admissionCalls = metrics.admission.calls - callsBefore;
+      secondPreparation.state = next.value.state ?? 'failed';
+      console.info('Second preparation', JSON.stringify(secondPreparation));
       expect(next.response.success, JSON.stringify(next.value)).toBe(true);
       expect(next.value).toMatchObject({ state: 'materialized' });
       expect(next.value.preparationId).not.toBe(current.id);
       expect(f.f.workspace.getForConversation(f.a.sessionId)?.id).toBe(current.id);
       expect(f.permissions).toHaveLength(2);
-      await sourcePreservation?.('second-preparation', true);
+      await sourcePreservation?.('adopted', true);
+      const secondContext = observedContext!;
+      const secondReceipt = f.f.workspace.get(next.value.preparationId).pendingHostTask!;
+      expect(secondReceipt.state).toBe('materialized');
+      await completePrepared(secondContext, secondReceipt);
+      const adopted = f.f.workspace.getForConversation(f.a.sessionId)!;
+      expect(adopted.id).toBe(next.value.preparationId);
+      expect(f.f.events.getSession(f.a.sessionId)?.cwd).toBe(secondReceipt.directory);
+      expect(f.native.read(f.a.sessionId, f.a.initial.lease.binding).cwd).toBe(
+        secondReceipt.directory,
+      );
+      expect(
+        f.a.requests.filter((request) => request.method === 'turn/start').at(-1)?.params.cwd,
+      ).toBe(secondReceipt.directory);
+      expect(fixtureGit(secondReceipt.directory, 'rev-parse', 'HEAD')).toBe(selectedHead);
+      expect(fixtureGit(nextSource, 'rev-parse', 'HEAD')).toBe(selectedHead);
+      expect(await readFile(join(nextSource, '.git', 'HEAD'))).toEqual(sourceHead);
+      expect(await readFile(join(nextSource, '.git', 'index'))).toEqual(sourceIndex);
+      await Promise.all(
+        Array.from({ length: 13 }, async (_, index) => {
+          expect(await readFile(join(secondReceipt.directory, `plan-${index}.md`), 'utf8')).toBe(
+            `Planning document ${index}\n`,
+          );
+        }),
+      );
+      expect(cleanupCounts.reader).toBe(returnedReaders.length);
+      expect(cleanupCounts.objects).toBe(2);
+      secondPreparation.continuation = true;
+      for (const [name, check] of Object.entries(diagnostics.snapshot().checks))
+        expect(check.status, JSON.stringify({ name, check })).toBe('passed');
+      await persistAttempt();
     }
   },
-  // Test-harness budget for consecutive stages only: unchanged preparation
-  // envelope (300s), THREE independently60s fresh phases plus joined owner/
-  // cleanup work (210s boundary), two post-boundary workspace checks + child
-  // RPC (150s), setup/evidence (60s). Completion-row settlement is not adoption.
-  // No approval/read/helper/native authority is extended.
+  // Retain the existing overall harness bound while exercising a second source
+  // through the same setup. Each operation still has its own 300s envelope,
+  // 120s approval, 60s read phases and 30s helper bounds. Completed receipts
+  // alone are insufficient: both actual handoffs and child RPCs must succeed.
   720000,
 );
 

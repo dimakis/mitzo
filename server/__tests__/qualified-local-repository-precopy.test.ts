@@ -91,8 +91,8 @@ it('uses the original bound private data verifier without a second source-object
   expect(f.objects.dispose).toHaveBeenCalledOnce();
   expect(captureLocalRepositoryAllocationFacts).not.toHaveBeenCalled();
   expect(captureNativeLocalRepositoryReader).not.toHaveBeenCalled();
-  expect(f.operation.assertCurrent).toHaveBeenCalledTimes(3);
-  expect(f.operation.assertCurrent.mock.invocationCallOrder[1]).toBeLessThan(
+  expect(f.operation.assertCurrent).toHaveBeenCalledTimes(2);
+  expect(f.operation.assertCurrent.mock.invocationCallOrder[0]).toBeLessThan(
     vi.mocked(verifyLocalRepositoryPreparationObjectData).mock.invocationCallOrder[0],
   );
   expect(vi.mocked(verifyLocalRepositoryPreparationObjectData).mock.calls[0][5]).toBe(
@@ -106,7 +106,7 @@ it('retains the genuine consumed full callback at the former object-reader bound
     privateAuthority: [],
   } as never);
   f.operation.assertCurrent.mockImplementation(async () => {
-    if (f.operation.assertCurrent.mock.calls.length === 3)
+    if (f.operation.assertCurrent.mock.calls.length === 2)
       throw Error('original async source owner revoked');
   });
   await expect(materializeQualifiedLocalRepositoryTask(f.operation as never)).rejects.toThrow(

@@ -95,8 +95,9 @@ export async function captureLocalRepositoryPreparationObjectData(
   };
   try {
     current();
-    await owner.assertCurrent();
-    current();
+    // The original reader capture starts with this same owner's full gate.
+    // Preserve it there, before scratch/source access, instead of duplicating
+    // the complete workspace validation in this composing wrapper.
     reader = await captureNativeLocalRepositoryReader(context, {
       deadline: preparationReadDeadline(deadline, context.signal),
     });

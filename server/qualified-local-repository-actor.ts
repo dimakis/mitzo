@@ -82,7 +82,9 @@ export async function materializeQualifiedLocalRepositoryTask(operation: {
     // a still-current native read facet alone cannot substitute for that proof.
     const pending: unknown = operation.assertCurrent();
     if (!(pending instanceof Promise) || (await pending) !== undefined) throw unavailable();
-    await owner.assertCurrent();
+    // The consumed decision's full callback already checks this exact original
+    // native context as well as its source. The read facet adds no independent
+    // asynchronous owner; its synchronous fence still guards every boundary.
     current();
   };
   const read = async <T>(
@@ -105,7 +107,7 @@ export async function materializeQualifiedLocalRepositoryTask(operation: {
       }
     }
   };
-  await full();
+  current();
   const artifact = operation.objects;
   const end = artifact && Object.getOwnPropertyDescriptor(artifact, 'deadline');
   const dispose = artifact && Object.getOwnPropertyDescriptor(artifact, 'dispose');
@@ -152,7 +154,7 @@ export async function materializeQualifiedLocalRepositoryTask(operation: {
     await full();
     const scratch = view.scratch;
     const scratchAnchor = Object.freeze({ rootPath: scratch, identity: view.scratchIdentity });
-    await full();
+    current();
     // The last full callback is an await too. Recheck actual private custody/
     // config/copied bytes after it, before staging setup; worker fences remain.
     await verifyLocalRepositoryPreparationObjectData(
