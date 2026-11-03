@@ -54,6 +54,22 @@ export interface NativeQualifiedLocalRepositoryPreparationSource extends Qualifi
    * materializer must validate its phase-specific actual owned identities. */
   revalidateAllocationFacts(): Promise<void>;
 }
+// Factory provenance, never a cached owner result. Each source assertion still
+// opens a fresh physical read phase under this exact original context.
+const sourceContexts = new WeakMap<object, NativeHostToolContext>();
+function originalSource(
+  context: NativeHostToolContext,
+  source: NativeQualifiedLocalRepositoryPreparationSource,
+) {
+  sourceContexts.set(source, context);
+  return source;
+}
+export function preparationSourceIncludesContext(
+  source: QualifiedLocalRepositoryPreparationSource,
+  context: NativeHostToolContext,
+) {
+  return sourceContexts.get(source) === context;
+}
 const unavailable = () => Error('Local repository preparation source unavailable');
 const hash = (value: unknown) => createHash('sha256').update(JSON.stringify(value)).digest('hex');
 interface PreparationSourceInput {
@@ -157,24 +173,27 @@ async function captureOwnedRepositoryPreparationSource(
         ownedSource: true,
       }),
     );
-    return Object.freeze(
-      Object.defineProperties(
-        {},
-        {
-          ...Object.getOwnPropertyDescriptors(qualified),
-          dispose: {
-            value: async () => {
-              try {
-                await qualified.dispose?.();
-              } finally {
-                await dispose();
-              }
+    return originalSource(
+      context,
+      Object.freeze(
+        Object.defineProperties(
+          {},
+          {
+            ...Object.getOwnPropertyDescriptors(qualified),
+            dispose: {
+              value: async () => {
+                try {
+                  await qualified.dispose?.();
+                } finally {
+                  await dispose();
+                }
+              },
+              enumerable: true,
             },
-            enumerable: true,
           },
-        },
-      ),
-    ) as NativeQualifiedLocalRepositoryPreparationSource;
+        ),
+      ) as NativeQualifiedLocalRepositoryPreparationSource,
+    );
   } catch (error) {
     if (!(error instanceof RepositoryHostProcessUncertainError)) await dispose();
     throw error;
@@ -438,30 +457,33 @@ export async function captureNativeLocalRepositoryPreparationSource(
         if (reader.verifyRepositoryBaseObservation)
           baseObservation = access.repositoryBaseObservation;
       }, earlierDeadline);
-    return Object.freeze({
-      ...original,
-      allocationFacts: initial.facts,
-      allocationFactsSha256: initial.factsSha256,
-      publicationPackedRefs: initial.publicationPackedRefs,
-      ...(objectSource ? { objectSource: Object.freeze(objectSource) } : {}),
-      ...(disposeAcquired ? { dispose: disposeAcquired } : {}),
-      assertCurrentSync: current,
-      async assertCurrent(options?: Readonly<{ deadline: number }>) {
-        current();
-        const earlierDeadline = options?.deadline ?? deadline;
-        preparationReadDeadline(Math.min(deadline, earlierDeadline), context.signal);
-        // baseCurrent captures a fresh reader whose owner gate runs before
-        // scratch allocation or source I/O. Repeating it here adds no boundary.
-        await baseCurrent(earlierDeadline);
-        current();
-        preparationReadDeadline(Math.min(deadline, earlierDeadline), context.signal);
-      },
-      async revalidateAllocationFacts() {
-        const actual = await captureAllocation();
-        if (actual.factsSha256 !== initial.factsSha256) throw unavailable();
-        current();
-      },
-    });
+    return originalSource(
+      context,
+      Object.freeze({
+        ...original,
+        allocationFacts: initial.facts,
+        allocationFactsSha256: initial.factsSha256,
+        publicationPackedRefs: initial.publicationPackedRefs,
+        ...(objectSource ? { objectSource: Object.freeze(objectSource) } : {}),
+        ...(disposeAcquired ? { dispose: disposeAcquired } : {}),
+        assertCurrentSync: current,
+        async assertCurrent(options?: Readonly<{ deadline: number }>) {
+          current();
+          const earlierDeadline = options?.deadline ?? deadline;
+          preparationReadDeadline(Math.min(deadline, earlierDeadline), context.signal);
+          // baseCurrent captures a fresh reader with synchronous private-setup
+          // checks and full physical-I/O/cleanup gates for this exact context.
+          await baseCurrent(earlierDeadline);
+          current();
+          preparationReadDeadline(Math.min(deadline, earlierDeadline), context.signal);
+        },
+        async revalidateAllocationFacts() {
+          const actual = await captureAllocation();
+          if (actual.factsSha256 !== initial.factsSha256) throw unavailable();
+          current();
+        },
+      }),
+    );
   } catch (error) {
     if (!(error instanceof RepositoryHostProcessUncertainError)) await disposeAcquired?.();
     throw error;

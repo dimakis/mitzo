@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.839-preparation-owner-boundaries';
+  'v1.0.840-native-source-owner-boundaries';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -538,7 +538,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../local-repository-preparation-operation.ts':
     '36b9c39a8c60c7624545ce403df74ffa22800951cf3e5c63fa90f0146f3de6b4',
   '../local-repository-preparation-object-data.ts':
-    'e42dbe1ae28ff8284c24d51ce21008fa9dc016ab86a70fbaf834b0a38354cc5c',
+    '2b4174b7a7f90d79a24d3dbd857566d12892edd6e23bdefec0ea414d8b157e5c',
   '../__tests__/local-repository-preparation-envelope.test.ts':
     'e8fafe9b00cd04875b39aca6a00d8f3073991c8dbd8f2141c48f3d0a71dcc440',
   '../__tests__/local-repository-preparation-object-data.test.ts':
@@ -610,7 +610,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/local-repository-read-ceiling.test.ts':
     '4a69dd1577ad68e5369c869dca12e62b517ee2d36b9cb9f32e822890e1df49e3',
   '../__tests__/prepared-repository-native-read.test.ts':
-    'd05d10fcae21bb3f75614067486bf2e5805045c1e5fff7bf00e522d73a305b8a',
+    '2581e242ceead4561a677fde0155f7d3f607bd782bfd8c8b3998b268cabd238c',
   '../local-repository-allocation-facts.ts':
     '66268b680bcee1193bd74209b23632a6c941eb1285221781d3b6a7d3c1b4e5e6',
   '../__tests__/local-repository-allocation-facts.test.ts':
@@ -665,11 +665,11 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/fixtures/local-repository-read-owner.ts':
     '233d0ae379a76b0b2f13e93b0fbf6cf8dbfdc2e9e7983e79dcbcac48d67c93a7',
   '../local-repository-preparation-authorization.ts':
-    '76b28ad4eddf9470fcdd5c1d7c565dbf56689278f0cd148e0651ad8e24ad5acb',
+    '2b65bcd2b78759ba1dee9121f5d9637adf77b1c555ac1662787dd968c5f65f7d',
   '../__tests__/fixtures/local-preparation-native.ts':
     '4766f9d9e448a410038461442060798cc6b62d2f84bdf79d8fe93c7ec6c2d0ef',
   '../__tests__/local-repository-preparation-authorization.test.ts':
-    '5dd9c2a137968f082ef029e6e9fdaf471e733b095eec748769b2f031dd74dd37',
+    '59635e5c290c70962c42215813746ee00321afdbb75dba7f2a8272a7a26af639',
   '../__tests__/local-repository-preparation-artifacts.test.ts':
     '996ffbc74d67d01b05c1dea357ad01a9a6155e35596eb77701a13515310a3671',
   '../pending-host-task.ts': '0629abff8e8e8ef1dd0f6e3ce1857326fc0e6f11cf1afd2515af34f41952585b',
@@ -2092,9 +2092,9 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/local-repository-preparation-references.test.ts':
     '276cbbb4484e789bb449af2b725e338b0dcfd3676d3f9a203a2f4bb22b0c66ce',
   '../local-repository-preparation-source.ts':
-    '6bbebd6d02973d71c8dd4cb62cf6116d45c1cf3d6b1fe7dbcf7d37f7b863145f',
+    'b06c47274cb78cfe3a352ff627823964d20c2425807f3c79924cbdf8714fa9a4',
   '../__tests__/local-repository-preparation-source.test.ts':
-    '46657283e4005adf0ee4fc38ea42fd51c29cf0d31f0707006049626e5bb829dc',
+    '250f631970586a669a2c9eba80d64709f47871ab68af576c6c6b57195a09e1af',
   '../__tests__/local-repository-reference-metadata.test.ts':
     '23ea66a0970bc2280c10aa856016c9b52b17cbeb5241901f9c67d8225a23c7ff',
   '../__tests__/local-repository-cached-stat.test.ts':
@@ -2748,7 +2748,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/synchronous-stage-profiler.test.ts':
     '527589437bf36dd0a852432f3be0d1aed2d9ac8863008dbfed09b02815fa4020',
   '../local-repository-native-reader.ts':
-    '44a3c315e14420b45540e1b27d574dd3c675611a843c5f8bc41f08cc8056833d',
+    '805766fb51c5340960f05b7115ab4b1fde8ec53abb01e6b0ba06e2c2dc905eff',
   '../__tests__/agent-flow-consolidation.test.ts':
     '3b450ec6ce3736925f5fa6c05cef14bb4f7800bf04457cd069183880b12e96b0',
   '../../scripts/measure-openshell-agent-efficiency.mjs':

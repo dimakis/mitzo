@@ -59,10 +59,20 @@ These phases retain the existing operation and approval deadlines. Diagnostic
 finalization cannot replace an operation result or its original failure, including
 an object-capture result whose disposer the caller must retain.
 
+The original source factory records only the exact frozen source/context pair.
+Its current assertion already revalidates that native context at physical I/O and
+again after reader disposal. Only that original pair can omit the separate
+composing context proof; copied, borrowed and generic source owners retain both.
+Reader setup creates independently owned scratch under the original synchronous
+policy, revocation, cancellation and lifetime checks. Full physical-owner checks
+still run immediately before helper spawn, after its result and at outward
+verification. Setup never reads the source or task. Read scopes are never kept
+alive across human approval.
+
 On 3 November 2026, the reused signed offline fixture prepared a distinct source
 with 13 planning files from an already adopted workspace. Before this change that
-second preparation took 190.056 seconds and 178 full admission checks; afterward
-it took 160.781 seconds and 144 checks. This reproduces validation amplification,
+second preparation took 190.056 seconds and 178 full admission checks; the initial
+wrapper cleanup reduced it to 160.781 seconds and 144 checks. This reproduces validation amplification,
 not the exact production timeout, and is not a production latency guarantee.
 
 The extended native test reuses one account, runtime and repository setup for two
@@ -75,5 +85,22 @@ missing or skipped materialization evidence fails that gate. No model or network
 calls are made. Local test execution grew
 from 62.20 seconds for the prior one-transition journey to 247.01 seconds for the
 two-transition journey (249.61 seconds elapsed); the additional native journey
-covers the distinct already-adopted custody boundary. CI runtime impact has not
-yet been measured.
+covers the distinct already-adopted custody boundary. The first mandatory CI run exposed a further materialization failure: its second
+preparation failed after 229.505 seconds, below the unchanged 300-second envelope.
+The five-file gate took 394.27 seconds elapsed; the extended native test executed
+for 326.864 seconds before that failure. Final successful CI cost and the latency
+of the subsequent original-source/private-scratch changes remain unmeasured.
+Every second attempt, including a failed assertion, now retains its bounded
+stage/cause diagnostics in the CI artifact. Generic responses cannot erase that
+underlying evidence.
+
+The diagnostic follow-up confirmed the staging checkout boundary: the second
+preparation failed after 217.357 seconds, with the original `Private checkout
+unavailable` error retained at the checkout stage. All 284 admission calls
+returned, all 153 returned readers were cleaned up, both object disposers ran,
+and the second publication was never invoked. The two checkout calls totalled
+41.414 seconds; the first took about 8.276 seconds, leaving about 33 seconds for
+the failing second helper against its unchanged 30-second bound. Repeated full
+source/context checks consumed that helper window. The follow-up removes two
+of the five repeated workspace checks per full source proof without rebasing the
+worker deadline or relaxing its pre-spawn/post-result gates.

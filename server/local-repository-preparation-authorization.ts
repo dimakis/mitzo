@@ -9,7 +9,10 @@ import { z } from 'zod';
 import type { EventStore } from './event-store.js';
 import type { NativeHostToolContext } from './native-host-tool-context.js';
 import type { RepositoryWorkspaces } from './repository-workspaces.js';
-import type { NativeQualifiedLocalRepositoryPreparationSource } from './local-repository-preparation-source.js';
+import {
+  preparationSourceIncludesContext,
+  type NativeQualifiedLocalRepositoryPreparationSource,
+} from './local-repository-preparation-source.js';
 import {
   PendingHostTaskError,
   PendingHostTaskRequestSchema,
@@ -346,7 +349,10 @@ export async function captureLocalRepositoryPreparationAuthorization(
     assertCurrentSync,
     async assertCurrent() {
       assertCurrentSync();
-      await context.assertCurrent();
+      // The original factory source performs this exact context's full gate at
+      // its physical read boundaries. Generic/borrowed sources retain both
+      // independent proofs; matching methods or copied data cannot coalesce it.
+      if (!preparationSourceIncludesContext(qualified, context)) await context.assertCurrent();
       assertCurrentSync();
       await qualified.assertCurrent(
         observedReadDeadline === undefined

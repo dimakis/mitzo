@@ -2,14 +2,17 @@ import { afterEach, expect, it, vi } from 'vitest';
 import type { NativeHostToolContext } from '../native-host-tool-context.js';
 import * as nativeRead from '../local-repository-native-read.js';
 import * as allocation from '../local-repository-allocation-facts.js';
-import { captureNativeLocalRepositoryPreparationSource } from '../local-repository-preparation-source.js';
+import {
+  captureNativeLocalRepositoryPreparationSource,
+  preparationSourceIncludesContext,
+} from '../local-repository-preparation-source.js';
 
 afterEach(() => vi.restoreAllMocks());
 
 // Composition-only control: fake facts/read port do not qualify native access.
 // The signed native fixture separately exercises the actual producer and SRT.
-it.each(['sync', 'async'] as const)(
-  'does not publish source facts after %s owner revocation during reader cleanup',
+it.each(['sync', 'async', 'current'] as const)(
+  'retains original-context provenance and cleanup refusal (owner=%s)',
   async (kind) => {
     let live = true;
     const assertCurrentSync = vi.fn(() => {
@@ -48,7 +51,7 @@ it.each(['sync', 'async'] as const)(
     };
     const dispose = vi.fn(async () => {
       await Promise.resolve();
-      live = false;
+      if (kind !== 'current') live = false;
     });
     vi.spyOn(nativeRead, 'captureNativeLocalRepositoryReader').mockResolvedValue({
       deadline: Date.now() + 30000,
@@ -60,16 +63,20 @@ it.each(['sync', 'async'] as const)(
     vi.spyOn(allocation, 'captureLocalRepositoryAllocationFacts').mockResolvedValue({
       facts,
       factsSha256: 'b'.repeat(64),
-      publicationPackedRefs: { kind: 'absent' as const },
+      publicationPackedRefs: Object.freeze({ kind: 'absent' as const }),
       verify: vi.fn(async () => {}),
     });
-    await expect(
-      captureNativeLocalRepositoryPreparationSource(context, {
-        workspaceId: facts.workspaceId,
-        sourcePath: anchor.rootPath,
-        taskRoot: facts.taskRoot.rootPath,
-      }),
-    ).rejects.toThrow('Original physical owner changed');
+    const capture = captureNativeLocalRepositoryPreparationSource(context, {
+      workspaceId: facts.workspaceId,
+      sourcePath: anchor.rootPath,
+      taskRoot: facts.taskRoot.rootPath,
+    });
+    if (kind === 'current') {
+      const source = await capture;
+      expect(preparationSourceIncludesContext(source, context)).toBe(true);
+      expect(preparationSourceIncludesContext({ ...source }, context)).toBe(false);
+      expect(preparationSourceIncludesContext(source, { ...context })).toBe(false);
+    } else await expect(capture).rejects.toThrow('Original physical owner changed');
     expect(dispose).toHaveBeenCalledTimes(1);
     expect(assertCurrent).toHaveBeenCalledTimes(1);
   },

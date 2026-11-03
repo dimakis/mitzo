@@ -101,6 +101,48 @@ it
   },
 );
 
+// Exercise the real reader's setup/transport gates with a synthetic worker
+// result. Existing signed native journeys qualify SRT; this control isolates
+// asynchronous physical-owner revocation without starting another process.
+it.runIf(process.platform === 'darwin').each(['current', 'before', 'after'] as const)(
+  'defers the full private-scratch proof to physical I/O and refuses async revocation (%s)',
+  async (change) => {
+    const f = await fixture();
+    let physicalLive = true;
+    const full = vi.spyOn(f.owners, 'revalidate').mockImplementation(async () => {
+      if (!physicalLive) throw Error('Original physical owner changed');
+    });
+    let delivered = false;
+    const execute = vi
+      .spyOn(sandboxedCommand, 'executeSandboxedCommand')
+      .mockImplementation(async (request) => {
+        await request.beforeSpawnAsync?.();
+        request.beforeSpawn?.();
+        delivered = true;
+        if (change === 'after') physicalLive = false;
+        const content = JSON.stringify({ rootPath: f.source, identity: { dev: '1', ino: '2' } });
+        const stdout = `{"content": ${JSON.stringify(content)}, "is_error": false}\n`;
+        return { content: stdout, stdout, isError: false };
+      });
+    await withPreparedRepositoryBarrierReadScope(f.policy, 'completed', f.owners, async (scope) => {
+      const reader = await capturePreparedRepositoryReader(scope, { deadline: Date.now() + 30000 });
+      try {
+        expect(full).not.toHaveBeenCalled(); // Only owned scratch has been created.
+        if (change === 'before') physicalLive = false;
+        const capture = reader.captureReadAnchor!(f.source);
+        if (change === 'current') {
+          await expect(capture).resolves.toMatchObject({ rootPath: f.source });
+          expect(full).toHaveBeenCalledTimes(2); // Fresh pre-I/O and post-result proofs.
+        } else await expect(capture).rejects.toThrow();
+        expect(delivered).toBe(change !== 'before');
+        expect(execute).toHaveBeenCalledOnce();
+      } finally {
+        await reader.dispose();
+      }
+    });
+  },
+);
+
 // The real scope producer and actual SRT/helper are composed here with explicit
 // fixture-only current callbacks. Signed completed-turn wiring is a separate
 // integration qualification; no NativeHostToolContext or old tool closure exists.
@@ -251,12 +293,12 @@ it.runIf(process.platform === 'darwin')(
     await withPreparedRepositoryBarrierReadScope(f.policy, 'completed', f.owners, async (scope) => {
       const reader = await capturePreparedRepositoryReader(scope, { deadline: Date.now() + 30000 });
       try {
-        expect(revalidate).toHaveBeenCalledTimes(1); // Scratch creation qualifies the owner.
+        expect(revalidate).not.toHaveBeenCalled(); // Independently owned private scratch only.
         await reader.assertReadable(f.source);
         await reader.assertReadable(join(f.source, 'witness.txt'));
-        expect(revalidate).toHaveBeenCalledTimes(1);
+        expect(revalidate).not.toHaveBeenCalled();
         await new LocalRepositoryReadAccess(reader).verify();
-        expect(revalidate).toHaveBeenCalledTimes(2); // Cached-only outward fence too.
+        expect(revalidate).toHaveBeenCalledTimes(1); // Fresh cached-only outward fence.
         f.revoke();
         await expect(reader.assertReadable(f.source)).rejects.toThrow();
         expect(execute).not.toHaveBeenCalled();
