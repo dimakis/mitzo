@@ -668,6 +668,7 @@ actual(
       original: NativeHostToolContext,
       receipt: Awaited<ReturnType<typeof executeLocalRepositoryPreparation>>,
       afterAdopt: () => Promise<void> = async () => {},
+      expectedResult?: Awaited<ReturnType<typeof executeNativeLocalRepositoryPreparation>>,
     ) {
       const source = original.nativeTarget;
       const binding = f.a.initial.lease.binding;
@@ -681,6 +682,17 @@ actual(
         if (entered) return;
         entered = true;
         try {
+          if (expectedResult) {
+            const durable = f.native.completedPreparedRepositoryResultSha256(
+              f.a.sessionId,
+              binding,
+              source,
+              original.callId,
+              original.requestHash,
+            );
+            if (durable !== preparedRepositoryResultSha256(expectedResult))
+              throw Error('Actual completed preparation result mismatch');
+          }
           const selectedPolicy = () =>
             composeOwnedLocalNativeExecutionPolicy({
               session: f.a.session,
@@ -822,19 +834,15 @@ actual(
           const start = performance.now();
           postPreparation.status = 'waiting-for-completed-boundary';
           try {
-            const durable = f.native.completedPreparedRepositoryResultSha256(
-              f.a.sessionId,
-              binding,
-              source,
-              original.callId,
-              original.requestHash,
+            await completePrepared(
+              original,
+              receipt,
+              async () => {
+                postPreparation.status = 'actual-primary-adopted';
+                await writeFile(taskCanary, 'Retain new task work');
+              },
+              normalized,
             );
-            if (durable !== preparedRepositoryResultSha256(normalized))
-              throw Error('Actual completed preparation result mismatch');
-            await completePrepared(original, receipt, async () => {
-              postPreparation.status = 'actual-primary-adopted';
-              await writeFile(taskCanary, 'Retain new task work');
-            });
             postPreparation.status = 'second-turn-acknowledged-by-controlled-rpc';
           } finally {
             postPreparation.elapsedMs = performance.now() - start;
