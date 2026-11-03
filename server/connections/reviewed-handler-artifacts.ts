@@ -10,8 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.845-native-github-publication';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.846-tool-result-readability';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -963,7 +962,17 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/components/SymposiumProfilePicker.css':
     'fd2ab3e855f3cb1e1814de4e5c7206f1970fe9739efff7fb6e21a7df0390b310',
   '../../frontend/src/components/ToolPill.tsx':
-    '7dcf00112046cac43b0d5186b286d2c3f58bb79d4da7992019138b308633d903',
+    '6102e6503adbdf19e774bc56e7959724983c79664bc021cf2678ba2ae02d333f',
+  '../../frontend/src/components/ToolResultContent.tsx':
+    'd045cba2d6a1855ad59e227ee781624ce55b5d9603fc95d1af6ebd11d799a59c',
+  '../../frontend/src/styles/tool-result.css':
+    'c232bf0777c08438666ae4fc154f2387b2cc8517a71ab004c808f71ad06a82ea',
+  '../../frontend/src/components/__tests__/ToolResultContent.test.tsx':
+    'a4e164f458e8fae2a4c8bba86a58a321ea9dac3b37374d488355eee166e89b47',
+  '../../tests/fixtures/tool-results.tsx':
+    'eb7865e4b52ff45456117c2ef0d9264da366434ae606fb0592f3a90cd8578ecb',
+  '../../tests/offline/tool-results.spec.ts':
+    '75dc9dacabee32399b9a4ddf6cf8e20db4b3ffbfcb6cbf3e73d6c5f932d06c23',
   '../../frontend/src/lib/agent-task-proposal-link.ts':
     'c6d0636d69ea3fce109df49793011593761d7cfa34070818d92646f2a920a51f',
   '../session-agent-task-tools.ts':
