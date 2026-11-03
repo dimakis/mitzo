@@ -50,7 +50,7 @@ type NativeReaderPathAuthorization = Readonly<{
   assertCurrentSync: NonNullable<LocalRepositoryReadAuthority['assertCurrentSync']>;
 }>;
 // Provenance only, never a retained authorization result. The registered entry
-// starts with the full fresh original-owner fence before any path effect/await.
+// retains fresh full original-owner fences at physical I/O and outward verification.
 const nativePathAuthorizations = new WeakMap<object, NativeReaderPathAuthorization>();
 const repositoryBaseCaptures = new WeakMap<object, object>();
 type NativeTopologyAssertion = (
@@ -169,7 +169,10 @@ export async function captureLocalRepositoryReader(
   let scratch: string | undefined;
   const custody = new AuthoritySnapshot();
   try {
-    await revalidate();
+    // Only independently owned private scratch is allocated here. The original
+    // synchronous policy, revocation and cancellation fence owns that setup;
+    // full physical-owner validation remains immediately before source helper
+    // spawn and after its result. No source/task path is accessed by setup.
     current();
     scratch = await realpath(await mkdtemp(join(tmpdir(), 'mitzo-native-read-')));
     current();

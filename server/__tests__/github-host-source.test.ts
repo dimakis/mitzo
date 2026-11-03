@@ -17,7 +17,15 @@ import {
   exportHostGithubBundle,
   resolveHostGithubRepository,
 } from '../github-host-source.js';
-import { hostGithubPublishingSource } from '../github-publishing-tool.js';
+import {
+  hostGithubPublishingSource,
+  githubPublishingGitStorageRoots,
+} from '../github-publishing-tool.js';
+import { realpathSync } from 'node:fs';
+vi.mock('node:fs', async (original) => {
+  const actual = await original<typeof import('node:fs')>();
+  return { ...actual, realpathSync: vi.fn(actual.realpathSync) };
+});
 vi.mock('node:fs/promises', async (original) => {
   const actual = await original<typeof import('node:fs/promises')>();
   return { ...actual, readdir: vi.fn(actual.readdir) };
@@ -26,8 +34,8 @@ const roots: string[] = [];
 afterEach(async () => {
   await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true })));
 });
-async function fixture() {
-  const root = await realpath(await mkdtemp(join(tmpdir(), 'mitzo-host-publish-')));
+async function fixture(parent = tmpdir()) {
+  const root = await realpath(await mkdtemp(join(parent, 'mitzo-host-publish-')));
   roots.push(root);
   const git = (...args: string[]) =>
     execFileSync(
@@ -43,7 +51,14 @@ async function fixture() {
         'commit.gpgsign=false',
         ...args,
       ],
-      { encoding: 'utf8' },
+      {
+        encoding: 'utf8',
+        env: {
+          ...process.env,
+          GIT_AUTHOR_DATE: '2026-01-01T00:00:00Z',
+          GIT_COMMITTER_DATE: '2026-01-01T00:00:00Z',
+        },
+      },
     ).trim();
   git('init', '-b', 'main');
   await writeFile(join(root, 'note.txt'), 'base');
@@ -101,13 +116,26 @@ it('inspects and exports committed host work without network or credentials', as
   );
   f.git('update-ref', '-d', 'refs/remotes/origin/main');
   await writeFile(join(f.root, '.git/shallow'), baseOid + '\n');
-  const source = hostGithubPublishingSource({ cwd: f.root }, [], {
+  const expiredSource = join(f.root, 'released-acquisition', '.git');
+  // The completed standalone task has its own Git directory; source acquisition
+  // storage may already be gone. The real stale-root failure is undefined here.
+  expect(hostGithubPublishingSource({ cwd: f.root }, [expiredSource])).toBeUndefined();
+  const configured = join(f.root, '.git');
+  const storage = githubPublishingGitStorageRoots(
+    { cwd: f.root },
+    { directory: f.root, taskIdentity: { localSource: { commonDirectory: expiredSource } } },
+    [configured, configured],
+  );
+  vi.mocked(realpathSync).mockClear();
+  const source = hostGithubPublishingSource({ cwd: f.root }, storage, {
     directory: f.root,
     connectionId: 'local',
     repository: 'local/source-id',
     baseBranch: 'main',
     baseOid,
   });
+  expect(source).toHaveProperty('gitStorageRoots', [configured]);
+  expect(vi.mocked(realpathSync).mock.calls.map(([path]) => path)).toEqual([f.root, configured]);
   const preparedInput = { ...f.input, ...source };
   expect(source).toHaveProperty('preparedBase.baseOid', baseOid);
   expect(source!.preparedBase).not.toHaveProperty('repository');
@@ -158,6 +186,56 @@ it('inspects and exports committed host work without network or credentials', as
     }),
   ).rejects.toThrow();
 });
+it('scopes a prepared base to its own repository when publishing a nested checkout', async () => {
+  const outer = await fixture();
+  const nested = await fixture(outer.root);
+  outer.git('remote', 'set-url', 'origin', 'https://github.com/example/outer.git');
+  const source = hostGithubPublishingSource({ cwd: outer.root }, [], {
+    directory: outer.root,
+    connectionId: 'github',
+    repository: 'example/outer',
+    baseBranch: 'main',
+    // Use an actual ancestor of both repositories. A missing nested tracking ref
+    // must still fail rather than silently borrowing the outer acquisition OID.
+    baseOid: outer.git('rev-parse', 'origin/main'),
+  })!;
+  const input = { ...nested.input, ...source };
+  expect(source.preparedBase!.baseOid).toBe(nested.git('rev-parse', 'origin/main'));
+  expect(await resolveHostGithubRepository(input)).toBe('example/repo');
+  const inspected = await inspectHostGithubRepository(input);
+  expect(inspected).toMatchObject({
+    canonicalRepositoryPath: nested.root,
+    sourceBranch: 'feature',
+    commitsAhead: 1,
+    changedFiles: ['note.txt'],
+  });
+  const exportInput = {
+    ...input,
+    sourceBranch: 'feature',
+    sourceOid: inspected.sourceOid,
+    maxBytes: 1024 * 1024,
+  };
+  await expect(
+    inspectHostGithubRepository({
+      ...input,
+      preparedBase: {
+        ...source.preparedBase!,
+        repositoryPath: nested.root,
+        repository: 'example/repo',
+      },
+    }),
+  ).rejects.toThrow('Prepared publishing base does not match');
+  expect((await exportHostGithubBundle(exportInput)).toString('utf8', 0, 16)).toContain(
+    'git bundle',
+  );
+  nested.git('update-ref', '-d', 'refs/remotes/origin/main');
+  await expect(inspectHostGithubRepository(input)).rejects.toThrow(
+    'Publishing base branch is unavailable',
+  );
+  await expect(exportHostGithubBundle(exportInput)).rejects.toThrow(
+    'Publishing base branch is unavailable',
+  );
+});
 it('rejects path escape and symlinked Git storage before reading it', async () => {
   const f = await fixture();
   const outside = await fixture();
@@ -177,9 +255,39 @@ it('permits registered host worktree storage and rejects unregistered storage', 
   f.git('worktree', 'add', '-b', 'worktree-feature', worktree, 'feature');
   const input = { ...f.input, workspace: worktree, repositoryPath: worktree };
   await expect(inspectHostGithubRepository(input)).rejects.toThrow();
+  const task = {
+    linkedGit: { directory: worktree },
+    localSource: { commonDirectory: join(f.root, '.git') },
+  };
+  const source = hostGithubPublishingSource(
+    { cwd: worktree },
+    githubPublishingGitStorageRoots({ cwd: worktree }, { directory: worktree, taskIdentity: task }),
+  );
+  expect(await inspectHostGithubRepository({ ...input, ...source })).toMatchObject({
+    sourceBranch: 'worktree-feature',
+    commitsAhead: 1,
+  });
   expect(
-    await inspectHostGithubRepository({ ...input, gitStorageRoots: [join(f.root, '.git')] }),
-  ).toMatchObject({ sourceBranch: 'worktree-feature', commitsAhead: 1 });
+    hostGithubPublishingSource(
+      { cwd: worktree },
+      githubPublishingGitStorageRoots(
+        { cwd: worktree },
+        {
+          directory: worktree,
+          taskIdentity: {
+            ...task,
+            localSource: { commonDirectory: join(f.root, 'missing-shared-storage') },
+          },
+        },
+      ),
+    ),
+  ).toBeUndefined();
+  expect(
+    githubPublishingGitStorageRoots(
+      { cwd: worktree },
+      { directory: '/foreign-workspace', taskIdentity: task },
+    ),
+  ).toEqual([]);
 });
 
 it('rejects symlinked objects and alternate object storage', async () => {

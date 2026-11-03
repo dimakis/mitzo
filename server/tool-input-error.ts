@@ -1,3 +1,4 @@
+import { retainCallbackOutcome } from './turn-callbacks.js';
 import { z } from 'zod';
 
 type Schema = {
@@ -52,8 +53,11 @@ export function toolInputError(label: string, schema: z.ZodType, error: z.ZodErr
     }
     return `${field || 'input'}: ${constraint}.`;
   });
-  return {
-    content: `Invalid ${label}. ${issues.join(' ')} ${definition.description ?? ''} Correct the fields and retry; this request was not executed.`,
-    isError: true,
-  };
+  return retainCallbackOutcome(
+    {
+      content: `Invalid ${label}. ${issues.join(' ')} ${definition.description ?? ''} Correct the fields and retry; this request was not executed.`,
+      isError: true,
+    },
+    'settled',
+  );
 }

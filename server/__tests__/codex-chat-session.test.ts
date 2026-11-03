@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { callbackOutcome } from '../turn-callbacks.js';
 import { AdviserTaskScope } from '../adviser-task-scope.js';
 import { retainTelosWorkRoleContext } from '../telos-work-role-context.js';
 import { buildAgentProfilePrompt } from '../agent-library-prompt.js';
@@ -1127,10 +1128,10 @@ it('advertises reviewed per-chat provider grants to a managed OpenShell runtime'
     );
     expect(mocks.conversationOptions?.systemPrompt).toContain('GrantIntegrationAccess');
     expect(mocks.conversationOptions?.systemPrompt).toContain(
-      'Use RequestGithubPublish to publish committed local changes',
+      'the publication route for runtimes without authorized native GitHub tools',
     );
     expect(mocks.conversationOptions?.systemPrompt).toContain(
-      'Do not substitute direct git push or gh API writes after denial',
+      'do not run both or bypass a policy or authorization denial',
     );
     const adoptionEvidence = {
       storeId: 'notes',
@@ -1695,7 +1696,9 @@ it('preserves image attachments while binding a trusted capability, forcing appr
       item.name.startsWith('Capability_github_publish_pr'),
     );
     expect(tool).toBeDefined();
-    expect(mocks.conversationOptions?.systemPrompt).toContain('Use RequestGithubPublish');
+    expect(mocks.conversationOptions?.systemPrompt).toContain(
+      'RequestGithubPublish is the managed alternative',
+    );
     expect(mocks.conversationOptions?.systemPrompt).not.toContain(
       'GitHub publishing is unavailable',
     );
@@ -3810,7 +3813,7 @@ it('qualifies owned native, MCP, profile and publishing tools and rejects other 
       execute(
         'RequestGithubPublish',
         {
-          repositoryPath: f.opts.session.cwd,
+          repositoryPath: realpathSync(f.opts.session.cwd!),
           baseBranch: 'main',
           title: 'Owned work',
           body: 'Review',
@@ -3830,7 +3833,7 @@ it('qualifies owned native, MCP, profile and publishing tools and rejects other 
           baseOid: 'a'.repeat(40),
         },
       }),
-      f.opts.session.cwd,
+      realpathSync(f.opts.session.cwd!),
       'main',
       expect.any(AbortSignal),
     );
@@ -5747,6 +5750,7 @@ it('composes explicitly selected native artifacts and task MCP on the same owned
   f.opts.mcpServers = { 'task-board': taskConfig, ambient: { command: 'unselected-peer' } };
   const taskCall = vi.fn(async ({ name }: { name: string }) => ({
     content: [{ type: 'text', text: `original ${name} receipt` }],
+    isError: false,
   }));
   const taskClose = vi.fn(async () => {});
   const connect = vi.fn(async (config: unknown) => {
@@ -5850,18 +5854,32 @@ it('composes explicitly selected native artifacts and task MCP on the same owned
     const status = await describeTask('TaskStatus');
     taskCall.mockClear();
     mocks.permissionHandler.mockResolvedValueOnce({ behavior: 'deny', message: 'Denied' });
-    expect(
-      await execute(
-        'InvokeIntegrationTool',
-        { toolId: status.toolId, catalogRevision: status.catalogRevision, arguments: {} },
-        new AbortController().signal,
-        {
-          turnId: 'original-turn',
-          callId: 'denied',
-        },
-      ),
-    ).toMatchObject({ isError: true });
+    const denied = await execute(
+      'InvokeIntegrationTool',
+      { toolId: status.toolId, catalogRevision: status.catalogRevision, arguments: {} },
+      new AbortController().signal,
+      {
+        turnId: 'original-turn',
+        callId: 'denied',
+      },
+    );
+    expect(denied).toMatchObject({ isError: true });
+    expect(callbackOutcome(denied)).toBe('settled');
     expect(taskCall).not.toHaveBeenCalled();
+    taskCall.mockResolvedValueOnce({
+      content: [{ type: 'text', text: 'Task status unavailable' }],
+      isError: true,
+    });
+    const failedRead = await execute(
+      'InvokeIntegrationTool',
+      { toolId: status.toolId, catalogRevision: status.catalogRevision, arguments: {} },
+      new AbortController().signal,
+      { turnId: 'original-turn', callId: 'failed-status' },
+    );
+    expect(failedRead).toMatchObject({ isError: true });
+    expect(callbackOutcome(failedRead)).toBe('settled');
+    expect(taskCall).toHaveBeenCalledOnce();
+    taskCall.mockClear();
     await expect(
       execute('mcp__task-board__TaskBlock', {}, new AbortController().signal, {
         turnId: 'original-turn',

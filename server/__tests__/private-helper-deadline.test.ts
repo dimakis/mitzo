@@ -109,7 +109,7 @@ it('narrows the real parent timer and joins a synthetic detached child without r
   await expect(executePrivateNativeFileHelper(input)).rejects.toThrow();
   expect(kill).toHaveBeenCalledTimes(2);
   expect(joined).toBe(true);
-  expect(checks).toBe(3);
+  expect(checks).toBe(2);
   const delays = timer.mock.calls
     .map((call) => call[1])
     .filter((n): n is number => typeof n === 'number');
@@ -147,14 +147,14 @@ it('consumes the same deadline during the full pre-spawn gate and refuses before
   let checks = 0;
   input.revalidate = async function () {
     expect(this).toBe(input);
-    if (++checks === 2) await new Promise((resolve) => setTimeout(resolve, 160));
+    if (++checks === 1) await new Promise((resolve) => setTimeout(resolve, 160));
   };
   await expect(executePrivateNativeFileHelper(input)).rejects.toThrow();
   expect(spawn).not.toHaveBeenCalled();
-  expect(checks).toBe(3);
+  expect(checks).toBe(2);
 });
 
-it.each(['current', 'expired', 'revoked'] as const)(
+it.each(['current', 'expired', 'revoked', 'scope-revoked'] as const)(
   'joins an exit-zero worker and preserves the post-worker %s owner gate',
   async (mode) => {
     let now = Date.now();
@@ -162,10 +162,17 @@ it.each(['current', 'expired', 'revoked'] as const)(
     vi.spyOn(Date, 'now').mockImplementation(() => now);
     let checks = 0;
     let joined = false;
+    input.assertCurrentSync = function () {
+      expect(this).toBe(input);
+      if (joined && mode === 'scope-revoked') throw Error('Original scope revoked');
+    };
     input.revalidate = async function () {
       expect(this).toBe(input);
-      if (++checks === 3) {
-        expect(joined).toBe(true);
+      checks++;
+      // Account for a slow but valid physical proof without rebasing the30s
+      // helper window. A duplicate setup proof would exhaust it.
+      now += 10_000;
+      if (joined) {
         if (mode === 'expired') now = input.deadline + 1;
         if (mode === 'revoked') throw Error('synthetic owner revoked');
       }
@@ -188,14 +195,16 @@ it.each(['current', 'expired', 'revoked'] as const)(
     const running = observePrivateHelperBoundary(input, executePrivateNativeFileHelper, rows);
     if (mode === 'current') await expect(running).resolves.toBeDefined();
     else await expect(running).rejects.toThrow('Private native file helper unavailable');
-    expect(checks).toBe(3);
+    expect(checks).toBe(mode === 'scope-revoked' ? 1 : 2);
     expect(joined).toBe(true);
     const report = rows[0] as {
       remainingMs: number;
       gates: Array<{ kind: string; status: string }>;
     };
     expect(report.gates.filter((gate) => gate.kind === 'async').map((gate) => gate.status)).toEqual(
-      ['returned', 'returned', mode === 'revoked' ? 'rejected' : 'returned'],
+      mode === 'scope-revoked'
+        ? ['returned']
+        : ['returned', mode === 'revoked' ? 'rejected' : 'returned'],
     );
     expect(report.remainingMs > 0).toBe(mode !== 'expired');
   },

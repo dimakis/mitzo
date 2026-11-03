@@ -1,3 +1,4 @@
+import { isReadOnlyBuiltinToolCall } from './builtin-tool-behavior.js';
 import { createHash } from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
 import { z } from 'zod';
@@ -5,7 +6,13 @@ import type { CodexNativeTurnTarget } from './codex-conversation-store.js';
 import { SessionRuntimeError } from './session-runtime-error.js';
 import { CodexNativeFileChange } from './codex-native-file-change.js';
 
-type HostCall = Readonly<{ callId: string; toolName: string; requestHash: string }>;
+type HostCall = Readonly<{
+  callId: string;
+  toolName: string;
+  requestHash: string;
+  isError: boolean;
+  readOnly: boolean;
+}>;
 /** Process-local evidence from a fresh native RPC, never a JSON recovery grant. */
 export type SettledInterruptedEffects = Readonly<{ readonly nativeEffects: unique symbol }>;
 const observations = new WeakMap<
@@ -114,8 +121,23 @@ export async function observeNativeRecoveryTurn(
           // patches can be partial and must retain their original uncertainty.
           AppliedFileChanges.parse(item);
           break;
+        case 'webSearch':
+        case 'imageView':
+          // Native reads have no mutation to replay. The pinned item contract
+          // has no required status; preserve any explicit nonterminal refusal.
+          z.object({
+            status: z.enum(['completed', 'failed']).optional(),
+            ...(item.type === 'webSearch' ? { query: z.string() } : { path: z.string().min(1) }),
+          }).parse(item);
+          break;
         case 'dynamicToolCall': {
-          if (item.status !== 'completed' || item.success !== true || item.namespace != null)
+          if (
+            item.namespace != null ||
+            !(
+              (item.status === 'completed' && item.success === true) ||
+              (item.status === 'failed' && item.success === false)
+            )
+          )
             throw Error('Interrupted host tool effects remain unknown');
           const toolName = z.string().min(1).parse(item.tool);
           const args = z.record(z.string(), z.unknown()).parse(item.arguments);
@@ -123,6 +145,8 @@ export async function observeNativeRecoveryTurn(
             callId: item.id,
             toolName,
             requestHash: createHash('sha256').update(JSON.stringify(args)).digest('hex'),
+            isError: !item.success,
+            readOnly: isReadOnlyBuiltinToolCall(toolName, args),
           });
           break;
         }

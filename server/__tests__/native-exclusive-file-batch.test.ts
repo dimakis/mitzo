@@ -106,13 +106,13 @@ const actual = it.runIf(
   process.platform === 'darwin' && process.env.MITZO_SANDBOX_INTEGRATION === '1',
 );
 actual(
-  'publishes six exact files with one launch and three original full-owner checks',
+  'publishes six exact files with one launch and two original full-owner checks',
   async () => {
     const input = await fixture(),
       revalidate = vi.fn(async () => {});
     const { result, launches } = await run(input, { assertCurrentSync() {}, revalidate });
     expect(launches).toHaveBeenCalledOnce();
-    expect(revalidate).toHaveBeenCalledTimes(3);
+    expect(revalidate).toHaveBeenCalledTimes(2);
     expect(result).toHaveLength(6);
     for (let n = 0; n < 6; n++) {
       expect(await readFile(input.items[n].file_path)).toEqual(Buffer.from('fixed ' + n + '\n'));
@@ -225,7 +225,7 @@ it('withholds batch effects from the legacy direct host dispatcher', async () =>
   ).rejects.toThrow('Private helper transport unavailable');
 });
 
-actual.each([1, 2, 3])(
+actual.each([1, 2])(
   'retains original full-owner refusal at batch gate %s without replay',
   async (gate) => {
     const input = await fixture();
@@ -238,12 +238,12 @@ actual.each([1, 2, 3])(
         },
       }),
     ).rejects.toThrow();
-    expect(count).toBe(gate === 1 ? 1 : 3);
+    expect(count).toBe(2); // Pre-worker refusal still joins its final proof.
     for (const item of input.items) {
-      if (gate < 3) await expect(lstat(item.file_path)).rejects.toMatchObject({ code: 'ENOENT' });
+      if (gate === 1) await expect(lstat(item.file_path)).rejects.toMatchObject({ code: 'ENOENT' });
       else expect(await readFile(item.file_path)).toEqual(await readFile(item.payload.file_path));
     }
-    if (gate === 3) await expect(run(input)).rejects.toThrow();
+    if (gate === 2) await expect(run(input)).rejects.toThrow();
   },
   30000,
 );

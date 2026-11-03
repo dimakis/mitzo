@@ -263,18 +263,20 @@ export async function inspectHostGithubRepository(
 }
 /** Prepared tasks deliberately own only their feature ref. Use their verified
  * acquisition OID for both inspection and export; never guess from HEAD or
- * fetch/mutate an active task just to reconstruct a missing tracking ref. */
+ * fetch/mutate an active task just to reconstruct a missing tracking ref.
+ * A separate repository inside the workspace must resolve its own base. */
 async function publicationBase(source: Source, originUrl?: string): Promise<string> {
-  const selected = source.preparedBase;
+  const retained = source.preparedBase;
+  const selected = retained?.repositoryPath === source.repositoryPath ? retained : undefined;
   if (
-    selected &&
-    (selected.repositoryPath !== source.repositoryPath ||
-      !/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/.test(selected.baseOid) ||
-      (selected.repository !== undefined &&
-        githubRepositoryFromOrigin(
-          originUrl ??
-            (await git(source, ['remote', 'get-url', 'origin'])).stdout.toString('utf8').trim(),
-        ) !== selected.repository))
+    (retained && retained.repositoryPath !== source.workspace) ||
+    (selected &&
+      (!/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/.test(selected.baseOid) ||
+        (selected.repository !== undefined &&
+          githubRepositoryFromOrigin(
+            originUrl ??
+              (await git(source, ['remote', 'get-url', 'origin'])).stdout.toString('utf8').trim(),
+          ) !== selected.repository)))
   )
     throw new GithubPublicationValidationError(
       'Prepared publishing base does not match the selected repository',

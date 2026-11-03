@@ -1,3 +1,4 @@
+import { callbackOutcome } from '../turn-callbacks.js';
 import { execFileSync } from 'node:child_process';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
@@ -1102,16 +1103,18 @@ describe('native tool execution through session permissions', () => {
     }
   });
   it('rejects malformed, unknown and already cancelled calls', async () => {
-    expect(await executor()(call('Write', { file_path: 'bad' }), abort.signal)).toMatchObject({
-      is_error: true,
-    });
-    expect(await executor()(call('mcp__missing__tool', {}), abort.signal)).toMatchObject({
-      is_error: true,
-    });
+    for (const block of [call('Write', { file_path: 'bad' }), call('mcp__missing__tool', {})]) {
+      const result = await executor()(block, abort.signal);
+      expect(result).toMatchObject({ is_error: true });
+      expect(callbackOutcome(result)).toBe('settled');
+    }
     abort.abort();
-    expect(
-      await executor()(call('Write', { file_path: 'bad', content: 'no' }), abort.signal),
-    ).toMatchObject({ is_error: true });
+    const cancelled = await executor()(
+      call('Write', { file_path: 'bad', content: 'no' }),
+      abort.signal,
+    );
+    expect(cancelled).toMatchObject({ is_error: true });
+    expect(callbackOutcome(cancelled)).toBe('unknown');
     await expect(readFile(join(root, 'worktree/bad'))).rejects.toThrow();
   });
   it('preserves ask mode read-only behavior without relying on SDK plan mode', async () => {

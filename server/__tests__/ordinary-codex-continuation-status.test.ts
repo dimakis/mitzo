@@ -13,6 +13,8 @@ const f = vi.hoisted(() => ({
   profiles: undefined as unknown,
   resume: vi.fn(),
   uncertain: false,
+  untransferred: vi.fn(() => false),
+  custody: 'original' as string | undefined,
   openshell: undefined as unknown,
   openshellResume: vi.fn(),
   continuationTarget: vi.fn(),
@@ -20,9 +22,13 @@ const f = vi.hoisted(() => ({
 }));
 vi.mock('../codex-chat-session.js', () => ({
   getCodexConversationStore: () => ({
-    readHostCustody: () => ({ authSessionId: 'original' }),
+    readHostCustody: () => ({ authSessionId: f.custody }),
     continuationBlocker: () => f.blocker,
   }),
+}));
+vi.mock('../repository-workspace-runtime.js', () => ({ getRepositoryWorkspaces: () => ({}) }));
+vi.mock('../owned-prepared-repository-transition.js', () => ({
+  canResumeUntransferredPreparedRepository: f.untransferred,
 }));
 vi.mock('../chat.js', () => ({
   eventStore: {
@@ -58,6 +64,8 @@ afterEach(() => vi.unstubAllEnvs());
 function setup() {
   f.blocker = undefined;
   f.uncertain = false;
+  f.untransferred.mockReset().mockReturnValue(false);
+  f.custody = 'original';
   vi.stubEnv('MITZO_ORDINARY_LOCAL_CODEX_ENABLED', '1');
   f.profiles = new AccountProfiles(
     [
@@ -93,7 +101,10 @@ function setup() {
   });
   if (result.status !== 'compatible') throw Error('fixture');
   f.binding = result.binding;
-  f.session = { mode: 'agent' };
+  f.session = {
+    mode: 'agent',
+    accountBinding: (f.profiles as AccountProfiles).resolve('personal', 'offline'),
+  };
   f.live = undefined;
   f.resume.mockReset().mockReturnValue(false);
 }
@@ -165,6 +176,37 @@ it('explains an unresolved dispatch without enabling a replacement command', () 
     reason: expect.stringContaining('unconfirmed dispatch'),
   });
   expect(f.resume).not.toHaveBeenCalled();
+});
+
+it('offers a fresh cold resume for the exact untransferred repository reservation without clearing it', () => {
+  setup();
+  f.uncertain = true;
+  f.untransferred.mockReturnValue(true);
+  f.resume.mockReturnValue(true);
+  expect(ordinaryCodexContinuationStatus('conversation', 'original')).toEqual({ available: true });
+  expect(f.untransferred).toHaveBeenCalledOnce();
+  expect(f.uncertain).toBe(true);
+  f.blocker = { commandId: 'source', kind: 'tool_effects' };
+  expect(ordinaryCodexContinuationStatus('conversation', 'original')).toMatchObject({
+    available: false,
+    reason: expect.stringContaining('unresolved tool or completion effects'),
+  });
+  f.blocker = undefined;
+  vi.stubEnv('MITZO_ORDINARY_LOCAL_CODEX_ENABLED', '0');
+  expect(ordinaryCodexContinuationStatus('conversation', 'original')).toMatchObject({
+    available: false,
+    reason: expect.stringContaining('not enabled'),
+  });
+});
+it('does not inspect a prepared reservation for a foreign login or live owner', () => {
+  setup();
+  f.uncertain = true;
+  f.untransferred.mockReturnValue(true);
+  expect(ordinaryCodexContinuationStatus('conversation', 'foreign').available).toBe(false);
+  expect(f.untransferred).not.toHaveBeenCalled();
+  f.live = { session: { ordinaryRuntimeOwner: { location: 'local', authSessionId: 'original' } } };
+  expect(ordinaryCodexContinuationStatus('conversation', 'original').available).toBe(false);
+  expect(f.untransferred).not.toHaveBeenCalled();
 });
 
 it('offers continuation for an upgraded OpenShell chat only through the original native custody', async () => {

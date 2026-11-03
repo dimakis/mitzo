@@ -2,7 +2,6 @@ import { retainedNativeHostToolOperator } from './native-host-tool-operator.js';
 import { isAuthSessionCurrent } from './auth.js';
 import { githubRepositoryConnections } from './github-repository-connections.js';
 import { GITHUB_PR_DESCRIPTION_MAX_LENGTH } from './github-publication-approval.js';
-import { realpathSync } from 'node:fs';
 import { createHash, randomUUID } from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
 import { z } from 'zod';
@@ -31,6 +30,8 @@ import {
 } from './capability-conversation-binding.js';
 import { capabilityApprovalForConversation } from './connections/capabilities/approval.js';
 import { canonicalJson } from './connections/capabilities/input-validation.js';
+import { canonicalRepositoryPath } from './connections/capabilities/github-publish-pr.js';
+import { GithubPublicationValidationError } from './github-publication-preflight.js';
 import { captureAgentLibraryAuthorization } from './agent-library-transport.js';
 import { ordinaryOperatorOwnsConversation } from './ordinary-operator-identity.js';
 import type {
@@ -256,11 +257,11 @@ const Input = z.object(GithubPublishingFields).strict();
 export const githubPublishingDefinition: ToolDefinition = {
   name: REQUEST_GITHUB_PUBLISH,
   description:
-    'Publish committed workspace changes to a GitHub feature branch and create or update its pull request after publication authorization. This tool performs no AI code review and does not require a review model. Mitzo resolves the repository and configured GitHub connection for this session account; credentials remain on the controller. Supply the absolute repository path in the current workspace, base branch, title, body and draft choice; do not use direct GitHub writes.',
+    'Publish committed workspace changes to a GitHub feature branch and create or update its pull request after publication authorization. This tool performs no AI code review and does not require a review model. Mitzo resolves the repository and configured GitHub connection for this session account; credentials remain on the controller. Supply the absolute repository path in the current workspace, base branch, title, body and draft choice. Native Local Mac git/gh publication under its existing approvals is also supported; this managed tool does not adopt another workspace.',
   input_schema: z.toJSONSchema(Input),
 };
 export const GITHUB_PUBLISHING_INSTRUCTIONS =
-  '\nUse RequestGithubPublish to publish committed local changes to a GitHub feature branch and pull request. Staged, unstaged and untracked files stay in the workspace and are not published; do not move, stash or delete them to publish existing commits. PR creation and updates require no AI code review or review-model selection. Code review, CI and merge approval happen through the normal PR workflow; opening a PR does not authorize merging or deployment. Preserve a failed or pending result without claiming publication succeeded. Prefer a draft PR unless the user requested a ready PR. This tool is available across account runtimes and resolves access for the current AI account; a provider being read-only does not mean this approval-backed tool is unavailable. If a managed GitHub connection is missing, explain the returned setup requirement and preserve the local commit. Do not substitute direct git push or gh API writes after denial.\n';
+  '\nFor Local Mac native development, prefer native git/gh for branch and PR publication through the existing filesystem and network approvals. Honor the user-selected repository and destination; when the user requests the CLI, use it directly. RequestGithubPublish is the managed alternative, and the publication route for runtimes without authorized native GitHub tools; it requires the repository to be inside the admitted chat workspace. Choose one authorized route before mutation; do not run both or bypass a policy or authorization denial. An uncertain write requires read-only inspection of the existing branch/PR before any repeat mutation. Reuse unchanged local metadata and successful receipts; keep fresh authorization at mutation and delivery boundaries. Publish only the selected committed work and preserve staged, unstaged and untracked files. PR creation needs no AI code review or review-model selection; normal code review and CI follow publication. Prefer a draft unless requested otherwise. Opening a PR does not authorize merging or deployment. Preserve failed/pending results without claiming success.\n';
 export type GithubPublishingSource =
   | {
       runtime: 'host';
@@ -327,11 +328,43 @@ export function createGithubPublishingTool(
           content: 'Session permissions changed; retry the publishing request',
           isError: true,
         };
-      if (!sourceIdentity || !runtime.resolveGithubPublishingRepository)
+      if (!sourceIdentity)
         return {
-          content: 'The live repository cannot be resolved; reconnect before publishing',
+          content: JSON.stringify({
+            code: 'GITHUB_PUBLICATION_SOURCE_UNAVAILABLE',
+            message:
+              'The managed publisher could not capture the current workspace or required Git storage. Check the retained workspace and storage before retrying. Local commits are preserved.',
+            operationRecorded: false,
+          }),
           isError: true,
         };
+      if (!runtime.resolveGithubPublishingRepository)
+        return {
+          content: JSON.stringify({
+            code: 'GITHUB_PUBLICATION_RUNTIME_UNAVAILABLE',
+            message: 'The managed GitHub publisher is unavailable for this runtime.',
+            operationRecorded: false,
+          }),
+          isError: true,
+        };
+      try {
+        canonicalRepositoryPath(sourceIdentity.workspace, parsed.data.repositoryPath);
+      } catch (error) {
+        if (
+          !(error instanceof GithubPublicationValidationError) ||
+          error.message !== 'Repository path escapes workspace'
+        )
+          throw error;
+        return {
+          content: JSON.stringify({
+            code: 'GITHUB_PUBLICATION_WORKSPACE_MISMATCH',
+            message:
+              'This repository is outside the admitted workspace for managed publication. In a Local Mac native chat, use native git/gh with its existing filesystem and network approvals, or complete a managed workspace handoff first.',
+            operationRecorded: false,
+          }),
+          isError: true,
+        };
+      }
       stage = 'repository_resolution';
       const repository = await runtime.resolveGithubPublishingRepository(
         sourceIdentity,
@@ -666,36 +699,7 @@ export function createGithubPublishingTool(
   });
 }
 
-/** Caller supplies configured Git storage roots from host setup, never tool arguments. */
-export function hostGithubPublishingSource(
-  session: { cwd?: string },
-  gitStorageRoots: readonly string[] = [],
-  prepared?: {
-    directory?: string;
-    repository: string;
-    baseBranch: string;
-    baseOid: string;
-    connectionId?: string;
-  },
-): Extract<GithubPublishingSource, { runtime: 'host' }> | undefined {
-  try {
-    if (!session.cwd) return undefined;
-    return {
-      runtime: 'host',
-      workspace: realpathSync(session.cwd),
-      gitStorageRoots: gitStorageRoots.map((root) => realpathSync(root)),
-      ...(prepared?.directory === session.cwd
-        ? {
-            preparedBase: {
-              repositoryPath: realpathSync(session.cwd),
-              ...(prepared.connectionId === 'local' ? {} : { repository: prepared.repository }),
-              baseBranch: prepared.baseBranch,
-              baseOid: prepared.baseOid,
-            },
-          }
-        : {}),
-    };
-  } catch {
-    return undefined;
-  }
-}
+export {
+  hostGithubPublishingSource,
+  githubPublishingGitStorageRoots,
+} from './github-publishing-source.js';

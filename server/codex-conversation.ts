@@ -1,3 +1,4 @@
+import { isReadOnlyBuiltinToolCall } from './builtin-tool-behavior.js';
 import { observeNativeApprovalCheck } from './local-codex-observation.js';
 import {
   CodexSteerInputSchema,
@@ -3969,6 +3970,15 @@ export class CodexConversation {
       result = normalizeCodexToolResult(
         await this.opts.executeTool(call.tool, call.arguments, toolSignal, invocation),
       );
+      // Only a returned, reviewed read result can qualify a failed callback here.
+      // Explicit owner uncertainty, thrown exceptions and cancellation stay fenced.
+      if (
+        result.isError &&
+        !retainedCallbackOutcome(result) &&
+        !toolSignal.aborted &&
+        isReadOnlyBuiltinToolCall(call.tool, call.arguments)
+      )
+        retainCallbackOutcome(result, 'settled');
     } catch (error) {
       result = codexToolFailureResult(
         error,

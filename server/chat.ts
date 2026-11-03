@@ -1,4 +1,8 @@
 import {
+  reconcilableLocalCodexCommand,
+  retainedLocalCodexRecoveryReservation,
+} from './retained-local-codex-effects.js';
+import {
   assembleCommandPrompt,
   assembleReplyText,
   captureMessageReply,
@@ -113,6 +117,7 @@ import {
   createGithubPublishingTool,
   GITHUB_PUBLISHING_INSTRUCTIONS,
   hostGithubPublishingSource,
+  githubPublishingGitStorageRoots,
 } from './github-publishing-tool.js';
 import { localHttpBaseUrl, localServerUsesTls } from './local-server-url.js';
 import { telosArtifactInstructions } from './telos-artifact-tools.js';
@@ -3366,6 +3371,14 @@ export async function continueOwnedLocalCodexQueue(
   authorization: import('./auth.js').AuthSession | undefined,
   connectionId?: string,
 ) {
+  if (
+    process.env.MITZO_ORDINARY_LOCAL_CODEX_ENABLED !== '1' ||
+    !hasPersistentRevocationAuthority() ||
+    custodianControllerMode ||
+    custodianOwnerMode
+  )
+    throw Error('Original local Codex route unavailable');
+  resolveOwnedTelosWorkCommandScope(sessionId);
   if (!authorization || authorization.expiresAt <= Date.now() || !connectionId)
     throw Error('Original Codex operator required');
   const captured = captureAgentLibraryAuthorization(connectionId);
@@ -3386,42 +3399,72 @@ export async function continueOwnedLocalCodexQueue(
     binding.execution.location !== 'local'
   )
     throw Error('Original local Codex route required');
-  const commandId = recoverableLocalCodexCommand(
+  const native = getCodexConversationStore();
+  const undispatchedId = recoverableLocalCodexCommand(
     eventStore,
-    getCodexConversationStore(),
+    native,
     sessionId,
     authorization.id,
   );
-  if (!commandId) throw Error('Saved input has no safe undispatched recovery');
+  const effectsId =
+    !undispatchedId && !registry.findBySessionId(sessionId)
+      ? reconcilableLocalCodexCommand(eventStore, native, sessionId, authorization.id, () =>
+          meta.ordinaryWorkspaceId ? getOrdinaryWorkspaces(true) : getRepositoryWorkspaces(true),
+        )
+      : undefined;
+  const commandId = undispatchedId ?? effectsId;
+  if (!commandId) throw Error('Saved input has no qualified recovery');
   const workspaceKind = meta.ordinaryWorkspaceId ? 'ordinary' : 'repository';
   const workspace =
     workspaceKind === 'ordinary'
       ? getOrdinaryWorkspaces(true).getOrdinaryWorkspace(meta.ordinaryWorkspaceId!)
       : getRepositoryWorkspaces(true).get(meta.repositoryWorkspaceId!);
-  const taskRoot = workspace.hostReservation?.taskRoot;
-  if (!taskRoot) throw Error('Original task reservation unavailable');
-  const { request } = RetainedLocalCodexRecovery.captureSaved(
-    eventStore,
-    getCodexConversationStore(),
-    sessionId,
-    authorization.id,
-    commandId,
-  );
+  const reservation = retainedLocalCodexRecoveryReservation(meta, workspace, binding);
+  const request = undispatchedId
+    ? RetainedLocalCodexRecovery.captureSaved(
+        eventStore,
+        native,
+        sessionId,
+        authorization.id,
+        commandId,
+      ).request
+    : undefined;
   const release = reserveRepositoryStartup(sessionId);
   const preparation = new AbortController();
   const timer = setTimeout(() => preparation.abort(), 120000);
   try {
+    if (effectsId) {
+      const driver = new OrdinaryLocalCodexOwnedRuntime({
+        enabled: true,
+        eventStore,
+        library: getAgentLibrary(),
+        workspaceKind,
+        workspace:
+          workspaceKind === 'ordinary'
+            ? getOrdinaryWorkspaces(true)
+            : getRepositoryWorkspaces(true),
+        reservation,
+        commandId,
+        operatorConnectionId: connectionId,
+        signal: preparation.signal,
+        nativeStore: native,
+        dispatch: async () => {
+          throw Error('Reconciliation cannot dispatch input');
+        },
+      });
+      try {
+        await driver.reconcileRetainedEffects();
+      } finally {
+        driver.close();
+      }
+      captured.assertCurrent();
+      return;
+    }
     await startOwnedLocalCodexCommand(transport, `${connectionId}:${sessionId}`, {
       command: request,
       commandId,
       workspaceKind,
-      reservation: {
-        id: meta.ordinaryWorkspaceId ?? meta.repositoryWorkspaceId!,
-        conversationId: sessionId,
-        binding: meta.accountBinding,
-        taskRoot,
-        runtimeBinding: binding,
-      },
+      reservation,
       operatorConnectionId: connectionId,
       ownerConnectionId: connectionId,
       signal: preparation.signal,
@@ -4076,12 +4119,13 @@ export async function prepareOwnedCodexChat(
       eventStore,
       publishingGitStorageRoots: isOrdinaryWorkspace(workspace)
         ? undefined
-        : [
-            ...(workspace.localSource ? [workspace.localSource.commonDirectory] : []),
-            ...[BASE_REPO, ...Object.values(getRepoConfig().repos)]
+        : githubPublishingGitStorageRoots(
+            session,
+            workspace,
+            [BASE_REPO, ...Object.values(getRepoConfig().repos)]
               .filter(Boolean)
               .map((root) => join(root, '.git')),
-          ],
+          ),
     });
     resolveOwnedTelosWorkCommandScope(sessionId);
     if (closed || abortController.signal.aborted) {
@@ -6222,9 +6266,7 @@ export async function startOwnedLocalResponsesCommand(
         env,
         configuredSourceEnv: nativeExecutionEnv(),
         mcpServers: loadMcpServers(),
-        publishingGitStorageRoots: selected.workspace.taskIdentity?.localSource
-          ? [selected.workspace.taskIdentity.localSource.commonDirectory]
-          : [],
+        publishingGitStorageRoots: githubPublishingGitStorageRoots(session, selected.workspace),
       });
       owner.assertSetupSync(selected.commandId);
       session.queryInstance = query;

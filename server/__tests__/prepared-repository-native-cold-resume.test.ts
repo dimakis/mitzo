@@ -1,9 +1,14 @@
+import type Database from 'better-sqlite3';
 import {
   fixture,
   physical,
   cleanups,
   materializePreparation,
 } from './fixtures/prepared-repository-native-consumer.js';
+import { createHash } from 'node:crypto';
+import { composeOwnedLocalNativeExecutionPolicyForWorkspace } from '../owned-local-codex-native-policy.js';
+import { reconcilableLocalCodexCommand } from '../retained-local-codex-effects.js';
+
 import { bindAgentLibraryTransport } from '../agent-library-transport.js';
 import { expect, it, vi } from 'vitest';
 import { join } from 'node:path';
@@ -219,3 +224,133 @@ it.each([false, true])(
   },
   720000,
 );
+
+it('reconciles the interrupted automatic prepared continuation after restart without dispatching again', async () => {
+  const f = await fixture(false, 300000);
+  const target = (await f.adopt())!;
+  f.setCwd(target.directory);
+  const id = f.first.sessionId,
+    binding = f.first.lease.binding;
+  const command = f.native.claimNext(id, binding)!;
+  f.admission.assertBeforeDispatch(command.id);
+  const policy = composeOwnedLocalNativeExecutionPolicyForWorkspace(
+    {
+      binding,
+      assertCurrentSync: () => f.admission.assertCurrentSync(),
+    },
+    () => ({
+      cwd: target.directory,
+      workspaceRoots: [target.directory],
+      mode: 'agent',
+      authSessionId: f.auth.id,
+    }),
+  );
+  const thread = f.native.read(id, binding).threadId!;
+  f.native.prepareNativeExecution(id, binding, command, thread, policy);
+  f.native.recordNativeTurnAck(id, binding, command, thread, 'interrupted-continuation');
+  f.native.acceptNativeExecution(id, binding, command, thread, 'interrupted-continuation');
+  f.native.observeEmptyCompletionPhase(
+    id,
+    binding,
+    command,
+    thread,
+    'interrupted-continuation',
+    createHash('sha256').update(target.directory).digest('hex'),
+    policy.policyRevision,
+  );
+  f.native.pauseForRecovery(
+    id,
+    binding,
+    command.id,
+    'interrupted',
+    'resume',
+    undefined,
+    true,
+    true,
+  );
+  const eventsDb = (f.events as unknown as { db: Database.Database }).db;
+  const before = {
+    receipt: f.events.getOrdinaryLocalCommandExecutionAdmission(command.id),
+    command: f.native.commands(id, binding).find((item) => item.id === command.id)!,
+    custody: f.native.readHostCustody(id, binding),
+    sends: eventsDb.prepare('SELECT * FROM send_commands WHERE session_id=?').all(id),
+  };
+  const edited = join(target.directory, 'retained-jira-policy.txt');
+  await writeFile(edited, 'Uncommitted implementation remains');
+  f.runtime.close();
+  // Generic startup recovery must leave historical pre-adoption receipts to
+  // their original owner while the native effect fence is reconciled below.
+  expect(() => f.events.recoverPendingSendCommands()).not.toThrow();
+  expect(eventsDb.prepare('SELECT * FROM send_commands WHERE session_id=?').all(id)).toEqual(
+    before.sends,
+  );
+  const request = f.rpc.request.getMockImplementation()!;
+  const freshClient = {
+    ...f.rpc,
+    close: vi.fn(),
+    request: vi.fn(async (method: string, params?: Record<string, unknown>) => {
+      if (method === 'thread/turns/list')
+        return { data: [{ id: 'interrupted-continuation', status: 'interrupted', error: null }] };
+      if (method === 'thread/items/list') return { data: [], nextCursor: null };
+      return request(method, params);
+    }),
+  };
+  const dispatch = vi.fn();
+  const cold = new OrdinaryLocalCodexOwnedRuntime({
+    ...f.dependencies,
+    nativeStore: f.native,
+    commandId: command.id,
+    reservation: { ...f.reservation, id: target.id },
+    launch: () => freshClient,
+    dispatch,
+  });
+  cleanups.push(() => cold.close());
+  expect(reconcilableLocalCodexCommand(f.events, f.native, id, f.auth.id, f.workspace)).toBe(
+    command.id,
+  );
+  const claims = vi.spyOn(f.events, 'claimOrdinaryLocalCommandDispatch');
+  const originalAdmission = (
+    eventsDb
+      .prepare('SELECT ordinary_admission FROM send_commands WHERE client_msg_id=?')
+      .get(command.id) as { ordinary_admission: string }
+  ).ordinary_admission;
+  const inconsistent = JSON.parse(originalAdmission);
+  inconsistent.preparedRepositoryTransition.materializedRecordSha256 = 'f'.repeat(64);
+  eventsDb
+    .prepare('UPDATE send_commands SET ordinary_admission=? WHERE client_msg_id=?')
+    .run(JSON.stringify(inconsistent), command.id);
+  expect(
+    reconcilableLocalCodexCommand(f.events, f.native, id, f.auth.id, f.workspace),
+  ).toBeUndefined();
+  await expect(cold.reconcileRetainedEffects()).rejects.toThrow();
+  expect(f.native.read(id, binding).recovery).toBe(1);
+  expect(freshClient.request).not.toHaveBeenCalled();
+  eventsDb
+    .prepare('UPDATE send_commands SET ordinary_admission=? WHERE client_msg_id=?')
+    .run(originalAdmission, command.id);
+  await cold.reconcileRetainedEffects();
+  expect(f.native.read(id, binding).recovery).toBe(0);
+  expect(f.native.continuationBlocker(id, binding)).toBeUndefined();
+  expect(f.native.commands(id, binding).find((item) => item.id === command.id)).toMatchObject({
+    id: before.command.id,
+    status: before.command.status,
+    attempt: before.command.attempt,
+    prompt: before.command.prompt,
+    environmentContinuation: before.command.environmentContinuation,
+  });
+  expect(f.events.getOrdinaryLocalCommandExecutionAdmission(command.id)).toEqual(before.receipt);
+  expect(eventsDb.prepare('SELECT * FROM send_commands WHERE session_id=?').all(id)).toEqual(
+    before.sends,
+  );
+  expect(f.native.readHostCustody(id, binding)).toEqual(before.custody);
+  expect(await readFile(edited, 'utf8')).toBe('Uncommitted implementation remains');
+  expect(dispatch).not.toHaveBeenCalled();
+  expect(claims).not.toHaveBeenCalled();
+  expect(
+    freshClient.request.mock.calls.some(([method]) =>
+      ['thread/start', 'thread/resume', 'turn/start'].includes(method),
+    ),
+  ).toBe(false);
+  expect(physical.reader).toHaveBeenCalled();
+  expect(freshClient.close).toHaveBeenCalled();
+});

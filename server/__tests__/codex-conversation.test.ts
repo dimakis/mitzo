@@ -1,3 +1,4 @@
+import { retainCallbackOutcome } from '../turn-callbacks.js';
 import { createIntegrationToolDiscovery } from '../integration-tool-discovery.js';
 import { webAccessDefinition } from '../request-web-access.js';
 import { summarizeToolInput } from '@mitzo/protocol';
@@ -8424,8 +8425,31 @@ async function nativeRecoveryFixture(
   retirement: 'transport' | 'stop' = 'transport',
   settledHostTool = false,
   nativeExecution?: CodexConversationOptions['nativeExecution'],
+  hostFailure?: 'failed-read' | 'settled-refusal',
 ) {
   const old = await setupTerminalTransport();
+  const toolName =
+    hostFailure === 'settled-refusal' ? 'Write' : hostFailure ? 'RequestWebAccess' : 'Read';
+  const arguments_ =
+    hostFailure && hostFailure !== 'settled-refusal'
+      ? {
+          operation: 'fetch',
+          url: 'http://localhost:16686/api/v3/traces',
+          reason: 'Inspect traces',
+        }
+      : {};
+  if (hostFailure) {
+    old.conversationOptions.tools = [
+      ...old.conversationOptions.tools,
+      toolName === 'RequestWebAccess'
+        ? webAccessDefinition
+        : { name: toolName, description: 'offline mutation', input_schema: { type: 'object' } },
+    ];
+    const failure = { content: 'Read returned HTTP 404', isError: true };
+    old.execute.mockResolvedValue(
+      hostFailure === 'settled-refusal' ? retainCallbackOutcome(failure, 'settled') : failure,
+    );
+  }
   if (nativeExecution)
     Object.assign(old.conversationOptions, {
       nativeExecution,
@@ -8441,8 +8465,8 @@ async function nativeRecoveryFixture(
         threadId: old.getProviderThread(),
         turnId: 'turn-1',
         callId: 'settled-read',
-        tool: 'Read',
-        arguments: {},
+        tool: toolName,
+        arguments: arguments_,
       },
       new AbortController().signal,
     );
@@ -8453,7 +8477,7 @@ async function nativeRecoveryFixture(
     );
   const restored = await setupTerminalTransport(old.store);
   const request = restored.rpc.request.getMockImplementation()!;
-  return { old, restored, request };
+  return { old, restored, request, toolName, arguments_ };
 }
 
 it('recovers completed retained results without hydrating their oversized native payload', async () => {
@@ -8495,7 +8519,9 @@ function nativeDevelopmentItems() {
 
 it.each(
   (['stop', 'transport'] as const).flatMap((retirement) =>
-    (['none', 'native-command', 'host-tool'] as const).map((effects) => ({ retirement, effects })),
+    (['none', 'native-command', 'host-tool', 'failed-read', 'settled-refusal'] as const).map(
+      (effects) => ({ retirement, effects }),
+    ),
   ),
 )(
   'reconciles an interrupted turn with full settled items after $retirement ($effects)',
@@ -8504,7 +8530,14 @@ it.each(
       old,
       restored: f,
       request,
-    } = await nativeRecoveryFixture(retirement, effects === 'host-tool');
+      toolName,
+      arguments_,
+    } = await nativeRecoveryFixture(
+      retirement,
+      !['none', 'native-command'].includes(effects),
+      undefined,
+      effects === 'failed-read' || effects === 'settled-refusal' ? effects : undefined,
+    );
     f.rpc.request.mockImplementation(async (method, params) =>
       method === 'thread/turns/list' || method === 'thread/items/list'
         ? recoveryPage(method, params, {
@@ -8515,15 +8548,15 @@ it.each(
             items:
               effects === 'native-command'
                 ? nativeDevelopmentItems()
-                : effects === 'host-tool'
+                : !['none', 'native-command'].includes(effects)
                   ? [
                       {
                         type: 'dynamicToolCall',
                         id: 'settled-read',
-                        tool: 'Read',
-                        arguments: {},
-                        status: 'completed',
-                        success: true,
+                        tool: toolName,
+                        arguments: arguments_,
+                        status: effects === 'host-tool' ? 'completed' : 'failed',
+                        success: effects === 'host-tool',
                       },
                     ]
                   : [],
@@ -8540,8 +8573,18 @@ it.each(
     expect(f.store.completionPhase('app', f.getBinding(), 'uncertain-native', 1)?.status).toBe(
       'completed',
     );
-    expect(old.execute).toHaveBeenCalledTimes(effects === 'host-tool' ? 1 : 0);
+    expect(old.execute).toHaveBeenCalledTimes(
+      !['none', 'native-command'].includes(effects) ? 1 : 0,
+    );
     expect(f.execute).not.toHaveBeenCalled();
+    if (['failed-read', 'settled-refusal'].includes(effects))
+      expect(
+        f.store.replayToolResult('app', f.getBinding(), 'uncertain-native', 'settled-read', {
+          turnId: 'turn-1',
+          toolName,
+          requestHash: createHash('sha256').update(JSON.stringify(arguments_)).digest('hex'),
+        }),
+      ).toMatchObject({ isError: true, content: 'Read returned HTTP 404' });
     expect(f.rpc.request.mock.calls.filter(([method]) => method === 'thread/turns/list')).toEqual([
       [
         'thread/turns/list',
@@ -8621,6 +8664,34 @@ it('keeps interrupted effects fenced for incomplete snapshots and unmatched dura
     expect(f.requests.filter(({ method }) => method === 'turn/start')).toHaveLength(0);
     expect(f.execute).not.toHaveBeenCalled();
   }
+  // A matching native failure still cannot erase an explicit original-owner
+  // unknown outcome, even for a read. A native success cannot match a saved error.
+  const db = (f.store as unknown as { db: Database.Database }).db;
+  for (const [isError, outcome, nativeError] of [
+    [1, 'unknown', true],
+    [1, null, false],
+    [1, null, true],
+    [0, 'unknown', false],
+  ] as const) {
+    db.prepare('UPDATE codex_tools SET result_is_error=?,result_effect_outcome=?').run(
+      isError,
+      outcome,
+    );
+    f.rpc.request.mockImplementation(async (method, params) =>
+      method === 'thread/turns/list' || method === 'thread/items/list'
+        ? recoveryPage(method, params, {
+            ...turn,
+            items: [
+              { ...tool, status: nativeError ? 'failed' : 'completed', success: !nativeError },
+            ],
+          })
+        : request(method, params),
+    );
+    await expect(f.c.acknowledgeRecovery()).rejects.toThrow();
+    expect(f.store.read('app', f.getBinding()).recovery).toBe(1);
+    expect(f.requests.filter(({ method }) => method === 'turn/start')).toHaveLength(0);
+  }
+  db.prepare("UPDATE codex_tools SET result_is_error=0,result_effect_outcome='settled'").run();
   f.rpc.request.mockImplementation(async (method, params) => {
     if (method === 'thread/items/list')
       throw new CodexTransportError('protocol', {
@@ -8651,7 +8722,7 @@ it('keeps interrupted effects fenced for incomplete snapshots and unmatched dura
   ).toThrow(/observation/);
 });
 
-it.each(['stop', 'account', 'receipt'] as const)(
+it.each(['stop', 'account', 'receipt', 'effect-outcome'] as const)(
   'keeps interrupted custody fenced when %s changes at final recovery authority check',
   async (change) => {
     const { restored: f, request } = await nativeRecoveryFixture('stop', true);
@@ -8664,6 +8735,10 @@ it.each(['stop', 'account', 'receipt'] as const)(
         revoked = true;
         if (change === 'stop') await f.c.interrupt();
         if (change === 'account') throw Error('Account revoked during completion qualification');
+        if (change === 'effect-outcome')
+          db.prepare(
+            "UPDATE codex_tools SET result_effect_outcome='unknown' WHERE call_id='settled-read'",
+          ).run();
         if (change === 'receipt')
           db.prepare("UPDATE codex_tools SET request_hash=? WHERE call_id='settled-read'").run(
             'a'.repeat(64),

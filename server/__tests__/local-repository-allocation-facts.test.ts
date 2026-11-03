@@ -5,8 +5,16 @@ import { randomUUID } from 'node:crypto';
 import { lstat, mkdir, mkdtemp, readFile, realpath, rename, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
-import { captureLocalRepositoryAllocationFacts } from '../local-repository-allocation-facts.js';
-import { fixtureReadAnchor } from './fixtures/local-repository-read-owner.js';
+import { LocalRepositoryReadAccess } from '../local-repository-read-access.js';
+import { readLocalRepositoryBaseReference } from '../local-repository-base.js';
+import {
+  captureLocalRepositoryAllocationFacts,
+  projectLocalRepositoryAllocationBase,
+} from '../local-repository-allocation-facts.js';
+import {
+  fixtureReadAnchor,
+  fixtureReadDescriptor,
+} from './fixtures/local-repository-read-owner.js';
 import type { LocalRepositoryReadAuthority } from '../local-repository-read-access.js';
 import { executeNativeAnchoredReadOperation } from '../native-file-operation.js';
 
@@ -376,3 +384,66 @@ it.each([false, true])(
     });
   },
 );
+
+// One disposable Git setup, fresh read owners for each completed observation.
+// Prove the HEAD projection reused by preparation agrees with the old resolver.
+it('retains exact HEAD selection for attached, packed, symbolic and detached sources', async () => {
+  for (const mode of ['attached', 'packed', 'symbolic', 'detached'] as const) {
+    if (mode === 'packed') git('pack-refs', '--all', '--prune');
+    if (mode === 'symbolic') {
+      git('symbolic-ref', 'refs/heads/alias', 'refs/heads/main');
+      git('symbolic-ref', 'HEAD', 'refs/heads/alias');
+    }
+    if (mode === 'detached') git('checkout', '--detach', '-q');
+    // This is a byte-selection equivalence test, not OS authorization. Reuse
+    // the controlled real-files descriptor port instead of a Python process
+    // for each tiny metadata observation. Native enforcement stays separate.
+    const readOwner = () => ({ ...owner(), executeReadOperation: fixtureReadDescriptor });
+    const allocation = await captureLocalRepositoryAllocationFacts(readOwner(), {
+      ...input(),
+      layout: 'standalone',
+      base: { kind: 'ref', ref: 'HEAD' },
+    });
+    await allocation.verify();
+    if (mode === 'attached') {
+      const before = JSON.stringify(allocation.facts);
+      for (const origin of ['local', 'remote'] as const) {
+        const selected = {
+          repositoryId: 'selected',
+          oid: 'b'.repeat(40),
+          branch: 'chosen',
+          origin,
+        };
+        const projected = projectLocalRepositoryAllocationBase(
+          allocation.facts,
+          selected,
+          origin === 'remote' ? 'https://example.invalid/repo.git' : undefined,
+        );
+        expect(projected.facts.baseOid).toBe(selected.oid);
+        expect(projected.facts.baseBranch).toBe('chosen');
+        expect(projected.facts.sourceBaseOid).toBe(allocation.facts.sourceBaseOid);
+        expect(projected.facts.taskRoot).toBe(allocation.facts.taskRoot);
+        expect(projected.facts.absentPaths).toBe(allocation.facts.absentPaths);
+        expect(projected.facts.shallow).toBe(
+          origin === 'remote' ? selected.oid + '\n' : allocation.facts.shallow,
+        );
+        expect(projected.factsSha256).toBe(
+          createHash('sha256').update(JSON.stringify(projected.facts)).digest('hex'),
+        );
+      }
+      expect(JSON.stringify(allocation.facts)).toBe(before);
+    }
+    const access = new LocalRepositoryReadAccess(readOwner());
+    await access.pinRoot(source);
+    await access.pinRoot(allocation.facts.source.commonDirectory);
+    const selected = await readLocalRepositoryBaseReference(
+      access,
+      allocation.facts.source,
+      'HEAD',
+    );
+    await access.verify();
+    expect(allocation.facts.baseOid, mode).toBe(selected.oid);
+    expect(allocation.facts.baseBranch, mode).toBe(selected.branch ?? selected.oid);
+    expect(allocation.facts.sourceBaseOid, mode).toBe(selected.oid);
+  }
+});

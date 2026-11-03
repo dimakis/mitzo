@@ -1,3 +1,4 @@
+import { callbackOutcome, retainCallbackOutcome } from '../turn-callbacks.js';
 import { createHash } from 'node:crypto';
 import {
   codexNativeExecutionPolicy,
@@ -497,6 +498,45 @@ it('reopens an exact tool result after a crash before reviewer coverage is marke
   s.close();
 });
 
+it('persists original failure settlement without trusting copied or upgraded outcomes', () => {
+  const { path } = setup();
+  let store = new CodexConversationStore(path);
+  store.create('c', binding, '/workspace');
+  store.enqueue('c', binding, { id: 'command', prompt: 'work' });
+  store.claimNext('c', binding);
+  const identity = { turnId: 'turn', toolName: 'Write', requestHash: 'a'.repeat(64) };
+  const failure = { content: 'validation refused before mutation', isError: true };
+  const settled = retainCallbackOutcome({ ...failure }, 'settled');
+  store.claimTool('c', binding, 'command', 'known', identity);
+  store.recordToolResult('c', binding, 'command', 'known', identity, settled);
+  store.claimTool('c', binding, 'command', 'unknown', identity);
+  store.recordToolResult('c', binding, 'command', 'unknown', identity, { ...settled });
+  store.close();
+  store = new CodexConversationStore(path);
+  for (const [callId, outcome] of [
+    ['known', 'settled'],
+    ['unknown', 'unknown'],
+  ] as const) {
+    const replay = store.replayToolResult('c', binding, 'command', callId, identity)!;
+    expect(replay).toEqual(failure);
+    expect(callbackOutcome(replay)).toBe(outcome);
+    store.recordToolResult('c', binding, 'command', callId, identity, replay);
+  }
+  expect(() =>
+    store.recordToolResult('c', binding, 'command', 'unknown', identity, settled),
+  ).toThrow(/changed/);
+  store.close();
+  // Old receipts gain no inferred owner evidence during schema migration.
+  const db = new Database(path);
+  db.exec('ALTER TABLE codex_tools DROP COLUMN result_effect_outcome');
+  db.close();
+  store = new CodexConversationStore(path);
+  expect(callbackOutcome(store.replayToolResult('c', binding, 'command', 'known', identity))).toBe(
+    'unknown',
+  );
+  store.close();
+});
+
 it('retains bounded mixed-output errors through receipt restart and replay', () => {
   const { path } = setup();
   let store = new CodexConversationStore(path);
@@ -609,6 +649,7 @@ it('claims host tools after reopening a ledger with additional nullable tool col
       result_content: null,
       result_is_error: null,
       result_content_items: null,
+      result_effect_outcome: null,
     },
   ]);
   persisted.close();
