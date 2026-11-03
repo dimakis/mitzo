@@ -69,7 +69,10 @@ The extended native test reuses one account, runtime and repository setup for tw
 preparations, both actual handoffs and their next controlled provider turns. It
 checks the selected HEAD, all 13 file contents, source HEAD/index preservation
 and joined scratch cleanup. Existing cold-resume tests retain restart/FIFO and API
-account coverage. No model or network calls are made. Local test execution grew
+account coverage. The mandatory macOS signed-native gate enables this test's OS
+integration path, disables profile-only execution and requires both cases to pass;
+missing or skipped materialization evidence fails that gate. No model or network
+calls are made. Local test execution grew
 from 62.20 seconds for the prior one-transition journey to 247.01 seconds for the
 two-transition journey (249.61 seconds elapsed); the additional native journey
 covers the distinct already-adopted custody boundary. CI runtime impact has not

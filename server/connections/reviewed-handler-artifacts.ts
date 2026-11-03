@@ -2766,7 +2766,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/harness/__tests__/live-prefix-delivery.test.ts':
     '7c18084f6e5b9996b25e4ce44d351ab56cb4bcae2d86abf23d25cc48efc3321f',
   '../../scripts/__tests__/ci-native-authorization.test.ts':
-    '531e0931d201fbe56834f56adb2dfea18ca3330de3bab4c5621d234cfe110843',
+    '4ca19813cdbadcb707be542c447b7cb41641c79d0dd91ef4f44f5a63bd19aeeb',
   '../../scripts/__tests__/ci-unit-gate.test.ts':
     '384e7d73fa170ac90e231ec815f6fef7244a74af66b5d1df206759a9c320e0e1',
   '../../scripts/ci-unit-gate.mjs':
@@ -3017,7 +3017,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../.github/workflows/ci-recovery.yml':
     '5d4e9a6560e549d2879ef776c2b4d321d420c25b22ec3a7741390e5bf617111a',
   '../../.github/workflows/ci.yml':
-    'ef3664a5f4ee47557cf1a393f22c8d6751630fbc333b6d747437ec3e87296652',
+    'c066b2fc663506fcad642e9dca634a7720918e3d5e1aeb93c6fb67b47ac5bc9d',
   '../../playwright.config.ts': '6c61752a4a2e9cab19d8217b46080c5898bc79c5a0fde1f2b703a254d278daa0',
   '../../playwright.offline.config.ts':
     'fb694df154a2cb402c7f46b417efb357b6d19a72210d269ad0b1580798392adc',

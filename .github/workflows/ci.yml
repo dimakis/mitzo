@@ -571,8 +571,11 @@ jobs:
           NODE
       - name: Verify signed native operator lifetime and repository tools
         if: ${{ !cancelled() }}
+        env:
+          MITZO_SANDBOX_INTEGRATION: '1'
+          MITZO_PREPARATION_OWNER_PROFILE: '0'
         run: |
-          npx vitest run server/__tests__/native-host-operator-lifetime.test.ts server/__tests__/native-local-repository-preparation-registration-dispatch.test.ts server/__tests__/native-local-repository-read-tools.test.ts server/__tests__/native-reader-path-authorization.test.ts --maxWorkers=1 --reporter=default --reporter=json --outputFile=test-results/native-host-authorization.json
+          npx vitest run server/__tests__/native-host-operator-lifetime.test.ts server/__tests__/native-local-repository-preparation-registration-dispatch.test.ts server/__tests__/native-local-repository-read-tools.test.ts server/__tests__/native-reader-path-authorization.test.ts server/__tests__/qualified-local-repository-materializer.test.ts --maxWorkers=1 --reporter=default --reporter=json --outputFile=test-results/native-host-authorization.json
           node --input-type=module <<'NODE'
           import { readFileSync } from 'node:fs';
           const result = JSON.parse(readFileSync('test-results/native-host-authorization.json', 'utf8'));
@@ -582,6 +585,7 @@ jobs:
             ['native-local-repository-preparation-registration-dispatch.test.ts', 4],
             ['native-local-repository-read-tools.test.ts', 14],
             ['native-reader-path-authorization.test.ts', 13],
+            ['qualified-local-repository-materializer.test.ts', 2],
           ];
           for (const [file, count] of required) {
             const suite = result.testResults.find(test => test.name.endsWith('/' + file));
