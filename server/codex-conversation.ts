@@ -173,7 +173,8 @@ export interface CodexConversationOptions {
   /** Owning physical custody must persist before the first native thread effect. */
   beforeThreadInitialization?: (store: CodexConversationStore, binding: AccountBinding) => void;
   ownerKind?: 'ordinary' | 'symposium';
-  /** Ordinary capacity recovery creates new linked native turns, never prompt replay. */
+  /** Enable automatic/explicit capacity continuations. Owned command routes
+   * still retain exact capacity terminals for their next admitted user input. */
   enableCapacityRecovery?: boolean;
   conversationId: string;
   cwd: string;
@@ -3495,7 +3496,7 @@ export class CodexConversation {
           providerFailure?.ambiguous ?? false,
         );
       const capacity =
-        this.opts.enableCapacityRecovery &&
+        (this.opts.enableCapacityRecovery || !!this.opts.canClaimCommand) &&
         status === 'failed' &&
         providerFailure?.code === 'server_overloaded' &&
         this.active.accepted;

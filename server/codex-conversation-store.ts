@@ -2394,7 +2394,7 @@ export class CodexConversationStore {
         `
       WITH scope AS (SELECT ? AS id), pending_tools AS MATERIALIZED (
         SELECT command_id FROM codex_tools WHERE conversation_id=(SELECT id FROM scope)
-          AND result_content IS NULL
+          AND (result_content IS NULL OR result_effect_outcome='unknown')
       ), capacity_terminals AS MATERIALIZED (
         SELECT p.command_id,p.source_command_id,p.recovery_id,p.ordinal,p.terminal,
           json_object('commandId',c.id,'attempt',c.attempt,'threadId',a.thread_id,
