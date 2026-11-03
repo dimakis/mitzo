@@ -37,12 +37,15 @@ function validate(report: ReturnType<typeof fixture>) {
     rmSync(directory, { recursive: true, force: true });
   }
 }
-it('accepts all forty-two actual authority cases and only the named optional diagnostic', () => {
+it('accepts all forty-three actual authority cases and only the named optional diagnostic', () => {
   expect(step.run!.split("node --input-type=module <<'NODE'\n")[0]).toContain(
     'server/__tests__/native-reader-path-authorization.test.ts',
   );
   expect(step.run!.split("node --input-type=module <<'NODE'\n")[0]).toContain(
     'server/__tests__/qualified-local-repository-materializer.test.ts',
+  );
+  expect(step.run!.split("node --input-type=module <<'NODE'\n")[0]).toContain(
+    'server/__tests__/qualified-local-repository-operation-owner.test.ts',
   );
   expect(step.env).toMatchObject({
     MITZO_SANDBOX_INTEGRATION: '1',
@@ -62,7 +65,7 @@ it.each(required)('rejects omitted required platform coverage from %s', (file) =
   expect(validate(report)).toBe(1);
 });
 it.each(['pending', 'skipped', 'failed'])('rejects a %s required native reader case', (status) => {
-  for (const index of [3, 4]) {
+  for (const index of [3, 4, 5]) {
     const report = fixture();
     report.testResults[index].assertionResults[0].status = status;
     expect(validate(report)).toBe(1);

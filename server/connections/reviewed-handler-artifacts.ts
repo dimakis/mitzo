@@ -582,7 +582,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/qualified-local-repository-materializer.test.ts':
     '9ad8eaf7fd1c5e78aa60a556f9cd177f0f24f8c95c5f9afdf51fed4cb26a24e4',
   '../__tests__/qualified-local-repository-operation-owner.test.ts':
-    'bb57e28f57cebdb183fcdb0253d86f45eff7a3ab6374e96a13b988c23359de2e',
+    'f469936d4b7c6c5f414abe127329dbd6106fd84431e59157677f142735042776',
   '../__tests__/qualified-local-repository-task.test.ts':
     'd887bbb2e911f1bf34b435dbfdd619abfbc06ee10ffc74baa438c6726f53340a',
   '../local-repository-preparation-objects.ts':
@@ -2698,7 +2698,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/pages/__tests__/ChatViewSavedDrafts.test.tsx':
     '1c96f88be3f0faa381d42d7dffd126f9080629e5cf1b0d4fb352f8bdad9ed7b1',
   '../../scripts/__tests__/ci-native-operator.test.ts':
-    '0aa5666f3a353aa3d0b918b91f984d9467eeb742f90f96c825407a1492ece4c3',
+    'c5d84d54b5b2995a07ab8992406cf5903f458349c6854a4584c17e562f25f881',
   '../__tests__/agent-tool-catalog.test.ts':
     'e8775d2c7f6af004cf8d4b6c118788a9e1d61bc3f9052becaefc19b275b13531',
   '../__tests__/telos-item-store.test.ts':
@@ -2766,9 +2766,9 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/harness/__tests__/live-prefix-delivery.test.ts':
     '7c18084f6e5b9996b25e4ce44d351ab56cb4bcae2d86abf23d25cc48efc3321f',
   '../../scripts/__tests__/fixtures/native-authorization-report.ts':
-    '86dd039294dee825d2bd05985721cb14567362b5824822029f7d0dee3adbb6e4',
+    'fb672181d877d6c6c0789fc72272abbee022827d70aa9cdbe5495e442f49e0a2',
   '../../scripts/__tests__/ci-native-authorization.test.ts':
-    '71690f6a1a457a095f3b8b9df8544e2bd592c75fc310ce6fdd1972087fc144e1',
+    '82434797f28aa756e76a3451874db247f7abfe385af0779ba4a773327cf607de',
   '../../scripts/__tests__/ci-unit-gate.test.ts':
     '384e7d73fa170ac90e231ec815f6fef7244a74af66b5d1df206759a9c320e0e1',
   '../../scripts/ci-unit-gate.mjs':
@@ -3019,7 +3019,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../.github/workflows/ci-recovery.yml':
     '5d4e9a6560e549d2879ef776c2b4d321d420c25b22ec3a7741390e5bf617111a',
   '../../.github/workflows/ci.yml':
-    '71ef3c3adf2951b1b5c8d670c6cbdc136f2db65acc47db6b1cec2d993eca2915',
+    '727da644fa1f18ae63e552b0b33f434207a79cf006ffc2300d976d8650652862',
   '../../playwright.config.ts': '6c61752a4a2e9cab19d8217b46080c5898bc79c5a0fde1f2b703a254d278daa0',
   '../../playwright.offline.config.ts':
     'fb694df154a2cb402c7f46b417efb357b6d19a72210d269ad0b1580798392adc',

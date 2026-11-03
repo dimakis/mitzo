@@ -6,6 +6,8 @@ import { setAuthRevocationStore } from '../auth.js';
 import { captureLocalRepositoryPreparationAuthorization } from '../local-repository-preparation-authorization.js';
 import { captureNativeHostReadOwner } from '../native-host-tool-context.js';
 import * as readers from '../local-repository-native-read.js';
+import * as objectData from '../local-repository-preparation-object-data.js';
+import * as sandbox from '../sandboxed-command.js';
 import { localPreparationNativeFixture } from './fixtures/local-preparation-native.js';
 import { fixtureQualifiedLocalPreparationSource } from './fixtures/qualified-local-preparation-source.js';
 
@@ -69,9 +71,27 @@ it.runIf(process.platform === 'darwin')(
         const setup = vi
           .spyOn(readers, 'captureNativeLocalRepositoryReader')
           .mockRejectedValue(Error('Setup MUST NOT be reached'));
-        await expect(held.materialize()).rejects.toMatchObject({
+        const verification = vi
+          .spyOn(objectData, 'verifyLocalRepositoryPreparationObjectData')
+          .mockRejectedValue(Error('Object verification MUST NOT be reached'));
+        const staging = vi
+          .spyOn(sandbox, 'executePrivateRepositoryStagingCheckout')
+          .mockRejectedValue(Error('Staging MUST NOT be reached'));
+        // Test-only header: object bytes are deliberately not claimed here.
+        // Reach the genuine consumed owner before verification/setup without
+        // adding a second physical object-capture journey to this refusal case.
+        const dispose = vi.fn(async () => {});
+        const objects = Object.freeze({
+          deadline: Date.now() + 300000,
+          dispose,
+        }) as unknown as objectData.LocalRepositoryPreparationObjectData;
+        await expect(held.materialize(objects)).rejects.toMatchObject({
           code: 'pending_host_task_uncertain',
+          cause: { message: 'Original async source owner revoked' },
         });
+        expect(verification).not.toHaveBeenCalled();
+        expect(staging).not.toHaveBeenCalled();
+        expect(dispose).toHaveBeenCalledOnce();
         setupCalls = setup.mock.calls.length;
         stage = 'materialize-refused';
         expect(asyncDenials).toBeGreaterThan(0);

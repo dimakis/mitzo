@@ -81,7 +81,11 @@ checks the selected HEAD, all 13 file contents, source HEAD/index preservation
 and joined scratch cleanup. Existing cold-resume tests retain restart/FIFO and API
 account coverage. The mandatory macOS signed-native gate enables this test's OS
 integration path, disables profile-only execution and requires both cases to pass;
-missing or skipped materialization evidence fails that gate. No model or network
+missing or skipped materialization evidence fails that gate. The same gate also
+requires the existing consumed-source revocation control: a current native read
+owner cannot substitute for a revoked source owner before object verification or
+staging. Its test-only unverified artifact header reaches that refusal boundary
+without adding a physical object-capture journey. No model or network
 calls are made. Local test execution grew
 from 62.20 seconds for the prior one-transition journey to 247.01 seconds for the
 two-transition journey (249.61 seconds elapsed); the additional native journey

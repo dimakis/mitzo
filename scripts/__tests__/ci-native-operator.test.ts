@@ -49,6 +49,12 @@ it.each([
   [
     'missing materializer suite',
     (r: Report): void => {
+      r.testResults.splice(4, 1);
+    },
+  ],
+  [
+    'missing consumed source-owner suite',
+    (r: Report): void => {
       r.testResults.pop();
     },
   ],
