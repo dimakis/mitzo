@@ -102,8 +102,8 @@ describe('FileViewer quiet controls', () => {
   it('leaves home branding to the shared shell and retains document navigation', () => {
     const { container } = showViewer();
     expect(container.querySelector('.mitzo-logo')).toBeNull();
-    expect(screen.queryByRole('button', { name: 'Home', exact: true })).toBeNull();
-    fireEvent.click(screen.getByRole('button', { name: 'Back', exact: true }));
+    expect(screen.queryByRole('button', { name: /^Home$/ })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: /^Back$/ }));
     expect(mocks.nav.handleBack).toHaveBeenCalledWith(false);
   });
 

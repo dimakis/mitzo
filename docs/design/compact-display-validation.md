@@ -8,6 +8,10 @@ preview-CSS test files passed 137 tests with one existing skip. Source artifact
 verification, focused formatting and whitespace checks passed. Full combined
 CI, rendered acceptance and final current-head Centaur review remain required.
 
+Run `41741156677` found two unsupported Testing Library `exact` role-query options
+in the newer branding regression. Anchored accessible-name expressions retain the
+same Home/Back assertions while satisfying the compiler's `ByRoleOptions` type.
+
 The user requested a smaller Markdown/HTML display header and investigation and
 repair of the draft-status flicker while typing with a screenshot attached on
 1 November 2026. This is a local implementation record, not deployment evidence.
