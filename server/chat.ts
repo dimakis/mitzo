@@ -117,6 +117,7 @@ import {
   createGithubPublishingTool,
   GITHUB_PUBLISHING_INSTRUCTIONS,
   hostGithubPublishingSource,
+  githubPublishingGitStorageRoots,
 } from './github-publishing-tool.js';
 import { localHttpBaseUrl, localServerUsesTls } from './local-server-url.js';
 import { telosArtifactInstructions } from './telos-artifact-tools.js';
@@ -4118,12 +4119,13 @@ export async function prepareOwnedCodexChat(
       eventStore,
       publishingGitStorageRoots: isOrdinaryWorkspace(workspace)
         ? undefined
-        : [
-            ...(workspace.localSource ? [workspace.localSource.commonDirectory] : []),
-            ...[BASE_REPO, ...Object.values(getRepoConfig().repos)]
+        : githubPublishingGitStorageRoots(
+            session,
+            workspace,
+            [BASE_REPO, ...Object.values(getRepoConfig().repos)]
               .filter(Boolean)
               .map((root) => join(root, '.git')),
-          ],
+          ),
     });
     resolveOwnedTelosWorkCommandScope(sessionId);
     if (closed || abortController.signal.aborted) {
@@ -6264,9 +6266,7 @@ export async function startOwnedLocalResponsesCommand(
         env,
         configuredSourceEnv: nativeExecutionEnv(),
         mcpServers: loadMcpServers(),
-        publishingGitStorageRoots: selected.workspace.taskIdentity?.localSource
-          ? [selected.workspace.taskIdentity.localSource.commonDirectory]
-          : [],
+        publishingGitStorageRoots: githubPublishingGitStorageRoots(session, selected.workspace),
       });
       owner.assertSetupSync(selected.commandId);
       session.queryInstance = query;
