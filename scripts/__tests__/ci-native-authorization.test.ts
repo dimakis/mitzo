@@ -4,6 +4,10 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { load } from 'js-yaml';
 import { expect, it } from 'vitest';
+import {
+  nativeAuthorityCases as required,
+  completeNativeAuthorityReport as fixture,
+} from './fixtures/native-authorization-report.js';
 
 // Execute the actual required workflow's reporter validator. A green Vitest
 // flag must not qualify omitted or skipped platform-specific authority cases.
@@ -17,25 +21,6 @@ const step = workflow.jobs['ordinary-journey'].steps.find(
   (entry) => entry.name === 'Verify signed native operator lifetime and repository tools',
 )!;
 const validator = step.run!.split("node --input-type=module <<'NODE'\n")[1].split('\nNODE')[0];
-const required = [
-  ['native-host-operator-lifetime.test.ts', 9],
-  ['native-local-repository-preparation-registration-dispatch.test.ts', 4],
-  ['native-local-repository-read-tools.test.ts', 14],
-  ['native-reader-path-authorization.test.ts', 13],
-  ['qualified-local-repository-materializer.test.ts', 2],
-] as const;
-function fixture() {
-  return {
-    success: true,
-    testResults: required.map(([file, count]) => ({
-      name: '/fixture/server/__tests__/' + file,
-      assertionResults: Array.from({ length: count }, (_, index) => ({
-        fullName: file + ' case ' + index,
-        status: 'passed',
-      })),
-    })),
-  };
-}
 function validate(report: ReturnType<typeof fixture>) {
   const directory = mkdtempSync(join(tmpdir(), 'mitzo-native-ci-report-'));
   try {

@@ -2,32 +2,10 @@ import { readFileSync } from 'node:fs';
 import { runInNewContext } from 'node:vm';
 import { load } from 'js-yaml';
 import { expect, it } from 'vitest';
-
-type Report = {
-  success: boolean;
-  testResults: Array<{
-    name: string;
-    assertionResults: Array<{ fullName: string; status: string }>;
-  }>;
-};
-
-function completeReport(): Report {
-  return {
-    success: true,
-    testResults: [
-      ['native-host-operator-lifetime', 9],
-      ['native-local-repository-preparation-registration-dispatch', 4],
-      ['native-local-repository-read-tools', 14],
-      ['native-reader-path-authorization', 13],
-    ].map(([name, count]) => ({
-      name: `/checkout/server/__tests__/${name}.test.ts`,
-      assertionResults: Array.from({ length: Number(count) }, (_, i) => ({
-        fullName: `${name} required case ${i}`,
-        status: 'passed',
-      })),
-    })),
-  };
-}
+import {
+  completeNativeAuthorityReport as completeReport,
+  type NativeAuthorityReport as Report,
+} from './fixtures/native-authorization-report.js';
 
 function qualify(report: Report) {
   const workflow = load(readFileSync('.github/workflows/ci.yml', 'utf8')) as {
@@ -65,7 +43,25 @@ it.each([
   [
     'missing native reader suite',
     (r: Report): void => {
+      r.testResults.splice(3, 1);
+    },
+  ],
+  [
+    'missing materializer suite',
+    (r: Report): void => {
       r.testResults.pop();
+    },
+  ],
+  [
+    'skipped materializer case',
+    (r: Report): void => {
+      r.testResults[4].assertionResults[0].status = 'pending';
+    },
+  ],
+  [
+    'failed materializer case',
+    (r: Report): void => {
+      r.testResults[4].assertionResults[0].status = 'failed';
     },
   ],
   [

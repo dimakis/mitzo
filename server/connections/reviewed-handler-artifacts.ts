@@ -2698,7 +2698,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/pages/__tests__/ChatViewSavedDrafts.test.tsx':
     '1c96f88be3f0faa381d42d7dffd126f9080629e5cf1b0d4fb352f8bdad9ed7b1',
   '../../scripts/__tests__/ci-native-operator.test.ts':
-    '490df07a76e1b6e1896d7c68a44831a21ad45c1faf38b74fd894f6cc2297816b',
+    '0aa5666f3a353aa3d0b918b91f984d9467eeb742f90f96c825407a1492ece4c3',
   '../__tests__/agent-tool-catalog.test.ts':
     'e8775d2c7f6af004cf8d4b6c118788a9e1d61bc3f9052becaefc19b275b13531',
   '../__tests__/telos-item-store.test.ts':
@@ -2765,8 +2765,10 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     'ec392954b1aa78602eff9fa466525bbee78d6fe8115f95705eee6ca34de7f55e',
   '../../packages/harness/__tests__/live-prefix-delivery.test.ts':
     '7c18084f6e5b9996b25e4ce44d351ab56cb4bcae2d86abf23d25cc48efc3321f',
+  '../../scripts/__tests__/fixtures/native-authorization-report.ts':
+    '86dd039294dee825d2bd05985721cb14567362b5824822029f7d0dee3adbb6e4',
   '../../scripts/__tests__/ci-native-authorization.test.ts':
-    '4ca19813cdbadcb707be542c447b7cb41641c79d0dd91ef4f44f5a63bd19aeeb',
+    '71690f6a1a457a095f3b8b9df8544e2bd592c75fc310ce6fdd1972087fc144e1',
   '../../scripts/__tests__/ci-unit-gate.test.ts':
     '384e7d73fa170ac90e231ec815f6fef7244a74af66b5d1df206759a9c320e0e1',
   '../../scripts/ci-unit-gate.mjs':
