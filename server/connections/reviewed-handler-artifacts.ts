@@ -5,7 +5,7 @@ import { createHash } from 'node:crypto';
  * verifies the two source artifacts below, so modifying a validator/helper
  * outside a golden input cannot silently retain this implementation revision.
  */
-export const reviewedHandlerImplementationRevision = 'v1.0.2';
+export const reviewedHandlerImplementationRevision = 'v1.0.3';
 
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
@@ -702,7 +702,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     'e962a9975575bbda677f42e5b276c6f8075d8c675dc19d3deaac58af846e26ae',
 
   '../__tests__/codex-conversation.test.ts':
-    '2c43a67186c9a8cf00e1ecb000085e224a6859a98bd0dc17d1286c90299b023a',
+    'a5c5ac9878611ad588b9a659cb0a4dd69613cb284c3e170d355668295bfd3137',
   '../__tests__/codex-native-approvals.test.ts':
     '83c2a7a0457cefbc7a4586c4a440d024060fe44297bdd35fdc17017f4a446071',
   '../__tests__/codex-native-artifact-qualification.test.ts':
@@ -1516,7 +1516,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../scripts/attest-knowledge-runtime.py':
     '5737ec8e7fc19a17b6ef5a35c1898e834d2a5d2d2a9f7593b607eaaf1971cfeb',
   '../agent-context-sandbox.ts': '8b61edc17ccc94bc95eae3796e68a0beb9540534e3bfbb348a04154c41995416',
-  '../codex-conversation.ts': '830ad2e3171ceafd9727fdfacb7d2768a4c91c1a39ac16c0843840d6d8d285ea',
+  '../codex-conversation.ts': '01db18ee61e73bf515359f76ae37bcac854cdb0a01052da822c3c4f2911fe39d',
   '../codex-conversation-store.ts':
     'b265ddb64a092cad6792cf40758ed71e9a294b7a68e1126e58ea1b4529c0afd6',
   '../symposium-custodian-ipc.ts':
