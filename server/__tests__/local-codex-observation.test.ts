@@ -14,11 +14,68 @@ import { FrozenHostCodexExecutable } from '../frozen-host-codex-executable.js';
 import { mkdtempSync, realpathSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { tracer } from '../tracing.js';
+
+const diagnosticLog = vi.hoisted(() => ({ warn: vi.fn() }));
+vi.mock('../logger.js', () => ({
+  createLogger: () => ({ debug: vi.fn(), info: vi.fn(), error: vi.fn(), warn: diagnosticLog.warn }),
+}));
 
 const exporter = new InMemorySpanExporter();
 const provider = new NodeTracerProvider({ spanProcessors: [new SimpleSpanProcessor(exporter)] });
 provider.register();
 afterAll(() => provider.shutdown());
+
+it.each(['span', 'logger'] as const)(
+  'preserves successful artifacts and original failures when %s finalization throws',
+  async (failure) => {
+    const startSpan = tracer.startSpan.bind(tracer);
+    const spy =
+      failure === 'span'
+        ? vi.spyOn(tracer, 'startSpan').mockImplementation((...args) => {
+            const span = startSpan(...args);
+            span.end = () => {
+              throw Error('Telemetry unavailable');
+            };
+            return span;
+          })
+        : undefined;
+    diagnosticLog.warn.mockImplementation(() => {
+      throw Error('Logger unavailable');
+    });
+    vi.useFakeTimers({ toFake: ['performance'] });
+    try {
+      const artifact = { dispose: vi.fn() };
+      const error = Error('Original operation failure');
+      expect(
+        await observeLocalCodexPhase('repository_object_capture', async () => {
+          vi.advanceTimersByTime(600);
+          return artifact;
+        }),
+      ).toBe(artifact);
+      await expect(
+        observeLocalCodexPhase('repository_object_capture', async () => {
+          throw error;
+        }),
+      ).rejects.toBe(error);
+      expect(
+        observeLocalCodexSyncPhase('repository_object_capture', () => {
+          vi.advanceTimersByTime(600);
+          return artifact;
+        }),
+      ).toBe(artifact);
+      expect(() =>
+        observeLocalCodexSyncPhase('repository_object_capture', () => {
+          throw error;
+        }),
+      ).toThrow(error);
+    } finally {
+      spy?.mockRestore();
+      diagnosticLog.warn.mockReset();
+      vi.useRealTimers();
+    }
+  },
+);
 
 it('parents nested startup checks to their actual phase across awaits', async () => {
   exporter.reset();

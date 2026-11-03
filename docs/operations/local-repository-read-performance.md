@@ -41,3 +41,36 @@ Measured during development on this Mac, discovery took 1.9–2.0 seconds, inspe
 2.2–2.3 seconds and preparation 42–43 seconds for a disposable copy of the actual
 Mitzo repository. Preparation previously took 133 seconds in the same workflow.
 These are observations, not performance guarantees or a five-second target claim.
+
+## Preparing another repository after adoption
+
+Full workspace validation is more expensive once the chat owns an adopted
+repository: the current topology is checked through its native read owner. Do not
+repeat that complete source/context validation in a composing wrapper immediately
+before the original reader or approval operation performs the same check.
+The consumed materialization operation already includes the original native
+context and source owner. Its native read facet does not add another independent
+asynchronous owner. Synchronous identity checks and fresh approval, physical I/O,
+mutation, cleanup and delivery checks remain required; no authority is cached.
+
+Preparation emits fixed phase timings for source qualification, object capture,
+approval and materialization. Approval timing includes the wait for a decision.
+These phases retain the existing operation and approval deadlines. Diagnostic
+finalization cannot replace an operation result or its original failure, including
+an object-capture result whose disposer the caller must retain.
+
+On 3 November 2026, the reused signed offline fixture prepared a distinct source
+with 13 planning files from an already adopted workspace. Before this change that
+second preparation took 190.056 seconds and 178 full admission checks; afterward
+it took 160.781 seconds and 144 checks. This reproduces validation amplification,
+not the exact production timeout, and is not a production latency guarantee.
+
+The extended native test reuses one account, runtime and repository setup for two
+preparations, both actual handoffs and their next controlled provider turns. It
+checks the selected HEAD, all 13 file contents, source HEAD/index preservation
+and joined scratch cleanup. Existing cold-resume tests retain restart/FIFO and API
+account coverage. No model or network calls are made. Local test execution grew
+from 62.20 seconds for the prior one-transition journey to 247.01 seconds for the
+two-transition journey (249.61 seconds elapsed); the additional native journey
+covers the distinct already-adopted custody boundary. CI runtime impact has not
+yet been measured.

@@ -30,13 +30,18 @@ function beginPhase(phase: Phase) {
   return {
     run: <T>(work: () => T): T => context.with(trace.setSpan(context.active(), span), work),
     end(outcome: 'success' | 'failed') {
-      const elapsedMs = Math.round(performance.now() - start);
-      span.setStatus({ code: outcome === 'success' ? SpanStatusCode.OK : SpanStatusCode.ERROR });
-      span.setAttribute('phase.elapsed_ms', elapsedMs);
-      span.setAttribute('phase.outcome', outcome);
-      span.end();
-      if (elapsedMs >= 500 || outcome === 'failed')
-        log.warn('Local Codex phase completed', { phase, elapsedMs, outcome });
+      try {
+        const elapsedMs = Math.round(performance.now() - start);
+        span.setStatus({ code: outcome === 'success' ? SpanStatusCode.OK : SpanStatusCode.ERROR });
+        span.setAttribute('phase.elapsed_ms', elapsedMs);
+        span.setAttribute('phase.outcome', outcome);
+        span.end();
+        if (elapsedMs >= 500 || outcome === 'failed')
+          log.warn('Local Codex phase completed', { phase, elapsedMs, outcome });
+      } catch {
+        // Diagnostics cannot replace a result (including owned scratch whose
+        // disposer the caller must retain) or the original operation failure.
+      }
     },
   };
 }
