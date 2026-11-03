@@ -610,6 +610,7 @@ actual(
       prepared = true;
       return normalizedResult ?? { prepared: true };
     };
+    let preparationCalls = 0;
     const f = await localPreparationNativeFixture(cleanups, executeAttempt, {
       nativeBaseReads: true,
       preparationEnvelope: profileOnly,
@@ -617,6 +618,12 @@ actual(
       ...(!profileOnly
         ? {
             executeOriginalCapture: async (capture, input, signal) => {
+              if (preparationCalls++ > 0)
+                return executeNativeLocalRepositoryPreparation(
+                  { capture, events: f.f.events, registry: f.registry, workspaces: f.f.workspace },
+                  input,
+                  signal,
+                );
               const result = await executeAttempt(undefined, input, undefined, () =>
                 executeNativeLocalRepositoryPreparation(
                   { capture, events: f.f.events, registry: f.registry, workspaces: f.f.workspace },
@@ -897,6 +904,30 @@ actual(
       expect(metrics.checkouts.calls).toBe(0);
     }
     expect(f.permissions).toHaveLength(1);
+    if (!profileOnly) {
+      // Reuse this genuine adopted runtime and populated source. The old first
+      // preparation fixture had never exercised its more expensive custody
+      // owner as the starting point for another actual preparation.
+      const current = f.f.workspace.getForConversation(f.a.sessionId)!;
+      const started = performance.now();
+      const callsBefore = metrics.admission.calls;
+      const next = await f.a.call({
+        path: join(f.f.root, 'source'),
+        base: { kind: 'ref', ref: 'HEAD' },
+      });
+      console.info('Second preparation', JSON.stringify({
+        elapsedMs: Math.round(performance.now() - started),
+        admissionCalls: metrics.admission.calls - callsBefore,
+        success: next.response.success,
+        result: next.value,
+      }));
+      expect(next.response.success, JSON.stringify(next.value)).toBe(true);
+      expect(next.value).toMatchObject({ state: 'materialized' });
+      expect(next.value.preparationId).not.toBe(current.id);
+      expect(f.f.workspace.getForConversation(f.a.sessionId)?.id).toBe(current.id);
+      expect(f.permissions).toHaveLength(2);
+      await sourcePreservation?.('second-preparation', true);
+    }
   },
   // Test-harness budget for consecutive stages only: unchanged preparation
   // envelope (300s), THREE independently60s fresh phases plus joined owner/
