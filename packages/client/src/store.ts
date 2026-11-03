@@ -396,7 +396,6 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
         return false;
       if (typeof id !== 'string' || sessionInterests.has(id)) return true;
       if (event.type === 'session_id') return true;
-      if (event.type === 'permission_request' && !parserState.currentSessionId) return true;
       const command = event.type === 'user_message' ? event.messageId : event.clientMsgId;
       if (typeof command !== 'string' || !deliveryObservers.has(command)) return false;
       const origin = deliveryOrigins.get(command);
@@ -2583,7 +2582,7 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
     // Session-scoped event filtering for multiplexed v2 connections:
     // - No sessionId on the event → global (task_state, inbox_updated, etc.) → always accept
     // - sessionId matches currentSessionId → accept
-    // - No active session AND event is session_id/session_end → accept (new session assignment)
+    // - No active session AND event is session_id → accept (new session assignment)
     // - Otherwise → drop (foreign session event)
     if (eventSessionId) {
       if (parserState.currentSessionId) {
@@ -2600,12 +2599,10 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
           return true;
         }
       } else {
-        // Allow session_id (new session assignment) and permission_request
-        // (can arrive before session_id on the first turn) through when no
-        // active session. Drop everything else (session_end, etc.) to prevent
-        // foreign session bleed.
-        const isFirstTurnEvent = msg.type === 'session_id' || msg.type === 'permission_request';
-        if (!isFirstTurnEvent) {
+        // An approval cannot identify which new draft owns it. Wait for the
+        // authoritative session assignment before accepting session events;
+        // otherwise another chat's card has no response/dismissal route.
+        if (msg.type !== 'session_id') {
           if (
             msg.type === 'session_reconnect_snapshot' &&
             typeof msg.cursor === 'number' &&

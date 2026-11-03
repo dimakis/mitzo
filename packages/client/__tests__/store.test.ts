@@ -2529,20 +2529,50 @@ describe('session isolation via sessionId filtering', () => {
     expect(store.getState().messages.running).toBe(false);
   });
 
-  it('allows permission_request through when no active session (first-turn race)', async () => {
+  it('ignores another chat approval while the new-chat screen is idle or sending', async () => {
     const store = createReadyStore();
+    const approval = {
+      type: 'permission_request',
+      permId: 'p1',
+      toolName: 'Write',
+      toolInput: '{}',
+      sessionId: 'another-session',
+    };
+    lastWs.simulateMessage(approval);
+    expect(store.getState().messages.permission).toBeNull();
 
-    lastWs.simulateMessage({
+    store.getState().sendMessage('Start my chat');
+    lastWs.simulateMessage(approval);
+    expect(store.getState().messages.permission).toBeNull();
+  });
+
+  it('routes approvals and their dismissal only after the new chat is assigned', () => {
+    const store = createReadyStore();
+    store.getState().sendMessage('Start my chat');
+    const approval = {
       type: 'permission_request',
       permId: 'p1',
       toolName: 'Write',
       toolInput: '{}',
       sessionId: 'new-session',
-    });
-
-    // Permission should pass through — it can arrive before session_id
-    expect(store.getState().messages.permission).not.toBeNull();
+    };
+    lastWs.simulateMessage(approval);
+    expect(store.getState().messages.permission).toBeNull();
+    lastWs.simulateMessage({ type: 'session_id', sessionId: 'new-session' });
+    lastWs.simulateMessage(approval);
     expect(store.getState().messages.permission?.permId).toBe('p1');
+    store.getState().respondToPermission('p1', 'once');
+    expect(lastWs.parsedSent().at(-1)).toMatchObject({
+      type: 'permission_response',
+      sessionId: 'new-session',
+      permId: 'p1',
+    });
+    lastWs.simulateMessage({
+      type: 'permission_resolved',
+      sessionId: 'new-session',
+      permId: 'p1',
+    });
+    expect(store.getState().messages.permission).toBeNull();
   });
 });
 
