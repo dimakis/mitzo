@@ -400,8 +400,19 @@ it.each([false, true])(
         model: 'publication-model',
         reasoningEffort: 'high',
       });
+      // Reuse one account's complete publication journey for a distinct inner
+      // repository. Its origin/main is independent of the adopted task's base.
+      const publicationPath = api ? join(target, 'nested-repository') : target;
+      if (api) {
+        await localGit(
+          ['clone', '--quiet', '--no-hardlinks', '--template=', target, publicationPath],
+          flow.f.signal.signal,
+        );
+        git(publicationPath, 'remote', 'set-url', 'origin', 'https://github.com/example/repo.git');
+        git(publicationPath, 'update-ref', 'refs/remotes/origin/main', base);
+      }
       const content = await call('RequestGithubPublish', 'publish-committed', {
-        repositoryPath: target,
+        repositoryPath: publicationPath,
         baseBranch: 'main',
         title: 'Prepared task',
         body: prBody,
@@ -421,6 +432,7 @@ it.each([false, true])(
         externalResultId: 'https://github.com/example/repo/pull/42',
       });
       expect(publishedHead).toBe(git(target, 'rev-parse', 'HEAD'));
+      expect(git(publicationPath, 'status', '--porcelain')).toBe('');
     });
     expect(offline.adviser).not.toHaveBeenCalled();
     expect(flow.f.native.read(flow.sessionId, flow.binding)).toMatchObject({

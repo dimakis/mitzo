@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.843-native-worker-boundary-controls';
+  'v1.0.844-integrated-preparation-boundaries';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -82,7 +82,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../builtin-agent-library-profile.ts':
     '278d9a286a27cb76740ac5f821bc3bb03175471b58af371f3bd4fe9c6ad022bc',
   '../__tests__/github-host-source.test.ts':
-    '24801acc48019e4161a2a10aa5f60cef8aaf273c1a55adc915770ab177d3b0f9',
+    'eb4edae65222b665a2aec881789876aa35499dca9e7a5289f5f91d19c3df46b3',
   '../github-publication-preflight.ts':
     '14c9b9e4982f751289e3c56ce80caba6ac61866b6d9c769ca401328764bd1192',
   '../__tests__/github-publication-preflight.test.ts':
@@ -364,7 +364,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/prepared-repository-delivery-flow.test.ts':
     'f259503bb6fa7ae581791f269c11d7ec573e3f3781a4ded4fc1f183c812b3d0a',
   '../__tests__/prepared-repository-publication-flow.test.ts':
-    'a1fbc63311443b742116dc48c586b7b8fc685ca5e3f04791a49d11634c81639e',
+    '67ca85fb095600d3980497755ae29f98cf31f6caf658f4349a5f182f6650a405',
   '../github-publication-review-failure.ts':
     '7ccd23acc66cc149e30a0e9879a438eb1764d678f04078c2992f83bd45faccf4',
   '../__tests__/prepared-repository-native-public-tool-rollover.test.ts':
@@ -1602,7 +1602,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     '1e9717f6f66923167d9c0a1a91e6d43dd52a2f9b4d9993dc6d06f5da1a37f43f',
   'capabilities/github-publish-pr-transport.ts':
     '831c78e9dfdfa73248d275a5557c2d5228aa46ab8b35e06ea75102f9ec49ac1a',
-  '../github-host-source.ts': 'f4bbeed0658457f3f62e3458f2f7c22d61a7ce2f817427c8d47ab84b2e7df34b',
+  '../github-host-source.ts': 'cd0468ec4645d6aacd91b59c70ee5957e4d40e154851af3a569638e3e6083390',
   '../github-publishing-tool.ts':
     '7be1e427b22a27b370125c9832b925d78fffa16f341e31bac4f6fb65efed8f3a',
   '../capability-conversation-binding.ts':
