@@ -580,7 +580,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/private-repository-checkout.test.ts':
     'a4858f3f9c76fa52246e2098fb51ed1532ad5d9419097f7f5a373a76c8f57718',
   '../__tests__/qualified-local-repository-materializer.test.ts':
-    '7d96a2b3b6d1d742fd0b3b08c356ee9e1f07ad9bf7f8b06661c8b6ecaacd5c93',
+    '9ad8eaf7fd1c5e78aa60a556f9cd177f0f24f8c95c5f9afdf51fed4cb26a24e4',
   '../__tests__/qualified-local-repository-operation-owner.test.ts':
     'bb57e28f57cebdb183fcdb0253d86f45eff7a3ab6374e96a13b988c23359de2e',
   '../__tests__/qualified-local-repository-task.test.ts':
@@ -3019,7 +3019,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../.github/workflows/ci-recovery.yml':
     '5d4e9a6560e549d2879ef776c2b4d321d420c25b22ec3a7741390e5bf617111a',
   '../../.github/workflows/ci.yml':
-    'c066b2fc663506fcad642e9dca634a7720918e3d5e1aeb93c6fb67b47ac5bc9d',
+    '71ef3c3adf2951b1b5c8d670c6cbdc136f2db65acc47db6b1cec2d993eca2915',
   '../../playwright.config.ts': '6c61752a4a2e9cab19d8217b46080c5898bc79c5a0fde1f2b703a254d278daa0',
   '../../playwright.offline.config.ts':
     'fb694df154a2cb402c7f46b417efb357b6d19a72210d269ad0b1580798392adc',

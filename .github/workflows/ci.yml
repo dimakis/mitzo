@@ -605,6 +605,7 @@ jobs:
           path: |
             test-results/ordinary-journey.json
             test-results/native-host-authorization.json
+            test-results/qualified-preparation-actor.json
             test-results/native-repository-workflows-processes/
             test-results/native-repository-workflows/
             test-results/telos-s9-joined/

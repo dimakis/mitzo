@@ -15,8 +15,8 @@ import { createRequire } from 'node:module';
 import { createHash } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { afterAll, afterEach, expect, it, vi } from 'vitest';
-import { lstat, readFile, readdir, readlink, writeFile } from 'node:fs/promises';
-import { basename, join } from 'node:path';
+import { lstat, mkdir, readFile, readdir, readlink, writeFile } from 'node:fs/promises';
+import { basename, dirname, join } from 'node:path';
 import * as filesystem from 'node:fs/promises';
 import * as readers from '../local-repository-native-read.js';
 import * as objectData from '../local-repository-preparation-object-data.js';
@@ -164,7 +164,13 @@ actual(
       workerEntrySha256: atRunSources['server/sandboxed-command-worker.ts'],
       workerRuntime: 'existing sourceRuntime tsx/esm worker; no separately compiled worker binary',
     };
-    const actorEvidencePath = `/private/tmp/mitzo-qualified-preparation-actor-${inputIdentity.slice(0, 16)}.json`;
+    const actorEvidencePath =
+      process.env.CI === 'true'
+        ? fileURLToPath(
+            new URL('../../test-results/qualified-preparation-actor.json', import.meta.url),
+          )
+        : `/private/tmp/mitzo-qualified-preparation-actor-${inputIdentity.slice(0, 16)}.json`;
+    await mkdir(dirname(actorEvidencePath), { recursive: true });
     if (atRunRepository.trackedStatus !== '') {
       await writeFile(
         actorEvidencePath,
@@ -949,67 +955,86 @@ actual(
       // Reuse this genuine adopted runtime and populated source. The old first
       // preparation fixture had never exercised its more expensive custody
       // owner as the starting point for another actual preparation.
-      const current = f.f.workspace.getForConversation(f.a.sessionId)!;
-      const nextSource = join(f.f.root, 'next-source');
-      fixtureGit(f.f.root, 'clone', '--no-hardlinks', '-q', join(f.f.root, 'source'), nextSource);
-      await Promise.all(
-        Array.from({ length: 13 }, (_, index) =>
-          writeFile(join(nextSource, `plan-${index}.md`), `Planning document ${index}\n`),
-        ),
-      );
-      fixtureGit(nextSource, 'add', '.');
-      fixtureGit(nextSource, 'commit', '-qm', 'populated second source');
-      const selectedHead = fixtureGit(nextSource, 'rev-parse', 'HEAD');
-      const [sourceHead, sourceIndex] = await Promise.all([
-        readFile(join(nextSource, '.git', 'HEAD')),
-        readFile(join(nextSource, '.git', 'index')),
-      ]);
-      const started = performance.now();
-      const callsBefore = metrics.admission.calls;
-      const next = await f.a.call({
-        path: nextSource,
-        base: { kind: 'ref', ref: 'HEAD' },
-      });
-      secondPreparation.elapsedMs = Math.round(performance.now() - started);
-      secondPreparation.admissionCalls = metrics.admission.calls - callsBefore;
-      secondPreparation.state = next.value.state ?? 'failed';
-      console.info('Second preparation', JSON.stringify(secondPreparation));
-      expect(next.response.success, JSON.stringify(next.value)).toBe(true);
-      expect(next.value).toMatchObject({ state: 'materialized' });
-      expect(next.value.preparationId).not.toBe(current.id);
-      expect(f.f.workspace.getForConversation(f.a.sessionId)?.id).toBe(current.id);
-      expect(f.permissions).toHaveLength(2);
-      await sourcePreservation?.('adopted', true);
-      const secondContext = observedContext!;
-      const secondReceipt = f.f.workspace.get(next.value.preparationId).pendingHostTask!;
-      expect(secondReceipt.state).toBe('materialized');
-      await completePrepared(secondContext, secondReceipt);
-      const adopted = f.f.workspace.getForConversation(f.a.sessionId)!;
-      expect(adopted.id).toBe(next.value.preparationId);
-      expect(f.f.events.getSession(f.a.sessionId)?.cwd).toBe(secondReceipt.directory);
-      expect(f.native.read(f.a.sessionId, f.a.initial.lease.binding).cwd).toBe(
-        secondReceipt.directory,
-      );
-      expect(
-        f.a.requests.filter((request) => request.method === 'turn/start').at(-1)?.params.cwd,
-      ).toBe(secondReceipt.directory);
-      expect(fixtureGit(secondReceipt.directory, 'rev-parse', 'HEAD')).toBe(selectedHead);
-      expect(fixtureGit(nextSource, 'rev-parse', 'HEAD')).toBe(selectedHead);
-      expect(await readFile(join(nextSource, '.git', 'HEAD'))).toEqual(sourceHead);
-      expect(await readFile(join(nextSource, '.git', 'index'))).toEqual(sourceIndex);
-      await Promise.all(
-        Array.from({ length: 13 }, async (_, index) => {
-          expect(await readFile(join(secondReceipt.directory, `plan-${index}.md`), 'utf8')).toBe(
-            `Planning document ${index}\n`,
+      // Reuse the primary-error-preserving recorder for every second-attempt
+      // assertion, so CI retains the actual failing owner/helper stage too.
+      await recordPreparationAttempt(
+        diagnostics,
+        'native-call',
+        async () => {
+          const current = f.f.workspace.getForConversation(f.a.sessionId)!;
+          const nextSource = join(f.f.root, 'next-source');
+          fixtureGit(
+            f.f.root,
+            'clone',
+            '--no-hardlinks',
+            '-q',
+            join(f.f.root, 'source'),
+            nextSource,
           );
-        }),
+          await Promise.all(
+            Array.from({ length: 13 }, (_, index) =>
+              writeFile(join(nextSource, `plan-${index}.md`), `Planning document ${index}\n`),
+            ),
+          );
+          fixtureGit(nextSource, 'add', '.');
+          fixtureGit(nextSource, 'commit', '-qm', 'populated second source');
+          const selectedHead = fixtureGit(nextSource, 'rev-parse', 'HEAD');
+          const [sourceHead, sourceIndex] = await Promise.all([
+            readFile(join(nextSource, '.git', 'HEAD')),
+            readFile(join(nextSource, '.git', 'index')),
+          ]);
+          const started = performance.now();
+          const callsBefore = metrics.admission.calls;
+          const next = await f.a.call({
+            path: nextSource,
+            base: { kind: 'ref', ref: 'HEAD' },
+          });
+          secondPreparation.elapsedMs = Math.round(performance.now() - started);
+          secondPreparation.admissionCalls = metrics.admission.calls - callsBefore;
+          secondPreparation.state = next.value.state ?? 'failed';
+          console.info('Second preparation', JSON.stringify(secondPreparation));
+          expect(
+            next.response.success,
+            JSON.stringify({ value: next.value, diagnostics: diagnostics.snapshot() }),
+          ).toBe(true);
+          expect(next.value).toMatchObject({ state: 'materialized' });
+          expect(next.value.preparationId).not.toBe(current.id);
+          expect(f.f.workspace.getForConversation(f.a.sessionId)?.id).toBe(current.id);
+          expect(f.permissions).toHaveLength(2);
+          await sourcePreservation?.('adopted', true);
+          const secondContext = observedContext!;
+          const secondReceipt = f.f.workspace.get(next.value.preparationId).pendingHostTask!;
+          expect(secondReceipt.state).toBe('materialized');
+          await completePrepared(secondContext, secondReceipt);
+          const adopted = f.f.workspace.getForConversation(f.a.sessionId)!;
+          expect(adopted.id).toBe(next.value.preparationId);
+          expect(f.f.events.getSession(f.a.sessionId)?.cwd).toBe(secondReceipt.directory);
+          expect(f.native.read(f.a.sessionId, f.a.initial.lease.binding).cwd).toBe(
+            secondReceipt.directory,
+          );
+          expect(
+            f.a.requests.filter((request) => request.method === 'turn/start').at(-1)?.params.cwd,
+          ).toBe(secondReceipt.directory);
+          expect(fixtureGit(secondReceipt.directory, 'rev-parse', 'HEAD')).toBe(selectedHead);
+          expect(fixtureGit(nextSource, 'rev-parse', 'HEAD')).toBe(selectedHead);
+          expect(await readFile(join(nextSource, '.git', 'HEAD'))).toEqual(sourceHead);
+          expect(await readFile(join(nextSource, '.git', 'index'))).toEqual(sourceIndex);
+          await Promise.all(
+            Array.from({ length: 13 }, async (_, index) => {
+              expect(
+                await readFile(join(secondReceipt.directory, `plan-${index}.md`), 'utf8'),
+              ).toBe(`Planning document ${index}\n`);
+            }),
+          );
+          expect(cleanupCounts.reader).toBe(returnedReaders.length);
+          expect(cleanupCounts.objects).toBe(2);
+          secondPreparation.continuation = true;
+          for (const [name, check] of Object.entries(diagnostics.snapshot().checks))
+            expect(check.status, JSON.stringify({ name, check })).toBe('passed');
+        },
+        async () => {},
+        async () => persistAttempt(),
       );
-      expect(cleanupCounts.reader).toBe(returnedReaders.length);
-      expect(cleanupCounts.objects).toBe(2);
-      secondPreparation.continuation = true;
-      for (const [name, check] of Object.entries(diagnostics.snapshot().checks))
-        expect(check.status, JSON.stringify({ name, check })).toBe('passed');
-      await persistAttempt();
     }
   },
   // Retain the existing overall harness bound while exercising a second source
