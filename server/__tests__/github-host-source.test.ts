@@ -26,8 +26,8 @@ const roots: string[] = [];
 afterEach(async () => {
   await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true })));
 });
-async function fixture() {
-  const root = await realpath(await mkdtemp(join(tmpdir(), 'mitzo-host-publish-')));
+async function fixture(parent = tmpdir()) {
+  const root = await realpath(await mkdtemp(join(parent, 'mitzo-host-publish-')));
   roots.push(root);
   const git = (...args: string[]) =>
     execFileSync(
@@ -43,7 +43,14 @@ async function fixture() {
         'commit.gpgsign=false',
         ...args,
       ],
-      { encoding: 'utf8' },
+      {
+        encoding: 'utf8',
+        env: {
+          ...process.env,
+          GIT_AUTHOR_DATE: '2026-01-01T00:00:00Z',
+          GIT_COMMITTER_DATE: '2026-01-01T00:00:00Z',
+        },
+      },
     ).trim();
   git('init', '-b', 'main');
   await writeFile(join(root, 'note.txt'), 'base');
@@ -157,6 +164,56 @@ it('inspects and exports committed host work without network or credentials', as
       maxBytes: 1024,
     }),
   ).rejects.toThrow();
+});
+it('scopes a prepared base to its own repository when publishing a nested checkout', async () => {
+  const outer = await fixture();
+  const nested = await fixture(outer.root);
+  outer.git('remote', 'set-url', 'origin', 'https://github.com/example/outer.git');
+  const source = hostGithubPublishingSource({ cwd: outer.root }, [], {
+    directory: outer.root,
+    connectionId: 'github',
+    repository: 'example/outer',
+    baseBranch: 'main',
+    // Use an actual ancestor of both repositories. A missing nested tracking ref
+    // must still fail rather than silently borrowing the outer acquisition OID.
+    baseOid: outer.git('rev-parse', 'origin/main'),
+  })!;
+  const input = { ...nested.input, ...source };
+  expect(source.preparedBase!.baseOid).toBe(nested.git('rev-parse', 'origin/main'));
+  expect(await resolveHostGithubRepository(input)).toBe('example/repo');
+  const inspected = await inspectHostGithubRepository(input);
+  expect(inspected).toMatchObject({
+    canonicalRepositoryPath: nested.root,
+    sourceBranch: 'feature',
+    commitsAhead: 1,
+    changedFiles: ['note.txt'],
+  });
+  const exportInput = {
+    ...input,
+    sourceBranch: 'feature',
+    sourceOid: inspected.sourceOid,
+    maxBytes: 1024 * 1024,
+  };
+  await expect(
+    inspectHostGithubRepository({
+      ...input,
+      preparedBase: {
+        ...source.preparedBase!,
+        repositoryPath: nested.root,
+        repository: 'example/repo',
+      },
+    }),
+  ).rejects.toThrow('Prepared publishing base does not match');
+  expect((await exportHostGithubBundle(exportInput)).toString('utf8', 0, 16)).toContain(
+    'git bundle',
+  );
+  nested.git('update-ref', '-d', 'refs/remotes/origin/main');
+  await expect(inspectHostGithubRepository(input)).rejects.toThrow(
+    'Publishing base branch is unavailable',
+  );
+  await expect(exportHostGithubBundle(exportInput)).rejects.toThrow(
+    'Publishing base branch is unavailable',
+  );
 });
 it('rejects path escape and symlinked Git storage before reading it', async () => {
   const f = await fixture();
