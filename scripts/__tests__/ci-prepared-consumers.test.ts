@@ -2,7 +2,11 @@ import { mkdtempSync, mkdirSync, writeFileSync, existsSync, rmSync, readFileSync
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, expect, it } from 'vitest';
-import { preparedConsumerCases, runPreparedConsumers } from '../ci-prepared-consumers.mjs';
+import {
+  parsePreparedConsumerArgs,
+  preparedConsumerCases,
+  runPreparedConsumers,
+} from '../ci-prepared-consumers.mjs';
 const roots: string[] = [];
 afterEach(() => roots.splice(0).forEach((p) => rmSync(p, { recursive: true, force: true })));
 function fixture() {
@@ -33,6 +37,23 @@ function report(c: (typeof preparedConsumerCases)[number]) {
     ],
   };
 }
+it.each(['linux', 'darwin'] as const)(
+  'admits the complete offline consumer owner on %s without changing its case selection',
+  (platform) => {
+    expect(parsePreparedConsumerArgs([], platform)).toBeUndefined();
+    for (const selected of preparedConsumerCases)
+      expect(parsePreparedConsumerArgs([selected.name], platform)).toBe(selected.name);
+  },
+);
+it.each([
+  { args: [], platform: 'win32' },
+  { args: ['delivery', 'publication'], platform: 'linux' },
+  { args: ['missing'], platform: 'linux' },
+])('refuses an unsupported owner invocation $platform $args', ({ args, platform }) => {
+  expect(() => parsePreparedConsumerArgs(args, platform)).toThrow(
+    'Select the complete offline prepared consumer owner',
+  );
+});
 it('runs exactly delivery5 + publication2 serially in fresh one-worker commands with actual reports', async () => {
   const root = fixture();
   let calls = 0;
