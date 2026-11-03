@@ -126,5 +126,24 @@ pre-refactor CI baseline (`bed86d885`, run 41622453461) completed both preparati
 adoptions and continuation, with the second preparation taking 246.339 seconds
 and 97 native admissions. Both helper windows passed and cleanup completed. Its
 whole workflow failed an obsolete setup-contract unit assertion, corrected here.
-Final minimum-phase CI timing and admission counts remain unmeasured until that
-head completes. These measurements are observations, not production guarantees.
+The minimum-phase native run (`11c5e1e1d`, run 41633858194) completed the second
+preparation in 69.449 seconds with 55 native admissions, then adopted and continued.
+All 106 returned readers were cleaned up and both object disposers ran. The second
+checkout took 3.011 seconds and publication 8.458 seconds, leaving 26.989 and 21.542
+seconds in their original worker windows. The materializer test executed in 132.128
+seconds versus 376.747 in the prior successful baseline; the signed 43-case step
+executed in 194 seconds. These are separate CI observations, not controlled host
+benchmarks or production guarantees.
+
+Review also identified stale signed helper assertions that still counted the
+removed setup proof. Existing reader, topology, file and batch controls now assert
+the two real worker boundaries. Post-join cleanup revocation happens on the second
+proof after confirming the worker joined. The batch matrix retains pre-worker
+no-effects and post-join retained bytes/refused replay, removing its obsolete third
+sample. A separate mandatory macOS step selects only these seven existing cases;
+its closed named-report validator rejects omitted, skipped or failed evidence.
+The topology cases use controlled credential callbacks and a real parser process;
+the separate 43-case gate retains genuine signed request/decision coverage.
+Local assertion execution totalled 7.798 seconds, reusing existing fixtures. It
+adds one focused test process, not another full success journey. Missing or
+nonpassing report variants use a cheap VM test with shared synthetic fixtures.

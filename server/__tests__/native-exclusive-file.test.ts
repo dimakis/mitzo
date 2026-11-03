@@ -325,7 +325,10 @@ actual(
         },
         async revalidate() {
           validations++;
-          if (validations === 3) live = false;
+          if (validations === 2) {
+            expect(retainedCleanup).toBeDefined(); // The actual worker has joined.
+            live = false;
+          }
         },
       });
       return { stdout: result.stdout ?? '', isError: result.isError };
@@ -335,7 +338,7 @@ actual(
         operations.createNativeExclusiveFile(input, new AbortController().signal, 15000, run),
       ).rejects.toThrow('Exclusive native file unavailable');
       expect(retainedCleanup).toBeDefined();
-      expect(validations).toBe(3);
+      expect(validations).toBe(2);
       expect(await readFile(target)).toEqual(bytes);
     } finally {
       vi.restoreAllMocks();

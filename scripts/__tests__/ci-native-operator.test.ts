@@ -5,14 +5,19 @@ import { expect, it } from 'vitest';
 import {
   completeNativeAuthorityReport as completeReport,
   type NativeAuthorityReport as Report,
+  nativeWorkerBoundaryCases,
+  completeNativeWorkerBoundaryReport,
 } from './fixtures/native-authorization-report.js';
 
-function qualify(report: Report) {
+function qualify(
+  report: Report,
+  stepName = 'Verify signed native operator lifetime and repository tools',
+) {
   const workflow = load(readFileSync('.github/workflows/ci.yml', 'utf8')) as {
     jobs: Record<string, { steps: Array<{ name?: string; run?: string }> }>;
   };
   const step = workflow.jobs['ordinary-journey'].steps.find(
-    (candidate) => candidate.name === 'Verify signed native operator lifetime and repository tools',
+    (candidate) => candidate.name === stepName,
   );
   const source = step?.run?.match(/node --input-type=module <<'NODE'\n([\s\S]*?)\nNODE/);
   if (!source) throw Error('Required native operator qualification is missing');
@@ -106,4 +111,21 @@ it.each([
   const report = completeReport();
   change(report);
   expect(() => qualify(report)).toThrow();
+});
+
+it('requires every selected native worker boundary and rejects missing or nonpassing evidence', () => {
+  const stepName = 'Verify signed helper worker boundaries';
+  expect(() => qualify(completeNativeWorkerBoundaryReport(), stepName)).not.toThrow();
+  for (const [file, fullName] of nativeWorkerBoundaryCases) {
+    for (const status of ['missing', 'pending', 'failed']) {
+      const report = completeNativeWorkerBoundaryReport();
+      const cases = report.testResults.find((suite) =>
+        suite.name.endsWith('/' + file),
+      )!.assertionResults;
+      const index = cases.findIndex((test) => test.fullName === fullName);
+      if (status === 'missing') cases.splice(index, 1);
+      else cases[index].status = status;
+      expect(() => qualify(report, stepName)).toThrow();
+    }
+  }
 });

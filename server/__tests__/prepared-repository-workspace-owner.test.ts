@@ -191,7 +191,7 @@ it.runIf(process.platform === 'darwin').each(['linked', 'standalone'] as const)(
     const f = await nativePhase(kind);
     await f.validate();
     expect(f.helper).toHaveBeenCalledTimes(1);
-    expect(f.revalidate).toHaveBeenCalledTimes(3); // Scratch, helper entry, helper result.
+    expect(f.revalidate).toHaveBeenCalledTimes(2); // Helper entry and joined result.
     const assertion = captureNativeTopologyAssertion(f.reader);
     expect(assertion).toBeDefined();
     expect(captureNativeTopologyAssertion(new Proxy(f.reader, {}))).toBeUndefined();
@@ -206,7 +206,7 @@ it.runIf(process.platform === 'darwin').each(['linked', 'standalone'] as const)(
     await expect(f.validate()).rejects.toThrow();
     expect(f.helper).toHaveBeenCalledTimes(2); // Its pre-spawn credential check refuses.
     expect(f.spawns).toHaveBeenCalledTimes(1);
-    expect(f.revalidate).toHaveBeenCalledTimes(4);
+    expect(f.revalidate).toHaveBeenCalledTimes(3);
   },
 );
 

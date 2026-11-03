@@ -325,7 +325,7 @@ it.runIf(process.platform === 'darwin' && process.env.MITZO_SANDBOX_INTEGRATION 
         );
         expect(execute.mock.calls.length).toBeGreaterThan(0);
         // Every actual helper still revalidates before spawn and after result.
-        expect(revalidate).toHaveBeenCalledTimes(1 + 2 * execute.mock.calls.length);
+        expect(revalidate).toHaveBeenCalledTimes(2 * execute.mock.calls.length);
         for (const [call] of execute.mock.calls) {
           expect(call.writableRoots).toEqual([call.cwd]);
           expect(call.cwd).not.toBe(f.source);

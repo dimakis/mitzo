@@ -30,3 +30,46 @@ export function completeNativeAuthorityReport(): NativeAuthorityReport {
     })),
   };
 }
+
+export const nativeWorkerBoundaryCases = [
+  [
+    'native-exclusive-file-batch.test.ts',
+    'publishes six exact files with one launch and two original full-owner checks',
+  ],
+  [
+    'native-exclusive-file-batch.test.ts',
+    'retains original full-owner refusal at batch gate 1 without replay',
+  ],
+  [
+    'native-exclusive-file-batch.test.ts',
+    'retains original full-owner refusal at batch gate 2 without replay',
+  ],
+  [
+    'native-exclusive-file.test.ts',
+    'revalidates the original owner after joined worker cleanup rejects, retaining uncertain published bytes',
+  ],
+  [
+    'prepared-repository-native-read.test.ts',
+    'reads through the actual fresh barrier and same existing SRT helper with no source write root',
+  ],
+  [
+    'prepared-repository-workspace-owner.test.ts',
+    'owns one linked topology helper and exactly entry/post-effect credential checks',
+  ],
+  [
+    'prepared-repository-workspace-owner.test.ts',
+    'owns one standalone topology helper and exactly entry/post-effect credential checks',
+  ],
+] as const;
+
+export function completeNativeWorkerBoundaryReport(): NativeAuthorityReport {
+  return {
+    success: true,
+    testResults: [...new Set(nativeWorkerBoundaryCases.map(([file]) => file))].map((file) => ({
+      name: '/fixture/server/__tests__/' + file,
+      assertionResults: nativeWorkerBoundaryCases
+        .filter(([name]) => name === file)
+        .map(([, fullName]) => ({ fullName, status: 'passed' })),
+    })),
+  };
+}

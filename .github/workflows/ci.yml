@@ -598,6 +598,33 @@ jobs:
             }
           }
           NODE
+      - name: Verify signed helper worker boundaries
+        if: ${{ !cancelled() }}
+        env:
+          MITZO_SANDBOX_INTEGRATION: '1'
+        run: |
+          npx vitest run server/__tests__/prepared-repository-native-read.test.ts server/__tests__/native-exclusive-file-batch.test.ts server/__tests__/native-exclusive-file.test.ts server/__tests__/prepared-repository-workspace-owner.test.ts --maxWorkers=1 -t 'reads through the actual fresh barrier|publishes six exact files|revalidates the original owner after joined worker cleanup rejects|topology helper and exactly entry/post-effect|retains original full-owner refusal at batch gate' --reporter=default --reporter=json --outputFile=test-results/native-worker-boundaries.json
+          node --input-type=module <<'NODE'
+          import { readFileSync } from 'node:fs';
+          const result = JSON.parse(readFileSync('test-results/native-worker-boundaries.json', 'utf8'));
+          if (!result.success) throw new Error('Signed worker boundary qualification failed');
+          const required = [
+            ['native-exclusive-file-batch.test.ts', 'publishes six exact files with one launch and two original full-owner checks'],
+            ['native-exclusive-file-batch.test.ts', 'retains original full-owner refusal at batch gate 1 without replay'],
+            ['native-exclusive-file-batch.test.ts', 'retains original full-owner refusal at batch gate 2 without replay'],
+            ['native-exclusive-file.test.ts', 'revalidates the original owner after joined worker cleanup rejects, retaining uncertain published bytes'],
+            ['prepared-repository-native-read.test.ts', 'reads through the actual fresh barrier and same existing SRT helper with no source write root'],
+            ['prepared-repository-workspace-owner.test.ts', 'owns one linked topology helper and exactly entry/post-effect credential checks'],
+            ['prepared-repository-workspace-owner.test.ts', 'owns one standalone topology helper and exactly entry/post-effect credential checks'],
+          ];
+          for (const [file, fullName] of required) {
+            const suite = result.testResults.find(test => test.name.endsWith('/' + file));
+            const cases = suite?.assertionResults.filter(test => test.fullName === fullName);
+            if (cases?.length !== 1 || cases[0].status !== 'passed') {
+              throw new Error('Required signed worker boundary missing or nonpassing: ' + fullName);
+            }
+          }
+          NODE
       - name: Retain exact offline journey result
         if: always()
         uses: actions/upload-artifact@v7
@@ -606,6 +633,7 @@ jobs:
           path: |
             test-results/ordinary-journey.json
             test-results/native-host-authorization.json
+            test-results/native-worker-boundaries.json
             test-results/qualified-preparation-actor.json
             test-results/native-repository-workflows-processes/
             test-results/native-repository-workflows/
