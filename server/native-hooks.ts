@@ -1,4 +1,4 @@
-import { retainCallbackOutcome } from './turn-callbacks.js';
+import { retainCallbackOutcome, retainedCallbackOutcome } from './turn-callbacks.js';
 import { execFile } from 'node:child_process';
 import { existsSync, readFileSync, mkdtempSync, rmSync } from 'node:fs';
 import { join, resolve } from 'node:path';
@@ -95,8 +95,12 @@ export class NativeHooks {
       signal.throwIfAborted();
       const rawResult = await execute(checked, pre.forcePrompt);
       executed = true;
-      signal.throwIfAborted();
       const result = normalizeCodexToolResult(rawResult);
+      // A settled refusal runs no post-tool hook. Preserve its original-owner
+      // receipt even if terminal cancellation arrived during approval; calling
+      // it an interrupted hook would manufacture uncertainty and block FIFO.
+      if (result.isError && retainedCallbackOutcome(result) === 'settled') return result;
+      signal.throwIfAborted();
       if (result.isError) return result;
       const post = await this.run(
         'PostToolUse',

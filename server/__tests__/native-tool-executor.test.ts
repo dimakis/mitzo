@@ -18,10 +18,16 @@ import { join } from 'node:path';
 import { SessionRegistry, resolvePending } from '@mitzo/harness';
 import { loadAccountProfiles } from '../account-profiles.js';
 import { executeSandboxedCommand } from '../sandboxed-command.js';
+import * as nativeFiles from '../native-file-operation.js';
 import { executeTrustedGitCommit, executeTrustedGitHubRead } from '../trusted-native-operation.js';
 import { captureLocalRepository } from '../local-repository-worktree.js';
 import { snapshotRepositoryTaskCheckout } from '../repository-task-checkout.js';
 const repositoryTasks = vi.hoisted(() => ({ read: vi.fn(), validate: vi.fn() }));
+const testHost = vi.hoisted(() => ({ home: '/offline/native-tool-home' }));
+vi.mock('node:os', async (original) => ({
+  ...(await original<typeof import('node:os')>()),
+  homedir: () => testHost.home,
+}));
 vi.mock('../repository-workspace-runtime.js', () => ({
   readRepositoryWorkspaceForConversation: repositoryTasks.read,
   getRepositoryWorkspaces: () => ({ validateHostTask: repositoryTasks.validate }),
@@ -49,6 +55,8 @@ describe('native tool execution through session permissions', () => {
     repositoryTasks.read.mockReset();
     repositoryTasks.validate.mockReset();
     root = await mkdtemp(join(tmpdir(), 'mitzo-native-'));
+    testHost.home = join(root, 'home');
+    await mkdir(testHost.home);
     await mkdir(join(root, 'worktree'));
     registry = new SessionRegistry();
     abort = new AbortController();
@@ -67,6 +75,7 @@ describe('native tool execution through session permissions', () => {
     });
   });
   afterEach(async () => {
+    vi.restoreAllMocks();
     vi.unstubAllEnvs();
     registry.dispose();
     await rm(root, { recursive: true, force: true });
@@ -172,6 +181,105 @@ describe('native tool execution through session permissions', () => {
     expect(await allowed).toMatchObject({ is_error: false });
     expect(await readFile(join(root, 'worktree/approved'), 'utf8')).toBe('yes');
   });
+  it.each([
+    ['GitHubRead', { endpoint: '/user' }],
+    ['Write', { file_path: 'cancelled', content: 'forbidden', require_approval: true }],
+    ['Read', { file_path: 'original' }],
+    [
+      'Edit',
+      { file_path: 'original', old_string: 'before', new_string: 'after', require_approval: true },
+    ],
+    ['Bash', { command: 'touch forbidden' }],
+    ['GitCommit', { files: ['original'], message: 'Must not execute' }],
+  ] as const)(
+    'settles %s cancelled while approval is pending without executing it',
+    async (name, input) => {
+      await writeFile(join(root, 'worktree/original'), 'before');
+      const beforeReads = vi.mocked(executeTrustedGitHubRead).mock.calls.length;
+      const beforeCommits = vi.mocked(executeTrustedGitCommit).mock.calls.length;
+      const beforeCommands = vi.mocked(executeSandboxedCommand).mock.calls.length;
+      const execute = createNativeToolExecutor('client', registry, { env: {}, forcePrompt: true });
+      const pending = execute(
+        call(name, { ...input, ...('files' in input ? { files: [...input.files] } : {}) }),
+        abort.signal,
+      );
+      await vi.waitFor(() => expect(sent.some((e) => e.type === 'permission_request')).toBe(true));
+      abort.abort(new Error('Original turn completed'));
+      const response = await pending;
+      expect(response).toMatchObject({ is_error: true, content: 'Tool execution cancelled' });
+      expect(callbackOutcome(response)).toBe('settled');
+      expect(vi.mocked(executeTrustedGitHubRead).mock.calls).toHaveLength(beforeReads);
+      expect(vi.mocked(executeTrustedGitCommit).mock.calls).toHaveLength(beforeCommits);
+      expect(vi.mocked(executeSandboxedCommand).mock.calls).toHaveLength(beforeCommands);
+      expect(await readFile(join(root, 'worktree/original'), 'utf8')).toBe('before');
+      await expect(readFile(join(root, 'worktree/cancelled'))).rejects.toThrow();
+    },
+  );
+
+  it('preserves uncertainty when an already dispatched GitHub read is cancelled', async () => {
+    vi.mocked(executeTrustedGitHubRead).mockImplementationOnce(async () => {
+      abort.abort(new Error('Original turn completed'));
+      throw abort.signal.reason;
+    });
+    const pending = executor()(call('GitHubRead', { endpoint: '/user' }), abort.signal);
+    await vi.waitFor(() => expect(sent.some((e) => e.type === 'permission_request')).toBe(true));
+    resolvePending(sent.find((e) => e.type === 'permission_request')!.permId as string, 'once');
+    const response = await pending;
+    expect(response.is_error).toBe(true);
+    expect(callbackOutcome(response)).toBe('unknown');
+  });
+
+  it('retains uncertainty for a write interrupted after entering the file executor', async () => {
+    const target = join(root, 'worktree/partial');
+    vi.spyOn(nativeFiles, 'executeNativeFileOperation').mockImplementationOnce(async () => {
+      await writeFile(target, 'partial effect');
+      abort.abort(new Error('Owner stopped after a write'));
+      throw abort.signal.reason;
+    });
+    const response = await executor()(
+      call('Write', { file_path: 'partial', content: 'whole' }),
+      abort.signal,
+    );
+    expect(response.is_error).toBe(true);
+    expect(callbackOutcome(response)).toBe('unknown');
+    expect(await readFile(target, 'utf8')).toBe('partial effect');
+  });
+
+  it('retains uncertainty from on-demand workspace creation before tool approval', async () => {
+    const onDemandCreate = vi.fn(async () => {
+      await writeFile(join(root, 'preparation-started'), 'partial effect');
+      abort.abort(new Error('Workspace preparation interrupted'));
+      throw abort.signal.reason;
+    });
+    const execute = createNativeToolExecutor('client', registry, { env: {}, onDemandCreate });
+    const response = await execute(
+      call('Write', { file_path: join(root, 'outside'), content: 'forbidden' }),
+      abort.signal,
+    );
+    expect(onDemandCreate).toHaveBeenCalledOnce();
+    expect(response.is_error).toBe(true);
+    expect(callbackOutcome(response)).toBe('unknown');
+    await expect(readFile(join(root, 'outside'))).rejects.toThrow();
+  });
+
+  it('settles a redirect after the original workspace creator positively completes', async () => {
+    const prepared = join(root, 'prepared');
+    const onDemandCreate = vi.fn(async () => {
+      await mkdir(prepared);
+      return { repoName: 'prepared', worktreePath: prepared };
+    });
+    const execute = createNativeToolExecutor('client', registry, { env: {}, onDemandCreate });
+    const response = await execute(
+      call('Write', { file_path: join(root, 'outside'), content: 'forbidden' }),
+      abort.signal,
+    );
+    expect(onDemandCreate).toHaveBeenCalledOnce();
+    expect(response.is_error).toBe(true);
+    expect(callbackOutcome(response)).toBe('settled');
+    expect(registry.get('client')!.worktreePaths.get('prepared')?.path).toBe(prepared);
+    await expect(readFile(join(root, 'outside'))).rejects.toThrow();
+  });
+
   it('requires initial approval for authenticated GitHub reads without exposing credentials', async () => {
     registry.get('client')!.mode = 'ask';
     const pending = executor()(call('GitHubRead', { endpoint: '/user' }), abort.signal);
@@ -1114,7 +1222,7 @@ describe('native tool execution through session permissions', () => {
       abort.signal,
     );
     expect(cancelled).toMatchObject({ is_error: true });
-    expect(callbackOutcome(cancelled)).toBe('unknown');
+    expect(callbackOutcome(cancelled)).toBe('settled');
     await expect(readFile(join(root, 'worktree/bad'))).rejects.toThrow();
   });
   it('preserves ask mode read-only behavior without relying on SDK plan mode', async () => {
