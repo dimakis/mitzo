@@ -9,7 +9,11 @@ vi.mock('../../lib/api-fetch', () => ({ apiFetch: vi.fn() }));
 const queueSignal = vi.hoisted(() => ({ revision: 0 }));
 vi.mock('@mitzo/client/hooks', () => ({
   useMitzoStore: (select: (state: unknown) => unknown) =>
-    select({ getTransportConnectionId: () => 'owned-sse', queueRevision: queueSignal.revision }),
+    select({
+      getTransportConnectionId: () => 'owned-sse',
+      queueRevision: queueSignal.revision,
+      invalidateSessionMetadata: vi.fn(),
+    }),
 }));
 
 const meta = (queue: Record<string, unknown>) =>
@@ -1116,7 +1120,9 @@ it('keeps completed responses distinct from an unfinished follow-up with unknown
     meta({
       ...idleQueue,
       paused: true,
-      canContinue: true,
+      canContinue: false,
+      connected: false,
+      failed: 1,
       queued: 1,
       operation: {
         commandId: 'completed-response',
@@ -1134,9 +1140,7 @@ it('keeps completed responses distinct from an unfinished follow-up with unknown
   );
   expect(screen.queryByText('Previous turn failed. Retry when available.')).toBeNull();
   expect(screen.queryByRole('button', { name: 'Reconnect and continue' })).toBeNull();
-  expect(
-    vi.mocked(apiFetch).mock.calls.every(([path]) => !String(path).includes('/continue')),
-  ).toBe(true);
+  expect(vi.mocked(apiFetch).mock.calls.every(([, init]) => init?.method !== 'POST')).toBe(true);
 });
 
 it('offers explicit reconciliation when the original completion owner observed success', async () => {

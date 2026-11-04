@@ -2411,6 +2411,15 @@ It still sends nothing until the user activates the control. Truly unknown effec
 keep continuation and retry controls withheld; a completed response is never
 relabelled as failed. The fixture covers all three states and retained queued work.
 
+An ordinary chat keeps this recovery row available while Send is blocked by a
+retained outcome. Route identity and metadata loading still withhold controls.
+Successful explicit recovery refreshes shared conversation settings, retaining
+the next draft and model/thinking choices. Unknown effects never trigger a
+background reattachment. Existing status controls, tokens and layout are reused;
+mounted phone/desktop regressions and the intercepted queue fixture cover this path.
+Inspected captures: [phone recovery](assets/chat-recovery-mobile-dark.png) and
+[desktop recovery](assets/chat-recovery-desktop-light.png).
+
 ## Telos brief readability
 
 The 30 October first-use review requested readable work details rather than the

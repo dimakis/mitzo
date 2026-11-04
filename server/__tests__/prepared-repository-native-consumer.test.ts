@@ -7,7 +7,7 @@ import {
 import { CodexConversation } from '../codex-conversation.js';
 import { expect, it, vi } from 'vitest';
 import { join } from 'node:path';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import httpRequest from 'supertest';
 import { listenOnLoopback, closeTestServer } from './loopback-test-server.js';
 import { writeFile, readFile } from 'node:fs/promises';
@@ -25,6 +25,7 @@ import {
   recordOrdinaryReplySource,
 } from '../collaboration-ordinary-replies.js';
 import { CodexSessionEvents } from '../codex-session-events.js';
+import { retainedLocalCodexRecoveryReservation } from '../retained-local-codex-effects.js';
 
 it('adopts through the genuine retained bootstrap selection and actual repository CAS, then validates later add/commit without recursion', async () => {
   const f = await fixture();
@@ -56,7 +57,80 @@ it('adopts through the genuine retained bootstrap selection and actual repositor
   git(result!.directory, 'commit', '-qm', 'task change');
   await f.first.lease.assertCurrent();
   expect(f.disposals).toHaveBeenCalled();
+  await reconcileCompletedPrimary(f);
 });
+
+// Reuse the real adopted checkout, original child receipt and cold bootstrap.
+async function reconcileCompletedPrimary(f: Awaited<ReturnType<typeof fixture>>) {
+  const id = f.first.sessionId;
+  const binding = f.first.lease.binding;
+  const primary = f.native.claimNext(id, binding)!;
+  expect(primary.environmentContinuation).toBeDefined();
+  const state = f.native.read(id, binding);
+  const policy = codexNativeExecutionPolicy({
+    bindingRevision: binding.profileRevision!,
+    mode: 'agent',
+    cwd: state.cwd,
+    readableRoots: ['/'],
+    writableRoots: [state.cwd],
+    deniedRoots: [join(f.root, 'login'), join(f.root, 'custody')],
+    writeProtectedRoots: [],
+  });
+  f.native.prepareNativeExecution(id, binding, primary, state.threadId!, policy);
+  f.native.recordNativeTurnAck(id, binding, primary, state.threadId!, 'primary-turn');
+  f.native.acceptNativeExecution(id, binding, primary, state.threadId!, 'primary-turn');
+  f.native.observeEmptyCompletionPhase(
+    id,
+    binding,
+    primary,
+    state.threadId!,
+    'primary-turn',
+    createHash('sha256').update(state.cwd).digest('hex'),
+    policy.policyRevision,
+  );
+  f.native.pauseForRecovery(
+    id,
+    binding,
+    primary.id,
+    'interrupted',
+    'resume',
+    undefined,
+    true,
+    true,
+  );
+  const before = f.events.getOrdinaryLocalCommandExecutionAdmission(primary.id);
+  f.runtime.close();
+  const request = f.rpc.request.getMockImplementation()!;
+  f.rpc.request.mockImplementation(async (method, params) =>
+    method === 'thread/turns/list'
+      ? { data: [{ id: 'primary-turn', status: 'completed' }] }
+      : request(method, params),
+  );
+  const meta = f.events.getSession(id)!;
+  const runtimeBinding = f.events.getSessionRuntimeBinding(id);
+  if (runtimeBinding?.version !== 2) throw Error('Expected retained ordinary runtime binding');
+  const driver = new OrdinaryLocalCodexOwnedRuntime({
+    ...f.dependencies,
+    nativeStore: f.native,
+    commandId: primary.id,
+    workspaceKind: 'repository',
+    reservation: retainedLocalCodexRecoveryReservation(
+      meta,
+      f.workspace.get(f.record.id),
+      runtimeBinding,
+    ),
+    launch: () => f.rpc,
+    dispatch: async () => {
+      throw Error('Recovery cannot dispatch');
+    },
+  });
+  cleanups.push(() => driver.close());
+  await driver.reconcileRetainedEffects();
+  expect(f.native.commandStatus(id, binding, primary.id)).toBe('completed');
+  expect(f.native.continuationBlocker(id, binding)).toBeUndefined();
+  expect(f.native.read(id, binding).recovery).toBe(0);
+  expect(f.events.getOrdinaryLocalCommandExecutionAdmission(primary.id)).toEqual(before);
+}
 
 it('retains the controlled prepared reader during Linux adoption without loading the real native factory', async () => {
   const f = await fixture();

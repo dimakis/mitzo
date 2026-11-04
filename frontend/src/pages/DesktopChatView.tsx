@@ -291,11 +291,12 @@ export function DesktopChatView() {
     setRoleDraftError(null);
     return true;
   }, []);
-  const controlsBlocked =
+  const conversationScopeBlocked =
     roleSetupLocked ||
-    (localBound && !localRuntime.commandAvailable) ||
     localRuntime.metadataPending ||
     (!!sessionId && sessionId !== activeSessionId);
+  const controlsBlocked =
+    conversationScopeBlocked || (localBound && !localRuntime.commandAvailable);
 
   const [builderLinkError, setBuilderLinkError] = useState('');
   const builderSources = activeSessionId
@@ -1810,7 +1811,7 @@ export function DesktopChatView() {
                     }
                   />
                   <CodexQueueStatus
-                    sessionId={controlsBlocked ? null : activeSessionId}
+                    sessionId={conversationScopeBlocked ? null : activeSessionId}
                     deliveryStatus={
                       (retainedLocalCommand && !ownsLocalCommand) ||
                       (localCommand && localCommand.state !== 'consumed')

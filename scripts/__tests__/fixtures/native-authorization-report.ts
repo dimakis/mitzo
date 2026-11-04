@@ -4,8 +4,8 @@
 export const nativeAuthorityCases = [
   ['native-host-operator-lifetime.test.ts', 9],
   ['native-local-repository-preparation-registration-dispatch.test.ts', 4],
-  ['native-local-repository-read-tools.test.ts', 14],
-  ['native-reader-path-authorization.test.ts', 13],
+  ['native-local-repository-read-tools.test.ts', 15],
+  ['native-reader-path-authorization.test.ts', 14],
   ['qualified-local-repository-materializer.test.ts', 2],
   ['qualified-local-repository-operation-owner.test.ts', 1],
 ] as const;
