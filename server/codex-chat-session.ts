@@ -960,15 +960,20 @@ async function openCodexChatBound(
   const nativeTelosTools =
     options.ownedLocal &&
     options.assertAgentContextAuthorization &&
-    hasAgentToolSelection(options.session) &&
     mainPublicationRuntime?.supportsHost(options.registry, options.eventStore)
       ? [
           telosCreateOutcomeDefinition,
           telosAdoptSourceDefinition,
-          ...(selectedTelosRole?.role === 'lead' ? telosItemDefinitions : []),
-          ...telosArtifactDefinitions.filter((tool) =>
-            ['TelosSaveArtifact', 'TelosReadArtifact'].includes(tool.name),
-          ),
+          // Default profiles retain reviewed capture, just like OpenShell.
+          // Progress and artifact tools keep their explicit-selection contract.
+          ...(hasAgentToolSelection(options.session)
+            ? [
+                ...(selectedTelosRole?.role === 'lead' ? telosItemDefinitions : []),
+                ...telosArtifactDefinitions.filter((tool) =>
+                  ['TelosSaveArtifact', 'TelosReadArtifact'].includes(tool.name),
+                ),
+              ]
+            : []),
         ].filter((tool) => agentToolAllowed(options.session, tool.name))
       : [];
   const mainPublicationTools =
