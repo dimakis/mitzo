@@ -25,7 +25,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../session-history-reader.ts':
     '99d32c96410137160ed6557d69cdc28f833c772cf09303b9d6e87817e56e0501',
   '../__tests__/session-history-retrieval.test.ts':
-    '6fd9c87e6c5df18380dad6cac6ab047e40ae80aed8dee7c7f0667e94c39cd7f3',
+    '6e669fe5c55c3e3555584fd1f7e7d31e7e3b2121bc8eb9c909fc3b1077e62d2b',
   '../__tests__/fixtures/legacy-session-history.ts':
     '64f3997f7991fe6f72db7a99617caf3c3a2a0e1eb6b2bd8bdaeca66ad19e0259',
   '../__tests__/session-history-tools.test.ts':
@@ -1685,7 +1685,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/protocol/src/session-lifecycle-store.ts':
     '2a219b360a5fbe72b0a550c714bf76a15c6f5969cbbe4251671050257b98e267',
   '../../packages/protocol/src/conversation-replay-store.ts':
-    'b1a68babb47d2ceeb95eed6cdaef89223a7bd9bdff80857fe8f664ddfeb78f0c',
+    '8b5f827a61f3d97809e871b99e7571ba39517b5995d3c7238bd8749644d700e7',
   '../../packages/protocol/src/execution-ledger.ts':
     'f30d210be1d37f4c61ff47edb1fb3c8dea1dc6fd8d3ea02b6e01310e8d44ffc4',
   '../../packages/protocol/src/session-runtime-binding.ts':

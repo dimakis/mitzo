@@ -156,7 +156,7 @@ export class ConversationReplayStore<Row> {
     return { events, hasMore: false };
   }
 
-  /** The existing message-identity index bounds query look-behind even when
+  /** The existing message-ID index bounds query look-behind even when
    * thousands of excluded tool events separate two visible fragments. */
   getHistoryMessagePrefix(
     sessionId: string,

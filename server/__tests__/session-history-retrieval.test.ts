@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { EventStore } from '../event-store.js';
+import type Database from 'better-sqlite3';
 import { sessionHistoryTools, type HistoryAccess } from '../session-history-tools.js';
 
 const stores: EventStore[] = [];
@@ -271,6 +272,34 @@ describe('message-oriented session retrieval', () => {
     expect(result.nextAfterSeq).toBeNull();
     const search = await f.search();
     expect(search.searchCoverage.blockedSessions).toBe(1);
+  });
+
+  it('seeks query overlap by conversation, message and sequence instead of scanning earlier chat events', () => {
+    const f = fixture();
+    f.delta('release ');
+    for (let i = 0; i < 2000; i++) f.store.append('past', 'tool_result', { content: 'excluded' });
+    const seq = f.delta('decision');
+    const db = (f.store as unknown as { db: Database.Database }).db;
+    const prepare = db.prepare.bind(db);
+    const queries: string[] = [];
+    vi.spyOn(db, 'prepare').mockImplementation((sql) => {
+      queries.push(sql);
+      return prepare(sql);
+    });
+    expect(f.store.getHistoryMessagePrefix('past', 'answer', seq, 16)[0].payload.delta).toBe(
+      'release ',
+    );
+    const plan = prepare('EXPLAIN QUERY PLAN ' + queries[0]).all(
+      { textStart: -512, textLength: 512 },
+      'past',
+      'answer',
+      seq,
+      16,
+    ) as { detail: string }[];
+    expect(plan.map((row) => row.detail).join('\n')).toMatch(
+      /SEARCH events USING INDEX .*\(session_id=\?(?: AND type=\?)? AND <expr>=\? AND (?:seq|rowid)<\?\)/,
+    );
+    expect(plan.map((row) => row.detail).join('\n')).not.toContain('TEMP B-TREE');
   });
 
   it('resumes bounded transcript search inside a conversation without skipping its later match', async () => {

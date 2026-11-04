@@ -43,7 +43,7 @@ retrieval. A title match does not require opening an unsupported transcript.
    concatenate all pages of a large answer and check for loss or duplication.
 3. **Search correctness and audience boundaries.** Matching follows assembly and
    the owner's public projection, so fragments and redacted terms cannot bypass
-   normal matching. A bounded lookup through the existing message-identity index
+   normal matching. A bounded lookup through the existing delta-capable message-ID index
    supplies query overlap across scan boundaries. The same projection serves
    forward, reverse and overlap reads; reasoning/tool/configuration fields never
    leave SQLite through that projection. Unknown formats fail closed.
@@ -66,7 +66,11 @@ retrieval. A title match does not require opening an unsupported transcript.
 ## Scope
 
 This change uses existing indexed event storage without a new persistent index,
-schema migration or background worker. Cross-conversation search remains bounded
+schema migration or background worker. The query-plan regression requires a
+message-and-sequence seek, rather than merely a conversation scan; SQLite can
+use the existing `idx_events_user_msg_dedup` index and the rowid alias of `seq`
+for delta look-behind despite that index's historical name.
+Cross-conversation search remains bounded
 and paginated, rather than an exhaustive one-call full-text index. Unknown format
 coverage, metadata cursor invalidation and single-event output overflow are
 reported explicitly. Production activation requires its separate release action.
