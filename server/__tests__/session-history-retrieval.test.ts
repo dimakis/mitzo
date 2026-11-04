@@ -228,24 +228,36 @@ describe('message-oriented session retrieval', () => {
     );
   });
 
-  it('retains the final authorization check for unsupported message pages', async () => {
-    const f = fixture();
-    f.store.append('past', 'block_delta', { delta: 'PRIVATE unknown format' });
-    let refreshes = 0;
-    f.access.assertCurrentAsync = async () => {
-      if (++refreshes === 4) throw Error('revoked');
-    };
-    const result = await f.tools.execute(
-      'ReadPastSession',
-      { conversationId: 'past' },
-      f.abort.signal,
-      { turnId: 'turn', callId: 'call' },
-    );
-    expect(result?.isError).toBe(true);
-    expect(result?.content).not.toContain('unsupported');
-    expect(result?.content).not.toContain('PRIVATE');
-    expect(refreshes).toBe(4);
-  });
+  it.each([undefined, ['text', String.fromCharCode(0), 'thinking'].join('')])(
+    'retains the final authorization check for unsupported message pages (%s)',
+    async (blockType) => {
+      const f = fixture();
+      f.store.append('past', 'block_delta', { blockType, delta: 'PRIVATE unknown format' });
+      const format = await f.tools.execute(
+        'ReadPastSession',
+        { conversationId: 'past' },
+        f.abort.signal,
+        { turnId: 'turn', callId: 'format' },
+      );
+      expect(format?.isError).toBe(true);
+      expect(format?.content).toContain('unsupported');
+      expect(f.project).not.toHaveBeenCalled();
+      let refreshes = 0;
+      f.access.assertCurrentAsync = async () => {
+        if (++refreshes === 4) throw Error('revoked');
+      };
+      const result = await f.tools.execute(
+        'ReadPastSession',
+        { conversationId: 'past' },
+        f.abort.signal,
+        { turnId: 'turn', callId: 'call' },
+      );
+      expect(result?.isError).toBe(true);
+      expect(result?.content).not.toContain('unsupported');
+      expect(result?.content).not.toContain('PRIVATE');
+      expect(refreshes).toBe(4);
+    },
+  );
 
   it('projects large excluded payloads inside SQLite and bounds returned text bytes', () => {
     const f = fixture();
@@ -272,6 +284,10 @@ describe('message-oriented session retrieval', () => {
     expect(result.nextAfterSeq).toBeNull();
     const search = await f.search();
     expect(search.searchCoverage.blockedSessions).toBe(1);
+    f.project.mockImplementation((text) => text.replace(/x+/g, ''));
+    const redacted = await f.read();
+    expect(redacted.blockedEvent).toEqual({ seq, reason: 'event_exceeds_output_bound' });
+    expect(redacted.entries).toEqual([]);
   });
 
   it('seeks query overlap by conversation, message and sequence instead of scanning earlier chat events', () => {
@@ -300,6 +316,21 @@ describe('message-oriented session retrieval', () => {
       /SEARCH events USING INDEX .*\(session_id=\?(?: AND type=\?)? AND <expr>=\? AND (?:seq|rowid)<\?\)/,
     );
     expect(plan.map((row) => row.detail).join('\n')).not.toContain('TEMP B-TREE');
+  });
+
+  it('preserves embedded NUL, Unicode and JSON escapes in projected messages', async () => {
+    const f = fixture();
+    const text = [
+      'before',
+      String.fromCharCode(0),
+      'after',
+      '🌈',
+      String.fromCharCode(92),
+      '"',
+    ].join('');
+    f.user(text);
+    expect((await f.read()).entries[0].text).toBe(text);
+    expect((await f.read({ query: 'after' })).entries[0].text).toBe(text);
   });
 
   it('resumes bounded transcript search inside a conversation without skipping its later match', async () => {

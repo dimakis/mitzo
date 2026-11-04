@@ -16,29 +16,39 @@ interface HistoryRow {
   message_id: string | null;
   block_id: string | number | null;
   block_type: string | null;
-  text: string | null;
+  text: Buffer | null;
+  text_truncated: number | null;
 }
 // The same audience/type projection serves forward, reverse and query context
 // reads. Never select arbitrary payloads into a history consumer.
 const HISTORY_COLUMNS = `seq, type, created_at,
   seat_id IS NOT NULL OR symposium_provenance IS NOT NULL AS qualified,
   CASE WHEN type IN ('user_message','block_delta') AND json_type(payload,'$.messageId')='text'
-    AND length(json_extract(payload,'$.messageId')) <= 256
+    AND length(CAST(json_extract(payload,'$.messageId') AS BLOB)) <= 512
     THEN json_extract(payload,'$.messageId') END AS message_id,
   CASE WHEN type='block_delta' AND json_type(payload,'$.blockId') IN ('text','integer')
-    AND length(json_extract(payload,'$.blockId')) <= 256
+    AND length(CAST(json_extract(payload,'$.blockId') AS BLOB)) <= 256
     THEN json_extract(payload,'$.blockId') END AS block_id,
   CASE WHEN type='block_delta' AND json_type(payload,'$.blockType')='text'
-    THEN substr(json_extract(payload,'$.blockType'),1,32) END AS block_type,
+    AND length(CAST(json_extract(payload,'$.blockType') AS BLOB)) <= 32
+    THEN json_extract(payload,'$.blockType') END AS block_type,
   CASE
     WHEN type='user_message' AND json_type(payload,'$.text')='text'
-      THEN substr(json_extract(payload,'$.text'),:textStart,:textLength)
+      THEN substr(CAST(json_extract(payload,'$.text') AS BLOB),:textStart,:textLength)
     WHEN type='block_delta' AND json_extract(payload,'$.blockType')='text'
       AND json_type(payload,'$.delta')='text'
-      THEN substr(json_extract(payload,'$.delta'),:textStart,:textLength)
-  END AS text`;
+      THEN substr(CAST(json_extract(payload,'$.delta') AS BLOB),:textStart,:textLength)
+  END AS text,
+  CASE
+    WHEN type='user_message' AND json_type(payload,'$.text')='text'
+      THEN length(CAST(json_extract(payload,'$.text') AS BLOB))>:textLength
+    WHEN type='block_delta' AND json_extract(payload,'$.blockType')='text'
+      AND json_type(payload,'$.delta')='text'
+      THEN length(CAST(json_extract(payload,'$.delta') AS BLOB))>:textLength
+  END AS text_truncated`;
 
 function historyEvent(sessionId: string, row: HistoryRow): StoredEvent {
+  const text = row.text?.toString('utf8') ?? null;
   return {
     seq: row.seq,
     sessionId,
@@ -46,10 +56,11 @@ function historyEvent(sessionId: string, row: HistoryRow): StoredEvent {
     createdAt: row.created_at,
     ...(row.qualified ? { seatId: 'unsupported-history-audience' } : {}),
     payload: {
+      ...(row.text_truncated ? { historyTextTruncated: true } : {}),
       messageId: row.message_id ?? undefined,
       blockId: row.block_id ?? undefined,
-      ...(row.type === 'block_delta' ? { blockType: row.block_type, delta: row.text } : {}),
-      ...(row.type === 'user_message' ? { text: row.text } : {}),
+      ...(row.type === 'block_delta' ? { blockType: row.block_type, delta: text } : {}),
+      ...(row.type === 'user_message' ? { text } : {}),
     },
   };
 }
@@ -179,7 +190,7 @@ export class ConversationReplayStore<Row> {
        WHERE session_id=? AND type='block_delta' AND json_extract(payload,'$.messageId')=? AND seq<?
        ORDER BY seq DESC LIMIT ?`,
     ).all(
-      { textStart: -512, textLength: 512 },
+      { textStart: -2048, textLength: 2048 },
       sessionId,
       messageId,
       beforeSeq,

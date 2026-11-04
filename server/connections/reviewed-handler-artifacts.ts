@@ -23,9 +23,9 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../session-history-reader.ts':
-    '99d32c96410137160ed6557d69cdc28f833c772cf09303b9d6e87817e56e0501',
+    'f302c6846b6c534be98ca84908f2b0783e832f9691cb29038b7db50672d77bdc',
   '../__tests__/session-history-retrieval.test.ts':
-    '6e669fe5c55c3e3555584fd1f7e7d31e7e3b2121bc8eb9c909fc3b1077e62d2b',
+    '5aa44ff62b8d1109be1a05ef82828580bcd6fcc1745fb013cec6f8a46446fe31',
   '../__tests__/fixtures/legacy-session-history.ts':
     '64f3997f7991fe6f72db7a99617caf3c3a2a0e1eb6b2bd8bdaeca66ad19e0259',
   '../__tests__/session-history-tools.test.ts':
@@ -1685,7 +1685,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/protocol/src/session-lifecycle-store.ts':
     '2a219b360a5fbe72b0a550c714bf76a15c6f5969cbbe4251671050257b98e267',
   '../../packages/protocol/src/conversation-replay-store.ts':
-    '8b5f827a61f3d97809e871b99e7571ba39517b5995d3c7238bd8749644d700e7',
+    '6100cd409871de43a3dbf42a8e24fe855dde0d061580afb8387b7265a6ce2c75',
   '../../packages/protocol/src/execution-ledger.ts':
     'f30d210be1d37f4c61ff47edb1fb3c8dea1dc6fd8d3ea02b6e01310e8d44ffc4',
   '../../packages/protocol/src/session-runtime-binding.ts':

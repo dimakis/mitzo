@@ -17,6 +17,7 @@ interface Group extends HistoryEntry {
   messageId?: string;
   blockId?: unknown;
   bytes: number;
+  truncated: boolean;
 }
 export class UnsupportedHistoryError extends Error {
   constructor(readonly scannedEvents: number) {
@@ -118,8 +119,17 @@ export function readHistoryMessages(options: {
       active.endSeq = row.seq;
       active.blockId = row.payload.blockId;
       active.bytes += bytes + separator.length * 2;
+      active.truncated ||= row.payload.historyTextTruncated === true;
     } else {
-      active = { seq: row.seq, kind, text: value, messageId, blockId: row.payload.blockId, bytes };
+      active = {
+        seq: row.seq,
+        kind,
+        text: value,
+        messageId,
+        blockId: row.payload.blockId,
+        bytes,
+        truncated: row.payload.historyTextTruncated === true,
+      };
       groups.push(active);
     }
     if (kind === 'user') active = undefined;
@@ -202,6 +212,7 @@ export function readHistoryMessages(options: {
   for (const { group, entry, matches } of recent ? projected.reverse() : projected) {
     const size = Buffer.byteLength(JSON.stringify(entry)) + 1;
     if (
+      group.truncated ||
       (query && group.bytes > HISTORY_OUTPUT_BYTES - 1024) ||
       (matches && size > HISTORY_OUTPUT_BYTES - 1024)
     ) {

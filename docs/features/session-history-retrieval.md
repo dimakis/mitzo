@@ -41,6 +41,10 @@ retrieval. A title match does not require opening an unsupported transcript.
    context noise, while a 32 KiB output ceiling remains. Message assembly retains
    source anchors; continuation consumes the last delivered source event. Tests
    concatenate all pages of a large answer and check for loss or duplication.
+   SQL clipping carries an explicit marker, so even a shrinking public-text
+   projection cannot make a clipped event appear complete.
+   The SQLite projection slices UTF-8 bytes, preserving embedded NUL and Unicode;
+   a clipped event is reported rather than delivered as shortened text.
 3. **Search correctness and audience boundaries.** Matching follows assembly and
    the owner's public projection, so fragments and redacted terms cannot bypass
    normal matching. A bounded lookup through the existing delta-capable message-ID index
