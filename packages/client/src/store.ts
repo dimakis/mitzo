@@ -398,7 +398,7 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
         return false;
       if (typeof id !== 'string' || sessionInterests.has(id)) return true;
       if (event.type === 'session_id') return true;
-      if (event.type === 'permission_request' && !parserState.currentSessionId) return true;
+      if (awaitingPermissionAssignment(event)) return true;
       const command = event.type === 'user_message' ? event.messageId : event.clientMsgId;
       if (typeof command !== 'string' || !deliveryObservers.has(command)) return false;
       const origin = deliveryOrigins.get(command);
@@ -933,6 +933,16 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
       }
     | undefined;
   let awaitingSessionId = false;
+  const unassignedPermissions = new Map<string, Record<string, unknown>>();
+  function awaitingPermissionAssignment(event: Record<string, unknown>): boolean {
+    return (
+      awaitingSessionId &&
+      !parserState.currentSessionId &&
+      ['permission_request', 'permission_resolved', 'permission_timeout'].includes(
+        String(event.type),
+      )
+    );
+  }
   let awaitingModeHydration: string | undefined;
 
   function fetchAndRestoreMessages(
@@ -1277,6 +1287,7 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
     },
 
     async switchSession(id: string) {
+      unassignedPermissions.clear();
       ++launchGeneration;
       set({ pendingSession: null, pendingSessionSending: false });
       if (id !== parserState.currentSessionId) unconfirmedPermissionResponses.clear();
@@ -1406,6 +1417,7 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
     },
 
     newSession() {
+      unassignedPermissions.clear();
       localCommandScope = null;
       visibleLocalCommandId = undefined;
       ++launchGeneration;
@@ -2055,6 +2067,14 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
       store.setState((s) => ({
         sessions: { ...s.sessions, active: sessionId },
       }));
+      const earlyRequests = [...unassignedPermissions.values()];
+      unassignedPermissions.clear();
+      for (const request of earlyRequests)
+        if (
+          request.sessionId === sessionId &&
+          (typeof request.expiresAt !== 'number' || request.expiresAt > Date.now())
+        )
+          wsListener(request);
       store.getState().refreshSessions();
     },
 
@@ -2589,7 +2609,7 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
     // Session-scoped event filtering for multiplexed v2 connections:
     // - No sessionId on the event → global (task_state, inbox_updated, etc.) → always accept
     // - sessionId matches currentSessionId → accept
-    // - No active session AND event is session_id/session_end → accept (new session assignment)
+    // - No active session AND event is session_id → accept (new session assignment)
     // - Otherwise → drop (foreign session event)
     if (eventSessionId) {
       if (parserState.currentSessionId) {
@@ -2606,12 +2626,24 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
           return true;
         }
       } else {
-        // Allow session_id (new session assignment) and permission_request
-        // (can arrive before session_id on the first turn) through when no
-        // active session. Drop everything else (session_end, etc.) to prevent
-        // foreign session bleed.
-        const isFirstTurnEvent = msg.type === 'session_id' || msg.type === 'permission_request';
-        if (!isFirstTurnEvent) {
+        // Preserve the first-turn race without displaying an unowned card.
+        // Only the eventual assignment can select which buffered chat owns it.
+        if (awaitingPermissionAssignment(msg) && typeof msg.permId === 'string') {
+          if (msg.type === 'permission_request') {
+            if (!unassignedPermissions.has(msg.permId) && unassignedPermissions.size >= 32) {
+              const oldest = unassignedPermissions.keys().next().value;
+              if (oldest) unassignedPermissions.delete(oldest);
+            }
+            unassignedPermissions.set(msg.permId, msg);
+          } else if (unassignedPermissions.get(msg.permId)?.sessionId === eventSessionId) {
+            unassignedPermissions.delete(msg.permId);
+          }
+          return true;
+        }
+        // An approval cannot identify which new draft owns it. Wait for the
+        // authoritative session assignment before accepting session events;
+        // otherwise another chat's card has no response/dismissal route.
+        if (msg.type !== 'session_id') {
           if (
             msg.type === 'session_reconnect_snapshot' &&
             typeof msg.cursor === 'number' &&

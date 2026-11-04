@@ -438,6 +438,42 @@ describe('runQueryLoop', () => {
     },
   );
 
+  it('notifies the final written outcome after message flush and never reuses it for another turn', async () => {
+    const record = vi
+      .spyOn(notificationCenter, 'recordTurnNotification')
+      .mockImplementation(() => {});
+    const reply = 'Fixed Watch approvals. 18 tests passed. PR #1207 awaits review.';
+    try {
+      await runQueryLoop(
+        eventStream([
+          { type: 'stream_event', event: { type: 'message_start', message: { id: 'final' } } },
+          {
+            type: 'stream_event',
+            event: { type: 'content_block_start', index: 0, content_block: { type: 'text' } },
+          },
+          {
+            type: 'stream_event',
+            event: {
+              type: 'content_block_delta',
+              index: 0,
+              delta: { type: 'text_delta', text: reply },
+            },
+          },
+          { type: 'stream_event', event: { type: 'content_block_stop', index: 0 } },
+          { type: 'assistant', message: { content: [] }, session_id: 'notification-chat' },
+          { type: 'result', session_id: 'notification-chat' },
+          { type: 'result', session_id: 'notification-chat' },
+        ]),
+        clientId,
+        registry,
+        abortController,
+      );
+      expect(record.mock.calls.map((call) => call[2])).toEqual([reply, '']);
+    } finally {
+      record.mockRestore();
+    }
+  });
+
   it('notifies failure instead of completion when the provider rejects a request without a reply', async () => {
     const completed = vi
       .spyOn(notificationCenter, 'recordTurnNotification')

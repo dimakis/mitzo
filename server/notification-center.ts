@@ -206,13 +206,14 @@ export class NotificationCenter {
     unattended: boolean,
   ): void {
     this.assertAvailable();
+    if (!snippet.trim()) return;
     const prefs = this.store.preferences();
     this.publish(
       {
         id: `turn:${sessionId}:${seq}`,
         kind: 'session',
         title: title || 'Session update',
-        body: snippet || 'The agent finished its turn.',
+        body: snippet,
         sessionId,
       },
       prefs.completion === 'all' || (prefs.completion === 'unattended' && unattended),

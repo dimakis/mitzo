@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { MemoryRouter } from 'react-router-dom';
 import { ChatInput } from '../../frontend/src/components/ChatInput';
@@ -10,6 +10,7 @@ import '../../frontend/src/styles/workspace-chat.css';
 
 function Surface() {
   const [sent, setSent] = useState('');
+  const receipt = useRef<((status: 'failed') => void) | undefined>(undefined);
   return (
     <MemoryRouter>
       <main>
@@ -17,7 +18,8 @@ function Surface() {
         <ChatInput
           running={false}
           onStop={() => {}}
-          onSend={(text, images) => {
+          onSend={(text, images, _context, onDelivery) => {
+            receipt.current = onDelivery;
             setSent(
               JSON.stringify({
                 text,
@@ -28,6 +30,9 @@ function Surface() {
           }}
         />
         <output aria-label="Submitted message">{sent}</output>
+        <button type="button" onClick={() => receipt.current?.('failed')}>
+          Reject submitted message
+        </button>
       </main>
     </MemoryRouter>
   );

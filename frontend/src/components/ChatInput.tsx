@@ -1091,7 +1091,7 @@ function ChatInputContent({
 
   async function handlePaste(e: React.ClipboardEvent) {
     if (textOnly) return;
-    const remaining = MAX_IMAGE_ATTACHMENTS - images.length;
+    const remaining = MAX_IMAGE_ATTACHMENTS - displayedImages.length;
     if (remaining <= 0) return;
     const files = extractImageFiles(e.clipboardData.items, remaining);
     if (!files.length) return;

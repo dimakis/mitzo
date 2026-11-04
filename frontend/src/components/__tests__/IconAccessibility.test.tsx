@@ -2,7 +2,7 @@
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
-import { openQueuedEditor } from '../../test-utils/queued-draft-controls';
+import { openQueuedEditor, queuedButton } from '../../test-utils/queued-draft-controls';
 import { ChatInput } from '../ChatInput';
 import { ContextPanel } from '../ContextPanel';
 import { ContextPicker } from '../ContextPicker';
@@ -59,9 +59,7 @@ it('names queued-message removal and removes only the selected message', async (
     ]),
   );
   render(<ChatInput running onSend={() => true} onStop={vi.fn()} />);
-  expect(
-    screen.getByRole('button', { name: 'Edit, reorder or remove queued prompt 2' }),
-  ).toBeTruthy();
+  expect(queuedButton('Edit, reorder or remove queued prompt 2')).toBeTruthy();
   await openQueuedEditor(0);
   fireEvent.click(screen.getByRole('button', { name: 'Remove' }));
   expect(screen.queryByText('First queued draft')).toBeNull();

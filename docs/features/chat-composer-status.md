@@ -97,3 +97,23 @@ against those freshly built declarations passed. The standard full frontend type
 the repository-required 1 GiB Node heap limit; full frontend types and the complete
 production/offline matrix remain CI gates. No staging or production action was
 performed.
+
+### Landing follow-up, 4 November 2026
+
+The current accepted base `b8ae361cf` is integrated. Clipboard paste now uses the
+visible draft's attachment count, matching file/PDF imports. Regressions first
+failed, then passed for both 99 and 100 retained outgoing images, two newly pasted
+images, and the original receipt arriving afterward without removing the new draft.
+
+The combined local composer, route, Symposium, accessibility and design checks
+passed **590 tests**, with one existing skip. Changed-source lint and the source
+manifest check pass at runtime revision `v1.0.854-combined-composer-paste`.
+Existing integration and browser fixtures now open the status dialog before
+checking queue/recovery controls. Compact-composer coverage retains the original
+88px input/tool bound and separately checks the approved 44px status row. PDF
+coverage checks immediate preview removal and restoration of all twelve retained
+pages after rejection, including a failed subsequent import.
+
+Browser fixtures enumerate successfully. A focused local browser attempt stopped
+at the repository's macOS Seatbelt guard before launch; hosted browser and joined
+acceptance remain required. No staging or production action was performed.

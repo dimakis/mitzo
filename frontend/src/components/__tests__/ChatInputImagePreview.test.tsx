@@ -72,6 +72,47 @@ const props = {
   running: false,
   sessionId: 'preview-session',
 };
+it.each([99, 100])(
+  'pastes a complete new image draft while %i submitted images await their receipt',
+  async (count) => {
+    const draft = {
+      ...createChatDraft(),
+      text: 'Outgoing pages',
+      images: Array.from({ length: count }, (_, index) => ({
+        data: `page-${index}`,
+        mediaType: 'image/png',
+        preview: `data:image/png;base64,page-${index}`,
+      })),
+    };
+    let receipt: SendMessageOptions['onDelivery'];
+    const onSend = vi.fn<ComponentProps<typeof ChatInput>['onSend']>(
+      (_text, _images, _context, onDelivery) => {
+        receipt = onDelivery;
+        return true;
+      },
+    );
+    render(<ChatInput {...props} sessionId={undefined} savedChatDraft={draft} onSend={onSend} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Send message' }));
+    expect(screen.queryByAltText('Attachment 1')).toBeNull();
+    const files = ['next-one.png', 'next-two.png'].map(
+      (name) => new File(['pixels'], name, { type: 'image/png' }),
+    );
+    fireEvent.paste(screen.getByLabelText('Message Mitzo'), {
+      clipboardData: {
+        items: files.map((file) => ({ kind: 'file', type: file.type, getAsFile: () => file })),
+      },
+    });
+    await screen.findByAltText('Attachment 2');
+    act(() => receipt?.('accepted'));
+    expect(onSend.mock.calls[0][1]).toHaveLength(count);
+    expect(screen.getByAltText('Attachment 1').getAttribute('src')).toContain('next-one.png');
+    expect(screen.getByAltText('Attachment 2').getAttribute('src')).toContain('next-two.png');
+    expect(getChatDraft(draft.id)?.images.map((image) => image.data)).toEqual([
+      'next-one.png',
+      'next-two.png',
+    ]);
+  },
+);
 async function attach(container: HTMLElement, names = ['one.png', 'two.png']) {
   fireEvent.change(container.querySelector('input[type="file"]')!, {
     target: { files: names.map((name) => new File(['pixels'], name, { type: 'image/png' })) },
