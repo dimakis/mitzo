@@ -61,7 +61,14 @@ for (const width of [320, 390]) {
     const field = page.getByRole('textbox', { name: 'Message Mitzo' });
     await expect(field).toBeVisible();
     const composer = page.locator('.chat-input');
-    expect((await composer.boundingBox())!.height).toBeLessThanOrEqual(88);
+    const status = page.getByRole('region', { name: 'Conversation status', exact: true });
+    expect((await status.boundingBox())!.height).toBe(44);
+    const statusSpace = await status.evaluate(
+      (element) =>
+        element.getBoundingClientRect().height +
+        parseFloat(getComputedStyle(element.parentElement!).rowGap),
+    );
+    expect((await composer.boundingBox())!.height - statusSpace).toBeLessThanOrEqual(88);
     const wheel = page.getByRole('button', { name: 'Token usage', exact: true });
     expect((await wheel.boundingBox())!.width).toBeGreaterThanOrEqual(44);
     await wheel.click();
@@ -89,7 +96,7 @@ test('running controls stay reachable with a draft at 320px', async ({ page }) =
   await page.addScriptTag({ content: assets.js });
   const field = page.getByRole('textbox', { name: 'Message Mitzo' });
   await field.fill('Follow up while the agent is running');
-  for (const name of ['Stop generation', 'Queue message', 'Interrupt and send now']) {
+  for (const name of ['Stop generation', 'Queue message', 'Send options']) {
     const control = page.getByRole('button', { name, exact: true });
     await expect(control).toBeVisible();
     const bounds = (await control.boundingBox())!;
@@ -98,6 +105,14 @@ test('running controls stay reachable with a draft at 320px', async ({ page }) =
     expect(bounds.x).toBeGreaterThanOrEqual(0);
     expect(bounds.x + bounds.width).toBeLessThanOrEqual(320);
   }
+  await page.getByRole('button', { name: 'Send options', exact: true }).click();
+  const correction = page.getByRole('menuitem', { name: 'Send correction', exact: true });
+  await expect(correction).toBeVisible();
+  const correctionBounds = (await correction.boundingBox())!;
+  expect(correctionBounds.height).toBeGreaterThanOrEqual(44);
+  expect(correctionBounds.x).toBeGreaterThanOrEqual(0);
+  expect(correctionBounds.x + correctionBounds.width).toBeLessThanOrEqual(320);
+  await page.keyboard.press('Escape');
   expect(await page.locator('.chat-input').evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(
     true,
   );

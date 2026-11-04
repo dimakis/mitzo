@@ -9,6 +9,7 @@ import { useTelosChatRoute } from '../hooks/useTelosChatRoute';
 import { TelosChatRouteLayout } from '../components/TelosChatRouteLayout';
 import { TelosWorkControls } from '../components/TelosWorkControls';
 import { ChatStatusMessage } from '../components/ChatStatusMessage';
+import { ComposerStatusProvider } from '../components/ComposerStatus';
 import { TelosAdvisorDraft } from '../components/TelosAdvisorDraft';
 import { bindChatDraftToSession, getSessionChatDraft } from '../lib/chat-drafts';
 import { TelosRoleSetup } from '../components/TelosRoleSetup';
@@ -99,6 +100,14 @@ import { useProgressByToolId } from '../hooks/useProgress';
 import type { ImageAttachment } from '../types/chat';
 
 export function DesktopChatView() {
+  return (
+    <ComposerStatusProvider>
+      <DesktopChatViewContent />
+    </ComposerStatusProvider>
+  );
+}
+
+function DesktopChatViewContent() {
   const [profileToolsTarget, setProfileToolsTarget] = useState<HTMLDivElement | null>(null);
   const { sessionId } = useParams<{ sessionId?: string }>();
   const searchParams = useChatDraftSearch(!sessionId);
@@ -2040,6 +2049,9 @@ export function DesktopChatView() {
                         : undefined
                     }
                     running={repositoryHandoff.present ? false : messages.running}
+                    awaitingApproval={
+                      !explicitNew && !repositoryHandoff.present && !!messages.permission
+                    }
                     draftControl={repositoryDraftControl}
                     draftStorageKey={
                       repositoryHandoff.present

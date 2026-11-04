@@ -1,5 +1,28 @@
 # Mitzo UI design contract
 
+## Combined composer status
+
+Ordinary chats use the approved status row above the existing composer. It has
+the shared control height, one-line overflow, semantic status colors and one
+details action. Routine autosaving is silent. Queue, recovery and error actions
+retain their existing owners inside the shared HomeDialog; opening it does not
+dispatch work. Multiple problems aggregate without growing the row. Routine busy
+recovery does not replace a running agent's Working label, and actual approvals
+and failures remain visible.
+
+A single existing Retry/continuation action remains directly available in that
+fixed row; multiple actions remain reachable through Review and details.
+
+This reuses UiIcon, WorkspaceActionMenu, HomeDialog and the existing queued draft
+tray. Send correction moves to Send options; the remaining toolbar icons, keyboard
+dispatch rules, message dates/copy/read-aloud controls and approved Chat settings
+stay intact. See [the feature and validation record](../features/chat-composer-status.md)
+and the `chat-status/above-composer-2026-11-04` ledger entry. The offline fixture
+defines phone/desktop, both themes and alternate appearance, fixed geometry,
+keyboard/focus, message controls and retained screenshot delivery checks. Local
+browser execution is blocked by the host marker; matching CI captures remain
+required visual evidence.
+
 ## Reviewed native continuation
 
 Retained Responses conversations expose **Continue with Codex** beside the existing

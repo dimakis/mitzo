@@ -111,6 +111,8 @@ for (const theme of ['dark', 'light']) {
       ),
     ).toBe(true);
     expect(sent.text).toContain('Summarize the attached report');
+    await expect(page.getByAltText('report.pdf — page 1 of 2')).toHaveCount(0);
+    await expect(page.getByAltText('report.pdf — page 2 of 2')).toHaveCount(0);
     await picker.setInputFiles({
       name: 'broken.pdf',
       mimeType: 'application/pdf',
@@ -121,8 +123,13 @@ for (const theme of ['dark', 'light']) {
     await expect
       .poll(() => readChatStorage(page, (storage) => storage.getItem('mitzo-draft-new')))
       .toBe('Summarize the attached report');
+    await expect(page.getByAltText('report.pdf — page 1 of 2')).toHaveCount(0);
+    await expect(page.getByAltText('report.pdf — page 2 of 2')).toHaveCount(0);
+    await page.getByRole('button', { name: 'Reject submitted message', exact: true }).click();
+    await expect(input).toHaveValue('Summarize the attached report');
     await expect(page.getByAltText('report.pdf — page 1 of 2')).toBeVisible();
     await expect(page.getByAltText('report.pdf — page 2 of 2')).toBeVisible();
+    await expect(page.locator('.chat-input-previews img')).toHaveCount(12);
     await page.screenshot({ path: info.outputPath(`pdf-error-${theme}.png`) });
     expect(errors).toEqual([]);
   });

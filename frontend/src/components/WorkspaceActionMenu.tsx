@@ -7,6 +7,7 @@ import '../styles/session-library.css';
 export interface WorkspaceMenuItem {
   id: string;
   label: string;
+  title?: string;
   onSelect(): void;
   icon?: ComponentProps<typeof UiIcon>['name'];
   disabled?: boolean;
@@ -127,6 +128,7 @@ export function WorkspaceActionMenu({
                   role={item.checked === undefined ? 'menuitem' : 'menuitemradio'}
                   aria-checked={item.checked}
                   disabled={item.disabled}
+                  title={item.title}
                   className={item.danger ? 'session-preview-delete' : undefined}
                   onClick={() => {
                     close();
