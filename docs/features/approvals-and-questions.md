@@ -20,6 +20,24 @@ The client queues concurrent requests and deduplicates repeated request IDs. Rec
 
 This registry is in memory. It does not restore approvals after a server restart or replay tool effects. Durable interrupted/uncertain outcomes belong to the server lifecycle integration. The client retains a submitted card until the server confirms resolution, so a queued or invalid response does not silently dismiss it. Draft answers are not durable across reloads. HTTP rejections retain the authoritative pending-card snapshot, so a card resolved on another device clears after a stale submission. Retrying clears the prior error before sending, making repeated identical conflicts recoverable. Cancellation and expiration are reported separately from a user denial.
 
+### Result notifications and Watch decisions
+
+Completion notifications use the final written reply, retained through message
+flush and shortened to 320 characters of readable text. An empty result does not
+generate a generic completion alert or reuse the previous turn's result. Failure
+notifications retain their separate explanation. Notification settings → **Show
+sensitive details** enables session names, result previews and eligible quick
+approval details on iPhone and Apple Watch; disabling it keeps previews private.
+
+Watch **Review request** loads the complete current request before offering
+**Allow once**, **Allow for session** when the server permits it, and **Deny**.
+Native command and access requests keep their full parameters and scope during
+revalidation. Questions require their own answer flow. The phone relay preserves
+resolution, expiry and session identity, so another device's decision clears the
+matching Watch card without dismissing a replacement or another chat's request.
+Offline Shared tests and the real Watch view-model/SDK harness cover this behavior;
+physical Watch delivery and production activation require separate device evidence.
+
 ## Other model backends
 
 The shared UI contract should be translated at each execution adapter boundary, without putting provider response IDs into application session identity.

@@ -1011,7 +1011,7 @@ async function _runQueryLoopInner(
               }
             }
           }
-          if (!isError && !registry.isAttached(clientId)) {
+          if (!isError && snippet && !registry.isAttached(clientId)) {
             const sid = (msg.session_id as string) || currentSession.sessionId;
             const sessionTitle = sid ? (store?.getSession(sid)?.summary ?? undefined) : undefined;
             ntfyTurnComplete(sid, snippet, sessionTitle).catch(() => {});

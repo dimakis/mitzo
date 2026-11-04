@@ -3,7 +3,8 @@ import type { SnapshotBlock } from '@mitzo/protocol';
 export function extractSnippet(blocks: SnapshotBlock[], maxChars: number): string {
   // Only visible assistant prose belongs in a result preview. Empty streamed
   // blocks must not replace the written outcome with a generic completion.
-  const text = blocks.findLast((b) => b.blockType === 'text' && b.content.trim())?.content ?? '';
+  const text =
+    blocks.filter((b) => b.blockType === 'text' && b.content.trim()).at(-1)?.content ?? '';
   const content = text
     .replace(/^\s{0,3}#{1,6}\s+(.+)$/gm, '$1:')
     .replace(/^\s*(?:[-*+] |\d+\. )/gm, '')
