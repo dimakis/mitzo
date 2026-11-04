@@ -7,6 +7,11 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
+// Offline controller fixtures must not inspect the operator's real private home.
+vi.mock('node:os', async (original) => {
+  const actual = await original<typeof import('node:os')>();
+  return { ...actual, homedir: () => `${actual.tmpdir()}/mitzo-chat-offline-home` };
+});
 const mocks = vi.hoisted(() => ({
   initialize: vi.fn(),
   close: vi.fn(),
@@ -6658,44 +6663,84 @@ async function openOwnedOpenShellEfficiencyFixture(
   };
 }
 
-it('offers Telos backlog tools to a default native chat without a retained Telos role', async () => {
-  vi.clearAllMocks();
-  mocks.initialize.mockResolvedValue(undefined);
-  mocks.send.mockResolvedValue(undefined);
-  mocks.connect.mockResolvedValue({
-    definitions: [],
-    close: mocks.mcpClose,
-    displayName: (name: string) => name,
-  });
-  const { createTelosCanonicalData } = await import('./fixtures/telos-canonical-advisor.js');
-  const { initializeTelosMainPublicationRuntime, closeTelosMainPublicationRuntime } =
-    await import('../telos-main-publication-runtime.js');
-  const canonical = createTelosCanonicalData();
-  const f = ownedLocalOptions();
-  f.opts.assertAgentContextAuthorization = vi.fn();
-  initializeTelosMainPublicationRuntime({
-    registry: f.opts.registry,
-    events: f.eventStore,
-    databasePath: () => canonical.dbPath,
-  });
-  let query: Awaited<ReturnType<typeof openCodexChat>> | undefined;
-  try {
-    query = await openCodexChat(f.opts);
-    const tools = mocks.conversationOptions!.tools as { name: string }[];
-    for (const name of [
-      'TelosListItems',
-      'TelosSearchItems',
-      'TelosManageItem',
-      'TelosCreateChild',
-    ])
-      expect(tools.some((tool) => tool.name === name)).toBe(true);
-  } finally {
-    query?.close();
-    closeTelosMainPublicationRuntime();
-    f.eventStore.close();
-    canonical.close();
-  }
-});
+it.each(['default', 'selected', 'excluded', 'unauthorized'] as const)(
+  'offers reviewed Telos capture without a retained role and preserves profile scope (%s)',
+  async (mode) => {
+    vi.clearAllMocks();
+    mocks.initialize.mockResolvedValue(undefined);
+    mocks.send.mockResolvedValue(undefined);
+    mocks.connect.mockResolvedValue({
+      definitions: [],
+      close: mocks.mcpClose,
+      displayName: (name: string) => name,
+    });
+    const { createTelosCanonicalData } = await import('./fixtures/telos-canonical-advisor.js');
+    const { initializeTelosMainPublicationRuntime, closeTelosMainPublicationRuntime } =
+      await import('../telos-main-publication-runtime.js');
+    const canonical = createTelosCanonicalData();
+    const definition = {
+      name: 'Native capture',
+      role: 'agent' as const,
+      instructions: 'Capture reviewed work.',
+      expectedOutput: 'Canonical creation receipt',
+      acceptanceCriteria: ['Reviewed capture'],
+      modelPolicyRole: 'agent' as const,
+      tools:
+        mode === 'selected'
+          ? ['TelosCreateOutcome', 'TelosAdoptSource'].map((name) => ({
+              id: `mitzo:${name}`,
+              version: 1,
+            }))
+          : [],
+    };
+    const profile = {
+      profileId: 'owned-agent',
+      revision: 1,
+      definition,
+      contentHash: createHash('sha256').update(JSON.stringify(definition)).digest('hex'),
+    };
+    const f = ownedLocalOptions(
+      '/tmp',
+      ['selected', 'excluded'].includes(mode) ? profile : undefined,
+    );
+    if (mode !== 'unauthorized') f.opts.assertAgentContextAuthorization = vi.fn();
+    initializeTelosMainPublicationRuntime({
+      registry: f.opts.registry,
+      events: f.eventStore,
+      databasePath: () => canonical.dbPath,
+    });
+    let query: Awaited<ReturnType<typeof openCodexChat>> | undefined;
+    try {
+      query = await openCodexChat(f.opts);
+      const tools = mocks.conversationOptions!.tools as { name: string }[];
+      for (const name of ['TelosCreateOutcome', 'TelosAdoptSource'])
+        expect(tools.some((tool) => tool.name === name)).toBe(
+          ['default', 'selected'].includes(mode),
+        );
+      // Default capture does not grant role-scoped progress or artifact capabilities.
+      for (const name of [
+        'TelosGetItem',
+        'TelosUpdateItem',
+        'TelosSaveArtifact',
+        'TelosReadArtifact',
+      ])
+        expect(tools.some((tool) => tool.name === name)).toBe(false);
+      if (mode === 'default')
+        for (const name of [
+          'TelosListItems',
+          'TelosSearchItems',
+          'TelosManageItem',
+          'TelosCreateChild',
+        ])
+          expect(tools.some((tool) => tool.name === name)).toBe(true);
+    } finally {
+      query?.close();
+      closeTelosMainPublicationRuntime();
+      f.eventStore.close();
+      canonical.close();
+    }
+  },
+);
 
 it.each([
   'normal',

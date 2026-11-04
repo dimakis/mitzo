@@ -2877,25 +2877,32 @@ export class CodexConversationStore {
   }
   /** Reconciliation-only cold entry. The original terminal and error history
    * survive; fresh native evidence cannot admit input or run a queue. */
-  reconcileRetainedInterruptedEffects(
+  reconcileRetainedNativeEffects(
     id: string,
     binding: AccountBinding,
     target: CodexNativeTurnTarget,
     expectedPhase: CompletionPhaseReceipt,
     policy: CodexNativeExecutionPolicy,
-    effects: SettledInterruptedEffects,
+    status: 'completed' | 'interrupted',
+    effects: SettledInterruptedEffects | undefined,
     assertCurrent: () => void,
+    assertOriginal: () => void,
+    afterNativeReconciliation?: () => void,
   ): void {
     this.db
       .transaction(() => {
         assertCurrent();
+        assertOriginal();
         if (
           !isDeepStrictEqual(
             this.completionPhase(id, binding, target.commandId, target.attempt),
             expectedPhase,
           ) ||
           !isDeepStrictEqual(this.nativeRecoveryTarget(id, binding), target) ||
-          this.commandStatus(id, binding, target.commandId) !== 'interrupted'
+          this.commandStatus(id, binding, target.commandId) !== 'interrupted' ||
+          expectedPhase.observedOutcome !== 'completed' ||
+          expectedPhase.priorEffectsUnknown ||
+          (status !== 'completed' && (status !== 'interrupted' || !effects))
         )
           throw Error('Retained reconciliation target changed');
         // Revalidate original external authority under the writer lock. The
@@ -2904,10 +2911,11 @@ export class CodexConversationStore {
           id,
           binding,
           target,
-          'interrupted',
+          status,
           target.threadId,
           target.generation,
         );
+        afterNativeReconciliation?.();
         const current = () => {
           assertCurrent();
         };
@@ -5078,7 +5086,12 @@ export class CodexConversationStore {
     binding: AccountBinding,
     primaryCommandId: string,
     liveCommandId?: string,
-  ): Readonly<{ assertCurrentSync(): void }> | undefined {
+  ):
+    | Readonly<{
+        assertCurrentSync(): void;
+        observeNativeCompletion(target: CodexNativeTurnTarget): void;
+      }>
+    | undefined {
     const bindingSnapshot = structuredClone(binding);
     const witness = this.db.transaction(() => {
       const state = this.read(id, binding);
@@ -5252,14 +5265,32 @@ export class CodexConversationStore {
         });
         return { primary: evidence(command), generations, acceptances, native };
       };
-      const snapshot = structuredClone(historicalPrefix());
-      return () => {
-        this.read(id, bindingSnapshot);
-        if (!isDeepStrictEqual(historicalPrefix(), snapshot))
-          throw Error('Prepared repository interrupted historical evidence changed');
+      let snapshot = structuredClone(historicalPrefix());
+      return {
+        assertCurrentSync: () => {
+          this.read(id, bindingSnapshot);
+          if (!isDeepStrictEqual(historicalPrefix(), snapshot))
+            throw Error('Prepared repository interrupted historical evidence changed');
+        },
+        observeNativeCompletion: (target: CodexNativeTurnTarget) => {
+          if (target.commandId !== command.id) return;
+          this.read(id, bindingSnapshot);
+          if (
+            snapshot.primary.status !== 'interrupted' ||
+            snapshot.primary.targets?.length !== 1 ||
+            !isDeepStrictEqual(this.nativeTarget(command.id, snapshot.primary.targets[0]), target)
+          )
+            throw Error('Prepared repository completion target changed');
+          // Advance only the status that the owning recovery transaction changed.
+          // Every original receipt, attempt and lineage byte stays pinned.
+          const completed = { ...snapshot, primary: { ...snapshot.primary, status: 'completed' } };
+          if (!isDeepStrictEqual(historicalPrefix(), completed))
+            throw Error('Prepared repository completion evidence changed');
+          snapshot = completed;
+        },
       };
     })();
-    return witness && Object.freeze({ assertCurrentSync: witness });
+    return witness && Object.freeze(witness);
   }
   /** Verify a completed source without reviving its expired native callback.
    * This does not authorize a read, a workspace change or another provider turn.

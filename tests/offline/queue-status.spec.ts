@@ -380,5 +380,14 @@ for (const theme of ['dark', 'light']) {
     );
     await expect(page.getByRole('button', { name: 'Reconnect and continue' })).toBeVisible();
     await page.screenshot({ path: info.outputPath(`completed-observed-${theme}.png`) });
+    const fixture = page.locator('main');
+    const revision = Number(await fixture.getAttribute('data-metadata-revision'));
+    await page.getByRole('textbox', { name: 'Message Mitzo' }).fill('Retain the next prompt');
+    await page.getByRole('button', { name: 'Reconnect and continue' }).click();
+    await expect(fixture).toHaveAttribute('data-metadata-revision', String(revision + 1));
+    await expect(page.getByRole('textbox', { name: 'Message Mitzo' })).toHaveValue(
+      'Retain the next prompt',
+    );
+    await expect(page.getByText('Retained next command')).toBeVisible();
   });
 }

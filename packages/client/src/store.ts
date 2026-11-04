@@ -152,6 +152,8 @@ export interface MitzoStoreState {
   sessionMetadataRevision: number;
   /** Local composer fence only; never provider input or dispatch authority. */
   isSessionMetadataCurrent(sessionId: string, revision: number): boolean;
+  /** Refresh display/readiness after an explicit action; never dispatch authority. */
+  invalidateSessionMetadata(sessionId: string): void;
 
   // Current server-issued transport identity; never persisted across reconnect.
   getTransportConnectionId(): string | null;
@@ -1259,6 +1261,10 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
     getTransportConnectionId: () => connection.getConnectionId(),
     isSessionMetadataCurrent: (sessionId, revision) =>
       get().sessions.active === sessionId && get().sessionMetadataRevision === revision,
+    invalidateSessionMetadata: (sessionId) => {
+      if (get().sessions.active === sessionId)
+        set((state) => ({ sessionMetadataRevision: state.sessionMetadataRevision + 1 }));
+    },
 
     dispatchMessages(action: MessagesAction) {
       if (action.type === 'SET_SESSION_CONTEXT') contextDisplayWritten = true;
@@ -2657,8 +2663,13 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
       store.setState((state) => ({ queueRevision: state.queueRevision + 1 }));
     if (
       selectedEventSession &&
-      (msg.type === 'session_info' || msg.type === 'session_reconnect_snapshot')
+      (msg.type === 'session_info' ||
+        msg.type === 'session_reconnect_snapshot' ||
+        msg.type === 'session_end' ||
+        commandPreparationEnded)
     )
+      // A mounted chat may have read eligibility while dispatch was uncertain.
+      // Completion invalidates that read; only fresh metadata can unblock sending.
       store.setState((state) => ({ sessionMetadataRevision: state.sessionMetadataRevision + 1 }));
 
     if (msg.type === 'error' && msg.sessionId === awaitingModeHydration)
