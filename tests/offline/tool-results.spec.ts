@@ -9,7 +9,7 @@ const bundled = build({
   outfile: '/tmp/mitzo-tool-results.js',
   jsx: 'automatic',
   minify: true,
-  define: { 'process.env.NODE_ENV': '"production"' },
+  define: { 'process.env.NODE_ENV': '"production"', 'import.meta.env': '{}' },
 });
 
 for (const theme of ['dark', 'light'])
@@ -47,7 +47,7 @@ for (const theme of ['dark', 'light'])
     await result.getByRole('button', { name: /Commit/ }).click();
     await expect(result.getByText('Message', { exact: true })).toBeVisible();
     await expect(result.getByText('false', { exact: true }).first()).toBeVisible();
-    await page.screenshot({ path: info.outputPath(`tool-results-${theme}.png`) });
+    await page.screenshot({ path: info.outputPath(`responsiveness-tool-results-${theme}.png`) });
     for (const body of await page.locator('.tool-result-body').all()) {
       expect(await body.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
     }
