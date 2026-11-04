@@ -592,6 +592,31 @@ disclosure and reduced motion with no backend or provider.
 
 `AgentActivity` groups consecutive normalized thought/tool blocks between responses, including across provider message boundaries. Its one-line latest-activity preview uses the shared type/spacing/radius scales, semantic muted/error colors, `UiIcon`, a `--control-height` button with visible focus and `aria-expanded`, and `MotionPresence` for details. Failure counts, including failures inside delegated agents, remain visible when collapsed. Delegated agents stay inside the same shared disclosure, with their total and running count in its preview; nested cards use shared disclosure motion. Existing tool/thought controls retain full detail, while approvals, progress, web-access results and deduplicated setup cards stay outside the disclosure. Group identity follows the session and captured seat/account generation. Activity and thought content start open and remain readable while awaiting a reply, including between provider messages and after tool completion. Visible text from the same speaker collapses preceding activity; another speaker's reply and a new user turn cannot complete it. Manual reopening after a reply persists through further updates. No timer collapses thought content within this group. Empty or whitespace-only text does not split activity. Automatic collapse returns keyboard focus from closing details to the header while preserving focus elsewhere, including the composer, with both normal and reduced motion. No provider or account selects a separate visual treatment.
 
+## Tool result readability
+
+Generic tool input and output uses `ToolResultContent`: valid JSON objects and
+arrays appear as labelled fields and expandable records. Records use their title,
+name, message or commit message as a bounded preview. Each level initially shows
+ten entries; Show more retains access to every later entry. Empty collections,
+false, zero, null and empty strings remain visible. Numeric source tokens retain
+their spelling so large IDs cannot be rounded by JSON parsing.
+
+Readable/Raw controls and Copy use shared semantic colors, font roles, spacing,
+radii, focus and `--control-height` targets. Raw and Copy preserve the original
+bytes. Text and long identifiers wrap; the keyboard-scrollable result body is
+bounded by `min(60dvh, 32rem)` to keep large results inside the transcript.
+Nested disclosures reuse `MotionPresence`; indentation stops growing after the
+first nested level to preserve narrow-screen reading width. Partial JSON and
+results over 256 KiB fall back to wrapped text. Existing source-file, command,
+diff, image, proposal and setup renderers retain their specialized presentation.
+
+The `tool-results` offline fixture covers 320px mobile and desktop layouts,
+dark Mint/System and light Teal/Georgia with larger text, keyboard expansion,
+long values, raw access, paging, empty/error/running states and retained drafts.
+Focused component and design checks pass locally. Browser execution and visual
+inspection remain pending: this session's escalated launcher still reported
+the macOS Seatbelt sandbox, and the repository guard refused before launch.
+
 ## Terminal output layout
 
 The terminal retains the shell-owned masthead and uses one compact toolbar for its title, current destination, adviser, controls disclosure and options. Adviser and destination details start collapsed, preserving most of the remaining mobile viewport for output. The command composer retains its 44px controls; duplicate destination/input captions and routine connected metadata do not occupy a separate row. Connected status remains available to assistive technology; errors and reconnection actions remain visible.
