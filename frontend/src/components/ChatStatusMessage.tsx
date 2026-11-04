@@ -1,12 +1,9 @@
 import { UiIcon } from './UiIcon';
 import { ComposerStatusNotice } from './ComposerStatus';
+import type { ComposerStatusAction } from '../lib/composer-status-context';
 import './ChatStatusMessage.css';
 
-export interface ChatStatusAction {
-  label: string;
-  onClick(): void;
-  disabled?: boolean;
-}
+export type ChatStatusAction = ComposerStatusAction;
 
 /** Shared, quiet progress beside the composer; only failures use an alert. */
 export function ChatStatusMessage({
@@ -23,7 +20,12 @@ export function ChatStatusMessage({
   const message = error || status;
   if (!message) return null;
   return (
-    <ComposerStatusNotice message={message} tone={error ? 'danger' : 'normal'} busy={busy}>
+    <ComposerStatusNotice
+      message={message}
+      tone={error ? 'danger' : action ? 'warning' : 'normal'}
+      busy={busy}
+      action={action}
+    >
       <div
         className={`chat-status-message${error ? ' chat-status-message--error' : ''}${action ? ' chat-status-message--action' : ''}`}
         role={error ? 'alert' : 'status'}

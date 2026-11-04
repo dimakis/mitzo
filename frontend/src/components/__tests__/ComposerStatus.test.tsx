@@ -38,7 +38,7 @@ it('keeps one mounted summary while notices change and exposes every action in d
   view.rerender(<Fixture error="Correction delivery failed" />);
   expect(screen.getByRole('region', { name: 'Conversation status' })).toBe(rail);
   expect(within(rail).getByRole('alert').textContent).toContain('Correction delivery failed');
-  expect(screen.queryByRole('button', { name: 'Retry correction' })).toBeNull();
+  expect(within(rail).getByRole('button', { name: 'Retry correction' })).toBeTruthy();
   fireEvent.click(within(rail).getByRole('button', { name: 'Conversation status details' }));
   const dialog = screen.getByRole('dialog', { name: 'Conversation status' });
   expect(within(dialog).getByText('Connecting to a very long provider name')).toBeTruthy();
@@ -88,4 +88,19 @@ it('retains standalone feedback when there is no composer to own the rail', () =
     </ComposerStatusProvider>,
   );
   expect(screen.getByRole('alert').textContent).toBe('Failed admission');
+});
+
+it('shows the existing approval state and returns to working after it clears', () => {
+  const view = render(
+    <ComposerStatusProvider>
+      <ComposerStatusRail running awaitingApproval />
+    </ComposerStatusProvider>,
+  );
+  expect(screen.getByRole('alert').textContent).toBe('Needs your approval');
+  view.rerender(
+    <ComposerStatusProvider>
+      <ComposerStatusRail running />
+    </ComposerStatusProvider>,
+  );
+  expect(screen.getByRole('status').textContent).toBe('Working');
 });

@@ -1,3 +1,4 @@
+import { reviewQueuedDrafts, closeComposerStatus } from '../support/composer-status';
 import { createTelosWorkFixtures } from '../../frontend/src/test-utils/telos-work-fixtures';
 import { readChatStorage } from '../support/persisted-chat-storage';
 import {
@@ -4086,7 +4087,9 @@ test('rejected ordinary Stop preserves the live reply and queued image until ser
   confirmIdle();
   await expect(page.getByRole('button', { name: 'Send message', exact: true })).toBeVisible();
   expect(sent).toHaveLength(0);
+  await reviewQueuedDrafts(page);
   await page.getByRole('button', { name: 'Resume queue', exact: true }).click();
+  await closeComposerStatus(page);
   await expect.poll(() => sent.length).toBe(1);
   expect(sent[0]).toMatchObject({
     sessionId,

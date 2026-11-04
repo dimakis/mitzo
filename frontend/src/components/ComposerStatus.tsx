@@ -1,6 +1,6 @@
 import {
-  createContext,
   useCallback,
+  useEffect,
   useContext,
   useId,
   useLayoutEffect,
@@ -11,26 +11,13 @@ import {
 import { HomeDialog } from './HomeDialog';
 import { UiIcon } from './UiIcon';
 import './ComposerStatus.css';
-
-type Notice = {
-  message: string;
-  tone?: 'normal' | 'warning' | 'danger';
-  busy?: boolean;
-  queued?: number;
-  children?: ReactNode;
-};
-type Sink = {
-  report(id: string, notice: Notice | null): void;
-  mountRail(): () => void;
-  close(): void;
-};
-const SinkContext = createContext<Sink | null>(null);
-const ActiveContext = createContext(false);
-const ViewContext = createContext<{
-  notices: Map<string, Notice>;
-  open: boolean;
-  setOpen(open: boolean): void;
-} | null>(null);
+import {
+  ActiveContext,
+  SinkContext,
+  ViewContext,
+  useComposerStatusSink,
+  type ComposerNotice as Notice,
+} from '../lib/composer-status-context';
 
 /** Separate the write and view contexts: reporting a notice never rerenders its owner. */
 export function ComposerStatusProvider({ children }: { children: ReactNode }) {
@@ -62,46 +49,82 @@ export function ComposerStatusProvider({ children }: { children: ReactNode }) {
   );
 }
 
-export function useComposerStatusSink() {
-  return useContext(SinkContext);
-}
-
 /** Keep existing controls and their owners; only their presentation moves into details. */
-export function ComposerStatusNotice({ message, tone = 'normal', busy, queued, children }: Notice) {
+export function ComposerStatusNotice({
+  message,
+  tone = 'normal',
+  busy,
+  queued,
+  action,
+  children,
+}: Notice) {
   const sink = useComposerStatusSink();
   const active = useContext(ActiveContext);
   const id = useId();
   useLayoutEffect(() => {
     if (!sink) return;
-    sink.report(id, { message, tone, busy, queued, children });
+    sink.report(id, { message, tone, busy, queued, action, children });
     return () => sink.report(id, null);
-  }, [sink, id, message, tone, busy, queued, children]);
+  }, [sink, id, message, tone, busy, queued, action, children]);
   if (sink && active) return null;
   return children ?? <p role={tone === 'danger' ? 'alert' : 'status'}>{message}</p>;
 }
 
-export function ComposerStatusRail({ running = false }: { running?: boolean }) {
+export function ComposerStatusRail({
+  running = false,
+  scope,
+  awaitingApproval = false,
+}: {
+  running?: boolean;
+  scope?: number;
+  awaitingApproval?: boolean;
+}) {
   const sink = useComposerStatusSink();
   const view = useContext(ViewContext);
+  const [visited, setVisited] = useState(false);
+  useEffect(() => {
+    if (view?.open) setVisited(true);
+  }, [view?.open]);
+  useLayoutEffect(() => {
+    sink?.close();
+    setVisited(false);
+  }, [sink, scope]);
   useLayoutEffect(() => sink?.mountRail(), [sink]);
   if (!view) return null;
-  const notices = [...view.notices.values()];
-  const issues = notices.filter((notice) => notice.tone !== 'normal');
+  const notices: Notice[] = [...view.notices.values()];
+  if (awaitingApproval) notices.unshift({ message: 'Needs your approval', tone: 'warning' });
+  const issues = [
+    ...new Map(
+      notices
+        .filter((notice) => notice.tone !== 'normal')
+        .map((notice) => [notice.message, notice]),
+    ).values(),
+  ];
   const score = (notice: Notice) =>
-    notice.tone === 'danger' ? 100 : notice.tone === 'warning' ? 80 : notice.queued ? -1 : 10;
+    notice.tone === 'danger'
+      ? 100
+      : notice.tone === 'warning'
+        ? 80
+        : notice.queued && !notice.busy
+          ? -1
+          : 10;
   const primary = notices.reduce<Notice | undefined>(
     (best, notice) => (!best || score(notice) > score(best) ? notice : best),
     undefined,
   );
   const queued = notices.reduce((count, notice) => count + (notice.queued ?? 0), 0);
+  const actions = notices.flatMap((notice) => (notice.action ? [notice.action] : []));
+  const action = actions.length === 1 ? actions[0] : undefined;
   const message =
     issues.length > 1
       ? `Needs attention · ${issues.length} issues`
-      : primary && score(primary) >= 0
-        ? primary.message
-        : running
-          ? 'Working'
-          : 'Ready';
+      : running && primary?.busy && primary.tone === 'normal'
+        ? 'Working'
+        : primary && score(primary) >= 0
+          ? primary.message
+          : running
+            ? 'Working'
+            : 'Ready';
   const tone = issues.some((notice) => notice.tone === 'danger')
     ? 'danger'
     : issues.length
@@ -127,20 +150,32 @@ export function ComposerStatusRail({ running = false }: { running?: boolean }) {
           <button
             type="button"
             className="composer-status-count"
-            aria-label={`${queued} queued messages`}
+            aria-label={`${queued} queued ${queued === 1 ? 'message' : 'messages'}`}
             onClick={() => view.setOpen(true)}
           >
             {queued} queued
           </button>
         )}
-        {issues.length > 0 && (
+        {action ? (
           <button
             type="button"
-            className="composer-status-review"
-            onClick={() => view.setOpen(true)}
+            className="composer-status-action"
+            title={action.label}
+            disabled={action.disabled}
+            onClick={action.onClick}
           >
-            Review
+            {action.label}
           </button>
+        ) : (
+          issues.length > 0 && (
+            <button
+              type="button"
+              className="composer-status-review"
+              onClick={() => view.setOpen(true)}
+            >
+              Review
+            </button>
+          )
         )}
         <button
           type="button"
@@ -153,23 +188,31 @@ export function ComposerStatusRail({ running = false }: { running?: boolean }) {
           <UiIcon name="info" size={16} />
         </button>
       </div>
-      <SinkContext.Provider value={null}>
-        <HomeDialog
-          title="Conversation status"
-          open={view.open}
-          onClose={() => view.setOpen(false)}
-          className="composer-status-dialog"
-        >
-          <p className="composer-status-baseline">
-            {running ? 'Agent working' : 'Ready for your next message'}
-          </p>
-          {[...view.notices].map(([id, notice]) => (
-            <section key={id} className="composer-status-detail" data-tone={notice.tone}>
-              {notice.children ?? <p>{notice.message}</p>}
-            </section>
-          ))}
-        </HomeDialog>
-      </SinkContext.Provider>
+      {(view.open || visited) && (
+        <SinkContext.Provider value={null}>
+          <HomeDialog
+            title="Conversation status"
+            open={view.open}
+            onClose={() => view.setOpen(false)}
+            className="composer-status-dialog"
+          >
+            <p className="composer-status-baseline">
+              {running ? 'Agent working' : 'Ready for your next message'}
+            </p>
+            {awaitingApproval && (
+              <p>
+                A permission request is waiting in this conversation. Review the existing approval
+                request to continue.
+              </p>
+            )}
+            {[...view.notices].map(([id, notice]) => (
+              <section key={id} className="composer-status-detail" data-tone={notice.tone}>
+                {notice.children ?? <p>{notice.message}</p>}
+              </section>
+            ))}
+          </HomeDialog>
+        </SinkContext.Provider>
+      )}
     </>
   );
 }

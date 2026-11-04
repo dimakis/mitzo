@@ -35,6 +35,9 @@ import { SessionResourcesDialog } from './SessionResourcesDialog';
 import { ImageAttachmentEditor } from './ImageAttachmentEditor';
 import { ComposerTools } from './ComposerTools';
 import { UiIcon } from './UiIcon';
+import { WorkspaceActionMenu } from './WorkspaceActionMenu';
+import { ComposerStatusProvider, ComposerStatusRail, ComposerStatusNotice } from './ComposerStatus';
+import { useComposerStatusSink } from '../lib/composer-status-context';
 import { MicButton } from './MicButton';
 import { impactMedium } from '../lib/haptics';
 import { TokenBar } from './TokenBar';
@@ -102,6 +105,7 @@ interface Props {
     onDefinitiveRefusal?: () => void,
   ) => void;
   running: boolean;
+  awaitingApproval?: boolean;
   initialText?: string;
   /** Prompt storage ownership independent of the provider session identity. */
   draftStorageKey?: string;
@@ -142,7 +146,18 @@ interface Props {
 
 const EMPTY_MESSAGES: FinishedMessage[] = [];
 
-export function ChatInput({
+export function ChatInput(props: Props) {
+  const sink = useComposerStatusSink();
+  return sink ? (
+    <ChatInputContent {...props} />
+  ) : (
+    <ComposerStatusProvider>
+      <ChatInputContent {...props} />
+    </ComposerStatusProvider>
+  );
+}
+
+function ChatInputContent({
   steeringTargetCommandId,
   replyTarget,
   onClearReply,
@@ -156,6 +171,7 @@ export function ChatInput({
   onStop,
   onInterrupt,
   running,
+  awaitingApproval,
   initialText,
   draftStorageKey: suppliedDraftStorageKey,
   savedChatDraft,
@@ -195,6 +211,7 @@ export function ChatInput({
     pending: object;
     scope: number;
     textRevision: number;
+    images: ImageAttachment[];
     composerGeneration: number;
   } | null>(null);
   // Acceptance can precede the routed render. Keep its exact assignment until
@@ -587,14 +604,32 @@ export function ChatInput({
     (composerScope === pendingText.scope || pendingAssignment) &&
     latestDraft.current.textRevision === pendingText.textRevision + (pendingAssignment ? 1 : 0);
   const displayedText = hideSubmittedText ? '' : text;
-  const displayedDraft = useRef<{ pending?: object; text: string }>({ text });
-  displayedDraft.current = { pending: hideSubmittedText ? pendingText.pending : undefined, text };
+  const submittedImages =
+    pendingText &&
+    sendPending.current === pendingText.pending &&
+    (composerScope === pendingText.scope || pendingAssignment)
+      ? pendingText.images
+      : [];
+  const displayedImages = images.filter((image) => !submittedImages.includes(image));
+  const displayedDraft = useRef<{ pending?: object; text: string; images: ImageAttachment[] }>({
+    text,
+    images: [],
+  });
+  displayedDraft.current = {
+    pending: hideSubmittedText ? pendingText.pending : undefined,
+    text,
+    images: submittedImages,
+  };
   const editText = useCallback(
     (update: SetStateAction<string>) => {
       const pending = displayedDraft.current.pending;
       const submittedText = displayedDraft.current.text;
       const editingSubmitted = pending !== undefined && pending === sendPending.current;
       if (editingSubmitted) {
+        const submittedImages = displayedDraft.current.images;
+        // The outbox retains this exact payload. A new draft must not inherit
+        // its attachments when the user starts typing before the receipt.
+        setImages((current) => current.filter((image) => !submittedImages.includes(image)));
         displayedDraft.current.pending = undefined;
         setPendingText(null);
         // Pasting an identical next message is still a new draft revision.
@@ -672,6 +707,7 @@ export function ChatInput({
           pending,
           scope: submitted.scope,
           textRevision: submitted.textRevision,
+          images: payload.images,
           composerGeneration: submitted.composerGeneration,
         });
       // Keep dequeued input under the existing explicit-retry fence until a
@@ -1000,8 +1036,8 @@ export function ChatInput({
       mounted.current &&
       latestDraft.current.scope === operation.scope &&
       importPending.current === operation;
-    let remaining = MAX_IMAGE_ATTACHMENTS - images.length;
-    let remainingBytes = CHAT_MAX_ATTACHMENT_BYTES - chatAttachmentBytes(images);
+    let remaining = MAX_IMAGE_ATTACHMENTS - displayedImages.length;
+    let remainingBytes = CHAT_MAX_ATTACHMENT_BYTES - chatAttachmentBytes(displayedImages);
     try {
       for (const file of files) {
         if (!isCurrent()) return;
@@ -1027,7 +1063,7 @@ export function ChatInput({
         remaining -= attachments.length;
         setImages((prev) =>
           mounted.current && latestDraft.current.scope === operation.scope
-            ? [...prev, ...attachments]
+            ? [...prev.filter((image) => !submittedImages.includes(image)), ...attachments]
             : prev,
         );
       }
@@ -1098,7 +1134,7 @@ export function ChatInput({
     return key;
   }
 
-  const canSend = displayedText.trim() || images.length > 0;
+  const canSend = displayedText.trim() || displayedImages.length > 0;
 
   const micProps = voice
     ? {
@@ -1376,35 +1412,24 @@ export function ChatInput({
 
   return (
     <div className={`chat-input chat-input--compact${expanded ? ' chat-input--expanded' : ''}`}>
-      {currentSave &&
-        (currentSave.failed ||
-          chatStorage.failed ||
-          (currentSave.stored && !hideSubmittedText)) && (
-          <p
-            className="chat-draft-save-status"
-            role={currentSave.failed || chatStorage.failed ? 'alert' : 'status'}
-          >
-            {currentSave.failed || chatStorage.failed
-              ? 'Couldn’t save this draft on this device. Keep it open and free some storage before leaving.'
-              : chatStorage.pending
-                ? 'Saving draft on this device…'
-                : 'Draft saved on this device'}
-          </p>
-        )}
-      {attachmentError && (
-        <p className="chat-draft-save-status" role="alert">
-          {attachmentError}
-        </p>
+      <ComposerStatusRail
+        running={running}
+        scope={composerScope}
+        awaitingApproval={awaitingApproval}
+      />
+      {currentSave && (currentSave.failed || chatStorage.failed) && (
+        <ChatStatusMessage error="Couldn’t save this draft on this device. Keep it open and free some storage before leaving." />
       )}
+      {attachmentError && <ChatStatusMessage error={attachmentError} />}
       {importing && (
-        <p className="chat-draft-save-status" role="status">
-          Importing attachment… PDFs become page images (up to {MAX_IMAGE_ATTACHMENTS} pages per
-          message).
-        </p>
+        <ChatStatusMessage
+          status={`Importing attachment… PDFs become page images (up to ${MAX_IMAGE_ATTACHMENTS} pages per message).`}
+          busy
+        />
       )}
-      {images.length > 0 && (
+      {displayedImages.length > 0 && (
         <div className="chat-input-previews">
-          {images.map((image, index) => (
+          {displayedImages.map((image, index) => (
             <div key={imageKey(image)} className="chat-input-preview">
               <button
                 type="button"
@@ -1424,7 +1449,7 @@ export function ChatInput({
                 type="button"
                 className="chat-input-preview-remove"
                 aria-label={`Remove attachment ${index + 1}`}
-                onClick={() => removeImage(index)}
+                onClick={() => removeImage(images.indexOf(image))}
               >
                 <UiIcon name="close" size={16} />
               </button>
@@ -1461,58 +1486,53 @@ export function ChatInput({
           <em>{voice.partialTranscript}</em>
         </div>
       )}
-      <QueuedDraftTray
-        queue={queuedMessages}
-        paused={queuePaused}
-        busy={queueBusy}
-        running={running}
-        blocked={
-          !!sendDisabledReason ||
-          boundedFirstCommand ||
-          importing ||
-          (running && !!interruptDisabledReason) ||
-          (running && !onInterrupt)
-        }
-        recoveryBlocked={
-          !!sendDisabledReason ||
-          boundedFirstCommand ||
-          importing ||
-          !!sendPending.current ||
-          !!interruptPending.current
-        }
-        textOnlySteer={interruptLabel === 'Steer current turn'}
-        onPause={() => {
-          const paused = !queuePaused;
-          setQueuePaused(paused);
-          if (
-            !paused &&
-            !running &&
-            !queueBusy &&
-            !queueEditorOpen &&
-            !sendPending.current &&
-            !interruptPending.current &&
-            !sendDisabledReason &&
-            !boundedFirstCommand
-          ) {
-            const q = dequeue();
-            if (q) sendOrdinary(q, true);
-          }
-        }}
-        onSend={fireQueuedAsInterrupt}
-        onUpdate={updateQueued}
-        onRemove={removeQueued}
-        onEditingChange={setQueueEditorOpen}
-      />
-      {queueError?.scope === composerScope && (
-        <p className="chat-draft-save-status" role="alert">
-          {queueError.text}
-        </p>
+      {(queuedMessages.length > 0 || queueEditorOpen) && (
+        <ComposerStatusNotice message="Up next" queued={queuedMessages.length}>
+          <QueuedDraftTray
+            queue={queuedMessages}
+            paused={queuePaused}
+            busy={queueBusy}
+            running={running}
+            blocked={
+              !!sendDisabledReason ||
+              boundedFirstCommand ||
+              importing ||
+              (running && !!interruptDisabledReason) ||
+              (running && !onInterrupt)
+            }
+            recoveryBlocked={
+              !!sendDisabledReason ||
+              boundedFirstCommand ||
+              importing ||
+              !!sendPending.current ||
+              !!interruptPending.current
+            }
+            textOnlySteer={interruptLabel === 'Steer current turn'}
+            onPause={() => {
+              const paused = !queuePaused;
+              setQueuePaused(paused);
+              if (
+                !paused &&
+                !running &&
+                !queueBusy &&
+                !queueEditorOpen &&
+                !sendPending.current &&
+                !interruptPending.current &&
+                !sendDisabledReason &&
+                !boundedFirstCommand
+              ) {
+                const q = dequeue();
+                if (q) sendOrdinary(q, true);
+              }
+            }}
+            onSend={fireQueuedAsInterrupt}
+            onUpdate={updateQueued}
+            onRemove={removeQueued}
+            onEditingChange={setQueueEditorOpen}
+          />
+        </ComposerStatusNotice>
       )}
-      {(running || queuedMessages.length > 0) && !boundedFirstCommand && (
-        <p className="queued-draft-hint">
-          The queue keeps its order. <UiIcon name="interrupt" size={16} /> sends a correction now.
-        </p>
-      )}
+      {queueError?.scope === composerScope && <ChatStatusMessage error={queueError.text} />}
       <ChatStatusMessage status={sendDisabledReason} action={sendDisabledAction} />
       <div className="chat-input-row">
         {replyTarget && (
@@ -1541,13 +1561,7 @@ export function ChatInput({
           onChange={(e) => editText(e.target.value)}
           onKeyDown={handleKeyDown}
           onPaste={handlePaste}
-          placeholder={
-            running
-              ? 'Type to queue or interrupt...'
-              : responders
-                ? 'Message… @ to choose who replies'
-                : 'Message Mitzo...'
-          }
+          placeholder={responders ? 'Message… @ to choose who replies' : 'Message Mitzo...'}
           rows={1}
         />
         {settings}
@@ -1585,7 +1599,9 @@ export function ChatInput({
               commandsExpanded={showSlashPicker}
               commandsDisabled={boundedFirstCommand || guardedConversation || textOnly}
               onAttach={() => fileInputRef.current?.click()}
-              attachmentDisabled={textOnly || importing || images.length >= MAX_IMAGE_ATTACHMENTS}
+              attachmentDisabled={
+                textOnly || importing || displayedImages.length >= MAX_IMAGE_ATTACHMENTS
+              }
               onDismiss={() => textareaRef.current?.focus()}
               isolation={isolation}
               onIsolationChange={onIsolationChange}
@@ -1615,7 +1631,7 @@ export function ChatInput({
                 bootContext={bootContext}
                 sessionContext={sessionContext}
                 selectedContextBlocks={activeContextBlocks}
-                draftImages={images}
+                draftImages={displayedImages}
                 onToggleContextBlock={
                   onExternalContextBlockToggle ??
                   ((name) =>
@@ -1626,7 +1642,7 @@ export function ChatInput({
                     ))
                 }
                 onAddImages={() => fileInputRef.current?.click()}
-                onRemoveImage={removeImage}
+                onRemoveImage={(index) => removeImage(images.indexOf(displayedImages[index]))}
                 onPreviewImage={previewImage}
                 getDraftImageKey={imageKey}
               />
@@ -1655,20 +1671,21 @@ export function ChatInput({
             {running ? (
               <>
                 {canSend && onInterrupt && !boundedFirstCommand && (
-                  <button
-                    className="chat-input-btn chat-input-btn--interrupt"
-                    aria-label={interruptLabel}
-                    disabled={!!sendDisabledReason || !!correctionReason || importing}
-                    onClick={handleInterrupt}
-                    title={
-                      correctionReason ??
-                      (interruptLabel === 'Steer current turn'
-                        ? 'Send a correction to the current turn; keep its settings'
-                        : 'Interrupt — send now, mid-thinking')
-                    }
-                  >
-                    <UiIcon name="interrupt" />
-                  </button>
+                  <WorkspaceActionMenu
+                    label="Send options"
+                    items={[
+                      {
+                        id: 'correction',
+                        label: 'Send correction',
+                        onSelect: handleInterrupt,
+                        title:
+                          sendDisabledReason ??
+                          correctionReason ??
+                          'Send a correction to the current turn; keep its settings and the queue order',
+                        disabled: !!sendDisabledReason || !!correctionReason || importing,
+                      },
+                    ]}
+                  />
                 )}
                 {canSend && !boundedFirstCommand && (
                   <button

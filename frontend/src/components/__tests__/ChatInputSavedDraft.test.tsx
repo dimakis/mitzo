@@ -91,29 +91,31 @@ it('does not announce a save before the composer has persisted content', () => {
   expect(getChatDraft(draft.id)).toBeNull();
 });
 
-it('announces a confirmed local save only while the composer has a stored draft', () => {
+it('persists the draft without changing the quiet status on each keystroke', () => {
   const draft = createChatDraft();
   render(
     <ChatInput onSend={() => false} onStop={() => {}} running={false} savedChatDraft={draft} />,
   );
-  expect(screen.queryByRole('status')).toBeNull();
+  const status = screen.getByRole('status');
+  expect(status.textContent).toBe('Ready');
   expect(getChatDraft(draft.id)).toBeNull();
 
   fireEvent.change(screen.getByLabelText('Message Mitzo'), { target: { value: 'Just a test.' } });
-  expect(screen.getByRole('status').textContent).toBe('Draft saved on this device');
+  expect(screen.getByRole('status')).toBe(status);
+  expect(status.textContent).toBe('Ready');
   expect(getChatDraft(draft.id)?.text).toBe('Just a test.');
 
   fireEvent.change(screen.getByLabelText('Message Mitzo'), { target: { value: '' } });
-  expect(screen.queryByRole('status')).toBeNull();
+  expect(screen.getByRole('status')).toBe(status);
   expect(getChatDraft(draft.id)).toBeNull();
 });
 
-it('replaces the save confirmation with a warning when a newer edit cannot be stored', () => {
+it('surfaces a failed save and returns to quiet status after storage recovers', () => {
   const draft = { ...createChatDraft(), text: 'Saved text' };
   render(
     <ChatInput onSend={() => false} onStop={() => {}} running={false} savedChatDraft={draft} />,
   );
-  expect(screen.getByRole('status').textContent).toBe('Draft saved on this device');
+  expect(screen.getByRole('status').textContent).toBe('Ready');
   const storage = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
     throw new Error('Storage full');
   });
@@ -127,7 +129,7 @@ it('replaces the save confirmation with a warning when a newer edit cannot be st
   storage.mockRestore();
   fireEvent.change(screen.getByLabelText('Message Mitzo'), { target: { value: 'Recovered edit' } });
   expect(screen.queryByRole('alert')).toBeNull();
-  expect(screen.getByRole('status').textContent).toBe('Draft saved on this device');
+  expect(screen.getByRole('status').textContent).toBe('Ready');
   expect(getChatDraft(draft.id)?.text).toBe('Recovered edit');
 });
 
