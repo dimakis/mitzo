@@ -25,7 +25,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../session-history-reader.ts':
     'f302c6846b6c534be98ca84908f2b0783e832f9691cb29038b7db50672d77bdc',
   '../__tests__/session-history-retrieval.test.ts':
-    '5aa44ff62b8d1109be1a05ef82828580bcd6fcc1745fb013cec6f8a46446fe31',
+    'f2cddb03b678e663612f288dc5fe43a21d2a5251f0bc95d43e924087bea1f517',
   '../__tests__/fixtures/legacy-session-history.ts':
     '64f3997f7991fe6f72db7a99617caf3c3a2a0e1eb6b2bd8bdaeca66ad19e0259',
   '../__tests__/session-history-tools.test.ts':
@@ -263,11 +263,11 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../single-flight-reconciliation.ts':
     '243227fbf5ff82d42687770551a3d3fa37ea11ea2d7c6d615e8b6bcb3d19def1',
   '../__tests__/session-history-native.test.ts':
-    '59b5197315b8f5868366807eb4ad6dc33253fa18df12227f47b0d3c1c5b61a0e',
+    '9857d4074958f6fd14ef1aae66920e56c45dd1703947f337fcb745dd37b5a599',
   '../__tests__/session-history-search-cost.test.ts':
     'dd8f96e35b9a1dcda8a1eda68dd6c75576d7b12422a7c96e13b7dbb47ed06588',
   '../__tests__/session-history-search-batch.test.ts':
-    '9db12e21d5717fe27540b9a44feb10e62ebed2aab7b57500d216858ec2a9f66b',
+    'ff9ffa2c244880fdd6f0966652db7fcb66e6a9d68273064dd66a92e2bbc67bcc',
   '../../tests/fixtures/chat-settings-surface.tsx':
     '2db96d2164acd3426af64c6a300391cfec41f0f6eb48007646dab19f71380ca2',
   '../../tests/support/chat-storage-bootstrap.ts':
@@ -649,8 +649,8 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/agent-communication-native.test.ts':
     '69203bda9ca703dcead99697ebfc942e7b51f2e5093680739945f2e7de36c028',
   '../session-history-authorization.ts':
-    'e9a274be3f40957f5a3746a4d8f704f51e8c771a23567e7e1f50a10baa6f62eb',
-  '../session-history-tools.ts': 'f7a17ed54339c23bc216e5ec8433240f92f27da5e7f6f53ba6c86188fab9881f',
+    'd7a470cd7967595e904e0db11107f25896f775a3cd964084c9819ac4711a8191',
+  '../session-history-tools.ts': '732b8b50b374aef6141e715b6a4beb1f99eebd6500836b141c3bce7ac55946f4',
   '../local-repository-discovery.ts':
     'c3d0bc7ecc2c1838e11666f72681a4d9f1fb2f3adfa701356af6a06551ca9c43',
   '../session-local-repository-tools.ts':
@@ -2391,7 +2391,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/worktree-fetch-observation.test.ts':
     '15d3a88708e22b72e498dbc924555d4c1eb0b562de8dc43554b8f382d406b440',
   '../../tests/fixtures/agent-tool-catalog.json':
-    '07b070fe843193dbe2a2013a8d7760fec3b829cd985f3681e2fe2e1ba3f5fb7f',
+    '438e0cf4a64737b580c60fe5e872c5804460517fb4956dd50423033da69853bc',
   '../../tests/integration/ordinary-local-vertex-chat.test.ts':
     '5e8b2f0829cbd05ecfead981b3f74b1edef9de7e005eb7344e04c909304206b3',
   '../../packages/sqlite-file-owner/package.json':

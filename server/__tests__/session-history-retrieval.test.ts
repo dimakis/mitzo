@@ -21,6 +21,7 @@ function fixture() {
     assertCurrent: current,
     assertCurrentAsync: async () => current(),
     authorizeSearch: async () => {},
+    allowTranscriptSearch: () => true,
     authorizeRead: async () => ({ assertCurrent: current }),
     readBoundary: (id) => store.captureReconnectState(id, 0, false).cursor,
     dispose: vi.fn(),

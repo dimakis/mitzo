@@ -1,7 +1,11 @@
 # Agent session-history retrieval
 
 `SearchPastSessions` searches authorized visible conversation titles and public
-user/assistant text. `ReadPastSession` returns assembled visible messages by
+user/assistant text when the original profile also selects `ReadPastSession` and
+the active skill allows it. Search-only profiles keep metadata-only access;
+explicit `scope: "all"` without the read capability is rejected. The original
+owner rechecks that companion ceiling before delivery, including after awaits.
+`ReadPastSession` returns assembled visible messages by
 default. Both use the existing signed native owner; neither opens provider files,
 recovers a runtime or grants authority from historical text.
 

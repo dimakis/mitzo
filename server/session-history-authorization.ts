@@ -2,6 +2,7 @@ import type { EventStore } from './event-store.js';
 import type { NativeHostToolContext } from './native-host-tool-context.js';
 import type { HistoryAccess } from './session-history-tools.js';
 import type { ProfileToolCall } from './session-profile-tools.js';
+import { agentToolAllowed } from './agent-tool-selection.js';
 
 /** Called only by the original verified owned-local native callback. The raw
  * native context already binds middleware-authenticated operator, exact runtime,
@@ -15,13 +16,23 @@ export function captureSessionHistoryAuthorization(owners: {
 }): HistoryAccess {
   const { context, events } = owners;
   const targets = new Map<string, { assertIdentity(): void }>();
+  let transcriptSearch = false;
+  const transcriptReadAllowed = () => {
+    const session = context.session;
+    return (
+      !!session &&
+      agentToolAllowed(session, 'ReadPastSession') &&
+      (!session.activeSkillPolicy || session.activeSkillPolicy.has('ReadPastSession'))
+    );
+  };
   const assertCurrent = () => {
     context.signal.throwIfAborted();
     context.assertCurrentSync();
     if (
       context.toolName !== owners.toolName ||
       context.turnId !== owners.call.turnId ||
-      context.callId !== owners.call.callId
+      context.callId !== owners.call.callId ||
+      (transcriptSearch && !transcriptReadAllowed())
     )
       throw Error('Original history tool call unavailable');
   };
@@ -57,6 +68,12 @@ export function captureSessionHistoryAuthorization(owners: {
     signal: context.signal,
     assertCurrent,
     assertCurrentAsync,
+    allowTranscriptSearch() {
+      assertCurrent();
+      const allowed = owners.toolName === 'SearchPastSessions' && transcriptReadAllowed();
+      transcriptSearch ||= allowed;
+      return allowed;
+    },
     async authorizeSearch() {
       if (owners.toolName !== 'SearchPastSessions') throw Error('History search unavailable');
       await assertCurrentAsync();
@@ -98,6 +115,8 @@ export function captureSessionHistoryAuthorization(owners: {
     },
     readBoundary(conversationId) {
       assertCurrent();
+      if (owners.toolName === 'SearchPastSessions' && !transcriptSearch)
+        throw Error('Companion transcript read capability required');
       const target = targets.get(conversationId);
       if (!target) throw Error('Authorized history target required');
       target.assertIdentity();
