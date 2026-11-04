@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.856-recovery-summary-scope';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.857-session-naming-context';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -22,6 +22,11 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
+  '../session-naming-context.ts':
+    'e435cc8dbeda4393e7514c626894894ae75709384b41ee089878e081be519696',
+  '../auto-rename.ts': 'cb3a281d3940e1a21e1819cb90cf2e900f1d7b105baa55c58bf443cb5fb9a85f',
+  '../../packages/harness/src/auto-rename.ts':
+    '3f73c1629e9ca135276a0b3056a56f563fe5194f5d20d6651d93aaaadd7b06bb',
   '../github-publishing-source.ts':
     '97c1d2f24308e430973afdf4492a9513fda9e7eedcb80464fac71e8fcbc9ca01',
   '../retained-local-codex-effects.ts':
@@ -1285,7 +1290,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../request-web-access.ts': '7c3827a0e4ddaf8880b6ec02e1af8bc398b4b064a90bf941570751b859e467af',
   '../web-search-adapters.ts': 'b5b1ff2b50903a9beb381c3b053cdce299a5ded6d085ffd25582414bc748243e',
   '../../packages/harness/src/index.ts':
-    '3988a9fa46cf50dc9345ac2666befae566ab9a63f3165381bde2cce0dbd3c671',
+    '2a9a496b1495eb06796efbc6842d693f91fcc70e163973bb4c5448ee06c54a29',
   '../../packages/harness/src/session-transport.ts':
     '7aaab4c6a3fb5f362b000e7127a8876fb385928d6786145f974ea8ecd4ce283f',
   '../../frontend/src/components/SymposiumConversation.tsx':
@@ -1486,7 +1491,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     'c103af10de4adc81cdc474b3e69ef2b3de5e447d4dcf15da4fc1894c422b913b',
   '../../packages/protocol/src/session-output-reference-store.ts':
     'de139a8dae52cc0294f50e13fdb96d0666c81e376e282e84c640a0b187dc3014',
-  '../chat.ts': '75fc25327451c5bf137e8ed0da6c4d469b09b0319bd597e4b567e3c3a8c0ec30',
+  '../chat.ts': 'ffb44b890107404cc1a2b3b3d69acf1066dd1e040b691d04f1b99b56adf17dbe',
   '../../packages/harness/src/session-registry.ts':
     '25e0ae6a62c005b0b53596834cc193512a7bb09c1b7dd8d72fe8bd4ddf184795',
   '../agent-context-binding.ts': '4917ff83899105b7ac2c537c8db18111eeb97386d1ca0a2d2b576d872e1db360',
