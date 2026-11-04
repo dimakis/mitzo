@@ -15,6 +15,10 @@ afterEach(() => {
 });
 
 describe('readable tool results', () => {
+  it('separates the field label from its preview in the accessible button name', () => {
+    render(<ToolResultContent text={'{"commit":{"message":"Fix wrapping"}}'} />);
+    expect(screen.getByRole('button', { name: 'Commit Fix wrapping', exact: true })).toBeTruthy();
+  });
   it('shows labelled fields, preserves false/zero/null/empty strings, and opens nested records', () => {
     render(
       <ToolResultContent

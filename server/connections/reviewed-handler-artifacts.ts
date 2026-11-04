@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.847-tool-result-visual-evidence';
+  'v1.0.848-tool-result-accessible-labels';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -965,11 +965,11 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/components/ToolPill.tsx':
     '6102e6503adbdf19e774bc56e7959724983c79664bc021cf2678ba2ae02d333f',
   '../../frontend/src/components/ToolResultContent.tsx':
-    'd045cba2d6a1855ad59e227ee781624ce55b5d9603fc95d1af6ebd11d799a59c',
+    '065eef206f07e4fca44d9e4418c76d58d19a18f363a4d318565a3ac85c5888d4',
   '../../frontend/src/styles/tool-result.css':
     'c232bf0777c08438666ae4fc154f2387b2cc8517a71ab004c808f71ad06a82ea',
   '../../frontend/src/components/__tests__/ToolResultContent.test.tsx':
-    'a4e164f458e8fae2a4c8bba86a58a321ea9dac3b37374d488355eee166e89b47',
+    '310eb98291c04331eb71020abfc134f3c8811a47f5759caf66db55fd81200543',
   '../../tests/fixtures/tool-results.tsx':
     'eb7865e4b52ff45456117c2ef0d9264da366434ae606fb0592f3a90cd8578ecb',
   '../../tests/offline/tool-results.spec.ts':

@@ -45,18 +45,20 @@ function description(value: Value[] | { [key: string]: Value }): string {
 function Branch({ label, value }: { label: string; value: Value[] | { [key: string]: Value } }) {
   const [open, setOpen] = useState(false);
   const id = useId();
+  const preview = description(value);
   return (
     <div className="tool-result-branch">
       <button
         type="button"
         className="tool-result-toggle"
+        aria-label={`${label} ${preview}`}
         aria-expanded={open}
         aria-controls={id}
         onClick={() => setOpen(!open)}
       >
         <UiIcon name={open ? 'down' : 'forward'} size={16} />
         <span>{label}</span>
-        <span className="tool-result-description">{description(value)}</span>
+        <span className="tool-result-description">{preview}</span>
       </button>
       <MotionPresence open={open} kind="disclosure" appear={false}>
         <div id={id} className="tool-result-children">
