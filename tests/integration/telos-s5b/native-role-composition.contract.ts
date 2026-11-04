@@ -241,13 +241,32 @@ it('composes native worker evidence, explicit source review and Read Once with c
   expect(chat.registry.findBySessionId(leadId)!.session.taskContext).toBeFalsy();
   const leadNames = leadActor.tools.map(({ name }) => name);
   expect(leadNames).toEqual(
-    expect.arrayContaining(['TelosStartSlice', 'TelosSaveArtifact', 'TelosReadArtifact']),
+    expect.arrayContaining([
+      'TelosStartSlice',
+      'TelosSaveArtifact',
+      'TelosReadArtifact',
+      'ListIntegrationTools',
+      'DescribeIntegrationTool',
+      'InvokeIntegrationTool',
+    ]),
   );
-  expect(
-    leadNames.some((name) =>
-      /Task(Status|Artifact|Complete)|IntegrationTool|ReadToolOutput/.test(name),
-    ),
-  ).toBe(false);
+  expect(leadNames.some((name) => /Task(Status|Artifact|Complete)|ReadToolOutput/.test(name))).toBe(
+    false,
+  );
+  const approvalsBeforeDiscovery = approvals.length;
+  const contract = json(
+    await call(leadActor, leadId, 'DescribeIntegrationTool', { toolId: 'TelosSaveArtifact' }),
+  );
+  expect(contract.invocation).toBe('direct');
+  const proxied = await call(leadActor, leadId, 'InvokeIntegrationTool', {
+    toolId: contract.toolId,
+    catalogRevision: contract.catalogRevision,
+    arguments: {},
+  });
+  expect(proxied.success).toBe(false);
+  expect(json(proxied).error).toBe('direct_tool');
+  expect(approvals).toHaveLength(approvalsBeforeDiscovery);
+  expect(application.taskStore.getTree()).toEqual([]);
   const request = {
     requestId: randomUUID(),
     childItemId: 'role-slice',
