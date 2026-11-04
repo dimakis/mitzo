@@ -657,12 +657,24 @@ export class CodexConversation {
     if (this.active) this.retainNativeTransportDiagnostic(this.active.command, error);
     this.retainEmptyCompletionPhase();
     if (this.opts.transportClosure === 'terminal') {
+      const active = this.active;
       try {
         this.opts.onTransportClosed?.({ activeTurn: !!this.active, reason: 'closed', ...failure });
       } finally {
         // Use the existing terminal owner: cancel host work, retain ambiguous
         // provider state, and notify the adapter so its stream and MCPs close.
-        this.close();
+        try {
+          this.close();
+        } finally {
+          // Closing the iterator alone looks like normal completion to the chat
+          // adapter. Report unexpected active loss through its durable error
+          // channel even if an observer or cleanup fails. close() first retains
+          // any exact provider completion and fences reentrant close callbacks.
+          if (active && !active.providerCompletionRetained && !active.interruptRequested)
+            this.opts.onError?.(
+              error instanceof CodexTransportError ? error : new CodexTransportError('connection'),
+            );
+        }
       }
       return;
     }
