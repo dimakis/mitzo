@@ -104,6 +104,46 @@ describe('SessionOverviewEmitter', () => {
 
   // ─── getSnapshot ──────────────────────────────────────────────────────────
 
+  it.each([true, false])(
+    'keeps a running turn working between messages (attached=%s)',
+    (attached) => {
+      const session = makeActiveSession({ attached, hasSnapshot: false });
+      deps = makeDeps({
+        registry: {
+          get: () => session,
+          getActiveSessions: () => [session],
+        } as unknown as SessionOverviewDeps['registry'],
+      });
+      emitter = new SessionOverviewEmitter(deps);
+      emitter.setTurnRunning(session.clientId, true);
+      emitter.updateSpeaker('session-1', 'assistant');
+      vi.advanceTimersByTime(6 * 60_000);
+      expect(emitter.getSnapshot()[0]).toMatchObject({ state: 'working', awaitingReply: false });
+      emitter.setTurnRunning(session.clientId, false);
+      expect(emitter.getSnapshot()[0]).toMatchObject({ state: 'done', awaitingReply: true });
+      vi.advanceTimersByTime(5 * 60_000);
+      expect(emitter.getSnapshot()[0].state).toBe('idle');
+    },
+  );
+
+  it('does not renew completion time when an untouched session is read again', () => {
+    deps = makeDeps({
+      registry: {
+        getActiveSessions: () => [makeActiveSession()],
+      } as unknown as SessionOverviewDeps['registry'],
+      eventStore: {
+        getSession: () => ({ lastSpeakerAt: Date.now() - 10 * 60_000 }),
+        getAttentionSessions: () => [],
+      } as unknown as SessionOverviewDeps['eventStore'],
+    });
+    emitter = new SessionOverviewEmitter(deps);
+    const first = emitter.getSnapshot()[0];
+    vi.advanceTimersByTime(60_000);
+    const second = emitter.getSnapshot()[0];
+    expect(first.state).toBe('idle');
+    expect(second.lastEventAt).toBe(first.lastEventAt);
+  });
+
   it('returns empty array when no active sessions', () => {
     deps = makeDeps();
     emitter = new SessionOverviewEmitter(deps);

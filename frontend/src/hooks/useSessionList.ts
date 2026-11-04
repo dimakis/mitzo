@@ -6,6 +6,7 @@ import { renameSession as renameSessionApi } from '../lib/rename-session';
 import { apiFetch } from '../lib/api-fetch';
 import { eventBus } from '../lib/event-bus-singleton';
 import type { SessionActivity } from './useSessionOverview';
+import { isSessionActivityActive } from '../lib/session-attention';
 import { ListCache, SupersededListRequest } from '../lib/list-cache';
 
 type SessionPage = { sessions: Session[]; hasMore: boolean };
@@ -68,6 +69,18 @@ function parseSessionsResponse(data: unknown): { sessions: Session[]; hasMore: b
   return { sessions: obj.sessions, hasMore: obj.hasMore === true };
 }
 
+function applyActivity(sessions: Session[], activeIds: Set<string> | null): Session[] {
+  if (!activeIds) return sessions;
+  let changed = false;
+  const next = sessions.map((session) => {
+    const isActive = activeIds.has(session.id);
+    if (session.isActive === isActive && session.isAttached === isActive) return session;
+    changed = true;
+    return { ...session, isActive, isAttached: isActive };
+  });
+  return changed ? next : sessions;
+}
+
 export function useSessionList(): UseSessionListReturn {
   const [sessions, setSessions] = useState<Session[]>(
     () => sessionCache.get(sessionsUrl)?.sessions ?? [],
@@ -81,6 +94,7 @@ export function useSessionList(): UseSessionListReturn {
   const [checking, setChecking] = useState(false);
   const nextOffset = useRef(sessions.length);
   const hasLoaded = useRef(!loading);
+  const activeIds = useRef<Set<string> | null>(null);
 
   const loadSessions = useCallback(async () => {
     try {
@@ -89,7 +103,7 @@ export function useSessionList(): UseSessionListReturn {
         if (!response.ok) throw new Error(`Sessions request failed (${response.status})`);
         return parseSessionsResponse(await response.json());
       });
-      setSessions(page);
+      setSessions(applyActivity(page, activeIds.current));
       setHasMore(more);
       nextOffset.current = page.length;
       hasLoaded.current = true;
@@ -133,21 +147,10 @@ export function useSessionList(): UseSessionListReturn {
     // Live session dots via SSE — update isActive/isAttached without full refetch
     const unsubActivity = eventBus.on('session_activity', (data) => {
       const activities = data as SessionActivity[];
-      const activeIds = new Set(activities.map((a) => a.sessionId));
-      const attachedIds = new Set(
-        activities.filter((a) => a.state !== 'idle' && a.state !== 'done').map((a) => a.sessionId),
+      activeIds.current = new Set(
+        activities.filter(isSessionActivityActive).map((a) => a.sessionId),
       );
-      setSessions((prev) => {
-        let changed = false;
-        const next = prev.map((session) => {
-          const isActive = activeIds.has(session.id);
-          const isAttached = attachedIds.has(session.id);
-          if (session.isActive === isActive && session.isAttached === isAttached) return session;
-          changed = true;
-          return { ...session, isActive, isAttached };
-        });
-        return changed ? next : prev;
-      });
+      setSessions((prev) => applyActivity(prev, activeIds.current));
     });
 
     return () => {
@@ -167,7 +170,7 @@ export function useSessionList(): UseSessionListReturn {
       })
       .then((data) => {
         const { sessions: page, hasMore: more } = parseSessionsResponse(data);
-        setSessions((prev) => [...prev, ...page]);
+        setSessions((prev) => applyActivity([...prev, ...page], activeIds.current));
         setHasMore(more);
         nextOffset.current += page.length;
         setError(null);

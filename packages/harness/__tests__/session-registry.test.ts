@@ -501,6 +501,25 @@ describe('SessionRegistry', () => {
   });
 
   describe('getActiveSessions', () => {
+    it('preserves provider turn state across detach and connection rekey', () => {
+      registry.register('client', {
+        transport: fakeTransport(),
+        abortController: new AbortController(),
+        mode: 'agent',
+        sessionAllowList: new Set(),
+        sessionId: 'chat',
+      });
+      registry.get('client')!.turnInProgress = true;
+      registry.detach('client');
+      registry.rekey('client', 'replacement');
+      expect(registry.getActiveSessions()[0]).toMatchObject({
+        clientId: 'replacement',
+        turnInProgress: true,
+        hasSnapshot: false,
+      });
+      registry.get('replacement')!.turnInProgress = false;
+      expect(registry.getActiveSessions()[0].turnInProgress).toBe(false);
+    });
     it('projects the current model rather than the initial binding after a model change', () => {
       registry.register('client', {
         transport: fakeTransport(),

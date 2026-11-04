@@ -353,12 +353,20 @@ export function broadcastDurableSymposiumEvent(
 
 type SessionChangeCallback = (
   clientId: string,
-  event: 'start' | 'end' | 'turn_end' | 'user_message' | 'detach',
+  event: 'start' | 'end' | 'turn_start' | 'turn_end' | 'user_message' | 'detach',
   sessionId?: string,
 ) => void;
 let _onSessionChange: SessionChangeCallback | null = null;
 export function setSessionChangeCallback(cb: SessionChangeCallback): void {
   _onSessionChange = cb;
+}
+
+function notifyTurnStart(clientId: string): void {
+  _onSessionChange?.(clientId, 'turn_start');
+}
+
+function notifyTurnEnd(clientId: string): void {
+  _onSessionChange?.(clientId, 'turn_end');
 }
 
 let _onSessionsChanged: (() => void) | null = null;
@@ -3185,9 +3193,8 @@ This is an independent checkout with its own Git storage, not a linked worktree.
               /* errors logged internally */
             });
         },
-        onTurnEnd: (cId: string) => {
-          _onSessionChange?.(cId, 'turn_end');
-        },
+        onTurnStart: notifyTurnStart,
+        onTurnEnd: notifyTurnEnd,
         onUserInput: (cId, inputUuid) => {
           const active = registry.get(cId);
           if (active) markFallbackCloseoutInputObserved(active, inputUuid);
@@ -4221,7 +4228,8 @@ export async function prepareOwnedCodexChat(
             onFirstEventOutcome: options.onFirstEventOutcome,
             onTerminalOutcome: options.onTerminalOutcome,
             onEvent: options.onQueryEvent,
-            onTurnEnd: (ownerClientId) => _onSessionChange?.(ownerClientId, 'turn_end'),
+            onTurnStart: notifyTurnStart,
+            onTurnEnd: notifyTurnEnd,
             onSuccessfulAccountUse: (binding) => getAccountUseStore().record(binding),
           },
         );
@@ -6399,7 +6407,8 @@ export async function startOwnedLocalResponsesCommand(
         void runQueryLoop(query!, clientId, registry, controller, eventStore, undefined, {
           connRegistry: _connRegistry ?? undefined,
           initialClientMsgId: commandId,
-          onTurnEnd: (ownerClientId) => _onSessionChange?.(ownerClientId, 'turn_end'),
+          onTurnStart: notifyTurnStart,
+          onTurnEnd: notifyTurnEnd,
         })
           .catch(() => {})
           .finally(close);

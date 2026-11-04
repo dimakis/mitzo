@@ -590,17 +590,18 @@ healthMonitor.start();
 
 // Hook session lifecycle events into the overview emitter
 setSessionChangeCallback((clientId, event, sessionId) => {
-  if (event === 'start' || event === 'detach') {
-    overviewEmitter.touch(clientId);
+  if (event === 'start' || event === 'turn_start') {
+    overviewEmitter.setTurnRunning(clientId, true);
   } else if (event === 'end') {
     overviewEmitter.forget(clientId, sessionId);
   } else if (event === 'user_message') {
+    overviewEmitter.setTurnRunning(clientId, true);
     const session = registry.get(clientId);
     if (session?.sessionId) {
       overviewEmitter.updateSpeaker(session.sessionId, 'user');
     }
   } else if (event === 'turn_end') {
-    overviewEmitter.touch(clientId);
+    overviewEmitter.setTurnRunning(clientId, false);
     // Mark assistant as last speaker for attention tracking
     const session = registry.get(clientId);
     if (session?.sessionId) {
@@ -1305,7 +1306,6 @@ function handleChatWs(
       (span) => {
         if (isActive(clientId) && legacyChatOwnsAttachment(clientId, transport, v2Ctx)) {
           detachChat(clientId);
-          overviewEmitter.touch(clientId);
           overviewEmitter.scheduleBroadcast();
           span.setAttribute('ws.disconnect.detached', true);
           log.info('session detached (surviving)', { clientId });

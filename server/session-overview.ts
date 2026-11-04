@@ -98,13 +98,21 @@ export class SessionOverviewEmitter {
   }
 
   /**
-   * Record an event time for a session (call on turn start/end, attach, etc.).
+   * Record an execution event time for a session, independent of viewer attachment.
    * Used for Done → Idle timeout derivation.
    * Also schedules a future broadcast so that done → idle fires on time.
    */
   touch(clientId: string): void {
     this.lastEventTimes.set(clientId, Date.now());
     this.scheduleIdleTransition();
+  }
+
+  setTurnRunning(clientId: string, running: boolean): void {
+    const session = this.deps.registry.get(clientId);
+    if (!session || session.turnInProgress === running) return;
+    session.turnInProgress = running;
+    this.touch(clientId);
+    this.scheduleBroadcast();
   }
 
   /**
@@ -213,8 +221,14 @@ export class SessionOverviewEmitter {
     taskWaitForGoal: (goalId: string) => WaitReason | null,
   ): SessionActivity {
     const sessionId = session.sessionId ?? '';
-    const lastEventAt = this.lastEventTimes.get(session.clientId) ?? now;
+    const speaker = this.getCachedSpeaker(sessionId);
+    const lastEventAt = this.lastEventTimes.get(session.clientId) ?? speaker.at ?? now;
+    if (!this.lastEventTimes.has(session.clientId)) {
+      this.lastEventTimes.set(session.clientId, lastEventAt);
+      this.scheduleIdleTransition();
+    }
     const elapsed = now - lastEventAt;
+    const turnRunning = session.turnInProgress ?? session.hasSnapshot;
 
     // Collect all applicable states
     const states: SessionActivityState[] = [];
@@ -263,27 +277,9 @@ export class SessionOverviewEmitter {
       if (waitReason !== 'permission') waitReason = 'review';
     }
 
-    // 4. Transport/streaming state
-    if (session.attached) {
-      if (session.hasSnapshot) {
-        // Currently streaming a response
-        states.push('working');
-      } else if (states.length === 0) {
-        // Attached but not streaming — either just finished or init
-        if (elapsed < DONE_TIMEOUT_MS) {
-          states.push('done');
-        } else {
-          states.push('idle');
-        }
-      }
-    } else {
-      // Detached
-      if (elapsed < DONE_TIMEOUT_MS) {
-        states.push('done');
-      } else {
-        states.push('idle');
-      }
-    }
+    // A provider turn can keep running between messages or without an attached viewer.
+    if (turnRunning) states.push('working');
+    else if (states.length === 0) states.push(elapsed < DONE_TIMEOUT_MS ? 'done' : 'idle');
 
     // Fallback: if no states collected, it's init
     if (states.length === 0) {
@@ -309,9 +305,8 @@ export class SessionOverviewEmitter {
 
     // Check if awaiting user reply (assistant spoke last, not streaming, not waiting for input)
     // Exclude 'waiting' state — sessions needing permission/review should sort as waiting, not awaiting reply
-    const speaker = this.getCachedSpeaker(sessionId);
     const awaitingReply =
-      speaker.speaker === 'assistant' && !session.hasSnapshot && primaryState !== 'waiting';
+      speaker.speaker === 'assistant' && !turnRunning && primaryState !== 'waiting';
     const speakerAt = speaker.at ?? lastEventAt;
     const idleMinutes = Math.max(0, Math.round((now - speakerAt) / 60_000));
 
