@@ -1,0 +1,77 @@
+.composer-status {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  gap: var(--space-2);
+  height: var(--control-height);
+  min-width: 0;
+  color: var(--color-muted);
+  font-family: var(--font-ui);
+  font-size: var(--text-xs);
+}
+.composer-status-dot {
+  width: var(--space-1h);
+  height: var(--space-1h);
+  border-radius: 50%;
+  flex-shrink: 0;
+  background: var(--color-success);
+}
+.composer-status[data-tone='warning'] {
+  color: var(--color-warning);
+}
+.composer-status[data-tone='danger'] {
+  color: var(--color-danger);
+}
+.composer-status[data-tone='warning'] .composer-status-dot {
+  background: var(--color-warning);
+}
+.composer-status[data-tone='danger'] .composer-status-dot {
+  background: var(--color-danger);
+}
+.composer-status-summary {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.composer-status :is(button) {
+  min-height: var(--control-height);
+  flex-shrink: 0;
+  border: 0;
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  padding: 0 var(--space-2);
+  cursor: pointer;
+}
+.composer-status-details {
+  min-width: var(--control-height);
+  display: grid;
+  place-items: center;
+}
+.composer-status button:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: -2px;
+}
+.composer-status-review {
+  color: var(--color-accent);
+}
+.composer-status-detail {
+  min-width: 0;
+  border-top: 1px solid var(--color-border);
+  padding-block: var(--space-3);
+  overflow-wrap: anywhere;
+}
+.composer-status-baseline {
+  color: var(--color-muted);
+}
+.composer-status-dialog .codex-status-anchor {
+  position: static;
+}
+.composer-status-dialog .codex-queue-status {
+  position: static;
+  width: auto;
+  max-width: none;
+}

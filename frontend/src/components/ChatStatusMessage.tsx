@@ -1,4 +1,5 @@
 import { UiIcon } from './UiIcon';
+import { ComposerStatusNotice } from './ComposerStatus';
 import './ChatStatusMessage.css';
 
 export interface ChatStatusAction {
@@ -22,22 +23,24 @@ export function ChatStatusMessage({
   const message = error || status;
   if (!message) return null;
   return (
-    <div
-      className={`chat-status-message${error ? ' chat-status-message--error' : ''}${action ? ' chat-status-message--action' : ''}`}
-      role={error ? 'alert' : 'status'}
-    >
-      <UiIcon name={error ? 'error' : busy ? 'loading' : 'clock'} size={16} />
-      <span>{message}</span>
-      {action && (
-        <button
-          type="button"
-          className="home-secondary"
-          disabled={action.disabled}
-          onClick={action.onClick}
-        >
-          {action.label}
-        </button>
-      )}
-    </div>
+    <ComposerStatusNotice message={message} tone={error ? 'danger' : 'normal'} busy={busy}>
+      <div
+        className={`chat-status-message${error ? ' chat-status-message--error' : ''}${action ? ' chat-status-message--action' : ''}`}
+        role={error ? 'alert' : 'status'}
+      >
+        <UiIcon name={error ? 'error' : busy ? 'loading' : 'clock'} size={16} />
+        <span>{message}</span>
+        {action && (
+          <button
+            type="button"
+            className="home-secondary"
+            disabled={action.disabled}
+            onClick={action.onClick}
+          >
+            {action.label}
+          </button>
+        )}
+      </div>
+    </ComposerStatusNotice>
   );
 }
