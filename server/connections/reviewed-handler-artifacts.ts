@@ -10,8 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.857-native-telos-role-discovery';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.858-confirmed-chat-drafts';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -208,9 +207,9 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../tests/support/service-health-navigation.ts':
     'fbed5d30b3ab4eb805340e0ca40d6fcc551571b9259c48e062009c94d8191c00',
   '../../tests/offline/discard-chat-draft.spec.ts':
-    'a69c71e29df16828ebc783d0701cd1a2efaf6894d1ea1c468fb0b2cc5843ea6e',
+    'ea6aecfa6a694c40452995ca49fde698f933aba8cf7bc413a4bf5cdfb8e47f4c',
   '../../tests/fixtures/discard-chat-draft.tsx':
-    '14ca259e9e6963fae399e7e2f0ea7d7a3efc528286463ca8488b40195afe7a87',
+    'e5f20dcbdbb24ff755bbe5510205abaa8451a9e57f355725dc55551d723cf2c2',
   '../../frontend/src/pages/__tests__/DesktopChatView.test.tsx':
     'd428bba8fe0a4552cdcd44f0141df1a84aea8c7a65b64a20d6a79524f5e72669',
   '../../frontend/src/pages/__tests__/ChatViewBriefingRuntime.test.tsx':
@@ -348,7 +347,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../docs/operations/prepared-repository-chat-flow.md':
     '0aee398d743277316f776aa239968f0643089712b79887f421299229d99ba99f',
   '../../frontend/src/lib/__tests__/reviewed-outbox-storage.test.ts':
-    'ea9d8dd311e212e565682f45bda0300114483131306e53d93d7fd9af7a8939e4',
+    '382396661f5085fc727a8a335090f76dcba4146f59fc4cdb0bbbbcfe9f754db0',
   '../../skills/land-pr/SKILL.md':
     '0fb32f8ec9625cc58ec21f62073526ff07c3d65b893bbfcba4e13e2e141b8bc7',
   '../../tests/integration/prepared-repository/composer-delivery.test.tsx':
@@ -450,7 +449,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/symposium-profile-read-allocation.test.ts':
     'f83bbaa69102885dfa62bf70322044e2941dca2bd743fb3afa19e7d7c31aa30e',
   '../../frontend/src/lib/composer-draft-proof.ts':
-    '1eba4d3e44f1e70d4ab76f879be1df0c286b76af870cf3fa60ccb8a4ff31bc1d',
+    '97bbca3c7c8a2b23a4779f5b97cdc9a47470226e607107c9065d2c6da21ed57a',
   '../../frontend/src/components/__tests__/ChatInputColdReceipt.test.tsx':
     '893f306b7fcc13e97d7b17b0e6ab1fd36d4f9a3e7cea8676c7fda052cd4bcd72',
   '../../packages/client/src/__tests__/local-receipt-recheck.test.ts':
@@ -1343,7 +1342,11 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/lib/launch-draft-delivery.ts':
     '05839a85eee84c490f9679ce36dc624280173a2d19c8b8ca5f8080a7fb19acb3',
   '../../frontend/src/hooks/useDraft.ts':
-    '72bbc14c2ed77c691711298e2b18d446edf02899266f696f635561e03f06490b',
+    'df0ea76333ec4c0056de5d2aa19bd2ee7de03811e26e7f78b99b999be184c950',
+  '../../frontend/src/hooks/useSavedChatDrafts.ts':
+    '82bf6749c8e92ca502b4c907ec2d9fdb50d1391818ce183cdcef890f47adac0c',
+  '../../frontend/src/hooks/__tests__/useSavedChatDrafts.test.tsx':
+    '969927999185555e5cc7200e2ef12ed5af2405913b6c5a9c186d093cf3ea7eb8',
   '../../frontend/src/hooks/usePendingLaunch.ts':
     '2c404fd87c407e7003004e2ed302555c79e4e6487e6f3f1d80c4fff2218599dd',
   '../../frontend/src/hooks/useStageChatLaunch.ts':
@@ -1351,13 +1354,13 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/hooks/useBriefingChat.ts':
     'd0b124d3acf747c6a2605cdf23a7a0bfa59fc87d2aed1d3cd230e440d2c69996',
   '../../frontend/src/lib/chat-drafts.ts':
-    '9e962d890b6059a58c24afc836df640bfa7af21e7c0d0c40605eb956c0ae8c8c',
+    'd8683ca122e57e6777f13e3393fc34b96062ac9c447b562be1a153c78cefb181',
   '../../frontend/src/lib/chat-runtime-selection.ts':
     'e9575afee57124d8747a2c1d71efb196df90e33ea946b7e96be3eb66a098b2ea',
   '../../frontend/src/lib/explicit-local-chat.ts':
     '52560ed7208f22b837948dee38c28dc6644f281be2be6415f2f63578fb647a91',
   '../../frontend/src/lib/reviewed-outbox-storage.ts':
-    '4c114400fccd3b18189a36cf15dcc5507652956330907ea1ae6b382ddb5541c0',
+    '050c1b35d0f54716b1dd3cc4a19bcff674403d08d41daaa79a4897d50eb5061f',
   '../../frontend/src/pages/ChatView.tsx':
     '5fa4f3bff050c8cc18d4fd2b3770aa54ff74f912bb0fa13f9d05d90fe62ee6c0',
   '../../frontend/src/pages/DesktopChatView.tsx':
