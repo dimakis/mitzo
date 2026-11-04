@@ -107,6 +107,8 @@ async function reconcileCompletedPrimary(f: Awaited<ReturnType<typeof fixture>>)
       : request(method, params),
   );
   const meta = f.events.getSession(id)!;
+  const runtimeBinding = f.events.getSessionRuntimeBinding(id);
+  if (runtimeBinding?.version !== 2) throw Error('Expected retained ordinary runtime binding');
   const driver = new OrdinaryLocalCodexOwnedRuntime({
     ...f.dependencies,
     nativeStore: f.native,
@@ -115,7 +117,7 @@ async function reconcileCompletedPrimary(f: Awaited<ReturnType<typeof fixture>>)
     reservation: retainedLocalCodexRecoveryReservation(
       meta,
       f.workspace.get(f.record.id),
-      f.events.getSessionRuntimeBinding(id)!,
+      runtimeBinding,
     ),
     launch: () => f.rpc,
     dispatch: async () => {
