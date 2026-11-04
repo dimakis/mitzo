@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.858-public-github-reads';
+  'v1.0.859-public-github-reads';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -47,7 +47,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     'b990bc4b75063c44c09df560e59bf4dab61de75e2e73e11298f9f57df9680043',
   '../codex-native-approval-scope.ts':
     '9c90204c57b295f26c850763c08f8f26e1dccd137d51adf8e8c1b3218ff0ae84',
-  '../github-read-approval.ts': '49d89004bc27985c240c40f84a51e7f7c45198f71f5cdb76394632fdcc74e881',
+  '../github-read-approval.ts': '617a72bef763c7b5702dfa1ae9f81b7df87ea0768a66c10a21d1c140f466aa6f',
   '../../frontend/src/hooks/useSessionOrder.ts':
     '70ab084b5ca1284f087f426fe8c0f2844b98de4ec422215431c6995ed0a63401',
   '../../frontend/src/hooks/useListBrowsing.ts':

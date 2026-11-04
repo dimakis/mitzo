@@ -7,11 +7,11 @@ import {
 } from '@mitzo/harness';
 import type { ManagedSession } from './session-registry.js';
 
-export interface GitHubReadInput {
+export type GitHubReadInput = {
   endpoint: string;
   view?: 'summary' | 'full';
   access?: 'public' | 'authenticated';
-}
+};
 
 /** Called only after endpoint validation. Public and authenticated reads have
  * separate scopes; neither grants publication or shell networking. */
