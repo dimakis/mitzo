@@ -2556,10 +2556,10 @@ describe('session isolation via sessionId filtering', () => {
       toolInput: '{}',
       sessionId: 'new-session',
     };
+    lastWs.simulateMessage({ ...approval, permId: 'foreign', sessionId: 'another-session' });
     lastWs.simulateMessage(approval);
     expect(store.getState().messages.permission).toBeNull();
     lastWs.simulateMessage({ type: 'session_id', sessionId: 'new-session' });
-    lastWs.simulateMessage(approval);
     expect(store.getState().messages.permission?.permId).toBe('p1');
     store.getState().respondToPermission('p1', 'once');
     expect(lastWs.parsedSent().at(-1)).toMatchObject({
@@ -2574,6 +2574,24 @@ describe('session isolation via sessionId filtering', () => {
     });
     expect(store.getState().messages.permission).toBeNull();
   });
+
+  it.each(['permission_resolved', 'permission_timeout'])(
+    'does not restore an early approval already cleared by %s before assignment',
+    (type) => {
+      const store = createReadyStore();
+      store.getState().sendMessage('Start my chat');
+      lastWs.simulateMessage({
+        type: 'permission_request',
+        sessionId: 'new-session',
+        permId: 'p1',
+        toolName: 'Bash',
+        toolInput: 'npm test',
+      });
+      lastWs.simulateMessage({ type, sessionId: 'new-session', permId: 'p1' });
+      lastWs.simulateMessage({ type: 'session_id', sessionId: 'new-session' });
+      expect(store.getState().messages.permission).toBeNull();
+    },
+  );
 });
 
 it('does not send stale mode when sending immediately after switching sessions', async () => {

@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.852-watch-notification-outcomes';
+  'v1.0.853-approval-assignment-buffer';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -1426,7 +1426,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/client/src/sse-connection.ts':
     '0f7f07c617285c102503d1b98e8a8c331fea2a2879cd1f25a965e27f77b5b5fa',
   '../../packages/client/src/store.ts':
-    '40e12c18397a535d171ef37f52af143da5d800f8f724bdde19c074b0fefe46c6',
+    '7475410c97738940dfc1f850633de7e7d3304c7f018bb1e25158b8fd611060f1',
   '../../packages/harness/src/permission-handler.ts':
     '226000c4bd916b0864190842e08bde999b360b4dfd6c37283715f376047b8fc3',
   '../../packages/harness/src/permissions.ts':
