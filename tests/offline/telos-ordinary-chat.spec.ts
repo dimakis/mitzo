@@ -328,9 +328,9 @@ for (const theme of ['dark', 'light'] as const)
     await send.click();
     await expect.poll(() => requests.length).toBe(1);
     await composer.fill('Newer unsent continuation draft.');
-    await expect(page.locator('.chat-draft-save-status')).toHaveText(
-      'Draft autosaves on this device',
-    );
+    await expect(
+      page.getByText(/Draft saved on this device|Saving draft on this device/),
+    ).toHaveCount(0);
     await expectPersistedChatDraft(page, 'ordinary-bound', 'Newer unsent continuation draft.');
     await page.reload();
     await expect(composer).toHaveValue('Newer unsent continuation draft.');

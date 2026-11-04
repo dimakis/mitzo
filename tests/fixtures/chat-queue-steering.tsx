@@ -8,6 +8,7 @@ import type { WebSocketLike } from '../../packages/client/src/ws-connection';
 import { ChatArea } from '../../frontend/src/components/ChatArea';
 import { ChatInput } from '../../frontend/src/components/ChatInput';
 import { ChatStatusMessage } from '../../frontend/src/components/ChatStatusMessage';
+import { ComposerStatusProvider } from '../../frontend/src/components/ComposerStatus';
 import { useTurnSteering } from '../../frontend/src/hooks/useTurnSteering';
 import '../../frontend/src/styles/tokens.css';
 import '../../frontend/src/styles/global.css';
@@ -44,8 +45,34 @@ emit({
 emit({ type: 'ordinary_provider_dispatch_started', messageId: 'first' });
 emit({ type: 'session_state_changed', state: 'running' });
 let sent = 0;
+let setFeedback: (value: { status?: string; error?: string }) => void = () => {};
+let holdDelivery = false;
+let pendingReceipt: ((status: 'accepted') => void) | undefined;
+const spoken: string[] = [];
+const voice = {
+  available: true,
+  recording: false,
+  transcribing: false,
+  micBlocked: false,
+  error: null,
+  partialTranscript: '',
+  ttsAvailable: true,
+  speaking: false,
+  voices: [],
+  selectedVoice: '',
+  startRecording: async () => {},
+  stopRecording: async () => '',
+  cancelRecording() {},
+  speak: async (text: string) => {
+    spoken.push(text);
+  },
+  stopSpeaking() {},
+  setVoice() {},
+};
 function Fixture() {
   const [reply, setReply] = useState<MessageReplyContext>();
+  const [feedback, updateFeedback] = useState<{ status?: string; error?: string }>({});
+  setFeedback = updateFeedback;
   const messages = useMitzoStore((s) => s.messages);
   const target = messages.messages.filter((m) => m.commandState === 'running').at(-1)?.messageId;
   const steering = useTurnSteering('queue-fixture', target, true);
@@ -56,6 +83,7 @@ function Fixture() {
         <span>Akram · current conversation</span>
       </header>
       <ChatArea
+        voice={voice}
         onReply={setReply}
         messages={messages.messages}
         current={messages.current}
@@ -64,6 +92,7 @@ function Fixture() {
         onPermissionRespond={() => {}}
       />
       <div className="queue-steering-composer">
+        <ChatStatusMessage status={feedback.status} error={feedback.error} />
         <ChatStatusMessage
           error={steering.error}
           status={steering.busy ? 'Sending correction…' : undefined}
@@ -73,6 +102,15 @@ function Fixture() {
           }
         />
         <ChatInput
+          voice={voice}
+          tokenState={{
+            agentContext: 5000,
+            contextCeiling: 200000,
+            sessionTotal: 9000,
+            numTurns: 2,
+            turnIndex: 1,
+            numCompactions: 0,
+          }}
           replyTarget={reply}
           onClearReply={() => setReply(undefined)}
           messages={messages.messages}
@@ -106,7 +144,8 @@ function Fixture() {
               text,
               ...(replyTo ? { inReplyTo: replyTo } : {}),
             });
-            receipt?.('accepted');
+            if (holdDelivery) pendingReceipt = receipt;
+            else receipt?.('accepted');
             return true;
           }}
           onInterrupt={(
@@ -138,6 +177,17 @@ function Fixture() {
 }
 (window as unknown as { queueFixture: unknown }).queueFixture = {
   emit,
+  feedback(value: { status?: string; error?: string }) {
+    setFeedback(value);
+  },
+  holdDelivery(value: boolean) {
+    holdDelivery = value;
+  },
+  acceptDelivery() {
+    pendingReceipt?.('accepted');
+    pendingReceipt = undefined;
+  },
+  spoken,
   answerEarlier() {
     emit({ type: 'ordinary_reply_source', messageId: 'answer-first', replyToMessageId: 'first' });
     emit({ type: 'message_start', messageId: 'answer-first' });
@@ -156,7 +206,9 @@ function Fixture() {
 createRoot(document.getElementById('root')!).render(
   <MemoryRouter>
     <MitzoStoreProvider value={store}>
-      <Fixture />
+      <ComposerStatusProvider>
+        <Fixture />
+      </ComposerStatusProvider>
     </MitzoStoreProvider>
   </MemoryRouter>,
 );

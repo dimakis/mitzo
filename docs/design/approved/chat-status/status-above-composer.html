@@ -1,0 +1,1575 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Mitzo · A quieter chat</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        --page: #0e1010;
+        --panel: #151717;
+        --surface: #1c1e1f;
+        --line: #323537;
+        --text: #e8e8e3;
+        --muted: #a4a7a5;
+        --accent: #bddca5;
+        --warn: #e0bd7e;
+        --danger: #e4a39d;
+        font-family: Georgia, "Times New Roman", serif;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        background: var(--page);
+        color: var(--text);
+      }
+      button,
+      input,
+      select,
+      textarea {
+        font: inherit;
+      }
+      button,
+      select {
+        cursor: pointer;
+      }
+      button {
+        color: inherit;
+        background: transparent;
+        border: 0;
+      }
+      button:focus-visible,
+      select:focus-visible,
+      input:focus-visible,
+      textarea:focus-visible {
+        outline: 2px solid var(--accent);
+        outline-offset: 3px;
+      }
+      button:disabled {
+        opacity: 0.4;
+        cursor: default;
+      }
+      svg {
+        width: 19px;
+        height: 19px;
+        fill: none;
+        stroke: currentColor;
+        stroke-width: 1.6;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+        flex-shrink: 0;
+      }
+      button svg {
+        pointer-events: none;
+      }
+      button {
+        touch-action: manipulation;
+      }
+      .lab {
+        max-width: 1440px;
+        margin: auto;
+        padding: 24px;
+        display: grid;
+        grid-template-columns: 260px minmax(0, 1fr);
+        gap: 28px;
+      }
+      .eyebrow {
+        font: 11px system-ui;
+        letter-spacing: 0.13em;
+        text-transform: uppercase;
+        color: var(--accent);
+      }
+      h1 {
+        font-weight: 400;
+        font-size: 29px;
+        line-height: 1.15;
+        margin: 12px 0;
+      }
+      p {
+        line-height: 1.5;
+      }
+      .intro {
+        font-size: 14px;
+        color: var(--muted);
+        margin: 12px 0 24px;
+      }
+      .control-title {
+        font: 11px system-ui;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: var(--muted);
+        margin: 24px 0 10px;
+      }
+      .choices {
+        display: grid;
+        gap: 7px;
+      }
+      .choice {
+        border: 1px solid var(--line);
+        border-radius: 9px;
+        text-align: left;
+        padding: 11px 12px;
+        min-height: 44px;
+        font-size: 14px;
+      }
+      .choice[aria-pressed="true"] {
+        border-color: var(--accent);
+        background: #20291d;
+      }
+      .choice small {
+        display: block;
+        color: var(--muted);
+        font: 11px system-ui;
+        margin-top: 4px;
+      }
+      select {
+        width: 100%;
+        min-height: 42px;
+        border: 1px solid var(--line);
+        background: var(--panel);
+        border-radius: 8px;
+        color: var(--text);
+        padding: 8px;
+        font-size: 13px;
+      }
+      .lab-button {
+        min-height: 40px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        padding: 8px 12px;
+        margin-top: 8px;
+        width: 100%;
+        font-size: 13px;
+      }
+      .checks {
+        font: 12px/1.5 system-ui;
+        color: var(--muted);
+        display: flex;
+        gap: 8px;
+        align-items: center;
+        margin-top: 13px;
+      }
+      .note {
+        border-top: 1px solid var(--line);
+        margin-top: 24px;
+        padding-top: 16px;
+        font-size: 13px;
+        color: var(--muted);
+      }
+      .note strong {
+        font-weight: 400;
+        color: var(--text);
+      }
+      .readout {
+        font: 11px/1.6 system-ui;
+        color: var(--muted);
+        margin-top: 16px;
+      }
+      .preview-wrap {
+        min-width: 0;
+      }
+      .preview-label {
+        font: 11px system-ui;
+        color: var(--muted);
+        display: flex;
+        justify-content: space-between;
+        margin-bottom: 10px;
+      }
+      .viewport {
+        position: relative;
+        width: 100%;
+        height: 790px;
+        max-height: calc(100dvh - 86px);
+        min-height: 580px;
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        overflow: hidden;
+        background: #111314;
+        display: flex;
+        flex-direction: column;
+        isolation: isolate;
+      }
+      .viewport.phone {
+        max-width: 390px;
+        margin-inline: auto;
+        height: 770px;
+      }
+      .chat-head {
+        flex-shrink: 0;
+        min-height: 69px;
+        padding: 12px 20px;
+        border-bottom: 1px solid var(--line);
+        display: flex;
+        align-items: center;
+        gap: 12px;
+      }
+      .chat-title {
+        flex: 1;
+        min-width: 0;
+      }
+      .chat-title strong {
+        font-size: 15px;
+        font-weight: 400;
+      }
+      .chat-title small {
+        display: block;
+        color: var(--muted);
+        font-size: 12px;
+        margin-top: 5px;
+        white-space: nowrap;
+        text-overflow: ellipsis;
+        overflow: hidden;
+      }
+      .head-button {
+        border: 1px solid var(--line);
+        border-radius: 9px;
+        min-width: 44px;
+        min-height: 40px;
+        display: flex;
+        gap: 8px;
+        align-items: center;
+        justify-content: center;
+        font-size: 13px;
+        padding: 0 12px;
+      }
+      .head-button.filled {
+        background: #222820;
+        border-color: #222820;
+      }
+      .header-slot {
+        flex-shrink: 0;
+      }
+      .thread {
+        flex: 1;
+        min-height: 0;
+        overflow: auto;
+        overscroll-behavior: contain;
+        padding: 28px max(22px, 6%);
+        scrollbar-width: thin;
+        scrollbar-color: #3c4040 transparent;
+      }
+      .day {
+        font: 11px system-ui;
+        text-align: center;
+        color: #727974;
+        margin-bottom: 26px;
+      }
+      .message {
+        max-width: 88%;
+        margin-bottom: 22px;
+        font-size: 16px;
+        line-height: 1.5;
+      }
+      .message p {
+        margin: 0 0 10px;
+      }
+      .message.user {
+        margin-left: auto;
+        background: var(--accent);
+        color: #1b2616;
+        border-radius: 14px 14px 3px 14px;
+        padding: 13px 16px;
+        max-width: 85%;
+      }
+      .meta {
+        font-size: 11px;
+        color: var(--muted);
+        margin-top: 9px;
+        min-height: 20px;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+      }
+      .user .meta {
+        color: #3b5130;
+      }
+      .activity {
+        display: flex;
+        align-items: center;
+        gap: 9px;
+        font-size: 12px;
+        color: var(--muted);
+        margin: 15px 0 28px;
+      }
+      .activity svg {
+        width: 15px;
+      }
+      .activity time {
+        margin-left: auto;
+        color: #707772;
+      }
+      .assistant-mark {
+        font-size: 12px;
+        letter-spacing: 0.02em;
+        color: var(--accent);
+        margin-bottom: 8px;
+      }
+      .dock {
+        position: relative;
+        flex-shrink: 0;
+        border-top: 1px solid var(--line);
+        background: #111314;
+        padding: 0 16px 14px;
+      }
+      .rail {
+        height: 40px;
+        min-height: 40px;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 0 5px;
+        width: 100%;
+        min-width: 0;
+      }
+      .rail-main {
+        display: flex;
+        align-items: center;
+        gap: 9px;
+        flex: 1;
+        min-width: 0;
+        text-align: left;
+        padding: 0;
+        min-height: 36px;
+      }
+      .dot {
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        background: var(--accent);
+        flex-shrink: 0;
+      }
+      .rail[data-tone="warning"] .dot {
+        background: var(--warn);
+      }
+      .rail[data-tone="danger"] .dot {
+        background: var(--danger);
+      }
+      .state-copy {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        font-size: 12px;
+        color: var(--muted);
+      }
+      .rail[data-tone="warning"] .state-copy {
+        color: var(--warn);
+      }
+      .rail[data-tone="danger"] .state-copy {
+        color: var(--danger);
+      }
+      .status-action {
+        min-height: 36px;
+        font-size: 12px;
+        color: var(--accent);
+        white-space: nowrap;
+        flex-shrink: 0;
+        padding: 0 5px;
+      }
+      .queue-count {
+        min-height: 36px;
+        color: var(--muted);
+        font-size: 12px;
+        white-space: nowrap;
+        flex-shrink: 0;
+        padding: 0 6px;
+      }
+      .details-toggle {
+        width: 36px;
+        height: 36px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: var(--muted);
+      }
+      .details-toggle svg {
+        width: 16px;
+      }
+      .composer {
+        height: 166px;
+        border: 1.5px solid #829d71;
+        border-radius: 17px;
+        background: #1a1c1e;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+      }
+      .compose-content {
+        flex: 1;
+        min-height: 0;
+        display: flex;
+        align-items: flex-start;
+        gap: 12px;
+        padding: 15px 16px 4px;
+      }
+      .attachment {
+        flex-shrink: 0;
+        width: 66px;
+        height: 65px;
+        border: 1px solid #505853;
+        border-radius: 7px;
+        position: relative;
+        background: #111;
+      }
+      .attachment svg {
+        width: 100%;
+        height: 100%;
+      }
+      .attachment-remove {
+        position: absolute;
+        right: -7px;
+        top: -7px;
+        background: #303534;
+        border: 1px solid #5b625e;
+        border-radius: 50%;
+        width: 23px;
+        height: 23px;
+        font: 16px system-ui;
+        display: grid;
+        place-items: center;
+      }
+      .attachment[hidden] {
+        display: none;
+      }
+      textarea {
+        resize: none;
+        flex: 1;
+        min-width: 0;
+        border: 0;
+        outline: 0;
+        background: transparent;
+        color: var(--text);
+        line-height: 1.45;
+        font-size: 16px;
+        padding: 0;
+        height: 78px;
+      }
+      textarea::placeholder {
+        color: #989b9f;
+      }
+      textarea:focus-visible {
+        outline: none;
+      }
+      .toolbar {
+        height: 48px;
+        display: flex;
+        align-items: center;
+        gap: 3px;
+        padding: 0 10px 8px;
+        flex-shrink: 0;
+      }
+      .tool {
+        min-width: 38px;
+        min-height: 36px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: var(--muted);
+        border-radius: 7px;
+      }
+      .tool:hover,
+      .details-toggle:hover {
+        background: #292d2b;
+      }
+      .toolbar-spacer {
+        flex: 1;
+      }
+      .stop {
+        display: flex;
+        align-items: center;
+        gap: 7px;
+        min-height: 36px;
+        padding: 0 10px;
+        color: var(--muted);
+        font-size: 12px;
+      }
+      .stop svg {
+        width: 12px;
+        height: 12px;
+      }
+      .send-group {
+        position: relative;
+        display: flex;
+        border-radius: 9px;
+        background: var(--accent);
+        color: #1b2616;
+      }
+      .send-button {
+        min-height: 36px;
+        min-width: 68px;
+        font-size: 13px;
+        padding: 0 13px;
+      }
+      .send-menu-toggle {
+        min-width: 32px;
+        border-left: 1px solid #829d71;
+        display: grid;
+        place-items: center;
+      }
+      .send-menu-toggle svg {
+        width: 12px;
+      }
+      .popover {
+        position: absolute;
+        z-index: 10;
+        right: 16px;
+        bottom: 180px;
+        width: 360px;
+        max-width: calc(100% - 32px);
+        max-height: calc(100% - 100px);
+        overflow: auto;
+        background: #212525;
+        border: 1px solid #484e49;
+        border-radius: 12px;
+        padding: 18px;
+        font-size: 13px;
+      }
+      .popover h2 {
+        font-size: 17px;
+        font-weight: 400;
+        margin: 0 30px 15px 0;
+      }
+      .popover .close {
+        position: absolute;
+        right: 8px;
+        top: 8px;
+        width: 32px;
+        height: 32px;
+        color: var(--muted);
+        font: 21px system-ui;
+      }
+      .detail-row {
+        display: flex;
+        justify-content: space-between;
+        gap: 16px;
+        padding: 10px 0;
+        border-bottom: 1px solid var(--line);
+        line-height: 1.4;
+      }
+      .detail-row span:first-child {
+        color: var(--muted);
+      }
+      .detail-row span:last-child {
+        text-align: right;
+      }
+      .detail-description {
+        color: var(--muted);
+        margin-bottom: 0;
+      }
+      .queued-item {
+        margin-top: 14px;
+        padding-top: 12px;
+        border-top: 1px solid var(--line);
+      }
+      .queued-item p {
+        margin: 0 0 8px;
+      }
+      .inline-action {
+        color: var(--accent);
+        font-size: 12px;
+        min-height: 32px;
+        padding: 0 8px 0 0;
+        text-decoration: underline;
+        text-underline-offset: 3px;
+      }
+      .send-menu {
+        position: absolute;
+        bottom: 45px;
+        right: 0;
+        width: 240px;
+        z-index: 15;
+        background: #252a26;
+        border: 1px solid #4b5449;
+        border-radius: 10px;
+        padding: 6px;
+        color: var(--text);
+      }
+      .send-menu button {
+        display: block;
+        text-align: left;
+        width: 100%;
+        padding: 10px;
+        border-radius: 6px;
+        font-size: 13px;
+      }
+      .send-menu button:hover {
+        background: #333c30;
+      }
+      .send-menu small {
+        display: block;
+        color: var(--muted);
+        font-size: 11px;
+        line-height: 1.4;
+        margin-top: 4px;
+      }
+      .sent-image {
+        width: 72px;
+        height: 64px;
+        border-radius: 5px;
+        overflow: hidden;
+        margin-bottom: 9px;
+        background: #111;
+        color: #aab49f;
+      }
+      .sent-image svg {
+        width: 100%;
+        height: 100%;
+      }
+      .message .inline-action {
+        color: inherit;
+      }
+      .dock[data-placement="bottom"] {
+        padding-top: 12px;
+        padding-bottom: 0;
+      }
+      .dock[data-placement="bottom"] .rail {
+        height: 40px;
+      }
+      .header-slot .rail {
+        padding: 0 20px;
+        border-bottom: 1px solid var(--line);
+        height: 40px;
+      }
+      .dock[data-placement="header"] {
+        padding-top: 12px;
+      }
+      .footer-note {
+        font: 11px system-ui;
+        color: var(--muted);
+        line-height: 1.6;
+        margin: 13px 0 0;
+      }
+      .viewport.phone .chat-head {
+        padding: 12px;
+      }
+      .viewport.phone .head-button .head-label {
+        display: none;
+      }
+      .viewport.phone .head-button {
+        padding: 0;
+        min-width: 38px;
+      }
+      .viewport.phone .thread {
+        padding: 22px 16px;
+      }
+      .viewport.phone .message {
+        max-width: 94%;
+        font-size: 15px;
+      }
+      .viewport.phone .dock {
+        padding-inline: 10px;
+      }
+      .viewport.phone .compose-content {
+        padding-inline: 12px;
+      }
+      .viewport.phone .send-button {
+        padding-inline: 10px;
+      }
+      .viewport.phone .rail {
+        gap: 3px;
+      }
+      .viewport.phone .queue-count {
+        padding-inline: 4px;
+      }
+      .viewport.phone .stop {
+        padding-inline: 7px;
+      }
+      .viewport.phone .tool.optional {
+        display: none;
+      }
+      [hidden] {
+        display: none !important;
+      }
+      @media (max-width: 850px) {
+        .lab {
+          grid-template-columns: 1fr;
+          padding: 14px;
+          gap: 20px;
+        }
+        .lab-controls {
+          display: grid;
+          grid-template-columns: 1fr 1fr;
+          gap: 0 16px;
+        }
+        .lab-controls > header,
+        .lab-controls > .note,
+        .lab-controls > .readout {
+          grid-column: 1/-1;
+        }
+        h1 {
+          font-size: 24px;
+        }
+        .intro {
+          margin: 8px 0;
+        }
+        .control-title {
+          margin-top: 16px;
+        }
+        .choices {
+          grid-template-columns: 1fr;
+        }
+        .choice {
+          padding: 8px 10px;
+        }
+        .note {
+          margin-top: 18px;
+        }
+        .viewport {
+          height: 730px;
+          max-height: none;
+          min-height: 580px;
+        }
+        .preview-label {
+          margin-top: 3px;
+        }
+        .viewport .head-button .head-label {
+          display: none;
+        }
+        .viewport .head-button {
+          padding: 0;
+          min-width: 38px;
+        }
+        .thread {
+          padding: 22px 16px;
+        }
+        .dock {
+          padding-inline: 10px;
+        }
+        .tool.optional {
+          display: none;
+        }
+        .preview-wrap {
+          min-width: 0;
+        }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        * {
+          scroll-behavior: auto !important;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <svg style="display: none" aria-hidden="true">
+      <defs>
+        <symbol id="i-info" viewBox="0 0 24 24">
+          <circle cx="12" cy="12" r="9" />
+          <path d="M12 11v6M12 7h.01" />
+        </symbol>
+        <symbol id="i-chevron" viewBox="0 0 24 24">
+          <path d="m7 10 5 5 5-5" />
+        </symbol>
+        <symbol id="i-plus" viewBox="0 0 24 24">
+          <path d="M12 5v14M5 12h14" />
+        </symbol>
+        <symbol id="i-settings" viewBox="0 0 24 24">
+          <path d="M4 7h16M4 17h16M9 4v6M15 14v6" />
+        </symbol>
+        <symbol id="i-stop" viewBox="0 0 24 24">
+          <rect x="5" y="5" width="14" height="14" rx="1" />
+        </symbol>
+        <symbol id="i-layers" viewBox="0 0 24 24">
+          <path d="m3 8 9-5 9 5-9 5zM3 12l9 5 9-5M3 16l9 5 9-5" />
+        </symbol>
+        <symbol id="i-mic" viewBox="0 0 24 24">
+          <rect x="9" y="3" width="6" height="12" rx="3" />
+          <path d="M5 10v2a7 7 0 0 0 14 0v-2M12 19v3" />
+        </symbol>
+        <symbol id="i-file" viewBox="0 0 24 24">
+          <path d="M3 6h6l2 2h10v12H3z" />
+        </symbol>
+        <symbol id="shot" viewBox="0 0 100 90">
+          <rect width="100" height="90" fill="#121617" stroke="none" />
+          <path
+            d="M8 12h84M8 22h52M8 30h75M8 55h66M8 64h79M8 72h57"
+            stroke="#6b756e"
+            stroke-width="2"
+          />
+          <rect
+            x="33"
+            y="36"
+            width="58"
+            height="12"
+            rx="3"
+            fill="#bddca5"
+            stroke="none"
+          />
+          <path d="M39 42h44" stroke="#53664b" />
+          <rect x="6" y="79" width="88" height="7" rx="2" stroke="#bddca5" />
+        </symbol>
+      </defs>
+    </svg>
+    <main class="lab">
+      <aside class="lab-controls">
+        <header>
+          <div class="eyebrow">Mitzo / interaction study 01</div>
+          <h1>A quieter chat.</h1>
+          <p class="intro">
+            One place for status.<br />No flicker. No moving conversation.
+          </p>
+        </header>
+        <section>
+          <h2 class="control-title">01 / placement</h2>
+          <div class="choices" id="placements">
+            <button
+              type="button"
+              class="choice"
+              data-place="above"
+              aria-pressed="true"
+            >
+              Above the composer<small
+                >Recommended · close to the action</small
+              ></button
+            ><button
+              type="button"
+              class="choice"
+              data-place="bottom"
+              aria-pressed="false"
+            >
+              Below the composer<small>A quiet footer</small></button
+            ><button
+              type="button"
+              class="choice"
+              data-place="header"
+              aria-pressed="false"
+            >
+              Under the chat header<small>More distance from the draft</small>
+            </button>
+          </div>
+        </section>
+        <section>
+          <h2 class="control-title">
+            <label for="scenario">02 / change the state</label>
+          </h2>
+          <select id="scenario">
+            <option value="working">Working</option>
+            <option value="socket">Working · old socket disconnected</option>
+            <option value="ready">Ready</option>
+            <option value="queued">Working · 2 queued messages</option>
+            <option value="connecting">Restoring the active connection</option>
+            <option value="offline">Offline</option>
+            <option value="approval">Approval needed</option>
+            <option value="storage">Draft could not be saved</option>
+            <option value="multiple">Approval + save failure + queue</option>
+            <option value="failed">Delivery unconfirmed</option></select
+          ><button type="button" class="lab-button" id="cycle">
+            Cycle through all states
+          </button>
+          <h2 class="control-title">03 / try sending</h2>
+          <button type="button" class="lab-button" id="paste">
+            Paste a screenshot</button
+          ><label class="checks"
+            ><input type="checkbox" id="fail" /> Simulate a failed send</label
+          >
+          <p class="checks">
+            Delivery takes 3 seconds. Start another draft while it sends.
+          </p>
+          <button
+            type="button"
+            class="lab-button"
+            id="size"
+            aria-pressed="false"
+          >
+            Show phone width</button
+          ><button type="button" class="lab-button" id="reset">
+            Reset demo
+          </button>
+        </section>
+        <p class="note" id="design-note">
+          <strong>Always one line.</strong> Extra detail opens over the
+          conversation. Saving happens quietly. A problem gets one clear action.
+        </p>
+        <div class="readout" id="readout">
+          Status line: 40px · composer: 166px
+        </div>
+      </aside>
+      <section class="preview-wrap" aria-label="Interactive chat preview">
+        <div class="preview-label">
+          <span>CHAT PREVIEW</span><span>Interactive · simulated data</span>
+        </div>
+        <div class="viewport" id="viewport">
+          <header class="chat-head">
+            <div class="chat-title">
+              <strong>Chat</strong
+              ><small>Default Mitzo · GPT-6 Astra · OpenShell</small>
+            </div>
+            <button type="button" class="head-button filled" id="settings">
+              <svg><use href="#i-settings" /></svg
+              ><span class="head-label">Settings</span></button
+            ><button type="button" class="head-button" id="access">
+              <svg><use href="#i-info" /></svg
+              ><span class="head-label">Access</span>
+            </button>
+          </header>
+          <div class="header-slot" id="header-slot"></div>
+          <div
+            class="thread"
+            id="thread"
+            tabindex="0"
+            aria-label="Conversation"
+          >
+            <div class="day">Today, 10:06</div>
+            <article class="message user">
+              <p>
+                Let’s simplify the chat status. It keeps saying reconnecting
+                while the conversation is working.
+              </p>
+              <div class="meta">10:06</div>
+            </article>
+            <article class="message">
+              <div class="assistant-mark">Mitzo</div>
+              <p>
+                I’ll look at the connection feedback and how it shares space
+                with the message composer.
+              </p>
+              <p>
+                The conversation should stay in place when the status changes.
+              </p>
+              <div class="meta">10:06</div>
+            </article>
+            <div class="activity">
+              <svg><use href="#i-layers" /></svg
+              ><span>Activity · checking chat controls</span><time>10:07</time>
+            </div>
+            <article class="message user">
+              <p>
+                And when I send a screenshot, the picture should leave the draft
+                along with the text.
+              </p>
+              <div class="meta">10:07</div>
+            </article>
+            <article class="message">
+              <div class="assistant-mark">Mitzo</div>
+              <p>
+                Text and attachments will move into the outgoing message
+                together. You can start your next draft straight away.
+              </p>
+              <div class="meta">10:07</div>
+            </article>
+            <div id="outgoing"></div>
+          </div>
+          <div class="dock" id="dock" data-placement="above">
+            <div class="rail" id="rail" data-tone="normal">
+              <button
+                type="button"
+                class="rail-main"
+                id="rail-main"
+                aria-haspopup="dialog"
+                aria-controls="details"
+              >
+                <span class="dot" aria-hidden="true"></span
+                ><span
+                  class="state-copy"
+                  id="state-copy"
+                  role="status"
+                  aria-live="polite"
+                  >Working</span
+                ></button
+              ><button
+                type="button"
+                class="queue-count"
+                id="queue-count"
+                hidden
+              >
+                0 queued</button
+              ><button
+                type="button"
+                class="status-action"
+                id="status-action"
+                hidden
+              >
+                Review</button
+              ><button
+                type="button"
+                class="details-toggle"
+                id="details-toggle"
+                aria-label="Conversation status details"
+                aria-expanded="false"
+                aria-controls="details"
+              >
+                <svg><use href="#i-info" /></svg>
+              </button>
+            </div>
+            <div class="composer" id="composer">
+              <div class="compose-content">
+                <div class="attachment" id="attachment">
+                  <svg role="img" aria-label="Attached screenshot">
+                    <use href="#shot" /></svg
+                  ><button
+                    type="button"
+                    class="attachment-remove"
+                    id="remove-image"
+                    aria-label="Remove screenshot"
+                  >
+                    ×
+                  </button>
+                </div>
+                <textarea
+                  id="draft"
+                  aria-label="Message Mitzo"
+                  placeholder="Message Mitzo…"
+                >
+Let’s simplify this status area.</textarea>
+              </div>
+              <div class="toolbar">
+                <button
+                  type="button"
+                  class="tool"
+                  id="attach"
+                  aria-label="Attach screenshot"
+                  title="Attach screenshot"
+                >
+                  <svg><use href="#i-plus" /></svg></button
+                ><button
+                  type="button"
+                  class="tool optional"
+                  id="files"
+                  aria-label="Files"
+                >
+                  <svg><use href="#i-file" /></svg></button
+                ><span class="toolbar-spacer"></span
+                ><button
+                  type="button"
+                  class="tool"
+                  id="mic"
+                  aria-label="Voice input"
+                >
+                  <svg><use href="#i-mic" /></svg></button
+                ><button type="button" class="stop" id="stop">
+                  <svg><use href="#i-stop" /></svg>Stop
+                </button>
+                <div class="send-group">
+                  <button type="button" class="send-button" id="send">
+                    Send next</button
+                  ><button
+                    type="button"
+                    class="send-menu-toggle"
+                    id="send-options"
+                    aria-label="Send options"
+                    aria-expanded="false"
+                    aria-controls="send-menu"
+                  >
+                    <svg><use href="#i-chevron" /></svg>
+                  </button>
+                  <div class="send-menu" id="send-menu" hidden>
+                    <button type="button" id="send-next">
+                      Send next<small
+                        >Wait for the current reply to finish.</small
+                      ></button
+                    ><button type="button" id="send-now">
+                      Send correction<small
+                        >Ask the agent to adjust its current work.</small
+                      >
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <section
+            class="popover"
+            id="details"
+            role="dialog"
+            aria-labelledby="details-title"
+            hidden
+          >
+            <button
+              type="button"
+              class="close"
+              id="close-details"
+              aria-label="Close details"
+            >
+              ×
+            </button>
+            <h2 id="details-title">Conversation status</h2>
+            <div id="details-body"></div>
+          </section>
+        </div>
+        <p class="footer-note">
+          Try typing with a screenshot attached, then send. Text and image clear
+          together; delivery stays with the outgoing message. Switch states to
+          check the conversation stays still.
+        </p>
+      </section>
+    </main>
+    <script>
+      const $ = (id) => document.getElementById(id);
+      const icon = (id) =>
+        '<svg aria-hidden="true"><use href="#' + id + '"/></svg>';
+      let state = "working",
+        attached = true,
+        placement = "above",
+        queued = [],
+        outbox = [],
+        timers = [],
+        cycleTimer = null,
+        returnFocus = null;
+      const states = {
+        working: {
+          label: "Working",
+          agent: "Working",
+          transport: "Connected",
+          draft: "Saved on this device",
+        },
+        socket: {
+          label: "Working",
+          agent: "Working",
+          transport: "Active stream connected; old socket disconnected",
+          draft: "Saved on this device",
+        },
+        ready: {
+          label: "Ready",
+          agent: "Ready",
+          transport: "Connected",
+          draft: "Saved on this device",
+        },
+        queued: {
+          label: "Working",
+          agent: "Working",
+          transport: "Connected",
+          draft: "Saved on this device",
+        },
+        connecting: {
+          label: "Reconnecting…",
+          tone: "warning",
+          agent: "Last known: working",
+          transport: "Restoring the active conversation stream",
+          draft: "Saved on this device",
+        },
+        offline: {
+          label: "Offline · messages kept",
+          tone: "warning",
+          action: "Details",
+          agent: "Current state unknown",
+          transport: "Offline",
+          draft: "Saved on this device",
+        },
+        approval: {
+          label: "Needs your approval",
+          tone: "warning",
+          action: "Review",
+          agent: "Waiting for approval",
+          transport: "Connected",
+          draft: "Saved on this device",
+        },
+        storage: {
+          label: "Draft not saved",
+          tone: "danger",
+          action: "Review",
+          agent: "Working",
+          transport: "Connected",
+          draft: "Saving failed; keep this tab open",
+        },
+        multiple: {
+          label: "Needs attention · 2 issues",
+          tone: "warning",
+          action: "Review",
+          agent: "Waiting for approval to read the deck",
+          transport: "Connected",
+          draft: "Saving failed; keep this tab open",
+        },
+        failed: {
+          label: "Delivery unconfirmed",
+          tone: "warning",
+          action: "Review",
+          agent: "Current state unknown",
+          transport: "Receipt missing; check before retrying",
+          draft: "Next draft is separate from the retained message",
+        },
+      };
+      function setAttachment(value) {
+        attached = value;
+        $("attachment").hidden = !value;
+      }
+      function isRunning() {
+        return ["working", "socket", "queued", "storage"].includes(state);
+      }
+      function setState(value) {
+        state = value;
+        $("scenario").value = value;
+        if (["queued", "multiple"].includes(value) && !queued.length)
+          queued = [
+            { id: "sample-1", text: "Check the status line on a phone." },
+            { id: "sample-2", text: "Keep the composer in the same place." },
+          ];
+        render();
+      }
+      function render() {
+        const s = states[state];
+        $("state-copy").textContent = s.label;
+        $("rail").dataset.tone = s.tone || "normal";
+        $("queue-count").hidden = !queued.length;
+        $("queue-count").textContent = queued.length + " queued";
+        $("status-action").hidden = !s.action;
+        $("status-action").textContent = s.action || "";
+        $("stop").hidden = !isRunning();
+        $("send").textContent = isRunning()
+          ? "Send next"
+          : state === "offline"
+            ? "Save to queue"
+            : "Send";
+        $("send-options").hidden = !isRunning();
+        $("send").disabled = !$("draft").value.trim() && !attached;
+        renderDetails();
+      }
+      function row(label, value) {
+        const el = document.createElement("div");
+        el.className = "detail-row";
+        const a = document.createElement("span"),
+          b = document.createElement("span");
+        a.textContent = label;
+        b.textContent = value;
+        el.append(a, b);
+        return el;
+      }
+      function renderDetails() {
+        const s = states[state],
+          body = $("details-body");
+        body.replaceChildren();
+        body.append(
+          row("Agent", s.agent),
+          row("Connection", s.transport),
+          row("Draft", s.draft),
+        );
+        const p = document.createElement("p");
+        p.className = "detail-description";
+        p.textContent =
+          state === "socket"
+            ? "The active stream is healthy. A disconnected background socket does not change the conversation’s status."
+            : state === "approval"
+              ? "Demo permission request: read the selected slide deck."
+              : state === "storage"
+                ? "Your current draft is still in this tab. Free device storage, then try saving again."
+                : state === "failed"
+                  ? "The outgoing message is retained. Check whether it was accepted before attempting another send."
+                  : "Draft saving runs quietly. Only problems appear in the status line.";
+        body.append(p);
+        if (state === "multiple") {
+          for (const [label, remaining] of [
+            ["Allow reading the deck", "storage"],
+            ["Try saving the draft", "approval"],
+          ]) {
+            const button = document.createElement("button");
+            button.type = "button";
+            button.className = "inline-action";
+            button.textContent = label;
+            button.onclick = () => setState(remaining);
+            body.append(button);
+          }
+        }
+        if (
+          ["approval", "storage", "offline", "connecting", "failed"].includes(
+            state,
+          )
+        ) {
+          const b = document.createElement("button");
+          b.type = "button";
+          b.className = "inline-action";
+          b.textContent =
+            state === "approval"
+              ? "Allow reading the deck"
+              : state === "storage"
+                ? "Try saving again"
+                : state === "failed"
+                  ? "Check delivery"
+                  : "Reconnect";
+          b.onclick = () => {
+            if (state === "failed") {
+              p.textContent =
+                "Demo check complete: the retained message was accepted. No duplicate sent.";
+              setState("working");
+            } else {
+              if (["offline", "connecting"].includes(state)) {
+                outbox
+                  .filter((m) => m.status === "offline")
+                  .forEach((m) => {
+                    queued = queued.filter((q) => q.id !== m.id);
+                    m.status = "sending";
+                    settle(m, false);
+                  });
+                renderOutbox();
+              }
+              setState("working");
+              closeDetails();
+            }
+          };
+          body.append(b);
+        }
+        queued.forEach((q) => {
+          const item = document.createElement("div");
+          item.className = "queued-item";
+          const p = document.createElement("p");
+          p.textContent = q.text;
+          const remove = document.createElement("button");
+          remove.type = "button";
+          remove.className = "inline-action";
+          remove.textContent = "Remove from queue";
+          remove.onclick = () => {
+            queued = queued.filter((x) => x.id !== q.id);
+            render();
+          };
+          item.append(p, remove);
+          body.append(item);
+        });
+      }
+      function openDetails(title, custom) {
+        returnFocus = document.activeElement;
+        $("details-title").textContent = title || "Conversation status";
+        renderDetails();
+        if (custom) {
+          $("details-body").replaceChildren();
+          const p = document.createElement("p");
+          p.textContent = custom;
+          $("details-body").append(p);
+        }
+        $("details").hidden = false;
+        $("details-toggle").setAttribute("aria-expanded", "true");
+        $("close-details").focus();
+      }
+      function closeDetails() {
+        $("details").hidden = true;
+        $("details-toggle").setAttribute("aria-expanded", "false");
+        if (returnFocus?.isConnected) returnFocus.focus();
+      }
+      function renderOutbox() {
+        const container = $("outgoing");
+        container.replaceChildren();
+        outbox.forEach((m) => {
+          const a = document.createElement("article");
+          a.className = "message user";
+          a.dataset.messageId = m.id;
+          if (m.image) {
+            const image = document.createElement("div");
+            image.className = "sent-image";
+            image.innerHTML = icon("shot");
+            image.setAttribute("role", "img");
+            image.setAttribute("aria-label", "Sent screenshot");
+            a.append(image);
+          }
+          const p = document.createElement("p");
+          p.textContent = m.text || "Screenshot";
+          a.append(p);
+          const meta = document.createElement("div");
+          meta.className = "meta";
+          meta.setAttribute("role", "status");
+          meta.textContent =
+            m.status === "sending"
+              ? "Sending…"
+              : m.status === "failed"
+                ? "Not sent"
+                : m.status === "offline"
+                  ? "Waiting for connection"
+                  : m.status === "queued"
+                    ? "Queued · sends after this reply"
+                    : "Sent";
+          if (m.status === "failed") {
+            ["Retry", "Restore draft"].forEach((label) => {
+              const b = document.createElement("button");
+              b.type = "button";
+              b.className = "inline-action";
+              b.textContent = label;
+              b.onclick = () => {
+                if (label === "Retry") {
+                  m.status = "sending";
+                  renderOutbox();
+                  settle(m, false);
+                } else {
+                  $("draft").value = [$("draft").value.trim(), m.text]
+                    .filter(Boolean)
+                    .join("\n\n");
+                  setAttachment(attached || m.image);
+                  outbox = outbox.filter((x) => x !== m);
+                  renderOutbox();
+                  render();
+                  $("draft").focus();
+                }
+              };
+              meta.append(b);
+            });
+          }
+          a.append(meta);
+          container.append(a);
+        });
+      }
+      function settle(message, fail) {
+        timers.push(
+          setTimeout(() => {
+            message.status = fail
+              ? "failed"
+              : isRunning() && !message.correction
+                ? "queued"
+                : "sent";
+            if (message.status === "queued")
+              queued.push({
+                id: message.id,
+                text: message.text || "Screenshot",
+              });
+            renderOutbox();
+            render();
+          }, 3000),
+        );
+      }
+      function send(correction = false) {
+        const text = $("draft").value.trim();
+        if (!text && !attached) return;
+        const m = {
+          id: "message-" + Date.now(),
+          text,
+          image: attached,
+          status: state === "offline" ? "offline" : "sending",
+          correction,
+        };
+        outbox.push(m);
+        $("draft").value = "";
+        setAttachment(false);
+        $("send-menu").hidden = true;
+        $("send-options").setAttribute("aria-expanded", "false");
+        renderOutbox();
+        render();
+        $("draft").focus();
+        $("thread").scrollTop = $("thread").scrollHeight;
+        if (state === "offline") {
+          queued.push({ id: m.id, text: m.text || "Screenshot" });
+          render();
+        } else settle(m, $("fail").checked);
+      }
+      function stop() {
+        setState("ready");
+        queued = [];
+        outbox.forEach((m) => {
+          if (m.status === "queued") m.status = "sent";
+        });
+        renderOutbox();
+        render();
+      }
+      function setPlacement(value) {
+        placement = value;
+        $("dock").dataset.placement = value;
+        if (value === "header") $("header-slot").append($("rail"));
+        else if (value === "bottom") $("dock").append($("rail"));
+        else $("dock").prepend($("rail"));
+        document
+          .querySelectorAll("[data-place]")
+          .forEach((b) =>
+            b.setAttribute("aria-pressed", String(b.dataset.place === value)),
+          );
+        $("readout").textContent = "Status line: 40px · composer: 166px";
+      }
+      $("placements").onclick = (e) => {
+        const b = e.target.closest("[data-place]");
+        if (b) setPlacement(b.dataset.place);
+      };
+      $("scenario").onchange = (e) => setState(e.target.value);
+      $("draft").oninput = () => render();
+      $("draft").onkeydown = (e) => {
+        if (e.key === "Enter" && !e.shiftKey && !e.isComposing) {
+          e.preventDefault();
+          send();
+        }
+      };
+      ["paste", "attach"].forEach(
+        (id) =>
+          ($(id).onclick = () => {
+            setAttachment(true);
+            render();
+            $("draft").focus();
+          }),
+      );
+      $("remove-image").onclick = () => {
+        setAttachment(false);
+        render();
+      };
+      $("send").onclick = () => send();
+      $("send-next").onclick = () => send();
+      $("send-now").onclick = () => send(true);
+      $("send-options").onclick = () => {
+        const open = $("send-menu").hidden;
+        $("send-menu").hidden = !open;
+        $("send-options").setAttribute("aria-expanded", String(open));
+        if (open) $("send-next").focus();
+      };
+      $("stop").onclick = stop;
+      ["rail-main", "details-toggle", "queue-count", "status-action"].forEach(
+        (id) => ($(id).onclick = () => openDetails()),
+      );
+      $("close-details").onclick = closeDetails;
+      document.addEventListener("keydown", (e) => {
+        if (e.key === "Escape") {
+          if (!$("details").hidden) closeDetails();
+          $("send-menu").hidden = true;
+          $("send-options").setAttribute("aria-expanded", "false");
+        }
+      });
+      $("settings").onclick = () =>
+        openDetails(
+          "Chat settings",
+          "Default Mitzo · Work OpenAI API · GPT-6 Astra · medium reasoning · OpenShell. This preview focuses on the composer and status area.",
+        );
+      $("access").onclick = () =>
+        openDetails(
+          "Connection access",
+          "Google Workspace access is available for this conversation.",
+        );
+      $("files").onclick = () =>
+        openDetails(
+          "Conversation files",
+          "status-area.png · attached to this conversation.",
+        );
+      $("mic").onclick = () =>
+        openDetails(
+          "Voice input",
+          "Voice capture is simulated in this preview. You can type in the composer to try sending.",
+        );
+      $("size").onclick = () => {
+        const phone = $("viewport").classList.toggle("phone");
+        $("size").setAttribute("aria-pressed", String(phone));
+        $("size").textContent = phone
+          ? "Show desktop width"
+          : "Show phone width";
+      };
+      $("cycle").onclick = () => {
+        if (cycleTimer) {
+          clearInterval(cycleTimer);
+          cycleTimer = null;
+          $("cycle").textContent = "Cycle through all states";
+          return;
+        }
+        let i = 0;
+        const keys = Object.keys(states);
+        setState(keys[i++]);
+        $("cycle").textContent = "Stop cycling";
+        cycleTimer = setInterval(() => {
+          if (i === keys.length) {
+            clearInterval(cycleTimer);
+            cycleTimer = null;
+            $("cycle").textContent = "Cycle through all states";
+            setState("working");
+            return;
+          }
+          setState(keys[i++]);
+        }, 1300);
+      };
+      $("reset").onclick = () => {
+        timers.forEach(clearTimeout);
+        timers = [];
+        clearInterval(cycleTimer);
+        cycleTimer = null;
+        $("cycle").textContent = "Cycle through all states";
+        queued = [];
+        outbox = [];
+        setAttachment(true);
+        $("draft").value = "Let’s simplify this status area.";
+        $("fail").checked = false;
+        renderOutbox();
+        setState("working");
+        $("details").hidden = true;
+        $("details-toggle").setAttribute("aria-expanded", "false");
+        $("send-menu").hidden = true;
+        $("send-options").setAttribute("aria-expanded", "false");
+      };
+      render();
+    </script>
+  </body>
+</html>

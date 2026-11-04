@@ -31,16 +31,16 @@ it('keeps attachment autosave feedback and composer focus stable across backgrou
   const input = screen.getByLabelText('Message Mitzo');
   input.focus();
   const status = screen.getByRole('status');
-  expect(status.textContent).toBe('Draft autosaves on this device');
+  expect(status.textContent).toBe('Ready');
   for (const text of ['Review this screenshot a', 'Review this screenshot again']) {
     pending = true;
     fireEvent.change(input, { target: { value: text } });
     expect(screen.getByRole('status')).toBe(status);
-    expect(status.textContent).toBe('Draft autosaves on this device');
+    expect(status.textContent).toBe('Ready');
     pending = false;
     act(() => window.dispatchEvent(new Event(CHAT_STORAGE_CHANGED)));
     expect(screen.getByRole('status')).toBe(status);
-    expect(status.textContent).toBe('Draft autosaves on this device');
+    expect(status.textContent).toBe('Ready');
     expect(document.activeElement).toBe(input);
     expect(getChatDraft(draft.id)?.text).toBe(text);
   }
@@ -117,33 +117,36 @@ it('does not announce a save before the composer has persisted content', () => {
     <ChatInput onSend={() => false} onStop={() => {}} running={false} savedChatDraft={draft} />,
   );
   expect(html).not.toContain('Saved to Drafts');
+  expect(html).not.toContain('Draft saved on this device');
   expect(html).not.toContain('Draft autosaves on this device');
   expect(getChatDraft(draft.id)).toBeNull();
 });
 
-it('shows autosave feedback only while the composer has a retained draft', () => {
+it('persists the draft without changing the quiet status on each keystroke', () => {
   const draft = createChatDraft();
   render(
     <ChatInput onSend={() => false} onStop={() => {}} running={false} savedChatDraft={draft} />,
   );
-  expect(screen.queryByRole('status')).toBeNull();
+  const status = screen.getByRole('status');
+  expect(status.textContent).toBe('Ready');
   expect(getChatDraft(draft.id)).toBeNull();
 
   fireEvent.change(screen.getByLabelText('Message Mitzo'), { target: { value: 'Just a test.' } });
-  expect(screen.getByRole('status').textContent).toBe('Draft autosaves on this device');
+  expect(screen.getByRole('status')).toBe(status);
+  expect(status.textContent).toBe('Ready');
   expect(getChatDraft(draft.id)?.text).toBe('Just a test.');
 
   fireEvent.change(screen.getByLabelText('Message Mitzo'), { target: { value: '' } });
-  expect(screen.queryByRole('status')).toBeNull();
+  expect(screen.getByRole('status')).toBe(status);
   expect(getChatDraft(draft.id)).toBeNull();
 });
 
-it('replaces the save confirmation with a warning when a newer edit cannot be stored', () => {
+it('surfaces a failed save and returns to quiet status after storage recovers', () => {
   const draft = { ...createChatDraft(), text: 'Saved text' };
   render(
     <ChatInput onSend={() => false} onStop={() => {}} running={false} savedChatDraft={draft} />,
   );
-  expect(screen.getByRole('status').textContent).toBe('Draft autosaves on this device');
+  expect(screen.getByRole('status').textContent).toBe('Ready');
   const storage = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
     throw new Error('Storage full');
   });
@@ -157,7 +160,7 @@ it('replaces the save confirmation with a warning when a newer edit cannot be st
   storage.mockRestore();
   fireEvent.change(screen.getByLabelText('Message Mitzo'), { target: { value: 'Recovered edit' } });
   expect(screen.queryByRole('alert')).toBeNull();
-  expect(screen.getByRole('status').textContent).toBe('Draft autosaves on this device');
+  expect(screen.getByRole('status').textContent).toBe('Ready');
   expect(getChatDraft(draft.id)?.text).toBe('Recovered edit');
 });
 
@@ -208,6 +211,7 @@ it.each(['failed', 'uncertain', 'accepted'] as const)(
     expect(send.mock.calls[0][1]).toEqual(draft.images);
     expect(getChatDraft(draft.id)).not.toBeNull();
     expect(screen.getByLabelText('Message Mitzo')).toHaveProperty('value', '');
+    expect(screen.queryByText('Draft saved on this device')).toBeNull();
     expect(screen.queryByText('Draft autosaves on this device')).toBeNull();
     act(() => receipt?.(status));
     view.unmount();

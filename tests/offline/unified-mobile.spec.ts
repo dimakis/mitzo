@@ -1,3 +1,4 @@
+import { reviewQueuedDrafts, closeComposerStatus } from '../support/composer-status';
 import { createTelosWorkFixtures } from '../../frontend/src/test-utils/telos-work-fixtures';
 import { readChatStorage } from '../support/persisted-chat-storage';
 import {
@@ -4068,7 +4069,9 @@ test('rejected ordinary Stop preserves the live reply and queued image until ser
   ).toBeVisible();
   await expect(stop).toBeVisible();
   await expect(draft).toHaveValue('Next untouched draft');
+  await reviewQueuedDrafts(page);
   await expect(page.locator('.queued-draft-row')).toContainText('Queued child follow-up');
+  await closeComposerStatus(page);
   expect(sent).toHaveLength(0);
   for (const theme of ['dark', 'light']) {
     await page.evaluate((value) => {
@@ -4086,7 +4089,9 @@ test('rejected ordinary Stop preserves the live reply and queued image until ser
   confirmIdle();
   await expect(page.getByRole('button', { name: 'Send message', exact: true })).toBeVisible();
   expect(sent).toHaveLength(0);
+  await reviewQueuedDrafts(page);
   await page.getByRole('button', { name: 'Resume queue', exact: true }).click();
+  await closeComposerStatus(page);
   await expect.poll(() => sent.length).toBe(1);
   expect(sent[0]).toMatchObject({
     sessionId,
@@ -4208,11 +4213,13 @@ test('rejected running Enter recovers exact input without overwriting newer draf
     page.getByText('An active child reply continues after interrupt refusal.', { exact: true }),
   ).toBeVisible();
   await expect(input).toHaveValue('Newer untouched draft');
+  await reviewQueuedDrafts(page);
   await expect(page.locator('.queued-draft-row')).toHaveCount(2);
   await expect(page.locator('.queued-draft-row').nth(1)).toContainText('Exact refused interrupt');
   await expect(
     page.getByText('Use contributor controls for this input.', { exact: false }),
   ).toBeVisible();
+  await closeComposerStatus(page);
   emit({ type: 'session_state_changed', sessionId, state: 'idle' });
   await expect.poll(() => sent.filter((message) => message.type === 'send').length).toBe(1);
   expect(sent.filter((message) => message.type === 'send')[0].prompt).toBe(
@@ -4224,6 +4231,7 @@ test('rejected running Enter recovers exact input without overwriting newer draf
   await expect(page.getByRole('button', { name: 'Send message', exact: true })).toBeVisible();
   expect(sent.filter((message) => message.type === 'send')).toHaveLength(1);
   await expect(input).toHaveValue('Newer untouched draft');
+  await reviewQueuedDrafts(page);
   await page.getByRole('button', { name: 'Edit, reorder or remove queued prompt 1' }).click();
   await expect(page.getByRole('textbox', { name: 'Prompt', exact: true })).toHaveValue(
     'Exact refused interrupt',
@@ -4316,6 +4324,7 @@ test('rejected idle ordinary Send keeps attachments and an explicit retry withou
     error: 'Use contributor controls to send to this conversation.',
   });
   await expect(draft).toHaveValue('Newer untouched ordinary draft');
+  await reviewQueuedDrafts(page);
   await expect(page.locator('.queued-draft-row')).toContainText('Exact refused ordinary input');
   const retainedQueue = () =>
     readChatStorage(page, (storage) => storage.getItem('mitzo-queue-idle-owned-child'));
@@ -4330,7 +4339,9 @@ test('rejected idle ordinary Send keeps attachments and an explicit retry withou
       document.documentElement.dataset.accent = 'teal';
       document.documentElement.dataset.font = 'georgia';
     }, theme);
+    await closeComposerStatus(page);
     await expect(draft).toBeInViewport();
+    await reviewQueuedDrafts(page);
     await expect(retry).toBeInViewport();
     await page.screenshot({
       path: testInfo.outputPath(`ordinary-send-recovery-${theme}.png`),
@@ -4347,6 +4358,7 @@ test('rejected idle ordinary Send keeps attachments and an explicit retry withou
   expect(sent[1].clientMsgId).not.toBe(sent[0].clientMsgId);
   emit({ type: 'user_message', sessionId, messageId: sent[1].clientMsgId, text: sent[1].prompt });
   await expect(page.locator('.queued-draft-row')).toHaveCount(0);
+  await closeComposerStatus(page);
   await expect(draft).toHaveValue('Newer untouched ordinary draft');
 });
 

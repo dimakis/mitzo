@@ -168,11 +168,11 @@ for (const theme of ['dark', 'light']) {
     await page.goto(`/chat?theme=${theme}`);
     await expect(page.locator('html')).toHaveAttribute('data-theme', theme);
     const input = page.getByRole('textbox', { name: 'Message Mitzo', exact: true });
-    const status = page.locator('.chat-draft-save-status').first();
-    await expect(status).toHaveText('Draft autosaves on this device');
+    const status = page.locator('.composer-status-summary').first();
+    await expect(status).toHaveText('Ready');
     await input.focus();
     await page.evaluate(() => {
-      const node = document.querySelector('.chat-draft-save-status')!;
+      const node = document.querySelector('.composer-status-summary')!;
       const messages: string[] = [];
       new MutationObserver(() => {
         if (node.textContent) messages.push(node.textContent);
@@ -183,14 +183,14 @@ for (const theme of ['dark', 'light']) {
     await page.evaluate(() =>
       (window as unknown as { displayStorage: { flush(): Promise<void> } }).displayStorage.flush(),
     );
-    await expect(status).toHaveText('Draft autosaves on this device');
+    await expect(status).toHaveText('Ready');
     await expect(input).toBeFocused();
     expect(
       await page.evaluate(() => {
         const state = window as unknown as { autosaveStatusNode: Node; autosaveMessages: string[] };
         return (
-          state.autosaveStatusNode === document.querySelector('.chat-draft-save-status') &&
-          state.autosaveMessages.every((text) => text === 'Draft autosaves on this device')
+          state.autosaveStatusNode === document.querySelector('.composer-status-summary') &&
+          state.autosaveMessages.every((text) => text === 'Ready')
         );
       }),
     ).toBe(true);

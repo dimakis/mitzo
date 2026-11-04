@@ -1,5 +1,20 @@
 # Compact file viewer and stable draft feedback
 
+Final integration on 4 November 2026 includes accepted main `d6d53c50` (PR #1210).
+Its explicitly approved combined composer status supersedes this PR's earlier
+autosave wording. ChatInput now matches accepted main exactly: one mounted status
+row, silent routine writes and visible failures. The attachment regression retains
+its pending/settled writes, node identity, focus and persisted-content assertions,
+now checking the quiet Ready summary. Browser mutation and screenshot checks use
+the same live summary; retained preview v007 remains a historical snapshot.
+The ordinary-chat reload still checks exact durable draft bytes before navigation.
+No approved reference, protected test or design-ledger hash was changed.
+The combined local design/viewer/draft/status/image/preview checks pass 193 tests
+with one existing skip. Runtime fingerprints use
+`v1.0.857-compact-status-integration`. New combined CI and focused Centaur
+verification of this integration remain required before merge; the earlier
+thorough approval is review `5772376926` at `370e8f66`.
+
 On 4 November 2026, the user approved retaining generated previews v002–v006
 outside the production PR. Each original-workspace copy was verified byte for byte
 against commit `b336631e` before its removal from the candidate tree. Revision v007,

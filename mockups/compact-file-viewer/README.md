@@ -4,6 +4,11 @@
 tests. Generate the next revision with `node scripts/render-compact-display-preview.mjs`.
 Revision numbers advance beyond the highest retained revision.
 
+Revision v007 predates the accepted combined composer status design in PR #1210.
+Its autosave wording is a historical preview; the current application uses the
+approved quiet status row. The live-component browser fixture verifies that row
+separately while retaining the preview's controls and navigation checks.
+
 On 4 November 2026, the user approved removing generated revisions v002–v006 from
 PR #1191 to keep its complete diff within Centaur's 16 MiB review limit. Their
 bytes remain in the original task workspace and in

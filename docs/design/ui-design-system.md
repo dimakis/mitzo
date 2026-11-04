@@ -1,5 +1,28 @@
 # Mitzo UI design contract
 
+## Combined composer status
+
+Ordinary chats use the approved status row above the existing composer. It has
+the shared control height, one-line overflow, semantic status colors and one
+details action. Routine autosaving is silent. Queue, recovery and error actions
+retain their existing owners inside the shared HomeDialog; opening it does not
+dispatch work. Multiple problems aggregate without growing the row. Routine busy
+recovery does not replace a running agent's Working label, and actual approvals
+and failures remain visible.
+
+A single existing Retry/continuation action remains directly available in that
+fixed row; multiple actions remain reachable through Review and details.
+
+This reuses UiIcon, WorkspaceActionMenu, HomeDialog and the existing queued draft
+tray. Send correction moves to Send options; the remaining toolbar icons, keyboard
+dispatch rules, message dates/copy/read-aloud controls and approved Chat settings
+stay intact. See [the feature and validation record](../features/chat-composer-status.md)
+and the `chat-status/above-composer-2026-11-04` ledger entry. The offline fixture
+defines phone/desktop, both themes and alternate appearance, fixed geometry,
+keyboard/focus, message controls and retained screenshot delivery checks. Local
+browser execution is blocked by the host marker; matching CI captures remain
+required visual evidence.
+
 ## Reviewed native continuation
 
 Retained Responses conversations expose **Continue with Codex** beside the existing
@@ -183,12 +206,11 @@ validation requires the permitted macOS browser host; CI retains browser capture
 
 Chat load errors distinguish an initial request from a refresh of a previously loaded
 list. A failed refresh retains its rows beside the existing error and Retry control,
-including in Today's recent sessions. Draft feedback says **Draft autosaves on this
-device** after a retained draft enters storage. It describes autosave rather than
-claiming that an asynchronous write has completed. Keep its node mounted through
-revision checks and its copy stable through background writes, including screenshot
-attachments. Hide it when an empty composer has no retained draft. Failed writes remain explicit alerts.
-These changes reuse existing list/error and composer status styles.
+including in Today's recent sessions. Routine draft writes remain silent in the
+approved combined composer status row. Keep that row mounted and stable through
+revision checks and background writes, including screenshot attachments. Failed
+writes remain explicit alerts. These changes reuse existing list/error and
+composer status styles.
 
 Isolated actual SessionList and ChatInput renders were checked offline in mobile
 WebKit at 320px and desktop Chromium at 1280px, dark/light themes and Mint/Georgia,

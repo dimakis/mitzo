@@ -598,11 +598,11 @@ test('drafts: autosave status stays quiet and hides when empty', async ({
     }, theme);
     const input = page.getByRole('textbox', { name: 'Message Mitzo', exact: true });
     await expect(input).toHaveValue('');
-    await expect(page.locator('.chat-draft-save-status')).toBeHidden();
+    await expect(page.locator('.chat-draft-save-status')).toHaveCount(0);
     await input.fill('Just a test.');
-    await expect(page.locator('.chat-draft-save-status')).toHaveText(
-      'Draft autosaves on this device',
-    );
+    await expect(
+      page.getByText(/Draft saved on this device|Saving draft on this device/),
+    ).toHaveCount(0);
     await expect
       .poll(() =>
         readChatStorage(page, (storage) =>
@@ -615,7 +615,7 @@ test('drafts: autosave status stays quiet and hides when empty', async ({
     await expect(input).toBeFocused();
     await page.screenshot({ path: testInfo.outputPath(`draft-save-status-${theme}.png`) });
     await input.fill('');
-    await expect(page.locator('.chat-draft-save-status')).toBeHidden();
+    await expect(page.locator('.chat-draft-save-status')).toHaveCount(0);
   }
   expect(fixture.mutations).toEqual([]);
   expect(fixture.errors).toEqual([]);
@@ -726,9 +726,9 @@ test('drafts: unsent new input saves separately and legacy input migrates withou
   const input = page.getByRole('textbox', { name: 'Message Mitzo' });
   await expect(input).toHaveValue('');
   await input.fill('A separate new message');
-  await expect(page.locator('.chat-draft-save-status')).toHaveText(
-    'Draft autosaves on this device',
-  );
+  await expect(
+    page.getByText(/Draft saved on this device|Saving draft on this device/),
+  ).toHaveCount(0);
   await page.goto('/sessions/drafts');
   await expect(page.getByRole('link', { name: /Existing legacy briefing draft/ })).toBeVisible();
   await expect(page.getByRole('link', { name: /A separate new message/ })).toBeVisible();
