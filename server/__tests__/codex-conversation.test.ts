@@ -8313,6 +8313,7 @@ it.each([
   { phase: 'transport', diagnostic: { reason: 'reply_provenance_failed' } },
   { phase: 'transport', diagnostic: { reason: 'notification_handler_failed' } },
   { phase: 'transport', diagnostic: { reason: 'host_tool_admission_timeout' } },
+  { phase: 'transport', diagnostic: { reason: 'host_response_fence_failed' } },
   { phase: 'ack', diagnostic: { reason: 'reply_provenance_failed' } },
   { phase: 'buffered', diagnostic: { reason: 'reply_provenance_failed' } },
 ] as const)(

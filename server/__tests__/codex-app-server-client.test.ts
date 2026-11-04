@@ -636,7 +636,7 @@ describe('Codex app-server transport', () => {
       onNotification: vi.fn(),
       onRequest: vi.fn((_method, _params, _signal, context) => {
         context.registerResponseFence(() => {
-          if (!current) throw Error('revoked');
+          if (!current) throw Error('SECRET revoked /private/owner');
         });
         return new Promise<Record<string, unknown>>((resolve) => {
           finish = resolve;
@@ -651,15 +651,23 @@ describe('Codex app-server transport', () => {
     current = false;
     await vi.waitFor(() => expect(child.kill).toHaveBeenCalledOnce());
     expect(sent).toEqual([]);
+    expect(lifecycle.onClose).toHaveBeenCalledOnce();
+    expect(lifecycle.onClose).toHaveBeenCalledWith(
+      expect.objectContaining({
+        diagnostic: { reason: 'host_response_fence_failed' },
+      }),
+    );
+    expect(lifecycle.onClose.mock.calls[0][0].message).not.toMatch(/SECRET|private/);
     client.close();
   });
 
   it('rejects an asynchronous native response fence without emitting a grant', async () => {
     const { child, sent, reply } = processStub();
+    const onClose = vi.fn();
     const client = new CodexAppServerClient(child, {
       lifecycle: {
         onNotification: vi.fn(),
-        onClose: vi.fn(),
+        onClose,
         onRequest: async (_method, _params, _signal, context) => {
           context!.registerResponseFence!(async () => {
             throw Error('late revocation');
@@ -671,6 +679,10 @@ describe('Codex app-server transport', () => {
     reply({ id: 'async-fence', method: 'item/commandExecution/requestApproval', params: {} });
     await vi.waitFor(() => expect(child.kill).toHaveBeenCalledOnce());
     expect(sent).toEqual([]);
+    expect(onClose).toHaveBeenCalledOnce();
+    expect(onClose).toHaveBeenCalledWith(
+      expect.objectContaining({ diagnostic: { reason: 'host_response_fence_failed' } }),
+    );
     client.close();
   });
 

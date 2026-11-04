@@ -196,6 +196,7 @@ export class CodexTransportError extends Error {
         | 'invalid_envelope'
         | 'notification_handler_failed'
         | 'host_tool_admission_timeout'
+        | 'host_response_fence_failed'
         | 'reply_provenance_failed'
         | 'child_exit'
         | 'process_error'
@@ -998,12 +999,21 @@ export class CodexAppServerClient {
       .then(
         (result) => {
           if (this.closed || signal.aborted) return;
-          for (const assertCurrent of responseFences) {
-            const result: unknown = assertCurrent();
-            if (result !== undefined) {
-              void Promise.resolve(result).catch(() => {});
-              throw new CodexTransportError('connection');
+          try {
+            for (const assertCurrent of responseFences) {
+              const result: unknown = assertCurrent();
+              if (result !== undefined) {
+                void Promise.resolve(result).catch(() => {});
+                throw new CodexTransportError('connection');
+              }
             }
+          } catch {
+            // Retain the failing boundary before shutdown replaces the cause
+            // with a generic connection error. Never include the fence's text.
+            this.close(
+              new CodexTransportError('connection', { reason: 'host_response_fence_failed' }),
+            );
+            return;
           }
           if (!this.closed && !signal.aborted) this.write({ id, result });
         },

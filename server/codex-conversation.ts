@@ -621,6 +621,7 @@ export class CodexConversation {
             'reply_provenance_failed',
             'notification_handler_failed',
             'host_tool_admission_timeout',
+            'host_response_fence_failed',
           ].includes(diagnostic.reason)
             ? (diagnostic.reason as
                 | 'child_exit'
@@ -628,7 +629,8 @@ export class CodexConversation {
                 | 'stream_error'
                 | 'reply_provenance_failed'
                 | 'notification_handler_failed'
-                | 'host_tool_admission_timeout')
+                | 'host_tool_admission_timeout'
+                | 'host_response_fence_failed')
             : error instanceof CodexTransportError && error.category === 'timeout'
               ? 'timeout'
               : error instanceof CodexTransportError && error.category === 'protocol'
