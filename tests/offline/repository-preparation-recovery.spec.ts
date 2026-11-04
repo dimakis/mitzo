@@ -494,20 +494,21 @@ for (const workspaceChoice of ['select', 'default'] as const) {
           await expect(composer).toHaveValue('Develop Mitzo from latest main');
           const recover = page.getByRole('button', { name: 'Retry', exact: true });
           await expect(recover).toBeVisible();
-          await page.getByRole('button', { name: 'Conversation status details' }).click();
           await expect(page.getByText('Delivery not confirmed.', { exact: true })).toHaveCount(1);
+          await page.getByRole('button', { name: 'Conversation status details' }).click();
+          const statusDialog = page.getByRole('dialog', { name: 'Conversation status' });
+          await expect(
+            statusDialog.getByText('Delivery not confirmed.', { exact: true }),
+          ).toHaveCount(1);
           if (accountId === 'api')
             await expect(
-              page.getByText(
+              statusDialog.getByText(
                 KNOWLEDGE_RUNTIME_UNAVAILABLE_MESSAGE +
                   ' Reference: 22222222-2222-4222-8222-222222222222',
                 { exact: true },
               ),
             ).toBeVisible();
-          await page
-            .getByRole('dialog', { name: 'Conversation status' })
-            .getByRole('button', { name: 'Close', exact: true })
-            .click();
+          await statusDialog.getByRole('button', { name: 'Close', exact: true }).click();
           await expect(
             page.getByText(
               /command retained|Review retained|Review the retained|Delivery was not confirmed/,

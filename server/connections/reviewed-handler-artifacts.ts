@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.854-combined-composer-paste';
+  'v1.0.855-chat-status-visual-evidence';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -2154,7 +2154,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../tests/offline/multi-runtime-picker.spec.ts':
     '57d196c1043c17f089b8664f8b841234e0a76d852b433728965b19242ac2cd98',
   '../../tests/offline/repository-preparation-recovery.spec.ts':
-    '1375a140a5e65adb8a2739a234570fdaf9db621bfa79541bec99a6c4d01406f1',
+    '4419e0fa7e3b9a7675fe8b419231ee379cbb92a9390ff723207d1d2fda4e9bfd',
   '../__tests__/ordinary-repository-preparation-api.test.ts':
     'be392a0df72a2018169440df07e18fa8ef4c9f8963ba080061d05235108e0110',
   '../command-timing-trace.ts': 'f4c8ddbcae082c29fd718f09dd4b846b5aacc25574f43d681e31a508bae76560',
@@ -3031,7 +3031,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../.github/workflows/ci-recovery.yml':
     '5d4e9a6560e549d2879ef776c2b4d321d420c25b22ec3a7741390e5bf617111a',
   '../../.github/workflows/ci.yml':
-    '8c07e820f17557ea01e7b8358a214d1406e18c38361aacdeed170550e3dbeb1c',
+    '91e82d74f33917a1652d4cd8693f5fb259fbde0ba2a4a0a3670f4f2584e09216',
   '../../playwright.config.ts': '6c61752a4a2e9cab19d8217b46080c5898bc79c5a0fde1f2b703a254d278daa0',
   '../../playwright.offline.config.ts':
     'fb694df154a2cb402c7f46b417efb357b6d19a72210d269ad0b1580798392adc',
