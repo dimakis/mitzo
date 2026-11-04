@@ -2100,6 +2100,8 @@ async function openCodexChatBound(
               ...agentTaskToolDefinitions,
               ...agentCommunicationDefinitions,
               ...localHistoryDefinitions,
+              ...nativeTelosTools,
+              ...nativeBacklogTools,
               webAccessDefinition,
             ]),
             ...inlineCoreDefinitions,
