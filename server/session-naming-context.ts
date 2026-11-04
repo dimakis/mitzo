@@ -1,9 +1,8 @@
-import type { SessionMeta, StoredEvent } from '@mitzo/protocol';
+import { stripMarkdownCodeBlocks, type SessionMeta, type StoredEvent } from '@mitzo/protocol';
 import {
   extractRecentPrompts,
   generateSessionNameFallback,
   isGenericSessionName,
-  stripFencedCode,
 } from '@mitzo/harness';
 import { replayEventsToMessages } from './conversation-transcript.js';
 
@@ -40,7 +39,7 @@ export function sessionNamingPrompts(
     .flatMap((message) =>
       message.blocks
         .filter((block) => block.blockType === 'text')
-        .map((block) => stripFencedCode(block.content)),
+        .map((block) => stripMarkdownCodeBlocks(block.content)),
     );
   for (const reply of replies) {
     for (const match of reply.matchAll(

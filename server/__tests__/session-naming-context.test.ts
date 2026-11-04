@@ -144,11 +144,31 @@ it('requires a matching fence at least as long as its opener', () => {
   );
 });
 
-it.each(['> ', '- ', '    '])('ignores container-prefixed code examples (%j)', (prefix) => {
+it.each(['> ', '    '])('ignores container-prefixed code examples (%j)', (prefix) => {
   const example = ['~~~md', '[Wrong topic](https://github.com/dimakis/mitzo/pull/9)', '~~~']
     .map((line) => prefix + line)
     .join('\n');
   const events = conversation('Continue', `${example}\nI’ll repair calendar sync.`);
+  expect(sessionDisplayName({ sessionId: 's', summary: 'Continue' }, events)).toBe(
+    'Repair calendar sync',
+  );
+});
+
+it('ignores fenced examples within a list item', () => {
+  const events = conversation(
+    'Continue',
+    '- ~~~md\n  [Wrong topic](https://github.com/dimakis/mitzo/pull/9)\n  ~~~\n\nI’ll repair calendar sync.',
+  );
+  expect(sessionDisplayName({ sessionId: 's', summary: 'Continue' }, events)).toBe(
+    'Repair calendar sync',
+  );
+});
+
+it.each(['- ~~~', '> ~~~', '    ~~~'])('keeps %j inside its enclosing code example', (line) => {
+  const events = conversation(
+    'Continue',
+    `~~~md\n${line}\n[Wrong topic](https://github.com/dimakis/mitzo/pull/9)\n~~~\nI’ll repair calendar sync.`,
+  );
   expect(sessionDisplayName({ sessionId: 's', summary: 'Continue' }, events)).toBe(
     'Repair calendar sync',
   );

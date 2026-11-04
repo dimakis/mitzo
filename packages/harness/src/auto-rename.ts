@@ -1,6 +1,6 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { AnthropicVertex } from '@anthropic-ai/vertex-sdk';
-import { splitContextPrompt, type StoredEvent } from '@mitzo/protocol';
+import { splitContextPrompt, stripMarkdownCodeBlocks, type StoredEvent } from '@mitzo/protocol';
 import { createLogger } from './logger.js';
 
 const log = createLogger('auto-rename');
@@ -226,36 +226,8 @@ export function isGenericSessionName(name: string): boolean {
   );
 }
 
-/** Strip Markdown fenced examples, including an unfinished fence through EOF. */
-export function stripFencedCode(text: string): string {
-  let open: { marker: string; length: number } | undefined;
-  return text
-    .split(/\r?\n/)
-    .map((line) => {
-      // Conservatively exclude examples nested in quotes, lists or indented code.
-      const content = line.replace(/^\s*(?:>\s*|(?:[-+*]|\d+[.)])\s+)*/, '');
-      const fence = /^(`{3,}|~{3,})(.*)$/.exec(content);
-      if (open) {
-        if (
-          fence &&
-          fence[1][0] === open.marker &&
-          fence[1].length >= open.length &&
-          /^\s*$/.test(fence[2])
-        )
-          open = undefined;
-        return '';
-      }
-      if (fence && !(fence[1][0] === '`' && fence[2].includes('`'))) {
-        open = { marker: fence[1][0], length: fence[1].length };
-        return '';
-      }
-      return line;
-    })
-    .join('\n');
-}
-
 function requestTitle(prompt: string): string {
-  const prose = stripFencedCode(splitContextPrompt(prompt)?.text ?? prompt);
+  const prose = stripMarkdownCodeBlocks(splitContextPrompt(prompt)?.text ?? prompt);
   for (const line of prose.split(/\n/)) {
     let title = line
       .replace(/^\s*(?:#{1,6}\s+|[-*]\s+|\d+[.)]\s+)/, '')
