@@ -10,8 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.857-native-telos-role-discovery';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.858-session-history-messages';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -23,6 +22,16 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
+  '../session-history-reader.ts':
+    '99d32c96410137160ed6557d69cdc28f833c772cf09303b9d6e87817e56e0501',
+  '../__tests__/session-history-retrieval.test.ts':
+    '6fd9c87e6c5df18380dad6cac6ab047e40ae80aed8dee7c7f0667e94c39cd7f3',
+  '../__tests__/fixtures/legacy-session-history.ts':
+    '64f3997f7991fe6f72db7a99617caf3c3a2a0e1eb6b2bd8bdaeca66ad19e0259',
+  '../__tests__/session-history-tools.test.ts':
+    '6bfd093e3dc55a05daf1519ac8d833de41227aafeaa27a172002eb8780790eed',
+  '../__tests__/session-history-native-format.test.ts':
+    'ca2859cb33730c6b3fed6f30f66bd4fe5e6e4099060d7ff02342bb18700c6229',
   '../github-publishing-source.ts':
     '97c1d2f24308e430973afdf4492a9513fda9e7eedcb80464fac71e8fcbc9ca01',
   '../retained-local-codex-effects.ts':
@@ -254,9 +263,9 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../single-flight-reconciliation.ts':
     '243227fbf5ff82d42687770551a3d3fa37ea11ea2d7c6d615e8b6bcb3d19def1',
   '../__tests__/session-history-native.test.ts':
-    '9d98ee4ad565fd97b3b81e7587d2df8283cc63f41c64ca5cf1ddf4f6833614aa',
+    '59b5197315b8f5868366807eb4ad6dc33253fa18df12227f47b0d3c1c5b61a0e',
   '../__tests__/session-history-search-cost.test.ts':
-    '490138007b9a7c7351557f406fbbc02c4cb5dce68924d01611503999304c4f0c',
+    'dd8f96e35b9a1dcda8a1eda68dd6c75576d7b12422a7c96e13b7dbb47ed06588',
   '../__tests__/session-history-search-batch.test.ts':
     '9db12e21d5717fe27540b9a44feb10e62ebed2aab7b57500d216858ec2a9f66b',
   '../../tests/fixtures/chat-settings-surface.tsx':
@@ -640,8 +649,8 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/agent-communication-native.test.ts':
     '69203bda9ca703dcead99697ebfc942e7b51f2e5093680739945f2e7de36c028',
   '../session-history-authorization.ts':
-    '58b1062921da99ee58f85947f62849f526b5fdb2338e69b042a98159e82ae4f0',
-  '../session-history-tools.ts': 'f7fd83d23e03222cfa08b5a316211480b9b80748cafd86e7f10e2a94dc2babd8',
+    'e9a274be3f40957f5a3746a4d8f704f51e8c771a23567e7e1f50a10baa6f62eb',
+  '../session-history-tools.ts': 'f7a17ed54339c23bc216e5ec8433240f92f27da5e7f6f53ba6c86188fab9881f',
   '../local-repository-discovery.ts':
     'c3d0bc7ecc2c1838e11666f72681a4d9f1fb2f3adfa701356af6a06551ca9c43',
   '../session-local-repository-tools.ts':
@@ -1672,11 +1681,11 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/protocol/src/session-metadata-store.ts':
     '27de6e399040ee80c78416a5023f27d42f6a5ccfbe707ffd58bd09bd2e7b4ef9',
   '../../packages/protocol/src/event-store.ts':
-    '88dd2777693343bd3339ec45ccd36d5f601a1cb88d461facbad77567683478b5',
+    '88ca53ff10e274716e83bf0053e7a73d4d39ff5719d5c13d3eefb8c469d66be3',
   '../../packages/protocol/src/session-lifecycle-store.ts':
     '2a219b360a5fbe72b0a550c714bf76a15c6f5969cbbe4251671050257b98e267',
   '../../packages/protocol/src/conversation-replay-store.ts':
-    '60ca279c37909d56d842535093f8d8186057a668a1b03a8e53c41f92061da32a',
+    'b1a68babb47d2ceeb95eed6cdaef89223a7bd9bdff80857fe8f664ddfeb78f0c',
   '../../packages/protocol/src/execution-ledger.ts':
     'f30d210be1d37f4c61ff47edb1fb3c8dea1dc6fd8d3ea02b6e01310e8d44ffc4',
   '../../packages/protocol/src/session-runtime-binding.ts':
@@ -2382,7 +2391,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/worktree-fetch-observation.test.ts':
     '15d3a88708e22b72e498dbc924555d4c1eb0b562de8dc43554b8f382d406b440',
   '../../tests/fixtures/agent-tool-catalog.json':
-    'c5214480671112f923a68b58542946563c476aacc0e6f51fcc4580b5dd9311f3',
+    '07b070fe843193dbe2a2013a8d7760fec3b829cd985f3681e2fe2e1ba3f5fb7f',
   '../../tests/integration/ordinary-local-vertex-chat.test.ts':
     '5e8b2f0829cbd05ecfead981b3f74b1edef9de7e005eb7344e04c909304206b3',
   '../../packages/sqlite-file-owner/package.json':

@@ -14,7 +14,7 @@ export function captureSessionHistoryAuthorization(owners: {
   toolName: 'SearchPastSessions' | 'ReadPastSession';
 }): HistoryAccess {
   const { context, events } = owners;
-  const targets = new Map<string, { assertCurrent(): void }>();
+  const targets = new Map<string, { assertIdentity(): void }>();
   const assertCurrent = () => {
     context.signal.throwIfAborted();
     context.assertCurrentSync();
@@ -68,7 +68,7 @@ export function captureSessionHistoryAuthorization(owners: {
       const captured = captureTarget(conversationId);
       if (!captured) throw Error('History target unavailable');
       const { target } = captured;
-      targets.set(conversationId, target);
+      targets.set(conversationId, captured);
       target.assertCurrent();
       return target;
     },
@@ -91,15 +91,18 @@ export function captureSessionHistoryAuthorization(owners: {
       signal.throwIfAborted();
       for (const entry of captured) entry?.assertIdentity();
       assertCurrent();
-      return captured.map((entry) => entry?.target ?? null);
+      return captured.map((entry, index) => {
+        if (entry) targets.set(conversationIds[index], entry);
+        return entry?.target ?? null;
+      });
     },
     readBoundary(conversationId) {
       assertCurrent();
       const target = targets.get(conversationId);
       if (!target) throw Error('Authorized history target required');
-      target.assertCurrent();
+      target.assertIdentity();
       const boundary = events.captureReconnectState(conversationId, 0, false).cursor;
-      target.assertCurrent();
+      target.assertIdentity();
       return boundary;
     },
     dispose() {

@@ -182,9 +182,9 @@ it('runs history through the signed native owner without publication configurati
   expect(
     (await invoke('ReadPastSession', { conversationId: 'internal-target' })).response.success,
   ).toBe(false);
-  const readEvents = chat.eventStore.getEventsAfter.bind(chat.eventStore);
-  vi.spyOn(chat.eventStore, 'getEventsAfter').mockImplementationOnce((id, after, limit) => {
-    const result = readEvents(id, after, limit);
+  const readEvents = chat.eventStore.getHistoryEventPage.bind(chat.eventStore);
+  vi.spyOn(chat.eventStore, 'getHistoryEventPage').mockImplementationOnce((id, ...page) => {
+    const result = readEvents(id, ...page);
     chat.eventStore.hideSession(id);
     return result;
   });
