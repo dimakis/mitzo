@@ -5644,6 +5644,9 @@ it.each([
         expect(names).toEqual(
           [
             'AskUserQuestion',
+            'DescribeIntegrationTool',
+            'InvokeIntegrationTool',
+            'ListIntegrationTools',
             'TelosReadArtifact',
             'TelosSaveArtifact',
             'TelosStartSlice',
@@ -5657,14 +5660,28 @@ it.each([
           context: { turnId: string; callId: string },
         ) => Promise<unknown>;
         mocks.permissionHandler.mockClear();
-        for (const name of [
-          'TaskComplete',
-          'mcp__task-board__TaskComplete',
-          'InvokeIntegrationTool',
-        ])
+        for (const name of ['TaskComplete', 'mcp__task-board__TaskComplete'])
           await expect(
             execute(name, {}, new AbortController().signal, { turnId: 'lead-turn', callId: name }),
           ).rejects.toThrow(/not selected|unavailable/i);
+        const contract = JSON.parse(
+          (
+            (await execute(
+              'DescribeIntegrationTool',
+              { toolId: 'TelosSaveArtifact' },
+              new AbortController().signal,
+              { turnId: 'lead-turn', callId: 'describe-artifact' },
+            )) as { content: string }
+          ).content,
+        );
+        expect(
+          await execute(
+            'InvokeIntegrationTool',
+            { toolId: contract.toolId, catalogRevision: contract.catalogRevision, arguments: {} },
+            new AbortController().signal,
+            { turnId: 'lead-turn', callId: 'proxy-artifact' },
+          ),
+        ).toMatchObject({ isError: true, content: expect.stringContaining('direct_tool') });
         expect(mocks.permissionHandler).not.toHaveBeenCalled();
         expect(f.opts.session.taskContext).toBeFalsy();
       }
@@ -6685,13 +6702,10 @@ it.each(['default', 'selected', 'excluded', 'unauthorized'] as const)(
       expectedOutput: 'Canonical creation receipt',
       acceptanceCriteria: ['Reviewed capture'],
       modelPolicyRole: 'agent' as const,
-      tools:
-        mode === 'selected'
-          ? ['TelosCreateOutcome', 'TelosAdoptSource'].map((name) => ({
-              id: `mitzo:${name}`,
-              version: 1,
-            }))
-          : [],
+      tools: (mode === 'selected'
+        ? ['TelosCreateOutcome', 'TelosAdoptSource']
+        : ['ListConnections']
+      ).map((name) => ({ id: `mitzo:${name}`, version: 1 })),
     };
     const profile = {
       profileId: 'owned-agent',
@@ -6703,6 +6717,16 @@ it.each(['default', 'selected', 'excluded', 'unauthorized'] as const)(
       '/tmp',
       ['selected', 'excluded'].includes(mode) ? profile : undefined,
     );
+    const { SessionRegistry } = await import('@mitzo/harness');
+    const registry = new SessionRegistry();
+    registry.register('owned-client', {
+      ...f.opts.session,
+      sessionId: f.opts.conversationId,
+      sessionAllowList: new Set<string>(),
+      transport: { send: () => {}, isOpen: () => true },
+    });
+    f.opts.registry = registry;
+    f.opts.session = registry.get('owned-client')!;
     if (mode !== 'unauthorized') f.opts.assertAgentContextAuthorization = vi.fn();
     initializeTelosMainPublicationRuntime({
       registry: f.opts.registry,
@@ -6713,10 +6737,36 @@ it.each(['default', 'selected', 'excluded', 'unauthorized'] as const)(
     try {
       query = await openCodexChat(f.opts);
       const tools = mocks.conversationOptions!.tools as { name: string }[];
-      for (const name of ['TelosCreateOutcome', 'TelosAdoptSource'])
-        expect(tools.some((tool) => tool.name === name)).toBe(
-          ['default', 'selected'].includes(mode),
+      const execute = mocks.conversationOptions!
+        .executeTool as import('../codex-conversation.js').CodexConversationOptions['executeTool'];
+      const signal = new AbortController().signal;
+      const call = { turnId: 'capture-turn', callId: 'describe-capture' };
+      const permissionCalls = mocks.permissionHandler.mock.calls.length;
+      for (const name of ['TelosCreateOutcome', 'TelosAdoptSource']) {
+        const available = ['default', 'selected'].includes(mode);
+        expect(tools.some((tool) => tool.name === name)).toBe(available);
+        const result = await execute('DescribeIntegrationTool', { toolId: name }, signal, call);
+        expect(result.isError).toBe(!available);
+        expect(JSON.parse(result.content)).toMatchObject(
+          available
+            ? { toolId: name, name, invocation: 'direct', inputSchema: { type: 'object' } }
+            : { error: 'tool_not_selected' },
         );
+        if (available) {
+          const proxied = await execute(
+            'InvokeIntegrationTool',
+            {
+              toolId: name,
+              catalogRevision: JSON.parse(result.content).catalogRevision,
+              arguments: {},
+            },
+            signal,
+            call,
+          );
+          expect(proxied.isError).toBe(true);
+          expect(JSON.parse(proxied.content)).toMatchObject({ error: 'direct_tool' });
+        }
+      }
       // Default capture does not grant role-scoped progress or artifact capabilities.
       for (const name of [
         'TelosGetItem',
@@ -6731,11 +6781,24 @@ it.each(['default', 'selected', 'excluded', 'unauthorized'] as const)(
           'TelosSearchItems',
           'TelosManageItem',
           'TelosCreateChild',
-        ])
+        ]) {
           expect(tools.some((tool) => tool.name === name)).toBe(true);
+          const result = await execute('DescribeIntegrationTool', { toolId: name }, signal, call);
+          expect(result.isError).toBe(false);
+          expect(JSON.parse(result.content)).toMatchObject({ toolId: name, invocation: 'direct' });
+        }
+      const inventory = JSON.parse(
+        (await execute('ListIntegrationTools', { query: 'TelosCreateOutcome' }, signal, call))
+          .content,
+      );
+      expect(inventory.tools.map((tool: { toolId: string }) => tool.toolId)).toEqual(
+        ['default', 'selected'].includes(mode) ? ['TelosCreateOutcome'] : [],
+      );
+      expect(mocks.permissionHandler).toHaveBeenCalledTimes(permissionCalls);
     } finally {
       query?.close();
       closeTelosMainPublicationRuntime();
+      registry.dispose();
       f.eventStore.close();
       canonical.close();
     }
