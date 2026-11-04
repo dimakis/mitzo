@@ -119,7 +119,9 @@ export function agentToolCatalog(): AgentToolCatalogEntry[] {
                       'TelosSaveArtifact',
                       'TelosReadArtifact',
                     ].includes(tool.name)
-                  ? 'Requires explicit native tool selection, current signed operator and exact one-use approval. Artifact reads require a retained exact revision; writes use the canonical Telos store.'
+                  ? ['TelosCreateOutcome', 'TelosAdoptSource'].includes(tool.name)
+                    ? 'Available to default native chats; explicit profiles must select the tool. Requires a current signed operator and exact one-use reviewed source approval; writes use the canonical Telos store.'
+                    : 'Requires explicit native tool selection, current signed operator and exact one-use approval. Artifact reads require a retained exact revision; writes use the canonical Telos store.'
                   : isTelosBacklogTool(tool.name)
                     ? 'Requires the current authenticated operator and original tool selection; brief and lifecycle mutations use exact request approval. Browsing and maintenance require no lead assignment.'
                     : source === 'Telos'
