@@ -69,6 +69,7 @@ for (const Page of [ChatView, DesktopChatView]) {
       const sessionId = 'bound-session';
       let workspaceId = oldId;
       let uncertain = false;
+      let recovering = false;
       let hold = false;
       const pending: Array<(response: Response) => void> = [];
       const metadata = () => ({
@@ -80,6 +81,23 @@ for (const Page of [ChatView, DesktopChatView]) {
         runtimeCommandScope: uncertain ? 'first-command-only' : 'conversation',
         runtimeCommandReason: uncertain
           ? 'A previous command has an unconfirmed dispatch. Its original receipt and workspace are retained.'
+          : undefined,
+        codexQueue: recovering
+          ? {
+              paused: true,
+              connected: false,
+              recovering: false,
+              queued: 0,
+              interrupted: 1,
+              canContinue: true,
+              operation: {
+                commandId: 'completed-command',
+                attempt: 1,
+                state: 'completed',
+                effectStatus: 'unknown',
+                nextAction: 'reconcile_completion_phase',
+              },
+            }
           : undefined,
         mode: 'agent',
         agentProfile: inventory.agentProfiles[0],
@@ -98,6 +116,11 @@ for (const Page of [ChatView, DesktopChatView]) {
       });
       const sent: Array<Record<string, unknown>> = [];
       const fetch = vi.fn(async (url: string, init?: RequestInit): Promise<Response> => {
+        if (url.endsWith('/codex-queue/continue')) {
+          uncertain = false;
+          recovering = false;
+          return Response.json({ ok: true });
+        }
         if (url === '/local/send' || url === '/local/continue') {
           const body = JSON.parse(String(init?.body));
           sent.push(body);
@@ -250,6 +273,19 @@ for (const Page of [ChatView, DesktopChatView]) {
           expect(screen.getByRole('button', { name: 'Send message' })).toBeEnabled(),
         );
         expect(screen.getByRole('textbox', { name: 'Message Mitzo' })).toBe(draft);
+        expect(draft).toHaveValue('the next prompt');
+        expect(screen.getByRole('combobox', { name: 'Model' })).toHaveValue('luna-next');
+        expect(screen.getByRole('combobox', { name: 'Thinking level' })).toHaveValue('high');
+        expect(sent).toHaveLength(1);
+        uncertain = true;
+        recovering = true;
+        act(() => channel.listener({ type: 'session_end', sessionId }));
+        const reconnect = await screen.findByRole('button', { name: 'Reconnect and continue' });
+        expect(screen.getByRole('button', { name: 'Send message' })).toBeDisabled();
+        fireEvent.click(reconnect);
+        await waitFor(() =>
+          expect(screen.getByRole('button', { name: 'Send message' })).toBeEnabled(),
+        );
         expect(draft).toHaveValue('the next prompt');
         expect(screen.getByRole('combobox', { name: 'Model' })).toHaveValue('luna-next');
         expect(screen.getByRole('combobox', { name: 'Thinking level' })).toHaveValue('high');

@@ -152,6 +152,8 @@ export interface MitzoStoreState {
   sessionMetadataRevision: number;
   /** Local composer fence only; never provider input or dispatch authority. */
   isSessionMetadataCurrent(sessionId: string, revision: number): boolean;
+  /** Refresh display/readiness after an explicit action; never dispatch authority. */
+  invalidateSessionMetadata(sessionId: string): void;
 
   // Current server-issued transport identity; never persisted across reconnect.
   getTransportConnectionId(): string | null;
@@ -1260,6 +1262,10 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
     getTransportConnectionId: () => connection.getConnectionId(),
     isSessionMetadataCurrent: (sessionId, revision) =>
       get().sessions.active === sessionId && get().sessionMetadataRevision === revision,
+    invalidateSessionMetadata: (sessionId) => {
+      if (get().sessions.active === sessionId)
+        set((state) => ({ sessionMetadataRevision: state.sessionMetadataRevision + 1 }));
+    },
 
     dispatchMessages(action: MessagesAction) {
       if (action.type === 'SET_SESSION_CONTEXT') contextDisplayWritten = true;

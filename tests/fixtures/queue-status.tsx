@@ -34,8 +34,9 @@ socket.onmessage?.({
 await store.getState().switchSession('queue-fixture');
 function QueueFixture() {
   const deliveryStatus = useMitzoStore((state) => state.sendStatus);
+  const metadataRevision = useMitzoStore((state) => state.sessionMetadataRevision);
   return (
-    <main className="queue-status-fixture">
+    <main className="queue-status-fixture" data-metadata-revision={metadataRevision}>
       <button onClick={() => store.setState({ sendStatus: 'Preparing response…' })}>
         Show delivery progress
       </button>

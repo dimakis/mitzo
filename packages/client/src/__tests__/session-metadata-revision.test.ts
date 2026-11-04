@@ -93,3 +93,12 @@ it('does not refetch continuation metadata for streaming progress or queued comm
     });
   expect(store.getState().sessionMetadataRevision).toBe(previous);
 });
+it('invalidates only the selected conversation after an explicit recovery action', async () => {
+  const store = await fixture();
+  const before = store.getState().sessionMetadataRevision;
+  store.getState().invalidateSessionMetadata('other-chat');
+  expect(store.getState().sessionMetadataRevision).toBe(before);
+  store.getState().invalidateSessionMetadata('selected-chat');
+  expect(store.getState().isSessionMetadataCurrent('selected-chat', before)).toBe(false);
+  expect(store.getState().sessionMetadataRevision).toBe(before + 1);
+});

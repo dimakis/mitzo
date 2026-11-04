@@ -94,6 +94,7 @@ export function CodexQueueStatus({
   deliveryBusy?: boolean;
 }) {
   const getTransportConnectionId = useMitzoStore((state) => state.getTransportConnectionId);
+  const invalidateSessionMetadata = useMitzoStore((state) => state.invalidateSessionMetadata);
   const queueRevision = useMitzoStore((state) => state.queueRevision);
   const previousQueueRevision = useRef(queueRevision);
   const [queue, setQueue] = useState<QueueState | null>(null);
@@ -276,6 +277,7 @@ export function CodexQueueStatus({
       !queue ||
       queue.capacityRecovery ||
       queue.canContinue === true ||
+      queue.operation?.effectStatus === 'unknown' ||
       queue.failed === 0 ||
       queue.retryable === false ||
       queue.connected ||
@@ -457,6 +459,7 @@ export function CodexQueueStatus({
         );
       }
       if (epoch === sessionEpoch.current) {
+        invalidateSessionMetadata(sessionId);
         await refresh.current();
       }
     } catch (error) {
