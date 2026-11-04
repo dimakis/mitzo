@@ -10,6 +10,7 @@ import { ChatView } from '../ChatView';
 import { DesktopChatView } from '../DesktopChatView';
 import { apiFetch } from '../../lib/api-fetch';
 import { metadataConnection as channel } from '../../../../packages/client/src/__tests__/fixtures/metadata-connection.js';
+import { statusButton } from '../../test-utils/queued-draft-controls';
 vi.mock('../../../../packages/client/src/sse-connection.js', async () => ({
   SseConnection: (
     await import('../../../../packages/client/src/__tests__/fixtures/metadata-connection.js')
@@ -280,7 +281,7 @@ for (const Page of [ChatView, DesktopChatView]) {
         uncertain = true;
         recovering = true;
         act(() => channel.listener({ type: 'session_end', sessionId }));
-        const reconnect = await screen.findByRole('button', { name: 'Reconnect and continue' });
+        const reconnect = await waitFor(() => statusButton('Reconnect and continue'));
         expect(screen.getByRole('button', { name: 'Send message' })).toBeDisabled();
         fireEvent.click(reconnect);
         await waitFor(() =>
