@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.857-native-telos-role-discovery';
+  'v1.0.858-inbox-missing-records';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -1511,7 +1511,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../ws-handler-v2.ts': '8442cc4dc8c491ca3c6ec281676c5528028e4f5e6aec643e95481ca85a80f02a',
   '../briefings.ts': '277b26171abc42266a3b621ff7ab10306792764cb55bbc635e41c4ba20e98d49',
   '../home-router.ts': '744708f3503d3ef46114998ce9bb6a68b3068a3c7d57e0c264298cdb69aac982',
-  '../notification-store.ts': 'f6b5ec6927c367a94511f6eaf215498ffdb7e76020f417105df81d3812de94f3',
+  '../notification-store.ts': '7355b74da37fdfee252135fbe4900b443e15b4216368909a3ec88c348e63b69e',
   '../unified-inbox.ts': 'd6d6babc4ca67bc18e23ee1a8d657bb5e1a6d600658573d8159596162f941332',
   '../inbox.ts': '257557567c9a9b4c1ce09fc30bba797d8495b6ef542e101908520dba67e6e56b',
   '../codex-queue-routes.ts': 'e01a64f37be6e7d26c57a079bc9da85af2488e77f5d0dae09c9089e8e16b6f76',
@@ -2354,7 +2354,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/frozen-host-codex-api-login.test.ts':
     '990e259ca631726f2aa85e031dfe45ff77d5a171a95e830983b94f5e04db7568',
   '../__tests__/inbox-reconciliation-performance.test.ts':
-    'eda2f7e479b9f53caaac9b120829c786cb5b22845ccad002595326ebc69cbf93',
+    '6c7e3b5cff8f31a109e35c9e644ed3733fba6910b3f8ce42414593b867f89144',
   '../__tests__/keychain-controller.test.ts':
     '9db54be445a1daee89bae4bbb966c76d43e13fbfa1ccff8295c158f14249c9e0',
   '../__tests__/keychain-vault.test.ts':

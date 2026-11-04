@@ -106,6 +106,11 @@ export class NotificationStore {
     );
   }
   get(id: string): MitzoNotification | undefined {
+    // Archive reconciliation probes an alternate ID for every retained file.
+    // Missing rows cannot disclose content and need no filesystem policy scan.
+    // Positive lookups still refresh authority before the original filtered
+    // read, so policy changes (including during refresh) cannot reuse old data.
+    if (!this.db.prepare('SELECT 1 FROM notifications WHERE id=?').get(id)) return undefined;
     this.refreshInboxPolicy();
     const row = this.db.prepare(`SELECT * FROM notifications WHERE id=? AND ${visible}`).get(id) as
       Row | undefined;
