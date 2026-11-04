@@ -160,7 +160,11 @@ import { loadAccountProfiles } from './account-profiles.js';
 import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
-import { authorizeGitHubRead, githubReadApproval } from './github-read-approval.js';
+import {
+  authorizeGitHubRead,
+  githubReadApproval,
+  type GitHubReadInput,
+} from './github-read-approval.js';
 import { isDeepStrictEqual } from 'node:util';
 import { codexPrivateDirectory } from './codex-private-path.js';
 import type { AccountBinding, ProviderAttemptToken } from '@mitzo/protocol';
@@ -2448,8 +2452,9 @@ async function openCodexChatBound(
     .update(`GitHubRead:${nativeHostRuntimeId}`)
     .digest('hex');
   type RetainedGitHubRead = {
-    input: { endpoint: string; view?: 'summary' | 'full' };
+    input: GitHubReadInput;
     scopeKey: string;
+    forcePrompt?: boolean;
   };
   const githubRetainedReads = new Map<string, RetainedGitHubRead>();
   // Retained host reads are scoped to this live sandbox owner, never sandbox MCP
@@ -3343,8 +3348,12 @@ async function openCodexChatBound(
           if (
             !original ||
             output.sourceScope !== githubReadOutputScope ||
-            githubReadApproval(original.input.endpoint, options.session, nativeHostRuntimeId)
-              .sessionGrantKey !== original.scopeKey
+            githubReadApproval(
+              original.input.endpoint,
+              options.session,
+              nativeHostRuntimeId,
+              original.input.access,
+            ).sessionGrantKey !== original.scopeKey
           )
             return {
               content: JSON.stringify({
@@ -3364,6 +3373,7 @@ async function openCodexChatBound(
             signal,
             toolUseID: randomUUID(),
             decide: buildPermissionHandler(owner.clientId, options.registry),
+            forcePrompt: original.forcePrompt,
             assertCurrentAsync: assertHostCurrent,
             assertCurrentSync: () => {
               assertHostCurrentSync();
@@ -4147,8 +4157,12 @@ async function openCodexChatBound(
           if (!owner) throw new Error('Codex session unavailable');
           const githubScope =
             name === 'GitHubRead' && typeof input.endpoint === 'string'
-              ? githubReadApproval(input.endpoint, options.session, nativeHostRuntimeId)
-                  .sessionGrantKey
+              ? githubReadApproval(
+                  input.endpoint,
+                  options.session,
+                  nativeHostRuntimeId,
+                  input.access === 'public' ? 'public' : 'authenticated',
+                ).sessionGrantKey
               : undefined;
           const execute = createNativeToolExecutor(owner.clientId, options.registry, {
             githubReadRuntimeId: nativeHostRuntimeId,
@@ -4164,8 +4178,12 @@ async function openCodexChatBound(
           if (githubScope && !result.is_error && typeof input.endpoint === 'string')
             approvedGitHubRead = {
               scopeKey: githubScope,
+              forcePrompt,
               input: {
                 endpoint: input.endpoint,
+                ...(input.access === 'public' || input.access === 'authenticated'
+                  ? { access: input.access }
+                  : {}),
                 ...(input.view === 'summary' || input.view === 'full' ? { view: input.view } : {}),
               },
             };
@@ -4181,8 +4199,12 @@ async function openCodexChatBound(
       callContext.assertCurrentSync?.();
       assertHostCurrentSync();
       if (
-        githubReadApproval(approvedGitHubRead.input.endpoint, options.session, nativeHostRuntimeId)
-          .sessionGrantKey !== approvedGitHubRead.scopeKey
+        githubReadApproval(
+          approvedGitHubRead.input.endpoint,
+          options.session,
+          nativeHostRuntimeId,
+          approvedGitHubRead.input.access,
+        ).sessionGrantKey !== approvedGitHubRead.scopeKey
       )
         throw new CodexToolFailure('stale_owner');
       // Keep hook responses and authority-bearing commit/publication receipts exact.

@@ -7,15 +7,31 @@ import {
 } from '@mitzo/harness';
 import type { ManagedSession } from './session-registry.js';
 
-/** Called only after endpoint validation. Consent covers authenticated GETs for
- * one repository (or /user), separate from publication and shell networking. */
-export function githubReadApproval(endpoint: string, session: ManagedSession, runtimeId?: string) {
+export interface GitHubReadInput {
+  endpoint: string;
+  view?: 'summary' | 'full';
+  access?: 'public' | 'authenticated';
+}
+
+/** Called only after endpoint validation. Public and authenticated reads have
+ * separate scopes; neither grants publication or shell networking. */
+export function githubReadApproval(
+  endpoint: string,
+  session: ManagedSession,
+  runtimeId?: string,
+  access?: GitHubReadInput['access'],
+) {
+  const publicRead = access === 'public';
   const repository = /^\/repos\/([^/]+\/[^/?]+)/.exec(endpoint)?.[1];
   const scope = repository ? `repository ${repository}` : 'the GitHub account identity';
   const binding = session.accountBinding;
   return {
-    title: repository ? `Read GitHub repository ${repository}` : 'Read GitHub account identity',
-    sessionGrantKey: `github-read-v1:${createHash('sha256')
+    title: repository
+      ? `Read ${publicRead ? 'public ' : ''}GitHub repository ${repository}`
+      : 'Read GitHub account identity',
+    sessionGrantKey: `${publicRead ? 'github-public-read-v1' : 'github-read-v1'}:${createHash(
+      'sha256',
+    )
       .update(
         JSON.stringify([
           runtimeId ?? null,
@@ -27,13 +43,13 @@ export function githubReadApproval(endpoint: string, session: ManagedSession, ru
         ]),
       )
       .digest('hex')}`,
-    sessionGrantDescription: `Allow for session covers authenticated GitHub reads for ${scope}. Other repositories, writes and shell network access require separate permission.`,
+    sessionGrantDescription: `Allow for session covers ${publicRead ? 'credential-free public' : 'authenticated'} GitHub reads for ${scope}. Other repositories, writes and shell network access require separate permission.`,
   };
 }
 
 /** The same consent and delivery fence protects fresh reads and retained pages. */
 export async function authorizeGitHubRead(
-  input: { endpoint: string; view?: 'summary' | 'full' },
+  input: GitHubReadInput,
   options: {
     clientId: string;
     registry: SessionRegistry;
@@ -42,16 +58,17 @@ export async function authorizeGitHubRead(
     signal: AbortSignal;
     toolUseID: string;
     decide: ReturnType<typeof buildPermissionHandler>;
+    forcePrompt?: boolean;
     assertCurrentSync?: () => void;
     assertCurrentAsync?: () => Promise<void>;
   },
 ) {
   const { clientId, registry, session, runtimeId, signal } = options;
-  const approval = githubReadApproval(input.endpoint, session, runtimeId);
+  const approval = githubReadApproval(input.endpoint, session, runtimeId, input.access);
   const permission = await options.decide('GitHubRead', input, {
     signal,
     toolUseID: options.toolUseID,
-    forcePrompt: true,
+    forcePrompt: input.access !== 'public' || options.forcePrompt === true,
     allowSessionGrant: true,
     ...approval,
   });
@@ -66,7 +83,7 @@ export async function authorizeGitHubRead(
     if (
       registry.get(clientId) !== session ||
       checkSkillPolicy(registry, clientId, 'GitHubRead') === 'deny' ||
-      githubReadApproval(input.endpoint, session, runtimeId).sessionGrantKey !==
+      githubReadApproval(input.endpoint, session, runtimeId, input.access).sessionGrantKey !==
         approval.sessionGrantKey ||
       (permission.decisionClassification === 'user_permanent' &&
         !session.sessionAllowList.has(approval.sessionGrantKey))

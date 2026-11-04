@@ -19,6 +19,7 @@ import { SessionRegistry, resolvePending } from '@mitzo/harness';
 import { loadAccountProfiles } from '../account-profiles.js';
 import { executeSandboxedCommand } from '../sandboxed-command.js';
 import { executeTrustedGitCommit, executeTrustedGitHubRead } from '../trusted-native-operation.js';
+import { executePublicGitHubRead } from '../public-github-read.js';
 import { captureLocalRepository } from '../local-repository-worktree.js';
 import { snapshotRepositoryTaskCheckout } from '../repository-task-checkout.js';
 const repositoryTasks = vi.hoisted(() => ({ read: vi.fn(), validate: vi.fn() }));
@@ -28,6 +29,9 @@ vi.mock('../repository-workspace-runtime.js', () => ({
 }));
 vi.mock('../sandboxed-command.js', () => ({
   executeSandboxedCommand: vi.fn().mockResolvedValue({ content: 'done', isError: false }),
+}));
+vi.mock('../public-github-read.js', () => ({
+  executePublicGitHubRead: vi.fn().mockResolvedValue('public repository data'),
 }));
 vi.mock('../trusted-native-operation.js', async (importOriginal) => ({
   ...(await importOriginal()),
@@ -186,6 +190,83 @@ describe('native tool execution through session permissions', () => {
       undefined,
       expect.any(Function),
     );
+  });
+  it('reads public GitHub data without a card or an authenticated grant', async () => {
+    const before = vi.mocked(executeTrustedGitHubRead).mock.calls.length;
+    expect(
+      await executor()(
+        call('GitHubRead', {
+          endpoint: '/repos/example/project/pulls',
+          access: 'public',
+        }),
+        abort.signal,
+      ),
+    ).toMatchObject({ content: 'public repository data', is_error: false });
+    expect(sent.some((e) => e.type === 'permission_request')).toBe(false);
+    expect(executePublicGitHubRead).toHaveBeenCalled();
+    expect(vi.mocked(executeTrustedGitHubRead).mock.calls).toHaveLength(before);
+    expect(registry.get('client')!.sessionAllowList.size).toBe(0);
+
+    const authenticated = executor()(
+      call('GitHubRead', {
+        endpoint: '/repos/example/project/pulls',
+        access: 'authenticated',
+      }),
+      abort.signal,
+    );
+    await vi.waitFor(() => expect(sent.some((e) => e.type === 'permission_request')).toBe(true));
+    resolvePending(sent.find((e) => e.type === 'permission_request')!.permId as string, 'deny');
+    expect(await authenticated).toMatchObject({ is_error: true });
+    expect(vi.mocked(executeTrustedGitHubRead).mock.calls).toHaveLength(before);
+  });
+  it('never retries a failed public read using host GitHub credentials', async () => {
+    const before = vi.mocked(executeTrustedGitHubRead).mock.calls.length;
+    vi.mocked(executePublicGitHubRead).mockRejectedValueOnce(
+      Error('Public repository unavailable'),
+    );
+    expect(
+      await executor()(
+        call('GitHubRead', {
+          endpoint: '/repos/example/private',
+          access: 'public',
+        }),
+        abort.signal,
+      ),
+    ).toMatchObject({ is_error: true, content: 'Public repository unavailable' });
+    expect(vi.mocked(executeTrustedGitHubRead).mock.calls).toHaveLength(before);
+    expect(sent.some((e) => e.type === 'permission_request')).toBe(false);
+  });
+  it('keeps explicit project approval requirements for a public read', async () => {
+    const before = vi.mocked(executePublicGitHubRead).mock.calls.length;
+    const pending = createNativeToolExecutor('client', registry, {
+      env: {},
+      forcePrompt: true,
+    })(call('GitHubRead', { endpoint: '/repos/example/project', access: 'public' }), abort.signal);
+    await vi.waitFor(() => expect(sent.some((e) => e.type === 'permission_request')).toBe(true));
+    resolvePending(sent.find((e) => e.type === 'permission_request')!.permId as string, 'deny');
+    expect(await pending).toMatchObject({ is_error: true });
+    expect(vi.mocked(executePublicGitHubRead).mock.calls).toHaveLength(before);
+  });
+  it('preserves the skill ceiling for public GitHub reads', async () => {
+    registry.get('client')!.activeSkillPolicy = new Set(['Read']);
+    const before = vi.mocked(executePublicGitHubRead).mock.calls.length;
+    expect(
+      await executor()(
+        call('GitHubRead', {
+          endpoint: '/repos/example/project',
+          access: 'public',
+        }),
+        abort.signal,
+      ),
+    ).toMatchObject({ is_error: true });
+    expect(vi.mocked(executePublicGitHubRead).mock.calls).toHaveLength(before);
+  });
+  it('rejects public account-identity reads without network or credential access', async () => {
+    const before = vi.mocked(executePublicGitHubRead).mock.calls.length;
+    expect(
+      await executor()(call('GitHubRead', { endpoint: '/user', access: 'public' }), abort.signal),
+    ).toMatchObject({ is_error: true });
+    expect(vi.mocked(executePublicGitHubRead).mock.calls).toHaveLength(before);
   });
   it('reuses repository GitHub read consent for PRs and CI without granting other repositories', async () => {
     registry.get('client')!.mode = 'ask';

@@ -6471,113 +6471,129 @@ it.each(['local', 'openshell'] as const)(
   },
 );
 
-it('projects large GitHub reads after hooks and refuses output from a former native runtime', async () => {
-  mocks.permissionHandler.mockImplementation(async (_name, input) => ({
-    behavior: 'allow',
-    updatedInput: input,
-  }));
-  const native = await import('../native-tool-executor.js');
-  const full = 'github record '.repeat(1500) + 'tail-record';
-  const factory = vi
-    .spyOn(native, 'createNativeToolExecutor')
-    .mockReturnValue(vi.fn(async () => ({ content: full, is_error: false })) as never);
-  const f = ownedLocalOptions();
-  f.opts.registry = {
-    ...f.opts.registry,
-    findBySessionId: () => ({ clientId: 'owned-client', session: f.opts.session }),
-    get: () => f.opts.session,
-  } as never;
-  let query: Awaited<ReturnType<typeof openCodexChat>> | undefined;
-  try {
-    mocks.retainToolOutput.mockReturnValue('22222222-2222-4222-8222-222222222222');
-    query = await openCodexChat(f.opts);
-    const execute = mocks.conversationOptions!.executeTool as (
-      name: string,
-      input: Record<string, unknown>,
-      signal: AbortSignal,
-      context: { turnId: string; callId: string },
-    ) => Promise<{ content: string; isError: boolean }>;
-    expect(
-      (mocks.conversationOptions!.tools as { name: string }[]).some(
-        (tool) => tool.name === 'ReadToolOutput',
-      ),
-    ).toBe(true);
-    const context = { turnId: 'turn', callId: 'read', registerResponseFence: vi.fn() };
-    const hook = vi.spyOn((await import('../native-hooks.js')).NativeHooks.prototype, 'run');
-    const preview = JSON.parse(
-      (await execute('GitHubRead', { endpoint: '/user' }, new AbortController().signal, context))
-        .content,
-    );
-    expect(factory).toHaveBeenLastCalledWith(
-      'owned-client',
-      f.opts.registry,
-      expect.objectContaining({ githubReadRuntimeId: expect.any(String) }),
-    );
-    expect(preview).toMatchObject({
-      complete: false,
-      outputId: '22222222-2222-4222-8222-222222222222',
+it.each(['authenticated', 'public'] as const)(
+  'projects large %s GitHub reads after hooks and refuses output from a former native runtime',
+  async (access) => {
+    mocks.connect.mockResolvedValue({
+      definitions: [],
+      close: mocks.mcpClose,
+      displayName: (name: string) => name,
     });
-    expect(hook).toHaveBeenCalledWith(
-      'PostToolUse',
-      expect.objectContaining({ tool_response: full }),
-      expect.any(AbortSignal),
-    );
-    const sourceScope = mocks.retainToolOutput.mock.calls.at(-1)![4];
-    expect(mocks.retainToolOutput).toHaveBeenLastCalledWith(
-      'owned-session',
-      f.opts.binding,
-      'GitHubRead',
-      full,
-      expect.stringMatching(/^[a-f0-9]{64}$/),
-    );
-    const readOutput = () =>
-      execute(
-        'ReadToolOutput',
-        { outputId: preview.outputId, query: 'tail-record' },
-        new AbortController().signal,
-        context,
+    mocks.permissionHandler.mockImplementation(async (_name, input) => ({
+      behavior: 'allow',
+      updatedInput: input,
+    }));
+    const native = await import('../native-tool-executor.js');
+    const full = 'github record '.repeat(1500) + 'tail-record';
+    const input =
+      access === 'public'
+        ? { endpoint: '/repos/example/project/issues', access }
+        : { endpoint: '/user' };
+    const factory = vi
+      .spyOn(native, 'createNativeToolExecutor')
+      .mockReturnValue(vi.fn(async () => ({ content: full, is_error: false })) as never);
+    const f = ownedLocalOptions();
+    f.opts.registry = {
+      ...f.opts.registry,
+      findBySessionId: () => ({ clientId: 'owned-client', session: f.opts.session }),
+      get: () => f.opts.session,
+    } as never;
+    let query: Awaited<ReturnType<typeof openCodexChat>> | undefined;
+    try {
+      mocks.retainToolOutput.mockReturnValue('22222222-2222-4222-8222-222222222222');
+      query = await openCodexChat(f.opts);
+      const execute = mocks.conversationOptions!.executeTool as (
+        name: string,
+        input: Record<string, unknown>,
+        signal: AbortSignal,
+        context: { turnId: string; callId: string },
+      ) => Promise<{ content: string; isError: boolean }>;
+      expect(
+        (mocks.conversationOptions!.tools as { name: string }[]).some(
+          (tool) => tool.name === 'ReadToolOutput',
+        ),
+      ).toBe(true);
+      const context = { turnId: 'turn', callId: 'read', registerResponseFence: vi.fn() };
+      const hook = vi.spyOn((await import('../native-hooks.js')).NativeHooks.prototype, 'run');
+      const preview = JSON.parse(
+        (await execute('GitHubRead', input, new AbortController().signal, context)).content,
       );
-    mocks.readToolOutput.mockReturnValue({ toolName: 'GitHubRead', content: full, sourceScope });
-    expect(JSON.parse((await readOutput()).content).content).toBe('tail-record');
-    expect(mocks.permissionHandler).toHaveBeenLastCalledWith(
-      'GitHubRead',
-      { endpoint: '/user' },
-      expect.objectContaining({ sessionGrantKey: expect.stringMatching(/^github-read-v1:/) }),
-    );
-    mocks.permissionHandler.mockResolvedValueOnce({
-      behavior: 'deny',
-      message: 'GitHub read consent revoked',
-    });
-    await expect(readOutput()).rejects.toThrow('GitHub read consent revoked');
-    const originalBinding = f.opts.session.accountBinding;
-    f.opts.session.accountBinding = { ...f.opts.binding, accountId: 'another-account' };
-    expect(await readOutput()).toMatchObject({
-      isError: true,
-      content: expect.stringContaining('output_unavailable'),
-    });
-    f.opts.session.accountBinding = originalBinding;
-    f.opts.session.activeSkillPolicy = new Set(['ReadToolOutput']);
-    expect(context.registerResponseFence.mock.calls.at(-1)![0]).toThrow();
-    f.opts.session.activeSkillPolicy = null;
-    mocks.readToolOutput.mockReturnValueOnce({
-      toolName: 'GitHubRead',
-      content: full,
-      sourceScope: '0'.repeat(64),
-    });
-    expect(await readOutput()).toMatchObject({
-      isError: true,
-      content: expect.stringContaining('output_unavailable'),
-    });
-    vi.mocked(f.lease.assertCurrentSync).mockImplementation(() => {
-      throw Error('Revoked owner');
-    });
-    await expect(readOutput()).rejects.toThrow('Owned local Codex chat unavailable');
-  } finally {
-    query?.close();
-    f.eventStore.close();
-    factory.mockRestore();
-  }
-});
+      expect(factory).toHaveBeenLastCalledWith(
+        'owned-client',
+        f.opts.registry,
+        expect.objectContaining({ githubReadRuntimeId: expect.any(String) }),
+      );
+      expect(preview).toMatchObject({
+        complete: false,
+        outputId: '22222222-2222-4222-8222-222222222222',
+      });
+      expect(hook).toHaveBeenCalledWith(
+        'PostToolUse',
+        expect.objectContaining({ tool_response: full }),
+        expect.any(AbortSignal),
+      );
+      const sourceScope = mocks.retainToolOutput.mock.calls.at(-1)![4];
+      expect(mocks.retainToolOutput).toHaveBeenLastCalledWith(
+        'owned-session',
+        f.opts.binding,
+        'GitHubRead',
+        full,
+        expect.stringMatching(/^[a-f0-9]{64}$/),
+      );
+      const readOutput = () =>
+        execute(
+          'ReadToolOutput',
+          { outputId: preview.outputId, query: 'tail-record' },
+          new AbortController().signal,
+          context,
+        );
+      mocks.readToolOutput.mockReturnValue({ toolName: 'GitHubRead', content: full, sourceScope });
+      expect(JSON.parse((await readOutput()).content).content).toBe('tail-record');
+      expect(mocks.permissionHandler).toHaveBeenLastCalledWith(
+        'GitHubRead',
+        input,
+        expect.objectContaining({
+          forcePrompt: access !== 'public',
+          sessionGrantKey: expect.stringMatching(
+            access === 'public' ? /^github-public-read-v1:/ : /^github-read-v1:/,
+          ),
+        }),
+      );
+      mocks.permissionHandler.mockResolvedValueOnce({
+        behavior: 'deny',
+        message: 'GitHub read consent revoked',
+      });
+      await expect(readOutput()).rejects.toThrow('GitHub read consent revoked');
+      const originalBinding = f.opts.session.accountBinding;
+      f.opts.session.accountBinding = { ...f.opts.binding, accountId: 'another-account' };
+      expect(await readOutput()).toMatchObject({
+        isError: true,
+        content: expect.stringContaining('output_unavailable'),
+      });
+      f.opts.session.accountBinding = originalBinding;
+      f.opts.session.activeSkillPolicy = new Set(['ReadToolOutput']);
+      expect(context.registerResponseFence.mock.calls.at(-1)![0]).toThrow();
+      f.opts.session.activeSkillPolicy = null;
+      mocks.readToolOutput.mockReturnValueOnce({
+        toolName: 'GitHubRead',
+        content: full,
+        sourceScope: '0'.repeat(64),
+      });
+      expect(await readOutput()).toMatchObject({
+        isError: true,
+        content: expect.stringContaining('output_unavailable'),
+      });
+      vi.mocked(f.lease.assertCurrentSync).mockImplementation(() => {
+        throw Error('Revoked owner');
+      });
+      await expect(readOutput()).rejects.toThrow('Owned local Codex chat unavailable');
+    } finally {
+      query?.close();
+      f.eventStore.close();
+      factory.mockRestore();
+    }
+  },
+);
 
 /** Synthetic provider/physical RPC; no sandbox, credentials or model calls. */
 async function openOwnedOpenShellEfficiencyFixture(
