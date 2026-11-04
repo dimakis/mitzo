@@ -238,6 +238,81 @@ function seedQueued(sessionId: string, texts: string[]) {
     ),
   );
 }
+it('remembers completion while sending is temporarily unavailable and sends only one queued draft', async () => {
+  seedQueued('blocked-completion', ['First', 'Second']);
+  const send = vi.fn((...args: unknown[]) => {
+    (args[3] as (status: 'accepted') => void)('accepted');
+    return true;
+  });
+  const props = {
+    sessionId: 'blocked-completion',
+    guardedConversation: true,
+    initialText: 'Keep my newer draft',
+    onSend: send,
+    onStop: vi.fn(),
+  };
+  const view = render(<ChatInput {...props} running />);
+  view.rerender(
+    <ChatInput {...props} running={false} sendDisabledReason="Loading conversation settings…" />,
+  );
+  expect(send).not.toHaveBeenCalled();
+  view.rerender(<ChatInput {...props} running={false} />);
+  await waitFor(() => expect(send).toHaveBeenCalledOnce());
+  expect(send.mock.calls[0][0]).toBe('First');
+  await waitFor(() =>
+    expect(JSON.parse(chatStorage.getItem('mitzo-queue-blocked-completion')!)).toMatchObject([
+      { text: 'Second' },
+    ]),
+  );
+  expect(send).toHaveBeenCalledOnce();
+  expect(screen.getByRole('textbox', { name: 'Message Mitzo' })).toHaveValue('Keep my newer draft');
+});
+
+it('does not carry a blocked completion into another chat or replay on an idle mount', async () => {
+  seedQueued('old-completion', ['Old queued draft']);
+  seedQueued('new-completion', ['New queued draft']);
+  const send = vi.fn(() => true);
+  const props = { guardedConversation: true, onSend: send, onStop: vi.fn() };
+  const view = render(<ChatInput {...props} sessionId="old-completion" running />);
+  view.rerender(
+    <ChatInput
+      {...props}
+      sessionId="old-completion"
+      running={false}
+      sendDisabledReason="Loading…"
+    />,
+  );
+  view.rerender(
+    <ChatInput
+      {...props}
+      sessionId="new-completion"
+      running={false}
+      sendDisabledReason="Loading…"
+    />,
+  );
+  view.rerender(<ChatInput {...props} sessionId="new-completion" running={false} />);
+  await act(async () => {});
+  expect(send).not.toHaveBeenCalled();
+  view.unmount();
+  const reopened = render(
+    <ChatInput
+      {...props}
+      sessionId="old-completion"
+      running={false}
+      sendDisabledReason="Loading…"
+    />,
+  );
+  reopened.rerender(<ChatInput {...props} sessionId="old-completion" running={false} />);
+  await act(async () => {});
+  expect(send).not.toHaveBeenCalled();
+  expect(JSON.parse(chatStorage.getItem('mitzo-queue-old-completion')!)).toMatchObject([
+    { text: 'Old queued draft' },
+  ]);
+  expect(JSON.parse(chatStorage.getItem('mitzo-queue-new-completion')!)).toMatchObject([
+    { text: 'New queued draft' },
+  ]);
+});
+
 it('drains the next queued draft after completion precedes its delivery receipt', async () => {
   seedQueued('late-receipt', ['First', 'Second']);
   let receipt: ((status: 'accepted') => void) | undefined;
