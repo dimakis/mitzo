@@ -424,6 +424,10 @@ export async function reconcileRetainedLocalCodexEffects(options: {
           observed.settledEffects,
           authority,
           current,
+          () => {
+            if (observed.status === 'completed')
+              preparedWitness?.observeNativeCompletion(original.target);
+          },
         );
         return true;
       },
