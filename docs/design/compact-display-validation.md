@@ -1,5 +1,13 @@
 # Compact file viewer and stable draft feedback
 
+On 4 November 2026, the user approved retaining generated previews v002–v006
+outside the production PR. Each original-workspace copy was verified byte for byte
+against commit `b336631e` before its removal from the candidate tree. Revision v007,
+the generator and all browser coverage remain. The preview README records recovery
+from Git history. Generation advances beyond the highest retained revision rather
+than reusing a historical number. The resulting complete diff is below Centaur's
+16 MiB limit; no review limit or approval requirement was changed.
+
 Recovery preflight on 3 November 2026 integrated current accepted main. The sole
 conflict was the runtime revision marker; the combined revision is
 `v1.0.846-compact-display-integration`, retaining main's implementation and all

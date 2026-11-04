@@ -83,9 +83,12 @@ showPreview();
 </script></body></html>`;
 const directory = 'mockups/compact-file-viewer';
 await mkdir(directory, { recursive: true });
-const existing = new Set(await readdir(directory));
-let revision = 1;
-while (existing.has(`v${String(revision).padStart(3, '0')}.html`)) revision++;
+const existing = await readdir(directory);
+const revisions = existing.flatMap((name) => {
+  const match = /^v(\d+)\.html$/.exec(name);
+  return match ? [Number(match[1])] : [];
+});
+const revision = Math.max(0, ...revisions) + 1;
 const path = `${directory}/v${String(revision).padStart(3, '0')}.html`;
 await writeFile(path, await format(html, { ...(await resolveConfig(path)), parser: 'html' }), {
   flag: 'wx',
