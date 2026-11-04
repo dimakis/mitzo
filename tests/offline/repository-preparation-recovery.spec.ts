@@ -494,7 +494,9 @@ for (const workspaceChoice of ['select', 'default'] as const) {
           await expect(composer).toHaveValue('Develop Mitzo from latest main');
           const recover = page.getByRole('button', { name: 'Retry', exact: true });
           await expect(recover).toBeVisible();
-          await expect(page.getByText('Delivery not confirmed.', { exact: true })).toHaveCount(1);
+          await expect(
+            page.getByRole('region', { name: 'Conversation status', exact: true }),
+          ).toBeVisible();
           await page.getByRole('button', { name: 'Conversation status details' }).click();
           const statusDialog = page.getByRole('dialog', { name: 'Conversation status' });
           await expect(

@@ -10,8 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.855-chat-status-visual-evidence';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.856-recovery-summary-scope';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -2154,7 +2153,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../tests/offline/multi-runtime-picker.spec.ts':
     '57d196c1043c17f089b8664f8b841234e0a76d852b433728965b19242ac2cd98',
   '../../tests/offline/repository-preparation-recovery.spec.ts':
-    '4419e0fa7e3b9a7675fe8b419231ee379cbb92a9390ff723207d1d2fda4e9bfd',
+    'f7a916fbd66a2f94427f6ed14034085bf715cc2178e0e111e6d9933570e434d1',
   '../__tests__/ordinary-repository-preparation-api.test.ts':
     'be392a0df72a2018169440df07e18fa8ef4c9f8963ba080061d05235108e0110',
   '../command-timing-trace.ts': 'f4c8ddbcae082c29fd718f09dd4b846b5aacc25574f43d681e31a508bae76560',

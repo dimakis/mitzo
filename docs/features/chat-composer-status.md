@@ -107,7 +107,7 @@ images, and the original receipt arriving afterward without removing the new dra
 
 The combined local composer, route, Symposium, accessibility and design checks
 passed **590 tests**, with one existing skip. Changed-source lint and the source
-manifest check pass; runtime revision `v1.0.855-chat-status-visual-evidence` also
+manifest check pass; runtime revision `v1.0.856-recovery-summary-scope` also
 retains status/queue screenshots in the existing hosted visual artifact. Hosted
 browser interaction tests passed; the manifest revision line's formatting was
 corrected after the first hosted core check flagged it.
