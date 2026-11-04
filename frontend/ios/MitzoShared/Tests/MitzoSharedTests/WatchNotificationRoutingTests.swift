@@ -57,3 +57,21 @@ private func watchApproval(input: String = "npm test", session: String = "s1", s
     let item = try JSONDecoder().decode(MitzoNotification.self, from: JSONSerialization.data(withJSONObject: object))
     #expect(watchNotificationResponse(reviewed: item, current: item, decision: .session, at: 999) == nil)
 }
+
+@Test func watchNativeApprovalPreservesExactAccessAndOnceOnlyConsent() throws {
+    func item(allowSession: Bool, directory: String = "/workspace") throws -> MitzoNotification {
+        let input: [String: Any] = ["method": "item/commandExecution/requestApproval", "runtimeId": "mac", "params": ["command": "npm test", "cwd": directory, "additionalPermissions": ["network": ["enabled": true]]]]
+        let inputText = String(data: try JSONSerialization.data(withJSONObject: input, options: [.sortedKeys]), encoding: .utf8)!
+        let object: [String: Any] = ["id": "permission:native", "kind": "approval", "title": "Run command with network access", "body": "Watch approvals", "sessionId": "s1", "createdAt": 1,
+            "request": ["permId": "native", "toolName": "NativeCommandApproval", "toolInput": inputText, "allowSessionGrant": allowSession]]
+        return try JSONDecoder().decode(MitzoNotification.self, from: JSONSerialization.data(withJSONObject: object))
+    }
+    let once = try item(allowSession: false)
+    #expect(watchNotificationResponse(reviewed: once, current: once, decision: .once, at: 999)?.decision == .once)
+    #expect(watchNotificationResponse(reviewed: once, current: once, decision: .session, at: 999) == nil)
+    #expect(watchNotificationResponse(reviewed: once, current: once, decision: .deny, at: 999)?.decision == .deny)
+    let retained = try item(allowSession: true)
+    #expect(watchNotificationResponse(reviewed: retained, current: retained, decision: .session, at: 999)?.decision == .session)
+    #expect(watchNotificationResponse(reviewed: retained, current: try item(allowSession: true, directory: "/other"), decision: .once, at: 999) == nil)
+    #expect(watchNotificationResponse(reviewed: retained, current: once, decision: .once, at: 999) == nil)
+}

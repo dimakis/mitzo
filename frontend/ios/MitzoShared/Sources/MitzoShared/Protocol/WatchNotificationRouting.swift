@@ -49,7 +49,8 @@ public func watchNotificationResponse(
         guard current.kind == "approval", request.questions == nil,
               request.approvalScope != .conversation else { return nil }
     case .session:
-        guard current.kind == "approval", request.questions == nil else { return nil }
+        guard current.kind == "approval", request.questions == nil,
+              request.allowSessionGrant != false else { return nil }
     case .deny: break
     }
     return NotificationResponse(sessionId: sessionID, decision: decision)

@@ -8,7 +8,7 @@ export const TOOL_SUMMARY_MAX_CHARS = 200;
 export const RAW_INPUT_MAX_CHARS = 50_000;
 
 // --- Notifications ---
-export const NOTIFY_SNIPPET_MAX_CHARS = 150;
+export const NOTIFY_SNIPPET_MAX_CHARS = 320;
 export const NOTIFY_INPUT_MAX_CHARS = 100;
 
 // --- Session listing ---
