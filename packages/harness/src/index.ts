@@ -97,6 +97,7 @@ export {
   generateSessionName,
   generateSessionNameFallback,
   isGenericSessionName,
+  stripFencedCode,
   createAnthropicClient,
   setClientFactory,
   resetClientFactory,

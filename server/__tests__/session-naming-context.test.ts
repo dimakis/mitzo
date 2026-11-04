@@ -105,11 +105,50 @@ it('does not load history for a useful title or initial request', () => {
   expect(load).not.toHaveBeenCalled();
 });
 
-it('does not name a task from a code example in an assistant reply', () => {
+it.each(['```', '~~~', '````', '~~~~'])(
+  'does not name a task from a %s code example in an assistant reply',
+  (fence) => {
+    const events = conversation(
+      'Continue',
+      `${fence}md\n## Example task\n[Wrong topic](https://github.com/dimakis/mitzo/pull/9)\n${fence}\nI’ll repair calendar sync.`,
+    );
+    expect(sessionDisplayName({ sessionId: 's', summary: 'Continue' }, events)).toBe(
+      'Repair calendar sync',
+    );
+  },
+);
+
+it.each(['```', '~~~'])('ignores an unfinished %s example', (fence) => {
   const events = conversation(
     'Continue',
-    '```md\n## Example task\n[Wrong topic](https://github.com/dimakis/mitzo/pull/9)\n```\nI’ll repair calendar sync.',
+    `I’ll repair calendar sync.\n${fence}md\n## Example task\n[Wrong topic](https://github.com/dimakis/mitzo/pull/9)`,
   );
+  expect(sessionDisplayName({ sessionId: 's', summary: 'Continue' }, events)).toBe(
+    'Repair calendar sync',
+  );
+  expect(
+    sessionDisplayName(
+      { sessionId: 'chat-12345678', summary: 'Continue' },
+      conversation('Continue', `${fence}md\n## Example task`),
+    ),
+  ).toBe('Chat 12345678');
+});
+
+it('requires a matching fence at least as long as its opener', () => {
+  const events = conversation(
+    'Continue',
+    '````md\n```\n~~~\n[Wrong topic](https://github.com/dimakis/mitzo/pull/9)\n````\nI’ll repair calendar sync.',
+  );
+  expect(sessionDisplayName({ sessionId: 's', summary: 'Continue' }, events)).toBe(
+    'Repair calendar sync',
+  );
+});
+
+it.each(['> ', '- ', '    '])('ignores container-prefixed code examples (%j)', (prefix) => {
+  const example = ['~~~md', '[Wrong topic](https://github.com/dimakis/mitzo/pull/9)', '~~~']
+    .map((line) => prefix + line)
+    .join('\n');
+  const events = conversation('Continue', `${example}\nI’ll repair calendar sync.`);
   expect(sessionDisplayName({ sessionId: 's', summary: 'Continue' }, events)).toBe(
     'Repair calendar sync',
   );

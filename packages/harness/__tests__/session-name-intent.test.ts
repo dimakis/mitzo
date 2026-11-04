@@ -58,6 +58,16 @@ describe('readable local session titles', () => {
       ]),
     ).toBe('Fix plugin installation');
   });
+  it.each(['```', '~~~', '````', '~~~~'])('ignores %s examples in user requests', (fence) => {
+    expect(
+      generateSessionNameFallback([
+        `${fence}md\nFix the example task\n${fence}\nFix calendar sync`,
+      ]),
+    ).toBe('Fix calendar sync');
+    expect(
+      generateSessionNameFallback([`${fence}md\nFix the example task`, 'Fix calendar sync']),
+    ).toBe('Fix calendar sync');
+  });
   it('keeps technical names intact and truncates at word boundaries', () => {
     expect(
       generateSessionNameFallback(['Fix SessionList.tsx search scrolling. Then add tests.']),
