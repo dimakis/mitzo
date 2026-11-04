@@ -3,7 +3,7 @@ import {
   extractRecentPrompts,
   generateSessionNameFallback,
   isGenericSessionName,
-} from './auto-rename.js';
+} from '@mitzo/harness';
 import { replayEventsToMessages } from './conversation-transcript.js';
 
 /** Use public conversation text only; tools, thinking and other seats are not naming context. */

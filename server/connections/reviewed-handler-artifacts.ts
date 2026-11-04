@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.857-session-naming-context';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.858-local-naming-isolation';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -23,7 +23,7 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../session-naming-context.ts':
-    'e435cc8dbeda4393e7514c626894894ae75709384b41ee089878e081be519696',
+    '94b026044c598355554f357f39ca2605a75d04df7dc161ce7bf126f9787e468f',
   '../auto-rename.ts': 'cb3a281d3940e1a21e1819cb90cf2e900f1d7b105baa55c58bf443cb5fb9a85f',
   '../../packages/harness/src/auto-rename.ts':
     '3f73c1629e9ca135276a0b3056a56f563fe5194f5d20d6651d93aaaadd7b06bb',
