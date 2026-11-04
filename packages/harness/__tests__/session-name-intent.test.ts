@@ -3,6 +3,26 @@ import { extractRecentPrompts, generateSessionNameFallback } from '../src/auto-r
 import type { StoredEvent } from '@mitzo/protocol';
 
 describe('readable local session titles', () => {
+  it.each([
+    'Merge it',
+    'Continue',
+    'Yo',
+    'Did we merge it',
+    'Get it merged',
+    'Any update?',
+    'Keep going',
+  ])('does not mistake "%s" for a task', (prompt) => {
+    expect(generateSessionNameFallback([prompt])).toBe('');
+    expect(generateSessionNameFallback([prompt, 'Fix mobile chat recovery'])).toBe(
+      'Fix mobile chat recovery',
+    );
+  });
+  it('keeps concrete merge and continuation subjects', () => {
+    expect(generateSessionNameFallback(['Merge mitzo PR #1210'])).toBe('Merge mitzo PR #1210');
+    expect(generateSessionNameFallback(['Continue calendar sync repair'])).toBe(
+      'Continue calendar sync repair',
+    );
+  });
   it('retains word order and connecting words instead of ranking keywords', () => {
     expect(generateSessionNameFallback(['Could you please fix the login bug?'])).toBe(
       'Fix the login bug',
