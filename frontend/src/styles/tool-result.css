@@ -1,0 +1,127 @@
+.tool-result-content {
+  min-width: 0;
+  max-width: 100%;
+  color: var(--color-text);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-control);
+  font-family: var(--font-ui);
+  font-size: var(--text-md);
+}
+
+.tool-result-toolbar,
+.tool-result-views {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  flex-wrap: wrap;
+}
+
+.tool-result-toolbar {
+  padding-inline: var(--space-2);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.tool-result-label {
+  flex: 1;
+  color: var(--color-muted);
+}
+
+.tool-result-content button {
+  min-height: var(--control-height);
+  min-width: var(--control-height);
+  padding: var(--space-2);
+  border: none;
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--color-muted);
+  font: inherit;
+  cursor: pointer;
+}
+
+.tool-result-views button[aria-pressed='true'] {
+  color: var(--color-accent);
+  background: var(--color-panel);
+}
+
+.tool-result-content :is(button, [tabindex]):focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: -2px;
+}
+
+.tool-result-body {
+  /* Keep a large result inside the conversation's available viewport. */
+  max-height: min(60dvh, 32rem);
+  overflow: auto;
+  padding: var(--space-3);
+  overflow-wrap: anywhere;
+}
+
+.tool-result-fields,
+.tool-result-field dd {
+  margin: 0;
+  min-width: 0;
+}
+
+.tool-result-field {
+  display: grid;
+  gap: var(--space-1);
+  padding-block: var(--space-2);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.tool-result-field:last-child {
+  border-bottom: none;
+}
+.tool-result-field dt {
+  color: var(--color-muted);
+}
+.tool-result-field dd {
+  white-space: pre-wrap;
+}
+.tool-result-field--branch {
+  display: block;
+}
+.tool-result-field--branch > dd {
+  white-space: normal;
+}
+
+.tool-result-toggle {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  text-align: left;
+  width: 100%;
+  overflow-wrap: anywhere;
+}
+
+.tool-result-toggle > svg {
+  flex-shrink: 0;
+}
+.tool-result-toggle > span {
+  min-width: 0;
+}
+.tool-result-toggle > span:first-of-type {
+  color: var(--color-text);
+}
+.tool-result-description {
+  flex: 1;
+}
+.tool-result-children {
+  padding-inline-start: var(--space-3);
+}
+.tool-result-children .tool-result-children {
+  padding-inline-start: 0;
+}
+.tool-result-empty {
+  margin: 0;
+  color: var(--color-muted);
+}
+.tool-result-text {
+  margin: 0;
+  white-space: pre-wrap;
+  font: inherit;
+}
+.tool-result-text--raw {
+  font-family: var(--font-mono);
+}

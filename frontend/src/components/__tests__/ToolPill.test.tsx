@@ -317,7 +317,7 @@ describe('ToolPill', () => {
       expect(container.querySelector('.code-block-highlight')).toBeTruthy();
     });
 
-    it('renders CodeBlock for non-read tools', () => {
+    it('renders wrapped text for generic non-read tools', () => {
       const block: FinishedBlock = {
         blockId: 'b1',
         blockType: 'tool_use',
@@ -330,7 +330,9 @@ describe('ToolPill', () => {
       fireEvent.click(screen.getByRole('button'));
 
       expect(screen.getByText('Result')).toBeTruthy();
-      expect(container.querySelector('.code-block-highlight')).toBeTruthy();
+      expect(
+        container.querySelector('[aria-label="Result content"] .tool-result-text')?.textContent,
+      ).toBe(block.toolResult);
     });
 
     it('renders bash-highlighted result for command tools', () => {

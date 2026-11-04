@@ -6,6 +6,7 @@ import type { StreamingBlock, FinishedBlock, RawToolInput } from '../types/chat'
 import { getToolStatus, type ToolBlock } from '../lib/tool-status';
 import { SubagentCard } from './SubagentCard';
 import { CodeBlock } from './CodeBlock';
+import { ToolResultContent } from './ToolResultContent';
 import { artifactViewerUrl } from '../lib/file-paths';
 import { webAccessOutcome, webAccessSummary } from '../lib/web-access-outcome';
 import { ConnectionSetupCard } from './ConnectionSetupCard';
@@ -129,7 +130,8 @@ function ToolResult({
           ))}
         </div>
       )}
-      {hasText && !taskReview && (
+      {hasText && !taskReview && !raw && <ToolResultContent text={block.toolResult!} />}
+      {hasText && !taskReview && raw && (
         <CodeBlock
           code={block.toolResult!}
           language={raw?.language}
@@ -208,8 +210,7 @@ export function ToolPill({ block, sessionId, showSetupCard = true }: Props) {
             <RawInputDetail raw={block.rawInput} onPopOut={handlePopOut} />
           ) : (
             <div className="tool-pill-section">
-              <span className="tool-pill-label">Input</span>
-              <pre className="tool-pill-pre">{input}</pre>
+              <ToolResultContent text={input} label="Input" />
             </div>
           )}
           <ToolResult block={block} sessionId={sessionId} onPopOut={handlePopOut} />
