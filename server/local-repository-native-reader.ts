@@ -52,6 +52,13 @@ type NativeReaderPathAuthorization = Readonly<{
 // Provenance only, never a retained authorization result. The registered entry
 // retains fresh full original-owner fences at physical I/O and outward verification.
 const nativePathAuthorizations = new WeakMap<object, NativeReaderPathAuthorization>();
+const disposedReaders = new WeakSet<object>();
+
+/** Original read-only helpers have joined and their private scratch is gone.
+ * This observes cleanup; it grants no read, result delivery or write authority. */
+export function nativeRepositoryReadCleanupSettled(reader: object): boolean {
+  return disposedReaders.has(reader);
+}
 const repositoryBaseCaptures = new WeakMap<object, object>();
 type NativeTopologyAssertion = (
   task: Readonly<RepositoryTaskCheckout>,
@@ -535,6 +542,7 @@ export async function captureLocalRepositoryReader(
           try {
             custody.verify();
             await rm(directory, { recursive: true, force: true });
+            disposedReaders.add(reader);
           } catch {
             throw unavailable();
           }

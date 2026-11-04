@@ -25,11 +25,11 @@ describe('extractSnippet', () => {
   });
 
   it('returns fallback when no text blocks exist', () => {
-    expect(extractSnippet([toolBlock()], 150)).toBe('Agent finished its turn.');
+    expect(extractSnippet([toolBlock()], 150)).toBe('');
   });
 
   it('returns fallback for empty blocks array', () => {
-    expect(extractSnippet([], 150)).toBe('Agent finished its turn.');
+    expect(extractSnippet([], 150)).toBe('');
   });
 
   it('does not truncate content under max length', () => {
@@ -38,6 +38,6 @@ describe('extractSnippet', () => {
   });
 
   it('returns fallback when text block has empty content', () => {
-    expect(extractSnippet([textBlock('')], 150)).toBe('Agent finished its turn.');
+    expect(extractSnippet([textBlock('')], 150)).toBe('');
   });
 });

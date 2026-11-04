@@ -8,14 +8,14 @@ function textBlock(content: string): SnapshotBlock {
 
 describe('extractSnippet', () => {
   it('returns fallback for empty blocks', () => {
-    expect(extractSnippet([], 200)).toBe('Agent finished its turn.');
+    expect(extractSnippet([], 200)).toBe('');
   });
 
   it('returns fallback for only tool_use blocks', () => {
     const blocks: SnapshotBlock[] = [
       { blockId: '1', blockType: 'tool_use', content: 'ls', done: true, toolName: 'Bash' },
     ];
-    expect(extractSnippet(blocks, 200)).toBe('Agent finished its turn.');
+    expect(extractSnippet(blocks, 200)).toBe('');
   });
 
   it('returns full text when under maxChars', () => {
@@ -32,5 +32,27 @@ describe('extractSnippet', () => {
   it('uses last text block', () => {
     const blocks: SnapshotBlock[] = [textBlock('first'), textBlock('second')];
     expect(extractSnippet(blocks, 200)).toBe('second');
+  });
+
+  it('keeps the written result when a trailing text block is empty', () => {
+    expect(
+      extractSnippet(
+        [textBlock('Blocked: CI needs a source fingerprint update.'), textBlock('  ')],
+        200,
+      ),
+    ).toBe('Blocked: CI needs a source fingerprint update.');
+  });
+
+  it('makes outcome bullets and links readable on a notification', () => {
+    expect(
+      extractSnippet(
+        [
+          textBlock(
+            '## Result\n\n- **Fixed** Watch approvals.\n- [PR #1207](https://github.com/dimakis/mitzo/pull/1207) awaits review.\n- `18 tests` passed.',
+          ),
+        ],
+        250,
+      ),
+    ).toBe('Result: Fixed Watch approvals. PR #1207 awaits review. 18 tests passed.');
   });
 });

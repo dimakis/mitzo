@@ -459,7 +459,7 @@
     "required": false,
     "behavior": "write",
     "routes": ["codex-owned-local"],
-    "requirement": "Requires explicit native tool selection, current signed operator and exact one-use approval. Artifact reads require a retained exact revision; writes use the canonical Telos store."
+    "requirement": "Available to default native chats; explicit profiles must select the tool. Requires a current signed operator and exact one-use reviewed source approval; writes use the canonical Telos store."
   },
   {
     "id": "mitzo:TelosAdoptSource",
@@ -470,7 +470,7 @@
     "required": false,
     "behavior": "write",
     "routes": ["codex-owned-local"],
-    "requirement": "Requires explicit native tool selection, current signed operator and exact one-use approval. Artifact reads require a retained exact revision; writes use the canonical Telos store."
+    "requirement": "Available to default native chats; explicit profiles must select the tool. Requires a current signed operator and exact one-use reviewed source approval; writes use the canonical Telos store."
   },
   {
     "id": "mitzo:TelosGetItem",

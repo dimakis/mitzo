@@ -21,6 +21,8 @@ import {
 } from './local-repository-discovery.js';
 import type { LocalRepositoryReadAnchor } from './local-repository-read-access.js';
 import type { captureNativeLocalRepositoryReader } from './local-repository-native-read.js';
+import { nativeRepositoryReadCleanupSettled } from './local-repository-native-reader.js';
+import { retainCallbackOutcome } from './turn-callbacks.js';
 import { LocalRepositoryGitInspectionError } from './local-repository-git-inspection.js';
 
 export const LOCAL_REPOSITORY_TOOL_INSTRUCTIONS =
@@ -374,6 +376,7 @@ export function sessionLocalRepositoryTools(
       }; // Capture failures and read refusals return only the bounded error projection.
       let result: Awaited<ReturnType<typeof run>>;
       let cleanupCurrent = true;
+      let cleanupSettled = false;
       try {
         result = await run();
       } finally {
@@ -381,6 +384,7 @@ export function sessionLocalRepositoryTools(
           if (reader) {
             const closed: unknown = await reader.dispose();
             if (closed !== undefined) cleanupCurrent = false;
+            else cleanupSettled = nativeRepositoryReadCleanupSettled(reader);
           }
           // Cleanup is an await: only the genuine still-current original call
           // may receive facts, independently of the now-disposed reader.
@@ -393,11 +397,16 @@ export function sessionLocalRepositoryTools(
               assertSynchronous(() => disposeOriginal!.call(context!));
             } catch {
               cleanupCurrent = false;
+              cleanupSettled = false;
             }
           }
         }
       }
-      return cleanupCurrent ? result : unavailable();
+      if (cleanupCurrent) return result;
+      // Expired authority still withholds every partially read fact. Only the
+      // original physical reader's joined cleanup can settle this bounded refusal.
+      const refusal = unavailable();
+      return cleanupSettled ? retainCallbackOutcome(refusal, 'settled') : refusal;
     },
   };
 }

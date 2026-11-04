@@ -181,3 +181,12 @@ shared revision marker, now `v1.0.835-settled-recovery-and-compact-display`.
 Fingerprints from both sides are retained and source verification passes. The
 combined branch passes 137 focused design/viewer/draft/preview checks, with one
 existing design skip. Exact combined-head CI and Centaur approval remain required.
+
+Recovery on 4 November 2026 verified that published commit `d4d1e2ee` passed
+CI run `41743281924`, including browser and native coverage. Accepted main
+`b8ae361c` is now integrated; its notification, chat recovery, readable tool-result
+and reviewed-capture changes merge without UI conflicts. The shared runtime
+marker is `v1.0.854-compact-display-integration`; source fingerprints verify.
+The combined branch passes 139 focused design/viewer/draft/preview checks with
+one existing skip. Fresh combined-head CI and final Centaur approval are still
+required before merge.

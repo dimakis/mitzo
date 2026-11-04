@@ -276,6 +276,23 @@ it('captures a live queued primary interruption only after the exact authorized 
   expect(() => owner.assertAcceptedCommand(command.id)).not.toThrow();
   const witness = store.assertPreparedRepositoryRecovery('chat', binding, command.id)!;
   expect(() => witness.assertCurrentSync()).not.toThrow();
+  store.pauseForRecovery(
+    'chat',
+    binding,
+    command.id,
+    'interrupted',
+    'resume',
+    undefined,
+    true,
+    true,
+  );
+  const target = store.nativeRecoveryTarget('chat', binding)!;
+  expect(() => witness.observeNativeCompletion(target)).toThrow();
+  store.reconcileNativeRecovery('chat', binding, target, 'completed', 'initial', 0);
+  expect(() => witness.assertCurrentSync()).toThrow();
+  expect(() => witness.observeNativeCompletion({ ...target, turnId: 'foreign-turn' })).toThrow();
+  witness.observeNativeCompletion(target);
+  expect(() => witness.assertCurrentSync()).not.toThrow();
 });
 it('retains exact interrupted receipt and native target evidence across acknowledged generations and cold capture', () => {
   const { store, path, claim } = fixture();
