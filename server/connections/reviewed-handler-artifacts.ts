@@ -10,7 +10,8 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.860-host-response-failure';
+export const reviewedConnectionsRuntimeImplementationRevision =
+  'v1.0.861-reentrant-response-failure';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -1433,7 +1434,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/protocol/src/session-approval-scope.ts':
     'ba694fed805637520dfbfdb160f5d8ba8093a76d1cafe70709dbf18a443423d2',
   '../codex-app-server-client.ts':
-    'fbffb54a6ba66fee2fc0c751b3ce15b5041a5407d90bbc6ff8ecf9a1494246c2',
+    '3b3b4e1fa16d63ade0ad44a33b6a3f988d646b27664000c3601151212e3fc4dc',
   '../codex-mcp-tools.ts': 'd6cd792870982738def832270d35164d5b1a579cbbdc425be8f89ed408d4c61a',
   '../codex-runtime-diagnostics.ts':
     'e426c983ef3d408260f8977fc6ee5b4b683ffce307d65db15eb00fa18f939323',
@@ -2339,7 +2340,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/chat-provider-admission.test.ts':
     '487b01b94336c384d247af35f4b5d0d520ebd36d0444f27f3ba45fb009f865a1',
   '../__tests__/codex-app-server-client.test.ts':
-    'bd55010fa7a80a6045528b1250aa802c2711035b6a1e3ae109cfd213e2abc78c',
+    'd6661d03321ea206822cc59514a892fb283ea3c479dd2e74e0a027877bdc2b46',
   '../__tests__/codex-chat-dispatch.test.ts':
     '274484967b1ab918912ee8efb3857cce461f7324d2bcecac8ea3f998be487928',
   '../__tests__/codex-isolated-api-launch.test.ts':
