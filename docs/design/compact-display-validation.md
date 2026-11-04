@@ -190,3 +190,13 @@ marker is `v1.0.854-compact-display-integration`; source fingerprints verify.
 The combined branch passes 139 focused design/viewer/draft/preview checks with
 one existing skip. Fresh combined-head CI and final Centaur approval are still
 required before merge.
+
+Inspection of run `41743281924` captures found that files named light still
+rendered the dark palette. The fixture assigned root attributes from an early
+initialization script, before its HTML root was reliably available. Theme, accent
+and font now appear in the served HTML, and the initialization script records
+matching appearance preferences for mounted hooks. Assertions verify all three
+attributes before the header capture and the theme after composer navigation.
+Earlier capture filenames alone do not prove light-theme coverage. The focused
+browser command was stopped by the repository's Seatbelt host guard even through
+the escalated execution tool; rendered verification therefore remains in CI.

@@ -46,9 +46,10 @@ test.beforeEach(async ({ page }) => {
         contentType: url.pathname.endsWith('.png') ? 'image/png' : 'image/svg+xml',
       });
     }
+    const theme = url.searchParams.get('theme') === 'light' ? 'light' : 'dark';
     return route.fulfill({
       contentType: 'text/html',
-      body: '<!doctype html><html><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="/fixture.css"><div id="root"></div><script type="module" src="/fixture.js"></script></html>',
+      body: `<!doctype html><html data-theme="${theme}" data-accent="${theme === 'dark' ? 'mint' : 'teal'}" data-font="${theme === 'dark' ? 'system' : 'georgia'}"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="/fixture.css"><div id="root"></div><script type="module" src="/fixture.js"></script></html>`,
     });
   });
 });
@@ -111,11 +112,20 @@ for (const theme of ['dark', 'light']) {
     await page.setViewportSize({ width: isMobile ? 393 : 1280, height: 852 });
     await page.emulateMedia({ reducedMotion: 'reduce' });
     await page.addInitScript((theme) => {
-      document.documentElement.dataset.theme = theme;
-      document.documentElement.dataset.accent = theme === 'dark' ? 'mint' : 'teal';
-      document.documentElement.dataset.font = theme === 'dark' ? 'system' : 'georgia';
+      localStorage.setItem('mitzo-theme', theme);
+      localStorage.setItem('mitzo-accent', theme === 'dark' ? 'mint' : 'teal');
+      localStorage.setItem('mitzo-font', theme === 'dark' ? 'system' : 'georgia');
     }, theme);
-    await page.goto('/files?path=v001.md');
+    await page.goto(`/files?path=v001.md&theme=${theme}`);
+    await expect(page.locator('html')).toHaveAttribute('data-theme', theme);
+    await expect(page.locator('html')).toHaveAttribute(
+      'data-accent',
+      theme === 'dark' ? 'mint' : 'teal',
+    );
+    await expect(page.locator('html')).toHaveAttribute(
+      'data-font',
+      theme === 'dark' ? 'system' : 'georgia',
+    );
     const header = page.locator('.viewer-header');
     const home = page.getByRole('link', { name: 'Mitzo home', exact: true });
     await expect(home).toHaveCount(1);
@@ -155,7 +165,8 @@ for (const theme of ['dark', 'light']) {
       element.scrollTop = element.scrollHeight;
     });
     await expect(page.getByText('Last paragraph.', { exact: true })).toBeInViewport();
-    await page.goto('/chat');
+    await page.goto(`/chat?theme=${theme}`);
+    await expect(page.locator('html')).toHaveAttribute('data-theme', theme);
     const input = page.getByRole('textbox', { name: 'Message Mitzo', exact: true });
     const status = page.locator('.chat-draft-save-status').first();
     await expect(status).toHaveText('Draft autosaves on this device');
