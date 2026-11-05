@@ -340,6 +340,7 @@ function ownedLocalOptions(
   agentProfile?: import('@mitzo/protocol').AgentLibraryVersion,
   mode: 'ask' | 'agent' | 'auto' = 'agent',
   authenticationSignal?: AbortSignal,
+  retainedAuthenticationFailure?: () => unknown,
 ) {
   const eventStore = new EventStore(':memory:');
   // This qualified Mac lease fixture must select the same host branch on CI.
@@ -435,6 +436,7 @@ function ownedLocalOptions(
     lease,
     bridge,
     authenticationSignal,
+    retainedAuthenticationFailure,
   });
   const opts = {
     ...options(new AbortController()),
@@ -3346,9 +3348,13 @@ it('keeps scoped adviser context isolated when ordinary local discovery and effi
   }
 });
 
-it.each(['auth_expired', 'auth_revoked'] as const)(
-  'retains %s instead of a generic transport error for an invalidated chat',
-  async (code) => {
+it.each([
+  { code: 'auth_expired', timing: 'timer' },
+  { code: 'auth_revoked', timing: 'revoke' },
+  { code: 'auth_expired', timing: 'before-timer' },
+] as const)(
+  'retains $code after $timing invalidation and admission cleanup',
+  async ({ code, timing }) => {
     vi.clearAllMocks();
     mocks.initialize.mockResolvedValue(undefined);
     mocks.send.mockResolvedValue(undefined);
@@ -3361,12 +3367,17 @@ it.each(['auth_expired', 'auth_revoked'] as const)(
     const controller = new AbortController();
     const auth = { id: crypto.randomUUID(), expiresAt: Date.now() + 60_000 };
     const scope = retainAgentContextAuthority(auth, controller);
-    const f = ownedLocalOptions('/tmp', undefined, 'agent', controller.signal);
+    const f = ownedLocalOptions('/tmp', undefined, 'agent', controller.signal, scope.failure);
     const guard = () => f.ownedLocal.assertCurrentSync();
     let query: Awaited<ReturnType<typeof openCodexChat>> | undefined;
     try {
       query = await openCodexChat({ ...f.opts, assertAgentContextAuthorization: guard });
-      if (code === 'auth_expired') vi.advanceTimersByTime(60_001);
+      if (timing === 'before-timer') {
+        vi.setSystemTime(auth.expiresAt);
+        vi.mocked(f.lease.assertCurrentSync).mockImplementation(() => scope.assertCurrent());
+        expect(guard).toThrow('Owned local Codex chat unavailable');
+        expect(controller.signal.aborted).toBe(false);
+      } else if (timing === 'timer') vi.advanceTimersByTime(60_001);
       else revokeAuthSession(auth);
       f.ownedLocal.close();
       expect(guard).toThrow('Owned local Codex chat unavailable');

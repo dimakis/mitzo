@@ -81,6 +81,7 @@ interface Owner {
   authSessionId?: string;
   /** Diagnostic-only original login lifetime; survives admission/lease cleanup. */
   authenticationSignal?: AbortSignal;
+  retainedAuthenticationFailure?: () => unknown;
   custody?: HostCodexCustody;
   /** Current actual private cold workspace owner; never reconstructed live delegation. */
   qualifiedColdPrimary?: Readonly<{ commandId: string; assertCurrentSync(): void }>;
@@ -765,7 +766,14 @@ export class OwnedLocalCodexChatAdmission {
     this.observeCurrentSync(this.owner.eventStore, this.owner.sessionId);
   }
   authenticationFailure() {
-    return agentContextAuthenticationFailure(this.owner.authenticationSignal?.reason);
+    try {
+      return (
+        agentContextAuthenticationFailure(this.owner.retainedAuthenticationFailure?.()) ??
+        agentContextAuthenticationFailure(this.owner.authenticationSignal?.reason)
+      );
+    } catch {
+      return undefined;
+    }
   }
   /** The actual admission owner supplies fresh facts for its caller's immediate
    * pure comparisons. Callers cannot supply a checked observation or retain

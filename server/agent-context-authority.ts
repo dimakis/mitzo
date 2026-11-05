@@ -36,6 +36,8 @@ export function retainAgentContextAuthority(auth: AuthSession, controller: Abort
     controller.abort(invalidation);
   });
   return {
+    /** Diagnostic-only observation survives release and does not grant authority. */
+    failure: () => invalidation,
     assertCurrent() {
       if (released) throw Error('Agent context authorization was released');
       controller.signal.throwIfAborted();
