@@ -69,12 +69,12 @@
     "id": "mitzo:GitHubRead",
     "version": 1,
     "name": "GitHubRead",
-    "description": "Perform an approved authenticated GitHub API GET through Mitzo. Credentials remain in the trusted host process and are never exposed to the command sandbox.",
+    "description": "Read GitHub repository data through Mitzo. Use access: public for credential-free public reads without an ordinary approval card. Authenticated reads require repository consent; credentials remain private to Mitzo. Public failures never fall back to account credentials.",
     "source": "Workspace",
     "required": false,
     "behavior": "read",
     "routes": ["local-api", "codex", "codex-owned-local"],
-    "requirement": "Requires existing GitHub access and the usual action approval."
+    "requirement": "Public reads use no credentials and follow current tool policy. Authenticated reads require approved repository access."
   },
   {
     "id": "mitzo:GitCommit",

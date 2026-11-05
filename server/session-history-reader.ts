@@ -15,6 +15,7 @@ export interface HistoryEntry {
 }
 interface Group extends HistoryEntry {
   messageId?: string;
+  firstBlockId?: unknown;
   blockId?: unknown;
   bytes: number;
   truncated: boolean;
@@ -126,6 +127,7 @@ export function readHistoryMessages(options: {
         kind,
         text: value,
         messageId,
+        firstBlockId: row.payload.blockId,
         blockId: row.payload.blockId,
         bytes,
         truncated: row.payload.historyTextTruncated === true,
@@ -163,13 +165,18 @@ export function readHistoryMessages(options: {
       throw new UnsupportedHistoryError(page.length + contextEvents);
     const parts: string[] = [];
     for (const row of [...context].reverse()) {
-      if (row.payload.blockId !== first.blockId) break;
+      if (row.payload.blockId !== first.firstBlockId) break;
       if (typeof row.payload.delta === 'string') parts.unshift(row.payload.delta);
     }
     const text = parts.join('');
     const last = context[context.length - 1];
-    if (last && last.payload.blockId === first.blockId)
-      prefix = { text, messageId: first.messageId, blockId: first.blockId, seq: context[0].seq };
+    if (last && last.payload.blockId === first.firstBlockId)
+      prefix = {
+        text,
+        messageId: first.messageId,
+        blockId: first.firstBlockId,
+        seq: context[0].seq,
+      };
   }
   let consumed = afterSeq;
   let consumedBefore = beforeSeq;
@@ -184,16 +191,14 @@ export function readHistoryMessages(options: {
       query.length > 1 &&
       prefix?.messageId &&
       prefix.messageId === group.messageId &&
-      prefix.blockId === group.blockId
+      prefix.blockId === group.firstBlockId
         ? prefix.text.slice(-(query.length - 1))
         : '';
     const text = project(overlap + group.text);
     if (typeof text !== 'string') throw Error('Invalid public history text');
-    const position = query ? text.toLocaleLowerCase().indexOf(query.toLocaleLowerCase()) : 0;
+    const match = query ? originalMatchRange(text, query) : { start: 0, end: 0 };
     const entryText =
-      query && position >= 0
-        ? text.slice(Math.max(0, position - 80), position + query.length + 160)
-        : text;
+      query && match ? text.slice(Math.max(0, match.start - 80), match.end + 160) : text;
     const entry: HistoryEntry = {
       seq: overlap ? prefix!.seq : group.seq,
       ...(group.endSeq || overlap ? { endSeq: group.endSeq ?? group.seq } : {}),
@@ -207,7 +212,7 @@ export function readHistoryMessages(options: {
       blockId: group.blockId,
       seq: group.seq,
     };
-    return { group, entry, matches: position >= 0 };
+    return { group, entry, matches: match !== undefined };
   });
   for (const { group, entry, matches } of recent ? projected.reverse() : projected) {
     const size = Buffer.byteLength(JSON.stringify(entry)) + 1;
@@ -245,6 +250,28 @@ export function readHistoryMessages(options: {
     scannedEvents: page.length + contextEvents,
     ...(blockedEvent ? { blockedEvent } : {}),
   };
+}
+
+/** Case mapping may expand a code point (İ becomes i plus a combining dot).
+ * Match folded text, then map the range back before slicing public text. */
+function originalMatchRange(text: string, query: string) {
+  const folded = text.toLowerCase();
+  const needle = query.toLowerCase();
+  const start = folded.indexOf(needle);
+  if (start < 0) return undefined;
+  const end = start + needle.length;
+  if (folded.length === text.length) return { start, end };
+  let originalOffset = 0;
+  let foldedOffset = 0;
+  let originalStart = 0;
+  for (const point of text) {
+    const nextFolded = foldedOffset + point.toLowerCase().length;
+    if (foldedOffset <= start && start < nextFolded) originalStart = originalOffset;
+    originalOffset += point.length;
+    if (nextFolded >= end) return { start: originalStart, end: originalOffset };
+    foldedOffset = nextFolded;
+  }
+  throw Error('Invalid history match range');
 }
 
 export function isUnsupportedHistoryEvent(event: StoredEvent) {

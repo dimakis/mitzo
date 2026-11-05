@@ -143,15 +143,13 @@ export class ConversationReplayStore<Row> {
       throw Error('Invalid history event page bounds');
     const rows = this.db!.prepare(
       `SELECT ${HISTORY_COLUMNS}
-       FROM events WHERE session_id=? AND seq>? AND seq<=? AND (? IS NULL OR seq<?)
+       FROM events WHERE session_id=? AND seq>? AND seq<=?
        ORDER BY seq ${recent ? 'DESC' : 'ASC'} LIMIT ?`,
     ).iterate(
       { textStart: 1, textLength: 32769 },
       sessionId,
       afterSeq,
-      throughSeq,
-      beforeSeq ?? null,
-      beforeSeq ?? null,
+      Math.min(throughSeq, beforeSeq === undefined ? throughSeq : beforeSeq - 1),
       limit + 1,
     );
     const events: StoredEvent[] = [];

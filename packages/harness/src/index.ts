@@ -96,6 +96,7 @@ export {
   extractRecentPrompts,
   generateSessionName,
   generateSessionNameFallback,
+  isGenericSessionName,
   createAnthropicClient,
   setClientFactory,
   resetClientFactory,

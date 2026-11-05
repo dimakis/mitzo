@@ -52,7 +52,10 @@ retrieval. A title match does not require opening an unsupported transcript.
 3. **Search correctness and audience boundaries.** Matching follows assembly and
    the owner's public projection, so fragments and redacted terms cannot bypass
    normal matching. A bounded lookup through the existing delta-capable message-ID index
-   supplies query overlap across scan boundaries. The same projection serves
+   supplies query overlap across scan boundaries, retaining the
+   overlap from the starting block even when a continuation includes another
+   block. Unicode case mappings retain original-string offsets for excerpts.
+   The same projection serves
    forward, reverse and overlap reads; reasoning/tool/configuration fields never
    leave SQLite through that projection. Unknown formats fail closed.
 4. **Resource and concurrency effects.** A tool call consumes at most 8,192
@@ -78,6 +81,8 @@ schema migration or background worker. The query-plan regression requires a
 message-and-sequence seek, rather than merely a conversation scan; SQLite can
 use the existing `idx_events_user_msg_dedup` index and the rowid alias of `seq`
 for delta look-behind despite that index's historical name.
+Backward continuations bind their sequence ceiling directly in the indexed seek,
+so returning an older page does not scan all newer events again.
 Cross-conversation search remains bounded
 and paginated, rather than an exhaustive one-call full-text index. Unknown format
 coverage, metadata cursor invalidation and single-event output overflow are

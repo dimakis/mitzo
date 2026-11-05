@@ -384,11 +384,8 @@ import {
 } from './agent-context-delivery.js';
 import { retainAgentContextAuthority } from './agent-context-authority.js';
 import { captureAgentLibraryAuthorization } from './agent-library-transport.js';
-import {
-  shouldAutoRename,
-  extractRecentPrompts,
-  generateSessionNameFallback,
-} from './auto-rename.js';
+import { shouldAutoRename } from './auto-rename.js';
+import { sessionDisplayName, sessionNamingPrompts } from './session-naming-context.js';
 import {
   registerSession,
   updateSessionTitle,
@@ -4275,9 +4272,10 @@ async function tryAutoRename(sessionId: string, clientId: string): Promise<void>
     if (!shouldAutoRename(promptCount, sessionMeta.manuallyRenamed)) return;
 
     const events = eventStore.getSessionEvents(sessionId);
-    const prompts = extractRecentPrompts(events);
+    const prompts = sessionNamingPrompts(events, sessionMeta.initialPrompt);
     const newName = await accountSessionName(prompts, sessionMeta.accountBinding);
     if (!newName) return;
+    if (eventStore.getSession(sessionId)?.manuallyRenamed) return;
 
     log.info('auto-renaming session', { sessionId, promptCount, newName });
 
@@ -5741,14 +5739,7 @@ export function getSessionsCached(offset = 0, limit = SESSION_PAGE_SIZE) {
   return {
     sessions: page.map((m) => ({
       id: m.sessionId,
-      summary:
-        m.summary ||
-        (m.manuallyRenamed
-          ? ''
-          : generateSessionNameFallback([
-              m.initialPrompt ||
-                String(eventStore.getLatestEvent(m.sessionId, 'user_message')?.payload.text ?? ''),
-            ])),
+      summary: sessionDisplayName(m, () => eventStore.getSessionEvents(m.sessionId)),
       lastModified: m.updatedAt,
       branch: m.branch ?? undefined,
       cwd: m.cwd ?? undefined,

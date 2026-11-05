@@ -229,6 +229,70 @@ describe('message-oriented session retrieval', () => {
     );
   });
 
+  it('retains the starting block when a continuation also contains another text block', async () => {
+    const f = fixture();
+    for (let i = 0; i < 8191; i++) f.store.append('past', 'tool_result', { content: 'excluded' });
+    const start = f.delta('release ');
+    f.delta('decision');
+    f.store.append('past', 'block_delta', {
+      blockType: 'text',
+      messageId: 'answer',
+      blockId: 'another',
+      delta: 'Another block',
+    });
+    const first = await f.read({ query: 'release decision' });
+    expect(first.nextAfterSeq).toBe(start);
+    const next = await f.read({
+      query: 'release decision',
+      afterSeq: first.nextAfterSeq,
+      throughSeq: first.throughSeq,
+    });
+    expect(next.entries[0].text).toContain('release decision');
+    const search = await f.search();
+    expect(search.sessions).toEqual([]);
+    const continuation = await f.search({ cursor: search.nextCursor });
+    expect(continuation.sessions[0].snippet).toContain('release decision');
+  });
+
+  it('uses original Unicode offsets for excerpts in both history tools', async () => {
+    const f = fixture();
+    f.user('İ'.repeat(300) + 'needle' + 'z'.repeat(300));
+    const page = await f.read({ query: 'NEEDLE' });
+    expect(page.entries[0].text).toContain('needle');
+    expect(page.entries[0].text.startsWith('İ'.repeat(80))).toBe(true);
+    expect(page.entries[0].excerpt).toBe(true);
+    const search = await f.search({ query: 'NEEDLE' });
+    expect(search.sessions[0].snippet).toContain('needle');
+  });
+
+  it('seeks backwards from the requested boundary rather than filtering newer rows', () => {
+    const f = fixture();
+    for (let i = 0; i < 100; i++) f.user(String(i));
+    const db = (f.store as unknown as { db: Database.Database }).db;
+    const prepare = db.prepare.bind(db);
+    const queries: string[] = [];
+    vi.spyOn(db, 'prepare').mockImplementation((sql) => {
+      queries.push(sql);
+      return prepare(sql);
+    });
+    expect(
+      f.store.getHistoryEventPage('past', 0, 100, 2, 10, true).events.map((row) => row.seq),
+    ).toEqual([9, 8]);
+    // The actual read must place the continuation in the seek argument, not a
+    // residual predicate. Assert both the planner and the bound parameter.
+    const plan = prepare('EXPLAIN QUERY PLAN ' + queries[0]).all(
+      { textStart: 1, textLength: 32769 },
+      'past',
+      0,
+      9,
+      3,
+    ) as { detail: string }[];
+    expect(plan.map((row) => row.detail).join('\n')).toMatch(
+      /SEARCH events USING INDEX .*\(session_id=\? AND (?:seq|rowid)>\? AND (?:seq|rowid)<\?\)/,
+    );
+    expect(f.store.getHistoryEventPage('past', 0, 100, 2, 0, true).events).toEqual([]);
+  });
+
   it.each([undefined, ['text', String.fromCharCode(0), 'thinking'].join('')])(
     'retains the final authorization check for unsupported message pages (%s)',
     async (blockType) => {

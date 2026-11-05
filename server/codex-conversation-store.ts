@@ -232,6 +232,7 @@ const CommandTransportDiagnosticSchema = z.strictObject({
     'reply_provenance_failed',
     'notification_handler_failed',
     'host_tool_admission_timeout',
+    'host_response_fence_failed',
   ]),
   exitCode: z.number().int().safe().nullable().optional(),
   signal: z

@@ -6,8 +6,15 @@ import { tmpdir } from 'node:os';
 import { NotificationStore } from '../notification-store.js';
 import { UnifiedInbox } from '../unified-inbox.js';
 import { InboxQuery } from '@mitzo/protocol';
+import * as privacy from '../codex-private-path.js';
 
 vi.mock('fs', { spy: true });
+// Count the consumer's policy captures without inspecting operator credentials.
+// Visibility and revocation semantics are covered by notification-store/privacy tests.
+vi.mock('../codex-private-path.js', () => ({
+  privateCodexPathSnapshot: vi.fn(() => ({ roots: [], isPrivate: () => false })),
+  isPrivateCodexPath: vi.fn(() => false),
+}));
 const cleanup: Array<() => void> = [];
 afterEach(() => {
   cleanup
@@ -45,4 +52,21 @@ it('retains the filename validation used by individual source reads', () => {
   new UnifiedInbox(store, () => root).reconcile();
   expect(sync).not.toHaveBeenCalled();
   expect(store.get('inbox:unsafe..md')).toBeUndefined();
+});
+
+it('does not rebuild privacy policy for absent archive collision records', () => {
+  const root = mkdtempSync(join(tmpdir(), 'inbox-archive-cost-'));
+  cleanup.push(() => rmSync(root, { recursive: true, force: true }));
+  mkdirSync(join(root, 'archive'));
+  for (let index = 0; index < 40; index++)
+    writeFileSync(join(root, 'archive', `${index}.md`), '# Retained public evidence');
+  const store = new NotificationStore(':memory:');
+  cleanup.push(() => store.close());
+  const inbox = new UnifiedInbox(store, () => root);
+  inbox.reconcile();
+  vi.mocked(privacy.privateCodexPathSnapshot).mockClear();
+  inbox.reconcile();
+  // One current policy per source scan; missing IDs cannot expose source bytes.
+  expect(privacy.privateCodexPathSnapshot).toHaveBeenCalledTimes(2);
+  expect(store.feed('archived').total).toBe(40);
 });
