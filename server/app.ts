@@ -5185,20 +5185,28 @@ app.get('/api/inbox/:filename', (req, res) => {
   res.json({ content });
 });
 
-app.post('/api/inbox/:filename/approve', (req, res) => {
+app.post('/api/inbox/:filename/approve', async (req, res) => {
   const inboxPath = getRepoConfig().resolvedInboxPath;
   if (!inboxPath) {
     res.status(404).json({ error: 'Inbox not configured' });
     return;
   }
-  const ok = approveInboxItem(inboxPath, req.params.filename);
-  if (!ok) {
-    res.status(404).json({ error: 'Item not found' });
-    return;
+  try {
+    // Drain an older scan before moving the source, then await a fresh scan so
+    // delivery cancellation, badges and change events precede the response.
+    await notificationCenter.reconcileAsync();
+    const ok = approveInboxItem(inboxPath, req.params.filename as string);
+    if (!ok) {
+      res.status(404).json({ error: 'Item not found' });
+      return;
+    }
+    await notificationCenter.reconcileAsync();
+    notificationCenter.reconcile();
+    res.json({ ok: true });
+    broadcastInboxUpdate();
+  } catch {
+    res.status(503).json({ error: 'Inbox temporarily unavailable' });
   }
-  notificationCenter.feed('needs');
-  res.json({ ok: true });
-  broadcastInboxUpdate();
 });
 
 app.delete('/api/inbox/:filename', (req, res) => {
@@ -5212,7 +5220,7 @@ app.delete('/api/inbox/:filename', (req, res) => {
     res.status(404).json({ error: 'Item not found' });
     return;
   }
-  notificationCenter.feed('needs');
+  notificationCenter.reconcile();
   notificationCenter.changed();
   res.json({ ok: true });
   broadcastInboxUpdate();

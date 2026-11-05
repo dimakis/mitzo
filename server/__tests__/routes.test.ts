@@ -1,3 +1,4 @@
+import './fixtures/offline-user-home.js';
 import { describe, it, expect, vi, beforeAll, beforeEach, afterAll, afterEach } from 'vitest';
 import type { Server } from 'node:http';
 import { listenOnLoopback, closeTestServer } from './loopback-test-server.js';
@@ -1419,11 +1420,19 @@ describe('inbox routes', () => {
   it('POST /api/inbox/:filename/approve — moves to archive', async () => {
     // Create a fresh item for this test
     writeFileSync(join(INBOX_DIR, '20260401_000000_01_test.md'), SAMPLE_INBOX_ITEM);
+    const { notificationCenter } = await import('../app.js');
+    await notificationCenter.reconcileAsync();
+    const id = 'inbox:20260401_000000_01_test.md';
+    expect(notificationCenter.store.get(id)?.archivedAt).toBeNull();
+    const changed = vi.spyOn(notificationCenter, 'changed');
     const res = await request(app)
       .post('/api/inbox/20260401_000000_01_test.md/approve')
       .set('Cookie', authCookie);
     expect(res.status).toBe(200);
     expect(res.body).toEqual({ ok: true });
+    expect(notificationCenter.store.get(id)?.archivedAt).not.toBeNull();
+    expect(changed).toHaveBeenCalled();
+    changed.mockRestore();
   });
 
   it('POST /api/inbox/:filename/approve — nonexistent returns 404', async () => {
