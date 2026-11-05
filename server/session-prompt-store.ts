@@ -159,6 +159,8 @@ export class SessionPromptStore {
         throw new SessionPromptError('Timer changed. Refresh before trying again.');
       if (timer.status === 'cancelled' || timer.status === 'completed')
         throw new SessionPromptError('This timer has ended. Create another timer.');
+      if (input.action === 'resume' && timer.status === 'active')
+        throw new SessionPromptError('This timer is already active.');
       const previous = envelope.deliveryId ? this.delivery(envelope.deliveryId) : undefined;
       if (
         previous &&
@@ -354,12 +356,15 @@ export class SessionPromptStore {
           timer.lastRunAt = now;
           timer.lastError = null;
           envelope.deliveryId = null;
-          if (timer.status === 'active') {
-            if (timer.maxRuns !== null && timer.runCount >= timer.maxRuns) {
-              timer.status = 'completed';
-              timer.nextRunAt = null;
-            } else timer.nextRunAt = now + timer.intervalMinutes * 60_000;
-          }
+          if (
+            timer.status !== 'cancelled' &&
+            timer.maxRuns !== null &&
+            timer.runCount >= timer.maxRuns
+          ) {
+            timer.status = 'completed';
+            timer.nextRunAt = null;
+          } else if (timer.status === 'active')
+            timer.nextRunAt = now + timer.intervalMinutes * 60_000;
         } else {
           if (state === 'failed') envelope.deliveryId = null;
           timer.lastError = error;

@@ -137,6 +137,51 @@ it('preserves pause/cancel after a runtime acknowledgement races with a human ac
   store.finish(delivery.id, 'accepted', null, 20);
   expect(store.get(timer.id)).toMatchObject({ status: 'paused', nextRunAt: null, runCount: 1 });
 });
+it('rejects resuming an active timer without invalidating its pending check', () => {
+  const { store, input } = fixture();
+  const timer = store.create({ ...input, startImmediately: true }, auth, 'user', null, 0);
+  const pending = store.due(0)[0];
+  expect(() =>
+    store.change(
+      timer.id,
+      { requestId: randomUUID(), expectedRevision: timer.revision, action: 'resume' },
+      auth,
+      10,
+    ),
+  ).toThrow(/already active/i);
+  expect(store.get(timer.id)).toEqual(timer);
+  expect(store.assertDeliveryCurrent(pending.id)).toEqual(pending);
+});
+it('ends a paused timer when Run now reaches its total prompt limit', () => {
+  const { store, input } = fixture();
+  const timer = store.create({ ...input, maxRuns: 1 }, auth, 'user', null, 0);
+  const paused = store.change(
+    timer.id,
+    { requestId: randomUUID(), expectedRevision: timer.revision, action: 'pause' },
+    auth,
+    10,
+  );
+  store.change(
+    timer.id,
+    { requestId: randomUUID(), expectedRevision: paused.revision, action: 'run' },
+    auth,
+    20,
+  );
+  const delivery = store.due(20)[0];
+  store.claim(delivery.id);
+  store.finish(delivery.id, 'accepted', null, 30);
+  const finished = store.get(timer.id);
+  expect(finished).toMatchObject({ status: 'completed', runCount: 1, nextRunAt: null });
+  expect(() =>
+    store.change(
+      timer.id,
+      { requestId: randomUUID(), expectedRevision: finished.revision, action: 'resume' },
+      auth,
+      40,
+    ),
+  ).toThrow(/ended/i);
+  expect(store.due(1_000_000)).toEqual([]);
+});
 
 it('blocks uncertain delivery and resumes with a fresh login only through an explicit revisioned command', () => {
   const { store, input } = fixture();

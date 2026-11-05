@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.874-session-prompts';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.875-session-prompts';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -29,10 +29,10 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/session-prompt-service.test.ts':
     '4a2948b379caa9d90a4efd4a25cb9754a16aea623fd51250dff388ecfa995b01',
   '../__tests__/session-prompt-store.test.ts':
-    'e158c391946f70f98b164464c0bb37c78ed02e6a0b4708b61446a4e654970bdc',
+    'fc91365ceba6f5ededf37db0e87ebfdbf986f5289de5e9db314be2f458d2b3f1',
   '../session-prompt-service.ts':
     '02105fde2057968a81f119e541d1218bba18d7755b1830e0e795f728a9a43f77',
-  '../session-prompt-store.ts': '4d8330462dde14849280b12a23b9ee436062dce32e0e2f585b4dabd752c576ba',
+  '../session-prompt-store.ts': '3c41f0ffd699bbaf26160d39ae927ad8c80b41f5d97cebe1414359af0491c5a6',
   '../../docs/features/session-timers.md':
     '2a12ade4fe783fbe149c304d42d2e8bca1bccab066e484624f34b806421d1589',
   '../../frontend/src/components/SessionTimersDialog.tsx':
@@ -60,7 +60,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../tests/fixtures/session-timers.tsx':
     'bf7f7246a38be7b17dbe1b77b062263841c99896eaded65ac1d3d1b0ff77ff76',
   '../../tests/offline/session-timers.spec.ts':
-    'd0d9f65843c621237a3b605be6d91191255d5ff5b7e8bd5912bcf3544d38c17c',
+    '6e1f71ad7a21685a62f488ddaee1ac6f3d3bb06e582ccaf2a5a4d0f7610c8c16',
   '../session-history-reader.ts':
     '7cafd13ff5dbe00946dcf83de993dfdd3dc91bc5271d77f53d4d9fe9bb4bff5b',
   '../__tests__/session-history-retrieval.test.ts':

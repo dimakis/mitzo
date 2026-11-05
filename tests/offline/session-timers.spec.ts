@@ -2,6 +2,10 @@ import { expect, test } from '@playwright/test';
 import { build } from 'esbuild';
 import { resolve } from 'node:path';
 import { chatStorageBootstrap } from '../support/chat-storage-bootstrap';
+import type { SessionTimer } from '@mitzo/protocol';
+
+// Match Mitzo's secure browser context without any network or backend server.
+test.use({ baseURL: 'https://mitzo-ui.test' });
 const bundle = build({
   entryPoints: [resolve('tests/fixtures/session-timers.tsx')],
   plugins: [chatStorageBootstrap()],
@@ -22,7 +26,7 @@ for (const theme of ['dark', 'light'])
   test(`timers preserve Chats and composer controls (${theme})`, async ({ page }, info) => {
     const phone = info.project.name.startsWith('mobile');
     await page.setViewportSize({ width: phone ? 320 : 1280, height: 844 });
-    const timers = [
+    const timers: SessionTimer[] = [
       {
         id: 'agent-timer',
         sessionId: 'worker',
@@ -66,9 +70,14 @@ for (const theme of ['dark', 'light'])
           if (path === '/api/session-timers') {
             const created = {
               ...timers[0],
-              ...body,
+              prompt: body.prompt,
+              sessionId: body.sessionId,
+              intervalMinutes: body.intervalMinutes,
+              maxRuns: body.maxRuns,
               id: 'human-timer',
-              createdBy: 'user',
+              status: 'active' as const,
+              nextRunAt: Date.now() + (body.startImmediately ? 0 : body.intervalMinutes * 60000),
+              createdBy: 'user' as const,
               sourceSessionId: null,
               revision: 1,
             };
@@ -129,7 +138,9 @@ for (const theme of ['dark', 'light'])
     await page.getByRole('button', { name: 'Cancel timer', exact: true }).click();
     await expect(page.getByText('Cancelled · Every 10 minutes', { exact: true })).toBeVisible();
     await page.getByRole('button', { name: 'Close', exact: true }).click();
-    await page.getByRole('link', { name: 'Open PR worker', exact: true }).click();
+    await expect(page.getByLabel('Conversation options', { exact: true })).toBeFocused();
+    if (phone) await page.getByRole('link', { name: 'Open PR worker', exact: true }).click();
+    else await page.getByRole('button', { name: 'Open conversation', exact: true }).click();
     const draft = page.getByRole('textbox', { name: /message|prompt/i }).first();
     await expect(draft).toHaveValue('Check PR #7 for new review comments.');
     const clock = page.getByRole('button', { name: 'Schedule prompt', exact: true });
@@ -142,7 +153,8 @@ for (const theme of ['dark', 'light'])
     await expect(
       page.getByRole('button', { name: 'Attach images or PDF', exact: true }),
     ).toBeVisible();
-    await clock.click();
+    await clock.focus();
+    await clock.press('Enter');
     await expect(page.getByRole('textbox', { name: 'Prompt', exact: true })).toHaveValue(
       'Check PR #7 for new review comments.',
     );
