@@ -2,6 +2,10 @@ import { randomUUID } from 'node:crypto';
 import { KNOWLEDGE_RUNTIME_UNAVAILABLE_MESSAGE } from '@mitzo/protocol';
 
 const messages = {
+  auth_expired:
+    'Your Mitzo sign-in expired. Sign in again, then review the interrupted turn before continuing. Saved work is preserved.',
+  auth_revoked:
+    'Your Mitzo sign-in was revoked or logged out. Sign in again, then review the interrupted turn before continuing. Saved work is preserved.',
   knowledge_unavailable: KNOWLEDGE_RUNTIME_UNAVAILABLE_MESSAGE,
   input_not_dispatched:
     'This message was not sent to the provider because its original runtime could not be prepared. Completed work will not be rerun.',

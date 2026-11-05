@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { SessionRuntimeError } from '../session-runtime-error.js';
 import { callbackOutcome } from '../turn-callbacks.js';
 import { AdviserTaskScope } from '../adviser-task-scope.js';
 import { retainTelosWorkRoleContext } from '../telos-work-role-context.js';
@@ -3341,6 +3342,44 @@ it('keeps scoped adviser context isolated when ordinary local discovery and effi
     f.eventStore.close();
   }
 });
+
+it.each(['auth_expired', 'auth_revoked'] as const)(
+  'retains %s instead of a generic transport error for an invalidated chat',
+  async (code) => {
+    vi.clearAllMocks();
+    mocks.initialize.mockResolvedValue(undefined);
+    mocks.send.mockResolvedValue(undefined);
+    mocks.connect.mockResolvedValue({
+      definitions: [],
+      close: mocks.mcpClose,
+      displayName: (name: string) => name,
+    });
+    const f = ownedLocalOptions();
+    const failure = new SessionRuntimeError(code);
+    let invalidated = false;
+    const guard = () => {
+      if (invalidated) throw failure;
+    };
+    let query: Awaited<ReturnType<typeof openCodexChat>> | undefined;
+    try {
+      query = await openCodexChat({ ...f.opts, assertAgentContextAuthorization: guard });
+      invalidated = true;
+      const onError = mocks.conversationOptions!.onError as (error: Error) => void;
+      onError(new Error('Generic transport closure'));
+      onError(new Error('Duplicate transport closure'));
+      const errors = f.eventStore
+        .getEventsAfter('owned-session', 0)
+        .filter((event) => event.type === 'error');
+      expect(errors).toHaveLength(1);
+      expect(errors[0].payload.runtimeFailure).toMatchObject({ runtimeFailureCode: code });
+      expect(errors[0].payload.error).toContain('Sign in again');
+      expect(errors[0].payload.error).not.toContain('Generic transport');
+    } finally {
+      query?.close();
+      f.eventStore.close();
+    }
+  },
+);
 
 it('rechecks owned command authority immediately before native enqueue and provider dispatch', async () => {
   vi.clearAllMocks();

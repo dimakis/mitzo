@@ -1,4 +1,5 @@
 import { copyCallbackOutcome } from './turn-callbacks.js';
+import { agentContextRuntimeError } from './agent-context-authority.js';
 import {
   RepositoryMaterializationSchema,
   repositoryMaterializationMigrationMatches,
@@ -4266,25 +4267,31 @@ async function openCodexChatBound(
         }
       : {}),
     onTransportClosed: (diagnostic) => {
+      const authorization = agentContextRuntimeError(
+        new Error('Transport closed'),
+        options.assertAgentContextAuthorization,
+      );
       log.info('Codex transport closed', {
         conversationId: options.conversationId,
         ...diagnostic,
+        ...codexRuntimeErrorTelemetry(authorization),
       });
     },
     onError: (error) => {
+      const failure = agentContextRuntimeError(error, options.assertAgentContextAuthorization);
       log.warn('Codex runtime reported an error', {
         conversationId: options.conversationId,
-        ...codexRuntimeErrorTelemetry(error),
-        error: publicCodexRuntimeError(error),
+        ...codexRuntimeErrorTelemetry(failure),
+        error: publicCodexRuntimeError(failure),
       });
       // Failed provider turns are emitted by the query loop as durable v2 error
       // events. Sending here would race replay and show the same failure twice.
-      if (!(error instanceof ProviderFailureError))
+      if (!(failure instanceof ProviderFailureError))
         reportRetainedRuntimeFailure({
           store: options.eventStore,
           sessionId: options.conversationId,
           session: options.session,
-          error,
+          error: failure,
           describe: publicCodexRuntimeError,
           deliver: options.deliverRuntimeFailure,
         });
