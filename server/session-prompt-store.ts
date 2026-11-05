@@ -59,6 +59,9 @@ export class SessionPromptStore {
       CREATE TABLE IF NOT EXISTS session_prompt_requests (
         request_id TEXT PRIMARY KEY, fingerprint TEXT NOT NULL, result TEXT NOT NULL
       );
+      CREATE TABLE IF NOT EXISTS session_prompt_closed_sessions (
+        session_id TEXT PRIMARY KEY
+      );
       CREATE INDEX IF NOT EXISTS session_prompt_delivery_state
         ON session_prompt_deliveries(json_extract(data, '$.state'));
       CREATE INDEX IF NOT EXISTS session_prompt_timer_status
@@ -67,6 +70,45 @@ export class SessionPromptStore {
   }
   close() {
     this.db.close();
+  }
+  private assertSessionOpen(sessionId: string | null) {
+    if (
+      sessionId &&
+      this.db
+        .prepare('SELECT 1 FROM session_prompt_closed_sessions WHERE session_id=?')
+        .get(sessionId)
+    )
+      throw new SessionPromptError('This chat is being removed.');
+  }
+  /** Cancel only unadmitted intent. Dispatching/uncertain receipts keep their
+   * identity until the original delivery owner establishes acceptance. */
+  cancelSession(sessionId: string) {
+    this.db
+      .transaction(() => {
+        this.db
+          .prepare('INSERT OR IGNORE INTO session_prompt_closed_sessions VALUES(?)')
+          .run(sessionId);
+        for (const timer of this.list()) {
+          if (timer.sessionId !== sessionId && timer.sourceSessionId !== sessionId) continue;
+          if (timer.status === 'cancelled' || timer.status === 'completed') continue;
+          const envelope = this.envelope(timer.id);
+          envelope.timer = {
+            ...timer,
+            status: 'cancelled',
+            nextRunAt: null,
+            revision: timer.revision + 1,
+            updatedAt: Date.now(),
+          };
+          this.save(envelope);
+        }
+        for (const delivery of this.deliveries(['pending'])) {
+          if (delivery.recipientSessionId !== sessionId && delivery.senderSessionId !== sessionId)
+            continue;
+          delivery.state = 'cancelled';
+          this.saveDelivery(delivery);
+        }
+      })
+      .immediate();
   }
   private request<T>(requestId: string, input: unknown, action: () => T): T {
     return this.db
@@ -126,6 +168,8 @@ export class SessionPromptStore {
   ): SessionTimer {
     const input = SessionTimerCreateSchema.parse(raw);
     return this.request(input.requestId, ['create', input, createdBy, sourceSessionId], () => {
+      this.assertSessionOpen(input.sessionId);
+      this.assertSessionOpen(sourceSessionId);
       if (
         this.list().filter((t) => t.status !== 'cancelled' && t.status !== 'completed').length >=
         200
@@ -321,6 +365,8 @@ export class SessionPromptStore {
     if (input.sessionId === senderSessionId)
       throw new SessionPromptError('Select another session.', 422);
     return this.request(input.requestId, ['message', input, senderSessionId], () => {
+      this.assertSessionOpen(input.sessionId);
+      this.assertSessionOpen(senderSessionId);
       const id = randomUUID();
       const delivery: SessionPromptDelivery = {
         id,
@@ -344,6 +390,8 @@ export class SessionPromptStore {
   }
   assertDeliveryCurrent(id: string): SessionPromptDelivery {
     const delivery = this.delivery(id);
+    this.assertSessionOpen(delivery.recipientSessionId);
+    this.assertSessionOpen(delivery.senderSessionId);
     if (!['pending', 'dispatching'].includes(delivery.state))
       throw new SessionPromptError('Delivery is no longer current.');
     if (delivery.timerId) {

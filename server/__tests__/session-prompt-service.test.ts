@@ -53,6 +53,72 @@ it('keeps one pending check while busy and sends it once after the existing turn
   expect(f.port.deliver).toHaveBeenCalledTimes(1);
   expect(f.store.get(timer.id)).toMatchObject({ runCount: 1, status: 'active' });
 });
+it('cancels timers and undelivered incoming prompts when their recipient is removed', async () => {
+  const f = fixture();
+  const timer = await f.service.create(f.input, f.auth, 'user', null);
+  f.port.inspect.mockResolvedValue({ busy: true });
+  await f.service.tick();
+  const incoming = await f.service.send(
+    { requestId: randomUUID(), sessionId: 'worker', text: 'Do not start this' },
+    f.auth,
+    'peer',
+  );
+  await f.service.cancelSession('worker');
+  await f.service.cancelSession('worker');
+  expect(f.store.get(timer.id)).toMatchObject({ status: 'cancelled', nextRunAt: null });
+  expect(f.store.delivery(incoming.id).state).toBe('cancelled');
+  f.port.inspect.mockResolvedValue({ busy: false });
+  await f.service.tick();
+  expect(f.port.deliver).not.toHaveBeenCalled();
+});
+it('joins cancelled in-flight delivery and preserves its exact accepted receipt', async () => {
+  const f = fixture();
+  await f.service.create(f.input, f.auth, 'user', null);
+  let finish!: () => void;
+  let entered!: () => void;
+  const started = new Promise<void>((resolve) => {
+    entered = resolve;
+  });
+  f.port.deliver.mockImplementationOnce(async () => {
+    entered();
+    await new Promise<void>((resolve) => {
+      finish = resolve;
+    });
+  });
+  const tick = f.service.tick();
+  await started;
+  let settled = false;
+  const cancellation = f.service.cancelSession('worker').then(() => {
+    settled = true;
+  });
+  await Promise.resolve();
+  expect(settled).toBe(false);
+  finish();
+  await Promise.all([tick, cancellation]);
+  expect(f.store.deliveries()[0].state).toBe('accepted');
+});
+it('rejects a new timer after removal wins asynchronous inspection', async () => {
+  const f = fixture();
+  let finish!: () => void;
+  f.port.inspect.mockImplementationOnce(async () => {
+    await new Promise<void>((resolve) => {
+      finish = resolve;
+    });
+    return { busy: false };
+  });
+  const creation = f.service.create(f.input, f.auth, 'user', null);
+  await f.service.cancelSession('worker');
+  finish();
+  await expect(creation).rejects.toThrow(/removed/);
+  expect(f.store.list()).toEqual([]);
+  await expect(
+    f.service.send(
+      { requestId: randomUUID(), sessionId: 'worker', text: 'Late prompt' },
+      f.auth,
+      'peer',
+    ),
+  ).rejects.toThrow(/removed/);
+});
 it('rechecks cancellation after asynchronous preparation and cannot overwrite a cancelled timer', async () => {
   const f = fixture();
   const timer = await f.service.create(f.input, f.auth, 'user', null);

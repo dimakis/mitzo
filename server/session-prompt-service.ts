@@ -39,6 +39,7 @@ export class SessionPromptService {
   private clock?: ReturnType<typeof setInterval>;
   private closed = false;
   private readonly controllers = new Map<string, AbortController>();
+  private readonly inFlight = new Map<string, Promise<void>>();
   constructor(
     readonly store: SessionPromptStore,
     private readonly port: SessionPromptPort,
@@ -146,7 +147,24 @@ export class SessionPromptService {
         }),
       );
   }
-  private async process(delivery: SessionPromptDelivery) {
+  async cancelSession(sessionId: string) {
+    this.store.cancelSession(sessionId);
+    const pending: Promise<void>[] = [];
+    for (const [id, completion] of this.inFlight) {
+      const delivery = this.store.delivery(id);
+      if (delivery.recipientSessionId !== sessionId && delivery.senderSessionId !== sessionId)
+        continue;
+      this.controllers.get(id)?.abort();
+      pending.push(completion);
+    }
+    await Promise.all(pending);
+  }
+  private process(delivery: SessionPromptDelivery): Promise<void> {
+    const completion = this.dispatch(delivery).finally(() => this.inFlight.delete(delivery.id));
+    this.inFlight.set(delivery.id, completion);
+    return completion;
+  }
+  private async dispatch(delivery: SessionPromptDelivery) {
     if (delivery.state !== 'pending') return;
     const controller = new AbortController();
     this.controllers.set(delivery.id, controller);
