@@ -257,6 +257,9 @@ it('preserves executor output when native dynamic-tool completion follows its ca
       id: 'call',
       type: 'dynamicToolCall',
       tool: 'Read',
+      contentItems: [
+        { type: 'inputText', text: 'Native summary must not replace executor output' },
+      ],
       arguments: {},
       status: 'completed',
       success: true,

@@ -36,7 +36,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/hooks/useNativeSubagents.ts':
     '9fd8e6c867ca0150c407b06f3d678465d801b5c7b17c2c41051a00ecdd543962',
   '../../frontend/src/components/NativeSubagents.css':
-    '8e7ff707942f55bf3206d8a004a002d712cc307c6d3734605d8668339b36147d',
+    '3c61c7aad4976ee55bcec619d849dbfdb1b8cbd70c99200ff29652afc5c8c9f4',
   '../../frontend/src/components/NativeSubagents.tsx':
     '7a791a8fb5a028354f6407af2b74a93f60247c0d6801993325bc6d08325ff7db',
   '../../packages/protocol/src/native-subagents.ts':
@@ -46,10 +46,10 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/codex-subagent-store.test.ts':
     '17cb3848f026986ee4357e9bf527c6883085b515072ee59c4c490bdd7a0abe88',
   '../__tests__/codex-subagents.test.ts':
-    'a858f6ac633efa1af702d97664816e0f1b94295eb4ca22195be1b627277d0090',
+    '22e70223a4554b8634e1436b9353df33b9fd535c7a5cd88df43bf782fb51acec',
   '../codex-subagent-routes.ts': '626354e56b192b4c660f9a2187aae075c77ed93cee3569769df391556b761211',
   '../codex-subagent-store.ts': '1b02ce0bfd52773924094441622cc404f363255b511eabac8a5e07a9e021d0c2',
-  '../codex-subagents.ts': 'dc1e3b983bc2e8ddfb05537929d2075f5da1698dec19a92f3c985fa7e913c4d8',
+  '../codex-subagents.ts': '966d2c5f2b47a09520ede1fd588ceede78ed4fb2bd2ec532464256fdb92e20c1',
   '../__tests__/owned-local-auth-feedback.test.ts':
     'fa4b4dca12a655e4075c03e6c95701ac9c8c1a6607f867e27668c914e988da21',
   '../../docs/design/ui-design-system.md':

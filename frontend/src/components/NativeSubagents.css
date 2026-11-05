@@ -64,6 +64,9 @@
   overflow: auto;
   overflow-wrap: anywhere;
 }
+.native-subagent-body .tool-pill-header {
+  min-block-size: var(--control-height);
+}
 .native-subagent-task {
   white-space: pre-wrap;
 }

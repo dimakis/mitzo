@@ -206,7 +206,11 @@ export class CodexSubagents {
             (event) => event.method !== 'turn/started' && event.method !== 'turn/completed',
           );
           buffer.splice(disposable < 0 ? 0 : disposable, 1);
-          buffer.push({ method, params: structuredClone(params) });
+          const turn = object(params.turn);
+          buffer.push({
+            method,
+            params: { threadId: params.threadId, turn: { id: turn.id, status: turn.status } },
+          });
         }
       }
       return true;
@@ -515,7 +519,9 @@ export class CodexSubagents {
             : item.type === 'fileChange'
               ? 'File changes'
               : item.type === 'dynamicToolCall'
-                ? nativeResult || retained?.content || JSON.stringify(item.arguments ?? {})
+                ? (retained?.status && retained.status !== 'running'
+                    ? retained.content
+                    : nativeResult || retained?.content) || JSON.stringify(item.arguments ?? {})
                 : typeof item.tool === 'string'
                   ? item.tool
                   : String(item.type);
