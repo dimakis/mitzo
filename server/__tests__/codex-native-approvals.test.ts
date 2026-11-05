@@ -115,6 +115,53 @@ function commandParams() {
 }
 
 describe('native approval adapter with the existing pending owner', () => {
+  it('advertises the original native deadline rather than a new card window', async () => {
+    const f = setup();
+    f.params.startedAtMs -= 5_000;
+    const response = f.handler(
+      'item/permissions/requestApproval',
+      f.params,
+      f.controller.signal,
+      f.context,
+    );
+    const id = await request(f);
+    expect(f.sent[0].expiresAt).toBe(f.params.startedAtMs + 60_000);
+    resolvePending(id, 'deny', undefined, 'session');
+    await response;
+  });
+
+  it.each(['commandExecution', 'fileChange'] as const)(
+    'cancels an expired %s approval at delivery without emitting acceptance',
+    async (item) => {
+      const f = setup();
+      const params =
+        item === 'commandExecution'
+          ? commandParams()
+          : {
+              threadId: 'thread',
+              turnId: 'turn',
+              itemId: 'file',
+              startedAtMs: Date.now(),
+              reason: 'Offline file change',
+            };
+      const pending = f.handler(
+        `item/${item}/requestApproval`,
+        params,
+        f.controller.signal,
+        f.context,
+      );
+      resolvePending(await request(f), 'once', undefined, 'session');
+      const response = await pending;
+      expect(response).toEqual({ decision: 'accept' });
+      vi.useFakeTimers();
+      vi.setSystemTime(params.startedAtMs + 60_000);
+      expect(f.fences[0]).not.toThrow();
+      expect(response).toEqual({ decision: 'cancel' });
+      f.revoke();
+      expect(f.fences[0]).toThrow('revoked');
+    },
+  );
+
   it('uses the existing exact prepared-root receipt for a turn grant without another approval card', async () => {
     const assertCurrentSync = vi.fn();
     const approve = vi.fn<ApprovePreparedWorkspaceGrant>(async () => ({
@@ -267,7 +314,8 @@ describe('native approval adapter with the existing pending owner', () => {
     expect(f.fences[0]).not.toThrow();
     vi.useFakeTimers();
     vi.setSystemTime(f.params.startedAtMs + 60_001);
-    expect(f.fences[0]).toThrow();
+    expect(f.fences[0]).not.toThrow();
+    expect(await result).toEqual({ permissions: {}, scope: 'turn' });
   });
 
   it('returns an explicit session grant for only the displayed permission profile', async () => {

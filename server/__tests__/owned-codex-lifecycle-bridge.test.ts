@@ -9,6 +9,10 @@ import { describe, expect, it, vi } from 'vitest';
 import type { CodexLifecycleTransport } from '../codex-app-server-client.js';
 import type { FrozenHostCodexBootstrapLease } from '../frozen-host-codex-bootstrap.js';
 import { OwnedCodexLifecycleBridge } from '../owned-codex-lifecycle-bridge.js';
+import { createCodexNativeApprovalHandler } from '../codex-native-approvals.js';
+import { SessionRegistry } from '../session-registry.js';
+import { resolvePending } from '../permissions.js';
+import { setSkillPolicy } from '@mitzo/harness';
 
 function fixture() {
   const client = {
@@ -70,11 +74,143 @@ function nativeTransportFixture() {
   const reply = (message: unknown) => child.stdout.write(JSON.stringify(message) + '\n');
   const transport = new CodexAppServerClient(child, { lifecycle: f.bridge.lifecycle });
   f.lease.client = transport;
+  vi.mocked(f.lease.close).mockImplementation(() => transport.close());
   f.bridge.attach(f.owner);
   return { ...f, child, sent, reply, transport };
 }
 
 describe('owned Codex lifecycle bridge', () => {
+  it.each([
+    'on time',
+    'expired input',
+    'expired after handler',
+    'expired during final fence',
+    'replaced owner',
+    'revoked authority',
+    'cancelled',
+    'revoked policy',
+  ] as const)('preserves native approval delivery boundaries: %s', async (timing) => {
+    const f = nativeTransportFixture();
+    const registry = new SessionRegistry();
+    const cards: Record<string, unknown>[] = [];
+    registry.register('client', {
+      transport: { send: (message) => cards.push(message), isOpen: () => true },
+      abortController: new AbortController(),
+      mode: 'agent',
+      cwd: '/workspace',
+      sessionId: 'session',
+      sessionAllowList: new Set(),
+    });
+    let now = 1_800_000_000_000;
+    const clock = vi.spyOn(Date, 'now').mockImplementation(() => now);
+    const deadline = now + 60_000;
+    const cancellation = new AbortController();
+    const handler = createCodexNativeApprovalHandler({
+      registry,
+      clientId: 'client',
+      runtimeId: 'owned',
+      environmentId: 'local',
+      timeoutMs: 60_000,
+      deniedRoots: [],
+      writeProtectedRoots: [],
+    });
+    let release!: () => void;
+    const delivery = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let handled = false;
+    let atFinalFence = false;
+    vi.mocked(f.owner.onRequest).mockImplementation(async (method, params, signal, context) => {
+      const response = await handler(
+        method,
+        params,
+        AbortSignal.any([signal, cancellation.signal]),
+        {
+          ...context!,
+          commandId: 'command',
+          threadId: 'thread',
+          turnId: 'turn',
+          assertCurrentSync() {
+            f.lease.assertCurrentSync();
+            if (atFinalFence && timing === 'expired during final fence') now = deadline;
+          },
+        },
+      );
+      if (timing !== 'expired input')
+        expect(response).toEqual({ permissions: { network: { enabled: true } }, scope: 'turn' });
+      handled = true;
+      await delivery;
+      atFinalFence = true;
+      return response;
+    });
+    try {
+      if (timing === 'expired input') now = deadline;
+      f.reply({
+        id: 'approval',
+        method: 'item/permissions/requestApproval',
+        params: {
+          threadId: 'thread',
+          turnId: 'turn',
+          itemId: 'item',
+          startedAtMs: deadline - 60_000,
+          environmentId: 'local',
+          cwd: '/workspace',
+          reason: 'Offline regression',
+          permissions: { network: { enabled: true }, fileSystem: null },
+        },
+      });
+      if (timing !== 'expired input') {
+        await vi.waitFor(() => expect(cards[0]?.permId).toBeDefined());
+        now = deadline - 1;
+        expect(resolvePending(cards[0].permId as string, 'once', undefined, 'session')).toBe(true);
+      }
+      await vi.waitFor(() => expect(handled).toBe(true));
+      if (timing === 'expired after handler') now = deadline;
+      const authorityChanged = [
+        'replaced owner',
+        'revoked authority',
+        'cancelled',
+        'revoked policy',
+      ].includes(timing);
+      if (authorityChanged) {
+        now = deadline;
+        if (timing === 'replaced owner') f.setCurrent({ ...f.lease });
+        if (timing === 'revoked authority')
+          vi.mocked(f.lease.assertCurrentSync).mockImplementation(() => {
+            throw Error('revoked');
+          });
+        if (timing === 'cancelled') cancellation.abort();
+        if (timing === 'revoked policy') setSkillPolicy(registry, 'client', []);
+      }
+      release();
+      if (authorityChanged) {
+        await vi.waitFor(() => expect(f.child.kill).toHaveBeenCalledOnce());
+        expect(f.sent).toEqual([]);
+        expect(f.lease.close).toHaveBeenCalledOnce();
+        return;
+      }
+      await vi.waitFor(() => expect(f.sent).toHaveLength(1));
+      expect(f.sent[0]).toEqual({
+        id: 'approval',
+        result:
+          timing === 'on time'
+            ? { permissions: { network: { enabled: true } }, scope: 'turn' }
+            : { permissions: {}, scope: 'turn' },
+      });
+      expect(f.child.kill).not.toHaveBeenCalled();
+      expect(f.lease.close).not.toHaveBeenCalled();
+      vi.mocked(f.owner.onRequest).mockResolvedValue({ decision: 'decline' });
+      f.reply({ id: 'next', method: 'item/commandExecution/requestApproval', params: {} });
+      await vi.waitFor(() => expect(f.sent).toHaveLength(2));
+      expect(f.sent[1]).toEqual({ id: 'next', result: { decision: 'decline' } });
+    } finally {
+      release();
+      f.transport.close();
+      registry.dispose();
+      clock.mockRestore();
+    }
+  });
+
   it('retains a bounded reply provenance failure before lease closure reenters transport shutdown', () => {
     const f = nativeTransportFixture();
     vi.mocked(f.owner.onNotification).mockImplementation(() => {

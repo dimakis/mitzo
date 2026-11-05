@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.879-session-prompt-receipts';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.880-native-approval-expiry';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -773,7 +773,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/codex-conversation.test.ts':
     'b9981db8e2945b6da525da67ff31d305fe06e44937573b96d3468d97cc171e15',
   '../__tests__/codex-native-approvals.test.ts':
-    '83c2a7a0457cefbc7a4586c4a440d024060fe44297bdd35fdc17017f4a446071',
+    '1dd26d29734af3ebfff87d80826dbdadf15541b5be57f18ae72a3de725e70f1f',
   '../__tests__/codex-native-artifact-qualification.test.ts':
     'bf39b31337d0714faac6d73f3b96aa99e8e960f39a54e81f1429699890d7cd05',
   '../__tests__/codex-native-execution-policy.test.ts':
@@ -797,7 +797,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/owned-local-codex-native-unqualified.test.ts':
     'a472401aa366f081b91fd99d4d52939375076a88365570a2413ad39354a7e762',
   '../codex-native-approvals.ts':
-    '115b58f0aa143a2d57881377b42b2f1c86f52dfaa0f8bba1367f9a328988e174',
+    'e39031facb300cb24b9d8aee1824f5f652ff975c7eecbb02f87341a068018fd4',
   '../codex-native-artifact-qualification.ts':
     'cd4f2f9c4913c2e7002a31f8035b0b8c102831d9d380971582344ba46bf86679',
   '../codex-native-execution-policy.ts':
@@ -1501,7 +1501,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/client/src/store.ts':
     '7475410c97738940dfc1f850633de7e7d3304c7f018bb1e25158b8fd611060f1',
   '../../packages/harness/src/permission-handler.ts':
-    '226000c4bd916b0864190842e08bde999b360b4dfd6c37283715f376047b8fc3',
+    'e034b21d6fe274b2a94beda33b8fbb831b34d4008c97470bec535bd378e92777',
   '../../packages/harness/src/permissions.ts':
     '546e88401d53f36462c338ec4ac4b4fe86e257cdc39e4f9af44b04989fa05733',
   '../../packages/protocol/src/session-approval-scope.ts':

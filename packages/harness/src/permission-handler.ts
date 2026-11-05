@@ -227,6 +227,8 @@ export function buildPermissionHandler(
        * read-only ceiling, but must never inherit or create a broad tool grant. */
       nativeApproval?: {
         assertCurrentSync(): void;
+        /** Original adapter deadline; creating a card must not renew it. */
+        readonly expiresAt?: number;
         allowSessionScope?: boolean;
         /** Adapter-owned exact scope. Absent when the provider retains its own grant. */
         sessionGrantKey?: string;
@@ -246,6 +248,7 @@ export function buildPermissionHandler(
     const originalOptions = opts;
     const nativeApproval = opts.nativeApproval;
     const nativeApprovalAssertion = nativeApproval?.assertCurrentSync;
+    const nativeExpiresAt = nativeApproval?.expiresAt;
     const nativeSessionGrantKey =
       nativeApproval?.allowSessionScope === true && nativeApproval.sessionGrantKey?.trim()
         ? nativeApproval.sessionGrantKey
@@ -256,6 +259,10 @@ export function buildPermissionHandler(
         if (
           typeof nativeApprovalAssertion !== 'function' ||
           nativeApproval.assertCurrentSync !== nativeApprovalAssertion ||
+          (nativeExpiresAt !== undefined &&
+            (!Number.isFinite(nativeExpiresAt) ||
+              nativeApproval.expiresAt !== nativeExpiresAt ||
+              Date.now() >= nativeExpiresAt)) ||
           (nativeSessionGrantKey !== undefined &&
             (nativeApproval.allowSessionScope !== true ||
               nativeApproval.sessionGrantKey !== nativeSessionGrantKey))
@@ -671,7 +678,7 @@ export function buildPermissionHandler(
           ? { sessionGrantDescription: opts.sessionGrantDescription }
           : {}),
         sessionId: session.sessionId,
-        expiresAt: Date.now() + PERMISSION_TIMEOUT_MS,
+        expiresAt: Math.min(Date.now() + PERMISSION_TIMEOUT_MS, nativeExpiresAt ?? Infinity),
         ...(questions ? { questions } : {}),
       };
       registerPending(
@@ -711,16 +718,19 @@ export function buildPermissionHandler(
         }, NTFY_NOTIFICATION_DELAY_MS);
       }
 
-      timeout = setTimeout(() => {
-        if (hasPending(permId)) {
-          resolutionEvent = 'permission_timeout';
-          removePending(permId);
-          wrappedResolve({
-            behavior: 'deny',
-            message: 'Tool approval expired without a response; request approval again',
-          });
-        }
-      }, PERMISSION_TIMEOUT_MS);
+      timeout = setTimeout(
+        () => {
+          if (hasPending(permId)) {
+            resolutionEvent = 'permission_timeout';
+            removePending(permId);
+            wrappedResolve({
+              behavior: 'deny',
+              message: 'Tool approval expired without a response; request approval again',
+            });
+          }
+        },
+        Math.max(0, request.expiresAt! - Date.now()),
+      );
       if (!questions && opts.allowSessionGrant !== false && opts.rememberSessionGrant !== false) {
         let accepting = false;
         untrackScope = trackScopeApproval(session, grantKey, {

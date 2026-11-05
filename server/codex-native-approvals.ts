@@ -77,6 +77,11 @@ export function createCodexNativeApprovalHandler(options: {
     context: CodexNativeApprovalContext,
   ): Promise<Record<string, unknown>> => {
     let returningDenial = false;
+    let grantResponse: Record<string, unknown> | undefined;
+    const grant = (response: Record<string, unknown>) => {
+      grantResponse = parseNativeApprovalResponse(method, response);
+      return grantResponse;
+    };
     const deny = (cancel = false): Record<string, unknown> => {
       returningDenial = true;
       return method === 'item/permissions/requestApproval'
@@ -116,8 +121,8 @@ export function createCodexNativeApprovalHandler(options: {
     const expiresAt = request.params.startedAtMs + timeoutMs;
     const expiry = new AbortController();
     const currentSignal = AbortSignal.any([signal, expiry.signal]);
-    const assertCurrent = (allowExpiredDenial = false) => {
-      (allowExpiredDenial ? signal : currentSignal).throwIfAborted();
+    const assertCurrent = (allowExpired = false) => {
+      (allowExpired ? signal : currentSignal).throwIfAborted();
       const owner = session.sessionId
         ? registry.findBySessionId(session.sessionId, true)
         : undefined;
@@ -129,7 +134,7 @@ export function createCodexNativeApprovalHandler(options: {
             : undefined;
       if (
         !activeClient ||
-        (!allowExpiredDenial && checkSkillPolicy(registry, activeClient, toolName) === 'deny') ||
+        (!returningDenial && checkSkillPolicy(registry, activeClient, toolName) === 'deny') ||
         !request.params.itemId.trim() ||
         !identity.threadId.trim() ||
         !identity.turnId.trim() ||
@@ -143,7 +148,7 @@ export function createCodexNativeApprovalHandler(options: {
         effectivePermissionMode(session) !== mode ||
         session.cwd !== cwd ||
         !isDeepStrictEqual(context.fileChangePaths, fileChangePaths) ||
-        (!allowExpiredDenial && Date.now() >= expiresAt) ||
+        (!allowExpired && Date.now() >= expiresAt) ||
         request.params.startedAtMs > Date.now() + 30_000
       )
         throw Error('Native approval is no longer current');
@@ -182,13 +187,17 @@ export function createCodexNativeApprovalHandler(options: {
         fileChangePaths,
       );
       const finalFence = () => {
-        // A denial carries no permission grant. Its expired review window must
-        // not close the transport, while parent cancellation, owner identity
-        // and filesystem/receipt fences still apply at reply delivery.
-        assertCurrent(returningDenial);
+        // Check every non-expiry authority even if validation crossed the
+        // deadline. Revocation/cancellation/path failures must still close.
+        assertCurrent(true);
         assertGrantCurrent();
         assertPreparedCurrent();
         if (!returningDenial) assertConsentCurrent();
+        // These synchronous checks can themselves consume the remaining time.
+        // Downgrade the exact response object held by the original RPC client;
+        // expiry alone authorizes only refusal, never a stale grant or retry.
+        if (!returningDenial && Date.now() >= expiresAt && grantResponse)
+          Object.assign(grantResponse, deny(true));
       };
       context.registerResponseFence?.(finalFence);
       timer = setTimeout(() => expiry.abort(), Math.max(0, expiresAt - Date.now()));
@@ -256,7 +265,7 @@ export function createCodexNativeApprovalHandler(options: {
               }
             };
             assertPreparedCurrent();
-            return parseNativeApprovalResponse(request.method, {
+            return grant({
               permissions: Object.fromEntries(
                 Object.entries(profile).filter(([, value]) => value !== null),
               ),
@@ -305,7 +314,7 @@ export function createCodexNativeApprovalHandler(options: {
             ? 'Apply file changes'
             : 'Allow requested access',
         description:
-          'Review the displayed operation, working directory and requested access. Existing workspace and credential protections still apply.',
+          'Review the displayed operation, working directory and requested access. Existing workspace and credential protections still apply. Approval that expires during validation is refused without granting permission.',
         ...(sessionGrantKey
           ? {
               sessionGrantDescription:
@@ -319,6 +328,7 @@ export function createCodexNativeApprovalHandler(options: {
             }
           : {}),
         nativeApproval: {
+          expiresAt,
           allowSessionScope:
             request.method === 'item/permissions/requestApproval' || sessionGrantKey !== undefined,
           sessionGrantKey,
@@ -348,7 +358,7 @@ export function createCodexNativeApprovalHandler(options: {
               scope: result.decisionClassification === 'user_permanent' ? 'session' : 'turn',
             }
           : { decision: 'accept' };
-      return parseNativeApprovalResponse(request.method, response);
+      return grant(response);
     } catch {
       return deny(currentSignal.aborted);
     } finally {
