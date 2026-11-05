@@ -13,6 +13,45 @@ import { apiFetch, AUTH_LOST_EVENT } from '../lib/api-fetch';
 import { UiIcon } from './UiIcon';
 
 const api = new TelosWorkApiClient(apiFetch);
+
+async function compileSelection(
+  review: TelosSourcePermissionReview,
+  messageIds: string[],
+  artifactIds: string[],
+  signal: AbortSignal,
+) {
+  const selected = review.messages.filter((message) => messageIds.includes(message.messageId));
+  if (
+    !selected.length ||
+    selected.length !== messageIds.length ||
+    selected.some((m) => m.unavailableReason)
+  )
+    throw Error('Choose an available exchange to save.');
+  const last = selected.reduce((a, b) => (a.sequence > b.sequence ? a : b));
+  const input: TelosSourcePermissionPreviewRequest = {
+    sessionId: review.sessionId,
+    requestId: crypto.randomUUID(),
+    proposalSha256: review.proposalSha256,
+    ...(review.materialScopeSha256 ? { materialScopeSha256: review.materialScopeSha256 } : {}),
+    selection: {
+      mode: 'selected',
+      boundary: { sequence: last.sequence, messageId: last.messageId },
+      messageIds: selected.map((message) => message.messageId),
+      artifacts: review.artifacts
+        .filter((a) => artifactIds.includes(a.artifactId + ':' + a.revision))
+        .map(({ artifactId, revision, sha256 }) => ({ artifactId, revision, sha256 })),
+    },
+  };
+  const preview = await api.previewSourcePermission(review.permId, input, signal);
+  if (
+    preview.permId !== review.permId ||
+    preview.sessionId !== review.sessionId ||
+    preview.requestId !== input.requestId ||
+    preview.proposalSha256 !== input.proposalSha256
+  )
+    throw Error('Source request changed.');
+  return { input, preview };
+}
 type Prepared = {
   review: TelosSourcePermissionReview;
   preview: TelosSourcePermissionPreview;
@@ -213,8 +252,14 @@ export function useTelosSourceReview({
     } else {
       setLoading(true);
       void api
-        .getSourcePermission(permId, sessionId, controller.signal)
-        .then((result) => {
+        .getSourcePermission(
+          permId,
+          sessionId,
+          controller.signal,
+          0,
+          recoveryOnly ? undefined : Number.MAX_SAFE_INTEGER,
+        )
+        .then(async (result) => {
           if (!valid(identity, version)) return;
           if (
             result.permId !== permId ||
@@ -281,6 +326,17 @@ export function useTelosSourceReview({
               cached.input.selection.artifacts.map((a) => a.artifactId + ':' + a.revision),
             );
             setLocked(true);
+          } else if (result.suggestedMessageIds?.length) {
+            setSelectedMessages(result.suggestedMessageIds);
+            const compiled = await compileSelection(
+              result,
+              result.suggestedMessageIds,
+              [],
+              controller.signal,
+            );
+            if (!valid(identity, version)) return;
+            setPreview(compiled.preview);
+            setPreviewInput(compiled.input);
           }
         })
         .catch((failure) => {
@@ -295,7 +351,9 @@ export function useTelosSourceReview({
                 ? lostAuthority(failure)
                   ? 'Sign in again to recover the original save. Dismiss only hides this card.'
                   : 'The original save is still unconfirmed. Retry recovery to retrieve the same reviewed save, or Dismiss to hide this card.'
-                : 'Source review unavailable. Deny this request and ask again.',
+                : lostAuthority(failure)
+                  ? 'Sign in again before reviewing this request.'
+                  : 'Unable to prepare this save. Retry source review.',
             );
           }
         })
@@ -356,24 +414,6 @@ export function useTelosSourceReview({
 
   async function reviewSelection() {
     if (!activeReview || !sessionId || disabled || isExpired() || !selectedMessages.length) return;
-    const selected = activeReview.messages.filter((m) => selectedMessages.includes(m.messageId));
-    const last = selected.reduce((a, b) => (a.sequence > b.sequence ? a : b));
-    const input: TelosSourcePermissionPreviewRequest = {
-      sessionId,
-      requestId: crypto.randomUUID(),
-      proposalSha256: activeReview.proposalSha256,
-      ...(activeReview.materialScopeSha256
-        ? { materialScopeSha256: activeReview.materialScopeSha256 }
-        : {}),
-      selection: {
-        mode: 'selected',
-        boundary: { sequence: last.sequence, messageId: last.messageId },
-        messageIds: selected.map((message) => message.messageId),
-        artifacts: activeReview.artifacts
-          .filter((a) => selectedArtifacts.includes(a.artifactId + ':' + a.revision))
-          .map(({ artifactId, revision, sha256 }) => ({ artifactId, revision, sha256 })),
-      },
-    };
     const version = ++generation.current;
     abort.current?.abort();
     loadingPage.current = false;
@@ -385,17 +425,15 @@ export function useTelosSourceReview({
     setLoading(true);
     setError(null);
     try {
-      const result = await api.previewSourcePermission(permId, input, controller.signal);
+      const compiled = await compileSelection(
+        activeReview,
+        selectedMessages,
+        selectedArtifacts,
+        controller.signal,
+      );
       if (!valid(identity, version)) return;
-      if (
-        result.permId !== permId ||
-        result.sessionId !== sessionId ||
-        result.requestId !== input.requestId ||
-        result.proposalSha256 !== input.proposalSha256
-      )
-        throw Error('Source request changed.');
-      setPreview(result);
-      setPreviewInput(input);
+      setPreview(compiled.preview);
+      setPreviewInput(compiled.input);
     } catch {
       if (valid(identity, version))
         setError('Unable to review this source. Check the selected messages and try again.');
@@ -415,7 +453,8 @@ export function useTelosSourceReview({
         permId,
         sessionId,
         controller.signal,
-        activeReview.cursor,
+        activeReview.earlierCursor === undefined ? activeReview.cursor : 0,
+        activeReview.earlierCursor,
       );
       if (!valid(identity, version)) return;
       if (
@@ -423,7 +462,9 @@ export function useTelosSourceReview({
         page.sessionId !== sessionId ||
         page.proposalSha256 !== activeReview.proposalSha256 ||
         page.materialScopeSha256 !== activeReview.materialScopeSha256 ||
-        page.cursor <= activeReview.cursor
+        (activeReview.earlierCursor === undefined
+          ? page.cursor <= activeReview.cursor
+          : page.earlierCursor === undefined || page.earlierCursor >= activeReview.earlierCursor)
       )
         throw Error('Source request changed.');
       setReview((previous) =>
@@ -431,13 +472,14 @@ export function useTelosSourceReview({
           ? {
               ...previous,
               cursor: page.cursor,
+              ...(page.earlierCursor === undefined ? {} : { earlierCursor: page.earlierCursor }),
               hasMore: page.hasMore,
               messages: [
                 ...previous.messages,
                 ...page.messages.filter(
                   (m) => !previous.messages.some((old) => old.messageId === m.messageId),
                 ),
-              ],
+              ].sort((a, b) => a.sequence - b.sequence),
             }
           : previous,
       );
@@ -633,13 +675,22 @@ export function useTelosSourceReview({
             }
           />
           {!recoveryOnly && (
-            <>
+            <details
+              className="perm-banner-details"
+              open={!activeReview.suggestedMessageIds?.length}
+            >
+              <summary>
+                <UiIcon name="forward" size={16} />
+                Change saved context
+              </summary>
               <fieldset className="telos-source-choices" disabled={disabled}>
                 <legend>Select the agreed exchange</legend>
                 <p className="perm-banner-scope">
                   {locked
                     ? 'Your reviewed selection is fixed for this save.'
-                    : 'Choose completed messages to retain. Nothing is selected automatically.'}
+                    : activeReview.suggestedMessageIds?.length
+                      ? 'The latest available exchange is included. You can change it here.'
+                      : 'Choose completed messages to retain.'}
                 </p>
                 {activeReview.messages.map((message) => (
                   <label key={message.messageId} className="telos-source-choice">
@@ -670,7 +721,9 @@ export function useTelosSourceReview({
                 )}
                 {activeReview.hasMore && (
                   <button type="button" className="perm-banner-btn" onClick={() => void loadMore()}>
-                    Load more source messages
+                    {activeReview.earlierCursor === undefined
+                      ? 'Load more source messages'
+                      : 'Earlier messages'}
                   </button>
                 )}
               </fieldset>
@@ -728,7 +781,7 @@ export function useTelosSourceReview({
               >
                 Review selected source
               </button>
-            </>
+            </details>
           )}
         </>
       )}
@@ -816,13 +869,13 @@ export function useTelosSourceReview({
           {error}
         </p>
       )}
-      {recoveryOnly && error && !activeReview && !loading && !blocked && (
+      {error && !activeReview && !loading && !blocked && !expired && (
         <button
           type="button"
           className="perm-banner-btn"
           onClick={() => setReadAttempt((attempt) => attempt + 1)}
         >
-          Retry recovery
+          {recoveryOnly ? 'Retry recovery' : 'Retry source review'}
         </button>
       )}
       {saved && (
@@ -843,6 +896,8 @@ export function useTelosSourceReview({
     approve,
     saving,
     saved,
+    quickSave:
+      activeReview?.suggestedMessageIds !== undefined && activeReview.operation.kind === 'create',
     authorized: !!activeReview && !blocked,
     ready: !!activeReview && !!preview && !loading && !saving && !saved && !blocked && !expired,
   };

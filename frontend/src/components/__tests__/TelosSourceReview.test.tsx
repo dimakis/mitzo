@@ -118,6 +118,107 @@ beforeEach(() => {
 });
 afterEach(cleanup);
 
+it('prepares the latest exchange and creates the outcome with one explicit save, without message picking', async () => {
+  api.getSourcePermission.mockResolvedValueOnce({
+    ...review,
+    suggestedMessageIds: ['assistant-1'],
+    earlierCursor: 8,
+    hasMore: false,
+  });
+  render(<PermissionBanner {...props} />);
+  const save = await screen.findByRole('button', { name: 'Create outcome' });
+  await waitFor(() => expect(save.hasAttribute('disabled')).toBe(false));
+  expect(api.getSourcePermission.mock.calls[0][4]).toBe(Number.MAX_SAFE_INTEGER);
+  expect(api.previewSourcePermission).toHaveBeenCalledTimes(1);
+  expect(api.previewSourcePermission.mock.calls[0][1].selection.messageIds).toEqual([
+    'assistant-1',
+  ]);
+  expect(screen.getByRole('region', { name: 'Reviewed source' }).textContent).toContain(
+    'The agreed studio brief.',
+  );
+  expect(screen.getByText('Change saved context').closest('details')!.open).toBe(false);
+  expect(api.approveSourcePermission).not.toHaveBeenCalled();
+  fireEvent.click(save);
+  await waitFor(() => expect(api.approveSourcePermission).toHaveBeenCalledTimes(1));
+  expect(api.approveSourcePermission.mock.calls[0][1].selection.messageIds).toEqual([
+    'assistant-1',
+  ]);
+});
+
+it('keeps a failed initial review retryable without asking for another tool invocation', async () => {
+  api.getSourcePermission.mockRejectedValueOnce(new Error('Temporary read failure'));
+  render(<PermissionBanner {...props} />);
+  fireEvent.click(await screen.findByRole('button', { name: 'Retry source review' }));
+  await screen.findByText('New outcome · Home studio');
+  expect(api.getSourcePermission).toHaveBeenCalledTimes(2);
+  expect(api.approveSourcePermission).not.toHaveBeenCalled();
+});
+
+it('loads earlier context without replacing the prepared selection and requires review after editing it', async () => {
+  api.getSourcePermission
+    .mockResolvedValueOnce({
+      ...review,
+      suggestedMessageIds: ['assistant-1'],
+      earlierCursor: 8,
+      hasMore: true,
+    })
+    .mockResolvedValueOnce({
+      ...review,
+      earlierCursor: 3,
+      hasMore: false,
+      messages: [
+        {
+          ...review.messages[0],
+          messageId: 'earlier',
+          sequence: 3,
+          blocks: [{ blockId: 'old', content: 'Earlier context', sha256: 'e'.repeat(64) }],
+        },
+      ],
+    });
+  render(<PermissionBanner {...props} />);
+  const save = await screen.findByRole('button', { name: 'Create outcome' });
+  await waitFor(() => expect(save.hasAttribute('disabled')).toBe(false));
+  fireEvent.click(screen.getByText('Change saved context'));
+  fireEvent.click(screen.getByRole('button', { name: 'Earlier messages' }));
+  const earlier = await screen.findByRole('checkbox', { name: /Earlier context/ });
+  expect(api.getSourcePermission.mock.calls[1][4]).toBe(8);
+  expect(
+    (screen.getByRole('checkbox', { name: /The agreed studio brief/ }) as HTMLInputElement).checked,
+  ).toBe(true);
+  expect((earlier as HTMLInputElement).checked).toBe(false);
+  fireEvent.click(earlier);
+  expect(save.hasAttribute('disabled')).toBe(true);
+  fireEvent.click(screen.getByRole('button', { name: 'Review selected source' }));
+  await waitFor(() => expect(save.hasAttribute('disabled')).toBe(false));
+  expect(api.previewSourcePermission.mock.calls[1][1].selection.messageIds).toEqual([
+    'earlier',
+    'assistant-1',
+  ]);
+  expect(api.approveSourcePermission).not.toHaveBeenCalled();
+});
+
+it('cannot enable an automatic save when authentication is lost during preview', async () => {
+  api.getSourcePermission.mockResolvedValueOnce({
+    ...review,
+    suggestedMessageIds: ['assistant-1'],
+  });
+  const original = api.previewSourcePermission.getMockImplementation()!;
+  let finish!: (value: unknown) => void;
+  api.previewSourcePermission.mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        finish = resolve;
+      }),
+  );
+  render(<PermissionBanner {...props} />);
+  await waitFor(() => expect(api.previewSourcePermission).toHaveBeenCalledTimes(1));
+  act(() => window.dispatchEvent(new Event('mitzo:auth-lost')));
+  await act(async () => finish(await original(...api.previewSourcePermission.mock.calls[0])));
+  expect(screen.queryByRole('region', { name: 'Reviewed source' })).toBeNull();
+  expect(screen.getByRole('button', { name: 'Allow Once' }).hasAttribute('disabled')).toBe(true);
+  expect(api.approveSourcePermission).not.toHaveBeenCalled();
+});
+
 it('labels worker provenance without selecting it and carries the reviewed material scope into approval', async () => {
   const materialScopeSha256 = 'e'.repeat(64);
   api.getSourcePermission.mockResolvedValueOnce({
@@ -296,7 +397,7 @@ describe('ordinary Telos source approval', () => {
     expect(screen.getByRole('button', { name: 'Allow Once' }).hasAttribute('disabled')).toBe(true);
     expect(screen.queryByRole('button', { name: 'Allow for session' })).toBeNull();
     expect(source.closest('details')?.querySelector('summary')?.textContent).toContain(
-      'Request details',
+      'Change saved context',
     );
     expect(screen.getByLabelText('Approval required').parentElement).toBe(document.body);
     expect(api.previewSourcePermission).not.toHaveBeenCalled();

@@ -17,6 +17,7 @@ import {
   type TelosSourcePermissionOperation,
   type TelosSourcePermissionPreviewRequest,
   type TelosOutcomeCreation,
+  type TelosSourcePermissionReview,
 } from '@mitzo/protocol';
 import { TelosWorkError, type TelosWorkActor, type TelosWorkStore } from './telos-work-store.js';
 import { TelosSourceCapture } from './telos-source-capture.js';
@@ -36,6 +37,23 @@ import {
 } from './native-telos-worker-materials.js';
 
 const adopt = z.strictObject({ itemId: z.string().min(1).max(200) });
+/** Suggest only public text already qualified by the source owner. Saving still
+ * requires a compiled preview and the operator's explicit approval. */
+function latestExchange(messages: TelosSourcePermissionReview['messages']): string[] {
+  const eligible = messages.filter(
+    (message) => !message.unavailableReason && message.blocks.some((block) => block.content.trim()),
+  );
+  const lastUser = eligible.map((message) => message.author).lastIndexOf('operator');
+  const start =
+    lastUser < 0
+      ? Math.max(0, eligible.length - 1)
+      : lastUser === eligible.length - 1 &&
+          lastUser > 0 &&
+          eligible[lastUser - 1].author !== 'operator'
+        ? lastUser - 1
+        : lastUser;
+  return eligible.slice(start).map((message) => message.messageId);
+}
 export class TelosSourceSaveUncertainError extends Error {
   constructor() {
     super(
@@ -185,7 +203,13 @@ export class TelosSourceApproval {
       for (const pin of record.preview.packet.context.artifacts) scope?.assertPin(pin);
     };
   }
-  async review(permId: string, sessionId: string, actor: TelosWorkActor, afterSequence = 0) {
+  async review(
+    permId: string,
+    sessionId: string,
+    actor: TelosWorkActor,
+    afterSequence = 0,
+    beforeSequence?: number,
+  ) {
     const actorId = this.operator(actor),
       retained = this.options.store.lookup(permId, sessionId, actorId);
     if (retained) {
@@ -226,8 +250,13 @@ export class TelosSourceApproval {
     const materialScope = this.materialScope(proof, operation, actor);
     if (!Number.isSafeInteger(afterSequence) || afterSequence < 0)
       throw new TelosWorkError('invalid', 'Invalid source cursor');
-    const anchors = this.options.events.getSymposiumPerspectiveEvents(sessionId, afterSequence, 51);
-    const rawPage = anchors.slice(0, 50);
+    const anchors = this.options.events.getSymposiumPerspectiveEvents(
+      sessionId,
+      afterSequence,
+      51,
+      beforeSequence,
+    );
+    const rawPage = beforeSequence === undefined ? anchors.slice(0, 50) : anchors.slice(-50);
     const page = rawPage.filter((e) => e.type === 'user_message' || e.type === 'message_end');
     const cursor = rawPage.at(-1)?.seq ?? afterSequence;
     const source = createTelosConversationSource({
@@ -297,6 +326,10 @@ export class TelosSourceApproval {
       artifactsHasMore: materialPage.hasMore,
       cursor,
       hasMore: anchors.length > 50,
+      ...(beforeSequence !== undefined && rawPage.length ? { earlierCursor: rawPage[0].seq } : {}),
+      ...(beforeSequence === Number.MAX_SAFE_INTEGER && operation.kind === 'create'
+        ? { suggestedMessageIds: latestExchange(messages) }
+        : {}),
     });
   }
   private discoverMaterials(

@@ -209,7 +209,13 @@ export class TelosWorkApiClient {
       signal,
     );
   }
-  getSourcePermission(permId: string, sessionId: string, signal?: AbortSignal, afterSequence = 0) {
+  getSourcePermission(
+    permId: string,
+    sessionId: string,
+    signal?: AbortSignal,
+    afterSequence = 0,
+    beforeSequence?: number,
+  ) {
     return this.request(
       'source/permissions/' +
         encodeURIComponent(TelosWorkIdSchema.parse(permId)) +
@@ -217,6 +223,7 @@ export class TelosWorkApiClient {
         new URLSearchParams({
           sessionId: TelosWorkIdSchema.parse(sessionId),
           afterSequence: String(afterSequence),
+          ...(beforeSequence === undefined ? {} : { beforeSequence: String(beforeSequence) }),
         }),
       TelosSourcePermissionReviewSchema,
       undefined,

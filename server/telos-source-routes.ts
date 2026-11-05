@@ -222,14 +222,22 @@ export function createTelosSourceRouter(options: {
           permId: TelosWorkIdSchema,
           sessionId: TelosWorkIdSchema,
           afterSequence: z.coerce.number().int().nonnegative().safe().default(0),
+          beforeSequence: z.coerce.number().int().positive().safe().optional(),
         })
+        .refine((value) => value.beforeSequence === undefined || value.afterSequence === 0)
         .safeParse({ permId: req.params.permId, ...req.query });
       if (!input.success) {
         res.status(400).json({ code: 'invalid', error: 'Invalid source permission' });
         return;
       }
       await run(res, actor, (_capture, approval) =>
-        approval.review(input.data.permId, input.data.sessionId, actor, input.data.afterSequence),
+        approval.review(
+          input.data.permId,
+          input.data.sessionId,
+          actor,
+          input.data.afterSequence,
+          input.data.beforeSequence,
+        ),
       );
     },
   );

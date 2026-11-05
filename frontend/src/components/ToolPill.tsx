@@ -14,6 +14,7 @@ import { RepositoryChatSetupCard } from './RepositoryChatSetupCard';
 import { GoogleSearchResult } from './GoogleSearchResult';
 import { TelosWorkerReceiptCard } from './TelosWorkerReceiptCard';
 import { agentTaskProposalLink } from '../lib/agent-task-proposal-link';
+import { TelosOutcomeFailure } from './TelosOutcomeFailure';
 
 interface Props {
   block: ToolBlock;
@@ -200,6 +201,7 @@ export function ToolPill({ block, sessionId, showSetupCard = true }: Props) {
       {showSetupCard && <ConnectionSetupCard block={block} sessionId={sessionId} />}
       {showSetupCard && <RepositoryChatSetupCard block={block} sessionId={sessionId} />}
       {showSetupCard && <TelosWorkerReceiptCard block={block} sessionId={sessionId} />}
+      {showSetupCard && <TelosOutcomeFailure block={block} />}
       {['RequestWebAccess', 'mcp__mitzo-web-access__RequestWebAccess'].includes(
         block.toolName ?? '',
       ) &&

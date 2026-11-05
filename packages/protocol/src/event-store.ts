@@ -4161,18 +4161,25 @@ export class EventStore {
   }
 
   /** Bounded ordered anchors for audience-specific transcript projections. */
-  getSymposiumPerspectiveEvents(sessionId: string, afterSeq = 0, limit = 200): StoredEvent[] {
+  getSymposiumPerspectiveEvents(
+    sessionId: string,
+    afterSeq = 0,
+    limit = 200,
+    beforeSeq?: number,
+  ): StoredEvent[] {
     if (
       !Number.isSafeInteger(afterSeq) ||
       afterSeq < 0 ||
       !Number.isSafeInteger(limit) ||
       limit < 1 ||
-      limit > 500
+      limit > 500 ||
+      (beforeSeq !== undefined &&
+        (!Number.isSafeInteger(beforeSeq) || beforeSeq < 1 || afterSeq !== 0))
     )
       throw new Error('Invalid Symposium perspective page');
     const rows = this.db!.prepare(
       `SELECT seq, session_id, type, payload, created_at, seat_id, symposium_provenance
-        FROM events e WHERE session_id = ? AND seq > ?
+        FROM events e WHERE session_id = ? AND seq ${beforeSeq === undefined ? '>' : '<'} ?
          AND type IN ('message_end', 'user_message', 'symposium_delivery_dispatched')
          AND (type != 'message_end' OR NOT EXISTS (
            SELECT 1 FROM events prior
@@ -4181,9 +4188,9 @@ export class EventStore {
              AND prior.symposium_provenance IS e.symposium_provenance
               AND json_extract(prior.payload, '$.messageId') = json_extract(e.payload, '$.messageId')
           ))
-       ORDER BY seq LIMIT ?`,
-    ).all(sessionId, afterSeq, limit) as EventRow[];
-    return rows.map(rowToEvent);
+       ORDER BY seq ${beforeSeq === undefined ? 'ASC' : 'DESC'} LIMIT ?`,
+    ).all(sessionId, beforeSeq ?? afterSeq, limit) as EventRow[];
+    return (beforeSeq === undefined ? rows : rows.reverse()).map(rowToEvent);
   }
 
   /** Exact ordinary source identity; only completed visible text is returned. */

@@ -296,9 +296,11 @@ export function PermissionBanner({
               aria-label={
                 recoveringSource
                   ? 'Retry same save'
-                  : approvalScope === 'conversation'
-                    ? 'Grant to conversation'
-                    : 'Allow Once'
+                  : sourceReview.quickSave
+                    ? 'Create outcome'
+                    : approvalScope === 'conversation'
+                      ? 'Grant to conversation'
+                      : 'Allow Once'
               }
               disabled={
                 submitting ||
@@ -311,9 +313,13 @@ export function PermissionBanner({
             >
               {recoveringSource
                 ? 'Retry same save'
-                : approvalScope === 'conversation'
-                  ? 'Grant'
-                  : 'Once'}
+                : sourceReview.quickSave
+                  ? sourceReview.saving
+                    ? 'Creating…'
+                    : 'Create outcome'
+                  : approvalScope === 'conversation'
+                    ? 'Grant'
+                    : 'Once'}
             </button>
             {!reviewingSource && allowSessionGrant !== false && (
               <button

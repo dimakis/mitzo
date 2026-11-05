@@ -156,6 +156,8 @@ export const TelosSourcePermissionReviewSchema = z.strictObject({
   artifactsHasMore: z.boolean().default(false),
   cursor: z.number().int().nonnegative().safe(),
   hasMore: z.boolean(),
+  earlierCursor: z.number().int().positive().safe().optional(),
+  suggestedMessageIds: z.array(z.string().min(1)).max(50).optional(),
   recovery: z
     .strictObject({
       requestId: z.uuid(),

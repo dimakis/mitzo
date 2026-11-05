@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.883-native-tool-feedback-observed-expiry';
+  'v1.0.884-telos-outcome-latest-exchange';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -23,10 +23,20 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
+  '../../frontend/src/components/TelosOutcomeFailure.tsx':
+    '130a8af868dc17dc79b0c2872fa13a8b19b91fe9d5795d85ccdffb1ec9c331c5',
+  '../../frontend/src/components/ToolSetupCards.tsx':
+    '7ee860e3e379c77af58bb64f6a19140be3afa73dce9c20f98a4c10dec9ee2da9',
+  '../../tests/fixtures/telos-outcome-create.tsx':
+    '505715ea21505e8cbe118e0c38f95efa80f9d60db29f7c08ad37688c402a9e32',
+  '../../tests/offline/telos-outcome-create.spec.ts':
+    'b2fbbf8516f4a05caa872928195231841c3e04c8c3099b9eedcf26e3987bf372',
+  '../../docs/features/telos-outcome-creation.md':
+    '47652517d367934ff4e061fff71674de1816ed51b7aef4f155b37f951d85adca',
   '../__tests__/owned-local-auth-feedback.test.ts':
     'fa4b4dca12a655e4075c03e6c95701ac9c8c1a6607f867e27668c914e988da21',
   '../../docs/design/ui-design-system.md':
-    '9e052baedfae32e917d6fa91e136bb3484d10b2a8424de1a85c33927ded11d2c',
+    'a2652c5df0eeb59c6765a47de091c1a3b87321dd1cedf9340fc97a276d65d324',
   '../../packages/protocol/src/session-prompts.ts':
     '86f1242cbaa5371b414ac341faa2e128d5ff0fa88c3bcf06dfd39b5424366be2',
   '../__tests__/session-prompt-service.test.ts':
@@ -1035,7 +1045,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/components/SymposiumProfilePicker.css':
     'fd2ab3e855f3cb1e1814de4e5c7206f1970fe9739efff7fb6e21a7df0390b310',
   '../../frontend/src/components/ToolPill.tsx':
-    '6102e6503adbdf19e774bc56e7959724983c79664bc021cf2678ba2ae02d333f',
+    'afa0eaf357773fa2d4c0537a8b3071420d8408ef76e4b4be2b125399571ad3f5',
   '../../frontend/src/components/ToolResultContent.tsx':
     '065eef206f07e4fca44d9e4418c76d58d19a18f363a4d318565a3ac85c5888d4',
   '../../frontend/src/styles/tool-result.css':
@@ -1125,7 +1135,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../public-replay-error.ts': 'f259c0724784f96d7553750a6ca0d5812ef69d934f123b47eeaa863dd530aefe',
   '../provider-failure.ts': '0655ed00d881906318380ec0c90d62f1457b5257747eb765d05658199443805f',
   '../telos-source-recovery.ts': '91d1921366236f855fa2283fb35aa64641d1a2b589e5b2dcb7c24250d94dbb91',
-  '../telos-source-approval.ts': 'd2efbfedd84f61c39971b06565635c214d4788942322560575c4c504e64e9bb1',
+  '../telos-source-approval.ts': '33b29cf61a2bb30c7baae09c4bd857aea939ebba7b9f132d1179d2b2418081ee',
   '../telos-source-approval-store.ts':
     '5f787fc729a9ef784220cb1bfc9a7200fa75ece64c16379818d5d2ef0dbc11ec',
   '../session-permission-policy.ts':
@@ -1135,9 +1145,9 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/styles/global.css':
     'af3ac50a1827d156b71cb72e812078d8aad91f5568ce07f884f972ca02504ccd',
   '../../frontend/src/components/TelosSourceReview.tsx':
-    'c737a6b0802e9bbb8aa5bd870c2a5fa0a2db38571eedfbd09a21202ade7cbdd7',
+    '692e37a101882d986c4e525cea62a362f52835dfb5f0d5abadad47d1c6b37e1a',
   '../../frontend/src/components/PermissionBanner.tsx':
-    'eb59c9845314bbb0f1b15a720361c8fcef7678e477cb36d5b2be093212760825',
+    'd4eaccf2d2ca5118de6e80d55436e8e0d1e950905c89033ac6ca20fd000fe8af',
   '../telos-artifact-routes.ts': '27c18f41fa4f750b97c7b7527d28628d1833a4bd51d9a5bb1fca65e098ecd5ba',
   '../../frontend/src/hooks/useTelosSourceNavigation.ts':
     'b2a461e208923889e0286efdd3faa41705af58693de41446aa6021eaa4b73fd8',
@@ -1161,9 +1171,9 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../telos-outcome-owner.ts': '7e11bca759dcda14dbc766fd7a02d1a05165a7333d8b78368555145854740161',
   '../../packages/protocol/src/telos-outcome.ts':
     '2e02bc7096e531552c3eeec437f4e777d5b9a14089c3d6a9eb00b5d7942bf758',
-  '../telos-source-routes.ts': '1e80ff18491b1df6d8e5403d9fedb4403fde313eb277d202ce9ec1d147fcd019',
+  '../telos-source-routes.ts': '4f36eec35e682793c477ba294374e9281c298234a92da67b03fc3b0e5cad4fda',
   '../../packages/protocol/src/telos-source.ts':
-    '3318bda91c57865f73e5577281b8afc93c6746b551038927bbff95d7247db550',
+    'b3709d5347309d7287d7adfde696532db3b98a308e717ae11162b63b16ae8081',
   '../telos-artifact-store.ts': '5e6ca28329fb2d4dd83f19a5092f6e42e59ee25c068147c80d129a37f5d892eb',
   '../telos-source-capture.ts': 'f3f394266e31ac93c4f9601fcf93270d6f04da7fc3ff278fdffb35139601ac98',
   '../telos-conversation-source.ts':
@@ -1182,7 +1192,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     '6abc340f3236812d9e9875e8a60944590575d991e95ccaf3f2b61aff323c5175',
   '../telos-work-routes.ts': 'dcf65f66778264c9baf5b815ea05f8c12ab478e26bbe514907fcccda1f0f4f38',
   '../../packages/client/src/telos-work-api.ts':
-    'a056db2f52a0ccff2271263cb188723a308e73a8131bfbc087244ca5b3ae1351',
+    '3b65097f0e7c358d0104f960c2aa2d93a57cdda14c1b6f201839b3be643f774c',
   '../telos-work-schema.ts': '99334ce746b53a8c7e79bcd710e94ae0db7df912ab2a7256513cb2679eaacf83',
   '../telos-work-store.ts': '2de5a806170571445795395fab96d9c30fe4760e6593a837a1ee47a48e50c320',
   '../../packages/protocol/src/telos-work-api.ts':
@@ -1752,7 +1762,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/protocol/src/session-metadata-store.ts':
     '27de6e399040ee80c78416a5023f27d42f6a5ccfbe707ffd58bd09bd2e7b4ef9',
   '../../packages/protocol/src/event-store.ts':
-    '3976d7e363c5d499c3913de1cd4fd96747225be085063e3d44b743a27b9b4e0f',
+    'd43f5ae3e3fa2f97787dc21e3c4fa5ea6f0f64a9e10cde622c7681fe756f64df',
   '../../packages/protocol/src/session-lifecycle-store.ts':
     '2a219b360a5fbe72b0a550c714bf76a15c6f5969cbbe4251671050257b98e267',
   '../../packages/protocol/src/conversation-replay-store.ts':
@@ -2782,7 +2792,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/native-host-operator-lifetime.test.ts':
     'f7f336335995900d993b79386661f1e89b9bfd98c93c6a4eea9c20ed28d2ff0b',
   '../../frontend/src/components/__tests__/TelosSourceReview.test.tsx':
-    'c573b2ef7c636b6331ebf3a8f5d1af4d5943956f42805082a102af20627ffb80',
+    '624b4dc10927c79e0db80cd6084ed63c4146f189622e99a0a8702ba2046685a9',
   '../../frontend/src/hooks/__tests__/useDraft.test.ts':
     '291fef9ad255ce57be2555836eb75a5839c6bf8dabf412929158b402ba80d03e',
   '../../frontend/src/hooks/__tests__/useNewChatDraft.test.tsx':
