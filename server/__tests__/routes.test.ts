@@ -1,3 +1,4 @@
+import './fixtures/offline-user-home.js';
 import { describe, it, expect, vi, beforeAll, beforeEach, afterAll, afterEach } from 'vitest';
 import type { Server } from 'node:http';
 import { listenOnLoopback, closeTestServer } from './loopback-test-server.js';
@@ -7,6 +8,8 @@ import { mkdirSync, writeFileSync, readFileSync, symlinkSync } from 'fs';
 import { join, relative } from 'path';
 import { tmpdir, homedir } from 'os';
 import { AccountAliases } from '../account-aliases.js';
+import { codexPrivateDirectory } from '../codex-private-path.js';
+import { InboxScanner } from '../inbox-scanner.js';
 
 const mockRemoteArtifactRead = vi.hoisted(() => vi.fn());
 const mockRemoteArtifactFactory = vi.hoisted(() => vi.fn());
@@ -101,11 +104,12 @@ vi.mock('../chat.js', async () => {
       setSessionState: vi.fn(),
       append: vi.fn(),
       getLatestEvent: vi.fn().mockReturnValue(null),
+      getSessionEventCursor: vi.fn().mockReturnValue(0),
       getEventsAfter: vi.fn().mockReturnValue([]),
       getSessionEvents: vi.fn().mockReturnValue([]),
       getEventsOfType: vi.fn().mockReturnValue([]),
       getLatestWorktreePath: vi.fn().mockReturnValue(null),
-      searchSessions: vi.fn().mockReturnValue([
+      searchSessionsAsync: vi.fn().mockResolvedValue([
         {
           sessionId: 's1',
           summary: 'Test',
@@ -1004,6 +1008,10 @@ describe('session routes', () => {
 // --- Session Search Routes ---
 
 describe('session search routes', () => {
+  beforeEach(() =>
+    vi.stubEnv('MITZO_CODEX_PRIVATE_DIR', join(tmpdir(), `mitzo-search-route-${process.pid}`)),
+  );
+  afterEach(() => vi.unstubAllEnvs());
   it('returns saved model and aliased account for inactive search hits outside the recent page', async () => {
     const original = vi.mocked(eventStore.getSession).getMockImplementation()!;
     const aliases = new AccountAliases(join(TEST_REPO, '.mitzo', 'account-aliases.json'));
@@ -1025,7 +1033,7 @@ describe('session search routes', () => {
           } as ReturnType<typeof eventStore.getSession>)
         : original(id),
     );
-    vi.mocked(eventStore.searchSessions).mockReturnValueOnce(
+    vi.mocked(eventStore.searchSessionsAsync).mockResolvedValueOnce(
       ['off-page-chat', 'unrecorded-chat'].map((sessionId) => ({
         sessionId,
         summary: 'Older matching conversation',
@@ -1060,7 +1068,12 @@ describe('session search routes', () => {
     expect(res.body.results).toHaveLength(1);
     expect(res.body.results[0].sessionId).toBe('s1');
     expect(res.body.results[0].snippet).toBe('...matched text...');
-    expect(vi.mocked(eventStore.searchSessions)).toHaveBeenCalledWith('matched', 20);
+    expect(vi.mocked(eventStore.searchSessionsAsync)).toHaveBeenCalledWith(
+      'matched',
+      20,
+      expect.any(AbortSignal),
+      codexPrivateDirectory(),
+    );
   });
 
   it('GET /api/sessions/search — empty query returns empty results', async () => {
@@ -1077,7 +1090,12 @@ describe('session search routes', () => {
 
   it('GET /api/sessions/search — clamps limit to 50', async () => {
     await request(app).get('/api/sessions/search?q=test&limit=999').set('Cookie', authCookie);
-    expect(vi.mocked(eventStore.searchSessions)).toHaveBeenCalledWith('test', 50);
+    expect(vi.mocked(eventStore.searchSessionsAsync)).toHaveBeenCalledWith(
+      'test',
+      50,
+      expect.any(AbortSignal),
+      codexPrivateDirectory(),
+    );
   });
 
   it('GET /api/sessions/search — unauthenticated returns 401', async () => {
@@ -1371,6 +1389,57 @@ describe('briefing routes', () => {
 });
 
 describe('inbox routes', () => {
+  it('DELETE drains an older source scan before removing an unindexed item', async () => {
+    const { notificationCenter } = await import('../app.js');
+    const filename = 'delete-scan-race.md';
+    writeFileSync(join(INBOX_DIR, filename), SAMPLE_INBOX_ITEM);
+    let release!: () => void;
+    let captured!: () => void;
+    const waiting = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const reached = new Promise<void>((resolve) => {
+      captured = resolve;
+    });
+    const original = InboxScanner.prototype.scan;
+    let blocked = false;
+    const scan = vi.spyOn(InboxScanner.prototype, 'scan').mockImplementation(async function (
+      this: InboxScanner,
+      directory,
+    ) {
+      if (directory === join(INBOX_DIR, 'archive') && !blocked) {
+        blocked = true;
+        captured();
+        await waiting;
+      }
+      return original.call(this, directory);
+    });
+    const pending = notificationCenter.reconcileAsync();
+    await reached;
+    let entered!: () => void;
+    const received = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    app.prependOnceListener('request', () => entered());
+    const deleting = request(app)
+      .delete('/api/inbox/' + filename)
+      .set('Cookie', authCookie)
+      .then((response) => response);
+    try {
+      await received;
+      release();
+      const response = await deleting;
+      await pending;
+      expect(response.status).toBe(200);
+      const record = notificationCenter.store.get('inbox:' + filename);
+      expect(record).toBeDefined();
+      expect(record!.archivedAt).not.toBeNull();
+    } finally {
+      release();
+      await pending;
+      scan.mockRestore();
+    }
+  });
   it('GET /api/inbox — returns inbox items', async () => {
     const res = await request(app).get('/api/inbox').set('Cookie', authCookie);
     expect(res.status).toBe(200);
@@ -1403,11 +1472,19 @@ describe('inbox routes', () => {
   it('POST /api/inbox/:filename/approve — moves to archive', async () => {
     // Create a fresh item for this test
     writeFileSync(join(INBOX_DIR, '20260401_000000_01_test.md'), SAMPLE_INBOX_ITEM);
+    const { notificationCenter } = await import('../app.js');
+    await notificationCenter.reconcileAsync();
+    const id = 'inbox:20260401_000000_01_test.md';
+    expect(notificationCenter.store.get(id)?.archivedAt).toBeNull();
+    const changed = vi.spyOn(notificationCenter, 'changed');
     const res = await request(app)
       .post('/api/inbox/20260401_000000_01_test.md/approve')
       .set('Cookie', authCookie);
     expect(res.status).toBe(200);
     expect(res.body).toEqual({ ok: true });
+    expect(notificationCenter.store.get(id)?.archivedAt).not.toBeNull();
+    expect(changed).toHaveBeenCalled();
+    changed.mockRestore();
   });
 
   it('POST /api/inbox/:filename/approve — nonexistent returns 404', async () => {
