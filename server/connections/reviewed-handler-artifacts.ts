@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.870-compact-display-final-integration';
+  'v1.0.871-history-overlap-coverage';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -24,9 +24,9 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../session-history-reader.ts':
-    '8f59014e61f7aadd4fe65a289a70468e7a2fe75b49f8752e51c13c25ec0e09b5',
+    '62712ac885685f1bf2accd4e54ec83f3a9f94ea14a4b124b7ae2ce26d776647c',
   '../__tests__/session-history-retrieval.test.ts':
-    '0b63f327b6ab591b630b3d85d8fcb0edac8799750d624eb8ce07241b9eaa1ba9',
+    '870ba94aa48093e7a5cf06a671ef3b76c4c6c7b60f9d5ed93e0ab74fa257d8c1',
   '../__tests__/fixtures/legacy-session-history.ts':
     '64f3997f7991fe6f72db7a99617caf3c3a2a0e1eb6b2bd8bdaeca66ad19e0259',
   '../__tests__/session-history-tools.test.ts':
@@ -663,7 +663,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     '69203bda9ca703dcead99697ebfc942e7b51f2e5093680739945f2e7de36c028',
   '../session-history-authorization.ts':
     'd7a470cd7967595e904e0db11107f25896f775a3cd964084c9819ac4711a8191',
-  '../session-history-tools.ts': '732b8b50b374aef6141e715b6a4beb1f99eebd6500836b141c3bce7ac55946f4',
+  '../session-history-tools.ts': '926aea8c7ffc62c319eab837ef2d27711c70ac0c9f636eadbff4551d76a97d41',
   '../local-repository-discovery.ts':
     'c3d0bc7ecc2c1838e11666f72681a4d9f1fb2f3adfa701356af6a06551ca9c43',
   '../session-local-repository-tools.ts':
