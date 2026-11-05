@@ -36,7 +36,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/hooks/useNativeSubagents.ts':
     '9fd8e6c867ca0150c407b06f3d678465d801b5c7b17c2c41051a00ecdd543962',
   '../../frontend/src/components/NativeSubagents.css':
-    '3c61c7aad4976ee55bcec619d849dbfdb1b8cbd70c99200ff29652afc5c8c9f4',
+    'fceacf54627970c06dd541178199f29be706f93b777d46160d8bf999c1e19bb0',
   '../../frontend/src/components/NativeSubagents.tsx':
     '7a791a8fb5a028354f6407af2b74a93f60247c0d6801993325bc6d08325ff7db',
   '../../packages/protocol/src/native-subagents.ts':
