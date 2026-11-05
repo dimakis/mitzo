@@ -6,6 +6,8 @@ import { assembleSourceSnapshots } from '../source-snapshot-context.js';
 import Database from 'better-sqlite3';
 import { createHash } from 'node:crypto';
 import { EventStore } from '../event-store.js';
+import { reportRetainedRuntimeFailure } from '../retained-runtime-failure.js';
+import { codexRuntimeDiagnostic } from '../codex-runtime-diagnostics.js';
 import { codexRolloverHistory, codexRolloverSources } from '../codex-rollover-context.js';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -3382,6 +3384,89 @@ it('reports transport loss during an active turn and preserves its unknown outco
   );
   expect(c.isPaused()).toBe(true);
   expect(c.queue()[0]).toMatchObject({ status: 'interrupted' });
+});
+
+it.each(['typed', 'unclassified', 'observer-failure'] as const)(
+  'reports an owned terminal transport interruption once before a subsequent send (%s)',
+  async (kind) => {
+    const f = await setupTerminalTransport();
+    await f.c.send({ id: 'active-loss', prompt: 'work' });
+    await f.c.send({ id: 'saved-follow-up', prompt: 'next' });
+    const failure =
+      kind === 'typed'
+        ? new CodexTransportError('connection', { reason: 'stream_error', stream: 'stdout' })
+        : new Error('SECRET /private/provider-frame');
+    if (kind === 'observer-failure')
+      f.onTransportClosed.mockImplementationOnce(() => {
+        throw new Error('observer unavailable');
+      });
+    const close = () => f.callbacks.onClose(failure);
+    if (kind === 'observer-failure') expect(close).toThrow('observer unavailable');
+    else close();
+    f.callbacks.onClose(failure);
+    expect(f.onError).toHaveBeenCalledOnce();
+    const reported = f.onError.mock.calls[0][0];
+    expect(reported).toBeInstanceOf(CodexTransportError);
+    expect(reported.message).not.toMatch(/SECRET|private/);
+    if (kind === 'typed') expect(reported).toBe(failure);
+    expect(f.onClosed).toHaveBeenCalledOnce();
+    expect(f.rpc.close).toHaveBeenCalledOnce();
+    expect(f.c.queue().map(({ status }) => status)).toEqual(['interrupted', 'queued']);
+    expect(f.store.commandLifecycle('app', f.getBinding(), 'active-loss')).toMatchObject({
+      state: 'ambiguous_effect',
+      nextAction: 'reconcile_native_outcome',
+    });
+    expect(f.requests.filter(({ method }) => method === 'turn/start')).toHaveLength(1);
+  },
+);
+
+it.each(['idle', 'explicit-stop', 'completed'] as const)(
+  'does not report an owned terminal %s as a transport interruption',
+  async (kind) => {
+    const f = await setupTerminalTransport();
+    if (kind !== 'idle') await f.c.send({ id: 'work', prompt: 'work' });
+    if (kind === 'completed') {
+      f.callbacks.onNotification('turn/completed', {
+        threadId: f.getProviderThread(),
+        turn: { id: 'turn-1', status: 'completed' },
+      });
+    }
+    if (kind === 'explicit-stop') f.c.close();
+    f.callbacks.onClose(new CodexTransportError('connection'));
+    expect(f.onClosed).toHaveBeenCalledOnce();
+    expect(f.onError).not.toHaveBeenCalled();
+  },
+);
+
+it('retains an owned active disconnect for both live viewers and reopened history', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mitzo-terminal-disconnect-'));
+  cleanup.push(() => rmSync(dir, { recursive: true, force: true }));
+  const file = join(dir, 'events.db');
+  let history = new EventStore(file);
+  cleanup.push(() => history.close());
+  history.upsertSession({ sessionId: 'app', cwd: dir });
+  const driver = { isOpen: () => true, send: vi.fn() };
+  const watcher = { isOpen: () => true, send: vi.fn() };
+  const f = await setupTerminalTransport();
+  f.onError.mockImplementation((error) =>
+    reportRetainedRuntimeFailure({
+      store: history,
+      sessionId: 'app',
+      session: { transport: driver, observers: new Set([watcher]) },
+      error,
+      describe: (value) => codexRuntimeDiagnostic(value)!,
+    }),
+  );
+  await f.c.send({ id: 'active-loss', prompt: 'work' });
+  f.callbacks.onClose(new Error('SECRET upstream frame'));
+  expect(driver.send).toHaveBeenCalledOnce();
+  expect(watcher.send).toHaveBeenCalledWith(driver.send.mock.calls[0][0]);
+  history.close();
+  history = new EventStore(file);
+  const errors = history.getSessionEvents('app').filter(({ type }) => type === 'error');
+  expect(errors).toHaveLength(1);
+  expect(errors[0].payload.error).toContain('Inspect conversation recovery');
+  expect(JSON.stringify(errors)).not.toContain('SECRET');
 });
 
 it('retires a cancelled silent idle probe so its old RPC timer cannot interrupt a later turn', async () => {
@@ -8228,6 +8313,7 @@ it.each([
   { phase: 'transport', diagnostic: { reason: 'reply_provenance_failed' } },
   { phase: 'transport', diagnostic: { reason: 'notification_handler_failed' } },
   { phase: 'transport', diagnostic: { reason: 'host_tool_admission_timeout' } },
+  { phase: 'transport', diagnostic: { reason: 'host_response_fence_failed' } },
   { phase: 'ack', diagnostic: { reason: 'reply_provenance_failed' } },
   { phase: 'buffered', diagnostic: { reason: 'reply_provenance_failed' } },
 ] as const)(

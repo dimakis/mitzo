@@ -1,8 +1,12 @@
+import process from 'node:process';
 import { resolve as pathResolve, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 let root;
+let portableSupplemental;
 export function initialize(data) {
   root = data.root;
+  portableSupplemental =
+    data.portableSupplemental ?? process.env.S9_SUPPLEMENTAL_PORTABLE_CLI === '1';
 }
 const externalSources = {
   'auto-rename.ts': `export const shouldAutoRename=()=>false; export const extractRecentPrompts=()=>[]; export const generateSessionNameFallback=()=> 'Offline restart'; export const generateSessionName=async()=>{throw Error('No model naming')}; export const createAnthropicClient=()=>{throw Error('No provider')}; export const setClientFactory=()=>{}; export const resetClientFactory=()=>{}; export const AUTO_RENAME_INTERVAL=0; export const AUTO_RENAME_MODEL='offline';`,
@@ -28,6 +32,26 @@ export async function resolve(specifier, context, next) {
   );
 }
 export async function load(url, context, next) {
+  if (
+    portableSupplemental &&
+    url === pathToFileURL(join(root, 'server/credential-sdk-boundary.ts')).href
+  ) {
+    const actual = JSON.stringify(url + '?s9-portable-original');
+    const adapter = JSON.stringify(
+      new URL('./portable-supplemental-boundary.mjs', import.meta.url).href,
+    );
+    return {
+      format: 'module',
+      shortCircuit: true,
+      source: `
+        export * from ${actual};
+        import {createPortableSupplementalBoundary} from ${adapter};
+        export function runtimeFilesystemSdkBoundary() {
+          return createPortableSupplementalBoundary();
+        }
+      `,
+    };
+  }
   for (const [name, source] of Object.entries(externalSources))
     if (url === pathToFileURL(join(root, 'server', name)).href)
       return { format: 'module', source, shortCircuit: true };

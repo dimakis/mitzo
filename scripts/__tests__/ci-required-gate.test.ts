@@ -174,7 +174,7 @@ it('requires the selected prepared consumer owner and rejects unknown or contrad
   delete needs['prepared-consumer-validation'];
   expect(run(needs).status).toBe(1);
 });
-it('runs the transferred owner offline on macOS with retained structured proof and a finite job bound', () => {
+it('runs the transferred owner offline on Linux with retained structured proof and a finite job bound', () => {
   const job = workflow.jobs['prepared-consumers'];
   expect(job).toBeDefined();
   const value = job as typeof job & {
@@ -182,7 +182,7 @@ it('runs the transferred owner offline on macOS with retained structured proof a
     'timeout-minutes': number;
     env: Record<string, string>;
   };
-  expect(value['runs-on']).toBe('macos-26');
+  expect(value['runs-on']).toBe('ubuntu-24.04');
   expect(value['timeout-minutes']).toBe(40);
   expect(value.env.NODE_OPTIONS).toBe('--max-old-space-size=1024');
   expect(job.if).toContain("needs.changes.outputs.prepared == 'true'");
@@ -196,6 +196,37 @@ it('runs the transferred owner offline on macOS with retained structured proof a
     if: '${{ always() }}',
     with: { path: 'test-results/prepared-consumers/', 'if-no-files-found': 'error' },
   });
+});
+
+it('restores portable prerequisites without repeating package compilation or iOS Vite builds on macOS', () => {
+  for (const name of [
+    'native',
+    'ordinary-journey',
+    'ordinary-joined',
+    'ordinary-supplemental',
+    'prepared-consumers',
+  ]) {
+    const job = workflow.jobs[name];
+    expect(
+      job.steps.some((s) =>
+        s.run?.includes('npx tsc -b packages/protocol packages/harness packages/client'),
+      ),
+    ).toBe(false);
+    expect(
+      job.steps.some((s) => (s as { uses?: string }).uses === './.github/actions/ci-workspace'),
+    ).toBe(true);
+  }
+  expect(workflow.jobs.native.needs).toContain('frontend-build');
+  expect(workflow.jobs.native.steps.some((s) => s.run?.includes('npm run build:ios'))).toBe(false);
+  expect(
+    workflow.jobs.native.steps.some((s) =>
+      s.run?.includes('CAPACITOR_WEB_DIR=dist-ios npx cap sync ios'),
+    ),
+  ).toBe(true);
+  const frontend = workflow.jobs['frontend-build'];
+  expect(
+    frontend.steps.some((s) => s.run?.includes('vite build --mode ios --outDir dist-ios')),
+  ).toBe(true);
 });
 
 it('accepts explicitly unselected ordinary owners only with a successful selector and joined gate', () => {

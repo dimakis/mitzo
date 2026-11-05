@@ -149,16 +149,17 @@ process.exit(7);
   }
 });
 
-it('admits Mac and interaction checks as soon as preflight succeeds, with Linux waiting for both producers', () => {
+it('admits independent checks after preflight and asset consumers only after both producers', () => {
   const early = [
     'prepared-consumers',
     'browser',
-    'native',
     'ordinary-journey',
     'ordinary-joined',
     'ordinary-supplemental',
   ];
-  const linux = ['core', 'unit', 'offline'];
+  // Native builds now consume the distinct iOS-mode web artifact. Other Mac
+  // acceptance owners retain early admission and never wait for frontend assets.
+  const assetConsumers = ['core', 'unit', 'offline', 'native'];
   for (const result of ['failure', 'cancelled', 'skipped', '', 'success']) {
     const needs = {
       preflight: { result: 'success' },
@@ -172,7 +173,7 @@ it('admits Mac and interaction checks as soon as preflight succeeds, with Linux 
       expect([jobs[name].needs].flat(), name).not.toContain('frontend-build');
       expect(enabled(jobs[name].if, needs), name).toBe(true);
     }
-    for (const name of linux) {
+    for (const name of assetConsumers) {
       expect([jobs[name].needs].flat(), name).toContain('frontend-build');
       expect(enabled(jobs[name].if, needs), name).toBe(result === 'success');
     }
