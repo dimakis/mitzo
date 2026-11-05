@@ -162,6 +162,8 @@ import {
 import { runWorktreeCleanupForRepos } from './repository-maintenance.js';
 import { contextFromTraceparent } from './trace-context.js';
 import { mountApplicationChatTransport } from './chat-rest-handler.js';
+import { initializeSessionPrompts, closeSessionPrompts } from './session-prompt-runtime.js';
+import { createSessionPromptRouter } from './session-prompt-router.js';
 import { initializeSymposiumNativeHost } from './symposium-native-host.js';
 import { singleFlightReconciliation } from './single-flight-reconciliation.js';
 
@@ -706,6 +708,8 @@ const v2Ctx: V2HandlerContext = {
 // Runs alongside WS during migration. Feature-flagged on the client side.
 
 mountApplicationChatTransport(app, chatSseRegistry, v2Ctx);
+const sessionPrompts = initializeSessionPrompts(join(BASE_REPO, '.mitzo', 'events.db'), v2Ctx);
+app.use('/api/session-timers', createSessionPromptRouter(sessionPrompts));
 
 /**
  * Handle a v2 WebSocket connection (after hello handshake detected).
@@ -1358,6 +1362,7 @@ async function shutdown(signal: string) {
   if (shuttingDown) return;
   shuttingDown = true;
   closeTelosMainPublicationRuntime();
+  await closeSessionPrompts();
   stopRuntimePerformanceMonitor?.();
   log.info(`${signal} received — shutting down gracefully`);
 

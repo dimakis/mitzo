@@ -65,6 +65,8 @@ import {
   executeTelosWorkControlTool,
 } from './telos-work-control-tools.js';
 import { sessionAgentTaskTools, agentTaskToolDefinitions } from './session-agent-task-tools.js';
+import { sessionPromptTools } from './session-prompt-tools.js';
+import { sessionPromptDefinitions } from './session-prompt-definitions.js';
 import {
   AGENT_COMMUNICATION_TOOL,
   agentCommunicationDefinitions,
@@ -1853,6 +1855,16 @@ async function openCodexChatBound(
         assertHostCurrentSync,
       )
     : undefined;
+  const localPromptTools = options.ownedLocal
+    ? sessionPromptTools(
+        options.conversationId,
+        options.session,
+        options.registry,
+        '',
+        assertHostCurrent,
+        assertHostCurrentSync,
+      )
+    : undefined;
   const communicationTools = options.ownedLocal
     ? sessionAgentCommunicationTools({
         events: options.eventStore,
@@ -1937,6 +1949,7 @@ async function openCodexChatBound(
           ...mcp.definitions,
           ...profileToolDefinitions,
           ...agentTaskToolDefinitions,
+          ...sessionPromptDefinitions,
           ...agentCommunicationDefinitions,
           ...localHistoryDefinitions,
           ...localRepositoryReadDefinitions,
@@ -2098,6 +2111,7 @@ async function openCodexChatBound(
               ...(googleWorkspaceTools?.definitions ?? []),
               ...profileToolDefinitions,
               ...agentTaskToolDefinitions,
+              ...sessionPromptDefinitions,
               ...agentCommunicationDefinitions,
               ...localHistoryDefinitions,
               ...nativeTelosTools,
@@ -2389,6 +2403,7 @@ async function openCodexChatBound(
           ...mcp.definitions,
           ...profileToolDefinitions,
           ...agentTaskToolDefinitions,
+          ...sessionPromptDefinitions,
           ...agentCommunicationDefinitions,
           ...localHistoryDefinitions,
           ...localRepositoryReadDefinitions,
@@ -3745,6 +3760,8 @@ async function openCodexChatBound(
         }
       }
       const taskResult = await localTaskTools?.execute(name, input, signal, callContext);
+      const promptResult = await localPromptTools?.execute(name, input, signal, callContext);
+      if (promptResult) return promptResult;
       if (taskResult) return taskResult;
       const profileResult = await localProfileTools?.execute(name, input, signal, callContext);
       if (profileResult) return profileResult;

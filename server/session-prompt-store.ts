@@ -57,6 +57,10 @@ export class SessionPromptStore {
       CREATE TABLE IF NOT EXISTS session_prompt_requests (
         request_id TEXT PRIMARY KEY, fingerprint TEXT NOT NULL, result TEXT NOT NULL
       );
+      CREATE INDEX IF NOT EXISTS session_prompt_delivery_state
+        ON session_prompt_deliveries(json_extract(data, '$.state'));
+      CREATE INDEX IF NOT EXISTS session_prompt_timer_status
+        ON session_prompt_timers(json_extract(data, '$.timer.status'));
     `);
   }
   close() {
@@ -225,7 +229,13 @@ export class SessionPromptStore {
   due(now = Date.now()): SessionPromptDelivery[] {
     return this.db
       .transaction(() => {
-        for (const timer of this.list()) {
+        const active = this.db
+          .prepare(
+            "SELECT data FROM session_prompt_timers WHERE json_extract(data, '$.timer.status')='active'",
+          )
+          .all() as JsonRow[];
+        for (const row of active) {
+          const { timer } = JSON.parse(row.data) as TimerEnvelope;
           if (timer.status !== 'active' || timer.nextRunAt === null || timer.nextRunAt > now)
             continue;
           const envelope = this.envelope(timer.id);
@@ -234,9 +244,8 @@ export class SessionPromptStore {
             this.save(envelope);
           }
         }
-        return this.deliveries()
+        return this.deliveries(['pending'])
           .filter((d) => {
-            if (!['pending', 'dispatching', 'uncertain'].includes(d.state)) return false;
             if (!d.timerId) return true;
             const status = this.get(d.timerId).status;
             return (
@@ -248,11 +257,15 @@ export class SessionPromptStore {
       })
       .immediate();
   }
-  deliveries(): SessionPromptDelivery[] {
+  deliveries(states?: SessionPromptDelivery['state'][]): SessionPromptDelivery[] {
     return (
       this.db
-        .prepare('SELECT data FROM session_prompt_deliveries ORDER BY rowid')
-        .all() as JsonRow[]
+        .prepare(
+          states
+            ? `SELECT data FROM session_prompt_deliveries WHERE json_extract(data, '$.state') IN (${states.map(() => '?').join(',')}) ORDER BY rowid`
+            : 'SELECT data FROM session_prompt_deliveries ORDER BY rowid',
+        )
+        .all(...(states ?? [])) as JsonRow[]
     ).map((row) => JSON.parse(row.data) as SessionPromptDelivery);
   }
   delivery(id: string): SessionPromptDelivery {

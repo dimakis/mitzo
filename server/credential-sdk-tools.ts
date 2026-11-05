@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { sessionPromptSchemas, sessionPromptDefinitions } from './session-prompt-definitions.js';
 import type { TurnCallbackRunner } from './turn-callbacks.js';
 import type { ConnectionBoundary } from './session-connection-tools.js';
 import { knowledgeToolSchemas, knowledgeToolDefinitions } from './session-knowledge-tools.js';
@@ -19,6 +20,7 @@ import { sessionCredentialTools } from './session-credential-tools.js';
 
 const prefix = 'mcp__mitzo-connections__';
 const schemas = {
+  ...sessionPromptSchemas,
   ...credentialConnectionSchemas,
   ...repositoryChatSchemas,
   ...profileToolSchemas,
@@ -29,6 +31,7 @@ const definitions = [
   ...repositoryChatToolDefinitions,
   ...profileToolDefinitions,
   ...knowledgeToolDefinitions,
+  ...sessionPromptDefinitions,
 ];
 /** Only this server's validated handlers bypass the SDK's generic MCP prompt; connection grants still force their own card. */
 export function credentialSdkPermission(
@@ -82,7 +85,10 @@ export function createCredentialSdkServer(
   return createSdkMcpServer({
     name: 'mitzo-connections',
     version: '1.0.0',
-    tools: (boundary?.profilesOnly ? profileToolDefinitions : definitions).map((definition) =>
+    tools: (boundary?.profilesOnly
+      ? [...profileToolDefinitions, ...sessionPromptDefinitions]
+      : definitions
+    ).map((definition) =>
       tool(
         definition.name,
         definition.description,

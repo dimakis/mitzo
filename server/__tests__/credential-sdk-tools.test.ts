@@ -45,6 +45,9 @@ it('exposes the same discovery, session approval and request tools to SDK sessio
     'SymposiumReadProfiles',
     'ReadKnowledge',
     'SaveKnowledgeDraft',
+    'SchedulePrompt',
+    'SessionTimers',
+    'SendSessionMessage',
   ]);
   const result = await mocked.tools[0].handler({});
   expect(JSON.stringify(result)).toContain('connections');

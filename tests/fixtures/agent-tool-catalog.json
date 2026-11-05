@@ -418,6 +418,39 @@
     "requirement": "Existing session permissions, cancellation and runtime admission apply."
   },
   {
+    "id": "mitzo:SchedulePrompt",
+    "version": 1,
+    "name": "SchedulePrompt",
+    "description": "Schedule a recurring prompt in an existing Mitzo session (defaults to this session). Specify intervalMinutes, optional maxRuns, and a stable requestId. Every timer is visible to the user in Chats → Timers and can be paused or cancelled. Uses the recipient’s existing account, runtime and permissions; this does not grant tool or merge authority.",
+    "source": "Session automation",
+    "required": false,
+    "behavior": "write",
+    "routes": ["local-api", "codex", "codex-owned-local"],
+    "requirement": "Existing session permissions, cancellation and runtime admission apply."
+  },
+  {
+    "id": "mitzo:SessionTimers",
+    "version": 1,
+    "name": "SessionTimers",
+    "description": "List timers or eligible sessions, read a timer or your own message delivery receipt, or pause/resume/cancel/run/update a timer. For changes supply its fresh expectedRevision and a stable requestId. Run means send one prompt, not complete the task. Never retry uncertain work with a new request ID.",
+    "source": "Session automation",
+    "required": false,
+    "behavior": "mixed",
+    "routes": ["local-api", "codex", "codex-owned-local"],
+    "requirement": "Existing session permissions, cancellation and runtime admission apply."
+  },
+  {
+    "id": "mitzo:SendSessionMessage",
+    "version": 1,
+    "name": "SendSessionMessage",
+    "description": "Send an attributed message to another ordinary Mitzo session through its existing prompt queue. Retain the returned delivery ID and use SessionTimers delivery to check it. Reuse requestId on uncertain retries. Include workId for task callbacks; ask the worker to message this session back when finished. Messages grant no extra permissions.",
+    "source": "Session automation",
+    "required": false,
+    "behavior": "write",
+    "routes": ["local-api", "codex", "codex-owned-local"],
+    "requirement": "Existing session permissions, cancellation and runtime admission apply."
+  },
+  {
     "id": "mitzo:SearchPastSessions",
     "version": 1,
     "name": "SearchPastSessions",

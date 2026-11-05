@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { SessionPromptStore } from '../session-prompt-store.js';
-import { SessionPromptService } from '../session-prompt-service.js';
+import { SessionPromptService, type SessionPromptPort } from '../session-prompt-service.js';
 
 const cleanup: Array<() => void> = [];
 afterEach(() =>
@@ -22,7 +22,7 @@ function fixture() {
   const port = {
     authorized: vi.fn(() => true),
     inspect: vi.fn(async () => ({ busy: false })),
-    deliver: vi.fn(async (_delivery, _signal, current) => {
+    deliver: vi.fn<SessionPromptPort['deliver']>(async (_delivery, _signal, current) => {
       current();
     }),
     receipt: vi.fn(() => 'absent' as 'absent' | 'accepted' | 'uncertain'),
@@ -122,4 +122,22 @@ it('delivers worker callbacks with stable work identity through the same port', 
   await f.service.tick();
   expect(f.port.deliver).toHaveBeenCalledTimes(1);
   expect(JSON.stringify(receipt)).not.toContain('expiresAt');
+});
+it('reconciles an interrupted paused timer without redispatching or leaving its claim stuck', async () => {
+  const f = fixture();
+  const timer = await f.service.create(f.input, f.auth, 'user', null);
+  const delivery = f.store.due()[0];
+  f.store.claim(delivery.id);
+  f.store.change(
+    timer.id,
+    { requestId: randomUUID(), expectedRevision: timer.revision, action: 'pause' },
+    f.auth,
+  );
+  await f.service.tick();
+  expect(f.store.delivery(delivery.id).state).toBe('uncertain');
+  expect(f.store.get(timer.id).status).toBe('paused');
+  f.port.receipt.mockReturnValue('accepted');
+  await f.service.tick();
+  expect(f.store.get(timer.id)).toMatchObject({ status: 'paused', runCount: 1 });
+  expect(f.port.deliver).not.toHaveBeenCalled();
 });

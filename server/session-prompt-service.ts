@@ -1,12 +1,15 @@
 import { SessionTimerCreateSchema, SessionMessageSendSchema } from '@mitzo/protocol';
+import { createLogger } from './logger.js';
 import type { AuthSession } from './auth.js';
 import {
   SessionPromptError,
   type SessionPromptDelivery,
   type SessionPromptStore,
 } from './session-prompt-store.js';
+const log = createLogger('session-prompts');
 
 export interface SessionPromptPort {
+  sessions?(auth: AuthSession): Promise<Array<{ sessionId: string; title: string }>>;
   authorized(auth: AuthSession): boolean;
   inspect(sessionId: string, auth: AuthSession): Promise<{ busy: boolean }>;
   deliver(
@@ -50,31 +53,40 @@ export class SessionPromptService {
   list(sessionId?: string) {
     return this.store.list(sessionId);
   }
+  async sessions(auth: AuthSession) {
+    this.authorize(auth);
+    const result = (await this.port.sessions?.(auth)) ?? [];
+    this.authorize(auth);
+    return result;
+  }
   async create(
     raw: unknown,
     auth: AuthSession,
     createdBy: 'user' | 'agent',
     sourceSessionId: string | null,
+    assertCurrent?: () => void,
   ) {
     const input = SessionTimerCreateSchema.parse(raw);
     this.authorize(auth);
     await this.port.inspect(input.sessionId, auth);
+    assertCurrent?.();
     this.authorize(auth);
     return this.store.create(input, auth, createdBy, sourceSessionId);
   }
   change(id: string, raw: unknown, auth: AuthSession) {
     this.authorize(auth);
     const timer = this.store.change(id, raw, auth);
-    for (const delivery of this.store.deliveries()) {
-      if (delivery.timerId === id) this.controllers.get(delivery.id)?.abort();
+    for (const [deliveryId, controller] of this.controllers) {
+      if (this.store.delivery(deliveryId).timerId === id) controller.abort();
     }
     return timer;
   }
-  async send(raw: unknown, auth: AuthSession, sourceSessionId: string) {
+  async send(raw: unknown, auth: AuthSession, sourceSessionId: string, assertCurrent?: () => void) {
     const input = SessionMessageSendSchema.parse(raw);
     this.authorize(auth);
     await this.port.inspect(sourceSessionId, auth);
     await this.port.inspect(input.sessionId, auth);
+    assertCurrent?.();
     this.authorize(auth);
     const original = this.store.message(input, auth, sourceSessionId);
     return sessionPromptReceipt(this.store.delivery(original.id));
@@ -82,10 +94,10 @@ export class SessionPromptService {
   start() {
     if (this.clock || this.closed) return;
     this.clock = setInterval(() => {
-      void this.tick();
+      void this.tick().catch(() => log.warn('Session prompt reconciliation is unavailable'));
     }, 5000);
     this.clock.unref();
-    void this.tick();
+    void this.tick().catch(() => log.warn('Session prompt reconciliation is unavailable'));
   }
   tick(): Promise<void> {
     if (this.closed) return Promise.resolve();
@@ -97,10 +109,15 @@ export class SessionPromptService {
   }
   private async run() {
     // Reconcile retained uncertain delivery even after a timer has been paused.
-    for (const delivery of this.store.deliveries()) {
-      if (!['dispatching', 'uncertain'].includes(delivery.state)) continue;
+    for (const delivery of this.store.deliveries(['dispatching', 'uncertain'])) {
       if (this.port.receipt(delivery) === 'accepted')
         this.store.finish(delivery.id, 'accepted', null);
+      else if (delivery.state === 'dispatching')
+        this.store.finish(
+          delivery.id,
+          'uncertain',
+          'An earlier check was interrupted. Its original delivery must be verified.',
+        );
     }
     const groups = new Map<string, SessionPromptDelivery[]>();
     for (const delivery of this.store.due()) {
@@ -117,15 +134,7 @@ export class SessionPromptService {
       );
   }
   private async process(delivery: SessionPromptDelivery) {
-    if (delivery.state !== 'pending') {
-      if (delivery.state === 'dispatching')
-        this.store.finish(
-          delivery.id,
-          'uncertain',
-          'An earlier check was interrupted. Its original delivery must be verified.',
-        );
-      return;
-    }
+    if (delivery.state !== 'pending') return;
     const controller = new AbortController();
     this.controllers.set(delivery.id, controller);
     let claimed = false;
@@ -168,5 +177,9 @@ export class SessionPromptService {
     this.clock = undefined;
     for (const controller of this.controllers.values()) controller.abort();
     this.port.close();
+  }
+  async drain() {
+    this.close();
+    await this.ticking;
   }
 }

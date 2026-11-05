@@ -6,6 +6,7 @@ import { taskMcpToolCatalog } from './task-mcp-selection.js';
 import { githubMainPublicationTool } from './telos-main-publication.js';
 import { agentTaskToolDefinitions } from './session-agent-task-tools.js';
 import { agentCommunicationDefinitions } from './agent-communication-tools.js';
+import { sessionPromptDefinitions } from './session-prompt-definitions.js';
 import type { AgentToolCatalogEntry } from '@mitzo/protocol';
 import { nativeToolDefinitions } from './native-tool-executor.js';
 import {
@@ -44,6 +45,7 @@ export function agentToolCatalog(): AgentToolCatalogEntry[] {
     { source: 'GitHub publishing', definitions: [githubPublishingDefinition] },
     { source: 'Knowledge', definitions: knowledgeToolDefinitions },
     { source: 'Agent communication', definitions: agentCommunicationDefinitions },
+    { source: 'Session automation', definitions: sessionPromptDefinitions },
     { source: 'History', definitions: sessionHistoryToolDefinitions },
     {
       source: 'Telos',
@@ -69,41 +71,43 @@ export function agentToolCatalog(): AgentToolCatalogEntry[] {
       required: tool.name === 'AskUserQuestion',
       behavior: builtinToolBehavior(tool.name),
       routes:
-        source === 'Google Workspace' ||
-        source === 'Agent communication' ||
-        source === 'History' ||
-        source === 'Local repositories'
-          ? ['codex-owned-local']
-          : source === 'Telos'
-            ? [
-                githubMainPublicationTool.name,
-                'TelosStartSlice',
-                'TelosWorkControl',
-                'TelosCreateOutcome',
-                'TelosAdoptSource',
-                'TelosSaveArtifact',
-                'TelosReadArtifact',
-                'TelosGetItem',
-                'TelosUpdateItem',
-                ...telosBacklogDefinitions.map((tool) => tool.name),
-              ].includes(tool.name)
-              ? ['codex-owned-local']
-              : []
-            : source === 'Agent Library' || source === 'Knowledge'
-              ? ['local-api', 'codex-owned-local']
-              : source === 'GitHub publishing'
-                ? ['local-api', 'codex', 'codex-owned-local']
-                : source === 'Workspace'
+        source === 'Session automation'
+          ? ['local-api', 'codex', 'codex-owned-local']
+          : source === 'Google Workspace' ||
+              source === 'Agent communication' ||
+              source === 'History' ||
+              source === 'Local repositories'
+            ? ['codex-owned-local']
+            : source === 'Telos'
+              ? [
+                  githubMainPublicationTool.name,
+                  'TelosStartSlice',
+                  'TelosWorkControl',
+                  'TelosCreateOutcome',
+                  'TelosAdoptSource',
+                  'TelosSaveArtifact',
+                  'TelosReadArtifact',
+                  'TelosGetItem',
+                  'TelosUpdateItem',
+                  ...telosBacklogDefinitions.map((tool) => tool.name),
+                ].includes(tool.name)
+                ? ['codex-owned-local']
+                : []
+              : source === 'Agent Library' || source === 'Knowledge'
+                ? ['local-api', 'codex-owned-local']
+                : source === 'GitHub publishing'
                   ? ['local-api', 'codex', 'codex-owned-local']
-                  : source === 'Connections' || source === 'Web'
-                    ? [
-                        'local-api',
-                        'codex',
-                        ...(source === 'Web' || nativeConnectionToolNames.has(tool.name)
-                          ? ['codex-owned-local']
-                          : []),
-                      ]
-                    : ['local-api'],
+                  : source === 'Workspace'
+                    ? ['local-api', 'codex', 'codex-owned-local']
+                    : source === 'Connections' || source === 'Web'
+                      ? [
+                          'local-api',
+                          'codex',
+                          ...(source === 'Web' || nativeConnectionToolNames.has(tool.name)
+                            ? ['codex-owned-local']
+                            : []),
+                        ]
+                      : ['local-api'],
       requirement:
         tool.name === 'GoogleWorkspaceRead'
           ? 'Requires the configured controller Google sign-in, current Local Mac owner and exact one-use read approval. Credentials remain private; selection grants no service access.'
