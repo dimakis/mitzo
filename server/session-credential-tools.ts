@@ -1,4 +1,9 @@
 import { sessionAgentTaskTools, agentTaskToolDefinitions } from './session-agent-task-tools.js';
+import { sessionPromptTools } from './session-prompt-tools.js';
+import {
+  sessionPromptDefinitions,
+  SESSION_PROMPT_INSTRUCTIONS,
+} from './session-prompt-definitions.js';
 import { agentToolAllowed, filterAgentTools } from './agent-tool-selection.js';
 import {
   sessionKnowledgeTools,
@@ -20,6 +25,7 @@ import {
 
 export const CONNECTION_TOOL_INSTRUCTIONS =
   CONNECTION_ACCESS_INSTRUCTIONS + REPOSITORY_CHAT_INSTRUCTIONS + KNOWLEDGE_TOOL_INSTRUCTIONS;
+export const SESSION_TOOL_INSTRUCTIONS = CONNECTION_TOOL_INSTRUCTIONS + SESSION_PROMPT_INSTRUCTIONS;
 /** Native API tools run on the host; shared OpenShell CLI guidance cannot grant their shell egress. */
 export const API_CONNECTION_INSTRUCTIONS =
   '\nThis is a host API chat. For live Jira, call ListConnections and use approved ConnectionRequest reads through a Keychain connection. Load GetConnectionGuide for Jira setup and pagination. Shared ./mgmt jira guidance applies to the OpenShell transport; API Bash never receives connection credentials; its network policy is stated in the execution environment. Installing a CLI does not grant service authentication. Do not search editor configuration for credentials.\n';
@@ -35,6 +41,14 @@ export function sessionCredentialTools(
   connectionOptions: Pick<SessionConnectionOptions, 'boundary' | 'enableOwnedFrames'> = {},
 ) {
   const taskToolsEnabled = enableAgentTasks && !!assertRuntimeCurrent && !!assertRuntimeCurrentSync;
+  const prompts = sessionPromptTools(
+    sessionId,
+    session,
+    registry,
+    toolPrefix,
+    assertRuntimeCurrent,
+    assertRuntimeCurrentSync,
+  );
   const taskTools = taskToolsEnabled
     ? sessionAgentTaskTools(
         sessionId,
@@ -84,6 +98,7 @@ export function sessionCredentialTools(
       ...connections.definitions,
       ...repositoryTools.definitions,
       ...profileToolDefinitions,
+      ...(assertRuntimeCurrent && assertRuntimeCurrentSync ? sessionPromptDefinitions : []),
       ...(taskToolsEnabled ? agentTaskToolDefinitions : []),
       ...knowledgeToolDefinitions,
     ]),
@@ -103,6 +118,8 @@ export function sessionCredentialTools(
           isError: true,
         };
       const taskResult = await taskTools?.execute(name, input, signal, call);
+      const promptResult = await prompts.execute(name, input, signal, call);
+      if (promptResult) return promptResult;
       if (taskResult) return taskResult;
       const profileResult = await profileTools.execute(name, input, signal, call);
       if (profileResult) return profileResult;

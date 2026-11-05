@@ -109,7 +109,7 @@ import {
   type ProtectedSdkCommandRunner,
 } from './protected-sdk-command.js';
 import { createCredentialSdkServer, credentialSdkPermission } from './credential-sdk-tools.js';
-import { CONNECTION_TOOL_INSTRUCTIONS } from './session-credential-tools.js';
+import { SESSION_TOOL_INSTRUCTIONS } from './session-credential-tools.js';
 import { isRegisteredConversation } from '@mitzo/protocol';
 import { clearWebSearchGrant } from './web-search-grants.js';
 import { codexRuntimeDiagnostic, codexRuntimeErrorTelemetry } from './codex-runtime-diagnostics.js';
@@ -2881,7 +2881,7 @@ This is an independent checkout with its own Git storage, not a linked worktree.
             WEB_ACCESS_INSTRUCTIONS +
             (options.ordinarySdkAuthority
               ? ''
-              : GITHUB_PUBLISHING_INSTRUCTIONS + CONNECTION_TOOL_INSTRUCTIONS),
+              : GITHUB_PUBLISHING_INSTRUCTIONS + SESSION_TOOL_INSTRUCTIONS),
         },
         permissionMode: MODE_TO_SDK[session.mode] as 'plan' | 'default',
         allowedTools: options.ordinarySdkAuthority
@@ -3140,7 +3140,7 @@ This is an independent checkout with its own Git storage, not a linked worktree.
               systemPromptAppend +
               WEB_ACCESS_INSTRUCTIONS +
               GITHUB_PUBLISHING_INSTRUCTIONS +
-              CONNECTION_TOOL_INSTRUCTIONS;
+              SESSION_TOOL_INSTRUCTIONS;
             acceptAgentContext(
               initialMessageId,
               providerSessionId,

@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.875-admitted-turn-activity';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.879-session-prompt-receipts';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -22,6 +22,45 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
+  '../../docs/design/ui-design-system.md':
+    '9e052baedfae32e917d6fa91e136bb3484d10b2a8424de1a85c33927ded11d2c',
+  '../../packages/protocol/src/session-prompts.ts':
+    '86f1242cbaa5371b414ac341faa2e128d5ff0fa88c3bcf06dfd39b5424366be2',
+  '../__tests__/session-prompt-service.test.ts':
+    'd15bbea380955088b1154ef215ebe1fba77b396d42ad8c0f0bff31c41352bc3e',
+  '../__tests__/session-prompt-store.test.ts':
+    'fc91365ceba6f5ededf37db0e87ebfdbf986f5289de5e9db314be2f458d2b3f1',
+  '../session-prompt-service.ts':
+    'f04b0815c4fd33533106f0da2bee8275c753cc3551ffdc30add466a0cbb6f71e',
+  '../session-prompt-store.ts': 'df1d80c1e70bc3f3be2233bee72628dc6f9c5b2eff0efe742a8fe09121c80971',
+  '../../docs/features/session-timers.md':
+    '2a12ade4fe783fbe149c304d42d2e8bca1bccab066e484624f34b806421d1589',
+  '../../frontend/src/components/SessionTimersDialog.tsx':
+    'c4f71dfc68107ce16c171e9f07db557d3870a1147a48f09bebb4d042b813bccc',
+  '../../frontend/src/components/__tests__/ComposerTimerPlacement.test.tsx':
+    'f2b0e6b5e80c34d81ba8ddfa54148eb4c84b853e0694257e700ceec6aed7617e',
+  '../../frontend/src/components/__tests__/SessionTimersDialog.test.tsx':
+    'd553893b86f717b7200c795a720b5ed59148c35ecd14c5ded2eeb9801407feae',
+  '../../frontend/src/styles/session-timers.css':
+    'a98a9a393361601f95fd2a7a89623ea08fc5eb8f2a9b3b13d1d9f8d3070e61d6',
+  '../__tests__/session-prompt-dispatch.test.ts':
+    '5e325ae7622f90adda9d70282c06cb99a3cfafa2c5764f91d777ecb2135b17bb',
+  '../__tests__/session-prompt-router.test.ts':
+    'c8020156c5547dfa3acba70253d14de48adca9a3ed936818b185a164ed3dc217',
+  '../__tests__/session-prompt-tools.test.ts':
+    '62e4b7492581b6843908e2931674ff6361de87fff4dc28bc2327fdaf185087f5',
+  '../session-prompt-definitions.ts':
+    '9c7abeec70d2dfbd584e6dd27d53ce022e953eba8013752522104eeca5319b8e',
+  '../session-prompt-dispatch.ts':
+    '4a789a6a1f913d33387dd9056ea1422ff5ad5d861af07d10ed91a01214468cf1',
+  '../session-prompt-router.ts': '4d11907d907fb6fe0df41cbdd9ecd25336c2e647be761f55cba7e01539aebb7a',
+  '../session-prompt-runtime.ts':
+    '8ab804b640c6f14f7e03d581b54f60fa14d77347833b671fb6cd1c76b42ddd1b',
+  '../session-prompt-tools.ts': '6c9aeafad0d1498179933ff8200d25e5c02e08fc134cd5c9c3d12d5f753bd606',
+  '../../tests/fixtures/session-timers.tsx':
+    'a402981a71637d97cbdb786c24011b236c5183ad9f6ffd44363ae188009cb415',
+  '../../tests/offline/session-timers.spec.ts':
+    '6e1f71ad7a21685a62f488ddaee1ac6f3d3bb06e582ccaf2a5a4d0f7610c8c16',
   '../../frontend/src/lib/session-attention.ts':
     '6fa04bdab57c51addab309cb27a24d0dcfd252999ef87506043274afb1a8ed08',
   '../../frontend/src/hooks/useSessionOverview.ts':
@@ -58,7 +97,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     '97c1d2f24308e430973afdf4492a9513fda9e7eedcb80464fac71e8fcbc9ca01',
   '../retained-local-codex-effects.ts':
     'fcc0af436eb3bc2493c19418445799ebc0c816fab8f8d4f028bc44bcff4d0786',
-  '../builtin-tool-behavior.ts': '683d38d640c8761277009183b8d0f9aca56da587a78b37a97d774f2d16a382a5',
+  '../builtin-tool-behavior.ts': 'ffdedb5c34b82db9d25e7ed7d653b6d5fb7a70f859fbd665d19f606548772f19',
   '../../packages/protocol/__tests__/ordinary-local-admission.test.ts':
     '8fdde207ca4b1f8b91a527969c374d12b9c4b1e5f8b6c66004c89dfb7fa4ebc0',
   '../../packages/protocol/__tests__/ordinary-local-vertex-admission.test.ts':
@@ -730,7 +769,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../scripts/qualify-codex-native-permissions.mjs':
     '848148f0e305800ab30aa84899798c0b4034c9fe2f062045d8a5672cfc09ae59',
   '../__tests__/codex-chat-session.test.ts':
-    'af13e392c133a7cddc430ed9b29647830f97a4877fd3e806a48d732696ced0df',
+    'f72f8dd857f11ad67211c88be7644d0e1ed13f6028d408290d358f04915b8c1d',
   '../__tests__/codex-conversation.test.ts':
     'b9981db8e2945b6da525da67ff31d305fe06e44937573b96d3468d97cc171e15',
   '../__tests__/codex-native-approvals.test.ts':
@@ -1226,7 +1265,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     '1f5a4b6bd080363af3a1f77ea246be04894cb9893b0f021353d723658a9f10a7',
   '../../frontend/src/components/AgentToolsEditor.tsx':
     '185739f065ba2ad81534a2b171239d086010447fe03e3669d920dcd13804b5b1',
-  '../agent-tool-catalog.ts': '1f9ce22d41f7d9b4d74356d08659292ec52023a07dd05adf6e56746278aeb965',
+  '../agent-tool-catalog.ts': '228a788be4f052dd540bc522112f5480ebf54ed0aa83810e4e89846c55a10520',
   '../agent-tool-selection.ts': 'd8cf55fd4f3af2e21edebc0a05876345abfc524cf82edd9be0b7cc99643381eb',
   '../../packages/protocol/src/agent-tools.ts':
     'a25c3fcd8a885db213c6528fe9e07fd11da6744304420b4f3affd2e354d1af82',
@@ -1277,7 +1316,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../telos-item-tools.ts': '6338abf7d20c0a7ee4f68de4c85e49a75acb8a76545822fba14246d86efe6abf',
   '../telos-mcp-server.ts': '1f92e4f921a3a9af617e878c3460f5d82eaeb533158d9b7bfc4bc9b0028ed4ef',
   '../../packages/harness/src/tool-tiers.ts':
-    '0f6a97dd77b459af81d5c3c0ac62a8e56c164ffec85b63359e7177f383ac980a',
+    '03e9e7036f3e5d935211879f53a7c222aa6e8f8a298fa92f3e90fc850230d884',
   '../../frontend/src/components/ChatWelcome.tsx':
     'be4dd3a9269459ddbfeeab8daa3b55c3fdc12bad84f12446a4dece772036ae5f',
   '../../frontend/src/components/CompactionMarker.tsx':
@@ -1347,9 +1386,9 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/lib/keyboard.ts':
     '1e4c48c258c5e1c73be9f9df03a0491499210b9c24baf2fc6d134de41a9c3008',
   '../../frontend/src/components/ChatInput.tsx':
-    'fc7cf61042a39585a80812a9e6fda6bcc28be4f646a820f791b4c5d4fad901e1',
+    '6775318104e0c59ddc4341e330c19a58a8adfaedecdb6ea99957fb2ff114e19c',
   '../../frontend/src/components/ComposerTools.tsx':
-    '40c818bb1683a26d083960c6666d6c46003d293bd78319f51cf07e73655d0d1f',
+    'b843157425dd860aa66ef8c1d9320044b727e6b36113312259c007be83855839',
   '../../frontend/src/components/ContextPanel.tsx':
     'e64b65ff9dbb4e5d7e686f189f92c9105b18a8b8edf5433de772515c1d374107',
   '../../frontend/src/components/ResponsiveChatView.tsx':
@@ -1490,7 +1529,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     '13dfc57cdb92169726414c809b566625d9ee92c5975c62819794789779fb9922',
   '../url-access-tool.ts': 'b3b7f596fc749774342ae00a76f5f4ee528caf670b912cdfb58dbf8861c4a1a6',
   '../web-access-tool.ts': '0c5e1a8a589cc660983f814abd1994b6b877b1bd1f02b6bc8c26521f6ae1ba13',
-  '../index.ts': '8eeffc5874250163f5f64aa406638a3714a46a1882246b0a0a5a386602aabbf5',
+  '../index.ts': '05c86331453caea5e49f69372fd3738f2066fc16a368ea2a9d3eb49641595633',
   '../symposium-app-exit.ts': '6129588f968e7ae2cca592104fc0975081f112c9cfa8ef475c7b12c3a7af7d1d',
   '../legacy-chat-delivery.ts': '30e041a7b8d1279cefae9198639444fa8e3dd4f76386598ec50ce66741f09f5c',
   '../chat-rest-handler.ts': '90ebbfbf3788386e7f3325b6d0b796823c13da73e8a3f14393e598b3173239b3',
@@ -1523,7 +1562,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     'c103af10de4adc81cdc474b3e69ef2b3de5e447d4dcf15da4fc1894c422b913b',
   '../../packages/protocol/src/session-output-reference-store.ts':
     'de139a8dae52cc0294f50e13fdb96d0666c81e376e282e84c640a0b187dc3014',
-  '../chat.ts': '141af89488b4697bcfbfdc5a9d1d6f1185a478ef4b1f246722832da9ec90d3be',
+  '../chat.ts': '83a34d612bc8534690c0e66b10300d4b66a6319d69d2be9abe6991a931279aa6',
   '../../packages/harness/src/session-registry.ts':
     '49d345681149dfaa49d839692bc9f5c094ddd4be5336c4d9b777c8059d09afe6',
   '../agent-context-binding.ts': '4917ff83899105b7ac2c537c8db18111eeb97386d1ca0a2d2b576d872e1db360',
@@ -1638,9 +1677,9 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     'e33bda80c8667a2e22f02f1297e054b3769621fbb7cd6921a85f591d876f8c05',
   '../credential-http.ts': '4f9934df5c9f4918618868d663ed21ae2e633411bd7e027559f6008a21b8c7e4',
   '../credential-redaction.ts': '817dda948c419deb064bc4c5298e034e5a0343972b4bf724fb6aaa869cf34403',
-  '../credential-sdk-tools.ts': '407466b60b7cc70e1776c17e7a2e308d5b4eb3adb162d9b2b4d304930714eb23',
+  '../credential-sdk-tools.ts': '7c5c39fca6413065482b7bfee9e5e1ac275fc78c887ac2b0128e8099c2640803',
   '../session-credential-tools.ts':
-    '64f298b06072fa8486b424b91f5e3c6dd4f5bd01a8501fc69817901e5b2f27ef',
+    '106f6817ae083efc8764709dc4fd3d64caa4c4e8c22aa58e7fddcc5695157c25',
   'policy-compiler.ts': '59579f9eb69a3129dd2d8e1676fa46bd21da45c07f58752183416c82c0986014',
   'registry.ts': '6007fe9878fc70d915890dcbaf04d5428113597f599a595acd2fd0a9ff8cc615',
   'iana-address-policy.ts': '899b0b5ad66f5cbe72224b34c29ff7a88e32c2a6f5b2987e4d18cfc64f862b4e',
@@ -1738,7 +1777,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../openshell-runtime.ts': '4289834fb795911bc8952a141dd592ad695621e3e43fa590de1395094a5a1c95',
   '../codex-admission-preparation.ts':
     '0cb595a8fed20de735d4fa718544baf1a36ccebf3beecc763badd696e4af3098',
-  '../codex-chat-session.ts': '581753409e9bf670282b66b5459645d74f1b100f04cbcb6a3676bd83ff55c3c0',
+  '../codex-chat-session.ts': '6371a51be41b11ed26c070d61fe79857eefa14220c5e4de9716c3ee20b3f68cf',
   '../connections-runtime.ts': 'c5c0da8aa548c029b1dbe7c1eb880311f35c6dfab26ff0e437db6134455089ef',
   'capabilities/operation-store.ts':
     '60c15c84c9cfddbbf30b01b215b1d7551271715f5cce5b3b4fd85092f7e575eb',
@@ -1767,7 +1806,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/protocol/src/agent-context-pack.ts':
     '6964f27523d93a64c153f2d3a56650298a2063521abdafffa0c19c3dba839de5',
   '../../packages/protocol/src/index.ts':
-    '89df14cf1d52eb6b48c4b2cb7e3570fbd17eaca438f827ea91c2b8681f0b81c6',
+    '55f9dca1119e5b35e71832bda7df053ec0aefa491b9dd517c4cb274b2be3852f',
   '../../packages/protocol/src/telos-work.ts':
     '7597f5477d2cf377474f6b0f08ee69b2c6045e1e7ba89911cd281b5d9f2b0043',
   '../agent-context-authority.ts':
@@ -1789,7 +1828,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../native-responses-runner.ts':
     'e0820c61d2b869e7809ea8788a1a48dd51521600a28771fa9fcfdacf136bcf53',
   '../responses-chat-session.ts':
-    '3ecc8394e6344db933862baf03cbaac8b5614ef73ff93e9e7e2911450b11e834',
+    '5cdd55d716741b8826ac59b9a8284101322c1eac0cf6f63419231438fef07455',
   '../responses-input.ts': 'b4be57d3535660a31597f07b075070a90b49b2e62239916937e9316e78cc4b05',
   '../symposium-agent-context.ts':
     '5aac047168428af37b9167a9dd4f9eccf91354a76c6bfc3a0907659782e5af2d',
@@ -1993,7 +2032,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/components/SessionPanel.tsx':
     '085d90a046cad29225ab3e6ea677652341e1f082a6f4ec13b1c37ac00d9592d0',
   '../../frontend/src/pages/SessionList.tsx':
-    'f84a565647ef7d64c82d661c74ef104ad20a8ea7e7ccdddea0929e62f21dc567',
+    '9c08a6ec2e6b8e6b44c6d9b24f0b785292b5e3e356ec23a4c0761b2fbe9139a1',
   '../task-orchestrator.ts': 'c55c69ed396f45f3799df6de183e5d62bfabfbc650c3d6a97657251a77b37288',
   '../telos-work-role-context.ts':
     '0991825e9841acec4acde362a289585c3bfcd3a9c9c52672564a243328407ede',
@@ -2420,7 +2459,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/worktree-fetch-observation.test.ts':
     '15d3a88708e22b72e498dbc924555d4c1eb0b562de8dc43554b8f382d406b440',
   '../../tests/fixtures/agent-tool-catalog.json':
-    '8d0461def617eecfff7962eb96891d650ea75956bcc99f9816fb076cf4998307',
+    '763c7f9aa32b127cc8997d86e3c13c7b9d36608e7138ea5f3fcc99012020f67a',
   '../../tests/integration/ordinary-local-vertex-chat.test.ts':
     '5e8b2f0829cbd05ecfead981b3f74b1edef9de7e005eb7344e04c909304206b3',
   '../../packages/sqlite-file-owner/package.json':
@@ -2916,7 +2955,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/credential-sdk-boundary.test.ts':
     '5b11210dbc2e4b26352b34f3a169d23345ca045ebb702436dd93931f175c2907',
   '../__tests__/credential-sdk-tools.test.ts':
-    '243a5e80504b52537e21f8faf50b88491cb6e7d278cf3fbfbfaef928642f84de',
+    '5f691e669a8c1d5c9ee6cc79e0f31a50a73794b3119d2ab5b32294cc9c4d86ec',
   '../__tests__/credential-setup-application.test.ts':
     '39683a04282c3149a17886b424218dc93bfa48bf208340f2f0a5736ad609f372',
   '../__tests__/credential-setup-continuation.test.ts':
@@ -3069,7 +3108,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../.github/workflows/ci-recovery.yml':
     '5d4e9a6560e549d2879ef776c2b4d321d420c25b22ec3a7741390e5bf617111a',
   '../../.github/workflows/ci.yml':
-    '3e6b8f3b973a7df562f9ce1b13c20e412bdb7e1e1f8c2cfd55bf113c6c8ae561',
+    'd1817ca286c92349e4c4a66f2e83806d8d0651062aea54f3097ac3df21d794c8',
   '../../playwright.config.ts': '6c61752a4a2e9cab19d8217b46080c5898bc79c5a0fde1f2b703a254d278daa0',
   '../../playwright.offline.config.ts':
     'fb694df154a2cb402c7f46b417efb357b6d19a72210d269ad0b1580798392adc',

@@ -407,3 +407,4 @@ export {
   MessageReplyContextSchema,
   type MessageReplyContext,
 } from './message-reply.js';
+export * from './session-prompts.js';

@@ -65,6 +65,8 @@ import {
   executeTelosWorkControlTool,
 } from './telos-work-control-tools.js';
 import { sessionAgentTaskTools, agentTaskToolDefinitions } from './session-agent-task-tools.js';
+import { sessionPromptTools } from './session-prompt-tools.js';
+import { sessionPromptDefinitions } from './session-prompt-definitions.js';
 import {
   AGENT_COMMUNICATION_TOOL,
   agentCommunicationDefinitions,
@@ -130,10 +132,7 @@ import {
 } from './repository-workspace-runtime.js';
 import { authorizeNativeLocalRepositoryRemote } from './native-local-repository-remote.js';
 import { toolInputError } from './tool-input-error.js';
-import {
-  sessionCredentialTools,
-  CONNECTION_TOOL_INSTRUCTIONS,
-} from './session-credential-tools.js';
+import { sessionCredentialTools, SESSION_TOOL_INSTRUCTIONS } from './session-credential-tools.js';
 import {
   createGithubPublishingTool,
   githubPublishingDefinition,
@@ -1857,6 +1856,16 @@ async function openCodexChatBound(
         assertHostCurrentSync,
       )
     : undefined;
+  const localPromptTools = options.ownedLocal
+    ? sessionPromptTools(
+        options.conversationId,
+        options.session,
+        options.registry,
+        '',
+        assertHostCurrent,
+        assertHostCurrentSync,
+      )
+    : undefined;
   const communicationTools = options.ownedLocal
     ? sessionAgentCommunicationTools({
         events: options.eventStore,
@@ -1941,6 +1950,7 @@ async function openCodexChatBound(
           ...mcp.definitions,
           ...profileToolDefinitions,
           ...agentTaskToolDefinitions,
+          ...sessionPromptDefinitions,
           ...agentCommunicationDefinitions,
           ...localHistoryDefinitions,
           ...localRepositoryReadDefinitions,
@@ -2102,6 +2112,7 @@ async function openCodexChatBound(
               ...(googleWorkspaceTools?.definitions ?? []),
               ...profileToolDefinitions,
               ...agentTaskToolDefinitions,
+              ...sessionPromptDefinitions,
               ...agentCommunicationDefinitions,
               ...localHistoryDefinitions,
               ...nativeTelosTools,
@@ -2275,7 +2286,7 @@ async function openCodexChatBound(
           ? `\n${LOCAL_REPOSITORY_PREPARATION_INSTRUCTIONS}\n`
           : '')
       : options.systemPrompt +
-        CONNECTION_TOOL_INSTRUCTIONS +
+        SESSION_TOOL_INSTRUCTIONS +
         WEB_ACCESS_INSTRUCTIONS +
         GITHUB_PUBLISHING_INSTRUCTIONS +
         (connectedOpenShell
@@ -2393,6 +2404,7 @@ async function openCodexChatBound(
           ...mcp.definitions,
           ...profileToolDefinitions,
           ...agentTaskToolDefinitions,
+          ...sessionPromptDefinitions,
           ...agentCommunicationDefinitions,
           ...localHistoryDefinitions,
           ...localRepositoryReadDefinitions,
@@ -3755,6 +3767,8 @@ async function openCodexChatBound(
         }
       }
       const taskResult = await localTaskTools?.execute(name, input, signal, callContext);
+      const promptResult = await localPromptTools?.execute(name, input, signal, callContext);
+      if (promptResult) return promptResult;
       if (taskResult) return taskResult;
       const profileResult = await localProfileTools?.execute(name, input, signal, callContext);
       if (profileResult) return profileResult;

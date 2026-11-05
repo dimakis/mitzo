@@ -34,6 +34,7 @@ import { SlashPicker } from './SlashPicker';
 import { SessionResourcesDialog } from './SessionResourcesDialog';
 import { ImageAttachmentEditor } from './ImageAttachmentEditor';
 import { ComposerTools } from './ComposerTools';
+import { SessionTimersDialog } from './SessionTimersDialog';
 import { UiIcon } from './UiIcon';
 import { WorkspaceActionMenu } from './WorkspaceActionMenu';
 import { ComposerStatusProvider, ComposerStatusRail, ComposerStatusNotice } from './ComposerStatus';
@@ -537,6 +538,7 @@ function ChatInputContent({
   const replyRef = useRef(replyTarget);
   replyRef.current = replyTarget;
   const [expanded, setExpanded] = useState(false);
+  const [timerScope, setTimerScope] = useState<{ sessionId: string; prompt: string } | null>(null);
   const [queueEditorOpen, setQueueEditorOpen] = useState(false);
   const [deliveryRevision, settleDelivery] = useState(0);
   const [queueBusy, setQueueBusy] = useState(false);
@@ -1585,6 +1587,11 @@ function ChatInputContent({
               />
             )}
             <ComposerTools
+              onSchedule={
+                sessionId && !responders
+                  ? () => setTimerScope({ sessionId, prompt: displayedText })
+                  : undefined
+              }
               expanded={expanded}
               onExpand={() => setExpanded((value) => !value)}
               terminalHref={
@@ -1610,6 +1617,14 @@ function ChatInputContent({
               isWorktree={isWorktree}
               wtId={wtId}
             />
+            {timerScope && timerScope.sessionId === sessionId && (
+              <SessionTimersDialog
+                sessionId={timerScope.sessionId}
+                initialPrompt={timerScope.prompt}
+                initiallyCreating
+                onClose={() => setTimerScope(null)}
+              />
+            )}
             <input
               ref={fileInputRef}
               type="file"

@@ -66,7 +66,13 @@ it('passes final async and sync native authority into actual SDK profile handler
     assertCurrent,
     assertCurrentSync,
   });
-  expect([...sdk.handlers.keys()]).toEqual(['SymposiumProposeProfile', 'SymposiumReadProfiles']);
+  expect([...sdk.handlers.keys()]).toEqual([
+    'SymposiumProposeProfile',
+    'SymposiumReadProfiles',
+    'SchedulePrompt',
+    'SessionTimers',
+    'SendSessionMessage',
+  ]);
   const operation = sdk.handlers.get('SymposiumProposeProfile')!(
     {},
     { signal: new AbortController().signal },
