@@ -22,6 +22,7 @@ export class CodexSessionEvents {
   private runtimeTools = new Map<string, string>();
   private turnFinished = false;
   private activeTurnId?: string;
+  private unexplainedToolFailure = false;
   private usage: CodexTurnUsage;
   constructor(
     private conversationId: string,
@@ -62,7 +63,8 @@ export class CodexSessionEvents {
               kind === 'thinking' ? { type: 'thinking', thinking: '' } : { type: 'text', text: '' },
           });
         },
-        delta: (kind, text) =>
+        delta: (kind, text) => {
+          if (kind === 'text' && text.trim()) this.unexplainedToolFailure = false;
           this.stream({
             type: 'content_block_delta',
             index: 0,
@@ -70,8 +72,10 @@ export class CodexSessionEvents {
               kind === 'thinking'
                 ? { type: 'thinking_delta', thinking: text }
                 : { type: 'text_delta', text },
-          }),
+          });
+        },
         complete: (kind, text) => {
+          if (kind === 'text' && text.trim()) this.unexplainedToolFailure = false;
           this.stream({ type: 'content_block_stop', index: 0 });
           this.emit({
             type: 'assistant',
@@ -146,6 +150,7 @@ export class CodexSessionEvents {
     }
     if (method === 'turn/started') {
       this.turnFinished = false;
+      this.unexplainedToolFailure = false;
       const turnId = object(params.turn).id;
       if (typeof turnId === 'string' && !this.startedTurns.has(turnId)) {
         this.activeTurnId = turnId;
@@ -239,7 +244,11 @@ export class CodexSessionEvents {
       this.toolResult(
         toolId,
         output ||
-          (exitCode === undefined ? String(commandItem.status ?? '') : `exit code ${exitCode}`),
+          (commandItem.status === 'declined'
+            ? 'Command was not approved. If the approval expired, request it again to continue.'
+            : exitCode === undefined
+              ? String(commandItem.status ?? '')
+              : `exit code ${exitCode}`),
         commandItem.status !== 'completed' || (exitCode !== undefined && exitCode !== 0),
       );
       return;
@@ -370,11 +379,21 @@ export class CodexSessionEvents {
         this.toolResult(toolId, 'File change interrupted before completion.', true);
       }
       this.fileTools.clear();
+      for (const tools of [this.commandTools, this.runtimeTools]) {
+        for (const toolId of tools.values())
+          this.toolResult(
+            toolId,
+            'Tool call interrupted before a result was received. Its outcome is unknown; check current state before retrying.',
+            true,
+          );
+        tools.clear();
+      }
       this.emit({
         type: 'result',
         session_id: this.conversationId,
         is_error: turn.status !== 'completed',
         ...(providerFailure ? { provider_failure: providerFailure } : {}),
+        ...(this.unexplainedToolFailure && !providerFailure ? { tool_failure_notice: true } : {}),
         usage_status: 'unknown',
       });
     }
@@ -419,6 +438,7 @@ export class CodexSessionEvents {
       isError,
       ...(contentItems ? { contentItems } : {}),
     });
+    this.unexplainedToolFailure = result.isError;
     let precedingText = false;
     const blocks = result.contentItems?.map((item) => {
       if (item.type === 'inputText') {
