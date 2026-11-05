@@ -1,4 +1,5 @@
 import { assembleCommandPrompt } from './message-reply-context.js';
+import { agentContextAuthenticationFailure } from './agent-context-authority.js';
 import { MessageReplyIdSchema } from '@mitzo/protocol';
 import {
   CHAT_MAX_IMAGES,
@@ -78,6 +79,8 @@ interface Owner {
   lease: FrozenHostCodexBootstrapLease;
   bridge: OwnedCodexLifecycleBridge;
   authSessionId?: string;
+  /** Diagnostic-only original login lifetime; survives admission/lease cleanup. */
+  authenticationSignal?: AbortSignal;
   custody?: HostCodexCustody;
   /** Current actual private cold workspace owner; never reconstructed live delegation. */
   qualifiedColdPrimary?: Readonly<{ commandId: string; assertCurrentSync(): void }>;
@@ -760,6 +763,9 @@ export class OwnedLocalCodexChatAdmission {
   }
   assertCurrentSync(): void {
     this.observeCurrentSync(this.owner.eventStore, this.owner.sessionId);
+  }
+  authenticationFailure() {
+    return agentContextAuthenticationFailure(this.owner.authenticationSignal?.reason);
   }
   /** The actual admission owner supplies fresh facts for its caller's immediate
    * pure comparisons. Callers cannot supply a checked observation or retain

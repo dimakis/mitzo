@@ -908,6 +908,7 @@ export class OrdinaryLocalCodexOwnedRuntime<K extends LocalWorkspaceKind = 'repo
               lease,
               bridge,
               authSessionId: this.#authSessionId,
+              authenticationSignal: this.#signal,
               nativeStore: this.owners.nativeStore,
               recovery,
               authorizeNativeThreadDispatch:

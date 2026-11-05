@@ -75,7 +75,6 @@ export class CodexSessionEvents {
           });
         },
         complete: (kind, text) => {
-          if (kind === 'text' && text.trim()) this.unexplainedToolFailure = false;
           this.stream({ type: 'content_block_stop', index: 0 });
           this.emit({
             type: 'assistant',

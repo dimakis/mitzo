@@ -4270,6 +4270,7 @@ async function openCodexChatBound(
       const authorization = agentContextRuntimeError(
         new Error('Transport closed'),
         options.assertAgentContextAuthorization,
+        options.ownedLocal?.authenticationFailure(),
       );
       log.info('Codex transport closed', {
         conversationId: options.conversationId,
@@ -4278,7 +4279,11 @@ async function openCodexChatBound(
       });
     },
     onError: (error) => {
-      const failure = agentContextRuntimeError(error, options.assertAgentContextAuthorization);
+      const failure = agentContextRuntimeError(
+        error,
+        options.assertAgentContextAuthorization,
+        options.ownedLocal?.authenticationFailure(),
+      );
       log.warn('Codex runtime reported an error', {
         conversationId: options.conversationId,
         ...codexRuntimeErrorTelemetry(failure),

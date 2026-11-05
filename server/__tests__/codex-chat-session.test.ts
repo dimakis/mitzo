@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
-import { SessionRuntimeError } from '../session-runtime-error.js';
+import { retainAgentContextAuthority } from '../agent-context-authority.js';
+import { revokeAuthSession } from '../auth.js';
 import { callbackOutcome } from '../turn-callbacks.js';
 import { AdviserTaskScope } from '../adviser-task-scope.js';
 import { retainTelosWorkRoleContext } from '../telos-work-role-context.js';
@@ -338,6 +339,7 @@ function ownedLocalOptions(
   cwd = '/tmp',
   agentProfile?: import('@mitzo/protocol').AgentLibraryVersion,
   mode: 'ask' | 'agent' | 'auto' = 'agent',
+  authenticationSignal?: AbortSignal,
 ) {
   const eventStore = new EventStore(':memory:');
   // This qualified Mac lease fixture must select the same host branch on CI.
@@ -432,6 +434,7 @@ function ownedLocalOptions(
     expected,
     lease,
     bridge,
+    authenticationSignal,
   });
   const opts = {
     ...options(new AbortController()),
@@ -3354,16 +3357,19 @@ it.each(['auth_expired', 'auth_revoked'] as const)(
       close: mocks.mcpClose,
       displayName: (name: string) => name,
     });
-    const f = ownedLocalOptions();
-    const failure = new SessionRuntimeError(code);
-    let invalidated = false;
-    const guard = () => {
-      if (invalidated) throw failure;
-    };
+    vi.useFakeTimers();
+    const controller = new AbortController();
+    const auth = { id: crypto.randomUUID(), expiresAt: Date.now() + 60_000 };
+    const scope = retainAgentContextAuthority(auth, controller);
+    const f = ownedLocalOptions('/tmp', undefined, 'agent', controller.signal);
+    const guard = () => f.ownedLocal.assertCurrentSync();
     let query: Awaited<ReturnType<typeof openCodexChat>> | undefined;
     try {
       query = await openCodexChat({ ...f.opts, assertAgentContextAuthorization: guard });
-      invalidated = true;
+      if (code === 'auth_expired') vi.advanceTimersByTime(60_001);
+      else revokeAuthSession(auth);
+      f.ownedLocal.close();
+      expect(guard).toThrow('Owned local Codex chat unavailable');
       const onError = mocks.conversationOptions!.onError as (error: Error) => void;
       onError(new Error('Generic transport closure'));
       onError(new Error('Duplicate transport closure'));
@@ -3376,6 +3382,7 @@ it.each(['auth_expired', 'auth_revoked'] as const)(
       expect(errors[0].payload.error).not.toContain('Generic transport');
     } finally {
       query?.close();
+      scope.release();
       f.eventStore.close();
     }
   },

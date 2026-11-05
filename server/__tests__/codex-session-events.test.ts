@@ -6,6 +6,25 @@ import {
 } from '../../packages/protocol/src/content-blocks.js';
 import { normalizeMcpToolResult } from '../codex-tool-result.js';
 
+it('does not treat buffered text from before a tool failure as a follow-up', () => {
+  const events: Record<string, unknown>[] = [];
+  const m = new CodexSessionEvents('app', 'thread', 'model', (event) => events.push(event));
+  m.notification('turn/started', { threadId: 'thread', turn: { id: 'turn' } });
+  const id = m.toolStart('call', 'Bash', { command: 'offline-test' });
+  m.notification('item/agentMessage/delta', {
+    threadId: 'thread',
+    turnId: 'turn',
+    itemId: 'before',
+    delta: 'Checking the test now.',
+  });
+  m.toolResult(id, 'fixture failure', true);
+  m.notification('turn/completed', {
+    threadId: 'thread',
+    turn: { id: 'turn', status: 'completed' },
+  });
+  expect(events.at(-1)).toMatchObject({ type: 'result', tool_failure_notice: true });
+});
+
 it('explains declined commands and marks an unexplained final tool failure', () => {
   const events: Record<string, unknown>[] = [];
   const m = new CodexSessionEvents('app', 'thread', 'model', (event) => events.push(event));

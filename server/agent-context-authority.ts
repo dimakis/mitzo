@@ -2,12 +2,25 @@ import { registerAuthSession, type AuthSession } from './auth.js';
 import { SessionRuntimeError, findSessionRuntimeError } from './session-runtime-error.js';
 
 /** Retain only host-classified authentication loss, never arbitrary assertion text. */
-export function agentContextRuntimeError(error: Error, assertCurrent?: () => void): Error {
+export function agentContextAuthenticationFailure(
+  reason: unknown,
+): SessionRuntimeError | undefined {
+  const failure = findSessionRuntimeError(reason);
+  return failure?.code === 'auth_expired' || failure?.code === 'auth_revoked' ? failure : undefined;
+}
+
+export function agentContextRuntimeError(
+  error: Error,
+  assertCurrent?: () => void,
+  retainedReason?: unknown,
+): Error {
+  const retained = agentContextAuthenticationFailure(retainedReason);
+  if (retained) return retained;
   try {
     assertCurrent?.();
   } catch (cause) {
-    const failure = findSessionRuntimeError(cause);
-    if (failure?.code === 'auth_expired' || failure?.code === 'auth_revoked') return failure;
+    const failure = agentContextAuthenticationFailure(cause);
+    if (failure) return failure;
   }
   return error;
 }
