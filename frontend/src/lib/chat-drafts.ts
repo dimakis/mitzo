@@ -6,8 +6,13 @@ import {
   CollaborationMessageInputSchema,
   SessionRuntimeBindingV1Schema,
 } from '@mitzo/protocol';
-import { createBrowserId } from './browser-crypto';
-import { allowComposerDraftPersistence } from './composer-draft-proof';
+import { createBrowserId, sha256Hex } from './browser-crypto';
+import {
+  acceptedComposerDraftKey,
+  allowComposerDraftPersistence,
+  composerDraftProof,
+  readComposerDraftRevision,
+} from './composer-draft-proof';
 import { getDefaultAccountModel } from './account-preference';
 import {
   ChatRuntimeSelectionSchema,
@@ -100,6 +105,30 @@ export const ChatDraftSchema = z.object({
 });
 export type ChatDraft = z.infer<typeof ChatDraftSchema>;
 export type ChatDraftContent = Pick<ChatDraft, 'text' | 'images' | 'contextBlocks'>;
+export function chatDraftRichSignature(draft: ChatDraft): string {
+  return sha256Hex(
+    JSON.stringify({
+      images: draft.images,
+      contextBlocks: draft.contextBlocks,
+      settings: draft.settings,
+    }),
+  );
+}
+function isAcceptedChatDraft(draft: ChatDraft): boolean {
+  try {
+    const key = chatDraftStorageKey(draft.id);
+    const accepted = composerDraftProof(
+      JSON.parse(chatStorage.getItem(acceptedComposerDraftKey(key)) ?? 'null'),
+    );
+    return (
+      accepted?.storageKey === key &&
+      readComposerDraftRevision(key, draft.text, chatDraftRichSignature(draft)) ===
+        accepted.revisionToken
+    );
+  } catch {
+    return false;
+  }
+}
 export function createChatDraft(): ChatDraft {
   return {
     version: 1,
@@ -141,7 +170,9 @@ export function listChatDrafts(): ChatDraft[] {
       .filter((key) => key.startsWith(PREFIX))
       .flatMap((key) => {
         const draft = getChatDraft(key.slice(PREFIX.length));
-        return draft ? [draft] : [];
+        // Acceptance can outlive its composer. Keep recovery bytes for that
+        // owner, but only unsent revisions belong in Drafts and its count.
+        return draft && !isAcceptedChatDraft(draft) ? [draft] : [];
       })
       .sort((a, b) => b.updatedAt - a.updatedAt);
   } catch {

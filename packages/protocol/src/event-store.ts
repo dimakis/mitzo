@@ -4109,6 +4109,37 @@ export class EventStore {
     return this.conversationReplay.getEventsAfter(sessionId, afterSeq, limit);
   }
 
+  getHistoryEventPage(
+    sessionId: string,
+    afterSeq: number,
+    throughSeq: number,
+    limit: number,
+    beforeSeq?: number,
+    recent = false,
+  ): { events: StoredEvent[]; hasMore: boolean } {
+    return this.conversationReplay.getHistoryEventPage(
+      sessionId,
+      afterSeq,
+      throughSeq,
+      limit,
+      beforeSeq,
+      recent,
+    );
+  }
+
+  getHistoryMessagePrefix(
+    sessionId: string,
+    messageId: string,
+    beforeSeq: number,
+    limit: number,
+  ): StoredEvent[] {
+    return this.conversationReplay.getHistoryMessagePrefix(sessionId, messageId, beforeSeq, limit);
+  }
+
+  getSessionNamingEvents(sessionId: string): StoredEvent[] {
+    return this.conversationReplay.getSessionNamingEvents(sessionId);
+  }
+
   /** Predecessor in this session's durable stream; global IDs need not be contiguous. */
   getSessionPredecessorSeq(sessionId: string, seq: number): number {
     return this.conversationReplay.getSessionPredecessorSeq(sessionId, seq);

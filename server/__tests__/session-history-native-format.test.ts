@@ -1,7 +1,8 @@
 import { expect, it, vi } from 'vitest';
 import type { SymposiumConfig } from '@mitzo/protocol';
 import { EventStore } from '../event-store.js';
-import { sessionHistoryTools, type HistoryAccess } from '../session-history-tools.js';
+import type { HistoryAccess } from '../session-history-tools.js';
+import { legacySessionHistoryTools as sessionHistoryTools } from './fixtures/legacy-session-history.js';
 import { SymposiumNativeEventSink } from '../symposium-native-event-sink.js';
 import type { SymposiumSeatExecution } from '../symposium-orchestrator.js';
 
