@@ -9,6 +9,7 @@ import { join, relative } from 'path';
 import { tmpdir, homedir } from 'os';
 import { AccountAliases } from '../account-aliases.js';
 import { codexPrivateDirectory } from '../codex-private-path.js';
+import { InboxScanner } from '../inbox-scanner.js';
 
 const mockRemoteArtifactRead = vi.hoisted(() => vi.fn());
 const mockRemoteArtifactFactory = vi.hoisted(() => vi.fn());
@@ -1388,6 +1389,57 @@ describe('briefing routes', () => {
 });
 
 describe('inbox routes', () => {
+  it('DELETE drains an older source scan before removing an unindexed item', async () => {
+    const { notificationCenter } = await import('../app.js');
+    const filename = 'delete-scan-race.md';
+    writeFileSync(join(INBOX_DIR, filename), SAMPLE_INBOX_ITEM);
+    let release!: () => void;
+    let captured!: () => void;
+    const waiting = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const reached = new Promise<void>((resolve) => {
+      captured = resolve;
+    });
+    const original = InboxScanner.prototype.scan;
+    let blocked = false;
+    const scan = vi.spyOn(InboxScanner.prototype, 'scan').mockImplementation(async function (
+      this: InboxScanner,
+      directory,
+    ) {
+      if (directory === join(INBOX_DIR, 'archive') && !blocked) {
+        blocked = true;
+        captured();
+        await waiting;
+      }
+      return original.call(this, directory);
+    });
+    const pending = notificationCenter.reconcileAsync();
+    await reached;
+    let entered!: () => void;
+    const received = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    app.prependOnceListener('request', () => entered());
+    const deleting = request(app)
+      .delete('/api/inbox/' + filename)
+      .set('Cookie', authCookie)
+      .then((response) => response);
+    try {
+      await received;
+      release();
+      const response = await deleting;
+      await pending;
+      expect(response.status).toBe(200);
+      const record = notificationCenter.store.get('inbox:' + filename);
+      expect(record).toBeDefined();
+      expect(record!.archivedAt).not.toBeNull();
+    } finally {
+      release();
+      await pending;
+      scan.mockRestore();
+    }
+  });
   it('GET /api/inbox — returns inbox items', async () => {
     const res = await request(app).get('/api/inbox').set('Cookie', authCookie);
     expect(res.status).toBe(200);
