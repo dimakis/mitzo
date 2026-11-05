@@ -1377,6 +1377,7 @@ async function shutdown(signal: string) {
         chatSseRegistry.destroy();
         connRegistry.dispose(); // Stop periodic sync + clear state
         registry.dispose();
+        await eventStore.closeSearchIndex();
         for (const client of wss.clients) {
           client.close(1001, 'Server shutting down');
         }

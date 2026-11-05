@@ -250,7 +250,11 @@ import {
 import { createCodexQueueRouter } from './codex-queue-routes.js';
 import { createCallbackIncidentRepairRouter } from './callback-incident-repair.js';
 import { assertRepositoryTaskRetirement } from './repository-task-retirement.js';
-import { createCodexPathProtection } from './codex-private-path.js';
+import {
+  createCodexPathProtection,
+  codexPrivateDirectory,
+  protectCodexProfileRoots,
+} from './codex-private-path.js';
 import { isWorkspaceRuntimeAuthorityWritePath } from './workspace-runtime-private-paths.js';
 import { selectedOpenShellAccountRoute } from './codex-chat-session.js';
 import { openShellRuntimeConfig, OpenShellRuntimeManager } from './openshell-runtime.js';
@@ -427,7 +431,11 @@ import { createHomeRouter } from './home-router.js';
 import { HomeStore } from './home-store.js';
 import { readQuoteCatalog } from './quote-catalog.js';
 import { registerToken, removeToken, setTokenStorePath } from './apns.js';
-import { buildSkillRegistry, NATIVE_COMMAND_NAMES } from './skill-registry-runtime.js';
+import {
+  buildSkillRegistry,
+  hasSkillWatcher,
+  NATIVE_COMMAND_NAMES,
+} from './skill-registry-runtime.js';
 import { ordinarySkillEntries } from './ordinary-composer-skills.js';
 export {
   buildSkillRegistry,
@@ -3331,15 +3339,24 @@ app.get('/api/sessions/active', (_req, res) => {
   res.json(registry.getActiveSessions());
 });
 
-app.get('/api/sessions/search', (req, res) => {
-  const q = (req.query.q as string) || '';
+app.get('/api/sessions/search', async (req, res) => {
+  const q = typeof req.query.q === 'string' ? req.query.q : '';
   const limit = Math.min(Math.max(1, parseInt(req.query.limit as string) || 20), 50);
   if (!q.trim()) {
     res.json({ results: [] });
     return;
   }
+  const abort = new AbortController();
+  const close = () => {
+    if (!res.writableFinished) abort.abort();
+  };
+  res.once('close', close);
   try {
-    const results = eventStore.searchSessions(q, limit).map((result) => ({
+    const cacheDirectory = codexPrivateDirectory();
+    protectCodexProfileRoots([cacheDirectory]);
+    const results = (
+      await eventStore.searchSessionsAsync(q, limit, abort.signal, cacheDirectory)
+    ).map((result) => ({
       ...result,
       ...sessionModelIdentity(eventStore.getSession(result.sessionId) ?? {}, (id, fallback) =>
         accountAliases.label(id, fallback),
@@ -3347,8 +3364,11 @@ app.get('/api/sessions/search', (req, res) => {
     }));
     res.json({ results });
   } catch (err: unknown) {
+    if (abort.signal.aborted) return;
     log.error('GET /api/sessions/search failed', { error: err });
     res.status(500).json({ error: 'Search failed' });
+  } finally {
+    res.removeListener('close', close);
   }
 });
 
@@ -3435,6 +3455,7 @@ app.get(
 app.get(
   '/api/sessions/:id/messages',
   createSessionMessagesHandler({
+    getRevision: (sessionId) => eventStore.getSessionEventCursor(sessionId),
     getDurableSessionTranscript: (sessionId) => eventStore.getDurableSessionTranscript(sessionId),
     getMessages: (sessionId) => getMessages(sessionId),
     getSessionTranscript: (sessionId) => getSessionTranscript(sessionId),
@@ -5133,37 +5154,55 @@ app.get('/api/inbox/:filename', (req, res) => {
   res.json({ content });
 });
 
-app.post('/api/inbox/:filename/approve', (req, res) => {
-  const inboxPath = getRepoConfig().resolvedInboxPath;
-  if (!inboxPath) {
-    res.status(404).json({ error: 'Inbox not configured' });
-    return;
+app.post('/api/inbox/:filename/approve', async (req, res) => {
+  try {
+    const inboxPath = getRepoConfig().resolvedInboxPath;
+    if (!inboxPath) {
+      res.status(404).json({ error: 'Inbox not configured' });
+      return;
+    }
+    // Drain an older scan before moving the source, then await a fresh scan so
+    // delivery cancellation, badges and change events precede the response.
+    await notificationCenter.reconcileAsync();
+    const ok = approveInboxItem(inboxPath, req.params.filename as string);
+    if (!ok) {
+      res.status(404).json({ error: 'Item not found' });
+      return;
+    }
+    await notificationCenter.reconcileAsync();
+    notificationCenter.reconcile();
+    res.json({ ok: true });
+    broadcastInboxUpdate();
+  } catch {
+    res.status(503).json({ error: 'Inbox temporarily unavailable' });
   }
-  const ok = approveInboxItem(inboxPath, req.params.filename);
-  if (!ok) {
-    res.status(404).json({ error: 'Item not found' });
-    return;
-  }
-  notificationCenter.feed('needs');
-  res.json({ ok: true });
-  broadcastInboxUpdate();
 });
 
-app.delete('/api/inbox/:filename', (req, res) => {
-  const inboxPath = getRepoConfig().resolvedInboxPath;
-  if (!inboxPath) {
-    res.status(404).json({ error: 'Inbox not configured' });
-    return;
+app.delete('/api/inbox/:filename', async (req, res) => {
+  try {
+    const inboxPath = getRepoConfig().resolvedInboxPath;
+    if (!inboxPath) {
+      res.status(404).json({ error: 'Inbox not configured' });
+      return;
+    }
+    await notificationCenter.reconcileAsync();
+    const ok = discardInboxSource(
+      notificationCenter.store,
+      inboxPath,
+      req.params.filename as string,
+    );
+    if (!ok) {
+      res.status(404).json({ error: 'Item not found' });
+      return;
+    }
+    await notificationCenter.reconcileAsync();
+    notificationCenter.reconcile();
+    notificationCenter.changed();
+    res.json({ ok: true });
+    broadcastInboxUpdate();
+  } catch {
+    res.status(503).json({ error: 'Inbox temporarily unavailable' });
   }
-  const ok = discardInboxSource(notificationCenter.store, inboxPath, req.params.filename);
-  if (!ok) {
-    res.status(404).json({ error: 'Item not found' });
-    return;
-  }
-  notificationCenter.feed('needs');
-  notificationCenter.changed();
-  res.json({ ok: true });
-  broadcastInboxUpdate();
 });
 
 mountObservedRouter(app, '/api/notifications', notificationRouter(notificationCenter));
@@ -5696,7 +5735,7 @@ export function closeIdleApplicationResources(): Promise<void> {
     overviewEmitter ||
     healthMonitor ||
     openShellLifecycleService ||
-    skillWatcher
+    hasSkillWatcher()
   )
     return Promise.reject(new Error('Application resource owners are active'));
   idleApplicationClosing = true;

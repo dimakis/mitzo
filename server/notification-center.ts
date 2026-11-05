@@ -61,13 +61,14 @@ export class NotificationCenter {
   private flushing = false;
   private pendingBadges = 0;
   private released = false;
+  private sourceScans = 0;
   private assertAvailable(): void {
     if (this.released) throw Error('Notification owner released');
   }
   /** Stop an idle owner without starting or draining delivery. The caller owns the store. */
   closeIdle(): void {
     if (this.released) return;
-    if (this.flushing || this.pendingBadges || this.resolutionRefresh)
+    if (this.flushing || this.pendingBadges || this.resolutionRefresh || this.sourceScans)
       throw Error('Notification owner active');
     this.released = true;
     this.close();
@@ -76,6 +77,24 @@ export class NotificationCenter {
   private badgeQueue = Promise.resolve();
   private badgeRetryAt?: number;
   private inboxReconciler?: () => boolean;
+  private asyncInboxReconciler?: () => Promise<boolean>;
+  setAsyncInboxReconciler(reconcile: () => Promise<boolean>): void {
+    this.assertAvailable();
+    this.asyncInboxReconciler = reconcile;
+  }
+  async reconcileAsync(): Promise<void> {
+    this.assertAvailable();
+    this.sourceScans++;
+    try {
+      const changed = await this.asyncInboxReconciler?.();
+      this.assertAvailable();
+      if (changed) this.changed();
+    } finally {
+      this.sourceScans--;
+    }
+    // The synchronous route then checks permissions immediately before reading
+    // or responding, without computing a discarded feed or scanning twice.
+  }
   setInboxReconciler(reconcile: () => boolean): void {
     this.assertAvailable();
     this.inboxReconciler = reconcile;

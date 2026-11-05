@@ -143,6 +143,7 @@ export function useExplicitLocalChat(
     reason?: string;
     intent: ChatRuntimeSelection | null;
     repositoryWorkspaceId?: string;
+    cwd?: string;
     repositoryContext?: z.infer<typeof RepositoryContextSchema>;
     mode?: 'ask' | 'agent' | 'auto';
     agentProfile?: AgentLibraryVersion;
@@ -356,6 +357,7 @@ export function useExplicitLocalChat(
               ? AgentContextSnapshotSchema.parse(body.agentContext)
               : undefined,
           repositoryWorkspaceId: body.repositoryWorkspaceId,
+          cwd: typeof body.cwd === 'string' ? body.cwd : undefined,
           repositoryContext:
             body.sessionId === sessionId &&
             repository.success &&
@@ -554,6 +556,7 @@ export function useExplicitLocalChat(
     commandAvailable,
     ordinaryWorkspaceId: currentMeta?.ordinaryWorkspaceId,
     repositoryWorkspaceId: currentMeta?.repositoryWorkspaceId,
+    cwd: metadataPending ? undefined : currentMeta?.cwd,
     repositoryContext: metadataPending ? undefined : currentMeta?.repositoryContext,
     agentProfile: currentMeta?.agentProfile,
     agentContext: currentMeta?.agentContext,

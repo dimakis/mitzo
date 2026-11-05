@@ -37,3 +37,15 @@ native test explicitly uses the fixture's isolated chat route. No real model cal
 were made. The all-intercept browser fixture was listed successfully, but execution
 was blocked by the repository's Seatbelt host guard even after approved escalation.
 Browser screenshots/visual inspection and broad compilation remain CI evidence.
+
+Landing corrections, 5 November: integrated accepted main `f9b0f3a1e`, retained
+both branches' source registrations, and repaired the extracted watcher's idle
+shutdown guard. Both chat views now get the skill catalogue directory from the
+existing session metadata hook; a regression verifies that changing conversations
+clears the old directory before adopting the next one. Focused hook, resolver,
+composer, settings and design checks, the owned-native skill dispatch regression,
+lint, workspace package compilation and source verification pass. The broader
+owned-native fixture suite still depends on private host account configuration
+unavailable under this chat's filesystem profile; its isolated skill regression
+passes without that access. Full server/frontend compilation and browser checks
+remain mandatory CI gates.

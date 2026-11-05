@@ -3,6 +3,7 @@ import { promisify } from 'node:util';
 import { lstat, readFile, realpath } from 'node:fs/promises';
 import { join } from 'node:path';
 import { readOnlyGitExecutable } from './read-only-git.js';
+import { parseReadOnlyGitConfig } from './read-only-git-config.js';
 import {
   inspectLocalRepositoryWorktree,
   type LocalRepositorySource,
@@ -92,24 +93,7 @@ export async function snapshotRepositoryTaskCheckout(
       (await realpath(path)) !== path
     )
       throw new Error('Standalone Git configuration is unavailable');
-    const parser = run(
-      '/usr/bin/git',
-      ['config', '--no-includes', '--file', '-', '--null', '--list'],
-      {
-        cwd: '/',
-        timeout: 5000,
-        maxBuffer: 131072,
-        env: {
-          PATH: '/usr/bin:/bin',
-          HOME: '/nonexistent',
-          GIT_CONFIG_SYSTEM: '/dev/null',
-          GIT_CONFIG_GLOBAL: '/dev/null',
-          GIT_CONFIG_NOSYSTEM: '1',
-        },
-      },
-    );
-    parser.child.stdin?.end(await readFile(path));
-    for (const setting of (await parser).stdout.split('\0').filter(Boolean)) {
+    for (const setting of await parseReadOnlyGitConfig(await readFile(path))) {
       const separator = setting.indexOf('\n');
       const key = setting.slice(0, separator === -1 ? undefined : separator).toLowerCase();
       const value = separator === -1 ? undefined : setting.slice(separator + 1);

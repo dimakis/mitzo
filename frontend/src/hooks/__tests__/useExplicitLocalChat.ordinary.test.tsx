@@ -13,6 +13,19 @@ afterEach(() => {
 });
 const workspaceId = '11111111-1111-4111-8111-111111111111';
 
+it('scopes the command catalogue to current metadata and clears the workspace while switching chats', async () => {
+  const f = fixture();
+  Object.assign(f.metadata, { cwd: '/offline/chat-a' });
+  const view = renderHook(({ session }) => useExplicitLocalChat('draft', null, session, true), {
+    initialProps: { session: 'chat-a' },
+  });
+  await waitFor(() => expect(view.result.current.cwd).toBe('/offline/chat-a'));
+  Object.assign(f.metadata, { cwd: '/offline/chat-b' });
+  view.rerender({ session: 'chat-b' });
+  expect(view.result.current.cwd).toBeUndefined();
+  await waitFor(() => expect(view.result.current.cwd).toBe('/offline/chat-b'));
+});
+
 it('refreshes the adopted checkout within one chat and retains it through repeated A to B to A switches', async () => {
   const f = fixture();
   Object.assign(f.metadata, {

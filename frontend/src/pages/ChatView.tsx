@@ -1938,7 +1938,7 @@ function ChatViewContent() {
                 sendLabel={!activeSessionId && ordinaryControls ? 'Start session' : undefined}
                 boundedFirstCommand={localFirstCommand || controlsBlocked}
                 guardedConversation={localRuntime.commandAvailable}
-                cwd={messages.cwd || undefined}
+                cwd={localRuntime.cwd}
                 validateSend={
                   localRuntime.ordinaryWorkspaceId && localRuntime.commandAvailable
                     ? (text, images) => prepareOrdinaryCommand(text, images).reason

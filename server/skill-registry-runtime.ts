@@ -12,6 +12,9 @@ let skillWatcher: SkillWatcher | null = null;
 export function setSkillWatcher(watcher: SkillWatcher): void {
   skillWatcher = watcher;
 }
+export function hasSkillWatcher(): boolean {
+  return skillWatcher !== null;
+}
 export function buildSkillRegistry(cwd?: string): SkillRegistry {
   const key = cwd ?? '';
   const cached = registryCache.get(key);
