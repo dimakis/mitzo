@@ -79,8 +79,10 @@ it('deduplicates control requests and rejects changed content under an existing 
     text: 'Check whitespace',
   };
   expect(store.claimControl(scope, input)).toBeUndefined();
+  expect(store.controlResult(scope, input)).toBe('uncertain');
   expect(store.claimControl(scope, input)).toBe('uncertain');
   store.finishControl(scope, input, 'accepted');
+  expect(store.controlResult(scope, input)).toBe('accepted');
   expect(store.claimControl(scope, input)).toBe('accepted');
   expect(() => store.claimControl(scope, { ...input, text: 'changed' })).toThrow('identity');
 });

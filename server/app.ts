@@ -4016,6 +4016,12 @@ mountObservedRouter(
       const session = registry.findBySessionId(id)?.session;
       return session ? getCodexRuntime(session)?.getSubagents() : undefined;
     },
+    retainedControl(id, input) {
+      const binding = eventStore.getSession(id)?.accountBinding;
+      return binding
+        ? getCodexConversationStore().subagents.controlResult(subagentScope(id, binding), input)
+        : undefined;
+    },
     retained(id) {
       const binding = eventStore.getSession(id)?.accountBinding;
       return binding

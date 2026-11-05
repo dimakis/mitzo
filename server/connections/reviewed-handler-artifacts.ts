@@ -39,14 +39,14 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/protocol/src/native-subagents.ts':
     'bbc8a55d09e06c8cad329cb9caa72b071970bc48b89e8f0b6647288416f5c730',
   '../__tests__/codex-subagent-routes.test.ts':
-    '5547ae7b460613dba66e540696a7ebaad2263c2046d11880e6cd5796b7a8efa2',
+    'c69b797f2e84cf2df52a832605c6a26447aedbe707a01aab6596aa7a3342dcfc',
   '../__tests__/codex-subagent-store.test.ts':
-    '4e8d3bc443d0ca90d4614c92f42189f864760aa383f6de34af3d9f65b12fada4',
+    '17cb3848f026986ee4357e9bf527c6883085b515072ee59c4c490bdd7a0abe88',
   '../__tests__/codex-subagents.test.ts':
-    '394ee0d4c2c3e57d98aefa57a430ee27e77f8442ee69a1117e6847134957c01d',
-  '../codex-subagent-routes.ts': '16fb4c9f86a13f2c9ceccecb109f1fe4dae6675fea1b87559dd773167fe95425',
-  '../codex-subagent-store.ts': '1b1dc00ce5b242b55d6f469789a911ef81d7ef41d1272e4091c04ab71a70e623',
-  '../codex-subagents.ts': '8e5b42fc499666581338ae5628051dd64b2abf2eba28cc41345b196b8b945a97',
+    'f08f88b425e453f40b51f811a213ee05c6c3be3fd9a59818f05b0291fe74a736',
+  '../codex-subagent-routes.ts': '626354e56b192b4c660f9a2187aae075c77ed93cee3569769df391556b761211',
+  '../codex-subagent-store.ts': '1b02ce0bfd52773924094441622cc404f363255b511eabac8a5e07a9e021d0c2',
+  '../codex-subagents.ts': '6d8690af11f5a38cccfa5797c5a17aef2c86879ce05bd8df03329a378f29797b',
   '../__tests__/owned-local-auth-feedback.test.ts':
     'fa4b4dca12a655e4075c03e6c95701ac9c8c1a6607f867e27668c914e988da21',
   '../../docs/design/ui-design-system.md':
@@ -1601,7 +1601,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../session-access.ts': 'feeeea5ffcf16bb1c4542191a74d5eebde2ea2dbcac7cf0e5315d05e2249b1dc',
   '../session-metadata-error.ts':
     '377bd861f0e48e022fb49fb8c021e14f2da8d921f9d61c9fa738f31080596eae',
-  '../app.ts': '8225d68843dd80f9092a8ded4a2bf12cae87696f1ed4524e0d5bf8d48c724d23',
+  '../app.ts': 'affc92382a767d35f8a3f8f9ea10710617f844a39c23a21f26d427264e6b06c6',
   '../auth-check-tracing.ts': '067dc344d8ee76ffe39739a99076f614711ca3d11f96682c842c596a7bbd112e',
   '../telemetry-relay.ts': '302bf6cec2b988ae71a123a5dd04d0f2266a82c3ee51873ec64d8be452c25427',
   '../symposium-review-route-composition.ts':

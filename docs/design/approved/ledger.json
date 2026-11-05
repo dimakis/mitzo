@@ -110,7 +110,7 @@
           "approval": {
             "thread": "01a14b56-e8c7-7e21-aafb-e9b5b63ae917",
             "quote": "Fine. That works. Implement this and only this.",
-            "scope": "Replace the binary priority affordance with a 1–10 selector in the existing item header and show the selected value as a compact P<n> badge in the existing Work tree. Preserve the rest of the approved Telos interface."
+            "scope": "Replace the binary priority affordance with a 1\u201310 selector in the existing item header and show the selected value as a compact P<n> badge in the existing Work tree. Preserve the rest of the approved Telos interface."
           },
           "references": [
             {
@@ -300,7 +300,7 @@
           "approvedOn": "2026-10-16",
           "approval": {
             "thread": "01a13ea4-6c32-7af0-b635-c3f5f56aecb5",
-            "quote": "Looks decent. Let’s update telos and give a handover to start",
+            "quote": "Looks decent. Let\u2019s update telos and give a handover to start",
             "scope": "Fresh ordinary agent setup, reviewed joining brief, compact participant header, one Agents view and shared composer. Existing-chat import removed; Fork remains separate. Canonical Telos approval d2b5bce4090c39a595457335763271b5 revision 1."
           },
           "references": [
@@ -316,7 +316,7 @@
           "invariants": [
             "Ordinary chat first, compact participant header, one Agents dialog and the existing shared composer with stable recipient attribution.",
             "Add agent is fresh editable setup with Agent, name, Account/Model/Thinking, Mac host then OpenShell runtime choices, real repository and full or selected starting context.",
-            "Add agent retains Cancel and Fresh session · starts with a prompt. in its reachable footer; returning to Agents preserves the editable draft.",
+            "Add agent retains Cancel and Fresh session \u00b7 starts with a prompt. in its reachable footer; returning to Agents preserves the editable draft.",
             "Before joining retains Back/title/close, separate boot guidance, exact attributed context and saved artifact filenames/versions, editable refrozen brief on the same screen, flat Agents policy row, and Back / Join conversation.",
             "No extra Freeze step, existing-chat import, cross-group enrollment or substitute recipient form; Fork remains separate.",
             "Setup, review, joining and reading alone invoke no model; unavailable authority, stale review and uncertain recovery retain editable intent or original join identity.",
@@ -360,7 +360,7 @@
           "approvedOn": "2026-10-18",
           "approval": {
             "thread": "01a13ea4-6c32-7af0-b635-c3f5f56aecb5",
-            "quote": "Looks decent. Let’s update telos and give a handover to start",
+            "quote": "Looks decent. Let\u2019s update telos and give a handover to start",
             "scope": "Fresh ordinary agent setup, reviewed joining brief, compact participant header, one Agents view and shared composer. Existing-chat import removed; Fork remains separate. Canonical Telos approval d2b5bce4090c39a595457335763271b5 revision 1."
           },
           "references": [
@@ -376,7 +376,7 @@
           "invariants": [
             "Ordinary chat first, compact participant header, one Agents dialog and the existing shared composer with stable recipient attribution.",
             "Add agent is fresh editable setup with Agent, name, Account/Model/Thinking, Mac host then OpenShell runtime choices, real repository and full or selected starting context.",
-            "Add agent retains Cancel and Fresh session · starts with a prompt. in its reachable footer; returning to Agents preserves the editable draft.",
+            "Add agent retains Cancel and Fresh session \u00b7 starts with a prompt. in its reachable footer; returning to Agents preserves the editable draft.",
             "Before joining retains Back/title/close, separate boot guidance, exact attributed context and saved artifact filenames/versions, editable refrozen brief on the same screen, flat Agents policy row, and Back / Join conversation.",
             "No extra Freeze step, existing-chat import, cross-group enrollment or substitute recipient form; Fork remains separate.",
             "Setup, review, joining and reading alone invoke no model; unavailable authority, stale review and uncertain recovery retain editable intent or original join identity.",

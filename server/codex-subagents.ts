@@ -661,6 +661,8 @@ export class CodexSubagents {
   ): Promise<NativeSubagentControlStatus> {
     const input = NativeSubagentControlSchema.parse(raw);
     authorize();
+    const receipt = this.opts.store.controlResult(this.opts.scope, input);
+    if (receipt) return receipt;
     const live = this.live.get(input.threadId);
     if (!live || this.closed) return 'rejected';
     try {
@@ -671,7 +673,7 @@ export class CodexSubagents {
     const previous = this.opts.store.claimControl(this.opts.scope, input);
     if (previous) return previous;
     let attempted = false;
-    let status: NativeSubagentControlStatus = 'rejected';
+    let status: NativeSubagentControlStatus;
     try {
       authorize();
       this.current(live);

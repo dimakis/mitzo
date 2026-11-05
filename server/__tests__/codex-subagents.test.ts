@@ -62,7 +62,9 @@ function fixture() {
     },
   );
   const execute = vi.fn(async () => ({ content: 'Result', isError: false }));
-  const approval = vi.fn(async () => ({ decision: 'accept' }));
+  const approval = vi.fn<
+    NonNullable<ConstructorParameters<typeof CodexSubagents>[0]['requestNativeApproval']>
+  >(async () => ({ decision: 'accept' }));
   const assertCurrent = vi.fn();
   const onChild = vi.fn();
   const options = {
@@ -217,6 +219,7 @@ it('retains uncertainty after a lost control reply and never resends it', async 
     text: 'Check',
   };
   expect(await f.owner.control(input)).toBe('uncertain');
+  f.owner.close();
   expect(await f.owner.control(input)).toBe('uncertain');
   expect(f.request.mock.calls.filter(([method]) => method === 'turn/steer')).toHaveLength(1);
 });

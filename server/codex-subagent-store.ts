@@ -23,9 +23,18 @@ export function subagentScope(conversationId: string, binding: AccountBinding): 
   };
 }
 export function subagentSnapshot(child: RetainedSubagent, available = false) {
-  const { rootThreadId: _root, policyRevision: _policy, ...view } = child;
   return NativeSubagentSnapshotSchema.parse({
-    ...view,
+    threadId: child.threadId,
+    parentThreadId: child.parentThreadId,
+    commandId: child.commandId,
+    name: child.name,
+    task: child.task,
+    model: child.model,
+    turnId: child.turnId,
+    revision: child.revision,
+    blocks: child.blocks,
+    usage: child.usage,
+    outputTruncated: child.outputTruncated,
     available,
     state:
       !available && ['starting', 'working', 'needs_permission', 'stopping'].includes(child.state)
@@ -132,6 +141,13 @@ export class CodexSubagentStore {
   }
   finishTool(scope: SubagentScope, call: ChildToolIdentity, result: CodexToolResult): void {
     this.finish(scope, `tool:${call.callId}`, call, result);
+  }
+  controlResult(
+    scope: SubagentScope,
+    input: NativeSubagentControl,
+  ): NativeSubagentControlStatus | undefined {
+    const row = this.effect(scope, `control:${input.requestId}`, input);
+    return row ? (row.result ? JSON.parse(row.result) : 'uncertain') : undefined;
   }
   claimControl(
     scope: SubagentScope,

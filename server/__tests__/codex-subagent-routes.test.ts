@@ -1,18 +1,25 @@
 import express from 'express';
 import request from 'supertest';
 import { expect, it, vi } from 'vitest';
+import type { NativeSubagentControl, NativeSubagentControlStatus } from '@mitzo/protocol';
 import { createCodexSubagentRouter } from '../codex-subagent-routes.js';
 
 function fixture() {
   const owner = {
     list: vi.fn(() => []),
-    control: vi.fn(async (_input, authorize) => {
-      authorize();
-      return 'accepted';
-    }),
+    control: vi.fn(
+      async (
+        _input: NativeSubagentControl,
+        authorize: () => void,
+      ): Promise<NativeSubagentControlStatus> => {
+        authorize();
+        return 'accepted';
+      },
+    ),
     subscribe: vi.fn(() => () => {}),
   };
   const authorize = vi.fn();
+  const retainedControl = vi.fn((): NativeSubagentControlStatus | undefined => undefined);
   const app = express();
   app.use(express.json());
   app.use(
@@ -21,9 +28,10 @@ function fixture() {
       authorize,
       owner: (id) => (id === 'chat' ? owner : undefined),
       retained: () => [],
+      retainedControl,
     }),
   );
-  return { app, owner, authorize };
+  return { app, owner, authorize, retainedControl };
 }
 it('requires the original operator for child reads as well as mutations', async () => {
   const f = fixture();
@@ -67,4 +75,16 @@ it('retains cold output without making a missing runtime executable', async () =
     .send({ requestId: 'r', threadId: 'child', action: 'stop' })
     .expect(200);
   expect(control.body.status).toBe('rejected');
+});
+it('reads a durable control receipt after the original runtime closes without sending again', async () => {
+  const f = fixture();
+  f.retainedControl.mockReturnValue('accepted');
+  const input = { requestId: 'r', threadId: 'child', action: 'message', text: 'Check' };
+  const response = await request(f.app)
+    .post('/sessions/cold/codex-subagents/control')
+    .send(input)
+    .expect(200);
+  expect(response.body.status).toBe('accepted');
+  expect(f.retainedControl).toHaveBeenCalledWith('cold', input);
+  expect(f.owner.control).not.toHaveBeenCalled();
 });

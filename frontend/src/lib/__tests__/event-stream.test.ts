@@ -26,7 +26,7 @@ it('refuses incomplete or oversized frames and releases the stream', async () =>
     await expect(
       (async () => {
         for await (const _event of readEventStream(stream)) {
-          /* consume */
+          void _event;
         }
       })(),
     ).rejects.toThrow();

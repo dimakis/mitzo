@@ -1,5 +1,10 @@
 import { Router } from 'express';
-import { NativeSubagentControlSchema, type NativeSubagentSnapshot } from '@mitzo/protocol';
+import {
+  NativeSubagentControlSchema,
+  type NativeSubagentSnapshot,
+  type NativeSubagentControl,
+  type NativeSubagentControlStatus,
+} from '@mitzo/protocol';
 import { registerAuthSession, type AuthSession } from './auth.js';
 import type { CodexSubagents } from './codex-subagents.js';
 
@@ -7,6 +12,10 @@ interface Owners {
   authorize(id: string, authorization?: AuthSession): void;
   owner(id: string): Pick<CodexSubagents, 'list' | 'control' | 'subscribe'> | undefined;
   retained(id: string): NativeSubagentSnapshot[];
+  retainedControl?(
+    id: string,
+    input: NativeSubagentControl,
+  ): NativeSubagentControlStatus | undefined;
 }
 /** Mounted behind application authentication. Public child transcripts remain
  * within the original conversation/operator boundary, including SSE delivery. */
@@ -38,7 +47,7 @@ export function createCodexSubagentRouter(deps: Owners) {
     res.flushHeaders();
     let unsubscribe = () => {};
     let releaseAuth = () => {};
-    let timer: ReturnType<typeof setInterval> | undefined;
+    let timer: ReturnType<typeof setInterval> | undefined = undefined;
     let closed = false;
     const close = () => {
       if (closed) return;
@@ -108,6 +117,16 @@ export function createCodexSubagentRouter(deps: Owners) {
       return;
     }
     const input = parsed.data;
+    try {
+      const receipt = deps.retainedControl?.(req.params.id, input);
+      if (receipt) {
+        res.json({ requestId: input.requestId, status: receipt });
+        return;
+      }
+    } catch {
+      res.status(409).json({ error: 'Request identity differs from its saved receipt.' });
+      return;
+    }
     const owner = deps.owner(req.params.id);
     if (!owner) {
       res.json({ requestId: input.requestId, status: 'rejected' });
