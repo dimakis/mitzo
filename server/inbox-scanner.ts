@@ -6,6 +6,7 @@ import { privateCodexPathSnapshot } from './codex-private-path.js';
 export interface InboxSource extends ReturnType<typeof parseInboxItem> {
   source: string;
   version: string;
+  identity: string;
   modified: number;
 }
 /** Content reuse is independent of authority. Every scan captures current
@@ -58,6 +59,7 @@ export class InboxScanner {
               ...parseInboxItem(basename(path), content),
               source,
               version,
+              identity: `${info.dev}:${info.ino}`,
               modified: Number(info.mtimeMs),
             };
             this.cache.set(path, item);

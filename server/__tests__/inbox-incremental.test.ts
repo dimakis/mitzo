@@ -7,6 +7,7 @@ import { NotificationStore } from '../notification-store.js';
 import { UnifiedInbox } from '../unified-inbox.js';
 import { readFile } from 'node:fs/promises';
 import { InboxQuery } from '@mitzo/protocol';
+import { InboxScanner } from '../inbox-scanner.js';
 
 vi.mock('node:fs/promises', async (original) => {
   const fs = await original<typeof import('node:fs/promises')>();
@@ -27,6 +28,32 @@ afterAll(() => {
 function file(name: string, text: string) {
   writeFileSync(join(directory, name), `# ${name}\n${text}`);
 }
+
+it('keeps one archived identity when an item moves between the two scans', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'inbox-moving-source-'));
+  const ledger = new NotificationStore(':memory:');
+  const moving = new UnifiedInbox(ledger, () => root);
+  mkdirSync(join(root, 'archive'));
+  writeFileSync(join(root, 'moving.md'), '# Moving\nretained evidence');
+  const scan = InboxScanner.prototype.scan;
+  vi.spyOn(InboxScanner.prototype, 'scan').mockImplementation(async function (directory) {
+    const rows = await scan.call(this, directory);
+    if (directory === root && rows.length)
+      renameSync(join(root, 'moving.md'), join(root, 'archive', 'moving.md'));
+    return rows;
+  });
+  try {
+    await moving.reconcileAsync();
+    await moving.reconcileAsync();
+    const feed = ledger.inboxFeed(InboxQuery.parse({ view: 'archive' }));
+    expect(feed.items.map((item) => item.id)).toEqual(['inbox:moving.md']);
+    expect(feed.items[0].archivedAt).not.toBeNull();
+    expect(ledger.get('inbox:archive:moving.md')).toBeUndefined();
+  } finally {
+    ledger.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
 
 it('coalesces reads and avoids rewriting unchanged sources, including archives', async () => {
   file('first.md', 'old content');

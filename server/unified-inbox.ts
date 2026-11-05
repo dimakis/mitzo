@@ -88,9 +88,26 @@ export class UnifiedInbox {
     this.pending = (async () => {
       const root = this.directory();
       if (!root) return false;
-      const active = await this.scanner.scan(root);
+      let active = await this.scanner.scan(root);
       const archived = await this.scanner.scan(join(root, 'archive'));
       if (root !== this.directory()) return false;
+      // A local archive mutation can run between the two asynchronous scans.
+      // Revalidate only possible collisions before the synchronous ledger commit;
+      // a moved snapshot must never create a second logical history record.
+      const names = new Set(
+        archived.map((item) => item.summary.filename.replace(/_[a-f0-9]{32}(?=\.md$)/, '')),
+      );
+      const identities = new Set(archived.map((item) => item.identity));
+      active = active.filter((item) => {
+        if (!names.has(item.summary.filename) && !identities.has(item.identity)) return true;
+        try {
+          const current = statSync(join(root, item.summary.filename), { bigint: true });
+          return current.isFile() && `${current.dev}:${current.ino}` === item.identity;
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code === 'ENOENT') return false;
+          throw error;
+        }
+      });
       return this.reconcileSources(root, active, archived);
     })().finally(() => {
       this.pending = undefined;
