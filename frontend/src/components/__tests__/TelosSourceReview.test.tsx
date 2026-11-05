@@ -239,6 +239,50 @@ it('keeps a failed initial review retryable without asking for another tool invo
   expect(api.approveSourcePermission).not.toHaveBeenCalled();
 });
 
+it('keeps source correction and feedback available when the automatic preview fails', async () => {
+  api.getSourcePermission.mockResolvedValueOnce({
+    ...review,
+    suggestedMessageIds: ['assistant-1'],
+  });
+  api.previewSourcePermission.mockRejectedValueOnce(new Error('Combined context exceeds 512 KiB'));
+  render(<PermissionBanner {...props} />);
+  await screen.findByText(/Unable to prepare the suggested context/);
+  expect(screen.getByRole('button', { name: 'Create outcome' }).hasAttribute('disabled')).toBe(
+    true,
+  );
+  expect(screen.getByRole('button', { name: 'Request changes' }).hasAttribute('disabled')).toBe(
+    false,
+  );
+  fireEvent.click(screen.getByText('Change saved context'));
+  fireEvent.click(screen.getByRole('button', { name: 'Review selected source' }));
+  await waitFor(() =>
+    expect(screen.getByRole('button', { name: 'Create outcome' }).hasAttribute('disabled')).toBe(
+      false,
+    ),
+  );
+  expect(api.getSourcePermission).toHaveBeenCalledTimes(1);
+  expect(api.approveSourcePermission).not.toHaveBeenCalled();
+});
+
+it('distinguishes a retained feedback receipt from confirmed agent delivery', async () => {
+  api.requestOutcomeChanges.mockImplementation(async (_id, input) => ({
+    kind: 'telos_outcome_changes_requested',
+    permId: review.permId,
+    ...input,
+    originalOutcome: review.operation.outcome,
+    deliveryStatus: 'unconfirmed',
+  }));
+  render(<PermissionBanner {...props} />);
+  fireEvent.click(await screen.findByRole('button', { name: 'Request changes' }));
+  fireEvent.change(screen.getByRole('textbox', { name: 'What should change?' }), {
+    target: { value: 'Narrow the scope.' },
+  });
+  fireEvent.click(screen.getByRole('button', { name: 'Send changes' }));
+  await screen.findByText(/Feedback saved, but delivery to the agent could not be confirmed/);
+  expect(screen.queryByText('Changes sent. Waiting for a revised proposal.')).toBeNull();
+  expect(api.approveSourcePermission).not.toHaveBeenCalled();
+});
+
 it('loads earlier context without replacing the prepared selection and requires review after editing it', async () => {
   api.getSourcePermission
     .mockResolvedValueOnce({

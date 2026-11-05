@@ -196,6 +196,9 @@ export const TelosOutcomeRevisionReceiptSchema = TelosOutcomeRevisionRequestSche
   kind: z.literal('telos_outcome_changes_requested'),
   permId: TelosWorkIdSchema,
   originalOutcome: TelosOutcomeProposalSchema,
+  /** A retained receipt confirms feedback acceptance even if its agent delivery
+   * could not be durably acknowledged. Recovery never redelivers it. */
+  deliveryStatus: z.literal('unconfirmed').optional(),
   nextAction: z.literal(
     'Revise the original outcome using this feedback, then call TelosCreateOutcome again for fresh approval. No outcome was created.',
   ),

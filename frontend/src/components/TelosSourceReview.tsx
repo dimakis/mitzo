@@ -341,12 +341,22 @@ export function useTelosSourceReview({
             setLocked(true);
           } else if (result.suggestedMessageIds?.length) {
             setSelectedMessages(result.suggestedMessageIds);
-            const compiled = await compileSelection(
-              result,
-              result.suggestedMessageIds,
-              [],
-              controller.signal,
-            );
+            let compiled;
+            try {
+              compiled = await compileSelection(
+                result,
+                result.suggestedMessageIds,
+                [],
+                controller.signal,
+              );
+            } catch (failure) {
+              if (lostAuthority(failure)) throw failure;
+              if (valid(identity, version))
+                setError(
+                  'Unable to prepare the suggested context. Change saved context or request changes.',
+                );
+              return;
+            }
             if (!valid(identity, version)) return;
             setPreview(compiled.preview);
             setPreviewInput(compiled.input);
@@ -473,6 +483,10 @@ export function useTelosSourceReview({
         throw Error('Revision receipt changed');
       setChangesSent(true);
       setRequestingChanges(false);
+      if (receipt.deliveryStatus === 'unconfirmed')
+        setError(
+          'Feedback saved, but delivery to the agent could not be confirmed. Your original proposal and feedback are retained.',
+        );
     } catch (failure) {
       if (!valid(identity, version)) return;
       if (lostAuthority(failure)) {
@@ -1008,7 +1022,7 @@ export function useTelosSourceReview({
           )}
         </p>
       )}
-      {changesSent && (
+      {changesSent && !error && (
         <p role="status" className="perm-banner-scope">
           Changes sent. Waiting for a revised proposal.
         </p>

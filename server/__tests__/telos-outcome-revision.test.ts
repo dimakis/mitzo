@@ -1,7 +1,8 @@
-import { afterEach, expect, it } from 'vitest';
+import { afterEach, expect, it, vi } from 'vitest';
 import { randomUUID } from 'node:crypto';
 import { getPendingTelosSourceReview, removePending } from '@mitzo/harness';
 import { createTelosSourceApprovalData } from './fixtures/telos-source-approval-data.js';
+import { TelosSourceApprovalStore } from '../telos-source-approval-store.js';
 
 const cleanups: (() => void)[] = [];
 afterEach(() =>
@@ -25,6 +26,38 @@ async function fixture() {
   };
   return { f, permId, review, input };
 }
+it('recovers retained feedback after delivery acknowledgement fails and owners restart without redelivery', async () => {
+  const { f, permId, input } = await fixture();
+  const acknowledge = vi
+    .spyOn(TelosSourceApprovalStore.prototype, 'revisionDelivered')
+    .mockImplementationOnce(() => {
+      throw Error('Database acknowledgement failed');
+    });
+  try {
+    await expect(f.service.requestChanges(permId, input, f.actor)).rejects.toThrow(
+      'Database acknowledgement failed',
+    );
+  } finally {
+    acknowledge.mockRestore();
+  }
+  await f.settled();
+  const delivered = f.denialMessage();
+  expect(delivered).toContain(input.feedback);
+  f.restartOwners();
+  expect(await f.service.requestChanges(permId, input, f.actor)).toMatchObject({
+    ...input,
+    deliveryStatus: 'unconfirmed',
+    originalOutcome: JSON.parse(delivered!).originalOutcome,
+  });
+  expect(f.denialMessage()).toBe(delivered);
+  await expect(
+    f.service.requestChanges(permId, { ...input, feedback: 'Different' }, f.actor),
+  ).rejects.toThrow(/exact/);
+  await expect(
+    f.service.requestChanges(permId, input, { kind: 'operator', id: 'other' }),
+  ).rejects.toThrow(/operator/);
+  expect(f.counts().canonicalCreates).toBe(0);
+});
 it('returns feedback and the exact draft to the waiting agent without creating work; a revised proposal needs a fresh save', async () => {
   const { f, permId, review, input } = await fixture();
   const before = f.retainedOwnerCounts();

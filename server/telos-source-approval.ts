@@ -218,6 +218,11 @@ export class TelosSourceApproval {
     const input = TelosOutcomeRevisionRequestSchema.parse(raw);
     let record = this.options.store.revision(permId, input.sessionId, actorId, input);
     if (record?.delivered) return record.receipt;
+    // Receipt recovery is an authenticated read of the exact retained request.
+    // A consumed, expired or revoked invocation cannot authorize redelivery, and
+    // its absence alone cannot prove whether the agent received the feedback.
+    if (record && !getPendingTelosSourceReview(permId, input.sessionId))
+      return { ...record.receipt, deliveryStatus: 'unconfirmed' as const };
     const proof = this.pending(permId, input.sessionId, actor);
     const current = this.pendingCurrent(proof, actor);
     const operation = this.operation(proof, actor);
