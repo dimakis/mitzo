@@ -88,3 +88,22 @@ it('records successful release once and allows exact receipt recovery after resp
   expect(release).toHaveBeenCalledTimes(1);
   expect(f.store.read('chat')?.phase).toBe('completed');
 });
+it('joins an in-flight preparation before a concurrent deletion can release resources', async () => {
+  const f = fixture();
+  let finish!: () => void;
+  f.deps.cancelPrompts.mockImplementationOnce(async () => {
+    await new Promise<void>((resolve) => {
+      finish = resolve;
+    });
+  });
+  const preparation = f.service.prepare('chat', f.current);
+  const operationId = f.store.read('chat')!.operationId;
+  const release = vi.fn(async () => {});
+  const deletion = f.service.release('chat', operationId, f.current, release);
+  await Promise.resolve();
+  expect(release).not.toHaveBeenCalled();
+  finish();
+  await Promise.all([preparation, deletion]);
+  expect(release).toHaveBeenCalledTimes(1);
+  expect(f.calls).toEqual(['close']);
+});
