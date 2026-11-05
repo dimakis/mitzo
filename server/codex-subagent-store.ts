@@ -1,16 +1,37 @@
 import type Database from 'better-sqlite3';
+import { createHash } from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
 import { z } from 'zod';
 import {
   NativeSubagentSnapshotSchema,
   type NativeSubagentControl,
   type NativeSubagentControlStatus,
-} from '../packages/protocol/src/native-subagents.js';
+  type AccountBinding,
+} from '@mitzo/protocol';
 import type { CodexToolResult } from './codex-tool-result.js';
 
 export interface SubagentScope {
   conversationId: string;
   bindingRevision: string;
+}
+export function subagentScope(conversationId: string, binding: AccountBinding): SubagentScope {
+  return {
+    conversationId,
+    bindingRevision: createHash('sha256')
+      .update(JSON.stringify([binding.provider, binding.accountId, binding.profileRevision]))
+      .digest('hex'),
+  };
+}
+export function subagentSnapshot(child: RetainedSubagent, available = false) {
+  const { rootThreadId: _root, policyRevision: _policy, ...view } = child;
+  return NativeSubagentSnapshotSchema.parse({
+    ...view,
+    available,
+    state:
+      !available && ['starting', 'working', 'needs_permission', 'stopping'].includes(child.state)
+        ? 'unknown'
+        : child.state,
+  });
 }
 const RetainedChild = NativeSubagentSnapshotSchema.extend({
   rootThreadId: z.string().min(1),

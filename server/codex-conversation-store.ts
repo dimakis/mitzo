@@ -1,4 +1,5 @@
 import { callbackOutcome, retainCallbackOutcome } from './turn-callbacks.js';
+import { CodexSubagentStore } from './codex-subagent-store.js';
 import {
   CodexSteerInputSchema,
   type CodexSteerInput,
@@ -548,6 +549,7 @@ type PreDispatchEvidence = {
 };
 /** Private server-owned database. A single owning server calls recoverAtStartup before accepting work. */
 export class CodexConversationStore {
+  readonly subagents: CodexSubagentStore;
   private readonly db: Database.Database;
   private liveThreadStoreClosed = false;
   private readonly liveThreadObservers = new Map<string, Set<(event: LiveThreadEvent) => void>>();
@@ -573,6 +575,7 @@ export class CodexConversationStore {
     this.db = new Database(path);
     this.db.pragma('synchronous = FULL');
     this.db.pragma('foreign_keys = ON');
+    this.subagents = new CodexSubagentStore(this.db);
     this.db.exec(
       'CREATE TABLE IF NOT EXISTS codex_runtime_migrations (conversation_id TEXT PRIMARY KEY, binding TEXT NOT NULL, generation INTEGER NOT NULL, data TEXT NOT NULL)',
     );

@@ -110,7 +110,7 @@
           "approval": {
             "thread": "01a14b56-e8c7-7e21-aafb-e9b5b63ae917",
             "quote": "Fine. That works. Implement this and only this.",
-            "scope": "Replace the binary priority affordance with a 1\u201310 selector in the existing item header and show the selected value as a compact P<n> badge in the existing Work tree. Preserve the rest of the approved Telos interface."
+            "scope": "Replace the binary priority affordance with a 1–10 selector in the existing item header and show the selected value as a compact P<n> badge in the existing Work tree. Preserve the rest of the approved Telos interface."
           },
           "references": [
             {
@@ -300,7 +300,7 @@
           "approvedOn": "2026-10-16",
           "approval": {
             "thread": "01a13ea4-6c32-7af0-b635-c3f5f56aecb5",
-            "quote": "Looks decent. Let\u2019s update telos and give a handover to start",
+            "quote": "Looks decent. Let’s update telos and give a handover to start",
             "scope": "Fresh ordinary agent setup, reviewed joining brief, compact participant header, one Agents view and shared composer. Existing-chat import removed; Fork remains separate. Canonical Telos approval d2b5bce4090c39a595457335763271b5 revision 1."
           },
           "references": [
@@ -316,7 +316,7 @@
           "invariants": [
             "Ordinary chat first, compact participant header, one Agents dialog and the existing shared composer with stable recipient attribution.",
             "Add agent is fresh editable setup with Agent, name, Account/Model/Thinking, Mac host then OpenShell runtime choices, real repository and full or selected starting context.",
-            "Add agent retains Cancel and Fresh session \u00b7 starts with a prompt. in its reachable footer; returning to Agents preserves the editable draft.",
+            "Add agent retains Cancel and Fresh session · starts with a prompt. in its reachable footer; returning to Agents preserves the editable draft.",
             "Before joining retains Back/title/close, separate boot guidance, exact attributed context and saved artifact filenames/versions, editable refrozen brief on the same screen, flat Agents policy row, and Back / Join conversation.",
             "No extra Freeze step, existing-chat import, cross-group enrollment or substitute recipient form; Fork remains separate.",
             "Setup, review, joining and reading alone invoke no model; unavailable authority, stale review and uncertain recovery retain editable intent or original join identity.",
@@ -360,7 +360,7 @@
           "approvedOn": "2026-10-18",
           "approval": {
             "thread": "01a13ea4-6c32-7af0-b635-c3f5f56aecb5",
-            "quote": "Looks decent. Let\u2019s update telos and give a handover to start",
+            "quote": "Looks decent. Let’s update telos and give a handover to start",
             "scope": "Fresh ordinary agent setup, reviewed joining brief, compact participant header, one Agents view and shared composer. Existing-chat import removed; Fork remains separate. Canonical Telos approval d2b5bce4090c39a595457335763271b5 revision 1."
           },
           "references": [
@@ -376,7 +376,7 @@
           "invariants": [
             "Ordinary chat first, compact participant header, one Agents dialog and the existing shared composer with stable recipient attribution.",
             "Add agent is fresh editable setup with Agent, name, Account/Model/Thinking, Mac host then OpenShell runtime choices, real repository and full or selected starting context.",
-            "Add agent retains Cancel and Fresh session \u00b7 starts with a prompt. in its reachable footer; returning to Agents preserves the editable draft.",
+            "Add agent retains Cancel and Fresh session · starts with a prompt. in its reachable footer; returning to Agents preserves the editable draft.",
             "Before joining retains Back/title/close, separate boot guidance, exact attributed context and saved artifact filenames/versions, editable refrozen brief on the same screen, flat Agents policy row, and Back / Join conversation.",
             "No extra Freeze step, existing-chat import, cross-group enrollment or substitute recipient form; Fork remains separate.",
             "Setup, review, joining and reading alone invoke no model; unavailable authority, stale review and uncertain recovery retain editable intent or original join identity.",
@@ -489,6 +489,58 @@
             }
           ],
           "validation": "docs/features/chat-composer-status.md"
+        }
+      ]
+    },
+    {
+      "id": "codex-subagents",
+      "activeRevision": "nested-child-activity-2026-11-05",
+      "revisions": [
+        {
+          "id": "nested-child-activity-2026-11-05",
+          "approvedBy": "Dimitri (originating approval and current implementation direction)",
+          "approvedOn": "2026-11-05",
+          "approval": {
+            "thread": "911e7aaf-f8a0-8aaf-862e-c322cfd6c163",
+            "quote": "yep, this is excellent, I like this. lets just ensure that we don't get rid of the other icons in the screen chat, for terminal etc. the mock has left these out",
+            "scope": "Nested child row and inspection with targeted Message/Stop; final v005 refinements preserve chat toolbar, phone layout, context wheel and Resources. Approval recovered from original conversation; current user requested implementation on 5 November."
+          },
+          "references": [
+            {
+              "path": "docs/design/approved/codex-subagents/nested.html",
+              "sha256": "e85c12ffb0c004319474c1ed49cd7b5c744e3a4bcb574073477c306198dfa267"
+            }
+          ],
+          "invariants": [
+            "One collapsed count/status row beneath the spawning agent; expand child names and states.",
+            "Child inspection retains task, public output/tool activity and explicit recipient with Message and Stop.",
+            "Parent and sibling drafts survive inspection and navigation; focus returns to the originating child.",
+            "Preserve existing composer, toolbar, Terminal, context wheel and Resources; children do not become Symposium participants.",
+            "Shared dialog, semantic tokens and motion; reachable footer, independent scrolling, 44px targets and phone/desktop widths.",
+            "Unavailable authority disables controls while retaining saved output; uncertain delivery keeps its original request identity."
+          ],
+          "sources": [
+            "frontend/src/components/NativeSubagents.tsx",
+            "frontend/src/components/NativeSubagents.css",
+            "frontend/src/components/ToolPill.tsx",
+            "frontend/src/hooks/useNativeSubagents.ts"
+          ],
+          "checks": [
+            "frontend/src/components/__tests__/NativeSubagents.test.tsx",
+            "tests/offline/native-subagents.spec.ts"
+          ],
+          "protectedChecks": [
+            {
+              "path": "frontend/src/components/__tests__/NativeSubagents.test.tsx",
+              "sha256": "90556b4248ca66e47e978c5a3e7b8672a9f66098230dc774f5d91e65ca199d4b"
+            },
+            {
+              "path": "tests/offline/native-subagents.spec.ts",
+              "sha256": "7aca198b14e4053f35e23d9ce9c9025f4612baef1286ed4d2d291e496661e632"
+            }
+          ],
+          "implementationEvidence": [],
+          "validation": "docs/design/approved/codex-subagents/VALIDATION.md"
         }
       ]
     }

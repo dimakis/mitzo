@@ -1,0 +1,117 @@
+.native-subagents {
+  min-inline-size: 0;
+  color: var(--color-text);
+}
+.native-subagent-summary,
+.native-subagent-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-block-size: var(--control-height);
+  inline-size: 100%;
+  padding: var(--space-2);
+  border: 0;
+  background: transparent;
+  color: inherit;
+  text-align: start;
+  font: inherit;
+  font-size: var(--text-sm);
+  cursor: pointer;
+  border-radius: var(--radius-control);
+}
+.native-subagent-summary {
+  color: var(--color-muted);
+}
+.native-subagent-list {
+  margin-inline-start: var(--space-3);
+  padding-inline-start: var(--space-3);
+  border-inline-start: 1px solid var(--color-border);
+}
+.native-subagent-row > :first-child {
+  min-inline-size: 0;
+  overflow-wrap: anywhere;
+}
+.native-subagent-state {
+  margin-inline-start: auto;
+  color: var(--color-muted);
+  font-size: var(--text-sm);
+}
+.native-subagent-note {
+  color: var(--color-muted);
+  font-size: var(--text-sm);
+  overflow-wrap: anywhere;
+}
+.native-subagent-dialog {
+  block-size: min(56rem, calc(100dvh - 2 * var(--page-gutter)));
+}
+.native-subagent-dialog .home-dialog-content {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  block-size: 100%;
+  min-block-size: 0;
+  box-sizing: border-box;
+}
+.native-subagent-dialog header {
+  flex: 0 0 auto;
+}
+.native-subagent-dialog h2 {
+  overflow-wrap: anywhere;
+}
+.native-subagent-body {
+  flex: 1;
+  min-block-size: 0;
+  overflow: auto;
+  overflow-wrap: anywhere;
+}
+.native-subagent-task {
+  white-space: pre-wrap;
+}
+.native-subagent-instruction {
+  white-space: pre-wrap;
+  padding: var(--space-3);
+  border-inline-start: 1px solid var(--color-accent);
+}
+.native-subagent-composer {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  min-inline-size: 0;
+}
+.native-subagent-composer textarea {
+  inline-size: 100%;
+  min-block-size: var(--control-height);
+  max-block-size: 25dvh;
+  resize: vertical;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-control);
+  padding: var(--space-3);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font: inherit;
+  font-size: var(--text-base);
+  box-sizing: border-box;
+}
+.native-subagent-composer footer {
+  margin-block-start: 0;
+  flex-wrap: wrap;
+}
+.native-subagent-composer footer > :first-child {
+  margin-inline-end: auto;
+}
+.native-subagent-summary:focus-visible,
+.native-subagent-row:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+@media (max-width: 640px) {
+  .native-subagent-dialog {
+    inline-size: 100%;
+    max-inline-size: 100%;
+    block-size: 100dvh;
+    max-block-size: 100dvh;
+    margin: 0;
+    border-radius: 0;
+  }
+}

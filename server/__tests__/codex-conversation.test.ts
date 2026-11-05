@@ -51,6 +51,69 @@ const binding = {
   profileRevision: 'chatgpt:test@example.com:test',
 };
 
+it('routes native children through the original executor without completing or steering the parent command', async () => {
+  const f = await setup(undefined, undefined, undefined, undefined, async () => binding);
+  const policy = codexNativeExecutionPolicy({
+    bindingRevision: 'owner',
+    mode: 'agent',
+    cwd: '/workspace',
+    readableRoots: ['/'],
+    writableRoots: ['/workspace'],
+    deniedRoots: ['/private/auth'],
+  });
+  Object.assign(f.conversationOptions, {
+    enableNativeSubagents: true,
+    nativeExecution: policy,
+    assertNativeExecutionCurrent: () => {},
+    requestNativeApproval: async () => ({ decision: 'decline' }),
+  });
+  await f.c.send({ id: 'root-command', prompt: 'Review edge cases' });
+  const original = f.rpc.request.getMockImplementation()!;
+  const child = {
+    id: 'child',
+    parentThreadId: f.getProviderThread(),
+    sessionId: 'native-tree',
+    cwd: policy.cwd,
+    model: 'test-model',
+    modelProvider: 'openai',
+    agentNickname: 'Edge cases',
+    preview: 'Check empty queries',
+  };
+  f.rpc.request.mockImplementation(async (method, params) => {
+    if (method === 'thread/read') return { thread: { ...child, id: params.threadId } };
+    if (params.threadId === 'child') {
+      if (method === 'thread/resume')
+        return { thread: child, model: 'test-model', modelProvider: 'openai' };
+      if (method === 'thread/turns/list') return { data: [], nextCursor: null };
+      if (method === 'turn/steer') return { turnId: params.expectedTurnId };
+    }
+    return original(method, params);
+  });
+  f.callbacks.onNotification('thread/started', { thread: child });
+  f.callbacks.onNotification('turn/started', { threadId: 'child', turn: { id: 'child-turn' } });
+  await f.c.getSubagents()!.settled();
+  await f.callbacks.onRequest(
+    'item/tool/call',
+    { threadId: 'child', turnId: 'child-turn', callId: 'child-call', tool: 'Read', arguments: {} },
+    new AbortController().signal,
+  );
+  expect(f.execute).toHaveBeenCalledOnce();
+  f.callbacks.onNotification('turn/completed', {
+    threadId: 'child',
+    turn: { id: 'child-turn', status: 'completed' },
+  });
+  expect(f.c.queue()[0].status).toBe('running');
+  expect(f.c.getSubagents()!.list()[0].state).toBe('completed');
+  expect(f.events.some((event) => JSON.stringify(event).includes('nativeSubagentCommandId'))).toBe(
+    true,
+  );
+  f.callbacks.onNotification('turn/completed', {
+    threadId: f.getProviderThread(),
+    turn: { id: 'turn-1', status: 'completed' },
+  });
+  await vi.waitFor(() => expect(f.c.queue()[0].status).toBe('completed'));
+});
+
 it('retains unknown late tool effects independently of its durable error result', async () => {
   const f = await setup();
   Object.assign(f.conversationOptions, { transportClosure: 'terminal' });

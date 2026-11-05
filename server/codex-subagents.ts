@@ -1,0 +1,757 @@
+import { createHash, randomUUID } from 'node:crypto';
+import { z } from 'zod';
+import type { ToolDefinition } from '@mitzo/harness';
+import {
+  NativeSubagentControlSchema,
+  NativeSubagentSnapshotSchema,
+  type NativeSubagentBlock,
+  type NativeSubagentControl,
+  type NativeSubagentControlStatus,
+  type NativeSubagentSnapshot,
+} from '@mitzo/protocol';
+import type { CodexServerRequestContext } from './codex-app-server-client.js';
+import { CodexRequestError } from './codex-app-server-client.js';
+import { CodexNativeFileChange } from './codex-native-file-change.js';
+import {
+  codexNativeExecutionParams,
+  type CodexNativeExecutionPolicy,
+} from './codex-native-execution-policy.js';
+import {
+  codexToolResultContentItems,
+  normalizeCodexToolResult,
+  type CodexToolResult,
+} from './codex-tool-result.js';
+import {
+  CodexSubagentStore,
+  type RetainedSubagent,
+  type SubagentScope,
+  subagentSnapshot,
+} from './codex-subagent-store.js';
+
+type ObjectValue = Record<string, unknown>;
+const object = (value: unknown): ObjectValue =>
+  value && typeof value === 'object' && !Array.isArray(value) ? (value as ObjectValue) : {};
+const id = z.string().min(1).max(200);
+const Thread = z.object({
+  id,
+  parentThreadId: id.nullable(),
+  sessionId: id,
+  cwd: z.string(),
+  model: z.string().nullable(),
+  modelProvider: z.string(),
+  agentNickname: z.string().nullable().optional(),
+  preview: z.string().optional(),
+});
+const ToolCall = z.object({
+  threadId: id,
+  turnId: id,
+  callId: id,
+  tool: id,
+  arguments: z.record(z.string(), z.unknown()),
+});
+export interface SubagentRoot {
+  threadId: string;
+  commandId: string;
+  model: string;
+  modelProvider: string;
+  policy: CodexNativeExecutionPolicy;
+}
+interface Options {
+  scope: SubagentScope;
+  store: CodexSubagentStore;
+  root(): SubagentRoot | undefined;
+  assertCurrent(child: RetainedSubagent): void;
+  request(method: string, params: ObjectValue): Promise<unknown>;
+  tools: ToolDefinition[];
+  executeTool(
+    name: string,
+    input: ObjectValue,
+    signal: AbortSignal,
+    context: Readonly<{
+      turnId: string;
+      callId: string;
+      assertCurrentSync?(): void;
+      registerResponseFence?(assertCurrent: () => void): void;
+    }>,
+  ): Promise<CodexToolResult>;
+  requestNativeApproval?(
+    method: string,
+    params: ObjectValue,
+    signal: AbortSignal,
+    context: CodexServerRequestContext & {
+      commandId: string;
+      threadId: string;
+      turnId: string;
+      subagentName?: string;
+      fileChangePaths?: readonly string[];
+      assertCurrentSync(): void;
+    },
+  ): Promise<ObjectValue>;
+  requestUserInput?(params: ObjectValue, signal: AbortSignal): Promise<ObjectValue>;
+  validateModel?(model: string): void;
+  onChild(child: NativeSubagentSnapshot): void;
+}
+interface LiveChild {
+  child: RetainedSubagent;
+  policy: CodexNativeExecutionPolicy;
+  abort: AbortController;
+  turnAbort: AbortController;
+  terminal: Set<string>;
+  files: Map<string, readonly string[] | null>;
+  fileRevisions: Map<string, string>;
+}
+
+/** One native process/account/tree, with independent child turns. This owner has
+ * no scheduler and never inserts child requests in the parent's command queue. */
+export class CodexSubagents {
+  private live = new Map<string, LiveChild>();
+  private pending = new Map<string, Promise<void>>();
+  private buffered = new Map<string, { method: string; params: ObjectValue }[]>();
+  private listeners = new Set<(child: NativeSubagentSnapshot) => void>();
+  private closed = false;
+  constructor(private readonly opts: Options) {}
+  subscribe(listener: (child: NativeSubagentSnapshot) => void): () => void {
+    this.listeners.add(listener);
+    return () => this.listeners.delete(listener);
+  }
+  list(): NativeSubagentSnapshot[] {
+    for (const live of [...this.live.values()]) {
+      try {
+        this.current(live);
+      } catch {
+        this.invalidate(live);
+      }
+    }
+    return this.opts.store
+      .list(this.opts.scope)
+      .map((child) => subagentSnapshot(child, this.live.has(child.threadId)));
+  }
+  owns(threadId: unknown): boolean {
+    return typeof threadId === 'string' && (this.live.has(threadId) || this.pending.has(threadId));
+  }
+  async settled(): Promise<void> {
+    await Promise.all([...this.pending.values()]);
+  }
+  private publish(live: LiveChild): void {
+    live.child.revision++;
+    this.opts.store.save(this.opts.scope, live.child);
+    for (const listener of this.listeners)
+      listener(subagentSnapshot(live.child, this.live.has(live.child.threadId)));
+  }
+  private current(live: LiveChild, turnId?: string): void {
+    const root = this.opts.root();
+    if (
+      this.closed ||
+      live.abort.signal.aborted ||
+      this.live.get(live.child.threadId) !== live ||
+      !root ||
+      root.threadId !== live.child.rootThreadId ||
+      root.policy.policyRevision !== live.child.policyRevision
+    )
+      throw Error('Original child owner unavailable');
+    if (
+      turnId &&
+      (live.child.turnId !== turnId ||
+        !['working', 'needs_permission'].includes(live.child.state) ||
+        live.terminal.has(turnId) ||
+        live.turnAbort.signal.aborted)
+    )
+      throw Error('Child turn identity is no longer current');
+    this.opts.assertCurrent(live.child);
+  }
+  notification(method: string, params: ObjectValue): boolean {
+    if (this.closed) return false;
+    const root = this.opts.root();
+    const started = method === 'thread/started' ? Thread.safeParse(params.thread) : undefined;
+    if (root && started?.success) {
+      const thread = started.data;
+      if (
+        thread.parentThreadId === root.threadId ||
+        (thread.parentThreadId && this.live.has(thread.parentThreadId))
+      ) {
+        this.admit(thread.id, thread.parentThreadId!, root);
+        return true;
+      }
+    }
+    const item = object(params.item);
+    if (
+      root &&
+      (params.threadId === root.threadId || this.owns(params.threadId)) &&
+      item.type === 'collabAgentToolCall' &&
+      item.tool === 'spawnAgent' &&
+      item.senderThreadId === params.threadId &&
+      Array.isArray(item.receiverThreadIds)
+    ) {
+      for (const receiver of item.receiverThreadIds)
+        if (typeof receiver === 'string')
+          this.admit(
+            receiver,
+            String(params.threadId),
+            root,
+            typeof item.prompt === 'string' ? item.prompt : undefined,
+          );
+    }
+    if (typeof params.threadId !== 'string') return false;
+    if (this.pending.has(params.threadId)) {
+      const buffer = this.buffered.get(params.threadId)!;
+      if (buffer.length < 256 && Buffer.byteLength(JSON.stringify(params)) <= 65536)
+        buffer.push({ method, params: structuredClone(params) });
+      return true;
+    }
+    const live = this.live.get(params.threadId);
+    if (!live) return false;
+    try {
+      this.current(live);
+      this.apply(live, method, params);
+    } catch {
+      this.invalidate(live);
+    }
+    return true;
+  }
+  private admit(threadId: string, parentThreadId: string, root: SubagentRoot, task?: string): void {
+    if (
+      this.live.has(threadId) ||
+      this.pending.has(threadId) ||
+      this.live.size + this.pending.size >= 32 ||
+      threadId === root.threadId
+    )
+      return;
+    this.buffered.set(threadId, []);
+    // Start after registering the pending identity, before any awaited native I/O.
+    const operation = Promise.resolve()
+      .then(async () => {
+        const checked = Thread.parse(
+          object(await this.opts.request('thread/read', { threadId, includeTurns: false })).thread,
+        );
+        if (
+          checked.id !== threadId ||
+          checked.parentThreadId !== parentThreadId ||
+          checked.cwd !== root.policy.cwd ||
+          checked.modelProvider !== root.modelProvider ||
+          !checked.model
+        )
+          throw Error('Native child identity mismatch');
+        const rootMetadata = object(
+          await this.opts.request('thread/read', { threadId: root.threadId, includeTurns: false }),
+        );
+        if (
+          object(rootMetadata.thread).id !== root.threadId ||
+          object(rootMetadata.thread).sessionId !== checked.sessionId
+        )
+          throw Error('Native child session mismatch');
+        this.opts.validateModel?.(checked.model);
+        const previous = this.opts.store.get(this.opts.scope, threadId);
+        const child: RetainedSubagent = previous ?? {
+          threadId,
+          parentThreadId,
+          rootThreadId: root.threadId,
+          commandId: root.commandId,
+          policyRevision: root.policy.policyRevision,
+          name: (checked.agentNickname || 'Subagent').slice(0, 200),
+          task: (task ?? checked.preview ?? '').slice(0, 8192),
+          model: checked.model,
+          state: 'starting',
+          revision: 1,
+          blocks: [],
+        };
+        if (
+          child.rootThreadId !== root.threadId ||
+          child.parentThreadId !== parentThreadId ||
+          child.policyRevision !== root.policy.policyRevision
+        )
+          throw Error('Retained child identity mismatch');
+        if (
+          previous &&
+          ['working', 'starting', 'needs_permission', 'stopping'].includes(previous.state)
+        ) {
+          child.state = 'unknown';
+          child.revision++;
+        }
+        const live: LiveChild = {
+          child,
+          policy: root.policy,
+          abort: new AbortController(),
+          turnAbort: new AbortController(),
+          terminal: new Set(),
+          files: new Map(),
+          fileRevisions: new Map(),
+        };
+        this.live.set(threadId, live);
+        this.current(live);
+        this.opts.store.save(this.opts.scope, child);
+        const resumed = object(
+          await this.opts.request('thread/resume', {
+            threadId,
+            excludeTurns: true,
+            ...codexNativeExecutionParams(root.policy),
+          }),
+        );
+        this.current(live);
+        if (
+          object(resumed.thread).id !== threadId ||
+          resumed.model !== child.model ||
+          resumed.modelProvider !== root.modelProvider
+        )
+          throw Error('Resumed child binding changed');
+        // New subscriptions can start after a child has produced output. Hydrate
+        // paginated public items only; never replay tool calls from native history.
+        await this.hydrate(live);
+        this.current(live);
+        for (const event of this.buffered.get(threadId) ?? [])
+          this.apply(live, event.method, event.params);
+        if (!previous)
+          this.opts.onChild(
+            NativeSubagentSnapshotSchema.parse({
+              commandId: child.commandId,
+              threadId: child.threadId,
+              parentThreadId: child.parentThreadId,
+              name: child.name,
+              task: child.task,
+              model: child.model,
+              state: child.state,
+              revision: child.revision,
+              blocks: child.blocks,
+              turnId: child.turnId,
+            }),
+          );
+        this.publish(live);
+      })
+      .catch(() => {
+        const live = this.live.get(threadId);
+        if (live) this.invalidate(live);
+      })
+      .finally(() => {
+        this.pending.delete(threadId);
+        this.buffered.delete(threadId);
+      });
+    this.pending.set(threadId, operation);
+  }
+  async restore(): Promise<void> {
+    const root = this.opts.root();
+    if (!root || this.closed) return;
+    for (const child of this.opts.store.list(this.opts.scope))
+      if (
+        child.rootThreadId === root.threadId &&
+        child.policyRevision === root.policy.policyRevision
+      )
+        this.admit(child.threadId, child.parentThreadId, root);
+    await this.settled();
+  }
+  private async hydrate(live: LiveChild): Promise<void> {
+    const page = object(
+      await this.opts.request('thread/turns/list', {
+        threadId: live.child.threadId,
+        limit: 32,
+        sortDirection: 'desc',
+        itemsView: 'notLoaded',
+      }),
+    );
+    this.current(live);
+    if (!Array.isArray(page.data)) throw Error('Child turn history unavailable');
+    // Retained older public blocks remain intact. Hydrate the latest bounded
+    // turn, then consume the subscribed native events buffered during admission.
+    const turn = object(page.data[0]);
+    if (typeof turn.id !== 'string') return;
+    this.apply(live, 'turn/started', { turn });
+    const cursors = new Set<string>();
+    let cursor: string | undefined;
+    for (;;) {
+      const items = object(
+        await this.opts.request('thread/items/list', {
+          threadId: live.child.threadId,
+          turnId: turn.id,
+          limit: 64,
+          ...(cursor ? { cursor } : {}),
+        }),
+      );
+      this.current(live);
+      if (!Array.isArray(items.data)) throw Error('Child items unavailable');
+      for (const item of items.data) this.apply(live, 'item/completed', { turnId: turn.id, item });
+      if (typeof items.nextCursor !== 'string') break;
+      if (cursors.has(items.nextCursor) || live.child.blocks.length >= 2000)
+        throw Error('Child history exceeds supported bounds');
+      cursors.add(items.nextCursor);
+      cursor = items.nextCursor;
+    }
+    if (turn.status !== 'inProgress') this.apply(live, 'turn/completed', { turn });
+  }
+  private block(live: LiveChild, block: NativeSubagentBlock, append = false): void {
+    const previous = live.child.blocks.find((candidate) => candidate.id === block.id);
+    if (previous)
+      Object.assign(previous, block, {
+        content: (append ? previous.content + block.content : block.content).slice(0, 65536),
+      });
+    else if (live.child.blocks.length < 2000)
+      live.child.blocks.push({ ...block, content: block.content.slice(0, 65536) });
+    else {
+      live.child.blocks.shift();
+      live.child.blocks.push({ ...block, content: block.content.slice(0, 65536) });
+      live.child.outputTruncated = true;
+    }
+    while (Buffer.byteLength(JSON.stringify(live.child)) > 256 * 1024 && live.child.blocks.length) {
+      live.child.outputTruncated = true;
+      if (live.child.blocks.length > 1) live.child.blocks.shift();
+      else
+        live.child.blocks[0].content = live.child.blocks[0].content.slice(
+          Math.ceil(live.child.blocks[0].content.length / 2),
+        );
+    }
+  }
+  private apply(live: LiveChild, method: string, params: ObjectValue): void {
+    const child = live.child;
+    const turn = object(params.turn);
+    if (method === 'turn/started' && typeof turn.id === 'string') {
+      if (live.terminal.has(turn.id)) return;
+      if (child.turnId !== turn.id) {
+        live.turnAbort.abort();
+        live.turnAbort = new AbortController();
+        live.files.clear();
+        live.fileRevisions.clear();
+      }
+      child.turnId = turn.id;
+      child.state = 'working';
+      this.publish(live);
+      return;
+    }
+    if (method === 'turn/completed' && turn.id === child.turnId && typeof turn.id === 'string') {
+      live.terminal.add(turn.id);
+      live.turnAbort.abort();
+      child.state =
+        turn.status === 'completed'
+          ? 'completed'
+          : turn.status === 'interrupted'
+            ? 'stopped'
+            : 'failed';
+      for (const block of child.blocks) if (block.status === 'running') block.status = 'unknown';
+      this.publish(live);
+      return;
+    }
+    if (
+      !child.turnId ||
+      params.turnId !== child.turnId ||
+      live.terminal.has(child.turnId) ||
+      !['working', 'needs_permission', 'stopping'].includes(child.state)
+    )
+      return;
+    if (
+      method === 'item/agentMessage/delta' &&
+      typeof params.itemId === 'string' &&
+      typeof params.delta === 'string'
+    ) {
+      this.block(live, { id: params.itemId, type: 'text', content: params.delta }, true);
+      this.publish(live);
+      return;
+    }
+    const item = object(params.item);
+    if ((method === 'item/started' || method === 'item/completed') && typeof item.id === 'string') {
+      if (item.type === 'agentMessage' && typeof item.text === 'string')
+        this.block(live, { id: item.id, type: 'text', content: item.text });
+      else if (
+        ['commandExecution', 'fileChange', 'dynamicToolCall', 'webSearch', 'mcpToolCall'].includes(
+          String(item.type),
+        )
+      ) {
+        const completed = method === 'item/completed';
+        const failed =
+          item.status === 'failed' || item.status === 'declined' || item.success === false;
+        const content =
+          item.type === 'commandExecution'
+            ? `${typeof item.command === 'string' ? item.command : ''}${typeof item.aggregatedOutput === 'string' ? '\n' + item.aggregatedOutput : ''}`
+            : item.type === 'fileChange'
+              ? 'File changes'
+              : typeof item.tool === 'string'
+                ? item.tool
+                : String(item.type);
+        this.block(live, {
+          id: item.id,
+          type: 'tool',
+          name: String(item.type),
+          content,
+          status: completed ? (failed ? 'failed' : 'completed') : 'running',
+        });
+        if (item.type === 'fileChange' && method === 'item/started') {
+          const changes = z.array(CodexNativeFileChange).safeParse(item.changes);
+          live.files.set(
+            item.id,
+            changes.success
+              ? changes.data.flatMap((change) => [
+                  change.path,
+                  ...(change.kind.type === 'update' && change.kind.move_path
+                    ? [change.kind.move_path]
+                    : []),
+                ])
+              : null,
+          );
+          live.fileRevisions.set(
+            item.id,
+            createHash('sha256').update(JSON.stringify(item.changes)).digest('hex'),
+          );
+        }
+      } else return;
+      this.publish(live);
+      return;
+    }
+    if (method === 'thread/tokenUsage/updated') {
+      const usage = z
+        .object({
+          inputTokens: z.number().int().nonnegative(),
+          outputTokens: z.number().int().nonnegative(),
+        })
+        .safeParse(object(params.tokenUsage).total);
+      if (usage.success) {
+        child.usage = usage.data;
+        this.publish(live);
+      }
+    }
+  }
+  async request(
+    method: string,
+    params: ObjectValue,
+    signal: AbortSignal,
+    context?: CodexServerRequestContext,
+  ): Promise<ObjectValue> {
+    if (typeof params.threadId === 'string') await this.pending.get(params.threadId);
+    const live = this.live.get(String(params.threadId));
+    if (!live || typeof params.turnId !== 'string') throw Error('Unadmitted child request');
+    const turnId = params.turnId;
+    const currentSignal = AbortSignal.any([signal, live.abort.signal, live.turnAbort.signal]);
+    const fileId = method === 'item/fileChange/requestApproval' ? String(params.itemId) : undefined;
+    const fileRevision = fileId ? live.fileRevisions.get(fileId) : undefined;
+    const current = () => {
+      currentSignal.throwIfAborted();
+      this.current(live, turnId);
+      if (fileId && (!fileRevision || live.fileRevisions.get(fileId) !== fileRevision))
+        throw Error('Child file proposal changed during approval');
+    };
+    current();
+    context?.registerResponseFence?.(current);
+    if (method === 'item/tool/requestUserInput') {
+      if (!this.opts.requestUserInput) throw Error('Child questions unavailable');
+      const response = await this.opts.requestUserInput(params, currentSignal);
+      current();
+      return response;
+    }
+    if (
+      [
+        'item/commandExecution/requestApproval',
+        'item/fileChange/requestApproval',
+        'item/permissions/requestApproval',
+      ].includes(method)
+    ) {
+      if (!this.opts.requestNativeApproval || !context) throw Error('Child approvals unavailable');
+      const paths =
+        method === 'item/fileChange/requestApproval'
+          ? live.files.get(String(params.itemId))
+          : undefined;
+      if (method === 'item/fileChange/requestApproval' && !paths)
+        throw Error('Child file approval is not attributable');
+      live.child.state = 'needs_permission';
+      this.publish(live);
+      try {
+        const response = await this.opts.requestNativeApproval(method, params, currentSignal, {
+          ...context,
+          commandId: live.child.commandId,
+          threadId: live.child.threadId,
+          turnId,
+          subagentName: live.child.name,
+          assertCurrentSync: current,
+          ...(paths ? { fileChangePaths: paths } : {}),
+        });
+        current();
+        return response;
+      } finally {
+        if (!currentSignal.aborted) {
+          live.child.state = 'working';
+          this.publish(live);
+        }
+      }
+    }
+    if (method !== 'item/tool/call') throw Error('Unsupported child host request');
+    const call = ToolCall.parse(params);
+    if (!this.opts.tools.some((tool) => tool.name === call.tool))
+      throw Error('Child tool unavailable');
+    // Workspace/environment changes belong to the parent admission owner.
+    if (['PrepareLocalRepository', 'RequestGithubPublish'].includes(call.tool))
+      return {
+        success: false,
+        contentItems: [
+          {
+            type: 'inputText',
+            text: 'Ask the parent agent to perform this conversation-level operation.',
+          },
+        ],
+      };
+    const identity = {
+      threadId: call.threadId,
+      turnId,
+      callId: call.callId,
+      tool: call.tool,
+      requestHash: createHash('sha256').update(JSON.stringify(call.arguments)).digest('hex'),
+    };
+    const claimed = this.opts.store.claimTool(this.opts.scope, identity);
+    if (!claimed) {
+      const previous = this.opts.store.toolResult(this.opts.scope, identity);
+      return previous
+        ? { success: !previous.isError, contentItems: codexToolResultContentItems(previous) }
+        : {
+            success: false,
+            contentItems: [
+              {
+                type: 'inputText',
+                text: 'Previously attempted child tool. Its outcome is unknown; inspect current state before retrying.',
+              },
+            ],
+          };
+    }
+    this.block(live, {
+      id: call.callId,
+      type: 'tool',
+      name: call.tool,
+      content: JSON.stringify(call.arguments).slice(0, 65536),
+      status: 'running',
+    });
+    this.publish(live);
+    let callbackOpen = true;
+    const original = () => {
+      current();
+      if (!callbackOpen) throw Error('Child callback expired');
+    };
+    const invocation: Parameters<Options['executeTool']>[3] = { turnId, callId: call.callId };
+    Object.defineProperty(invocation, 'assertCurrentSync', { value: original });
+    if (context?.registerResponseFence)
+      Object.defineProperty(invocation, 'registerResponseFence', {
+        value: (fence: () => void) => {
+          original();
+          context.registerResponseFence!(fence);
+        },
+      });
+    let result;
+    try {
+      result = normalizeCodexToolResult(
+        await this.opts.executeTool(
+          call.tool,
+          call.arguments,
+          currentSignal,
+          Object.freeze(invocation),
+        ),
+      );
+    } catch {
+      result = {
+        content:
+          'Child tool did not finish successfully. Inspect its state before retrying; its effects may be unknown.',
+        isError: true,
+      };
+    } finally {
+      callbackOpen = false;
+    }
+    this.opts.store.finishTool(this.opts.scope, identity, result);
+    this.block(live, {
+      id: call.callId,
+      type: 'tool',
+      name: call.tool,
+      content: result.content.slice(0, 65536),
+      status: result.isError ? 'failed' : 'completed',
+    });
+    this.publish(live);
+    return { success: !result.isError, contentItems: codexToolResultContentItems(result) };
+  }
+  async control(
+    raw: NativeSubagentControl,
+    authorize: () => void = () => {},
+  ): Promise<NativeSubagentControlStatus> {
+    const input = NativeSubagentControlSchema.parse(raw);
+    authorize();
+    const live = this.live.get(input.threadId);
+    if (!live || this.closed) return 'rejected';
+    try {
+      this.current(live);
+    } catch {
+      return 'rejected';
+    }
+    const previous = this.opts.store.claimControl(this.opts.scope, input);
+    if (previous) return previous;
+    let attempted = false;
+    let status: NativeSubagentControlStatus = 'rejected';
+    try {
+      authorize();
+      this.current(live);
+      const active =
+        ['working', 'needs_permission'].includes(live.child.state) && !!live.child.turnId;
+      if (input.action === 'stop') {
+        if (!active) throw Error('Child is not working');
+        live.child.state = 'stopping';
+        this.publish(live);
+        attempted = true;
+        await this.opts.request('turn/interrupt', {
+          threadId: input.threadId,
+          turnId: live.child.turnId,
+        });
+        status = 'accepted';
+      } else if (active) {
+        const target = live.child.turnId;
+        attempted = true;
+        const response = object(
+          await this.opts.request('turn/steer', {
+            threadId: input.threadId,
+            expectedTurnId: target,
+            input: [{ type: 'text', text: input.text }],
+          }),
+        );
+        if (response.turnId === target) status = 'accepted';
+        else status = 'uncertain';
+      } else {
+        if (!['completed', 'stopped'].includes(live.child.state)) throw Error('Child unavailable');
+        live.child.state = 'starting';
+        this.publish(live);
+        attempted = true;
+        const response = object(
+          await this.opts.request('turn/start', {
+            threadId: input.threadId,
+            clientUserMessageId: input.requestId,
+            model: live.child.model,
+            input: [{ type: 'text', text: input.text }],
+            ...codexNativeExecutionParams(live.policy),
+          }),
+        );
+        const turn = object(response.turn);
+        if (typeof turn.id === 'string') {
+          this.apply(live, 'turn/started', { turn });
+          status = 'accepted';
+        } else status = 'uncertain';
+      }
+      authorize();
+      this.current(live);
+      if (status === 'accepted' && input.action === 'message') {
+        this.block(live, { id: input.requestId, type: 'user', content: input.text });
+        this.publish(live);
+      }
+    } catch (error) {
+      status = attempted && !(error instanceof CodexRequestError) ? 'uncertain' : 'rejected';
+    }
+    this.opts.store.finishControl(this.opts.scope, input, status);
+    return status;
+  }
+  async interruptAll(): Promise<void> {
+    await this.settled();
+    await Promise.all(
+      [...this.live.values()]
+        .filter((live) => ['working', 'needs_permission'].includes(live.child.state))
+        .map((live) =>
+          this.control({ requestId: randomUUID(), threadId: live.child.threadId, action: 'stop' }),
+        ),
+    );
+  }
+  private invalidate(live: LiveChild): void {
+    live.abort.abort();
+    this.live.delete(live.child.threadId);
+    if (['starting', 'working', 'needs_permission', 'stopping'].includes(live.child.state)) {
+      live.child.state = 'unknown';
+      this.publish(live);
+    }
+  }
+  close(): void {
+    if (this.closed) return;
+    this.closed = true;
+    for (const live of [...this.live.values()]) this.invalidate(live);
+  }
+}

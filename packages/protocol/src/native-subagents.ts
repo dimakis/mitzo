@@ -19,6 +19,7 @@ export const NativeSubagentBlockSchema = z.strictObject({
   status: z.enum(['running', 'completed', 'failed', 'unknown']).optional(),
 });
 export const NativeSubagentSnapshotSchema = z.strictObject({
+  commandId: identity,
   threadId: identity,
   parentThreadId: identity,
   name: z.string().max(200),
@@ -27,6 +28,8 @@ export const NativeSubagentSnapshotSchema = z.strictObject({
   state: NativeSubagentStateSchema,
   turnId: identity.optional(),
   revision: z.number().int().positive(),
+  available: z.boolean().optional(),
+  outputTruncated: z.boolean().optional(),
   blocks: z.array(NativeSubagentBlockSchema).max(2000),
   usage: z
     .strictObject({
@@ -49,6 +52,11 @@ export const NativeSubagentControlSchema = z.discriminatedUnion('action', [
   z.strictObject({ requestId: identity, threadId: identity, action: z.literal('stop') }),
 ]);
 export type NativeSubagentSnapshot = z.infer<typeof NativeSubagentSnapshotSchema>;
+export const NativeSubagentStreamEventSchema = z.discriminatedUnion('type', [
+  z.strictObject({ type: z.literal('reset'), available: z.boolean() }),
+  z.strictObject({ type: z.literal('status'), available: z.boolean() }),
+  z.strictObject({ type: z.literal('agent'), agent: NativeSubagentSnapshotSchema }),
+]);
 export type NativeSubagentBlock = z.infer<typeof NativeSubagentBlockSchema>;
 export type NativeSubagentControl = z.infer<typeof NativeSubagentControlSchema>;
 export type NativeSubagentControlStatus = 'accepted' | 'rejected' | 'uncertain';
