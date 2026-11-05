@@ -524,12 +524,23 @@ export class SessionMetadataStore {
         ).seq,
       page: (after, through) =>
         this.db!.prepare(
-          `SELECT seq,session_id,type,payload,created_at
+          `SELECT seq,session_id,type,
+          CASE WHEN type IN ('user_message','block_delta') THEN payload ELSE '{}' END AS payload,created_at
         FROM events WHERE seq>? AND seq<=? ORDER BY seq LIMIT 128`,
         ).all(after, through) as SearchEvent[],
       sessions,
     });
-    const hits = await this.searchIndex.search(query, Math.min(50, Math.max(1, limit)), signal);
+    const index = this.searchIndex;
+    let hits: Awaited<ReturnType<SessionSearchIndex['search']>>;
+    try {
+      hits = await index.search(query, Math.min(50, Math.max(1, limit)), signal);
+    } catch (error) {
+      if (!signal?.aborted && this.searchIndex === index) {
+        index.close();
+        this.searchIndex = undefined;
+      }
+      throw error;
+    }
     // Visibility may change during a worker await. Revalidate before delivery.
     const visible = new Map(sessions().map((row) => [row.session_id, row]));
     return hits

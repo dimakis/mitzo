@@ -3480,6 +3480,7 @@ app.get(
 app.get(
   '/api/sessions/:id/messages',
   createSessionMessagesHandler({
+    getRevision: (sessionId) => eventStore.getLatestEvent(sessionId)?.seq ?? 0,
     getDurableSessionTranscript: (sessionId) => eventStore.getDurableSessionTranscript(sessionId),
     getMessages: (sessionId) => getMessages(sessionId),
     getSessionTranscript: (sessionId) => getSessionTranscript(sessionId),

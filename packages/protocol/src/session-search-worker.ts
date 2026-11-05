@@ -6,6 +6,8 @@ import type { SearchEvent, SearchSession } from './session-search-index.js';
 // index is disk-backed so history size cannot become server heap consumption.
 const db = new Database(workerData.database);
 db.exec(`
+  PRAGMA journal_mode=OFF;
+  PRAGMA synchronous=OFF;
   PRAGMA cache_size=-4096;
   PRAGMA temp_store=FILE;
   CREATE VIRTUAL TABLE documents USING fts5(text, delta, session_id UNINDEXED,

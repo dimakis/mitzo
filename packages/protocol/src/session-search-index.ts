@@ -123,9 +123,15 @@ export class SessionSearchIndex {
     this.pending.clear();
     const directory = this.directory;
     // Remove only this newly-created disposable cache after its worker stops.
-    void this.worker?.terminate().finally(() => {
-      if (directory) rmSync(directory, { recursive: true, force: true });
-    });
+    const cleanup = () => {
+      try {
+        if (directory) rmSync(directory, { recursive: true, force: true });
+      } catch {
+        /* A disposable private cache never warrants unhandled rejection. */
+      }
+    };
+    if (this.worker) void this.worker.terminate().then(cleanup, cleanup);
+    else cleanup();
     this.worker = undefined;
   }
 }
