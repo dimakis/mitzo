@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.868-session-history-messages';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.869-session-history-messages';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -23,9 +23,9 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../session-history-reader.ts':
-    'ed0e28794d4bb4fcd02dc6ff15b05d9fcf024b6694a1f44d00ced1ee31ca9bbb',
+    '8f59014e61f7aadd4fe65a289a70468e7a2fe75b49f8752e51c13c25ec0e09b5',
   '../__tests__/session-history-retrieval.test.ts':
-    'db255a593fed26c21f41c05bfe1750ee11155fe12ea7346d8f978508c9ce8469',
+    '0b63f327b6ab591b630b3d85d8fcb0edac8799750d624eb8ce07241b9eaa1ba9',
   '../__tests__/fixtures/legacy-session-history.ts':
     '64f3997f7991fe6f72db7a99617caf3c3a2a0e1eb6b2bd8bdaeca66ad19e0259',
   '../__tests__/session-history-tools.test.ts':
@@ -1704,7 +1704,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/protocol/src/session-lifecycle-store.ts':
     '2a219b360a5fbe72b0a550c714bf76a15c6f5969cbbe4251671050257b98e267',
   '../../packages/protocol/src/conversation-replay-store.ts':
-    '77a81e4f6bb5941de7e0f7c8891c00f878b566d2f25c00ac62787f32edb0658b',
+    '9ead2737531d5eac04fdea53ca407596060aee41109167c906d544de038006bc',
   '../../packages/protocol/src/execution-ledger.ts':
     'f30d210be1d37f4c61ff47edb1fb3c8dea1dc6fd8d3ea02b6e01310e8d44ffc4',
   '../../packages/protocol/src/session-runtime-binding.ts':

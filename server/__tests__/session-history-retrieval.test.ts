@@ -328,6 +328,80 @@ describe('message-oriented session retrieval', () => {
     expect(continuation.sessions[0].snippet).toContain('release decision');
   });
 
+  it.each([
+    {
+      example: 'paragraph separator',
+      query: 'release\n\ndecision',
+      prefix: 'release',
+      suffix: 'decision',
+      blockId: 'another',
+    },
+    { example: 'expanded query', query: 'İx', prefix: 'i\u0307', suffix: 'x', blockId: 'text' },
+    {
+      example: '256-character expanded query',
+      query: 'İ'.repeat(255) + 'x',
+      prefix: 'i\u0307'.repeat(255),
+      suffix: 'x',
+      blockId: 'text',
+    },
+  ])(
+    'preserves assembled matching across a scan boundary ($example)',
+    async ({ query, prefix, suffix, blockId }) => {
+      const f = fixture();
+      for (let i = 0; i < 8191; i++) f.store.append('past', 'tool_result', { content: 'excluded' });
+      const boundary = f.delta(prefix);
+      f.store.append('past', 'block_delta', {
+        blockType: 'text',
+        messageId: 'answer',
+        blockId,
+        delta: suffix,
+      });
+      const first = await f.read({ query });
+      expect(first.entries).toEqual([]);
+      expect(first.nextAfterSeq).toBe(boundary);
+      const next = await f.read({ query, afterSeq: boundary, throughSeq: first.throughSeq });
+      expect(next.entries).toHaveLength(1);
+      expect(next.entries[0].text).toContain(suffix);
+      expect(next.nextAfterSeq).toBeNull();
+      const g = fixture();
+      g.delta(prefix);
+      g.store.append('past', 'block_delta', {
+        blockType: 'text',
+        messageId: 'answer',
+        blockId,
+        delta: suffix,
+      });
+      // Fill precisely the rest of the recent raw-event window, leaving its
+      // first fragment in the look-behind rather than in the main page.
+      const contextBudget = Math.min(512, query.toLowerCase().length);
+      for (let i = 0; i < 8192 - contextBudget - 1; i++)
+        g.store.append('past', 'tool_result', { content: 'excluded' });
+      const recent = await g.read({ query, recent: true });
+      expect(recent.entries).toHaveLength(1);
+      const search = await f.search({ query });
+      expect(search.sessions).toEqual([]);
+      const continuation = await f.search({ query, cursor: search.nextCursor });
+      expect(continuation.sessions[0]).toMatchObject({
+        conversationId: 'past',
+        matchedSeq: boundary,
+      });
+      expect(continuation.sessions[0].snippet.toLowerCase()).toContain(
+        query.toLowerCase().slice(0, 8),
+      );
+      expect(continuation.nextCursor).toBeNull();
+    },
+  );
+
+  it('anchors a continuation near its contributing tail rather than the full look-behind window', async () => {
+    const f = fixture();
+    for (let i = 0; i < 30; i++) f.delta('unrelated '.repeat(200));
+    const boundary = f.delta('x'.repeat(2000) + 'release ');
+    f.delta('decision');
+    const page = await f.read({ query: 'release decision', afterSeq: boundary });
+    expect(page.entries[0]).toMatchObject({ seq: boundary });
+    expect(page.entries[0].text).toContain('release decision');
+  });
+
   it('uses original Unicode offsets for excerpts in both history tools', async () => {
     const f = fixture();
     f.user('İ'.repeat(300) + 'needle' + 'z'.repeat(300));

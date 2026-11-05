@@ -185,7 +185,7 @@ export class ConversationReplayStore<Row> {
       messageId.length > 512 ||
       !Number.isSafeInteger(limit) ||
       limit < 1 ||
-      limit > 256
+      limit > 512
     )
       throw Error('Invalid history context bounds');
     const rows = this.db!.prepare(

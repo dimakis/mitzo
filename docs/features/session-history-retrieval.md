@@ -54,14 +54,18 @@ retrieval. A title match does not require opening an unsupported transcript.
    normal matching. A bounded lookup through the existing delta-capable message-ID index
    supplies query overlap across scan boundaries, retaining the
    overlap from the starting block even when a continuation includes another
-   block. Unicode case mappings retain original-string offsets for excerpts.
+   block, preserving paragraph separators between different text blocks.
+   Unicode case mappings retain original-string offsets for excerpts and use
+   the folded query length for overlap, including length-expanding queries.
    The same projection serves
    forward, reverse and overlap reads; reasoning/tool/configuration fields never
    leave SQLite through that projection. Unknown formats fail closed.
 4. **Resource and concurrency effects.** A tool call consumes at most 8,192
    transcript events in total, including query overlap, plus one continuation
    probe per database page; each database page returns
-   at most 128 KiB of text plus bounded metadata. Search shares its event budget
+   at most 128 KiB of text plus bounded metadata in its main event page. Indexed
+   query look-behind reserves at most 512 of the same event budget, with each
+   source tail clipped to 2 KiB (at most 1 MiB before assembly). Search shares its event budget
    across conversations and exposes an intra-conversation cursor. Large excluded
    payloads do not multiply JavaScript memory. Authority is refreshed at admission
    and delivery, and target identity remains checked at each highwater read.

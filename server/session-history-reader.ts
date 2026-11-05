@@ -55,9 +55,10 @@ export function readHistoryMessages(options: {
   if (!Number.isSafeInteger(scanLimit) || scanLimit < 1 || scanLimit > HISTORY_SCAN_LIMIT)
     throw Error('Invalid history scan bound');
   const beforeSeq = options.beforeSeq;
+  const overlapLength = query ? query.toLowerCase().length - 1 : 0;
   const contextLimit =
-    query && query.length > 1 && (recent || afterSeq > 0)
-      ? Math.min(256, query.length, scanLimit - 1)
+    overlapLength > 0 && (recent || afterSeq > 0)
+      ? Math.min(512, overlapLength + 1, scanLimit - 1)
       : 0;
   if (!store.getHistoryEventPage) throw Error('Bounded history projection unavailable');
   const { events: rows, hasMore: more } = store.getHistoryEventPage(
@@ -163,20 +164,26 @@ export function readHistoryMessages(options: {
     contextEvents = context.length;
     if (context.some(isUnsupportedHistoryEvent))
       throw new UnsupportedHistoryError(page.length + contextEvents);
-    const parts: string[] = [];
+    let oldestBlockId: unknown;
     for (const row of [...context].reverse()) {
-      if (row.payload.blockId !== first.firstBlockId) break;
-      if (typeof row.payload.delta === 'string') parts.unshift(row.payload.delta);
+      if (typeof row.payload.delta !== 'string') continue;
+      if (prefix) {
+        const separator = oldestBlockId !== row.payload.blockId ? '\n\n' : '';
+        prefix.text = row.payload.delta + separator + prefix.text;
+        prefix.seq = row.seq;
+      } else {
+        prefix = {
+          text: row.payload.delta,
+          messageId: first.messageId,
+          blockId: row.payload.blockId,
+          seq: row.seq,
+        };
+      }
+      oldestBlockId = row.payload.blockId;
+      // Keep the anchor near the contributing tail, rather than making a
+      // matching read revisit hundreds of unrelated earlier fragments.
+      if (prefix.text.length >= overlapLength) break;
     }
-    const text = parts.join('');
-    const last = context[context.length - 1];
-    if (last && last.payload.blockId === first.firstBlockId)
-      prefix = {
-        text,
-        messageId: first.messageId,
-        blockId: first.firstBlockId,
-        seq: context[0].seq,
-      };
   }
   let consumed = afterSeq;
   let consumedBefore = beforeSeq;
@@ -184,15 +191,15 @@ export function readHistoryMessages(options: {
   let blockedEvent: MessagePage['blockedEvent'];
   let bytes = 0;
   // Project and match in chronological order, so an overlap is always from
-  // the same preceding message/block, even when delivery is newest-first.
+  // the same preceding message, retaining paragraph separators between blocks,
+  // even when delivery is newest-first.
   const projected = groups.map((group) => {
     const overlap =
-      query &&
-      query.length > 1 &&
-      prefix?.messageId &&
-      prefix.messageId === group.messageId &&
-      prefix.blockId === group.firstBlockId
-        ? prefix.text.slice(-(query.length - 1))
+      query && overlapLength > 0 && prefix?.messageId && prefix.messageId === group.messageId
+        ? querySuffix(
+            prefix.text + (prefix.blockId !== group.firstBlockId ? '\n\n' : ''),
+            overlapLength,
+          )
         : '';
     const text = project(overlap + group.text);
     if (typeof text !== 'string') throw Error('Invalid public history text');
@@ -272,6 +279,16 @@ function originalMatchRange(text: string, query: string) {
     foldedOffset = nextFolded;
   }
   throw Error('Invalid history match range');
+}
+
+/** Folding can expand a source character, so reserve the folded query's
+ * length. Keep the original text and do not cut a surrogate pair in half. */
+function querySuffix(text: string, length: number) {
+  let start = Math.max(0, text.length - length);
+  const unit = text.charCodeAt(start);
+  const previous = text.charCodeAt(start - 1);
+  if (unit >= 0xdc00 && unit <= 0xdfff && previous >= 0xd800 && previous <= 0xdbff) start--;
+  return text.slice(start);
 }
 
 export function isUnsupportedHistoryEvent(event: StoredEvent) {
