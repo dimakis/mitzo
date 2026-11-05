@@ -4,6 +4,7 @@ import { NotificationFilter, NotificationPreferences } from '@mitzo/protocol';
 import type { NotificationCenter } from './notification-center.js';
 import { operatorAuthMiddleware } from './auth.js';
 import { getPendingSessionId, hasPending, resolvePending } from './permissions.js';
+import { reconcileInbox } from './inbox-reconciliation.js';
 const responseBody = z
   .object({
     sessionId: z.string().min(1),
@@ -14,6 +15,7 @@ const responseBody = z
 export function notificationRouter(center: NotificationCenter): Router {
   const router = Router();
   router.use(operatorAuthMiddleware);
+  router.use(reconcileInbox(center));
   router.use((_req, res, next) => {
     res.setHeader('Cache-Control', 'no-store');
     next();
@@ -42,13 +44,13 @@ export function notificationRouter(center: NotificationCenter): Router {
     res.json({ ok: true });
   });
   router.post('/archive-resolved', (_req, res) => {
-    center.feed('needs');
+    center.reconcile();
     const archived = center.store.archiveResolved();
     center.changed();
     res.json({ ok: true, archived });
   });
   router.post('/:id/archive', (req, res) => {
-    center.feed('needs');
+    center.reconcile();
     if (!center.store.get(req.params.id))
       return res.status(404).json({ error: 'Notification not found' });
     if (!center.store.archive(req.params.id))
@@ -64,7 +66,7 @@ export function notificationRouter(center: NotificationCenter): Router {
   });
   router.post('/test', (_req, res) => res.status(202).json({ id: center.test() }));
   router.get('/:id', (req, res) => {
-    center.feed('needs');
+    center.reconcile();
     const item = center.store.get(req.params.id);
     if (!item) return res.status(404).json({ error: 'Notification not found' });
     res.json(item);
@@ -78,7 +80,7 @@ export function notificationRouter(center: NotificationCenter): Router {
   router.post('/:id/respond', (req, res) => {
     const parsed = responseBody.safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ error: 'Invalid response' });
-    center.feed('needs');
+    center.reconcile();
     const item = center.store.get(req.params.id);
     if (
       !item?.permId ||

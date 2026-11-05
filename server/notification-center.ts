@@ -76,6 +76,19 @@ export class NotificationCenter {
   private badgeQueue = Promise.resolve();
   private badgeRetryAt?: number;
   private inboxReconciler?: () => boolean;
+  private asyncInboxReconciler?: () => Promise<boolean>;
+  setAsyncInboxReconciler(reconcile: () => Promise<boolean>): void {
+    this.assertAvailable();
+    this.asyncInboxReconciler = reconcile;
+  }
+  async reconcileAsync(): Promise<void> {
+    this.assertAvailable();
+    const changed = await this.asyncInboxReconciler?.();
+    this.assertAvailable();
+    if (changed) this.changed();
+    // The synchronous route then checks permissions immediately before reading
+    // or responding, without computing a discarded feed or scanning twice.
+  }
   setInboxReconciler(reconcile: () => boolean): void {
     this.assertAvailable();
     this.inboxReconciler = reconcile;
