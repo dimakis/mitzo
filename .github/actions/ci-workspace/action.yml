@@ -1,0 +1,19 @@
+name: Restore compiled CI workspace packages
+description: Restore only this candidate's generated portable packages; never dependencies or native tools.
+inputs:
+  artifact-id:
+    required: true
+    description: Immutable artifact ID emitted by the successful preflight producer.
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      env:
+        CI_WORKSPACE_ARTIFACT_ID: ${{ inputs.artifact-id }}
+      run: '[[ "$CI_WORKSPACE_ARTIFACT_ID" =~ ^[0-9]+$ ]]'
+    - uses: actions/download-artifact@v8
+      with:
+        artifact-ids: ${{ inputs.artifact-id }}
+        path: ${{ runner.temp }}/ci-workspace
+    - shell: bash
+      run: python3 scripts/ci-build-output.py restore workspace "$RUNNER_TEMP/ci-workspace/ci-workspace.zip"

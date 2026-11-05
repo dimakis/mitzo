@@ -32,6 +32,8 @@ export function codexRuntimeDiagnostic(error: Error): string | undefined {
   if (error instanceof CodexTransportError) {
     if (error.diagnostic?.reason === 'host_tool_admission_timeout')
       return 'Mitzo workspace validation timed out before this tool was admitted. Saved work is preserved; inspect conversation recovery before continuing.';
+    if (error.diagnostic?.reason === 'host_response_fence_failed')
+      return 'Mitzo could not verify that a tool reply still belongs to the active session. Saved work is preserved; inspect conversation recovery before continuing.';
     if (error.diagnostic?.reason === 'reply_provenance_failed')
       return 'Mitzo could not verify the reply’s execution identity. Saved work is preserved; reconcile this conversation before continuing.';
     if (error.diagnostic?.reason === 'frame_too_large')

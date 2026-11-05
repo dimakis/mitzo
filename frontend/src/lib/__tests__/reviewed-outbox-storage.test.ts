@@ -239,6 +239,47 @@ const ordinaryBody = {
   payload: { text: 'Original ordinary command' },
 };
 it.each([false, true])(
+  'notifies draft collections only after accepted proof is journalled (failure=%s)',
+  (fail) => {
+    const target = new EventTarget();
+    vi.stubGlobal('window', target);
+    try {
+      const disk = memory();
+      const storage = createReviewedOutboxStorage(disk, 'https://one.test/local/send', 'local');
+      const composerDraft = { storageKey: 'mitzo-draft-chat', revisionToken: 'exact-revision' };
+      const marker = `mitzo-draft-accepted:${encodeURIComponent(composerDraft.storageKey)}`;
+      storage.setItem(
+        'queue',
+        JSON.stringify([
+          {
+            body: ordinaryBody,
+            scope: 1,
+            ordinaryDelivery: { version: 2, phase: 'continue' },
+            uncertain: false,
+            composerDraft,
+            localReceipt: { state: 'consumed', sessionId: ordinaryBody.sessionId },
+          },
+        ]),
+      );
+      const notified = vi.fn(() =>
+        expect(JSON.parse(disk.getItem(marker)!)).toEqual(composerDraft),
+      );
+      target.addEventListener('mitzo-composer-draft-accepted', notified);
+      if (fail) {
+        const write = disk.setItem;
+        vi.spyOn(disk, 'setItem').mockImplementation((key, value) => {
+          if (key === marker) throw Error('Journal quota');
+          write(key, value);
+        });
+        expect(() => storage.setItem('queue', '[]')).toThrow('Journal quota');
+      } else storage.setItem('queue', '[]');
+      expect(notified).toHaveBeenCalledTimes(fail ? 0 : 1);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  },
+);
+it.each([false, true])(
   'journals accepted composer proof before retirement (failure=%s)',
   (fail) => {
     const disk = memory();

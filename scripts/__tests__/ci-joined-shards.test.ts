@@ -123,7 +123,7 @@ it.each(['skipped', 'failed', 'omitted', 'duplicate', 'unsuccessful', 'malformed
     expect(f.run().status).toBe(1);
   },
 );
-it('requires every macOS shard and aggregate without changing the native authorization owner', () => {
+it('requires every macOS shard and runs the canonical journey only in its joined owner', () => {
   const { jobs } = load(readFileSync('.github/workflows/ci.yml', 'utf8')) as {
     jobs: Record<
       string,
@@ -145,6 +145,26 @@ it('requires every macOS shard and aggregate without changing the native authori
   ).toBe(true);
   expect(jobs['joined-validation'].needs).toEqual(['changes', 'ordinary-joined']);
   expect(jobs.ci.needs).toContain('joined-validation');
+  expect(jobs.ci.needs).toContain('ordinary-journey');
+  const canonicalFile = 'server/__tests__/telos-ordinary-canonical-journey.test.ts';
+  expect(
+    joinedCases.flatMap((entry) => entry.files).filter((file) => file === canonicalFile),
+  ).toEqual([canonicalFile]);
+  // The final gate requires both owners. The joined reporter already proves the
+  // exact canonical file; a second native-job execution adds no distinct boundary.
+  expect(jobs['ordinary-journey'].steps.some((step) => step.run?.includes(canonicalFile))).toBe(
+    false,
+  );
+  expect(
+    jobs['ordinary-journey'].steps.some((step) =>
+      step.run?.includes('telos-ordinary-artifact-platform.test.ts'),
+    ),
+  ).toBe(false);
+  expect(
+    jobs['ordinary-journey'].steps.some(
+      (step) => step.name === 'Prepare isolated canonical CLI and browser dependencies',
+    ),
+  ).toBe(false);
   expect(
     jobs['ordinary-journey'].steps.some(
       (s) => s.name === 'Verify signed native operator lifetime and repository tools',

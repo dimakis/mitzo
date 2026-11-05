@@ -6,8 +6,9 @@ import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import process from 'node:process';
 import { performance } from 'node:perf_hooks';
 
-// This owner transfers only these seven composed cases from Linux unit shards.
-// Native registration's two account workflows retain their separate proof schema.
+// These seven composed cases have dedicated Linux jobs instead of adding their
+// full journeys to unit shards. Their physical reader and provider are synthetic;
+// native registration and macOS sandbox qualification retain separate owners.
 export const preparedConsumerCases = Object.freeze([
   Object.freeze({
     name: 'delivery',
@@ -29,6 +30,15 @@ export const preparedConsumerCases = Object.freeze([
     ]),
   }),
 ]);
+export function parsePreparedConsumerArgs(args, platform = process.platform) {
+  if (
+    !['linux', 'darwin'].includes(platform) ||
+    args.length > 1 ||
+    (args.length === 1 && !preparedConsumerCases.some((selected) => selected.name === args[0]))
+  )
+    throw Error('Select the complete offline prepared consumer owner');
+  return args[0];
+}
 export function requirePreparedConsumerReport(report, selected) {
   const results = report.testResults;
   const assertions = results?.[0]?.assertionResults;
@@ -124,10 +134,9 @@ export async function runPreparedConsumers({ root, group, runner = runBrowserCom
   return summary;
 }
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  if (process.platform !== 'darwin' || process.argv.length > 3)
-    throw Error('Select the complete offline macOS prepared consumer owner');
+  const group = parsePreparedConsumerArgs(process.argv.slice(2));
   await runPreparedConsumers({
     root: fileURLToPath(new URL('..', import.meta.url)),
-    group: process.argv[2],
+    group,
   });
 }

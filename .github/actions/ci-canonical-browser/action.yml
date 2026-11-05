@@ -1,0 +1,30 @@
+name: Prepare isolated canonical CLI and browser
+description: Reuse hashed package downloads while keeping each job's Python environment and browser lifetime isolated.
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-python@v7
+      with:
+        python-version: '3.13'
+        cache: pip
+        cache-dependency-path: tests/integration/telos-s9/integrated-candidate/fixtures/mgmt-read-requirements.txt
+    - shell: bash
+      run: |
+        python -m venv "$RUNNER_TEMP/telos-s9-python"
+        "$RUNNER_TEMP/telos-s9-python/bin/python" -m pip install --require-hashes -r tests/integration/telos-s9/integrated-candidate/fixtures/mgmt-read-requirements.txt
+        echo "S9_MGMT_PYTHON=$RUNNER_TEMP/telos-s9-python/bin/python" >> "$GITHUB_ENV"
+    - name: Prefer HTTPS Ubuntu mirrors for browser dependencies
+      if: runner.os == 'Linux'
+      shell: bash
+      run: |
+        sudo sed -i '\|^http://azure\.archive\.ubuntu\.com/ubuntu/|d' /etc/apt/apt-mirrors.txt
+        grep -Fq 'https://archive.ubuntu.com/ubuntu/' /etc/apt/apt-mirrors.txt
+        grep -Fq 'https://security.ubuntu.com/ubuntu/' /etc/apt/apt-mirrors.txt
+        apt-config dump Acquire::Retries Acquire::http::Timeout Acquire::https::Timeout
+    - shell: bash
+      run: |
+        if [[ "$RUNNER_OS" == Linux ]]; then
+          npx playwright install --with-deps chromium
+        else
+          npx playwright install chromium
+        fi
