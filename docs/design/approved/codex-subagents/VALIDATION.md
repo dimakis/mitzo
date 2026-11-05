@@ -59,3 +59,10 @@ The dispatch fence now checks parent cancellation; rollback uses a separate
 native lifecycle revision and the optimistic state/turn identity. New regressions
 cover both races while retaining terminal-event protection. Successful CI runs
 retain the native-subagents screenshots in the responsiveness visual artifacts.
+
+The real-renderer fixture also exposed a WebKit ResizeObserver delivery loop in
+the shared disclosure animation's synchronous resting-layout measurement. Resize
+delivery now coalesces that measurement into the next animation frame and
+cancels pending work when the animation releases. A focused regression verifies
+deferred measurement, coalescing, retained animation timing and cleanup; the
+existing browser error assertion remains intact for CI verification.
