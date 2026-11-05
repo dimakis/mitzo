@@ -3,6 +3,7 @@ import { SessionTimerSchema, type SessionTimer } from '@mitzo/protocol';
 import { z } from 'zod';
 import { HomeDialog } from './HomeDialog';
 import { apiFetch } from '../lib/api-fetch';
+import { createBrowserId } from '../lib/browser-crypto';
 import '../styles/session-timers.css';
 
 const Sessions = z.array(z.object({ sessionId: z.string(), title: z.string() }));
@@ -129,7 +130,7 @@ export function SessionTimersDialog({
       throw Error(
         'A previous save may have succeeded. Retry the unchanged save, or go back to Timers and check before creating different work.',
       );
-    retry.current ??= { fingerprint, requestId: crypto.randomUUID() };
+    retry.current ??= { fingerprint, requestId: createBrowserId() };
     return retry.current.requestId;
   }
   async function mutate(path: string, input: object) {

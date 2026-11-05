@@ -15,7 +15,7 @@ import '../../frontend/src/styles/appearance.css';
 
 function Chat() {
   return (
-    <main style={{ height: '100dvh', display: 'flex', flexDirection: 'column' }}>
+    <main className="chat-page workspace-chat">
       <header className="workspace-page-heading">
         <Link to="/sessions">Chats</Link>
         <h1>PR worker</h1>

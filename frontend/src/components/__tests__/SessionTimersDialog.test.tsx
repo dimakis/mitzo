@@ -44,6 +44,7 @@ beforeEach(() => {
 afterEach(() => {
   cleanup();
   vi.clearAllMocks();
+  vi.unstubAllGlobals();
 });
 it('creates a timer from the composer draft without sending or modifying that draft', async () => {
   render(
@@ -94,6 +95,26 @@ it('makes agent-created timers inspectable and cancellable through the same cont
             init?.method === 'POST' && JSON.parse(String(init.body)).action === 'cancel',
         ),
     ).toBe(true),
+  );
+});
+it('can save a timer when a supported browser omits secure-context randomUUID', async () => {
+  vi.stubGlobal('crypto', { getRandomValues: (bytes: Uint8Array) => bytes.fill(1) });
+  render(
+    <SessionTimersDialog
+      sessionId="worker"
+      initialPrompt="Check PR #7"
+      initiallyCreating
+      onClose={() => {}}
+    />,
+  );
+  await screen.findByRole('option', { name: 'PR worker' });
+  fireEvent.click(screen.getByRole('button', { name: 'Create timer' }));
+  await waitFor(() =>
+    expect(vi.mocked(apiFetch).mock.calls.some(([, init]) => init?.method === 'POST')).toBe(true),
+  );
+  const [, init] = vi.mocked(apiFetch).mock.calls.find(([, init]) => init?.method === 'POST')!;
+  expect(JSON.parse(String(init?.body)).requestId).toMatch(
+    /^[\da-f]{8}-[\da-f]{4}-4[\da-f]{3}-[89ab][\da-f]{3}-[\da-f]{12}$/,
   );
 });
 it('shows loading and failed reads with a non-mutating retry', async () => {

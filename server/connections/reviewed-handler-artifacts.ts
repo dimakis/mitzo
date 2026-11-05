@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.875-session-prompts';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.876-session-prompts';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -36,11 +36,11 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../docs/features/session-timers.md':
     '2a12ade4fe783fbe149c304d42d2e8bca1bccab066e484624f34b806421d1589',
   '../../frontend/src/components/SessionTimersDialog.tsx':
-    'f286cfb762357b11949c9ff04f829e8415e7301bcbada3ce8ec4524b3ee3a8d9',
+    'c4f71dfc68107ce16c171e9f07db557d3870a1147a48f09bebb4d042b813bccc',
   '../../frontend/src/components/__tests__/ComposerTimerPlacement.test.tsx':
     'f2b0e6b5e80c34d81ba8ddfa54148eb4c84b853e0694257e700ceec6aed7617e',
   '../../frontend/src/components/__tests__/SessionTimersDialog.test.tsx':
-    '24fd8ff04560ba2339f9d1ff2d147936845e8160140c5a2549a23041e41bfed6',
+    'd553893b86f717b7200c795a720b5ed59148c35ecd14c5ded2eeb9801407feae',
   '../../frontend/src/styles/session-timers.css':
     'a98a9a393361601f95fd2a7a89623ea08fc5eb8f2a9b3b13d1d9f8d3070e61d6',
   '../__tests__/session-prompt-dispatch.test.ts':
@@ -58,7 +58,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     '8ab804b640c6f14f7e03d581b54f60fa14d77347833b671fb6cd1c76b42ddd1b',
   '../session-prompt-tools.ts': '6c9aeafad0d1498179933ff8200d25e5c02e08fc134cd5c9c3d12d5f753bd606',
   '../../tests/fixtures/session-timers.tsx':
-    'bf7f7246a38be7b17dbe1b77b062263841c99896eaded65ac1d3d1b0ff77ff76',
+    'a402981a71637d97cbdb786c24011b236c5183ad9f6ffd44363ae188009cb415',
   '../../tests/offline/session-timers.spec.ts':
     '6e1f71ad7a21685a62f488ddaee1ac6f3d3bb06e582ccaf2a5a4d0f7610c8c16',
   '../session-history-reader.ts':
@@ -759,7 +759,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../scripts/qualify-codex-native-permissions.mjs':
     '848148f0e305800ab30aa84899798c0b4034c9fe2f062045d8a5672cfc09ae59',
   '../__tests__/codex-chat-session.test.ts':
-    'af13e392c133a7cddc430ed9b29647830f97a4877fd3e806a48d732696ced0df',
+    'f72f8dd857f11ad67211c88be7644d0e1ed13f6028d408290d358f04915b8c1d',
   '../__tests__/codex-conversation.test.ts':
     'b9981db8e2945b6da525da67ff31d305fe06e44937573b96d3468d97cc171e15',
   '../__tests__/codex-native-approvals.test.ts':
@@ -3098,7 +3098,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../.github/workflows/ci-recovery.yml':
     '5d4e9a6560e549d2879ef776c2b4d321d420c25b22ec3a7741390e5bf617111a',
   '../../.github/workflows/ci.yml':
-    '3e6b8f3b973a7df562f9ce1b13c20e412bdb7e1e1f8c2cfd55bf113c6c8ae561',
+    'd1817ca286c92349e4c4a66f2e83806d8d0651062aea54f3097ac3df21d794c8',
   '../../playwright.config.ts': '6c61752a4a2e9cab19d8217b46080c5898bc79c5a0fde1f2b703a254d278daa0',
   '../../playwright.offline.config.ts':
     'fb694df154a2cb402c7f46b417efb357b6d19a72210d269ad0b1580798392adc',
