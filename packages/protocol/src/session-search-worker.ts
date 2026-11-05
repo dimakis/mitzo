@@ -9,7 +9,9 @@ db.exec(`
   PRAGMA journal_mode=OFF;
   PRAGMA synchronous=OFF;
   PRAGMA cache_size=-4096;
-  PRAGMA temp_store=FILE;
+  -- Temporary query data must not escape the protected index directory into
+  -- SQLite's process-wide OS temporary location. Keep query scratch in memory.
+  PRAGMA temp_store=MEMORY;
   CREATE VIRTUAL TABLE documents USING fts5(text, delta, session_id UNINDEXED,
     matched_at UNINDEXED, seq UNINDEXED, tokenize='trigram');
   CREATE TABLE sessions(session_id TEXT PRIMARY KEY, summary TEXT, updated_at INTEGER);

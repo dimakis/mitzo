@@ -20,9 +20,12 @@ in the worker too. New events are indexed incrementally. Current registered-sess
 visibility is checked again after the worker responds. Cancellation stops further
 page admission; no query silently falls back to synchronous history scanning.
 
-Cold indexing still takes time proportional to retained history. Its SQLite cache
-is bounded and disk-backed. The temporary index has no durability requirement and
-is discarded after the worker stops; the original database remains authoritative.
+Cold indexing still takes time proportional to retained history. The protected
+disk index uses a bounded SQLite page cache; temporary query data stays in memory
+so it cannot escape into a process-wide temporary directory. Broad matches can
+therefore still consume query scratch memory. The temporary index has no durability
+requirement and is discarded after the worker stops; the original database remains
+authoritative.
 
 ## Inbox reads
 

@@ -10,8 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.885-private-search-cache-cursor';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.886-private-search-scratch';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -26,11 +25,11 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/notification-center.test.ts':
     'f35bc0faa222437f0cd8bde87854b9fdded76ed480cff43ee6deb2e5709472a3',
   '../../docs/operations/runtime-performance.md':
-    'd38e7a4edbfe8e5d790b17457f62ae9b543c2337fa9220ec6c19828ca3b842d9',
+    'c68922d119639012ea78eca563da1f850df632606433a3b198523d54c6f1fba0',
   '../../packages/protocol/src/session-search-index.ts':
     '4ab0325618eb320d31c5555f2131d699b19f3ebedc79cac3dbca483052948ade',
   '../../packages/protocol/src/session-search-worker.ts':
-    '69f6b1e047531c7f05578f6d240267bd8f5fc08a871d1f3b89b0cd177bbe8f5f',
+    'f800f343285d5fd29049390467105de040d89d3980fda86fe6b128f43603607d',
   '../__tests__/fixtures/offline-user-home.ts':
     'd808eff1a4052741b0ede15b5701cdae07f36b7ec6cc3ea2da0b79c1e4d8b598',
   '../__tests__/git-config-parser-cache.test.ts':
