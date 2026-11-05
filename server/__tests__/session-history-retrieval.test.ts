@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { EventStore } from '../event-store.js';
 import type Database from 'better-sqlite3';
 import { sessionHistoryTools, type HistoryAccess } from '../session-history-tools.js';
+import { sessionDisplayName } from '../session-naming-context.js';
 
 const stores: EventStore[] = [];
 afterEach(() => stores.splice(0).forEach((store) => store.close()));
@@ -61,6 +62,79 @@ function fixture() {
 }
 
 describe('message-oriented session retrieval', () => {
+  it('bounds session-list title recovery and projects only public naming context', () => {
+    const f = fixture();
+    f.user('Continue');
+    f.store.append('past', 'tool_result', { content: 'PRIVATE'.repeat(100000) });
+    f.store.append('past', 'message_start', { messageId: 'answer' });
+    for (const [blockId, blockType, delta] of [
+      ['thinking', 'thinking', '## PRIVATE reasoning title'],
+      ['text', 'text', '## Fix bounded naming'],
+    ]) {
+      const identity = { messageId: 'answer', blockId, blockType };
+      f.store.append('past', 'block_start', identity);
+      f.store.append('past', 'block_delta', { ...identity, delta });
+      f.store.append('past', 'block_end', identity);
+    }
+    f.store.append('past', 'message_end', { messageId: 'answer' });
+    f.store.append('past', 'user_message', { text: 'Fix PRIVATE closeout', source: 'closeout' });
+    f.store.append('past', 'user_message', { text: 'Fix PRIVATE seat', seatId: 'other' });
+    for (let i = 0; i < 300; i++) f.store.append('past', 'tool_result', { content: 'PRIVATE' });
+    const fullRead = vi.spyOn(f.store, 'getSessionEvents');
+    const events = f.store.getSessionNamingEvents('past');
+    expect(events).toHaveLength(256);
+    expect(Buffer.byteLength(JSON.stringify(events))).toBeLessThan(100000);
+    const title = sessionDisplayName({ sessionId: 'past', summary: 'Continue' }, events);
+    expect(title).toBe('Fix bounded naming');
+    expect(JSON.stringify(events)).not.toContain('PRIVATE reasoning');
+    expect(JSON.stringify(events)).not.toContain('PRIVATEPRIVATE');
+    expect(fullRead).not.toHaveBeenCalled();
+  });
+
+  it.each(['seatId', 'symposiumProvenance'])(
+    'refuses nested %s audiences in history text',
+    async (field) => {
+      const f = fixture();
+      f.store.append('past', 'user_message', { text: 'PRIVATE audience', [field]: 'other' });
+      const result = await f.tools.execute(
+        'ReadPastSession',
+        { conversationId: 'past' },
+        f.abort.signal,
+        { turnId: 'turn', callId: 'audience' },
+      );
+      expect(result?.isError).toBe(true);
+      expect(result?.content).not.toContain('PRIVATE');
+      expect(f.project).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each(['oversized-event', 'aggregate-text'])(
+    'stops naming at the %s text budget without interpreting clipped content',
+    (bound) => {
+      const f = fixture();
+      f.user('Continue');
+      const start = f.store.append('past', 'message_start', { messageId: 'answer' });
+      const identity = { messageId: 'answer', blockId: 'text', blockType: 'text' };
+      f.store.append('past', 'block_start', identity);
+      const first = f.delta(
+        '## Wrong clipped title\n' + 'x'.repeat(bound === 'oversized-event' ? 40000 : 20000),
+      );
+      if (bound === 'aggregate-text') f.delta('x'.repeat(20000));
+      f.store.append('past', 'block_end', identity);
+      f.store.append('past', 'message_end', { messageId: 'answer' });
+      const events = f.store.getSessionNamingEvents('past');
+      expect(events.map((event) => event.seq)).toEqual([
+        1,
+        start,
+        start + 1,
+        ...(bound === 'aggregate-text' ? [first] : []),
+      ]);
+      expect(sessionDisplayName({ sessionId: 'past', summary: 'Continue' }, events)).toBe(
+        'Chat past',
+      );
+    },
+  );
+
   it('crosses 2000 excluded tool events in one call without returning empty continuation pages', async () => {
     const f = fixture();
     for (let i = 0; i < 2000; i++)

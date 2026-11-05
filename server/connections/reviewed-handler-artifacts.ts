@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.867-session-history-messages';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.868-session-history-messages';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -25,7 +25,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../session-history-reader.ts':
     'ed0e28794d4bb4fcd02dc6ff15b05d9fcf024b6694a1f44d00ced1ee31ca9bbb',
   '../__tests__/session-history-retrieval.test.ts':
-    'f2729d2cd709ce40c366d577ad5b42af38060713ea505497abb2126ed2c89ddf',
+    'db255a593fed26c21f41c05bfe1750ee11155fe12ea7346d8f978508c9ce8469',
   '../__tests__/fixtures/legacy-session-history.ts':
     '64f3997f7991fe6f72db7a99617caf3c3a2a0e1eb6b2bd8bdaeca66ad19e0259',
   '../__tests__/session-history-tools.test.ts':
@@ -1513,7 +1513,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     'c103af10de4adc81cdc474b3e69ef2b3de5e447d4dcf15da4fc1894c422b913b',
   '../../packages/protocol/src/session-output-reference-store.ts':
     'de139a8dae52cc0294f50e13fdb96d0666c81e376e282e84c640a0b187dc3014',
-  '../chat.ts': 'ffb44b890107404cc1a2b3b3d69acf1066dd1e040b691d04f1b99b56adf17dbe',
+  '../chat.ts': '0e67b06a60dec3eadf832a19e0ac95f49ccfaac0b1db43b2891f0f45ed07c2d5',
   '../../packages/harness/src/session-registry.ts':
     '25e0ae6a62c005b0b53596834cc193512a7bb09c1b7dd8d72fe8bd4ddf184795',
   '../agent-context-binding.ts': '4917ff83899105b7ac2c537c8db18111eeb97386d1ca0a2d2b576d872e1db360',
@@ -1700,11 +1700,11 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/protocol/src/session-metadata-store.ts':
     '27de6e399040ee80c78416a5023f27d42f6a5ccfbe707ffd58bd09bd2e7b4ef9',
   '../../packages/protocol/src/event-store.ts':
-    '88ca53ff10e274716e83bf0053e7a73d4d39ff5719d5c13d3eefb8c469d66be3',
+    '3976d7e363c5d499c3913de1cd4fd96747225be085063e3d44b743a27b9b4e0f',
   '../../packages/protocol/src/session-lifecycle-store.ts':
     '2a219b360a5fbe72b0a550c714bf76a15c6f5969cbbe4251671050257b98e267',
   '../../packages/protocol/src/conversation-replay-store.ts':
-    'c158f5cb9ce1e50c45218e91b69f26c41862251a787788700bee3be3b4a4bf1a',
+    '77a81e4f6bb5941de7e0f7c8891c00f878b566d2f25c00ac62787f32edb0658b',
   '../../packages/protocol/src/execution-ledger.ts':
     'f30d210be1d37f4c61ff47edb1fb3c8dea1dc6fd8d3ea02b6e01310e8d44ffc4',
   '../../packages/protocol/src/session-runtime-binding.ts':

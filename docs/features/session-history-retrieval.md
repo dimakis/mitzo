@@ -83,6 +83,12 @@ use the existing `idx_events_user_msg_dedup` index and the rowid alias of `seq`
 for delta look-behind despite that index's historical name.
 Backward continuations bind their sequence ceiling directly in the indexed seek,
 so returning an older page does not scan all newer events again.
+Generic session-list titles use the same narrow SQLite projection over at most
+256 initial events and 32 KiB of complete text. They retain message/block,
+seat and closeout boundaries. If that prefix has no usable topic, the list uses
+the stable chat identifier; title recovery never scans the rest of a long chat.
+Useful or manual names still avoid transcript reads, and display repair leaves
+metadata and ordering unchanged.
 Cross-conversation search remains bounded
 and paginated, rather than an exhaustive one-call full-text index. Unknown format
 coverage, metadata cursor invalidation and single-event output overflow are

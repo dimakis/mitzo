@@ -4136,6 +4136,10 @@ export class EventStore {
     return this.conversationReplay.getHistoryMessagePrefix(sessionId, messageId, beforeSeq, limit);
   }
 
+  getSessionNamingEvents(sessionId: string): StoredEvent[] {
+    return this.conversationReplay.getSessionNamingEvents(sessionId);
+  }
+
   /** Predecessor in this session's durable stream; global IDs need not be contiguous. */
   getSessionPredecessorSeq(sessionId: string, seq: number): number {
     return this.conversationReplay.getSessionPredecessorSeq(sessionId, seq);

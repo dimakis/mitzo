@@ -22,14 +22,18 @@ interface HistoryRow {
 // The same audience/type projection serves forward, reverse and query context
 // reads. Never select arbitrary payloads into a history consumer.
 const HISTORY_COLUMNS = `seq, type, created_at,
-  seat_id IS NOT NULL OR symposium_provenance IS NOT NULL AS qualified,
-  CASE WHEN type IN ('user_message','block_delta') AND json_type(payload,'$.messageId')='text'
+  seat_id IS NOT NULL OR symposium_provenance IS NOT NULL
+    OR CASE WHEN type IN ('user_message','block_delta','message_start','message_end','block_start','block_end')
+      THEN json_extract(payload,'$.seatId') IS NOT NULL
+        OR json_extract(payload,'$.symposiumProvenance') IS NOT NULL
+      ELSE 0 END AS qualified,
+  CASE WHEN type IN ('user_message','block_delta','message_start','message_end','block_start','block_end') AND json_type(payload,'$.messageId')='text'
     AND length(CAST(json_extract(payload,'$.messageId') AS BLOB)) <= 512
     THEN json_extract(payload,'$.messageId') END AS message_id,
-  CASE WHEN type='block_delta' AND json_type(payload,'$.blockId') IN ('text','integer')
+  CASE WHEN type IN ('block_delta','block_start','block_end') AND json_type(payload,'$.blockId') IN ('text','integer')
     AND length(CAST(json_extract(payload,'$.blockId') AS BLOB)) <= 256
     THEN json_extract(payload,'$.blockId') END AS block_id,
-  CASE WHEN type='block_delta' AND json_type(payload,'$.blockType')='text'
+  CASE WHEN type IN ('block_delta','block_start','block_end') AND json_type(payload,'$.blockType')='text'
     AND length(CAST(json_extract(payload,'$.blockType') AS BLOB)) <= 32
     THEN json_extract(payload,'$.blockType') END AS block_type,
   CASE
@@ -60,6 +64,7 @@ function historyEvent(sessionId: string, row: HistoryRow): StoredEvent {
       messageId: row.message_id ?? undefined,
       blockId: row.block_id ?? undefined,
       ...(row.type === 'block_delta' ? { blockType: row.block_type, delta: text } : {}),
+      ...(['block_start', 'block_end'].includes(row.type) ? { blockType: row.block_type } : {}),
       ...(row.type === 'user_message' ? { text } : {}),
     },
   };
@@ -195,6 +200,30 @@ export class ConversationReplayStore<Row> {
       limit,
     ) as HistoryRow[];
     return rows.reverse().map((row) => historyEvent(sessionId, row));
+  }
+
+  /** Session-list naming examines only a small chronological prefix. Preserve
+   * message/block and closeout boundaries, never decode arbitrary payloads or
+   * continue scanning a long chat merely to repair a generic display title. */
+  getSessionNamingEvents(sessionId: string): StoredEvent[] {
+    const rows = this.db!.prepare(
+      `SELECT ${HISTORY_COLUMNS},
+        CASE WHEN type='user_message' THEN json_extract(payload,'$.source')='closeout' ELSE 0 END AS closeout
+       FROM events WHERE session_id=? ORDER BY seq LIMIT 256`,
+    ).iterate({ textStart: 1, textLength: 32769 }, sessionId);
+    const events: StoredEvent[] = [];
+    let bytes = 0;
+    for (const value of rows) {
+      const row = value as HistoryRow & { closeout: number | null };
+      bytes += row.text?.length ?? 0;
+      // A clipped event could contain an unfinished code/closeout boundary.
+      // Retain only the complete prefix, then fall back to the stable chat ID.
+      if (row.text_truncated || bytes > 32768) break;
+      const event = historyEvent(sessionId, row);
+      if (row.closeout) event.payload.source = 'closeout';
+      events.push(event);
+    }
+    return events;
   }
 
   /** Predecessor in this session's durable stream; global IDs need not be contiguous. */
