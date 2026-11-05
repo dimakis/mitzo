@@ -39,7 +39,12 @@ import {
 const adopt = z.strictObject({ itemId: z.string().min(1).max(200) });
 /** Suggest only public text already qualified by the source owner. Saving still
  * requires a compiled preview and the operator's explicit approval. */
-function latestExchange(messages: TelosSourcePermissionReview['messages']): string[] {
+function latestExchange(
+  messages: Pick<
+    TelosSourcePermissionReview['messages'][number],
+    'author' | 'messageId' | 'blocks' | 'unavailableReason'
+  >[],
+): string[] {
   const eligible = messages.filter(
     (message) => !message.unavailableReason && message.blocks.some((block) => block.content.trim()),
   );
