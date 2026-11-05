@@ -349,6 +349,7 @@ jobs:
             test-results/offline/**/chat-status-*.png
             test-results/offline/**/chat-queue-*.png
             test-results/offline/**/timer-*.png
+            test-results/offline/**/sandbox-removal-*.png
           retention-days: 7
           if-no-files-found: warn
 
