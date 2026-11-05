@@ -281,6 +281,8 @@ export function sessionHistoryTools(owners: Owners) {
                 });
                 remaining -= result.scannedEvents;
                 searchCoverage.scannedEvents = HISTORY_SCAN_LIMIT - remaining;
+                if (result.blockedEvent)
+                  searchCoverage.blockedSessions = (searchCoverage.blockedSessions ?? 0) + 1;
                 if (result.entries[0]) {
                   const entry = result.entries[0];
                   const position = entry.text
@@ -303,8 +305,6 @@ export function sessionHistoryTools(owners: Owners) {
                     query: request.query,
                   };
                   break;
-                } else if (result.blockedEvent) {
-                  searchCoverage.blockedSessions = (searchCoverage.blockedSessions ?? 0) + 1;
                 }
               } catch (error) {
                 if (!(error instanceof UnsupportedHistoryError)) throw error;

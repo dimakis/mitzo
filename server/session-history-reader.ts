@@ -240,8 +240,7 @@ export function readHistoryMessages(options: {
   for (const { group, entry, matches } of recent ? projected.reverse() : projected) {
     if (incompleteContext && group === groups[0] && !matches) {
       blockedEvent = { seq: group.seq, reason: 'query_overlap_exceeds_scan_bound' };
-      stopped = true;
-      break;
+      continue;
     }
     const size = Buffer.byteLength(JSON.stringify(entry)) + 1;
     if (

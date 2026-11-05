@@ -461,6 +461,45 @@ describe('message-oriented session retrieval', () => {
     },
   );
 
+  it('keeps later message matches when earlier query overlap is incomplete', async () => {
+    const f = fixture();
+    const boundary = f.delta('release ');
+    for (let i = 0; i < 20; i++)
+      f.store.append('past', 'block_delta', {
+        messageId: 'answer',
+        blockId: 'reasoning',
+        blockType: 'thinking',
+        delta: 'PRIVATE reasoning',
+      });
+    const suffix = f.delta('decision');
+    const match = f.user('Later complete release decision');
+    const page = await f.read({ query: 'release decision', afterSeq: boundary });
+    expect(page.entries).toEqual([
+      { seq: match, kind: 'user', text: 'Later complete release decision' },
+    ]);
+    expect(page.blockedEvent).toEqual({
+      seq: suffix,
+      reason: 'query_overlap_exceeds_scan_bound',
+    });
+    expect(JSON.stringify(page)).not.toContain('PRIVATE');
+    const search = await f.search({
+      cursor: {
+        offset: 0,
+        conversationId: 'past',
+        afterSeq: boundary,
+        throughSeq: match,
+        query: 'release decision',
+      },
+    });
+    expect(search.sessions[0]).toMatchObject({
+      conversationId: 'past',
+      matchedSeq: match,
+      snippet: 'Later complete release decision',
+    });
+    expect(search.searchCoverage.blockedSessions).toBe(1);
+    expect(search.searchCoverage.scannedEvents).toBeLessThanOrEqual(8192);
+  });
+
   it('uses original Unicode offsets for excerpts in both history tools', async () => {
     const f = fixture();
     f.user('İ'.repeat(300) + 'needle' + 'z'.repeat(300));
