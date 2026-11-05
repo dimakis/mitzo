@@ -538,11 +538,11 @@
             },
             {
               "path": "tests/offline/native-subagents.spec.ts",
-              "sha256": "b1b7bd15b24af8d983e71aa9cdaa669289f2f9906e405b624e3a122e6b79583d"
+              "sha256": "3a352aabe64e1c00f080d8b67ae74a6d00658a9cf08e324d6fde950920d89bd9"
             },
             {
               "path": "frontend/src/components/__tests__/NativeSubagentsChatArea.test.tsx",
-              "sha256": "e5a9d434cf41b1ad0641560c1d02c54ee08dea7b1464b9279d1709d7de3f6fbd"
+              "sha256": "251b6f7c834cfc5088e347b83e55343c99ba33c4f077017ae4f8aaa54a29b84d"
             }
           ],
           "implementationEvidence": [],

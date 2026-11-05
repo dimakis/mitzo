@@ -41,6 +41,7 @@ afterEach(() => {
 });
 
 it('retains the child dialog, draft and original uncertain request when real parent activity collapses', async () => {
+  const scrollRef = { current: null as HTMLDivElement | null };
   const message: FinishedMessage = {
     messageId: 'parent',
     role: 'assistant',
@@ -65,6 +66,7 @@ it('retains the child dialog, draft and original uncertain request when real par
   const view = (replied: boolean) => (
     <MemoryRouter>
       <ChatArea
+        scrollRef={scrollRef}
         sessionId="chat"
         current={null}
         running={!replied}
@@ -85,6 +87,7 @@ it('retains the child dialog, draft and original uncertain request when real par
     </MemoryRouter>
   );
   const { rerender } = render(view(false));
+  scrollRef.current!.scrollTo = vi.fn();
   fireEvent.click(screen.getByRole('button', { name: /1 subagent/ }));
   fireEvent.click(screen.getByRole('button', { name: /Reviewer.*Working/ }));
   const dialog = screen.getByRole('dialog', { name: 'Reviewer' });

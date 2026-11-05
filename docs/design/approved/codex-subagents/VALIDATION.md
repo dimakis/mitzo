@@ -52,3 +52,10 @@ regression also preserves the uncertain request identity. The late attributed
 task-prompt follow-up is fixed in the same batch.
 
 Final CI and Centaur verification must cover these corrections before merge.
+
+The follow-up review verified seven prior blockers and identified cancellation
+during control preparation and output-only changes preventing rejection rollback.
+The dispatch fence now checks parent cancellation; rollback uses a separate
+native lifecycle revision and the optimistic state/turn identity. New regressions
+cover both races while retaining terminal-event protection. Successful CI runs
+retain the native-subagents screenshots in the responsiveness visual artifacts.

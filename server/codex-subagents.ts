@@ -99,6 +99,7 @@ interface LiveChild {
   terminal: Set<string>;
   files: Map<string, readonly string[] | null>;
   fileRevisions: Map<string, string>;
+  lifecycleRevision: number;
 }
 
 /** One native process/account/tree, with independent child turns. This owner has
@@ -113,6 +114,10 @@ export class CodexSubagents {
   private listeners = new Set<(child: NativeSubagentSnapshot) => void>();
   private closed = false;
   constructor(private readonly opts: Options) {}
+  private snapshot(child: RetainedSubagent): NativeSubagentSnapshot {
+    const live = this.live.has(child.threadId);
+    return { ...subagentSnapshot(child, live), available: live && !this.parentStopping };
+  }
   subscribe(listener: (child: NativeSubagentSnapshot) => void): () => void {
     this.listeners.add(listener);
     return () => this.listeners.delete(listener);
@@ -125,9 +130,7 @@ export class CodexSubagents {
         this.invalidate(live);
       }
     }
-    return this.opts.store
-      .list(this.opts.scope)
-      .map((child) => subagentSnapshot(child, this.live.has(child.threadId)));
+    return this.opts.store.list(this.opts.scope).map((child) => this.snapshot(child));
   }
   owns(threadId: unknown): boolean {
     return typeof threadId === 'string' && (this.live.has(threadId) || this.pending.has(threadId));
@@ -138,8 +141,7 @@ export class CodexSubagents {
   private publish(live: LiveChild): void {
     live.child.revision++;
     this.opts.store.save(this.opts.scope, live.child);
-    for (const listener of this.listeners)
-      listener(subagentSnapshot(live.child, this.live.has(live.child.threadId)));
+    for (const listener of this.listeners) listener(this.snapshot(live.child));
   }
   private current(live: LiveChild, turnId?: string): void {
     const root = this.opts.root();
@@ -304,6 +306,7 @@ export class CodexSubagents {
           terminal: new Set(),
           files: new Map(),
           fileRevisions: new Map(),
+          lifecycleRevision: 0,
         };
         this.live.set(threadId, live);
         this.current(live);
@@ -453,6 +456,7 @@ export class CodexSubagents {
     const turn = object(params.turn);
     if (method === 'turn/started' && typeof turn.id === 'string') {
       if (live.terminal.has(turn.id)) return;
+      live.lifecycleRevision++;
       if (child.turnId !== turn.id) {
         live.turnAbort.abort();
         live.turnAbort = new AbortController();
@@ -465,6 +469,7 @@ export class CodexSubagents {
       return;
     }
     if (method === 'turn/completed' && turn.id === child.turnId && typeof turn.id === 'string') {
+      live.lifecycleRevision++;
       live.terminal.add(turn.id);
       live.turnAbort.abort();
       child.state =
@@ -741,7 +746,15 @@ export class CodexSubagents {
     if (previous) return previous;
     let attempted = false;
     const previousState = live.child.state;
-    let optimisticRevision: number | undefined;
+    let optimistic:
+      { lifecycle: number; turnId?: string; state: RetainedSubagent['state'] } | undefined;
+    const rememberTransition = () => {
+      optimistic = {
+        lifecycle: live.lifecycleRevision,
+        turnId: live.child.turnId,
+        state: live.child.state,
+      };
+    };
     const dispatch = async (
       method: string,
       params: ObjectValue,
@@ -750,6 +763,8 @@ export class CodexSubagents {
       const turnId = live.child.turnId;
       return this.opts.request(method, params, () => {
         authorize();
+        if (this.parentStopping && !(parentStop && input.action === 'stop'))
+          throw Error('Parent cancellation preceded control dispatch');
         this.current(live);
         if (live.child.state !== state || live.child.turnId !== turnId)
           throw Error('Child changed before control dispatch');
@@ -766,7 +781,7 @@ export class CodexSubagents {
         if (!active) throw Error('Child is not working');
         live.child.state = 'stopping';
         this.publish(live);
-        optimisticRevision = live.child.revision;
+        rememberTransition();
         await dispatch(
           'turn/interrupt',
           {
@@ -795,7 +810,7 @@ export class CodexSubagents {
         if (!['completed', 'stopped'].includes(live.child.state)) throw Error('Child unavailable');
         live.child.state = 'starting';
         this.publish(live);
-        optimisticRevision = live.child.revision;
+        rememberTransition();
         const response = object(
           await dispatch(
             'turn/start',
@@ -823,7 +838,13 @@ export class CodexSubagents {
       }
     } catch (error) {
       status = attempted && !(error instanceof CodexRequestError) ? 'uncertain' : 'rejected';
-      if (status === 'rejected' && optimisticRevision === live.child.revision) {
+      if (
+        status === 'rejected' &&
+        optimistic &&
+        optimistic.lifecycle === live.lifecycleRevision &&
+        optimistic.turnId === live.child.turnId &&
+        optimistic.state === live.child.state
+      ) {
         live.child.state = previousState;
         this.publish(live);
       }
@@ -833,7 +854,10 @@ export class CodexSubagents {
   }
   async interruptAll(): Promise<void> {
     this.parentStopping = true;
-    for (const live of this.live.values()) live.turnAbort.abort();
+    for (const live of this.live.values()) {
+      live.turnAbort.abort();
+      this.publish(live);
+    }
     await this.settled();
     await Promise.all(
       [...this.live.values()]
@@ -848,7 +872,9 @@ export class CodexSubagents {
     );
   }
   parentResumed(): void {
+    if (!this.parentStopping) return;
     this.parentStopping = false;
+    for (const live of this.live.values()) this.publish(live);
   }
   private invalidate(live: LiveChild): void {
     live.abort.abort();

@@ -128,7 +128,7 @@ for (const theme of ['dark', 'light'])
       width: info.project.name.startsWith('mobile') ? 320 : 1280,
       height: 844,
     });
-    await page.goto('/');
+    await page.goto('https://mitzo-ui.test/');
     const parent = page.getByRole('textbox', { name: 'Message Mitzo' });
     await parent.fill('Keep my parent draft');
     await expect(page.getByRole('button', { name: 'Token usage' })).toBeVisible();
@@ -148,6 +148,7 @@ for (const theme of ['dark', 'light'])
     await expect(dialog).toBeVisible();
     await expect(message).toHaveValue('Check tabs too');
     await dialog.getByRole('button', { name: 'Send to Edge cases' }).click();
+    expect(errors).toEqual([]);
     await expect(message).toHaveValue('');
     expect(controls[0]).toMatchObject({
       action: 'message',

@@ -110,19 +110,17 @@ it('routes native children through the original executor without completing or s
       releasePreparation = resolve;
     });
   let authorized = true;
-  const directed = f.c
-    .getSubagents()!
-    .control(
-      {
-        requestId: 'revoke-during-prepare',
-        action: 'message',
-        threadId: 'child',
-        text: 'Next check',
-      },
-      () => {
-        if (!authorized) throw Error('Operator revoked');
-      },
-    );
+  const directed = f.c.getSubagents()!.control(
+    {
+      requestId: 'revoke-during-prepare',
+      action: 'message',
+      threadId: 'child',
+      text: 'Next check',
+    },
+    () => {
+      if (!authorized) throw Error('Operator revoked');
+    },
+  );
   await vi.waitFor(() => expect(releasePreparation).toBeTypeOf('function'));
   authorized = false;
   releasePreparation();
@@ -154,9 +152,10 @@ it('pauses and interrupts the original parent before waiting for slow child canc
       cwd: '/workspace',
       readableRoots: ['/'],
       writableRoots: ['/workspace'],
-      deniedRoots: [],
+      deniedRoots: ['/private/auth'],
     }),
     assertNativeExecutionCurrent: () => {},
+    requestNativeApproval: async () => ({ decision: 'decline' }),
   });
   await f.c.send({ id: 'original', prompt: 'Work' });
   await f.c.send({ id: 'queued', prompt: 'Later' });

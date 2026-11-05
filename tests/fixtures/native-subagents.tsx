@@ -62,7 +62,7 @@ function Fixture() {
                       blockType: 'tool_use',
                       content: '',
                       toolName: 'Agent',
-                    rawInput: { type: 'agent', nativeSubagentCommandId: 'command' },
+                      rawInput: { type: 'agent', nativeSubagentCommandId: 'command' },
                       toolResult: 'Admitted',
                     },
                     ...(replied
