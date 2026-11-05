@@ -1,8 +1,13 @@
 import { afterEach, expect, it } from 'vitest';
 import { EventStore } from '../event-store.js';
+import { mkdtempSync, readdirSync, statSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
 const stores: EventStore[] = [];
+const roots: string[] = [];
 afterEach(() => stores.splice(0).forEach((store) => store.close()));
+afterEach(() => roots.splice(0).forEach((root) => rmSync(root, { recursive: true, force: true })));
 function fixture() {
   const store = new EventStore(':memory:');
   stores.push(store);
@@ -23,6 +28,18 @@ it('preserves substring, literal wildcard, snippet, visibility and ranking seman
   expect(await store.searchSessionsAsync('needle', 1)).toHaveLength(1);
 });
 
+it('stores a disk index only beneath the explicitly selected protected cache root', async () => {
+  const store = fixture();
+  const root = mkdtempSync(join(tmpdir(), 'protected-search-root-'));
+  roots.push(root);
+  await store.searchSessionsAsync('needle', 20, undefined, root);
+  const directories = readdirSync(root);
+  expect(directories).toHaveLength(1);
+  const directory = join(root, directories[0]);
+  expect(statSync(directory).mode & 0o777).toBe(0o700);
+  expect(statSync(join(directory, 'index.db')).mode & 0o777).toBe(0o600);
+});
+
 it('indexes newly appended events and rechecks current session visibility', async () => {
   const store = fixture();
   expect(await store.searchSessionsAsync('new-result')).toEqual([]);
@@ -32,6 +49,15 @@ it('indexes newly appended events and rechecks current session visibility', asyn
   ]);
   store.hideSession('second');
   expect(await store.searchSessionsAsync('new-result')).toEqual([]);
+});
+
+it('captures the complete event revision without loading transcript payloads', () => {
+  const store = fixture();
+  expect(store.getSessionEventCursor('absent')).toBe(0);
+  const previous = store.getSessionEventCursor('first');
+  const seq = store.append('first', 'tool_result', { text: 'new revision' });
+  expect(store.getSessionEventCursor('first')).toBe(seq);
+  expect(seq).toBeGreaterThan(previous);
 });
 
 it('excludes sessions hidden while an asynchronous search is running', async () => {

@@ -7,6 +7,7 @@ import { mkdirSync, writeFileSync, readFileSync, symlinkSync } from 'fs';
 import { join, relative } from 'path';
 import { tmpdir, homedir } from 'os';
 import { AccountAliases } from '../account-aliases.js';
+import { codexPrivateDirectory } from '../codex-private-path.js';
 
 const mockRemoteArtifactRead = vi.hoisted(() => vi.fn());
 const mockRemoteArtifactFactory = vi.hoisted(() => vi.fn());
@@ -101,6 +102,7 @@ vi.mock('../chat.js', async () => {
       setSessionState: vi.fn(),
       append: vi.fn(),
       getLatestEvent: vi.fn().mockReturnValue(null),
+      getSessionEventCursor: vi.fn().mockReturnValue(0),
       getEventsAfter: vi.fn().mockReturnValue([]),
       getSessionEvents: vi.fn().mockReturnValue([]),
       getEventsOfType: vi.fn().mockReturnValue([]),
@@ -1004,6 +1006,10 @@ describe('session routes', () => {
 // --- Session Search Routes ---
 
 describe('session search routes', () => {
+  beforeEach(() =>
+    vi.stubEnv('MITZO_CODEX_PRIVATE_DIR', join(tmpdir(), `mitzo-search-route-${process.pid}`)),
+  );
+  afterEach(() => vi.unstubAllEnvs());
   it('returns saved model and aliased account for inactive search hits outside the recent page', async () => {
     const original = vi.mocked(eventStore.getSession).getMockImplementation()!;
     const aliases = new AccountAliases(join(TEST_REPO, '.mitzo', 'account-aliases.json'));
@@ -1064,6 +1070,7 @@ describe('session search routes', () => {
       'matched',
       20,
       expect.any(AbortSignal),
+      codexPrivateDirectory(),
     );
   });
 
@@ -1085,6 +1092,7 @@ describe('session search routes', () => {
       'test',
       50,
       expect.any(AbortSignal),
+      codexPrivateDirectory(),
     );
   });
 

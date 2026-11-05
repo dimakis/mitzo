@@ -250,7 +250,11 @@ import {
 import { createCodexQueueRouter } from './codex-queue-routes.js';
 import { createCallbackIncidentRepairRouter } from './callback-incident-repair.js';
 import { assertRepositoryTaskRetirement } from './repository-task-retirement.js';
-import { createCodexPathProtection } from './codex-private-path.js';
+import {
+  createCodexPathProtection,
+  codexPrivateDirectory,
+  protectCodexProfileRoots,
+} from './codex-private-path.js';
 import { isWorkspaceRuntimeAuthorityWritePath } from './workspace-runtime-private-paths.js';
 import { selectedOpenShellAccountRoute } from './codex-chat-session.js';
 import { openShellRuntimeConfig, OpenShellRuntimeManager } from './openshell-runtime.js';
@@ -3379,14 +3383,16 @@ app.get('/api/sessions/search', async (req, res) => {
   };
   res.once('close', close);
   try {
-    const results = (await eventStore.searchSessionsAsync(q, limit, abort.signal)).map(
-      (result) => ({
-        ...result,
-        ...sessionModelIdentity(eventStore.getSession(result.sessionId) ?? {}, (id, fallback) =>
-          accountAliases.label(id, fallback),
-        ),
-      }),
-    );
+    const cacheDirectory = codexPrivateDirectory();
+    protectCodexProfileRoots([cacheDirectory]);
+    const results = (
+      await eventStore.searchSessionsAsync(q, limit, abort.signal, cacheDirectory)
+    ).map((result) => ({
+      ...result,
+      ...sessionModelIdentity(eventStore.getSession(result.sessionId) ?? {}, (id, fallback) =>
+        accountAliases.label(id, fallback),
+      ),
+    }));
     res.json({ results });
   } catch (err: unknown) {
     if (abort.signal.aborted) return;
@@ -3480,7 +3486,7 @@ app.get(
 app.get(
   '/api/sessions/:id/messages',
   createSessionMessagesHandler({
-    getRevision: (sessionId) => eventStore.getLatestEvent(sessionId)?.seq ?? 0,
+    getRevision: (sessionId) => eventStore.getSessionEventCursor(sessionId),
     getDurableSessionTranscript: (sessionId) => eventStore.getDurableSessionTranscript(sessionId),
     getMessages: (sessionId) => getMessages(sessionId),
     getSessionTranscript: (sessionId) => getSessionTranscript(sessionId),

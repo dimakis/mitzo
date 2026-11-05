@@ -8,7 +8,11 @@ These are implementation contracts, not measured production improvements.
 The HTTP search route uses an asynchronous search index. The EventStore's original
 owner reads at most 128 events per page, omitting payloads for non-searchable event
 types. A worker receives those pages and owns only a disposable derived SQLite
-index in a private temporary directory. It never opens the retained event database.
+index in a temporary directory beneath the configured protected Codex private root.
+The root is registered with the existing private-path guard before any index bytes
+are written. Library callers without a protected cache root use an in-memory index;
+search content is never spilled into the shared OS temporary directory. The worker
+never opens the retained event database.
 
 The index uses FTS5 trigrams to narrow substring candidates and SQLite LIKE to retain
 literal wildcard and case semantics. Searches shorter than three characters run

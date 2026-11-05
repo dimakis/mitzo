@@ -508,6 +508,7 @@ export class SessionMetadataStore {
     query: string,
     limit = 20,
     signal?: AbortSignal,
+    cacheDirectory?: string,
   ): Promise<SessionSearchResult[]> {
     if (!query.trim()) return [];
     const sessions = () =>
@@ -515,21 +516,24 @@ export class SessionMetadataStore {
         `SELECT s.session_id,s.summary,s.updated_at
       FROM sessions s WHERE s.is_hidden=0 AND ${REGISTERED_CONVERSATION_SQL}`,
       ).all() as SearchSession[];
-    this.searchIndex ??= new SessionSearchIndex({
-      highWater: () =>
-        (
-          this.db!.prepare('SELECT COALESCE(MAX(seq),0) AS seq FROM events').get() as {
-            seq: number;
-          }
-        ).seq,
-      page: (after, through) =>
-        this.db!.prepare(
-          `SELECT seq,session_id,type,
+    this.searchIndex ??= new SessionSearchIndex(
+      {
+        highWater: () =>
+          (
+            this.db!.prepare('SELECT COALESCE(MAX(seq),0) AS seq FROM events').get() as {
+              seq: number;
+            }
+          ).seq,
+        page: (after, through) =>
+          this.db!.prepare(
+            `SELECT seq,session_id,type,
           CASE WHEN type IN ('user_message','block_delta') THEN payload ELSE '{}' END AS payload,created_at
         FROM events WHERE seq>? AND seq<=? ORDER BY seq LIMIT 128`,
-        ).all(after, through) as SearchEvent[],
-      sessions,
-    });
+          ).all(after, through) as SearchEvent[],
+        sessions,
+      },
+      cacheDirectory,
+    );
     const index = this.searchIndex;
     let hits: Awaited<ReturnType<SessionSearchIndex['search']>>;
     try {

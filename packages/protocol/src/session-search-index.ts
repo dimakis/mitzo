@@ -1,8 +1,7 @@
 import { Worker } from 'node:worker_threads';
 import { createRequire } from 'node:module';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { isAbsolute, join } from 'node:path';
 
 export interface SearchEvent {
   seq: number;
@@ -40,15 +39,21 @@ export class SessionSearchIndex {
       page(after: number, through: number): SearchEvent[];
       sessions(): SearchSession[];
     },
+    private cacheDirectory?: string,
   ) {}
 
   private rpc(message: object): Promise<SearchHit[]> {
     if (this.closed) return Promise.reject(Error('Search owner closed'));
     if (!this.worker) {
       const source = import.meta.url.endsWith('.ts');
-      this.directory = mkdtempSync(join(tmpdir(), 'mitzo-search-'));
-      const database = join(this.directory, 'index.db');
-      writeFileSync(database, '', { flag: 'wx', mode: 0o600 });
+      let database = ':memory:';
+      if (this.cacheDirectory) {
+        if (!isAbsolute(this.cacheDirectory)) throw Error('Search cache root must be absolute');
+        mkdirSync(this.cacheDirectory, { recursive: true, mode: 0o700 });
+        this.directory = mkdtempSync(join(this.cacheDirectory, 'search-'));
+        database = join(this.directory, 'index.db');
+        writeFileSync(database, '', { flag: 'wx', mode: 0o600 });
+      }
       this.worker = new Worker(
         source
           ? `const {workerData}=require('node:worker_threads'); require(workerData.loader).register(); require(require('node:url').fileURLToPath(workerData.module));`
