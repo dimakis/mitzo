@@ -32,6 +32,7 @@ import {
   type SessionSummaryPage,
 } from './session-metadata-store.js';
 import { SessionLifecycleStore } from './session-lifecycle-store.js';
+import { SessionRemovalStore } from './session-removal-store.js';
 import {
   ConversationReplayStore,
   type ConversationTextEvent,
@@ -453,6 +454,7 @@ const OrdinaryCommandWireScopeSchema = z.strictObject({
 type OrdinaryCommandWireScope = z.infer<typeof OrdinaryCommandWireScopeSchema>;
 
 export class EventStore {
+  readonly removals: SessionRemovalStore;
   private readonly ordinaryWireAdmission = new AsyncLocalStorage<{
     scope: OrdinaryCommandWireScope;
     assertCurrentSync: () => void;
@@ -549,9 +551,12 @@ export class EventStore {
     payload: Record<string, unknown>,
   ): void {
     this.assertConversationIdentity(sessionId);
-    this.db!.prepare(
-      'INSERT INTO send_commands (client_msg_id, session_id, payload) VALUES (?, ?, ?)',
-    ).run(clientMsgId, sessionId, JSON.stringify(payload));
+    this.db!.transaction(() => {
+      this.removals.assertAdmissible(sessionId);
+      this.db!.prepare(
+        'INSERT INTO send_commands (client_msg_id, session_id, payload) VALUES (?, ?, ?)',
+      ).run(clientMsgId, sessionId, JSON.stringify(payload));
+    }).immediate();
   }
 
   prepareOrdinaryWorkspaceSession(...args: Parameters<OrdinaryWorkspaceSessionStore['prepare']>) {
@@ -2585,6 +2590,8 @@ export class EventStore {
 
   private claimOrdinaryCommandDispatch(clientMsgId: string): boolean {
     return this.db!.transaction(() => {
+      const command = this.getSendCommand(clientMsgId);
+      if (command) this.removals.assertAdmissible(command.sessionId);
       const admission = this.getOrdinaryCommandAdmission(clientMsgId);
       if (!admission) throw new Error('Ordinary command admission required');
       if (admission.state !== 'reserved' || this.getSendCommand(clientMsgId)?.error) return false;
@@ -2728,6 +2735,7 @@ export class EventStore {
       db.pragma('journal_mode = WAL');
       db.pragma('foreign_keys = ON');
       db.exec(SCHEMA);
+      this.removals = new SessionRemovalStore(db);
       db.exec(`CREATE TABLE IF NOT EXISTS ordinary_session_preparations (
       operation_id TEXT PRIMARY KEY, session_id TEXT NOT NULL UNIQUE, workspace_id TEXT NOT NULL UNIQUE,
       receipt TEXT NOT NULL, metadata TEXT NOT NULL);`);
@@ -3722,12 +3730,15 @@ export class EventStore {
     clientMsgId?: string,
     requestFingerprint?: string,
   ): BeginExecutionResult {
-    return this.executionLedger.beginExecution(
-      sessionId,
-      executionId,
-      clientMsgId,
-      requestFingerprint,
-    );
+    return this.db!.transaction(() => {
+      this.removals.assertAdmissible(sessionId);
+      return this.executionLedger.beginExecution(
+        sessionId,
+        executionId,
+        clientMsgId,
+        requestFingerprint,
+      );
+    }).immediate();
   }
 
   /** Read the terminal outcome of any generation, including superseded commands. */
