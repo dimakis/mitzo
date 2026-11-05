@@ -19,6 +19,7 @@ import { z } from 'zod';
 import { loadAccountProfiles } from './account-profiles.js';
 import { toolInputError } from './tool-input-error.js';
 import { authorizeGitHubRead } from './github-read-approval.js';
+import { executePublicGitHubRead } from './public-github-read.js';
 import { createCodexPathProtection, privateCodexRoots } from './codex-private-path.js';
 import {
   workspaceRuntimeAuthorityPaths,
@@ -61,6 +62,12 @@ const schemas = {
         .max(1000)
         .regex(/^\/(?:user|repos\/[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+(?:\/[A-Za-z0-9_./?=&%+-]*)?)$/)
         .refine(isTrustedGitHubEndpoint, 'Invalid GitHub path'),
+      access: z
+        .enum(['public', 'authenticated'])
+        .optional()
+        .describe(
+          'Use public for credential-free public repository reads without an ordinary approval card. Authenticated is the compatibility default and requires repository consent. A failed public read never uses account credentials automatically.',
+        ),
       view: z
         .enum(['summary', 'full'])
         .optional()
@@ -69,6 +76,10 @@ const schemas = {
         ),
     })
     .strict()
+    .refine(
+      (input) => input.access !== 'public' || input.endpoint.startsWith('/repos/'),
+      'Public access requires a repository endpoint; /user requires authenticated access',
+    )
     .describe(
       'GitHubRead accepts /user or /repos/OWNER/REPO/... with a leading slash and URL-encoded query values. /search endpoints are unavailable in this tool. Use a selected connection guide for supported search operations. Prefer small per_page values and narrow reads.',
     ),
@@ -94,7 +105,7 @@ const descriptions = {
     'Ask structured questions in Mitzo and wait for the user’s answers. Questions do not authorize tool execution.',
   Bash: 'Run a command in the session workspace using an OS sandbox. Use for tests, Git and directory creation. Network and credentials are unavailable; use a dedicated trusted integration for external services. Writes outside session roots and unavailable sandboxes fail explicitly.',
   GitHubRead:
-    'Perform an approved authenticated GitHub API GET through Mitzo. Credentials remain in the trusted host process and are never exposed to the command sandbox.',
+    'Read GitHub repository data through Mitzo. Use access: public for credential-free public reads without an ordinary approval card. Authenticated reads require repository consent; credentials remain private to Mitzo. Public failures never fall back to account credentials.',
   GitCommit:
     'Stage up to 64 approved workspace files and create one local Git commit through Mitzo. Refuses an already-staged index and credential-like files. Use native Git in the admitted task checkout for larger commits and merges.',
   Read: 'Read a UTF-8 file. Paths are relative to the session cwd unless absolute.',
@@ -226,6 +237,7 @@ export function createNativeToolExecutor(
       if (block.name === 'GitHubRead' && 'endpoint' in parsed.data) {
         const input = {
           endpoint: parsed.data.endpoint,
+          ...('access' in parsed.data && parsed.data.access ? { access: parsed.data.access } : {}),
           ...('view' in parsed.data && parsed.data.view ? { view: parsed.data.view } : {}),
         };
         const assertReadCurrent = await authorizeGitHubRead(input, {
@@ -236,12 +248,15 @@ export function createNativeToolExecutor(
           signal,
           toolUseID: block.id,
           decide: canUseTool,
+          forcePrompt: options.forcePrompt,
           assertCurrentSync: options.assertRuntimeCurrent,
           assertCurrentAsync: options.assertRuntimeCurrentAsync,
         });
         options.registerResponseFence?.(assertReadCurrent);
+        const executeRead =
+          input.access === 'public' ? executePublicGitHubRead : executeTrustedGitHubRead;
         executionStarted = true;
-        const content = await executeTrustedGitHubRead(
+        const content = await executeRead(
           input.endpoint,
           signal,
           options.timeoutMs,
