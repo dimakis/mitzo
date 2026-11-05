@@ -42,7 +42,7 @@ async function measureSearch(size: number, matches = false) {
   });
   const result = await tools.execute(
     'SearchPastSessions',
-    { query: 'absent' },
+    { query: 'absent', scope: 'summaries' },
     context.signal,
     call,
   );

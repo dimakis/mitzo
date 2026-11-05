@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { EventStore, type StoredEvent } from '../event-store.js';
-import { sessionHistoryTools, type HistoryAccess } from '../session-history-tools.js';
+import type { HistoryAccess } from '../session-history-tools.js';
+import { legacySessionHistoryTools as sessionHistoryTools } from './fixtures/legacy-session-history.js';
 
 function fixture() {
   let current = true;

@@ -25,6 +25,7 @@ const mockEventStore = {
   listSessionsLimited: vi.fn().mockReturnValue([]),
   getEventsAfter: vi.fn().mockReturnValue([]),
   getSessionEvents: vi.fn().mockReturnValue([]),
+  getSessionNamingEvents: vi.fn().mockReturnValue([]),
   getLatestEvent: vi.fn().mockReturnValue(null),
   markSessionInactive: vi.fn(),
   hideSession: vi.fn(),
@@ -59,6 +60,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   mockGetSessionMessages.mockResolvedValue([{ type: 'user' }]);
   mockEventStore.getSessionEvents.mockReturnValue([]);
+  mockEventStore.getSessionNamingEvents.mockReturnValue([]);
 });
 
 describe('SDK discovery admission', () => {
@@ -199,7 +201,7 @@ describe('getSessionsCached', () => {
         updatedAt: 1000,
       },
     ]);
-    mockEventStore.getSessionEvents.mockReturnValue([
+    mockEventStore.getSessionNamingEvents.mockReturnValue([
       {
         seq: 1,
         sessionId: 'generic',
@@ -219,7 +221,8 @@ describe('getSessionsCached', () => {
       { id: 'generic', summary: 'Fix mobile chat recovery', lastModified: 2000 },
       { id: 'manual', summary: 'Continue', lastModified: 1000 },
     ]);
-    expect(mockEventStore.getSessionEvents).toHaveBeenCalledExactlyOnceWith('generic');
+    expect(mockEventStore.getSessionNamingEvents).toHaveBeenCalledExactlyOnceWith('generic');
+    expect(mockEventStore.getSessionEvents).not.toHaveBeenCalled();
     expect(mockUpsertSession).not.toHaveBeenCalled();
   });
   it('keeps explicit titles and never replaces a manually cleared title', async () => {
@@ -265,7 +268,7 @@ describe('getSessionsCached', () => {
           updatedAt: 1000,
         },
       ]);
-      mockEventStore.getSessionEvents.mockReturnValue([
+      mockEventStore.getSessionNamingEvents.mockReturnValue([
         {
           seq: 1,
           sessionId: 'native-unnamed',

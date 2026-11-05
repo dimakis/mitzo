@@ -5739,7 +5739,7 @@ export function getSessionsCached(offset = 0, limit = SESSION_PAGE_SIZE) {
   return {
     sessions: page.map((m) => ({
       id: m.sessionId,
-      summary: sessionDisplayName(m, () => eventStore.getSessionEvents(m.sessionId)),
+      summary: sessionDisplayName(m, () => eventStore.getSessionNamingEvents(m.sessionId)),
       lastModified: m.updatedAt,
       branch: m.branch ?? undefined,
       cwd: m.cwd ?? undefined,
