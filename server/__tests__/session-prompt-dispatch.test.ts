@@ -278,7 +278,14 @@ it('reconciles accepted delivery from retained evidence after its recipient chan
       {
         clientMsgId: commandId,
         requestFingerprint: 'original-fingerprint',
-        selection: { ...f.selection, model: 'fixture' },
+        selection: {
+          version: 1,
+          agent: { profileId: 'agent', revision: 1 },
+          context: { source: 'none', revision: null },
+          permission: { mode: 'agent', revision: 0 },
+          model: 'fixture',
+          thinking: null,
+        },
         payload: {
           text: 'Check PR #7',
           intent: 'Check PR #7',
