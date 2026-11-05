@@ -6,6 +6,108 @@ import {
 } from '../../packages/protocol/src/content-blocks.js';
 import { normalizeMcpToolResult } from '../codex-tool-result.js';
 
+it('does not treat buffered text from before a tool failure as a follow-up', () => {
+  const events: Record<string, unknown>[] = [];
+  const m = new CodexSessionEvents('app', 'thread', 'model', (event) => events.push(event));
+  m.notification('turn/started', { threadId: 'thread', turn: { id: 'turn' } });
+  const id = m.toolStart('call', 'Bash', { command: 'offline-test' });
+  m.notification('item/agentMessage/delta', {
+    threadId: 'thread',
+    turnId: 'turn',
+    itemId: 'before',
+    delta: 'Checking the test now.',
+  });
+  m.toolResult(id, 'fixture failure', true);
+  m.notification('turn/completed', {
+    threadId: 'thread',
+    turn: { id: 'turn', status: 'completed' },
+  });
+  expect(events.at(-1)).toMatchObject({ type: 'result', tool_failure_notice: true });
+});
+
+it('explains declined commands and marks an unexplained final tool failure', () => {
+  const events: Record<string, unknown>[] = [];
+  const m = new CodexSessionEvents('app', 'thread', 'model', (event) => events.push(event));
+  m.notification('turn/started', { threadId: 'thread', turn: { id: 'turn' } });
+  m.notification('item/started', {
+    threadId: 'thread',
+    item: { type: 'commandExecution', id: 'cmd', command: 'offline-test' },
+  });
+  m.notification('item/completed', {
+    threadId: 'thread',
+    item: { type: 'commandExecution', id: 'cmd', status: 'declined', aggregatedOutput: '' },
+  });
+  m.notification('turn/completed', {
+    threadId: 'thread',
+    turn: { id: 'turn', status: 'completed' },
+  });
+  const result = events.find((event) => event.type === 'user') as {
+    message: { content: { content: string }[] };
+  };
+  expect(result.message.content[0].content).toMatch(/not approved/i);
+  expect(events.at(-1)).toMatchObject({
+    type: 'result',
+    is_error: false,
+    tool_failure_notice: true,
+  });
+});
+
+it.each(['commandExecution', 'mcpToolCall'] as const)(
+  'settles an unfinished %s once when its turn ends',
+  (type) => {
+    const events: Record<string, unknown>[] = [];
+    const m = new CodexSessionEvents('app', 'thread', 'model', (event) => events.push(event));
+    m.notification('turn/started', { threadId: 'thread', turn: { id: 'turn' } });
+    m.notification('item/started', {
+      threadId: 'thread',
+      item: { type, id: 'call', command: 'offline-test', server: 'fixture', tool: 'read' },
+    });
+    m.notification('turn/completed', {
+      threadId: 'thread',
+      turn: { id: 'turn', status: 'interrupted' },
+    });
+    m.notification('item/completed', {
+      threadId: 'thread',
+      item: { type, id: 'call', status: 'completed', exitCode: 0, aggregatedOutput: 'late' },
+    });
+    const results = events.filter((event) => event.type === 'user') as {
+      message: { content: { content: string; is_error: boolean }[] };
+    }[];
+    expect(results).toHaveLength(1);
+    expect(results[0].message.content[0]).toMatchObject({
+      is_error: true,
+      content: expect.stringMatching(/outcome is unknown/i),
+    });
+    expect(events.at(-1)).toMatchObject({ type: 'result', tool_failure_notice: true });
+  },
+);
+
+it.each(['reply', 'successful-tool'] as const)(
+  'allows normal continuation after a failed tool with a %s',
+  (continuation) => {
+    const events: Record<string, unknown>[] = [];
+    const m = new CodexSessionEvents('app', 'thread', 'model', (event) => events.push(event));
+    m.notification('turn/started', { threadId: 'thread', turn: { id: 'turn' } });
+    m.toolResult(m.toolStart('failed', 'Read', {}), 'fixture failure', true);
+    if (continuation === 'reply')
+      m.notification('item/completed', {
+        threadId: 'thread',
+        turnId: 'turn',
+        item: {
+          type: 'agentMessage',
+          id: 'reply',
+          text: 'The check failed; I can continue with the saved result.',
+        },
+      });
+    else m.toolResult(m.toolStart('next', 'Read', {}), 'fixture success', false);
+    m.notification('turn/completed', {
+      threadId: 'thread',
+      turn: { id: 'turn', status: 'completed' },
+    });
+    expect(events.at(-1)).not.toHaveProperty('tool_failure_notice');
+  },
+);
+
 it.each([10, 100, 1000])(
   'does not traverse completed text history when advancing after %i items',
   (count) => {

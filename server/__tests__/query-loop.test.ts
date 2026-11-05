@@ -2573,6 +2573,39 @@ describe('runQueryLoop', () => {
       });
     });
 
+    it('retains actionable feedback when Codex ends after an unexplained tool failure', async () => {
+      const store = new EventStore(':memory:');
+      const sessionId = 'sess-tool-feedback';
+      registry.get(clientId)!.sessionId = sessionId;
+      store.upsertSession({ sessionId, cwd: '/tmp' });
+      const events: Record<string, unknown>[] = [];
+      const mapper = new CodexSessionEvents(sessionId, 'thread', 'model', (event) =>
+        events.push(event),
+      );
+      mapper.notification('turn/started', { threadId: 'thread', turn: { id: 'turn' } });
+      mapper.toolResult(
+        mapper.toolStart('call', 'Bash', { command: 'offline-check' }),
+        'declined',
+        true,
+      );
+      mapper.notification('turn/completed', {
+        threadId: 'thread',
+        turn: { id: 'turn', status: 'completed' },
+      });
+      await runQueryLoop(eventStream(events), clientId, registry, abortController, store);
+      const saved = store.getEventsAfter(sessionId, 0);
+      const feedback = saved.filter((event) => event.type === 'error');
+      expect(feedback).toHaveLength(1);
+      expect(feedback[0].payload.error).toMatch(/tool.*continue/i);
+      expect(saved.some((event) => event.type === 'session_end')).toBe(true);
+      expect(
+        transport.sent.some(
+          (event) => event.type === 'error' && event.error === feedback[0].payload.error,
+        ),
+      ).toBe(true);
+      store.close();
+    });
+
     it('persists one Codex turn when several renderer blocks end without a result', async () => {
       const store = new EventStore(':memory:');
       const sessionId = 'sess-codex-fallback';
