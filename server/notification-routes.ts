@@ -15,12 +15,12 @@ const responseBody = z
 export function notificationRouter(center: NotificationCenter): Router {
   const router = Router();
   router.use(operatorAuthMiddleware);
-  router.use(reconcileInbox(center));
+  const reconcileSources = reconcileInbox(center);
   router.use((_req, res, next) => {
     res.setHeader('Cache-Control', 'no-store');
     next();
   });
-  router.get('/', (req, res) => {
+  router.get('/', reconcileSources, (req, res) => {
     const query = z
       .object({
         filter: NotificationFilter.default('all'),
@@ -65,12 +65,19 @@ export function notificationRouter(center: NotificationCenter): Router {
     res.json({ ok: true });
   });
   router.post('/test', (_req, res) => res.status(202).json({ id: center.test() }));
-  router.get('/:id', (req, res) => {
-    center.reconcile();
-    const item = center.store.get(req.params.id);
-    if (!item) return res.status(404).json({ error: 'Notification not found' });
-    res.json(item);
-  });
+  router.get(
+    '/:id',
+    (req, res, next) => {
+      if (req.params.id.startsWith('inbox:')) return reconcileSources(req, res, next);
+      next();
+    },
+    (req, res) => {
+      center.reconcile();
+      const item = center.store.get(req.params.id);
+      if (!item) return res.status(404).json({ error: 'Notification not found' });
+      res.json(item);
+    },
+  );
   router.post('/:id/read', (req, res) => {
     if (!center.store.markRead(req.params.id))
       return res.status(404).json({ error: 'Notification not found' });
