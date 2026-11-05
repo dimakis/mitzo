@@ -3,6 +3,7 @@ import { afterEach, expect, it, vi } from 'vitest';
 import { CodexSubagents } from '../codex-subagents.js';
 import { CodexSubagentStore } from '../codex-subagent-store.js';
 import { codexNativeExecutionPolicy } from '../codex-native-execution-policy.js';
+import { CodexRequestError } from '../codex-app-server-client.js';
 
 const cleanup: (() => void)[] = [];
 afterEach(() =>
@@ -40,7 +41,12 @@ function fixture() {
     preview: 'Check whitespace',
   };
   const request = vi.fn(
-    async (method: string, params: Record<string, unknown>): Promise<unknown> => {
+    async (
+      method: string,
+      params: Record<string, unknown>,
+      beforeDispatch?: () => void,
+    ): Promise<unknown> => {
+      beforeDispatch?.();
       if (method === 'thread/read')
         return {
           thread: {
@@ -104,6 +110,164 @@ function fixture() {
     admit,
   };
 }
+it('hydrates nonempty paginated history entries in order without replaying tools', async () => {
+  const f = fixture();
+  const original = f.request.getMockImplementation()!;
+  f.request.mockImplementation(async (method, params, beforeDispatch) => {
+    if (method === 'thread/turns/list')
+      return { data: [{ id: 'past', status: 'completed' }], nextCursor: null };
+    if (method === 'thread/items/list') {
+      expect(params.sortDirection).toBe('asc');
+      return {
+        data: [
+          {
+            turnId: 'past',
+            completedAtMs: 1,
+            item: params.cursor
+              ? {
+                  id: 'tool',
+                  type: 'dynamicToolCall',
+                  tool: 'Read',
+                  arguments: {},
+                  contentItems: [{ type: 'inputText', text: 'Retained result' }],
+                  status: 'completed',
+                }
+              : { id: 'message', type: 'agentMessage', text: 'Retained answer' },
+          },
+        ],
+        nextCursor: params.cursor ? null : 'next',
+      };
+    }
+    return original(method, params, beforeDispatch);
+  });
+  f.notify('thread/started', { thread: f.thread });
+  await f.owner.settled();
+  expect(f.owner.list()[0]).toMatchObject({
+    state: 'completed',
+    blocks: [
+      { id: 'message', content: 'Retained answer' },
+      { id: 'tool', content: 'Retained result', status: 'completed' },
+    ],
+  });
+  expect(f.execute).not.toHaveBeenCalled();
+});
+it('preserves completion and late task attribution when admission buffers fill', async () => {
+  const f = fixture();
+  f.notify('thread/started', { thread: f.thread });
+  f.notify('item/started', {
+    threadId: 'root',
+    item: {
+      type: 'collabAgentToolCall',
+      tool: 'spawnAgent',
+      senderThreadId: 'root',
+      receiverThreadIds: ['child'],
+      prompt: 'Full assigned task',
+    },
+  });
+  f.notify('turn/started', { threadId: 'child', turn: { id: 'child-turn' } });
+  for (let index = 0; index < 300; index++)
+    f.notify('item/agentMessage/delta', {
+      threadId: 'child',
+      turnId: 'child-turn',
+      itemId: 'message',
+      delta: 'x',
+    });
+  f.notify('turn/completed', {
+    threadId: 'child',
+    turn: { id: 'child-turn', status: 'completed' },
+  });
+  await f.owner.settled();
+  expect(f.owner.list()[0]).toMatchObject({
+    state: 'completed',
+    task: 'Full assigned task',
+    outputTruncated: true,
+  });
+});
+it('attributes descendants to the spawning child after the root starts another command', async () => {
+  const f = fixture();
+  await f.admit();
+  f.root.commandId = 'next-command';
+  f.notify('thread/started', {
+    thread: { ...f.thread, id: 'grandchild', parentThreadId: 'child' },
+  });
+  // The native metadata read must confirm the same attributed parent.
+  const original = f.request.getMockImplementation()!;
+  f.request.mockImplementation(async (method, params, beforeDispatch) => {
+    const response = await original(method, params, beforeDispatch);
+    return method === 'thread/read' && params.threadId === 'grandchild'
+      ? { thread: { ...f.thread, id: 'grandchild', parentThreadId: 'child' } }
+      : response;
+  });
+  await f.owner.settled();
+  expect(f.owner.list().find((child) => child.threadId === 'grandchild')).toMatchObject({
+    commandId: 'command',
+  });
+});
+it.each(['message', 'stop'] as const)(
+  'restores usable state after a definitive %s rejection',
+  async (action) => {
+    const f = fixture();
+    await f.admit();
+    if (action === 'message')
+      f.notify('turn/completed', {
+        threadId: 'child',
+        turn: { id: 'child-turn', status: 'completed' },
+      });
+    const originalState = f.owner.list()[0].state;
+    f.request.mockImplementationOnce(async (method, _params, beforeDispatch) => {
+      beforeDispatch?.();
+      throw new CodexRequestError(method, 'invalid_request');
+    });
+    expect(
+      await f.owner.control(
+        action === 'message'
+          ? { requestId: 'reject', action, threadId: 'child', text: 'Try' }
+          : { requestId: 'reject', action, threadId: 'child' },
+      ),
+    ).toBe('rejected');
+    expect(f.owner.list()[0].state).toBe(originalState);
+  },
+);
+it('does not overwrite a native terminal event while rolling back an interrupt rejection', async () => {
+  const f = fixture();
+  await f.admit();
+  f.request.mockImplementationOnce(async (method, _params, beforeDispatch) => {
+    beforeDispatch?.();
+    f.notify('turn/completed', {
+      threadId: 'child',
+      turn: { id: 'child-turn', status: 'completed' },
+    });
+    throw new CodexRequestError(method, 'invalid_request');
+  });
+  await f.owner.control({ requestId: 'stop', action: 'stop', threadId: 'child' });
+  expect(f.owner.list()[0].state).toBe('completed');
+});
+it('preserves executor output when native dynamic-tool completion follows its callback', async () => {
+  const f = fixture();
+  await f.admit();
+  await f.owner.request(
+    'item/tool/call',
+    { threadId: 'child', turnId: 'child-turn', callId: 'call', tool: 'Read', arguments: {} },
+    new AbortController().signal,
+  );
+  f.notify('item/completed', {
+    threadId: 'child',
+    turnId: 'child-turn',
+    item: {
+      id: 'call',
+      type: 'dynamicToolCall',
+      tool: 'Read',
+      arguments: {},
+      status: 'completed',
+      success: true,
+    },
+  });
+  expect(f.owner.list()[0].blocks.find((block) => block.id === 'call')).toMatchObject({
+    content: 'Result',
+    name: 'Read',
+    status: 'completed',
+  });
+});
 it('admits only children from the owned native session tree and checks selected model and cwd', async () => {
   const f = fixture();
   f.notify('thread/started', { thread: { ...f.thread, parentThreadId: 'stranger' } });
@@ -176,7 +340,11 @@ it('steers an active child with the exact turn fence and deduplicates the reques
   };
   expect(await f.owner.control(input)).toBe('accepted');
   expect(await f.owner.control(input)).toBe('accepted');
-  expect(f.request.mock.calls.filter(([method]) => method === 'turn/steer')).toEqual([
+  expect(
+    f.request.mock.calls
+      .filter(([method]) => method === 'turn/steer')
+      .map(([method, params]) => [method, params]),
+  ).toEqual([
     [
       'turn/steer',
       {
@@ -209,7 +377,8 @@ it('starts an ordinary idle-child turn and never steers the completed turn', asy
 it('retains uncertainty after a lost control reply and never resends it', async () => {
   const f = fixture();
   await f.admit();
-  f.request.mockImplementationOnce(async () => {
+  f.request.mockImplementationOnce(async (_method, _params, beforeDispatch) => {
+    beforeDispatch?.();
     throw Error('Disconnected after write');
   });
   const input = {
@@ -279,7 +448,7 @@ it('targets Stop to one child and waits for the native terminal acknowledgement'
     'accepted',
   );
   expect(f.owner.list()[0].state).toBe('stopping');
-  expect(f.request.mock.calls.at(-1)).toEqual([
+  expect(f.request.mock.calls.at(-1)?.slice(0, 2)).toEqual([
     'turn/interrupt',
     { threadId: 'child', turnId: 'child-turn' },
   ]);
@@ -353,7 +522,11 @@ it('stops every admitted child when the parent is interrupted', async () => {
   f.notify('turn/started', { threadId: 'sibling', turn: { id: 'sibling-turn' } });
   await f.owner.settled();
   await f.owner.interruptAll();
-  expect(f.request.mock.calls.filter(([method]) => method === 'turn/interrupt')).toEqual([
+  expect(
+    f.request.mock.calls
+      .filter(([method]) => method === 'turn/interrupt')
+      .map(([method, params]) => [method, params]),
+  ).toEqual([
     ['turn/interrupt', { threadId: 'child', turnId: 'child-turn' }],
     ['turn/interrupt', { threadId: 'sibling', turnId: 'sibling-turn' }],
   ]);

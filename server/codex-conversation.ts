@@ -627,7 +627,10 @@ export class CodexConversation {
     )
       return undefined;
     if (this.active) this.lastSubagentCommandId = this.active.command.id;
-    if (this.subagentOwner) return this.subagentOwner;
+    if (this.subagentOwner) {
+      if (!this.paused && this.active) this.subagentOwner.parentResumed();
+      return this.subagentOwner;
+    }
     const client = this.client;
     const generation = this.transportGeneration;
     const binding = this.binding;
@@ -656,11 +659,11 @@ export class CodexConversation {
             }
           : undefined;
       },
-      assertCurrent: (child) => {
+      assertCurrent: (child, cancelling) => {
         if (
           this.closed ||
           !this.ready ||
-          this.paused ||
+          (this.paused && !cancelling) ||
           generation !== this.transportGeneration ||
           this.client !== client ||
           this.binding?.profileRevision !== binding.profileRevision
@@ -670,7 +673,7 @@ export class CodexConversation {
           throw Error('Native subagent policy owner unavailable');
         this.opts.assertNativeExecutionCurrent(this.opts.nativeExecution, child.commandId);
       },
-      request: async (method, params) => {
+      request: async (method, params, beforeDispatch) => {
         await this.opts.prepareAgentContext?.(
           this.opts.startupSignal ?? new AbortController().signal,
         );
@@ -681,6 +684,7 @@ export class CodexConversation {
           generation !== this.transportGeneration
         )
           throw Error('Original subagent transport unavailable');
+        beforeDispatch?.();
         return client.request(method, params);
       },
       tools: this.opts.tools,
@@ -4434,26 +4438,33 @@ export class CodexConversation {
   }
   async interrupt() {
     if (this.closed) return;
-    await this.subagentOwner?.interruptAll();
+    const client = this.client;
+    const threadId = this.threadId;
+    const active = this.active;
+    const turnId = active?.turnId;
     this.cancelAutomaticRecovery();
     this.paused = true;
-    const active = this.active;
     // The interrupt request is not a terminal result. Keep active work running
     // durably until its matching turn/completed notification confirms it.
     if (this.binding) this.opts.store.pauseForRecovery(this.opts.conversationId, this.binding);
-    if (!active) return;
-    active.interruptRequested = true;
-    active.abort.abort();
-    if (active.turnId) {
-      try {
-        await this.client.request('turn/interrupt', {
-          threadId: this.threadId,
-          turnId: active.turnId,
-        });
-      } catch (error) {
-        if (!this.closed) throw error;
-      }
+    if (active) {
+      active.interruptRequested = true;
+      active.abort.abort();
     }
+    const interruptParent = async () => {
+      if (turnId) {
+        try {
+          await client.request('turn/interrupt', {
+            threadId,
+            turnId,
+          });
+        } catch (error) {
+          if (!this.closed) throw error;
+        }
+      }
+    };
+    const parent = interruptParent();
+    await Promise.all([parent, this.subagentOwner?.interruptAll()]);
   }
   close() {
     this.subagentOwner?.close();

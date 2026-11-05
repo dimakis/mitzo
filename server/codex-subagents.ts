@@ -60,8 +60,8 @@ interface Options {
   scope: SubagentScope;
   store: CodexSubagentStore;
   root(): SubagentRoot | undefined;
-  assertCurrent(child: RetainedSubagent): void;
-  request(method: string, params: ObjectValue): Promise<unknown>;
+  assertCurrent(child: RetainedSubagent, cancelling?: boolean): void;
+  request(method: string, params: ObjectValue, beforeDispatch?: () => void): Promise<unknown>;
   tools: ToolDefinition[];
   executeTool(
     name: string,
@@ -107,6 +107,9 @@ export class CodexSubagents {
   private live = new Map<string, LiveChild>();
   private pending = new Map<string, Promise<void>>();
   private buffered = new Map<string, { method: string; params: ObjectValue }[]>();
+  private overflowed = new Set<string>();
+  private assignedTasks = new Map<string, string>();
+  private parentStopping = false;
   private listeners = new Set<(child: NativeSubagentSnapshot) => void>();
   private closed = false;
   constructor(private readonly opts: Options) {}
@@ -157,7 +160,7 @@ export class CodexSubagents {
         live.turnAbort.signal.aborted)
     )
       throw Error('Child turn identity is no longer current');
-    this.opts.assertCurrent(live.child);
+    this.opts.assertCurrent(live.child, this.parentStopping);
   }
   notification(method: string, params: ObjectValue): boolean {
     if (this.closed) return false;
@@ -196,6 +199,16 @@ export class CodexSubagents {
       const buffer = this.buffered.get(params.threadId)!;
       if (buffer.length < 256 && Buffer.byteLength(JSON.stringify(params)) <= 65536)
         buffer.push({ method, params: structuredClone(params) });
+      else {
+        this.overflowed.add(params.threadId);
+        if (method === 'turn/started' || method === 'turn/completed') {
+          const disposable = buffer.findIndex(
+            (event) => event.method !== 'turn/started' && event.method !== 'turn/completed',
+          );
+          buffer.splice(disposable < 0 ? 0 : disposable, 1);
+          buffer.push({ method, params: structuredClone(params) });
+        }
+      }
       return true;
     }
     const live = this.live.get(params.threadId);
@@ -209,6 +222,15 @@ export class CodexSubagents {
     return true;
   }
   private admit(threadId: string, parentThreadId: string, root: SubagentRoot, task?: string): void {
+    if (task) {
+      this.assignedTasks.set(threadId, task.slice(0, 8192));
+      const live = this.live.get(threadId);
+      if (live) {
+        live.child.task = task.slice(0, 8192);
+        this.publish(live);
+        this.assignedTasks.delete(threadId);
+      }
+    }
     if (
       this.live.has(threadId) ||
       this.pending.has(threadId) ||
@@ -245,10 +267,13 @@ export class CodexSubagents {
           threadId,
           parentThreadId,
           rootThreadId: root.threadId,
-          commandId: root.commandId,
+          commandId:
+            this.live.get(parentThreadId)?.child.commandId ??
+            this.opts.store.get(this.opts.scope, parentThreadId)?.commandId ??
+            root.commandId,
           policyRevision: root.policy.policyRevision,
           name: (checked.agentNickname || 'Subagent').slice(0, 200),
-          task: (task ?? checked.preview ?? '').slice(0, 8192),
+          task: (this.assignedTasks.get(threadId) ?? checked.preview ?? '').slice(0, 8192),
           model: checked.model,
           state: 'starting',
           revision: 1,
@@ -280,11 +305,15 @@ export class CodexSubagents {
         this.current(live);
         this.opts.store.save(this.opts.scope, child);
         const resumed = object(
-          await this.opts.request('thread/resume', {
-            threadId,
-            excludeTurns: true,
-            ...codexNativeExecutionParams(root.policy),
-          }),
+          await this.opts.request(
+            'thread/resume',
+            {
+              threadId,
+              excludeTurns: true,
+              ...codexNativeExecutionParams(root.policy),
+            },
+            () => this.current(live),
+          ),
         );
         this.current(live);
         if (
@@ -297,6 +326,8 @@ export class CodexSubagents {
         // paginated public items only; never replay tool calls from native history.
         await this.hydrate(live);
         this.current(live);
+        if (this.assignedTasks.has(threadId)) child.task = this.assignedTasks.get(threadId)!;
+        if (this.overflowed.has(threadId)) child.outputTruncated = true;
         for (const event of this.buffered.get(threadId) ?? [])
           this.apply(live, event.method, event.params);
         if (!previous)
@@ -323,6 +354,8 @@ export class CodexSubagents {
       .finally(() => {
         this.pending.delete(threadId);
         this.buffered.delete(threadId);
+        this.overflowed.delete(threadId);
+        this.assignedTasks.delete(threadId);
       });
     this.pending.set(threadId, operation);
   }
@@ -361,12 +394,26 @@ export class CodexSubagents {
           threadId: live.child.threadId,
           turnId: turn.id,
           limit: 64,
+          sortDirection: 'asc',
           ...(cursor ? { cursor } : {}),
         }),
       );
       this.current(live);
       if (!Array.isArray(items.data)) throw Error('Child items unavailable');
-      for (const item of items.data) this.apply(live, 'item/completed', { turnId: turn.id, item });
+      for (const raw of items.data) {
+        const entry = z
+          .object({
+            turnId: id,
+            item: z.record(z.string(), z.unknown()),
+            completedAtMs: z.number().nullable(),
+          })
+          .parse(raw);
+        if (entry.turnId !== turn.id) throw Error('Child history crossed turns');
+        this.apply(live, entry.completedAtMs === null ? 'item/started' : 'item/completed', {
+          turnId: turn.id,
+          item: entry.item,
+        });
+      }
       if (typeof items.nextCursor !== 'string') break;
       if (cursors.has(items.nextCursor) || live.child.blocks.length >= 2000)
         throw Error('Child history exceeds supported bounds');
@@ -454,18 +501,28 @@ export class CodexSubagents {
         const completed = method === 'item/completed';
         const failed =
           item.status === 'failed' || item.status === 'declined' || item.success === false;
+        const retained = child.blocks.find((block) => block.id === item.id);
+        const nativeResult = Array.isArray(item.contentItems)
+          ? item.contentItems
+              .map((value) => object(value))
+              .filter((value) => value.type === 'inputText' && typeof value.text === 'string')
+              .map((value) => value.text)
+              .join('\n')
+          : '';
         const content =
           item.type === 'commandExecution'
             ? `${typeof item.command === 'string' ? item.command : ''}${typeof item.aggregatedOutput === 'string' ? '\n' + item.aggregatedOutput : ''}`
             : item.type === 'fileChange'
               ? 'File changes'
-              : typeof item.tool === 'string'
-                ? item.tool
-                : String(item.type);
+              : item.type === 'dynamicToolCall'
+                ? nativeResult || retained?.content || JSON.stringify(item.arguments ?? {})
+                : typeof item.tool === 'string'
+                  ? item.tool
+                  : String(item.type);
         this.block(live, {
           id: item.id,
           type: 'tool',
-          name: String(item.type),
+          name: retained?.name ?? (typeof item.tool === 'string' ? item.tool : String(item.type)),
           content,
           status: completed ? (failed ? 'failed' : 'completed') : 'running',
         });
@@ -510,7 +567,9 @@ export class CodexSubagents {
     signal: AbortSignal,
     context?: CodexServerRequestContext,
   ): Promise<ObjectValue> {
+    if (this.parentStopping) throw Error('Parent cancellation is in progress');
     if (typeof params.threadId === 'string') await this.pending.get(params.threadId);
+    if (this.parentStopping) throw Error('Parent cancellation is in progress');
     const live = this.live.get(String(params.threadId));
     if (!live || typeof params.turnId !== 'string') throw Error('Unadmitted child request');
     const turnId = params.turnId;
@@ -658,11 +717,13 @@ export class CodexSubagents {
   async control(
     raw: NativeSubagentControl,
     authorize: () => void = () => {},
+    parentStop = false,
   ): Promise<NativeSubagentControlStatus> {
     const input = NativeSubagentControlSchema.parse(raw);
     authorize();
     const receipt = this.opts.store.controlResult(this.opts.scope, input);
     if (receipt) return receipt;
+    if (this.parentStopping && !(parentStop && input.action === 'stop')) return 'rejected';
     const live = this.live.get(input.threadId);
     if (!live || this.closed) return 'rejected';
     try {
@@ -673,6 +734,22 @@ export class CodexSubagents {
     const previous = this.opts.store.claimControl(this.opts.scope, input);
     if (previous) return previous;
     let attempted = false;
+    const previousState = live.child.state;
+    let optimisticRevision: number | undefined;
+    const dispatch = async (
+      method: string,
+      params: ObjectValue,
+      state: RetainedSubagent['state'],
+    ) => {
+      const turnId = live.child.turnId;
+      return this.opts.request(method, params, () => {
+        authorize();
+        this.current(live);
+        if (live.child.state !== state || live.child.turnId !== turnId)
+          throw Error('Child changed before control dispatch');
+        attempted = true;
+      });
+    };
     let status: NativeSubagentControlStatus;
     try {
       authorize();
@@ -683,21 +760,28 @@ export class CodexSubagents {
         if (!active) throw Error('Child is not working');
         live.child.state = 'stopping';
         this.publish(live);
-        attempted = true;
-        await this.opts.request('turn/interrupt', {
-          threadId: input.threadId,
-          turnId: live.child.turnId,
-        });
+        optimisticRevision = live.child.revision;
+        await dispatch(
+          'turn/interrupt',
+          {
+            threadId: input.threadId,
+            turnId: live.child.turnId,
+          },
+          'stopping',
+        );
         status = 'accepted';
       } else if (active) {
         const target = live.child.turnId;
-        attempted = true;
         const response = object(
-          await this.opts.request('turn/steer', {
-            threadId: input.threadId,
-            expectedTurnId: target,
-            input: [{ type: 'text', text: input.text }],
-          }),
+          await dispatch(
+            'turn/steer',
+            {
+              threadId: input.threadId,
+              expectedTurnId: target,
+              input: [{ type: 'text', text: input.text }],
+            },
+            live.child.state,
+          ),
         );
         if (response.turnId === target) status = 'accepted';
         else status = 'uncertain';
@@ -705,15 +789,19 @@ export class CodexSubagents {
         if (!['completed', 'stopped'].includes(live.child.state)) throw Error('Child unavailable');
         live.child.state = 'starting';
         this.publish(live);
-        attempted = true;
+        optimisticRevision = live.child.revision;
         const response = object(
-          await this.opts.request('turn/start', {
-            threadId: input.threadId,
-            clientUserMessageId: input.requestId,
-            model: live.child.model,
-            input: [{ type: 'text', text: input.text }],
-            ...codexNativeExecutionParams(live.policy),
-          }),
+          await dispatch(
+            'turn/start',
+            {
+              threadId: input.threadId,
+              clientUserMessageId: input.requestId,
+              model: live.child.model,
+              input: [{ type: 'text', text: input.text }],
+              ...codexNativeExecutionParams(live.policy),
+            },
+            'starting',
+          ),
         );
         const turn = object(response.turn);
         if (typeof turn.id === 'string') {
@@ -729,19 +817,32 @@ export class CodexSubagents {
       }
     } catch (error) {
       status = attempted && !(error instanceof CodexRequestError) ? 'uncertain' : 'rejected';
+      if (status === 'rejected' && optimisticRevision === live.child.revision) {
+        live.child.state = previousState;
+        this.publish(live);
+      }
     }
     this.opts.store.finishControl(this.opts.scope, input, status);
     return status;
   }
   async interruptAll(): Promise<void> {
+    this.parentStopping = true;
+    for (const live of this.live.values()) live.turnAbort.abort();
     await this.settled();
     await Promise.all(
       [...this.live.values()]
         .filter((live) => ['working', 'needs_permission'].includes(live.child.state))
         .map((live) =>
-          this.control({ requestId: randomUUID(), threadId: live.child.threadId, action: 'stop' }),
+          this.control(
+            { requestId: randomUUID(), threadId: live.child.threadId, action: 'stop' },
+            undefined,
+            true,
+          ),
         ),
     );
+  }
+  parentResumed(): void {
+    this.parentStopping = false;
   }
   private invalidate(live: LiveChild): void {
     live.abort.abort();

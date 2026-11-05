@@ -31,3 +31,24 @@ This evidence does not establish production activation, upstream live child
 inheritance, deployment or final user acceptance. No production runtime was
 changed. The Telos creation tool did not create an outcome; code and this
 document preserve the implementation handoff.
+
+## Landing corrections
+
+The first complete CI run built and type-checked the feature and passed nine
+layout shards and three unit shards. Three layout jobs failed because this
+fixture did not mark public image URLs external to its esbuild bundle. The core
+resume probe failed during temporary-directory cleanup while an upstream CLI
+marketplace clone was still writing; the probe now owns and terminates its
+whole process group. An unrelated native session-history case exceeded its
+20-second test envelope; its assertions and allowance remain unchanged.
+
+Centaur's first review identified history-wrapper hydration, optimistic-state
+rollback, descendant command attribution, retained tool output, admission-buffer
+lifecycle loss, parent cancellation ordering, dispatch-time authority and actual
+ChatArea unmounting. These received focused regressions and source corrections.
+The browser fixture now uses the real ChatArea and verifies that finishing the
+parent preserves the open child dialog and draft. The real-renderer component
+regression also preserves the uncertain request identity. The late attributed
+task-prompt follow-up is fixed in the same batch.
+
+Final CI and Centaur verification must cover these corrections before merge.

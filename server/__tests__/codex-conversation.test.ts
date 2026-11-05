@@ -104,6 +104,36 @@ it('routes native children through the original executor without completing or s
   });
   expect(f.c.queue()[0].status).toBe('running');
   expect(f.c.getSubagents()!.list()[0].state).toBe('completed');
+  let releasePreparation!: () => void;
+  f.conversationOptions.prepareAgentContext = async () =>
+    new Promise<void>((resolve) => {
+      releasePreparation = resolve;
+    });
+  let authorized = true;
+  const directed = f.c
+    .getSubagents()!
+    .control(
+      {
+        requestId: 'revoke-during-prepare',
+        action: 'message',
+        threadId: 'child',
+        text: 'Next check',
+      },
+      () => {
+        if (!authorized) throw Error('Operator revoked');
+      },
+    );
+  await vi.waitFor(() => expect(releasePreparation).toBeTypeOf('function'));
+  authorized = false;
+  releasePreparation();
+  expect(await directed).toBe('rejected');
+  expect(
+    f.rpc.request.mock.calls.filter(
+      ([method, params]) => method === 'turn/start' && params.threadId === 'child',
+    ),
+  ).toHaveLength(0);
+  expect(f.c.getSubagents()!.list()[0].state).toBe('completed');
+  f.conversationOptions.prepareAgentContext = undefined;
   expect(f.events.some((event) => JSON.stringify(event).includes('nativeSubagentCommandId'))).toBe(
     true,
   );
@@ -112,6 +142,45 @@ it('routes native children through the original executor without completing or s
     turn: { id: 'turn-1', status: 'completed' },
   });
   await vi.waitFor(() => expect(f.c.queue()[0].status).toBe('completed'));
+});
+
+it('pauses and interrupts the original parent before waiting for slow child cancellation', async () => {
+  const f = await setup();
+  Object.assign(f.conversationOptions, {
+    enableNativeSubagents: true,
+    nativeExecution: codexNativeExecutionPolicy({
+      bindingRevision: 'owner',
+      mode: 'agent',
+      cwd: '/workspace',
+      readableRoots: ['/'],
+      writableRoots: ['/workspace'],
+      deniedRoots: [],
+    }),
+    assertNativeExecutionCurrent: () => {},
+  });
+  await f.c.send({ id: 'original', prompt: 'Work' });
+  await f.c.send({ id: 'queued', prompt: 'Later' });
+  let release!: () => void;
+  vi.spyOn(f.c.getSubagents()!, 'interruptAll').mockImplementation(
+    () =>
+      new Promise<void>((resolve) => {
+        release = resolve;
+      }),
+  );
+  const stopped = f.c.interrupt();
+  expect(
+    f.rpc.request.mock.calls
+      .filter(([method]) => method === 'turn/interrupt')
+      .map(([, params]) => params),
+  ).toContainEqual({ threadId: f.getProviderThread(), turnId: 'turn-1' });
+  f.callbacks.onNotification('turn/completed', {
+    threadId: f.getProviderThread(),
+    turn: { id: 'turn-1', status: 'interrupted' },
+  });
+  await vi.waitFor(() => expect(f.c.queue()[0].status).toBe('interrupted'));
+  expect(f.c.queue()[1].status).toBe('queued');
+  release();
+  await stopped;
 });
 
 it('retains unknown late tool effects independently of its durable error result', async () => {

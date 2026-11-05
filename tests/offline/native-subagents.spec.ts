@@ -8,6 +8,7 @@ const bundle = build({
   entryPoints: [resolve('tests/fixtures/native-subagents.tsx')],
   plugins: [chatStorageBootstrap()],
   bundle: true,
+  external: ['/*.png', '/*.svg'],
   format: 'esm',
   write: false,
   outfile: '/tmp/mitzo-native-subagents.js',
@@ -141,6 +142,11 @@ for (const theme of ['dark', 'light'])
     ).toBeVisible();
     const message = dialog.getByRole('textbox', { name: 'Message Edge cases' });
     await message.fill('Check tabs too');
+    await page.evaluate(() =>
+      (window as unknown as { completeFixtureParent(): void }).completeFixtureParent(),
+    );
+    await expect(dialog).toBeVisible();
+    await expect(message).toHaveValue('Check tabs too');
     await dialog.getByRole('button', { name: 'Send to Edge cases' }).click();
     await expect(message).toHaveValue('');
     expect(controls[0]).toMatchObject({
