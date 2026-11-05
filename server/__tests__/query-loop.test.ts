@@ -149,6 +149,42 @@ function v2msg(type: string, rest: Record<string, unknown> = {}) {
   return expect.objectContaining({ v: 2, type, ...rest });
 }
 
+it('reports completion only at the provider result, across message gaps and later turns', async () => {
+  const transport = fakeTransport();
+  const registry = fakeRegistry(transport);
+  registry.setSessionId('client', 'session');
+  const onTurnStart = vi.fn();
+  const onTurnEnd = vi.fn();
+  const gaps: unknown[] = [];
+  const completions: number[] = [];
+  async function* stream() {
+    for (let turn = 0; turn < 2; turn++) {
+      yield { type: 'provider_turn_start', session_id: 'session', turn_id: `turn-${turn}` };
+      for (let message = 0; message < 2; message++) {
+        yield {
+          type: 'stream_event',
+          event: { type: 'message_start', message: { id: `${turn}-${message}` } },
+        };
+        yield { type: 'assistant', session_id: 'session', message: { content: [] } };
+        gaps.push({
+          snapshot: registry.get('client')!.currentSnapshot,
+          completed: onTurnEnd.mock.calls.length,
+        });
+      }
+      yield { type: 'result', session_id: 'session' };
+      completions.push(onTurnEnd.mock.calls.length);
+    }
+  }
+  await runQueryLoop(stream(), 'client', registry, new AbortController(), undefined, undefined, {
+    onTurnStart,
+    onTurnEnd,
+  });
+  expect(onTurnStart).toHaveBeenCalledWith('client');
+  expect(onTurnEnd).toHaveBeenCalledTimes(2);
+  expect(gaps).toEqual([0, 0, 1, 1].map((completed) => ({ snapshot: null, completed })));
+  expect(completions).toEqual([1, 2]);
+});
+
 it('updates two interleaved message snapshots without searching their block arrays', async () => {
   const run = async (sessionId: string) => {
     const transport = fakeTransport();

@@ -109,17 +109,20 @@ it('refreshes a chooser without silently selecting a conversation when only one 
   expect(screen.queryByTestId('chat-path')).toBeNull();
 });
 it('refreshes current assignments on foreground SSE reconnect without a synthetic work event', async () => {
-  let connection: (connected: boolean) => void = () => {};
+  const connections = new Set<(connected: boolean) => void>();
   vi.spyOn(eventBus, 'onConnectionChange').mockImplementation((callback) => {
-    connection = callback;
-    return () => {};
+    connections.add(callback);
+    return () => {
+      connections.delete(callback);
+    };
   });
   mount();
   await screen.findByRole('heading', { name: 'Chats · 3' });
   vi.mocked(TelosWorkApiClient.prototype.read).mockResolvedValue(view(['worker']));
+  expect(connections.size).toBeGreaterThan(1);
   act(() => {
-    connection(false);
-    connection(true);
+    connections.forEach((connection) => connection(false));
+    connections.forEach((connection) => connection(true));
   });
   await screen.findByRole('heading', { name: 'Chats · 1' });
   expect(screen.queryByTestId('chat-path')).toBeNull();

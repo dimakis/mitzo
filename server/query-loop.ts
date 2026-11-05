@@ -232,7 +232,9 @@ export interface QueryLoopOptions {
   onEvent?: (event: Readonly<Record<string, unknown>>) => void;
   /** Called after the initial prompt is registered, enabling auto-rename on prompt 1. */
   onInitialPrompt?: (sessionId: string) => void;
-  /** Called when an assistant turn completes (snapshot cleared). */
+  /** Called when a parent provider turn starts, including later queued turns. */
+  onTurnStart?: (clientId: string) => void;
+  /** Called at the provider's terminal result, after all renderer messages. */
   onTurnEnd?: (clientId: string) => void;
   /** Called when the SDK echoes a parent user input with its transport UUID. */
   onUserInput?: (clientId: string, inputUuid: string) => void;
@@ -537,7 +539,6 @@ async function _runQueryLoopInner(
         currentTurnSpan.end();
         currentTurnSpan = null;
       }
-      options?.onTurnEnd?.(clientId);
     }
   }
 
@@ -791,6 +792,7 @@ async function _runQueryLoopInner(
             }
           }
         } else if (msg.type === 'provider_turn_start') {
+          options?.onTurnStart?.(clientId);
           // Codex renderer messages are blocks within a provider turn. Count the
           // explicit turn start once, including when no renderable block arrives.
           doneSent = false;
@@ -1017,6 +1019,7 @@ async function _runQueryLoopInner(
             ntfyTurnComplete(sid, snippet, sessionTitle).catch(() => {});
             pushoverTurnComplete(sid, snippet, sessionTitle).catch(() => {});
           }
+          options?.onTurnEnd?.(clientId);
           options?.onResult?.(
             clientId,
             result,
@@ -1131,6 +1134,7 @@ async function _runQueryLoopInner(
             }
 
             parentTurnActive = true;
+            options?.onTurnStart?.(clientId);
 
             // End previous turn span if still open (e.g. deferred message_end)
             if (currentTurnSpan) {
@@ -1310,6 +1314,7 @@ async function _runQueryLoopInner(
             // On the first turn, AssistantMessage can win the async iterator race
             // and the first content_block_start arrives before message_start.
             if (!messageState.messageId) {
+              options?.onTurnStart?.(clientId);
               currentSession.currentSnapshot = messageState.begin(`msg-${Date.now()}`);
               lastContextMessageId = messageState.messageId;
               emit(v2('message_start', { messageId: messageState.messageId }));

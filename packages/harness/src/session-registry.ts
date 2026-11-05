@@ -108,6 +108,8 @@ export interface ManagedSession {
   };
   inputQueue?: { push: (msg: unknown) => void; close: () => void };
   currentSnapshot: MessageSnapshot | null;
+  /** Provider turn lifetime; message snapshots can be empty while tools run. */
+  turnInProgress?: boolean;
   activeSkillPolicy: Set<string> | null;
   observers: Set<SessionTransport>;
   /** Accumulates token totals across multiple query() calls in a session */
@@ -150,6 +152,7 @@ export interface ActiveSessionInfo {
   cumulativeSessionTokens: number;
   cumulativeCostUsd: number;
   hasSnapshot: boolean;
+  turnInProgress?: boolean;
   taskContext: { currentTaskId: string; goalId: string; workerAllocationId?: string } | null;
   observerCount: number;
 }
@@ -650,6 +653,7 @@ export class SessionRegistry {
         cumulativeSessionTokens: session.cumulativeSessionTokens,
         cumulativeCostUsd: session.cumulativeCostUsd,
         hasSnapshot: session.currentSnapshot !== null,
+        turnInProgress: session.turnInProgress,
         taskContext: session.taskContext,
         observerCount: session.observers.size,
       });
