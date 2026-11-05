@@ -9,6 +9,7 @@ import { useTelosChatRoute } from '../hooks/useTelosChatRoute';
 import { TelosChatRouteLayout } from '../components/TelosChatRouteLayout';
 import { TelosWorkControls } from '../components/TelosWorkControls';
 import { ChatStatusMessage } from '../components/ChatStatusMessage';
+import { ComposerStatusProvider } from '../components/ComposerStatus';
 import { TelosAdvisorDraft } from '../components/TelosAdvisorDraft';
 import { bindChatDraftToSession, getSessionChatDraft } from '../lib/chat-drafts';
 import { TelosRoleSetup } from '../components/TelosRoleSetup';
@@ -96,6 +97,14 @@ import { onKeyboardToggle } from '../lib/keyboard';
 import type { ImageAttachment } from '../types/chat';
 
 export function ChatView() {
+  return (
+    <ComposerStatusProvider>
+      <ChatViewContent />
+    </ComposerStatusProvider>
+  );
+}
+
+function ChatViewContent() {
   const [profileToolsTarget, setProfileToolsTarget] = useState<HTMLDivElement | null>(null);
   const [keyboardOpen, setKeyboardOpen] = useState(false);
 
@@ -301,11 +310,12 @@ export function ChatView() {
     setRoleDraftError(null);
     return true;
   }, []);
-  const controlsBlocked =
+  const conversationScopeBlocked =
     roleSetupLocked ||
-    (localBound && !localRuntime.commandAvailable) ||
     localRuntime.metadataPending ||
     (!!sessionId && sessionId !== activeSessionId);
+  const controlsBlocked =
+    conversationScopeBlocked || (localBound && !localRuntime.commandAvailable);
 
   const [builderLinkError, setBuilderLinkError] = useState('');
   const builderSources = activeSessionId
@@ -1851,7 +1861,7 @@ export function ChatView() {
                 }
               />
               <CodexQueueStatus
-                sessionId={controlsBlocked ? null : activeSessionId}
+                sessionId={conversationScopeBlocked ? null : activeSessionId}
                 deliveryStatus={
                   (retainedLocalCommand && !ownsLocalCommand) ||
                   (localCommand && localCommand.state !== 'consumed')
@@ -1998,6 +2008,9 @@ export function ChatView() {
                     : undefined
                 }
                 running={repositoryHandoff.present ? false : messages.running}
+                awaitingApproval={
+                  !explicitNew && !repositoryHandoff.present && !!messages.permission
+                }
                 initialText={initialPrompt}
                 draftControl={repositoryDraftControl}
                 draftStorageKey={

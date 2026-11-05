@@ -1,3 +1,9 @@
+import {
+  queuedButton,
+  queuedRegion,
+  sendCorrection,
+  statusButton,
+} from '../../test-utils/queued-draft-controls';
 import { apiFetch } from '../../lib/api-fetch';
 import { chatStorage } from '../../lib/large-chat-storage';
 // @vitest-environment jsdom
@@ -39,7 +45,7 @@ it('keeps one short failure with Retry while preserving the edited draft and blo
   expect(screen.getAllByText('Something went wrong.')).toHaveLength(1);
   expect(screen.getByRole('button', { name: 'Send message' })).toBeDisabled();
   fireEvent.change(input, { target: { value: 'Keep my later edits too' } });
-  fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+  fireEvent.click(statusButton('Retry'));
   expect(retry).toHaveBeenCalledOnce();
   expect(send).not.toHaveBeenCalled();
   expect(input).toHaveValue('Keep my later edits too');
@@ -47,7 +53,7 @@ it('keeps one short failure with Retry while preserving the edited draft and blo
   view.rerender(
     <ChatInput {...props} sendDisabledAction={{ ...props.sendDisabledAction, disabled: true }} />,
   );
-  expect(screen.getByRole('button', { name: 'Retry' })).toBeDisabled();
+  expect(statusButton('Retry')).toBeDisabled();
 });
 it('keeps bounded running drafts and retained queues intact, exposes only Stop, and never drains at completion', async () => {
   localStorage.setItem(
@@ -172,7 +178,7 @@ it('keeps guarded queued drafts unsent, retains their reply and drains one after
   fireEvent.click(screen.getByRole('button', { name: 'Queue message' }));
   await waitFor(() => expect(input).toHaveValue(''));
   expect(send).not.toHaveBeenCalled();
-  expect(screen.getByRole('region', { name: 'Up next' })).toBeDefined();
+  expect(queuedRegion()).toBeDefined();
   rerender(<ChatInput {...props} running={false} />);
   await waitFor(() => expect(send).toHaveBeenCalledOnce());
   expect(send.mock.calls[0][6]).toEqual(reply);
@@ -194,7 +200,7 @@ it('queues Enter during a guarded running turn and leaves steering as an explici
   );
   const input = screen.getByRole('textbox');
   fireEvent.change(input, { target: { value: 'Next task' } });
-  expect(screen.getByRole('button', { name: 'Steer current turn' })).toBeDefined();
+  expect(screen.getByRole('button', { name: 'Send options' })).toBeDefined();
   fireEvent.keyDown(input, { key: 'Enter' });
   await waitFor(() => expect(input).toHaveValue(''));
   expect(onSend).not.toHaveBeenCalled();
@@ -217,7 +223,7 @@ it('allows a distinct queued draft after uncertain steering without resending th
   );
   const input = screen.getByRole('textbox');
   fireEvent.change(input, { target: { value: 'Correction' } });
-  fireEvent.click(screen.getByRole('button', { name: 'Steer current turn' }));
+  sendCorrection();
   fireEvent.change(input, { target: { value: 'A different next task' } });
   fireEvent.click(screen.getByRole('button', { name: 'Queue message' }));
   await waitFor(() => expect(input).toHaveValue(''));
@@ -246,7 +252,7 @@ it('drains the next queued draft after completion precedes its delivery receipt'
     onStop: vi.fn(),
   };
   const view = render(<ChatInput {...props} running />);
-  fireEvent.click(screen.getByRole('button', { name: 'Steer with queued prompt 1' }));
+  fireEvent.click(queuedButton('Steer with queued prompt 1'));
   // No onInterrupt means this control is disabled; finish the current turn instead.
   view.rerender(<ChatInput {...props} running={false} />);
   await waitFor(() => expect(send).toHaveBeenCalledOnce());
@@ -311,14 +317,12 @@ it('keeps a definitely rejected queued correction editable and pauses automatic 
       interruptLabel="Steer current turn"
     />,
   );
-  fireEvent.click(screen.getByRole('button', { name: 'Steer with queued prompt 1' }));
+  fireEvent.click(queuedButton('Steer with queued prompt 1'));
   await waitFor(() => expect(steer).toHaveBeenCalledOnce());
   await waitFor(() =>
-    expect(
-      screen.getByRole('button', { name: 'Edit, reorder or remove queued prompt 1' }),
-    ).toBeEnabled(),
+    expect(queuedButton('Edit, reorder or remove queued prompt 1')).toBeEnabled(),
   );
-  expect(screen.getByRole('button', { name: 'Resume queue' })).toBeDefined();
+  expect(queuedButton('Resume queue')).toBeDefined();
   expect(send).not.toHaveBeenCalled();
 });
 it('waits for the queued dispatch fence to commit before sending and keeps a refused write editable', async () => {
@@ -343,12 +347,10 @@ it('waits for the queued dispatch fence to commit before sending and keeps a ref
   expect(send).not.toHaveBeenCalled();
   await act(async () => reject());
   await waitFor(() =>
-    expect(
-      screen.getByRole('button', { name: 'Edit, reorder or remove queued prompt 1' }),
-    ).toBeEnabled(),
+    expect(queuedButton('Edit, reorder or remove queued prompt 1')).toBeEnabled(),
   );
   expect(send).not.toHaveBeenCalled();
-  expect(screen.getByRole('button', { name: 'Resume queue' })).toBeDefined();
+  expect(queuedButton('Resume queue')).toBeDefined();
 });
 it('does not drain another prompt merely because admission is accepted before the next turn starts', async () => {
   seedQueued('one-per-response', ['First', 'Second']);
@@ -367,7 +369,7 @@ it('does not drain another prompt merely because admission is accepted before th
   await waitFor(() => expect(send).toHaveBeenCalledOnce());
   await act(async () => {});
   expect(send).toHaveBeenCalledOnce();
-  expect(screen.getByRole('region', { name: 'Up next' })).toHaveTextContent('Second');
+  expect(queuedRegion()).toHaveTextContent('Second');
 });
 it('cold-opens a fenced ordinary prompt without replay and explicitly recovers the same identity', async () => {
   localStorage.setItem(
@@ -397,7 +399,7 @@ it('cold-opens a fenced ordinary prompt without replay and explicitly recovers t
     />,
   );
   expect(send).not.toHaveBeenCalled();
-  fireEvent.click(screen.getByRole('button', { name: 'Check delivery of queued prompt 1' }));
+  fireEvent.click(queuedButton('Check delivery of queued prompt 1'));
   await waitFor(() => expect(send).toHaveBeenCalledOnce());
   expect(send.mock.calls[0][7]).toBe('original-id');
   await waitFor(() => expect(screen.queryByRole('region', { name: 'Up next' })).toBeNull());
@@ -433,7 +435,7 @@ it('cold-opens a fenced correction and recovers its original target instead of t
     />,
   );
   expect(steer).not.toHaveBeenCalled();
-  fireEvent.click(screen.getByRole('button', { name: 'Check delivery of queued prompt 1' }));
+  fireEvent.click(queuedButton('Check delivery of queued prompt 1'));
   await waitFor(() => expect(steer).toHaveBeenCalledOnce());
   expect(steer.mock.calls[0][5]).toBe('correction-id');
   expect(steer.mock.calls[0][6]).toBe('original-turn');
@@ -465,15 +467,13 @@ it('keeps an unconfirmed recovered ordinary dispatch fenced under the same ident
       onStop={vi.fn()}
     />,
   );
-  fireEvent.click(screen.getByRole('button', { name: 'Check delivery of queued prompt 1' }));
+  fireEvent.click(queuedButton('Check delivery of queued prompt 1'));
   await waitFor(() => expect(send).toHaveBeenCalledOnce());
   expect(JSON.parse(localStorage.getItem('mitzo-queue-cold-refused')!)[0]).toMatchObject({
     queueEntryId: 'original-id',
     dispatchPending: true,
   });
-  expect(
-    screen.getByRole('button', { name: 'Edit, reorder or remove queued prompt 1' }),
-  ).toBeDisabled();
+  expect(queuedButton('Edit, reorder or remove queued prompt 1')).toBeDisabled();
 });
 it('clears a cold ordinary fence from authoritative request progress without another dispatch', async () => {
   localStorage.setItem(
@@ -540,16 +540,14 @@ it('keeps a cold steering identity when recovery is refused before an authoritat
       onStop={vi.fn()}
     />,
   );
-  fireEvent.click(screen.getByRole('button', { name: 'Check delivery of queued prompt 1' }));
+  fireEvent.click(queuedButton('Check delivery of queued prompt 1'));
   await waitFor(() => expect(steer).toHaveBeenCalledOnce());
   expect(JSON.parse(localStorage.getItem('mitzo-queue-cold-steer-refused')!)[0]).toMatchObject({
     queueEntryId: 'correction-id',
     dispatchPending: true,
     steeringTargetCommandId: 'original-turn',
   });
-  expect(
-    screen.getByRole('button', { name: 'Edit, reorder or remove queued prompt 1' }),
-  ).toBeDisabled();
+  expect(queuedButton('Edit, reorder or remove queued prompt 1')).toBeDisabled();
 });
 it('releases a cold correction only after its matching native refusal is proved', async () => {
   localStorage.setItem(
@@ -582,12 +580,10 @@ it('releases a cold correction only after its matching native refusal is proved'
       onStop={vi.fn()}
     />,
   );
-  fireEvent.click(screen.getByRole('button', { name: 'Check delivery of queued prompt 1' }));
+  fireEvent.click(queuedButton('Check delivery of queued prompt 1'));
   await waitFor(() => expect(steer).toHaveBeenCalledOnce());
   await waitFor(() =>
-    expect(
-      screen.getByRole('button', { name: 'Edit, reorder or remove queued prompt 1' }),
-    ).toBeEnabled(),
+    expect(queuedButton('Edit, reorder or remove queued prompt 1')).toBeEnabled(),
   );
   expect(
     JSON.parse(localStorage.getItem('mitzo-queue-cold-steer-proven')!)[0].queueEntryId,
@@ -620,7 +616,7 @@ it.each([true, false])(
         onStop={vi.fn()}
       />,
     );
-    fireEvent.click(screen.getByRole('button', { name: 'Check delivery of queued prompt 1' }));
+    fireEvent.click(queuedButton('Check delivery of queued prompt 1'));
     await waitFor(() => expect(apiFetch).toHaveBeenCalledOnce());
     expect(apiFetch).toHaveBeenCalledWith(
       '/api/sessions/cold-legacy/queued-receipts/old-id',

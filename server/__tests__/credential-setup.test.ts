@@ -31,6 +31,40 @@ const input = {
   endpoint: 'https://ha.example.com',
   access: 'read-write',
 };
+it.each([
+  'https://localhost:3100',
+  'https://LOCALHOST:3100',
+  'https://localhost.:3100',
+  'https://127.0.0.1:3100',
+  'https://127.1:3100',
+  'https://[::1]:3100',
+  'https://[::ffff:127.0.0.1]:3100',
+  'https://169.254.169.254',
+])(
+  'rejects a forbidden controller or metadata destination before creating a setup: %s',
+  (endpoint) => {
+    const { service, store, send, vault } = fixture();
+    expect(() =>
+      service.setups.prepare('chat-a', {
+        ...input,
+        endpoint: new URL(endpoint).origin,
+        allowPrivateNetwork: true,
+      }),
+    ).toThrow(/loopback|metadata|blocked/i);
+    expect(store.listSetups()).toEqual([]);
+    expect(send).not.toHaveBeenCalled();
+    expect(vault.save).not.toHaveBeenCalled();
+  },
+);
+it.each(['https://192.168.1.2:8123', 'https://100.90.0.1:8123', 'https://[fd00::1]:8123'])(
+  'preserves explicitly permitted LAN setup: %s',
+  (endpoint) => {
+    const { service } = fixture();
+    expect(
+      service.setups.prepare('chat-a', { ...input, endpoint, allowPrivateNetwork: true }).status,
+    ).toBe('pending');
+  },
+);
 it('accepts surrounding paste whitespace for HA tokens without changing internal token bytes', async () => {
   const { service, send, vault } = fixture();
   const setup = service.setups.prepare('chat-a', input);

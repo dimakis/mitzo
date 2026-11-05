@@ -115,7 +115,8 @@ it.each([
     });
     other.unmount();
     if (edit === 'attachment')
-      fireEvent.click(screen.getByRole('button', { name: 'Remove attachment 1' }));
+      // Starting a separate draft removes the submitted attachment from it.
+      fireEvent.change(screen.getByLabelText('Message Mitzo'), { target: { value: draft.text } });
     else first.rerender(<ChatInput {...props} externalContextBlocks={['New local context']} />);
     act(() => receipt?.('accepted'));
     if (kind === 'rich') expect(getChatDraft(draft.id)?.text).toBe(draft.text);
@@ -171,7 +172,7 @@ it('fences rich layout, imperative flush and parent settings saves until failed 
   fireEvent.change(screen.getByLabelText('Message Mitzo'), {
     target: { value: 'Newer unsaved text' },
   });
-  fireEvent.click(screen.getByRole('button', { name: 'Remove attachment 1' }));
+  expect(screen.queryByRole('button', { name: 'Remove attachment 1' })).toBeNull();
   expect(getChatDraft(draft.id)?.text).toBe(draft.text);
   expect(getChatDraft(draft.id)?.images).toEqual(draft.images);
   expect(control.current?.flush?.()).toBe(false);

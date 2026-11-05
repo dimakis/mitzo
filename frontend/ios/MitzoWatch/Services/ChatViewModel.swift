@@ -220,7 +220,12 @@ final class ChatViewModel: ObservableObject {
             toolStatus = nil
 
         case .permissionRequest(let params):
+            guard params.sessionId == nil || params.sessionId == resolvedSessionId else { return }
             permissionRequest = params
+
+        case .permissionResolved(let params), .permissionTimeout(let params):
+            guard params.sessionId == nil || params.sessionId == resolvedSessionId else { return }
+            dismissReviewedPermission(permId: params.permId)
 
         case .toolResult(let params):
             // Update the block with tool result if we're tracking it

@@ -1,8 +1,10 @@
 import {
-  queueDraft,
-  sendQueued,
   openQueuedEditor,
+  queueDraft,
+  queuedText,
   saveQueuedEditor,
+  sendCorrection,
+  sendQueued,
 } from '../../test-utils/queued-draft-controls';
 // @vitest-environment jsdom
 import { afterEach, expect, it, vi } from 'vitest';
@@ -68,7 +70,7 @@ it.each(['text-and-quote', 'quote-only', 'cancel-quote'] as const)(
     fireEvent.change(screen.getByLabelText('Message Mitzo'), {
       target: { value: 'Original correction' },
     });
-    fireEvent.click(screen.getByRole('button', { name: 'Interrupt and send now' }));
+    sendCorrection();
     expect(interrupt.mock.calls[0][4]).toEqual(original);
     view.rerender(
       <ChatInput {...props} replyTarget={edit === 'cancel-quote' ? undefined : newer} />,
@@ -408,7 +410,7 @@ it.each(['Send Now', 'Edit'])(
     const original = f.command();
     fireEvent.change(f.input(), { target: { value: 'Newer untouched draft' } });
     f.reject(original);
-    expect(screen.getByText('Exact refused input')).toBeTruthy();
+    expect(queuedText('Exact refused input')).toBeTruthy();
     expect(f.input()).toHaveProperty('value', 'Newer untouched draft');
     f.unmount();
     f.remount();
@@ -418,7 +420,7 @@ it.each(['Send Now', 'Edit'])(
     f.receive({ type: 'session_state_changed', sessionId: 'child', state: 'idle' });
     expect(f.onSend).not.toHaveBeenCalled();
     expect(f.command()).toBe(original);
-    expect(screen.getByText('Exact refused input')).toBeTruthy();
+    expect(queuedText('Exact refused input')).toBeTruthy();
     expect(JSON.parse(localStorage.getItem('mitzo-queue-child')!)).toMatchObject([
       { text: 'Exact refused input', contextBlocks: ['exact context'], requiresRetry: true },
     ]);

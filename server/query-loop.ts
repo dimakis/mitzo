@@ -516,10 +516,18 @@ async function _runQueryLoopInner(
     return `b${blockCounter++}`;
   }
 
+  // Message snapshots are cleared before the provider's result. Keep only the
+  // bounded visible reply preview until that result, never tool/reasoning data.
+  let completedReplySnippet = '';
+
   function tryFlushMessageEnd(session: { currentSnapshot: MessageSnapshot | null }) {
     if (pendingMessageEnd && messageState.openBlockCount === 0) {
       emit(pendingMessageEnd);
       pendingMessageEnd = null;
+      completedReplySnippet = extractSnippet(
+        session.currentSnapshot?.blocks ?? [],
+        NOTIFY_SNIPPET_MAX_CHARS,
+      );
       messageState.clear();
       session.currentSnapshot = null;
       // End turn span when message is fully flushed
@@ -567,6 +575,10 @@ async function _runQueryLoopInner(
     }
     emit(pendingMessageEnd);
     pendingMessageEnd = null;
+    completedReplySnippet = extractSnippet(
+      session.currentSnapshot?.blocks ?? [],
+      NOTIFY_SNIPPET_MAX_CHARS,
+    );
     messageState.clear();
     session.currentSnapshot = null;
   }
@@ -815,9 +827,11 @@ async function _runQueryLoopInner(
           });
         } else if (msg.type === 'result') {
           log.info('result received', { clientId, sessionId: msg.session_id });
-          // Capture snapshot blocks before flush (forceFlush nulls the snapshot).
-          const snapshotBlocks = currentSession.currentSnapshot?.blocks ?? [];
+          const snippet = currentSession.currentSnapshot
+            ? extractSnippet(currentSession.currentSnapshot.blocks, NOTIFY_SNIPPET_MAX_CHARS)
+            : completedReplySnippet;
           forceFlushPendingMessage(currentSession);
+          completedReplySnippet = '';
           closeUnconfirmedCompaction();
           doneSent = true;
 
@@ -981,7 +995,7 @@ async function _runQueryLoopInner(
               isError
                 ? (providerFailure?.message ??
                     'The request failed. Open the chat to review its status.')
-                : extractSnippet(snapshotBlocks, NOTIFY_SNIPPET_MAX_CHARS),
+                : snippet,
               store?.getSession(resultSid)?.summary ?? undefined,
               !registry.isAttached(clientId) && !connRegistry?.hasOpenWatchers(resultSid),
             );
@@ -997,8 +1011,7 @@ async function _runQueryLoopInner(
               }
             }
           }
-          if (!isError && !registry.isAttached(clientId)) {
-            const snippet = extractSnippet(snapshotBlocks, NOTIFY_SNIPPET_MAX_CHARS);
+          if (!isError && snippet && !registry.isAttached(clientId)) {
             const sid = (msg.session_id as string) || currentSession.sessionId;
             const sessionTitle = sid ? (store?.getSession(sid)?.summary ?? undefined) : undefined;
             ntfyTurnComplete(sid, snippet, sessionTitle).catch(() => {});

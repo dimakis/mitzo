@@ -1,8 +1,9 @@
 import {
-  queueDraft,
-  sendQueued,
   openQueuedEditor,
+  queueDraft,
+  queuedText,
   saveQueuedEditor,
+  sendQueued,
 } from '../../test-utils/queued-draft-controls';
 // @vitest-environment jsdom
 import { afterEach, expect, it, vi } from 'vitest';
@@ -298,7 +299,7 @@ it('cannot clear an ordinary draft with a foreign-session echo or refusal sharin
   expect(f.input()).toHaveProperty('value', '');
   fireEvent(window, new Event('pagehide'));
   expect(localStorage.getItem('mitzo-draft-child')).toBe('Owned input');
-  expect(screen.getByAltText('Attachment 1')).toBeTruthy();
+  expect(screen.queryByAltText('Attachment 1')).toBeNull();
   f.receive({
     type: 'user_message',
     sessionId: 'child',
@@ -320,7 +321,7 @@ it('retains a refused ordinary payload in the explicit retry queue without overw
   f.reject();
   f.reject();
   expect(f.input()).toHaveProperty('value', 'Newer draft');
-  expect(screen.getByText('Refused payload')).toBeTruthy();
+  expect(queuedText('Refused payload')).toBeTruthy();
   const saved = JSON.parse(localStorage.getItem('mitzo-queue-child')!);
   expect(saved).toMatchObject([
     { text: 'Refused payload', contextBlocks: ['exact context'], requiresRetry: true },
@@ -365,6 +366,7 @@ it.each(['attachment', 'context'] as const)(
     fireEvent.keyDown(f.input(), { key: 'Enter' });
     const command = f.command();
     if (edit === 'attachment') {
+      await f.compose('', 'next.png');
       fireEvent.click(screen.getByRole('button', { name: 'Remove attachment 1' }));
     } else fireEvent.click(screen.getByText('Select context'));
     expect(f.input()).toHaveProperty('value', '');
@@ -466,7 +468,7 @@ it('keeps an ended reasoning send pending across its correlated ordinary-session
   expect(f.input()).toHaveProperty('value', '');
   fireEvent(window, new Event('pagehide'));
   expect(localStorage.getItem('mitzo-draft-new-chat')).toBe('Fork this input');
-  expect(screen.getByAltText('Attachment 1')).toBeTruthy();
+  expect(screen.queryByAltText('Attachment 1')).toBeNull();
   expect(screen.getByText('exact context')).toBeTruthy();
   f.receive({
     type: 'user_message',
@@ -497,7 +499,7 @@ it('preserves later edits through the exact ordinary-session fork and original a
   });
   expect(f.delivery).toHaveBeenCalledExactlyOnceWith('accepted');
   expect(f.input()).toHaveProperty('value', 'Later draft');
-  expect(screen.getByAltText('Attachment 1')).toBeTruthy();
+  expect(screen.queryByAltText('Attachment 1')).toBeNull();
 });
 
 it('keeps an unassigned draft in new-chat storage when navigation has no exact assignment', async () => {
@@ -562,11 +564,11 @@ it('removes only an accepted automatic queue record from its original conversati
     { text: 'Other A', contextBlocks: [] },
   ]);
   expect(f.input()).toHaveProperty('value', 'B draft');
-  expect(screen.getByText('B queue')).toBeTruthy();
+  expect(queuedText('B queue')).toBeTruthy();
   await act(() => f.store.getState().switchSession('child'));
   f.renderScope('child');
   expect(screen.queryByText('Accepted A')).toBeNull();
-  expect(screen.getByText('Other A')).toBeTruthy();
+  expect(queuedText('Other A')).toBeTruthy();
   expect(f.onSend).toHaveBeenCalledOnce();
 });
 
@@ -595,7 +597,7 @@ it('keeps a known refused queued running interrupt under its original retry fenc
   expect(f.input()).toHaveProperty('value', 'B draft');
   await act(() => f.store.getState().switchSession('child'));
   f.renderScope('child');
-  expect(screen.getByText('Interrupted A')).toBeTruthy();
+  expect(queuedText('Interrupted A')).toBeTruthy();
   expect(f.onSend).not.toHaveBeenCalled();
 });
 
@@ -610,7 +612,7 @@ it('reconciles an accepted automatic queue entry in reopened A without removing 
   const c = f.command();
   f.unmount();
   f.remount();
-  expect(screen.getByText('Accepted across reload')).toBeTruthy();
+  expect(queuedText('Accepted across reload')).toBeTruthy();
   f.receive({
     type: 'user_message',
     sessionId: 'child',
@@ -618,7 +620,7 @@ it('reconciles an accepted automatic queue entry in reopened A without removing 
     text: 'Accepted across reload',
   });
   expect(screen.queryByText('Accepted across reload')).toBeNull();
-  expect(screen.getByText('Other A')).toBeTruthy();
+  expect(queuedText('Other A')).toBeTruthy();
   expect(JSON.parse(localStorage.getItem('mitzo-queue-child')!)).toMatchObject([
     { text: 'Other A', contextBlocks: [] },
   ]);
@@ -641,7 +643,7 @@ it('carries remaining work through an exact fork whose acceptance precedes the a
   });
   f.renderScope('fork');
   expect(screen.queryByText('Forked first')).toBeNull();
-  expect(screen.getByText('Remaining work')).toBeTruthy();
+  expect(queuedText('Remaining work')).toBeTruthy();
   expect(JSON.parse(localStorage.getItem('mitzo-queue-fork')!)).toMatchObject([
     { text: 'Remaining work', contextBlocks: [] },
   ]);
@@ -889,11 +891,11 @@ it.each(['send', 'interrupt', 'automatic queue'] as const)(
       contextBlocks: ['exact context'],
     });
     await f.compose('Newer HTTP draft');
-    if (control !== 'automatic queue')
+    if (control === 'interrupt')
       fireEvent.click(screen.getByRole('button', { name: 'Remove attachment 1' }));
     f.reject(c);
     expect(f.input()).toHaveProperty('value', 'Newer HTTP draft');
-    expect(screen.getByText('Exact HTTP input')).toBeTruthy();
+    expect(queuedText('Exact HTTP input')).toBeTruthy();
     const stored = localStorage.getItem('mitzo-queue-child')!;
     if (control === 'automatic queue') expect(stored).toContain('private-http.png');
     else expect(stored).not.toContain('private-http.png');

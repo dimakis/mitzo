@@ -300,7 +300,7 @@
           "approvedOn": "2026-10-16",
           "approval": {
             "thread": "01a13ea4-6c32-7af0-b635-c3f5f56aecb5",
-            "quote": "Looks decent. Let’s update telos and give a handover to start",
+            "quote": "Looks decent. Let\u2019s update telos and give a handover to start",
             "scope": "Fresh ordinary agent setup, reviewed joining brief, compact participant header, one Agents view and shared composer. Existing-chat import removed; Fork remains separate. Canonical Telos approval d2b5bce4090c39a595457335763271b5 revision 1."
           },
           "references": [
@@ -316,7 +316,7 @@
           "invariants": [
             "Ordinary chat first, compact participant header, one Agents dialog and the existing shared composer with stable recipient attribution.",
             "Add agent is fresh editable setup with Agent, name, Account/Model/Thinking, Mac host then OpenShell runtime choices, real repository and full or selected starting context.",
-            "Add agent retains Cancel and Fresh session · starts with a prompt. in its reachable footer; returning to Agents preserves the editable draft.",
+            "Add agent retains Cancel and Fresh session \u00b7 starts with a prompt. in its reachable footer; returning to Agents preserves the editable draft.",
             "Before joining retains Back/title/close, separate boot guidance, exact attributed context and saved artifact filenames/versions, editable refrozen brief on the same screen, flat Agents policy row, and Back / Join conversation.",
             "No extra Freeze step, existing-chat import, cross-group enrollment or substitute recipient form; Fork remains separate.",
             "Setup, review, joining and reading alone invoke no model; unavailable authority, stale review and uncertain recovery retain editable intent or original join identity.",
@@ -360,7 +360,7 @@
           "approvedOn": "2026-10-18",
           "approval": {
             "thread": "01a13ea4-6c32-7af0-b635-c3f5f56aecb5",
-            "quote": "Looks decent. Let’s update telos and give a handover to start",
+            "quote": "Looks decent. Let\u2019s update telos and give a handover to start",
             "scope": "Fresh ordinary agent setup, reviewed joining brief, compact participant header, one Agents view and shared composer. Existing-chat import removed; Fork remains separate. Canonical Telos approval d2b5bce4090c39a595457335763271b5 revision 1."
           },
           "references": [
@@ -376,7 +376,7 @@
           "invariants": [
             "Ordinary chat first, compact participant header, one Agents dialog and the existing shared composer with stable recipient attribution.",
             "Add agent is fresh editable setup with Agent, name, Account/Model/Thinking, Mac host then OpenShell runtime choices, real repository and full or selected starting context.",
-            "Add agent retains Cancel and Fresh session · starts with a prompt. in its reachable footer; returning to Agents preserves the editable draft.",
+            "Add agent retains Cancel and Fresh session \u00b7 starts with a prompt. in its reachable footer; returning to Agents preserves the editable draft.",
             "Before joining retains Back/title/close, separate boot guidance, exact attributed context and saved artifact filenames/versions, editable refrozen brief on the same screen, flat Agents policy row, and Back / Join conversation.",
             "No extra Freeze step, existing-chat import, cross-group enrollment or substitute recipient form; Fork remains separate.",
             "Setup, review, joining and reading alone invoke no model; unavailable authority, stale review and uncertain recovery retain editable intent or original join identity.",
@@ -425,6 +425,70 @@
               "record": "docs/design/approved/symposium/test-syntax-approval-2026-10-18.md"
             }
           }
+        }
+      ]
+    },
+    {
+      "id": "chat-status",
+      "activeRevision": "above-composer-2026-11-04",
+      "revisions": [
+        {
+          "id": "above-composer-2026-11-04",
+          "approvedBy": "Dimitri (explicit placement selection and preservation constraint)",
+          "approvedOn": "2026-11-04",
+          "approval": {
+            "thread": "Originating Mitzo chat, MGMT task repo-1f9ab105-97fc-8dde-b620-7615ed2a54aa; conversation ID unavailable to this runtime",
+            "quote": "I love this. I want it above the composer.",
+            "scope": "Only the above-composer combined status and agreed draft/send presentation. Preserve existing message dates, copy/read-aloud controls, composer icons/features, keyboard dispatch semantics, and runtime delivery/recovery fences. The simplified prototype message bubbles and toolbar are not replacement designs."
+          },
+          "references": [
+            {
+              "path": "docs/design/approved/chat-status/status-above-composer.html",
+              "sha256": "7b4cce395218cb1766272e9f567b7b19c9d512c1e9cc6cf1e95cb40770526739"
+            }
+          ],
+          "invariants": [
+            "One always-mounted, single-line status row above the existing composer, using the shared control height and an overlay for full detail.",
+            "Keep message dates, copy, read aloud, reply menus and all existing composer tools and capabilities.",
+            "Routine autosaving stays quiet; actual failures and approvals remain visible. Independent issues remain actionable after another clears.",
+            "Existing queue editing, ordering, pause/resume, attachments, cancellation and recovery remain available through details without changing their owners or dispatch semantics.",
+            "Submitted text and image previews leave together while the original payload remains retained; late receipts cannot erase newer or foreign drafts.",
+            "Routine recovery feedback cannot replace a running agent label with a misleading conversation reconnect label. Genuine blocked/uncertain outcomes retain their explicit checks.",
+            "Shared theme, accent, font, motion, keyboard and touch targets remain effective; the Chat settings approval is unchanged."
+          ],
+          "sources": [
+            "frontend/src/components/ComposerStatus.tsx",
+            "frontend/src/components/ComposerStatus.css",
+            "frontend/src/lib/composer-status-context.ts",
+            "frontend/src/components/ChatInput.tsx",
+            "frontend/src/components/ChatStatusMessage.tsx",
+            "frontend/src/components/CodexQueueStatus.tsx",
+            "frontend/src/components/WorkspaceActionMenu.tsx",
+            "frontend/src/pages/ChatView.tsx",
+            "frontend/src/pages/DesktopChatView.tsx"
+          ],
+          "checks": [
+            "frontend/src/components/__tests__/ComposerStatus.test.tsx",
+            "frontend/src/components/__tests__/ChatInputStatus.test.tsx",
+            "tests/offline/chat-queue-steering.spec.ts",
+            "frontend/src/components/__tests__/ChatInputCommandStrip.test.tsx",
+            "frontend/src/components/__tests__/MessageActions.test.tsx"
+          ],
+          "protectedChecks": [
+            {
+              "path": "frontend/src/components/__tests__/ComposerStatus.test.tsx",
+              "sha256": "0cb49ba69f1519d678e36c392a0be04843cf40e7c5238247e26763b533844b85"
+            },
+            {
+              "path": "frontend/src/components/__tests__/ChatInputStatus.test.tsx",
+              "sha256": "18bce758f08927f108db65f411f421090b4e74bcde1ebb4b999381738e8010b4"
+            },
+            {
+              "path": "tests/offline/chat-queue-steering.spec.ts",
+              "sha256": "140987f86a77ba33f4ce9b504ae12c31014c1ec6393cb6ee8b56e81cd4daee8e"
+            }
+          ],
+          "validation": "docs/features/chat-composer-status.md"
         }
       ]
     }

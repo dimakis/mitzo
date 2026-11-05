@@ -1,5 +1,28 @@
 # Mitzo UI design contract
 
+## Combined composer status
+
+Ordinary chats use the approved status row above the existing composer. It has
+the shared control height, one-line overflow, semantic status colors and one
+details action. Routine autosaving is silent. Queue, recovery and error actions
+retain their existing owners inside the shared HomeDialog; opening it does not
+dispatch work. Multiple problems aggregate without growing the row. Routine busy
+recovery does not replace a running agent's Working label, and actual approvals
+and failures remain visible.
+
+A single existing Retry/continuation action remains directly available in that
+fixed row; multiple actions remain reachable through Review and details.
+
+This reuses UiIcon, WorkspaceActionMenu, HomeDialog and the existing queued draft
+tray. Send correction moves to Send options; the remaining toolbar icons, keyboard
+dispatch rules, message dates/copy/read-aloud controls and approved Chat settings
+stay intact. See [the feature and validation record](../features/chat-composer-status.md)
+and the `chat-status/above-composer-2026-11-04` ledger entry. The offline fixture
+defines phone/desktop, both themes and alternate appearance, fixed geometry,
+keyboard/focus, message controls and retained screenshot delivery checks. Local
+browser execution is blocked by the host marker; matching CI captures remain
+required visual evidence.
+
 ## Reviewed native continuation
 
 Retained Responses conversations expose **Continue with Codex** beside the existing
@@ -591,6 +614,31 @@ large content, narrow mobile and desktop, theme/accent/font substitution, keyboa
 disclosure and reduced motion with no backend or provider.
 
 `AgentActivity` groups consecutive normalized thought/tool blocks between responses, including across provider message boundaries. Its one-line latest-activity preview uses the shared type/spacing/radius scales, semantic muted/error colors, `UiIcon`, a `--control-height` button with visible focus and `aria-expanded`, and `MotionPresence` for details. Failure counts, including failures inside delegated agents, remain visible when collapsed. Delegated agents stay inside the same shared disclosure, with their total and running count in its preview; nested cards use shared disclosure motion. Existing tool/thought controls retain full detail, while approvals, progress, web-access results and deduplicated setup cards stay outside the disclosure. Group identity follows the session and captured seat/account generation. Activity and thought content start open and remain readable while awaiting a reply, including between provider messages and after tool completion. Visible text from the same speaker collapses preceding activity; another speaker's reply and a new user turn cannot complete it. Manual reopening after a reply persists through further updates. No timer collapses thought content within this group. Empty or whitespace-only text does not split activity. Automatic collapse returns keyboard focus from closing details to the header while preserving focus elsewhere, including the composer, with both normal and reduced motion. No provider or account selects a separate visual treatment.
+
+## Tool result readability
+
+Generic tool input and output uses `ToolResultContent`: valid JSON objects and
+arrays appear as labelled fields and expandable records. Records use their title,
+name, message or commit message as a bounded preview. Each level initially shows
+ten entries; Show more retains access to every later entry. Empty collections,
+false, zero, null and empty strings remain visible. Numeric source tokens retain
+their spelling so large IDs cannot be rounded by JSON parsing.
+
+Readable/Raw controls and Copy use shared semantic colors, font roles, spacing,
+radii, focus and `--control-height` targets. Raw and Copy preserve the original
+bytes. Text and long identifiers wrap; the keyboard-scrollable result body is
+bounded by `min(60dvh, 32rem)` to keep large results inside the transcript.
+Nested disclosures reuse `MotionPresence`; indentation stops growing after the
+first nested level to preserve narrow-screen reading width. Partial JSON and
+results over 256 KiB fall back to wrapped text. Existing source-file, command,
+diff, image, proposal and setup renderers retain their specialized presentation.
+
+The `tool-results` offline fixture covers 320px mobile and desktop layouts,
+dark Mint/System and light Teal/Georgia with larger text, keyboard expansion,
+long values, raw access, paging, empty/error/running states and retained drafts.
+Focused component and design checks pass locally. Browser execution and visual
+inspection remain pending: this session's escalated launcher still reported
+the macOS Seatbelt sandbox, and the repository guard refused before launch.
 
 ## Terminal output layout
 
@@ -2385,6 +2433,15 @@ existing explicit reconnect action to verify that receipt under current authorit
 It still sends nothing until the user activates the control. Truly unknown effects
 keep continuation and retry controls withheld; a completed response is never
 relabelled as failed. The fixture covers all three states and retained queued work.
+
+An ordinary chat keeps this recovery row available while Send is blocked by a
+retained outcome. Route identity and metadata loading still withhold controls.
+Successful explicit recovery refreshes shared conversation settings, retaining
+the next draft and model/thinking choices. Unknown effects never trigger a
+background reattachment. Existing status controls, tokens and layout are reused;
+mounted phone/desktop regressions and the intercepted queue fixture cover this path.
+Inspected captures: [phone recovery](assets/chat-recovery-mobile-dark.png) and
+[desktop recovery](assets/chat-recovery-desktop-light.png).
 
 ## Telos brief readability
 

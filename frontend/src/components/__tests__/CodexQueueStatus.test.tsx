@@ -4,12 +4,17 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-libra
 import userEvent from '@testing-library/user-event';
 import { apiFetch } from '../../lib/api-fetch';
 import { CodexQueueStatus } from '../CodexQueueStatus';
+import { ComposerStatusProvider, ComposerStatusRail } from '../ComposerStatus';
 
 vi.mock('../../lib/api-fetch', () => ({ apiFetch: vi.fn() }));
 const queueSignal = vi.hoisted(() => ({ revision: 0 }));
 vi.mock('@mitzo/client/hooks', () => ({
   useMitzoStore: (select: (state: unknown) => unknown) =>
-    select({ getTransportConnectionId: () => 'owned-sse', queueRevision: queueSignal.revision }),
+    select({
+      getTransportConnectionId: () => 'owned-sse',
+      queueRevision: queueSignal.revision,
+      invalidateSessionMetadata: vi.fn(),
+    }),
 }));
 
 const meta = (queue: Record<string, unknown>) =>
@@ -26,6 +31,39 @@ afterEach(() => {
 });
 
 const idleQueue = { paused: false, connected: true, queued: 0, interrupted: 0 };
+
+it('combines recovery feedback above the composer and keeps queue controls in its details', async () => {
+  HTMLDialogElement.prototype.showModal = function () {
+    this.setAttribute('open', '');
+  };
+  HTMLDialogElement.prototype.close = function () {
+    this.removeAttribute('open');
+  };
+  vi.mocked(apiFetch).mockImplementation(async (path) =>
+    String(path).endsWith('/meta')
+      ? meta({ ...idleQueue, queued: 1, recovering: true })
+      : commands([{ id: 'waiting', preview: 'Preserved queued prompt' }]),
+  );
+  render(
+    <ComposerStatusProvider>
+      <CodexQueueStatus sessionId="combined" />
+      <ComposerStatusRail running />
+    </ComposerStatusProvider>,
+  );
+  await act(async () => {});
+  expect(screen.queryByRole('button', { name: 'Review queue' })).toBeNull();
+  const rail = screen.getByRole('region', { name: 'Conversation status' });
+  expect(rail.textContent).toContain('Working');
+  expect(rail.textContent).not.toContain('Reconnecting');
+  fireEvent.click(screen.getByRole('button', { name: '1 queued message' }));
+  expect(screen.getByRole('dialog', { name: 'Conversation status' }).textContent).toContain(
+    'Reconnecting',
+  );
+  fireEvent.click(screen.getByRole('button', { name: 'Review queue' }));
+  expect(screen.getByText('Preserved queued prompt')).toBeTruthy();
+  expect(screen.getByRole('button', { name: 'Cancel' })).toBeTruthy();
+  expect(vi.mocked(apiFetch).mock.calls.every(([, options]) => !options?.method)).toBe(true);
+});
 
 it('loads and cancels queue previews without AbortSignal.any on older WebKit', async () => {
   const any = Object.getOwnPropertyDescriptor(AbortSignal, 'any')!;
@@ -1116,7 +1154,9 @@ it('keeps completed responses distinct from an unfinished follow-up with unknown
     meta({
       ...idleQueue,
       paused: true,
-      canContinue: true,
+      canContinue: false,
+      connected: false,
+      failed: 1,
       queued: 1,
       operation: {
         commandId: 'completed-response',
@@ -1134,9 +1174,7 @@ it('keeps completed responses distinct from an unfinished follow-up with unknown
   );
   expect(screen.queryByText('Previous turn failed. Retry when available.')).toBeNull();
   expect(screen.queryByRole('button', { name: 'Reconnect and continue' })).toBeNull();
-  expect(
-    vi.mocked(apiFetch).mock.calls.every(([path]) => !String(path).includes('/continue')),
-  ).toBe(true);
+  expect(vi.mocked(apiFetch).mock.calls.every(([, init]) => init?.method !== 'POST')).toBe(true);
 });
 
 it('offers explicit reconciliation when the original completion owner observed success', async () => {

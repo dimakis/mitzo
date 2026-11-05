@@ -4,7 +4,9 @@ import {
   type CredentialConnectionInput,
 } from './credential-connection-schema.js';
 import { randomUUID } from 'node:crypto';
+import { isIP } from 'node:net';
 import { z } from 'zod';
+import { isAllowedConnectionAddress } from './credential-http.js';
 import {
   CredentialVerificationError,
   type VerificationErrorCode,
@@ -151,6 +153,17 @@ export class CredentialConnectionSetups {
   prepare(sessionId: string, input: unknown): ConnectionSetup {
     if (!sessionId || sessionId.length > 256) throw new Error('Session unavailable');
     const parsed = PrepareConnectionSetupSchema.parse(input);
+    // Reject known forbidden destinations before asking for a credential.
+    // DNS answers are still checked and pinned by the transport at dispatch.
+    const hostname = new URL(parsed.endpoint).hostname.replace(/^\[|\]$/g, '').replace(/\.$/, '');
+    if (
+      hostname === 'localhost' ||
+      hostname.endsWith('.localhost') ||
+      (isIP(hostname) && !isAllowedConnectionAddress(hostname, parsed.allowPrivateNetwork))
+    )
+      throw Error(
+        'Loopback, metadata and other blocked service addresses cannot use Connections. Private-network access permits LAN services, not the local Mitzo controller. Use the built-in Telos tools for Telos work.',
+      );
     const home = parsed.profile === 'home-assistant';
     const jira = parsed.profile === 'jira';
     const jiraPath = parsed.jira?.cloudId

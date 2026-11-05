@@ -416,6 +416,7 @@ export async function localRepositoryNativeToolFixture(
         input: Record<string, unknown>,
         override?: Record<string, unknown>,
         callSignal?: AbortSignal,
+        requestContext?: Parameters<CodexLifecycleTransport['onRequest']>[3],
       ) {
         const response = await callbacks.onRequest(
           'item/tool/call',
@@ -429,6 +430,7 @@ export async function localRepositoryNativeToolFixture(
             ...override,
           },
           callSignal ?? new AbortController().signal,
+          requestContext,
         );
         const item = (response.contentItems as Array<{ text: string }>)[0];
         return { response, value: response.success ? JSON.parse(item.text) : item.text };

@@ -600,7 +600,9 @@ test('drafts: save status describes confirmed device storage and disappears when
     await expect(input).toHaveValue('');
     await expect(page.locator('.chat-draft-save-status')).toHaveCount(0);
     await input.fill('Just a test.');
-    await expect(page.locator('.chat-draft-save-status')).toHaveText('Draft saved on this device');
+    await expect(
+      page.getByText(/Draft saved on this device|Saving draft on this device/),
+    ).toHaveCount(0);
     await expect
       .poll(() =>
         readChatStorage(page, (storage) =>
@@ -724,7 +726,9 @@ test('drafts: unsent new input saves separately and legacy input migrates withou
   const input = page.getByRole('textbox', { name: 'Message Mitzo' });
   await expect(input).toHaveValue('');
   await input.fill('A separate new message');
-  await expect(page.locator('.chat-draft-save-status')).toHaveText('Draft saved on this device');
+  await expect(
+    page.getByText(/Draft saved on this device|Saving draft on this device/),
+  ).toHaveCount(0);
   await page.goto('/sessions/drafts');
   await expect(page.getByRole('link', { name: /Existing legacy briefing draft/ })).toBeVisible();
   await expect(page.getByRole('link', { name: /A separate new message/ })).toBeVisible();

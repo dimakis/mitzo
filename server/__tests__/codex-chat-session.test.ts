@@ -7,6 +7,11 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
+// Offline controller fixtures must not inspect the operator's real private home.
+vi.mock('node:os', async (original) => {
+  const actual = await original<typeof import('node:os')>();
+  return { ...actual, homedir: () => `${actual.tmpdir()}/mitzo-chat-offline-home` };
+});
 const mocks = vi.hoisted(() => ({
   initialize: vi.fn(),
   close: vi.fn(),
@@ -1128,10 +1133,10 @@ it('advertises reviewed per-chat provider grants to a managed OpenShell runtime'
     );
     expect(mocks.conversationOptions?.systemPrompt).toContain('GrantIntegrationAccess');
     expect(mocks.conversationOptions?.systemPrompt).toContain(
-      'Use RequestGithubPublish to publish committed local changes',
+      'the publication route for runtimes without authorized native GitHub tools',
     );
     expect(mocks.conversationOptions?.systemPrompt).toContain(
-      'Do not substitute direct git push or gh API writes after denial',
+      'do not run both or bypass a policy or authorization denial',
     );
     const adoptionEvidence = {
       storeId: 'notes',
@@ -1696,7 +1701,9 @@ it('preserves image attachments while binding a trusted capability, forcing appr
       item.name.startsWith('Capability_github_publish_pr'),
     );
     expect(tool).toBeDefined();
-    expect(mocks.conversationOptions?.systemPrompt).toContain('Use RequestGithubPublish');
+    expect(mocks.conversationOptions?.systemPrompt).toContain(
+      'RequestGithubPublish is the managed alternative',
+    );
     expect(mocks.conversationOptions?.systemPrompt).not.toContain(
       'GitHub publishing is unavailable',
     );
@@ -3811,7 +3818,7 @@ it('qualifies owned native, MCP, profile and publishing tools and rejects other 
       execute(
         'RequestGithubPublish',
         {
-          repositoryPath: f.opts.session.cwd,
+          repositoryPath: realpathSync(f.opts.session.cwd!),
           baseBranch: 'main',
           title: 'Owned work',
           body: 'Review',
@@ -3831,7 +3838,7 @@ it('qualifies owned native, MCP, profile and publishing tools and rejects other 
           baseOid: 'a'.repeat(40),
         },
       }),
-      f.opts.session.cwd,
+      realpathSync(f.opts.session.cwd!),
       'main',
       expect.any(AbortSignal),
     );
@@ -5637,6 +5644,9 @@ it.each([
         expect(names).toEqual(
           [
             'AskUserQuestion',
+            'DescribeIntegrationTool',
+            'InvokeIntegrationTool',
+            'ListIntegrationTools',
             'TelosReadArtifact',
             'TelosSaveArtifact',
             'TelosStartSlice',
@@ -5650,14 +5660,28 @@ it.each([
           context: { turnId: string; callId: string },
         ) => Promise<unknown>;
         mocks.permissionHandler.mockClear();
-        for (const name of [
-          'TaskComplete',
-          'mcp__task-board__TaskComplete',
-          'InvokeIntegrationTool',
-        ])
+        for (const name of ['TaskComplete', 'mcp__task-board__TaskComplete'])
           await expect(
             execute(name, {}, new AbortController().signal, { turnId: 'lead-turn', callId: name }),
           ).rejects.toThrow(/not selected|unavailable/i);
+        const contract = JSON.parse(
+          (
+            (await execute(
+              'DescribeIntegrationTool',
+              { toolId: 'TelosSaveArtifact' },
+              new AbortController().signal,
+              { turnId: 'lead-turn', callId: 'describe-artifact' },
+            )) as { content: string }
+          ).content,
+        );
+        expect(
+          await execute(
+            'InvokeIntegrationTool',
+            { toolId: contract.toolId, catalogRevision: contract.catalogRevision, arguments: {} },
+            new AbortController().signal,
+            { turnId: 'lead-turn', callId: 'proxy-artifact' },
+          ),
+        ).toMatchObject({ isError: true, content: expect.stringContaining('direct_tool') });
         expect(mocks.permissionHandler).not.toHaveBeenCalled();
         expect(f.opts.session.taskContext).toBeFalsy();
       }
@@ -6656,44 +6680,130 @@ async function openOwnedOpenShellEfficiencyFixture(
   };
 }
 
-it('offers Telos backlog tools to a default native chat without a retained Telos role', async () => {
-  vi.clearAllMocks();
-  mocks.initialize.mockResolvedValue(undefined);
-  mocks.send.mockResolvedValue(undefined);
-  mocks.connect.mockResolvedValue({
-    definitions: [],
-    close: mocks.mcpClose,
-    displayName: (name: string) => name,
-  });
-  const { createTelosCanonicalData } = await import('./fixtures/telos-canonical-advisor.js');
-  const { initializeTelosMainPublicationRuntime, closeTelosMainPublicationRuntime } =
-    await import('../telos-main-publication-runtime.js');
-  const canonical = createTelosCanonicalData();
-  const f = ownedLocalOptions();
-  f.opts.assertAgentContextAuthorization = vi.fn();
-  initializeTelosMainPublicationRuntime({
-    registry: f.opts.registry,
-    events: f.eventStore,
-    databasePath: () => canonical.dbPath,
-  });
-  let query: Awaited<ReturnType<typeof openCodexChat>> | undefined;
-  try {
-    query = await openCodexChat(f.opts);
-    const tools = mocks.conversationOptions!.tools as { name: string }[];
-    for (const name of [
-      'TelosListItems',
-      'TelosSearchItems',
-      'TelosManageItem',
-      'TelosCreateChild',
-    ])
-      expect(tools.some((tool) => tool.name === name)).toBe(true);
-  } finally {
-    query?.close();
-    closeTelosMainPublicationRuntime();
-    f.eventStore.close();
-    canonical.close();
-  }
-});
+it.each(['default', 'selected', 'excluded', 'unauthorized'] as const)(
+  'offers reviewed Telos capture without a retained role and preserves profile scope (%s)',
+  async (mode) => {
+    vi.clearAllMocks();
+    mocks.initialize.mockResolvedValue(undefined);
+    mocks.send.mockResolvedValue(undefined);
+    mocks.connect.mockResolvedValue({
+      definitions: [],
+      close: mocks.mcpClose,
+      displayName: (name: string) => name,
+    });
+    const { createTelosCanonicalData } = await import('./fixtures/telos-canonical-advisor.js');
+    const { initializeTelosMainPublicationRuntime, closeTelosMainPublicationRuntime } =
+      await import('../telos-main-publication-runtime.js');
+    const canonical = createTelosCanonicalData();
+    const definition = {
+      name: 'Native capture',
+      role: 'agent' as const,
+      instructions: 'Capture reviewed work.',
+      expectedOutput: 'Canonical creation receipt',
+      acceptanceCriteria: ['Reviewed capture'],
+      modelPolicyRole: 'agent' as const,
+      tools: (mode === 'selected'
+        ? ['TelosCreateOutcome', 'TelosAdoptSource']
+        : ['ListConnections']
+      ).map((name) => ({ id: `mitzo:${name}`, version: 1 })),
+    };
+    const profile = {
+      profileId: 'owned-agent',
+      revision: 1,
+      definition,
+      contentHash: createHash('sha256').update(JSON.stringify(definition)).digest('hex'),
+    };
+    const f = ownedLocalOptions(
+      '/tmp',
+      ['selected', 'excluded'].includes(mode) ? profile : undefined,
+    );
+    const { SessionRegistry } = await import('@mitzo/harness');
+    const registry = new SessionRegistry();
+    registry.register('owned-client', {
+      ...f.opts.session,
+      sessionId: f.opts.conversationId,
+      sessionAllowList: new Set<string>(),
+      transport: { send: () => {}, isOpen: () => true },
+    });
+    f.opts.registry = registry;
+    f.opts.session = registry.get('owned-client')!;
+    if (mode !== 'unauthorized') f.opts.assertAgentContextAuthorization = vi.fn();
+    initializeTelosMainPublicationRuntime({
+      registry: f.opts.registry,
+      events: f.eventStore,
+      databasePath: () => canonical.dbPath,
+    });
+    let query: Awaited<ReturnType<typeof openCodexChat>> | undefined;
+    try {
+      query = await openCodexChat(f.opts);
+      const tools = mocks.conversationOptions!.tools as { name: string }[];
+      const execute = mocks.conversationOptions!
+        .executeTool as import('../codex-conversation.js').CodexConversationOptions['executeTool'];
+      const signal = new AbortController().signal;
+      const call = { turnId: 'capture-turn', callId: 'describe-capture' };
+      const permissionCalls = mocks.permissionHandler.mock.calls.length;
+      for (const name of ['TelosCreateOutcome', 'TelosAdoptSource']) {
+        const available = ['default', 'selected'].includes(mode);
+        expect(tools.some((tool) => tool.name === name)).toBe(available);
+        const result = await execute('DescribeIntegrationTool', { toolId: name }, signal, call);
+        expect(result.isError).toBe(!available);
+        expect(JSON.parse(result.content)).toMatchObject(
+          available
+            ? { toolId: name, name, invocation: 'direct', inputSchema: { type: 'object' } }
+            : { error: 'tool_not_selected' },
+        );
+        if (available) {
+          const proxied = await execute(
+            'InvokeIntegrationTool',
+            {
+              toolId: name,
+              catalogRevision: JSON.parse(result.content).catalogRevision,
+              arguments: {},
+            },
+            signal,
+            call,
+          );
+          expect(proxied.isError).toBe(true);
+          expect(JSON.parse(proxied.content)).toMatchObject({ error: 'direct_tool' });
+        }
+      }
+      // Default capture does not grant role-scoped progress or artifact capabilities.
+      for (const name of [
+        'TelosGetItem',
+        'TelosUpdateItem',
+        'TelosSaveArtifact',
+        'TelosReadArtifact',
+      ])
+        expect(tools.some((tool) => tool.name === name)).toBe(false);
+      if (mode === 'default')
+        for (const name of [
+          'TelosListItems',
+          'TelosSearchItems',
+          'TelosManageItem',
+          'TelosCreateChild',
+        ]) {
+          expect(tools.some((tool) => tool.name === name)).toBe(true);
+          const result = await execute('DescribeIntegrationTool', { toolId: name }, signal, call);
+          expect(result.isError).toBe(false);
+          expect(JSON.parse(result.content)).toMatchObject({ toolId: name, invocation: 'direct' });
+        }
+      const inventory = JSON.parse(
+        (await execute('ListIntegrationTools', { query: 'TelosCreateOutcome' }, signal, call))
+          .content,
+      );
+      expect(inventory.tools.map((tool: { toolId: string }) => tool.toolId)).toEqual(
+        ['default', 'selected'].includes(mode) ? ['TelosCreateOutcome'] : [],
+      );
+      expect(mocks.permissionHandler).toHaveBeenCalledTimes(permissionCalls);
+    } finally {
+      query?.close();
+      closeTelosMainPublicationRuntime();
+      registry.dispose();
+      f.eventStore.close();
+      canonical.close();
+    }
+  },
+);
 
 it.each([
   'normal',

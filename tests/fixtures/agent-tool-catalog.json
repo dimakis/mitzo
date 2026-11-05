@@ -377,7 +377,7 @@
     "id": "mitzo:RequestGithubPublish",
     "version": 1,
     "name": "RequestGithubPublish",
-    "description": "Publish committed workspace changes to a GitHub feature branch and create or update its pull request after publication authorization. This tool performs no AI code review and does not require a review model. Mitzo resolves the repository and configured GitHub connection for this session account; credentials remain on the controller. Supply the absolute repository path in the current workspace, base branch, title, body and draft choice; do not use direct GitHub writes.",
+    "description": "Publish committed workspace changes to a GitHub feature branch and create or update its pull request after publication authorization. This tool performs no AI code review and does not require a review model. Mitzo resolves the repository and configured GitHub connection for this session account; credentials remain on the controller. Supply the absolute repository path in the current workspace, base branch, title, body and draft choice. Native Local Mac git/gh publication under its existing approvals is also supported; this managed tool does not adopt another workspace.",
     "source": "GitHub publishing",
     "required": false,
     "behavior": "write",
@@ -459,7 +459,7 @@
     "required": false,
     "behavior": "write",
     "routes": ["codex-owned-local"],
-    "requirement": "Requires explicit native tool selection, current signed operator and exact one-use approval. Artifact reads require a retained exact revision; writes use the canonical Telos store."
+    "requirement": "Available to default native chats; explicit profiles must select the tool. Requires a current signed operator and exact one-use reviewed source approval; writes use the canonical Telos store."
   },
   {
     "id": "mitzo:TelosAdoptSource",
@@ -470,7 +470,7 @@
     "required": false,
     "behavior": "write",
     "routes": ["codex-owned-local"],
-    "requirement": "Requires explicit native tool selection, current signed operator and exact one-use approval. Artifact reads require a retained exact revision; writes use the canonical Telos store."
+    "requirement": "Available to default native chats; explicit profiles must select the tool. Requires a current signed operator and exact one-use reviewed source approval; writes use the canonical Telos store."
   },
   {
     "id": "mitzo:TelosGetItem",

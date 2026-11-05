@@ -1,6 +1,7 @@
 import { CodexToolFailure, withCodexToolCleanup } from './codex-tool-failure.js';
 import { captureLocalRepositoryPreparationObjectData } from './local-repository-preparation-object-data.js';
 import { captureLocalRepositoryPreparationAuthorization } from './local-repository-preparation-authorization.js';
+import { observeLocalCodexPhase } from './local-codex-observation.js';
 
 export interface LocalRepositoryPreparationEnvelope {
   readonly signal: AbortSignal;
@@ -91,39 +92,47 @@ export async function executeLocalRepositoryPreparation(
     }
   };
   current();
-  const held = await captureLocalRepositoryPreparationAuthorization(
-    {
-      ...owners,
-      qualifySource: (path, original, intent) =>
-        Reflect.apply(qualify, owners, [
-          path,
-          original,
-          intent,
-          Object.freeze({ deadline: envelope.deadline }),
-        ]),
-    },
-    rawInput,
+  const held = await observeLocalCodexPhase('repository_source_qualification', () =>
+    captureLocalRepositoryPreparationAuthorization(
+      {
+        ...owners,
+        qualifySource: (path, original, intent) =>
+          Reflect.apply(qualify, owners, [
+            path,
+            original,
+            intent,
+            Object.freeze({ deadline: envelope.deadline }),
+          ]),
+      },
+      rawInput,
+    ),
   );
   let creation: ReturnType<typeof captureLocalRepositoryPreparationObjectData> | undefined;
   let objects: Awaited<ReturnType<typeof captureLocalRepositoryPreparationObjectData>> | undefined;
   return withCodexToolCleanup(async () => {
-    await held.owner.assertCurrent();
+    // Object capture owns its fresh native read gates. Revalidating the whole
+    // source here would repeat them before that operation has performed I/O.
     current();
-    creation = captureLocalRepositoryPreparationObjectData(
-      context,
-      held.request,
-      held.allocationFacts,
-      held.allocationFactsSha256,
-      envelope.deadline,
-      held.publicationPackedRefs,
-      held.objectSource,
+    creation = observeLocalCodexPhase('repository_object_capture', () =>
+      captureLocalRepositoryPreparationObjectData(
+        context,
+        held.request,
+        held.allocationFacts,
+        held.allocationFactsSha256,
+        envelope.deadline,
+        held.publicationPackedRefs,
+        held.objectSource,
+      ),
     );
     objects = await creation;
-    await held.owner.assertCurrent();
+    // approve() performs the original full source/owner check immediately at
+    // the approval boundary; do not run that same read phase twice in a row.
     current();
-    await held.approve();
+    await observeLocalCodexPhase('repository_approval', () => held.approve());
     current();
-    return await held.materialize(objects);
+    return await observeLocalCodexPhase('repository_materialization', () =>
+      held.materialize(objects),
+    );
   }, [
     async () => {
       if (creation) {

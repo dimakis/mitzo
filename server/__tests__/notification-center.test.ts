@@ -33,6 +33,18 @@ function setup(
   return { store, center, push, changed };
 }
 describe('central notification delivery', () => {
+  it('does not manufacture completion alerts when there is no written result', async () => {
+    const { store, center, push } = setup();
+    try {
+      center.turnComplete('s1', 1, '  ', 'Watch approvals', true);
+      await center.flush();
+      expect(push).not.toHaveBeenCalled();
+      expect(store.get('turn:s1:1')).toBeUndefined();
+    } finally {
+      center.close();
+      store.close();
+    }
+  });
   it.each(['closed', 'failed'])('keeps deferred approval refresh safe when %s', async (state) => {
     const { store, center, changed } = setup();
     const permId = `refresh-${state}`;

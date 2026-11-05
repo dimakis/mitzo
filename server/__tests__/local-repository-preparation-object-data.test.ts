@@ -65,10 +65,10 @@ async function fixture() {
     assertCurrentSync() {
       controller.signal.throwIfAborted();
     },
-    async assertCurrent() {
+    assertCurrent: vi.fn(async () => {
       controller.signal.throwIfAborted();
-    },
-  }) as NativeHostToolContext;
+    }),
+  }) as unknown as NativeHostToolContext;
   const facts = {
     source: {
       path: '/fixture/source',
@@ -86,7 +86,12 @@ async function fixture() {
     deadline: Date.now() + 30000,
     dispose: vi.fn(async () => {}),
   };
-  vi.mocked(captureNativeLocalRepositoryReader).mockResolvedValue(reader as never);
+  vi.mocked(captureNativeLocalRepositoryReader).mockImplementation(async () => {
+    // Match the original reader's full entry fence, independently of its
+    // controlled physical transport in this composition-only fixture.
+    await context.assertCurrent();
+    return reader as never;
+  });
   const gitDirectory = join(scratch, 'git-admin');
   await mkdir(gitDirectory);
   await writeFile(join(gitDirectory, 'config'), 'FIXED PRIVATE CONFIG');
@@ -132,6 +137,7 @@ it('closes the original read owner before exposing only bound object data and sc
     f.witness,
   );
   expect(f.reader.dispose).toHaveBeenCalledOnce();
+  expect(f.context.assertCurrent).toHaveBeenCalledTimes(2); // reader entry + outward cleanup
   expect(Object.keys(result)).toEqual([]);
   expect(Object.isFrozen(result)).toBe(true);
   expect(Reflect.ownKeys(result)).not.toContain('reader');

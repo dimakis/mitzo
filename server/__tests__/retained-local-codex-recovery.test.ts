@@ -413,7 +413,7 @@ it.each([
   },
 );
 
-it('reconciles an already dispatched cold turn with a failed read and no successor without replay', async () => {
+async function reconcileRetainedColdTurn(nativeStatus: 'interrupted' | 'completed') {
   const f = await ownedRuntimeFixture(cleanups);
   const first = f.create();
   await first.admit(f.request);
@@ -491,7 +491,7 @@ it('reconciles an already dispatched cold turn with a failed read and no success
   let afterItem = () => {};
   probe.rpc.request.mockImplementation(async (method, params) => {
     if (method === 'thread/turns/list')
-      return { data: [{ id: 'original-turn', status: 'interrupted', error: null }] };
+      return { data: [{ id: 'original-turn', status: nativeStatus, error: null }] };
     if (method === 'thread/items/list') {
       afterItem();
       return {
@@ -556,11 +556,13 @@ it('reconciles an already dispatched cold turn with a failed read and no success
   ).toBeUndefined();
   // Reuse the same retained checkout and still-fenced command for adverse
   // receipt observations. No extra repository, database or native journey.
-  for (const [column, value] of [
-    ['result_effect_outcome', 'unknown'],
-    ['result_content', null],
-    ['request_hash', 'f'.repeat(64)],
-  ] as const) {
+  for (const [column, value] of nativeStatus === 'interrupted'
+    ? ([
+        ['result_effect_outcome', 'unknown'],
+        ['result_content', null],
+        ['request_hash', 'f'.repeat(64)],
+      ] as const)
+    : []) {
     db.prepare(`UPDATE codex_tools SET ${column}=?`).run(value);
     await expect(driver.reconcileRetainedEffects()).rejects.toThrow();
     expect(native.read(id, binding).recovery).toBe(1);
@@ -570,13 +572,22 @@ it('reconciles an already dispatched cold turn with a failed read and no success
   }
   const originalEmail = f.configuration[0].email;
   let changedAccount = false;
-  afterItem = () => {
+  const revokeAccount = () => {
     if (!changedAccount) {
       changedAccount = true;
       f.configuration[0].email = 'other@example.test';
       f.writeProfiles();
     }
   };
+  if (nativeStatus === 'interrupted') afterItem = revokeAccount;
+  else {
+    const request = probe.rpc.request.getMockImplementation()!;
+    probe.rpc.request.mockImplementation(async (method, params) => {
+      const response = await request(method, params);
+      if (method === 'thread/turns/list') revokeAccount();
+      return response;
+    });
+  }
   await expect(driver.reconcileRetainedEffects()).rejects.toThrow();
   expect(changedAccount).toBe(true);
   expect(native.read(id, binding).recovery).toBe(1);
@@ -591,7 +602,13 @@ it('reconciles an already dispatched cold turn with a failed read and no success
   );
   expect(
     native.commands(id, binding).map(({ status, attempt, id }) => ({ status, attempt, id })),
-  ).toEqual(before.command.map(({ status, attempt, id }) => ({ status, attempt, id })));
+  ).toEqual(
+    before.command.map(({ status, attempt, id }) => ({
+      status: nativeStatus === 'completed' ? 'completed' : status,
+      attempt,
+      id,
+    })),
+  );
   expect(f.events.getSendCommand(command.id)).toEqual(before.send);
   expect(f.events.getOrdinaryLocalCommandExecutionAdmission(command.id)).toEqual(before.admission);
   expect(db.prepare('SELECT * FROM codex_tools').all()).toEqual(before.tools);
@@ -603,4 +620,11 @@ it('reconciles an already dispatched cold turn with a failed read and no success
     ),
   ).toBe(false);
   expect(probe.rpc.close).toHaveBeenCalled();
-});
+  expect(probe.rpc.request.mock.calls.some(([method]) => method === 'thread/items/list')).toBe(
+    nativeStatus === 'interrupted',
+  );
+}
+it.each(['interrupted', 'completed'] as const)(
+  'reconciles an already dispatched cold turn observed %s without replay',
+  reconcileRetainedColdTurn,
+);
