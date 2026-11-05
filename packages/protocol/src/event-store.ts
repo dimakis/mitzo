@@ -3618,6 +3618,7 @@ export class EventStore {
   }
 
   close(): void {
+    this.sessionMetadata.close();
     if (this.db) {
       this.#telosOwner.close();
       this.db = null;
@@ -8517,6 +8518,14 @@ export class EventStore {
    */
   searchSessions(query: string, limit = 20): SessionSearchResult[] {
     return this.sessionMetadata.searchSessions(query, limit);
+  }
+
+  searchSessionsAsync(
+    query: string,
+    limit = 20,
+    signal?: AbortSignal,
+  ): Promise<SessionSearchResult[]> {
+    return this.sessionMetadata.searchSessionsAsync(query, limit, signal);
   }
 
   markSessionInactive(sessionId: string): void {

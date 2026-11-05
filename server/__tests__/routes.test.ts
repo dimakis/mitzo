@@ -105,7 +105,7 @@ vi.mock('../chat.js', async () => {
       getSessionEvents: vi.fn().mockReturnValue([]),
       getEventsOfType: vi.fn().mockReturnValue([]),
       getLatestWorktreePath: vi.fn().mockReturnValue(null),
-      searchSessions: vi.fn().mockReturnValue([
+      searchSessionsAsync: vi.fn().mockResolvedValue([
         {
           sessionId: 's1',
           summary: 'Test',
@@ -1025,7 +1025,7 @@ describe('session search routes', () => {
           } as ReturnType<typeof eventStore.getSession>)
         : original(id),
     );
-    vi.mocked(eventStore.searchSessions).mockReturnValueOnce(
+    vi.mocked(eventStore.searchSessionsAsync).mockResolvedValueOnce(
       ['off-page-chat', 'unrecorded-chat'].map((sessionId) => ({
         sessionId,
         summary: 'Older matching conversation',
@@ -1060,7 +1060,11 @@ describe('session search routes', () => {
     expect(res.body.results).toHaveLength(1);
     expect(res.body.results[0].sessionId).toBe('s1');
     expect(res.body.results[0].snippet).toBe('...matched text...');
-    expect(vi.mocked(eventStore.searchSessions)).toHaveBeenCalledWith('matched', 20);
+    expect(vi.mocked(eventStore.searchSessionsAsync)).toHaveBeenCalledWith(
+      'matched',
+      20,
+      expect.any(AbortSignal),
+    );
   });
 
   it('GET /api/sessions/search — empty query returns empty results', async () => {
@@ -1077,7 +1081,11 @@ describe('session search routes', () => {
 
   it('GET /api/sessions/search — clamps limit to 50', async () => {
     await request(app).get('/api/sessions/search?q=test&limit=999').set('Cookie', authCookie);
-    expect(vi.mocked(eventStore.searchSessions)).toHaveBeenCalledWith('test', 50);
+    expect(vi.mocked(eventStore.searchSessionsAsync)).toHaveBeenCalledWith(
+      'test',
+      50,
+      expect.any(AbortSignal),
+    );
   });
 
   it('GET /api/sessions/search — unauthenticated returns 401', async () => {

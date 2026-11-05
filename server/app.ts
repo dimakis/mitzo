@@ -3366,24 +3366,34 @@ app.get('/api/sessions/active', (_req, res) => {
   res.json(registry.getActiveSessions());
 });
 
-app.get('/api/sessions/search', (req, res) => {
-  const q = (req.query.q as string) || '';
+app.get('/api/sessions/search', async (req, res) => {
+  const q = typeof req.query.q === 'string' ? req.query.q : '';
   const limit = Math.min(Math.max(1, parseInt(req.query.limit as string) || 20), 50);
   if (!q.trim()) {
     res.json({ results: [] });
     return;
   }
+  const abort = new AbortController();
+  const close = () => {
+    if (!res.writableFinished) abort.abort();
+  };
+  res.once('close', close);
   try {
-    const results = eventStore.searchSessions(q, limit).map((result) => ({
-      ...result,
-      ...sessionModelIdentity(eventStore.getSession(result.sessionId) ?? {}, (id, fallback) =>
-        accountAliases.label(id, fallback),
-      ),
-    }));
+    const results = (await eventStore.searchSessionsAsync(q, limit, abort.signal)).map(
+      (result) => ({
+        ...result,
+        ...sessionModelIdentity(eventStore.getSession(result.sessionId) ?? {}, (id, fallback) =>
+          accountAliases.label(id, fallback),
+        ),
+      }),
+    );
     res.json({ results });
   } catch (err: unknown) {
+    if (abort.signal.aborted) return;
     log.error('GET /api/sessions/search failed', { error: err });
     res.status(500).json({ error: 'Search failed' });
+  } finally {
+    res.removeListener('close', close);
   }
 });
 
