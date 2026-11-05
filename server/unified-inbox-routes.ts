@@ -3,6 +3,7 @@ import { InboxQuery } from '@mitzo/protocol';
 import { operatorAuthMiddleware } from './auth.js';
 import type { NotificationCenter } from './notification-center.js';
 import { UnifiedInbox } from './unified-inbox.js';
+import { reconcileInbox } from './inbox-reconciliation.js';
 
 export function unifiedInboxRouter(
   center: NotificationCenter,
@@ -10,8 +11,8 @@ export function unifiedInboxRouter(
 ) {
   const router = Router();
   const inbox = new UnifiedInbox(center.store, directory);
-  center.setInboxReconciler(() => inbox.reconcile());
-  router.use(['/feed', '/records'], operatorAuthMiddleware);
+  center.setAsyncInboxReconciler(() => inbox.reconcileAsync());
+  router.use(['/feed', '/records'], operatorAuthMiddleware, reconcileInbox(center));
   router.use((_req, res, next) => {
     res.setHeader('Cache-Control', 'no-store');
     next();
@@ -30,7 +31,7 @@ export function unifiedInboxRouter(
     res.json(item);
   });
   router.post('/records/:id/resolve', (req, res) => {
-    const item = inbox.get(req.params.id);
+    const item = center.store.get(req.params.id);
     if (!item?.inbox || !item.inbox.needsAttention)
       return res
         .status(409)

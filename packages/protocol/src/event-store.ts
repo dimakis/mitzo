@@ -3617,7 +3617,12 @@ export class EventStore {
     return backupOwnedDatabase(this.db, destination);
   }
 
+  closeSearchIndex(): Promise<void> {
+    return this.sessionMetadata.closeSearchIndex();
+  }
+
   close(): void {
+    this.sessionMetadata.close();
     if (this.db) {
       this.#telosOwner.close();
       this.db = null;
@@ -3969,6 +3974,13 @@ export class EventStore {
   }
 
   /** Read one durable observation without loading the entire transcript. */
+  getSessionEventCursor(sessionId: string): number {
+    const row = this.db!.prepare(
+      'SELECT COALESCE(MAX(seq),0) AS seq FROM events WHERE session_id=?',
+    ).get(sessionId) as { seq: number };
+    return row.seq;
+  }
+
   getLatestEvent(sessionId: string, type: string): StoredEvent | null {
     const row = this.db!.prepare(
       'SELECT * FROM events WHERE session_id = ? AND type = ? ORDER BY seq DESC LIMIT 1',
@@ -8517,6 +8529,15 @@ export class EventStore {
    */
   searchSessions(query: string, limit = 20): SessionSearchResult[] {
     return this.sessionMetadata.searchSessions(query, limit);
+  }
+
+  searchSessionsAsync(
+    query: string,
+    limit = 20,
+    signal?: AbortSignal,
+    cacheDirectory?: string,
+  ): Promise<SessionSearchResult[]> {
+    return this.sessionMetadata.searchSessionsAsync(query, limit, signal, cacheDirectory);
   }
 
   markSessionInactive(sessionId: string): void {
