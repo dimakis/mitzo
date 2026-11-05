@@ -24,7 +24,8 @@ export class SessionResourceRemovalService {
   }
   isPrepared(id: string) {
     const record = this.read(id);
-    if (!record || (record.phase === 'failed' && !record.releaseStarted)) return false;
+    if (!record?.preparationCompleted || (record.phase === 'failed' && !record.releaseStarted))
+      return false;
     try {
       this.current(id, record, () => {});
       this.deps.assertSettled(id);
@@ -68,7 +69,7 @@ export class SessionResourceRemovalService {
       await this.deps.closeRuntime(id);
       this.current(id, record, assertCurrent);
       this.deps.assertSettled(id);
-      return record;
+      return this.deps.store.markPrepared(id, record.operationId);
     } catch (error) {
       this.deps.store.transition(
         id,
@@ -110,6 +111,8 @@ export class SessionResourceRemovalService {
       throw Error('Review this removal before deleting.');
     this.current(id, record, assertCurrent);
     if (record.phase === 'completed') return record;
+    if (!record.preparationCompleted)
+      throw Error('Complete removal preparation before deleting. Stop and review this chat.');
     this.deps.assertSettled(id);
     if (record.phase === 'failed')
       record = this.deps.store.transition(id, operationId, 'failed', 'closing');

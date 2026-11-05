@@ -119,6 +119,74 @@ it('rejects a new timer after removal wins asynchronous inspection', async () =>
     ),
   ).rejects.toThrow(/removed/);
 });
+
+it.each(['sender', 'recipient'])(
+  'blocks removal of the %s while a retained outgoing receipt is uncertain',
+  async (sessionId) => {
+    const f = fixture();
+    const delivery = f.store.message(
+      { requestId: randomUUID(), sessionId: 'recipient', text: 'Original callback' },
+      f.auth,
+      'sender',
+    );
+    f.store.claim(delivery.id);
+    f.store.finish(delivery.id, 'uncertain', 'Response lost');
+    f.port.receipt.mockReturnValue('uncertain');
+    // A fresh service has no in-flight promise for this durable delivery.
+    const restarted = new SessionPromptService(f.store, f.port);
+    await expect(restarted.cancelSession(sessionId)).rejects.toThrow(/uncertain|unsettled/i);
+    expect(f.store.delivery(delivery.id)).toMatchObject({
+      id: delivery.id,
+      commandId: delivery.commandId,
+      state: 'uncertain',
+    });
+    f.port.receipt.mockReturnValue('accepted');
+    await restarted.cancelSession(sessionId);
+    expect(f.store.delivery(delivery.id).state).toBe('accepted');
+    expect(f.port.deliver).not.toHaveBeenCalled();
+  },
+);
+
+it('checks uncertainty after joining an in-flight delivery during sender removal', async () => {
+  const f = fixture();
+  const delivery = f.store.message(
+    { requestId: randomUUID(), sessionId: 'recipient', text: 'Original callback' },
+    f.auth,
+    'sender',
+  );
+  let entered!: () => void;
+  let finish!: () => void;
+  const ready = new Promise<void>((resolve) => { entered = resolve; });
+  f.port.deliver.mockImplementationOnce(async () => {
+    entered();
+    await new Promise<void>((resolve) => { finish = resolve; });
+    throw Error('Response lost');
+  });
+  f.port.receipt.mockReturnValue('uncertain');
+  const tick = f.service.tick();
+  await ready;
+  const cancellation = expect(f.service.cancelSession('sender')).rejects.toThrow(/uncertain/i);
+  finish();
+  await Promise.all([tick, cancellation]);
+  expect(f.store.delivery(delivery.id).state).toBe('uncertain');
+});
+
+it('retains unreadable matching receipts but ignores unrelated uncertainty', async () => {
+  const f = fixture();
+  const delivery = f.store.message(
+    { requestId: randomUUID(), sessionId: 'recipient', text: 'Original callback' },
+    f.auth,
+    'sender',
+  );
+  f.store.claim(delivery.id);
+  f.port.receipt.mockImplementation(() => { throw Error('Evidence unavailable'); });
+  await f.service.cancelSession('other-chat');
+  await expect(f.service.cancelSession('sender')).rejects.toThrow(/uncertain/i);
+  f.port.receipt.mockReturnValue('absent');
+  await f.service.cancelSession('sender');
+  expect(f.store.delivery(delivery.id).state).toBe('failed');
+  expect(f.port.deliver).not.toHaveBeenCalled();
+});
 it('rechecks cancellation after asynchronous preparation and cannot overwrite a cancelled timer', async () => {
   const f = fixture();
   const timer = await f.service.create(f.input, f.auth, 'user', null);

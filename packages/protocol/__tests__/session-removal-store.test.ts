@@ -34,6 +34,9 @@ it('persists a removal fence across connections and every failure/restart', () =
   expect(() => second.begin('chat', 'another-operation', 'changed-resources')).toThrow();
   expect(second.begin('chat', 'operation', 'resource-fingerprint').phase).toBe('failed');
   second.transition('chat', 'operation', 'failed', 'closing');
+  expect(second.read('chat')?.preparationCompleted).toBe(false);
+  expect(() => second.transition('chat', 'operation', 'closing', 'releasing')).toThrow();
+  second.markPrepared('chat', 'operation');
   second.transition('chat', 'operation', 'closing', 'releasing');
   second.transition('chat', 'operation', 'releasing', 'completed');
   expect(() => second.assertAdmissible('chat')).toThrow(/remov/i);

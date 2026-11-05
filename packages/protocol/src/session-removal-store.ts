@@ -9,6 +9,7 @@ export interface SessionRemovalRecord {
   error: string | null;
   updatedAt: number;
   releaseStarted: boolean;
+  preparationCompleted: boolean;
 }
 
 /** Shares the event database and its admission transactions. A failed or
@@ -27,17 +28,33 @@ export class SessionRemovalStore {
       db.exec(
         'ALTER TABLE session_resource_removals ADD COLUMN release_started INTEGER NOT NULL DEFAULT 0',
       );
+    if (
+      !(
+        db.prepare('PRAGMA table_info(session_resource_removals)').all() as Array<{ name: string }>
+      ).some((column) => column.name === 'preparation_completed')
+    )
+      db.exec(
+        'ALTER TABLE session_resource_removals ADD COLUMN preparation_completed INTEGER NOT NULL DEFAULT 0',
+      );
   }
   read(sessionId: string): SessionRemovalRecord | undefined {
     const row = this.db
       .prepare(
         `SELECT session_id AS sessionId, operation_id AS operationId,
-      fingerprint, phase, error, updated_at AS updatedAt, release_started AS releaseStarted
+      fingerprint, phase, error, updated_at AS updatedAt, release_started AS releaseStarted,
+      preparation_completed AS preparationCompleted
       FROM session_resource_removals WHERE session_id=?`,
       )
       .get(sessionId) as
-      (Omit<SessionRemovalRecord, 'releaseStarted'> & { releaseStarted: number }) | undefined;
-    return row && { ...row, releaseStarted: row.releaseStarted === 1 };
+      (Omit<SessionRemovalRecord, 'releaseStarted' | 'preparationCompleted'> & {
+        releaseStarted: number;
+        preparationCompleted: number;
+      }) | undefined;
+    return row && {
+      ...row,
+      releaseStarted: row.releaseStarted === 1,
+      preparationCompleted: row.preparationCompleted === 1,
+    };
   }
   assertAdmissible(sessionId: string): void {
     if (this.read(sessionId))
@@ -62,6 +79,16 @@ export class SessionRemovalStore {
       })
       .immediate();
   }
+  markPrepared(sessionId: string, operationId: string): SessionRemovalRecord {
+    if (
+      this.db.prepare(
+        `UPDATE session_resource_removals SET preparation_completed=1,updated_at=?
+         WHERE session_id=? AND operation_id=? AND phase='closing' AND release_started=0`,
+      ).run(Date.now(), sessionId, operationId).changes !== 1
+    )
+      throw Error('Removal preparation changed. Review before retrying.');
+    return this.read(sessionId)!;
+  }
   transition(
     sessionId: string,
     operationId: string,
@@ -80,7 +107,8 @@ export class SessionRemovalStore {
       this.db
         .prepare(
           `UPDATE session_resource_removals SET phase=?,error=?,updated_at=?,release_started=MAX(release_started,?)
-      WHERE session_id=? AND operation_id=? AND phase=?`,
+      WHERE session_id=? AND operation_id=? AND phase=?
+        AND (? != 'releasing' OR preparation_completed=1)`,
         )
         .run(
           phase,
@@ -90,6 +118,7 @@ export class SessionRemovalStore {
           sessionId,
           operationId,
           expected,
+          phase,
         ).changes !== 1
     )
       throw Error('Removal operation changed. Review before retrying.');

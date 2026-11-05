@@ -107,3 +107,38 @@ it('joins an in-flight preparation before a concurrent deletion can release reso
   expect(release).toHaveBeenCalledTimes(1);
   expect(f.calls).toEqual(['close']);
 });
+
+it('requires durable preparation completion after an interrupted controller', async () => {
+  const f = fixture();
+  const record = f.store.begin('chat', 'interrupted', 'exact-resources');
+  const restarted = new SessionResourceRemovalService(f.deps);
+  const release = vi.fn(async () => {});
+  expect(restarted.isPrepared('chat')).toBe(false);
+  await expect(restarted.release('chat', record.operationId, f.current, release)).rejects.toThrow(
+    /prepar|review/i,
+  );
+  expect(release).not.toHaveBeenCalled();
+  await restarted.prepare('chat', f.current);
+  expect(restarted.isPrepared('chat')).toBe(true);
+  const recovered = new SessionResourceRemovalService(f.deps);
+  expect(recovered.isPrepared('chat')).toBe(true);
+  await recovered.release('chat', record.operationId, f.current, release);
+  expect(f.calls).toEqual(['timers', 'close']);
+  expect(release).toHaveBeenCalledTimes(1);
+});
+
+it('cannot release a failed preparation until prompt cancellation has been retried', async () => {
+  const f = fixture();
+  f.deps.cancelPrompts.mockRejectedValueOnce(Error('delivery uncertain'));
+  await expect(f.service.prepare('chat', f.current)).rejects.toThrow(/uncertain/);
+  const record = f.store.read('chat')!;
+  const release = vi.fn(async () => {});
+  await expect(f.service.release('chat', record.operationId, f.current, release)).rejects.toThrow(
+    /prepar|review/i,
+  );
+  expect(release).not.toHaveBeenCalled();
+  await f.service.prepare('chat', f.current);
+  await f.service.release('chat', record.operationId, f.current, release);
+  expect(f.deps.cancelPrompts).toHaveBeenCalledTimes(2);
+  expect(release).toHaveBeenCalledTimes(1);
+});

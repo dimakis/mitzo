@@ -158,6 +158,26 @@ export class SessionPromptService {
       pending.push(completion);
     }
     await Promise.all(pending);
+    let uncertain = false;
+    for (const delivery of this.store.deliveries(['dispatching', 'uncertain'])) {
+      if (delivery.recipientSessionId !== sessionId && delivery.senderSessionId !== sessionId)
+        continue;
+      const receipt = this.receipt(delivery);
+      this.store.finish(
+        delivery.id,
+        receipt === 'accepted' ? 'accepted' : receipt === 'absent' ? 'failed' : 'uncertain',
+        receipt === 'accepted'
+          ? null
+          : receipt === 'absent'
+            ? 'Cancelled before acceptance.'
+            : 'Delivery acceptance is uncertain. Reconcile its original receipt before removal.',
+      );
+      if (receipt === 'uncertain') uncertain = true;
+    }
+    if (uncertain)
+      throw new SessionPromptError(
+        'Delivery acceptance is uncertain. Reconcile its original receipt before removal.',
+      );
   }
   private process(delivery: SessionPromptDelivery): Promise<void> {
     const completion = this.dispatch(delivery).finally(() => this.inFlight.delete(delivery.id));
