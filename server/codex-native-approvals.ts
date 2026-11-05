@@ -197,7 +197,7 @@ export function createCodexNativeApprovalHandler(options: {
         // Downgrade the exact response object held by the original RPC client;
         // expiry alone authorizes only refusal, never a stale grant or retry.
         if (!returningDenial && Date.now() >= expiresAt && grantResponse)
-          Object.assign(grantResponse, deny(true));
+          Object.assign(grantResponse, deny(signal.aborted));
       };
       context.registerResponseFence?.(finalFence);
       timer = setTimeout(() => expiry.abort(), Math.max(0, expiresAt - Date.now()));
@@ -360,7 +360,9 @@ export function createCodexNativeApprovalHandler(options: {
           : { decision: 'accept' };
       return grant(response);
     } catch {
-      return deny(currentSignal.aborted);
+      // Expiry denies this operation; only the owning operation's abort cancels
+      // the turn. Offers without decline still use their supported cancel reply.
+      return deny(signal.aborted);
     } finally {
       clearTimeout(timer);
     }

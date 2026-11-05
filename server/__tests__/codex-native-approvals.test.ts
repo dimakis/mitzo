@@ -115,6 +115,54 @@ function commandParams() {
 }
 
 describe('native approval adapter with the existing pending owner', () => {
+  it('declines an expired command without cancelling the turn or granting its retry', async () => {
+    vi.useFakeTimers();
+    const f = setup();
+    const params = { ...commandParams(), availableDecisions: ['accept', 'decline', 'cancel'] };
+    const pending = f.handler(
+      'item/commandExecution/requestApproval',
+      params,
+      f.controller.signal,
+      f.context,
+    );
+    await request(f);
+    await vi.advanceTimersByTimeAsync(60_001);
+    expect(await pending).toEqual({ decision: 'decline' });
+    expect(f.controller.signal.aborted).toBe(false);
+    expect(getPendingRequestsBySession('session')).toEqual([]);
+
+    const retry = f.handler(
+      'item/commandExecution/requestApproval',
+      { ...params, startedAtMs: Date.now(), itemId: 'retry' },
+      f.controller.signal,
+      { ...f.context, requestId: 'retry-rpc' },
+    );
+    await vi.waitFor(() => expect(getPendingRequestsBySession('session')).toHaveLength(1));
+    const approval = getPendingRequestsBySession('session')[0];
+    resolvePending(approval.permId, 'once', undefined, 'session');
+    expect(await retry).toEqual({ decision: 'accept' });
+  });
+
+  it('downgrades an approved command to decline when its deadline expires before delivery', async () => {
+    const f = setup();
+    const params = { ...commandParams(), availableDecisions: ['accept', 'decline', 'cancel'] };
+    const pending = f.handler(
+      'item/commandExecution/requestApproval',
+      params,
+      f.controller.signal,
+      f.context,
+    );
+    resolvePending(await request(f), 'once', undefined, 'session');
+    const response = await pending;
+    expect(response).toEqual({ decision: 'accept' });
+    vi.useFakeTimers();
+    vi.setSystemTime(params.startedAtMs + 60_000);
+    expect(f.fences[0]).not.toThrow();
+    expect(response).toEqual({ decision: 'decline' });
+    f.revoke();
+    expect(f.fences[0]).toThrow('revoked');
+  });
+
   it('advertises the original native deadline rather than a new card window', async () => {
     const f = setup();
     f.params.startedAtMs -= 5_000;
@@ -131,7 +179,7 @@ describe('native approval adapter with the existing pending owner', () => {
   });
 
   it.each(['commandExecution', 'fileChange'] as const)(
-    'cancels an expired %s approval at delivery without emitting acceptance',
+    'refuses an expired %s approval at delivery without emitting acceptance',
     async (item) => {
       const f = setup();
       const params =
@@ -156,7 +204,7 @@ describe('native approval adapter with the existing pending owner', () => {
       vi.useFakeTimers();
       vi.setSystemTime(params.startedAtMs + 60_000);
       expect(f.fences[0]).not.toThrow();
-      expect(response).toEqual({ decision: 'cancel' });
+      expect(response).toEqual({ decision: item === 'commandExecution' ? 'cancel' : 'decline' });
       f.revoke();
       expect(f.fences[0]).toThrow('revoked');
     },
