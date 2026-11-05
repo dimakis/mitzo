@@ -5181,25 +5181,30 @@ app.post('/api/inbox', (req, res) => {
 
 // Inbox archive/delete can move documents too; enrolled operator authority is
 // never a document, including a JSON file with an .md filename.
-mountObservedRouter(app, '/api/inbox/:filename', (req, res, next) => {
-  const inboxPath = getRepoConfig().resolvedInboxPath;
-  if (!inboxPath) return next();
+function inboxPathAllowed(inboxPath: string, filename: string, mutating: boolean): boolean {
   try {
-    const source = join(inboxPath, req.params.filename);
+    const source = join(inboxPath, filename);
     const privatePath = privatePathSnapshot();
-    const mutating = req.method !== 'GET' && req.method !== 'HEAD';
-    const destination = join(inboxPath, 'archive', req.params.filename);
-    if (
+    const destination = join(inboxPath, 'archive', filename);
+    return (
       !privatePath(source) &&
       (!mutating ||
         (!isWorkspaceRuntimeAuthorityWritePath(source) &&
           !privatePath(destination) &&
           !isWorkspaceRuntimeAuthorityWritePath(destination)))
-    )
-      return next();
+    );
   } catch {
     /* Unreadable authority fails closed. */
+    return false;
   }
+}
+mountObservedRouter(app, '/api/inbox/:filename', (req, res, next) => {
+  const inboxPath = getRepoConfig().resolvedInboxPath;
+  if (
+    !inboxPath ||
+    inboxPathAllowed(inboxPath, req.params.filename, req.method !== 'GET' && req.method !== 'HEAD')
+  )
+    return next();
   res.status(403).json({ error: 'Path not allowed' });
 });
 
@@ -5227,6 +5232,12 @@ app.post('/api/inbox/:filename/approve', async (req, res) => {
     // Drain an older scan before moving the source, then await a fresh scan so
     // delivery cancellation, badges and change events precede the response.
     await notificationCenter.reconcileAsync();
+    // Enrollment can change while the scan is pending. Refresh both guards at
+    // the synchronous mutation boundary rather than reuse middleware authority.
+    if (!inboxPathAllowed(inboxPath, req.params.filename as string, true)) {
+      res.status(403).json({ error: 'Path not allowed' });
+      return;
+    }
     const ok = approveInboxItem(inboxPath, req.params.filename as string);
     if (!ok) {
       res.status(404).json({ error: 'Item not found' });
@@ -5249,6 +5260,10 @@ app.delete('/api/inbox/:filename', async (req, res) => {
       return;
     }
     await notificationCenter.reconcileAsync();
+    if (!inboxPathAllowed(inboxPath, req.params.filename as string, true)) {
+      res.status(403).json({ error: 'Path not allowed' });
+      return;
+    }
     const ok = discardInboxSource(
       notificationCenter.store,
       inboxPath,

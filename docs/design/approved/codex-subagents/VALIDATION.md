@@ -66,3 +66,18 @@ delivery now coalesces that measurement into the next animation frame and
 cancels pending work when the animation releases. A focused regression verifies
 deferred measurement, coalescing, retained animation timing and cleanup; the
 existing browser error assertion remains intact for CI verification.
+
+The combined-head CI run 42126223156 passed, including all layouts and native
+authorization/build checks. Current phone and desktop captures in both themes
+were inspected. Centaur's current-head comment confirmed the cancellation fixes
+and found CEN-6C06A6E886DA in the accepted main integration: an inbox scan await
+could outlive the middleware's path authorization. Both inbox mutation routes
+now refresh private-path and runtime-authority source/destination guards at the
+synchronous mutation boundary. Eight enrollment-during-scan regressions pass
+alongside the existing inbox route cases; final-head CI/review remains required.
+
+The focused inbox selection passed 17 cases. A broader local route run passed
+133/181 cases and failed 48 after suite environment restoration exposed the
+host's denied `.mitzo` enrollment path (EPERM); this includes path-guard 403s
+and pending-scan cases that cannot enter the guarded handler. No guard or test
+assertion was relaxed. CI owns full-suite validation in its isolated environment.
