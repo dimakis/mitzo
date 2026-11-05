@@ -29,6 +29,7 @@ import {
   TaskBoard,
 } from './route-pages';
 import { NotificationProvider } from './components/NotificationProvider';
+import { NotificationNavigation } from './components/NotificationNavigation';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { ProtectedRoute } from './components/ProtectedRoute';
 import { AttentionFeed } from './components/AttentionFeed';
@@ -102,6 +103,7 @@ export function App() {
     <ErrorBoundary>
       <div onClickCapture={dismissKeyboard}>
         <BrowserRouter>
+          <NotificationNavigation />
           <NotificationProvider>
             <MobileShell>
               <SuspenseRoutes>

@@ -17,7 +17,7 @@ import { ToolPill } from './ToolPill';
 import { telosWorkerReceipt } from './TelosWorkerReceiptCard';
 import { AgentActivity } from './AgentActivity';
 import { completedWebsiteRead } from '../lib/web-access-outcome';
-import { PermissionBanner } from './PermissionBanner';
+import { ChatApprovalQueue } from './ChatApprovalQueue';
 import { ProgressWidget } from './ProgressWidget';
 import { groupActivityRows, type ActivityRow } from '../lib/groupActivityRows';
 import type { ChatBlock } from '../lib/groupMessages';
@@ -67,6 +67,10 @@ export interface ChatAreaProps {
   compactAttribution?: boolean;
   running: boolean;
   permission: PermissionRequest | null;
+  permissionQueue?: PermissionRequest[];
+  requestedApprovalId?: string | null;
+  approvalNavigationKey?: string;
+  approvalsReady?: boolean;
   onPermissionExpire?: (permId: string) => void;
   onPermissionRespond: (
     permId: string,
@@ -161,6 +165,10 @@ export function ChatArea({
   compactAttribution = false,
   running,
   permission,
+  permissionQueue,
+  requestedApprovalId,
+  approvalNavigationKey,
+  approvalsReady,
   onPermissionRespond,
   onPermissionExpire,
   scrollRef: externalScrollRef,
@@ -790,29 +798,16 @@ export function ChatArea({
         {afterMessages}
       </div>
 
-      {permission && (
-        <PermissionBanner
-          key={permission.permId}
-          permId={permission.permId}
-          sessionId={sessionId ?? permission.sessionId}
-          reviewKind={permission.reviewKind}
-          recoveryOnly={permission.recoveryOnly}
-          questions={permission.questions}
-          expiresAt={permission.expiresAt}
-          toolName={permission.toolName}
-          toolInput={permission.toolInput}
-          title={permission.title}
-          description={permission.description}
-          displayName={permission.displayName}
-          tier={permission.tier}
-          approvalScope={permission.approvalScope}
-          allowSessionGrant={permission.allowSessionGrant}
-          sessionGrantDescription={permission.sessionGrantDescription}
-          responseError={permission.responseError}
-          onRespond={onPermissionRespond}
-          onExpire={onPermissionExpire}
-        />
-      )}
+      <ChatApprovalQueue
+        sessionId={sessionId}
+        permission={permission}
+        permissionQueue={permissionQueue}
+        requestedApprovalId={requestedApprovalId}
+        ready={approvalsReady}
+        approvalNavigationKey={approvalNavigationKey}
+        onPermissionRespond={onPermissionRespond}
+        onPermissionExpire={onPermissionExpire}
+      />
     </>
   );
 }

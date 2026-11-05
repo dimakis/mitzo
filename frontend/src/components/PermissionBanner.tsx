@@ -1,11 +1,20 @@
-import { useState, useEffect, useRef, useMemo } from 'react';
+import { useState, useEffect, useRef, useMemo, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { UiIcon } from './UiIcon';
 import { useTelosSourceReview } from './TelosSourceReview';
 import { sessionApprovalServer, type QuestionAnswers, type UserQuestion } from '@mitzo/protocol';
 
 export type ToolTier = 'safe' | 'standard' | 'elevated' | 'unknown';
+export interface PermissionDraft {
+  selections: Map<string, string[]>;
+  written: Map<string, string>;
+  submitting: boolean;
+  deadlineAt: number;
+}
 interface Props {
+  navigation?: ReactNode;
+  draft?: PermissionDraft;
+  onDraftChange?: (draft: PermissionDraft) => void;
   permId: string;
   sessionId?: string;
   reviewKind?: 'telos_source';
@@ -38,6 +47,9 @@ const TIER_LABELS: Record<ToolTier, string> = {
 };
 
 export function PermissionBanner({
+  navigation,
+  draft,
+  onDraftChange,
   permId,
   sessionId,
   reviewKind,
@@ -57,7 +69,7 @@ export function PermissionBanner({
   onRespond,
   onExpire,
 }: Props) {
-  const [submitting, setSubmitting] = useState(false);
+  const [submitting, setSubmitting] = useState(draft?.submitting ?? false);
   useEffect(() => {
     if (responseError && submitting) setSubmitting(false);
   }, [responseError, submitting]);
@@ -66,12 +78,17 @@ export function PermissionBanner({
     if (answers) onRespond(id, decision, tool, answers);
     else onRespond(id, decision, tool);
   };
-  const [selections, setSelections] = useState<Map<string, string[]>>(() => new Map());
-  const [written, setWritten] = useState<Map<string, string>>(() => new Map());
-  const deadline = useMemo(
-    () => ({ id: permId, at: expiresAt ?? Date.now() + 120_000 }),
-    [permId, expiresAt],
+  const [selections, setSelections] = useState<Map<string, string[]>>(
+    () => draft?.selections ?? new Map(),
   );
+  const [written, setWritten] = useState<Map<string, string>>(() => draft?.written ?? new Map());
+  const deadline = useMemo(
+    () => ({ id: permId, at: expiresAt ?? draft?.deadlineAt ?? Date.now() + 120_000 }),
+    [permId, expiresAt, draft?.deadlineAt],
+  );
+  useEffect(() => {
+    onDraftChange?.({ selections, written, submitting, deadlineAt: deadline.at });
+  }, [onDraftChange, selections, written, submitting, deadline.at]);
   const sourceReview = useTelosSourceReview({
     enabled: reviewKind === 'telos_source',
     permId,
@@ -102,7 +119,10 @@ export function PermissionBanner({
     const timer = setInterval(update, 1000);
     return () => clearInterval(timer);
   }, [deadline, permId, recoveringSource]);
+  const previousPermission = useRef(permId);
   useEffect(() => {
+    if (previousPermission.current === permId) return;
+    previousPermission.current = permId;
     setSubmitting(false);
     setSelections(new Map());
     setWritten(new Map());
@@ -166,6 +186,7 @@ export function PermissionBanner({
           </span>
         )}
       </div>
+      {navigation}
       <div className="perm-banner-info">
         <h2 className="perm-banner-tool">{heading}</h2>
         {!questions && !reviewingSource && tier && (

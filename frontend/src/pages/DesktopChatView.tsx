@@ -82,7 +82,7 @@ import { AccountModelPicker, type AccountSelection } from '../components/Account
 import { CodexQueueStatus } from '../components/CodexQueueStatus';
 import { WebSearchConsent } from '../components/WebSearchConsent';
 import { useState, useCallback, useEffect, useRef, useMemo } from 'react';
-import { Link, useParams, useNavigate } from 'react-router-dom';
+import { Link, useParams, useNavigate, useLocation } from 'react-router-dom';
 import { DesktopShell } from '../components/DesktopShell';
 import { SessionPanel } from '../components/SessionPanel';
 import { CommandCenter } from '../components/CommandCenter';
@@ -111,6 +111,7 @@ function DesktopChatViewContent() {
   const [profileToolsTarget, setProfileToolsTarget] = useState<HTMLDivElement | null>(null);
   const { sessionId } = useParams<{ sessionId?: string }>();
   const searchParams = useChatDraftSearch(!sessionId);
+  const approvalNavigationKey = useLocation().key;
   const [agentProfile, setAgentProfile] = useState<AgentProfileSelection | null>(null);
   const [agentProfileBlocked, setAgentProfileBlocked] = useState<string | undefined>();
   const onAgentProfileChange = useCallback(
@@ -1742,6 +1743,10 @@ function DesktopChatViewContent() {
                   sessionId && sessionId !== activeSessionId ? {} : messages.currentByMessage,
                 running: messages.running,
                 permission: messages.permission,
+                permissionQueue: messages.permissionQueue,
+                requestedApprovalId: searchParams.get('approval'),
+                approvalNavigationKey,
+                approvalsReady: (!sessionId || sessionId === activeSessionId) && !historyLoading,
                 onPermissionRespond: handlePermission,
                 onPermissionExpire: storeExpirePermission,
                 scrollRef,

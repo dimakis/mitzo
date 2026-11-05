@@ -10,6 +10,7 @@ import { useNotifications } from '../components/NotificationProvider';
 import { WorkspacePageHeading } from '../components/WorkspacePageHeading';
 import { UiIcon } from '../components/UiIcon';
 import { apiFetch } from '../lib/api-fetch';
+import { notificationTarget } from '../lib/notification-target';
 import '../styles/notifications.css';
 const filters: [NotificationFilter, string][] = [
   ['all', 'All'],
@@ -85,7 +86,9 @@ export function RequestDetail({
       <h2>{item.title}</h2>
       <p className="workspace-muted">{item.body}</p>
       {item.sessionId && (
-        <Link to={`/chat/${encodeURIComponent(item.sessionId)}`}>Open session</Link>
+        <Link to={notificationTarget({ notificationId: item.id, sessionId: item.sessionId })}>
+          Open session
+        </Link>
       )}
       {item.inboxFilename && (
         <Link to={`/inbox?item=${encodeURIComponent(item.inboxFilename)}`}>Open in Inbox</Link>

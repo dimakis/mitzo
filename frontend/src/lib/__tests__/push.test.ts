@@ -2,9 +2,10 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 vi.mock('../notification-target', () => ({
   notificationTarget: vi.fn(() => '/notifications'),
+  openNotification: vi.fn(),
   NOTIFICATIONS_REFRESH_EVENT: 'mitzo:notifications-refresh',
 }));
-import { notificationTarget } from '../notification-target';
+import { openNotification, notificationTarget } from '../notification-target';
 
 // Mock @capacitor/core
 vi.mock('@capacitor/core', () => ({
@@ -70,6 +71,7 @@ describe('initPushNotifications', () => {
       });
       expect(apiFetch).not.toHaveBeenCalled();
       expect(notificationTarget).not.toHaveBeenCalled();
+      expect(openNotification).not.toHaveBeenCalled();
     },
   );
   it('queues login enrollment behind native registration still in flight', async () => {

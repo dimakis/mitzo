@@ -1,4 +1,4 @@
-import { notificationTarget, NOTIFICATIONS_REFRESH_EVENT } from './notification-target';
+import { openNotification, NOTIFICATIONS_REFRESH_EVENT } from './notification-target';
 // Push notification integration for Capacitor iOS. No-op in browser.
 
 import { Capacitor } from '@capacitor/core';
@@ -118,7 +118,7 @@ async function initializePush(): Promise<void> {
       const data = action.notification.data as Record<string, string> | undefined;
       const sessionId = data?.sessionId;
       if (data?.notificationId && actionId !== 'REPLY_ACTION' && actionId !== 'LATER_ACTION') {
-        window.location.href = notificationTarget(data);
+        openNotification(data);
         return;
       }
 
@@ -130,11 +130,11 @@ async function initializePush(): Promise<void> {
           body: JSON.stringify({ sessionId, actionId, userText: inputValue }),
         })
           .then(() => {
-            window.location.href = `/chat/${sessionId}`;
+            openNotification({ sessionId });
           })
           .catch(() => {
             // Still navigate — user can resend from chat view
-            window.location.href = `/chat/${sessionId}`;
+            openNotification({ sessionId });
           });
       } else if (sessionId) {
         if (actionId === 'LATER_ACTION') {
@@ -145,7 +145,7 @@ async function initializePush(): Promise<void> {
           });
         } else {
           // VIEW_ACTION or default tap — just navigate
-          window.location.href = `/chat/${sessionId}`;
+          openNotification({ sessionId });
         }
       }
     }),
