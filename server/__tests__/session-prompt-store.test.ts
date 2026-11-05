@@ -103,6 +103,25 @@ it('counts accepted prompts rather than model task completion and stops at the r
   });
   expect(store.due(5_000_000)).toEqual([]);
 });
+it('does not let a stale pending delivery block a timer after its prompt was edited', () => {
+  const { store, input } = fixture();
+  const timer = store.create({ ...input, startImmediately: true }, auth, 'user', null, 0);
+  const pending = store.due(0)[0];
+  const edited = store.change(
+    timer.id,
+    {
+      requestId: randomUUID(),
+      expectedRevision: timer.revision,
+      action: 'update',
+      prompt: 'Check PR #8',
+    },
+    auth,
+    10,
+  );
+  store.finish(pending.id, 'failed', 'Stale delivery', 20);
+  expect(store.get(timer.id)).toEqual(edited);
+  expect(store.delivery(pending.id).state).toBe('cancelled');
+});
 
 it('preserves pause/cancel after a runtime acknowledgement races with a human action', () => {
   const { store, input } = fixture();

@@ -340,7 +340,7 @@ export class SessionPromptStore {
     this.db
       .transaction(() => {
         const delivery = this.delivery(id);
-        if (delivery.state === 'accepted') return;
+        if (delivery.state === 'accepted' || delivery.state === 'cancelled') return;
         delivery.state = state;
         delivery.error = error;
         this.saveDelivery(delivery);

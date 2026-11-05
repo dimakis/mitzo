@@ -29,10 +29,10 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/session-prompt-service.test.ts':
     '4a2948b379caa9d90a4efd4a25cb9754a16aea623fd51250dff388ecfa995b01',
   '../__tests__/session-prompt-store.test.ts':
-    '01aa1996af6f89a01248a10ebcf1d6791205747802d160efc700389a7ae019f8',
+    'e158c391946f70f98b164464c0bb37c78ed02e6a0b4708b61446a4e654970bdc',
   '../session-prompt-service.ts':
     '02105fde2057968a81f119e541d1218bba18d7755b1830e0e795f728a9a43f77',
-  '../session-prompt-store.ts': '4fe44e8613db70cd2699caeb6ef050f210b786d30cfe074b246bf1f325dff4ed',
+  '../session-prompt-store.ts': '4d8330462dde14849280b12a23b9ee436062dce32e0e2f585b4dabd752c576ba',
   '../../docs/features/session-timers.md':
     '2a12ade4fe783fbe149c304d42d2e8bca1bccab066e484624f34b806421d1589',
   '../../frontend/src/components/SessionTimersDialog.tsx':
