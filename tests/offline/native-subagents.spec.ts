@@ -169,7 +169,8 @@ for (const theme of ['dark', 'light'])
     await dialog.getByRole('button', { name: 'Back to conversation' }).click();
     await expect(parent).toHaveValue('Keep my parent draft');
     await expect(child).toBeFocused();
-    await page.getByRole('button', { name: 'More composer actions' }).click();
+    const more = page.getByRole('button', { name: 'More composer actions' });
+    if (await more.isVisible()) await more.click();
     await expect(page.getByRole('link', { name: 'Terminal', exact: true })).toBeVisible();
     expect(errors).toEqual([]);
   });

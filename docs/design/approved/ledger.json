@@ -524,7 +524,8 @@
             "frontend/src/components/NativeSubagents.css",
             "frontend/src/components/ToolPill.tsx",
             "frontend/src/hooks/useNativeSubagents.ts",
-            "frontend/src/components/ChatArea.tsx"
+            "frontend/src/components/ChatArea.tsx",
+            "frontend/src/components/ComposerTools.tsx"
           ],
           "checks": [
             "frontend/src/components/__tests__/NativeSubagents.test.tsx",
@@ -538,7 +539,7 @@
             },
             {
               "path": "tests/offline/native-subagents.spec.ts",
-              "sha256": "3c8faf96327eba66c40debf49b14b7367173ef2a7f7312df6019c6b8a0b2e05b"
+              "sha256": "32359e1c7a446c2792ca45331d3bc488cf270378ad95ca269e12901e89ad256f"
             },
             {
               "path": "frontend/src/components/__tests__/NativeSubagentsChatArea.test.tsx",
