@@ -27,12 +27,20 @@ therefore still consume query scratch memory. The temporary index has no durabil
 requirement and is discarded after the worker stops; the original database remains
 authoritative.
 
+Production shutdown awaits search-worker termination and removal. Each disk cache
+has an owner marker and a process-specific name. Startup recovers a marked cache
+only when its owning process is confirmed absent; live or inaccessible processes,
+unknown markers, symlinks and unrelated directories are preserved.
+
 ## Inbox reads
 
 Authenticated feed routes await a shared asynchronous scan. Unchanged files reuse
 parsed content by physical identity, size, modification time and change time;
 only changed sources update the notification ledger. Archive collisions and
 active-source removal retain the existing durable lifecycle semantics.
+Potential archive collisions recheck current source identity before committing the
+ledger, so a move between scans cannot create duplicate history. Archive actions
+await reconciliation before reporting success and publishing notification changes.
 
 Content reuse never retains permission. Scans capture current private-path rules,
 and the ledger applies its current visibility policy when reading or delivering
