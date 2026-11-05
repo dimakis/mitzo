@@ -42,6 +42,16 @@ it('explains reply provenance failure without hiding it behind a generic disconn
   });
 });
 
+it('identifies final tool reply validation without claiming that its effects failed', () => {
+  const error = new CodexTransportError('connection', { reason: 'host_response_fence_failed' });
+  expect(codexRuntimeDiagnostic(error)).toMatch(/tool reply.*active session/);
+  expect(codexRuntimeDiagnostic(error)).toContain('Saved work is preserved');
+  expect(codexRuntimeErrorTelemetry(error)).toEqual({
+    transportErrorCategory: 'connection',
+    transportFailureReason: 'host_response_fence_failed',
+  });
+});
+
 it('explains a rejected OpenShell subscription grant without relaying arbitrary exception text', () => {
   const reason = 'OpenShell ChatGPT grant is expired, revoked, or requires sign-in';
   const error = new Error(reason);

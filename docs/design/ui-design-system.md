@@ -206,10 +206,11 @@ validation requires the permitted macOS browser host; CI retains browser capture
 
 Chat load errors distinguish an initial request from a refresh of a previously loaded
 list. A failed refresh retains its rows beside the existing error and Retry control,
-including in Today's recent sessions. Draft confirmation describes storage on the
-current device, appears only after the current revision is saved, and disappears
-when an empty composer has no retained draft. Failed writes remain explicit alerts.
-These changes reuse existing list/error and composer status styles.
+including in Today's recent sessions. Routine draft writes remain silent in the
+approved combined composer status row. Keep that row mounted and stable through
+revision checks and background writes, including screenshot attachments. Failed
+writes remain explicit alerts. These changes reuse existing list/error and
+composer status styles.
 
 Isolated actual SessionList and ChatInput renders were checked offline in mobile
 WebKit at 320px and desktop Chromium at 1280px, dark/light themes and Mint/Georgia,
@@ -260,6 +261,14 @@ File-header actions use quiet secondary controls and a restrained accent for Edi
 or Save. Discard remains a visibly labelled destructive action; Done remains
 neutral. Save, loading, error and conflict states retain the existing behavior.
 Colors, fonts, spacing, focus, radii and motion come from the shared token source.
+Viewing keeps Back, a compact filename/branch column and file actions in one row.
+Files uses the shared shell's branding: the full mobile masthead and the normal
+desktop navigation wordmark. Its document toolbar has no separate M/home button.
+Long names truncate visually while retaining their full text and title. On phones,
+Read uses its named icon without a visible label; Edit stays labelled. Preserve
+44px targets and let explicit editing actions wrap when required. The shell owns
+the mobile safe area once. See [compact display validation](compact-display-validation.md)
+for the preview and current verification limits.
 
 ## Saved document revisions
 

@@ -166,6 +166,18 @@ it('runs history through the signed native owner without publication configurati
     'Public old answer',
   ]);
   expect(read.text).not.toContain('private');
+  const ownedSession = chat.registry.findBySessionId(f.reservation.conversationId)!.session;
+  ownedSession.activeSkillPolicy = new Set(['SearchPastSessions']);
+  const restricted = await invoke('SearchPastSessions', { query: 'Public old' });
+  expect(restricted.response.success).toBe(true);
+  expect(restricted.value.sessions).toEqual([]);
+  expect(
+    (await invoke('SearchPastSessions', { query: 'Public old', scope: 'all' })).response.success,
+  ).toBe(false);
+  expect((await invoke('SearchPastSessions', { query: 'Prior project' })).response.success).toBe(
+    true,
+  );
+  ownedSession.activeSkillPolicy = null;
   expect(
     (await invoke('ReadPastSession', { conversationId: 'hidden-target' })).response.success,
   ).toBe(false);
@@ -182,9 +194,9 @@ it('runs history through the signed native owner without publication configurati
   expect(
     (await invoke('ReadPastSession', { conversationId: 'internal-target' })).response.success,
   ).toBe(false);
-  const readEvents = chat.eventStore.getEventsAfter.bind(chat.eventStore);
-  vi.spyOn(chat.eventStore, 'getEventsAfter').mockImplementationOnce((id, after, limit) => {
-    const result = readEvents(id, after, limit);
+  const readEvents = chat.eventStore.getHistoryEventPage.bind(chat.eventStore);
+  vi.spyOn(chat.eventStore, 'getHistoryEventPage').mockImplementationOnce((id, ...page) => {
+    const result = readEvents(id, ...page);
     chat.eventStore.hideSession(id);
     return result;
   });

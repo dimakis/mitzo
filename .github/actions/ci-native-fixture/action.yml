@@ -1,0 +1,20 @@
+name: Prepare qualified offline native fixture
+description: Verify the pinned native fixture on each macOS job that actually qualifies native behavior.
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        PROVENANCE=server/__tests__/fixtures/codex-native-permission-protocol-0.160.0.json
+        VERSION=$(node -p "require('./$PROVENANCE').provenance.version")
+        BINARY=$(node -p "require('./$PROVENANCE').provenance.binary")
+        EXPECTED_SHA=$(node -p "require('./$PROVENANCE').provenance.binarySha256")
+        FIXTURE_DIR="$RUNNER_TEMP/telos-s9-native"
+        mkdir -p "$FIXTURE_DIR"
+        gh release download "rust-v$VERSION" --repo openai/codex \
+          --pattern "$BINARY.tar.gz" --dir "$FIXTURE_DIR"
+        tar -xzf "$FIXTURE_DIR/$BINARY.tar.gz" -C "$FIXTURE_DIR"
+        echo "$EXPECTED_SHA  $FIXTURE_DIR/$BINARY" | shasum -a 256 -c -
+        echo "S9_CODEX_NATIVE_FIXTURE=$FIXTURE_DIR/$BINARY" >> "$GITHUB_ENV"
