@@ -1810,7 +1810,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/protocol/src/telos-work.ts':
     '7597f5477d2cf377474f6b0f08ee69b2c6045e1e7ba89911cd281b5d9f2b0043',
   '../agent-context-authority.ts':
-    'bd10cb52e99b8449021e7119dec74d74ac741978995fa7df82869609d6e78999',
+    '21e865d2d668fb25ec904d40c3034bf4136c6dc93eed1b2eda074ef3f0ad57b1',
   '../agent-context-delivery.ts':
     'ccb083988e7c0563d9080a8553d9903abc1cf5b1d669b4583c215508faaee46a',
   '../agent-context-pack-compiler.ts':
