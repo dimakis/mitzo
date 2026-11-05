@@ -217,6 +217,7 @@ import { loadProjectHooks } from './hook-bridge.js';
 import { buildPermissionHandler } from './permission-handler.js';
 import { setSkillPolicy } from './skill-policy.js';
 import { runQueryLoop, broadcastToObservers, deliverRetainedSessionEvent } from './query-loop.js';
+import type { SessionChangeEvent } from './session-overview.js';
 import { clearSessionImages } from './image-store.js';
 import { AsyncQueue } from './async-queue.js';
 import {
@@ -353,7 +354,7 @@ export function broadcastDurableSymposiumEvent(
 
 type SessionChangeCallback = (
   clientId: string,
-  event: 'start' | 'end' | 'turn_start' | 'turn_end' | 'user_message' | 'detach',
+  event: SessionChangeEvent,
   sessionId?: string,
 ) => void;
 let _onSessionChange: SessionChangeCallback | null = null;
@@ -3151,6 +3152,7 @@ This is an independent checkout with its own Git storage, not a linked worktree.
         yield message;
       }
     };
+    if (!options.reattachOnly) notifyTurnStart(clientId);
     await runQueryLoop(
       sdkContextEvents(),
       clientId,
@@ -4879,6 +4881,7 @@ export async function sendToChat(
             responses ? images : undefined,
           ),
         );
+        notifyTurnStart(clientId);
       } catch (error) {
         failPreparedProviderCommand(error);
       }

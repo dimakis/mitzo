@@ -152,11 +152,15 @@ export function useSessionList(): UseSessionListReturn {
       );
       setSessions((prev) => applyActivity(prev, activeIds.current));
     });
+    const unsubConnection = eventBus.onConnectionChange((connected) => {
+      if (!connected) activeIds.current = null;
+    });
 
     return () => {
       document.removeEventListener('visibilitychange', onVisible);
       unsubChanged();
       unsubActivity();
+      unsubConnection();
     };
   }, [loadSessions]);
 

@@ -43,6 +43,18 @@ function makeActivity(overrides: Partial<SessionActivity> = {}): SessionActivity
 }
 
 describe('useSessionOverview', () => {
+  it('discards stale activity after disconnect so it cannot override HTTP refreshes', () => {
+    const { result } = renderHook(() => useSessionOverview());
+    const activity = mockOn.mock.calls.find(([name]: [string]) => name === 'session_activity')[1];
+    const connection = mockOnConnectionChange.mock.calls.at(-1)[0];
+    act(() => activity([makeActivity({ state: 'done' })]));
+    expect(result.current.activities).toHaveLength(1);
+    act(() => connection(false));
+    expect(result.current.activities).toEqual([]);
+    act(() => connection(true));
+    act(() => activity([makeActivity({ state: 'working' })]));
+    expect(result.current.activities[0].state).toBe('working');
+  });
   it('starts with empty activities', () => {
     const { result } = renderHook(() => useSessionOverview());
     expect(result.current.activities).toEqual([]);

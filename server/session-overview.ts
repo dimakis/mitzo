@@ -25,6 +25,9 @@ import { sessionModelIdentity } from './session-list-metadata.js';
 
 export type { SessionActivity, SessionActivityState, WaitReason } from '@mitzo/protocol';
 
+export type SessionChangeEvent =
+  'start' | 'end' | 'turn_start' | 'turn_end' | 'user_message' | 'detach';
+
 const log = createLogger('session-overview');
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -112,6 +115,26 @@ export class SessionOverviewEmitter {
     if (!session || session.turnInProgress === running) return;
     session.turnInProgress = running;
     this.touch(clientId);
+    this.scheduleBroadcast();
+  }
+
+  /** Registration and retained input do not establish provider execution. */
+  sessionChanged(clientId: string, event: SessionChangeEvent, sessionId?: string): void {
+    if (event === 'turn_start') {
+      this.setTurnRunning(clientId, true);
+    } else if (event === 'end') {
+      this.forget(clientId, sessionId);
+    } else if (event === 'user_message') {
+      const session = this.deps.registry.get(clientId);
+      if (session?.sessionId) this.updateSpeaker(session.sessionId, 'user');
+    } else if (event === 'turn_end') {
+      this.setTurnRunning(clientId, false);
+      const session = this.deps.registry.get(clientId);
+      if (session?.sessionId) {
+        this.deps.eventStore.updateLastSpeaker(session.sessionId, 'assistant');
+        this.updateSpeaker(session.sessionId, 'assistant');
+      }
+    }
     this.scheduleBroadcast();
   }
 

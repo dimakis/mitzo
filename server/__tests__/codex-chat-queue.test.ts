@@ -377,3 +377,64 @@ it('keeps an admitted message saved and reports a bounded reconnect failure', as
     ),
   );
 });
+
+it.each(['rejected', 'cancelled'] as const)(
+  'keeps a retained but %s native send idle without needing a provider result',
+  async (outcome) => {
+    vi.restoreAllMocks();
+    const { SessionOverviewEmitter } = await import('../session-overview.js');
+    const id = `activity-${outcome}`;
+    const controller = new AbortController();
+    chat.eventStore.upsertSession({ sessionId: id, cwd: root });
+    chat.registry.register(id, {
+      sessionId: id,
+      cwd: root,
+      mode: 'agent',
+      sessionAllowList: new Set(),
+      transport: { send: vi.fn(), isOpen: () => true },
+      abortController: controller,
+    });
+    const session = chat.registry.get(id)!;
+    session.inputQueue = { push: vi.fn(), close: vi.fn() };
+    session.turnInProgress = false;
+    const emitter = new SessionOverviewEmitter({
+      registry: chat.registry,
+      eventStore: chat.eventStore,
+      sseRegistry: { broadcast: vi.fn() } as never,
+      taskStore: { getTree: () => [] } as never,
+      getLoopStatus: () => ({ state: 'idle' }) as never,
+      getSessionTitle: () => id,
+      isSessionHidden: () => false,
+    });
+    chat.setSessionChangeCallback((...args) => emitter.sessionChanged(...args));
+    runtime.admitExplicitSend.mockImplementationOnce(async () => {
+      if (outcome === 'cancelled') controller.abort();
+      throw Error('Offline admission refused');
+    });
+    try {
+      expect(
+        await chat.sendToChat(
+          id,
+          'Saved request',
+          undefined,
+          undefined,
+          `${id}-input`,
+          undefined,
+          undefined,
+          controller.signal,
+          undefined,
+          undefined,
+          vi.fn(),
+        ),
+      ).toBe(true);
+      expect(chat.eventStore.hasUserMessage(id, `${id}-input`)).toBe(true);
+      expect(emitter.getSnapshot()[0].state).not.toBe('working');
+      expect(session.turnInProgress).toBe(false);
+      expect(runtime.resumeAfterExplicitSend).not.toHaveBeenCalled();
+    } finally {
+      chat.setSessionChangeCallback(() => {});
+      emitter.destroy();
+      chat.registry.abort(id);
+    }
+  },
+);

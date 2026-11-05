@@ -95,6 +95,36 @@ describe('useSessionList', () => {
     expect(result.current.sessions[0]).toMatchObject({ isActive: false, isAttached: false });
   });
 
+  it('lets HTTP discover active sessions after the activity stream disconnects', async () => {
+    vi.mocked(apiFetch).mockImplementation(
+      async (url) =>
+        new Response(
+          JSON.stringify(
+            url === '/api/sessions' ? [{ id: 'one', isActive: true, isAttached: true }] : {},
+          ),
+        ),
+    );
+    const { result } = renderHook(() => useSessionList());
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    const activity = vi
+      .mocked(eventBus.on)
+      .mock.calls.filter(([event]) => event === 'session_activity')
+      .at(-1)![1];
+    act(() => activity([]));
+    expect(result.current.sessions[0].isActive).toBe(false);
+    const connection = vi.mocked(eventBus.onConnectionChange).mock.calls.at(-1)![0];
+    act(() => connection(false));
+    const changed = vi
+      .mocked(eventBus.on)
+      .mock.calls.filter(([event]) => event === 'sessions_changed')
+      .at(-1)![1];
+    act(() => changed({}));
+    await waitFor(() => expect(result.current.sessions[0].isActive).toBe(true));
+    act(() => connection(true));
+    act(() => activity([{ sessionId: 'one', state: 'done' }]));
+    expect(result.current.sessions[0].isActive).toBe(false);
+  });
+
   it('starts in loading state', () => {
     const { result } = renderHook(() => useSessionList());
     expect(result.current.loading).toBe(true);

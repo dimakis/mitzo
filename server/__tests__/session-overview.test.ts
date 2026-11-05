@@ -104,6 +104,31 @@ describe('SessionOverviewEmitter', () => {
 
   // ─── getSnapshot ──────────────────────────────────────────────────────────
 
+  it('does not infer execution from registration or retained input before admission', () => {
+    const session = makeActiveSession({ turnInProgress: false });
+    deps = makeDeps({
+      registry: {
+        get: () => session,
+        getActiveSessions: () => [session],
+      } as unknown as SessionOverviewDeps['registry'],
+    });
+    deps.eventStore.updateLastSpeaker = vi.fn();
+    emitter = new SessionOverviewEmitter(deps);
+    emitter.sessionChanged(session.clientId, 'start');
+    emitter.sessionChanged(session.clientId, 'user_message');
+    expect(emitter.getSnapshot()[0].state).not.toBe('working');
+    // A rejected/cancelled admission has no provider result. Retention cannot
+    // create a turn, or clear another command's already running turn.
+    emitter.sessionChanged(session.clientId, 'turn_start');
+    emitter.sessionChanged(session.clientId, 'user_message');
+    expect(emitter.getSnapshot()[0].state).toBe('working');
+    emitter.sessionChanged(session.clientId, 'turn_end');
+    emitter.sessionChanged(session.clientId, 'start');
+    emitter.sessionChanged(session.clientId, 'user_message');
+    expect(emitter.getSnapshot()[0].state).not.toBe('working');
+    expect(session.turnInProgress).toBe(false);
+  });
+
   it.each([true, false])(
     'keeps a running turn working between messages (attached=%s)',
     (attached) => {
