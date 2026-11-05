@@ -56,3 +56,24 @@ it('does not relabel transport failures with unrelated or untrusted authorizatio
     }),
   ).toBe(failure);
 });
+
+it('retains one expiry diagnostic when the deadline is observed before its timer runs', () => {
+  vi.useFakeTimers();
+  const deadline = Date.now() + 1000;
+  const controller = new AbortController();
+  const scope = retainAgentContextAuthority(
+    { id: crypto.randomUUID(), expiresAt: deadline },
+    controller,
+  );
+  try {
+    vi.setSystemTime(deadline);
+    const first = agentContextRuntimeError(new Error('first closure'), scope.assertCurrent);
+    const second = agentContextRuntimeError(new Error('second closure'), scope.assertCurrent);
+    expect(findSessionRuntimeError(first)?.code).toBe('auth_expired');
+    expect(second).toBe(first);
+    vi.advanceTimersByTime(1000);
+    expect(controller.signal.reason).toBe(first);
+  } finally {
+    scope.release();
+  }
+});

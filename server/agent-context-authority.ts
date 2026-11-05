@@ -14,20 +14,20 @@ export function agentContextRuntimeError(error: Error, assertCurrent?: () => voi
 
 /** A run retains its admitted subject, not the lifetime of one browser connection. */
 export function retainAgentContextAuthority(auth: AuthSession, controller: AbortController) {
-  let invalid = false;
+  let invalidation: SessionRuntimeError | undefined;
   let released = false;
   const unregister = registerAuthSession(auth, (reason) => {
-    invalid = true;
-    controller.abort(
-      new SessionRuntimeError(reason === 'expired' ? 'auth_expired' : 'auth_revoked'),
+    invalidation ??= new SessionRuntimeError(
+      reason === 'expired' ? 'auth_expired' : 'auth_revoked',
     );
+    controller.abort(invalidation);
   });
   return {
     assertCurrent() {
       if (released) throw Error('Agent context authorization was released');
       controller.signal.throwIfAborted();
-      if (invalid || auth.expiresAt <= Date.now())
-        throw new SessionRuntimeError(invalid ? 'auth_revoked' : 'auth_expired');
+      if (invalidation || auth.expiresAt <= Date.now())
+        throw (invalidation ??= new SessionRuntimeError('auth_expired'));
     },
     release() {
       if (!released) {
