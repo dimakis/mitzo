@@ -22,7 +22,7 @@ import {
 } from './agent-tool-selection.js';
 import {
   sessionCredentialTools,
-  CONNECTION_TOOL_INSTRUCTIONS,
+  SESSION_TOOL_INSTRUCTIONS,
   API_CONNECTION_INSTRUCTIONS,
 } from './session-credential-tools.js';
 import {
@@ -448,7 +448,7 @@ The selected account supplies model inference; Local host describes where the to
 `;
   const systemPrompt =
     options.systemPrompt +
-    CONNECTION_TOOL_INSTRUCTIONS +
+    SESSION_TOOL_INSTRUCTIONS +
     API_CONNECTION_INSTRUCTIONS +
     SESSION_PERMISSION_INSTRUCTIONS +
     HOST_TOOL_INSTRUCTIONS +

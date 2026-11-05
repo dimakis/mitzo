@@ -214,6 +214,35 @@ it('labels callbacks with source and work reference without making peer text hum
   expect(text).toContain('T7');
   expect(text).toContain('no additional permissions');
 });
+it.each(['timer', 'agent'] as const)(
+  'does not cold-resume a durably user-closed recipient for %s delivery',
+  async (kind) => {
+    const x = fixture();
+    const meta = x.events.getSession('worker')!;
+    vi.spyOn(x.events, 'getSession').mockReturnValue({ ...meta, closedBy: 'user' });
+    x.delivery.kind = kind;
+    await expect(x.port.inspect('worker', x.delivery.auth)).rejects.toThrow(/stopped|closed/i);
+    await expect(
+      x.port.deliver(x.delivery, new AbortController().signal, f.current),
+    ).rejects.toThrow(/stopped|closed/i);
+    expect(f.dispatch).not.toHaveBeenCalled();
+  },
+);
+it('allows an explicitly reopened live owner while preserving the historical closure marker', async () => {
+  const x = fixture();
+  vi.spyOn(x.events, 'getSession').mockReturnValue({
+    ...x.events.getSession('worker')!,
+    closedBy: 'user',
+  });
+  f.live = {
+    clientId: 'reopened-worker',
+    session: {
+      ordinaryRuntimeOwner: { authSessionId: 'login' },
+      transport: { isOpen: () => true, send() {} },
+    },
+  };
+  await expect(x.port.inspect('worker', x.delivery.auth)).resolves.toEqual({ busy: false });
+});
 it('continues an OpenShell repository whose workspace custody has a sandbox rather than a host checkout', async () => {
   const fxt = fixture('codex', 'openshell');
   f.workspace = { id: 'workspace', conversationId: 'worker', sandbox: true };

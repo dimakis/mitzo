@@ -77,7 +77,12 @@ export class SessionPromptService {
     this.authorize(auth);
     const timer = this.store.change(id, raw, auth);
     for (const [deliveryId, controller] of this.controllers) {
-      if (this.store.delivery(deliveryId).timerId === id) controller.abort();
+      if (this.store.delivery(deliveryId).timerId !== id) continue;
+      try {
+        this.store.assertDeliveryCurrent(deliveryId);
+      } catch {
+        controller.abort();
+      }
     }
     return timer;
   }

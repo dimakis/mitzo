@@ -21,7 +21,7 @@ function fixture() {
   const auth = { id: 'login', expiresAt: Date.now() + 1000000 };
   const port = {
     authorized: vi.fn(() => true),
-    inspect: vi.fn(async () => ({ busy: false })),
+    inspect: vi.fn<SessionPromptPort['inspect']>(async () => ({ busy: false })),
     deliver: vi.fn<SessionPromptPort['deliver']>(async (_delivery, _signal, current) => {
       current();
     }),
@@ -140,4 +140,100 @@ it('reconciles an interrupted paused timer without redispatching or leaving its 
   await f.service.tick();
   expect(f.store.get(timer.id)).toMatchObject({ status: 'paused', runCount: 1 });
   expect(f.port.deliver).not.toHaveBeenCalled();
+});
+it('preserves a pending manual check when a busy paused timer is resumed with renewed authorization', async () => {
+  const f = fixture();
+  const timer = await f.service.create(
+    { ...f.input, startImmediately: false },
+    f.auth,
+    'user',
+    null,
+  );
+  const paused = f.service.change(
+    timer.id,
+    { requestId: randomUUID(), expectedRevision: timer.revision, action: 'pause' },
+    f.auth,
+  );
+  const manual = f.service.change(
+    timer.id,
+    { requestId: randomUUID(), expectedRevision: paused.revision, action: 'run' },
+    f.auth,
+  );
+  f.port.inspect.mockResolvedValue({ busy: true });
+  await f.service.tick();
+  const original = f.store.deliveries()[0];
+  const renewed = { ...f.auth, id: 'renewed-login' };
+  f.service.change(
+    timer.id,
+    { requestId: randomUUID(), expectedRevision: manual.revision, action: 'resume' },
+    renewed,
+  );
+  f.port.inspect.mockResolvedValue({ busy: false });
+  await f.service.tick();
+  expect(f.store.get(timer.id)).toMatchObject({ status: 'active', runCount: 1, lastError: null });
+  expect(f.port.deliver).toHaveBeenCalledTimes(1);
+  expect(f.port.deliver.mock.calls[0][0]).toMatchObject({ auth: renewed, manual: true });
+  expect(f.store.delivery(original.id).state).toBe('cancelled');
+});
+it('does not abort the original check when an exact Run now request is retried during preparation', async () => {
+  const f = fixture();
+  const timer = await f.service.create(
+    { ...f.input, startImmediately: false },
+    f.auth,
+    'user',
+    null,
+  );
+  const request = { requestId: randomUUID(), expectedRevision: timer.revision, action: 'run' };
+  const first = f.service.change(timer.id, request, f.auth);
+  let proceed!: () => void;
+  let entered!: () => void;
+  let deliverySignal!: AbortSignal;
+  const ready = new Promise<void>((resolve) => (entered = resolve));
+  f.port.deliver.mockImplementation(async (_delivery, signal, current) => {
+    deliverySignal = signal;
+    entered();
+    await new Promise<void>((resolve) => (proceed = resolve));
+    signal.throwIfAborted();
+    current();
+  });
+  const pending = f.service.tick();
+  await ready;
+  const retried = f.service.change(timer.id, request, f.auth);
+  const aborted = deliverySignal.aborted;
+  proceed();
+  await pending;
+  expect(retried).toEqual(first);
+  expect(aborted).toBe(false);
+  expect(f.store.get(timer.id)).toMatchObject({ status: 'active', runCount: 1 });
+  expect(f.port.deliver).toHaveBeenCalledTimes(1);
+});
+it('advances beyond busy recipients and revisits earlier work fairly while more callbacks arrive', async () => {
+  const f = fixture();
+  const available = new Set(['coordinator']);
+  f.port.inspect.mockImplementation(async (sessionId) => ({ busy: !available.has(sessionId) }));
+  const enqueue = (count: number, sessionId: string) => {
+    for (let index = 0; index < count; index++)
+      f.store.message(
+        { requestId: randomUUID(), sessionId, text: 'Task complete' },
+        f.auth,
+        'sender',
+      );
+  };
+  enqueue(200, 'busy-worker');
+  const callback = f.store.message(
+    { requestId: randomUUID(), sessionId: 'coordinator', text: 'Task T complete', workId: 'T' },
+    f.auth,
+    'sender',
+  );
+  await f.service.tick();
+  expect(f.port.deliver).not.toHaveBeenCalled();
+  enqueue(201, 'busy-tail');
+  await f.service.tick();
+  expect(f.store.delivery(callback.id).state).toBe('accepted');
+  available.add('busy-worker');
+  enqueue(201, 'busy-tail');
+  await f.service.tick();
+  expect(
+    f.port.deliver.mock.calls.some(([delivery]) => delivery.recipientSessionId === 'busy-worker'),
+  ).toBe(true);
 });

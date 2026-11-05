@@ -132,10 +132,7 @@ import {
 } from './repository-workspace-runtime.js';
 import { authorizeNativeLocalRepositoryRemote } from './native-local-repository-remote.js';
 import { toolInputError } from './tool-input-error.js';
-import {
-  sessionCredentialTools,
-  CONNECTION_TOOL_INSTRUCTIONS,
-} from './session-credential-tools.js';
+import { sessionCredentialTools, SESSION_TOOL_INSTRUCTIONS } from './session-credential-tools.js';
 import {
   createGithubPublishingTool,
   githubPublishingDefinition,
@@ -2289,7 +2286,7 @@ async function openCodexChatBound(
           ? `\n${LOCAL_REPOSITORY_PREPARATION_INSTRUCTIONS}\n`
           : '')
       : options.systemPrompt +
-        CONNECTION_TOOL_INSTRUCTIONS +
+        SESSION_TOOL_INSTRUCTIONS +
         WEB_ACCESS_INSTRUCTIONS +
         GITHUB_PUBLISHING_INSTRUCTIONS +
         (connectedOpenShell

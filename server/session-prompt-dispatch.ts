@@ -50,10 +50,13 @@ export function createSessionPromptPort(
         'Open this ordinary session and send a message before scheduling work in it.',
         422,
       );
+    // closedBy is retained history even after explicit reopening. A current
+    // live owner may continue, but a timer cannot cold-resume that closure.
     if (
-      live &&
-      (ctx.sessionRegistry.isUserClose(live.clientId) ||
-        ctx.sessionRegistry.isClosingOut(live.clientId))
+      (!live && meta.closedBy === 'user') ||
+      (live &&
+        (ctx.sessionRegistry.isUserClose(live.clientId) ||
+          ctx.sessionRegistry.isClosingOut(live.clientId)))
     )
       throw new SessionPromptError(
         'The session was stopped. Open it before resuming scheduled work.',

@@ -44,6 +44,8 @@ type JsonRow = { data: string };
  * database and its backup lifetime. Runtime command receipts remain authoritative. */
 export class SessionPromptStore {
   private readonly db: Database.Database;
+  private pendingCursor = 0;
+  private pendingBoundary = 0;
   constructor(path: string) {
     this.db = new Database(path);
     this.db.pragma('journal_mode = WAL');
@@ -187,6 +189,13 @@ export class SessionPromptStore {
         timer.lastError = null;
         timer.nextRunAt = now + timer.intervalMinutes * 60_000;
         envelope.auth = { ...auth };
+        if (previous?.state === 'pending') {
+          // The old check has not been admitted. Replace its cancelled intent
+          // under this resume's revision/login, preserving the manual check.
+          previous.state = 'cancelled';
+          this.saveDelivery(previous);
+          this.reserve(envelope, now, previous.manual);
+        }
       } else if (input.action === 'update') {
         timer.prompt = input.prompt ?? timer.prompt;
         timer.intervalMinutes = input.intervalMinutes ?? timer.intervalMinutes;
@@ -246,18 +255,44 @@ export class SessionPromptStore {
             this.save(envelope);
           }
         }
-        return this.deliveries(['pending'])
-          .filter((d) => {
-            if (!d.timerId) return true;
-            const status = this.get(d.timerId).status;
-            return (
-              !['cancelled', 'completed', 'paused'].includes(status) ||
-              (d.manual && status === 'paused')
-            );
-          })
-          .slice(0, 200);
+        return this.pendingPage().filter((d) => {
+          if (!d.timerId) return true;
+          const status = this.get(d.timerId).status;
+          return (
+            !['cancelled', 'completed', 'paused'].includes(status) ||
+            (d.manual && status === 'paused')
+          );
+        });
       })
       .immediate();
+  }
+  /** Bound each sweep to its original tail: ongoing arrivals cannot starve
+   * earlier recipients, and busy recipients cannot monopolize every tick. */
+  private pendingPage(): SessionPromptDelivery[] {
+    const reset = () => {
+      this.pendingCursor = 0;
+      this.pendingBoundary = (
+        this.db
+          .prepare(
+            "SELECT coalesce(max(rowid),0) AS boundary FROM session_prompt_deliveries WHERE json_extract(data, '$.state')='pending'",
+          )
+          .get() as { boundary: number }
+      ).boundary;
+    };
+    const read = () =>
+      this.db
+        .prepare(
+          "SELECT rowid,data FROM session_prompt_deliveries WHERE json_extract(data, '$.state')='pending' AND rowid>? AND rowid<=? ORDER BY rowid LIMIT 200",
+        )
+        .all(this.pendingCursor, this.pendingBoundary) as Array<JsonRow & { rowid: number }>;
+    if (this.pendingCursor >= this.pendingBoundary) reset();
+    let rows = read();
+    if (!rows.length && this.pendingCursor > 0) {
+      reset();
+      rows = read();
+    }
+    this.pendingCursor = rows.at(-1)?.rowid ?? this.pendingBoundary;
+    return rows.map((row) => JSON.parse(row.data) as SessionPromptDelivery);
   }
   deliveries(states?: SessionPromptDelivery['state'][]): SessionPromptDelivery[] {
     return (
