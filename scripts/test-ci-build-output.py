@@ -2,6 +2,7 @@
 """Offline rejection tests for the actual candidate-bound build transfer."""
 
 import importlib.util
+from copy import deepcopy
 import json
 import os
 from pathlib import Path
@@ -25,7 +26,10 @@ class BuildOutputTests(unittest.TestCase):
         self.root = Path(self.temp.name)
         self.archive = self.root / "compiled.zip"
         self.git("init", "-q")
-        (self.root / "package-lock.json").write_text('{"dependencies": {}}\n')
+        (self.root / "package-lock.json").write_text(json.dumps({"packages": {"node_modules/typescript": {"version": "5.9.3", "integrity": "fixture-integrity"}}}) + "\n")
+        compiler = self.root / "node_modules/typescript/package.json"
+        compiler.parent.mkdir(parents=True)
+        compiler.write_text('{"version":"5.9.3"}')
         (self.root / "source.ts").write_text("export const value = 1;\n")
         self.git("add", "package-lock.json", "source.ts")
         self.git("-c", "user.name=CI Fixture", "-c", "user.email=fixture@example.invalid", "-c", "commit.gpgsign=false", "commit", "-qm", "fixture")
@@ -219,6 +223,182 @@ class BuildOutputTests(unittest.TestCase):
 
 class FrontendBuildOutputTests(BuildOutputTests):
     scope = "frontend"
+
+
+class PortableBuildOutputTests(unittest.TestCase):
+    """Reuse the bounded transfer fixture for the distinct cross-host contract."""
+    scope = "workspace"
+    setUp = BuildOutputTests.setUp
+    git = BuildOutputTests.git
+    rewrite = BuildOutputTests.rewrite
+    rejected = BuildOutputTests.rejected
+
+    def test_portable_scopes_cross_hosts_but_keep_candidate_node_and_lock_identity(self):
+        for scope in ("workspace", "ios-web"):
+            with self.subTest(scope=scope):
+                self.scope = scope
+                transfer.pack(self.root, scope, self.archive)
+                with patch.object(transfer.sys, "platform", "different-host"), patch.object(transfer.platform, "machine", return_value="different-architecture"):
+                    transfer.restore(self.root, scope, self.archive)
+                for field in ("commit", "tree", "run", "node", "sourceLock", "compiler"):
+                    transfer.pack(self.root, scope, self.archive)
+                    def change(entries):
+                        info, data = entries["manifest.json"]
+                        manifest = json.loads(data)
+                        manifest["identity"][field] = "different"
+                        entries["manifest.json"] = (info, json.dumps(manifest).encode())
+                    self.rewrite(change)
+                    self.rejected()
+
+    def test_portable_identity_keeps_producer_lock_and_rejects_compiler_drift(self):
+        lock = self.root / "package-lock.json"
+        installed = json.loads(lock.read_text())
+        transfer.restore(self.root, self.scope, self.archive)
+        with zipfile.ZipFile(self.archive) as archive:
+            manifest = json.loads(archive.read("manifest.json"))
+        self.assertIn("installedLock", manifest["producer"])
+        installed["packages"]["node_modules/typescript"]["version"] = "different"
+        lock.write_text(json.dumps(installed))
+        self.rejected()
+
+    def test_ios_web_preserves_existing_pdf_worker_fonts_cmaps_and_browser_wasm(self):
+        self.scope = "ios-web"
+        assets = {
+            "pdfjs/pdf.worker.min.mjs": b"export const worker = true;",
+            "pdfjs/cmaps/UniJIS-UCS2-H.bcmap": b"\x00\x01fixture cmap",
+            "pdfjs/cmaps/LICENSE": b"fixture license",
+            "pdfjs/standard_fonts/FoxitFixed.pfb": b"\x80\x01fixture font",
+            "pdfjs/standard_fonts/LICENSE_FOXIT": b"fixture license",
+            "pdfjs/wasm/openjpeg.wasm": b"\x00asm\x01\x00\x00\x00",
+            "pdfjs/wasm/LICENSE_OPENJPEG": b"fixture license",
+        }
+        for name, data in assets.items():
+            path = self.root / "frontend/dist-ios" / name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(data)
+        transfer.pack(self.root, self.scope, self.archive)
+        transfer.restore(self.root, self.scope, self.archive)
+        for name, data in assets.items():
+            self.assertEqual((self.root / "frontend/dist-ios" / name).read_bytes(), data)
+        native = self.root / "frontend/dist-ios/pdfjs/wasm/native.wasm"
+        native.write_bytes(b"\x7fELFhidden host executable")
+        with self.assertRaises(ValueError):
+            transfer.pack(self.root, self.scope, self.archive)
+
+    def test_portable_scopes_reject_native_payloads_executable_modes_and_wrong_roots(self):
+        for scope in ("workspace", "ios-web"):
+            with self.subTest(scope=scope):
+                self.scope = scope
+                root = self.root / transfer.ROOTS[scope][0]
+                native = root / "runtime.node"
+                native.write_bytes(b"native output")
+                with self.assertRaises(ValueError):
+                    transfer.pack(self.root, scope, self.archive)
+                native.unlink()
+                entry = self.root / transfer.REQUIRED[scope][0]
+                original = entry.read_bytes()
+                entry.write_bytes(b"\x7fELFnative output")
+                with self.assertRaises(ValueError):
+                    transfer.pack(self.root, scope, self.archive)
+                entry.write_bytes(original)
+                entry.chmod(0o755)
+                with self.assertRaises(ValueError):
+                    transfer.pack(self.root, scope, self.archive)
+                entry.chmod(0o644)
+                transfer.pack(self.root, scope, self.archive)
+                def native_payload(entries):
+                    name = transfer.REQUIRED[scope][0]
+                    entry_info, _ = entries[name]
+                    payload = b"\x7fELFhidden host executable"
+                    entries[name] = (entry_info, payload)
+                    info, data = entries["manifest.json"]
+                    manifest = json.loads(data)
+                    manifest["files"][name].update(size=len(payload), sha256=transfer.digest(payload))
+                    entries["manifest.json"] = (info, json.dumps(manifest).encode())
+                self.rewrite(native_payload)
+                self.rejected()
+                transfer.pack(self.root, scope, self.archive)
+                def change(entries):
+                    info, data = entries["manifest.json"]
+                    manifest = json.loads(data)
+                    name = "node_modules/native.node"
+                    manifest["files"][name] = {"size": 1, "sha256": transfer.digest(b"x"), "mode": 0o644}
+                    entries["manifest.json"] = (info, json.dumps(manifest).encode())
+                    extra = zipfile.ZipInfo(name)
+                    entries[name] = (extra, b"x")
+                self.rewrite(change)
+                self.rejected()
+
+
+class PortableDependencyTests(unittest.TestCase):
+    """Pure lock-graph checks need no Git, compiler, package install or process."""
+    def fixture(self):
+        locked = {
+            "node_modules/esbuild": {
+                "version": "0.28.2",
+                "optionalDependencies": {"@esbuild/linux-x64": "0.28.2"},
+            },
+            "node_modules/rollup": {
+                "version": "4.63.1",
+                "optionalDependencies": {"@rollup/rollup-linux-x64-gnu": "4.63.1"},
+            },
+        }
+        installed = deepcopy(locked)
+        for name, version in [("@esbuild/linux-x64", "0.28.2"), ("@rollup/rollup-linux-x64-gnu", "4.63.1")]:
+            installed["node_modules/" + name] = {"version": version, "optional": True, "os": ["linux"], "cpu": ["x64"]}
+        return locked, installed
+
+    def test_accepts_exact_platform_variants_reachable_from_the_source_lock(self):
+        locked, installed = self.fixture()
+        transfer.require_portable_dependencies(locked, installed)
+        # The committed platform variants may themselves be omitted by npm on
+        # another host, while every ordinary source-locked dependency remains.
+        locked["node_modules/optional-mac"] = {"version": "1.0.0", "optional": True}
+        transfer.require_portable_dependencies(locked, installed)
+
+    def test_rejects_unproven_extra_graphs_versions_and_constraints(self):
+        for failure in ("arbitrary", "wrong-version", "range", "unreachable", "no-os", "no-cpu", "negative-os", "any-cpu", "not-optional", "unproven-chain", "shadowed"):
+            with self.subTest(failure=failure):
+                locked, installed = self.fixture()
+                variant = installed["node_modules/@esbuild/linux-x64"]
+                if failure == "arbitrary":
+                    installed["node_modules/arbitrary"] = {"version": "1.0.0", "optional": True}
+                elif failure == "wrong-version":
+                    variant["version"] = "0.28.3"
+                elif failure == "range":
+                    locked["node_modules/esbuild"]["optionalDependencies"]["@esbuild/linux-x64"] = "^0.28.2"
+                elif failure == "unreachable":
+                    installed["node_modules/esbuild"]["optionalDependencies"]["arbitrary"] = "1.0.0"
+                    installed["node_modules/arbitrary"] = {"version": "1.0.0", "optional": True, "os": ["linux"], "cpu": ["x64"]}
+                elif failure == "no-os":
+                    del variant["os"]
+                elif failure == "no-cpu":
+                    del variant["cpu"]
+                elif failure == "negative-os":
+                    variant["os"] = ["!darwin"]
+                elif failure == "any-cpu":
+                    variant["cpu"] = ["any"]
+                elif failure == "not-optional":
+                    variant["optional"] = False
+                elif failure == "unproven-chain":
+                    variant["optionalDependencies"] = {"arbitrary": "1.0.0"}
+                    installed["node_modules/arbitrary"] = {"version": "1.0.0", "optional": True, "os": ["linux"], "cpu": ["x64"]}
+                else:
+                    installed["node_modules/esbuild/node_modules/@esbuild/linux-x64"] = deepcopy(variant)
+                with self.assertRaises(ValueError):
+                    transfer.require_portable_dependencies(locked, installed)
+
+    def test_resolves_nested_optional_versions_from_their_actual_parent(self):
+        locked, installed = self.fixture()
+        locked["node_modules/vite/node_modules/esbuild"] = {
+            "version": "0.25.12",
+            "optionalDependencies": {"@esbuild/linux-x64": "0.25.12"},
+        }
+        installed["node_modules/vite/node_modules/esbuild"] = deepcopy(locked["node_modules/vite/node_modules/esbuild"])
+        installed["node_modules/vite/node_modules/@esbuild/linux-x64"] = {
+            "version": "0.25.12", "optional": True, "os": ["linux"], "cpu": ["x64"],
+        }
+        transfer.require_portable_dependencies(locked, installed)
 
 
 if __name__ == "__main__":

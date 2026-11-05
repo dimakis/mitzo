@@ -97,6 +97,29 @@ describe.each(['fresh', 'legacy'] as const)('%s notification polling', (schema) 
     }
   });
 
+  it('skips policy capture for missing IDs without caching absence or visibility', () => {
+    const { store, close } = setup();
+    try {
+      let allowed = true;
+      const policy = vi.fn(() => () => allowed);
+      store.setInboxReadPolicy(policy);
+      expect(store.get('later')).toBeUndefined();
+      expect(policy).not.toHaveBeenCalled();
+      store.record(notice('later'), 1000);
+      expect(store.get('later')?.id).toBe('later');
+      expect(policy).toHaveBeenCalledTimes(1);
+      allowed = false;
+      expect(store.get('later')).toBeUndefined();
+      expect(policy).toHaveBeenCalledTimes(2);
+      store.setInboxReadPolicy(() => {
+        throw new Error('policy unavailable');
+      });
+      expect(store.get('later')).toBeUndefined();
+    } finally {
+      close();
+    }
+  });
+
   it('checks privacy only for due candidates and preserves delivery state, order and limit', () => {
     const { store, close } = setup();
     try {

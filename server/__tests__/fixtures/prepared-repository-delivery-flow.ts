@@ -70,6 +70,9 @@ export async function preparedRepositoryDeliveryFlow(
   f.native.acceptNativeExecution(sessionId, binding, primary, 'thread', 'prepared-primary-turn');
   f.native.finish(sessionId, binding, primary.id, 'completed', 'prepared-primary-turn');
   f.runtime.close();
+  // Exercise the LocalMac application path on either CI host. This fixture has
+  // synthetic provider and physical-reader effects; real macOS isolation is
+  // qualified by the separate native owner, not by this platform selector.
   vi.stubGlobal('process', Object.create(process, { platform: { value: 'darwin' } }));
   const chat = await import('../../chat.js');
   const workspaceRuntime = await import('../../repository-workspace-runtime.js');

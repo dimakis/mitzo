@@ -628,38 +628,52 @@ describe('Codex app-server transport', () => {
     client.close();
   });
 
-  it('checks exact native authority synchronously at the response write boundary', async () => {
-    const { child, sent, reply } = processStub();
-    let current = true;
-    let finish!: (result: Record<string, unknown>) => void;
-    const lifecycle = {
-      onNotification: vi.fn(),
-      onRequest: vi.fn((_method, _params, _signal, context) => {
-        context.registerResponseFence(() => {
-          if (!current) throw Error('revoked');
-        });
-        return new Promise<Record<string, unknown>>((resolve) => {
-          finish = resolve;
-        });
-      }),
-      onClose: vi.fn(),
-    };
-    const client = new CodexAppServerClient(child, { lifecycle });
-    reply({ id: 'fenced', method: 'item/commandExecution/requestApproval', params: {} });
-    await vi.waitFor(() => expect(lifecycle.onRequest).toHaveBeenCalledTimes(1));
-    finish({ decision: 'accept' });
-    current = false;
-    await vi.waitFor(() => expect(child.kill).toHaveBeenCalledOnce());
-    expect(sent).toEqual([]);
-    client.close();
-  });
+  it.each([false, true])(
+    'checks native reply authority through reentrant closure (%s)',
+    async (closeFirst) => {
+      const { child, sent, reply } = processStub();
+      let current = true;
+      let finish!: (result: Record<string, unknown>) => void;
+      const lifecycle = {
+        onNotification: vi.fn(),
+        onRequest: vi.fn((_method, _params, _signal, context) => {
+          context.registerResponseFence(() => {
+            if (!current) {
+              if (closeFirst) client.close();
+              throw Error('SECRET revoked /private/owner');
+            }
+          });
+          return new Promise<Record<string, unknown>>((resolve) => {
+            finish = resolve;
+          });
+        }),
+        onClose: vi.fn(),
+      };
+      const client = new CodexAppServerClient(child, { lifecycle });
+      reply({ id: 'fenced', method: 'item/commandExecution/requestApproval', params: {} });
+      await vi.waitFor(() => expect(lifecycle.onRequest).toHaveBeenCalledTimes(1));
+      finish({ decision: 'accept' });
+      current = false;
+      await vi.waitFor(() => expect(child.kill).toHaveBeenCalledOnce());
+      expect(sent).toEqual([]);
+      expect(lifecycle.onClose).toHaveBeenCalledOnce();
+      expect(lifecycle.onClose).toHaveBeenCalledWith(
+        expect.objectContaining({
+          diagnostic: { reason: 'host_response_fence_failed' },
+        }),
+      );
+      expect(lifecycle.onClose.mock.calls[0][0].message).not.toMatch(/SECRET|private/);
+      client.close();
+    },
+  );
 
   it('rejects an asynchronous native response fence without emitting a grant', async () => {
     const { child, sent, reply } = processStub();
+    const onClose = vi.fn();
     const client = new CodexAppServerClient(child, {
       lifecycle: {
         onNotification: vi.fn(),
-        onClose: vi.fn(),
+        onClose,
         onRequest: async (_method, _params, _signal, context) => {
           context!.registerResponseFence!(async () => {
             throw Error('late revocation');
@@ -671,6 +685,10 @@ describe('Codex app-server transport', () => {
     reply({ id: 'async-fence', method: 'item/commandExecution/requestApproval', params: {} });
     await vi.waitFor(() => expect(child.kill).toHaveBeenCalledOnce());
     expect(sent).toEqual([]);
+    expect(onClose).toHaveBeenCalledOnce();
+    expect(onClose).toHaveBeenCalledWith(
+      expect.objectContaining({ diagnostic: { reason: 'host_response_fence_failed' } }),
+    );
     client.close();
   });
 
