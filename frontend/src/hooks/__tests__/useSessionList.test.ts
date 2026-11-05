@@ -65,11 +65,64 @@ describe('useSessionList', () => {
     expect(result.current.sessions).toBe(initial);
     act(() => onActivity([{ sessionId: 'one', state: 'done' }]));
     expect(result.current.sessions).not.toBe(initial);
-    expect(result.current.sessions[0]).toEqual({ id: 'one', isActive: true, isAttached: false });
+    expect(result.current.sessions[0]).toEqual({ id: 'one', isActive: false, isAttached: false });
     expect(result.current.sessions[1]).toBe(initial[1]);
     const finished = result.current.sessions;
     act(() => onActivity([{ sessionId: 'one', state: 'done' }]));
     expect(result.current.sessions).toBe(finished);
+  });
+
+  it('does not revive finished sessions when an older HTTP refresh completes', async () => {
+    const sessions = [{ id: 'one', isActive: true, isAttached: true }];
+    const { result } = renderHook(() => useSessionList());
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    let resolveRefresh!: (response: Response) => void;
+    vi.mocked(apiFetch).mockImplementation((url) =>
+      url === '/api/sessions'
+        ? new Promise<Response>((resolve) => {
+            resolveRefresh = resolve;
+          })
+        : Promise.resolve(new Response('{}')),
+    );
+    const handler = (name: string) =>
+      vi
+        .mocked(eventBus.on)
+        .mock.calls.filter(([event]) => event === name)
+        .at(-1)![1];
+    act(() => handler('sessions_changed')({}));
+    act(() => handler('session_activity')([{ sessionId: 'one', state: 'done' }]));
+    await act(async () => resolveRefresh(new Response(JSON.stringify(sessions))));
+    expect(result.current.sessions[0]).toMatchObject({ isActive: false, isAttached: false });
+  });
+
+  it('lets HTTP discover active sessions after the activity stream disconnects', async () => {
+    vi.mocked(apiFetch).mockImplementation(
+      async (url) =>
+        new Response(
+          JSON.stringify(
+            url === '/api/sessions' ? [{ id: 'one', isActive: true, isAttached: true }] : {},
+          ),
+        ),
+    );
+    const { result } = renderHook(() => useSessionList());
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    const activity = vi
+      .mocked(eventBus.on)
+      .mock.calls.filter(([event]) => event === 'session_activity')
+      .at(-1)![1];
+    act(() => activity([]));
+    expect(result.current.sessions[0].isActive).toBe(false);
+    const connection = vi.mocked(eventBus.onConnectionChange).mock.calls.at(-1)![0];
+    act(() => connection(false));
+    const changed = vi
+      .mocked(eventBus.on)
+      .mock.calls.filter(([event]) => event === 'sessions_changed')
+      .at(-1)![1];
+    act(() => changed({}));
+    await waitFor(() => expect(result.current.sessions[0].isActive).toBe(true));
+    act(() => connection(true));
+    act(() => activity([{ sessionId: 'one', state: 'done' }]));
+    expect(result.current.sessions[0].isActive).toBe(false);
   });
 
   it('starts in loading state', () => {

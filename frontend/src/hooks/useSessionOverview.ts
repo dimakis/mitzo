@@ -44,7 +44,10 @@ export function useSessionOverview(): UseSessionOverviewReturn {
     const unsubActivity = eventBus.on('session_activity', (data) => {
       setActivities(data as SessionActivity[]);
     });
-    const unsubConnection = eventBus.onConnectionChange((c) => setConnected(c));
+    const unsubConnection = eventBus.onConnectionChange((c) => {
+      setConnected(c);
+      if (!c) setActivities([]);
+    });
     return () => {
       unsubActivity();
       unsubConnection();

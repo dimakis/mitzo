@@ -11,7 +11,7 @@ import { useMediaQuery } from '../hooks/useMediaQuery';
 import type { SessionActionPoint } from '../hooks/useSessionInteraction';
 import '../styles/session-library.css';
 import { SdkConversationImport } from '../components/SdkConversationImport';
-import { sessionNeedsYouReason } from '../lib/session-attention';
+import { isSessionActivityActive, sessionNeedsYouReason } from '../lib/session-attention';
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useSavedChatDrafts } from '../hooks/useSavedChatDrafts';
@@ -437,7 +437,7 @@ export function SessionList() {
       model: a.model ?? existing?.model,
       accountLabel: existing?.accountLabel ?? a.accountLabel,
       lastModified: Math.max(existing?.lastModified ?? 0, a.lastEventAt),
-      isActive: !['idle', 'done'].includes(a.state),
+      isActive: isSessionActivityActive(a),
     });
   }
   const all = useSessionOrder([...combined.values()], activities, paused);

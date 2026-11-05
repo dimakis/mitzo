@@ -217,6 +217,7 @@ import { loadProjectHooks } from './hook-bridge.js';
 import { buildPermissionHandler } from './permission-handler.js';
 import { setSkillPolicy } from './skill-policy.js';
 import { runQueryLoop, broadcastToObservers, deliverRetainedSessionEvent } from './query-loop.js';
+import type { SessionChangeEvent } from './session-overview.js';
 import { clearSessionImages } from './image-store.js';
 import { AsyncQueue } from './async-queue.js';
 import {
@@ -353,12 +354,20 @@ export function broadcastDurableSymposiumEvent(
 
 type SessionChangeCallback = (
   clientId: string,
-  event: 'start' | 'end' | 'turn_end' | 'user_message' | 'detach',
+  event: SessionChangeEvent,
   sessionId?: string,
 ) => void;
 let _onSessionChange: SessionChangeCallback | null = null;
 export function setSessionChangeCallback(cb: SessionChangeCallback): void {
   _onSessionChange = cb;
+}
+
+function notifyTurnStart(clientId: string): void {
+  _onSessionChange?.(clientId, 'turn_start');
+}
+
+function notifyTurnEnd(clientId: string): void {
+  _onSessionChange?.(clientId, 'turn_end');
 }
 
 let _onSessionsChanged: (() => void) | null = null;
@@ -3143,6 +3152,7 @@ This is an independent checkout with its own Git storage, not a linked worktree.
         yield message;
       }
     };
+    if (!options.reattachOnly) notifyTurnStart(clientId);
     await runQueryLoop(
       sdkContextEvents(),
       clientId,
@@ -3182,9 +3192,8 @@ This is an independent checkout with its own Git storage, not a linked worktree.
               /* errors logged internally */
             });
         },
-        onTurnEnd: (cId: string) => {
-          _onSessionChange?.(cId, 'turn_end');
-        },
+        onTurnStart: notifyTurnStart,
+        onTurnEnd: notifyTurnEnd,
         onUserInput: (cId, inputUuid) => {
           const active = registry.get(cId);
           if (active) markFallbackCloseoutInputObserved(active, inputUuid);
@@ -4218,7 +4227,8 @@ export async function prepareOwnedCodexChat(
             onFirstEventOutcome: options.onFirstEventOutcome,
             onTerminalOutcome: options.onTerminalOutcome,
             onEvent: options.onQueryEvent,
-            onTurnEnd: (ownerClientId) => _onSessionChange?.(ownerClientId, 'turn_end'),
+            onTurnStart: notifyTurnStart,
+            onTurnEnd: notifyTurnEnd,
             onSuccessfulAccountUse: (binding) => getAccountUseStore().record(binding),
           },
         );
@@ -4871,6 +4881,7 @@ export async function sendToChat(
             responses ? images : undefined,
           ),
         );
+        notifyTurnStart(clientId);
       } catch (error) {
         failPreparedProviderCommand(error);
       }
@@ -6390,7 +6401,8 @@ export async function startOwnedLocalResponsesCommand(
         void runQueryLoop(query!, clientId, registry, controller, eventStore, undefined, {
           connRegistry: _connRegistry ?? undefined,
           initialClientMsgId: commandId,
-          onTurnEnd: (ownerClientId) => _onSessionChange?.(ownerClientId, 'turn_end'),
+          onTurnStart: notifyTurnStart,
+          onTurnEnd: notifyTurnEnd,
         })
           .catch(() => {})
           .finally(close);
