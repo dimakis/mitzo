@@ -34,6 +34,66 @@ async function setup() {
   };
 }
 describe('notification API', () => {
+  it('keeps permission responses, preferences and receipts available when inbox scans fail', async () => {
+    const s = await setup();
+    const scan = vi.fn(async () => {
+      throw Error('unreadable archive');
+    });
+    s.center.setAsyncInboxReconciler(scan);
+    const resolver = vi.fn();
+    const permId = 'inbox-independent-permission';
+    registerPending(permId, 'Bash', resolver, {}, 'elevated', 's1', {
+      permId,
+      toolName: 'Bash',
+      toolInput: 'offline command',
+      sessionId: 's1',
+    });
+    const auth = `Bearer ${s.token}`;
+    try {
+      expect(
+        (
+          await request(s.app)
+            .put('/api/notifications/preferences')
+            .set('Authorization', auth)
+            .send({ updates: false })
+        ).status,
+      ).toBe(200);
+      expect(
+        (
+          await request(s.app)
+            .post(`/api/notifications/permission:${permId}/read`)
+            .set('Authorization', auth)
+        ).status,
+      ).toBe(200);
+      expect(
+        (
+          await request(s.app)
+            .get(`/api/notifications/permission:${permId}`)
+            .set('Authorization', auth)
+        ).status,
+      ).toBe(200);
+      expect(
+        (
+          await request(s.app)
+            .post(`/api/notifications/permission:${permId}/respond`)
+            .set('Authorization', auth)
+            .send({ sessionId: 's1', decision: 'deny' })
+        ).status,
+      ).toBe(200);
+      expect(resolver).toHaveBeenCalledOnce();
+      expect(scan).not.toHaveBeenCalled();
+      expect(
+        (await request(s.app).get('/api/notifications').set('Authorization', auth)).status,
+      ).toBe(503);
+      expect(
+        (await request(s.app).get('/api/notifications/inbox:missing.md').set('Authorization', auth))
+          .status,
+      ).toBe(503);
+    } finally {
+      removePending(permId);
+      s.close();
+    }
+  });
   it('keeps structured questions answer-only and denies untrusted session grants', async () => {
     const s = await setup();
     const resolver = vi.fn();

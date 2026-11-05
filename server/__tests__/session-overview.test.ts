@@ -926,6 +926,21 @@ describe('SessionOverviewEmitter', () => {
 
   // ─── Background uncommitted work refresh ────────────────────────────────
 
+  it('does not run host Git for a session bound to OpenShell', async () => {
+    mockHasUncommittedWorkAsync.mockClear();
+    deps = makeDeps({
+      registry: {
+        getActiveSessions: () => [makeActiveSession({ cwd: '/sandbox/workspaces/mgmt' })],
+      } as unknown as SessionOverviewDeps['registry'],
+    });
+    deps.eventStore.getSessionRuntimeBinding = vi.fn(() => ({
+      execution: { location: 'openshell' },
+    })) as never;
+    emitter = new SessionOverviewEmitter(deps);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(mockHasUncommittedWorkAsync).not.toHaveBeenCalled();
+  });
+
   it('does not call git synchronously during compute', async () => {
     mockHasUncommittedWorkAsync.mockClear();
     mockHasUncommittedWorkAsync.mockImplementation(async () => 'M dirty.ts');

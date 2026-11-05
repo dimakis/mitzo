@@ -54,6 +54,7 @@ function command(command: string, args: string[], signal: AbortSignal) {
 /** Read-only lifecycle telemetry. Podman `system df` reports usage, never free disk capacity. */
 export class OpenShellLifecycleObservability {
   private alerted = false;
+  private available?: boolean;
   readonly outcomes: Record<string, number> = {};
   constructor(
     private options: {
@@ -87,9 +88,14 @@ export class OpenShellLifecycleObservability {
   }
   observe(metrics: LifecycleMetrics) {
     if (!metrics.available) {
-      this.options.log.warn({}, 'OpenShell usage telemetry unavailable');
+      if (this.available !== false)
+        this.options.log.warn({}, 'OpenShell usage telemetry unavailable');
+      this.available = false;
+      this.recordOutcome('telemetry_unavailable');
       return;
     }
+    if (this.available === false) this.options.log.info({}, 'OpenShell usage telemetry recovered');
+    this.available = true;
     const sandboxCount = Object.values(metrics.phaseCounts ?? {}).reduce((a, b) => a + b, 0);
     this.options.log.info(
       {

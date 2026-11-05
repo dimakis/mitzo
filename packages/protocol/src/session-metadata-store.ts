@@ -12,6 +12,11 @@ import {
 } from './session-runtime-binding.js';
 import { isRegisteredConversation } from './conversation-identity.js';
 import type { SessionMeta, SessionSearchResult, AccountBinding, MitzoMode } from './types.js';
+import {
+  SessionSearchIndex,
+  type SearchEvent,
+  type SearchSession,
+} from './session-search-index.js';
 
 // Match conversation-identity.ts. SDK artifacts (including verified transcripts)
 // are not admission evidence. Apply this predicate before pagination limits.
@@ -112,7 +117,14 @@ export interface SessionMetadataOwner {
 /** Borrows EventStore's connection and prepared statements. The owner retains
  * schema, migrations, backup and close; public hooks are resolved at call time. */
 export class SessionMetadataStore {
+  private searchIndex?: SessionSearchIndex;
   constructor(private readonly owner: SessionMetadataOwner) {}
+  close(): void {
+    void this.closeSearchIndex();
+  }
+  closeSearchIndex(): Promise<void> {
+    return this.searchIndex?.close() ?? Promise.resolve();
+  }
   private get db() {
     return this.owner.database();
   }
@@ -495,6 +507,60 @@ export class SessionMetadataStore {
    * Search saved conversation titles, user messages and assistant text deltas.
    * Prefer a matching message snippet when the title also matches.
    */
+  async searchSessionsAsync(
+    query: string,
+    limit = 20,
+    signal?: AbortSignal,
+    cacheDirectory?: string,
+  ): Promise<SessionSearchResult[]> {
+    if (!query.trim()) return [];
+    const sessions = () =>
+      this.db!.prepare(
+        `SELECT s.session_id,s.summary,s.updated_at
+      FROM sessions s WHERE s.is_hidden=0 AND ${REGISTERED_CONVERSATION_SQL}`,
+      ).all() as SearchSession[];
+    this.searchIndex ??= new SessionSearchIndex(
+      {
+        highWater: () =>
+          (
+            this.db!.prepare('SELECT COALESCE(MAX(seq),0) AS seq FROM events').get() as {
+              seq: number;
+            }
+          ).seq,
+        page: (after, through) =>
+          this.db!.prepare(
+            `SELECT seq,session_id,type,
+          CASE WHEN type IN ('user_message','block_delta') THEN payload ELSE '{}' END AS payload,created_at
+        FROM events WHERE seq>? AND seq<=? ORDER BY seq LIMIT 128`,
+          ).all(after, through) as SearchEvent[],
+        sessions,
+      },
+      cacheDirectory,
+    );
+    const index = this.searchIndex;
+    let hits: Awaited<ReturnType<SessionSearchIndex['search']>>;
+    try {
+      hits = await index.search(query, Math.min(50, Math.max(1, limit)), signal);
+    } catch (error) {
+      if (!signal?.aborted && this.searchIndex === index) {
+        index.close();
+        this.searchIndex = undefined;
+      }
+      throw error;
+    }
+    // Visibility may change during a worker await. Revalidate before delivery.
+    const visible = new Map(sessions().map((row) => [row.session_id, row]));
+    return hits
+      .filter((hit) => visible.has(hit.session_id))
+      .map((hit) => ({
+        sessionId: hit.session_id,
+        summary: visible.get(hit.session_id)!.summary,
+        snippet: extractSnippet(hit.payload, query),
+        matchedAt: hit.matched_at,
+        updatedAt: visible.get(hit.session_id)!.updated_at,
+      }));
+  }
+
   searchSessions(query: string, limit = 20): SessionSearchResult[] {
     if (!query.trim()) return [];
     const escaped = query.replace(/\\/g, '\\\\').replace(/%/g, '\\%').replace(/_/g, '\\_');
