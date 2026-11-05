@@ -85,7 +85,7 @@ export class SessionResourceRemovalService {
     operationId: string,
     assertCurrent: () => void,
     release: () => Promise<void>,
-  ) {
+  ): Promise<SessionRemovalRecord> {
     const prior = this.releasing.get(id);
     if (prior) {
       await prior;

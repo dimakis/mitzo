@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.884-session-resource-cleanup';
+  'v1.0.885-session-resource-cleanup';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -24,7 +24,7 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../session-resource-removal.ts':
-    '3973ba13e33ca5a9a37c31237e9a08829642249a5a76a9973e4e163fae255784',
+    'ee0137c2728aac794fc4b7c76560ca5c1640c722ac42b7c094c57614cd5ade2e',
   '../session-removal-runtime.ts':
     '882ecd9eebc75590bbc54bb9e0c854a82fdb45790d3a15ccafa9694f80cbef27',
   '../local-session-removal.ts': '6ac2695a89153024b6898601d62a45731ff49993a2d0b604e1f58962388a1d16',
