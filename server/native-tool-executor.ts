@@ -166,17 +166,33 @@ export function createNativeToolExecutor(
   options: NativeToolOptions,
 ) {
   const networkAccess = options.networkAccess;
-  const canUseTool = buildPermissionHandler(clientId, registry, {
-    onDemandCreate: options.onDemandCreate,
-  });
+  const onDemandCreate = options.onDemandCreate;
   return async (block: ToolUseBlock, signal: AbortSignal): Promise<ToolResultBlock> => {
+    // This original invocation can prove it never delegated an effect. Once
+    // any executor (including lazy workspace creation) starts, errors stay
+    // uncertain unless that executor supplies its own settlement evidence.
+    let executionStarted = false;
+    const canUseTool = buildPermissionHandler(clientId, registry, {
+      onDemandCreate: onDemandCreate
+        ? async (path) => {
+            const previouslyStarted = executionStarted;
+            executionStarted = true;
+            const created = await onDemandCreate(path);
+            // A positive original creation result closes that preparation.
+            // Null/throw cannot establish whether creation partially applied.
+            if (created) executionStarted = previouslyStarted;
+            return created;
+          }
+        : undefined,
+    });
     const result = (content: string, is_error = false): ToolResultBlock => ({
       type: 'tool_result',
       tool_use_id: block.id,
       content,
       is_error,
     });
-    const refused = (content: string) => retainCallbackOutcome(result(content, true), 'settled');
+    const refused = (content: string) =>
+      retainCallbackOutcome(result(content, true), executionStarted ? 'unknown' : 'settled');
     try {
       signal.throwIfAborted();
       await options.assertRuntimeCurrentAsync?.();
@@ -239,6 +255,7 @@ export function createNativeToolExecutor(
         options.registerResponseFence?.(assertReadCurrent);
         const executeRead =
           input.access === 'public' ? executePublicGitHubRead : executeTrustedGitHubRead;
+        executionStarted = true;
         const content = await executeRead(
           input.endpoint,
           signal,
@@ -313,6 +330,7 @@ export function createNativeToolExecutor(
           : undefined;
         await options.assertRuntimeCurrentAsync?.();
         options.assertRuntimeCurrent?.();
+        executionStarted = true;
         return result(
           await executeTrustedGitCommit(
             root,
@@ -390,6 +408,7 @@ export function createNativeToolExecutor(
           return refused('Private provider storage is unavailable');
         await options.assertRuntimeCurrentAsync?.();
         options.assertRuntimeCurrent?.();
+        executionStarted = true;
         const output = await executeSandboxedCommand({
           command: input.command,
           cwd: await realpath(session.cwd),
@@ -479,6 +498,7 @@ export function createNativeToolExecutor(
         return refused('Session permissions changed before file execution; retry the tool');
       await options.assertRuntimeCurrentAsync?.();
       options.assertRuntimeCurrent?.();
+      executionStarted = true;
       const operation = await executeNativeFileOperation(
         {
           ...input,
@@ -493,13 +513,12 @@ export function createNativeToolExecutor(
       );
       return result(operation.content, operation.is_error);
     } catch (err: unknown) {
-      return result(
+      return refused(
         signal.aborted
           ? 'Tool execution cancelled'
           : err instanceof Error
             ? err.message
             : 'Native tool execution failed',
-        true,
       );
     }
   };

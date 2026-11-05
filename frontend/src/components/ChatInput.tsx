@@ -906,12 +906,13 @@ function ChatInputContent({
         void sendOrdinary(q, true);
       }
     }
-    // Keep a completed turn pending while the editor is modal. Its already
-    // queued message may drain once editing closes, without sending this draft.
+    // Keep completion pending through temporary send blockers as well as modal
+    // editing. Clearing a blocker does not produce another running-to-idle edge.
     if (
       (!previewOpen &&
         !queueEditorOpen &&
         !queueBusy &&
+        !sendDisabledReason &&
         !sendPending.current &&
         !interruptPending.current) ||
       running
