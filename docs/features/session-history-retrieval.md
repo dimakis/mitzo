@@ -30,8 +30,9 @@ recovers a runtime or grants authority from historical text.
 - `view: "events"` preserves the previous 100-event read contract, including its
   explicit oversized-event reporting. It cannot combine with query/recent reads.
 
-No continuation means the selected scan is finished; an empty page with a cursor
-is incomplete. Search reports unsupported formats and oversized-event sessions
+No continuation means the selected scan is finished unless a bound or unsupported
+format prevented complete coverage; an empty page with a cursor is incomplete.
+Search reports unsupported formats and sessions blocked by output or overlap bounds
 in coverage; these exclusions prevent a claim of exhaustive transcript coverage.
 Unknown native delta types and Symposium audiences remain unsupported for text
 retrieval. A title match does not require opening an unsupported transcript.
@@ -55,6 +56,9 @@ retrieval. A title match does not require opening an unsupported transcript.
    supplies query overlap across scan boundaries, retaining the
    overlap from the starting block even when a continuation includes another
    block, preserving paragraph separators between different text blocks.
+   If excluded deltas exhaust this look-behind before enough visible overlap is
+   recovered, reads report `query_overlap_exceeds_scan_bound` and search increments
+   `blockedSessions`, instead of claiming an unmatched conversation is fully searched.
    Unicode case mappings retain original-string offsets for excerpts and use
    the folded query length for overlap, including length-expanding queries.
    The same projection serves

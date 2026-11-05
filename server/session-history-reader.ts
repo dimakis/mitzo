@@ -30,7 +30,10 @@ export interface MessagePage {
   nextAfterSeq: number | null;
   nextBeforeSeq?: number | null;
   scannedEvents: number;
-  blockedEvent?: { seq: number; reason: 'event_exceeds_output_bound' };
+  blockedEvent?: {
+    seq: number;
+    reason: 'event_exceeds_output_bound' | 'query_overlap_exceeds_scan_bound';
+  };
 }
 export type HistoryReaderStore = Partial<
   Pick<EventStore, 'getHistoryEventPage' | 'getHistoryMessagePrefix'>
@@ -140,6 +143,7 @@ export function readHistoryMessages(options: {
   const entries: HistoryEntry[] = [];
   let prefix: { text: string; messageId?: string; blockId?: unknown; seq: number } | undefined;
   let contextEvents = 0;
+  let incompleteContext = false;
   if (contextLimit && groups[0]?.kind === 'assistant' && groups[0].messageId) {
     if (!store.getHistoryMessagePrefix) throw Error('Bounded query context unavailable');
     const first = groups[0];
@@ -184,7 +188,19 @@ export function readHistoryMessages(options: {
       // matching read revisit hundreds of unrelated earlier fragments.
       if (prefix.text.length >= overlapLength) break;
     }
+    // Excluded reasoning deltas still consume the bounded look-behind. If it
+    // fills before enough visible text is recovered, an earlier fragment may
+    // complete the query; never report this window as fully searched.
+    incompleteContext =
+      context.length === contextLimit && (prefix?.text.length ?? 0) < overlapLength;
   }
+  if (
+    !contextLimit &&
+    overlapLength > 0 &&
+    (recent || afterSeq > 0) &&
+    groups[0]?.kind === 'assistant'
+  )
+    incompleteContext = true;
   let consumed = afterSeq;
   let consumedBefore = beforeSeq;
   let stopped = false;
@@ -222,6 +238,10 @@ export function readHistoryMessages(options: {
     return { group, entry, matches: match !== undefined };
   });
   for (const { group, entry, matches } of recent ? projected.reverse() : projected) {
+    if (incompleteContext && group === groups[0] && !matches) {
+      blockedEvent = { seq: group.seq, reason: 'query_overlap_exceeds_scan_bound' };
+      continue;
+    }
     const size = Buffer.byteLength(JSON.stringify(entry)) + 1;
     if (
       group.truncated ||

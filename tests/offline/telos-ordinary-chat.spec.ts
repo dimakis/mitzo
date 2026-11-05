@@ -1,5 +1,5 @@
 import { chatStorageBootstrap } from '../support/chat-storage-bootstrap';
-import { readChatStorage } from '../support/persisted-chat-storage';
+import { expectPersistedChatDraft, readChatStorage } from '../support/persisted-chat-storage';
 import { test, expect } from '@playwright/test';
 import { build } from 'esbuild';
 import { resolve } from 'node:path';
@@ -331,6 +331,7 @@ for (const theme of ['dark', 'light'] as const)
     await expect(
       page.getByText(/Draft saved on this device|Saving draft on this device/),
     ).toHaveCount(0);
+    await expectPersistedChatDraft(page, 'ordinary-bound', 'Newer unsent continuation draft.');
     await page.reload();
     await expect(composer).toHaveValue('Newer unsent continuation draft.');
     await expect.poll(() => receiptReads.length).toBeGreaterThanOrEqual(1);

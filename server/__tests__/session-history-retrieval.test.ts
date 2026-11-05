@@ -3,6 +3,7 @@ import { EventStore } from '../event-store.js';
 import type Database from 'better-sqlite3';
 import { sessionHistoryTools, type HistoryAccess } from '../session-history-tools.js';
 import { sessionDisplayName } from '../session-naming-context.js';
+import { readHistoryMessages } from '../session-history-reader.js';
 
 const stores: EventStore[] = [];
 afterEach(() => stores.splice(0).forEach((store) => store.close()));
@@ -400,6 +401,103 @@ describe('message-oriented session retrieval', () => {
     const page = await f.read({ query: 'release decision', afterSeq: boundary });
     expect(page.entries[0]).toMatchObject({ seq: boundary });
     expect(page.entries[0].text).toContain('release decision');
+  });
+
+  it('reports incomplete coverage when excluded deltas exhaust query overlap', async () => {
+    const f = fixture();
+    for (let i = 0; i < 8191; i++) f.store.append('past', 'tool_result', { content: 'excluded' });
+    const boundary = f.delta('release ');
+    for (let i = 0; i < 20; i++)
+      f.store.append('past', 'block_delta', {
+        messageId: 'answer',
+        blockId: 'reasoning',
+        blockType: 'thinking',
+        delta: 'PRIVATE reasoning',
+      });
+    const suffix = f.delta('decision');
+    const first = await f.read({ query: 'release decision' });
+    expect(first.nextAfterSeq).toBe(boundary);
+    const next = await f.read({
+      query: 'release decision',
+      afterSeq: boundary,
+      throughSeq: first.throughSeq,
+    });
+    expect(next.blockedEvent).toEqual({ seq: suffix, reason: 'query_overlap_exceeds_scan_bound' });
+    expect(JSON.stringify(next)).not.toContain('PRIVATE');
+    const search = await f.search();
+    const continuation = await f.search({ cursor: search.nextCursor });
+    expect(continuation.sessions).toEqual([]);
+    expect(continuation.searchCoverage.blockedSessions).toBe(1);
+    expect(continuation.searchCoverage.scannedEvents).toBeLessThanOrEqual(8192);
+    // An observed match remains valid even if earlier overlap was incomplete.
+    f.delta('release decision');
+    const matched = await f.read({ query: 'release decision', afterSeq: suffix });
+    expect(matched.entries[0].text).toContain('release decision');
+    expect(matched.blockedEvent).toBeUndefined();
+  });
+
+  it.each([false, true])(
+    'reports incomplete overlap with a one-event budget (recent: %s)',
+    (recent) => {
+      const f = fixture();
+      const boundary = f.delta('release ');
+      const suffix = f.delta('decision');
+      const result = readHistoryMessages({
+        store: f.store,
+        conversationId: 'past',
+        afterSeq: boundary,
+        throughSeq: suffix,
+        query: 'release decision',
+        recent,
+        limit: 1,
+        scanLimit: 1,
+        project: f.project,
+      });
+      expect(result.blockedEvent).toEqual({
+        seq: suffix,
+        reason: 'query_overlap_exceeds_scan_bound',
+      });
+      expect(result.scannedEvents).toBe(1);
+    },
+  );
+
+  it('keeps later message matches when earlier query overlap is incomplete', async () => {
+    const f = fixture();
+    const boundary = f.delta('release ');
+    for (let i = 0; i < 20; i++)
+      f.store.append('past', 'block_delta', {
+        messageId: 'answer',
+        blockId: 'reasoning',
+        blockType: 'thinking',
+        delta: 'PRIVATE reasoning',
+      });
+    const suffix = f.delta('decision');
+    const match = f.user('Later complete release decision');
+    const page = await f.read({ query: 'release decision', afterSeq: boundary });
+    expect(page.entries).toEqual([
+      { seq: match, kind: 'user', text: 'Later complete release decision' },
+    ]);
+    expect(page.blockedEvent).toEqual({
+      seq: suffix,
+      reason: 'query_overlap_exceeds_scan_bound',
+    });
+    expect(JSON.stringify(page)).not.toContain('PRIVATE');
+    const search = await f.search({
+      cursor: {
+        offset: 0,
+        conversationId: 'past',
+        afterSeq: boundary,
+        throughSeq: match,
+        query: 'release decision',
+      },
+    });
+    expect(search.sessions[0]).toMatchObject({
+      conversationId: 'past',
+      matchedSeq: match,
+      snippet: 'Later complete release decision',
+    });
+    expect(search.searchCoverage.blockedSessions).toBe(1);
+    expect(search.searchCoverage.scannedEvents).toBeLessThanOrEqual(8192);
   });
 
   it('uses original Unicode offsets for excerpts in both history tools', async () => {
