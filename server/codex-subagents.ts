@@ -111,6 +111,7 @@ export class CodexSubagents {
   private overflowed = new Set<string>();
   private assignedTasks = new Map<string, string>();
   private parentStopping = false;
+  private parentCancellationEpoch = 0;
   private listeners = new Set<(child: NativeSubagentSnapshot) => void>();
   private closed = false;
   constructor(private readonly opts: Options) {}
@@ -745,6 +746,7 @@ export class CodexSubagents {
     const previous = this.opts.store.claimControl(this.opts.scope, input);
     if (previous) return previous;
     let attempted = false;
+    const parentEpoch = this.parentCancellationEpoch;
     const previousState = live.child.state;
     let optimistic:
       { lifecycle: number; turnId?: string; state: RetainedSubagent['state'] } | undefined;
@@ -763,7 +765,10 @@ export class CodexSubagents {
       const turnId = live.child.turnId;
       return this.opts.request(method, params, () => {
         authorize();
-        if (this.parentStopping && !(parentStop && input.action === 'stop'))
+        if (
+          (this.parentStopping || parentEpoch !== this.parentCancellationEpoch) &&
+          !(parentStop && input.action === 'stop')
+        )
           throw Error('Parent cancellation preceded control dispatch');
         this.current(live);
         if (live.child.state !== state || live.child.turnId !== turnId)
@@ -853,6 +858,7 @@ export class CodexSubagents {
     return status;
   }
   async interruptAll(): Promise<void> {
+    this.parentCancellationEpoch++;
     this.parentStopping = true;
     for (const live of this.live.values()) {
       live.turnAbort.abort();

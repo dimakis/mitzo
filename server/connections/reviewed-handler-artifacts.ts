@@ -46,10 +46,10 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/codex-subagent-store.test.ts':
     '17cb3848f026986ee4357e9bf527c6883085b515072ee59c4c490bdd7a0abe88',
   '../__tests__/codex-subagents.test.ts':
-    '393f03b68b8178988578f168e6f6885db7cef11e5365149f5f74b3d1d0f6b010',
+    '90d6bbcc1838d86bdf59315e1a3bca50c3025f4a66651b8e025d1815627f232b',
   '../codex-subagent-routes.ts': '626354e56b192b4c660f9a2187aae075c77ed93cee3569769df391556b761211',
   '../codex-subagent-store.ts': '1b02ce0bfd52773924094441622cc404f363255b511eabac8a5e07a9e021d0c2',
-  '../codex-subagents.ts': 'dd9d510839cce06b2c51f83fa2660abe4821f0203d0a0451beb89088bd8436b0',
+  '../codex-subagents.ts': 'bd3ca5be7c6f390497a9f1140428a36e1ca381621e54b75f2162cf13d581997d',
   '../__tests__/owned-local-auth-feedback.test.ts':
     'fa4b4dca12a655e4075c03e6c95701ac9c8c1a6607f867e27668c914e988da21',
   '../../docs/design/ui-design-system.md':

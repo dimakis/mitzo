@@ -249,37 +249,41 @@ it('restores rejected interruption state despite concurrent output while retaini
     blocks: [{ content: 'Output during interruption' }],
   });
 });
-it('refuses an idle child message prepared before parent Stop when preparation completes later', async () => {
-  const f = fixture();
-  await f.admit();
-  f.notify('turn/completed', {
-    threadId: 'child',
-    turn: { id: 'child-turn', status: 'completed' },
-  });
-  let release!: () => void;
-  let dispatched = false;
-  f.request.mockImplementationOnce(async (_method, _params, beforeDispatch) => {
-    await new Promise<void>((resolve) => {
-      release = resolve;
+it.each([false, true])(
+  'refuses a prepared child message after parent Stop, including after resume (%s)',
+  async (resumed) => {
+    const f = fixture();
+    await f.admit();
+    f.notify('turn/completed', {
+      threadId: 'child',
+      turn: { id: 'child-turn', status: 'completed' },
     });
-    beforeDispatch?.();
-    dispatched = true;
-    return { turn: { id: 'forbidden-late-turn' } };
-  });
-  const directed = f.owner.control({
-    requestId: 'message',
-    action: 'message',
-    threadId: 'child',
-    text: 'Next check',
-  });
-  await f.owner.interruptAll();
-  release();
-  expect(await directed).toBe('rejected');
-  expect(dispatched).toBe(false);
-  expect(f.owner.list()[0]).toMatchObject({ state: 'completed', available: false });
-  f.owner.parentResumed();
-  expect(f.owner.list()[0].available).toBe(true);
-});
+    let release!: () => void;
+    let dispatched = false;
+    f.request.mockImplementationOnce(async (_method, _params, beforeDispatch) => {
+      await new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      beforeDispatch?.();
+      dispatched = true;
+      return { turn: { id: 'forbidden-late-turn' } };
+    });
+    const directed = f.owner.control({
+      requestId: 'message',
+      action: 'message',
+      threadId: 'child',
+      text: 'Next check',
+    });
+    await f.owner.interruptAll();
+    if (resumed) f.owner.parentResumed();
+    release();
+    expect(await directed).toBe('rejected');
+    expect(dispatched).toBe(false);
+    expect(f.owner.list()[0]).toMatchObject({ state: 'completed', available: resumed });
+    f.owner.parentResumed();
+    expect(f.owner.list()[0].available).toBe(true);
+  },
+);
 it('does not overwrite a native terminal event while rolling back an interrupt rejection', async () => {
   const f = fixture();
   await f.admit();
