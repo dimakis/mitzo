@@ -25,6 +25,7 @@ import {
   TelosSourceMaterialPageRequestSchema,
   TelosSourceMaterialCursorSchema,
   TelosSourcePermissionApproveRequestSchema,
+  TelosOutcomeRevisionRequestSchema,
 } from '@mitzo/protocol';
 
 const log = createLogger('telos-source');
@@ -266,7 +267,7 @@ export function createTelosSourceRouter(options: {
       await run(res, actor, (_capture, approval) => approval.materials(id.data, input.data, actor));
     },
   );
-  for (const operation of ['preview', 'approve'] as const)
+  for (const operation of ['preview', 'approve', 'request-changes'] as const)
     router.post(
       '/api/telos/work/source/permissions/:permId/' + operation,
       options.operatorAuth,
@@ -276,18 +277,22 @@ export function createTelosSourceRouter(options: {
         if (!actor) return;
         const id = TelosWorkIdSchema.safeParse(req.params.permId),
           input = (
-            operation === 'preview'
-              ? TelosSourcePermissionPreviewRequestSchema
-              : TelosSourcePermissionApproveRequestSchema
+            operation === 'request-changes'
+              ? TelosOutcomeRevisionRequestSchema
+              : operation === 'preview'
+                ? TelosSourcePermissionPreviewRequestSchema
+                : TelosSourcePermissionApproveRequestSchema
           ).safeParse(req.body);
         if (!id.success || !input.success) {
           res.status(400).json({ code: 'invalid', error: 'Invalid source permission request' });
           return;
         }
         await run(res, actor, (_capture, approval) =>
-          operation === 'preview'
-            ? approval.preview(id.data, input.data, actor)
-            : approval.approve(id.data, input.data, actor),
+          operation === 'request-changes'
+            ? approval.requestChanges(id.data, input.data, actor)
+            : operation === 'preview'
+              ? approval.preview(id.data, input.data, actor)
+              : approval.approve(id.data, input.data, actor),
         );
       },
     );

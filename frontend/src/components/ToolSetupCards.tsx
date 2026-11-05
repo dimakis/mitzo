@@ -3,13 +3,13 @@ import { connectionSetupResult } from '../lib/connection-setup-result';
 import { RepositoryChatSetupCard } from './RepositoryChatSetupCard';
 import { repositoryChatPreparationResult } from '../lib/repository-chat-preparation';
 import type { ToolBlock } from '../lib/tool-status';
-import { TelosOutcomeFailure } from './TelosOutcomeFailure';
+import { TelosOutcomeNotice } from './TelosOutcomeNotice';
 
 export function ToolSetupCards({ tools, sessionId }: { tools: ToolBlock[]; sessionId?: string }) {
   return (
     <>
       {tools.map((tool) => (
-        <TelosOutcomeFailure key={tool.blockId} block={tool} />
+        <TelosOutcomeNotice key={tool.blockId} block={tool} />
       ))}
       {tools
         .filter((tool, index) => {

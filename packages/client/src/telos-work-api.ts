@@ -25,6 +25,9 @@ import {
   TelosSourcePermissionReceiptSchema,
   type TelosSourcePermissionPreviewRequest,
   type TelosSourcePermissionApproveRequest,
+  TelosOutcomeRevisionRequestSchema,
+  TelosOutcomeRevisionReceiptSchema,
+  type TelosOutcomeRevisionRequest,
   TelosWorkCommandSchema,
   TelosWorkViewSchema,
   TelosWorkCommandReceiptSchema,
@@ -265,6 +268,15 @@ export class TelosWorkApiClient {
       'source/permissions/' + encodeURIComponent(TelosWorkIdSchema.parse(permId)) + '/approve',
       TelosSourcePermissionReceiptSchema,
       TelosSourcePermissionApproveRequestSchema.parse(input),
+    );
+  }
+  requestOutcomeChanges(permId: string, input: TelosOutcomeRevisionRequest) {
+    return this.request(
+      'source/permissions/' +
+        encodeURIComponent(TelosWorkIdSchema.parse(permId)) +
+        '/request-changes',
+      TelosOutcomeRevisionReceiptSchema,
+      TelosOutcomeRevisionRequestSchema.parse(input),
     );
   }
   private async request<T>(

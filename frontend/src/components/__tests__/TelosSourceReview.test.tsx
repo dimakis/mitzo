@@ -19,12 +19,14 @@ const api = vi.hoisted(() => ({
   getSourcePermission: vi.fn(),
   previewSourcePermission: vi.fn(),
   approveSourcePermission: vi.fn(),
+  requestOutcomeChanges: vi.fn(),
 }));
 vi.mock('@mitzo/client', () => ({
   TelosWorkApiClient: class {
     getSourcePermission = api.getSourcePermission;
     previewSourcePermission = api.previewSourcePermission;
     approveSourcePermission = api.approveSourcePermission;
+    requestOutcomeChanges = api.requestOutcomeChanges;
   },
 }));
 
@@ -86,6 +88,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   window.dispatchEvent(new Event('mitzo:auth-lost'));
   api.getSourcePermission.mockReset();
+  api.requestOutcomeChanges.mockReset();
   api.getSourcePermission.mockResolvedValue(review);
   api.previewSourcePermission.mockImplementation(async (_id, input) => ({
     permId: review.permId,
@@ -117,6 +120,88 @@ beforeEach(() => {
   });
 });
 afterEach(cleanup);
+
+it('requests a revision with feedback while preserving the draft and requiring a fresh proposal to save', async () => {
+  api.getSourcePermission.mockResolvedValueOnce({
+    ...review,
+    suggestedMessageIds: ['assistant-1'],
+  });
+  api.requestOutcomeChanges.mockImplementation(async (_id, input) => ({
+    kind: 'telos_outcome_changes_requested',
+    permId: review.permId,
+    ...input,
+    originalOutcome: review.operation.outcome,
+  }));
+  render(<PermissionBanner {...props} />);
+  fireEvent.click(await screen.findByRole('button', { name: 'Request changes' }));
+  const feedback = screen.getByRole('textbox', { name: 'What should change?' });
+  expect(screen.getByRole('button', { name: 'Send changes' }).hasAttribute('disabled')).toBe(true);
+  fireEvent.change(feedback, { target: { value: 'Make the first milestone a mobile test.' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Send changes' }));
+  await waitFor(() => expect(api.requestOutcomeChanges).toHaveBeenCalledTimes(1));
+  expect(api.requestOutcomeChanges.mock.calls[0][1]).toMatchObject({
+    sessionId: review.sessionId,
+    toolUseId: review.toolUseId,
+    proposalSha256,
+    feedback: 'Make the first milestone a mobile test.',
+  });
+  expect(api.approveSourcePermission).not.toHaveBeenCalled();
+  expect(props.onRespond).not.toHaveBeenCalled();
+  await screen.findByText('Changes sent. Waiting for a revised proposal.');
+  expect(screen.getByRole('button', { name: 'Create outcome' }).hasAttribute('disabled')).toBe(
+    true,
+  );
+});
+
+it('returns to the proposal with focus and unsent feedback preserved', async () => {
+  api.getSourcePermission.mockResolvedValueOnce({
+    ...review,
+    suggestedMessageIds: ['assistant-1'],
+  });
+  render(<PermissionBanner {...props} />);
+  fireEvent.click(await screen.findByRole('button', { name: 'Request changes' }));
+  const feedback = screen.getByRole('textbox', { name: 'What should change?' });
+  expect(document.activeElement).toBe(feedback);
+  fireEvent.change(feedback, { target: { value: 'Start with the mobile regression.' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Back to proposal' }));
+  expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Request changes' }));
+  expect(screen.getByRole('button', { name: 'Create outcome' }).hasAttribute('disabled')).toBe(
+    false,
+  );
+  fireEvent.click(screen.getByRole('button', { name: 'Request changes' }));
+  expect(
+    (screen.getByRole('textbox', { name: 'What should change?' }) as HTMLTextAreaElement).value,
+  ).toBe('Start with the mobile regression.');
+  expect(api.requestOutcomeChanges).not.toHaveBeenCalled();
+  expect(api.approveSourcePermission).not.toHaveBeenCalled();
+});
+
+it('retries only the identical feedback after delivery uncertainty and cannot save the old proposal', async () => {
+  api.getSourcePermission.mockResolvedValueOnce({
+    ...review,
+    suggestedMessageIds: ['assistant-1'],
+  });
+  api.requestOutcomeChanges
+    .mockRejectedValueOnce(new Error('Response lost'))
+    .mockImplementationOnce(async (_id, input) => ({
+      kind: 'telos_outcome_changes_requested',
+      permId: review.permId,
+      ...input,
+      originalOutcome: review.operation.outcome,
+    }));
+  render(<PermissionBanner {...props} />);
+  fireEvent.click(await screen.findByRole('button', { name: 'Request changes' }));
+  fireEvent.change(screen.getByRole('textbox', { name: 'What should change?' }), {
+    target: { value: 'Narrow the scope.' },
+  });
+  fireEvent.click(screen.getByRole('button', { name: 'Send changes' }));
+  fireEvent.click(await screen.findByRole('button', { name: 'Retry sending changes' }));
+  await waitFor(() => expect(api.requestOutcomeChanges).toHaveBeenCalledTimes(2));
+  expect(api.requestOutcomeChanges.mock.calls[0][1]).toEqual(
+    api.requestOutcomeChanges.mock.calls[1][1],
+  );
+  expect(api.approveSourcePermission).not.toHaveBeenCalled();
+});
 
 it('prepares the latest exchange and creates the outcome with one explicit save, without message picking', async () => {
   api.getSourcePermission.mockResolvedValueOnce({
@@ -467,7 +552,7 @@ describe('ordinary Telos source approval', () => {
   it('denies through the existing permission response without preparing a save', async () => {
     render(<PermissionBanner {...props} />);
     await screen.findByRole('checkbox', { name: /The agreed studio brief/ });
-    fireEvent.click(screen.getByRole('button', { name: 'Deny' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
     expect(props.onRespond).toHaveBeenCalledWith(review.permId, 'deny', props.toolName);
     expect(api.approveSourcePermission).not.toHaveBeenCalled();
   });

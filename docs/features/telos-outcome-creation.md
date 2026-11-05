@@ -25,6 +25,30 @@ suggesting and previewing create nothing. Selection changes invalidate previews;
 uncertain saves retain their original request for recovery. Existing explicit
 source adoption and older forward-paging clients retain their contracts.
 
+## Review and revision
+
+Dimitri accepted the proposed Create / Request changes / Cancel loop in the
+originating conversation on 5 November 2026 ("Yep. Better loop. Let’s do that").
+Request changes opens an inline feedback form. Back to proposal retains unsent
+feedback. Send changes binds feedback to the exact pending invocation and proposal,
+retains the original draft and returns both to the waiting agent. No canonical
+item, milestone, source capture or worker is created. The agent can propose a
+revision in that same conversation; it requires fresh review and final approval.
+
+The receipt retains the exact feedback request under the authenticated operator.
+Exact retries recover it without delivering another revision request. Expiry,
+invocation replacement, changed proposals and another native operator refuse new
+delivery. A started or unconfirmed save cannot be revised; its original recovery
+must finish first. Cancellation tells the native agent to abandon this proposal
+instead of automatically trying creation again. The review metadata is retained
+in the existing canonical database owner's revision table, separate from items.
+
+Tests exercise the actual permission resolver, persistent owner restart, exact
+feedback retry, HTTP authentication, malformed input, native revocation, fresh
+approval of a revised proposal and UI feedback retention. Offline browser
+fixtures include both direct creation and a complete simulated revision loop,
+with no model calls. Browser layout acceptance still has the limitation below.
+
 Focused regressions cover recent and earlier pages, one explicit save without
 message picking, initial read retry, visible failure results and existing
 approval/recovery/material fences. Shared packages compile with one worker and

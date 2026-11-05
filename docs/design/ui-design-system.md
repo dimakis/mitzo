@@ -782,8 +782,22 @@ them. **Change saved context** is optional; it exposes completed public messages
 earlier-message paging and retained materials. Changing that selection invalidates
 its preview. Adding source to an existing item retains explicit selection and
 Once. The exact compiled text, boundary, brief and version pins remain inspectable.
-These requests offer one explicit save and Deny; a session allowance cannot approve
-unseen future source selections. Other tools retain their existing scope/actions.
+Outcome creation offers **Create outcome**, **Request changes** and **Cancel**.
+Request changes opens an inline, labelled feedback field, with **Send changes**,
+**Back to proposal** and **Cancel**. Going back preserves unsent feedback and
+returns focus. The primary action occupies the full footer row; the other two
+retain reachable shared control-height targets. Feedback uses the existing
+question-written controls and base text size. The footer stays outside the
+scrolling body. Source adoption retains Once and Deny; a session allowance cannot
+approve unseen future source selections. Other tools retain their scope/actions.
+
+Sending feedback retains the original proposal and exact feedback request,
+returns it to the original waiting agent and creates no Telos work. The agent's
+revised proposal needs fresh review and approval. Delivery uncertainty locks the
+same feedback for retry; the old proposal cannot be saved. Once saving has begun,
+revision is unavailable and original save recovery remains authoritative. Cancel
+abandons creation. Expected feedback and cancellation results remain readable
+outside Activity without becoming creation failures on the native route.
 The source controls reuse shared fieldsets, semantic tokens, normal disclosure
 and the card's independently scrolling body with reachable 44px decisions. Late
 reads are fenced to the request/session/login. An uncertain save locks its exact

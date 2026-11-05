@@ -8,6 +8,7 @@ import type {
   TelosSourcePermissionPreviewRequest,
   TelosSourcePermissionReview,
   TelosSourcePacket,
+  TelosOutcomeRevisionRequest,
 } from '@mitzo/protocol';
 import { apiFetch, AUTH_LOST_EVENT } from '../lib/api-fetch';
 import { UiIcon } from './UiIcon';
@@ -212,6 +213,12 @@ export function useTelosSourceReview({
   const materialAbort = useRef<AbortController | null>(null);
   const loadingMaterials = useRef(false);
   const [materialsLoading, setMaterialsLoading] = useState(false);
+  const [requestingChanges, setRequestingChanges] = useState(false);
+  const [changeFeedback, setChangeFeedback] = useState('');
+  const [changesSending, setChangesSending] = useState(false);
+  const [changesSent, setChangesSent] = useState(false);
+  const [changesLocked, setChangesLocked] = useState(false);
+  const changeAttempt = useRef<TelosOutcomeRevisionRequest | null>(null);
   const valid = useCallback(
     (key: string, version: number) =>
       alive.current && current.current === key && generation.current === version,
@@ -240,6 +247,12 @@ export function useTelosSourceReview({
     setSaved(false);
     setSavedItem(null);
     setError(null);
+    setRequestingChanges(false);
+    setChangeFeedback('');
+    setChangesSending(false);
+    setChangesSent(false);
+    setChangesLocked(false);
+    changeAttempt.current = null;
     if (!enabled)
       return () => {
         alive.current = false;
@@ -379,6 +392,10 @@ export function useTelosSourceReview({
       setSelectedArtifacts([]);
       setLoading(false);
       setError('Sign in again before reviewing this request.');
+      setRequestingChanges(false);
+      setChangeFeedback('');
+      setChangesSending(false);
+      changeAttempt.current = null;
     };
     window.addEventListener(AUTH_LOST_EVENT, authLost);
     return () => {
@@ -394,7 +411,83 @@ export function useTelosSourceReview({
   const isExpired = () =>
     !recoveryOnly && Date.now() >= Math.min(expiresAt, activeReview?.expiresAt ?? expiresAt);
   const expired = isExpired();
-  const disabled = loading || locked || blocked || expired;
+  const disabled = loading || locked || blocked || expired || changesLocked;
+  const canRequestChanges =
+    !!activeReview &&
+    activeReview.operation.kind === 'create' &&
+    !recoveryOnly &&
+    !loading &&
+    !locked &&
+    !blocked &&
+    !expired &&
+    !saved &&
+    !changesLocked;
+  function startChanges() {
+    if (!canRequestChanges) return;
+    setRequestingChanges(true);
+    setError(null);
+  }
+  function backToProposal() {
+    if (!changesLocked) setRequestingChanges(false);
+  }
+  async function sendChanges() {
+    if (
+      !activeReview ||
+      activeReview.operation.kind !== 'create' ||
+      !sessionId ||
+      recoveryOnly ||
+      saved ||
+      saving ||
+      locked ||
+      changesSending ||
+      changesSent ||
+      blocked ||
+      isExpired() ||
+      !changeFeedback.trim()
+    )
+      return;
+    const version = generation.current;
+    const input = (changeAttempt.current ??= {
+      sessionId,
+      toolUseId: activeReview.toolUseId,
+      proposalSha256: activeReview.proposalSha256,
+      requestId: crypto.randomUUID(),
+      feedback: changeFeedback.trim(),
+    });
+    setChangesLocked(true);
+    setChangesSending(true);
+    setError(null);
+    try {
+      const receipt = await api.requestOutcomeChanges(permId, input);
+      if (!valid(identity, version)) return;
+      if (
+        receipt.kind !== 'telos_outcome_changes_requested' ||
+        receipt.permId !== permId ||
+        receipt.sessionId !== sessionId ||
+        receipt.toolUseId !== input.toolUseId ||
+        receipt.requestId !== input.requestId ||
+        receipt.proposalSha256 !== input.proposalSha256 ||
+        receipt.feedback !== input.feedback ||
+        JSON.stringify(receipt.originalOutcome) !== JSON.stringify(activeReview.operation.outcome)
+      )
+        throw Error('Revision receipt changed');
+      setChangesSent(true);
+      setRequestingChanges(false);
+    } catch (failure) {
+      if (!valid(identity, version)) return;
+      if (lostAuthority(failure)) {
+        setReview(null);
+        setPreview(null);
+        setPreviewInput(null);
+        setRequestingChanges(false);
+        setChangeFeedback('');
+        setBlocked(true);
+        setError('Sign in again before reviewing this request.');
+      } else setError('Feedback delivery is unconfirmed. Retry the same feedback request.');
+    } finally {
+      if (valid(identity, version)) setChangesSending(false);
+    }
+  }
   function changeSelection(kind: 'message' | 'artifact', id: string) {
     if (disabled) return;
     generation.current++;
@@ -579,7 +672,17 @@ export function useTelosSourceReview({
   }
 
   async function approve() {
-    if (!activeReview || !preview || !previewInput || saving || saved || blocked || isExpired())
+    if (
+      !activeReview ||
+      !preview ||
+      !previewInput ||
+      saving ||
+      saved ||
+      blocked ||
+      isExpired() ||
+      changesLocked ||
+      requestingChanges
+    )
       return;
     const version = generation.current;
     const login = sourceSaveLogin;
@@ -674,6 +777,22 @@ export function useTelosSourceReview({
               (activeReview.operation.kind === 'create' ? activeReview.operation.outcome : {})
             }
           />
+          {requestingChanges && (
+            <section aria-label="Request changes" className="question-written">
+              <label htmlFor={'telos-feedback-' + permId}>What should change?</label>
+              <textarea
+                id={'telos-feedback-' + permId}
+                value={changeFeedback}
+                maxLength={4000}
+                readOnly={changesLocked}
+                disabled={changesSending || blocked || expired}
+                onChange={(event) => setChangeFeedback(event.target.value)}
+              />
+              <p className="perm-banner-scope">
+                The agent will revise this proposal for another review. No Telos item is created.
+              </p>
+            </section>
+          )}
           {!recoveryOnly && (
             <details
               className="perm-banner-details"
@@ -889,6 +1008,11 @@ export function useTelosSourceReview({
           )}
         </p>
       )}
+      {changesSent && (
+        <p role="status" className="perm-banner-scope">
+          Changes sent. Waiting for a revised proposal.
+        </p>
+      )}
     </section>
   ) : null;
   return {
@@ -896,9 +1020,27 @@ export function useTelosSourceReview({
     approve,
     saving,
     saved,
+    canRequestChanges,
+    requestingChanges,
+    startChanges,
+    backToProposal,
+    sendChanges,
+    changesSending,
+    changesSent,
+    changesLocked,
+    feedbackReady: !!changeFeedback.trim(),
     quickSave:
       activeReview?.suggestedMessageIds !== undefined && activeReview.operation.kind === 'create',
     authorized: !!activeReview && !blocked,
-    ready: !!activeReview && !!preview && !loading && !saving && !saved && !blocked && !expired,
+    ready:
+      !!activeReview &&
+      !!preview &&
+      !loading &&
+      !saving &&
+      !saved &&
+      !blocked &&
+      !expired &&
+      !changesLocked &&
+      !requestingChanges,
   };
 }

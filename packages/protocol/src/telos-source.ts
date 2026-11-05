@@ -185,6 +185,29 @@ export const TelosSourcePermissionPreviewSchema = z.strictObject({
 });
 export const TelosSourcePermissionApproveRequestSchema =
   TelosSourcePermissionPreviewRequestSchema.extend({ previewSha256: digest });
+export const TelosOutcomeRevisionRequestSchema = z.strictObject({
+  sessionId: TelosWorkIdSchema,
+  toolUseId: z.string().min(1).max(1000),
+  proposalSha256: digest,
+  requestId: z.uuid(),
+  feedback: z.string().trim().min(1).max(4000),
+});
+export const TelosOutcomeRevisionReceiptSchema = TelosOutcomeRevisionRequestSchema.extend({
+  kind: z.literal('telos_outcome_changes_requested'),
+  permId: TelosWorkIdSchema,
+  originalOutcome: TelosOutcomeProposalSchema,
+  nextAction: z.literal(
+    'Revise the original outcome using this feedback, then call TelosCreateOutcome again for fresh approval. No outcome was created.',
+  ),
+});
+export type TelosOutcomeRevisionRequest = z.infer<typeof TelosOutcomeRevisionRequestSchema>;
+export type TelosOutcomeRevisionReceipt = z.infer<typeof TelosOutcomeRevisionReceiptSchema>;
+export const TelosOutcomeCancellationSchema = z.strictObject({
+  kind: z.literal('telos_proposal_cancelled'),
+  message: z.literal(
+    'The operator cancelled this proposal. Do not retry or create work unless they ask again.',
+  ),
+});
 export const TelosSourcePermissionReceiptSchema = z.strictObject({
   permId: TelosWorkIdSchema,
   sessionId: TelosWorkIdSchema,

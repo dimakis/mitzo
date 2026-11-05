@@ -4,6 +4,7 @@ import {
   getPendingTelosSourceReview,
   resolveReviewedTelosSourcePermission,
   capturePendingTelosSourceReviewCurrent,
+  resolvePending,
 } from '@mitzo/harness';
 import {
   TelosOutcomeProposalSchema,
@@ -18,6 +19,8 @@ import {
   type TelosSourcePermissionPreviewRequest,
   type TelosOutcomeCreation,
   type TelosSourcePermissionReview,
+  TelosOutcomeRevisionRequestSchema,
+  TelosOutcomeRevisionReceiptSchema,
 } from '@mitzo/protocol';
 import { TelosWorkError, type TelosWorkActor, type TelosWorkStore } from './telos-work-store.js';
 import { TelosSourceCapture } from './telos-source-capture.js';
@@ -207,6 +210,46 @@ export class TelosSourceApproval {
       scope?.assertCurrent();
       for (const pin of record.preview.packet.context.artifacts) scope?.assertPin(pin);
     };
+  }
+  /** Feedback ends only the original pending proposal. It never authorizes a
+   * canonical save or resumes a prepared/uncertain creation attempt. */
+  async requestChanges(permId: string, raw: unknown, actor: TelosWorkActor) {
+    const actorId = this.operator(actor);
+    const input = TelosOutcomeRevisionRequestSchema.parse(raw);
+    let record = this.options.store.revision(permId, input.sessionId, actorId, input);
+    if (record?.delivered) return record.receipt;
+    const proof = this.pending(permId, input.sessionId, actor);
+    const current = this.pendingCurrent(proof, actor);
+    const operation = this.operation(proof, actor);
+    if (
+      operation.kind !== 'create' ||
+      proof.toolUseId !== input.toolUseId ||
+      sourceApprovalHash(operation) !== input.proposalSha256 ||
+      (record && !isDeepStrictEqual(record.proof, proof))
+    )
+      throw new TelosWorkError('conflict', 'Original outcome proposal changed; review again');
+    current();
+    record ??= this.options.store.prepareRevision(
+      proof,
+      actorId,
+      input,
+      TelosOutcomeRevisionReceiptSchema.parse({
+        ...input,
+        kind: 'telos_outcome_changes_requested',
+        permId,
+        originalOutcome: operation.outcome,
+        nextAction:
+          'Revise the original outcome using this feedback, then call TelosCreateOutcome again for fresh approval. No outcome was created.',
+      }),
+    );
+    current();
+    if (!resolvePending(permId, 'deny', undefined, input.sessionId, JSON.stringify(record.receipt)))
+      throw new TelosWorkError(
+        'conflict',
+        'Feedback retained but delivery to the original agent is unconfirmed',
+      );
+    this.options.store.revisionDelivered(permId);
+    return record.receipt;
   }
   async review(
     permId: string,
