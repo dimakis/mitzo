@@ -1,5 +1,5 @@
 import { expect, it, vi } from 'vitest';
-import type { EventStore } from '../event-store.js';
+import { EventStore } from '../event-store.js';
 import type { SessionRegistry, ConnectionRegistry } from '@mitzo/harness';
 import type { SessionPromptDelivery } from '../session-prompt-store.js';
 import { createSessionPromptPort, sessionPromptText } from '../session-prompt-dispatch.js';
@@ -113,6 +113,8 @@ function fixture(harness = 'codex', location = 'local') {
       },
     }),
     getOrdinaryCommandAdmission: () =>
+      f.dispatch.mock.calls.length ? { state: 'consumed' } : undefined,
+    readOrdinaryCommandExecutionEvidence: () =>
       f.dispatch.mock.calls.length ? { state: 'consumed' } : undefined,
     getSendCommand: () => (f.dispatch.mock.calls.length ? { sessionId: 'worker' } : undefined),
     hasUncertainOrdinaryCommand: () => false,
@@ -253,4 +255,82 @@ it('continues an OpenShell repository whose workspace custody has a sandbox rath
       reservation: expect.objectContaining({ taskRoot: '/app/.claude/repository-tasks' }),
     }),
   );
+});
+it('reconciles accepted delivery from retained evidence after its recipient changes workspace', () => {
+  const x = fixture();
+  const store = new EventStore(':memory:');
+  try {
+    const binding = {
+      version: 2,
+      account: { accountId: 'account', provider: 'openai-codex', profileRevision: 'profile' },
+      harness: { implementation: 'codex' },
+      execution: { location: 'local', targetId: 'mac', targetRevision: 'target' },
+    } as const;
+    const commandId = x.delivery.commandId;
+    store.admitOrdinaryLocalCommand(
+      {
+        sessionId: 'worker',
+        repositoryWorkspaceId: 'old',
+        cwd: '/old',
+        accountBinding: { ...binding.account, accountLabel: 'Offline', model: 'fixture' },
+      },
+      binding,
+      {
+        clientMsgId: commandId,
+        requestFingerprint: 'original-fingerprint',
+        selection: { ...f.selection, model: 'fixture' },
+        payload: {
+          text: 'Check PR #7',
+          intent: 'Check PR #7',
+          systemPrompt: 'Selected instructions',
+        },
+      },
+    );
+    store.claimOrdinaryLocalCommandDispatch(commandId);
+    store.completeOrdinaryLocalCommand(commandId);
+    const transition = {
+      version: 1 as const,
+      preparationId: '34af2bdf-5fb4-4de0-b083-cf188163d891',
+      runtimeId: 'runtime',
+      source: {
+        commandId,
+        attempt: 1,
+        threadId: 'thread',
+        turnId: 'turn',
+        generation: 0,
+        callId: 'prepare',
+        requestHash: 'a'.repeat(64),
+        resultSha256: 'b'.repeat(64),
+      },
+      oldWorkspace: { kind: 'repository' as const, id: 'old', directory: '/old' },
+      newWorkspace: {
+        kind: 'repository' as const,
+        id: 'new',
+        directory: '/new',
+        featureBranch: 'task/branch',
+        baseOid: 'c'.repeat(40),
+        taskIdentitySha256: 'd'.repeat(64),
+      },
+      consumedScopeSha256: 'e'.repeat(64),
+      materializedRecordSha256: 'f'.repeat(64),
+    };
+    const reserved = store.reservePreparedRepositoryContinuation('worker', transition);
+    store.commitPreparedRepositoryContinuation('worker', reserved.childCommandId, transition);
+    store.finalizePreparedRepositoryContinuation(
+      'worker',
+      reserved.childCommandId,
+      transition,
+      () => {},
+    );
+    expect(() => store.getOrdinaryCommandAdmission(commandId)).toThrow(/durable session identity/);
+    const port = createSessionPromptPort({
+      eventStore: store,
+      sessionRegistry: x.registry,
+      connRegistry: x.connections,
+    });
+    expect(port.receipt(x.delivery)).toBe('accepted');
+    expect(port.receipt({ ...x.delivery, recipientSessionId: 'different-session' })).toBe('absent');
+  } finally {
+    store.close();
+  }
 });

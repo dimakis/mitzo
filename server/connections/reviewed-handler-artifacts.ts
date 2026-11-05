@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.877-session-prompt-review';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.878-session-prompt-receipts';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -27,11 +27,11 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/protocol/src/session-prompts.ts':
     '86f1242cbaa5371b414ac341faa2e128d5ff0fa88c3bcf06dfd39b5424366be2',
   '../__tests__/session-prompt-service.test.ts':
-    'dbd5c8729b43fc106bd4d121c4118f7acf52becac404f4d6f88936d196b46b1e',
+    'd15bbea380955088b1154ef215ebe1fba77b396d42ad8c0f0bff31c41352bc3e',
   '../__tests__/session-prompt-store.test.ts':
     'fc91365ceba6f5ededf37db0e87ebfdbf986f5289de5e9db314be2f458d2b3f1',
   '../session-prompt-service.ts':
-    'ec9b4df08d0d018a7ec490f8b3ec0601c2c6200d217809c13d354c944af42548',
+    'f04b0815c4fd33533106f0da2bee8275c753cc3551ffdc30add466a0cbb6f71e',
   '../session-prompt-store.ts': 'df1d80c1e70bc3f3be2233bee72628dc6f9c5b2eff0efe742a8fe09121c80971',
   '../../docs/features/session-timers.md':
     '2a12ade4fe783fbe149c304d42d2e8bca1bccab066e484624f34b806421d1589',
@@ -44,7 +44,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/styles/session-timers.css':
     'a98a9a393361601f95fd2a7a89623ea08fc5eb8f2a9b3b13d1d9f8d3070e61d6',
   '../__tests__/session-prompt-dispatch.test.ts':
-    'aadf53a892c70085e171d51d13768d85ac6882bea267060a08db4a6c7e406bb3',
+    '7d537db09f45add4ded105359b93e75defc4cc7feb32aedf1adb703ebb13e6ca',
   '../__tests__/session-prompt-router.test.ts':
     'c8020156c5547dfa3acba70253d14de48adca9a3ed936818b185a164ed3dc217',
   '../__tests__/session-prompt-tools.test.ts':
@@ -52,7 +52,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../session-prompt-definitions.ts':
     '9c7abeec70d2dfbd584e6dd27d53ce022e953eba8013752522104eeca5319b8e',
   '../session-prompt-dispatch.ts':
-    '2234fa8bab865dd2f0dec9bf04c20a08bbf6c2f98d787fdb1c0776772eb77097',
+    '4a789a6a1f913d33387dd9056ea1422ff5ad5d861af07d10ed91a01214468cf1',
   '../session-prompt-router.ts': '4d11907d907fb6fe0df41cbdd9ecd25336c2e647be761f55cba7e01539aebb7a',
   '../session-prompt-runtime.ts':
     '8ab804b640c6f14f7e03d581b54f60fa14d77347833b671fb6cd1c76b42ddd1b',

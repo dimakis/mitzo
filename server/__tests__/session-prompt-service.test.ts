@@ -237,3 +237,51 @@ it('advances beyond busy recipients and revisits earlier work fairly while more 
     f.port.deliver.mock.calls.some(([delivery]) => delivery.recipientSessionId === 'busy-worker'),
   ).toBe(true);
 });
+it.each(['dispatching', 'uncertain'] as const)(
+  'isolates an unreadable %s receipt while unrelated timers and callbacks continue',
+  async (state) => {
+    const f = fixture();
+    const timer = await f.service.create(f.input, f.auth, 'user', null);
+    const original = f.store.due()[0];
+    f.store.claim(original.id);
+    if (state === 'uncertain') f.store.finish(original.id, 'uncertain', 'Response lost');
+    const healthy = await f.service.create(
+      { ...f.input, requestId: randomUUID(), sessionId: 'other-worker' },
+      f.auth,
+      'user',
+      null,
+    );
+    f.port.receipt.mockImplementation(() => {
+      throw Error('Historical execution evidence unavailable');
+    });
+    await f.service.tick();
+    expect(f.store.delivery(original.id).state).toBe('uncertain');
+    expect(f.store.get(healthy.id).runCount).toBe(1);
+    const callback = f.store.message(
+      { requestId: randomUUID(), sessionId: 'coordinator', text: 'Task complete' },
+      f.auth,
+      'sender',
+    );
+    await f.service.tick();
+    expect(f.store.delivery(callback.id).state).toBe('accepted');
+    expect(f.port.deliver).toHaveBeenCalledTimes(2);
+    expect(f.port.deliver.mock.calls.every(([d]) => d.id !== original.id)).toBe(true);
+    f.port.receipt.mockReturnValue('accepted');
+    await f.service.tick();
+    expect(f.store.get(timer.id).runCount).toBe(1);
+    expect(f.port.deliver).toHaveBeenCalledTimes(2);
+  },
+);
+it('retains uncertainty when both a dispatch and its receipt read fail', async () => {
+  const f = fixture();
+  const timer = await f.service.create(f.input, f.auth, 'user', null);
+  f.port.deliver.mockRejectedValue(Error('Response lost'));
+  f.port.receipt.mockImplementation(() => {
+    throw Error('Receipt unavailable');
+  });
+  await f.service.tick();
+  expect(f.store.get(timer.id)).toMatchObject({ status: 'blocked', runCount: 0 });
+  expect(f.store.deliveries()[0].state).toBe('uncertain');
+  await f.service.tick();
+  expect(f.port.deliver).toHaveBeenCalledTimes(1);
+});

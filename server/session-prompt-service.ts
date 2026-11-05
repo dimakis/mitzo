@@ -112,11 +112,19 @@ export class SessionPromptService {
     });
     return this.ticking;
   }
+  private receipt(delivery: SessionPromptDelivery): ReturnType<SessionPromptPort['receipt']> {
+    try {
+      return this.port.receipt(delivery);
+    } catch {
+      // Unreadable evidence is uncertainty, never absence or retry authority.
+      // One recipient's retained history must not stop unrelated deliveries.
+      return 'uncertain';
+    }
+  }
   private async run() {
     // Reconcile retained uncertain delivery even after a timer has been paused.
     for (const delivery of this.store.deliveries(['dispatching', 'uncertain'])) {
-      if (this.port.receipt(delivery) === 'accepted')
-        this.store.finish(delivery.id, 'accepted', null);
+      if (this.receipt(delivery) === 'accepted') this.store.finish(delivery.id, 'accepted', null);
       else if (delivery.state === 'dispatching')
         this.store.finish(
           delivery.id,
@@ -160,7 +168,7 @@ export class SessionPromptService {
       // Acceptance is retained even if a simultaneous pause/cancel won the race.
       this.store.finish(delivery.id, 'accepted', null);
     } catch (error) {
-      const receipt = claimed ? this.port.receipt(delivery) : 'absent';
+      const receipt = claimed ? this.receipt(delivery) : 'absent';
       const message =
         error instanceof SessionPromptError
           ? error.message

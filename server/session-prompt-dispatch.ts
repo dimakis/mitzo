@@ -99,7 +99,10 @@ export function createSessionPromptPort(
         ctx.eventStore.getSendCommand(delivery.commandId)?.sessionId !== delivery.recipientSessionId
       )
         return 'absent';
-      return ctx.eventStore.getOrdinaryCommandAdmission(delivery.commandId)?.state === 'consumed'
+      // Receipt observation must survive workspace transitions; it grants no
+      // current execution authority and never causes a resend.
+      return ctx.eventStore.readOrdinaryCommandExecutionEvidence(delivery.commandId)?.state ===
+        'consumed'
         ? 'accepted'
         : 'uncertain';
     },
