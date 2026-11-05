@@ -1,5 +1,19 @@
 # Mitzo UI design contract
 
+## Session timer dialogs
+
+Timers reuse `HomeDialog`, `UiIcon`, shared primary/secondary/danger controls and
+semantic tokens. The list, form and details share one dialog: fixed heading and
+footer, a scrolling body, wrapping prompts, labelled inputs with the shared
+control height and base text size. Phone presentation uses the same bottom-sheet
+surface. Closing restores the existing overflow trigger or desktop clock.
+
+The Chats overflow contains **Timers**. **Schedule prompt** lives inside the
+existing `ComposerTools` responsive container: mobile overflow and desktop inline.
+All prior icons, status/settings surfaces and draft behavior remain intact.
+The [feature record](../features/session-timers.md) contains the placement approval,
+offline fixture and outstanding browser/visual verification.
+
 ## Combined composer status
 
 Ordinary chats use the approved status row above the existing composer. It has

@@ -1,4 +1,5 @@
 import { ConversationPins } from '../components/ConversationPins';
+import { SessionTimersDialog } from '../components/SessionTimersDialog';
 import { SessionRemovalDialog } from '../components/SessionRemovalDialog';
 import { ResizableSessionLayout } from '../components/ResizableSessionLayout';
 import { SessionInspector } from '../components/SessionInspector';
@@ -362,6 +363,7 @@ function SwipeableSession({
 }
 
 export function SessionList() {
+  const [timersOpen, setTimersOpen] = useState(false);
   const [removing, setRemoving] = useState<string | null>(null);
   const navigate = useNavigate();
   const desktop = useMediaQuery('(min-width: 768px)');
@@ -525,6 +527,14 @@ export function SessionList() {
               <button
                 onClick={(event) => {
                   event.currentTarget.closest('details')?.removeAttribute('open');
+                  setTimersOpen(true);
+                }}
+              >
+                Timers
+              </button>
+              <button
+                onClick={(event) => {
+                  event.currentTarget.closest('details')?.removeAttribute('open');
                   setImportOpen(true);
                 }}
               >
@@ -552,6 +562,14 @@ export function SessionList() {
           </details>
         </div>
       </header>
+      {timersOpen && (
+        <SessionTimersDialog
+          onClose={() => {
+            setTimersOpen(false);
+            requestAnimationFrame(() => conversationOptions.current?.focus());
+          }}
+        />
+      )}
       <ResizableSessionLayout
         preview={
           desktop && selectedPreview ? (

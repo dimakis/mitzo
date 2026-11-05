@@ -1,0 +1,139 @@
+.session-timers-dialog .home-dialog-content {
+  display: flex;
+  flex-direction: column;
+  max-height: calc(100dvh - 2 * var(--page-gutter));
+}
+.session-timers-body {
+  overflow: auto;
+  min-height: 0;
+  padding-block: var(--space-4);
+}
+.session-timer-form {
+  display: grid;
+  gap: var(--space-4);
+}
+.session-timer-form label,
+.session-timer-filter {
+  display: grid;
+  gap: var(--space-2);
+  font-size: var(--text-sm);
+}
+.session-timers-dialog input,
+.session-timers-dialog select,
+.session-timers-dialog textarea {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  min-height: var(--control-height);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-control);
+  padding: var(--space-2) var(--space-3);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font: inherit;
+  font-size: var(--text-base);
+}
+.session-timers-dialog textarea {
+  resize: vertical;
+  line-height: 1.6;
+}
+.session-timer-fields,
+.session-timer-metadata {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-4);
+}
+.session-timer-help,
+.session-timer-list span,
+.session-timer-metadata dt {
+  color: var(--color-muted);
+  font-size: var(--text-xs);
+}
+.session-timer-filter {
+  margin-block: var(--space-4);
+}
+.session-timer-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+.session-timer-list li {
+  border-bottom: 1px solid var(--color-border);
+}
+.session-timer-list button {
+  display: grid;
+  gap: var(--space-1);
+  width: 100%;
+  text-align: start;
+  border: 0;
+  background: transparent;
+  color: var(--color-text);
+  padding: var(--space-4) 0;
+  font: inherit;
+}
+.session-timer-list strong {
+  font-weight: 550;
+  overflow-wrap: anywhere;
+}
+.session-timer-status {
+  color: var(--color-success);
+}
+.session-timer-status[data-status='blocked'],
+.session-timer-error {
+  color: var(--color-danger);
+}
+.session-timer-status[data-status='paused'],
+.session-timer-status[data-status='cancelled'],
+.session-timer-status[data-status='completed'] {
+  color: var(--color-muted);
+}
+.session-timer-prompt {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  padding: var(--space-4);
+  margin-block: var(--space-4);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-control);
+}
+.session-timer-metadata {
+  margin-block: var(--space-4);
+}
+.session-timer-metadata dd {
+  margin: var(--space-1) 0 0;
+  font-size: var(--text-sm);
+  overflow-wrap: anywhere;
+}
+.session-timer-actions {
+  margin-top: var(--space-4);
+  flex-wrap: wrap;
+}
+.session-timer-error {
+  margin-block: var(--space-3);
+}
+.session-timer-error button {
+  margin-top: var(--space-2);
+}
+.session-timer-link {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--control-height);
+  color: var(--color-accent);
+}
+.session-timer-notice {
+  color: var(--color-success);
+  margin-bottom: var(--space-3);
+}
+@media (max-width: 48rem) {
+  .session-timers-dialog {
+    margin: auto 0 0;
+    width: 100%;
+    max-width: 100%;
+    max-height: calc(100dvh - var(--page-gutter));
+    border-end-start-radius: 0;
+    border-end-end-radius: 0;
+  }
+  .session-timers-dialog .home-dialog-content {
+    max-height: calc(100dvh - var(--page-gutter));
+  }
+}
