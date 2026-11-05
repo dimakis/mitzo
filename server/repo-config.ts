@@ -3,6 +3,9 @@ import { join, relative } from 'path';
 import { createLogger } from './logger.js';
 
 const log = createLogger('repo-config');
+// Diagnostics only: repository existence and path ceilings are still checked
+// on every load. A corrected condition rearms its warning if it later returns.
+const previousWarnings = new Map<string, Set<string>>();
 
 export interface QuickAction {
   label: string;
@@ -63,6 +66,16 @@ export function loadRepoConfig(
   options: { pathCeiling?: string } = {},
 ): RepoConfig {
   if (!repoPath) return { ...EMPTY_CONFIG };
+  const key = `${repoPath}\0${options.pathCeiling ?? ''}`;
+  const previous = previousWarnings.get(key);
+  const current = new Set<string>();
+  previousWarnings.delete(key);
+  if (previousWarnings.size >= 64) previousWarnings.delete(previousWarnings.keys().next().value!);
+  previousWarnings.set(key, current);
+  const warn = (message: string) => {
+    current.add(message);
+    if (!previous?.has(message)) log.warn(message);
+  };
 
   let raw: string;
   try {
@@ -131,7 +144,7 @@ export function loadRepoConfig(
       ceiling = realpathSync(options.pathCeiling);
     } catch {
       invalidCeiling = true;
-      log.warn('Configured repository path ceiling does not exist; rejecting all repositories');
+      warn('Configured repository path ceiling does not exist; rejecting all repositories');
     }
   }
   if (obj.repos && typeof obj.repos === 'object' && !Array.isArray(obj.repos)) {
@@ -139,18 +152,18 @@ export function loadRepoConfig(
       if (typeof path !== 'string') continue;
       if (invalidCeiling) continue;
       if (!existsSync(path)) {
-        log.warn(`repos.${name}: path does not exist: ${path}`);
+        warn(`repos.${name}: path does not exist: ${path}`);
         continue;
       }
       if (!existsSync(join(path, '.git'))) {
-        log.warn(`repos.${name}: not a git repository: ${path}`);
+        warn(`repos.${name}: not a git repository: ${path}`);
         continue;
       }
       if (ceiling) {
         const canonical = realpathSync(path);
         const fromCeiling = relative(ceiling, canonical);
         if (fromCeiling === '..' || fromCeiling.startsWith('../')) {
-          log.warn(`repos.${name}: path is outside the configured ceiling`);
+          warn(`repos.${name}: path is outside the configured ceiling`);
           continue;
         }
       }
