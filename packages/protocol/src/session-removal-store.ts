@@ -46,19 +46,33 @@ export class SessionRemovalStore {
       FROM session_resource_removals WHERE session_id=?`,
       )
       .get(sessionId) as
-      (Omit<SessionRemovalRecord, 'releaseStarted' | 'preparationCompleted'> & {
-        releaseStarted: number;
-        preparationCompleted: number;
-      }) | undefined;
-    return row && {
-      ...row,
-      releaseStarted: row.releaseStarted === 1,
-      preparationCompleted: row.preparationCompleted === 1,
-    };
+      | (Omit<SessionRemovalRecord, 'releaseStarted' | 'preparationCompleted'> & {
+          releaseStarted: number;
+          preparationCompleted: number;
+        })
+      | undefined;
+    return (
+      row && {
+        ...row,
+        releaseStarted: row.releaseStarted === 1,
+        preparationCompleted: row.preparationCompleted === 1,
+      }
+    );
   }
   assertAdmissible(sessionId: string): void {
     if (this.read(sessionId))
       throw Error('This chat is being removed. Review its removal before starting more work.');
+  }
+  assertArchivable(sessionId?: string): void {
+    if (
+      this.db
+        .prepare(
+          `SELECT 1 FROM session_resource_removals
+       WHERE release_started=1 AND phase!='completed' ${sessionId === undefined ? '' : 'AND session_id=?'} LIMIT 1`,
+        )
+        .get(...(sessionId === undefined ? [] : [sessionId]))
+    )
+      throw Error('Resource release has started. Review its outcome before archiving.');
   }
   begin(sessionId: string, operationId: string, fingerprint: string): SessionRemovalRecord {
     if (!sessionId || !operationId || !fingerprint) throw Error('Exact removal identity required');
@@ -81,10 +95,12 @@ export class SessionRemovalStore {
   }
   markPrepared(sessionId: string, operationId: string): SessionRemovalRecord {
     if (
-      this.db.prepare(
-        `UPDATE session_resource_removals SET preparation_completed=1,updated_at=?
+      this.db
+        .prepare(
+          `UPDATE session_resource_removals SET preparation_completed=1,updated_at=?
          WHERE session_id=? AND operation_id=? AND phase='closing' AND release_started=0`,
-      ).run(Date.now(), sessionId, operationId).changes !== 1
+        )
+        .run(Date.now(), sessionId, operationId).changes !== 1
     )
       throw Error('Removal preparation changed. Review before retrying.');
     return this.read(sessionId)!;

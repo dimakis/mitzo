@@ -22,6 +22,9 @@ export class SessionResourceRemovalService {
   read(id: string) {
     return this.deps.store.read(id);
   }
+  assertArchivable(id?: string) {
+    this.deps.store.assertArchivable(id);
+  }
   isPrepared(id: string) {
     const record = this.read(id);
     if (!record?.preparationCompleted || (record.phase === 'failed' && !record.releaseStarted))

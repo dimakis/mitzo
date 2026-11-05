@@ -3542,7 +3542,7 @@ const removalRuntime = createSessionRemovalRuntime({
   registry,
   tasks: taskStore,
   native: getCodexConversationStore,
-  stop: stopChat,
+  stop: (id) => stopChat(id),
 });
 const resourceRemovals = new SessionResourceRemovalService({
   ...removalRuntime,
@@ -4311,6 +4311,13 @@ app.get('/api/sessions/:id/compactions', (req, res) => {
 });
 
 app.delete('/api/sessions', (_req, res) => {
+  try {
+    resourceRemovals.assertArchivable();
+  } catch (error) {
+    return res.status(409).json({
+      error: error instanceof Error ? error.message : 'Resource release could not be verified.',
+    });
+  }
   hideAllSessions();
   clearPublicationControllerSessionGrants(registry);
   overviewEmitter?.scheduleBroadcast();

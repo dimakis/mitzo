@@ -157,9 +157,7 @@ export function createSessionRemovalRouter(deps: {
       return res.status(400).json({ error: 'A single conversation ID is required.' });
     try {
       if (req.query.archive === '1') {
-        const removal = deps.removal?.service.read(id);
-        if (removal?.releaseStarted && removal.phase !== 'completed')
-          throw Error('Resource release has started. Review its outcome before archiving.');
+        deps.removal?.service.assertArchivable(id);
       }
       if (req.query.archive !== '1') {
         const release = async () => {
