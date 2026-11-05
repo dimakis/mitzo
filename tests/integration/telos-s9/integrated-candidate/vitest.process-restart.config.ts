@@ -1,5 +1,5 @@
 import { mergeConfig } from 'vitest/config';
-import base from '../../../../vitest.config';
+import base from './supplemental-vitest-base';
 export default mergeConfig(base, {
   test: {
     maxWorkers: 1,

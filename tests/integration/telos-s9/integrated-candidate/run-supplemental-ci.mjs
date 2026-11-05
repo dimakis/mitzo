@@ -5,9 +5,13 @@ import { mkdirSync, readFileSync, writeFileSync, existsSync, rmSync } from 'node
 import { dirname, isAbsolute, join } from 'node:path';
 import { fileURLToPath, URL } from 'node:url';
 import { selectSupplementalShard, parseSupplementalShardArgs } from './supplemental-shards.mjs';
+import { selectSupplementalExecution } from './portable-supplemental-boundary.mjs';
 
 // Separate closed regressions; the original required-nine runner is unchanged.
-if (process.platform !== 'darwin') throw Error('Supplemental owner journeys require macOS');
+const executionOwner = selectSupplementalExecution(
+  process.platform,
+  process.env.S9_SUPPLEMENTAL_PORTABLE_CLI,
+);
 if (
   !process.env.S9_MGMT_PYTHON ||
   !isAbsolute(process.env.S9_MGMT_PYTHON) ||
@@ -65,6 +69,18 @@ for (const selected of selectedCases) {
     S9_JOINED_SCREENSHOT_DIR: directory,
   };
   delete env.S9_MGMT_SOURCE_ROOT;
+  // These cases have fake external provider effects. Synthetic executable bytes
+  // suffice for portable application coverage; native artifact qualification is
+  // retained by the independent canonical/joined macOS jobs.
+  if (executionOwner === 'portable-fixture-cli') delete env.S9_CODEX_NATIVE_FIXTURE;
+  writeFileSync(
+    join(directory, 'execution-owner.json'),
+    JSON.stringify(
+      { executionOwner, nativeBoundarySelected: executionOwner === 'native-macos' },
+      null,
+      2,
+    ) + '\n',
+  );
   const result = spawnSync(
     process.execPath,
     [
