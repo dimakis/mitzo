@@ -8,6 +8,7 @@ export interface SessionRemovalRecord {
   phase: SessionRemovalPhase;
   error: string | null;
   updatedAt: number;
+  releaseStarted: boolean;
 }
 
 /** Shares the event database and its admission transactions. A failed or
@@ -18,15 +19,25 @@ export class SessionRemovalStore {
       session_id TEXT PRIMARY KEY, operation_id TEXT NOT NULL UNIQUE,
       fingerprint TEXT NOT NULL, phase TEXT NOT NULL, error TEXT, updated_at INTEGER NOT NULL
     )`);
+    if (
+      !(
+        db.prepare('PRAGMA table_info(session_resource_removals)').all() as Array<{ name: string }>
+      ).some((column) => column.name === 'release_started')
+    )
+      db.exec(
+        'ALTER TABLE session_resource_removals ADD COLUMN release_started INTEGER NOT NULL DEFAULT 0',
+      );
   }
   read(sessionId: string): SessionRemovalRecord | undefined {
-    return this.db
+    const row = this.db
       .prepare(
         `SELECT session_id AS sessionId, operation_id AS operationId,
-      fingerprint, phase, error, updated_at AS updatedAt
+      fingerprint, phase, error, updated_at AS updatedAt, release_started AS releaseStarted
       FROM session_resource_removals WHERE session_id=?`,
       )
-      .get(sessionId) as SessionRemovalRecord | undefined;
+      .get(sessionId) as
+      (Omit<SessionRemovalRecord, 'releaseStarted'> & { releaseStarted: number }) | undefined;
+    return row && { ...row, releaseStarted: row.releaseStarted === 1 };
   }
   assertAdmissible(sessionId: string): void {
     if (this.read(sessionId))
@@ -43,7 +54,9 @@ export class SessionRemovalStore {
           return existing;
         }
         this.db
-          .prepare('INSERT INTO session_resource_removals VALUES(?,?,?,?,?,?)')
+          .prepare(
+            'INSERT INTO session_resource_removals(session_id,operation_id,fingerprint,phase,error,updated_at) VALUES(?,?,?,?,?,?)',
+          )
           .run(sessionId, operationId, fingerprint, 'closing', null, Date.now());
         return this.read(sessionId)!;
       })
@@ -66,12 +79,30 @@ export class SessionRemovalStore {
     if (
       this.db
         .prepare(
-          `UPDATE session_resource_removals SET phase=?,error=?,updated_at=?
+          `UPDATE session_resource_removals SET phase=?,error=?,updated_at=?,release_started=MAX(release_started,?)
       WHERE session_id=? AND operation_id=? AND phase=?`,
         )
-        .run(phase, error, Date.now(), sessionId, operationId, expected).changes !== 1
+        .run(
+          phase,
+          error,
+          Date.now(),
+          phase === 'releasing' ? 1 : 0,
+          sessionId,
+          operationId,
+          expected,
+        ).changes !== 1
     )
       throw Error('Removal operation changed. Review before retrying.');
     return this.read(sessionId)!;
+  }
+  keep(sessionId: string, operationId: string) {
+    if (
+      this.db
+        .prepare(
+          'DELETE FROM session_resource_removals WHERE session_id=? AND operation_id=? AND release_started=0',
+        )
+        .run(sessionId, operationId).changes !== 1
+    )
+      throw Error('Resource release has started. Review the original removal.');
   }
 }
