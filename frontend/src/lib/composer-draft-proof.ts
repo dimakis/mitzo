@@ -1,4 +1,5 @@
 import { chatStorage } from './large-chat-storage';
+import { sha256Hex } from './browser-crypto';
 /** Local composer ownership only; server receipt verification remains in SendOutbox. */
 export interface ComposerDraftProof {
   storageKey: string;
@@ -66,6 +67,24 @@ export function replaceComposerDraftRevision(key: string, value: string): boolea
 }
 export function composerDraftRevocationPending(key: string): boolean {
   return pendingRevocations.has(key);
+}
+/** The same persisted content fence applies to mounted editors and draft collections. */
+export function readComposerDraftRevision(
+  key: string,
+  text: string,
+  richDraftSignature: string,
+): string | undefined {
+  try {
+    if (composerDraftRevocationPending(key)) return undefined;
+    const saved = JSON.parse(chatStorage.getItem(composerDraftRevisionKey(key)) ?? 'null');
+    return saved?.textSha256 === sha256Hex(text) &&
+      saved.richDraftSignature === richDraftSignature &&
+      typeof saved.revisionToken === 'string'
+      ? saved.revisionToken
+      : undefined;
+  } catch {
+    return undefined;
+  }
 }
 export function composerDraftProof(value: unknown): ComposerDraftProof | undefined {
   if (!value || typeof value !== 'object') return undefined;
