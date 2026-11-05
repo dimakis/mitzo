@@ -489,11 +489,26 @@ export class SessionOverviewEmitter {
    */
   private collectSessionCwds(): Set<string> {
     const cwds = new Set<string>();
+    const add = (cwd: string | null | undefined, sessionId: string | undefined) => {
+      if (!cwd) return;
+      try {
+        if (
+          sessionId &&
+          this.deps.eventStore.getSessionRuntimeBinding?.(sessionId)?.execution.location ===
+            'openshell'
+        )
+          return;
+      } catch {
+        // An unreadable runtime binding cannot select a host filesystem probe.
+        return;
+      }
+      cwds.add(cwd);
+    };
     for (const s of this.deps.registry.getActiveSessions()) {
-      if (s.cwd) cwds.add(s.cwd);
+      add(s.cwd, s.sessionId);
     }
     for (const meta of this.deps.eventStore.getAttentionSessions()) {
-      if (meta.cwd) cwds.add(meta.cwd);
+      add(meta.cwd, meta.sessionId);
     }
     return cwds;
   }

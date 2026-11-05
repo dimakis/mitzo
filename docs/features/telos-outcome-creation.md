@@ -43,6 +43,14 @@ must finish first. Cancellation tells the native agent to abandon this proposal
 instead of automatically trying creation again. The review metadata is retained
 in the existing canonical database owner's revision table, separate from items.
 
+If automatic source compilation fails, the loaded proposal and context picker
+remain available so the operator can narrow the selection or request changes.
+An exact feedback receipt also remains readable after its permission was consumed
+and the delivery acknowledgement failed. Such recovery returns
+`deliveryStatus: unconfirmed`: the UI confirms retained feedback without claiming
+that the agent received it or automatically sending it again. Authentication,
+operator ownership and exact request bytes remain required for receipt recovery.
+
 Tests exercise the actual permission resolver, persistent owner restart, exact
 feedback retry, HTTP authentication, malformed input, native revocation, fresh
 approval of a revised proposal and UI feedback retention. Offline browser
