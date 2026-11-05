@@ -12,6 +12,7 @@ import {
   COMPOSER_DRAFT_ACCEPTED,
   recordAcceptedComposerDraft,
   composerDraftMemoryRevision,
+  readComposerDraftRevision,
 } from '../lib/composer-draft-proof';
 import {
   type Dispatch,
@@ -27,6 +28,7 @@ import {
   getChatDraft,
   saveChatDraft,
   deleteChatDraft,
+  chatDraftRichSignature,
 } from '../lib/chat-drafts';
 
 const KEY_PREFIX = 'mitzo-draft-';
@@ -50,25 +52,12 @@ const revisionKey = composerDraftRevisionKey;
 function richDraftSignature(key: string): string {
   const id = chatDraftIdFromKey(key);
   const draft = id ? getChatDraft(id) : null;
-  return draft
-    ? sha256Hex(
-        JSON.stringify({
-          images: draft.images,
-          contextBlocks: draft.contextBlocks,
-          settings: draft.settings,
-        }),
-      )
-    : '';
+  return draft ? chatDraftRichSignature(draft) : '';
 }
 function readRevision(key: string, text: string): string | undefined {
   try {
-    if (composerDraftRevocationPending(key)) return undefined;
-    const saved = JSON.parse(chatStorage.getItem(revisionKey(key)) ?? 'null');
-    return saved?.textSha256 === sha256Hex(text) &&
-      readDraft(key, undefined, true) === text &&
-      saved.richDraftSignature === richDraftSignature(key) &&
-      typeof saved.revisionToken === 'string'
-      ? saved.revisionToken
+    return readDraft(key, undefined, true) === text
+      ? readComposerDraftRevision(key, text, richDraftSignature(key))
       : undefined;
   } catch {
     return undefined;

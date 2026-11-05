@@ -15,6 +15,38 @@ function setup(hooks: unknown) {
   writeFileSync(join(root, '.claude/settings.json'), JSON.stringify({ hooks }));
   return new NativeHooks(root, 'app', { PATH: '/usr/bin:/bin' });
 }
+it('preserves an original settled refusal when cancellation arrives before any post-tool hook', async () => {
+  const hooks = setup({ PostToolUse: [{ hooks: [{ type: 'command', command: 'exit 1' }] }] });
+  const run = vi.spyOn(hooks, 'run');
+  const abort = new AbortController();
+  const refusal = retainCallbackOutcome(
+    { content: 'Tool execution cancelled before execution', isError: true },
+    'settled',
+  );
+  const result = await hooks.executeTool('GitHubRead', {}, abort.signal, async () => {
+    abort.abort(new Error('Original turn completed'));
+    return refusal;
+  });
+  expect(result).toEqual(refusal);
+  expect(callbackOutcome(result)).toBe('settled');
+  expect(run.mock.calls.map(([event]) => event)).toEqual(['PreToolUse']);
+});
+
+it.each(['unqualified failure', 'explicit uncertainty', 'unqualified success'])(
+  'retains %s after cancellation without inventing settlement',
+  async (kind) => {
+    const hooks = setup({});
+    const abort = new AbortController();
+    const result = await hooks.executeTool('Read', {}, abort.signal, async () => {
+      abort.abort();
+      const raw = { content: 'late result', isError: kind !== 'unqualified success' };
+      return kind === 'explicit uncertainty' ? retainCallbackOutcome(raw, 'unknown') : raw;
+    });
+    expect(result.isError).toBe(true);
+    expect(callbackOutcome(result)).toBe('unknown');
+  },
+);
+
 it('preserves rich results and sends only text to project hooks', async () => {
   const root = mkdtempSync(join(tmpdir(), 'mitzo-hooks-rich-'));
   roots.push(root);

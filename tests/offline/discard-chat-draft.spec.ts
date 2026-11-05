@@ -63,3 +63,28 @@ test('plain edits reach durable storage before cold recovery', async ({ page }) 
   await page.reload();
   await expect(input).toHaveValue('Keep this independent unsent edit');
 });
+
+test('accepted messages leave Drafts after composer navigation and stay absent on reload', async ({
+  page,
+}) => {
+  await page.goto('/sent');
+  await page.getByRole('button', { name: 'Submit fixture message' }).click();
+  await expect(page.getByRole('link', { name: /Screenshot already submitted/ })).toBeVisible();
+  await page.getByRole('button', { name: 'Confirm fixture delivery' }).click();
+  await expect(page.getByRole('status')).toHaveText('Delivery confirmed');
+  await expect(page.getByText('No drafts yet', { exact: true })).toBeVisible();
+  await page.reload();
+  await expect(page.getByText('No drafts yet', { exact: true })).toBeVisible();
+});
+
+test('a late acceptance keeps a newer draft through reload', async ({ page }) => {
+  await page.goto('/sent');
+  await page.getByRole('button', { name: 'Submit fixture message' }).click();
+  await page.getByRole('button', { name: 'Save another thought' }).click();
+  await expect(page.getByRole('link', { name: /New unsent thought/ })).toBeVisible();
+  await page.getByRole('button', { name: 'Confirm fixture delivery' }).click();
+  await expect(page.getByRole('status')).toHaveText('Delivery confirmed');
+  await expect(page.getByRole('link', { name: /New unsent thought/ })).toBeVisible();
+  await page.reload();
+  await expect(page.getByRole('link', { name: /New unsent thought/ })).toBeVisible();
+});
