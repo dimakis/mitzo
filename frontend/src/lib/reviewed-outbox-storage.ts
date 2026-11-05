@@ -6,6 +6,7 @@ import {
   composerDraftProof,
   composerDraftRevisionKey,
   type ComposerDraftProof,
+  COMPOSER_DRAFT_ACCEPTED,
 } from './composer-draft-proof';
 
 type Disk = Pick<Storage, 'length' | 'key' | 'getItem' | 'setItem' | 'removeItem'> & {
@@ -128,6 +129,7 @@ export function createReviewedOutboxStorage(
       if (added.length > 1) throw new Error('Reviewed commands must be retained individually');
       for (const [id, value] of next)
         if (existing.has(id) && existing.get(id) !== value) disk.setItem(key(id), value);
+      let acceptedDraft = false;
       for (const id of owned) {
         if (next.has(id)) continue;
         const raw = existing.get(id);
@@ -139,17 +141,21 @@ export function createReviewedOutboxStorage(
           retired?.localReceipt?.state === 'consumed' &&
           retired.uncertain === false &&
           !hasDifferentComposerRevision(proof)
-        )
+        ) {
           // A different durable draft token already fences this submitted
           // revision. Its obsolete marker cannot clear the current editor and
           // must not prevent accepted delivery from retiring at storage quota.
           // Commit a still-owned revision before dropping its last receipt.
           // A WebView can disappear before the composer's React effect runs.
           disk.setItem(acceptedComposerDraftKey(proof.storageKey), JSON.stringify(proof));
+          acceptedDraft = true;
+        }
         disk.removeItem(key(id));
       }
       for (const [id, value] of added) disk.setItem(key(id), value);
       owned = new Set(next.keys());
+      if (acceptedDraft && typeof window !== 'undefined')
+        window.dispatchEvent(new Event(COMPOSER_DRAFT_ACCEPTED));
     },
   };
 }

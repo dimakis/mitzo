@@ -73,21 +73,45 @@ evidence that either an existing receipt or a running deployment was repaired.
 
 ## Settled tool failures across the tool surface
 
+### 4 November: approval cancellation before native execution
+
+A GitHub read remained pending when the provider completed its turn. The original
+native executor returned a cancellation, then the hook adapter replaced it with
+`Tool ran, but its post-tool hook failed or was interrupted` even though no
+post-tool hook had started. This manufactured an unknown outcome and blocked
+later messages. The same executor path affects native file operations, shell
+commands and commits; it is not specific to GitHub.
+
+The native executor now tracks delegation separately for each invocation. A
+failure or cancellation before delegation retains an original settled refusal.
+Entering a file, shell, GitHub or commit executor, or an on-demand workspace
+creation callback, makes a subsequent unqualified failure uncertain. The hook
+adapter preserves a settled error before its cancellation check because errors
+never run post-tool hooks. It does not promote unqualified results, cancelled
+successes or actual hook failures to settled outcomes.
+
+Offline regression coverage follows real native stdio, approval cancellation,
+the hook adapter, durable result storage and release of the queued successor.
+This prevents new incidents; it does not relabel historical unknown receipts or
+prove that an already blocked production conversation has recovered.
+
+### Outcome contracts
+
 Success and effect settlement are separate. Original callback outcome receipts
 are private in memory and are now retained with the durable tool result. Result
 clones and tool-supplied JSON cannot manufacture this receipt. Replaying a saved
 result preserves its outcome; a duplicate cannot upgrade unknown to settled.
 
-| Tool family                                         | Interrupted recovery contract                                                                                                                                                                   |
-| --------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Reviewed built-in reads                             | A returned read error can settle; thrown exceptions, explicit unknown outcomes and cancellation cannot. The catalog and recovery share one built-in identity list.                              |
-| Mixed tools                                         | Only `RequestWebAccess.fetch`, `ConnectionRequest` GET/HEAD and `TelosManageItem.read` qualify as reads. Other operations retain their original effect contract.                                |
-| Reviewed API aliases and scoped TaskStatus          | Their actual GET-only/scoped read owners retain settlement; arbitrary configured MCP annotations grant nothing.                                                                                 |
-| Native Write/Edit/Bash/GitCommit and configured MCP | Original schema rejection and approval refusal before executor entry can settle. Executed writes, shell/MCP failures and uncertain publication results require their original outcome evidence. |
-| Integration discovery/proxy                         | Local metadata and invalid, stale or unselected requests settle before delegation. An invoked tool retains its own outcome.                                                                     |
-| Native search/image reads                           | Only recognized pinned read item shapes; no tool or model call is replayed.                                                                                                                     |
-| Questions and native approvals                      | Original callback settlement is required before completion; a reconstructed response is not effect evidence.                                                                                    |
-| Hooks, collaboration and unsupported native tools   | Hook failures explicitly retain unknown effects, including hooks attached to reads. Collaboration and unrecognized items require a separate ownership contract.                                 |
+| Tool family                                       | Interrupted recovery contract                                                                                                                                                                                 |
+| ------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Reviewed built-in reads                           | A returned read error can settle. Cancellation requires an original owner's positive settlement receipt; the read name alone cannot settle it. Thrown exceptions and explicit unknown outcomes remain fenced. |
+| Mixed tools                                       | Only `RequestWebAccess.fetch`, `ConnectionRequest` GET/HEAD and `TelosManageItem.read` qualify as reads. Other operations retain their original effect contract.                                              |
+| Reviewed API aliases and scoped TaskStatus        | Their actual GET-only/scoped read owners retain settlement; arbitrary configured MCP annotations grant nothing.                                                                                               |
+| Native tools and configured MCP                   | Native schema rejection, refusal and cancellation before executor or lazy-workspace delegation settle. Dispatched native effects and configured MCP require their original outcome evidence.                  |
+| Integration discovery/proxy                       | Local metadata and invalid, stale or unselected requests settle before delegation. An invoked tool retains its own outcome.                                                                                   |
+| Native search/image reads                         | Only recognized pinned read item shapes; no tool or model call is replayed.                                                                                                                                   |
+| Questions and native approvals                    | Original callback settlement is required before completion; a reconstructed response is not effect evidence.                                                                                                  |
+| Hooks, collaboration and unsupported native tools | Hook failures explicitly retain unknown effects, including hooks attached to reads. Collaboration and unrecognized items require a separate ownership contract.                                               |
 
 Historical failed read receipts without an outcome may qualify only with fresh
 exact native evidence, matching durable error results and positive original

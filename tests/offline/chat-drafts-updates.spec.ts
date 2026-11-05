@@ -580,7 +580,7 @@ test('drafts: Chats hides the shortcut with no saved drafts', async ({ page }, t
   expect(fixture.errors).toEqual([]);
 });
 
-test('drafts: save status describes confirmed device storage and disappears when empty', async ({
+test('drafts: autosave status stays quiet and hides when empty', async ({
   page,
   isMobile,
 }, testInfo) => {

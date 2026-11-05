@@ -1,7 +1,4 @@
-import { unified } from 'unified';
-import remarkParse from 'remark-parse';
-
-const markdownPathParser = unified().use(remarkParse);
+import { markdownParser as markdownPathParser } from './markdown-parser.js';
 
 /** Internal scheme for file path links — intercepted by the custom renderer. */
 export const FILE_SCHEME = 'file-path://';

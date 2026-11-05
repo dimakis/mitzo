@@ -1,6 +1,6 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { AnthropicVertex } from '@anthropic-ai/vertex-sdk';
-import { splitContextPrompt, type StoredEvent } from '@mitzo/protocol';
+import { splitContextPrompt, stripMarkdownCodeBlocks, type StoredEvent } from '@mitzo/protocol';
 import { createLogger } from './logger.js';
 
 const log = createLogger('auto-rename');
@@ -207,8 +207,27 @@ export function generateSessionNameFallback(prompts: string[]): string {
   return '';
 }
 
+/** These messages name an action or acknowledgement, but identify no task. */
+export function isGenericSessionName(name: string): boolean {
+  const text = name
+    .toLowerCase()
+    .trim()
+    .replace(/[.!?,;:]+$/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+  return (
+    !text ||
+    /^(?:hi|hey|hello|yo|yes|yeah|yea|yep|sure|ok|okay|thanks|thank you|done|fixed now|looks good|go ahead|do it|continue|proceed|keep going|carry on|any update|any updates|status|check again|try again)(?: please)?$/.test(
+      text,
+    ) ||
+    /^(?:(?:please |can you |could you )?(?:merge|ship|fix|finish|review|publish|deploy)(?: it| this| that)?|get (?:it|this|that) (?:merged|done|fixed)|did we merge (?:it|this|that)|is (?:it|this|that) (?:done|merged|fixed))$/.test(
+      text,
+    )
+  );
+}
+
 function requestTitle(prompt: string): string {
-  const prose = (splitContextPrompt(prompt)?.text ?? prompt).replace(/```[\s\S]*?```/g, '\n');
+  const prose = stripMarkdownCodeBlocks(splitContextPrompt(prompt)?.text ?? prompt);
   for (const line of prose.split(/\n/)) {
     let title = line
       .replace(/^\s*(?:#{1,6}\s+|[-*]\s+|\d+[.)]\s+)/, '')
@@ -225,6 +244,7 @@ function requestTitle(prompt: string): string {
       .split(/[.!?](?=\s|$)/)[0]
       .replace(/\s+/g, ' ')
       .trim();
+    if (isGenericSessionName(title)) continue;
     if (
       /^(?:(?:hi|hello|hey|yes|yeah|yea|yep|sure|ok|okay|thanks|thank you|done|fixed now|looks good|go ahead|do it)[\s,.!]*)+$/i.test(
         title,

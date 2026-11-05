@@ -25,6 +25,7 @@ const mockEventStore = {
   listSessionsLimited: vi.fn().mockReturnValue([]),
   getEventsAfter: vi.fn().mockReturnValue([]),
   getSessionEvents: vi.fn().mockReturnValue([]),
+  getSessionNamingEvents: vi.fn().mockReturnValue([]),
   getLatestEvent: vi.fn().mockReturnValue(null),
   markSessionInactive: vi.fn(),
   hideSession: vi.fn(),
@@ -58,6 +59,8 @@ vi.mock('../mcp-config.js', () => ({
 beforeEach(() => {
   vi.clearAllMocks();
   mockGetSessionMessages.mockResolvedValue([{ type: 'user' }]);
+  mockEventStore.getSessionEvents.mockReturnValue([]);
+  mockEventStore.getSessionNamingEvents.mockReturnValue([]);
 });
 
 describe('SDK discovery admission', () => {
@@ -179,6 +182,49 @@ describe('SDK discovery admission', () => {
 });
 
 describe('getSessionsCached', () => {
+  it('repairs existing generic automatic names from retained task context without changing list order', async () => {
+    mockListSessionsMeta.mockReturnValue([
+      {
+        sessionId: 'generic',
+        conversationSource: 'mitzo',
+        summary: 'Merge it',
+        initialPrompt: 'Continue',
+        numTurns: 1,
+        updatedAt: 2000,
+      },
+      {
+        sessionId: 'manual',
+        conversationSource: 'mitzo',
+        summary: 'Continue',
+        manuallyRenamed: true,
+        numTurns: 1,
+        updatedAt: 1000,
+      },
+    ]);
+    mockEventStore.getSessionNamingEvents.mockReturnValue([
+      {
+        seq: 1,
+        sessionId: 'generic',
+        type: 'user_message',
+        payload: { text: 'Fix mobile chat recovery' },
+        createdAt: 1,
+      },
+    ]);
+    const { getSessionsCached } = await import('../chat.js');
+    expect(
+      getSessionsCached().sessions.map(({ id, summary, lastModified }) => ({
+        id,
+        summary,
+        lastModified,
+      })),
+    ).toEqual([
+      { id: 'generic', summary: 'Fix mobile chat recovery', lastModified: 2000 },
+      { id: 'manual', summary: 'Continue', lastModified: 1000 },
+    ]);
+    expect(mockEventStore.getSessionNamingEvents).toHaveBeenCalledExactlyOnceWith('generic');
+    expect(mockEventStore.getSessionEvents).not.toHaveBeenCalled();
+    expect(mockUpsertSession).not.toHaveBeenCalled();
+  });
   it('keeps explicit titles and never replaces a manually cleared title', async () => {
     mockListSessionsMeta.mockReturnValue([
       {
@@ -222,7 +268,15 @@ describe('getSessionsCached', () => {
           updatedAt: 1000,
         },
       ]);
-      mockEventStore.getLatestEvent.mockReturnValue({ payload: { text: 'Fix calendar sync' } });
+      mockEventStore.getSessionNamingEvents.mockReturnValue([
+        {
+          seq: 1,
+          sessionId: 'native-unnamed',
+          type: 'user_message',
+          payload: { text: 'Fix calendar sync' },
+          createdAt: 1,
+        },
+      ]);
       const { getSessionsCached } = await import('../chat.js');
       expect(getSessionsCached().sessions[0].summary).toBe('Fix calendar sync');
       expect(mockListSessions).not.toHaveBeenCalled();

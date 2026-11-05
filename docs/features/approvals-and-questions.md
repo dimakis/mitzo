@@ -81,7 +81,18 @@ Matching already-pending shared-handler approvals settle after a session grant o
 
 ## Native Mac development
 
-Routine PR, review and CI diagnostics use `GitHubRead`, an authenticated GET service,
+`GitHubRead` supports `access: "public"` for credential-free reads of supported
+`/repos/OWNER/REPO/...` endpoints. These use the existing public HTTPS fetcher:
+bounded responses, public DNS addresses pinned before each connection, and no
+cookies, proxy environment or host credentials. They use ordinary safe-tool
+policy without a forced approval card. Skill restrictions, tier overrides,
+explicit project approval requirements and runtime/delivery fences still apply.
+Public failures never retry with credentials. `/user` requires authenticated
+access; omitted `access` retains the existing authenticated behavior. Public
+and authenticated scopes remain distinct, including retained output pages.
+This does not enable web search, general shell networking, publication or merges.
+
+Authenticated PR, review and CI diagnostics use the approved GET route in `GitHubRead`,
 rather than repeated shell networking approvals. Its session choice covers one
 repository, or `/user` separately, bound to the selected account/profile, operator
 and credential runtime. Another repository or runtime requires fresh consent.

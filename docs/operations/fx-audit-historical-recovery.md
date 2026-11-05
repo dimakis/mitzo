@@ -1,18 +1,24 @@
 # FX Audit: historical callback evidence and bounded recovery proposal
 
-Status: **blocked on original effect evidence; no recovery implementation or
-activation authorization**. Inspected 4 November 2026. This follow-up is separate
-from [#1218](https://github.com/dimakis/mitzo/pull/1218), which prevents new false
-unknown outcomes but cannot reconstruct historical settlement.
+Status: **original effect evidence remains insufficient to authorize recovery;
+no recovery implementation or activation authorization**. Original inspection:
+4 November 2026. Documentation and source recheck: 5 November 2026.
+This follow-up is separate from merged
+[#1218](https://github.com/dimakis/mitzo/pull/1218), which preserves proven
+pre-delegation refusals for new invocations but cannot reconstruct historical
+settlement. Source acceptance alone does not prove runtime adoption or recovery
+of the recorded FX chat.
 
 ## Evidence inspected
 
-The inspection used bounded, exact-session queries against the application's
+The original 4 November inspection used bounded, exact-session queries against the application's
 event store through SQLite `mode=ro`, with `query_only=ON`, and the retained
 release's source and structured log. It did not instantiate application stores,
 read private native storage, invoke a provider, execute a historical tool, or
-modify production state. The private native storage is outside this agent's
-permitted access; an authorized server-owned projection is required to inspect it.
+modify production state. The 5 November documentation refresh checked referenced
+Git source and the accepted integration delta; it did not repeat runtime queries
+or collect new incident evidence. Private native storage remains uninspected in
+this record; any server-owned evidence projection requires separate authorization.
 
 | Identity                          | Retained value                             |
 | --------------------------------- | ------------------------------------------ |
@@ -87,6 +93,11 @@ permission-response log does not prove a refusal: retained grants, other control
 paths and incomplete diagnostics cannot be excluded by log absence. The tool's
 GET-only name, the error wording and its 98-character length cannot settle it.
 
+Accepted main now includes #1218's cancellation fix and #1214's public GitHub
+read path. These later contracts do not supply original executor or settlement
+receipts for this invocation. The historical source analysis above remains pinned
+to the inspected release, rather than inferred from current behavior.
+
 ## Exact evidence still required
 
 | Required proof                         | Current evidence gap                                                                                                                                                                                                                |
@@ -136,8 +147,12 @@ The currently implemented incident endpoint only accepts
 ## Economical offline regression plan
 
 Use one shared original-incident fixture through the actual authenticated router,
-startup owner and private store, with one worker and a 1 GiB Node heap after a
-fresh host-memory check. No live model calls or broad local builds.
+startup owner and private store, with one worker. Before substantial Node checks,
+measure fresh RAM, macOS pressure, `memory_pressure`, `vm_stat` and swap trend;
+select a command-local heap from measured headroom. Unavailable, warning or
+critical pressure, or growing swap, limits local work to focused checks with a
+heap of at most 1 GiB; broad validation belongs in CI. No live model calls or
+broad local builds are proposed.
 
 - Both cancellation before delegation and dispatched cancellation can produce the
   same public wrapper error; neither qualifies without original positive proof.
@@ -157,15 +172,24 @@ this proposal. Existing source guards were inspected; executable regression
 coverage belongs with the independently reviewable implementation once evidence
 access and eligibility are established.
 
-## Preparation and landing
+## Preparation history and landing boundary
 
-The separate worktree starts at accepted `8d4b39520dbc5f76f5c145039af7d67083cc7447`;
-#1218 remains frozen at `0760922beaac7b8dde93c0efb5e3d4ff260e3d39`. No main refresh,
-review rerun, staging, restart, deployment, live test or actual merge was performed.
-Any follow-up merge remains behind the coordinator's release after #1203, #1218
-and #1215, with combined CI and exact-head Centaur approval required.
+The original 4 November worktree started at accepted
+`8d4b39520dbc5f76f5c145039af7d67083cc7447`. At that preparation boundary, #1218 was
+held at `0760922beaac7b8dde93c0efb5e3d4ff260e3d39`, and this document waited for
+the coordinator's release after #1203, #1218 and #1215. Those are historical
+sequencing facts, not a current merge hold.
 
-A single quota read during preparation reported 4,863 core requests remaining
+On 5 November, #1218 was confirmed merged as
+`fc7e1fffe949a56c21570cca390a1c710ef2032d`, and the selected batch completed through
+#1191 at `a07969c6e47cbeb5fc9ba6c4a97b54471ab991bf`. This document's landing
+candidate integrates that accepted main. Its user-authorized merge still requires
+combined CI and trusted exact-head Centaur LGTM, a `merge` recommendation, zero
+blocking findings and the required App-bound status. Document acceptance grants
+no recovery implementation, private-custody inspection, receipt mutation, queue
+dispatch or runtime activation; FX work continues through Mitzo.
+
+A single quota read during the original preparation reported 4,863 core requests remaining
 and the next core reset at **5 November 2026, 00:14:30 UTC**. This is an observation,
 not a reservation of shared quota. No status polling followed it.
 
@@ -180,3 +204,6 @@ Sources: the selected application's event/admission rows above; retained release
 `server/callback-incident-store.ts` and `server/codex-conversation-store.ts` at the
 preparation base. Verification is limited to the stated inspection date and
 sources; source inspection is not proof of private production custody or effects.
+The 5 November source recheck used accepted
+`a07969c6e47cbeb5fc9ba6c4a97b54471ab991bf`; it does not renew the original
+runtime observations or qualify the proposed reconciliation.
