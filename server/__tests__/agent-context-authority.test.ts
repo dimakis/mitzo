@@ -1,6 +1,10 @@
 import { afterEach, expect, it, vi } from 'vitest';
 import { revokeAuthSession } from '../auth.js';
-import { retainAgentContextAuthority } from '../agent-context-authority.js';
+import {
+  retainAgentContextAuthority,
+  agentContextRuntimeError,
+} from '../agent-context-authority.js';
+import { findSessionRuntimeError } from '../session-runtime-error.js';
 afterEach(() => vi.useRealTimers());
 it('retains the admitted operator scope across async setup and aborts immediately on logout', async () => {
   const auth = { id: crypto.randomUUID(), expiresAt: Date.now() + 60000 };
@@ -11,6 +15,10 @@ it('retains the admitted operator scope across async setup and aborts immediatel
     await Promise.resolve();
     revokeAuthSession(auth);
     expect(controller.signal.aborted).toBe(true);
+    expect(findSessionRuntimeError(controller.signal.reason)?.code).toBe('auth_revoked');
+    expect(agentContextRuntimeError(new Error('connection closed'), scope.assertCurrent)).toBe(
+      controller.signal.reason,
+    );
     expect(() => scope.assertCurrent()).toThrow();
   } finally {
     scope.release();
@@ -25,6 +33,7 @@ it('fences expiry and removes its watcher when the owning query finishes', () =>
   );
   vi.advanceTimersByTime(1001);
   expect(controller.signal.aborted).toBe(true);
+  expect(findSessionRuntimeError(controller.signal.reason)?.code).toBe('auth_expired');
   expect(() => scope.assertCurrent()).toThrow();
   scope.release();
   const fresh = new AbortController();
@@ -36,4 +45,35 @@ it('fences expiry and removes its watcher when the owning query finishes', () =>
   vi.advanceTimersByTime(1001);
   expect(fresh.signal.aborted).toBe(false);
   expect(() => finished.assertCurrent()).toThrow(/released/i);
+});
+
+it('does not relabel transport failures with unrelated or untrusted authorization errors', () => {
+  const failure = new Error('connection closed');
+  expect(agentContextRuntimeError(failure)).toBe(failure);
+  expect(
+    agentContextRuntimeError(failure, () => {
+      throw new Error('Bearer private-data');
+    }),
+  ).toBe(failure);
+});
+
+it('retains one expiry diagnostic when the deadline is observed before its timer runs', () => {
+  vi.useFakeTimers();
+  const deadline = Date.now() + 1000;
+  const controller = new AbortController();
+  const scope = retainAgentContextAuthority(
+    { id: crypto.randomUUID(), expiresAt: deadline },
+    controller,
+  );
+  try {
+    vi.setSystemTime(deadline);
+    const first = agentContextRuntimeError(new Error('first closure'), scope.assertCurrent);
+    const second = agentContextRuntimeError(new Error('second closure'), scope.assertCurrent);
+    expect(findSessionRuntimeError(first)?.code).toBe('auth_expired');
+    expect(second).toBe(first);
+    vi.advanceTimersByTime(1000);
+    expect(controller.signal.reason).toBe(first);
+  } finally {
+    scope.release();
+  }
 });
