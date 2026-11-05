@@ -120,7 +120,10 @@ export class SessionMetadataStore {
   private searchIndex?: SessionSearchIndex;
   constructor(private readonly owner: SessionMetadataOwner) {}
   close(): void {
-    this.searchIndex?.close();
+    void this.closeSearchIndex();
+  }
+  closeSearchIndex(): Promise<void> {
+    return this.searchIndex?.close() ?? Promise.resolve();
   }
   private get db() {
     return this.owner.database();

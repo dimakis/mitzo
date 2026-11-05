@@ -1,7 +1,38 @@
 import { Worker } from 'node:worker_threads';
 import { createRequire } from 'node:module';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { isAbsolute, join } from 'node:path';
+import { lstat, readFile, readdir, rm } from 'node:fs/promises';
+
+async function recoverAbandonedCaches(root: string): Promise<void> {
+  for (const entry of await readdir(root, { withFileTypes: true })) {
+    const match = /^search-([1-9]\d*)-[a-zA-Z0-9]{6}$/.exec(entry.name);
+    if (!entry.isDirectory() || !match) continue;
+    const pid = Number(match[1]);
+    if (!Number.isSafeInteger(pid) || pid === process.pid) continue;
+    const directory = join(root, entry.name);
+    try {
+      const identity = await lstat(directory);
+      const marker = join(directory, 'owner.json');
+      const info = await lstat(marker);
+      if (!info.isFile() || info.size > 256) continue;
+      const owner = JSON.parse(await readFile(marker, 'utf8'));
+      if (owner.kind !== 'mitzo-search-cache-v1' || owner.pid !== pid) continue;
+      try {
+        process.kill(pid, 0);
+        continue;
+      } catch (error) {
+        // A reused PID or an inaccessible process must retain its directory.
+        if ((error as NodeJS.ErrnoException).code !== 'ESRCH') continue;
+      }
+      const current = await lstat(directory);
+      if (current.isDirectory() && current.dev === identity.dev && current.ino === identity.ino)
+        await rm(directory, { recursive: true, force: true });
+    } catch {
+      // Unknown ownership, concurrent recovery, and unreadable markers are kept.
+    }
+  }
+}
 
 export interface SearchEvent {
   seq: number;
@@ -32,6 +63,7 @@ export class SessionSearchIndex {
   private nextId = 0;
   private cursor = 0;
   private closed = false;
+  private closing?: Promise<void>;
   private tail: Promise<unknown> = Promise.resolve();
   constructor(
     private source: {
@@ -42,7 +74,7 @@ export class SessionSearchIndex {
     private cacheDirectory?: string,
   ) {}
 
-  private rpc(message: object): Promise<SearchHit[]> {
+  private async rpc(message: object): Promise<SearchHit[]> {
     if (this.closed) return Promise.reject(Error('Search owner closed'));
     if (!this.worker) {
       const source = import.meta.url.endsWith('.ts');
@@ -50,7 +82,14 @@ export class SessionSearchIndex {
       if (this.cacheDirectory) {
         if (!isAbsolute(this.cacheDirectory)) throw Error('Search cache root must be absolute');
         mkdirSync(this.cacheDirectory, { recursive: true, mode: 0o700 });
-        this.directory = mkdtempSync(join(this.cacheDirectory, 'search-'));
+        await recoverAbandonedCaches(this.cacheDirectory);
+        if (this.closed) throw Error('Search owner closed');
+        this.directory = mkdtempSync(join(this.cacheDirectory, `search-${process.pid}-`));
+        writeFileSync(
+          join(this.directory, 'owner.json'),
+          JSON.stringify({ kind: 'mitzo-search-cache-v1', pid: process.pid }),
+          { flag: 'wx', mode: 0o600 },
+        );
         database = join(this.directory, 'index.db');
         writeFileSync(database, '', { flag: 'wx', mode: 0o600 });
       }
@@ -121,22 +160,22 @@ export class SessionSearchIndex {
     });
   }
 
-  close(): void {
-    if (this.closed) return;
+  close(): Promise<void> {
+    if (this.closing) return this.closing;
     this.closed = true;
     for (const pending of this.pending.values()) pending.reject(Error('Search owner closed'));
     this.pending.clear();
     const directory = this.directory;
     // Remove only this newly-created disposable cache after its worker stops.
-    const cleanup = () => {
+    const cleanup = async () => {
       try {
-        if (directory) rmSync(directory, { recursive: true, force: true });
+        if (directory) await rm(directory, { recursive: true, force: true });
       } catch {
         /* A disposable private cache never warrants unhandled rejection. */
       }
     };
-    if (this.worker) void this.worker.terminate().then(cleanup, cleanup);
-    else cleanup();
+    this.closing = this.worker ? this.worker.terminate().then(cleanup, cleanup) : cleanup();
     this.worker = undefined;
+    return this.closing;
   }
 }

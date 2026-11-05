@@ -3617,6 +3617,10 @@ export class EventStore {
     return backupOwnedDatabase(this.db, destination);
   }
 
+  closeSearchIndex(): Promise<void> {
+    return this.sessionMetadata.closeSearchIndex();
+  }
+
   close(): void {
     this.sessionMetadata.close();
     if (this.db) {

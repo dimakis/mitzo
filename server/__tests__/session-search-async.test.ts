@@ -1,6 +1,7 @@
 import { afterEach, expect, it } from 'vitest';
 import { EventStore } from '../event-store.js';
-import { mkdtempSync, readdirSync, statSync, rmSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, readdirSync, statSync, rmSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -49,6 +50,44 @@ it('indexes newly appended events and rechecks current session visibility', asyn
   ]);
   store.hideSession('second');
   expect(await store.searchSessionsAsync('new-result')).toEqual([]);
+});
+
+it('recovers a stopped process cache, preserves live owners, and awaits disposal', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'search-cache-lifetime-'));
+  roots.push(root);
+  mkdirSync(join(root, 'unrelated'));
+  const live = fixture();
+  await live.searchSessionsAsync('needle', 20, undefined, root);
+  const liveDirectory = readdirSync(root).find((name) => name !== 'unrelated')!;
+  execFileSync(
+    process.execPath,
+    [
+      '--import',
+      'tsx',
+      '-e',
+      `
+    import(${JSON.stringify(new URL('../../packages/protocol/src/event-store.ts', import.meta.url).href)}).then(async ({ EventStore }) => {
+    const store = new EventStore(':memory:');
+    store.upsertSession({sessionId:'crashed',conversationSource:'mitzo',summary:'needle'});
+    await store.searchSessionsAsync('needle',20,undefined,${JSON.stringify(root)});
+    process.exit(0);
+    }).catch(() => process.exit(1));
+  `,
+    ],
+    { timeout: 15000 },
+  );
+  const abandoned = readdirSync(root).find(
+    (name) => name !== liveDirectory && name !== 'unrelated',
+  )!;
+  expect(abandoned).toBeTruthy();
+  const next = fixture();
+  await next.searchSessionsAsync('needle', 20, undefined, root);
+  expect(readdirSync(root)).not.toContain(abandoned);
+  expect(readdirSync(root)).toContain(liveDirectory);
+  await next.closeSearchIndex();
+  expect(readdirSync(root).sort()).toEqual([liveDirectory, 'unrelated'].sort());
+  await live.closeSearchIndex();
+  expect(readdirSync(root)).toEqual(['unrelated']);
 });
 
 it('captures the complete event revision without loading transcript payloads', () => {
