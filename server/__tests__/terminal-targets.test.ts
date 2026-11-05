@@ -35,6 +35,16 @@ const deps = () => ({
   inspect: vi.fn(async () => ({ id: runtime.sandboxId, phase: 'Ready' })),
 });
 describe('terminal destinations', () => {
+  it('opens an existing ordinary host chat in its permitted original directory', async () => {
+    const d = deps();
+    d.remote.mockReturnValue(false);
+    d.allowedHost.mockReturnValue(true);
+    expect(
+      await createTerminalTargetResolver(d)({ sessionId: 'host-chat' }, 'operator'),
+    ).toMatchObject({ kind: 'host', sessionId: 'host-chat', cwd: meta.cwd });
+    expect(d.runtime).not.toHaveBeenCalled();
+    expect(d.allowedHost).toHaveBeenCalledWith(meta.cwd);
+  });
   it('opens the Mac independently of account or conversation', async () => {
     const d = deps();
     const value = await createTerminalTargetResolver(d)({}, 'operator');

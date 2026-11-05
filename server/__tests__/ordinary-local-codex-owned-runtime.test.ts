@@ -1,5 +1,8 @@
 import Database from 'better-sqlite3';
 import { ownedRuntimeFixture } from './fixtures/owned-local-codex-runtime.js';
+import { assembleCommandPrompt } from '../message-reply-context.js';
+import * as registries from '../skill-registry-runtime.js';
+import { SkillRegistry } from '../skills.js';
 import { afterEach, expect, it, vi } from 'vitest';
 import { randomUUID } from 'node:crypto';
 import { agentLibrarySource } from './fixtures/agent-library-source.js';
@@ -72,6 +75,27 @@ const fixture = (options?: {
   localRepository?: boolean;
   realPreparationAuthority?: boolean;
 }) => ownedRuntimeFixture(cleanups, options);
+
+it('dispatches an ordinary host skill through the same admitted native owner and retains its command text', async () => {
+  const f = await fixture({ localRepository: true, chatRoute: true });
+  const registry = new SkillRegistry({ bundledDir: join(process.cwd(), 'skills') });
+  vi.spyOn(registries, 'buildSkillRegistry').mockReturnValue(registry);
+  f.request.payload.text = '/mockup a dashboard';
+  const runtime = f.create();
+  await runtime.admit(f.request);
+  const dispatched = f.dispatch.mock.calls[0][0];
+  const prompt = assembleCommandPrompt(
+    f.events,
+    f.reservation.conversationId,
+    f.request.clientMsgId,
+    dispatched.payload,
+  );
+  expect(prompt).toContain('Create or refine a clickable mockup for a dashboard');
+  expect(dispatched.payload.text).toBe('/mockup a dashboard');
+  expect(
+    f.events.getOrdinarySkillContext(f.reservation.conversationId, f.request.clientMsgId)?.prompt,
+  ).toBe(prompt);
+});
 
 it('binds a fresh prepared barrier to the actual retained operator, lease and physical old workspace', async () => {
   const f = await fixture();

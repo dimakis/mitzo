@@ -16,9 +16,10 @@ function assertSupported(registry: SkillRegistry, name: string, seen = new Set<s
 /** Ordinary commands keep their selected owner; no legacy dispatch or tool-policy fallback. */
 export function resolveOrdinarySkillPrompt(text: string, registry: SkillRegistry) {
   const parsed = parseSlashCommand(text);
-  if (!parsed) return;
+  if (!parsed || !/^[A-Za-z0-9][A-Za-z0-9_-]*$/.test(parsed.name)) return;
   if (nativeNames.has(parsed.name))
     throw Error('Use Chat settings or the corresponding app action for this command.');
+  if (!registry.get(parsed.name)) return;
   assertSupported(registry, parsed.name);
   const resolution = resolveSlashCommand(text, registry, nativeNames);
   if (resolution.type === 'error') throw Error(resolution.message);
@@ -28,8 +29,11 @@ export function resolveOrdinarySkillPrompt(text: string, registry: SkillRegistry
 export function ordinarySkillEntries(registry: SkillRegistry) {
   return registry.listPublic().map((skill) => {
     let unavailableReason: string | undefined;
-    try { resolveOrdinarySkillPrompt(`/${skill.name}`, registry); }
-    catch (error) { unavailableReason = error instanceof Error ? error.message : 'Skill unavailable'; }
+    try {
+      resolveOrdinarySkillPrompt(`/${skill.name}`, registry);
+    } catch (error) {
+      unavailableReason = error instanceof Error ? error.message : 'Skill unavailable';
+    }
     return { ...skill, unavailableReason };
   });
 }
@@ -38,16 +42,16 @@ export function ordinarySkillEntries(registry: SkillRegistry) {
  * Called only by the admitted runtime's prompt assembly, in its own host workspace.
  */
 export function captureOrdinarySkillPrompt(
-  store: EventStore, sessionId: string, commandId: string, text: string, registry: SkillRegistry,
+  store: EventStore,
+  sessionId: string,
+  commandId: string,
+  text: string,
+  registry: SkillRegistry,
 ) {
   if (!parseSlashCommand(text)) return text;
-  const contexts = store.getEventsOfType(sessionId, 'ordinary_skill_context')
-    .filter((event) => event.payload.messageId === commandId);
-  if (contexts.length) {
-    const context = contexts[0].payload;
-    if (context.text !== text || typeof context.prompt !== 'string' ||
-      contexts.some((event) => event.payload.text !== text || event.payload.prompt !== context.prompt))
-      throw Error('Skill command changed');
+  const context = store.getOrdinarySkillContext(sessionId, commandId);
+  if (context) {
+    if (context.text !== text) throw Error('Skill command changed');
     return context.prompt;
   }
   const prompt = resolveOrdinarySkillPrompt(text, registry);

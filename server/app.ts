@@ -427,8 +427,16 @@ import { createHomeRouter } from './home-router.js';
 import { HomeStore } from './home-store.js';
 import { readQuoteCatalog } from './quote-catalog.js';
 import { registerToken, removeToken, setTokenStorePath } from './apns.js';
-import { SkillRegistry } from './skills.js';
-import type { SkillWatcher } from './skill-watcher.js';
+import { buildSkillRegistry, NATIVE_COMMAND_NAMES } from './skill-registry-runtime.js';
+import { ordinarySkillEntries } from './ordinary-composer-skills.js';
+export {
+  buildSkillRegistry,
+  BUNDLED_SKILLS_DIR,
+  USER_SKILLS_DIR,
+  NATIVE_COMMAND_NAMES,
+  setSkillWatcher,
+  invalidateSkillRegistries,
+} from './skill-registry-runtime.js';
 
 import { mkdirSync } from 'fs';
 import { homedir } from 'os';
@@ -445,54 +453,6 @@ import type { OpenShellLifecycleService } from './openshell-lifecycle-service.js
 const log = createLogger('server');
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-
-// Skill registry directories
-export const BUNDLED_SKILLS_DIR = join(__dirname, '..', 'skills');
-export const USER_SKILLS_DIR = join(homedir(), '.mitzo', 'skills');
-
-/** Reserved native command names — skills with these names are ignored. */
-export const NATIVE_COMMAND_NAMES = new Set(['skills', 'models', 'deliberate', 'fuse']);
-
-/** Cached registries keyed by cwd — avoids re-scanning the filesystem on every request. */
-const registryCache = new Map<string, SkillRegistry>();
-
-let skillWatcher: SkillWatcher | null = null;
-
-/** Register the skill file watcher so new repo dirs get watched automatically. */
-export function setSkillWatcher(watcher: SkillWatcher): void {
-  skillWatcher = watcher;
-}
-
-/** Build or retrieve a cached SkillRegistry for a given cwd (repo root). */
-export function buildSkillRegistry(cwd?: string): SkillRegistry {
-  const key = cwd ?? '';
-  const cached = registryCache.get(key);
-  if (cached) return cached;
-
-  const repoDir = cwd ? join(cwd, '.mitzo', 'skills') : undefined;
-
-  // Watch repo skill dir for changes (idempotent). If the directory doesn't
-  // exist yet, watchDir silently skips it. A later invalidation (e.g. from a
-  // change in bundled/user skill dirs) will rebuild the registry and retry.
-  if (repoDir && skillWatcher) {
-    skillWatcher.watchDir(repoDir);
-  }
-
-  const registry = new SkillRegistry({
-    bundledDir: BUNDLED_SKILLS_DIR,
-    userDir: USER_SKILLS_DIR,
-    repoDir,
-    nativeNames: NATIVE_COMMAND_NAMES,
-  });
-  registryCache.set(key, registry);
-  return registry;
-}
-
-/** Invalidate all cached registries — forces rediscovery on next request. */
-export function invalidateSkillRegistries(): void {
-  for (const reg of registryCache.values()) reg.invalidate();
-  registryCache.clear();
-}
 
 const app = express();
 let idleApplicationClosing = false;
@@ -3337,13 +3297,18 @@ app.get('/api/config', (_req, res) => {
 });
 
 app.get('/api/skills', (req, res) => {
-  const cwd = (req.query.cwd as string) || BASE_REPO;
+  const cwd =
+    (req.query.cwd as string) || (req.query.runtime === 'ordinary' ? undefined : BASE_REPO);
   if (cwd && !isAllowedPath(cwd)) {
     res.status(403).json({ error: 'Path not allowed' });
     return;
   }
   const skillRegistry = buildSkillRegistry(cwd);
-  res.json(skillRegistry.listPublic());
+  res.json(
+    req.query.runtime === 'ordinary'
+      ? ordinarySkillEntries(skillRegistry)
+      : skillRegistry.listPublic(),
+  );
 });
 
 app.get('/api/commands', (_req, res) => {
