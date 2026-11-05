@@ -33,6 +33,25 @@ function setup(
   return { store, center, push, changed };
 }
 describe('central notification delivery', () => {
+  it('keeps the notification owner active while an asynchronous source scan is pending', async () => {
+    const { store, center } = setup();
+    let finish!: (changed: boolean) => void;
+    center.setAsyncInboxReconciler(
+      () =>
+        new Promise((resolve) => {
+          finish = resolve;
+        }),
+    );
+    const pending = center.reconcileAsync();
+    try {
+      expect(() => center.closeIdle()).toThrow('Notification owner active');
+    } finally {
+      finish(false);
+      await pending.catch(() => {});
+      center.close();
+      store.close();
+    }
+  });
   it('does not manufacture completion alerts when there is no written result', async () => {
     const { store, center, push } = setup();
     try {
