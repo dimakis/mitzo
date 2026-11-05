@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.888-inbox-fixture-types';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.889-notification-isolation';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -22,12 +22,14 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
+  '../__tests__/notification-routes.test.ts':
+    '412f355c591881b5b781a90763d600996b5c46c97c5f3ea13ddad78a6785676f',
   '../__tests__/symposium-review-app.test.ts':
     '7648dfe9d079c2e6ac22f4131eb47a93133dd9eee4f7ca40205b26c030278160',
   '../__tests__/notification-center.test.ts':
     'f35bc0faa222437f0cd8bde87854b9fdded76ed480cff43ee6deb2e5709472a3',
   '../../docs/operations/runtime-performance.md':
-    'ff49d4fed82f6e265e4983b3a953c004b43ac4c116fccb9ca3aee9a9d14bfdd2',
+    'c2bdd3fc8042280e4eeca0fd60cb2f10267565c2410cd44f249a500f68be7436',
   '../../packages/protocol/src/session-search-index.ts':
     '17a33f9f1b4459707b8458955aca0781ad25b4e489e0c439bc83de85248610cc',
   '../../packages/protocol/src/session-search-worker.ts':
@@ -1545,7 +1547,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   'capabilities/approval.ts': '416b0297828af8fd7193f2ffcb3218515f9a10f649b87a0f323239a8e2fd0343',
   'capabilities/types.ts': '38d3b2474883ce8ecd37511b58fa96e3a24ff8025bf05cdc4eadc8b148627ddb',
   '../notification-center.ts': '6cb484bd85a6db143a701a5d0559d6e5549810c8c0b84e4de2b88d962b10d647',
-  '../notification-routes.ts': 'daba577a0e3cf52b7cc1daead7a326026989329409cae4bff2904fb92db7ed4c',
+  '../notification-routes.ts': 'c2fb60d4bec997953eff41bbe538a21a8289caab285be1c5324c1519d53c4d97',
   '../symposium-custodian-publication.ts':
     '475e37cf3b7187bcfc022054c183aed4fe6239c2d4736108f40a5abef3a4bc2a',
   '../symposium-publication-approval.ts':
@@ -1603,7 +1605,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../session-access.ts': 'feeeea5ffcf16bb1c4542191a74d5eebde2ea2dbcac7cf0e5315d05e2249b1dc',
   '../session-metadata-error.ts':
     '377bd861f0e48e022fb49fb8c021e14f2da8d921f9d61c9fa738f31080596eae',
-  '../app.ts': '7f39ba109c0a0278d8858cf48ae1efdebe62aeb83685b9e130ecdc127cc5d4ab',
+  '../app.ts': 'b0bb2e16ca82fcc5ce68e4cfee21b1d2754433e4a064e5a9a7f4275e9dbbf4fd',
   '../auth-check-tracing.ts': '067dc344d8ee76ffe39739a99076f614711ca3d11f96682c842c596a7bbd112e',
   '../telemetry-relay.ts': '302bf6cec2b988ae71a123a5dd04d0f2266a82c3ee51873ec64d8be452c25427',
   '../symposium-review-route-composition.ts':

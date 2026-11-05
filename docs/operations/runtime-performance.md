@@ -39,8 +39,11 @@ parsed content by physical identity, size, modification time and change time;
 only changed sources update the notification ledger. Archive collisions and
 active-source removal retain the existing durable lifecycle semantics.
 Potential archive collisions recheck current source identity before committing the
-ledger, so a move between scans cannot create duplicate history. Archive actions
-await reconciliation before reporting success and publishing notification changes.
+ledger, so a move between scans cannot create duplicate history. Archive and delete
+actions drain older scans before mutation and await fresh reconciliation before
+reporting success and publishing notification changes. Permission responses,
+preferences and read receipts remain available when an inbox source is unreadable;
+only feed and inbox-content reads require a successful source scan.
 
 Content reuse never retains permission. Scans capture current private-path rules,
 and the ledger applies its current visibility policy when reading or delivering
