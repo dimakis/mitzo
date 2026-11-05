@@ -182,8 +182,10 @@ export class OpenShellLifecycleService {
     signal: AbortSignal,
     legacyQualified = false,
   ) {
+    signal.throwIfAborted();
     const sandbox = await this.adapters.inspect(record, signal);
     const protection = await this.adapters.protect(record, signal);
+    signal.throwIfAborted();
     return { sandbox, blockers: blockersFor(record, sandbox, protection, legacyQualified) };
   }
   async preview(
@@ -330,6 +332,7 @@ export class OpenShellLifecycleService {
       if (!checkpointing) throw new Error('OpenShell lifecycle generation changed');
       let transient = checkpointing;
       try {
+        signal.throwIfAborted();
         const checkpoint =
           (await this.adapters.checkpoint?.(checkpointing, sandbox, signal)) ?? null;
         const checkpointed = checkpoint
@@ -339,6 +342,7 @@ export class OpenShellLifecycleService {
             })
           : null;
         if (checkpointed) transient = checkpointed;
+        signal.throwIfAborted();
         if (
           !checkpointed ||
           !(await this.adapters.verifyCheckpoint?.(checkpointed, sandbox, signal))
@@ -369,7 +373,9 @@ export class OpenShellLifecycleService {
           const activityGeneration = sharedOpenShellLifecycleCoordinator.activityGeneration(
             record.conversationId,
           );
+          signal.throwIfAborted();
           await this.adapters.stop({ ...stopping, checkpoint }, signal, () => {
+            if (signal.aborted) return false;
             verifyLegacy?.();
             const current = this.store.get(record.conversationId);
             return (
@@ -428,6 +434,7 @@ export class OpenShellLifecycleService {
       throw new Error('OpenShell lifecycle preview is stale');
     let checkpointVerified: boolean;
     try {
+      signal.throwIfAborted();
       checkpointVerified =
         (await this.adapters.verifyCheckpoint?.(record, sandbox, signal)) === true;
     } catch (error) {
@@ -458,7 +465,9 @@ export class OpenShellLifecycleService {
       const activityGeneration = sharedOpenShellLifecycleCoordinator.activityGeneration(
         record.conversationId,
       );
+      signal.throwIfAborted();
       await this.adapters.delete(deleting, signal, () => {
+        if (signal.aborted) return false;
         verifyLegacy?.();
         const current = this.store.get(record.conversationId);
         return (

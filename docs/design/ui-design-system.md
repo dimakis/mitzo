@@ -112,6 +112,14 @@ no palette, spacing or typography scale. Archive keeps resources, while deletion
 requires a fresh lifecycle review and retains the dialog/chat on failure. Copy
 explicitly states that saved history and recovery checkpoints remain.
 
+Coordinated removal adds Stop and review deletion and Keep chat inside the same
+action group. Preparation closes the runtime and cancels submitted queued work;
+physical deletion remains a separate explicit action. Local workspace retention
+is explained before confirmation and never described as reclaimed disk space.
+The existing focus, scrolling, semantic controls and authentication scope remain
+authoritative. See [coordinated chat removal](../features/session-resource-removal.md)
+for verification and outstanding rendered-browser evidence.
+
 Focused component/API/design checks and intercepted browser checks cover mobile
 WebKit/Chromium and desktop Chromium, dark Mint/System and light Teal/Georgia,
 44px controls, keyboard focus/restoration, narrow wrapping and failure states.

@@ -58,6 +58,7 @@ it('blocks new durable sends in the actual EventStore while retaining historical
     /remov/i,
   );
   expect(events.getSendCommand('later')).toBeUndefined();
+  expect(() => events.beginExecution('chat')).toThrow(/remov/i);
   expect(events.getSendCommand('earlier')?.sessionId).toBe('chat');
   expect(events.getSession('chat')?.isHidden).toBeFalsy();
 });

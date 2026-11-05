@@ -31,6 +31,7 @@ export function createSessionPromptPort(
   function target(sessionId: string, auth: AuthSession) {
     if (!authorized(auth))
       throw new SessionPromptError('Session authorization expired or was revoked.', 403);
+    ctx.eventStore.removals.assertAdmissible(sessionId);
     const meta = ctx.eventStore.getSession(sessionId);
     const binding = ctx.eventStore.getSessionRuntimeBinding(sessionId);
     const admission = ctx.eventStore.getLatestOrdinaryCommandAdmission(sessionId);

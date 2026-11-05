@@ -51,6 +51,20 @@ it('retains exact timer creation and attribution across restart without returnin
   expect(reopened.list()).toEqual([first]);
 });
 
+it('retains removal cancellation across restart and keeping a chat never revives its timers', () => {
+  const f = fixture();
+  const timer = f.store.create(f.input, auth, 'user', null);
+  f.store.cancelSession('worker');
+  const reopened = new SessionPromptStore(f.path);
+  cleanup.push(() => reopened.close());
+  expect(() =>
+    reopened.create({ ...f.input, requestId: randomUUID() }, auth, 'user', null),
+  ).toThrow(/removed/);
+  reopened.keepSession('worker');
+  expect(reopened.get(timer.id).status).toBe('cancelled');
+  expect(reopened.due(Date.now() + 1_000_000)).toEqual([]);
+});
+
 it('coalesces overdue intervals into one stable pending delivery and fences edits and cancellation', () => {
   const { store, input } = fixture();
   const timer = store.create(input, auth, 'user', null, 0);

@@ -940,6 +940,7 @@ export class EventStore {
     location: 'local' | 'openshell' | 'responses' | 'vertex',
     preparationOperationId?: string,
   ): { duplicate: boolean; admission: OrdinaryLocalCommandAdmission } {
+    this.removals.assertAdmissible(meta.sessionId);
     if (meta.ordinaryWorkspaceId != null) {
       if (!['local', 'openshell'].includes(location) || !preparationOperationId)
         throw Error('Ordinary workspace requires its original prepared local admission');
@@ -2274,6 +2275,7 @@ export class EventStore {
     location: 'local' | 'openshell' | 'responses' | 'vertex',
     preparedPrimaryCommandId?: string,
   ): { duplicate: boolean; admission: OrdinaryLocalCommandAdmission } {
+    this.removals.assertAdmissible(meta.sessionId);
     if (meta.ordinaryWorkspaceId != null) {
       const prepared = this.ordinaryWorkspaceSessions.forConversation(meta.sessionId);
       if (
@@ -2591,7 +2593,7 @@ export class EventStore {
   private claimOrdinaryCommandDispatch(clientMsgId: string): boolean {
     return this.db!.transaction(() => {
       const command = this.getSendCommand(clientMsgId);
-      if (command) this.removals.assertAdmissible(command.sessionId);
+      if (command?.sessionId) this.removals.assertAdmissible(command.sessionId);
       const admission = this.getOrdinaryCommandAdmission(clientMsgId);
       if (!admission) throw new Error('Ordinary command admission required');
       if (admission.state !== 'reserved' || this.getSendCommand(clientMsgId)?.error) return false;

@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.880-native-approval-expiry';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.881-session-resource-cleanup';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -22,17 +22,44 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
+  '../session-resource-removal.ts':
+    '3973ba13e33ca5a9a37c31237e9a08829642249a5a76a9973e4e163fae255784',
+  '../session-removal-runtime.ts':
+    '882ecd9eebc75590bbc54bb9e0c854a82fdb45790d3a15ccafa9694f80cbef27',
+  '../local-session-removal.ts': '6ac2695a89153024b6898601d62a45731ff49993a2d0b604e1f58962388a1d16',
+  '../../packages/protocol/src/session-removal-store.ts':
+    '31ac2fbbb6263bdf146301fd486d23bb6364f417b2421d0df32b0329262e5ca5',
+  '../__tests__/session-resource-removal.test.ts':
+    '1102a048928fe15d07ef0d5bc761f22bee03610b96c0d172148e30040c6c3844',
+  '../__tests__/session-removal-runtime.test.ts':
+    'ee609ef397abd95cc9c11bab4128264eb34dcd17d67fe4e0e0d828d175e7f716',
+  '../__tests__/local-session-removal.test.ts':
+    '4199618a0e26453d58b7dd9b186925c39d7b3eb3221b1b768b2dc708e31fa3c3',
+  '../../packages/protocol/__tests__/session-removal-store.test.ts':
+    '3c02f71a1ca6072237f879a90cec7eeeb2803b1ff4775454895e928e4fe25517',
+  '../../frontend/src/lib/session-removal-action.ts':
+    '82729f13fd8905f67d60be6ee8d4d34a46ec822532357e5225752e8dbc825522',
+  '../../frontend/src/lib/__tests__/session-removal-action.test.ts':
+    'dd20ed97c14642d0af406daf449854838abbedafd99b8f268811901a3cd5f921',
+  '../../frontend/src/components/__tests__/SessionRemovalDialog.test.tsx':
+    '13fe424e2342c4e45f94729c58b2fe174bb78826d88afd40763c33ad2a218c4d',
+  '../../tests/offline/sandbox-removal.spec.ts':
+    'c49a2e50c885dd0fd1407cf4cd3378a9628a940df6b56241c9c18987d978bd8b',
+  '../../tests/fixtures/sandboxes.tsx':
+    '0f30f8988c90cbc60d40af6cd41f33d1f5d4a2d8dc5aeacf80b70db8706e357d',
+  '../../docs/features/session-resource-removal.md':
+    'd4cc0ee7798066e6f2742a0d577ced6e3fe181706c506db1b152a34e18898c59',
   '../../docs/design/ui-design-system.md':
-    '9e052baedfae32e917d6fa91e136bb3484d10b2a8424de1a85c33927ded11d2c',
+    '94aa7d733ac963e04e3f1e54f72f375ca30e10e40a057b88e5388b93f46b76fd',
   '../../packages/protocol/src/session-prompts.ts':
     '86f1242cbaa5371b414ac341faa2e128d5ff0fa88c3bcf06dfd39b5424366be2',
   '../__tests__/session-prompt-service.test.ts':
-    'd15bbea380955088b1154ef215ebe1fba77b396d42ad8c0f0bff31c41352bc3e',
+    '79a18075755b3b6764234a38371d25d21688a13c35134f8bb01948bfb8d833de',
   '../__tests__/session-prompt-store.test.ts':
-    'fc91365ceba6f5ededf37db0e87ebfdbf986f5289de5e9db314be2f458d2b3f1',
+    '43ab0977e5e8bf8c3fd4c2be04973796f00847cc75f1b501446220f73302ac4d',
   '../session-prompt-service.ts':
-    'f04b0815c4fd33533106f0da2bee8275c753cc3551ffdc30add466a0cbb6f71e',
-  '../session-prompt-store.ts': 'df1d80c1e70bc3f3be2233bee72628dc6f9c5b2eff0efe742a8fe09121c80971',
+    'ee7c0bd0aa86db2b2517460c76ac76e1ee709eded73b529733137e208794a0d6',
+  '../session-prompt-store.ts': '0bceb2ebefbaa916985e24f0d225c8c7177797822a2b7ef5aceb09a249e1ef10',
   '../../docs/features/session-timers.md':
     '2a12ade4fe783fbe149c304d42d2e8bca1bccab066e484624f34b806421d1589',
   '../../frontend/src/components/SessionTimersDialog.tsx':
@@ -44,7 +71,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/styles/session-timers.css':
     'a98a9a393361601f95fd2a7a89623ea08fc5eb8f2a9b3b13d1d9f8d3070e61d6',
   '../__tests__/session-prompt-dispatch.test.ts':
-    '5e325ae7622f90adda9d70282c06cb99a3cfafa2c5764f91d777ecb2135b17bb',
+    'abe64148b02db1b323e250b1d35cbd40cfd08704f8bef1ff23331b6005df5224',
   '../__tests__/session-prompt-router.test.ts':
     'c8020156c5547dfa3acba70253d14de48adca9a3ed936818b185a164ed3dc217',
   '../__tests__/session-prompt-tools.test.ts':
@@ -52,7 +79,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../session-prompt-definitions.ts':
     '9c7abeec70d2dfbd584e6dd27d53ce022e953eba8013752522104eeca5319b8e',
   '../session-prompt-dispatch.ts':
-    '4a789a6a1f913d33387dd9056ea1422ff5ad5d861af07d10ed91a01214468cf1',
+    'a8a8a8dbea86fc09e11205d45edaecb24efd53f26a24ae9dbe1e93d4ef9185f6',
   '../session-prompt-router.ts': '4d11907d907fb6fe0df41cbdd9ecd25336c2e647be761f55cba7e01539aebb7a',
   '../session-prompt-runtime.ts':
     '8ab804b640c6f14f7e03d581b54f60fa14d77347833b671fb6cd1c76b42ddd1b',
@@ -1256,13 +1283,13 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../openshell-warm-pool-host.ts':
     '9760df035a16060ed3720ed621ca2d933643dcd3914936f4e54e52a3daf49578',
   '../openshell-lifecycle-service.ts':
-    '37b50d33f9bd20dafdaf11a27f4134db9e127adfaa7728ceaf5786ac14b1091a',
+    '8d896e617a1d0f6b07e592260a07157c77a8630d16b8313095385f3026c365af',
   '../../frontend/src/pages/SandboxesView.tsx':
     'd9804cbbcf7e42c58f64a37f401101ed347ca8286c8776d82f8220dbd348b95e',
   '../../frontend/src/pages/SandboxesView.css':
     'a130773778bd77fcc144c1ce67d30088d65398a29fd1676906ce99b273bfdd9f',
   '../../frontend/src/types/sandboxes.ts':
-    '1f5a4b6bd080363af3a1f77ea246be04894cb9893b0f021353d723658a9f10a7',
+    'e4c18146a9b1742139131c2edd4e4c28d09a072deb33c561aaacd67d65330b77',
   '../../frontend/src/components/AgentToolsEditor.tsx':
     '185739f065ba2ad81534a2b171239d086010447fe03e3669d920dcd13804b5b1',
   '../agent-tool-catalog.ts': '228a788be4f052dd540bc522112f5480ebf54ed0aa83810e4e89846c55a10520',
@@ -1574,7 +1601,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../session-access.ts': 'feeeea5ffcf16bb1c4542191a74d5eebde2ea2dbcac7cf0e5315d05e2249b1dc',
   '../session-metadata-error.ts':
     '377bd861f0e48e022fb49fb8c021e14f2da8d921f9d61c9fa738f31080596eae',
-  '../app.ts': '88acc51c287853aa2fab70f0838f744a78c8ccdc44b8ea1dbfc97eb6569f1107',
+  '../app.ts': '18650b066356cc3b1b494f10f9164323c85b60398a189d7a9d0ca675d7c9c1d9',
   '../auth-check-tracing.ts': '067dc344d8ee76ffe39739a99076f614711ca3d11f96682c842c596a7bbd112e',
   '../telemetry-relay.ts': '302bf6cec2b988ae71a123a5dd04d0f2266a82c3ee51873ec64d8be452c25427',
   '../symposium-review-route-composition.ts':
@@ -1749,7 +1776,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/protocol/src/session-metadata-store.ts':
     '27de6e399040ee80c78416a5023f27d42f6a5ccfbe707ffd58bd09bd2e7b4ef9',
   '../../packages/protocol/src/event-store.ts':
-    '3976d7e363c5d499c3913de1cd4fd96747225be085063e3d44b743a27b9b4e0f',
+    '0d4616204dae8c6cc35d6c322bf8da203f400696abbbfaef9d2ad0b095bb9a48',
   '../../packages/protocol/src/session-lifecycle-store.ts':
     '2a219b360a5fbe72b0a550c714bf76a15c6f5969cbbe4251671050257b98e267',
   '../../packages/protocol/src/conversation-replay-store.ts':
@@ -1956,7 +1983,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/hooks/useServiceHealth.ts':
     '807a95678c49e8bdc2dd7d14979d0fd90a2e4364d51c34c2a859ecf0dfc81d4a',
   '../../frontend/src/hooks/useSessionList.ts':
-    'c542b1805d1819d51805d39e84bbe7ed49f65230eeba49844d5066d500776c72',
+    '398240993a958c314fcd4f894bd8530c20d5fbcb8c25b7ae9a374630177016e2',
   '../../frontend/src/hooks/useTodoData.ts':
     '54312cbf0f5503c5c252b2a4cf5105fb5c3d784df79ea3b55161929471885b1a',
   '../../frontend/src/lib/api-fetch.ts':
@@ -2025,10 +2052,10 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     'ca4fa6b7bf4e6adc17667d40c845d6ba24ea0e561c9d9a2e12d5e2d1a2e3ea3e',
   '../../frontend/src/components/SymposiumProfileProposals.tsx':
     'cdbfd4a2f27bc548cca872b616f1a2d0f1bac021a4dec95a0e24d87a3ea864ca',
-  '../session-removal.ts': '49de9ed4b03f62a9582896e5ac8e5ba43292c73e66b1c2c6e4a10244a7065e05',
+  '../session-removal.ts': '9b789faa8fac427e3940c9feac00c5395586511a69afa118066350d459c9c349',
   '../sandbox-inventory.ts': 'c785cab670191e142ef24d819b6e56950c910f7dffbb67613c0c71ac72bca4b9',
   '../../frontend/src/components/SessionRemovalDialog.tsx':
-    'a8847d5bc7f3cef2415d1a49d39a8a1763a02723f4ad97588f7b0e21df8dc814',
+    '196212a3929bb012d6e1510c54615a05515db99fa2cd05771dcf665b7f50db21',
   '../../frontend/src/components/SessionPanel.tsx':
     '085d90a046cad29225ab3e6ea677652341e1f082a6f4ec13b1c37ac00d9592d0',
   '../../frontend/src/pages/SessionList.tsx':

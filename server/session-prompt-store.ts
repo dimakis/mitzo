@@ -80,6 +80,11 @@ export class SessionPromptStore {
     )
       throw new SessionPromptError('This chat is being removed.');
   }
+  keepSession(sessionId: string) {
+    // Explicitly keeping the chat permits future admissions, never resumes a
+    // cancelled timer or resends retained delivery intent.
+    this.db.prepare('DELETE FROM session_prompt_closed_sessions WHERE session_id=?').run(sessionId);
+  }
   /** Cancel only unadmitted intent. Dispatching/uncertain receipts keep their
    * identity until the original delivery owner establishes acceptance. */
   cancelSession(sessionId: string) {

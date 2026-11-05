@@ -96,6 +96,19 @@ function setup(phase: OpenShellLifecycleRecord['phase'] = 'stopped', managed = t
 }
 afterEach(() => roots.splice(0).forEach((root) => rmSync(root, { recursive: true, force: true })));
 
+it('does not stop or delete after removal authority is revoked during checkpointing', async () => {
+  const { service, adapters } = setup('retained');
+  const controller = new AbortController();
+  const preview = await service.preview('c', controller.signal, 'delete');
+  adapters.checkpoint.mockImplementationOnce(async () => {
+    controller.abort(Error('revoked'));
+    return { path: '/private/checkpoint', digest: 'd', version: 1, sandboxId: 'p' };
+  });
+  await expect(service.confirm(preview.token, controller.signal, 'c')).rejects.toThrow(/revoked/);
+  expect(adapters.stop).not.toHaveBeenCalled();
+  expect(adapters.delete).not.toHaveBeenCalled();
+});
+
 it('reviews a legacy sandbox without enrolling it, then checkpoints and releases only on confirmation', async () => {
   const { service, store, adapters, record } = setup('retained', false);
   const read = vi.fn(() => structuredClone(record));

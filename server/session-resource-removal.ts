@@ -1,8 +1,7 @@
 import { randomUUID } from 'node:crypto';
-import type {
-  SessionRemovalStore,
-  SessionRemovalRecord,
-} from '../packages/protocol/src/session-removal-store.js';
+import type { EventStore } from './event-store.js';
+type SessionRemovalStore = EventStore['removals'];
+type SessionRemovalRecord = NonNullable<ReturnType<SessionRemovalStore['read']>>;
 
 /** Coordinates existing runtime and preservation owners. The durable event DB
  * fences admissions; this map only joins work within the current controller. */
@@ -17,10 +16,22 @@ export class SessionResourceRemovalService {
       cancelPrompts(id: string): Promise<void>;
       closeRuntime(id: string): Promise<void>;
       assertSettled(id: string): void;
+      restorePrompts?(id: string): void;
     },
   ) {}
   read(id: string) {
     return this.deps.store.read(id);
+  }
+  isPrepared(id: string) {
+    const record = this.read(id);
+    if (!record || (record.phase === 'failed' && !record.releaseStarted)) return false;
+    try {
+      this.current(id, record, () => {});
+      this.deps.assertSettled(id);
+      return true;
+    } catch {
+      return false;
+    }
   }
   private current(id: string, record: SessionRemovalRecord, assertCurrent: () => void) {
     assertCurrent();
@@ -122,6 +133,10 @@ export class SessionResourceRemovalService {
     assertCurrent();
     if (this.preparing.has(id) || this.releasing.has(id))
       throw Error('Wait for the current removal operation.');
+    const record = this.read(id);
+    if (!record || record.operationId !== operationId || record.releaseStarted)
+      throw Error('Resource release has started. Review the original removal.');
+    this.deps.restorePrompts?.(id);
     this.deps.store.keep(id, operationId);
   }
 }
