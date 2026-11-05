@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.887-inbox-cache-lifecycle';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.888-inbox-fixture-types';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -37,7 +37,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/git-config-parser-cache.test.ts':
     'd5faa083006adec2affae119a1a6819761de27002122e610f704885f32e35292',
   '../__tests__/inbox-incremental.test.ts':
-    '78427e246b28a2dd47c30b1150622e47aea335d89bb5251bb2dab9e1a53ae02a',
+    'f550472f76a498ac94b343e6102a7ecd641358cd6040de42f5844d60f66f5465',
   '../__tests__/repo-config-warnings.test.ts':
     '269af1b0a4e9f9cc5503717a9567c1652f266e18c3b5500d972d9e4e1be02740',
   '../__tests__/session-messages-coalescing.test.ts':

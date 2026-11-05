@@ -36,7 +36,10 @@ it('keeps one archived identity when an item moves between the two scans', async
   mkdirSync(join(root, 'archive'));
   writeFileSync(join(root, 'moving.md'), '# Moving\nretained evidence');
   const scan = InboxScanner.prototype.scan;
-  vi.spyOn(InboxScanner.prototype, 'scan').mockImplementation(async function (directory) {
+  vi.spyOn(InboxScanner.prototype, 'scan').mockImplementation(async function (
+    this: InboxScanner,
+    directory,
+  ) {
     const rows = await scan.call(this, directory);
     if (directory === root && rows.length)
       renameSync(join(root, 'moving.md'), join(root, 'archive', 'moving.md'));
