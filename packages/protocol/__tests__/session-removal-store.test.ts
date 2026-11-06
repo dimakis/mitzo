@@ -51,6 +51,28 @@ it('requires the original operation and phase for progress', () => {
   expect(() => store.transition('chat', 'original', 'releasing', 'completed')).toThrow();
   expect(store.read('chat')?.phase).toBe('closing');
 });
+it('invalidates earlier preparation when a renewed preparation fails before release', () => {
+  const db = new Database(database());
+  dispose.push(() => db.close());
+  const store = new SessionRemovalStore(db);
+  store.begin('chat', 'original', 'resources');
+  store.markPrepared('chat', 'original');
+  store.transition('chat', 'original', 'closing', 'failed', 'Settlement failed');
+  expect(store.read('chat')?.preparationCompleted).toBe(false);
+  store.transition('chat', 'original', 'failed', 'closing');
+  expect(() => store.transition('chat', 'original', 'closing', 'releasing')).toThrow();
+});
+it('does not infer preparation from legacy removal rows during migration', () => {
+  const db = new Database(database());
+  dispose.push(() => db.close());
+  db.exec(`CREATE TABLE session_resource_removals (
+    session_id TEXT PRIMARY KEY, operation_id TEXT NOT NULL UNIQUE,
+    fingerprint TEXT NOT NULL, phase TEXT NOT NULL, error TEXT, updated_at INTEGER NOT NULL
+  ); INSERT INTO session_resource_removals VALUES('chat','original','resources','closing',NULL,1)`);
+  const store = new SessionRemovalStore(db);
+  expect(store.read('chat')).toMatchObject({ preparationCompleted: false, releaseStarted: false });
+  expect(() => store.transition('chat', 'original', 'closing', 'releasing')).toThrow();
+});
 it('blocks new durable sends in the actual EventStore while retaining historical receipts', () => {
   const events = new EventStore(database());
   dispose.push(() => events.close());

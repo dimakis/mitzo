@@ -122,7 +122,8 @@ export class SessionRemovalStore {
     if (
       this.db
         .prepare(
-          `UPDATE session_resource_removals SET phase=?,error=?,updated_at=?,release_started=MAX(release_started,?)
+          `UPDATE session_resource_removals SET phase=?,error=?,updated_at=?,release_started=MAX(release_started,?),
+          preparation_completed=CASE WHEN ?='failed' AND release_started=0 THEN 0 ELSE preparation_completed END
       WHERE session_id=? AND operation_id=? AND phase=?
         AND (? != 'releasing' OR preparation_completed=1)`,
         )
@@ -131,6 +132,7 @@ export class SessionRemovalStore {
           error,
           Date.now(),
           phase === 'releasing' ? 1 : 0,
+          phase,
           sessionId,
           operationId,
           expected,
