@@ -828,6 +828,7 @@ export class CodexConversationStore {
     binding: AccountBinding,
     commandId: string,
     expectedPrompt?: string,
+    expectedIntent = expectedPrompt,
   ) {
     this.read(id, binding);
     return this.db
@@ -843,7 +844,7 @@ export class CodexConversationStore {
         commandId,
         expectedPrompt ?? null,
         expectedPrompt ?? null,
-        expectedPrompt ?? null,
+        expectedIntent ?? null,
       ) as { threadId: string; turnId: string } | undefined;
   }
   read(id: string, b: AccountBinding): Conversation {

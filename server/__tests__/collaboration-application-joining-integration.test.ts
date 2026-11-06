@@ -21,6 +21,12 @@ vi.mock('../mcp-config.js', () => ({
   loadMcpServers: () => ({}),
   getMcpConfigPaths: () => [],
 }));
+// Synthetic binary classification only, as in the ordinary native-consumer
+// fixtures. Real artifact/isolation qualification is outside this offline test.
+vi.mock('../codex-native-artifact-qualification.js', async (original) => ({
+  ...(await original<typeof import('../codex-native-artifact-qualification.js')>()),
+  assertQualifiedNativeMacExecutionArtifact: vi.fn(),
+}));
 // Host location is external fixture metadata. Keep actual private-root guards
 // while preventing access to the developer's credential/configuration directories.
 vi.mock('node:os', async (original) => {
@@ -58,6 +64,7 @@ const group = crypto.randomUUID();
 let reviewedSnapshot: CollaborationSnapshot | undefined;
 let reviewedSettings: CollaborationSettings | undefined;
 let joinedSessionId: string | undefined;
+let joiningClientId: string | undefined;
 let api: CollaborationApiClient;
 async function loadApplication() {
   // Do not touch host credentials while the core-owned safe import seam is absent.
@@ -353,6 +360,7 @@ it('reviews an actual prepared unused Local workspace through real app auth and 
     idempotencyKey: 'publish',
   });
   const clientId = crypto.randomUUID();
+  joiningClientId = clientId;
   const bindTransport = async () => {
     const currentAuth = await (await import('../auth.js')).authenticateToken(token);
     expect(currentAuth).toEqual(identity);
@@ -603,5 +611,219 @@ it('joins a reviewed fresh ordinary session without inference or native capacity
 /** The retained acceptance continuation reuses this real application journey. */
 export function getApplicationJoiningJourney() {
   if (!joinedSessionId) throw Error('BLOCKED: actual application joining prerequisite failed');
-  return { api, events, group, joinedSessionId };
+  return { api, events, group, joinedSessionId, clientId: joiningClientId!, root: root! };
 }
+
+it('accepts one explicit group prompt through the actual application message owner', async () => {
+  const journey = getApplicationJoiningJourney();
+  // Rebind the existing interactive connection after the restart in the join
+  // journey, using the same real cookie/login, not a fabricated auth record.
+  const token = decodeURIComponent(cookie.slice(cookie.indexOf('=') + 1));
+  const identity = (await (await import('../auth.js')).authenticateToken(token))!;
+  const { claimTransportConnection } = await import('../transport-auth-ownership.js');
+  const { bindAgentLibraryTransport } = await import('../agent-library-transport.js');
+  claimTransportConnection(journey.clientId, identity.id);
+  const unbind = bindAgentLibraryTransport(journey.clientId, identity);
+  const { CodexAppServerClient } = await import('../codex-app-server-client.js');
+  let lifecycle: import('../codex-app-server-client.js').CodexLifecycleTransport | undefined;
+  const requests: Array<{ method: string; params?: Record<string, unknown> }> = [];
+  let turnSequence = 0;
+  let lostReceiptProjection = false;
+  const recordDelivery = events.collaborationConversation.recordDelivery.bind(
+    events.collaborationConversation,
+  );
+  const projection = vi
+    .spyOn(events.collaborationConversation, 'recordDelivery')
+    .mockImplementation((...args) => {
+      if ((args[3] as { status: string }).status === 'delivered' && !lostReceiptProjection) {
+        lostReceiptProjection = true;
+        throw Error('Offline interruption after durable native ACK');
+      }
+      return recordDelivery(...args);
+    });
+  let retainedView: Awaited<ReturnType<CollaborationApiClient['view']>> | undefined;
+  const launch = vi
+    .spyOn(CodexAppServerClient, 'launchIsolated')
+    .mockImplementation((_home, _env, callbacks) => {
+      lifecycle = callbacks;
+      return {
+        initialize: async () => {},
+        notify: () => {},
+        respond: () => {},
+        close: () => callbacks?.onClose(Error('Offline transport closed')),
+        request: async (method: string, params?: Record<string, unknown>) => {
+          requests.push({ method, params });
+          if (method === 'account/read')
+            return {
+              account: { type: 'chatgpt', email: 'offline@example.invalid', planType: 'plus' },
+              requiresOpenaiAuth: true,
+            };
+          if (method === 'config/read') return { config: {} };
+          if (method === 'model/list')
+            return {
+              data: [
+                {
+                  model: 'fixture-model',
+                  displayName: 'Offline',
+                  supportedReasoningEfforts: [{ reasoningEffort: 'low' }],
+                },
+              ],
+              nextCursor: null,
+            };
+          if (method === 'thread/start' || method === 'thread/resume')
+            return {
+              thread: { id: 'offline-group-thread' },
+              model: 'fixture-model',
+              modelProvider: 'openai',
+            };
+          if (method === 'turn/start')
+            return { turn: { id: 'offline-group-turn-' + ++turnSequence } };
+          if (method === 'turn/interrupt') return {};
+          throw Error('Unexpected offline RPC: ' + method);
+        },
+      } as unknown as ReturnType<typeof CodexAppServerClient.launchIsolated>;
+    });
+  try {
+    const before = await api.view(group);
+    const sourcePolicy = before.policies.find((row) => row.sessionId === 'existing-chat')!;
+    await api.setPolicy(group, {
+      requestId: crypto.randomUUID(),
+      expectedMembershipRevision: before.membershipRevision,
+      expectedRevision: sourcePolicy.revision,
+      sessionId: 'existing-chat',
+      readsFutureDiscussion: false,
+      repliesByDefault: false,
+    });
+    const current = await api.view(group);
+    const input = {
+      requestId: crypto.randomUUID(),
+      expectedMembershipRevision: current.membershipRevision,
+      expectedPolicySequence: current.policySequence,
+      text: 'Review the selected design explicitly',
+      responders: { kind: 'selected' as const, sessionIds: [joinedSessionId!] },
+      snapshot: null,
+    };
+    const response = await http!.request('POST', `/api/session-collaborations/${group}/messages`, {
+      headers: { cookie },
+      body: { ...input, clientId: journey.clientId },
+    });
+    expect(response.status, JSON.stringify(response.body)).toBe(200);
+    expect(response.body).toMatchObject({
+      text: input.text,
+      responders: [joinedSessionId],
+      deliveries: [
+        expect.objectContaining({ commandId: expect.stringMatching(/^collaboration:/) }),
+      ],
+    });
+    const commandId = (response.body as { deliveries: Array<{ commandId: string }> }).deliveries[0]
+      .commandId;
+    expect(events.getOrdinaryCommandAdmission(commandId)).toMatchObject({ state: 'consumed' });
+    await vi.waitFor(() =>
+      expect(requests.filter((row) => row.method === 'turn/start')).toHaveLength(1),
+    );
+    await vi.waitFor(async () =>
+      expect((await api.view(group)).messages[0].deliveries[0].status).toBe('delivered'),
+    );
+    expect(JSON.stringify(requests.find((row) => row.method === 'turn/start'))).toContain(
+      'Synthetic design requirement',
+    );
+    expect(JSON.stringify(requests.find((row) => row.method === 'turn/start'))).toContain(
+      'Edited brief retained exactly',
+    );
+    lifecycle!.onNotification('turn/started', {
+      threadId: 'offline-group-thread',
+      turn: { id: 'offline-group-turn-1' },
+    });
+    lifecycle!.onNotification('item/completed', {
+      threadId: 'offline-group-thread',
+      turnId: 'offline-group-turn-1',
+      item: {
+        type: 'agentMessage',
+        id: 'group-visible-answer',
+        text: 'Reviewed visible answer',
+        phase: 'final_answer',
+      },
+    });
+    lifecycle!.onNotification('turn/completed', {
+      threadId: 'offline-group-thread',
+      turn: { id: 'offline-group-turn-1', status: 'completed' },
+    });
+    await vi.waitFor(async () => {
+      const projected = await api.view(group);
+      expect(projected.messages.find((row) => row.replyToDeliveryId !== null)).toMatchObject({
+        text: 'Reviewed visible answer',
+        author: { sessionId: joinedSessionId },
+        source: { conversationId: joinedSessionId, commandId },
+      });
+      expect(projected.messages[0].deliveries[0].status).toBe('delivered');
+    });
+    const nextView = await api.view(group);
+    const next = {
+      ...input,
+      requestId: crypto.randomUUID(),
+      expectedPolicySequence: nextView.policySequence,
+      text: 'Now explain the main tradeoff',
+    };
+    const continuation = await api.send(group, next, journey.clientId);
+    await vi.waitFor(() =>
+      expect(requests.filter((row) => row.method === 'turn/start')).toHaveLength(2),
+    );
+    await vi.waitFor(async () =>
+      expect(
+        (await api.view(group)).messages.find((row) => row.messageId === continuation.messageId)!
+          .deliveries[0].status,
+      ).toBe('delivered'),
+    );
+    expect(launch).toHaveBeenCalledTimes(1);
+    expect(lostReceiptProjection).toBe(true);
+    expect((await api.send(group, next, journey.clientId)).messageId).toBe(continuation.messageId);
+    expect(requests.filter((row) => row.method === 'turn/start')).toHaveLength(2);
+    lifecycle!.onNotification('turn/started', {
+      threadId: 'offline-group-thread',
+      turn: { id: 'offline-group-turn-2' },
+    });
+    lifecycle!.onNotification('item/completed', {
+      threadId: 'offline-group-thread',
+      turnId: 'offline-group-turn-2',
+      item: {
+        type: 'agentMessage',
+        id: 'second-visible-answer',
+        text: 'Second visible answer',
+        phase: 'final_answer',
+      },
+    });
+    lifecycle!.onNotification('turn/completed', {
+      threadId: 'offline-group-thread',
+      turn: { id: 'offline-group-turn-2', status: 'completed' },
+    });
+    await vi.waitFor(() => {
+      const transcript = events.getDurableSessionTranscript(joinedSessionId!);
+      const answer = transcript.messages.find((row) =>
+        row.blocks.some((block) => block.content === 'Second visible answer'),
+      );
+      expect(answer).toBeDefined();
+      expect(
+        events.getOrdinaryReplySourceEvents(joinedSessionId!, answer!.messageId),
+      ).toMatchObject([{ commandId: continuation.deliveries[0].commandId }]);
+    });
+    await vi.waitFor(async () => {
+      const projected = await api.view(group);
+      expect(projected.messages.filter((row) => row.replyToDeliveryId !== null)).toHaveLength(2);
+      retainedView = projected;
+    });
+  } finally {
+    const chat = await import('../chat.js');
+    const live = chat.registry.findBySessionId(joinedSessionId!);
+    if (live) chat.registry.abort(live.clientId);
+    const { getRepositoryWorkspaces } = await import('../repository-workspace-runtime.js');
+    await vi.waitFor(() => getRepositoryWorkspaces(true).closeIdle());
+    launch.mockRestore();
+    projection.mockRestore();
+    unbind();
+  }
+  await restartApplication();
+  expect(await api.view(group)).toEqual(retainedView);
+  expect(events.getOrdinaryInitialCommandId(joinedSessionId!)).toBe(
+    retainedView!.messages[0].deliveries[0].commandId,
+  );
+}, 20000);

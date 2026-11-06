@@ -110,6 +110,10 @@ import {
   captureOrdinaryReplyExecution,
   recordOrdinaryReplySource,
 } from './collaboration-ordinary-replies.js';
+import {
+  assertCollaborationCommand,
+  recordCollaborationCommandAcceptance,
+} from './collaboration-ordinary-command.js';
 import { assertNativeCodexContextAdmission } from './native-codex-context-admission.js';
 import { OwnedOpenShellCodexChatAdmission } from './owned-openshell-codex-chat-admission.js';
 import { OwnedLocalCodexChatAdmission } from './owned-local-codex-chat-admission.js';
@@ -162,7 +166,7 @@ import { HOST_TOOL_INSTRUCTIONS } from './session-permission-policy.js';
 import { createNativeHooks } from './native-hooks.js';
 import { requestCodexUserInput } from './codex-user-input.js';
 import { loadAccountProfiles } from './account-profiles.js';
-import { mkdirSync } from 'node:fs';
+import { existsSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
 import {
@@ -494,6 +498,13 @@ function store() {
 /** Reuse the private native command ledger for session-scoped Symposium threads. */
 export function getCodexConversationStore(): CodexConversationStore {
   return store();
+}
+/** Observation may reopen existing native evidence, never initialize a missing ledger. */
+export function getExistingCodexConversationStore(): CodexConversationStore | undefined {
+  return (
+    privateStore ??
+    (existsSync(join(codexPrivateDirectory(), 'conversations.db')) ? store() : undefined)
+  );
 }
 export function getCodexRuntime(session: ManagedSession) {
   return runtimes.get(session);
@@ -2704,6 +2715,13 @@ async function openCodexChatBound(
           beforeThreadInitialization: (store: CodexConversationStore) =>
             options.ownedLocal!.persistCustody(store),
           beforeEnqueue: (input: Parameters<CodexConversation['enqueue']>[0]) => {
+            assertCollaborationCommand(
+              options.eventStore,
+              options.conversationId,
+              input.id,
+              options.session.ordinaryRuntimeOwner?.authSessionId ??
+                options.session.ownedLocalAuthSessionId,
+            );
             options.adviserScope?.assertCommand(options.conversationId, input.id);
             options.assertWorkTurnAdmission?.();
             options.assertAgentContextAuthorization?.();
@@ -2723,6 +2741,10 @@ async function openCodexChatBound(
           canClaimCommand: (commandId: string) =>
             options.ownedOpenShell!.canClaimCommand(commandId),
           beforeEnqueue: (input: Parameters<CodexConversation['enqueue']>[0]) => {
+            if (input.id.startsWith('collaboration:'))
+              throw new CodexTransportError('connection', {
+                reason: 'reply_provenance_failed',
+              });
             options.adviserScope?.assertCommand(options.conversationId, input.id);
             options.assertWorkTurnAdmission?.();
             options.assertAgentContextAuthorization?.();
@@ -3117,6 +3139,18 @@ async function openCodexChatBound(
       });
     },
     onProviderDispatch: (messageId) => {
+      if (messageId.startsWith('collaboration:') && !options.ownedLocal)
+        throw new CodexTransportError('connection', {
+          reason: 'reply_provenance_failed',
+        });
+      if (options.ownedLocal)
+        assertCollaborationCommand(
+          options.eventStore,
+          options.conversationId,
+          messageId,
+          options.session.ordinaryRuntimeOwner?.authSessionId ??
+            options.session.ownedLocalAuthSessionId,
+        );
       options.adviserScope?.assertCommand(options.conversationId, messageId);
       options.assertWorkTurnAdmission?.();
       if (ownedHost) options.assertAgentContextAuthorization?.();
@@ -3168,6 +3202,26 @@ async function openCodexChatBound(
           );
         } catch {
           throw new CodexTransportError('connection', { reason: 'reply_provenance_failed' });
+        }
+      }
+      if (options.ownedLocal) {
+        try {
+          recordCollaborationCommandAcceptance(
+            options.eventStore,
+            privateStorage,
+            options.conversationId,
+            options.binding,
+            messageId,
+            threadId,
+            turnId,
+          );
+        } catch {
+          // Native ACK and reply provenance already survive. Public projection
+          // may reconcile later; it must not interrupt the accepted provider turn.
+          log.warn('Collaboration receipt requires reconciliation', {
+            conversationId: options.conversationId,
+            commandId: messageId,
+          });
         }
       }
     },

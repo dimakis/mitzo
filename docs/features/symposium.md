@@ -13,9 +13,10 @@ section below. It preserves the approved UI and ordinary authorization/admission
 Messaging prerequisite [#1222](https://github.com/dimakis/mitzo/pull/1222) merged
 5 November at `6bb45e9b4f81e7b49767f14a47f866f4711a33e9`.
 
-This increment is implementation candidate source on `feat/symposium-ordinary-joining`,
-integrated with accepted main `ddd35972a91023e318d6596576b50d20d0070d23`.
-It is not evidence of merge, deployment or live account qualification.
+This increment merged in [#1237](https://github.com/dimakis/mitzo/pull/1237)
+on 6 November at `d973b9bc96cb66541fe8c81c6327821745479d38`, after all 33 CI
+checks and exact-head Centaur LGTM/merge. This establishes source acceptance;
+deployment, full production UI composition and live account qualification remain separate.
 `CollaborationApplicationReview` resolves the actual unused repository target and
 ordinary account/model/profile/settings. `createApplicationCollaborationJoining`
 connects that retained review to `OrdinaryCollaborationJoining` and
@@ -33,8 +34,8 @@ existing workspace allocation fingerprint, including a crash before the session
 receipt exists. OpenShell's ready reservation retains its original session ID
 without claiming or starting a sandbox. A prepared session that already admitted
 its first command cannot be newly linked; already-linked retries remain observational.
-Prompt delivery remains disabled, and its later implementation must preserve
-ordinary admission, exact authorized content and uncertainty handling.
+The next prompt/reply increment below preserves ordinary admission, exact
+authorized content and uncertainty handling.
 
 The approved `symposium-fresh-agent` ledger revision remains
 `fresh-agent-review-2026-10-18-test-syntax`. The existing Before joining action may
@@ -49,8 +50,8 @@ cover confirmation, both allocation crash windows, a reopened EventStore and
 revoked repository access. External runtime declaration and account readiness are
 substituted; no OpenShell runtime is created or qualified. The application joining
 tests also cover source mutation during qualification, grant revocation between
-authorization checks and allocation-operation mismatch. Both Centaur findings
-`CEN-63DFDEB538A7` and `CEN-27D8517FBA74` require current-head verification before merge.
+authorization checks and allocation-operation mismatch. Centaur verified the fixes
+for `CEN-63DFDEB538A7` and `CEN-27D8517FBA74` at the final #1237 head before merge.
 
 | Existing milestone requirement                            | Evidence and remaining boundary                                                                                                                                                                                                                                                                                                                                |
 | --------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -58,7 +59,7 @@ authorization checks and allocation-operation mismatch. Both Centaur findings
 | Retained authority, recovery and reconciliation           | `server/__tests__/collaboration-application-joining.test.ts` covers changed operator/settings, hidden source, revoked login/source access, crash after allocation, frozen source after later discussion, and membership reconciliation using the original session. Existing joining/storage/router regressions remain required.                                |
 | Approved joining behavior                                 | Hook/component tests cover unmeasured joining, explicit refusal, edited/refrozen brief, retained draft and original recovery. Design contract checks pass. The offline browser fixture adds the unmeasured state; local Playwright stopped at its sandbox guard before launch. Final rendered comparison remains outstanding in CI or a permitted host runner. |
 | Type checks                                               | Protocol/harness/client TypeScript builds and focused semantic checks of the application joining/review/owner/router modules pass. The full server check exceeded the mandated 1 GiB local heap; full server/frontend builds and broader tests remain for CI.                                                                                                  |
-| Explicit group prompt and attributed reply                | Still outstanding. `tests/acceptance/symposium-application-wiring.repro.ts` reuses the passing application journey and retains the required failing delivery/reply continuation. Reuse #1222's ordinary dispatcher when implementing it.                                                                                                                       |
+| Explicit group prompt and attributed reply                | Candidate application composition is described below; its positive native-transport journey now runs in `server/__tests__/collaboration-application-joining-integration.test.ts`.                                                                                                                                                                              |
 
 The bounded resolver currently uses the existing silent repository-backed Codex
 route without context recipes. These offline observations qualify no installed
@@ -66,6 +67,52 @@ account or runtime. Responses/Claude/Gemini parity, full web/device comparison,
 physical iOS, fan-out/reader delivery and live qualification remain separate work.
 Keep parent `c0851ba23fcc5d04` and milestone `358d56cb7e4352ff` active. Staging
 remains stood down; no runtime activation or production deployment is authorized.
+
+## Explicit ordinary prompt/reply: second simplification increment
+
+Candidate source on `feat/symposium-prompt-replies`, based on accepted main
+`7c049b1bd452adb2e540fecc6900b1b9bbe71152`. Messaging repair
+[#1242](https://github.com/dimakis/mitzo/pull/1242) is an integration dependency;
+its retained-operator changes must be included and checked before landing.
+
+The authenticated message route composes `dispatchOwnedOrdinaryCommand` from
+the existing messaging work, using the original silent preparation receipt for
+the first turn and the ordinary live/cold continuation owners afterward. The
+ordinary payload contains the exact retained joining context plus the explicit
+prompt before admission. Existing collaboration delivery IDs determine stable
+command IDs; HTTP retries observe the existing delivery and never dispatch again.
+Native enqueue and final turn-dispatch guards renew recipient membership, source,
+operator and settings and compare the complete shared payload. Ordinary boot
+guidance remains owned and verified by ordinary admission.
+
+An exact native ACK updates the original delivery; a failed public projection
+does not interrupt native reply provenance. Conversation/event reads reconcile
+existing ACKs and finalized visible replies through `OrdinaryCollaborationReplies`,
+including prompts outside the recent display page. They start no inference.
+Hidden/removed recipients and retained ordinary command failures leave their
+unprojected answer unavailable while the retained group remains readable.
+No reasoning, tool output or provider identities
+enter the shared projection.
+
+This increment accepts one explicitly selected, linked repository-backed Local
+Codex participant with unchanged reviewed settings and no context recipe. Extra
+policy readers, Defaults/All, fan-out, new message snapshots and other send runtimes
+refuse before a new message is accepted. Those remain the next reader/fan-out scope.
+
+Offline actual-app HTTP tests retain real authentication, Git/SQLite, preparation,
+ordinary admission, native FIFO and reply projection. Synthetic account/runtime
+metadata, binary classification and native RPC replace external execution only.
+The journey checks first and warm prompts, exact retries, public ACK projection
+failure, attributed answers and restart without another turn or session. Focused
+regressions cover membership removal/re-entry, hidden sources/recipients, different
+operators, extra input fields, old prompts and additional readers.
+
+The approved reference, protected UI checks and screens are unchanged. Production
+ChatView/DesktopChatView still need their application joining/presentation owners
+mounted and the shared send controls connected; this backend acceptance does not
+establish the complete approved UI journey. The public execution capability remains
+disabled until that composition is qualified. Full account/runtime/device and live
+qualification are still outstanding. No deployment or staging operation is included.
 
 ## Historical application foundation — 17 October
 

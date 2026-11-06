@@ -166,10 +166,65 @@ export function openCollaborationVisibleSource(
   boundary: Boundary,
   initialPrompt?: string | null,
 ) {
+  return createVisibleSource(db, session, boundary, initialPrompt);
+}
+
+/** Exact finalized ordinary reply, independently of whole-context eligibility.
+ * Reuses the bounded visible-block decoder; never reads reasoning or tool data.
+ */
+export function readCollaborationFinalizedReply(
+  db: Database.Database,
+  session: string,
+  messageId: string,
+) {
+  if (!CollaborationSnapshotMessageSchema.shape.messageId.safeParse(messageId).success) fail();
+  const rows = db
+    .prepare(
+      `SELECT seq,type FROM events WHERE session_id=?
+     AND json_extract(payload,'$.messageId')=?
+     AND type IN ('user_message','message_start','message_end') ORDER BY seq LIMIT 3`,
+    )
+    .all(session, messageId) as Array<{ seq: number; type: string }>;
+  if (!rows.some((row) => row.type === 'message_end')) return undefined;
+  if (rows.length !== 2 || rows[0].type !== 'message_start' || rows[1].type !== 'message_end')
+    fail();
+  const boundary = { sequence: rows[1].seq, messageId };
+  try {
+    const source = createVisibleSource(db, session, boundary, null, messageId);
+    const [message] = source.readSelected([messageId]);
+    source.assertCurrent();
+    return message;
+  } catch (error) {
+    // A retained source outside the visible schema cannot poison group reads.
+    // Unexpected storage/programming errors still propagate for diagnosis.
+    if (error instanceof z.ZodError) fail();
+    throw error;
+  }
+}
+
+function createVisibleSource(
+  db: Database.Database,
+  session: string,
+  boundary: Boundary,
+  initialPrompt?: string | null,
+  exactReply?: string,
+) {
   const through = boundary.sequence;
   if (!Number.isSafeInteger(through) || through < 0) fail();
   const args = { session, through };
   function validateBoundary() {
+    if (exactReply !== undefined) {
+      // Only this finalized message qualifies. Unrelated queued/active turns,
+      // initial context and history size cannot suppress its retained answer.
+      const invalid = db
+        .prepare(
+          `SELECT 1 FROM events WHERE session_id=@session AND seq<=@through
+         AND json_extract(payload,'$.messageId')=@messageId AND NOT (${ordinary()}) LIMIT 1`,
+        )
+        .get({ ...args, messageId: exactReply });
+      if (invalid || boundary.messageId !== exactReply) fail();
+      return;
+    }
     if (
       through &&
       !db.prepare('SELECT 1 FROM events WHERE session_id=? AND seq=?').get(session, through)

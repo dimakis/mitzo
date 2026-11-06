@@ -54,7 +54,7 @@ if (JSON.stringify(currentUntracked) !== JSON.stringify(positive.source.untracke
   throw Error('Untracked source changed since the positive baseline');
 }
 const test = readFileSync(
-  resolve(root, 'tests/acceptance/symposium-application-wiring.repro.ts'),
+  resolve(root, 'server/__tests__/collaboration-application-joining-integration.test.ts'),
   'utf8',
 );
 const durableName =

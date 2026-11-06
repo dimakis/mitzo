@@ -35,7 +35,14 @@ export async function configureApplicationReviewTarget(root: string, fresh: bool
     await mkdir(login, { mode: 0o700 });
     await writeFile(
       join(login, 'auth.json'),
-      JSON.stringify({ tokens: { access_token: 'synthetic-offline' } }),
+      JSON.stringify({
+        tokens: {
+          access_token: 'synthetic-offline',
+          refresh_token: 'synthetic-offline',
+          id_token: 'synthetic-offline',
+          account_id: 'synthetic-offline',
+        },
+      }),
       { mode: 0o600 },
     );
     // Existing core fixture metadata format. These bytes are never launched.

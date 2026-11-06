@@ -67,6 +67,51 @@ it('retains actual native turn acceptance across restart without treating queue,
   );
   s.close();
 });
+it('checks the exact native prompt and separate original intent when observing an ACK', () => {
+  const { path } = setup();
+  const s = new CodexConversationStore(path);
+  s.create('worker', binding, '/offline');
+  s.bindThread('worker', binding, 'thread');
+  s.enqueue('worker', binding, {
+    id: 'command',
+    prompt: 'Reviewed context plus prompt',
+    intent: 'Original prompt',
+  });
+  const command = s.claimNext('worker', binding)!;
+  s.recordCapacityAck('worker', binding, command, 'thread', 'turn');
+  expect(
+    s.acceptedProviderTurnForCommand(
+      'worker',
+      binding,
+      'command',
+      'Reviewed context plus prompt',
+      'Original prompt',
+    ),
+  ).toEqual({ threadId: 'thread', turnId: 'turn' });
+  expect(
+    s.acceptedProviderTurnForCommand('worker', binding, 'command', 'Reviewed context plus prompt'),
+  ).toBeUndefined();
+  expect(
+    s.acceptedProviderTurnForCommand(
+      'worker',
+      binding,
+      'command',
+      'Reviewed context plus prompt',
+      'Changed prompt',
+    ),
+  ).toBeUndefined();
+  expect(
+    s.acceptedProviderTurnForCommand(
+      'worker',
+      binding,
+      'command',
+      'Changed context',
+      'Original prompt',
+    ),
+  ).toBeUndefined();
+  s.close();
+});
+
 it('records sandbox recipe delivery only against an exact native acknowledgement and retains it across restart', () => {
   const { path } = setup();
   let s = new CodexConversationStore(path);

@@ -15,6 +15,7 @@ import {
   CollaborationJoinInputSchema,
   CollaborationJoinReconcileInputSchema,
   CollaborationMessageInputSchema,
+  CollaborationApplicationMessageRequestSchema,
   CollaborationMessageSchema,
   CollaborationSnapshotReferenceSchema,
   CollaborationSnapshotSelectionSchema,
@@ -221,11 +222,14 @@ export class CollaborationApiClient {
       },
     );
   }
-  /** No public dispatch until ordinary delivery is wired and qualified. */
-  send(id: string, input: CollaborationMessageInput) {
+  /** The current interactive connection supplies correlation, never authority. */
+  send(id: string, input: CollaborationMessageInput, clientId?: string) {
     return this.request(this.path(id, 'messages'), CollaborationMessageSchema, undefined, {
       method: 'POST',
-      body: CollaborationMessageInputSchema.parse(input),
+      body:
+        clientId === undefined
+          ? CollaborationMessageInputSchema.parse(input)
+          : CollaborationApplicationMessageRequestSchema.parse({ ...input, clientId }),
     });
   }
 }
