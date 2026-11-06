@@ -1,9 +1,11 @@
+import './fixtures/offline-user-home.js';
 import { afterEach, expect, it, vi } from 'vitest';
 import { createHash } from 'node:crypto';
 import { mkdirSync, mkdtempSync, readdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { AccountProfiles } from '../account-profiles.js';
+import { tracer } from '../tracing.js';
 import { EventStore } from '../event-store.js';
 import {
   FrozenHostCodexBootstrapAuthority,
@@ -334,6 +336,26 @@ function fixture() {
     runtime,
   };
 }
+it('separates qualification, login custody, executable capture and native connection timing', async () => {
+  const f = fixture();
+  const starting = vi.spyOn(tracer, 'startSpan');
+  try {
+    await f.authority.withBootstrap(f.expected, f.claim, async () => {});
+    expect(starting.mock.calls.map(([name]) => name)).toEqual(
+      expect.arrayContaining([
+        'local_codex.bootstrap_qualification',
+        'local_codex.bootstrap_login',
+        'local_codex.bootstrap_executable',
+        'local_codex.bootstrap_connect',
+      ]),
+    );
+  } finally {
+    starting.mockRestore();
+    f.authority.currentLease()?.close();
+    f.store.close();
+  }
+});
+
 it('reuses code across bootstrap owners while login custody and native clients stay independent', async () => {
   const a = fixture(),
     b = fixture();

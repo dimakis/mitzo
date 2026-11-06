@@ -15,7 +15,7 @@ import {
 import { mkdir, mkdtemp, rm, stat as statAsync } from 'fs/promises';
 import { join, resolve, dirname } from 'path';
 import { tmpdir } from 'os';
-import { observeLocalCodexPhase } from './local-codex-observation.js';
+import { observeLocalCodexPhase, observeLocalCodexSyncPhase } from './local-codex-observation.js';
 
 const execFileAsync = promisify(execFileCb);
 import {
@@ -114,18 +114,25 @@ export async function fetchWorktreeBase(
   selectedBranch?: string,
 ): Promise<string> {
   signal?.throwIfAborted();
-  const base = worktreeBase(repoPath, selectedBranch);
+  const base = observeLocalCodexSyncPhase('repository_base_resolution', () =>
+    worktreeBase(repoPath, selectedBranch),
+  );
   if (base.remote)
     await observeLocalCodexPhase('repository_fetch', () =>
       execFileAsync('git', base.args, { ...base.options, signal }),
     );
   signal?.throwIfAborted();
-  return base.commit();
+  return observeLocalCodexSyncPhase('repository_commit_resolution', base.commit);
 }
 function fetchWorktreeBaseSync(repoPath: string): string {
-  const base = worktreeBase(repoPath);
-  if (base.remote) execFileSync('git', base.args, base.options);
-  return base.commit();
+  const base = observeLocalCodexSyncPhase('repository_base_resolution', () =>
+    worktreeBase(repoPath),
+  );
+  if (base.remote)
+    observeLocalCodexSyncPhase('repository_fetch', () =>
+      execFileSync('git', base.args, base.options),
+    );
+  return observeLocalCodexSyncPhase('repository_commit_resolution', base.commit);
 }
 
 /** Worktrees live inside each repo at .claude/worktrees/<sessionId>. */
