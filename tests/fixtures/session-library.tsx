@@ -3,6 +3,8 @@ import { MemoryRouter, Routes, Route, useNavigate } from 'react-router-dom';
 import { SessionList } from '../../frontend/src/pages/SessionList';
 import { eventBus } from '../../frontend/src/lib/event-bus-singleton';
 import { SessionPanel } from '../../frontend/src/components/SessionPanel';
+import { ChatInput } from '../../frontend/src/components/ChatInput';
+import { ComposerStatusProvider } from '../../frontend/src/components/ComposerStatus';
 import { Today } from '../../frontend/src/pages/Today';
 import { SettingsView } from '../../frontend/src/pages/SettingsView';
 import { DesktopShell } from '../../frontend/src/components/DesktopShell';
@@ -23,6 +25,16 @@ function Surface() {
   return (
     <MobileShell>
       <Routes>
+        <Route
+          path="/activity-composer"
+          element={
+            <ComposerStatusProvider>
+              <main className="workspace-page">
+                <ChatInput sessionId="session-0" running onSend={() => false} onStop={() => {}} />
+              </main>
+            </ComposerStatusProvider>
+          }
+        />
         <Route
           path="/sessions"
           element={desktop ? <DesktopShell center={<SessionList />} /> : <SessionList />}

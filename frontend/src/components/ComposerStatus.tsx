@@ -11,6 +11,14 @@ import {
 import { HomeDialog } from './HomeDialog';
 import { UiIcon } from './UiIcon';
 import './ComposerStatus.css';
+import { useSessionOverview } from '../hooks/useSessionOverview';
+import {
+  ActivityBars,
+  SessionActivityStatus,
+  SessionTurnElapsed,
+  SessionActivityDetails,
+} from './SessionActivityStatus';
+import { sessionActivityLabel } from '../lib/session-activity';
 import {
   ActiveContext,
   SinkContext,
@@ -74,11 +82,25 @@ export function ComposerStatusRail({
   running = false,
   scope,
   awaitingApproval = false,
+  sessionId,
 }: {
   running?: boolean;
   scope?: number;
   awaitingApproval?: boolean;
+  sessionId?: string;
 }) {
+  const { activities, connected, lastKnownActivities = [] } = useSessionOverview();
+  const activity = (connected ? activities : lastKnownActivities).find(
+    (a) => a.sessionId === sessionId,
+  );
+  // Unassigned admission rails keep their existing transport notices. Once a
+  // session is assigned, a retained running flag is not proof of live activity.
+  const live = !sessionId || connected;
+  const workingLabel = !live
+    ? 'Reconnecting'
+    : activity?.state === 'working'
+      ? sessionActivityLabel(activity)
+      : 'Working';
   const sink = useComposerStatusSink();
   const view = useContext(ViewContext);
   const [visited, setVisited] = useState(false);
@@ -119,11 +141,11 @@ export function ComposerStatusRail({
     issues.length > 1
       ? `Needs attention · ${issues.length} issues`
       : running && primary?.busy && primary.tone === 'normal'
-        ? 'Working'
+        ? workingLabel
         : primary && score(primary) >= 0
           ? primary.message
           : running
-            ? 'Working'
+            ? workingLabel
             : 'Ready';
   const tone = issues.some((notice) => notice.tone === 'danger')
     ? 'danger'
@@ -138,7 +160,11 @@ export function ComposerStatusRail({
         aria-label="Conversation status"
         data-tone={tone}
       >
-        <span className="composer-status-dot" aria-hidden="true" />
+        {running && live && tone === 'normal' ? (
+          <ActivityBars />
+        ) : (
+          <span className="composer-status-dot" aria-hidden="true" />
+        )}
         <span
           className="composer-status-summary"
           role={issues.length ? 'alert' : 'status'}
@@ -146,6 +172,9 @@ export function ComposerStatusRail({
         >
           {message}
         </span>
+        {running && live && tone === 'normal' && activity?.turnStartedAt !== undefined && (
+          <SessionTurnElapsed startedAt={activity.turnStartedAt} />
+        )}
         {queued > 0 && (
           <button
             type="button"
@@ -197,8 +226,20 @@ export function ComposerStatusRail({
             className="composer-status-dialog"
           >
             <p className="composer-status-baseline">
-              {running ? 'Agent working' : 'Ready for your next message'}
+              {running
+                ? live
+                  ? 'Agent working'
+                  : 'Reconnecting; showing last known activity'
+                : 'Ready for your next message'}
             </p>
+            {activity && (
+              <SessionActivityStatus
+                activity={activity}
+                modifiedAt={activity.lastEventAt}
+                connected={connected}
+              />
+            )}
+            {activity && <SessionActivityDetails activity={activity} connected={connected} />}
             {awaitingApproval && (
               <p>
                 A permission request is waiting in this conversation. Review the existing approval

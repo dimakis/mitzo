@@ -1416,6 +1416,7 @@ function ChatInputContent({
   return (
     <div className={`chat-input chat-input--compact${expanded ? ' chat-input--expanded' : ''}`}>
       <ComposerStatusRail
+        sessionId={sessionId}
         running={running}
         scope={composerScope}
         awaitingApproval={awaitingApproval}

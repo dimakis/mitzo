@@ -1,91 +1,80 @@
 import { useSessionInteraction, type SessionActionPoint } from '../hooks/useSessionInteraction';
-import { UiIcon, type UiIconName } from './UiIcon';
+import { UiIcon } from './UiIcon';
+import { SessionActivityStatus } from './SessionActivityStatus';
+import { useSessionOrder } from '../hooks/useSessionOrder';
 import { sessionStatusIcons } from '../lib/status-icons';
 import { useCallback } from 'react';
-import {
-  useSessionOverview,
-  type SessionActivity,
-  type SessionActivityState,
-} from '../hooks/useSessionOverview';
-
-const STATE_CONFIG: Record<
-  SessionActivityState,
-  { icon: UiIconName; color: string; label: string }
-> = {
-  init: { icon: sessionStatusIcons.init, color: 'var(--color-muted)', label: 'init' },
-  working: { icon: sessionStatusIcons.working, color: 'var(--color-accent)', label: 'working' },
-  waiting: { icon: sessionStatusIcons.waiting, color: 'var(--color-danger)', label: 'waiting' },
-  done: { icon: sessionStatusIcons.done, color: 'var(--color-success)', label: 'done' },
-  idle: { icon: sessionStatusIcons.idle, color: 'var(--color-muted)', label: 'idle' },
-  paused: { icon: sessionStatusIcons.paused, color: 'var(--color-muted)', label: 'paused' },
-};
-
-function formatElapsed(ms: number): string {
-  const seconds = Math.floor(ms / 1000);
-  if (seconds < 60) return 'just now';
-  const minutes = Math.floor(seconds / 60);
-  if (minutes < 60) return `${minutes}m`;
-  const hours = Math.floor(minutes / 60);
-  return `${hours}h`;
-}
+import { useSessionOverview, type SessionActivity } from '../hooks/useSessionOverview';
 
 function ActivityCard({
   activity,
   isActive,
   onTap,
   onActions,
+  connected,
 }: {
   activity: SessionActivity;
   isActive: boolean;
   onTap: (sessionId: string) => void;
   onActions?: (activity: SessionActivity, trigger: HTMLElement, point?: SessionActionPoint) => void;
+  connected?: boolean;
 }) {
   const handlers = useSessionInteraction(
     () => onTap(activity.sessionId),
     (trigger, point) => onActions?.(activity, trigger, point),
   );
-  const config = STATE_CONFIG[activity.state];
-  const elapsed = Date.now() - activity.lastEventAt;
-
-  let metaText = config.label;
-  if (activity.waitReason === 'permission') metaText = 'permission';
-  else if (activity.waitReason === 'review') metaText = 'review needed';
-  else if (activity.waitReason === 'blocked') metaText = 'blocked';
-  if (activity.progress) {
-    metaText += ` \u00B7 ${activity.progress.done}/${activity.progress.total}`;
-  }
-  metaText += ` \u00B7 ${formatElapsed(elapsed)}`;
 
   return (
     <button
       className={`cc-card cc-card--${activity.state}${isActive ? ' cc-card--current' : ''}`}
       {...(onActions ? handlers : { onClick: () => onTap(activity.sessionId) })}
     >
-      <span className="cc-card-icon" style={{ color: config.color }}>
-        <UiIcon name={config.icon} />
+      <span className="cc-card-icon">
+        <UiIcon name={sessionStatusIcons[activity.state]} />
       </span>
       <div className="cc-card-content">
         <div className="cc-card-title">{activity.title}</div>
-        <div className="cc-card-meta">{metaText}</div>
+        <div className="cc-card-meta">
+          <SessionActivityStatus
+            activity={activity}
+            modifiedAt={activity.lastMessageAt ?? activity.lastEventAt}
+            connected={connected}
+          />
+        </div>
       </div>
     </button>
   );
 }
 
 export interface ActiveSessionsListProps {
+  paused?: boolean;
   activeSessionId?: string;
   onSelectSession: (id: string) => void;
   onActions?: (activity: SessionActivity, trigger: HTMLElement, point?: SessionActionPoint) => void;
 }
 
 export function ActiveSessionsList({
+  paused = false,
   activeSessionId,
   onSelectSession,
   onActions,
 }: ActiveSessionsListProps) {
-  const { activities, attendCount } = useSessionOverview();
+  const { activities, attendCount, connected, lastKnownActivities = [] } = useSessionOverview();
 
-  const visible = activities.filter((a) => a.state !== 'idle' && a.state !== 'init');
+  const display = connected === false ? lastKnownActivities : activities;
+  const byId = new Map(display.map((a) => [a.sessionId, a]));
+  const ordered = useSessionOrder(
+    display.map((a) => ({
+      id: a.sessionId,
+      summary: a.title,
+      lastModified: a.lastMessageAt ?? a.lastEventAt,
+    })),
+    activities,
+    paused || connected === false,
+  );
+  const visible = ordered
+    .map((s) => byId.get(s.id)!)
+    .filter((a) => a.state !== 'idle' && a.state !== 'init');
 
   const handleTap = useCallback(
     (sessionId: string) => {
@@ -112,6 +101,7 @@ export function ActiveSessionsList({
           isActive={a.sessionId === activeSessionId}
           onTap={handleTap}
           onActions={onActions}
+          connected={connected}
         />
       ))}
     </div>
