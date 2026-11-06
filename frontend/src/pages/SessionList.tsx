@@ -430,7 +430,7 @@ export function SessionList() {
     sessions: all,
     pendingCount,
     showLatest,
-  } = useSessionOrdering([...combined.values()], activities, paused || connected === false);
+  } = useSessionOrdering([...combined.values()], activities, paused);
   const active = all.filter((s) => s.isActive);
   const attention = all.filter((s) => {
     const activity = byId.get(s.id);
@@ -679,7 +679,7 @@ export function SessionList() {
                   : filter === 'active'
                     ? 'In progress'
                     : 'Waiting for you'}
-                {pendingCount > 0 && connected !== false && !menu && !renaming && !removing && (
+                {pendingCount > 0 && !menu && !renaming && !removing && (
                   <button
                     type="button"
                     className="session-freshness"

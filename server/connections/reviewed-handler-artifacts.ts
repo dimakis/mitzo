@@ -10,8 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.895-chat-activity-and-native-subagents';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.896-chat-activity-lifecycle';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -23,6 +22,12 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
+  '../../frontend/src/lib/session-activity-store.ts':
+    'a51ea58dc33c787008a609c403731ad450ff1e9a4c9c01f72c13dee7d8d1c013',
+  '../../frontend/src/pages/__tests__/SessionLibraryFreshness.test.tsx':
+    'dc1d544f7428128729b65bff22d832150a6c77e94d062d096f32ae67f2f7741a',
+  '../../frontend/src/components/__tests__/ComposerActivity.lifecycle.test.tsx':
+    '6d08e5230f8187ba744ae8df6ff09b8a3c24f9ecaede41f99879b33713361a64',
   '../../frontend/src/components/__tests__/CodexQueueStatus.test.tsx':
     '8f1c270707731ac94b977ebb23e42af9265eaa8c41d77f499876a921255ab41e',
   '../../frontend/src/components/ActiveSessionsList.tsx':
@@ -155,9 +160,9 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/lib/session-attention.ts':
     '6fa04bdab57c51addab309cb27a24d0dcfd252999ef87506043274afb1a8ed08',
   '../../frontend/src/hooks/useSessionOverview.ts':
-    'b3a397d74429399161f44c3ced3ea1eadc698a4d741ed21bd39cf4d55cad077e',
+    '0f1c7754a55852ea9aa0dbc854f0d066d8cdd149c56e501d29868eecaf71c295',
   '../../frontend/src/hooks/__tests__/useSessionOverview.test.ts':
-    '334e1eabd70fd1a7e4c77dc63cb80a78937a3d577ebedc3c839decb924935265',
+    'ce86c5236f4f0f0b590db1e6c6d3de428654583c42807da5decb28b7b3ff8646',
   '../../frontend/src/hooks/__tests__/useSessionList.test.ts':
     '629c25b05a4ec4b1082475caa7a545e30d2ccea5b9eb0581b204407d377a56d8',
   '../__tests__/codex-chat-queue.test.ts':
@@ -551,7 +556,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/lib/__tests__/large-chat-storage.test.ts':
     '8cfd23321d205800a059acbfcd80ce3cff180b1f8cdf3f7b686454f69c247345',
   '../../frontend/src/render-app.tsx':
-    '8244b4f22a4a068e6498434aa0bc540fa6d20e124a8b8e310dbd5a1ee92628f4',
+    'ee2bdd5da0ff5e7fe15d8e32f9ebc9c21fab60c5d7c2d6a9189336dd9a0d81aa',
   '../../tests/fixtures/large-chat-storage.ts':
     'b79cfe7eb2612af8924ddb05170dbe0943f5467070b1c1f3381b328911e5d993',
   '../../tests/offline/large-chat-storage.spec.ts':
@@ -2123,7 +2128,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/components/SessionPanel.tsx':
     '38b879217b1c556620d4bfd4eff1bdea9d2875c85c4bb75989013fd5d06b7320',
   '../../frontend/src/pages/SessionList.tsx':
-    '03343cef277906d3166192d026b3912186c6afdb33018fb54d862398e0e53500',
+    '284f1fc32d70d9e6e90e1dff375fcee35a72e64ef9ce8ae2ebffcb19c1c350c8',
   '../task-orchestrator.ts': 'c55c69ed396f45f3799df6de183e5d62bfabfbc650c3d6a97657251a77b37288',
   '../telos-work-role-context.ts':
     '0991825e9841acec4acde362a289585c3bfcd3a9c9c52672564a243328407ede',
@@ -3418,7 +3423,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../tests/integration/telos-s9/integrated-candidate/supplemental-vitest-base.ts':
     'b9e107f73e7f3b030faf67efd5b0606b788f049d1861654e5b6b31598220a8d6',
   '../../frontend/src/components/ComposerStatus.tsx':
-    '97e4f81b71141fc1d9c1c632338f5f40ade9d29584e4fe428f0c23fa461b1511',
+    '474643b27320807b55af665d9cf7aaac8b6faf9a9d6e95f0de501466ece08747',
   '../../frontend/src/components/ComposerStatus.css':
     '508a40472279d43e008f22e9fd67b87e0b687e58446f7ad6027040c3d53a0096',
   '../../frontend/src/lib/composer-status-context.ts':

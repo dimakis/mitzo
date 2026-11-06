@@ -1,5 +1,8 @@
-import { useState, useEffect, useMemo } from 'react';
-import { eventBus } from '../lib/event-bus-singleton';
+import { useMemo, useSyncExternalStore } from 'react';
+import {
+  subscribeSessionActivity as subscribe,
+  getSessionActivitySnapshot as getSnapshot,
+} from '../lib/session-activity-store';
 import { sessionNeedsYouReason } from '../lib/session-attention';
 import type { SessionActivity } from '@mitzo/protocol';
 
@@ -39,30 +42,11 @@ export interface UseSessionOverviewReturn {
 }
 
 export function useSessionOverview(): UseSessionOverviewReturn {
-  const [activities, setActivities] = useState<SessionActivity[]>([]);
-  const [lastKnownActivities, setLastKnownActivities] = useState<SessionActivity[]>([]);
-  const [connected, setConnected] = useState(eventBus.connected);
-
-  useEffect(() => {
-    const unsubActivity = eventBus.on('session_activity', (data) => {
-      setActivities(data as SessionActivity[]);
-      setLastKnownActivities(data as SessionActivity[]);
-    });
-    const unsubConnection = eventBus.onConnectionChange((c) => {
-      setConnected(c);
-      if (!c) setActivities([]);
-    });
-    const clear = () => {
-      setActivities([]);
-      setLastKnownActivities([]);
-    };
-    window.addEventListener('mitzo:auth-lost', clear);
-    return () => {
-      unsubActivity();
-      unsubConnection();
-      window.removeEventListener('mitzo:auth-lost', clear);
-    };
-  }, []);
+  const { activities, lastKnownActivities, connected } = useSyncExternalStore(
+    subscribe,
+    getSnapshot,
+    getSnapshot,
+  );
 
   const sorted = useMemo(() => sortByTier(activities), [activities]);
   const attendCount = useMemo(

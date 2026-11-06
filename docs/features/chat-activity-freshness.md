@@ -28,10 +28,17 @@ batches. Tool-only changes update status without reordering. Pointer/touch,
 scrolling, keyboard interaction, search and action dialogs retain list positions;
 the library exposes **updated · show latest** for queued moves. Device pins keep
 their saved order and search retains its result order. With no live projection,
-saved HTTP freshness reconciles the list after reconnect/refresh. Last-known
+saved HTTP freshness reconciles the list on refresh even during an SSE outage. Last-known
 disconnected activity is display-only, stops animated bars and cannot override
 fresh HTTP state or establish an actionable approval. Authentication loss clears it.
 Permission lifecycle changes request a coalesced refresh even without provider output.
+
+The application starts one shared activity snapshot before authentication opens SSE.
+Newly mounted views receive the current phase and turn clock without waiting for a
+new event. Disconnect clears the live projection while retaining display evidence;
+authentication boundaries clear both, and late callbacks after auth loss are ignored.
+The composer stops its live bars and elapsed clock while reconnecting. Browsing
+still holds HTTP-driven moves, with **show latest** available during an SSE outage.
 
 One shared subscriber clock updates rendered time labels every second and stops
 when no timestamp is mounted. It performs no polling and never changes list order.
@@ -49,12 +56,15 @@ Chromium, both themes, alternate accents/fonts, active bars, elapsed labels,
 assistant-message freshness, pointer-held updates and the actual composer with a
 retained draft and status details. Its source bundles successfully with esbuild.
 
-Browser execution is **unverified**: the explicitly approved host command still
-inherited the macOS Seatbelt marker, and the repository guard refused before
-launch. No browser was launched and no rendered screenshot was inspected. CI must
-run the offline fixture, the existing chat-settings/chat-status contracts and
-full build/type checks. Staging is stood down. This work does not deploy or restart
-production, and a draft PR is not acceptance or deployment.
+Hosted CI on `91617da98d6e357e3d49ad19718f4e7746caf19b` passed all 36 checks,
+including mobile WebKit/Chromium and desktop Chromium layouts, browser interactions,
+four unit-test shards, full builds/type checks and native acceptance. Retained light
+and dark desktop/phone library and composer captures were inspected. The subsequent
+Centaur lifecycle fixes add coverage for HTTP freshness during an outage, held
+updates, late-mounted rails, disconnect and authentication clearing. These fixes
+require fresh current-head CI and final Centaur approval before merge. Local browser
+execution remains blocked by the repository's Seatbelt guard. Staging is stood down;
+this work does not deploy or restart production.
 
 Shared tokens supply colors, font roles, spacing, radii, control height and status
 animation duration. The 2px bars/gaps are indicator geometry. Existing ledger

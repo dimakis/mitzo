@@ -89,9 +89,18 @@ export function ComposerStatusRail({
   awaitingApproval?: boolean;
   sessionId?: string;
 }) {
-  const { activities, connected } = useSessionOverview();
-  const activity = activities.find((a) => a.sessionId === sessionId);
-  const workingLabel = activity?.state === 'working' ? sessionActivityLabel(activity) : 'Working';
+  const { activities, connected, lastKnownActivities = [] } = useSessionOverview();
+  const activity = (connected ? activities : lastKnownActivities).find(
+    (a) => a.sessionId === sessionId,
+  );
+  // Unassigned admission rails keep their existing transport notices. Once a
+  // session is assigned, a retained running flag is not proof of live activity.
+  const live = !sessionId || connected;
+  const workingLabel = !live
+    ? 'Reconnecting'
+    : activity?.state === 'working'
+      ? sessionActivityLabel(activity)
+      : 'Working';
   const sink = useComposerStatusSink();
   const view = useContext(ViewContext);
   const [visited, setVisited] = useState(false);
@@ -151,7 +160,7 @@ export function ComposerStatusRail({
         aria-label="Conversation status"
         data-tone={tone}
       >
-        {running && tone === 'normal' ? (
+        {running && live && tone === 'normal' ? (
           <ActivityBars />
         ) : (
           <span className="composer-status-dot" aria-hidden="true" />
@@ -163,7 +172,7 @@ export function ComposerStatusRail({
         >
           {message}
         </span>
-        {running && tone === 'normal' && activity?.turnStartedAt !== undefined && (
+        {running && live && tone === 'normal' && activity?.turnStartedAt !== undefined && (
           <SessionTurnElapsed startedAt={activity.turnStartedAt} />
         )}
         {queued > 0 && (
@@ -217,7 +226,11 @@ export function ComposerStatusRail({
             className="composer-status-dialog"
           >
             <p className="composer-status-baseline">
-              {running ? 'Agent working' : 'Ready for your next message'}
+              {running
+                ? live
+                  ? 'Agent working'
+                  : 'Reconnecting; showing last known activity'
+                : 'Ready for your next message'}
             </p>
             {activity && (
               <SessionActivityStatus
