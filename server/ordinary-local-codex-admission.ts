@@ -1,3 +1,4 @@
+import { findSessionRuntimeError } from './session-runtime-error.js';
 import { CHAT_MAX_COMMAND_BYTES } from '@mitzo/protocol';
 import { findNativeMacExecutionUnavailable } from './codex-native-artifact-qualification.js';
 import { createHash } from 'node:crypto';
@@ -542,7 +543,9 @@ export class OrdinaryLocalCodexAdmissionCoordinator {
         entered = true;
         try {
           await lease.assertCurrent();
-        } catch {
+        } catch (error) {
+          const failure = findSessionRuntimeError(error);
+          if (failure) throw failure;
           fail(claimed ? 'dispatch_uncertain' : 'authority_unavailable');
         }
         if (!d.bootstrapAuthority && !claim()) return { dispatched: false };
@@ -556,6 +559,8 @@ export class OrdinaryLocalCodexAdmissionCoordinator {
           if (d.recovery) d.recovery.complete();
           else d.store.completeOrdinaryLocalCommand(request.clientMsgId);
         } catch (error) {
+          const failure = findSessionRuntimeError(error);
+          if (failure) throw failure;
           const capabilityError = findNativeMacExecutionUnavailable(error);
           if (capabilityError) throw capabilityError;
           fail('dispatch_uncertain');
@@ -571,6 +576,8 @@ export class OrdinaryLocalCodexAdmissionCoordinator {
       if (!result) fail(claimed ? 'dispatch_uncertain' : 'authority_unavailable');
       return result;
     } catch (error) {
+      const failure = findSessionRuntimeError(error);
+      if (failure) throw failure;
       const capabilityError = findNativeMacExecutionUnavailable(error);
       if (capabilityError) throw capabilityError;
       if (error instanceof OrdinaryLocalCodexAdmissionError) throw error;

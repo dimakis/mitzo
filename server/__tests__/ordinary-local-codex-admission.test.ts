@@ -782,3 +782,17 @@ describe('bound Local continuation coordinator', () => {
     }
   });
 });
+
+it.each(['authority', 'dispatch'] as const)(
+  'preserves a reviewed %s failure without completing or replaying admission',
+  async (stage) => {
+    const f = fixture();
+    const { SessionRuntimeError } = await import('../session-runtime-error.js');
+    const failure = new SessionRuntimeError('input_not_dispatched');
+    if (stage === 'authority') f.authority.withAdmission.mockRejectedValueOnce(failure);
+    else f.effects.dispatch.mockRejectedValueOnce(failure);
+    await expect(f.coordinator.admit(f.meta, f.request, f.effects)).rejects.toBe(failure);
+    expect(f.store.completeOrdinaryLocalCommand).not.toHaveBeenCalled();
+    expect(f.effects.dispatch).toHaveBeenCalledTimes(stage === 'dispatch' ? 1 : 0);
+  },
+);

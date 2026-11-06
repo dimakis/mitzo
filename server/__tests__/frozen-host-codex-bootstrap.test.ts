@@ -1,5 +1,6 @@
 import './fixtures/offline-user-home.js';
 import { afterEach, expect, it, vi } from 'vitest';
+import { refreshedAuth, signingKey } from './fixtures/codex-refresh-auth.js';
 import { createHash } from 'node:crypto';
 import { mkdirSync, mkdtempSync, readdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -1912,5 +1913,95 @@ it('refuses a malformed original ordinary async full-current result before claim
   } finally {
     f.authority.currentLease()?.close();
     f.store.close();
+  }
+});
+
+it('keeps the real owned bootstrap and later credential fences usable across signed native/source refresh', async () => {
+  const f = fixture();
+  const epoch = Math.floor(Date.now() / 1000) - 60;
+  writeFileSync(join(f.configuration[0].credentialRef, 'auth.json'), refreshedAuth(epoch));
+  const fetch = vi.fn(
+    async (url: string | URL) =>
+      new Response(
+        JSON.stringify(
+          String(url).endsWith('openid-configuration')
+            ? {
+                issuer: 'https://auth.openai.com',
+                jwks_uri: 'https://auth.openai.com/fixture-keys',
+              }
+            : {
+                keys: [
+                  {
+                    ...signingKey.publicKey.export({ format: 'jwk' }),
+                    kid: 'fixture-key',
+                    alg: 'RS256',
+                    use: 'sig',
+                  },
+                ],
+              },
+        ),
+      ),
+  );
+  vi.stubGlobal('fetch', fetch);
+  f.rpc.initialize.mockImplementationOnce(async () => {
+    writeFileSync(
+      join(f.privateRoot, `host-login-${f.expected.bootstrapId}`, 'auth.json'),
+      refreshedAuth(epoch + 20),
+    );
+  });
+  try {
+    await f.authority.withBootstrap(f.expected, f.claim, async (lease) => {
+      const original = lease.custodySnapshot!();
+      writeFileSync(join(f.configuration[0].credentialRef, 'auth.json'), refreshedAuth(epoch + 30));
+      await lease.assertToolCurrent!(f.options.signal);
+      expect(lease.custodySnapshot!()).toEqual(original);
+      expect(f.rpc.close).not.toHaveBeenCalled();
+      expect(f.store.getOrdinaryLocalCommandAdmission('command')?.state).toBe('uncertain');
+    });
+  } finally {
+    f.authority.currentLease()?.close();
+    f.store.close();
+    vi.unstubAllGlobals();
+  }
+});
+
+it('delivers a legacy login-refresh diagnostic before its native connection closes', async () => {
+  const f = fixture();
+  const onClose = vi.fn();
+  Object.assign(f.options, { lifecycle: { onNotification: vi.fn(), onRequest: vi.fn(), onClose } });
+  f.rpc.close.mockImplementation(() => onClose(Error('generic physical closure')));
+  try {
+    await f.authority.withBootstrap(f.expected, f.claim, async (lease) => {
+      writeFileSync(
+        join(f.configuration[0].credentialRef, 'auth.json'),
+        refreshedAuth(Math.floor(Date.now() / 1000)),
+      );
+      expect(() => lease.assertCurrentSync()).toThrow();
+      expect(onClose.mock.calls[0]?.[0]).toMatchObject({ code: 'login_refresh_reauthorization' });
+      expect(f.rpc.close).toHaveBeenCalledOnce();
+      expect(f.store.getOrdinaryLocalCommandAdmission('command')?.state).toBe('uncertain');
+    });
+  } finally {
+    f.authority.currentLease()?.close();
+    f.store.close();
+  }
+});
+
+it('leaves the original command unclaimed when public signing-key preflight fails', async () => {
+  const f = fixture();
+  const epoch = Math.floor(Date.now() / 1000) - 60;
+  writeFileSync(join(f.configuration[0].credentialRef, 'auth.json'), refreshedAuth(epoch));
+  const fetch = vi.fn(async () => new Response('', { status: 503 }));
+  vi.stubGlobal('fetch', fetch);
+  try {
+    await expect(
+      f.authority.withBootstrap(f.expected, f.claim, async () => {}),
+    ).rejects.toMatchObject({ code: 'login_verification_unavailable' });
+    expect(f.store.getSendCommand('command')).toBeUndefined();
+    expect(f.rpc.initialize).not.toHaveBeenCalled();
+    expect(readdirSync(f.privateRoot)).toEqual([]);
+  } finally {
+    f.store.close();
+    vi.unstubAllGlobals();
   }
 });
