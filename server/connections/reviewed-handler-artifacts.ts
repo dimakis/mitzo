@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.891-telos-review-evidence';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.892-inbox-mutation-authority';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -45,7 +45,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/notification-center.test.ts':
     'f35bc0faa222437f0cd8bde87854b9fdded76ed480cff43ee6deb2e5709472a3',
   '../../docs/operations/runtime-performance.md':
-    'c2bdd3fc8042280e4eeca0fd60cb2f10267565c2410cd44f249a500f68be7436',
+    '1ce453628c3e0fbef6850e53193a3b9981978832f79555661a5eacbdce5f503e',
   '../../packages/protocol/src/session-search-index.ts':
     '17a33f9f1b4459707b8458955aca0781ad25b4e489e0c439bc83de85248610cc',
   '../../packages/protocol/src/session-search-worker.ts':
@@ -1621,7 +1621,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../session-access.ts': 'feeeea5ffcf16bb1c4542191a74d5eebde2ea2dbcac7cf0e5315d05e2249b1dc',
   '../session-metadata-error.ts':
     '377bd861f0e48e022fb49fb8c021e14f2da8d921f9d61c9fa738f31080596eae',
-  '../app.ts': 'b0bb2e16ca82fcc5ce68e4cfee21b1d2754433e4a064e5a9a7f4275e9dbbf4fd',
+  '../app.ts': 'a061a56a1f2186ca9ca894d2f0113b90805be3e30a6f000b8cbeee13c15cbd67',
   '../auth-check-tracing.ts': '067dc344d8ee76ffe39739a99076f614711ca3d11f96682c842c596a7bbd112e',
   '../telemetry-relay.ts': '302bf6cec2b988ae71a123a5dd04d0f2266a82c3ee51873ec64d8be452c25427',
   '../symposium-review-route-composition.ts':
