@@ -2567,7 +2567,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/agent-communication-nongit-app.test.ts':
     '516a2c0fe4c181455f7ae7470fc5ccf2de91435b034ebadc2d21cd9de67011a9',
   '../__tests__/agent-communication-nongit-native.test.ts':
-    '8ea70c68361e94ceb9b5105520603d5d31693dcc2e765307fce217d75ceff4c7',
+    '09f869d539d9bb19cd838a00f85112627f8b3b6af80fed416a9f8f45f2fa227c',
   '../__tests__/fixtures/native-provider-tool-call.ts':
     '4fec812e60bbb6cb649a7ee02e619dd7715f3483bae813366f834f7393a81e92',
   '../__tests__/fixtures/owned-ordinary-workspace-runtime.ts':
