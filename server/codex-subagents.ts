@@ -13,7 +13,7 @@ import {
   type NativeSubagentSnapshot,
 } from '@mitzo/protocol';
 import type { CodexServerRequestContext } from './codex-app-server-client.js';
-import { CodexRequestError } from './codex-app-server-client.js';
+import { CodexRequestError, CodexHostToolRequestError } from './codex-app-server-client.js';
 import { CodexNativeFileChange } from './codex-native-file-change.js';
 import {
   codexNativeExecutionParams,
@@ -753,9 +753,17 @@ export class CodexSubagents {
       }
     }
     if (method !== 'item/tool/call') throw Error('Unsupported child host request');
-    const call = ToolCall.parse(params);
-    if (!this.opts.tools.some((tool) => tool.name === call.tool))
-      throw Error('Child tool unavailable');
+    const refuse = (category: 'invalid_tool_request' | 'tool_unavailable'): never => {
+      const error = new CodexHostToolRequestError(category);
+      // The child and its original turn passed current(); no claim or executor
+      // was entered. Qualify only this exact RPC for the owned bridge.
+      context?.registerPreExecutionRefusal?.(error);
+      throw error;
+    };
+    const parsed = ToolCall.safeParse(params);
+    if (!parsed.success) return refuse('invalid_tool_request');
+    const call = parsed.data;
+    if (!this.opts.tools.some((tool) => tool.name === call.tool)) return refuse('tool_unavailable');
     // Workspace/environment changes belong to the parent admission owner.
     if (['PrepareLocalRepository', 'RequestGithubPublish'].includes(call.tool))
       return {

@@ -4,6 +4,7 @@ import {
   CodexAppServerClient,
   CodexServerRequestResolvedError,
   CodexTransportError,
+  CodexHostToolRequestError,
 } from '../codex-app-server-client.js';
 import { describe, expect, it, vi } from 'vitest';
 import type { CodexLifecycleTransport } from '../codex-app-server-client.js';
@@ -13,6 +14,20 @@ import { createCodexNativeApprovalHandler } from '../codex-native-approvals.js';
 import { SessionRegistry } from '../session-registry.js';
 import { resolvePending } from '../permissions.js';
 import { setSkillPolicy } from '@mitzo/harness';
+import { SessionRuntimeError } from '../session-runtime-error.js';
+
+it('retains reviewed workspace failure through physical-close reentry', () => {
+  const f = fixture();
+  f.bridge.attach(f.owner);
+  const failure = new SessionRuntimeError('workspace_branch_changed');
+  vi.mocked(f.lease.close).mockImplementation(() =>
+    f.bridge.lifecycle.onClose(new CodexTransportError('connection')),
+  );
+  f.bridge.lifecycle.onClose(failure);
+  expect(f.owner.onClose).toHaveBeenCalledOnce();
+  expect(f.owner.onClose).toHaveBeenCalledWith(failure);
+  expect(f.lease.close).toHaveBeenCalledOnce();
+});
 
 function fixture() {
   const client = {
@@ -80,6 +95,40 @@ function nativeTransportFixture() {
 }
 
 describe('owned Codex lifecycle bridge', () => {
+  it.each(['invalid_tool_request', 'tool_unavailable'] as const)(
+    'delivers a proven %s refusal and accepts the next native request',
+    async (category) => {
+      const f = nativeTransportFixture();
+      vi.mocked(f.owner.onRequest).mockImplementationOnce(
+        async (_method, _params, _signal, context) => {
+          const failure = new CodexHostToolRequestError(category);
+          context!.registerPreExecutionRefusal!(failure);
+          throw failure;
+        },
+      );
+      f.reply({ id: 'refused', method: 'item/tool/call', params: {} });
+      await vi.waitFor(() => expect(f.sent).toHaveLength(1));
+      expect(f.sent[0]).toMatchObject({ id: 'refused', result: { success: false } });
+      expect(f.child.kill).not.toHaveBeenCalled();
+      expect(f.lease.close).not.toHaveBeenCalled();
+      f.reply({ id: 'next', method: 'item/tool/call', params: {} });
+      await vi.waitFor(() => expect(f.sent).toHaveLength(2));
+      expect(f.sent[1]).toEqual({ id: 'next', result: { content: 'owner-result' } });
+      f.transport.close();
+    },
+  );
+
+  it('refuses an unqualified host-tool error even when its class describes a safe refusal', async () => {
+    const f = nativeTransportFixture();
+    vi.mocked(f.owner.onRequest).mockRejectedValue(
+      new CodexHostToolRequestError('tool_unavailable'),
+    );
+    f.reply({ id: 'unproven', method: 'item/tool/call', params: {} });
+    await vi.waitFor(() => expect(f.child.kill).toHaveBeenCalledOnce());
+    expect(f.sent).toEqual([]);
+    expect(f.lease.close).toHaveBeenCalledOnce();
+  });
+
   it.each([
     'on time',
     'expired input',

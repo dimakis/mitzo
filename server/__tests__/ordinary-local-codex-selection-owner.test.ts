@@ -367,7 +367,10 @@ it('validates the retained Git claim after asynchronous workspace authorization'
     f.git(f.cwd, 'checkout', '-qb', 'substituted-branch');
     return descriptor;
   });
-  await expect(f.owner.assertCurrent(f.expected)).rejects.toThrow('selection unavailable');
+  await expect(f.owner.assertCurrent(f.expected)).rejects.toMatchObject({
+    name: 'SessionRuntimeError',
+    code: 'workspace_branch_changed',
+  });
 });
 it('preserves legitimate edits and commits in the same retained checkout and Git directory', async () => {
   const f = await claimedFixture();
