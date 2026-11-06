@@ -1357,8 +1357,14 @@ export class AccountProfiles {
         MITZO_CLAUDE_EXPECTED_EMAIL: profile.email,
         MITZO_CLAUDE_EXPECTED_PLAN: profile.planType,
       };
+    // Preserve the operator's existing Vertex history root, but never carry a
+    // personal account's selected directory into a work session.
+    const vertexConfigDirectory = base.MITZO_CLAUDE_EXPECTED_EMAIL
+      ? undefined
+      : base.CLAUDE_CONFIG_DIR;
     return {
       ...env,
+      ...(vertexConfigDirectory ? { CLAUDE_CONFIG_DIR: vertexConfigDirectory } : {}),
       CLAUDE_CODE_USE_VERTEX: '1',
       ANTHROPIC_VERTEX_PROJECT_ID: profile.projectId,
       CLOUD_ML_REGION: profile.region,

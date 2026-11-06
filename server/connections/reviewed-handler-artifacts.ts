@@ -44,7 +44,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../claude-personal-policy.ts':
     '2b8879197acffdee9d40a46e334a3243b9edc68dd41a80045ab5d2cf30baee90',
   '../__tests__/claude-personal-account.test.ts':
-    '99dabbb4effd2b3d909123df331da2cbc8a24514cc9a267fe5b9c695071a75e4',
+    'a5cf9b15d258757785c05a98625c030ced8a3c0b88a44034ec47c0ed34bddff9',
   '../__tests__/claude-subscription-custody.test.ts':
     'c11f4bafc57d99eb16abbbf47f73e3ebf4b78af448a8463b11bf3c4a3f9ab346',
   '../__tests__/claude-account-history.test.ts':
@@ -1598,7 +1598,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../legacy-chat-delivery.ts': '30e041a7b8d1279cefae9198639444fa8e3dd4f76386598ec50ce66741f09f5c',
   '../chat-rest-handler.ts': '90ebbfbf3788386e7f3325b6d0b796823c13da73e8a3f14393e598b3173239b3',
   '../query-loop.ts': 'fcb6189e59c89cf2265b54ae88f61952b2a9a69150797adaa9d9f6f2d36f3922',
-  '../account-profiles.ts': '3e1ceaadaf5d6555593628756c8261b2bb142bc8cfe8c679fd615aff7e215aad',
+  '../account-profiles.ts': '148dc301211898ee5cc2789ddad4f21ab77c70edebce216eddc5e7f42e046968',
   '../ordinary-turn-lifecycle.ts':
     'a138e83ba1a2ec8ceaef967858fb926d5de83658d21f555f32c98174afd4064b',
   '../ordinary-contributor-guidance.ts':

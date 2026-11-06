@@ -54,6 +54,11 @@ it('isolates both auth modes and binds personal configuration changes to the sav
     models: personal.models,
   };
   const profiles = new AccountProfiles([personal, vertex]);
+  expect(
+    profiles.sdkEnv(profiles.resolve('work', personal.models[0].id), {
+      CLAUDE_CONFIG_DIR: '/private/tmp/work-history',
+    }).CLAUDE_CONFIG_DIR,
+  ).toBe('/private/tmp/work-history');
   const base = {
     PATH: '/usr/bin',
     HOME: '/private/tmp/host',
