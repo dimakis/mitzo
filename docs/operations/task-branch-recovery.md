@@ -34,3 +34,19 @@ Separate bootstrap and lifecycle tests verify that the reviewed diagnostic
 arrives before physical closure can overwrite its cause. Other connection
 failures require their own evidence; branch recovery does not resolve approval,
 credential, provider or callback failures.
+
+## Safe tool refusals through the Local Mac wrapper
+
+The wider audit also reproduced a separate integration failure: the conversation
+settled malformed or unavailable tool requests before execution, but the owned
+Local Mac lifecycle bridge closed the connection when the same refusal passed
+through it. Tests that called the conversation directly missed this wrapper.
+
+The conversation now supplies private proof for its exact refused RPC. The
+bridge retains the connection only for a matching pre-execution refusal under
+the original current lease. Reused errors, uncertain ledger effects, stale
+identity, cancellation and changed authorization still retire the transport.
+Failed replies pass the same final response fences as successful replies,
+because either response can resume provider inference. Offline tests exercise
+both the real conversation/bridge composition and the native response transport.
+This reproduced defect is not retrospective proof of every logged disconnect.

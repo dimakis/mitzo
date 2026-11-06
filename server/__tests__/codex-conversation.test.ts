@@ -42,6 +42,8 @@ import {
   trace,
 } from '@opentelemetry/api';
 import { AsyncLocalStorage } from 'node:async_hooks';
+import { OwnedCodexLifecycleBridge } from '../owned-codex-lifecycle-bridge.js';
+import type { FrozenHostCodexBootstrapLease } from '../frozen-host-codex-bootstrap.js';
 const cleanup: (() => void)[] = [];
 const binding = {
   accountId: 'personal',
@@ -1536,6 +1538,10 @@ async function setup(
     approvedSearchOnCurrentTransport?: boolean;
   },
   initialProviderThread = 'provider-thread',
+  lifecycleWrapper?: (
+    owner: CodexLifecycleTransport,
+    client: ReturnType<CodexConversationOptions['createClient']>,
+  ) => CodexLifecycleTransport,
 ) {
   const dir = mkdtempSync(join(tmpdir(), 'mitzo-codex-'));
   const store = existingStore ?? new CodexConversationStore(join(dir, 'private.db'));
@@ -1669,6 +1675,7 @@ async function setup(
           cb.onNotification(method, params);
         },
       };
+      if (lifecycleWrapper) callbacks = lifecycleWrapper(callbacks, rpc);
       return rpc;
     },
     emit: (e) => events.push(e),
@@ -3155,6 +3162,136 @@ it.each(['functions', '', null, undefined])(
     expect(execute).toHaveBeenCalledOnce();
   },
 );
+
+async function setupOwnedRefusal(authorize?: (signal: AbortSignal) => Promise<void>) {
+  const args: Parameters<typeof setup> = [];
+  const close = vi.fn();
+  args[25] = authorize;
+  args[32] = (owner, client) => {
+    const lease: FrozenHostCodexBootstrapLease = {
+      client,
+      binding,
+      profile: {
+        accountId: 'personal',
+        accountLabel: 'Offline',
+        model: 'test-model',
+        credentialRef: '/offline',
+        email: 'test@example.com',
+        planType: 'test',
+      },
+      privateHome: '/offline',
+      executableSha256: 'a'.repeat(64),
+      assertCurrent: async () => {},
+      assertCurrentSync: () => {},
+      close,
+    };
+    const bridge = new OwnedCodexLifecycleBridge(() => lease);
+    bridge.attach(owner);
+    return bridge.lifecycle;
+  };
+  return { ...(await setup(...args)), close };
+}
+
+it.each(['invalid_tool_request', 'tool_unavailable'] as const)(
+  'keeps the owned Mac bridge usable after a proven %s refusal',
+  async (category) => {
+    const f = await setupOwnedRefusal(async () => {});
+    await f.c.send({ id: 'refused', prompt: 'read' });
+    await f.c.send({ id: 'next', prompt: 'continue' });
+    const input = {
+      threadId: 'provider-thread',
+      turnId: 'turn-1',
+      callId: 'refused',
+      tool: 'Read',
+      arguments: {},
+    };
+    await expect(
+      f.callbacks.onRequest(
+        'item/tool/call',
+        {
+          ...input,
+          ...(category === 'invalid_tool_request' ? { arguments: 'invalid' } : { tool: 'Unknown' }),
+        },
+        new AbortController().signal,
+        { requestId: 'refused' },
+      ),
+    ).rejects.toMatchObject({ category });
+    expect(f.close).not.toHaveBeenCalled();
+    expect(f.execute).not.toHaveBeenCalled();
+    await expect(
+      f.callbacks.onRequest(
+        'item/tool/call',
+        { ...input, callId: 'valid' },
+        new AbortController().signal,
+        { requestId: 'valid' },
+      ),
+    ).resolves.toMatchObject({ success: true });
+    f.callbacks.onNotification('turn/completed', {
+      threadId: 'provider-thread',
+      turn: { id: 'turn-1', status: 'completed' },
+    });
+    await vi.waitFor(() =>
+      expect(f.c.queue().map(({ status }) => status)).toEqual(['completed', 'running']),
+    );
+    expect(f.onClosed).not.toHaveBeenCalled();
+    expect(f.close).not.toHaveBeenCalled();
+  },
+);
+
+it('keeps owned Mac refusal proof scoped to its original request', async () => {
+  const authorize = vi.fn(async () => {});
+  const f = await setupOwnedRefusal(authorize);
+  await f.c.send({ id: 'refused', prompt: 'read' });
+  const input = {
+    threadId: 'provider-thread',
+    turnId: 'turn-1',
+    callId: 'refused',
+    tool: 'Unknown',
+    arguments: {},
+  };
+  const signal = new AbortController().signal;
+  const failure = await f.callbacks
+    .onRequest('item/tool/call', input, signal, { requestId: 'refused' })
+    .catch((error: unknown) => error);
+  expect(f.close).not.toHaveBeenCalled();
+  vi.spyOn(f.store, 'recordToolResult').mockImplementation(() => {
+    throw failure;
+  });
+  await expect(
+    f.callbacks.onRequest(
+      'item/tool/call',
+      { ...input, callId: 'executed', tool: 'Read' },
+      signal,
+      { requestId: 'executed' },
+    ),
+  ).rejects.toThrow();
+  expect(f.execute).toHaveBeenCalledOnce();
+  expect(f.close).toHaveBeenCalledOnce();
+});
+
+it('closes the owned Mac bridge when final authority changes after a proven refusal', async () => {
+  const authorize = vi.fn(async () => {});
+  const f = await setupOwnedRefusal(authorize);
+  await f.c.send({ id: 'refused', prompt: 'read' });
+  const revoked = Error('private revocation');
+  authorize.mockResolvedValueOnce(undefined).mockRejectedValueOnce(revoked);
+  await expect(
+    f.callbacks.onRequest(
+      'item/tool/call',
+      {
+        threadId: 'provider-thread',
+        turnId: 'turn-1',
+        callId: 'refused',
+        tool: 'Unknown',
+        arguments: {},
+      },
+      new AbortController().signal,
+      { requestId: 'refused' },
+    ),
+  ).rejects.toThrow();
+  expect(f.execute).not.toHaveBeenCalled();
+  expect(f.close).toHaveBeenCalledOnce();
+});
 
 it.each(
   [false, true].flatMap((authorize) =>

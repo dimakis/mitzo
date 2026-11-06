@@ -756,6 +756,36 @@ describe('Codex app-server transport', () => {
     },
   );
 
+  it.each(['throw', 'async'] as const)(
+    'fences rejected host replies before delivery (%s)',
+    async (failure) => {
+      const { child, sent, reply } = processStub();
+      const fence = vi.fn(() => {
+        if (failure === 'async') return Promise.resolve() as never;
+        throw Error('private revoked owner');
+      });
+      const lifecycle: CodexLifecycleTransport = {
+        onNotification: vi.fn(),
+        onClose: vi.fn(),
+        onRequest: async (_method, _params, _signal, context) => {
+          context!.registerResponseFence!(fence);
+          throw new CodexHostToolRequestError('tool_unavailable');
+        },
+      };
+      const client = new CodexAppServerClient(child, { lifecycle });
+      reply({ id: 'refused', method: 'item/tool/call', params: {} });
+      await vi.waitFor(() => expect(child.kill).toHaveBeenCalledOnce());
+      expect(fence).toHaveBeenCalledOnce();
+      expect(sent).toEqual([]);
+      expect(lifecycle.onClose).toHaveBeenCalledWith(
+        expect.objectContaining({
+          diagnostic: { reason: 'host_response_fence_failed' },
+        }),
+      );
+      client.close();
+    },
+  );
+
   it('preserves the bounded rejection class without exposing request data', async () => {
     const { child, sent, reply } = processStub();
     const lifecycle = {

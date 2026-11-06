@@ -2,6 +2,7 @@ import {
   CodexServerRequestResolvedError,
   CodexTurnCompletedError,
   CodexTransportError,
+  CodexHostToolRequestError,
   type CodexLifecycleTransport,
 } from './codex-app-server-client.js';
 import type { FrozenHostCodexBootstrapLease } from './frozen-host-codex-bootstrap.js';
@@ -67,6 +68,7 @@ export class OwnedCodexLifecycleBridge {
       },
       onRequest: async (method, params, signal, context) => {
         let originalLease: FrozenHostCodexBootstrapLease | undefined;
+        let preExecutionRefusal: CodexHostToolRequestError | undefined;
         const requestId = context?.requestId;
         try {
           if (!this.#owner) throw unavailable();
@@ -80,12 +82,26 @@ export class OwnedCodexLifecycleBridge {
           await observeLocalCodexPhase('host_tool_admission', () => this.admit(lease, signal));
           signal.throwIfAborted();
           this.assertCurrentSync();
+          const requestContext =
+            context && method === 'item/tool/call'
+              ? Object.freeze({
+                  ...context,
+                  registerPreExecutionRefusal: (error: CodexHostToolRequestError) => {
+                    if (
+                      method === 'item/tool/call' &&
+                      error instanceof CodexHostToolRequestError &&
+                      ['invalid_tool_request', 'tool_unavailable'].includes(error.category)
+                    )
+                      preExecutionRefusal = error;
+                  },
+                })
+              : context;
           const result = await observeLocalCodexPhase('host_tool_execution', () =>
             this.#owner!.onRequest(
               method,
               params,
               AbortSignal.any([signal, this.#abort.signal]),
-              ...(context ? [context] : []),
+              ...(requestContext ? [requestContext] : []),
             ),
           );
           // The existing conversation/tool ledger owns any effects already
@@ -93,7 +109,16 @@ export class OwnedCodexLifecycleBridge {
           signal.throwIfAborted();
           this.assertCurrentSync();
           return result;
-        } catch {
+        } catch (error) {
+          let safelyRefused = false;
+          if (preExecutionRefusal !== undefined && error === preExecutionRefusal) {
+            try {
+              signal.throwIfAborted();
+              safelyRefused = this.assertCurrentSync() === originalLease;
+            } catch {
+              /* Changed authority still retires the original transport. */
+            }
+          }
           let requestAlreadyResolved = false;
           if (
             signal.aborted &&
@@ -111,8 +136,8 @@ export class OwnedCodexLifecycleBridge {
               /* A revoked/replaced owner still closes the lease. */
             }
           }
-          if (!requestAlreadyResolved) this.close();
-          throw unavailable();
+          if (!requestAlreadyResolved && !safelyRefused) this.close();
+          throw safelyRefused ? error : unavailable();
         }
       },
       onClose: (error) =>

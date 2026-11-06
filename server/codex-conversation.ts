@@ -587,6 +587,7 @@ export class CodexConversation {
           () =>
             this.request(m, p, s, requestContext, (error) => {
               preExecutionRefusal = error;
+              requestContext?.registerPreExecutionRefusal?.(error);
             }),
           (error) =>
             (preExecutionRefusal !== undefined && error === preExecutionRefusal) ||
