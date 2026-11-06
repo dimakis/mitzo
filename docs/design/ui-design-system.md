@@ -1217,6 +1217,17 @@ WebKit ignores their minimum height; offline geometry checks require 44px target
 
 ## Session library and context summaries
 
+Activity additions use shared `SessionActivityStatus` and `ActivityBars` in the
+existing collection, search, pins, preview and sidebar. Open chat enriches the
+approved single composer-status row. Explicit elapsed/waiting/completion labels
+use observed clocks; **Updated** identifies saved metadata when message timing is
+unknown. Tool updates do not reorder chats; meaningful freshness batches wait for
+browsing and action controls, with an explicit show-latest action. The existing
+menus, settings, message actions and composer keep their owners and layout.
+See [chat activity and validation](../features/chat-activity-freshness.md) and
+`chat-activity/additive-freshness-2026-11-06`. Browser evidence remains pending
+because the host marker prevented launching the approved offline command.
+
 Recent/search rows lead their secondary metadata with the recorded model choice
 and account label. The saved picker selection takes precedence over the original
 binding model; live-only rows receive identity through activity updates. Missing

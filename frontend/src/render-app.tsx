@@ -5,6 +5,7 @@ import { App } from './App';
 import { startAuthentication } from './lib/startup-auth';
 import { preloadLandingPage } from './route-pages';
 import { clientStore } from './client-store';
+import './lib/session-activity-store';
 
 void startAuthentication(location.pathname);
 preloadLandingPage(location.pathname);

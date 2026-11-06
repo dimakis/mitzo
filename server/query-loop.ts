@@ -1,4 +1,5 @@
 import type { ContextCompaction, SourceSnapshot } from '@mitzo/protocol';
+import { observeSessionActivity } from './session-activity-events.js';
 import { randomUUID } from 'node:crypto';
 import type { SessionTransport, ConnectionRegistry } from '@mitzo/harness';
 import { summarizeToolInput, getRawInput } from './tool-summary.js';
@@ -164,6 +165,13 @@ function sendOrBuffer(
       persistedSeq = seq;
     }
   }
+
+  if (
+    sessionId &&
+    ['block_start', 'tool_result', 'message_end'].includes(String(data.type)) &&
+    registry.get(clientId)?.sessionId === sessionId
+  )
+    observeSessionActivity(clientId, enriched);
 
   // Suspend buffer: if the session is proactively suspended (iOS backgrounding),
   // buffer events instead of delivering via the driver transport (which is

@@ -11,18 +11,19 @@ import { useMediaQuery } from '../hooks/useMediaQuery';
 import type { SessionActionPoint } from '../hooks/useSessionInteraction';
 import '../styles/session-library.css';
 import { SdkConversationImport } from '../components/SdkConversationImport';
-import { isSessionActivityActive, sessionNeedsYouReason } from '../lib/session-attention';
+import { sessionNeedsYouReason } from '../lib/session-attention';
+import { mergeSessionActivities } from '../lib/session-activity';
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useSavedChatDrafts } from '../hooks/useSavedChatDrafts';
 import '../styles/chat-drafts.css';
 import type { Session } from '../types/chat';
-import { formatRelativeTime } from '../lib/formatTime';
+import { SessionActivityStatus } from '../components/SessionActivityStatus';
 import { useLongPress } from '../hooks/useLongPress';
 import { computeSwipeState, REVEAL_WIDTH } from '../lib/swipe-reveal';
 import { selectionChanged } from '../lib/haptics';
 import { useSessionList } from '../hooks/useSessionList';
-import { useSessionOrder } from '../hooks/useSessionOrder';
+import { useSessionOrdering } from '../hooks/useSessionOrder';
 import { useListBrowsing } from '../hooks/useListBrowsing';
 import { MotionList } from '../components/MotionList';
 import type { QuickAction } from '../hooks/useSessionList';
@@ -35,6 +36,7 @@ function SwipeableSession({
   session,
   snippet,
   activity,
+  connected,
   onDismiss,
   onClick,
   onRename,
@@ -52,6 +54,7 @@ function SwipeableSession({
   onInteractionChange?: (id: string, busy: boolean) => void;
   snippet?: string;
   activity?: SessionActivity;
+  connected?: boolean;
   onDismiss: (id: string) => void;
   onClick: (id: string) => void;
   onRename: (id: string, title: string) => void;
@@ -226,6 +229,7 @@ function SwipeableSession({
       <div
         ref={ref}
         className="session-item"
+        data-activity={connected !== false ? activity?.state : undefined}
         data-selected={selected}
         onDoubleClick={(event) => {
           if (event.target instanceof Element && event.target.closest('button, a, input')) return;
@@ -297,23 +301,12 @@ function SwipeableSession({
                 {session.accountLabel && (
                   <span className="conversation-account">{session.accountLabel}</span>
                 )}
-                {activity && (
-                  <span className={`conversation-state conversation-state--${activity.state}`}>
-                    {activityLabel(activity)}
-                  </span>
-                )}
-                {activity?.progress && (
-                  <span className="conversation-progress">
-                    {activity.progress.done}/{activity.progress.total} tasks
-                  </span>
-                )}
-                {!activity && session.isActive && (
-                  <span className="conversation-state">Active</span>
-                )}
-                <span className="session-item-time">
-                  {formatRelativeTime(session.lastModified)}
-                </span>
               </div>
+              <SessionActivityStatus
+                activity={activity}
+                modifiedAt={session.lastModified}
+                connected={connected}
+              />
             </div>
           )}
           <button
@@ -342,6 +335,8 @@ function SwipeableSession({
       {previewing && (
         <SessionPreview
           session={session}
+          activity={activity}
+          connected={connected}
           onClose={closePreview}
           onOpen={() => {
             closePreview();
@@ -424,23 +419,18 @@ export function SessionList() {
     ),
   );
 
-  const { activities } = useSessionOverview();
+  const { activities, connected, lastKnownActivities = [] } = useSessionOverview();
   const [filter, setFilter] = useState<'all' | 'active' | 'attention'>('all');
   const byId = new Map(activities.map((a) => [a.sessionId, a]));
-  const combined = new Map(sessions.map((s) => [s.id, s]));
-  for (const a of activities) {
-    const existing = combined.get(a.sessionId);
-    combined.set(a.sessionId, {
-      ...existing,
-      id: a.sessionId,
-      summary: existing?.summary || a.title,
-      model: a.model ?? existing?.model,
-      accountLabel: existing?.accountLabel ?? a.accountLabel,
-      lastModified: Math.max(existing?.lastModified ?? 0, a.lastEventAt),
-      isActive: isSessionActivityActive(a),
-    });
-  }
-  const all = useSessionOrder([...combined.values()], activities, paused);
+  const displayById = new Map(
+    (connected === false ? lastKnownActivities : activities).map((a) => [a.sessionId, a]),
+  );
+  const combined = mergeSessionActivities(sessions, activities);
+  const {
+    sessions: all,
+    pendingCount,
+    showLatest,
+  } = useSessionOrdering([...combined.values()], activities, paused);
   const active = all.filter((s) => s.isActive);
   const attention = all.filter((s) => {
     const activity = byId.get(s.id);
@@ -575,6 +565,8 @@ export function SessionList() {
           desktop && selectedPreview ? (
             <SessionInspector
               session={selectedPreview}
+              activity={displayById.get(selectedPreview.id)}
+              connected={connected}
               onOpen={() => openSession(selectedPreview.id)}
               onActions={showActions}
             />
@@ -607,6 +599,8 @@ export function SessionList() {
           )}
           <ConversationPins
             sessions={all}
+            activities={displayById}
+            connected={connected}
             selectedId={desktop ? selectedPreview?.id : undefined}
             onSelect={(id, session) => {
               if (desktop) setPreview(session);
@@ -665,7 +659,8 @@ export function SessionList() {
                   key={session.id}
                   session={session}
                   snippet={session.snippet}
-                  activity={byId.get(session.id)}
+                  activity={displayById.get(session.id)}
+                  connected={connected}
                   onDismiss={dismiss}
                   desktop={desktop}
                   selected={desktop && selectedPreview?.id === session.id}
@@ -684,6 +679,20 @@ export function SessionList() {
                   : filter === 'active'
                     ? 'In progress'
                     : 'Waiting for you'}
+                {pendingCount > 0 && !menu && !renaming && !removing && (
+                  <button
+                    type="button"
+                    className="session-freshness"
+                    onClick={() => {
+                      showLatest();
+                      scroller.current
+                        ?.querySelector<HTMLElement>('.session-item-navigation')
+                        ?.focus({ preventScroll: true });
+                    }}
+                  >
+                    {pendingCount} updated · show latest ↑
+                  </button>
+                )}
               </p>
               {loading && <p className="session-list-empty">Loading…</p>}
               {!loading && error && (
@@ -708,7 +717,8 @@ export function SessionList() {
                   <SwipeableSession
                     key={s.id}
                     session={s}
-                    activity={byId.get(s.id)}
+                    activity={displayById.get(s.id)}
+                    connected={connected}
                     onDismiss={dismiss}
                     desktop={desktop}
                     selected={desktop && selectedPreview?.id === s.id}
@@ -771,6 +781,8 @@ export function SessionList() {
       {mobilePinPreview && (
         <SessionPreview
           session={mobilePinPreview}
+          activity={displayById.get(mobilePinPreview.id)}
+          connected={connected}
           onClose={() => setMobilePinPreview(null)}
           onOpen={() => openSession(mobilePinPreview.id)}
           onRename={() => {
@@ -785,19 +797,4 @@ export function SessionList() {
       )}
     </div>
   );
-}
-
-function activityLabel(activity: SessionActivity): string {
-  if (activity.state === 'waiting') {
-    return activity.waitReason === 'review'
-      ? 'Review needed'
-      : activity.waitReason === 'permission'
-        ? 'Permission needed'
-        : activity.waitReason === 'blocked'
-          ? 'Blocked'
-          : 'Needs attention';
-  }
-  return { init: 'Starting', working: 'Working', done: 'Finished', idle: 'Idle', paused: 'Paused' }[
-    activity.state
-  ];
 }

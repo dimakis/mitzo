@@ -111,3 +111,9 @@ existing-directory selection continues to read its actual retained directory.
 This correction batch also integrates accepted main `5abda6acb` (Telos review,
 HTTP actions and inbox authority). Both source inventories and the combined
 protocol event-store changes are retained and require combined-result CI.
+
+After the corrected HTTP fixture passed CI and Centaur verified all three
+independent-review findings on `ac8cc589`, main advanced to `56fd79c55` with the
+approved additive chat-activity design. This integration preserves its single
+composer status row and adds no layout changes of its own. The composer, approved
+design checks and full combined-result CI are rerun against that accepted base.

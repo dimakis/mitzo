@@ -14,6 +14,8 @@ infra/
 docs/design/approved/symposium/fresh-agent-review.html
 # Immutable user-approved status reference; preserve the originating mockup bytes.
 docs/design/approved/chat-status/status-above-composer.html
+# Immutable user-approved activity reference; the ledger verifies the original bytes.
+docs/design/approved/chat-activity/activity-freshness.html
 docs/design/approved/codex-subagents/nested.html
 
 # Frozen Telos acceptance provenance; preserve recorded evidence byte hashes.
