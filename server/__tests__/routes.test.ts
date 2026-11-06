@@ -1390,6 +1390,68 @@ describe('briefing routes', () => {
 });
 
 describe('inbox routes', () => {
+  it.each(['delete', 'approve'] as const)(
+    'retains internal-token inbox %s access after reconciliation',
+    async (operation) => {
+      const { INTERNAL_TOKEN } = await import('../internal-token.js');
+      const filename = `internal-${operation}.md`;
+      writeFileSync(join(INBOX_DIR, filename), SAMPLE_INBOX_ITEM);
+      const action =
+        operation === 'delete'
+          ? request(app).delete('/api/inbox/' + filename)
+          : request(app).post('/api/inbox/' + filename + '/approve');
+      expect((await action.set('x-internal-token', INTERNAL_TOKEN)).status).toBe(200);
+    },
+  );
+  it.each(['delete', 'approve'] as const)(
+    'revalidates inbox %s after logout during reconciliation',
+    async (operation) => {
+      const { notificationCenter } = await import('../app.js');
+      const { login } = await import('../auth.js');
+      const token = (await login(process.env.AUTH_PASSPHRASE!))!;
+      const filename = `authority-${operation}-logout.md`;
+      const source = join(INBOX_DIR, filename);
+      const destination = join(INBOX_DIR, 'archive', filename);
+      writeFileSync(source, SAMPLE_INBOX_ITEM);
+      let release!: () => void;
+      let entered!: () => void;
+      const waiting = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      const reached = new Promise<void>((resolve) => {
+        entered = resolve;
+      });
+      const scan = vi
+        .spyOn(notificationCenter, 'reconcileAsync')
+        .mockImplementationOnce(async () => {
+          entered();
+          await waiting;
+        });
+      const action =
+        operation === 'delete'
+          ? request(app).delete('/api/inbox/' + filename)
+          : request(app).post('/api/inbox/' + filename + '/approve');
+      const pending = action.set('Authorization', 'Bearer ' + token).then((response) => response);
+      try {
+        await reached;
+        expect(
+          (
+            await request(app)
+              .post('/api/auth/logout')
+              .set('Authorization', 'Bearer ' + token)
+          ).status,
+        ).toBe(200);
+        release();
+        expect((await pending).status).toBe(401);
+        expect(readFileSync(source, 'utf8')).toBe(SAMPLE_INBOX_ITEM);
+        expect(existsSync(destination)).toBe(false);
+      } finally {
+        release();
+        await pending;
+        scan.mockRestore();
+      }
+    },
+  );
   it.each(
     (['approve', 'delete'] as const).flatMap((action) =>
       (['private', 'authority'] as const).flatMap((kind) =>

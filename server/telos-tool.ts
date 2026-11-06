@@ -4,6 +4,8 @@ import {
   TelosSourcePermissionOperationSchema,
   type TelosSourcePermissionReceipt,
   type TelosSourcePermissionOperation,
+  TelosOutcomeRevisionReceiptSchema,
+  TelosOutcomeCancellationSchema,
 } from '@mitzo/protocol';
 import { toolInputError } from './tool-input-error.js';
 import type { ToolDefinition } from '@mitzo/harness';
@@ -63,13 +65,36 @@ export type TelosOutcomeInput = z.infer<typeof TelosOutcomeInput>;
 export const telosCreateOutcomeDefinition: ToolDefinition = {
   name: TELOS_CREATE_OUTCOME_TOOL,
   description:
-    'Create one durable outcome in live Telos with an explicit result, rationale, evidence criteria, and ordered milestones. Use this instead of running sandbox-local todo scripts. This mutates Telos and requires user approval.',
+    'Create one durable outcome in live Telos with an explicit result, rationale, evidence criteria, and ordered milestones. Use this instead of running sandbox-local todo scripts. This mutates Telos and requires user approval. If the operator requests changes, revise the retained original outcome using their feedback and call this tool again for fresh review; feedback does not approve creation.',
   input_schema: z.toJSONSchema(TelosOutcomeInput),
 };
 
 export interface TelosToolResult {
   content: string;
   isError: boolean;
+}
+export function formatTelosPermissionDenial(
+  message: string,
+  userCancelled = false,
+): TelosToolResult {
+  if (userCancelled)
+    return {
+      content: JSON.stringify(
+        TelosOutcomeCancellationSchema.parse({
+          kind: 'telos_proposal_cancelled',
+          message:
+            'The operator cancelled this proposal. Do not retry or create work unless they ask again.',
+        }),
+      ),
+      isError: false,
+    };
+  try {
+    if (TelosOutcomeRevisionReceiptSchema.safeParse(JSON.parse(message)).success)
+      return { content: message, isError: false };
+  } catch {
+    /* Ordinary denials retain their existing error status. */
+  }
+  return { content: message, isError: true };
 }
 
 /** Provider execution retrieves an operator-approved receipt; it cannot create. */

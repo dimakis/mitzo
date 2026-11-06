@@ -52,6 +52,50 @@ async function selected(
   };
 }
 describe('actual ordinary Telos source approval owners', () => {
+  it('opens outcome creation on the latest exchange and pages older context without creating anything', async () => {
+    const f = fixture();
+    for (let i = 0; i < 60; i++)
+      f.events.append('planning', 'user_message', {
+        messageId: `recent-${i}`,
+        text: `Request ${i}`,
+      });
+    const permission = await f.request({ kind: 'create', marker: 'native' });
+    const permId = String(permission.permId);
+    const recent = await f.service.review(permId, 'planning', f.actor, 0, Number.MAX_SAFE_INTEGER);
+    expect(recent.messages).toHaveLength(50);
+    expect(recent.messages.at(-1)?.messageId).toBe('recent-59');
+    expect(recent.suggestedMessageIds).toEqual(['recent-59']);
+    expect(recent.hasMore).toBe(true);
+    const older = await f.service.review(permId, 'planning', f.actor, 0, recent.earlierCursor);
+    expect(older.messages.at(-1)!.sequence).toBeLessThan(recent.messages[0].sequence);
+    expect(older.hasMore).toBe(false);
+    expect(older.suggestedMessageIds).toBeUndefined();
+    expect(f.counts()).toMatchObject({
+      canonicalCreates: 0,
+      allocations: 0,
+      sources: { total: 0 },
+    });
+    const message = recent.messages.at(-1)!;
+    const input = {
+      sessionId: 'planning',
+      requestId: randomUUID(),
+      proposalSha256: recent.proposalSha256,
+      selection: {
+        mode: 'selected' as const,
+        boundary: { sequence: message.sequence, messageId: message.messageId },
+        messageIds: recent.suggestedMessageIds!,
+        artifacts: [],
+      },
+    };
+    const preview = await f.service.preview(permId, input, f.actor);
+    const receipt = await f.service.approve(
+      permId,
+      { ...input, previewSha256: preview.preview.sha256 },
+      f.actor,
+    );
+    expect(receipt.receipt.work.itemId).toBe('created-1');
+    expect(f.counts().canonicalCreates).toBe(1);
+  });
   it.each(
     ['empty', 'whitespace', 'blank-activity', 'tool-only'].flatMap((shape) =>
       (
