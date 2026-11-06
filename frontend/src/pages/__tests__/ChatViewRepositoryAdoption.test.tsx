@@ -281,7 +281,7 @@ for (const Page of [ChatView, DesktopChatView]) {
         uncertain = true;
         recovering = true;
         act(() => channel.listener({ type: 'session_end', sessionId }));
-        const reconnect = await waitFor(() => statusButton('Reconnect and continue'));
+        const reconnect = await waitFor(() => statusButton('Continue chat'));
         expect(screen.getByRole('button', { name: 'Send message' })).toBeDisabled();
         fireEvent.click(reconnect);
         await waitFor(() =>
