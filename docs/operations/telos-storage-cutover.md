@@ -13,7 +13,12 @@ checkouts and release directories. `MITZO_TELOS_DATA_DIR` selects another privat
 directory; an explicit `TELOS_DB_PATH` overrides it. Keep the directory owned by
 the service user with mode 0700 and its database with mode 0600. Agent filesystem
 policy protects selected storage, including an earlier selection after a config
-change. Providers use host tools and HTTP APIs.
+change. Codex and Claude share this retained storage registry. Claude's outer
+filesystem boundary is required even without credential isolation or workspace
+runtime enrollment; this boundary is currently qualified for macOS and refuses
+unsupported platforms. Controller project hooks use the same filesystem fence.
+The source-import credential is never inherited by provider children. Providers
+use host tools and HTTP APIs.
 
 MGMT is a source importer. It submits at most 500 records per request to
 `POST /api/telos/import`. A dedicated `MITZO_TELOS_IMPORT_TOKEN` of at least 32
@@ -79,7 +84,9 @@ delete, regenerate or move its ownership records as a workaround.
 
 1. Select the verified private destination in the Mitzo service configuration and
    start the accepted Mitzo release. Startup refuses an empty replacement if it
-   finds an unmigrated legacy store. Missing or invalid storage returns an error.
+   finds an unmigrated legacy store, SQLite sidecars, an ownership family or a
+   migration receipt at either location. Unreadable storage is not treated as
+   absent. Missing or invalid storage returns an error.
 2. Verify representative existing item IDs, parents, completed-child counts,
    authored briefs, progress history and binary artifact downloads through the
    operator API. Verify creation and exact-request receipt recovery against a

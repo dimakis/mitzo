@@ -1,5 +1,5 @@
-import { lstatSync, mkdirSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { lstatSync, mkdirSync, readdirSync } from 'node:fs';
+import { basename, dirname, join } from 'node:path';
 import {
   openTelosOwnedDatabase,
   selectedTelosDatabaseFiles,
@@ -16,14 +16,29 @@ function entryExists(path: string): boolean {
   }
 }
 
+function retainedRecoveryEvidence(path: string): boolean {
+  if (
+    entryExists(join(dirname(path), '.telos-file-owners')) ||
+    entryExists(path + '.migration.json')
+  )
+    return true;
+  try {
+    return readdirSync(dirname(path)).some((name) => name.startsWith(basename(path) + '-'));
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return false;
+    throw error;
+  }
+}
+
 /** Bootstrap only, before accepting requests. Never chooses the legacy store as
  * fallback, copies live data, retires another writer or creates an empty substitute. */
 export function ensureTelosRuntimeStorage(legacyRepo: string) {
   const path = selectedTelosDatabaseFiles().canonical;
   if (!entryExists(path)) {
     const legacy = join(legacyRepo, 'command_center/data/smart_todo.db');
-    if (entryExists(legacy)) throw Error('Telos offline migration required before startup');
-    if (entryExists(join(dirname(path), '.telos-file-owners')))
+    if (entryExists(legacy) || retainedRecoveryEvidence(legacy))
+      throw Error('Telos offline migration required before startup');
+    if (retainedRecoveryEvidence(path))
       throw Error('Retained Telos family cannot be replaced with empty storage');
     mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
     const parent = lstatSync(dirname(path));

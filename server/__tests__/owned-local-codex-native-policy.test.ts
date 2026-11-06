@@ -1,7 +1,7 @@
 import { mkdtempSync, mkdirSync, symlinkSync, rmSync, writeFileSync, realpathSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 const state = vi.hoisted(() => ({
   authority: [] as string[],
   selectors: [] as string[],
@@ -13,7 +13,7 @@ const state = vi.hoisted(() => ({
 }));
 vi.mock('node:os', async (original) => {
   const os = await original<typeof import('node:os')>();
-  return { ...os, homedir: () => state.home ?? os.homedir() };
+  return { ...os, homedir: () => state.home ?? join(os.tmpdir(), 'mitzo-offline-user-home') };
 });
 vi.mock('../account-profiles.js', () => ({
   loadAccountProfiles: () => {
@@ -28,6 +28,7 @@ vi.mock('../knowledge-library-private-paths.js', () => ({
   },
 }));
 vi.mock('../workspace-runtime-private-paths.js', () => ({
+  registerWorkspaceRuntimeAuthorityPaths: vi.fn(),
   workspaceRuntimeAuthorityPaths: () => state.authority,
   workspaceRuntimeSelectorEntries: () => state.selectors,
   workspaceRuntimePrivateFiles: () => [],
@@ -38,6 +39,20 @@ import { codexNativePermissionProfiles } from '../codex-native-execution-policy.
 import { nativeGrantFence } from '../codex-native-grant-fence.js';
 import { NativeApprovalRequestSchema } from '../codex-native-permission-protocol.js';
 import type { ManagedSession } from '../session-registry.js';
+
+beforeEach(() => {
+  for (const name of [
+    'MITZO_CODEX_PRIVATE_DIR',
+    'CODEX_HOME',
+    'MITZO_KEYCHAIN_HELPER',
+    'MITZO_KEYCHAIN_CONNECTIONS_DIR',
+    'MITZO_ACCOUNT_PROFILES_FILE',
+    'MITZO_ORDINARY_OPENSHELL_CODEX_TARGET_FILE',
+    'MITZO_OPENAI_ACCOUNT_ENROLLMENT_DB',
+  ])
+    vi.stubEnv(name, undefined);
+});
+afterEach(() => vi.unstubAllEnvs());
 
 it('uses the host GitHub CLI login with native network and external Git approvals, retaining other credential denials', () => {
   const root = realpathSync(mkdtempSync(join(tmpdir(), 'mitzo-native-github-')));

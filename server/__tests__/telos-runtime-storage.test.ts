@@ -1,6 +1,14 @@
 import './fixtures/offline-user-home.js';
 import { afterEach, expect, it, vi } from 'vitest';
-import { mkdtempSync, mkdirSync, rmSync, existsSync, statSync, chmodSync } from 'node:fs';
+import {
+  mkdtempSync,
+  mkdirSync,
+  rmSync,
+  existsSync,
+  statSync,
+  chmodSync,
+  writeFileSync,
+} from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir, homedir } from 'node:os';
 import { selectedTelosDatabaseFiles } from '@mitzo/protocol/telos-sqlite-owners';
@@ -64,6 +72,35 @@ it('refuses an empty replacement when the legacy directory cannot be inspected',
     chmodSync(legacy, 0o700);
   }
 });
+it.each(
+  ['selected', 'legacy'].flatMap((location) =>
+    ['-wal', '-shm', '-journal', '-unknown-sidecar', '.migration.json', 'ownership'].map(
+      (evidence) => ({ location, evidence }),
+    ),
+  ),
+)(
+  'refuses fresh storage beside $location $evidence recovery evidence',
+  ({ location, evidence }) => {
+    const repo = root();
+    const runtime = join(root(), 'runtime');
+    const legacy = join(repo, 'command_center/data');
+    mkdirSync(runtime, { mode: 0o700 });
+    mkdirSync(legacy, { recursive: true });
+    vi.stubEnv('TELOS_DB_PATH', '');
+    vi.stubEnv('MITZO_TELOS_DATA_DIR', runtime);
+    const directory = location === 'selected' ? runtime : legacy;
+    const name = location === 'selected' ? 'telos.db' : 'smart_todo.db';
+    const retained =
+      evidence === 'ownership'
+        ? join(directory, '.telos-file-owners')
+        : join(directory, name + evidence);
+    if (evidence === 'ownership') mkdirSync(retained);
+    else writeFileSync(retained, 'retained recovery evidence');
+    expect(() => ensureTelosRuntimeStorage(repo)).toThrow();
+    expect(existsSync(join(runtime, 'telos.db'))).toBe(false);
+    expect(existsSync(retained)).toBe(true);
+  },
+);
 it('upgrades an older transferred item schema before native reads and outcome creation', () => {
   const path = join(root(), 'telos.db');
   TelosRuntimeStore.initialize(path);
