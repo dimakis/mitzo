@@ -11,6 +11,7 @@ import type {
   TelosOutcomeRevisionRequest,
 } from '@mitzo/protocol';
 import { apiFetch, AUTH_LOST_EVENT } from '../lib/api-fetch';
+import { createBrowserId } from '../lib/browser-crypto';
 import { UiIcon } from './UiIcon';
 
 const api = new TelosWorkApiClient(apiFetch);
@@ -31,7 +32,7 @@ async function compileSelection(
   const last = selected.reduce((a, b) => (a.sequence > b.sequence ? a : b));
   const input: TelosSourcePermissionPreviewRequest = {
     sessionId: review.sessionId,
-    requestId: crypto.randomUUID(),
+    requestId: createBrowserId(),
     proposalSha256: review.proposalSha256,
     ...(review.materialScopeSha256 ? { materialScopeSha256: review.materialScopeSha256 } : {}),
     selection: {
@@ -461,7 +462,7 @@ export function useTelosSourceReview({
       sessionId,
       toolUseId: activeReview.toolUseId,
       proposalSha256: activeReview.proposalSha256,
-      requestId: crypto.randomUUID(),
+      requestId: createBrowserId(),
       feedback: changeFeedback.trim(),
     });
     setChangesLocked(true);

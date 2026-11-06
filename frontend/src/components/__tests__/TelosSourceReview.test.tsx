@@ -239,6 +239,45 @@ it('keeps a failed initial review retryable without asking for another tool invo
   expect(api.approveSourcePermission).not.toHaveBeenCalled();
 });
 
+it.each(['create', 'feedback'] as const)(
+  'supports %s without crypto.randomUUID on HTTP/legacy hosts',
+  async (action) => {
+    vi.stubGlobal('crypto', {});
+    api.getSourcePermission.mockResolvedValueOnce({
+      ...review,
+      suggestedMessageIds: ['assistant-1'],
+    });
+    api.requestOutcomeChanges.mockImplementation(async (_id, input) => ({
+      kind: 'telos_outcome_changes_requested',
+      permId: review.permId,
+      ...input,
+      originalOutcome: review.operation.outcome,
+    }));
+    try {
+      render(<PermissionBanner {...props} />);
+      const save = await screen.findByRole('button', { name: 'Create outcome' });
+      await waitFor(() => expect(save.hasAttribute('disabled')).toBe(false));
+      const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+      expect(api.previewSourcePermission.mock.calls[0][1].requestId).toMatch(uuid);
+      if (action === 'create') {
+        fireEvent.click(save);
+        await waitFor(() => expect(api.approveSourcePermission).toHaveBeenCalledTimes(1));
+        expect(api.approveSourcePermission.mock.calls[0][1].requestId).toMatch(uuid);
+      } else {
+        fireEvent.click(screen.getByRole('button', { name: 'Request changes' }));
+        fireEvent.change(screen.getByRole('textbox', { name: 'What should change?' }), {
+          target: { value: 'Narrow the scope.' },
+        });
+        fireEvent.click(screen.getByRole('button', { name: 'Send changes' }));
+        await waitFor(() => expect(api.requestOutcomeChanges).toHaveBeenCalledTimes(1));
+        expect(api.requestOutcomeChanges.mock.calls[0][1].requestId).toMatch(uuid);
+      }
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  },
+);
+
 it('keeps source correction and feedback available when the automatic preview fails', async () => {
   api.getSourcePermission.mockResolvedValueOnce({
     ...review,

@@ -51,6 +51,12 @@ and the delivery acknowledgement failed. Such recovery returns
 that the agent received it or automatically sending it again. Authentication,
 operator ownership and exact request bytes remain required for receipt recovery.
 
+Source preview and feedback correlation IDs use the shared browser ID helper,
+including on supported HTTP and legacy hosts without `crypto.randomUUID`.
+Native child Message/Stop controls use the same helper. Exact uncertain retries
+retain their original ID; these IDs do not grant authority. Component regressions
+disable `randomUUID`, and the outcome browser fixture exercises an HTTP origin.
+
 Tests exercise the actual permission resolver, persistent owner restart, exact
 feedback retry, HTTP authentication, malformed input, native revocation, fresh
 approval of a revised proposal and UI feedback retention. Offline browser

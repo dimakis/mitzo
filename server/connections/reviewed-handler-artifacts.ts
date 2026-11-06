@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.895-telos-inbox-subagents-integration';
+  'v1.0.896-http-telos-native-controls';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -23,6 +23,8 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
+  '../../frontend/src/components/__tests__/NativeSubagents.http.test.tsx':
+    '7475211dcfa0669eb38850629db99405b1f762ec6b7e49d349f60e93b4edb1dc',
   '../__tests__/telos-outcome-revision.test.ts':
     '3efc5091df44eed51f2481eb20e7c29e4bd62adbfa1f00f7f7e47736e3172e50',
   '../__tests__/telos-outcome-revision-routes.test.ts':
@@ -36,9 +38,9 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../tests/fixtures/telos-outcome-create.tsx':
     '6459d5473179f6647fa54f73f8c61a7f486c8e1c1bdcd23424402de514b6e337',
   '../../tests/offline/telos-outcome-create.spec.ts':
-    '6beca556465aeb6f270aafe96ba0ccc784bea8b50625ed1e3907c20234c9fbd4',
+    '1c5825fe7f2e18923c9b97e3de7e0c0d078edb1dbf5d880a969a34b825fb9d14',
   '../../docs/features/telos-outcome-creation.md':
-    '0b6a2976b60d2d192cc0b818de37b3cab914a8d436be1f38b62670149d58b576',
+    '6096eabfdfdaa644a0bfccf376c089fbf124346e2292dfd3cc0eaa973576b3df',
   '../native-base-read-scope.ts':
     'e5b5f843e1defc7cf2a80d10cf3837541c9a7867669963cfc77857b19ec73718',
   '../../frontend/src/components/__tests__/NativeSubagentsChatArea.test.tsx':
@@ -56,7 +58,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/components/NativeSubagents.css':
     'fceacf54627970c06dd541178199f29be706f93b777d46160d8bf999c1e19bb0',
   '../../frontend/src/components/NativeSubagents.tsx':
-    '7a791a8fb5a028354f6407af2b74a93f60247c0d6801993325bc6d08325ff7db',
+    'a3cc37b20cb89f18c63e56c767fd62913c84d8072aebd4364c5fa251ffd19f66',
   '../../packages/protocol/src/native-subagents.ts':
     'bbc8a55d09e06c8cad329cb9caa72b071970bc48b89e8f0b6647288416f5c730',
   '../__tests__/codex-subagent-routes.test.ts':
@@ -1209,7 +1211,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/styles/global.css':
     '7a7f2f78814860e8b7ac1f531a3a54bb58a964b738ae4fcfcef5b499c879c819',
   '../../frontend/src/components/TelosSourceReview.tsx':
-    '8df6dc69261e4243e67d77fe40b2fe53afe62fa076ef75b4861953740a6c19af',
+    'c8cf59ec933a25bbd85e5525ff8e094226a95b667757bd7142edb9b213bf2766',
   '../../frontend/src/components/PermissionBanner.tsx':
     '397cfe7dc2f36faa79a98f541b721d0d56ea3670df77efb54e94c600046711f2',
   '../telos-artifact-routes.ts': '27c18f41fa4f750b97c7b7527d28628d1833a4bd51d9a5bb1fca65e098ecd5ba',
@@ -2856,7 +2858,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/native-host-operator-lifetime.test.ts':
     'f7f336335995900d993b79386661f1e89b9bfd98c93c6a4eea9c20ed28d2ff0b',
   '../../frontend/src/components/__tests__/TelosSourceReview.test.tsx':
-    'a7c4f30e48870d1571adc9d9dab2d47ef6adf847635a37dd4790f7e5fb1056a9',
+    '06e6c55790df6a5b350afa6815cf9dc25128f65b81bd321013b4d8f7fe2cf0c9',
   '../../frontend/src/hooks/__tests__/useDraft.test.ts':
     '291fef9ad255ce57be2555836eb75a5839c6bf8dabf412929158b402ba80d03e',
   '../../frontend/src/hooks/__tests__/useNewChatDraft.test.tsx':

@@ -3,8 +3,8 @@ import { build } from 'esbuild';
 import { resolve } from 'node:path';
 import type { createTelosSourceApprovalData } from '../../server/__tests__/fixtures/telos-source-approval-data';
 
-// The real review component uses crypto.randomUUID, available in secure contexts.
-test.use({ baseURL: 'https://mitzo-ui.test' });
+// Exercise supported HTTP origins without secure-context crypto.randomUUID.
+test.use({ baseURL: 'http://mitzo-ui.test' });
 const bundle = build({
   entryPoints: [resolve('tests/fixtures/telos-outcome-create.tsx')],
   bundle: true,
@@ -54,7 +54,7 @@ for (const theme of ['dark', 'light'])
         let failRead = true;
         await page.route('**/*', async (route) => {
           const url = new URL(route.request().url());
-          if (url.origin !== 'https://mitzo-ui.test') throw Error('Unexpected external request');
+          if (url.origin !== 'http://mitzo-ui.test') throw Error('Unexpected external request');
           if (url.pathname === '/fixture.js' || url.pathname === '/fixture.css')
             return route.fulfill({
               body: files.find((file) =>

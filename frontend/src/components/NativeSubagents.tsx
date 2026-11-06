@@ -1,6 +1,7 @@
 import { useId, useState } from 'react';
 import type { NativeSubagentControl, NativeSubagentSnapshot } from '@mitzo/protocol';
 import { useNativeSubagents } from '../hooks/useNativeSubagents';
+import { createBrowserId } from '../lib/browser-crypto';
 import { HomeDialog } from './HomeDialog';
 import { MotionPresence } from './MotionPresence';
 import { UiIcon } from './UiIcon';
@@ -67,7 +68,7 @@ export function NativeSubagents({
   const message = () => {
     if (!selected || !canMessage || !drafts[selected.threadId]?.trim()) return;
     void deliver({
-      requestId: crypto.randomUUID(),
+      requestId: createBrowserId(),
       threadId: selected.threadId,
       action: 'message',
       text: drafts[selected.threadId],
@@ -217,7 +218,7 @@ export function NativeSubagents({
                 disabled={!canStop}
                 onClick={() =>
                   void deliver({
-                    requestId: crypto.randomUUID(),
+                    requestId: createBrowserId(),
                     threadId: selected.threadId,
                     action: 'stop',
                   })
