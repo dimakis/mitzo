@@ -29,6 +29,7 @@ import {
   type ContextInjection,
 } from '@mitzo/protocol';
 import { ContextInjectionDisclosure } from './ContextInjectionDisclosure';
+import { AgentMessageCard } from './AgentMessageCard';
 
 const COLLAPSE_HEIGHT = 300;
 
@@ -344,6 +345,7 @@ interface MessageBubbleProps {
 }
 
 export function MessageBubble({ message, artifactSessionId }: MessageBubbleProps) {
+  if (message.agentMessage) return <AgentMessageCard projection={message.agentMessage} />;
   if (message.role === 'user') {
     const textBlock = message.blocks.find((b) => b.blockType === 'text');
     return (

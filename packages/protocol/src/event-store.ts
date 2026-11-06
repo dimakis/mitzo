@@ -2759,7 +2759,25 @@ export class EventStore {
       this.migrateConversationSource(db);
       this.migrateUserMessageIndex(db);
       this.sessionOutputs = new SessionOutputReferenceStore(db);
-      this.agentCommunication = new AgentCommunicationStore(db);
+      this.agentCommunication = new AgentCommunicationStore(db, (message) => {
+        const senderName =
+          this.getSession(message.senderConversationId)?.summary ?? message.senderConversationId;
+        const recipientName =
+          this.getSession(message.recipientConversationId)?.summary ??
+          message.recipientConversationId;
+        const timestamp = message.createdAt ?? Date.now();
+        for (const [sessionId, direction] of [
+          [message.senderConversationId, 'outgoing'],
+          [message.recipientConversationId, 'incoming'],
+        ]) {
+          this.append(sessionId, 'agent_message', {
+            type: 'agent_message',
+            v: 2,
+            ts: timestamp,
+            projection: { message, direction, senderName, recipientName, timestamp },
+          });
+        }
+      });
       this.sessionCollaborations = new SessionCollaborationStore(db, (membership) =>
         this.collaborationConversation.membershipChanged(membership),
       );
@@ -2969,6 +2987,7 @@ export class EventStore {
         getProviderAttempts: (token) => this.getProviderAttempts(token),
         toClientState,
       });
+      this.agentCommunication.backfillTranscript();
       owner.seal();
     } catch (error) {
       owner.close();

@@ -21,6 +21,7 @@ import type {
   SymposiumProvenance,
 } from '@mitzo/protocol';
 import { messageIdentity } from '../message-identity.js';
+import { agentMessageTranscriptRow } from '@mitzo/protocol';
 import {
   interruptUnansweredToolBlocks,
   splitContextPrompt,
@@ -230,6 +231,11 @@ type MessagesCoreAction =
   | { type: 'PERMISSION_SNAPSHOT'; permissions: PermissionRequest[] }
   | { type: 'CLEAR_PERMISSIONS' }
   | { type: 'RESTORE'; messages: FinishedMessage[]; interrupted?: boolean }
+  | {
+      type: 'AGENT_MESSAGE';
+      projection: import('@mitzo/protocol').AgentMessageProjection;
+      seq: number;
+    }
   | {
       type: 'USER_MESSAGE_RECEIVED';
       messageId: string;
@@ -1195,6 +1201,16 @@ function reduceLegacyMessages(state: MessagesState, action: MessagesAction): Mes
       return { ...state, messages: valid, current: currentStale ? null : state.current };
     }
 
+    case 'AGENT_MESSAGE': {
+      const row = agentMessageTranscriptRow(action.projection, action.seq);
+      const index = state.messages.findIndex((message) => message.messageId === row.messageId);
+      if (index < 0) return { ...state, messages: [...state.messages, row] };
+      const previous = state.messages[index];
+      if (!previous.agentMessage || (previous.agentMessageSeq ?? -1) >= action.seq) return state;
+      const messages = [...state.messages];
+      messages[index] = { ...row, startedSeq: previous.startedSeq, timestamp: previous.timestamp };
+      return { ...state, messages };
+    }
     case 'USER_MESSAGE_RECEIVED': {
       const context = splitContextPrompt(action.text);
       const existingIndex = state.messages.findIndex((m) => m.messageId === action.messageId);

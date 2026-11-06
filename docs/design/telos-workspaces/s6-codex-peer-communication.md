@@ -13,8 +13,11 @@ facts and uncertainty; it grants no new delivery or recipient recovery.
 
 The native driver supplies sender and verified turn/call identity. Request JSON
 cannot select an actor, operator, receipt status or host evidence. Send requires
-the existing permission handler's approval of the exact target and text, with
-no session-wide grant. Current runtime, skill/tool selection, live owner,
+the existing permission handler's approval once or a scoped session messaging
+grant. That grant covers the source chat's same-operator live peers and their
+correlated replies while the original granting owner remains live and retains
+the grant. It is cleared with that session and cannot cross signed operators.
+Current runtime, skill/tool selection, live owner,
 signed operator and actual recipient custody are rechecked across awaits.
 Messaging grants no coordinator, worker, credential, publication or merge
 authority. Target command admission still checks its own current scope.
@@ -36,15 +39,28 @@ The original live owner's `admitAgentMessage(messageId, assertSenderCurrent,
 signal)` derives current V2 settings from its latest consumed admission and
 loads the exact retained message. It uses the ordinary account, workspace,
 context and permission coordinator, then the original native FIFO. Healthy idle
-recipients start that queue; busy recipients finish the current turn first.
-Peer input is retained as attributed agent context and is not echoed as a new
-human message. Stop/recovery remains paused. A cold recipient with no original
+recipients start that queue. Busy recipients first receive the same attributed
+peer prompt through native `turn/steer`, targeting the exact accepted live turn.
+Only an inactive/stale target falls back to the queue; rejection or uncertainty
+never causes another delivery attempt. Stop/recovery remains paused.
+
+Every retained send and receipt transition is also an `agent_message` transcript
+event in both conversations, committed atomically with the exchange ledger.
+Live delivery and bounded/full replay use that same event stream. The shared
+message card shows complete text, conversation links, time, receipt state and
+message/reply identifiers. It never labels a peer as the human operator. An
+upgrade backfills old retained exchanges without attempting their delivery;
+old exchanges without a creation timestamp show their transcript recording time.
+A cold recipient with no original
 live owner returns an unavailable receipt; a peer send grants no cold wake or
 recovery authority. Existing queue cancellation is reflected in its receipt.
 
 Pending, uncertain, queued, delivered, unavailable and failed are distinct.
-Delivered requires a durable native ACK for the exact conversation, command and
-rendered peer prompt. Native ACK persistence is independent of the disabled
+Delivered requires a durable native turn/start or steering ACK for the exact
+conversation, request and rendered peer prompt. It does not mean the recipient
+has applied a pause, merged a PR, or otherwise acted. A positive native
+pre-dispatch witness records failure before provider submission; missing ACKs
+remain uncertain. Native ACK persistence is independent of the disabled
 capacity-recovery option. If receipt projection fails after ACK, lookup repairs
 the receipt without replaying the turn. Store restart preserves the original
 identity and uncertainty; absent ACK is never optimistic delivery.
@@ -54,7 +70,7 @@ enqueue requires the owning uncertain receipt, while claiming/dispatch requires
 consumed. An early pump leaves the same head queued. The original host starts
 that queue after coordinator completion, without a new command or reattach.
 The production-host regression calls `startOwnedLocalCodexCommand` and observes
-one actual native turn/start after consumption. The test never pumps the queue;
+initial native turn/start and subsequent exact-target peer steering. The test never pumps the queue;
 an exact repeated start acknowledges the original command without another turn.
 
 Offline evidence uses actual signed login/revocation, physical host/login
