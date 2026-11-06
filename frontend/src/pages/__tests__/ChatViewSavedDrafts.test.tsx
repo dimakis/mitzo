@@ -129,7 +129,28 @@ vi.mock('../../components/SessionPanel', () => ({
 vi.mock('../../components/CommandCenter', () => ({ CommandCenter: () => null }));
 vi.mock('../../components/ScrollFab', () => ({ ScrollFab: () => null }));
 vi.mock('../../components/SlashPicker', () => ({ SlashPicker: () => null }));
-vi.mock('../../components/SessionResourcesDialog', () => ({ SessionResourcesDialog: () => null }));
+vi.mock('../../components/SessionResourcesDialog', () => ({
+  SessionResourcesDialog: ({
+    selectedContextBlocks,
+    onToggleContextBlock,
+    sourceSnapshots,
+  }: {
+    selectedContextBlocks: string[];
+    onToggleContextBlock(name: string): void;
+    sourceSnapshots?: Array<{ content: string }>;
+  }) => (
+    <div aria-label="Session resources">
+      {sourceSnapshots?.map(({ content }) => (
+        <span key={content}>{content}</span>
+      ))}
+      {selectedContextBlocks.map((name) => (
+        <button key={name} onClick={() => onToggleContextBlock(name)}>
+          Remove context {name}
+        </button>
+      ))}
+    </div>
+  ),
+}));
 vi.mock('../../components/MicButton', () => ({ MicButton: () => null }));
 vi.mock('../../components/VoiceSettings', () => ({ VoiceSettings: () => null }));
 vi.mock('../../components/WebSearchConsent', () => ({ WebSearchConsent: () => null }));
@@ -154,6 +175,7 @@ vi.mock('../../lib/api-fetch', () => ({
 afterEach(() => {
   cleanup();
   useRealSymposium = false;
+  useOrdinaryLocalChat = false;
   vi.mocked(apiFetch).mockImplementation(
     async (url) =>
       new Response(
@@ -512,10 +534,42 @@ for (const Page of [ChatView, DesktopChatView]) {
   });
 }
 
+let useOrdinaryLocalChat = false;
 vi.mock('../../hooks/useExplicitLocalChat', async () => {
   const { disabledLocalChat } = await import('../../test-utils/disabled-local-chat');
-  return { useExplicitLocalChat: disabledLocalChat };
+  return {
+    useExplicitLocalChat: () => ({ ...disabledLocalChat(), visible: useOrdinaryLocalChat }),
+  };
 });
+
+for (const Page of [ChatView, DesktopChatView]) {
+  it.each([{ contextBlocks: [] }, { contextBlocks: ['Project context'] }])(
+    `${Page.name} preserves ordinary new-chat resources with context $contextBlocks`,
+    async ({ contextBlocks }) => {
+      useOrdinaryLocalChat = true;
+      const draft = { ...createChatDraft(), text: 'Retained task', contextBlocks };
+      draft.settings.sourceSnapshots = [
+        {
+          kind: 'briefing',
+          date: '2026-11-06',
+          revision: 'a'.repeat(64),
+          content: 'Retained source snapshot',
+        },
+      ];
+      saveChatDraft(draft);
+      const view = mount(Page, `/chat?draft=${draft.id}`);
+      expect(await screen.findByLabelText('Session resources')).toBeTruthy();
+      expect(screen.getByText('Retained source snapshot')).toBeTruthy();
+      if (contextBlocks.length) {
+        fireEvent.click(screen.getByRole('button', { name: 'Remove context Project context' }));
+        expect(screen.queryByRole('button', { name: 'Remove context Project context' })).toBeNull();
+        expect(getChatDraft(draft.id)?.contextBlocks).toEqual([]);
+        expect(screen.getByLabelText('Message Mitzo')).toHaveProperty('value', 'Retained task');
+      }
+      expect(view.send).not.toHaveBeenCalled();
+    },
+  );
+}
 
 for (const Page of [ChatView, DesktopChatView]) {
   it(`${Page.name} reopens an unsent briefing in its own draft and New clears its chrome`, async () => {

@@ -2174,6 +2174,9 @@ function ChatViewContent() {
                   }
                   savedChatDraft={launch || savedLaunch ? undefined : savedChatDraft}
                   externalContextBlocks={explicitNew ? currentDefaultContext : undefined}
+                  onExternalContextBlockToggle={
+                    explicitNew ? newChatDraft.removeContextBlock : undefined
+                  }
                   acceptedComposerDraft={
                     localCommand?.state === 'consumed' && localCommand.sessionId === activeSessionId
                       ? localCommand.composerDraft

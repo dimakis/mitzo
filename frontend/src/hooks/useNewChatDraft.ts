@@ -74,6 +74,19 @@ export function useNewChatDraft(requestedId: string | null, generation: number, 
     owner.edited = true;
   }, [owner]);
   const [settingsError, setSettingsError] = useState(false);
+  const [, setContextRevision] = useState(0);
+  const removeContextBlock = useCallback(
+    (name: string) => {
+      if (!enabled || owner.missing || previousOwner.current !== owner || !owner.urlOwned) return;
+      const saved = getChatDraft(owner.draft.id);
+      const contextBlocks = (saved ?? owner.draft).contextBlocks.filter((value) => value !== name);
+      owner.edited = true;
+      owner.draft = { ...owner.draft, contextBlocks };
+      if (saved) setSettingsError(!saveChatDraft({ ...saved, contextBlocks }));
+      setContextRevision((value) => value + 1);
+    },
+    [enabled, owner],
+  );
   const saveSettings = useCallback(
     (settings: ChatDraft['settings']) => {
       if (!enabled || owner.missing) return;
@@ -129,6 +142,7 @@ export function useNewChatDraft(requestedId: string | null, generation: number, 
     defaults,
     defaultsRevision,
     markEdited,
+    removeContextBlock,
     saveSettings,
     settingsError,
     releaseReference,

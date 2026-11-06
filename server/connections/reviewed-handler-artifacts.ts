@@ -10,8 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.923-agent-session-recovery-fixes';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.924-agent-session-resources';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -1746,7 +1745,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/hooks/useExplicitLocalChat.ts':
     '5ebc3d0f761a296dc0a3db2bb17961faad36cc601925b67e670db4e2a3ee7258',
   '../../frontend/src/hooks/useNewChatDraft.ts':
-    'bcd2fce24a8d445929ab1718532cfebb505c6b3040af9c15ab9e2c301473a3a9',
+    '5493b65e688bc8de2f5136ab79bf39c9e8668b7b0f781ec7a25fc9fd3ef2a214',
   '../../frontend/src/lib/launch-draft-delivery.ts':
     '05839a85eee84c490f9679ce36dc624280173a2d19c8b8ca5f8080a7fb19acb3',
   '../../frontend/src/hooks/useDraft.ts':
@@ -1770,9 +1769,9 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/lib/reviewed-outbox-storage.ts':
     '050c1b35d0f54716b1dd3cc4a19bcff674403d08d41daaa79a4897d50eb5061f',
   '../../frontend/src/pages/ChatView.tsx':
-    'b49490a96a5143d6ec22d3129e0fef459324bf8139e22a9280f44c267aae48db',
+    '2d3046230a88251a9e1fee4bb515569bd9154e40788650ca335ed81795242f77',
   '../../frontend/src/pages/DesktopChatView.tsx':
-    '2f2c52e8cbe8cf0a392b1f9545501c0eea94e5528774a76fb0afae0d067fe21b',
+    'ae34b570befad3802e7fb004b1a4070b03db41f6bce49401fe31d3c401789ed0',
   '../../frontend/src/types/workspace.ts':
     'c54ac596082365496ebf53ca12ce1602b792acfd09092a216285aa69dd38c162',
   '../../packages/client/src/send-outbox.ts':
@@ -3123,7 +3122,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/hooks/__tests__/useNewChatDraft.test.tsx':
     '3942ae3873900aae93c862fe665dcd44feae3e29c8a0212e4c3fe94dc56d7ac7',
   '../../frontend/src/pages/__tests__/ChatViewSavedDrafts.test.tsx':
-    'abeb8a45effccaa03de4b67a70549311905d60fc62c3330f0d490da68a093eb5',
+    '86b4771c4d1efdcd546b076b9e227e790476874e8e4b7d58839a4ac6f4df0c56',
   '../../scripts/__tests__/ci-native-operator.test.ts':
     '5b82af350123289703819217e750645b3f1c83b93c3ae2064056be13e98ca698',
   '../__tests__/agent-tool-catalog.test.ts':
