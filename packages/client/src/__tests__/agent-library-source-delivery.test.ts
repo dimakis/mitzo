@@ -144,3 +144,79 @@ it('refuses an initial reviewed Library source when durable storage fails', () =
     ),
   ).toBe(false);
 });
+
+it.each(['success', 'failure'] as const)(
+  'finishes opening history when an accepted receipt replaces it with a %s restore',
+  async (outcome) => {
+    vi.useFakeTimers();
+    let accept!: (response: Response) => void;
+    const reads: Array<{ resolve: (response: Response) => void; reject: (error: Error) => void }> =
+      [];
+    const fetch = vi.fn((url: string) => {
+      if (url === '/reviewed/send')
+        return new Promise<Response>((resolve) => {
+          accept = resolve;
+        });
+      if (url.includes('/messages'))
+        return new Promise<Response>((resolve, reject) => {
+          reads.push({ resolve, reject });
+        });
+      return Promise.resolve(Response.json(url.endsWith('/meta') ? {} : []));
+    });
+    const socket = new Socket();
+    const store = createMitzoStore({
+      transport: { fetch },
+      wsConfig: { buildUrl: () => 'ws://fixture', createWebSocket: () => socket },
+      reviewedSendConfig: {
+        url: '/reviewed/send',
+        storage: { getItem: () => null, setItem: () => {} },
+      },
+    });
+    try {
+      store.getState().sendMessage('Continue the reviewed work.', {
+        clientMsgId: 'reviewed-command',
+        sourceSnapshots: [source],
+      });
+      await vi.advanceTimersByTimeAsync(0);
+      const opening = store.getState().switchSession('builder-chat');
+      expect(store.getState().historyLoading).toBe(true);
+      accept(
+        Response.json({
+          accepted: true,
+          clientMsgId: 'reviewed-command',
+          sessionId: 'builder-chat',
+        }),
+      );
+      await vi.advanceTimersByTimeAsync(0);
+      expect(reads).toHaveLength(2);
+      if (outcome === 'success')
+        reads[1].resolve(
+          Response.json({
+            messages: [{ messageId: 'saved', role: 'assistant', blocks: [] }],
+            current: null,
+            cursor: 12,
+          }),
+        );
+      else reads[1].reject(Error('Disconnected during restore'));
+      await vi.advanceTimersByTimeAsync(0);
+      // The superseded opening response cannot replace the receipt's history.
+      reads[0].resolve(
+        Response.json({
+          messages: [{ messageId: 'stale', role: 'assistant', blocks: [] }],
+          current: null,
+          cursor: 1,
+        }),
+      );
+      await opening;
+      expect(store.getState().historyLoading).toBe(false);
+      expect(store.getState().historyError).toBe(
+        outcome === 'failure' ? 'Could not restore this conversation. Please retry.' : null,
+      );
+      expect(store.getState().messages.messages.map((message) => message.messageId)).toEqual(
+        outcome === 'success' ? ['saved'] : [],
+      );
+    } finally {
+      store.getState().invalidateAuthentication();
+    }
+  },
+);

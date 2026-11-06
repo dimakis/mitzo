@@ -4,6 +4,7 @@ import { MitzoStoreProvider, useMitzoStore } from '@mitzo/client/hooks';
 import type { WebSocketLike } from '../../packages/client/src/ws-connection';
 import { ChatInput } from '../../frontend/src/components/ChatInput';
 import { CodexQueueStatus } from '../../frontend/src/components/CodexQueueStatus';
+import { ComposerStatusProvider } from '../../frontend/src/components/ComposerStatus';
 import '../../frontend/src/styles/tokens.css';
 import '../../frontend/src/styles/global.css';
 import '../../frontend/src/styles/desktop.css';
@@ -50,8 +51,13 @@ function QueueFixture() {
     </main>
   );
 }
-createRoot(document.getElementById('root')!).render(
-  <MitzoStoreProvider value={store}>
+const fixture = new URLSearchParams(location.search).has('combined') ? (
+  <ComposerStatusProvider>
     <QueueFixture />
-  </MitzoStoreProvider>,
+  </ComposerStatusProvider>
+) : (
+  <QueueFixture />
+);
+createRoot(document.getElementById('root')!).render(
+  <MitzoStoreProvider value={store}>{fixture}</MitzoStoreProvider>,
 );
