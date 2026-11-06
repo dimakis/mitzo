@@ -2,6 +2,15 @@ import { isDeepStrictEqual } from 'node:util';
 import { createOrdinaryFreshPermission, type SessionLaunchConfig } from '@mitzo/protocol';
 import type { SessionLaunchAuthority, SessionLaunchPort } from './session-launch-service.js';
 import { SessionLaunchError, type RetainedSessionLaunch } from './session-launch-store.js';
+import type { EventStore } from './event-store.js';
+
+function assertLaunchChildAdmissible(events: EventStore, id: string) {
+  if (events.getSession(id)?.isHidden)
+    throw new SessionLaunchError(
+      'This child chat is hidden. Preserve its original startup instead of reopening it.',
+    );
+  events.removals.assertAdmissible(id);
+}
 
 /** Reuse the same owned ordinary Local Mac Codex admission as New chat and
  * native advisers. No model/provider client or permission grant is created here. */
@@ -127,6 +136,7 @@ export function createSessionLaunchPort(): SessionLaunchPort {
       throw new SessionLaunchError('Original workspace identity changed.');
     const child = workspace?.conversationId ?? preparation?.sessionId ?? record.childSessionId;
     if (child) {
+      assertLaunchChildAdmissible(eventStore, child);
       if (registry.findBySessionId(child))
         throw new SessionLaunchError('The child startup is still active. Open its chat.');
       const { getCodexConversationStore } = await import('./codex-chat-session.js');
@@ -156,6 +166,11 @@ export function createSessionLaunchPort(): SessionLaunchPort {
     const { getOrdinaryWorkspaces } = await import('./repository-workspace-runtime.js');
     const { ordinaryWorkspaceTaskRoot } = await import('./ordinary-workspace-runtime.js');
     const { eventStore } = await import('./chat.js');
+    const retainedPreparation = eventStore.getOrdinaryWorkspaceSessionPreparation(
+      record.allocationId,
+    );
+    const retainedChild = record.childSessionId ?? retainedPreparation?.sessionId;
+    if (retainedChild) assertLaunchChildAdmissible(eventStore, retainedChild);
     const workspaces = getOrdinaryWorkspaces();
     let workspace = recover
       ? workspaces.getOrdinaryWorkspaceForOperation(record.allocationId)
@@ -170,6 +185,7 @@ export function createSessionLaunchPort(): SessionLaunchPort {
         'Original workspace ownership is unavailable. A replacement workspace cannot be allocated.',
       );
     if (workspace) {
+      assertLaunchChildAdmissible(eventStore, workspace.conversationId);
       if (
         !isDeepStrictEqual(workspace.binding, selected.binding) ||
         !isDeepStrictEqual(workspace.settings.binding, selected.runtimeBinding) ||
@@ -218,6 +234,7 @@ export function createSessionLaunchPort(): SessionLaunchPort {
     }
     authority.assertCurrent();
     authority.signal.throwIfAborted();
+    assertLaunchChildAdmissible(eventStore, workspace.conversationId);
     eventStore.prepareOrdinaryWorkspaceSession(
       {
         sessionId: workspace.conversationId,

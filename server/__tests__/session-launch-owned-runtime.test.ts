@@ -49,7 +49,13 @@ afterEach(async () => {
   vi.unstubAllGlobals();
 });
 
-it.each(['normal', 'before-reservation', 'after-reservation', 'before-dispatch'] as const)(
+it.each([
+  'normal',
+  'before-reservation',
+  'after-reservation',
+  'before-dispatch',
+  'remove-prepared',
+] as const)(
   'starts or resumes real ordinary ownership exactly once after %s',
   async (stage) => {
     vi.resetModules();
@@ -189,7 +195,7 @@ it.each(['normal', 'before-reservation', 'after-reservation', 'before-dispatch']
                 .mockImplementationOnce(() => {
                   throw Error('Offline interruption after reservation');
                 })
-            : stage === 'before-dispatch'
+            : stage === 'before-dispatch' || stage === 'remove-prepared'
               ? vi
                   .spyOn(
                     await import('../ordinary-scoped-command.js'),
@@ -206,6 +212,51 @@ it.each(['normal', 'before-reservation', 'after-reservation', 'before-dispatch']
             }),
         );
         interruption?.mockRestore();
+      }
+      if (stage === 'remove-prepared') {
+        childId = created.childSessionId;
+        expect(childId).toBeTruthy();
+        expect(created.state).toBe('uncertain');
+        const { getCodexConversationStore } = await import('../codex-chat-session.js');
+        const { createSessionRemovalRuntime } = await import('../session-removal-runtime.js');
+        const { SessionResourceRemovalService } = await import('../session-resource-removal.js');
+        const nativeStore = getCodexConversationStore();
+        expect(nativeStore.hasConversation(childId!)).toBe(false);
+        const commands = vi.spyOn(nativeStore, 'commands');
+        const stopped = vi.spyOn(nativeStore, 'assertRepositoryTaskStopped');
+        const removalRuntime = createSessionRemovalRuntime({
+          events: chat.eventStore,
+          registry: chat.registry,
+          tasks: { getTree: () => [], getTelosExecutionBinding: () => null },
+          native: () => nativeStore,
+          stop: chat.stopChat,
+        });
+        const removal = new SessionResourceRemovalService({
+          ...removalRuntime,
+          store: chat.eventStore.removals,
+          cancelPrompts: async () => {},
+        });
+        const preparedRemoval = await removal.prepare(childId!, authority.assertCurrent);
+        expect(preparedRemoval.preparationCompleted).toBe(true);
+        removalRuntime.assertSettled(childId!);
+        expect(commands).not.toHaveBeenCalled();
+        expect(stopped).not.toHaveBeenCalled();
+        const metadata = vi.spyOn(chat.eventStore, 'prepareOrdinaryWorkspaceSession');
+        const title = vi.spyOn(chat.eventStore, 'upsertSession');
+        await expect(
+          service.resume(proposal.proposalId, 'user', created.revision, authority),
+        ).rejects.toThrow(/being removed/);
+        expect(metadata).not.toHaveBeenCalled();
+        expect(title).not.toHaveBeenCalled();
+        removal.keep(childId!, preparedRemoval.operationId, authority.assertCurrent);
+        chat.eventStore.hideSession(childId!);
+        await expect(
+          service.resume(proposal.proposalId, 'user', created.revision, authority),
+        ).rejects.toThrow(/hidden/);
+        expect(metadata).not.toHaveBeenCalled();
+        expect(title).not.toHaveBeenCalled();
+        expect(launch).not.toHaveBeenCalled();
+        return;
       }
       if (stage !== 'normal') {
         expect(created.state).toBe('uncertain');

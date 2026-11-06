@@ -14,6 +14,8 @@ const mocks = vi.hoisted(() => ({
   preparation: vi.fn(),
   sendCommand: vi.fn(),
   hasNative: vi.fn(),
+  sessionMeta: vi.fn(),
+  removalFence: vi.fn(),
   upsert: vi.fn(),
   rename: vi.fn(),
   binding: {
@@ -89,7 +91,8 @@ vi.mock('../chat.js', () => ({
     getOrdinaryWorkspaceSessionPreparation: mocks.preparation,
     getSendCommand: mocks.sendCommand,
     getOrdinaryCommandAdmission: () => ({ state: 'consumed' }),
-    getSession: () => ({ accountBinding: mocks.binding }),
+    getSession: mocks.sessionMeta,
+    removals: { assertAdmissible: mocks.removalFence },
   },
   registry: { findBySessionId: () => null },
 }));
@@ -151,6 +154,8 @@ beforeEach(() => {
   });
   mocks.sendCommand.mockReturnValue({ sessionId: 'child' });
   mocks.hasNative.mockReturnValue(true);
+  mocks.sessionMeta.mockReturnValue({ accountBinding: mocks.binding });
+  mocks.removalFence.mockImplementation(() => {});
   mocks.workspaceOperation.mockReturnValue(undefined);
   mocks.revalidate.mockResolvedValue(undefined);
   mocks.commands.mockReturnValue([
@@ -268,6 +273,27 @@ it('refuses explicit resume whenever native history or an admitted command exist
   expect(mocks.prepare).not.toHaveBeenCalled();
   expect(mocks.dispatch).not.toHaveBeenCalled();
 });
+it.each(['hidden', 'removing'])(
+  'refuses %s child recovery before metadata or title writes',
+  async (reason) => {
+    const port = createSessionLaunchPort();
+    mocks.workspaceOperation.mockReturnValue({ conversationId: 'child' });
+    if (reason === 'hidden')
+      mocks.sessionMeta.mockReturnValue({ accountBinding: mocks.binding, isHidden: true });
+    else
+      mocks.removalFence.mockImplementation(() => {
+        throw Error('This chat is being removed');
+      });
+    await expect(
+      port.resume!({ ...record, childSessionId: 'child' }, authority, vi.fn()),
+    ).rejects.toThrow(/hidden|removed/);
+    expect(mocks.prepare).not.toHaveBeenCalled();
+    expect(mocks.reserve).not.toHaveBeenCalled();
+    expect(mocks.prepareSession).not.toHaveBeenCalled();
+    expect(mocks.upsert).not.toHaveBeenCalled();
+    expect(mocks.dispatch).not.toHaveBeenCalled();
+  },
+);
 it.each(['metadata', 'child-link'])(
   'refuses replacement allocation after loss of original custody with a retained %s',
   async (source) => {
