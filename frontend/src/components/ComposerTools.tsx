@@ -156,6 +156,7 @@ export function ComposerTools({
           (inRouter ? (
             <Link
               className="chat-input-btn"
+              aria-label="Terminal"
               to={terminalHref}
               onClick={() => setToolsExpanded(false)}
             >
@@ -165,6 +166,7 @@ export function ComposerTools({
           ) : (
             <a
               className="chat-input-btn"
+              aria-label="Terminal"
               href={terminalHref}
               onClick={() => setToolsExpanded(false)}
             >

@@ -44,6 +44,12 @@ it.each([5, 7])(
   },
 );
 
+it('refuses a legacy read report missing the two required child callbacks', () => {
+  const report = completeReport();
+  report.testResults[2].assertionResults.splice(15);
+  expect(() => qualify(report)).toThrow();
+});
+
 it.each([
   [
     'missing native reader suite',
