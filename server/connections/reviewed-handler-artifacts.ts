@@ -10,8 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.907-symposium-cleanup-integration';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.908-symposium-fresh-joining';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -23,6 +22,8 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
+  '../__tests__/collaboration-joining-reconciliation.test.ts':
+    '219afc8f75f5910d892c483b03e071e0e64c6f3188e6c89e44d59f8a4791f4d9',
   '../collaboration-application-joining.ts':
     '1eaadb4f764fda27629db1d72650a540d5f37d6e127c9d7a49cf620ec9b1ac28',
   '../__tests__/collaboration-application-joining.test.ts':
@@ -1432,7 +1433,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/protocol/src/collaboration-conversation.ts':
     'f083759dec5334cf439a6067260c3f517f0f5427e690b8abcac7caeeaaecafe1',
   '../../packages/protocol/src/collaboration-conversation-store.ts':
-    '85262cd5a8f4d471304a15967cd461a210b6e95ae50f758a11f2b55e212b7daf',
+    '829ad804be3591b7de384287e68193f1eb8c34437b8e4f37c83bf35ea5769c53',
   '../../packages/client/src/collaboration-api.ts':
     '7f3bf72a97b268a687dab4cd3f6593d510d4e601fc1306504c9bb8e708de5b6c',
   '../../packages/client/src/collaboration-projection.ts':

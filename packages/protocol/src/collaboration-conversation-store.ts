@@ -1377,6 +1377,16 @@ export class CollaborationConversationStore {
         if (join.state !== 'allocated' || !join.sessionId)
           throw new ContractError('invalid_transition');
         const current = this.membership(group, expectedMembershipRevision);
+        // Check inside the membership transaction: ordinary command admission can
+        // race with the final asynchronous authority check before a fresh link.
+        const proof = this.owners.allocation(join.allocationOperationId);
+        if (
+          !proof ||
+          proof.sessionId !== join.sessionId ||
+          sha(proof.settings) !== sha(join.settings) ||
+          (proof.kind === 'prepared' && proof.firstCommandId !== null)
+        )
+          throw new ContractError('allocation_conflict');
         if (!this.owners.available(join.sessionId))
           throw new ContractError('unavailable_recipient');
         const currentSettings = this.owners.settings(join.sessionId);
