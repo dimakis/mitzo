@@ -119,7 +119,21 @@ it('loads Commands and opens Terminal through real ordinary custody under the de
   await request(app.app)
     .delete('/api/terminals/' + open.body.id)
     .set('Authorization', 'Bearer ' + f.token);
-  chat.eventStore.upsertSession({ sessionId: first.receipt.sessionId, cwd: f.configuredWorkspace });
+  expect(() =>
+    chat.eventStore.upsertSession({
+      sessionId: first.receipt.sessionId,
+      cwd: f.configuredWorkspace,
+    }),
+  ).toThrow(/workspace cannot be replaced/);
+  const db = new Database(join(f.configuredWorkspace, '.mitzo', 'events.db'));
+  try {
+    db.prepare('UPDATE sessions SET cwd=? WHERE session_id=?').run(
+      f.configuredWorkspace,
+      first.receipt.sessionId,
+    );
+  } finally {
+    db.close();
+  }
   expect((await get('/api/skills').query({ runtime: 'ordinary' })).status).toBe(403);
   expect(
     (
