@@ -15,6 +15,7 @@ import type { CodexConversationStore } from './codex-conversation-store.js';
 import type { ProfileToolCall } from './session-profile-tools.js';
 import type { AccountBinding } from '@mitzo/protocol';
 import { createLogger } from './logger.js';
+import { retainedNativeHostToolOperator } from './native-host-tool-operator.js';
 const log = createLogger('agent-communication');
 
 /** The successful cancellation boundary owns projection even without a live
@@ -173,7 +174,10 @@ export function sessionAgentCommunicationTools(owners: Owners) {
         !call.callId?.trim()
       )
         throw Error('Verified current native sender required');
-      const connectionId = source.session.ownerConnectionId ?? source.clientId.split(':')[0];
+      const connectionId =
+        retainedNativeHostToolOperator(source.session) ??
+        source.session.ownerConnectionId ??
+        source.clientId.split(':')[0];
       const captured = captureAgentLibraryAuthorization(connectionId);
       const operation = captureAgentLibraryOperation(connectionId);
       const signal = AbortSignal.any([

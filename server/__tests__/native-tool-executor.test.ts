@@ -1,4 +1,4 @@
-import { callbackOutcome, retainCallbackOutcome } from '../turn-callbacks.js';
+import { callbackOutcome, retainCallbackOutcome, TurnCallbacks } from '../turn-callbacks.js';
 import { executeTaskOperation } from '../task-execution-operation.js';
 import { TaskExecutionStore } from '../task-execution-store.js';
 import { execFileSync } from 'node:child_process';
@@ -96,9 +96,13 @@ describe('native tool execution through session permissions', () => {
   const executor = () =>
     createNativeToolExecutor('client', registry, { env: { PATH: '/usr/bin:/bin' } });
 
-  it.each(['settled', 'unknown'] as const)(
-    'retains a failed command as %s through the real task executor adapter',
-    async (outcome) => {
+  it.each([
+    ['settled', true],
+    ['unknown', true],
+    ['unknown', false],
+  ] as const)(
+    'retains a task command as %s (executor error=%s) through the real task executor adapter',
+    async (outcome, isError) => {
       const store = new TaskExecutionStore(join(root, 'events.db'));
       try {
         const session = registry.get('client')!;
@@ -111,9 +115,11 @@ describe('native tool execution through session permissions', () => {
           members: [{ sessionId: session.sessionId!, fingerprint: 'scope', roots: [session.cwd] }],
         });
         const before = vi.mocked(executeSandboxedCommand).mock.calls.length;
-        vi.mocked(executeSandboxedCommand).mockResolvedValueOnce(
-          retainCallbackOutcome({ content: '1 test failed', isError: true }, outcome),
-        );
+        const callbacks = new TurnCallbacks();
+        vi.mocked(executeSandboxedCommand).mockImplementationOnce(async () => {
+          callbacks.seal();
+          return retainCallbackOutcome({ content: '1 test failed', isError }, outcome);
+        });
         const options = {
           input: {
             operation: 'run' as const,
@@ -132,15 +138,26 @@ describe('native tool execution through session permissions', () => {
           assertGrant: () => grant,
           assertRuntimeCurrent: async () => {},
         };
-        const result = await executeTaskOperation(options);
+        const result = await callbacks.track(() => executeTaskOperation(options));
         expect(result.isError).toBe(true);
+        expect(callbackOutcome(result)).toBe(outcome);
         expect(store.runStatus(grant.id, session.sessionId!, 'failed-test').state).toBe(
           outcome === 'settled' ? 'completed' : 'uncertain',
         );
         if (outcome === 'settled') {
+          await expect(callbacks.settle(abort.signal)).resolves.toBeUndefined();
           expect(result.content).toBe('1 test failed');
-          expect(await executeTaskOperation(options)).toEqual(result);
+          const retryCallbacks = new TurnCallbacks();
+          const retry = retryCallbacks.track(() => executeTaskOperation(options));
+          retryCallbacks.seal();
+          const replay = await retry;
+          expect(replay).toEqual(result);
+          expect(callbackOutcome(replay)).toBe('settled');
+          await expect(retryCallbacks.settle(abort.signal)).resolves.toBeUndefined();
         } else {
+          await expect(callbacks.settle(abort.signal)).rejects.toMatchObject({
+            code: 'callbacks_failed',
+          });
           expect(JSON.parse(result.content).state).toBe('uncertain');
           await expect(executeTaskOperation(options)).rejects.toThrow(/uncertain/);
         }

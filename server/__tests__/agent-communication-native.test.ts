@@ -1,6 +1,7 @@
 import { afterAll, afterEach, expect, it, vi } from 'vitest';
 import { join } from 'node:path';
-import { mkdir, readFile, stat, symlink, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, stat, symlink, writeFile } from 'node:fs/promises';
+import * as os from 'node:os';
 import * as sandboxedCommand from '../sandboxed-command.js';
 import * as childProcess from 'node:child_process';
 import { captureNativeLocalRepositoryReader } from '../local-repository-native-read.js';
@@ -12,6 +13,7 @@ import { SessionRegistry, resolvePending, type ManagedSession } from '@mitzo/har
 import { ownedRuntimeFixture } from './fixtures/owned-local-codex-runtime.js';
 import { login, authenticateToken, setAuthRevocationStore, revokeAuthSession } from '../auth.js';
 import { bindAgentLibraryTransport } from '../agent-library-transport.js';
+import { retainNativeHostToolOperator } from '../native-host-tool-operator.js';
 import { retainAgentContextAuthority } from '../agent-context-authority.js';
 import {
   captureNativeHostToolContext,
@@ -39,6 +41,11 @@ import {
 import { createAgentMessageApprover } from '../agent-communication-permission.js';
 
 const hostReadGuard = vi.hoisted(() => ({ forbidden: false }));
+const offlineHome = vi.hoisted(() => ({ value: undefined as string | undefined }));
+vi.mock('node:os', async (original) => {
+  const actual = await original<typeof import('node:os')>();
+  return { ...actual, homedir: () => offlineHome.value ?? actual.homedir() };
+});
 vi.mock('node:child_process', async (original) => {
   const actual = await original<typeof import('node:child_process')>();
   const guarded = vi.fn((...args: Parameters<typeof actual.execFile>) => {
@@ -70,7 +77,10 @@ type ReadScopeFault =
   | 'getter-data'
   | 'enumerable-facet';
 setAuthRevocationStore(revocations);
-afterAll(() => revocations.close());
+afterAll(async () => {
+  revocations.close();
+  if (offlineHome.value) await rm(offlineHome.value, { recursive: true, force: true });
+});
 afterEach(async () => {
   hostReadGuard.forbidden = false;
   for (const close of cleanups.splice(0).reverse()) await close();
@@ -781,6 +791,8 @@ async function fixture(
     onReadScopeGetter?: () => void;
   } = {},
 ) {
+  const home = (offlineHome.value ??= await mkdtemp(join(os.tmpdir(), 'mitzo-peer-home-')));
+  vi.stubEnv('MITZO_CODEX_PRIVATE_DIR', join(home, 'private', 'codex'));
   vi.stubEnv('MITZO_WORKSPACE_RUNTIME_CONFIG', undefined);
   vi.stubEnv('MITZO_KNOWLEDGE_LIBRARY_CONFIG', undefined);
   const f = await ownedRuntimeFixture(cleanups, {
@@ -795,7 +807,8 @@ async function fixture(
   const token = await login(process.env.AUTH_PASSPHRASE!);
   const auth = (await authenticateToken(token!))!;
   const operatorConnectionId = f.dependencies.operatorConnectionId;
-  cleanups.push(bindAgentLibraryTransport(operatorConnectionId, auth));
+  const disconnectOperator = bindAgentLibraryTransport(operatorConnectionId, auth);
+  cleanups.push(disconnectOperator);
   const native = new CodexConversationStore(join(f.root, 'peer-native.db'));
   cleanups.push(() => native.close());
   const registry = new SessionRegistry();
@@ -831,6 +844,8 @@ async function fixture(
       cwd: selected.reserved.directory,
     });
     const session = registry.get(clientId)!;
+    const releaseHostOperator = retainNativeHostToolOperator(session, operatorConnectionId);
+    cleanups.push(releaseHostOperator);
     bindAgentToolSelection(session, f.agentProfile.definition, 'codex-owned-local');
     let conversation!: CodexConversation;
     let callbacks!: CodexLifecycleTransport;
@@ -1167,6 +1182,7 @@ async function fixture(
       driver,
       conversation,
       requests,
+      releaseHostOperator,
       rpc: selected.rpc,
       initial,
       async call(
@@ -1219,6 +1235,7 @@ async function fixture(
     b,
     registry,
     permissions,
+    disconnectOperator,
     setPermissionAction(fn: typeof permissionAction) {
       permissionAction = fn;
     },
@@ -1334,6 +1351,73 @@ it('does not enqueue or steer again after losing an active-turn delivery acknowl
       .commands(f.b.sessionId, f.b.initial.lease.binding)
       .some((command) => command.id === sent.value.commandId),
   ).toBe(false);
+}, 20000);
+
+it('retains discovery, granted messages and receipts after the viewer disconnects', async () => {
+  const f = await fixture();
+  f.setPermissionAction((event) => {
+    resolvePending(event.permId as string, 'always', undefined, event.sessionId as string);
+  });
+  const requestId = randomUUID();
+  const first = await f.a.call({
+    operation: 'send',
+    requestId,
+    recipientConversationId: f.b.sessionId,
+    text: 'Establish the session grant before disconnecting.',
+  });
+  expect(first.response.success).toBe(true);
+  f.disconnectOperator();
+
+  const listed = await f.a.call({ operation: 'list' });
+  expect(listed.response.success).toBe(true);
+  expect(listed.value.chats).toContainEqual(
+    expect.objectContaining({ conversationId: f.b.sessionId, availability: 'live' }),
+  );
+  const next = await f.a.call({
+    operation: 'send',
+    requestId: randomUUID(),
+    recipientConversationId: f.b.sessionId,
+    text: 'Continue the already-authorized coordination.',
+  });
+  expect(next.response.success).toBe(true);
+  const reply = await f.b.call({
+    operation: 'send',
+    requestId: randomUUID(),
+    recipientConversationId: f.a.sessionId,
+    replyTo: first.value.messageId,
+    text: 'The original grant still covers this reply.',
+  });
+  expect(reply.response.success).toBe(true);
+  expect(f.permissions).toHaveLength(1);
+  expect((await f.a.call({ operation: 'lookup', requestId })).value.messageId).toBe(
+    first.value.messageId,
+  );
+  expect((await f.b.call({ operation: 'inbox' })).value.messages).toHaveLength(2);
+}, 20000);
+
+it('does not replace a released retained operator with a connected viewer login', async () => {
+  const f = await fixture();
+  f.a.releaseHostOperator();
+  expect((await f.a.call({ operation: 'list' })).response.success).toBe(false);
+}, 20000);
+
+it('keeps the admitted login authoritative after another login reattaches the viewer', async () => {
+  const f = await fixture();
+  f.disconnectOperator();
+  const token = await login(process.env.AUTH_PASSPHRASE!);
+  const viewerAuth = (await authenticateToken(token!))!;
+  expect(viewerAuth.id).not.toBe(f.auth.id);
+  const viewerConnection = `reconnected-viewer-${randomUUID()}`;
+  cleanups.push(bindAgentLibraryTransport(viewerConnection, viewerAuth));
+  f.a.session.ownerConnectionId = viewerConnection;
+
+  const listed = await f.a.call({ operation: 'list' });
+  expect(listed.response.success).toBe(true);
+  expect(listed.value.chats).toContainEqual(
+    expect.objectContaining({ conversationId: f.b.sessionId }),
+  );
+  revokeAuthSession(f.auth);
+  expect((await f.a.call({ operation: 'list' })).response.success).toBe(false);
 }, 20000);
 
 it('uses one explicit session messaging grant for further sends and correlated replies, and observes revocation', async () => {

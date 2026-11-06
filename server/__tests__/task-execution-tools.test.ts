@@ -7,6 +7,7 @@ import { SessionRegistry, resolvePending } from '@mitzo/harness';
 import { bindAgentLibraryTransport } from '../agent-library-transport.js';
 import { TaskExecutionStore } from '../task-execution-store.js';
 import { sessionTaskExecutionTools } from '../task-execution-tools.js';
+import { retainNativeHostToolOperator } from '../native-host-tool-operator.js';
 
 const execution = vi.hoisted(() => ({
   waitForAbort: false,
@@ -44,6 +45,7 @@ function fixture() {
   cleanup.push(() => registry.dispose());
   const sent: Record<string, unknown>[] = [];
   const auth = { id: 'operator', expiresAt: Date.now() + 600_000 };
+  const disconnects = new Map<string, () => void>();
   for (const name of ['parent', 'worker', 'stranger']) {
     mkdirSync(join(root, name));
     registry.register(name + ':' + name, {
@@ -55,7 +57,9 @@ function fixture() {
       abortController: new AbortController(),
       ownedLocalAuthSessionId: auth.id,
     });
-    cleanup.push(bindAgentLibraryTransport(name, auth));
+    const disconnect = bindAgentLibraryTransport(name, auth);
+    disconnects.set(name, disconnect);
+    cleanup.push(disconnect);
   }
   const tools = (id: string, prefix = '') =>
     sessionTaskExecutionTools({
@@ -78,17 +82,109 @@ function fixture() {
     network: 'loopback',
     durationMinutes: 5,
   };
-  async function authorize() {
+  async function authorize(beforeDecision?: () => void) {
     const pending = tools('parent').execute(request, signal, call);
     await vi.waitFor(() => expect(sent.some((x) => x.type === 'permission_request')).toBe(true));
     const card = sent.find((x) => x.type === 'permission_request')!;
+    beforeDecision?.();
     resolvePending(card.permId as string, 'once', undefined, 'parent');
     const result = await pending;
     expect(result.isError, result.content).toBe(false);
     return JSON.parse(result.content).grant;
   }
-  return { root, store, registry, sent, tools, call, signal, request, authorize };
+  const retain = (id: string) => {
+    const release = retainNativeHostToolOperator(registry.findBySessionId(id)!.session, id);
+    cleanup.push(release);
+    return release;
+  };
+  const disconnect = (id: string) => disconnects.get(id)!();
+  return {
+    root,
+    store,
+    registry,
+    sent,
+    tools,
+    call,
+    signal,
+    request,
+    authorize,
+    retain,
+    disconnect,
+  };
 }
+it('authorizes disconnected retained workers and keeps their task status and commands usable', async () => {
+  const f = fixture();
+  for (const id of ['parent', 'worker']) {
+    f.retain(id);
+    f.disconnect(id);
+  }
+  const grant = await f.authorize();
+  const status = await f.tools('worker').execute({ operation: 'status' }, f.signal);
+  expect(status.isError, status.content).toBe(false);
+  expect(JSON.parse(status.content).grants[0].id).toBe(grant.id);
+  const result = await f
+    .tools('worker')
+    .execute(
+      { operation: 'run', grantId: grant.id, requestId: randomUUID(), command: 'npm test' },
+      f.signal,
+      f.call,
+    );
+  expect(result.isError, result.content).toBe(false);
+  expect(execution.calls).toHaveLength(1);
+});
+it('keeps task approval bound to retained source and worker identities when viewers change', async () => {
+  const f = fixture();
+  for (const id of ['parent', 'worker']) f.retain(id);
+  const grant = await f.authorize(() => {
+    for (const id of ['parent', 'worker']) {
+      f.disconnect(id);
+      const viewer = `other-viewer-${id}`;
+      cleanup.push(
+        bindAgentLibraryTransport(viewer, {
+          id: 'different-operator',
+          expiresAt: Date.now() + 600_000,
+        }),
+      );
+      f.registry.findBySessionId(id)!.session.ownerConnectionId = viewer;
+    }
+  });
+  expect(grant.members.map((member: { sessionId: string }) => member.sessionId)).toEqual([
+    'parent',
+    'worker',
+  ]);
+  expect(execution.calls).toHaveLength(0);
+});
+it('does not fall back to a connected viewer after releasing a retained task operator', async () => {
+  const f = fixture();
+  const grant = await f.authorize();
+  f.retain('worker')();
+  const result = await f
+    .tools('worker')
+    .execute(
+      { operation: 'run', grantId: grant.id, requestId: randomUUID(), command: 'npm test' },
+      f.signal,
+      f.call,
+    );
+  expect(result.isError).toBe(true);
+  expect(execution.calls).toHaveLength(0);
+});
+it.each(['parent', 'worker'])(
+  'refuses approval if the retained %s operator is released while waiting',
+  async (id) => {
+    const f = fixture();
+    const releases = new Map(['parent', 'worker'].map((member) => [member, f.retain(member)]));
+    const pending = f.tools('parent').execute(f.request, f.signal, f.call);
+    await vi.waitFor(() =>
+      expect(f.sent.some((event) => event.type === 'permission_request')).toBe(true),
+    );
+    releases.get(id)!();
+    const card = f.sent.find((event) => event.type === 'permission_request')!;
+    resolvePending(card.permId as string, 'once', undefined, 'parent');
+    expect((await pending).isError).toBe(true);
+    expect(f.store.active('operator', 'parent')).toHaveLength(0);
+    expect(execution.calls).toHaveLength(0);
+  },
+);
 it('approves the selected task once and lets its worker run different commands', async () => {
   const f = fixture();
   const grant = await f.authorize();
