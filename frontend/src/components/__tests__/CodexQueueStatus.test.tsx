@@ -6,7 +6,10 @@ import { apiFetch } from '../../lib/api-fetch';
 import { CodexQueueStatus } from '../CodexQueueStatus';
 import { ComposerStatusProvider, ComposerStatusRail } from '../ComposerStatus';
 
-vi.mock('../../lib/api-fetch', () => ({ apiFetch: vi.fn() }));
+vi.mock('../../lib/api-fetch', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../lib/api-fetch')>()),
+  apiFetch: vi.fn(),
+}));
 const queueSignal = vi.hoisted(() => ({ revision: 0 }));
 vi.mock('@mitzo/client/hooks', () => ({
   useMitzoStore: (select: (state: unknown) => unknown) =>

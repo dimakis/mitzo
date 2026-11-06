@@ -1,4 +1,8 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useState, useRef } from 'react';
+import { useSessionOrder } from '../hooks/useSessionOrder';
+import { useListBrowsing } from '../hooks/useListBrowsing';
+import { SessionActivityStatus } from './SessionActivityStatus';
+import { mergeSessionActivities } from '../lib/session-activity';
 import type { Session } from '../types/chat';
 import { UiIcon } from './UiIcon';
 import { useSessionList } from '../hooks/useSessionList';
@@ -13,7 +17,6 @@ import { SessionRemovalDialog } from './SessionRemovalDialog';
 import { SessionRenameDialog } from './SessionRenameDialog';
 import { SessionDetailsDialog } from './SessionDetailsDialog';
 import { SessionWorkLink } from './SessionWorkLink';
-import { formatRelativeTime } from '../lib/formatTime';
 import { recordTitle } from '../lib/record-title';
 import '../styles/session-library.css';
 export interface SessionPanelProps {
@@ -35,12 +38,14 @@ function SessionPanelRow({
   session,
   active,
   activity,
+  connected,
   onSelect,
   onActions,
 }: {
   session: Session;
   active: boolean;
   activity?: SessionActivity;
+  connected?: boolean;
   onSelect: (id: string) => void;
   onActions: Actions;
 }) {
@@ -60,10 +65,11 @@ function SessionPanelRow({
         <span className="session-panel-item-text">
           <span className="session-panel-item-summary">{title}</span>
           <span className="session-panel-item-meta">
-            {activity && <span>{activity.awaitingReply ? 'Awaiting reply' : activity.state}</span>}
-            <span className="session-panel-item-time">
-              {formatRelativeTime(session.lastModified)}
-            </span>
+            <SessionActivityStatus
+              activity={activity}
+              modifiedAt={session.lastModified}
+              connected={connected}
+            />
           </span>
         </span>
       </button>
@@ -92,12 +98,22 @@ export function SessionPanel({ activeSessionId, onSelectSession, onNewChat }: Se
     handleRename,
   } = useSessionList();
   const search = useSessionSearch();
-  const { activities, attendCount } = useSessionOverview();
+  const { activities, attendCount, connected, lastKnownActivities = [] } = useSessionOverview();
   const [viewMode, setViewMode] = useState<ViewMode>(readViewMode);
   const [menu, setMenu] = useState<SessionMenuState | null>(null);
   const [renaming, setRenaming] = useState<Session | null>(null);
   const [details, setDetails] = useState<Session | null>(null);
   const [removing, setRemoving] = useState<string | null>(null);
+  const scroller = useRef<HTMLDivElement>(null);
+  const paused = useListBrowsing(
+    scroller,
+    Boolean(menu || renaming || details || removing || search.active),
+  );
+  const combined = mergeSessionActivities(sessions, activities);
+  const ordered = useSessionOrder([...combined.values()], activities, paused);
+  const displayById = new Map(
+    (connected === false ? lastKnownActivities : activities).map((a) => [a.sessionId, a]),
+  );
   const closeMenu = useCallback(() => setMenu(null), []);
   const showActions = useCallback<Actions>(
     (session, trigger, point) => setMenu({ session, trigger, point }),
@@ -127,7 +143,7 @@ export function SessionPanel({ activeSessionId, onSelectSession, onNewChat }: Se
     }
   }
   return (
-    <div className="session-panel">
+    <div className="session-panel" ref={scroller}>
       <div className="session-panel-heading">
         <h1>Conversations</h1>
         <SessionSearchBar {...search} onSelectSession={onSelectSession} />
@@ -155,13 +171,16 @@ export function SessionPanel({ activeSessionId, onSelectSession, onNewChat }: Se
         </button>
       </div>
       <ConversationPins
-        sessions={sessions}
+        sessions={ordered}
+        activities={displayById}
+        connected={connected}
         selectedId={activeSessionId}
         onSelect={onSelectSession}
         onActions={showActions}
       />
       {viewMode === 'active' ? (
         <ActiveSessionsList
+          paused={paused}
           activeSessionId={activeSessionId}
           onSelectSession={onSelectSession}
           onActions={activityActions}
@@ -177,18 +196,19 @@ export function SessionPanel({ activeSessionId, onSelectSession, onNewChat }: Se
               </button>
             </div>
           )}
-          {!loading && !error && sessions.length === 0 && (
+          {!loading && !error && ordered.length === 0 && (
             <p className="session-panel-empty">No sessions</p>
           )}
-          {!loading && sessions.length > 0 && (
+          {!loading && ordered.length > 0 && (
             <div className="session-panel-list">
               <h2 className="session-list-group-title">All conversations</h2>
-              {sessions.map((session) => (
+              {ordered.map((session) => (
                 <SessionPanelRow
                   key={session.id}
                   session={session}
                   active={session.id === activeSessionId}
-                  activity={activities.find((activity) => activity.sessionId === session.id)}
+                  activity={displayById.get(session.id)}
+                  connected={connected}
                   onSelect={onSelectSession}
                   onActions={showActions}
                 />
