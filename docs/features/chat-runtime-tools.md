@@ -83,3 +83,12 @@ Passing phone/desktop captures use `responsiveness-runtime-tools-*.png`, retaine
 by the existing responsiveness artifact upload. New and existing chats have
 separate images; mobile captures keep the supported actions open after the verified
 Terminal round trip so the controls and retained draft can both be inspected.
+
+Final integration, 6 November: merged accepted main `3219df3f7` with its native
+subagent controls, preserving both source inventories. First-command freezing
+now resolves repository skills from the qualified reserved source before the
+future task directory exists. The repository owner checks reservation identity,
+account, source and root around that read. The resulting prompt commits with the
+command under the existing admission fence; retained decisions still take priority.
+The real preparation regression covers repository-only instructions, a restricted
+repository override, absent destination files and rejected account/source access.

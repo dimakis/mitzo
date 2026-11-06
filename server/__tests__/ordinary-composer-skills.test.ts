@@ -62,12 +62,12 @@ it('rolls back a rejected command together with its skill decision', () => {
 it('qualifies the selected ready host workspace before loading its repository overrides', async () => {
   const { registry } = fixture();
   vi.spyOn(registries, 'buildSkillRegistry').mockReturnValue(registry);
-  const record = { state: 'ready', directory: '/selected/task', binding: { accountId: 'work' } };
+  const record = { state: 'ready', binding: { accountId: 'work' } };
   const service = {
     get: vi.fn(() => record),
     readPreparedHostSource: vi.fn(
       async (_id: string, _binding: unknown, read: (directory: string) => unknown) =>
-        read('/selected/task'),
+        read('/selected/source'),
     ),
   };
   expect(
@@ -86,7 +86,7 @@ it('qualifies the selected ready host workspace before loading its repository ov
     record.binding,
     expect.any(Function),
   );
-  expect(registries.buildSkillRegistry).toHaveBeenCalledWith('/selected/task');
+  expect(registries.buildSkillRegistry).toHaveBeenCalledWith('/selected/source');
   service.readPreparedHostSource.mockRejectedValueOnce(Error('Changed workspace'));
   await expect(
     ordinaryWorkspaceSkillEntries(service as never, 'workspace', () => record.binding as never),

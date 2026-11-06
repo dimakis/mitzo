@@ -2099,6 +2099,27 @@ export class RepositoryWorkspaces {
       return result;
     });
   }
+  /** Read a reserved task's qualified source before its destination is materialized. */
+  async readReservedHostSource<T>(
+    input: Omit<HostRepositoryReservationInput, 'signal'>,
+    read: (directory: string) => T,
+    signal: AbortSignal,
+  ): Promise<T> {
+    return this.runOperation(async () => {
+      const expected = this.snapshotHostInput(input);
+      const descriptor = this.getHostReservation(expected);
+      const record = this.getHostRecord(expected.id);
+      if (descriptor.state !== 'reserved') throw Error('Reserved host source unavailable');
+      await this.authorizeHostRecord(record, expected.binding, signal);
+      await this.verifyHostSource(record, signal);
+      await this.assertHostRoot(descriptor.hostReservation);
+      const result = read(this.source(record));
+      await this.authorizeHostRecord(record, expected.binding, signal);
+      await this.assertHostSource(record, signal);
+      this.getHostReservation(expected);
+      return result;
+    });
+  }
   private async firstBinding(
     record: RepositoryWorkspace,
     expected: ReturnType<RepositoryWorkspaces['snapshotHostInput']>,

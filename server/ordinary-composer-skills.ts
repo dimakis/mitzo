@@ -4,6 +4,7 @@ import type { EventStore } from './event-store.js';
 import { buildSkillRegistry } from './skill-registry-runtime.js';
 import type { RepositoryWorkspaces } from './repository-workspaces.js';
 import type { AccountBinding } from '@mitzo/protocol';
+import type { HostRepositoryReservationInput } from './repository-workspaces.js';
 
 const restriction = 'This skill requires tool restrictions that this runtime cannot enforce.';
 const nativeNames = new Set(['skills', 'models', 'close', 'deliberate', 'fuse']);
@@ -54,6 +55,26 @@ export async function ordinaryWorkspaceSkillEntries(
   );
 }
 
+/** Resolve before first admission against the qualified retained source, not a future cwd. */
+export async function prepareOrdinarySkillCommand(
+  workspaces: Pick<RepositoryWorkspaces, 'readReservedHostSource'>,
+  reservation: Omit<HostRepositoryReservationInput, 'signal'>,
+  command: { store: EventStore; id: string; text: string; signal: AbortSignal },
+) {
+  const { store, id, text, signal } = command;
+  if (store.getSendCommand(id) || store.getOrdinarySkillContext(reservation.conversationId, id))
+    return;
+  if (!parseSlashCommand(text)) return;
+  return workspaces.readReservedHostSource(
+    reservation,
+    (directory) => ({
+      text,
+      prompt: resolveOrdinarySkillPrompt(text, buildSkillRegistry(directory)) ?? text,
+    }),
+    signal,
+  );
+}
+
 /** Run under the owned admission fence; commit the decision with the command. */
 export function freezeOrdinarySkillCommand(
   store: EventStore,
@@ -61,16 +82,23 @@ export function freezeOrdinarySkillCommand(
   commandId: string,
   payload: Record<string, unknown>,
   admit: () => void,
+  prepared?: { text: string; prompt: string },
 ) {
   if (!meta.cwd || typeof payload.text !== 'string' || !parseSlashCommand(payload.text))
     return admit();
-  const prompt = resolveCapturedSkillPrompt(
-    store,
-    meta.sessionId,
-    commandId,
-    payload.text,
-    buildSkillRegistry(meta.cwd),
-  );
+  if (prepared && prepared.text !== payload.text) throw Error('Skill command changed');
+  const retained =
+    store.getOrdinarySkillContext(meta.sessionId, commandId) || store.getSendCommand(commandId);
+  const prompt =
+    !retained && prepared
+      ? prepared.prompt
+      : resolveCapturedSkillPrompt(
+          store,
+          meta.sessionId,
+          commandId,
+          payload.text,
+          buildSkillRegistry(meta.cwd),
+        );
   store.admitWithOrdinarySkillContext(
     meta.sessionId,
     commandId,

@@ -1,5 +1,8 @@
 import { reconcileRetainedLocalCodexEffects } from './retained-local-codex-effects.js';
-import { freezeOrdinarySkillCommand } from './ordinary-composer-skills.js';
+import {
+  freezeOrdinarySkillCommand,
+  prepareOrdinarySkillCommand,
+} from './ordinary-composer-skills.js';
 import { assembleCommandPrompt } from './message-reply-context.js';
 import { MessageReplyIdSchema } from '@mitzo/protocol';
 import {
@@ -798,9 +801,25 @@ export class OrdinaryLocalCodexOwnedRuntime<K extends LocalWorkspaceKind = 'repo
       });
       capturedBootstrap = bootstrap;
       capturedLeaseGetter = bootstrap.currentLease;
+      const preparedSkill =
+        descriptor.state === 'reserved' && this.#workspaceOwner.kind === 'repository'
+          ? await prepareOrdinarySkillCommand(this.owners.workspace, this.#reservation, {
+              store: this.owners.eventStore,
+              id: request.clientMsgId,
+              text: payload.text,
+              signal: this.#signal,
+            })
+          : undefined;
       const coordinator = new OrdinaryLocalCodexAdmissionCoordinator({
         freezePrompt: (meta, id, payload, admit) =>
-          freezeOrdinarySkillCommand(this.owners.eventStore, meta, id, payload, admit),
+          freezeOrdinarySkillCommand(
+            this.owners.eventStore,
+            meta,
+            id,
+            payload,
+            admit,
+            preparedSkill,
+          ),
         recovery,
         enabled: this.owners.enabled,
         store: coldPrimary

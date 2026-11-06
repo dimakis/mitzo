@@ -21,7 +21,12 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { RepositoryWorkspaces } from '../repository-workspaces.js';
 import type { AccountBinding } from '@mitzo/protocol';
-import { ordinaryWorkspaceSkillEntries } from '../ordinary-composer-skills.js';
+import {
+  ordinaryWorkspaceSkillEntries,
+  prepareOrdinarySkillCommand,
+  freezeOrdinarySkillCommand,
+} from '../ordinary-composer-skills.js';
+import { EventStore } from '../event-store.js';
 const copyFailure = vi.hoisted(() => ({ error: undefined as Error | undefined }));
 vi.mock('../repository-task-copy.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../repository-task-copy.js')>();
@@ -38,6 +43,7 @@ vi.mock('../repository-task-copy.js', async (importOriginal) => {
 const roots: string[] = [];
 const binding = {
   accountId: 'account',
+  accountLabel: 'Offline account',
   provider: 'openai',
   model: 'test',
   profileRevision: 'rev',
@@ -101,6 +107,12 @@ it('reads repository skills from the qualified prepared source before a task dir
     join(skill, 'SKILL.md'),
     '---\ndescription: Prepared source skill\n---\nUse the prepared source',
   );
+  const restricted = join(f.root, 'source', '.mitzo', 'skills', 'mockup');
+  await mkdir(restricted, { recursive: true });
+  await writeFile(
+    join(restricted, 'SKILL.md'),
+    '---\ndescription: Repository override\nallowed-tools: Read\n---\nUse only Read',
+  );
   const preview = await f.service.preview(
     binding,
     'connection',
@@ -118,6 +130,57 @@ it('reads repository skills from the qualified prepared source before a task dir
   await expect(
     ordinaryWorkspaceSkillEntries(f.service, preview.id, () => binding),
   ).rejects.toThrow();
+  const reservation = {
+    id: preview.id,
+    binding,
+    conversationId: 'first-skill',
+    taskRoot: f.taskRoot,
+    signal: AbortSignal.timeout(10000),
+  };
+  const descriptor = await f.service.reserveHostTask(reservation);
+  await expect(access(descriptor.directory)).rejects.toThrow();
+  const store = new EventStore(':memory:');
+  try {
+    const prepared = await prepareOrdinarySkillCommand(f.service, reservation, {
+      store,
+      id: 'command',
+      text: '/prepared-only',
+      signal: reservation.signal,
+    });
+    expect(prepared?.prompt).toContain('Use the prepared source');
+    await expect(
+      prepareOrdinarySkillCommand(f.service, reservation, {
+        store,
+        id: 'restricted',
+        text: '/mockup',
+        signal: reservation.signal,
+      }),
+    ).rejects.toThrow(/tool restrictions/);
+    expect(store.getOrdinarySkillContext(reservation.conversationId, 'restricted')).toBeUndefined();
+    freezeOrdinarySkillCommand(
+      store,
+      { sessionId: reservation.conversationId, cwd: descriptor.directory },
+      'command',
+      { text: '/prepared-only' },
+      () => store.upsertSession({ sessionId: reservation.conversationId }),
+      prepared,
+    );
+    expect(store.getOrdinarySkillContext(reservation.conversationId, 'command')?.prompt).toBe(
+      prepared?.prompt,
+    );
+    await expect(access(descriptor.directory)).rejects.toThrow();
+    expect(f.service.get(preview.id).state).toBe('reserved');
+    const changed = { ...reservation, binding: { ...binding, accountId: 'other' } };
+    await expect(
+      f.service.readReservedHostSource(changed, () => 'unexpected', reservation.signal),
+    ).rejects.toThrow();
+    f.authorize.mockRejectedValueOnce(Error('Access revoked'));
+    await expect(
+      f.service.readReservedHostSource(reservation, () => 'unexpected', reservation.signal),
+    ).rejects.toThrow();
+  } finally {
+    store.close();
+  }
   f.service.close();
 });
 it('persists a pinned preparation across restart and claims it for only one conversation', async () => {

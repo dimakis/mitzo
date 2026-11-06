@@ -1,5 +1,8 @@
 import { assembleCommandPrompt } from './message-reply-context.js';
-import { freezeOrdinarySkillCommand } from './ordinary-composer-skills.js';
+import {
+  freezeOrdinarySkillCommand,
+  prepareOrdinarySkillCommand,
+} from './ordinary-composer-skills.js';
 import { assertAgentToolRoute } from './agent-tool-selection.js';
 import { readOrdinaryCodexAgentProfile as readResponsesAgentProfile } from './ordinary-codex-agent-profile.js';
 import { registerWorkspaceRuntimeAuthorityPaths } from './workspace-runtime-private-paths.js';
@@ -746,9 +749,18 @@ export class OrdinaryLocalResponsesOwnedRuntime implements ResponsesCommandAutho
           : undefined,
       ),
       events = this.owners.eventStore;
+    const preparedSkill =
+      descriptor.state === 'reserved'
+        ? await prepareOrdinarySkillCommand(this.owners.workspace, this.owners.reservation, {
+            store: events,
+            id: request.clientMsgId,
+            text: payload.text,
+            signal: this.#signal,
+          })
+        : undefined;
     const coordinator = new OrdinaryLocalCodexAdmissionCoordinator({
       freezePrompt: (meta, id, payload, admit) =>
-        freezeOrdinarySkillCommand(events, meta, id, payload, admit),
+        freezeOrdinarySkillCommand(events, meta, id, payload, admit, preparedSkill),
       enabled: true,
       adapter: this.#adc ? 'gemini' : 'responses',
       catalog,
