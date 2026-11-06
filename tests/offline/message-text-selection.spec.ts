@@ -46,6 +46,19 @@ for (const theme of ['dark', 'light']) {
         document.documentElement.style.fontSize = '20px';
       });
     }
+    const footers = page.locator('.msg-bubble-footer');
+    await expect(footers).toHaveCount(2);
+    const sizes = () =>
+      footers.evaluateAll((nodes) =>
+        nodes.map((node) => {
+          const rect = node.getBoundingClientRect();
+          return { width: rect.width, height: rect.height };
+        }),
+      );
+    const beforeActions = await sizes();
+    await page.evaluate(() => window.dispatchEvent(new Event('fixture-enable-message-actions')));
+    await expect(page.getByRole('button', { name: 'Message actions', exact: true })).toHaveCount(2);
+    expect(await sizes()).toEqual(beforeActions);
     for (const role of ['user', 'assistant']) {
       const message = page.getByLabel(`Message from ${role === 'user' ? 'you' : 'Mitzo'}`, {
         exact: true,

@@ -2621,6 +2621,9 @@ Escape returns focus to the invoking button. Footers keep their action buttons
 together and wrap the date onto its own row
 when narrow widths or larger fonts need more space. No control or date may
 extend outside its bubble. The shared footer uses the existing spacing scale.
+Ordinary footers reserve the voice/copy/menu area before metadata enables those
+controls, so hydration cannot change row height or timestamp wrapping and move
+the restored transcript away from the bottom.
 Offline `message-text-selection`
 fixtures cover both speakers, phone/desktop widths, light/dark appearance,
 alternate accents/fonts, reduced motion, selection and 44px controls without

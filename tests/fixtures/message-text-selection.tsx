@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { MemoryRouter } from 'react-router-dom';
 import { MessageActions } from '../../frontend/src/components/MessageActions';
@@ -11,6 +11,12 @@ const answer =
 const readAloud = { active: false, onSpeak: () => {}, onStop: () => {} };
 function Fixture() {
   const [replies, setReplies] = useState(0);
+  const [actionsReady, setActionsReady] = useState(false);
+  useEffect(() => {
+    const ready = () => setActionsReady(true);
+    window.addEventListener('fixture-enable-message-actions', ready);
+    return () => window.removeEventListener('fixture-enable-message-actions', ready);
+  }, []);
   return (
     <MemoryRouter>
       <main className="chat-messages">
@@ -24,7 +30,7 @@ function Fixture() {
               text: role === 'user' ? 'Copy just a few words from my request.' : answer,
               timestamp: 1793356740000,
             }}
-            onReply={() => setReplies((n) => n + 1)}
+            onReply={actionsReady ? () => setReplies((n) => n + 1) : undefined}
             readAloud={readAloud}
           >
             {role === 'user' ? (

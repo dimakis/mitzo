@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.908-message-selection-footer-wrap';
+  'v1.0.909-message-action-hydration-stability';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -30,9 +30,9 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/components/__tests__/MessageActions.test.tsx':
     '4e0203e75cdb749e5506a14d83b8a624c7e5706aeded4ba9e246bbe18dd339f3',
   '../../tests/fixtures/message-text-selection.tsx':
-    'fcdd77511e7d1ceba75c66343a865437266f7131f7fcc21a29c2cc795b05a9c8',
+    'd30def76bff93b2c845ac9786ffce02eef4bf6e9f517249cacda3c2045dd3c4d',
   '../../tests/offline/message-text-selection.spec.ts':
-    'eb71f2d56bf242034f55e742cc2a8b230a15179dbd1b207a24006073b37e9274',
+    '58dedea9c8a0946cacfd06a76fe269155dccae8f46864d305ed70cd17d582c9d',
   '../session-resource-removal.ts':
     'f0ae3f23b02c89b2b6014b01389992ee77ac79f1c8ca38210289be4bfcc453c9',
   '../session-removal-runtime.ts':
@@ -230,7 +230,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/owned-local-auth-feedback.test.ts':
     'fa4b4dca12a655e4075c03e6c95701ac9c8c1a6607f867e27668c914e988da21',
   '../../docs/design/ui-design-system.md':
-    '27054f6d949f58d89ea4471b412bd75237c6e32931a290d1c55500e7795a30e6',
+    '723f37e5e295f9bbaaefecaf9823ea649d9944f33f68265945db797b5aa9d024',
   '../../packages/protocol/src/session-prompts.ts':
     '86f1242cbaa5371b414ac341faa2e128d5ff0fa88c3bcf06dfd39b5424366be2',
   '../__tests__/session-prompt-service.test.ts':
@@ -1337,7 +1337,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/types/ws-messages.ts':
     '7a380fb5213533ddd87da2bcfc202e1a6b5cf6b02e34ca73c9310e9007d8a77b',
   '../../frontend/src/styles/global.css':
-    '67486349381fac34dada992d7d84fd18052b23aeaf3e6b9dead00ff982c382e6',
+    'c42145ada96d710d8cd1fdbdfde50b44a6318d5ea4d3652b964e87a327f0e2d5',
   '../../frontend/src/components/TelosSourceReview.tsx':
     'c8cf59ec933a25bbd85e5525ff8e094226a95b667757bd7142edb9b213bf2766',
   '../../frontend/src/components/PermissionBanner.tsx':
