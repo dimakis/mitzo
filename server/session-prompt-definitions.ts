@@ -1,7 +1,13 @@
 import { z } from 'zod';
 import { SessionTimerCreateSchema, SessionMessageSendSchema } from '@mitzo/protocol';
+import {
+  taskExecutionSchema,
+  taskExecutionDefinition,
+  TASK_EXECUTION_INSTRUCTIONS,
+} from './task-execution-definitions.js';
 const id = z.string().min(1).max(200).regex(/^\S+$/);
 export const sessionPromptSchemas = {
+  TaskExecution: taskExecutionSchema,
   SchedulePrompt: SessionTimerCreateSchema.extend({ sessionId: id.optional() }),
   SendSessionMessage: SessionMessageSendSchema,
   SessionTimers: z.strictObject({
@@ -27,6 +33,7 @@ export const sessionPromptSchemas = {
   }),
 };
 export const sessionPromptDefinitions = [
+  taskExecutionDefinition,
   {
     name: 'SchedulePrompt',
     description:
@@ -49,4 +56,5 @@ export const sessionPromptDefinitions = [
   ),
 }));
 export const SESSION_PROMPT_INSTRUCTIONS =
+  TASK_EXECUTION_INSTRUCTIONS +
   '\nUse SchedulePrompt for recurring session check-ins; the user can inspect, pause, edit or cancel them under Chats → Timers. Cancel a timer when its purpose is fulfilled. Use SendSessionMessage for peer handoffs and task callbacks, retaining the original session and work IDs. SessionTimers sessions lists eligible recipients. Reuse request IDs on uncertain delivery; a prompt being accepted does not prove its task is complete.\n';

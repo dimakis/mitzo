@@ -418,6 +418,17 @@
     "requirement": "Existing session permissions, cancellation and runtime admission apply."
   },
   {
+    "id": "mitzo:TaskExecution",
+    "version": 1,
+    "name": "TaskExecution",
+    "description": "Approve one bounded task for this chat and selected same-operator workers, then run routine host-workspace commands, local commits and repository reads without repeated command approvals. Authorize requires title and requestId; select memberSessionIds, repositories, network (none/loopback/internet) and durationMinutes. The card displays exact registered host roots and accounts. Run/commit/github_read require grantId and a fresh requestId; run uses command and optional cwd/timeoutMs, commit uses files/message, github_read uses endpoint/access/view. Status lists your current grants; revoke ends a task owned by this chat. Reuse requestId after uncertainty; an interrupted run is never replayed automatically. Native sandbox tools keep their own policy. This does not authorize merges, production, host credentials or writes outside the selected task roots.",
+    "source": "Session automation",
+    "required": false,
+    "behavior": "mixed",
+    "routes": ["local-api", "codex", "codex-owned-local"],
+    "requirement": "Existing session permissions, cancellation and runtime admission apply."
+  },
+  {
     "id": "mitzo:SchedulePrompt",
     "version": 1,
     "name": "SchedulePrompt",

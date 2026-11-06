@@ -110,7 +110,7 @@ describe('central notification delivery', () => {
       expect(feed).not.toHaveBeenCalled();
       expect(count).toHaveBeenCalledOnce();
     } finally {
-      ids.forEach(removePending);
+      ids.forEach((id) => removePending(id));
       center.close();
       store.close();
     }

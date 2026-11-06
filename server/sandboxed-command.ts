@@ -6,6 +6,7 @@ import {
   privateRepositoryCheckoutAttributes,
 } from './private-repository-checkout.js';
 import { spawn } from 'node:child_process';
+import { retainCallbackOutcome } from './turn-callbacks.js';
 import { createRequire } from 'node:module';
 import { mkdtemp, mkdir, realpath, rm, writeFile } from 'node:fs/promises';
 import { readFileSync, realpathSync } from 'node:fs';
@@ -33,7 +34,7 @@ export interface SandboxedCommandOptions {
   readableRoots?: string[];
   env: Record<string, string>;
   /** General proxy egress, only after the caller's network-aware command approval. */
-  networkAccess?: 'approved-command';
+  networkAccess?: 'approved-command' | 'loopback';
   signal: AbortSignal;
   timeoutMs?: number;
   maxOutputBytes?: number;
@@ -618,7 +619,10 @@ async function runSandboxedCommand(
   options.signal.throwIfAborted();
   if (options.privateOutput !== undefined && options.privateOutput !== 'separate')
     throw new Error('Invalid private command output transport');
-  if (options.networkAccess !== undefined && options.networkAccess !== 'approved-command')
+  if (
+    options.networkAccess !== undefined &&
+    !['approved-command', 'loopback'].includes(options.networkAccess)
+  )
     throw new Error('Invalid command network authorization');
   if (!['darwin', 'linux'].includes(process.platform))
     throw new Error('OS sandbox is unavailable on this platform');
@@ -724,18 +728,17 @@ async function runSandboxedCommand(
           ],
         },
         network: {
-          allowedDomains: [],
+          allowedDomains:
+            options.networkAccess === 'loopback' ? ['localhost', '127.0.0.1', '[::1]'] : [],
           // Deny explicit local/metadata destinations even if a caller later
           // weakens hostname validation. Redirect targets remain subject to
           // this deny-first list and the exact allowlist in SRT's proxy.
           deniedDomains: [
-            'localhost',
-            '127.0.0.1',
-            '[::1]',
+            ...(options.networkAccess === 'loopback' ? [] : ['localhost', '127.0.0.1', '[::1]']),
             '169.254.169.254',
             'metadata.google.internal',
           ],
-          allowLocalBinding: options.networkAccess === 'approved-command',
+          allowLocalBinding: options.networkAccess !== undefined,
           allowAllUnixSockets: false,
         },
         enableWeakerNestedSandbox: false,
@@ -856,13 +859,24 @@ async function runSandboxedCommand(
         kill();
         let output = Buffer.concat(chunks).toString('utf8');
         const isError = !!failure || code !== 0 || signal !== null;
+        // A normal nonzero exit is a completed failure. Interrupted or missing
+        // termination evidence cannot settle effects or permit a blind retry.
+        const outcome =
+          !failure && code !== null && code >= 0 && code < 128 && signal === null
+            ? 'settled'
+            : 'unknown';
         if (options.privateOutput) {
-          resolveResult({
-            content: failure ?? '',
-            isError,
-            stdout: Buffer.concat(stdout).toString('utf8'),
-            stderr: Buffer.concat(stderr).toString('utf8'),
-          });
+          resolveResult(
+            retainCallbackOutcome(
+              {
+                content: failure ?? '',
+                isError,
+                stdout: Buffer.concat(stdout).toString('utf8'),
+                stderr: Buffer.concat(stderr).toString('utf8'),
+              },
+              outcome,
+            ),
+          );
           return;
         }
         if (
@@ -875,10 +889,15 @@ async function runSandboxedCommand(
           output +=
             '\nShared Git objects are read-only in this sandbox. Git add/commit that create objects require a trusted Git operation outside this command sandbox. File edits and tests remain available.\n';
         }
-        resolveResult({
-          content: failure ? `${failure}\n${output}` : output,
-          isError,
-        });
+        resolveResult(
+          retainCallbackOutcome(
+            {
+              content: failure ? `${failure}\n${output}` : output,
+              isError,
+            },
+            outcome,
+          ),
+        );
       });
     });
   } finally {

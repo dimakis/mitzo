@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { TASK_EXECUTION_INSTRUCTIONS } from './task-execution-definitions.js';
 import { realpathSync } from 'node:fs';
 import { isAbsolute, relative, resolve, sep } from 'node:path';
 import type { MitzoMode, AccountBinding } from '@mitzo/protocol';
@@ -109,7 +110,9 @@ export function composeOwnedLocalNativeExecutionPolicyForWorkspace(
   return policy;
 }
 
-export const NATIVE_MAC_EXECUTION_INSTRUCTIONS = `
+export const NATIVE_MAC_EXECUTION_INSTRUCTIONS =
+  TASK_EXECUTION_INSTRUCTIONS +
+  `
 Native Codex tools execute on the selected Local Mac under its enforced filesystem and network profile.
 Use native shell and file tools for permitted local work. Use the built-in native patch tool; the PATH apply_patch alias is unavailable under the private-home fence.
 For an out-of-scope edit, request exact scoped native permissions first; durable file-change grantRoot is not supported. Do not retry an unchanged filesystem fence.
