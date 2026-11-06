@@ -392,8 +392,9 @@ export function createCodexNativeApprovalHandler(options: {
       if (result.behavior !== 'allow' || !isDeepStrictEqual(result.updatedInput, input))
         return deny();
       if (sessionGrantKey && result.decisionClassification === 'user_permanent') {
+        const consentKey = sessionGrantKey;
         assertConsentCurrent = () => {
-          if (!session.sessionAllowList.has(sessionGrantKey))
+          if (!session.sessionAllowList.has(consentKey))
             throw Error('Native command consent was revoked');
         };
         assertConsentCurrent();
