@@ -13,6 +13,20 @@ and Resources. Use semantic tokens, shared motion and 44px controls; the dialog
 fills narrow phone widths. The approved mock and protected checks are recorded
 in the codex-subagents entry of the approved design ledger.
 
+## Visible agent messages
+
+Peer messages use one shared `AgentMessageCard` in the mobile and desktop chat
+transcript. Both participants see the complete text, named conversation links,
+recorded time, copy action and delivery state. Message/reply IDs remain available
+in native details. Queued and uncertain explicitly differ from delivery to the
+agent; delivery does not claim that a requested action was applied.
+
+The card reuses the transcript surface, semantic colors, spacing/type scales,
+panel radius, shared controls and monospace identifier font. It adds no theme or
+composer controls. Receipt changes update the original row. Offline regressions
+cover both directions, failures, narrow/desktop layouts, light/dark appearance,
+larger text, focus, full text and touch-sized conversation links.
+
 ## Session timer dialogs
 
 Timers reuse `HomeDialog`, `UiIcon`, shared primary/secondary/danger controls and

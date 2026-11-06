@@ -12,6 +12,7 @@ import type { ContextCompaction } from '@mitzo/protocol';
 import { seatAccentColor } from '../lib/seat-color';
 import { useCallback, useEffect, useMemo, useRef, useState, Fragment, type ReactNode } from 'react';
 import { UserBubble, TextBubble } from './MessageBubble';
+import { AgentMessageCard } from './AgentMessageCard';
 import { ThinkingBlock } from './ThinkingBlock';
 import { ToolPill } from './ToolPill';
 import { telosWorkerReceipt } from './TelosWorkerReceiptCard';
@@ -497,6 +498,14 @@ export function ChatArea({
       }
       if (turn.kind === 'finished') {
         const msg = turn.value;
+        if (msg.agentMessage)
+          return [
+            {
+              key: `agent:${msg.messageId}`,
+              scope: 'context',
+              value: <AgentMessageCard projection={msg.agentMessage} />,
+            },
+          ];
         if (msg.role === 'user') {
           const textBlock = msg.blocks.find((b) => b.blockType === 'text');
           return [

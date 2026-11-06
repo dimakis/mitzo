@@ -3921,16 +3921,25 @@ export class CodexConversationStore {
     binding: AccountBinding,
     raw: CodexSteerInput,
   ): CodexSteerReceipt | undefined {
-    this.read(id, binding);
     const input = CodexSteerInputSchema.parse(raw);
+    const receipt = this.steeringReceiptForRequest(id, binding, input.requestId);
+    if (!receipt) return;
+    if (!isDeepStrictEqual(input, receipt.input))
+      throw Error('Correction identity reused with different input');
+    return receipt;
+  }
+  /** Host receipt recovery by the original durable request, never a new dispatch. */
+  steeringReceiptForRequest(
+    id: string,
+    binding: AccountBinding,
+    requestId: string,
+  ): CodexSteerReceipt | undefined {
+    this.read(id, binding);
     const row = this.db
       .prepare('SELECT input,status FROM codex_steering WHERE conversation_id=? AND request_id=?')
-      .get(id, input.requestId) as
-      { input: string; status: CodexSteerReceipt['status'] } | undefined;
+      .get(id, requestId) as { input: string; status: CodexSteerReceipt['status'] } | undefined;
     if (!row) return;
     const retained = CodexSteerInputSchema.parse(JSON.parse(row.input));
-    if (!isDeepStrictEqual(input, retained))
-      throw Error('Correction identity reused with different input');
     return { input: retained, status: row.status };
   }
   claimSteering(

@@ -1,4 +1,4 @@
-import { MessageReplyContextSchema } from '@mitzo/protocol';
+import { AgentMessageProjectionSchema, MessageReplyContextSchema } from '@mitzo/protocol';
 import { AgentContextReceiptSchema, SourceSnapshotsSchema } from '@mitzo/protocol';
 /**
  * Protocol parser — maps ServerMessage → store actions.
@@ -610,6 +610,19 @@ export function parseServerMessage(
       }
       break;
 
+    case 'agent_message': {
+      const projection = AgentMessageProjectionSchema.safeParse(msg.projection);
+      if (!projection.success || typeof msg.seq !== 'number' || !Number.isSafeInteger(msg.seq)) {
+        result.resyncRequired = true;
+        break;
+      }
+      result.messagesActions.push({
+        type: 'AGENT_MESSAGE',
+        projection: projection.data,
+        seq: msg.seq,
+      });
+      break;
+    }
     case 'user_message':
       if (MessageReplyContextSchema.safeParse(msg.inReplyTo).success)
         result.messagesActions.push({

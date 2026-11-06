@@ -1,4 +1,5 @@
 import { copyCallbackOutcome } from './turn-callbacks.js';
+import { agentMessagePrompt } from '@mitzo/protocol';
 import { agentContextRuntimeError } from './agent-context-authority.js';
 import {
   RepositoryMaterializationSchema,
@@ -67,11 +68,14 @@ import {
 } from './telos-work-control-tools.js';
 import { sessionAgentTaskTools, agentTaskToolDefinitions } from './session-agent-task-tools.js';
 import { sessionPromptTools } from './session-prompt-tools.js';
+import { watchAgentMessageTranscript } from './agent-message-transcript.js';
+import { createAgentMessageApprover } from './agent-communication-permission.js';
 import { sessionPromptDefinitions } from './session-prompt-definitions.js';
 import {
   AGENT_COMMUNICATION_TOOL,
   agentCommunicationDefinitions,
   recordAgentMessageAcceptance,
+  recordAgentMessagePreDispatchFailure,
   sessionAgentCommunicationTools,
 } from './agent-communication-tools.js';
 import {
@@ -1876,26 +1880,32 @@ async function openCodexChatBound(
         session: options.session,
         assertRuntimeCurrent: assertHostCurrent,
         assertRuntimeCurrentSync: assertHostCurrentSync,
-        approve: (input, signal) => {
-          const owner = options.registry.findBySessionId(options.conversationId);
-          if (!owner || owner.session !== options.session)
-            throw Error('Current native sender required');
-          return buildPermissionHandler(owner.clientId, options.registry, {
-            onDemandCreate: options.onDemandCreate,
-          })(AGENT_COMMUNICATION_TOOL, input, {
-            signal,
-            toolUseID: randomUUID(),
-            forcePrompt: true,
-            allowSessionGrant: false,
-            title: 'Send this peer message?',
-            description:
-              'Approve the exact target and text. This grants no other agent action or merge authority.',
-          });
-        },
+        approve: createAgentMessageApprover({
+          events: options.eventStore,
+          registry: options.registry,
+          conversationId: options.conversationId,
+          assertCurrent: assertHostCurrentSync,
+          permissionOptions: { onDemandCreate: options.onDemandCreate },
+        }),
         startQueued: async (session) => {
           const runtime = runtimes.get(session);
           if (!runtime) throw Error('Recipient native queue unavailable');
           await runtime.startQueued();
+        },
+        steer: async (session, message, assertCurrent) => {
+          const runtime = runtimes.get(session);
+          if (!runtime) throw Error('Recipient native queue unavailable');
+          const target = runtime.captureInterruptTarget();
+          if (!target) return 'inactive';
+          const result = await runtime.steer(
+            {
+              requestId: message.commandId,
+              targetCommandId: target.commandId,
+              text: agentMessagePrompt(message),
+            },
+            assertCurrent,
+          );
+          return result.status === 'stale_target' ? 'inactive' : result.status;
         },
       })
     : undefined;
@@ -2177,10 +2187,12 @@ async function openCodexChatBound(
     true,
   );
   const events = new AsyncQueue<Record<string, unknown>>();
+  let unwatchAgentMessages: (() => void) | undefined;
   let closed = false;
   function finish() {
     if (closed) return;
     closed = true;
+    unwatchAgentMessages?.();
     options.ownedLocal?.close();
     githubPublishing.close();
     cancelTrackedProviderAdmissions(options.session);
@@ -3073,6 +3085,8 @@ async function openCodexChatBound(
           : undefined,
       ),
     onSteeringUpdate: (input, status) => {
+      // Peer steering already has its own attributed durable row in both chats.
+      if (options.eventStore.agentCommunication.forCommand(input.requestId)) return;
       const inReplyTo =
         status === 'steering' && input.replyToMessageId
           ? captureMessageReply(
@@ -4242,10 +4256,23 @@ async function openCodexChatBound(
       };
     },
     onQueueChange: () => {
+      const queue = runtime.queue();
+      if (options.ownedLocal)
+        for (const command of queue) {
+          if (command.status === 'failed')
+            recordAgentMessagePreDispatchFailure(
+              options.eventStore,
+              privateStorage,
+              options.conversationId,
+              options.binding,
+              options.session.ordinaryRuntimeOwner?.authSessionId,
+              command.id,
+            );
+        }
       const message = {
         type: 'codex_queue',
         sessionId: options.conversationId,
-        items: runtime.queue().map(({ id, status }) => ({ id, status })),
+        items: queue.map(({ id, status }) => ({ id, status })),
       };
       if (options.session.transport?.isOpen()) options.session.transport.send(message);
     },
@@ -4358,6 +4385,21 @@ async function openCodexChatBound(
     }
     signal.throwIfAborted();
     runtimes.set(options.session, runtime);
+    if (options.ownedLocal)
+      unwatchAgentMessages = watchAgentMessageTranscript(
+        options.eventStore,
+        options.conversationId,
+        (event) => {
+          assertHostCurrentSync();
+          const current = options.registry.findBySessionId(options.conversationId);
+          if (current?.session !== options.session) return;
+          for (const transport of new Set([
+            options.session.transport,
+            ...options.session.observers,
+          ]))
+            if (transport?.isOpen()) transport.send(event);
+        },
+      );
     // Startup protects ensure/restore and thread ownership registration. Initial
     // send reacquires this same coordinator for runtime and knowledge admission;
     // release setup first so neither callback waits on its own startup fence.

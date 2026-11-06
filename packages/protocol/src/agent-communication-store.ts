@@ -33,14 +33,45 @@ export class AgentCommunicationStore {
       if (!listeners.size) this.listeners.delete(conversationId);
     };
   }
-  constructor(private readonly db: Database.Database) {
+  constructor(
+    private readonly db: Database.Database,
+    private readonly project?: (message: AgentMessage) => void,
+  ) {
     db.exec(`CREATE TABLE IF NOT EXISTS agent_communication_messages (
       sequence INTEGER PRIMARY KEY AUTOINCREMENT,
       message_id TEXT NOT NULL UNIQUE,command_id TEXT NOT NULL UNIQUE,
       sender_id TEXT NOT NULL,recipient_id TEXT NOT NULL,request_id TEXT NOT NULL,
       fingerprint TEXT NOT NULL,data TEXT NOT NULL,
+      transcript_projected INTEGER NOT NULL DEFAULT 0,
       UNIQUE(sender_id,request_id));
       CREATE INDEX IF NOT EXISTS agent_communication_recipient ON agent_communication_messages(recipient_id,sequence);`);
+    if (
+      !(
+        db.prepare('PRAGMA table_info(agent_communication_messages)').all() as Array<{
+          name: string;
+        }>
+      ).some((column) => column.name === 'transcript_projected')
+    )
+      db.exec(
+        'ALTER TABLE agent_communication_messages ADD COLUMN transcript_projected INTEGER NOT NULL DEFAULT 0',
+      );
+  }
+  /** Upgrade visibility only, never re-enqueue old or uncertain native input. */
+  backfillTranscript(): void {
+    if (!this.project) return;
+    while (true) {
+      const rows = this.db
+        .prepare(
+          'SELECT data FROM agent_communication_messages WHERE transcript_projected=0 ORDER BY sequence LIMIT 100',
+        )
+        .all() as Array<{ data: string }>;
+      if (!rows.length) return;
+      this.db
+        .transaction(() => {
+          for (const row of rows) this.save(Retained.parse(JSON.parse(row.data)));
+        })
+        .immediate();
+    }
   }
   private retained(messageId: string): RetainedMessage {
     const row = this.db
@@ -117,6 +148,7 @@ export class AgentCommunicationStore {
           status: 'pending',
           reason: null,
           sequence: Number(row.lastInsertRowid),
+          createdAt: Date.now(),
         });
         this.save({ operatorAuthSessionId: operator, origin, message });
         return message;
@@ -126,8 +158,12 @@ export class AgentCommunicationStore {
   private save(value: RetainedMessage) {
     const parsed = Retained.parse(value);
     this.db
-      .prepare('UPDATE agent_communication_messages SET data=? WHERE message_id=?')
-      .run(JSON.stringify(parsed), parsed.message.messageId);
+      .prepare(
+        'UPDATE agent_communication_messages SET data=?,transcript_projected=MAX(transcript_projected,?) WHERE message_id=?',
+      )
+      .run(JSON.stringify(parsed), this.project ? 1 : 0, parsed.message.messageId);
+    // The transcript and receipt commit together, before any delivery attempt.
+    this.project?.(parsed.message);
     for (const participant of new Set([
       parsed.message.senderConversationId,
       parsed.message.recipientConversationId,
@@ -163,11 +199,15 @@ export class AgentCommunicationStore {
     return { messages, nextAfter: rows.length > 50 ? messages.at(-1)!.sequence : null };
   }
   byRequest(sender: string, requestId: string): AgentMessage {
+    const message = this.findRequest(sender, requestId);
+    if (!message) throw Error('Agent message request not found');
+    return message;
+  }
+  findRequest(sender: string, requestId: string): AgentMessage | undefined {
     const row = this.db
       .prepare('SELECT data FROM agent_communication_messages WHERE sender_id=? AND request_id=?')
       .get(id.parse(sender), z.uuid().parse(requestId)) as { data: string } | undefined;
-    if (!row) throw Error('Agent message request not found');
-    return Retained.parse(JSON.parse(row.data)).message;
+    return row ? Retained.parse(JSON.parse(row.data)).message : undefined;
   }
   /** CAS uncertainty precedes every admission effect. Replays can only inspect. */
   claim(messageId: string): boolean {
@@ -201,6 +241,7 @@ export class AgentCommunicationStore {
       .transaction(() => {
         const value = this.retained(messageId);
         if (value.message.status === 'delivered') return;
+        if (value.message.status === status && value.message.reason === reason) return;
         value.message = AgentMessageSchema.parse({ ...value.message, status, reason });
         this.save(value);
       })
