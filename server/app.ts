@@ -4145,6 +4145,7 @@ mountObservedRouter(
                 authorization,
               )
             : cancelCodexQueuedCommand(
+                eventStore,
                 id,
                 binding,
                 commandId,

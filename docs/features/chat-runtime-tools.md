@@ -117,3 +117,9 @@ independent-review findings on `ac8cc589`, main advanced to `56fd79c55` with the
 approved additive chat-activity design. This integration preserves its single
 composer status row and adds no layout changes of its own. The composer, approved
 design checks and full combined-result CI are rerun against that accepted base.
+
+The activity integration passed full CI; Centaur's merge recommendation was held
+when main moved to `0cf9fbfd3` with traceable peer messages. The next integration
+retains peer-permission rechecks and durable message projections alongside the
+ordinary skill transaction. The prior accepted review remains the baseline;
+current combined CI and targeted integration review are required again.

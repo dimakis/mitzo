@@ -208,6 +208,8 @@ export interface FinishedBlock {
 }
 
 export interface FinishedMessage {
+  agentMessage?: import('./agent-communication.js').AgentMessageProjection;
+  agentMessageSeq?: number;
   inReplyTo?: import('./message-reply.js').MessageReplyContext;
   replyToMessageId?: string;
   commandState?: CommandState;
