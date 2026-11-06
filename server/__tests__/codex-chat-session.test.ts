@@ -378,7 +378,13 @@ function ownedLocalOptions(
   };
   const selection = {
     version: 1 as const,
-    agent: { profileId: 'owned-agent', revision: 1 },
+    agent: agentProfile
+      ? {
+          profileId: agentProfile.profileId,
+          revision: agentProfile.revision,
+          ...(agentProfile.kind ? { kind: agentProfile.kind } : {}),
+        }
+      : { profileId: 'owned-agent', revision: 1 },
     context: { source: 'none' as const, revision: null },
     permission: { mode, revision: 0 },
     model: 'owned-model',
@@ -3806,6 +3812,7 @@ it('qualifies owned native, MCP, profile and publishing tools and rejects other 
         'SchedulePrompt',
         'SessionTimers',
         'SendSessionMessage',
+        'StartSession',
         'ReadToolOutput',
         'SearchSkills',
         'RequestWebAccess',
@@ -7446,6 +7453,130 @@ it('exposes approved web access in owned local chat and integration discovery', 
   } finally {
     chat?.close();
     f.eventStore.close();
+  }
+});
+
+it('discovers and executes StartSession through the actual owned native default-agent registration without starting work', async () => {
+  const { SessionRegistry } = await import('@mitzo/harness');
+  const { readBuiltinAgentLibraryProfile, bindAgentLibraryTransport } =
+    await import('../agent-library-transport.js');
+  const { DEFAULT_MITZO_PROFILE_ID, DEFAULT_MITZO_PROFILE_REVISION } =
+    await import('@mitzo/protocol');
+  const { initializeSessionLaunches, closeSessionLaunches } =
+    await import('../session-launch-controller.js');
+  const root = realpathSync(mkdtempSync(join(tmpdir(), 'native-start-session-')));
+  const profile = readBuiltinAgentLibraryProfile({
+    kind: 'builtin',
+    profileId: DEFAULT_MITZO_PROFILE_ID,
+    revision: DEFAULT_MITZO_PROFILE_REVISION,
+  })!;
+  const f = ownedLocalOptions(root, profile);
+  const registry = new SessionRegistry();
+  registry.register('launch-native-client', {
+    ...f.opts.session,
+    sessionId: 'owned-session',
+    accountBinding: f.opts.binding,
+    ownerConnectionId: 'launch-native-operator',
+    sessionAllowList: new Set(),
+    transport: { send() {}, isOpen: () => true },
+  });
+  f.opts.registry = registry;
+  f.opts.session = registry.get('launch-native-client')!;
+  const release = bindAgentLibraryTransport('launch-native-operator', {
+    id: 'launch-native-login',
+    expiresAt: Date.now() + 60000,
+  });
+  const controller = initializeSessionLaunches(join(root, 'events.db'), vi.fn());
+  const configuration = {
+    version: 1 as const,
+    runtime: {
+      version: 1 as const,
+      account: {
+        accountId: f.opts.binding!.accountId,
+        model: 'owned-model',
+        reasoningEffort: null,
+      },
+      accountReference: f.expected.binding.account,
+      agentProfile: {
+        kind: 'builtin' as const,
+        profileId: profile.profileId,
+        revision: profile.revision,
+      },
+      execution: { location: 'local' as const, targetId: 'owned-mac' },
+    },
+    mode: 'agent' as const,
+    isolation: true,
+    repositoryWorkspaceId: null,
+    contextBlocks: [],
+    extraTools: [],
+  };
+  controller.defaults.save('user', { expectedRevision: 0, configuration });
+  const validate = vi.spyOn(controller.launches.port, 'validate');
+  const start = vi.spyOn(controller.launches.port, 'start');
+  const workspace = vi.spyOn(repositoryWorkspaceRuntime, 'getOrdinaryWorkspaces');
+  mocks.connect.mockResolvedValue({
+    definitions: [],
+    close: mocks.mcpClose,
+    displayName: (name: string) => name,
+  });
+  mocks.initialize.mockResolvedValue(undefined);
+  mocks.send.mockClear();
+  let query: Awaited<ReturnType<typeof openCodexChat>> | undefined;
+  try {
+    query = await openCodexChat(f.opts);
+    const captured = mocks.conversationOptions!;
+    const sourceProviderCalls = mocks.send.mock.calls.length;
+    const definitions = captured.tools as import('@mitzo/harness').ToolDefinition[];
+    expect(definitions).toEqual(
+      expect.arrayContaining([expect.objectContaining({ name: 'StartSession' })]),
+    );
+    const execute =
+      captured.executeTool as import('../codex-conversation.js').CodexConversationOptions['executeTool'];
+    const signal = new AbortController().signal;
+    const call = { turnId: 'native-turn', callId: 'native-call', assertCurrentSync: vi.fn() };
+    const discovered = JSON.parse(
+      (await execute('ListIntegrationTools', { query: 'StartSession' }, signal, call)).content,
+    );
+    expect(discovered.tools).toEqual(
+      expect.arrayContaining([expect.objectContaining({ name: 'StartSession' })]),
+    );
+    const described = JSON.parse(
+      (await execute('DescribeIntegrationTool', { toolId: 'StartSession' }, signal, call)).content,
+    );
+    expect(described.inputSchema.required).toEqual(
+      expect.arrayContaining(['requestId', 'title', 'prompt']),
+    );
+    const input = {
+      requestId: '438ff964-cffa-4fc8-b20b-1e064c812b91',
+      title: 'Approval notifications',
+      prompt: 'Continue the reviewed work.',
+    };
+    const response = await execute('StartSession', input, signal, call);
+    expect(response.isError, response.content).toBe(false);
+    const proposal = JSON.parse(response.content);
+    expect(proposal).toMatchObject({
+      sourceSessionId: 'owned-session',
+      state: 'pending',
+      childSessionId: null,
+      configuration,
+    });
+    expect(controller.launches.store.forSession('owned-session', 'user')).toHaveLength(1);
+    expect(f.eventStore.getSession(proposal.childSessionId ?? 'missing-child')).toBeNull();
+    expect(validate).not.toHaveBeenCalled();
+    expect(start).not.toHaveBeenCalled();
+    expect(workspace).not.toHaveBeenCalled();
+    expect(mocks.send).toHaveBeenCalledTimes(sourceProviderCalls);
+    expect(await execute('StartSession', input, signal, call)).toEqual(response);
+  } finally {
+    query?.close();
+    release();
+    closeSessionLaunches();
+    registry.dispose();
+    f.eventStore.close();
+    validate.mockRestore();
+    start.mockRestore();
+    workspace.mockRestore();
+    rmSync(root, { recursive: true, force: true });
   }
 });
 
