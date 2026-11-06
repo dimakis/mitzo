@@ -2,12 +2,15 @@ import { dirname } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
 import type { EventStore } from './event-store.js';
 import type { OrdinaryLocalVertexCustody } from '@mitzo/protocol';
-import { VertexAdcCustody } from './ordinary-local-vertex-custody.js';
+import {
+  captureClaudeSdkCredentials,
+  reopenClaudeSdkCredentials,
+} from './claude-sdk-credentials.js';
 
 /** Trusted backend owner only. A JSON request cannot construct this startup authority. */
 export class OrdinaryLocalVertexSdkAuthority {
   readonly #custody: OrdinaryLocalVertexCustody;
-  readonly #credential: VertexAdcCustody;
+  readonly #credential: ReturnType<typeof captureClaudeSdkCredentials>;
   constructor(
     private readonly owners: {
       store: EventStore;
@@ -23,7 +26,7 @@ export class OrdinaryLocalVertexSdkAuthority {
     },
   ) {
     this.#custody = structuredClone(owners.custody);
-    this.#credential = VertexAdcCustody.reopen(
+    this.#credential = reopenClaudeSdkCredentials(
       this.#custody.credentialAuthority,
       owners.environment(),
     );
@@ -44,7 +47,21 @@ export class OrdinaryLocalVertexSdkAuthority {
     return this.#custody.sdkSessionId;
   }
   writeRoots(): readonly string[] {
-    return [dirname(this.#custody.credentialAuthority.adc.path), ...this.owners.sourceWriteRoots];
+    const credential = this.#custody.credentialAuthority;
+    return [
+      ...('kind' in credential
+        ? [dirname(credential.executable.path)]
+        : [dirname(credential.adc.path)]),
+      ...this.owners.sourceWriteRoots,
+    ];
+  }
+  executable(): string | undefined {
+    const credential = this.#custody.credentialAuthority;
+    return 'kind' in credential ? credential.executable.path : undefined;
+  }
+  configDirectory(): string | undefined {
+    const credential = this.#custody.credentialAuthority;
+    return 'kind' in credential ? credential.config.path : undefined;
   }
   assertStartup(sessionId: string, commandId: string) {
     const admission = this.owners.store.getOrdinaryLocalVertexCommandAdmission(commandId);
@@ -75,6 +92,9 @@ export class OrdinaryLocalVertexSdkAuthority {
   async assertCurrent(signal: AbortSignal) {
     signal.throwIfAborted();
     await this.owners.assertCurrent(signal);
+    // Admission verifies native sign-in; the running query checks accountInfo
+    // before releasing each prompt. Tool callbacks retain the physical account,
+    // operator and workspace fences without spawning another CLI status process.
     this.assertCurrentSync(signal);
   }
 }

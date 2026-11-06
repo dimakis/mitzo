@@ -22,7 +22,15 @@ import {
 } from './chat-runtime-selection';
 const ref = SessionRuntimeBindingV1Schema.shape.account.shape.accountId;
 const account = SessionRuntimeBindingV1Schema.shape.account
-  .extend({ provider: z.enum(['openai-codex', 'openai', 'anthropic-vertex', 'google-vertex']) })
+  .extend({
+    provider: z.enum([
+      'openai-codex',
+      'openai',
+      'anthropic-vertex',
+      'anthropic-claude',
+      'google-vertex',
+    ]),
+  })
   .strict();
 const model = z.strictObject({
   id: ref,

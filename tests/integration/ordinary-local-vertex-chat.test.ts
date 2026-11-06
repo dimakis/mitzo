@@ -1,9 +1,16 @@
+import '../../server/__tests__/fixtures/offline-user-home.js';
 import { EventEmitter } from 'node:events';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import type { McpSdkServerConfigWithInstance } from '@anthropic-ai/claude-agent-sdk';
 import { afterEach, expect, it, vi } from 'vitest';
 import { agentLibrarySource } from '../../server/__tests__/fixtures/agent-library-source.js';
+vi.mock('../../server/claude-account-history.js', () => ({
+  readClaudeAccountHistory: vi.fn(async (sessionId: string, cwd: string) => ({
+    info: { sessionId, cwd },
+    messages: [{ type: 'user', uuid: 'retained' }],
+  })),
+}));
 const services = vi.hoisted(() => ({
   authId: '',
   workspace: undefined as unknown,
@@ -81,9 +88,11 @@ vi.mock('../../server/transport-auth-ownership.js', async (original) => ({
   liveTransportAuthSessionId: () => services.authId,
 }));
 vi.mock('../../server/mcp-config.js', () => ({ loadMcpServers: () => ({}) }));
-vi.mock('../../server/credential-sdk-boundary.js', async (original) => ({
-  ...(await original<object>()),
+// Native SDK processes are simulated here; filesystem/process enforcement has
+// separate boundary tests and must not inspect the developer's credential roots.
+vi.mock('../../server/credential-sdk-boundary.js', () => ({
   credentialSdkBoundary: () => ({ spawnClaudeCodeProcess: () => new EventEmitter() }),
+  runtimeFilesystemSdkBoundary: () => undefined,
 }));
 vi.mock('@anthropic-ai/claude-agent-sdk', async (original) => ({
   ...(await original<object>()),
@@ -111,429 +120,462 @@ afterEach(async () => {
   services.requests.length = 0;
   services.query.mockReset();
 });
-it('routes first, queued future and cold commands through the actual SDK owner with terminal-only effort options and original thread', async () => {
-  const { ownedVertexRuntimeFixture } =
-    await import('../../server/__tests__/fixtures/owned-local-vertex-runtime.js');
-  const f = await ownedVertexRuntimeFixture(cleanups, { chatRoute: true });
-  Object.assign(f.request.payload, { sourceSnapshots: [agentLibrarySource] });
-  vi.stubEnv('WORKTREE_ENABLED', 'false');
-  services.workspace = f.workspace;
-  services.library = f.library;
-  services.authId = f.auth.id;
-  vi.stubGlobal(
-    'fetch',
-    vi.fn(async () => {
-      throw Error('Offline test has no network');
-    }),
-  );
-  let releaseFirst: (() => void) | undefined;
-  let first = true;
-  const history: string[] = [];
-  const providerInputs: string[] = [];
-  services.query.mockImplementation((request) => {
-    services.requests.push(request);
-    const id = request.options.resume ?? request.options.sessionId;
-    const closed = { value: false };
-    const process = request.options.spawnClaudeCodeProcess({
-      signal: request.options.abortController.signal,
-    });
-    const instance = {
-      async *[Symbol.asyncIterator]() {
-        for await (const message of request.prompt) {
-          if (closed.value) break;
-          const inputUuid = `input-${message.mitzoMessageId}`;
-          history.push(message.mitzoMessageId);
-          const content = message.message.content;
-          providerInputs.push(
-            typeof content === 'string'
-              ? content
-              : content.map((block: { text?: string }) => block.text ?? '').join(''),
-          );
-          yield {
-            type: 'user',
-            uuid: inputUuid,
-            parent_tool_use_id: null,
-            message: { role: 'user', content: message.message.content },
-          };
-          yield {
-            type: 'stream_event',
-            session_id: id,
-            event: { type: 'message_start', message: { id: `assistant-${inputUuid}` } },
-          };
-          if (first) {
-            first = false;
-            await new Promise<void>((resolve) => {
-              releaseFirst = resolve;
-              request.options.abortController.signal.addEventListener('abort', resolve, {
-                once: true,
-              });
-            });
-          }
-          if (closed.value) return;
-          yield {
-            type: 'assistant',
-            session_id: id,
-            message: { content: [{ type: 'text', text: 'Offline SDK answer' }] },
-          };
-          yield { type: 'result', session_id: id, is_error: false };
-        }
-      },
-      close: vi.fn(() => {
-        closed.value = true;
-        process.emit('close', 0, null);
+it.each([false, true])(
+  'routes first, queued future and cold commands through the actual SDK owner with original thread; personal=%s',
+  async (personal) => {
+    // Each account scenario gets its own controller/event-store singletons.
+    vi.resetModules();
+    const { ClaudeSubscriptionCustody } =
+      await import('../../server/claude-subscription-custody.js');
+    const { ownedVertexRuntimeFixture } =
+      await import('../../server/__tests__/fixtures/owned-local-vertex-runtime.js');
+    const f = await ownedVertexRuntimeFixture(cleanups, { chatRoute: true, personal });
+    if (personal) {
+      const capture = ClaudeSubscriptionCustody.capture;
+      vi.spyOn(ClaudeSubscriptionCustody, 'capture').mockImplementation((env) =>
+        capture(env, f.personalExecutable),
+      );
+      vi.spyOn(ClaudeSubscriptionCustody.prototype, 'verify').mockResolvedValue();
+    }
+    Object.assign(f.request.payload, { sourceSnapshots: [agentLibrarySource] });
+    vi.stubEnv('WORKTREE_ENABLED', 'false');
+    services.workspace = f.workspace;
+    services.library = f.library;
+    services.authId = f.auth.id;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => {
+        throw Error('Offline test has no network');
       }),
-      interrupt: vi.fn(async () => {}),
-      setModel: vi.fn(async () => {}),
-      setMaxThinkingTokens: vi.fn(async () => {}),
-      setPermissionMode: vi.fn(async () => {}),
-      stopTask: vi.fn(async () => {}),
-    };
-    return instance;
-  });
-  const chat = await import('../../server/chat.js');
-  cleanups.push(async () => {
-    const live = chat.registry.findBySessionId(f.reservation.conversationId);
-    live?.session.ordinaryRuntimeOwner?.close();
+    );
+    let releaseFirst: (() => void) | undefined;
+    let first = true;
+    const history: string[] = [];
+    const providerInputs: string[] = [];
+    services.query.mockImplementation((request) => {
+      services.requests.push(request);
+      const id = request.options.resume ?? request.options.sessionId;
+      const closed = { value: false };
+      const process = request.options.spawnClaudeCodeProcess({
+        signal: request.options.abortController.signal,
+      });
+      const instance = {
+        accountInfo: vi.fn(async () => ({
+          email: 'person@example.test',
+          subscriptionType: 'max',
+          apiProvider: 'firstParty',
+        })),
+        async *[Symbol.asyncIterator]() {
+          for await (const message of request.prompt) {
+            if (closed.value) break;
+            const inputUuid = `input-${message.mitzoMessageId}`;
+            history.push(message.mitzoMessageId);
+            const content = message.message.content;
+            providerInputs.push(
+              typeof content === 'string'
+                ? content
+                : content.map((block: { text?: string }) => block.text ?? '').join(''),
+            );
+            yield {
+              type: 'user',
+              uuid: inputUuid,
+              parent_tool_use_id: null,
+              message: { role: 'user', content: message.message.content },
+            };
+            yield {
+              type: 'stream_event',
+              session_id: id,
+              event: { type: 'message_start', message: { id: `assistant-${inputUuid}` } },
+            };
+            if (first) {
+              first = false;
+              await new Promise<void>((resolve) => {
+                releaseFirst = resolve;
+                request.options.abortController.signal.addEventListener('abort', resolve, {
+                  once: true,
+                });
+              });
+            }
+            if (closed.value) return;
+            yield {
+              type: 'assistant',
+              session_id: id,
+              message: { content: [{ type: 'text', text: 'Offline SDK answer' }] },
+            };
+            yield { type: 'result', session_id: id, is_error: false };
+          }
+        },
+        close: vi.fn(() => {
+          closed.value = true;
+          process.emit('close', 0, null);
+        }),
+        interrupt: vi.fn(async () => {}),
+        setModel: vi.fn(async () => {}),
+        setMaxThinkingTokens: vi.fn(async () => {}),
+        setPermissionMode: vi.fn(async () => {}),
+        stopTask: vi.fn(async () => {}),
+      };
+      return instance;
+    });
+    const chat = await import('../../server/chat.js');
+    cleanups.push(async () => {
+      const live = chat.registry.findBySessionId(f.reservation.conversationId);
+      live?.session.ordinaryRuntimeOwner?.close();
+      await vi.waitFor(() =>
+        expect(chat.registry.findBySessionId(f.reservation.conversationId)).toBeNull(),
+      );
+      chat.eventStore.close();
+    });
+    const transport = { send: vi.fn(), isOpen: () => true };
+    // Freeze the request clock while invoking its deadline callback explicitly.
+    vi.spyOn(performance, 'now').mockReturnValue(Math.trunc(performance.now()));
+    const preparationTimers = vi.spyOn(globalThis, 'setTimeout');
+    const { createOwnedLocalCodexEntryRouter } =
+      await import('../../server/ordinary-local-codex-entry.js');
+    const router = createOwnedLocalCodexEntryRouter(
+      { isOpen: () => true, isOwnedBy: () => true } as never,
+      {
+        sessionRegistry: chat.registry,
+        eventStore: chat.eventStore,
+        connRegistry: { get: () => ({ transport }), watch: vi.fn(), setActive: vi.fn() } as never,
+      },
+      true,
+    );
+    const invoke = (url: string, body: unknown) =>
+      new Promise<{ status: number; body: Record<string, unknown> }>((resolve, reject) => {
+        let status = 200;
+        const req = {
+          method: url === '/capabilities' ? 'GET' : 'POST',
+          url,
+          headers: { 'x-connection-id': f.dependencies.operatorConnectionId },
+          body,
+        };
+        const res = {
+          locals: { authSession: f.auth },
+          set() {
+            return this;
+          },
+          status(code: number) {
+            status = code;
+            return this;
+          },
+          json(value: Record<string, unknown>) {
+            resolve({ status, body: value });
+            return this;
+          },
+        };
+        (
+          router as import('express').Router & {
+            handle(req: unknown, res: unknown, next: (error?: unknown) => void): void;
+          }
+        ).handle(req, res, (error) => reject(error ?? Error('Unmatched route')));
+      });
+    // Public catalog -> production browser builder -> durable transport -> actual router.
+    const { ExplicitLocalInventorySchema, prepareLocalFirstCommand } =
+      await import('../../frontend/src/lib/explicit-local-chat.js');
+    const { createChatRuntimeSelection } =
+      await import('../../frontend/src/lib/chat-runtime-selection.js');
+    const { SendOutbox } = await import('../../packages/client/src/send-outbox.js');
+    const capabilities = await invoke('/capabilities', undefined);
+    expect(capabilities.status).toBe(200);
+    const inventory = ExplicitLocalInventorySchema.parse(capabilities.body);
+    const route = inventory.routes.find((route) => route.harness === 'claude-sdk')!;
+    expect(route).toBeDefined();
+    const built = prepareLocalFirstCommand(
+      {
+        ...createChatRuntimeSelection(),
+        account: {
+          accountId: route.account.accountId,
+          model: f.request.selection.model,
+          reasoningEffort: f.request.selection.thinking,
+        },
+        accountReference: route.account,
+        agentProfile: f.request.selection.agent,
+        execution: { location: 'local', targetId: route.targetId },
+        capabilityRevision: inventory.capabilityRevision,
+      },
+      inventory,
+      {
+        repositoryWorkspaceId: f.reservation.id,
+        clientMsgId: f.request.clientMsgId,
+        mode: 'agent',
+        text: f.request.payload.text,
+        sourceSnapshots: [agentLibrarySource],
+      },
+    );
+    expect(built.reason).toBeUndefined();
+    expect(built.request).not.toBeNull();
+    const wire = built.request!;
+    expect(wire.capabilityRevision).toBe(route.capabilityRevision);
+    let persisted: string | null = null;
+    const receipts = vi.fn();
+    const outbox = new SendOutbox({
+      url: '/api/chat/local-codex/send',
+      localFirstCommand: true,
+      storage: {
+        getItem: () => persisted,
+        setItem: (_key, value) => {
+          persisted = value;
+        },
+      },
+      notify: receipts,
+      fetch: async (path, init) => {
+        expect(path).toBe('/api/chat/runtime/send');
+        const response = await invoke('/send', JSON.parse(String(init?.body)));
+        return new Response(JSON.stringify(response.body), { status: response.status });
+      },
+    });
+    outbox.start();
+    expect(outbox.enqueue(wire, 1, 'public-vertex-draft')).toBe(true);
+    await vi.waitFor(
+      () => expect(receipts).toHaveBeenCalledWith(expect.objectContaining({ state: 'consumed' })),
+      { timeout: 10000 },
+    );
+    expect(persisted).toBe('[]');
+    outbox.stop();
+    // HTTP preparation has finished. A late deadline callback cannot abort the
+    // admitted conversation or its subsequent frozen followup.
+    const deadline = preparationTimers.mock.calls.find(([, delay]) => delay === 120000)?.[0];
+    expect(deadline).toBeTypeOf('function');
+    if (typeof deadline === 'function') deadline();
+    await vi.waitFor(() => expect(releaseFirst).toBeTypeOf('function'));
+    expect(providerInputs[0]).toContain(agentLibrarySource.content);
+    expect(providerInputs[0].split(agentLibrarySource.content)).toHaveLength(2);
+    const publicUser = chat.eventStore
+      .getSessionEvents(f.reservation.conversationId)
+      .find((event) => event.type === 'user_message');
+    expect(publicUser?.payload).toMatchObject({
+      text: f.request.payload.text,
+      sourceSnapshots: [agentLibrarySource],
+    });
+    const { OrdinaryLocalCodexSelectionOwner } =
+      await import('../../server/ordinary-local-codex-selection-owner.js');
+    const assertSelection = OrdinaryLocalCodexSelectionOwner.prototype.assertCurrent;
+    let releaseAdmission!: () => void;
+    let admissionWaiting = false;
+    const pendingAuthority = new Promise<void>((resolve) => {
+      releaseAdmission = resolve;
+    });
+    const selectionSpy = vi
+      .spyOn(OrdinaryLocalCodexSelectionOwner.prototype, 'assertCurrent')
+      .mockImplementation(async function (
+        this: InstanceType<typeof OrdinaryLocalCodexSelectionOwner>,
+        expected,
+      ) {
+        if (expected.selection.model === 'next-model') {
+          admissionWaiting = true;
+          await pendingAuthority;
+        }
+        return assertSelection.call(this, expected);
+      });
+    const expired = invoke('/continue', {
+      ...wire,
+      sessionId: f.reservation.conversationId,
+      clientMsgId: 'expired-followup',
+      selection: { ...wire.selection, model: 'next-model', thinking: 'high' },
+      payload: { text: 'Never admitted' },
+    });
+    await vi.waitFor(() => expect(admissionWaiting).toBe(true));
+    const followupDeadline = preparationTimers.mock.calls
+      .filter(([, delay]) => delay === 120000)
+      .at(-1)?.[0];
+    expect(followupDeadline).toBeTypeOf('function');
+    if (typeof followupDeadline === 'function') followupDeadline();
+    releaseAdmission();
+    expect((await expired).status).toBe(409);
+    expect(chat.eventStore.getSendCommand('expired-followup')).toBeUndefined();
+    expect(
+      chat.registry.findBySessionId(f.reservation.conversationId)?.session.abortController.signal
+        .aborted,
+    ).toBe(false);
+    expect(services.requests).toHaveLength(1);
+    selectionSpy.mockRestore();
+    await expect(
+      invoke('/continue', {
+        ...wire,
+        sessionId: f.reservation.conversationId,
+        clientMsgId: 'queued',
+        selection: { ...wire.selection, model: 'next-model', thinking: 'high' },
+        payload: { text: 'Frozen followup' },
+      }),
+    ).resolves.toMatchObject({ status: 202, body: { dispatched: true, state: 'consumed' } });
+    expect(services.requests).toHaveLength(1);
+    expect(services.requests[0].options.effort).toBe('low');
+    expect(services.requests[0].options.allowedTools).toContain(
+      'mcp__mitzo-web-access__RequestWebAccess',
+    );
+    expect(services.requests[0].options.disallowedTools).not.toContain('mcp__mitzo-web-access__*');
+    const servers = services.requests[0].options.mcpServers as Record<
+      string,
+      McpSdkServerConfigWithInstance
+    >;
+    expect(servers).toHaveProperty('mitzo-web-access');
+    const web = servers['mitzo-web-access'];
+    const webClient = new Client({ name: 'owned-web-test', version: '1' });
+    const [webTransport, clientTransport] = InMemoryTransport.createLinkedPair();
+    await web.instance.connect(webTransport);
+    await webClient.connect(clientTransport);
+    cleanups.push(async () => {
+      await webClient.close();
+      await web.instance.close();
+    });
+    expect((await webClient.listTools()).tools.map((tool) => tool.name)).toEqual([
+      'RequestWebAccess',
+    ]);
+    expect(
+      await webClient.callTool({
+        name: 'RequestWebAccess',
+        arguments: {
+          operation: 'revoke_access',
+          url: 'https://example.com',
+          reason: 'Remove obsolete access',
+        },
+      }),
+    ).toMatchObject({ isError: false });
+
+    releaseFirst!();
+    await vi.waitFor(() => expect(history).toEqual([f.request.clientMsgId, 'queued']), {
+      timeout: 5000,
+    });
+    await vi.waitFor(() =>
+      expect(chat.eventStore.getSession(f.reservation.conversationId)?.executionPhase).toBe(
+        'TERMINAL',
+      ),
+    );
+    expect(services.requests[1].options).toMatchObject({
+      resume: f.reservation.conversationId,
+      model: 'next-model',
+      effort: 'high',
+      env: personal
+        ? {
+            CLAUDE_CONFIG_DIR: f.configuration[0].credentialRef,
+            MITZO_CLAUDE_EXPECTED_EMAIL: 'person@example.test',
+          }
+        : { ANTHROPIC_VERTEX_PROJECT_ID: 'offline-project', CLOUD_ML_REGION: 'offline-region' },
+    });
+    expect(services.requests[1].options).not.toHaveProperty('sessionId');
+    expect(services.requests[1].options.mcpServers).toHaveProperty('mitzo-web-access');
+    const queriesBeforeStaleSearch = services.query.mock.calls.length;
+    expect(
+      await webClient.callTool({
+        name: 'RequestWebAccess',
+        arguments: { operation: 'search', query: 'Research', reason: 'Verify' },
+      }),
+    ).toMatchObject({ isError: true });
+    expect(services.query).toHaveBeenCalledTimes(queriesBeforeStaleSearch);
+
+    const custody = chat.eventStore.getOrdinaryLocalVertexCustody(f.reservation.conversationId);
+    // Emulate the durable state after an acknowledged queue entry was saved and
+    // the predecessor reached terminal, before the old driver dispatched its tail.
+    const retainedMeta = chat.eventStore.getSession(f.reservation.conversationId)!;
+    const frozenTail = chat.eventStore.getOrdinaryLocalVertexCommandAdmission('queued')!;
+    chat.eventStore.admitOrdinaryLocalVertexContinuation(
+      {
+        ...retainedMeta,
+        selectedModel: frozenTail.selection.model,
+        reasoningEffort: frozenTail.selection.thinking,
+        accountBinding: { ...retainedMeta.accountBinding!, model: frozenTail.selection.model },
+      },
+      frozenTail.binding,
+      {
+        clientMsgId: 'retained-cold-tail',
+        requestFingerprint: 'acknowledged-never-dispatched-tail',
+        selection: frozenTail.selection,
+        payload: {
+          ...chat.eventStore.getSendCommand('queued')!.payload,
+          text: 'Original acknowledged tail',
+        },
+      },
+    );
+    chat.eventStore.claimOrdinaryLocalVertexCommandDispatch('retained-cold-tail');
+    chat.eventStore.completeOrdinaryLocalVertexCommand('retained-cold-tail');
+    chat.stopOrdinaryChat(chat.registry.findBySessionId(f.reservation.conversationId)!.clientId);
     await vi.waitFor(() =>
       expect(chat.registry.findBySessionId(f.reservation.conversationId)).toBeNull(),
     );
-    chat.eventStore.close();
-  });
-  const transport = { send: vi.fn(), isOpen: () => true };
-  // Freeze the request clock while invoking its deadline callback explicitly.
-  vi.spyOn(performance, 'now').mockReturnValue(Math.trunc(performance.now()));
-  const preparationTimers = vi.spyOn(globalThis, 'setTimeout');
-  const { createOwnedLocalCodexEntryRouter } =
-    await import('../../server/ordinary-local-codex-entry.js');
-  const router = createOwnedLocalCodexEntryRouter(
-    { isOpen: () => true, isOwnedBy: () => true } as never,
-    {
-      sessionRegistry: chat.registry,
-      eventStore: chat.eventStore,
-      connRegistry: { get: () => ({ transport }), watch: vi.fn(), setActive: vi.fn() } as never,
-    },
-    true,
-  );
-  const invoke = (url: string, body: unknown) =>
-    new Promise<{ status: number; body: Record<string, unknown> }>((resolve, reject) => {
-      let status = 200;
-      const req = {
-        method: url === '/capabilities' ? 'GET' : 'POST',
-        url,
-        headers: { 'x-connection-id': f.dependencies.operatorConnectionId },
-        body,
-      };
-      const res = {
-        locals: { authSession: f.auth },
-        set() {
-          return this;
-        },
-        status(code: number) {
-          status = code;
-          return this;
-        },
-        json(value: Record<string, unknown>) {
-          resolve({ status, body: value });
-          return this;
-        },
-      };
-      (
-        router as import('express').Router & {
-          handle(req: unknown, res: unknown, next: (error?: unknown) => void): void;
-        }
-      ).handle(req, res, (error) => reject(error ?? Error('Unmatched route')));
+    await expect(
+      invoke('/continue', {
+        ...wire,
+        sessionId: f.reservation.conversationId,
+        clientMsgId: 'cold',
+        payload: { text: 'Same retained task' },
+      }),
+    ).resolves.toMatchObject({ status: 202, body: { dispatched: true, state: 'consumed' } });
+    await vi.waitFor(
+      () =>
+        expect(history).toEqual([f.request.clientMsgId, 'queued', 'retained-cold-tail', 'cold']),
+      { timeout: 5000 },
+    );
+    expect(services.requests[2].options).toMatchObject({
+      resume: f.reservation.conversationId,
+      model: 'next-model',
+      effort: 'high',
     });
-  // Public catalog -> production browser builder -> durable transport -> actual router.
-  const { ExplicitLocalInventorySchema, prepareLocalFirstCommand } =
-    await import('../../frontend/src/lib/explicit-local-chat.js');
-  const { createChatRuntimeSelection } =
-    await import('../../frontend/src/lib/chat-runtime-selection.js');
-  const { SendOutbox } = await import('../../packages/client/src/send-outbox.js');
-  const capabilities = await invoke('/capabilities', undefined);
-  expect(capabilities.status).toBe(200);
-  const inventory = ExplicitLocalInventorySchema.parse(capabilities.body);
-  const route = inventory.routes.find((route) => route.harness === 'claude-sdk')!;
-  expect(route).toBeDefined();
-  const built = prepareLocalFirstCommand(
-    {
-      ...createChatRuntimeSelection(),
-      account: {
-        accountId: route.account.accountId,
-        model: f.request.selection.model,
-        reasoningEffort: f.request.selection.thinking,
-      },
-      accountReference: route.account,
-      agentProfile: f.request.selection.agent,
-      execution: { location: 'local', targetId: route.targetId },
-      capabilityRevision: inventory.capabilityRevision,
-    },
-    inventory,
-    {
-      repositoryWorkspaceId: f.reservation.id,
-      clientMsgId: f.request.clientMsgId,
-      mode: 'agent',
-      text: f.request.payload.text,
-      sourceSnapshots: [agentLibrarySource],
-    },
-  );
-  expect(built.reason).toBeUndefined();
-  expect(built.request).not.toBeNull();
-  const wire = built.request!;
-  expect(wire.capabilityRevision).toBe(route.capabilityRevision);
-  let persisted: string | null = null;
-  const receipts = vi.fn();
-  const outbox = new SendOutbox({
-    url: '/api/chat/local-codex/send',
-    localFirstCommand: true,
-    storage: {
-      getItem: () => persisted,
-      setItem: (_key, value) => {
-        persisted = value;
-      },
-    },
-    notify: receipts,
-    fetch: async (path, init) => {
-      expect(path).toBe('/api/chat/runtime/send');
-      const response = await invoke('/send', JSON.parse(String(init?.body)));
-      return new Response(JSON.stringify(response.body), { status: response.status });
-    },
-  });
-  outbox.start();
-  expect(outbox.enqueue(wire, 1, 'public-vertex-draft')).toBe(true);
-  await vi.waitFor(
-    () => expect(receipts).toHaveBeenCalledWith(expect.objectContaining({ state: 'consumed' })),
-    { timeout: 10000 },
-  );
-  expect(persisted).toBe('[]');
-  outbox.stop();
-  // HTTP preparation has finished. A late deadline callback cannot abort the
-  // admitted conversation or its subsequent frozen followup.
-  const deadline = preparationTimers.mock.calls.find(([, delay]) => delay === 120000)?.[0];
-  expect(deadline).toBeTypeOf('function');
-  if (typeof deadline === 'function') deadline();
-  await vi.waitFor(() => expect(releaseFirst).toBeTypeOf('function'));
-  expect(providerInputs[0]).toContain(agentLibrarySource.content);
-  expect(providerInputs[0].split(agentLibrarySource.content)).toHaveLength(2);
-  const publicUser = chat.eventStore
-    .getSessionEvents(f.reservation.conversationId)
-    .find((event) => event.type === 'user_message');
-  expect(publicUser?.payload).toMatchObject({
-    text: f.request.payload.text,
-    sourceSnapshots: [agentLibrarySource],
-  });
-  const { OrdinaryLocalCodexSelectionOwner } =
-    await import('../../server/ordinary-local-codex-selection-owner.js');
-  const assertSelection = OrdinaryLocalCodexSelectionOwner.prototype.assertCurrent;
-  let releaseAdmission!: () => void;
-  let admissionWaiting = false;
-  const pendingAuthority = new Promise<void>((resolve) => {
-    releaseAdmission = resolve;
-  });
-  const selectionSpy = vi
-    .spyOn(OrdinaryLocalCodexSelectionOwner.prototype, 'assertCurrent')
-    .mockImplementation(async function (
-      this: InstanceType<typeof OrdinaryLocalCodexSelectionOwner>,
-      expected,
-    ) {
-      if (expected.selection.model === 'next-model') {
-        admissionWaiting = true;
-        await pendingAuthority;
-      }
-      return assertSelection.call(this, expected);
+    expect(services.requests[3].options).toMatchObject({
+      resume: f.reservation.conversationId,
+      model: 'fixture-model',
+      effort: 'low',
     });
-  const expired = invoke('/continue', {
-    ...wire,
-    sessionId: f.reservation.conversationId,
-    clientMsgId: 'expired-followup',
-    selection: { ...wire.selection, model: 'next-model', thinking: 'high' },
-    payload: { text: 'Never admitted' },
-  });
-  await vi.waitFor(() => expect(admissionWaiting).toBe(true));
-  const followupDeadline = preparationTimers.mock.calls
-    .filter(([, delay]) => delay === 120000)
-    .at(-1)?.[0];
-  expect(followupDeadline).toBeTypeOf('function');
-  if (typeof followupDeadline === 'function') followupDeadline();
-  releaseAdmission();
-  expect((await expired).status).toBe(409);
-  expect(chat.eventStore.getSendCommand('expired-followup')).toBeUndefined();
-  expect(
-    chat.registry.findBySessionId(f.reservation.conversationId)?.session.abortController.signal
-      .aborted,
-  ).toBe(false);
-  expect(services.requests).toHaveLength(1);
-  selectionSpy.mockRestore();
-  await expect(
-    invoke('/continue', {
-      ...wire,
-      sessionId: f.reservation.conversationId,
-      clientMsgId: 'queued',
-      selection: { ...wire.selection, model: 'next-model', thinking: 'high' },
-      payload: { text: 'Frozen followup' },
-    }),
-  ).resolves.toMatchObject({ status: 202, body: { dispatched: true, state: 'consumed' } });
-  expect(services.requests).toHaveLength(1);
-  expect(services.requests[0].options.effort).toBe('low');
-  expect(services.requests[0].options.allowedTools).toContain(
-    'mcp__mitzo-web-access__RequestWebAccess',
-  );
-  expect(services.requests[0].options.disallowedTools).not.toContain('mcp__mitzo-web-access__*');
-  const servers = services.requests[0].options.mcpServers as Record<
-    string,
-    McpSdkServerConfigWithInstance
-  >;
-  expect(servers).toHaveProperty('mitzo-web-access');
-  const web = servers['mitzo-web-access'];
-  const webClient = new Client({ name: 'owned-web-test', version: '1' });
-  const [webTransport, clientTransport] = InMemoryTransport.createLinkedPair();
-  await web.instance.connect(webTransport);
-  await webClient.connect(clientTransport);
-  cleanups.push(async () => {
-    await webClient.close();
-    await web.instance.close();
-  });
-  expect((await webClient.listTools()).tools.map((tool) => tool.name)).toEqual([
-    'RequestWebAccess',
-  ]);
-  expect(
-    await webClient.callTool({
-      name: 'RequestWebAccess',
-      arguments: {
-        operation: 'revoke_access',
-        url: 'https://example.com',
-        reason: 'Remove obsolete access',
-      },
-    }),
-  ).toMatchObject({ isError: false });
+    await vi.waitFor(() =>
+      expect(chat.eventStore.getSession(f.reservation.conversationId)?.executionPhase).toBe(
+        'TERMINAL',
+      ),
+    );
+    expect(chat.eventStore.getOrdinaryLocalVertexCustody(f.reservation.conversationId)).toEqual(
+      custody,
+    );
+    first = true;
+    releaseFirst = undefined;
+    await expect(
+      invoke('/continue', {
+        ...wire,
+        sessionId: f.reservation.conversationId,
+        clientMsgId: 'active-stop',
+        payload: { text: 'Stop this turn' },
+      }),
+    ).resolves.toMatchObject({ status: 202 });
+    await vi.waitFor(() => expect(releaseFirst).toBeTypeOf('function'));
+    await expect(
+      invoke('/continue', {
+        ...wire,
+        sessionId: f.reservation.conversationId,
+        clientMsgId: 'saved-after-stop',
+        selection: { ...wire.selection, model: 'next-model', thinking: 'high' },
+        payload: { text: 'Retain this queued work' },
+      }),
+    ).resolves.toMatchObject({ status: 202 });
+    const stoppedQueryCount = services.requests.length;
+    chat.stopOrdinaryChat(chat.registry.findBySessionId(f.reservation.conversationId)!.clientId);
+    await vi.waitFor(() =>
+      expect(chat.registry.findBySessionId(f.reservation.conversationId)).toBeNull(),
+    );
+    await expect(
+      invoke('/continue', {
+        ...wire,
+        sessionId: f.reservation.conversationId,
+        clientMsgId: 'after-active-stop',
+        payload: { text: 'Do not create a new thread' },
+      }),
+    ).resolves.toMatchObject({ status: 409 });
+    expect(services.requests).toHaveLength(stoppedQueryCount);
+    expect(chat.eventStore.getSendCommand('after-active-stop')).toBeUndefined();
+    expect(
+      chat.eventStore.getExecutionAdmission(f.reservation.conversationId, 'saved-after-stop'),
+    ).toBeUndefined();
+    expect(chat.eventStore.getSendCommand('saved-after-stop')).toMatchObject({ error: null });
+    expect(
+      chat.eventStore.getOrdinaryLocalVertexCommandAdmission('saved-after-stop'),
+    ).toMatchObject({
+      state: 'consumed',
+      selection: { model: 'next-model', thinking: 'high' },
+    });
 
-  releaseFirst!();
-  await vi.waitFor(() => expect(history).toEqual([f.request.clientMsgId, 'queued']));
-  await vi.waitFor(() =>
-    expect(chat.eventStore.getSession(f.reservation.conversationId)?.executionPhase).toBe(
-      'TERMINAL',
-    ),
-  );
-  expect(services.requests[1].options).toMatchObject({
-    resume: f.reservation.conversationId,
-    model: 'next-model',
-    effort: 'high',
-    env: { ANTHROPIC_VERTEX_PROJECT_ID: 'offline-project', CLOUD_ML_REGION: 'offline-region' },
-  });
-  expect(services.requests[1].options).not.toHaveProperty('sessionId');
-  expect(services.requests[1].options.mcpServers).toHaveProperty('mitzo-web-access');
-  const queriesBeforeStaleSearch = services.query.mock.calls.length;
-  expect(
-    await webClient.callTool({
-      name: 'RequestWebAccess',
-      arguments: { operation: 'search', query: 'Research', reason: 'Verify' },
-    }),
-  ).toMatchObject({ isError: true });
-  expect(services.query).toHaveBeenCalledTimes(queriesBeforeStaleSearch);
-
-  const custody = chat.eventStore.getOrdinaryLocalVertexCustody(f.reservation.conversationId);
-  // Emulate the durable state after an acknowledged queue entry was saved and
-  // the predecessor reached terminal, before the old driver dispatched its tail.
-  const retainedMeta = chat.eventStore.getSession(f.reservation.conversationId)!;
-  const frozenTail = chat.eventStore.getOrdinaryLocalVertexCommandAdmission('queued')!;
-  chat.eventStore.admitOrdinaryLocalVertexContinuation(
-    {
-      ...retainedMeta,
-      selectedModel: frozenTail.selection.model,
-      reasoningEffort: frozenTail.selection.thinking,
-      accountBinding: { ...retainedMeta.accountBinding!, model: frozenTail.selection.model },
-    },
-    frozenTail.binding,
-    {
-      clientMsgId: 'retained-cold-tail',
-      requestFingerprint: 'acknowledged-never-dispatched-tail',
-      selection: frozenTail.selection,
-      payload: {
-        ...chat.eventStore.getSendCommand('queued')!.payload,
-        text: 'Original acknowledged tail',
-      },
-    },
-  );
-  chat.eventStore.claimOrdinaryLocalVertexCommandDispatch('retained-cold-tail');
-  chat.eventStore.completeOrdinaryLocalVertexCommand('retained-cold-tail');
-  chat.stopOrdinaryChat(chat.registry.findBySessionId(f.reservation.conversationId)!.clientId);
-  await vi.waitFor(() =>
-    expect(chat.registry.findBySessionId(f.reservation.conversationId)).toBeNull(),
-  );
-  await expect(
-    invoke('/continue', {
-      ...wire,
-      sessionId: f.reservation.conversationId,
-      clientMsgId: 'cold',
-      payload: { text: 'Same retained task' },
-    }),
-  ).resolves.toMatchObject({ status: 202, body: { dispatched: true, state: 'consumed' } });
-  await vi.waitFor(() =>
-    expect(history).toEqual([f.request.clientMsgId, 'queued', 'retained-cold-tail', 'cold']),
-  );
-  expect(services.requests[2].options).toMatchObject({
-    resume: f.reservation.conversationId,
-    model: 'next-model',
-    effort: 'high',
-  });
-  expect(services.requests[3].options).toMatchObject({
-    resume: f.reservation.conversationId,
-    model: 'fixture-model',
-    effort: 'low',
-  });
-  await vi.waitFor(() =>
-    expect(chat.eventStore.getSession(f.reservation.conversationId)?.executionPhase).toBe(
-      'TERMINAL',
-    ),
-  );
-  expect(chat.eventStore.getOrdinaryLocalVertexCustody(f.reservation.conversationId)).toEqual(
-    custody,
-  );
-  first = true;
-  releaseFirst = undefined;
-  await expect(
-    invoke('/continue', {
-      ...wire,
-      sessionId: f.reservation.conversationId,
-      clientMsgId: 'active-stop',
-      payload: { text: 'Stop this turn' },
-    }),
-  ).resolves.toMatchObject({ status: 202 });
-  await vi.waitFor(() => expect(releaseFirst).toBeTypeOf('function'));
-  await expect(
-    invoke('/continue', {
-      ...wire,
-      sessionId: f.reservation.conversationId,
-      clientMsgId: 'saved-after-stop',
-      selection: { ...wire.selection, model: 'next-model', thinking: 'high' },
-      payload: { text: 'Retain this queued work' },
-    }),
-  ).resolves.toMatchObject({ status: 202 });
-  const stoppedQueryCount = services.requests.length;
-  chat.stopOrdinaryChat(chat.registry.findBySessionId(f.reservation.conversationId)!.clientId);
-  await vi.waitFor(() =>
-    expect(chat.registry.findBySessionId(f.reservation.conversationId)).toBeNull(),
-  );
-  await expect(
-    invoke('/continue', {
-      ...wire,
-      sessionId: f.reservation.conversationId,
-      clientMsgId: 'after-active-stop',
-      payload: { text: 'Do not create a new thread' },
-    }),
-  ).resolves.toMatchObject({ status: 409 });
-  expect(services.requests).toHaveLength(stoppedQueryCount);
-  expect(chat.eventStore.getSendCommand('after-active-stop')).toBeUndefined();
-  expect(
-    chat.eventStore.getExecutionAdmission(f.reservation.conversationId, 'saved-after-stop'),
-  ).toBeUndefined();
-  expect(chat.eventStore.getSendCommand('saved-after-stop')).toMatchObject({ error: null });
-  expect(chat.eventStore.getOrdinaryLocalVertexCommandAdmission('saved-after-stop')).toMatchObject({
-    state: 'consumed',
-    selection: { model: 'next-model', thinking: 'high' },
-  });
-
-  expect(vi.mocked(fetch).mock.calls.every(([url]) => String(url).endsWith('/health'))).toBe(true);
-}, 15_000);
+    expect(vi.mocked(fetch).mock.calls.every(([url]) => String(url).endsWith('/health'))).toBe(
+      true,
+    );
+  },
+  15_000,
+);
 
 it('a qualified preparation A starts model B on its original checkout and exact retry cannot launch again', async () => {
   vi.resetModules();

@@ -1,5 +1,5 @@
 import { loadAccountProfiles } from './account-profiles.js';
-import { VertexAdcCustody } from './ordinary-local-vertex-custody.js';
+import { reopenClaudeSdkCredentials } from './claude-sdk-credentials.js';
 import { registerWorkspaceRuntimeAuthorityPaths } from './workspace-runtime-private-paths.js';
 import { dirname, join } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
@@ -51,7 +51,7 @@ export function canResumeOwnedLocalVertexDriver(sessionId: string, authSessionId
         ),
       ),
     );
-    VertexAdcCustody.reopen(custody.credentialAuthority, env);
+    reopenClaudeSdkCredentials(custody.credentialAuthority, env);
     return (
       !!meta &&
       !!custody &&

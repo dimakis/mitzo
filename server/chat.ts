@@ -13,6 +13,8 @@ import {
 } from './task-worker-authority.js';
 import { assertTurnCallbackEffects, type TurnCallbackRunner } from './turn-callbacks.js';
 import { createSdkTurnQuery } from './sdk-turn-query.js';
+import { claudePersonalSandbox, claudePersonalToolPermission } from './claude-personal-policy.js';
+import { readClaudeAccountHistory } from './claude-account-history.js';
 import { findSessionRuntimeError } from './session-runtime-error.js';
 import { reportRetainedRuntimeFailure } from './retained-runtime-failure.js';
 import { AdviserTaskScope } from './adviser-task-scope.js';
@@ -1628,7 +1630,8 @@ async function _startChatInner(
       if (
         accountBinding.provider === 'openai' ||
         accountBinding.provider === 'google-vertex' ||
-        accountBinding.provider === 'anthropic-vertex'
+        accountBinding.provider === 'anthropic-vertex' ||
+        accountBinding.provider === 'anthropic-claude'
       )
         profiles!.validateModelSelection(accountBinding, options.model!, options.reasoningEffort);
       if (accountBinding.provider === 'openai-codex') {
@@ -1715,9 +1718,17 @@ async function _startChatInner(
         } else apiCredentialRef = profile.credentialRef;
         accountEnv = openShellRequested ? restrictedChildEnv() : nativeExecutionEnv();
       } else accountEnv = profiles!.sdkEnv(accountBinding, sdkChildEnvironmentBase());
+      if (
+        accountBinding.provider === 'anthropic-claude' &&
+        (!options.ordinarySdkAuthority || openShellRequested)
+      )
+        throw Error('Personal Claude requires the selected Local Mac Claude SDK runtime');
     }
     if (options.adviserScope) {
-      if (!accountBinding || accountBinding.provider !== 'anthropic-vertex')
+      if (
+        !accountBinding ||
+        !['anthropic-vertex', 'anthropic-claude'].includes(accountBinding.provider)
+      )
         throw Error('Scoped SDK adviser requires the selected Claude account');
       options.adviserScope.assertSelection(accountBinding, options.reasoningEffort);
     }
@@ -2228,7 +2239,7 @@ async function _startChatInner(
 
     // Build session env with worktree paths for the agent (all repos including primary)
     const sessionEnv = accountEnv
-      ? accountBinding?.provider === 'anthropic-vertex'
+      ? accountBinding && ['anthropic-vertex', 'anthropic-claude'].includes(accountBinding.provider)
         ? await resolveSdkChildSocket(accountEnv, session.abortController.signal)
         : accountEnv
       : await buildSdkChildEnvironment(session.abortController.signal);
@@ -2712,6 +2723,11 @@ This is an independent checkout with its own Git storage, not a linked worktree.
       };
       const decide: ReturnType<typeof buildPermissionHandler> = async (name, input, opts) => {
         if (packBoundSdk) await authorizeSdkContext(opts.signal);
+        const personalConfig = options.ordinarySdkAuthority?.configDirectory();
+        if (personalConfig) {
+          const refusal = claudePersonalToolPermission(name, input, cwd, personalConfig);
+          if (refusal) return refusal;
+        }
         if (
           options.ordinarySdkAuthority &&
           name.startsWith('mcp__mitzo-connections__') &&
@@ -2859,6 +2875,12 @@ This is an independent checkout with its own Git storage, not a linked worktree.
       const sdkOptions: NonNullable<Parameters<typeof query>[0]['options']> = {
         cwd,
         env: sessionEnv,
+        ...(options.ordinarySdkAuthority?.executable()
+          ? { pathToClaudeCodeExecutable: options.ordinarySdkAuthority.executable() }
+          : {}),
+        ...(options.ordinarySdkAuthority?.configDirectory()
+          ? { sandbox: claudePersonalSandbox(options.ordinarySdkAuthority.configDirectory()!) }
+          : {}),
         abortController,
         includePartialMessages: true,
         settingSources:
@@ -5913,7 +5935,10 @@ function sessionReplayProjection(
   events: import('./event-store.js').StoredEvent[],
 ) {
   const session = eventStore.getSession(sessionId);
-  if (session?.accountBinding?.provider !== 'anthropic-vertex')
+  if (
+    !session?.accountBinding ||
+    !['anthropic-vertex', 'anthropic-claude'].includes(session.accountBinding.provider)
+  )
     return { events, initialPrompt: session?.initialPrompt ?? undefined };
   const custody = eventStore.getOrdinaryLocalVertexCustody(sessionId);
   const command = custody ? eventStore.getSendCommand(custody.initialCommandId) : undefined;
@@ -5941,6 +5966,19 @@ export async function getMessages(sessionId: string, throughSeq?: number) {
 
   // A bounded request must never fall through to a mutable SDK transcript.
   if (throughSeq !== undefined) return [];
+
+  const metadata = eventStore.getSession(sessionId);
+  if (metadata?.accountBinding?.provider === 'anthropic-claude') {
+    const custody = eventStore.getOrdinaryLocalVertexCustody(sessionId);
+    if (!custody || !('kind' in custody.credentialAuthority) || !metadata.cwd) return [];
+    const { messages } = await readClaudeAccountHistory(
+      custody.sdkSessionId,
+      metadata.cwd,
+      custody.credentialAuthority.config.path,
+      SESSION_MESSAGES_LIMIT,
+    );
+    return reconstructMessages(messages as RawSdkMessage[]);
+  }
 
   // Fallback: SDK JSONL for pre-migration sessions
   let rawMessages: RawSdkMessage[] = [];
