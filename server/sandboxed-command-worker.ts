@@ -180,7 +180,10 @@ export async function runSandboxedWorker(
         if (process.env[name] !== undefined) target.env[name] = process.env[name];
       const child = cp.spawn('/bin/sh', ['-c', target.command], { env: target.env, stdio: 'inherit' });
       child.once('error', error => { process.stderr.write(error.message + '\\n'); process.exit(1); });
-      child.once('exit', (code, signal) => process.exit(signal ? 1 : (code ?? 1)));
+      // Reserve a high status for missing or signalled termination. The parent
+      // treats all high statuses conservatively because shells also encode
+      // signals as 128 + signal, indistinguishable from an explicit high exit.
+      child.once('exit', (code, signal) => process.exit(signal ? 255 : (code ?? 255)));
       });
     `;
     const command = payload.env
@@ -207,7 +210,7 @@ export async function runSandboxedWorker(
         transfer.on('error', () => {});
         transfer.end(JSON.stringify({ command: payload.command, env: payload.env }));
       }
-      child.once('close', (code, signal) => resolve(signal ? 1 : (code ?? 1)));
+      child.once('close', (code, signal) => resolve(signal ? 255 : (code ?? 255)));
     });
   } finally {
     if (!payload.filesystemOnly) await manager.reset();
@@ -220,6 +223,7 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     process.exitCode = await runSandboxedWorker(payload);
   } catch (error) {
     process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
-    process.exitCode = 1;
+    // Startup/cleanup exceptions do not establish the target command's outcome.
+    process.exitCode = 255;
   }
 }

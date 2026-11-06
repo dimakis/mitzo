@@ -60,8 +60,11 @@ callback through its owning runtime signal.
 
 Reuse the same request ID after uncertain delivery. An identical completed
 command returns its retained result. A changed command with that ID is rejected.
-A normal nonzero exit is a completed failure and retains its output for recovery.
-Cancellation, timeout, output-limit termination and missing exit evidence remain uncertain.
+A normal failure exit from 1 through 127 retains its output for recovery.
+Cancellation, timeout, output-limit termination and missing exit evidence remain
+uncertain. Statuses 128 and above also remain uncertain because shell wrappers
+can encode signal termination in those statuses; an explicit high exit cannot
+be distinguished safely with this process transport.
 A run whose outcome was not durably settled is reported as uncertain and is not
 automatically re-executed. Inspect the workspace and original run status before
 starting new work. A new test variant is a new run under the same task grant.

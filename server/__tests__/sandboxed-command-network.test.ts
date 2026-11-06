@@ -18,6 +18,8 @@ afterEach(() => vi.restoreAllMocks());
 
 it.each([
   [1, null, 'settled'],
+  [137, null, 'unknown'],
+  [255, null, 'unknown'],
   [null, 'SIGKILL', 'unknown'],
 ] as const)(
   'retains process termination facts for exit %s, signal %s',

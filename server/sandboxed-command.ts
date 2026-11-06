@@ -861,7 +861,10 @@ async function runSandboxedCommand(
         const isError = !!failure || code !== 0 || signal !== null;
         // A normal nonzero exit is a completed failure. Interrupted or missing
         // termination evidence cannot settle effects or permit a blind retry.
-        const outcome = !failure && code !== null && signal === null ? 'settled' : 'unknown';
+        const outcome =
+          !failure && code !== null && code >= 0 && code < 128 && signal === null
+            ? 'settled'
+            : 'unknown';
         if (options.privateOutput) {
           resolveResult(
             retainCallbackOutcome(
