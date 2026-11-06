@@ -14,7 +14,7 @@ Messaging prerequisite [#1222](https://github.com/dimakis/mitzo/pull/1222) merge
 5 November at `6bb45e9b4f81e7b49767f14a47f866f4711a33e9`.
 
 This increment is implementation candidate source on `feat/symposium-ordinary-joining`,
-integrated with accepted main `845452115c10143e0b7d7f0f5c235eb382a21b65`.
+integrated with accepted main `ddd35972a91023e318d6596576b50d20d0070d23`.
 It is not evidence of merge, deployment or live account qualification.
 `CollaborationApplicationReview` resolves the actual unused repository target and
 ordinary account/model/profile/settings. `createApplicationCollaborationJoining`
