@@ -1,4 +1,5 @@
 import { freezeOrdinarySkillCommand } from './ordinary-composer-skills.js';
+import { assembleCommandPrompt } from './message-reply-context.js';
 import { assertAgentToolRoute } from './agent-tool-selection.js';
 import { readOrdinaryCodexAgentProfile } from './ordinary-codex-agent-profile.js';
 import { assertOrdinaryLocalVertexHistory } from './ordinary-local-vertex-native-history.js';
@@ -274,6 +275,13 @@ export class OrdinaryLocalVertexOwnedRuntime {
     if (continuation && !resume && (!this.#initialized || !this.owners.dispatchContinuation))
       throw unavailable();
     const payload = Payload.parse(request.payload);
+    assembleCommandPrompt(
+      this.owners.eventStore,
+      this.owners.reservation.conversationId,
+      request.clientMsgId,
+      payload,
+      { expandSkills: false },
+    );
     const profiles = loadAccountProfiles(),
       original = this.owners.reservation.binding;
     const account = profiles.resolve(request.runtime.account.accountId, request.selection.model);

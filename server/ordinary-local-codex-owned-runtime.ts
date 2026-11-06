@@ -1,5 +1,6 @@
 import { reconcileRetainedLocalCodexEffects } from './retained-local-codex-effects.js';
 import { freezeOrdinarySkillCommand } from './ordinary-composer-skills.js';
+import { assembleCommandPrompt } from './message-reply-context.js';
 import { MessageReplyIdSchema } from '@mitzo/protocol';
 import {
   CHAT_MAX_IMAGES,
@@ -332,6 +333,13 @@ export class OrdinaryLocalCodexOwnedRuntime<K extends LocalWorkspaceKind = 'repo
       if (request.clientMsgId !== this.owners.commandId) throw unavailable();
       // Builtins remain code-owned; a matching user Library ID cannot change namespace.
       const rawPayload = RawPayload.parse(request.payload);
+      assembleCommandPrompt(
+        this.owners.eventStore,
+        this.#reservation.conversationId,
+        request.clientMsgId,
+        rawPayload,
+        { expandSkills: false },
+      );
       const profiles = loadAccountProfiles();
       const binding = profiles.resolve(request.runtime.account.accountId, request.selection.model);
       const accountIdentity = (value: typeof binding) => ({
@@ -1282,6 +1290,13 @@ export class OrdinaryLocalCodexOwnedRuntime<K extends LocalWorkspaceKind = 'repo
         throw unavailable();
       const request = OrdinaryLocalCodexCommandRequestSchema.parse(raw);
       const rawPayload = RawPayload.parse(request.payload);
+      assembleCommandPrompt(
+        this.owners.eventStore,
+        this.#reservation.conversationId,
+        request.clientMsgId,
+        rawPayload,
+        { expandSkills: false },
+      );
       const profiles = loadAccountProfiles();
       const binding = profiles.resolve(request.runtime.account.accountId, request.selection.model);
       profiles.validateModelSelection(binding, request.selection.model, request.selection.thinking);

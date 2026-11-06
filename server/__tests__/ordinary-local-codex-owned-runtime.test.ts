@@ -129,7 +129,7 @@ it('renews run authority only on an explicit send from another verified operator
 });
 
 it('rejects altered reviewed Library source bytes before native startup effects', async () => {
-  const f = await fixture();
+  const f = await fixture({ chatRoute: true });
   const request = {
     ...f.request,
     payload: {

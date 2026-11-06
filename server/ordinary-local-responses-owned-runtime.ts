@@ -637,6 +637,13 @@ export class OrdinaryLocalResponsesOwnedRuntime implements ResponsesCommandAutho
     if (continuation && !resume && (!this.#initialized || !this.owners.dispatchContinuation))
       throw unavailable();
     const payload = Payload.parse(request.payload);
+    assembleCommandPrompt(
+      this.owners.eventStore,
+      this.owners.reservation.conversationId,
+      request.clientMsgId,
+      payload,
+      { expandSkills: false },
+    );
     if (this.#adc && payload.images?.length)
       throw Error('Google Vertex image attachments are unsupported');
     responsesUserContent(payload.text, payload.images);

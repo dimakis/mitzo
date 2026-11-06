@@ -59,10 +59,12 @@ export function assembleCommandPrompt(
   sessionId: string,
   commandId: string,
   payload: { text: string; replyToMessageId?: string; sourceSnapshots?: SourceSnapshot[] },
+  options: { expandSkills?: boolean } = {},
 ): string {
   const binding = store.getSessionRuntimeBinding(sessionId);
   const cwd = store.getSession(sessionId)?.cwd;
   const text =
+    options.expandSkills !== false &&
     binding?.version === 2 &&
     binding.execution.location === 'local' &&
     cwd &&

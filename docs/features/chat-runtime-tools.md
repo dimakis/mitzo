@@ -71,3 +71,10 @@ mobile screenshot showed that the isolated composer fixture sat at the top of an
 otherwise empty viewport, placing its upward menu offscreen. It now reuses the
 existing bottom-composer fixture layout; real clicks and all draft assertions stay
 in place. The manifest formatting correction was checked across all changed files.
+
+The desktop icon-only Terminal links now have an explicit accessible name. A
+regression hides their visual labels and checks both router and plain links; the
+router round-trip tests also retain edited drafts for new and existing chats.
+Early source-snapshot and reply validation remains before native startup, with
+skill expansion deferred to the atomic command admission. The existing altered
+Library snapshot regression verifies that neither dispatch nor native RPC starts.
