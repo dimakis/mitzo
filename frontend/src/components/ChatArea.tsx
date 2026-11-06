@@ -12,6 +12,7 @@ import type { ContextCompaction } from '@mitzo/protocol';
 import { seatAccentColor } from '../lib/seat-color';
 import { useCallback, useEffect, useMemo, useRef, useState, Fragment, type ReactNode } from 'react';
 import { UserBubble, TextBubble } from './MessageBubble';
+import { AgentMessageCard } from './AgentMessageCard';
 import { ThinkingBlock } from './ThinkingBlock';
 import { ToolPill } from './ToolPill';
 import { telosWorkerReceipt } from './TelosWorkerReceiptCard';
@@ -71,6 +72,8 @@ export interface ChatAreaProps {
   requestedApprovalId?: string | null;
   approvalNavigationKey?: string;
   approvalsReady?: boolean;
+  /** Transcript previews must not render approvals or mutate their shared drafts. */
+  showApprovals?: boolean;
   onPermissionExpire?: (permId: string) => void;
   onPermissionRespond: (
     permId: string,
@@ -169,6 +172,7 @@ export function ChatArea({
   requestedApprovalId,
   approvalNavigationKey,
   approvalsReady,
+  showApprovals = true,
   onPermissionRespond,
   onPermissionExpire,
   scrollRef: externalScrollRef,
@@ -505,6 +509,14 @@ export function ChatArea({
       }
       if (turn.kind === 'finished') {
         const msg = turn.value;
+        if (msg.agentMessage)
+          return [
+            {
+              key: `agent:${msg.messageId}`,
+              scope: 'context',
+              value: <AgentMessageCard projection={msg.agentMessage} />,
+            },
+          ];
         if (msg.role === 'user') {
           const textBlock = msg.blocks.find((b) => b.blockType === 'text');
           return [
@@ -595,6 +607,7 @@ export function ChatArea({
         .map((block, index): ActivityRow<ReactNode> => {
           const progress = progressFor(msg.messageId, msg.symposiumProvenance, block.toolId);
           const keepVisible =
+            Boolean(block.rawInput?.nativeSubagentCommandId) ||
             Boolean(progress) ||
             Boolean(telosWorkerReceipt(block, sessionId)) ||
             (!completedWebsiteRead(block) &&
@@ -798,16 +811,18 @@ export function ChatArea({
         {afterMessages}
       </div>
 
-      <ChatApprovalQueue
-        sessionId={sessionId}
-        permission={permission}
-        permissionQueue={permissionQueue}
-        requestedApprovalId={requestedApprovalId}
-        ready={approvalsReady}
-        approvalNavigationKey={approvalNavigationKey}
-        onPermissionRespond={onPermissionRespond}
-        onPermissionExpire={onPermissionExpire}
-      />
+      {showApprovals && (
+        <ChatApprovalQueue
+          sessionId={sessionId}
+          permission={permission}
+          permissionQueue={permissionQueue}
+          requestedApprovalId={requestedApprovalId}
+          ready={approvalsReady}
+          approvalNavigationKey={approvalNavigationKey}
+          onPermissionRespond={onPermissionRespond}
+          onPermissionExpire={onPermissionExpire}
+        />
+      )}
     </>
   );
 }

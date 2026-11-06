@@ -42,6 +42,7 @@ async function fixture(
   pending = true,
   requests?: Record<string, unknown>[],
   decisions: unknown[] = [],
+  withAgents = false,
 ) {
   const errors: string[] = [];
   let reads = 0;
@@ -110,7 +111,7 @@ async function fixture(
     '/api/service-health': { services: [], checkedAt: Date.now() },
     '/api/connections-access': inventory,
     [`/api/sessions/${sessionId}/meta`]: {
-      sessionType: 'chat',
+      sessionType: withAgents ? 'symposium' : 'chat',
       accountBinding: {
         accountId: 'fixture-account',
         accountLabel: 'Fixture account',
@@ -143,7 +144,27 @@ async function fixture(
         ],
       },
     ],
-    [`/api/sessions/${sessionId}/symposium/status`]: { sessionId, config: null, seats: [] },
+    [`/api/sessions/${sessionId}/symposium/status`]: {
+      sessionId,
+      config: withAgents ? { version: 2, revision: 2, state: 'active' } : null,
+      seats: withAgents
+        ? [{ seatId: 'architect', seat: { name: 'Architect' }, admitted: true }]
+        : [],
+    },
+    [`/api/sessions/${sessionId}/symposium/perspectives`]: {
+      items: [
+        {
+          kind: 'authored',
+          eventSeq: 1,
+          messageId: 'assistant',
+          seatId: 'architect',
+          content: 'Preview transcript',
+          provenance: null,
+        },
+      ],
+      nextSeq: null,
+      queued: [],
+    },
     [`/api/sessions/${sessionId}/outputs`]: { outputs: [], candidates: [] },
   };
   const types: Record<string, string> = {
@@ -219,6 +240,64 @@ async function fixture(
 }
 
 for (const theme of ['dark', 'light']) {
+  test(`Approval preview: transcript isolation and retained drafts ${theme}`, async ({
+    page,
+    isMobile,
+  }, testInfo) => {
+    await page.setViewportSize({ width: isMobile ? 320 : 1280, height: isMobile ? 720 : 900 });
+    await page.addInitScript((theme) => {
+      localStorage.setItem('mitzo-theme', theme);
+      localStorage.setItem('mitzo-accent', 'mint');
+      localStorage.setItem('mitzo-font', 'georgia');
+    }, theme);
+    const decisions: unknown[] = [];
+    const errors = await fixture(
+      page,
+      true,
+      true,
+      [
+        {
+          permId: 'first',
+          sessionId,
+          toolName: 'AskUserQuestion',
+          toolInput: '',
+          questions: [
+            {
+              id: 'q',
+              header: 'Choice',
+              question: 'Which release?',
+              options: [],
+              multiSelect: false,
+            },
+          ],
+        },
+        { permId: 'second', sessionId, toolName: 'Bash', toolInput: 'check-second-request' },
+      ],
+      decisions,
+      true,
+    );
+    await page.goto(`/chat/${sessionId}`);
+    await page.getByLabel('Your answer').fill('Keep my draft');
+    await page.getByRole('button', { name: 'Agents, Architect' }).click();
+    await page.getByRole('button', { name: 'Preview Architect conversation' }).click();
+    const preview = page.getByRole('dialog', { name: 'Architect conversation' });
+    await expect(preview.getByText('Preview transcript', { exact: true })).toBeVisible();
+    await expect(preview.getByRole('region', { name: 'Approval required' })).toHaveCount(0);
+    await expect(preview.getByLabel('Pending approvals')).toHaveCount(0);
+    await page.screenshot({
+      path: testInfo.outputPath(
+        `responsiveness-approval-preview-${testInfo.project.name}-${theme}.png`,
+      ),
+      animations: 'disabled',
+    });
+    await preview.getByRole('button', { name: 'Close Agents', exact: true }).click();
+    await page.getByLabel('Pending approvals').selectOption('second');
+    await page.getByLabel('Pending approvals').selectOption('first');
+    await expect(page.getByLabel('Your answer')).toHaveValue('Keep my draft');
+    expect(decisions).toEqual([]);
+    expect(errors).toEqual([]);
+  });
+
   test(`Approval navigation: exact request and retained answers ${theme}`, async ({
     page,
     isMobile,

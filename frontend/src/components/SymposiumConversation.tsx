@@ -1285,6 +1285,7 @@ function RetainedPerspectivePreview({
         currentByMessage={liveForSeat(seatId, chat)}
         running={false}
         permission={null}
+        showApprovals={false}
         afterMessages={undefined}
       />
     </>

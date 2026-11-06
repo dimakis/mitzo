@@ -4,6 +4,40 @@ import { render, screen, cleanup, act, fireEvent } from '@testing-library/react'
 import { ChatArea } from '../ChatArea';
 import type { FinishedMessage, StreamingBlock } from '../../types/chat';
 import { progressToolLookupKey } from '@mitzo/client';
+import { ApprovalDraftStore, approvalDraftContext } from '../../hooks/approval-draft-context';
+
+it('keeps transcript previews free of approvals and shared draft mutations', () => {
+  const store = new ApprovalDraftStore('chat');
+  const draft = {
+    selections: new Map<string, string[]>(),
+    written: new Map([['q', 'Retained answer']]),
+    submitting: true,
+    deadlineAt: Date.now() + 60_000,
+  };
+  store.requests.set('primary', draft);
+  store.selection = { scope: 'primary-scope', id: 'primary', seen: true };
+  const selection = store.selection;
+  const respond = vi.fn();
+  render(
+    <approvalDraftContext.Provider value={store}>
+      <ChatArea
+        sessionId="chat"
+        messages={[]}
+        current={null}
+        running={false}
+        permission={null}
+        permissionQueue={[{ permId: 'queued', toolName: 'Bash', toolInput: 'queued command' }]}
+        requestedApprovalId="queued"
+        showApprovals={false}
+        onPermissionRespond={respond}
+      />
+    </approvalDraftContext.Provider>,
+  );
+  expect(screen.queryByTestId('permission-banner')).toBeNull();
+  expect(store.requests.get('primary')).toBe(draft);
+  expect(store.selection).toBe(selection);
+  expect(respond).not.toHaveBeenCalled();
+});
 
 // Mock child components to isolate ChatArea tests
 vi.mock('../MessageBubble', () => ({
@@ -57,6 +91,42 @@ vi.mock('../PermissionBanner', () => ({
 afterEach(() => cleanup());
 
 describe('ChatArea', () => {
+  it('shows an incoming peer message as an attributed card while the assistant is working', () => {
+    const peer = {
+      messageId: 'agent-message:receipt',
+      role: 'assistant' as const,
+      blocks: [],
+      agentMessage: {
+        direction: 'incoming' as const,
+        senderName: 'Merge coordinator',
+        recipientName: 'Subagents',
+        timestamp: 1793925200000,
+        message: {
+          messageId: 'c5d70b9d-8b6f-4640-bdf4-a958abb272f6',
+          commandId: 'agent-message:receipt',
+          senderConversationId: 'sender',
+          recipientConversationId: 'recipient',
+          text: 'Please hold the next merge.',
+          replyTo: null,
+          status: 'queued' as const,
+          reason: null,
+          sequence: 1,
+        },
+      },
+    };
+    render(
+      <ChatArea
+        messages={[peer]}
+        current={null}
+        running={true}
+        permission={null}
+        onPermissionRespond={vi.fn()}
+      />,
+    );
+    expect(screen.getByRole('article', { name: 'Agent message received' })).toBeTruthy();
+    expect(screen.getByText('Please hold the next merge.')).toBeTruthy();
+    expect(screen.queryByTestId('user-bubble')).toBeNull();
+  });
   it('passes the host source-review marker and selected conversation to the shared approval card', () => {
     const permission = {
       permId: 'source',

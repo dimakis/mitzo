@@ -16,7 +16,7 @@ import { createSdkTurnQuery } from './sdk-turn-query.js';
 import { findSessionRuntimeError } from './session-runtime-error.js';
 import { reportRetainedRuntimeFailure } from './retained-runtime-failure.js';
 import { AdviserTaskScope } from './adviser-task-scope.js';
-import { restoreOwnedVertexInitialPrompt } from './ordinary-local-vertex-replay.js';
+import { createSessionTranscriptReader } from './session-transcript-reader.js';
 import type { OrdinaryWorkspaceRecord } from './ordinary-workspace-custody.js';
 import type { LocalWorkspaceRecord } from './ordinary-local-workspace-owner.js';
 import type { LocalWorkspaceKind } from './ordinary-local-workspace-owner.js';
@@ -76,12 +76,6 @@ import {
 import type { OrdinaryTurnLifecycle } from './ordinary-turn-lifecycle.js';
 import { assembleSourceSnapshots } from './source-snapshot-context.js';
 import type { SourceSnapshot } from '@mitzo/protocol';
-import {
-  reconstructMessages,
-  replayEventsToMessages,
-  replayEventsToTranscript,
-  type RawSdkMessage,
-} from './conversation-transcript.js';
 export {
   reconstructMessages,
   replayEventsToMessages,
@@ -1857,6 +1851,18 @@ async function _startChatInner(
       reasoningEffort: options.reasoningEffort ?? null,
     });
   }
+  if (options.ordinarySdkAuthority) {
+    prompt = assembleCommandPrompt(
+      eventStore,
+      options.resume ?? options.initialSessionId!,
+      initialMessageId,
+      {
+        text: prompt,
+        replyToMessageId: options.replyToMessageId,
+        sourceSnapshots: options.sourceSnapshots,
+      },
+    );
+  }
   prompt = repositoryChatContext(repositoryWorkspace) + prompt;
   const nativeProviderSelected = !!apiCredentialRef || !!gemini;
 
@@ -2063,7 +2069,10 @@ async function _startChatInner(
   if (options.replyToMessageId && (!options.resume || !options.clientMsgId))
     throw Error('Replies require an existing conversation and a message identity');
   const repliedPrompt =
-    options.replyToMessageId && options.resume && options.clientMsgId
+    !options.ordinarySdkAuthority &&
+    options.replyToMessageId &&
+    options.resume &&
+    options.clientMsgId
       ? assembleReplyText(
           prompt,
           captureMessageReply(
@@ -2081,7 +2090,7 @@ async function _startChatInner(
         cwd,
         codexProfile || nativeProviderSelected ? undefined : options.images,
         options.contextBlocks,
-        options.sourceSnapshots,
+        options.ordinarySdkAuthority ? undefined : options.sourceSnapshots,
       );
   const userIntent = options.userIntent ?? prompt;
   if (options.reattachOnly && (!options.resume || !codexProfile))
@@ -2538,7 +2547,7 @@ This is an independent checkout with its own Git storage, not a linked worktree.
           options.sourceSnapshots,
         );
       q = await openCodexChat({
-        deliverRuntimeFailure: (event) =>
+        deliverRetainedEvent: (event) =>
           deliverRetainedSessionEvent(event, clientId, registry, _connRegistry ?? undefined),
         agentProfile,
         assertAgentContextAuthorization: assertSandboxContextAuthorization,
@@ -2982,21 +2991,11 @@ This is an independent checkout with its own Git storage, not a linked worktree.
                 ? fullPrompt
                 : assemblePrompt(
                     repositoryChatContext(repositoryWorkspace) +
-                      assembleReplyText(
-                        frozenPayload.text,
-                        frozenPayload.replyToMessageId
-                          ? captureMessageReply(
-                              eventStore,
-                              session.sessionId!,
-                              id,
-                              frozenPayload.replyToMessageId,
-                            )
-                          : undefined,
-                      ),
+                      assembleCommandPrompt(eventStore, session.sessionId!, id, frozenPayload),
                     cwd,
                     frozenPayload.images,
                     undefined,
-                    frozenPayload.sourceSnapshots,
+                    undefined,
                   );
             session.model = _admission.selection.model;
             storeAndEchoIfNew(
@@ -3767,8 +3766,13 @@ export async function startOwnedLocalCodexCommand(
           },
         });
       },
-      admitAgentMessage: (messageId, assertSenderCurrent, signal) =>
-        retainedDriver.admitAgentMessage(messageId, assertSenderCurrent, signal),
+      admitAgentMessage: (messageId, assertSenderCurrent, signal, assertPermissionCurrent) =>
+        retainedDriver.admitAgentMessage(
+          messageId,
+          assertSenderCurrent,
+          signal,
+          assertPermissionCurrent,
+        ),
       retryInitial: (command) =>
         preparationOperationId !== undefined
           ? retainedDriver.admitPreparedFirst(preparationOperationId, command)
@@ -4058,7 +4062,7 @@ export async function prepareOwnedCodexChat(
     env.MITZO_SESSION_ID = sessionId;
     env.MITZO_AGENT_NAME = expected.agentProfile?.definition.name ?? '';
     queryInstance = await openCodexChat({
-      deliverRuntimeFailure: (event) =>
+      deliverRetainedEvent: (event) =>
         deliverRetainedSessionEvent(event, clientId, registry, _connRegistry ?? undefined),
       ownedLocal: localAdmission,
       ownedOpenShell: openShellAdmission,
@@ -5880,123 +5884,25 @@ export async function importSdkConversation(
   return null;
 }
 
-/** Recover legacy workspace metadata without changing session identity or permissions. */
-async function recoverSessionWorkspace(sessionId: string, dirs?: string[]) {
-  const session = eventStore.getSession(sessionId);
-  if (session?.cwd) return;
-  // Only Claude SDK history can supply legacy workspace metadata. In
-  // particular, a native provider's missing cwd must not scan Claude files.
-  const provider = session?.accountBinding?.provider;
-  if (provider && provider !== 'anthropic-vertex') return;
-  // Discover directories only after the cheap metadata checks above.
-  for (const dir of dirs ?? (await getSessionDirs())) {
-    try {
-      const info = await getSessionInfo(sessionId, { dir });
-      if (typeof info?.cwd !== 'string' || !isAbsolute(info.cwd)) continue;
-      // Preserve a workspace recorded while the SDK lookup was in flight.
-      const current = eventStore.getSession(sessionId);
-      if (!current?.cwd)
-        eventStore.upsertSession({
-          sessionId,
-          cwd: info.cwd,
-          ...(current?.updatedAt !== undefined ? { updatedAt: current.updatedAt } : {}),
-        });
-      return;
-    } catch {
-      // Missing metadata must not prevent reading the saved transcript.
-    }
-  }
-}
-
-function sessionReplayProjection(
-  sessionId: string,
-  events: import('./event-store.js').StoredEvent[],
-) {
-  const session = eventStore.getSession(sessionId);
-  if (session?.accountBinding?.provider !== 'anthropic-vertex')
-    return { events, initialPrompt: session?.initialPrompt ?? undefined };
-  const custody = eventStore.getOrdinaryLocalVertexCustody(sessionId);
-  const command = custody ? eventStore.getSendCommand(custody.initialCommandId) : undefined;
-  return restoreOwnedVertexInitialPrompt(
-    events,
-    session?.initialPrompt ?? undefined,
-    custody && command?.sessionId === sessionId && typeof command.payload.text === 'string'
-      ? { sessionId, commandId: custody.initialCommandId, text: command.payload.text }
-      : undefined,
-  );
-}
-
-export async function getMessages(sessionId: string, throughSeq?: number) {
-  if (!eventStore.getSession(sessionId)) return [];
-  // Primary: replay from durable event store
-  const events =
-    throughSeq === undefined
-      ? eventStore.getSessionEvents(sessionId)
-      : eventStore.getSessionEventsThroughCursor(sessionId, throughSeq);
-  if (events.length > 0) {
-    if (throughSeq === undefined) await recoverSessionWorkspace(sessionId);
-    const projection = sessionReplayProjection(sessionId, events);
-    return replayEventsToMessages(projection.events, projection.initialPrompt);
-  }
-
-  // A bounded request must never fall through to a mutable SDK transcript.
-  if (throughSeq !== undefined) return [];
-
-  // Fallback: SDK JSONL for pre-migration sessions
-  let rawMessages: RawSdkMessage[] = [];
-  for (const dir of [
-    ...new Set(
-      [eventStore.getSession(sessionId)?.cwd, ...(await getSessionDirs())].filter(
-        (dir): dir is string => Boolean(dir),
-      ),
-    ),
-  ]) {
-    try {
-      rawMessages = (await getSessionMessages(sessionId, {
-        dir,
-        limit: SESSION_MESSAGES_LIMIT,
-      })) as RawSdkMessage[];
-      if (rawMessages.length > 0) {
-        await recoverSessionWorkspace(sessionId, [dir]);
-        break;
-      }
-    } catch {
-      // Session not in this dir — try next
-    }
-  }
-  try {
-    return reconstructMessages(rawMessages);
-  } catch (err: unknown) {
+/** Keep history reads independent from session/provider orchestration. */
+const transcriptReader = createSessionTranscriptReader({
+  store: eventStore,
+  getSessionDirs,
+  getSessionInfo: (sessionId, dir) => getSessionInfo(sessionId, { dir }),
+  getLegacyMessages: async (sessionId, dir) =>
+    (await getSessionMessages(sessionId, {
+      dir,
+      limit: SESSION_MESSAGES_LIMIT,
+    })) as import('./conversation-transcript.js').RawSdkMessage[],
+  onLegacyParseError: (sessionId, error) =>
     log.warn('failed to parse session messages', {
       sessionId,
-      error: err instanceof Error ? err.message : 'unknown',
-    });
-    return [];
-  }
-}
-
-/** REST restore at the immutable reconnect boundary; never falls back to SDK history. */
-export function getReconnectTranscript(sessionId: string, throughSeq: number) {
-  if (!eventStore.getSession(sessionId)) return { messages: [], current: null, currents: [] };
-  const events = eventStore.getSessionEventsThroughCursor(sessionId, throughSeq);
-  const projection = sessionReplayProjection(sessionId, events);
-  return replayEventsToTranscript(projection.events, projection.initialPrompt);
-}
-
-/** Full durable transcript and its high-water mark for opening an active session. */
-export async function getSessionTranscript(sessionId: string) {
-  if (!eventStore.getSession(sessionId))
-    return { messages: [], current: null, currents: [], cursor: 0 };
-  const events = eventStore.getSessionEvents(sessionId);
-  if (events.length === 0)
-    return { messages: await getMessages(sessionId), current: null, currents: [], cursor: 0 };
-  await recoverSessionWorkspace(sessionId);
-  const projection = sessionReplayProjection(sessionId, events);
-  return {
-    ...replayEventsToTranscript(projection.events, projection.initialPrompt),
-    cursor: events[events.length - 1].seq,
-  };
-}
+      error: error instanceof Error ? error.message : 'unknown',
+    }),
+});
+export const getMessages = transcriptReader.getMessages;
+export const getReconnectTranscript = transcriptReader.getReconnectTranscript;
+export const getSessionTranscript = transcriptReader.getSessionTranscript;
 
 /** Explicit API continuation uses the retained ordinary session owner. */
 export function canResumeOwnedLocalResponsesDriver(

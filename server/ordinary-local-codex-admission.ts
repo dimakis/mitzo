@@ -264,11 +264,18 @@ export class OrdinaryLocalCodexAdmissionCoordinator {
       authority?: OrdinaryLocalCodexAdmissionAuthority;
       bootstrapAuthority?: OrdinaryLocalCodexBootstrapAuthority;
       recovery?: RetainedLocalCodexRecovery;
+      freezePrompt?(
+        meta: Meta,
+        commandId: string,
+        payload: Record<string, unknown>,
+        admit: () => void,
+      ): void;
     },
   ) {
     this.dependencies = {
       enabled: dependencies.enabled,
       recovery: dependencies.recovery,
+      freezePrompt: dependencies.freezePrompt?.bind(dependencies),
       adapter: dependencies.adapter,
       declaration: structuredClone(dependencies.declaration),
       catalog: {
@@ -505,16 +512,22 @@ export class OrdinaryLocalCodexAdmissionCoordinator {
           selection: structuredClone(snapshot.selection),
           payload: structuredClone(request.payload),
         };
-        if (preparationOperationId)
-          (ordinaryPreparation
-            ? d.store.admitPreparedOrdinaryWorkspaceCommand!
-            : d.store.admitPreparedOrdinaryCommand!)(
-            preparationOperationId,
-            structuredClone(admittedMeta),
-            structuredClone(snapshot.binding),
-            admittedInput,
-          );
-        else admit(structuredClone(admittedMeta), structuredClone(snapshot.binding), admittedInput);
+        const performAdmission = () => {
+          if (preparationOperationId)
+            (ordinaryPreparation
+              ? d.store.admitPreparedOrdinaryWorkspaceCommand!
+              : d.store.admitPreparedOrdinaryCommand!)(
+              preparationOperationId,
+              structuredClone(admittedMeta),
+              structuredClone(snapshot.binding),
+              admittedInput,
+            );
+          else
+            admit(structuredClone(admittedMeta), structuredClone(snapshot.binding), admittedInput);
+        };
+        if (d.freezePrompt)
+          d.freezePrompt(admittedMeta, request.clientMsgId, request.payload, performAdmission);
+        else performAdmission();
       } catch {
         fail('identity_conflict');
       }

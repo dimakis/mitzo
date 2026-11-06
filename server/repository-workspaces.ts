@@ -76,6 +76,7 @@ import {
   type OrdinaryRepositoryRuntimeSelection,
 } from './ordinary-repository-preparation.js';
 import { isGitBranchName } from './git-branch.js';
+import { withPinnedRepositorySkills } from './local-repository-skill-source.js';
 import { copyRepositoryTaskCheckout } from './repository-task-copy.js';
 import { createWorktreeAsync, symlinkRuntimeDirs } from './worktree.js';
 import { loadRepoConfig } from './repo-config.js';
@@ -2075,6 +2076,60 @@ export class RepositoryWorkspaces {
       this.assertUnchangedHostRecord(record);
       return publicRepositoryWorkspace(record);
     });
+  }
+  /** Read a ready host's skills without reserving or materializing a task.
+   * Worktree sources expose only skill files from their pinned commit. */
+  async readPreparedHostSource<T>(
+    id: string,
+    binding: AccountBinding,
+    read: (directory: string) => T | Promise<T>,
+  ): Promise<T> {
+    return this.runOperation(async () => {
+      const record = this.get(id);
+      if (
+        record.state !== 'ready' ||
+        record.sandbox ||
+        record.ordinaryPreparation?.runtimeBinding.execution.location === 'openshell'
+      )
+        throw Error('Host workspace commands unavailable');
+      const signal = AbortSignal.timeout(30000);
+      await this.authorizeHostRecord(record, binding, signal);
+      await this.verifyHostSource(record, signal);
+      const result = await this.readHostSkillSource(record, read, signal);
+      await this.authorizeHostRecord(record, binding, signal);
+      await this.assertHostSource(record, signal);
+      return result;
+    });
+  }
+  /** Read a reserved task's qualified skill source before its destination is materialized. */
+  async readReservedHostSource<T>(
+    input: Omit<HostRepositoryReservationInput, 'signal'>,
+    read: (directory: string) => T,
+    signal: AbortSignal,
+  ): Promise<T> {
+    return this.runOperation(async () => {
+      const expected = this.snapshotHostInput(input);
+      const descriptor = this.getHostReservation(expected);
+      const record = this.getHostRecord(expected.id);
+      if (descriptor.state !== 'reserved') throw Error('Reserved host source unavailable');
+      await this.authorizeHostRecord(record, expected.binding, signal);
+      await this.verifyHostSource(record, signal);
+      await this.assertHostRoot(descriptor.hostReservation);
+      const result = await this.readHostSkillSource(record, read, signal);
+      await this.authorizeHostRecord(record, expected.binding, signal);
+      await this.assertHostSource(record, signal);
+      this.getHostReservation(expected);
+      return result;
+    });
+  }
+  private readHostSkillSource<T>(
+    record: RepositoryWorkspace,
+    read: (directory: string) => T | Promise<T>,
+    signal: AbortSignal,
+  ): T | Promise<T> {
+    return record.localSource && record.localSource.selection !== 'existing'
+      ? withPinnedRepositorySkills(record.localSource, record.baseOid, signal, read)
+      : read(this.source(record));
   }
   private async firstBinding(
     record: RepositoryWorkspace,

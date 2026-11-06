@@ -2,6 +2,7 @@
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { AgentSettingsPicker } from '../AgentSettingsPicker';
+import { animateMotion } from '../../lib/motion';
 
 // Deterministic layout/WAAPI model, not browser pointer acceptance. The browser
 // regression exercises these same boundaries with the actual CSS and hit testing.
@@ -238,4 +239,52 @@ it('retargets a shrinking viewport without restarting the entrance deadline', ()
   expect(held.frames[1].height).toBe('350px');
   expect(held.duration).toBe(100);
   expect(created).toHaveLength(1);
+});
+
+it('defers and coalesces resize measurements, cancelling pending work on release', async () => {
+  const deliveries: (() => void)[] = [];
+  vi.stubGlobal(
+    'ResizeObserver',
+    class {
+      constructor(callback: () => void) {
+        deliveries.push(callback);
+      }
+      observe() {}
+      disconnect() {}
+    },
+  );
+  const frames: FrameRequestCallback[] = [];
+  const request = vi.fn((callback: FrameRequestCallback) => {
+    frames.push(callback);
+    return frames.length;
+  });
+  const cancel = vi.fn();
+  vi.stubGlobal('requestAnimationFrame', request);
+  vi.stubGlobal('cancelAnimationFrame', cancel);
+  const panel = document.createElement('div');
+  panel.className = 'agent-settings-panel';
+  panel.style.setProperty('--agent-settings-space', '668px');
+  document.body.append(panel);
+  animateMotion(panel, 'disclosure');
+  const held = created[0];
+  held.currentTime = 80;
+  const before = panel.getBoundingClientRect().height;
+  const previousFrames = held.frames;
+  contentHeight = 1200;
+  act(() => {
+    deliveries.forEach((deliver) => {
+      deliver();
+      deliver();
+    });
+  });
+  expect(held.frames).toBe(previousFrames);
+  expect(request).toHaveBeenCalledTimes(1);
+  act(() => frames[0](0));
+  expect(panel.getBoundingClientRect().height).toBeCloseTo(before);
+  expect(held.frames[1].height).toBe(`${naturalHeight(panel)}px`);
+  expect(held.duration).toBe(120);
+  act(() => deliveries.forEach((deliver) => deliver()));
+  await act(async () => held.finish());
+  expect(cancel).toHaveBeenCalledWith(2);
+  panel.remove();
 });

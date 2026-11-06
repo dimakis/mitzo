@@ -27,6 +27,7 @@ import {
   selectedRuntimeRoute,
 } from '../lib/chat-runtime-route';
 import { useExplicitLocalChat } from '../hooks/useExplicitLocalChat';
+import { chatComposerCapabilities } from '../lib/chat-composer-capabilities';
 import { isChatExecutionLocked } from '../lib/chat-runtime-selection';
 import { AgentSettingsFields } from '../components/AgentSettingsPicker';
 import { ChatExecutionPicker } from '../components/ChatExecutionPicker';
@@ -1874,6 +1875,15 @@ function DesktopChatViewContent() {
                     />
                   )}
                   <ChatInput
+                    composerCapabilities={chatComposerCapabilities({
+                      ordinary: explicitNew || localBound,
+                      location:
+                        localRuntime.binding?.execution.location ??
+                        localRuntime.intent.execution.location,
+                      sessionId: activeSessionId,
+                      draftId: newChatDraft.draft.id,
+                      blocked: controlsBlocked || repositoryHandoff.present || isSymposium,
+                    })}
                     steeringTargetCommandId={steerTarget}
                     replyTarget={
                       replySelection?.session === activeSessionId
@@ -1896,6 +1906,10 @@ function DesktopChatViewContent() {
                     sendLabel={!activeSessionId && ordinaryControls ? 'Start session' : undefined}
                     boundedFirstCommand={localFirstCommand || controlsBlocked}
                     guardedConversation={localRuntime.commandAvailable}
+                    cwd={localRuntime.cwd}
+                    skillWorkspaceId={
+                      activeSessionId ? undefined : repositorySelection?.repositoryWorkspaceId
+                    }
                     validateSend={
                       localRuntime.ordinaryWorkspaceId && localRuntime.commandAvailable
                         ? (text, images) => prepareOrdinaryCommand(text, images).reason
