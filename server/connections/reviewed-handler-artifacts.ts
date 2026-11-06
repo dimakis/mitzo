@@ -10,8 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.892-notification-resolution-status';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.893-approval-visual-evidence';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -44,7 +43,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/lib/__tests__/push.test.ts':
     '2e406d2871564eae3f5395f4e97ac47c712ab904cdf62fc14732b95f436b4ea3',
   '../../tests/offline/approval-cards.spec.ts':
-    '2d38f3f7de40eda734a09f1ae09ffa7f2ca0f10ab04676474fe8e2f0decf1593',
+    'c86c8562223adf64151affafb6a80c5a95390d6b2497747efdcf03ba5b64fe3b',
   '../__tests__/notification-routes.test.ts':
     '412f355c591881b5b781a90763d600996b5c46c97c5f3ea13ddad78a6785676f',
   '../__tests__/symposium-review-app.test.ts':

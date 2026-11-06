@@ -288,7 +288,9 @@ for (const theme of ['dark', 'light']) {
       true,
     );
     await page.screenshot({
-      path: testInfo.outputPath(`approval-navigation-${testInfo.project.name}-${theme}.png`),
+      path: testInfo.outputPath(
+        `responsiveness-approval-navigation-${testInfo.project.name}-${theme}.png`,
+      ),
       animations: 'disabled',
     });
     await page.getByRole('button', { name: 'Deny', exact: true }).click();
