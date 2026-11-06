@@ -101,12 +101,34 @@ it('reports authoritative visibility while preserving hidden session metadata an
   const visible = await request(server).get('/api/sessions/retained-briefing/meta');
   expect(visible.status).toBe(200);
   expect(visible.body).toMatchObject({ sessionId: 'retained-briefing', isHidden: false });
-  expect((await request(server).delete('/api/sessions/retained-briefing')).status).toBe(200);
+  store.hideSession('retained-briefing');
   const hidden = await request(server).get('/api/sessions/retained-briefing/meta');
   expect(hidden.status).toBe(200);
   expect(hidden.body).toMatchObject({ sessionId: 'retained-briefing', isHidden: true });
   expect(store.getSession('retained-briefing')?.isHidden).toBe(true);
   expect((await request(server).get('/api/sessions/missing/meta')).status).toBe(404);
+});
+it('keeps all chats visible when bulk archive encounters an uncertain resource release', async () => {
+  store.upsertSession({ sessionId: 'uncertain-release' });
+  store.upsertSession({ sessionId: 'safe-to-archive' });
+  store.removals.begin('uncertain-release', 'original-removal', 'resources');
+  store.removals.markPrepared('uncertain-release', 'original-removal');
+  store.removals.transition('uncertain-release', 'original-removal', 'closing', 'releasing');
+  store.removals.transition(
+    'uncertain-release',
+    'original-removal',
+    'releasing',
+    'failed',
+    'Unknown',
+  );
+  await request(server).delete('/api/sessions').expect(409);
+  expect(store.getSession('uncertain-release')?.isHidden).toBeFalsy();
+  expect(store.getSession('safe-to-archive')?.isHidden).toBeFalsy();
+  store.removals.transition('uncertain-release', 'original-removal', 'failed', 'closing');
+  store.removals.transition('uncertain-release', 'original-removal', 'closing', 'releasing');
+  store.removals.transition('uncertain-release', 'original-removal', 'releasing', 'completed');
+  await request(server).delete('/api/sessions').expect(200);
+  expect(store.getSession('safe-to-archive')?.isHidden).toBe(true);
 });
 it.each([
   ['getSession', 503],

@@ -24,6 +24,11 @@ import { assertAgentToolRoute } from './agent-tool-selection.js';
 import { OrdinaryWorkspaceSettingsSchema } from '@mitzo/protocol';
 import { readSandboxOwnershipReview } from './sandbox-ownership-review.js';
 import { createSessionRemovalRouter, sessionNeedsSandboxReview } from './session-removal.js';
+import { createSessionRemovalRuntime } from './session-removal-runtime.js';
+import { SessionResourceRemovalService } from './session-resource-removal.js';
+import { createLocalSessionRemoval } from './local-session-removal.js';
+import { getSessionPrompts } from './session-prompt-runtime.js';
+import { retainAgentContextAuthority } from './agent-context-authority.js';
 import { summarizeSandboxInventory } from './sandbox-inventory.js';
 import {
   readOpenShellSandboxInventory,
@@ -3556,11 +3561,68 @@ mountObservedRouter(
   }),
 );
 
+const removalRuntime = createSessionRemovalRuntime({
+  events: eventStore,
+  registry,
+  tasks: taskStore,
+  native: getCodexConversationStore,
+  stop: (id) => stopChat(id),
+});
+const resourceRemovals = new SessionResourceRemovalService({
+  ...removalRuntime,
+  fingerprint: (id) =>
+    removalRuntime.fingerprint(id) +
+    (eventStore.getSessionRuntimeBinding(id)?.execution.location === 'local'
+      ? localRemoval.fingerprint(id)
+      : ''),
+  store: eventStore.removals,
+  cancelPrompts: (id) => getSessionPrompts().cancelSession(id),
+  restorePrompts: (id) => getSessionPrompts().store.keepSession(id),
+});
+const localRemoval = createLocalSessionRemoval({
+  events: eventStore,
+  workspaces: () => getRepositoryWorkspaces(true),
+  resolveBinding: repositoryWorkspaceBinding,
+  assertStopped: (record) =>
+    assertRepositoryTaskRetirement(record, {
+      events: eventStore,
+      registry,
+      assertNativeStopped: (workspace) =>
+        getCodexConversationStore().assertRepositoryTaskStopped(workspace),
+      protectedDirectories: [process.cwd()],
+    }),
+});
 mountObservedRouter(
   app,
   '/api/sessions',
   createSessionRemovalRouter({
     authorize: operatorAuthMiddleware,
+    removal: {
+      service: resourceRemovals,
+      authority: (_req, res) => {
+        if (res.locals.removalAuthority) return res.locals.removalAuthority;
+        const auth = res.locals.authSession as AuthSession | undefined;
+        if (!auth) throw Error('Sign in again before continuing this removal.');
+        const controller = new AbortController();
+        const retained = retainAgentContextAuthority(auth, controller);
+        const release = () => {
+          controller.abort();
+          retained.release();
+        };
+        res.once('finish', release);
+        res.once('close', release);
+        return (res.locals.removalAuthority = Object.assign(
+          () => {
+            retained.assertCurrent();
+            if (!auth || !hasPersistentRevocationAuthority() || !isAuthSessionCurrent(auth))
+              throw Error('Sign in again before continuing this removal.');
+          },
+          { signal: controller.signal },
+        ));
+      },
+      localPreview: localRemoval.preview,
+      releaseLocal: localRemoval.release,
+    },
     lifecycle: () => openShellLifecycleService,
     previewLegacy: (id, signal) =>
       previewLegacyOpenShellDeletion(id, eventStore, getCodexConversationStore(), signal),
@@ -4304,6 +4366,13 @@ app.get('/api/sessions/:id/compactions', (req, res) => {
 });
 
 app.delete('/api/sessions', (_req, res) => {
+  try {
+    resourceRemovals.assertArchivable();
+  } catch (error) {
+    return res.status(409).json({
+      error: error instanceof Error ? error.message : 'Resource release could not be verified.',
+    });
+  }
   hideAllSessions();
   clearPublicationControllerSessionGrants(registry);
   overviewEmitter?.scheduleBroadcast();

@@ -49,7 +49,10 @@ function RemovalFixture() {
               {
                 method: 'DELETE',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ cleanupToken: options.cleanupToken }),
+                body: JSON.stringify({
+                  cleanupToken: options.cleanupToken,
+                  removalOperationId: options.removalOperationId,
+                }),
               },
             );
             return response.ok;
