@@ -71,7 +71,7 @@ vi.mock('@mitzo/harness', async (importOriginal) => {
   };
 });
 
-import { getPendingCountBySession } from '@mitzo/harness';
+import { getPendingCountBySession, registerPending, removePending } from '@mitzo/harness';
 const mockGetPending = getPendingCountBySession as ReturnType<typeof vi.fn>;
 
 // ─── Mock worktree module ────────────────────────────────────────────────────
@@ -103,6 +103,33 @@ describe('SessionOverviewEmitter', () => {
   });
 
   // ─── getSnapshot ──────────────────────────────────────────────────────────
+
+  it('broadcasts approval creation and resolution without waiting for provider traffic', () => {
+    deps = makeDeps();
+    emitter = new SessionOverviewEmitter(deps);
+    registerPending('overview-test', 'Read', vi.fn(), {}, undefined, 'session-1', {
+      permId: 'overview-test',
+      sessionId: 'session-1',
+      toolName: 'Read',
+      toolInput: '',
+    });
+    vi.advanceTimersByTime(201);
+    expect(deps.sseRegistry.broadcast).toHaveBeenCalledWith('session_activity', []);
+    vi.mocked(deps.sseRegistry.broadcast).mockClear();
+    removePending('overview-test');
+    vi.advanceTimersByTime(201);
+    expect(deps.sseRegistry.broadcast).toHaveBeenCalledWith('session_activity', []);
+    emitter.destroy();
+    vi.mocked(deps.sseRegistry.broadcast).mockClear();
+    registerPending('overview-test', 'Read', vi.fn(), {}, undefined, 'session-1', {
+      permId: 'overview-test',
+      toolName: 'Read',
+      toolInput: '',
+    });
+    vi.advanceTimersByTime(201);
+    expect(deps.sseRegistry.broadcast).not.toHaveBeenCalled();
+    removePending('overview-test');
+  });
 
   it('publishes separate clocks and phases from current-owner live events', () => {
     vi.setSystemTime(1000);

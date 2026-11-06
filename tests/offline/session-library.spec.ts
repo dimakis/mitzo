@@ -490,6 +490,50 @@ for (const theme of ['dark', 'light'])
     await toggle.uncheck();
     await page.goto('/');
     await expect(page.locator('.session-context-usage')).toHaveCount(0);
+    await page.goto('/activity-composer');
+    await page.emulateMedia({ reducedMotion: 'no-preference' });
+    const composer = page.getByRole('region', { name: 'Conversation status' });
+    const input = page.getByRole('textbox', { name: 'Message Mitzo' });
+    await input.fill('Keep my next draft');
+    const emitComposer = async (phase: string) =>
+      page.evaluate(
+        (detail) => window.dispatchEvent(new CustomEvent('offline-session-activity', { detail })),
+        [
+          activity(0, 'working', {
+            phase,
+            turnStartedAt: Date.now() - 60_000,
+            lastMessageAt: Date.now() - 30_000,
+          }),
+        ],
+      );
+    await emitComposer('reading');
+    await expect(composer.getByRole('status')).toHaveText('Reading files');
+    await expect(composer).toContainText('elapsed 1m');
+    await expect(composer.locator('.session-activity-bars i').first()).toHaveCSS(
+      'animation-name',
+      'session-activity-pulse',
+    );
+    await emitComposer('reply');
+    await expect(composer.getByRole('status')).toHaveText('Writing a reply');
+    await expect(input).toHaveValue('Keep my next draft');
+    expect(
+      await composer.evaluate(
+        (el) =>
+          el.getBoundingClientRect().height ===
+          parseFloat(getComputedStyle(el).getPropertyValue('--control-height')),
+      ),
+    ).toBe(true);
+    await expect(page.getByRole('button', { name: 'Stop generation' })).toBeVisible();
+    await composer.getByRole('button', { name: 'Conversation status details' }).click();
+    const status = page.getByRole('dialog', { name: 'Conversation status' });
+    await expect(status.getByText('Last activity', { exact: true })).toBeVisible();
+    await expect(status.getByText('Last message', { exact: true })).toBeVisible();
+    await status.getByRole('button', { name: 'Close', exact: true }).click();
+    await expect(input).toHaveValue('Keep my next draft');
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
+      true,
+    );
+    await page.screenshot({ path: testInfo.outputPath(`chat-activity-composer-${theme}.png`) });
     expect(errors).toEqual([]);
     expect(mutations).toEqual([]);
   });

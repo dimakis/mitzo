@@ -32,7 +32,8 @@ export class SessionActivityEvents {
     timing.phase = undefined;
   }
   message(id: string): void {
-    this.entry(id).timing.lastMessageAt = Date.now();
+    const timing = this.entry(id).timing;
+    timing.lastMessageAt = timing.lastEventAt = Date.now();
   }
   state(id: string, state: string): number | undefined {
     const entry = this.entry(id);

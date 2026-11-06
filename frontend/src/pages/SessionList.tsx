@@ -229,6 +229,7 @@ function SwipeableSession({
       <div
         ref={ref}
         className="session-item"
+        data-activity={connected !== false ? activity?.state : undefined}
         data-selected={selected}
         onDoubleClick={(event) => {
           if (event.target instanceof Element && event.target.closest('button, a, input')) return;

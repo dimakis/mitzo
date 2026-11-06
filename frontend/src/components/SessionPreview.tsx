@@ -5,7 +5,7 @@ import ReactMarkdown from 'react-markdown';
 import type { FinishedMessage, Session } from '../types/chat';
 import { apiFetch } from '../lib/api-fetch';
 import type { SessionActivity } from '@mitzo/protocol';
-import { SessionActivityStatus } from './SessionActivityStatus';
+import { SessionActivityStatus, SessionActivityDetails } from './SessionActivityStatus';
 import { formatTokens } from '../lib/formatTokens';
 import { UiIcon } from './UiIcon';
 import { recordTitle } from '../lib/record-title';
@@ -133,6 +133,7 @@ export function SessionPreview({
             </button>
           </header>
           <div className="session-preview-messages" aria-busy={!messages && !error}>
+            {activity && <SessionActivityDetails activity={activity} connected={connected} />}
             {error ? (
               <p role="status">Couldn’t load preview.</p>
             ) : messages === null ? (

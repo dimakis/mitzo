@@ -6,7 +6,7 @@ import { SessionWorkLink } from './SessionWorkLink';
 import { UiIcon } from './UiIcon';
 import { recordTitle } from '../lib/record-title';
 import type { SessionActivity } from '@mitzo/protocol';
-import { SessionActivityStatus } from './SessionActivityStatus';
+import { SessionActivityStatus, SessionActivityDetails } from './SessionActivityStatus';
 import { formatTokens } from '../lib/formatTokens';
 import '../styles/session-library.css';
 export function SessionInspector({
@@ -42,6 +42,7 @@ export function SessionInspector({
         connected={connected}
       />
       {session.telosTaskId && <SessionWorkLink taskId={session.telosTaskId} />}
+      {activity && <SessionActivityDetails activity={activity} connected={connected} />}
       <SavedSessionHistory sessionId={session.id} />
       <SessionContextUsage usage={session.contextUsage} />
       <button type="button" className="session-open-conversation" onClick={onOpen}>

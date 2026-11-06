@@ -22,6 +22,34 @@
 .session-activity-status time {
   font-variant-numeric: tabular-nums;
 }
+.session-turn-elapsed {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.session-activity-details {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: var(--space-2);
+  margin-block: var(--space-3);
+  font-size: var(--text-xs);
+  color: var(--color-muted);
+}
+.session-activity-details dd {
+  margin: 0;
+  font-variant-numeric: tabular-nums;
+}
+.conversation-library .session-item-navigation > .session-activity-status {
+  margin-top: var(--space-2);
+}
+.conversation-library .session-item-navigation > .session-activity-status time {
+  margin-left: auto;
+}
+.conversation-library .session-item[data-activity='working']:not([data-selected='true']) {
+  background: color-mix(in srgb, var(--color-success) 6%, var(--color-surface));
+}
+.conversation-library .session-item[data-activity='waiting']:not([data-selected='true']) {
+  background: color-mix(in srgb, var(--color-warning) 6%, var(--color-surface));
+}
 .conversation-list-caption:has(.session-freshness) {
   display: flex;
   flex-wrap: wrap;

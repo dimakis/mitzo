@@ -2,6 +2,70 @@
   "version": 1,
   "surfaces": [
     {
+      "id": "chat-activity",
+      "activeRevision": "additive-freshness-2026-11-06",
+      "revisions": [
+        {
+          "id": "additive-freshness-2026-11-06",
+          "approvedBy": "Dimitri (explicit approval of the chat activity mock and additive implementation)",
+          "approvedOn": "2026-11-06",
+          "approval": {
+            "thread": "Originating Mitzo conversation, MGMT task repo-f8d34b06-e8bc-8aaa-b6f9-a416505f57c3; conversation ID unavailable to this runtime",
+            "quote": "We don't go fucking with any of the designs that we already have approved, right? This is just additional. So let's go do this. This looks class.",
+            "scope": "Activity indicators, explicit timing and freshness ordering across the existing library, filters, search, pins, preview, sidebar and open chat. Preserve all approved designs and existing actions. The prototype's reduced-motion toggle is excluded from product UI; its simulated content, navigation, composer and message bubbles do not replace existing product components."
+          },
+          "references": [
+            {
+              "path": "docs/design/approved/chat-activity/activity-freshness.html",
+              "sha256": "45325e7952bb6a8a873be9e41dcdb394d0d26266d56d670ea0799a39cb629896"
+            }
+          ],
+          "invariants": [
+            "Add activity bars and evidence-based labels to existing components using shared semantic tokens and motion timing.",
+            "Keep pin/unpin conversation, Today pins, rename, copy session ID, details, delete, swipe, long press, right click and keyboard actions available through their existing owners.",
+            "Preserve approved chat settings, message dates/actions and the single mounted status row above the existing composer, including all queue, delivery and recovery behavior.",
+            "Separate turn elapsed, completion, waiting, last message and last activity clocks. Unknown starts remain unknown; saved modification time is labelled Updated.",
+            "Messages, completion and approval requests advance freshness in bounded batches. Tool activity does not repeatedly reorder the list; browsing/actions hold position and expose queued updates.",
+            "Pins keep device order, search keeps result order while browsing, and disconnected observations remain display-only last-seen evidence.",
+            "No product motion toggle is introduced. Existing appearance and operating-system motion preferences remain effective."
+          ],
+          "sources": [
+            "frontend/src/components/SessionActivityStatus.tsx",
+            "frontend/src/components/SessionActivityStatus.css",
+            "frontend/src/pages/SessionList.tsx",
+            "frontend/src/components/ComposerStatus.tsx",
+            "frontend/src/components/SessionPanel.tsx",
+            "frontend/src/hooks/useSessionOrder.ts",
+            "server/session-activity-events.ts",
+            "server/session-overview.ts"
+          ],
+          "checks": [
+            "frontend/src/components/__tests__/SessionActivityStatus.test.tsx",
+            "frontend/src/components/__tests__/ComposerActivity.test.tsx",
+            "frontend/src/pages/__tests__/SessionLibraryDesktop.test.tsx",
+            "frontend/src/hooks/__tests__/useSessionOrder.test.ts",
+            "server/__tests__/session-overview.test.ts",
+            "tests/offline/session-library.spec.ts"
+          ],
+          "protectedChecks": [
+            {
+              "path": "frontend/src/components/__tests__/SessionActivityStatus.test.tsx",
+              "sha256": "a62f2378d06e1ae84859562393690a6a2b3cd9b4675baddd3e3c43533969d97d"
+            },
+            {
+              "path": "frontend/src/components/__tests__/ComposerActivity.test.tsx",
+              "sha256": "14250f63ee593371674d6569d62eede154c997fb1f131b54ee6953246b2fb3f2"
+            },
+            {
+              "path": "frontend/src/pages/__tests__/SessionLibraryDesktop.test.tsx",
+              "sha256": "e5774880d3bf9c289b160a93bb30ba67d0f4c147e4271b469f3d7f3c69ab784e"
+            }
+          ],
+          "validation": "docs/features/chat-activity-freshness.md"
+        }
+      ]
+    },
+    {
       "id": "chat-settings",
       "activeRevision": "quick-sheet-2026-10-17",
       "revisions": [

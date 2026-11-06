@@ -12,7 +12,12 @@ import { HomeDialog } from './HomeDialog';
 import { UiIcon } from './UiIcon';
 import './ComposerStatus.css';
 import { useSessionOverview } from '../hooks/useSessionOverview';
-import { ActivityBars, SessionActivityStatus } from './SessionActivityStatus';
+import {
+  ActivityBars,
+  SessionActivityStatus,
+  SessionTurnElapsed,
+  SessionActivityDetails,
+} from './SessionActivityStatus';
 import { sessionActivityLabel } from '../lib/session-activity';
 import {
   ActiveContext,
@@ -158,6 +163,9 @@ export function ComposerStatusRail({
         >
           {message}
         </span>
+        {running && tone === 'normal' && activity?.turnStartedAt !== undefined && (
+          <SessionTurnElapsed startedAt={activity.turnStartedAt} />
+        )}
         {queued > 0 && (
           <button
             type="button"
@@ -218,6 +226,7 @@ export function ComposerStatusRail({
                 connected={connected}
               />
             )}
+            {activity && <SessionActivityDetails activity={activity} connected={connected} />}
             {awaitingApproval && (
               <p>
                 A permission request is waiting in this conversation. Review the existing approval

@@ -14,6 +14,41 @@ export function ActivityBars() {
   );
 }
 
+export function SessionTurnElapsed({ startedAt }: { startedAt: number }) {
+  const now = useActivityClock();
+  return (
+    <time
+      className="session-turn-elapsed"
+      dateTime={new Date(startedAt).toISOString()}
+      title={`Turn started ${new Date(startedAt).toLocaleString()}`}
+    >
+      elapsed {elapsedTime(startedAt, now)}
+    </time>
+  );
+}
+
+export function SessionActivityDetails({
+  activity,
+  connected = true,
+}: {
+  activity: SessionActivity;
+  connected?: boolean;
+}) {
+  useActivityClock();
+  return (
+    <dl className="session-activity-details">
+      <dt>{connected ? 'Last activity' : 'Last seen'}</dt>
+      <dd>{formatRelativeTime(activity.lastEventAt)}</dd>
+      {activity.lastMessageAt !== undefined && (
+        <>
+          <dt>Last message</dt>
+          <dd>{formatRelativeTime(activity.lastMessageAt)}</dd>
+        </>
+      )}
+    </dl>
+  );
+}
+
 export function SessionActivityStatus({
   activity,
   modifiedAt,

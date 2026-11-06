@@ -9,7 +9,7 @@
 
 import type { SessionRegistry, ActiveSessionInfo } from '@mitzo/harness';
 import type { SseRegistry } from '@mitzo/harness';
-import { getPendingCountBySession } from '@mitzo/harness';
+import { getPendingCountBySession, onPermissionLifecycle } from '@mitzo/harness';
 import type {
   SessionActivity,
   SessionActivityState,
@@ -78,6 +78,7 @@ interface UncommittedCacheEntry {
 }
 
 export class SessionOverviewEmitter {
+  private unsubscribePermissions: () => void;
   private activityEvents = new SessionActivityEvents();
   private deps: SessionOverviewDeps;
   private coalesceTimer: ReturnType<typeof setTimeout> | null = null;
@@ -99,6 +100,7 @@ export class SessionOverviewEmitter {
 
   constructor(deps: SessionOverviewDeps) {
     this.deps = deps;
+    this.unsubscribePermissions = onPermissionLifecycle(() => this.scheduleBroadcast());
     this.startUncommittedRefresh();
   }
 
@@ -567,6 +569,7 @@ export class SessionOverviewEmitter {
   }
 
   destroy(): void {
+    this.unsubscribePermissions();
     if (this.coalesceTimer) {
       clearTimeout(this.coalesceTimer);
       this.coalesceTimer = null;
