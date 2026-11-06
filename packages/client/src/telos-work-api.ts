@@ -25,6 +25,9 @@ import {
   TelosSourcePermissionReceiptSchema,
   type TelosSourcePermissionPreviewRequest,
   type TelosSourcePermissionApproveRequest,
+  TelosOutcomeRevisionRequestSchema,
+  TelosOutcomeRevisionReceiptSchema,
+  type TelosOutcomeRevisionRequest,
   TelosWorkCommandSchema,
   TelosWorkViewSchema,
   TelosWorkCommandReceiptSchema,
@@ -209,7 +212,13 @@ export class TelosWorkApiClient {
       signal,
     );
   }
-  getSourcePermission(permId: string, sessionId: string, signal?: AbortSignal, afterSequence = 0) {
+  getSourcePermission(
+    permId: string,
+    sessionId: string,
+    signal?: AbortSignal,
+    afterSequence = 0,
+    beforeSequence?: number,
+  ) {
     return this.request(
       'source/permissions/' +
         encodeURIComponent(TelosWorkIdSchema.parse(permId)) +
@@ -217,6 +226,7 @@ export class TelosWorkApiClient {
         new URLSearchParams({
           sessionId: TelosWorkIdSchema.parse(sessionId),
           afterSequence: String(afterSequence),
+          ...(beforeSequence === undefined ? {} : { beforeSequence: String(beforeSequence) }),
         }),
       TelosSourcePermissionReviewSchema,
       undefined,
@@ -258,6 +268,15 @@ export class TelosWorkApiClient {
       'source/permissions/' + encodeURIComponent(TelosWorkIdSchema.parse(permId)) + '/approve',
       TelosSourcePermissionReceiptSchema,
       TelosSourcePermissionApproveRequestSchema.parse(input),
+    );
+  }
+  requestOutcomeChanges(permId: string, input: TelosOutcomeRevisionRequest) {
+    return this.request(
+      'source/permissions/' +
+        encodeURIComponent(TelosWorkIdSchema.parse(permId)) +
+        '/request-changes',
+      TelosOutcomeRevisionReceiptSchema,
+      TelosOutcomeRevisionRequestSchema.parse(input),
     );
   }
   private async request<T>(

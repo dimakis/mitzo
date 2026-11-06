@@ -28,7 +28,11 @@ import {
 } from '@mitzo/protocol';
 
 import type { TransportAdapter } from './types.js';
-import { messagesReducer, INITIAL_MESSAGES_STATE } from './slices/messages.js';
+import {
+  messagesReducer,
+  INITIAL_MESSAGES_STATE,
+  mergeAgentMessageReceipt,
+} from './slices/messages.js';
 import type { MessagesState, MessagesAction } from './slices/messages.js';
 import { INITIAL_SESSIONS_STATE } from './slices/sessions.js';
 import type { SessionsState } from './slices/sessions.js';
@@ -324,6 +328,7 @@ function mergeLiveWithDurable(
   const durableContext = durableText && splitContextPrompt(durableText.content);
   return {
     ...liveContent,
+    ...mergeAgentMessageReceipt(live, durable),
     ...(durable.inReplyTo ? { inReplyTo: durable.inReplyTo } : {}),
     ...(durable.replyToMessageId ? { replyToMessageId: durable.replyToMessageId } : {}),
     ...(durable.steersMessageId ? { steersMessageId: durable.steersMessageId } : {}),

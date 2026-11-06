@@ -121,6 +121,8 @@ export interface RawToolInput {
   description?: string;
   /** Agent tool: the type of subagent (e.g. 'Explore', 'Plan'). */
   subagent_type?: string;
+  /** Spawning command identity, authored by the native adapter after admission. */
+  nativeSubagentCommandId?: string;
   /** Agent tool: the full prompt sent to the subagent. */
   prompt?: string;
 }
@@ -206,6 +208,8 @@ export interface FinishedBlock {
 }
 
 export interface FinishedMessage {
+  agentMessage?: import('./agent-communication.js').AgentMessageProjection;
+  agentMessageSeq?: number;
   inReplyTo?: import('./message-reply.js').MessageReplyContext;
   replyToMessageId?: string;
   commandState?: CommandState;
@@ -407,6 +411,14 @@ export interface SessionActivity {
   lastEventAt: number;
   /** Most recent observed user message; tool/status events never advance this. */
   lastUserMessageAt?: number;
+  /** Observed visible user/assistant message, independent of tool traffic. */
+  lastMessageAt?: number;
+  /** Provider admission time. Absent when the start was not observed. */
+  turnStartedAt?: number;
+  completedAt?: number;
+  stateChangedAt?: number;
+  /** Content-free description of the current normalized provider event. */
+  phase?: 'thinking' | 'reading' | 'editing' | 'command' | 'tool' | 'reply';
   taskId?: string;
   /** True when the session worktree has uncommitted changes. */
   uncommittedWork?: boolean;

@@ -334,13 +334,18 @@ export function captureNativeHostToolContext(owners: {
     );
     const requestHash = createHash('sha256').update(JSON.stringify(owners.input)).digest('hex');
     const identity = { turnId: owners.call.turnId, toolName: owners.toolName, requestHash };
+    // Child callbacks have their own durable claims. Only the original runtime's
+    // private invocation registry can recognize one; cloned labels/facets cannot.
+    const readPending = () =>
+      owners.runtime.pendingSubagentHostTool(owners.call, identity) ??
+      owners.native.pendingNativeHostTool(
+        owners.conversationId,
+        binding,
+        owners.call.callId,
+        identity,
+      );
     const custody = owners.native.readHostCustody(owners.conversationId, binding);
-    const pending = owners.native.pendingNativeHostTool(
-      owners.conversationId,
-      binding,
-      owners.call.callId,
-      identity,
-    );
+    const pending = readPending();
     // The creating login remains custody provenance. A cold resume already
     // admits the current signed primary operator through the same identity rule;
     // retain that rule here without replacing the original custody receipt.
@@ -400,15 +405,7 @@ export function captureNativeHostToolContext(owners: {
           owners.native.readHostCustody(owners.conversationId, binding),
           custody,
         ) ||
-        !isDeepStrictEqual(
-          owners.native.pendingNativeHostTool(
-            owners.conversationId,
-            binding,
-            owners.call.callId,
-            identity,
-          ),
-          pending,
-        ) ||
+        !isDeepStrictEqual(readPending(), pending) ||
         !isDeepStrictEqual(observation.role, role)
       )
         unavailable();

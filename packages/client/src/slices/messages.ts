@@ -21,6 +21,7 @@ import type {
   SymposiumProvenance,
 } from '@mitzo/protocol';
 import { messageIdentity } from '../message-identity.js';
+import { agentMessageTranscriptRow } from '@mitzo/protocol';
 import {
   interruptUnansweredToolBlocks,
   splitContextPrompt,
@@ -37,6 +38,21 @@ function sameInjections(left: ContextInjection[] | undefined, right: ContextInje
         item.content === right[index].content,
     )
   );
+}
+
+/** History can repair missed receipts without replacing a newer live transition. */
+export function mergeAgentMessageReceipt(
+  live: FinishedMessage | undefined,
+  durable: FinishedMessage,
+): Pick<FinishedMessage, 'agentMessage' | 'agentMessageSeq'> {
+  const selected =
+    !durable.agentMessage ||
+    (live?.agentMessage && (live.agentMessageSeq ?? -1) > (durable.agentMessageSeq ?? -1))
+      ? live
+      : durable;
+  return selected?.agentMessage
+    ? { agentMessage: selected.agentMessage, agentMessageSeq: selected.agentMessageSeq }
+    : {};
 }
 
 function projectUserContext(message: FinishedMessage): FinishedMessage {
@@ -230,6 +246,11 @@ type MessagesCoreAction =
   | { type: 'PERMISSION_SNAPSHOT'; permissions: PermissionRequest[] }
   | { type: 'CLEAR_PERMISSIONS' }
   | { type: 'RESTORE'; messages: FinishedMessage[]; interrupted?: boolean }
+  | {
+      type: 'AGENT_MESSAGE';
+      projection: import('@mitzo/protocol').AgentMessageProjection;
+      seq: number;
+    }
   | {
       type: 'USER_MESSAGE_RECEIVED';
       messageId: string;
@@ -1046,9 +1067,18 @@ function reduceLegacyMessages(state: MessagesState, action: MessagesAction): Mes
       return { ...INITIAL_MESSAGES_STATE };
 
     case 'RESTORE': {
+      const existingById = new Map(
+        state.messages.map((m) => [messageIdentity(m.messageId, m.symposiumProvenance), m]),
+      );
       const valid = action.messages
         .filter((m) => m && typeof m.messageId === 'string' && Array.isArray(m.blocks))
-        .map(projectUserContext);
+        .map((m) => {
+          const projected = projectUserContext(m);
+          const live = existingById.get(messageIdentity(m.messageId, m.symposiumProvenance));
+          return projected.agentMessage || live?.agentMessage
+            ? { ...projected, ...mergeAgentMessageReceipt(live, projected) }
+            : projected;
+        });
       state = {
         ...state,
         userReplies: {
@@ -1084,9 +1114,6 @@ function reduceLegacyMessages(state: MessagesState, action: MessagesAction): Mes
           commandStateSequences: { ...state.commandStateSequences, ...restoredSequences },
         };
       if (!action.interrupted) {
-        const existingById = new Map(
-          state.messages.map((m) => [messageIdentity(m.messageId, m.symposiumProvenance), m]),
-        );
         const hasNewMessages = valid.some(
           (m) => !existingById.has(messageIdentity(m.messageId, m.symposiumProvenance)),
         );
@@ -1099,6 +1126,7 @@ function reduceLegacyMessages(state: MessagesState, action: MessagesAction): Mes
             (message.replyToMessageId !== existing.replyToMessageId ||
               message.commandState !== existing.commandState ||
               message.commandStateSeq !== existing.commandStateSeq ||
+              message.agentMessageSeq !== existing.agentMessageSeq ||
               message.steersMessageId !== existing.steersMessageId ||
               JSON.stringify(message.inReplyTo) !== JSON.stringify(existing.inReplyTo))
           );
@@ -1195,6 +1223,16 @@ function reduceLegacyMessages(state: MessagesState, action: MessagesAction): Mes
       return { ...state, messages: valid, current: currentStale ? null : state.current };
     }
 
+    case 'AGENT_MESSAGE': {
+      const row = agentMessageTranscriptRow(action.projection, action.seq);
+      const index = state.messages.findIndex((message) => message.messageId === row.messageId);
+      if (index < 0) return { ...state, messages: [...state.messages, row] };
+      const previous = state.messages[index];
+      if (!previous.agentMessage || (previous.agentMessageSeq ?? -1) >= action.seq) return state;
+      const messages = [...state.messages];
+      messages[index] = { ...row, startedSeq: previous.startedSeq, timestamp: previous.timestamp };
+      return { ...state, messages };
+    }
     case 'USER_MESSAGE_RECEIVED': {
       const context = splitContextPrompt(action.text);
       const existingIndex = state.messages.findIndex((m) => m.messageId === action.messageId);

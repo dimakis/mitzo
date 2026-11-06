@@ -43,13 +43,13 @@ export function notificationRouter(center: NotificationCenter): Router {
     center.changed();
     res.json({ ok: true });
   });
-  router.post('/archive-resolved', (_req, res) => {
+  router.post('/archive-resolved', reconcileSources, operatorAuthMiddleware, (_req, res) => {
     center.reconcile();
     const archived = center.store.archiveResolved();
     center.changed();
     res.json({ ok: true, archived });
   });
-  router.post('/:id/archive', (req, res) => {
+  router.post('/:id/archive', reconcileSources, operatorAuthMiddleware, (req, res) => {
     center.reconcile();
     if (!center.store.get(req.params.id))
       return res.status(404).json({ error: 'Notification not found' });

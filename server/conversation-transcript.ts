@@ -1,4 +1,9 @@
-import { MessageReplyContextSchema, type MessageReplyContext } from '@mitzo/protocol';
+import {
+  AgentMessageProjectionSchema,
+  agentMessageTranscriptRow,
+  MessageReplyContextSchema,
+  type MessageReplyContext,
+} from '@mitzo/protocol';
 import { isDeepStrictEqual } from 'node:util';
 import {
   interruptUnansweredToolBlocks,
@@ -18,6 +23,8 @@ import {
 // Pure projection of a caller-owned immutable event prefix. Source authorization,
 // cursor capture and database reads remain with the calling operation.
 export interface RestoredMessage {
+  agentMessage?: import('@mitzo/protocol').AgentMessageProjection;
+  agentMessageSeq?: number;
   inReplyTo?: MessageReplyContext;
   replyToMessageId?: string;
   commandState?: import('@mitzo/protocol').CommandState;
@@ -63,6 +70,23 @@ export interface RestoredCurrentMessage {
   symposiumProvenance?: SymposiumProvenance;
   startedSeq?: number;
   blocks: Array<RestoredMessage['blocks'][number] & { done: boolean }>;
+}
+
+function includeAgentMessages(events: StoredEvent[], messages: RestoredMessage[]) {
+  const rows = new Map<string, RestoredMessage>();
+  for (const event of events) {
+    if (event.type !== 'agent_message' || event.seatId || event.symposiumProvenance) continue;
+    const projection = AgentMessageProjectionSchema.parse(event.payload.projection);
+    const row = agentMessageTranscriptRow(projection, event.seq);
+    const previous = rows.get(row.messageId);
+    rows.set(row.messageId, {
+      ...row,
+      startedSeq: previous?.startedSeq ?? row.startedSeq,
+      timestamp: previous?.timestamp ?? row.timestamp,
+    });
+  }
+  messages.push(...rows.values());
+  if (rows.size) messages.sort((a, b) => (a.startedSeq ?? -1) - (b.startedSeq ?? -1));
 }
 
 function attributeCommands(
@@ -743,6 +767,7 @@ export function replayEventsToTranscript(
     ids.add(id);
   }
   attributeCommands(ordinary, messages, base.current ? [base.current] : []);
+  includeAgentMessages(ordinary, messages);
   return { messages, current: base.current, currents };
 }
 
@@ -1014,6 +1039,7 @@ export function replayEventsToMessages(
 
   groupRetainedReplayErrors(messages, events);
   attributeCommands(events, messages);
+  includeAgentMessages(events, messages);
   return messages;
 }
 

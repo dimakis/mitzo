@@ -4,12 +4,13 @@ import type { Server } from 'node:http';
 import { listenOnLoopback, closeTestServer } from './loopback-test-server.js';
 import request from 'supertest';
 import Database from 'better-sqlite3';
-import { mkdirSync, writeFileSync, readFileSync, symlinkSync } from 'fs';
+import { mkdirSync, writeFileSync, readFileSync, symlinkSync, existsSync } from 'fs';
 import { join, relative } from 'path';
 import { tmpdir, homedir } from 'os';
 import { AccountAliases } from '../account-aliases.js';
 import { EventStore as AuthEventStore } from '../event-store.js';
-import { codexPrivateDirectory } from '../codex-private-path.js';
+import { codexPrivateDirectory, protectCodexProfileRoots } from '../codex-private-path.js';
+import { registerWorkspaceRuntimeAuthorityPaths } from '../workspace-runtime-private-paths.js';
 import { InboxScanner } from '../inbox-scanner.js';
 
 const mockRemoteArtifactRead = vi.hoisted(() => vi.fn());
@@ -1402,6 +1403,118 @@ describe('briefing routes', () => {
 });
 
 describe('inbox routes', () => {
+  it.each(['delete', 'approve'] as const)(
+    'retains internal-token inbox %s access after reconciliation',
+    async (operation) => {
+      const { INTERNAL_TOKEN } = await import('../internal-token.js');
+      const filename = `internal-${operation}.md`;
+      writeFileSync(join(INBOX_DIR, filename), SAMPLE_INBOX_ITEM);
+      const action =
+        operation === 'delete'
+          ? request(app).delete('/api/inbox/' + filename)
+          : request(app).post('/api/inbox/' + filename + '/approve');
+      expect((await action.set('x-internal-token', INTERNAL_TOKEN)).status).toBe(200);
+    },
+  );
+  it.each(['delete', 'approve'] as const)(
+    'revalidates inbox %s after logout during reconciliation',
+    async (operation) => {
+      const { notificationCenter } = await import('../app.js');
+      const { login } = await import('../auth.js');
+      const token = (await login(process.env.AUTH_PASSPHRASE!))!;
+      const filename = `authority-${operation}-logout.md`;
+      const source = join(INBOX_DIR, filename);
+      const destination = join(INBOX_DIR, 'archive', filename);
+      writeFileSync(source, SAMPLE_INBOX_ITEM);
+      let release!: () => void;
+      let entered!: () => void;
+      const waiting = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      const reached = new Promise<void>((resolve) => {
+        entered = resolve;
+      });
+      const scan = vi
+        .spyOn(notificationCenter, 'reconcileAsync')
+        .mockImplementationOnce(async () => {
+          entered();
+          await waiting;
+        });
+      const action =
+        operation === 'delete'
+          ? request(app).delete('/api/inbox/' + filename)
+          : request(app).post('/api/inbox/' + filename + '/approve');
+      const pending = action.set('Authorization', 'Bearer ' + token).then((response) => response);
+      try {
+        await reached;
+        expect(
+          (
+            await request(app)
+              .post('/api/auth/logout')
+              .set('Authorization', 'Bearer ' + token)
+          ).status,
+        ).toBe(200);
+        release();
+        expect((await pending).status).toBe(401);
+        expect(readFileSync(source, 'utf8')).toBe(SAMPLE_INBOX_ITEM);
+        expect(existsSync(destination)).toBe(false);
+      } finally {
+        release();
+        await pending;
+        scan.mockRestore();
+      }
+    },
+  );
+  it.each(
+    (['approve', 'delete'] as const).flatMap((action) =>
+      (['private', 'authority'] as const).flatMap((kind) =>
+        (['source', 'destination'] as const).map((target) => ({ action, kind, target })),
+      ),
+    ),
+  )(
+    'rejects $action when $kind $target enrollment changes during a scan',
+    async ({ action, kind, target }) => {
+      const { notificationCenter } = await import('../app.js');
+      const filename = `authorization-race-${action}-${kind}-${target}.md`;
+      const source = join(INBOX_DIR, filename);
+      const destination = join(INBOX_DIR, 'archive', filename);
+      writeFileSync(source, SAMPLE_INBOX_ITEM);
+      let release!: () => void;
+      let entered!: () => void;
+      const waiting = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      const reached = new Promise<void>((resolve) => {
+        entered = resolve;
+      });
+      const scan = vi.spyOn(notificationCenter, 'reconcileAsync').mockImplementationOnce(() => {
+        entered();
+        return waiting;
+      });
+      const operation =
+        action === 'approve'
+          ? request(app).post(`/api/inbox/${filename}/approve`)
+          : request(app).delete(`/api/inbox/${filename}`);
+      const pending = operation.set('Cookie', authCookie).then((response) => response);
+      try {
+        // Reaching the awaited scan proves middleware already authorized the file.
+        await reached;
+        const path = target === 'source' ? source : destination;
+        if (kind === 'private') protectCodexProfileRoots([path]);
+        else registerWorkspaceRuntimeAuthorityPaths([path]);
+        release();
+        const response = await pending;
+        expect(response.status).toBe(403);
+        expect(response.body).toEqual({ error: 'Path not allowed' });
+        expect(readFileSync(source, 'utf8')).toBe(SAMPLE_INBOX_ITEM);
+        expect(existsSync(destination)).toBe(false);
+      } finally {
+        release();
+        await pending;
+        scan.mockRestore();
+      }
+    },
+  );
   it('DELETE drains an older source scan before removing an unindexed item', async () => {
     const { notificationCenter } = await import('../app.js');
     const filename = 'delete-scan-race.md';

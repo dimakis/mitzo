@@ -19,6 +19,7 @@ import {
   type OrdinaryLocalCodexOwnedDispatch,
 } from '../../ordinary-local-codex-owned-runtime.js';
 import { OwnedLocalCodexChatAdmission } from '../../owned-local-codex-chat-admission.js';
+import { assembleCommandPrompt } from '../../message-reply-context.js';
 import {
   bindAgentLibraryTransport,
   readBuiltinAgentLibraryProfile,
@@ -459,7 +460,7 @@ export async function ownedRuntimeFixture(
         binding,
         profile: value.profile,
         session: { cwd: value.workspace.directory, mode: options.mode ?? 'agent' },
-        prompt: value.payload.text,
+        prompt: assembleCommandPrompt(events, reservation.conversationId, commandId, value.payload),
         systemPrompt: value.payload.systemPrompt,
         intent: value.payload.intent,
         images: value.payload.images,

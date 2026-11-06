@@ -348,6 +348,8 @@ jobs:
             test-results/offline/**/responsiveness-*.png
             test-results/offline/**/chat-status-*.png
             test-results/offline/**/chat-queue-*.png
+            test-results/offline/**/native-subagents-*.png
+            test-results/offline/**/agent-messages-*.png
             test-results/offline/**/timer-*.png
             test-results/offline/**/sandbox-removal-*.png
           retention-days: 7
@@ -575,7 +577,7 @@ jobs:
           const required = [
             ['native-host-operator-lifetime.test.ts', 9],
             ['native-local-repository-preparation-registration-dispatch.test.ts', 4],
-            ['native-local-repository-read-tools.test.ts', 15],
+            ['native-local-repository-read-tools.test.ts', 17],
             ['native-reader-path-authorization.test.ts', 14],
             ['qualified-local-repository-materializer.test.ts', 2],
             ['qualified-local-repository-operation-owner.test.ts', 1],

@@ -2769,7 +2769,25 @@ export class EventStore {
       this.migrateConversationSource(db);
       this.migrateUserMessageIndex(db);
       this.sessionOutputs = new SessionOutputReferenceStore(db);
-      this.agentCommunication = new AgentCommunicationStore(db);
+      this.agentCommunication = new AgentCommunicationStore(db, (message) => {
+        const senderName =
+          this.getSession(message.senderConversationId)?.summary ?? message.senderConversationId;
+        const recipientName =
+          this.getSession(message.recipientConversationId)?.summary ??
+          message.recipientConversationId;
+        const timestamp = message.createdAt ?? Date.now();
+        for (const [sessionId, direction] of [
+          [message.senderConversationId, 'outgoing'],
+          [message.recipientConversationId, 'incoming'],
+        ]) {
+          this.append(sessionId, 'agent_message', {
+            type: 'agent_message',
+            v: 2,
+            ts: timestamp,
+            projection: { message, direction, senderName, recipientName, timestamp },
+          });
+        }
+      });
       this.sessionCollaborations = new SessionCollaborationStore(db, (membership) =>
         this.collaborationConversation.membershipChanged(membership),
       );
@@ -2980,6 +2998,7 @@ export class EventStore {
         getProviderAttempts: (token) => this.getProviderAttempts(token),
         toClientState,
       });
+      this.agentCommunication.backfillTranscript();
       owner.seal();
     } catch (error) {
       owner.close();
@@ -4184,18 +4203,25 @@ export class EventStore {
   }
 
   /** Bounded ordered anchors for audience-specific transcript projections. */
-  getSymposiumPerspectiveEvents(sessionId: string, afterSeq = 0, limit = 200): StoredEvent[] {
+  getSymposiumPerspectiveEvents(
+    sessionId: string,
+    afterSeq = 0,
+    limit = 200,
+    beforeSeq?: number,
+  ): StoredEvent[] {
     if (
       !Number.isSafeInteger(afterSeq) ||
       afterSeq < 0 ||
       !Number.isSafeInteger(limit) ||
       limit < 1 ||
-      limit > 500
+      limit > 500 ||
+      (beforeSeq !== undefined &&
+        (!Number.isSafeInteger(beforeSeq) || beforeSeq < 1 || afterSeq !== 0))
     )
       throw new Error('Invalid Symposium perspective page');
     const rows = this.db!.prepare(
       `SELECT seq, session_id, type, payload, created_at, seat_id, symposium_provenance
-        FROM events e WHERE session_id = ? AND seq > ?
+        FROM events e WHERE session_id = ? AND seq ${beforeSeq === undefined ? '>' : '<'} ?
          AND type IN ('message_end', 'user_message', 'symposium_delivery_dispatched')
          AND (type != 'message_end' OR NOT EXISTS (
            SELECT 1 FROM events prior
@@ -4204,9 +4230,9 @@ export class EventStore {
              AND prior.symposium_provenance IS e.symposium_provenance
               AND json_extract(prior.payload, '$.messageId') = json_extract(e.payload, '$.messageId')
           ))
-       ORDER BY seq LIMIT ?`,
-    ).all(sessionId, afterSeq, limit) as EventRow[];
-    return rows.map(rowToEvent);
+       ORDER BY seq ${beforeSeq === undefined ? 'ASC' : 'DESC'} LIMIT ?`,
+    ).all(sessionId, beforeSeq ?? afterSeq, limit) as EventRow[];
+    return (beforeSeq === undefined ? rows : rows.reverse()).map(rowToEvent);
   }
 
   /** Exact ordinary source identity; only completed visible text is returned. */
@@ -4279,6 +4305,40 @@ export class EventStore {
     });
     return parsed.success ? parsed.data : undefined;
   }
+  admitWithOrdinarySkillContext(
+    sessionId: string,
+    commandId: string,
+    context: { text: string; prompt: string },
+    admit: () => void,
+  ): void {
+    this.db!.transaction(() => {
+      admit();
+      const previous = this.getOrdinarySkillContext(sessionId, commandId);
+      if (previous && (previous.text !== context.text || previous.prompt !== context.prompt))
+        throw Error('Skill command changed');
+      if (!previous)
+        this.append(sessionId, 'ordinary_skill_context', { messageId: commandId, ...context });
+    })();
+  }
+  getOrdinarySkillContext(
+    sessionId: string,
+    commandId: string,
+  ): { text: string; prompt: string } | undefined {
+    const rows = this.db!.prepare(
+      `SELECT payload FROM events WHERE session_id=? AND type='ordinary_skill_context' AND json_extract(payload,'$.messageId')=? ORDER BY seq`,
+    ).all(sessionId, commandId) as Array<{ payload: string }>;
+    if (!rows.length) return undefined;
+    const contexts = rows.map((row) => JSON.parse(row.payload));
+    const first = contexts[0];
+    if (
+      typeof first.text !== 'string' ||
+      typeof first.prompt !== 'string' ||
+      contexts.some((context) => context.text !== first.text || context.prompt !== first.prompt)
+    )
+      throw Error('Skill command changed');
+    return { text: first.text, prompt: first.prompt };
+  }
+
   getMessageReplyContext(sessionId: string, commandId: string): MessageReplyContext | undefined {
     const rows = this.db!.prepare(
       `SELECT payload FROM events WHERE session_id=? AND type='message_reply_context' AND json_extract(payload,'$.messageId')=? ORDER BY seq`,

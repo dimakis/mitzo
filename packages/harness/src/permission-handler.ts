@@ -208,6 +208,9 @@ export function buildPermissionHandler(
       allowSessionGrant?: boolean;
       /** Server-owned operation/service identity; never taken from a permission response. */
       sessionGrantKey?: string;
+      /** Trusted host-owned correlated grant; shared mode, skill and workspace
+       * checks still run before this live observation may satisfy approval. */
+      isRetainedSessionGrantCurrent?: () => boolean;
       /** Plain description of the retained scope shown with the session choice. */
       sessionGrantDescription?: string;
       /** The caller may store a narrower account-bound consent instead of a tool-wide grant. */
@@ -482,7 +485,8 @@ export function buildPermissionHandler(
       !questions &&
       opts.allowSessionGrant !== false &&
       (opts.sessionGrantKey
-        ? session.sessionAllowList.has(opts.sessionGrantKey)
+        ? session.sessionAllowList.has(opts.sessionGrantKey) ||
+          opts.isRetainedSessionGrantCurrent?.() === true
         : isAllowListed(session.sessionAllowList, toolName))
     ) {
       return {

@@ -11,14 +11,17 @@ const mocks = vi.hoisted(() => ({
   names: { briefing: 'Minion', terminal: 'Minion' },
 }));
 vi.mock('../../components/TerminalConsole', () => ({
-  TerminalConsole: forwardRef(function Mock(props: { onStatus: (state: string) => void }, ref) {
+  TerminalConsole: forwardRef(function Mock(
+    { onStatus }: { onStatus: (state: string) => void },
+    ref,
+  ) {
     useImperativeHandle(ref, () => ({
       send: mocks.send,
       scroll: mocks.scroll,
       reviewOutput: mocks.review,
       focus: mocks.focus,
     }));
-    useEffect(() => props.onStatus('connected'), [props.onStatus]);
+    useEffect(() => onStatus('connected'), [onStatus]);
     return <div>Shell output</div>;
   }),
 }));
@@ -93,6 +96,14 @@ it('starts directly on the host from More and runs only after deliberate submit'
   expect(mocks.send).not.toHaveBeenCalled();
   fireEvent.click(screen.getByRole('button', { name: 'Run command' }));
   await waitFor(() => expect(mocks.send).toHaveBeenCalledWith('pwd\r'));
+});
+it('returns a new host terminal to the same saved unsent chat draft', async () => {
+  setup('/terminal?returnTo=%2Fchat%3Fdraft%3Dsaved-draft');
+  await screen.findByText('Shell output');
+  expect(screen.getByRole('link', { name: 'Back to chat' }).getAttribute('href')).toBe(
+    '/chat?draft=saved-draft',
+  );
+  expect(apiFetch).toHaveBeenCalledWith('/api/terminals', expect.objectContaining({ body: '{}' }));
 });
 it('preserves edits made while the previous command acknowledgment is delayed', async () => {
   setup('/terminal');
