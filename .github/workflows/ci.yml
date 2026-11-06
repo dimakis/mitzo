@@ -351,6 +351,7 @@ jobs:
             test-results/offline/**/native-subagents-*.png
             test-results/offline/**/agent-messages-*.png
             test-results/offline/**/timer-*.png
+            test-results/offline/**/sandbox-removal-*.png
           retention-days: 7
           if-no-files-found: warn
 
