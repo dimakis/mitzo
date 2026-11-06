@@ -29,6 +29,48 @@ function file(name: string, text: string) {
   writeFileSync(join(directory, name), `# ${name}\n${text}`);
 }
 
+it.each(['before scan', 'between scans'])(
+  'preserves ledger and delivery when the required root disappears %s',
+  async (when) => {
+    const parent = mkdtempSync(join(tmpdir(), 'inbox-unavailable-'));
+    const root = join(parent, 'inbox');
+    const hidden = join(parent, 'unmounted');
+    mkdirSync(root);
+    writeFileSync(join(root, 'pending.md'), '# Pending\nretained evidence');
+    const ledger = new NotificationStore(':memory:');
+    const source = new UnifiedInbox(ledger, () => root);
+    try {
+      await source.reconcileAsync(); // An absent optional archive is valid.
+      ledger.queue('inbox:pending.md', 1);
+      const before = ledger.get('inbox:pending.md');
+      if (when === 'before scan') renameSync(root, hidden);
+      else {
+        const scan = InboxScanner.prototype.scan;
+        vi.spyOn(InboxScanner.prototype, 'scan').mockImplementation(async function (
+          this: InboxScanner,
+          directory,
+          options,
+        ) {
+          const rows = await scan.call(this, directory, options);
+          if (directory === root) renameSync(root, hidden);
+          return rows;
+        });
+      }
+      expect(await source.reconcileAsync()).toBe(false);
+      expect(ledger.get('inbox:pending.md')).toEqual(before);
+      expect(ledger.due().map((item) => item.id)).toContain('inbox:pending.md');
+      vi.restoreAllMocks();
+      renameSync(hidden, root);
+      await source.reconcileAsync();
+      expect(ledger.get('inbox:pending.md')).toEqual(before);
+      expect(ledger.due().map((item) => item.id)).toContain('inbox:pending.md');
+    } finally {
+      ledger.close();
+      rmSync(parent, { recursive: true, force: true });
+    }
+  },
+);
+
 it('keeps one archived identity when an item moves between the two scans', async () => {
   const root = mkdtempSync(join(tmpdir(), 'inbox-moving-source-'));
   const ledger = new NotificationStore(':memory:');

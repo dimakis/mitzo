@@ -465,6 +465,9 @@ jobs:
       - name: Test shared native package
         run: swift test --package-path frontend/ios/MitzoShared
 
+      - name: Test notification action callbacks offline
+        run: python3 scripts/test-native-notification-actions.py
+
       - name: Test Watch receipt routing offline
         run: python3 scripts/test-watch-chat-receipts.py
 

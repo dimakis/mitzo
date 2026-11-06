@@ -88,9 +88,16 @@ export class UnifiedInbox {
     this.pending = (async () => {
       const root = this.directory();
       if (!root) return false;
-      let active = await this.scanner.scan(root);
-      const archived = await this.scanner.scan(join(root, 'archive'));
-      if (root !== this.directory()) return false;
+      let active: InboxSource[];
+      try {
+        active = await this.scanner.scan(root);
+      } catch (error) {
+        // An unavailable required root is not evidence that its sources were removed.
+        if (error instanceof Error && 'code' in error && error.code === 'ENOENT') return false;
+        throw error;
+      }
+      const archived = await this.scanner.scan(join(root, 'archive'), { optional: true });
+      if (root !== this.directory() || !existsSync(root)) return false;
       // A local archive mutation can run between the two asynchronous scans.
       // Revalidate only possible collisions before the synchronous ledger commit;
       // a moved snapshot must never create a second logical history record.

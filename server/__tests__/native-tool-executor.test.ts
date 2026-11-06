@@ -134,12 +134,20 @@ describe('native tool execution through session permissions', () => {
         };
         const result = await executeTaskOperation(options);
         expect(result.isError).toBe(true);
+        expect.soft(callbackOutcome(result)).toBe(outcome);
         expect(store.runStatus(grant.id, session.sessionId!, 'failed-test').state).toBe(
           outcome === 'settled' ? 'completed' : 'uncertain',
         );
         if (outcome === 'settled') {
           expect(result.content).toBe('1 test failed');
-          expect(await executeTaskOperation(options)).toEqual(result);
+          const reopened = new TaskExecutionStore(join(root, 'events.db'));
+          try {
+            const replay = await executeTaskOperation({ ...options, store: reopened });
+            expect(replay).toEqual(result);
+            expect(callbackOutcome(replay)).toBe('settled');
+          } finally {
+            reopened.close();
+          }
         } else {
           expect(JSON.parse(result.content).state).toBe('uncertain');
           await expect(executeTaskOperation(options)).rejects.toThrow(/uncertain/);

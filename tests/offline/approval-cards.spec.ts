@@ -36,9 +36,17 @@ const inventory = {
     { id: 'google', state: 'unavailable', reason: 'Google could not be checked.' },
   ],
 };
-async function fixture(page: Page, existing = true, pending = true) {
+async function fixture(
+  page: Page,
+  existing = true,
+  pending = true,
+  requests?: Record<string, unknown>[],
+  decisions: unknown[] = [],
+  withAgents = false,
+) {
   const errors: string[] = [];
   let reads = 0;
+  const live = new Map((requests ?? []).map((request) => [request.permId, request]));
   page.on('pageerror', (error) => errors.push(error.message));
   await page.addInitScript(() => {
     localStorage.setItem('mitzo:transport', 'ws');
@@ -54,7 +62,22 @@ async function fixture(page: Page, existing = true, pending = true) {
         socket.send(
           JSON.stringify({ type: 'welcome', protocolVersion: 2, connectionId: 'offline-access' }),
         );
-      if (message.type === 'switch_session' && pending)
+      if (message.type === 'permission_response' && requests) {
+        decisions.push(message);
+        live.delete(message.permId);
+        socket.send(
+          JSON.stringify({ type: 'permission_resolved', sessionId, permId: message.permId }),
+        );
+      }
+      if (message.type === 'switch_session' && requests) {
+        socket.send(
+          JSON.stringify({
+            type: 'session_switched',
+            sessionId,
+            pendingPermissions: [...live.values()],
+          }),
+        );
+      } else if (message.type === 'switch_session' && pending)
         socket.send(
           JSON.stringify({
             type: 'permission_request',
@@ -88,7 +111,7 @@ async function fixture(page: Page, existing = true, pending = true) {
     '/api/service-health': { services: [], checkedAt: Date.now() },
     '/api/connections-access': inventory,
     [`/api/sessions/${sessionId}/meta`]: {
-      sessionType: 'chat',
+      sessionType: withAgents ? 'symposium' : 'chat',
       accountBinding: {
         accountId: 'fixture-account',
         accountLabel: 'Fixture account',
@@ -121,7 +144,27 @@ async function fixture(page: Page, existing = true, pending = true) {
         ],
       },
     ],
-    [`/api/sessions/${sessionId}/symposium/status`]: { sessionId, config: null, seats: [] },
+    [`/api/sessions/${sessionId}/symposium/status`]: {
+      sessionId,
+      config: withAgents ? { version: 2, revision: 2, state: 'active' } : null,
+      seats: withAgents
+        ? [{ seatId: 'architect', seat: { name: 'Architect' }, admitted: true }]
+        : [],
+    },
+    [`/api/sessions/${sessionId}/symposium/perspectives`]: {
+      items: [
+        {
+          kind: 'authored',
+          eventSeq: 1,
+          messageId: 'assistant',
+          seatId: 'architect',
+          content: 'Preview transcript',
+          provenance: null,
+        },
+      ],
+      nextSeq: null,
+      queued: [],
+    },
     [`/api/sessions/${sessionId}/outputs`]: { outputs: [], candidates: [] },
   };
   const types: Record<string, string> = {
@@ -139,6 +182,15 @@ async function fixture(page: Page, existing = true, pending = true) {
       return route.fulfill({ contentType: 'text/event-stream', body: 'retry: 60000\n\n' });
     if (await disabledLocalCapabilities(route, url)) return;
     if (url.pathname.startsWith('/api/')) {
+      if (
+        requests &&
+        decodeURIComponent(url.pathname).startsWith('/api/notifications/permission:')
+      ) {
+        const id = decodeURIComponent(url.pathname).split('permission:')[1];
+        return route.fulfill({
+          json: { id: `permission:${id}`, sessionId, resolution: live.has(id) ? null : 'deny' },
+        });
+      }
       if (route.request().method() !== 'GET')
         return route.fulfill({ status: 405, json: { error: 'No writes in this fixture' } });
       if (url.pathname === `/api/sessions/${sessionId}/access`) {
@@ -185,6 +237,167 @@ async function fixture(page: Page, existing = true, pending = true) {
     }
   });
   return errors;
+}
+
+for (const theme of ['dark', 'light']) {
+  test(`Approval preview: transcript isolation and retained drafts ${theme}`, async ({
+    page,
+    isMobile,
+  }, testInfo) => {
+    await page.setViewportSize({ width: isMobile ? 320 : 1280, height: isMobile ? 720 : 900 });
+    await page.addInitScript((theme) => {
+      localStorage.setItem('mitzo-theme', theme);
+      localStorage.setItem('mitzo-accent', 'mint');
+      localStorage.setItem('mitzo-font', 'georgia');
+    }, theme);
+    const decisions: unknown[] = [];
+    const errors = await fixture(
+      page,
+      true,
+      true,
+      [
+        {
+          permId: 'first',
+          sessionId,
+          toolName: 'AskUserQuestion',
+          toolInput: '',
+          questions: [
+            {
+              id: 'q',
+              header: 'Choice',
+              question: 'Which release?',
+              options: [],
+              multiSelect: false,
+            },
+          ],
+        },
+        { permId: 'second', sessionId, toolName: 'Bash', toolInput: 'check-second-request' },
+      ],
+      decisions,
+      true,
+    );
+    await page.goto(`/chat/${sessionId}`);
+    await page.getByLabel('Your answer').fill('Keep my draft');
+    await page.getByRole('button', { name: 'Agents, Architect' }).click();
+    await page.getByRole('button', { name: 'Preview Architect conversation' }).click();
+    const preview = page.getByRole('dialog', { name: 'Architect conversation' });
+    await expect(preview.getByText('Preview transcript', { exact: true })).toBeVisible();
+    await expect(preview.getByRole('region', { name: 'Approval required' })).toHaveCount(0);
+    await expect(preview.getByLabel('Pending approvals')).toHaveCount(0);
+    await page.screenshot({
+      path: testInfo.outputPath(
+        `responsiveness-approval-preview-${testInfo.project.name}-${theme}.png`,
+      ),
+      animations: 'disabled',
+    });
+    await preview.getByRole('button', { name: 'Close Agents', exact: true }).click();
+    await page.getByLabel('Pending approvals').selectOption('second');
+    await page.getByLabel('Pending approvals').selectOption('first');
+    await expect(page.getByLabel('Your answer')).toHaveValue('Keep my draft');
+    expect(decisions).toEqual([]);
+    expect(errors).toEqual([]);
+  });
+
+  test(`Approval navigation: exact request and retained answers ${theme}`, async ({
+    page,
+    isMobile,
+  }, testInfo) => {
+    await page.setViewportSize({ width: isMobile ? 320 : 1280, height: isMobile ? 720 : 900 });
+    await page.addInitScript((theme) => {
+      localStorage.setItem('mitzo-theme', theme);
+      localStorage.setItem('mitzo-accent', 'mint');
+      localStorage.setItem('mitzo-font', 'georgia');
+    }, theme);
+    const decisions: unknown[] = [];
+    const errors = await fixture(
+      page,
+      true,
+      true,
+      [
+        {
+          permId: 'first',
+          sessionId,
+          toolName: 'AskUserQuestion',
+          toolInput: '',
+          questions: [
+            {
+              id: 'q',
+              header: 'Choice',
+              question: 'Which release?',
+              options: [],
+              multiSelect: false,
+            },
+          ],
+        },
+        {
+          permId: 'second',
+          sessionId,
+          toolName: 'Bash',
+          toolInput: 'check-second-request',
+          title: 'Check release',
+          tier: 'elevated',
+        },
+      ],
+      decisions,
+    );
+    await page.goto(`/chat/${sessionId}?approval=second`);
+    await expect(page.getByText('check-second-request', { exact: true })).toBeVisible();
+    const picker = page.getByLabel('Pending approvals');
+    await expect(picker).toHaveValue('second');
+    await expect(page.getByText('2 pending', { exact: true })).toBeVisible();
+    expect(decisions).toEqual([]);
+    await picker.selectOption('first');
+    await page.getByLabel('Your answer').fill('Ship the selected release');
+    await picker.selectOption('second');
+    await page.evaluate((sessionId) => {
+      window.dispatchEvent(
+        new CustomEvent('mitzo:open-notification', {
+          cancelable: true,
+          detail: { sessionId, notificationId: 'permission:first' },
+        }),
+      );
+    }, sessionId);
+    await expect(page).toHaveURL(new RegExp('approval=first'));
+    await expect(page.getByLabel('Your answer')).toHaveValue('Ship the selected release');
+    await picker.selectOption('second');
+    await picker.focus();
+    await expect(picker).toBeFocused();
+    expect((await picker.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
+      true,
+    );
+    await page.screenshot({
+      path: testInfo.outputPath(
+        `responsiveness-approval-navigation-${testInfo.project.name}-${theme}.png`,
+      ),
+      animations: 'disabled',
+    });
+    await page.getByRole('button', { name: 'Deny', exact: true }).click();
+    await expect(page.getByLabel('Your answer')).toHaveValue('Ship the selected release');
+    expect(decisions).toEqual([
+      expect.objectContaining({
+        type: 'permission_response',
+        sessionId,
+        permId: 'second',
+        decision: 'deny',
+      }),
+    ]);
+    await page.evaluate((sessionId) => {
+      window.dispatchEvent(
+        new CustomEvent('mitzo:open-notification', {
+          cancelable: true,
+          detail: { sessionId, notificationId: 'permission:second' },
+        }),
+      );
+    }, sessionId);
+    await expect(
+      page.getByText('This request was already handled.', { exact: true }),
+    ).toBeVisible();
+    await expect(page.getByLabel('Your answer')).toHaveCount(0);
+    await page.getByLabel('Pending approvals').selectOption('first');
+    await expect(page.getByLabel('Your answer')).toHaveValue('Ship the selected release');
+    expect(errors).toEqual([]);
+  });
 }
 
 for (const theme of ['dark', 'light']) {

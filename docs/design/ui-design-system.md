@@ -809,6 +809,21 @@ Offline approval fixtures cover 320px mobile WebKit/Chromium and desktop Chromiu
 light/dark themes, Mint/Georgia appearance, larger text, long request details,
 keyboard focus and 44px controls without a backend or model call.
 
+Opening an iPhone notification or its Review request action navigates within the
+app to the owning chat and selects that exact pending request. The approval card
+uses a labelled native selector and pending count when several requests exist;
+only one card is shown. Request selection never submits a decision. Server
+confirmation advances to the next request. Question drafts, response progress and
+deadlines are retained per request in memory across selection and responsive
+screen changes, and cleared when the request leaves the pending set or chat.
+An expired or handled notification explains its state in the chat and lets the
+operator explicitly select another pending request. A cold pending read shows
+loading until the live chat request arrives; unavailable reads offer Retry.
+The selector reuses the card's quiet outlined 44px controls, semantic tokens and
+spacing scale. Notification navigation preserves the mounted composer.
+Retained agent transcript previews do not mount approval controls or update the
+primary chat's approval selection, answers, response progress or draft lifetime.
+
 Reviewed Telos mutations use the same ordinary `PermissionBanner` on desktop and
 mobile, selected only by the host's `reviewKind` marker. Outcome creation opens on
 the latest available exchange and prepares its exact source preview automatically.

@@ -13,13 +13,14 @@ export interface InboxSource extends ReturnType<typeof parseInboxItem> {
  * privacy and resolves every source; no visibility decision survives a scan. */
 export class InboxScanner {
   private cache = new Map<string, InboxSource>();
-  async scan(directory: string): Promise<InboxSource[]> {
+  async scan(directory: string, { optional = false } = {}): Promise<InboxSource[]> {
     const policy = privateCodexPathSnapshot();
     let names: string[];
     try {
       names = await readdir(directory);
     } catch (error) {
-      if (error instanceof Error && 'code' in error && error.code === 'ENOENT') return [];
+      if (optional && error instanceof Error && 'code' in error && error.code === 'ENOENT')
+        return [];
       throw error;
     }
     const paths = names

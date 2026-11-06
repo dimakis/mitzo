@@ -4,6 +4,7 @@ import { useMitzoStore } from '@mitzo/client/hooks';
 import { ReviewerSheetHost } from './AddReviewerSheet';
 import { OrdinaryCollaborationHost } from './OrdinaryCollaborationEntry';
 import { useIsDesktop } from '../hooks/useMediaQuery';
+import { ApprovalDraftProvider } from './ApprovalDraftProvider';
 import { ChatView } from '../pages/ChatView';
 import { DesktopChatView } from '../pages/DesktopChatView';
 import { useInRouterContext, useSearchParams, useParams } from 'react-router-dom';
@@ -49,19 +50,28 @@ function ResponsiveChatBody({
   const desktop = useIsDesktop();
   const sessionId = useMitzoStore((state) => state.sessions.active);
   const generation = useMitzoStore((state) => state.chatDraftRevision);
+  const permission = useMitzoStore((state) => state.messages.permission);
+  const permissionQueue = useMitzoStore((state) => state.messages.permissionQueue);
   const refreshKey = useMitzoStore(
     (state) => `${state.messages.messages.length}:${state.messages.running}`,
   );
   const screen = desktop ? <DesktopChatView /> : <ChatView />;
   return (
     <ChatRuntimeDraftProvider owner={`${sessionId ?? requestedDraftId ?? 'new'}:${generation}`}>
-      <OrdinaryCollaborationHost sessionId={sessionId} refreshKey={refreshKey}>
-        <ReviewerSheetHost sessionId={sessionId} initialProfile={initialProfile}>
-          <TelosSourceNavigationProvider request={sourceRequest} sessionId={sessionId}>
-            {screen}
-          </TelosSourceNavigationProvider>
-        </ReviewerSheetHost>
-      </OrdinaryCollaborationHost>
+      <ApprovalDraftProvider
+        sessionId={sessionId ?? undefined}
+        pendingIds={[permission, ...(permissionQueue ?? [])].flatMap((request) =>
+          request ? [request.permId] : [],
+        )}
+      >
+        <OrdinaryCollaborationHost sessionId={sessionId} refreshKey={refreshKey}>
+          <ReviewerSheetHost sessionId={sessionId} initialProfile={initialProfile}>
+            <TelosSourceNavigationProvider request={sourceRequest} sessionId={sessionId}>
+              {screen}
+            </TelosSourceNavigationProvider>
+          </ReviewerSheetHost>
+        </OrdinaryCollaborationHost>
+      </ApprovalDraftProvider>
     </ChatRuntimeDraftProvider>
   );
 }

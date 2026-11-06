@@ -84,7 +84,7 @@ import { CodexQueueStatus } from '../components/CodexQueueStatus';
 import { WebSearchConsent } from '../components/WebSearchConsent';
 import { AccountModelPicker, type AccountSelection } from '../components/AccountModelPicker';
 import { useCallback, useEffect, useRef, useState, useMemo } from 'react';
-import { Link, useParams, useNavigate } from 'react-router-dom';
+import { Link, useParams, useNavigate, useLocation } from 'react-router-dom';
 import { SymposiumConversation } from '../components/SymposiumConversation';
 import { SymposiumDirectorPanel } from '../components/SymposiumDirectorPanel';
 import { ChatInput, type ChatInputDraftControl } from '../components/ChatInput';
@@ -123,6 +123,7 @@ function ChatViewContent() {
   );
   const { sessionId } = useParams<{ sessionId?: string }>();
   const searchParams = useChatDraftSearch(!sessionId);
+  const approvalNavigationKey = useLocation().key;
   const [agentProfile, setAgentProfile] = useState<AgentProfileSelection | null>(null);
   const [agentProfileBlocked, setAgentProfileBlocked] = useState<string | undefined>();
   const onAgentProfileChange = useCallback(
@@ -1788,6 +1789,10 @@ function ChatViewContent() {
               sessionId && sessionId !== activeSessionId ? {} : messages.currentByMessage,
             running: messages.running,
             permission: messages.permission,
+            permissionQueue: messages.permissionQueue,
+            requestedApprovalId: searchParams.get('approval'),
+            approvalNavigationKey,
+            approvalsReady: (!sessionId || sessionId === activeSessionId) && !historyLoading,
             onPermissionRespond: handlePermission,
             onPermissionExpire: storeExpirePermission,
             scrollRef,

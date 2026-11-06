@@ -17,6 +17,10 @@ import { SymposiumConversation as Conversation } from '../SymposiumConversation'
 import { WorkspaceControls } from '../WorkspaceControls';
 import { ChatInput } from '../ChatInput';
 import { SymposiumProfileProposals } from '../SymposiumProfileProposals';
+import { ApprovalDraftProvider } from '../ApprovalDraftProvider';
+import { MemoryRouter } from 'react-router-dom';
+
+const realChatArea = vi.hoisted(() => ({ enabled: false }));
 
 function SymposiumConversation(
   props: Omit<ComponentProps<typeof Conversation>, 'profileToolsTarget'>,
@@ -85,45 +89,40 @@ vi.mock('../../lib/api-fetch', async (importOriginal) => {
 });
 vi.mock('../SessionResourcesDialog', () => ({ SessionResourcesDialog: () => null }));
 vi.mock('../SlashPicker', () => ({ SlashPicker: () => null }));
-vi.mock('../ChatArea', () => ({
-  ChatArea: ({
-    messages,
-    contextItems = [],
-    onShareMessage,
-    canShareMessage,
-    afterMessages,
-  }: {
-    afterMessages?: import('react').ReactNode;
-    messages: { messageId: string; symposiumProvenance?: { membershipGeneration: number } }[];
-    contextItems?: { deliveryId: string; receipt: string }[];
-    onShareMessage?: (messageId: string, provenance?: { membershipGeneration: number }) => void;
-    canShareMessage?: (message: {
-      messageId: string;
-      symposiumProvenance?: { membershipGeneration: number };
-    }) => boolean;
-  }) => (
-    <div data-testid="rich-chat">
-      {messages.map((message) => (
-        <div key={message.messageId}>
-          {message.messageId}
-          {onShareMessage && (!canShareMessage || canShareMessage(message)) && (
-            <button onClick={() => onShareMessage(message.messageId, message.symposiumProvenance)}>
-              Share excerpt
-            </button>
-          )}
+vi.mock('../ChatArea', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../ChatArea')>();
+  return {
+    ChatArea: (props: import('../ChatArea').ChatAreaProps) => {
+      if (realChatArea.enabled) return <actual.ChatArea {...props} />;
+      const { messages, contextItems = [], onShareMessage, canShareMessage, afterMessages } = props;
+      return (
+        <div data-testid="rich-chat">
+          {messages.map((message) => (
+            <div key={message.messageId}>
+              {message.messageId}
+              {onShareMessage && (!canShareMessage || canShareMessage(message)) && (
+                <button
+                  onClick={() => onShareMessage(message.messageId, message.symposiumProvenance)}
+                >
+                  Share excerpt
+                </button>
+              )}
+            </div>
+          ))}
+          {afterMessages}
+          {contextItems.map((item) => (
+            <div key={item.deliveryId}>
+              {item.deliveryId}:{item.receipt}
+            </div>
+          ))}
         </div>
-      ))}
-      {afterMessages}
-      {contextItems.map((item) => (
-        <div key={item.deliveryId}>
-          {item.deliveryId}:{item.receipt}
-        </div>
-      ))}
-    </div>
-  ),
-}));
+      );
+    },
+  };
+});
 
 afterEach(() => {
+  realChatArea.enabled = false;
   symposiumQueueOperations.reset();
   symposiumExcerptOperations.reset();
   navigation.active = 'session';
@@ -407,6 +406,57 @@ it('previews a retained agent independently without switching the discussion or 
   expect(within(dialog).queryByText('reviewer-reply')).toBeNull();
   expect(input.value).toBe('Private reviewer draft');
   expect(screen.queryByRole('tablist')).toBeNull();
+});
+
+it('opening a retained preview cannot duplicate approvals or erase an unfinished answer', async () => {
+  Object.defineProperty(HTMLElement.prototype, 'scrollTo', { configurable: true, value: vi.fn() });
+  realChatArea.enabled = true;
+  vi.mocked(apiFetch).mockImplementation(async (url) =>
+    json(String(url).endsWith('/status') ? status : page),
+  );
+  const permission = {
+    permId: 'primary',
+    sessionId: 'session',
+    toolName: 'AskUserQuestion',
+    toolInput: '',
+    questions: [
+      { id: 'q', header: 'Choice', question: 'Which option?', options: [], multiSelect: false },
+    ],
+  };
+  const queued = {
+    permId: 'queued',
+    sessionId: 'session',
+    toolName: 'Bash',
+    toolInput: 'Queued command',
+  };
+  render(
+    <MemoryRouter>
+      <ApprovalDraftProvider sessionId="session" pendingIds={['primary', 'queued']}>
+        <SymposiumConversation
+          sessionId="session"
+          chat={{ ...chat, sessionId: 'session', permission, permissionQueue: [queued] }}
+          ordinaryComposer={null}
+          conversationLayout={{ settings: null, actions: null }}
+        />
+      </ApprovalDraftProvider>
+    </MemoryRouter>,
+  );
+  const agents = await screen.findByRole('button', { name: 'Agents, Architect, Reviewer' });
+  fireEvent.change(screen.getByLabelText('Your answer'), { target: { value: 'Keep this answer' } });
+  fireEvent.click(agents);
+  fireEvent.click(screen.getByRole('button', { name: 'Preview Architect conversation' }));
+  const dialog = screen.getByRole('dialog', { name: 'Architect conversation' });
+  await within(dialog).findByText('Plan');
+  expect(within(dialog).queryByLabelText('Pending approvals')).toBeNull();
+  expect(within(dialog).queryByRole('button', { name: 'Allow Once' })).toBeNull();
+  expect(within(dialog).queryByLabelText('Your answer')).toBeNull();
+  fireEvent.change(screen.getByLabelText('Pending approvals'), { target: { value: 'queued' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Allow Once' }));
+  fireEvent.change(screen.getByLabelText('Pending approvals'), { target: { value: 'primary' } });
+  expect(screen.getByLabelText('Your answer')).toHaveProperty('value', 'Keep this answer');
+  fireEvent.change(screen.getByLabelText('Pending approvals'), { target: { value: 'queued' } });
+  expect(screen.getByRole('button', { name: 'Allow Once' })).toHaveProperty('disabled', true);
+  expect(chat.onPermissionRespond).toHaveBeenCalledExactlyOnceWith('queued', 'once', 'Bash');
 });
 
 it('keeps the shared transcript on All when an anchor-only conversation gains another agent', async () => {

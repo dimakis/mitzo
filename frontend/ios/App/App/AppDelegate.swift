@@ -146,24 +146,30 @@ private class BackgroundApprovalDelegate: NSObject, UNUserNotificationCenterDele
     }
 
     private func forward(_ response: UNNotificationResponse, completionHandler: @escaping () -> Void) {
-        let router = lock.withLock { () -> NotificationRouter? in
-            guard let fallback else { deferredResponses.append(response); return nil }
-            return fallback
-        }
-        guard let router else { completionHandler(); return }
-        if response.notification.request.identifier.hasSuffix("-response-error") {
-            router.pushNotificationHandler?.didReceive(response: response)
-            completionHandler()
-        } else {
-            router.userNotificationCenter(UNUserNotificationCenter.current(), didReceive: response, withCompletionHandler: completionHandler)
+        // UserNotifications may call on a background queue. Capacitor's listener
+        // dictionaries and webview bridge must share the main queue with UI setup.
+        DispatchQueue.main.async {
+            let router = self.lock.withLock { () -> NotificationRouter? in
+                guard let fallback = self.fallback else { self.deferredResponses.append(response); return nil }
+                return fallback
+            }
+            guard let router else { completionHandler(); return }
+            if response.notification.request.identifier.hasSuffix("-response-error") {
+                router.pushNotificationHandler?.didReceive(response: response)
+                completionHandler()
+            } else {
+                router.userNotificationCenter(UNUserNotificationCenter.current(), didReceive: response, withCompletionHandler: completionHandler)
+            }
         }
     }
 
     func userNotificationCenter(_ center: UNUserNotificationCenter, willPresent notification: UNNotification,
                                 withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void) {
-        if let router = lock.withLock({ fallback }) {
-            router.userNotificationCenter(center, willPresent: notification, withCompletionHandler: completionHandler)
-        } else { completionHandler([.banner, .list, .sound, .badge]) }
+        DispatchQueue.main.async {
+            if let router = self.lock.withLock({ self.fallback }) {
+                router.userNotificationCenter(center, willPresent: notification, withCompletionHandler: completionHandler)
+            } else { completionHandler([.banner, .list, .sound, .badge]) }
+        }
     }
 
     func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse,
@@ -175,7 +181,7 @@ private class BackgroundApprovalDelegate: NSObject, UNUserNotificationCenterDele
         }
         let info = response.notification.request.content.userInfo
         let deliveredID = response.notification.request.identifier
-        Task {
+        Task { @MainActor in
             do {
                 guard let id = info["notificationId"] as? String,
                       let sessionID = info["sessionId"] as? String,
