@@ -16,7 +16,7 @@ function Composer() {
         <ChatInput
           sessionId={sessionId}
           draftStorageKey={sessionId ? undefined : 'runtime-tools-draft'}
-          initialText="Keep this draft"
+          initialText={sessionId ? undefined : 'Keep this draft'}
           onSend={() => {
             throw Error('Selection must not send');
           }}

@@ -124,6 +124,7 @@ interface Props {
   /** Validate the actual edited payload against the selected route before sending. */
   validateSend?: (text: string, images?: ImageAttachment[]) => string | undefined;
   cwd?: string;
+  skillWorkspaceId?: string;
   voice?: UseVoiceReturn;
   branch?: string;
   isWorktree?: boolean;
@@ -187,6 +188,7 @@ function ChatInputContent({
   composerCapabilities,
   validateSend,
   cwd,
+  skillWorkspaceId,
   voice,
   branch,
   isWorktree,
@@ -1485,6 +1487,7 @@ function ChatInputContent({
             setShowSlashPicker(false);
           }}
           cwd={cwd}
+          workspaceId={skillWorkspaceId}
         />
       </MotionPresence>
       {voice?.recording && voice.partialTranscript && (

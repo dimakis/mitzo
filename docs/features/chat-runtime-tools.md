@@ -49,3 +49,16 @@ owned-native fixture suite still depends on private host account configuration
 unavailable under this chat's filesystem profile; its isolated skill regression
 passes without that access. Full server/frontend compilation and browser checks
 remain mandatory CI gates.
+
+Centaur corrections, 6 November: ordinary admission now commits expanded and
+passthrough skill decisions atomically with the original command. Saved commands
+without a skill-context record preserve their original text. Initial, queued and
+cold Claude SDK inputs consume the frozen prompt while visible messages retain
+the slash text; the existing joined SDK fixture now asserts all three deliveries
+and single delivery of attached source snapshots. New drafts read skills from the
+selected qualified prepared workspace, including repository overrides, without
+falling back to another catalogue. The existing-chat browser fixture no longer
+overwrites its restored draft. Focused rollback, passthrough, workspace catalogue
+and owned SDK admission checks pass. The joined SDK fixture reaches a host path
+canonicalization fence locally before provider input; its full delivery assertions
+remain a required CI check. No model calls are made by these fixtures.

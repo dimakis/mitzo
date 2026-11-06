@@ -7,6 +7,8 @@ import {
   ordinarySkillEntries,
   resolveOrdinarySkillPrompt,
   captureOrdinarySkillPrompt,
+  ordinaryWorkspaceSkillEntries,
+  freezeOrdinarySkillCommand,
 } from '../ordinary-composer-skills.js';
 import { EventStore } from '../event-store.js';
 import { assembleCommandPrompt } from '../message-reply-context.js';
@@ -16,6 +18,73 @@ const cleanups: (() => void)[] = [];
 afterEach(() => {
   vi.restoreAllMocks();
   for (const cleanup of cleanups.splice(0)) cleanup();
+});
+it('freezes native passthrough and commands queued before skill-context capture', () => {
+  const { registry, skill } = fixture();
+  const store = new EventStore(':memory:');
+  cleanups.push(() => store.close());
+  store.upsertSession({ sessionId: 'chat' });
+  const text = '/native-only question';
+  expect(captureOrdinarySkillPrompt(store, 'chat', 'new', text, registry)).toBe(text);
+  expect(store.getOrdinarySkillContext('chat', 'new')).toEqual({ text, prompt: text });
+  vi.spyOn(store, 'getSendCommand').mockReturnValue({
+    clientMsgId: 'old',
+    sessionId: 'chat',
+    payload: { text },
+    error: null,
+  });
+  skill('native-only', 'New replacement instructions');
+  registry.invalidate();
+  expect(captureOrdinarySkillPrompt(store, 'chat', 'new', text, registry)).toBe(text);
+  expect(captureOrdinarySkillPrompt(store, 'chat', 'old', text, registry)).toBe(text);
+});
+it('rolls back a rejected command together with its skill decision', () => {
+  const { registry } = fixture();
+  vi.spyOn(registries, 'buildSkillRegistry').mockReturnValue(registry);
+  const store = new EventStore(':memory:');
+  cleanups.push(() => store.close());
+  expect(() =>
+    freezeOrdinarySkillCommand(
+      store,
+      { sessionId: 'rejected', cwd: '/task' },
+      'command',
+      { text: '/mockup dashboard' },
+      () => {
+        store.upsertSession({ sessionId: 'rejected' });
+        throw Error('Admission refused');
+      },
+    ),
+  ).toThrow('Admission refused');
+  expect(store.getSession('rejected')).toBeNull();
+  expect(store.getOrdinarySkillContext('rejected', 'command')).toBeUndefined();
+});
+
+it('qualifies the selected ready host workspace before loading its repository overrides', async () => {
+  const { registry } = fixture();
+  vi.spyOn(registries, 'buildSkillRegistry').mockReturnValue(registry);
+  const record = { state: 'ready', directory: '/selected/task', binding: { accountId: 'work' } };
+  const service = { get: vi.fn(() => record), qualifiedStatus: vi.fn(async () => ({})) };
+  expect(
+    await ordinaryWorkspaceSkillEntries(
+      service as never,
+      'workspace',
+      () => record.binding as never,
+    ),
+  ).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({ name: 'restricted', unavailableReason: expect.any(String) }),
+    ]),
+  );
+  expect(service.qualifiedStatus).toHaveBeenCalledWith('workspace', record.binding);
+  expect(registries.buildSkillRegistry).toHaveBeenCalledWith('/selected/task');
+  service.qualifiedStatus.mockRejectedValueOnce(Error('Changed workspace'));
+  await expect(
+    ordinaryWorkspaceSkillEntries(service as never, 'workspace', () => record.binding as never),
+  ).rejects.toThrow();
+  Object.assign(record, { sandbox: true });
+  await expect(
+    ordinaryWorkspaceSkillEntries(service as never, 'workspace', () => record.binding as never),
+  ).rejects.toThrow();
 });
 function fixture() {
   const root = mkdtempSync(join(tmpdir(), 'ordinary-skills-'));

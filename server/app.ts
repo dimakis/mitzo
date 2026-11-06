@@ -436,7 +436,8 @@ import {
   hasSkillWatcher,
   NATIVE_COMMAND_NAMES,
 } from './skill-registry-runtime.js';
-import { ordinarySkillEntries } from './ordinary-composer-skills.js';
+import { ordinarySkillEntries, ordinaryWorkspaceSkillEntries } from './ordinary-composer-skills.js';
+import { z } from 'zod';
 export {
   buildSkillRegistry,
   BUNDLED_SKILLS_DIR,
@@ -3305,6 +3306,27 @@ app.get('/api/config', (_req, res) => {
 });
 
 app.get('/api/skills', (req, res) => {
+  if (req.query.repositoryWorkspaceId !== undefined) {
+    if (
+      req.query.runtime !== 'ordinary' ||
+      req.query.cwd !== undefined ||
+      !z.uuid().safeParse(req.query.repositoryWorkspaceId).success
+    )
+      return res.status(400).json({ error: 'Select a prepared workspace' });
+    void Promise.resolve()
+      .then(() =>
+        ordinaryWorkspaceSkillEntries(
+          getRepositoryWorkspaces(true),
+          String(req.query.repositoryWorkspaceId),
+          repositoryWorkspaceBinding,
+        ),
+      )
+      .then(
+        (entries) => res.json(entries),
+        () => res.status(409).json({ error: 'Workspace commands unavailable' }),
+      );
+    return;
+  }
   const cwd =
     (req.query.cwd as string) || (req.query.runtime === 'ordinary' ? undefined : BASE_REPO);
   if (cwd && !isAllowedPath(cwd)) {

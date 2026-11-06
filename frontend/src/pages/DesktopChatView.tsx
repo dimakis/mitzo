@@ -1902,6 +1902,9 @@ function DesktopChatViewContent() {
                     boundedFirstCommand={localFirstCommand || controlsBlocked}
                     guardedConversation={localRuntime.commandAvailable}
                     cwd={localRuntime.cwd}
+                    skillWorkspaceId={
+                      activeSessionId ? undefined : repositorySelection?.repositoryWorkspaceId
+                    }
                     validateSend={
                       localRuntime.ordinaryWorkspaceId && localRuntime.commandAvailable
                         ? (text, images) => prepareOrdinaryCommand(text, images).reason

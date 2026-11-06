@@ -20,6 +20,7 @@ interface Props {
   onClose: (reason: 'escape' | 'outside') => void;
   /** Base URL for the API (defaults to empty string for same-origin) */
   cwd?: string;
+  workspaceId?: string;
 }
 
 const SCOPE_BADGES: Record<string, string> = {
@@ -29,8 +30,15 @@ const SCOPE_BADGES: Record<string, string> = {
   native: 'App command',
 };
 
-export function SlashPicker({ query, onSelect, onClose, cwd, runtime = 'legacy' }: Props) {
-  const scope = JSON.stringify([cwd, runtime]);
+export function SlashPicker({
+  query,
+  onSelect,
+  onClose,
+  cwd,
+  workspaceId,
+  runtime = 'legacy',
+}: Props) {
+  const scope = JSON.stringify([cwd, runtime, workspaceId]);
   const [catalogue, setCatalogue] = useState<{
     scope: string;
     skills: SkillEntry[];
@@ -43,8 +51,9 @@ export function SlashPicker({ query, onSelect, onClose, cwd, runtime = 'legacy' 
   // Fetch skills on mount
   useEffect(() => {
     const params = new URLSearchParams();
-    if (cwd) params.set('cwd', cwd);
+    if (cwd && !workspaceId) params.set('cwd', cwd);
     if (runtime === 'ordinary') params.set('runtime', 'ordinary');
+    if (workspaceId) params.set('repositoryWorkspaceId', workspaceId);
     const controller = new AbortController();
     let active = true;
     Promise.all([
@@ -76,7 +85,7 @@ export function SlashPicker({ query, onSelect, onClose, cwd, runtime = 'legacy' 
       active = false;
       controller.abort();
     };
-  }, [cwd, runtime, scope]);
+  }, [cwd, runtime, workspaceId, scope]);
 
   // Close on click outside
   useEffect(() => {

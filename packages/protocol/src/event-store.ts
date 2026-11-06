@@ -4268,6 +4268,21 @@ export class EventStore {
     });
     return parsed.success ? parsed.data : undefined;
   }
+  admitWithOrdinarySkillContext(
+    sessionId: string,
+    commandId: string,
+    context: { text: string; prompt: string },
+    admit: () => void,
+  ): void {
+    this.db!.transaction(() => {
+      admit();
+      const previous = this.getOrdinarySkillContext(sessionId, commandId);
+      if (previous && (previous.text !== context.text || previous.prompt !== context.prompt))
+        throw Error('Skill command changed');
+      if (!previous)
+        this.append(sessionId, 'ordinary_skill_context', { messageId: commandId, ...context });
+    })();
+  }
   getOrdinarySkillContext(
     sessionId: string,
     commandId: string,

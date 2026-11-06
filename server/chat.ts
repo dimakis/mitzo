@@ -1857,6 +1857,18 @@ async function _startChatInner(
       reasoningEffort: options.reasoningEffort ?? null,
     });
   }
+  if (options.ordinarySdkAuthority) {
+    prompt = assembleCommandPrompt(
+      eventStore,
+      options.resume ?? options.initialSessionId!,
+      initialMessageId,
+      {
+        text: prompt,
+        replyToMessageId: options.replyToMessageId,
+        sourceSnapshots: options.sourceSnapshots,
+      },
+    );
+  }
   prompt = repositoryChatContext(repositoryWorkspace) + prompt;
   const nativeProviderSelected = !!apiCredentialRef || !!gemini;
 
@@ -2063,7 +2075,10 @@ async function _startChatInner(
   if (options.replyToMessageId && (!options.resume || !options.clientMsgId))
     throw Error('Replies require an existing conversation and a message identity');
   const repliedPrompt =
-    options.replyToMessageId && options.resume && options.clientMsgId
+    !options.ordinarySdkAuthority &&
+    options.replyToMessageId &&
+    options.resume &&
+    options.clientMsgId
       ? assembleReplyText(
           prompt,
           captureMessageReply(
@@ -2081,7 +2096,7 @@ async function _startChatInner(
         cwd,
         codexProfile || nativeProviderSelected ? undefined : options.images,
         options.contextBlocks,
-        options.sourceSnapshots,
+        options.ordinarySdkAuthority ? undefined : options.sourceSnapshots,
       );
   const userIntent = options.userIntent ?? prompt;
   if (options.reattachOnly && (!options.resume || !codexProfile))
@@ -2982,21 +2997,11 @@ This is an independent checkout with its own Git storage, not a linked worktree.
                 ? fullPrompt
                 : assemblePrompt(
                     repositoryChatContext(repositoryWorkspace) +
-                      assembleReplyText(
-                        frozenPayload.text,
-                        frozenPayload.replyToMessageId
-                          ? captureMessageReply(
-                              eventStore,
-                              session.sessionId!,
-                              id,
-                              frozenPayload.replyToMessageId,
-                            )
-                          : undefined,
-                      ),
+                      assembleCommandPrompt(eventStore, session.sessionId!, id, frozenPayload),
                     cwd,
                     frozenPayload.images,
                     undefined,
-                    frozenPayload.sourceSnapshots,
+                    undefined,
                   );
             session.model = _admission.selection.model;
             storeAndEchoIfNew(

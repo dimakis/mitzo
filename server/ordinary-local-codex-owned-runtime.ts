@@ -1,5 +1,5 @@
 import { reconcileRetainedLocalCodexEffects } from './retained-local-codex-effects.js';
-import { assembleCommandPrompt } from './message-reply-context.js';
+import { freezeOrdinarySkillCommand } from './ordinary-composer-skills.js';
 import { MessageReplyIdSchema } from '@mitzo/protocol';
 import {
   CHAT_MAX_IMAGES,
@@ -332,12 +332,6 @@ export class OrdinaryLocalCodexOwnedRuntime<K extends LocalWorkspaceKind = 'repo
       if (request.clientMsgId !== this.owners.commandId) throw unavailable();
       // Builtins remain code-owned; a matching user Library ID cannot change namespace.
       const rawPayload = RawPayload.parse(request.payload);
-      assembleCommandPrompt(
-        this.owners.eventStore,
-        this.#reservation.conversationId,
-        request.clientMsgId,
-        rawPayload,
-      );
       const profiles = loadAccountProfiles();
       const binding = profiles.resolve(request.runtime.account.accountId, request.selection.model);
       const accountIdentity = (value: typeof binding) => ({
@@ -797,6 +791,8 @@ export class OrdinaryLocalCodexOwnedRuntime<K extends LocalWorkspaceKind = 'repo
       capturedBootstrap = bootstrap;
       capturedLeaseGetter = bootstrap.currentLease;
       const coordinator = new OrdinaryLocalCodexAdmissionCoordinator({
+        freezePrompt: (meta, id, payload, admit) =>
+          freezeOrdinarySkillCommand(this.owners.eventStore, meta, id, payload, admit),
         recovery,
         enabled: this.owners.enabled,
         store: coldPrimary
@@ -1286,12 +1282,6 @@ export class OrdinaryLocalCodexOwnedRuntime<K extends LocalWorkspaceKind = 'repo
         throw unavailable();
       const request = OrdinaryLocalCodexCommandRequestSchema.parse(raw);
       const rawPayload = RawPayload.parse(request.payload);
-      assembleCommandPrompt(
-        this.owners.eventStore,
-        this.#reservation.conversationId,
-        request.clientMsgId,
-        rawPayload,
-      );
       const profiles = loadAccountProfiles();
       const binding = profiles.resolve(request.runtime.account.accountId, request.selection.model);
       profiles.validateModelSelection(binding, request.selection.model, request.selection.thinking);
@@ -1379,6 +1369,8 @@ export class OrdinaryLocalCodexOwnedRuntime<K extends LocalWorkspaceKind = 'repo
       };
       const target = this.#runtime.target();
       const coordinator = new OrdinaryLocalCodexAdmissionCoordinator({
+        freezePrompt: (meta, id, payload, admit) =>
+          freezeOrdinarySkillCommand(this.owners.eventStore, meta, id, payload, admit),
         enabled: this.owners.enabled,
         store: {
           qualifiesOrdinaryCommandCapability:
