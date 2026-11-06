@@ -10,8 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.910-telos-chat-continuation-integration';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.911-telos-storage-inspection';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -24,12 +23,12 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../telos-runtime-store.ts': '29f96730dda4cf700f07c82d5a7c95e8c3b1125b18b8ce40ad75277fbc5977bc',
-  '../telos-runtime-storage.ts': '93a6a6f6b9c46380a1971123e5e43f09653efd23b0228f99c4b5d053b5ec4456',
+  '../telos-runtime-storage.ts': 'de2d3acd7acf6b8d12ccb66077944e5595d0e6b0e527fe66a7253494a4f28b3e',
   '../telos-runtime-routes.ts': '302f8b69c4b846a5e8d436087315ba5664b0f8e6acec7dbf01543b91978998db',
   '../__tests__/telos-runtime-store.test.ts':
     '6761e57f01963ceda114bd669299f5b6a09ba4ae91c77945cc4cdd2eee9d5f26',
   '../__tests__/telos-runtime-storage.test.ts':
-    'fa33d298412c8d8118b8a047d89a9173f2091113ab83cb2efd6a2552d4507bc3',
+    'cb21386c67bd3db56f2fbe0ee8c0f030c6849154148989436e0125df4c7ede61',
   '../__tests__/telos-runtime-routes.test.ts':
     '2417de9c8dbd1e3114625ddeeabe147e682fabdad97262a1f9c4a979a7eff170',
   '../__tests__/telos-runtime-migration.test.ts':
