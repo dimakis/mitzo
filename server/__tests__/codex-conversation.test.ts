@@ -7,6 +7,7 @@ import Database from 'better-sqlite3';
 import { createHash } from 'node:crypto';
 import { EventStore } from '../event-store.js';
 import { reportRetainedRuntimeFailure } from '../retained-runtime-failure.js';
+import { SessionRuntimeError } from '../session-runtime-error.js';
 import { codexRuntimeDiagnostic } from '../codex-runtime-diagnostics.js';
 import { codexRolloverHistory, codexRolloverSources } from '../codex-rollover-context.js';
 import { mkdtempSync, rmSync } from 'node:fs';
@@ -53,96 +54,129 @@ const binding = {
   profileRevision: 'chatgpt:test@example.com:test',
 };
 
-it('routes native children through the original executor without completing or steering the parent command', async () => {
-  const f = await setup(undefined, undefined, undefined, undefined, async () => binding);
-  const policy = codexNativeExecutionPolicy({
-    bindingRevision: 'owner',
-    mode: 'agent',
-    cwd: '/workspace',
-    readableRoots: ['/'],
-    writableRoots: ['/workspace'],
-    deniedRoots: ['/private/auth'],
-  });
-  Object.assign(f.conversationOptions, {
-    enableNativeSubagents: true,
-    nativeExecution: policy,
-    assertNativeExecutionCurrent: () => {},
-    requestNativeApproval: async () => ({ decision: 'decline' }),
-  });
-  await f.c.send({ id: 'root-command', prompt: 'Review edge cases' });
-  const original = f.rpc.request.getMockImplementation()!;
-  const child = {
-    id: 'child',
-    parentThreadId: f.getProviderThread(),
-    sessionId: 'native-tree',
-    cwd: policy.cwd,
-    model: 'test-model',
-    modelProvider: 'openai',
-    agentNickname: 'Edge cases',
-    preview: 'Check empty queries',
-  };
-  f.rpc.request.mockImplementation(async (method, params) => {
-    if (method === 'thread/read') return { thread: { ...child, id: params.threadId } };
-    if (params.threadId === 'child') {
-      if (method === 'thread/resume')
-        return { thread: child, model: 'test-model', modelProvider: 'openai' };
-      if (method === 'thread/turns/list') return { data: [], nextCursor: null };
-      if (method === 'turn/steer') return { turnId: params.expectedTurnId };
-    }
-    return original(method, params);
-  });
-  f.callbacks.onNotification('thread/started', { thread: child });
-  f.callbacks.onNotification('turn/started', { threadId: 'child', turn: { id: 'child-turn' } });
-  await f.c.getSubagents()!.settled();
-  await f.callbacks.onRequest(
-    'item/tool/call',
-    { threadId: 'child', turnId: 'child-turn', callId: 'child-call', tool: 'Read', arguments: {} },
-    new AbortController().signal,
-  );
-  expect(f.execute).toHaveBeenCalledOnce();
-  f.callbacks.onNotification('turn/completed', {
-    threadId: 'child',
-    turn: { id: 'child-turn', status: 'completed' },
-  });
-  expect(f.c.queue()[0].status).toBe('running');
-  expect(f.c.getSubagents()!.list()[0].state).toBe('completed');
-  let releasePreparation!: () => void;
-  f.conversationOptions.prepareAgentContext = async () =>
-    new Promise<void>((resolve) => {
-      releasePreparation = resolve;
+it.each([false, true])(
+  'routes native children through the original executor without completing or steering the parent command (owned=%s)',
+  async (owned) => {
+    const wrapped = owned ? await setupOwnedRefusal() : undefined;
+    const f =
+      wrapped ?? (await setup(undefined, undefined, undefined, undefined, async () => binding));
+    const policy = codexNativeExecutionPolicy({
+      bindingRevision: 'owner',
+      mode: 'agent',
+      cwd: '/workspace',
+      readableRoots: ['/'],
+      writableRoots: ['/workspace'],
+      deniedRoots: ['/private/auth'],
     });
-  let authorized = true;
-  const directed = f.c.getSubagents()!.control(
-    {
-      requestId: 'revoke-during-prepare',
-      action: 'message',
+    Object.assign(f.conversationOptions, {
+      enableNativeSubagents: true,
+      nativeExecution: policy,
+      assertNativeExecutionCurrent: () => {},
+      requestNativeApproval: async () => ({ decision: 'decline' }),
+    });
+    await f.c.send({ id: 'root-command', prompt: 'Review edge cases' });
+    const original = f.rpc.request.getMockImplementation()!;
+    const child = {
+      id: 'child',
+      parentThreadId: f.getProviderThread(),
+      sessionId: 'native-tree',
+      cwd: policy.cwd,
+      model: 'test-model',
+      modelProvider: 'openai',
+      agentNickname: 'Edge cases',
+      preview: 'Check empty queries',
+    };
+    f.rpc.request.mockImplementation(async (method, params) => {
+      if (method === 'thread/read') return { thread: { ...child, id: params.threadId } };
+      if (params.threadId === 'child') {
+        if (method === 'thread/resume')
+          return { thread: child, model: 'test-model', modelProvider: 'openai' };
+        if (method === 'thread/turns/list') return { data: [], nextCursor: null };
+        if (method === 'turn/steer') return { turnId: params.expectedTurnId };
+      }
+      return original(method, params);
+    });
+    f.callbacks.onNotification('thread/started', { thread: child });
+    f.callbacks.onNotification('turn/started', { threadId: 'child', turn: { id: 'child-turn' } });
+    await f.c.getSubagents()!.settled();
+    if (wrapped) {
+      for (const [category, input] of [
+        ['invalid_tool_request', { tool: 'Read', arguments: 'invalid' }],
+        ['tool_unavailable', { tool: 'Unknown', arguments: {} }],
+      ] as const) {
+        await expect(
+          f.callbacks.onRequest(
+            'item/tool/call',
+            {
+              threadId: 'child',
+              turnId: 'child-turn',
+              callId: category,
+              ...input,
+            },
+            new AbortController().signal,
+            { requestId: category },
+          ),
+        ).rejects.toMatchObject({ category });
+        expect(wrapped.close).not.toHaveBeenCalled();
+        expect(f.execute).not.toHaveBeenCalled();
+      }
+    }
+    await f.callbacks.onRequest(
+      'item/tool/call',
+      {
+        threadId: 'child',
+        turnId: 'child-turn',
+        callId: 'child-call',
+        tool: 'Read',
+        arguments: {},
+      },
+      new AbortController().signal,
+    );
+    expect(f.execute).toHaveBeenCalledOnce();
+    f.callbacks.onNotification('turn/completed', {
       threadId: 'child',
-      text: 'Next check',
-    },
-    () => {
-      if (!authorized) throw Error('Operator revoked');
-    },
-  );
-  await vi.waitFor(() => expect(releasePreparation).toBeTypeOf('function'));
-  authorized = false;
-  releasePreparation();
-  expect(await directed).toBe('rejected');
-  expect(
-    f.rpc.request.mock.calls.filter(
-      ([method, params]) => method === 'turn/start' && params.threadId === 'child',
-    ),
-  ).toHaveLength(0);
-  expect(f.c.getSubagents()!.list()[0].state).toBe('completed');
-  f.conversationOptions.prepareAgentContext = undefined;
-  expect(f.events.some((event) => JSON.stringify(event).includes('nativeSubagentCommandId'))).toBe(
-    true,
-  );
-  f.callbacks.onNotification('turn/completed', {
-    threadId: f.getProviderThread(),
-    turn: { id: 'turn-1', status: 'completed' },
-  });
-  await vi.waitFor(() => expect(f.c.queue()[0].status).toBe('completed'));
-});
+      turn: { id: 'child-turn', status: 'completed' },
+    });
+    expect(f.c.queue()[0].status).toBe('running');
+    expect(f.c.getSubagents()!.list()[0].state).toBe('completed');
+    let releasePreparation!: () => void;
+    f.conversationOptions.prepareAgentContext = async () =>
+      new Promise<void>((resolve) => {
+        releasePreparation = resolve;
+      });
+    let authorized = true;
+    const directed = f.c.getSubagents()!.control(
+      {
+        requestId: 'revoke-during-prepare',
+        action: 'message',
+        threadId: 'child',
+        text: 'Next check',
+      },
+      () => {
+        if (!authorized) throw Error('Operator revoked');
+      },
+    );
+    await vi.waitFor(() => expect(releasePreparation).toBeTypeOf('function'));
+    authorized = false;
+    releasePreparation();
+    expect(await directed).toBe('rejected');
+    expect(
+      f.rpc.request.mock.calls.filter(
+        ([method, params]) => method === 'turn/start' && params.threadId === 'child',
+      ),
+    ).toHaveLength(0);
+    expect(f.c.getSubagents()!.list()[0].state).toBe('completed');
+    f.conversationOptions.prepareAgentContext = undefined;
+    expect(
+      f.events.some((event) => JSON.stringify(event).includes('nativeSubagentCommandId')),
+    ).toBe(true);
+    f.callbacks.onNotification('turn/completed', {
+      threadId: f.getProviderThread(),
+      turn: { id: 'turn-1', status: 'completed' },
+    });
+    await vi.waitFor(() => expect(f.c.queue()[0].status).toBe('completed'));
+  },
+);
 
 it('pauses and interrupts the original parent before waiting for slow child cancellation', async () => {
   const f = await setup();
@@ -3163,10 +3197,14 @@ it.each(['functions', '', null, undefined])(
   },
 );
 
-async function setupOwnedRefusal(authorize?: (signal: AbortSignal) => Promise<void>) {
+async function setupOwnedRefusal(
+  authorize?: (signal: AbortSignal) => Promise<void>,
+  transportClosure?: CodexConversationOptions['transportClosure'],
+) {
   const args: Parameters<typeof setup> = [];
   const close = vi.fn();
   args[25] = authorize;
+  args[29] = transportClosure;
   args[32] = (owner, client) => {
     const lease: FrozenHostCodexBootstrapLease = {
       client,
@@ -3748,6 +3786,51 @@ it('reports transport loss during an active turn and preserves its unknown outco
   );
   expect(c.isPaused()).toBe(true);
   expect(c.queue()[0]).toMatchObject({ status: 'interrupted' });
+});
+
+it('reports the reviewed workspace failure through the owned terminal conversation and durable reporter', async () => {
+  const f = await setupOwnedRefusal(undefined, 'terminal');
+  const history = new EventStore(':memory:');
+  try {
+    history.upsertSession({ sessionId: 'app', cwd: '/workspace' });
+    history.insertSendCommand('branch-loss', 'app', { text: 'work' });
+    const saved = history.getSendCommand('branch-loss');
+    f.onError.mockImplementation((error) =>
+      reportRetainedRuntimeFailure({
+        store: history,
+        sessionId: 'app',
+        commandId: 'branch-loss',
+        error,
+      }),
+    );
+    await f.c.send({ id: 'branch-loss', prompt: 'work' });
+    await f.c.send({ id: 'saved-next', prompt: 'next' });
+    const failure = new SessionRuntimeError('workspace_branch_changed', {
+      cause: Error('SECRET /private/checkout'),
+    });
+    f.callbacks.onClose(failure);
+    f.callbacks.onClose(new CodexTransportError('connection'));
+    expect(f.onError).toHaveBeenCalledOnce();
+    expect(f.onError).toHaveBeenCalledWith(failure);
+    const errors = history.getSessionEvents('app').filter((event) => event.type === 'error');
+    expect(errors).toHaveLength(1);
+    expect(errors[0].payload).toMatchObject({
+      error: expect.stringContaining('assigned task branch'),
+      runtimeFailure: {
+        runtimeFailureCode: 'workspace_branch_changed',
+        diagnosticId: failure.diagnosticId,
+      },
+    });
+    expect(JSON.stringify(errors)).not.toMatch(/SECRET|private/);
+    expect(history.getSendCommand('branch-loss')).toEqual(saved);
+    expect(f.c.queue().map(({ status }) => status)).toEqual(['interrupted', 'queued']);
+    expect(f.store.commandLifecycle('app', f.getBinding(), 'branch-loss')).toMatchObject({
+      state: 'ambiguous_effect',
+    });
+    expect(f.requests.filter(({ method }) => method === 'turn/start')).toHaveLength(1);
+  } finally {
+    history.close();
+  }
 });
 
 it.each(['typed', 'unclassified', 'observer-failure'] as const)(

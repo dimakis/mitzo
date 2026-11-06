@@ -808,7 +808,10 @@ export class CodexConversation {
           // any exact provider completion and fences reentrant close callbacks.
           if (active && !active.providerCompletionRetained && !active.interruptRequested)
             this.opts.onError?.(
-              error instanceof CodexTransportError ? error : new CodexTransportError('connection'),
+              findSessionRuntimeError(error) ??
+                (error instanceof CodexTransportError
+                  ? error
+                  : new CodexTransportError('connection')),
             );
         }
       }

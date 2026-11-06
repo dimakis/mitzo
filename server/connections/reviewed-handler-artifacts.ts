@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.914-owned-tool-refusal-continuation';
+  'v1.0.915-owned-refusal-reporting-integration';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -211,7 +211,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     '8b84dee708163ed91ad31a4ac675aa966b02543044fdb3454f0ac826c51ef796',
   '../codex-subagent-routes.ts': '626354e56b192b4c660f9a2187aae075c77ed93cee3569769df391556b761211',
   '../codex-subagent-store.ts': '7588706bb083b0a7d24e22496d1cff00376010b8a086e02bc0e618d56adc2842',
-  '../codex-subagents.ts': 'ee24c6a1f9a9f0b73a9a8ff8469370761fbd5f6e0569a4976064398b32e1e061',
+  '../codex-subagents.ts': 'c8c1e5381d11a0068fb79ab1c657e7999826d1f583feeb3d5efbbb497df02287',
   '../__tests__/notification-routes.test.ts':
     'ec75e73c1c175493818ce14fe3ef7bdd09379cbc3427338b2ee4e9a5269b46f4',
   '../__tests__/symposium-review-app.test.ts':
@@ -992,7 +992,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/codex-chat-session.test.ts':
     '7d7630b926023cecefcb822916cd79f2c0b54965dd4ece2426d9cb47673e9f70',
   '../__tests__/codex-conversation.test.ts':
-    'a5465e1a230be4939f1810ad4715d7bc38c60ae0d64471e4f18f0d17c4c1e973',
+    '7026044b3d9acddad518da9c87a35bde19154ecd874b9446f16c1b5788c3a8fc',
   '../__tests__/codex-native-approvals.test.ts':
     'c5a3d49ff329f067ac3a3df674136b2249dd0e57f14e92ea391fd6b07ecfeeb3',
   '../__tests__/codex-native-artifact-qualification.test.ts':
@@ -1822,7 +1822,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../scripts/attest-knowledge-runtime.py':
     '5737ec8e7fc19a17b6ef5a35c1898e834d2a5d2d2a9f7593b607eaaf1971cfeb',
   '../agent-context-sandbox.ts': '8b61edc17ccc94bc95eae3796e68a0beb9540534e3bfbb348a04154c41995416',
-  '../codex-conversation.ts': '857de5c8d542169bb1a136f9f0e1ea8e52213f06c3adf515e6ed9b210c2893ab',
+  '../codex-conversation.ts': '98368b7ce6070b810c23aacab4757ebde82499c5f480af449b63509e10fa870f',
   '../codex-conversation-store.ts':
     '2ce545e189e5911a18d2b3fce80da8523381e872ea701f10d03af2c04b81ed38',
   '../symposium-custodian-ipc.ts':
@@ -2680,7 +2680,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/worktree-fetch-observation.test.ts':
     'e943335de38d924ad7ec1f9334f235bbddb0649914ed1604a27176869a9d8094',
   '../../tests/fixtures/agent-tool-catalog.json':
-    '77d9c61c79b5a51e9d09a4187bbcd39d23ef0fadb8f25a9eb185423f0b9e2a7b',
+    'da16b7873a7112093f477eaff59a27ee04a04b691eada565b83cfae793490709',
   '../../tests/integration/ordinary-local-vertex-chat.test.ts':
     'c4a6a280a24ab2fabe4b1840107dd2588cfc5bd8eabe26aa68f4983d45654f9d',
   '../../packages/sqlite-file-owner/package.json':
