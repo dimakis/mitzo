@@ -1,0 +1,19 @@
+.native-subagents-fixture {
+  display: flex;
+  flex-direction: column;
+  block-size: 100dvh;
+  max-inline-size: 60rem;
+  margin-inline: auto;
+}
+.native-subagents-fixture > header {
+  padding: var(--page-gutter);
+}
+.native-subagents-fixture h1 {
+  margin: 0;
+  font-size: var(--text-lg);
+}
+.native-subagents-fixture-thread {
+  flex: 1;
+  overflow: auto;
+  padding: var(--page-gutter);
+}

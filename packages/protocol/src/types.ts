@@ -121,6 +121,8 @@ export interface RawToolInput {
   description?: string;
   /** Agent tool: the type of subagent (e.g. 'Explore', 'Plan'). */
   subagent_type?: string;
+  /** Spawning command identity, authored by the native adapter after admission. */
+  nativeSubagentCommandId?: string;
   /** Agent tool: the full prompt sent to the subagent. */
   prompt?: string;
 }

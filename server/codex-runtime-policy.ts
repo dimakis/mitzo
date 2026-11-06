@@ -7,6 +7,7 @@ export function codexRuntimeOverrides(
   configuration: unknown,
   workspaceId?: string,
   nativeExecution?: CodexNativeExecutionPolicy,
+  nativeSubagents = false,
 ): Record<string, unknown> {
   const parsed = z
     .object({
@@ -54,6 +55,11 @@ export function codexRuntimeOverrides(
     config['features.unified_exec'] = true;
     config['features.exec_permission_approvals'] = true;
     config['features.request_permissions_tool'] = true;
+    if (nativeSubagents) {
+      config['agents.enabled'] = true;
+      config['features.multi_agent'] = true;
+      config['agents.max_threads'] = 4;
+    }
   }
   // Code-mode-only models dispatch registered host tools through the JS wrapper.
   // This enables that dispatcher; native execution tools remain disabled above.

@@ -107,8 +107,10 @@ Built-in skill listing/reading remains available with the tested CLI flags. This
 is not a general proof against future CLI tool surfaces. Revalidate the generated
 protocol schema and advertised tools when updating Codex.
 
-Restricted skill tool ceilings, images, subagents, and compaction are not supported
-by the Codex route. New conversations advertise Read, Write, Edit, Bash, and
+Restricted skill tool ceilings, images and compaction are not supported
+by this host-tool route. Native Mac execution has a separate
+[subagent implementation](codex-subagents.md); OpenShell and adviser sessions
+keep subagents disabled. New conversations advertise Read, Write, Edit, Bash, and
 AskUserQuestion. Bash is a Mitzo host tool using a separate OS sandbox, not
 Codex-native execution; see [unified permissions](../design/unified-chat-permissions.md). Mutating tools can request a real approval card with
 `require_approval: true`; configured permission policy remains authoritative.
