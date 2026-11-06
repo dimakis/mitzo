@@ -1,4 +1,4 @@
-import './fixtures/offline-user-home.js';
+import { resetOfflineUserEnvironment } from './fixtures/offline-user-home.js';
 import { describe, it, expect, vi, beforeAll, beforeEach, afterAll, afterEach } from 'vitest';
 import type { Server } from 'node:http';
 import { listenOnLoopback, closeTestServer } from './loopback-test-server.js';
@@ -12,6 +12,9 @@ import { EventStore as AuthEventStore } from '../event-store.js';
 import { codexPrivateDirectory, protectCodexProfileRoots } from '../codex-private-path.js';
 import { registerWorkspaceRuntimeAuthorityPaths } from '../workspace-runtime-private-paths.js';
 import { InboxScanner } from '../inbox-scanner.js';
+
+// Individual cases restore environment stubs; keep subsequent reads synthetic too.
+beforeEach(resetOfflineUserEnvironment);
 
 const mockRemoteArtifactRead = vi.hoisted(() => vi.fn());
 const mockRemoteArtifactFactory = vi.hoisted(() => vi.fn());

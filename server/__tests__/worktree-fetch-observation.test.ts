@@ -58,6 +58,12 @@ it('times the actual fetch separately while selecting the current remote commit'
       .filter((s) => s.name === 'local_codex.repository_fetch');
     expect(spans).toHaveLength(1);
     expect(spans[0].status.code).toBe(1);
+    expect(exporter.getFinishedSpans().map((span) => span.name)).toEqual(
+      expect.arrayContaining([
+        'local_codex.repository_base_resolution',
+        'local_codex.repository_commit_resolution',
+      ]),
+    );
     expect(JSON.stringify(spans[0].attributes)).not.toContain(root);
     expect(git('-C', source, 'rev-parse', 'HEAD')).toBe(current);
   } finally {
