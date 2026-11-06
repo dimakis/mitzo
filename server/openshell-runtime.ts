@@ -1786,6 +1786,36 @@ export class OpenShellRuntimeManager {
     return sandbox;
   }
 
+  /** Restart an existing owned resource only; never create a replacement workspace. */
+  async start(
+    conversationId: string,
+    physicalId: string,
+    signal: AbortSignal,
+    assertCurrent: () => void,
+  ): Promise<void> {
+    const sandbox = await this.ownedSandbox(conversationId, physicalId, signal);
+    const owner = this.sandboxOwner(conversationId, sandbox.name);
+    if (!owner || sandbox.labels?.['mitzo.conversation'] !== owner)
+      throw new Error('OpenShell sandbox target name changed');
+    signal.throwIfAborted();
+    assertCurrent();
+    // A lost start response can leave stopped lifecycle custody with an already
+    // Ready physical resource. Reconcile it without repeating the mutation.
+    if (sandbox.phase === 'Ready') return;
+    if (sandbox.phase !== 'Stopped')
+      throw new Error(`OpenShell sandbox is ${sandbox.phase}, not Stopped`);
+    await this.run(['sandbox', ...this.base(), 'start', sandbox.name], signal);
+    const ready = await this.waitForReady(sandbox.name, owner, signal);
+    signal.throwIfAborted();
+    assertCurrent();
+    if (
+      ready.id !== physicalId ||
+      ready.name !== sandbox.name ||
+      ready.labels?.['mitzo.account_provider'] !== this.config.account.provider
+    )
+      throw new Error('OpenShell sandbox identity changed during restart');
+  }
+
   /** Stops only a current, owned Ready sandbox. Callers must fence policy separately. */
   async stop(
     conversationId: string,

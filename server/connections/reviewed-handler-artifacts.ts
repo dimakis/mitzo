@@ -10,8 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.916-owned-refusal-task-authorization-integration';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.917-openshell-stopped-resume';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -2020,7 +2019,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     '9733d55cd1cb15dcf68dd844fd85861bf4fece6f3d46e1926ec9c416dd59d7f2',
   '../task-runtime-guidance.ts': '6e308de61b1579d0cb47a1873b5723c1dda792d8284fcc5abf10752544eb7fec',
   '../knowledge-view.ts': '0582477ca1248067b1c10a97509f0a518343a8aa388f669d8297ef45e87b8559',
-  '../openshell-runtime.ts': '4289834fb795911bc8952a141dd592ad695621e3e43fa590de1395094a5a1c95',
+  '../openshell-runtime.ts': 'a0dc16184faee0564140e6d92c288849a0d900d0c442b7321cfd9a341a5e7189',
   '../codex-admission-preparation.ts':
     '0cb595a8fed20de735d4fa718544baf1a36ccebf3beecc763badd696e4af3098',
   '../codex-chat-session.ts': '7c54bb46821a1b152e8194bfa7e0fbbbb33f37ba1fa3ff137172a9f8bb4d8c1c',
@@ -2099,11 +2098,11 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../openshell-codex-custody.ts':
     '7e08950de4b9e31af2aaa87e5bb8eb14a11322e893a4adc363e6c507fe6b323a',
   '../openshell-lifecycle-controller.ts':
-    'a064563244ca9757a114b92874f578a3852d32dd4eca30f87142f8212eac5c05',
+    '1bc9443f579eeb23031841b84c01e6ddccb008d85b516293b79dca6f7001463d',
   '../ordinary-codex-continuation-status.ts':
     '8e30b018653e11d5197e6215d0286c03474dfb815fd0b7b08286b38a23472992',
   '../ordinary-openshell-codex-entry-owner.ts':
-    'afa4868dcb236c1317e1cc496f47bee719bea5c9750cb19741f5093c5ca3f4d9',
+    'b13b1d506b4219a188b523c1313d30dae6aca8a9b500a4ad0c82ed625bcf20dd',
   '../ordinary-openshell-codex-entry.ts':
     'd4f178ca00b539a200e89d2fcfeac40ebf11bf32e2464bd578f1d6c9d31419b4',
   '../ordinary-openshell-codex-owned-runtime.ts':

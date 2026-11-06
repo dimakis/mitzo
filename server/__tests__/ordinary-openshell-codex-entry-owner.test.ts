@@ -35,6 +35,9 @@ const boundaries = vi.hoisted(() => ({
   identity: vi.fn(),
   ready: vi.fn(async () => {}),
   provider: vi.fn(async () => {}),
+  physicalOwner: vi.fn(),
+  resumePhysical: vi.fn(async () => {}),
+  inspectPhysical: vi.fn(async () => ({ id: 'original-id', phase: 'Ready' })),
   route: vi.fn(() => ({ kind: 'api', provider: 'provider' })),
   seed: vi.fn(async () => {}),
   workspace: { state: 'ready', baseOid: 'base', sourceDigest: 'source', sourceReleased: false },
@@ -51,7 +54,18 @@ vi.mock('../agent-library-transport.js', () => ({
 vi.mock('../agent-context-authority.js', () => ({
   retainAgentContextAuthority: () => ({ assertCurrent: boundaries.identity, release() {} }),
 }));
+vi.mock('../auth.js', async (original) => ({
+  ...(await original<object>()),
+  hasPersistentRevocationAuthority: () => true,
+}));
 vi.mock('../agent-library-runtime.js', () => ({ getAgentLibrary: () => ({}) }));
+vi.mock('../openshell-lifecycle-controller.js', () => ({
+  assertOrdinaryOpenShellPhysicalOwner: boundaries.physicalOwner,
+  resumeOrdinaryOpenShellPhysicalOwner: boundaries.resumePhysical,
+}));
+vi.mock('../openshell-chat-continuity.js', () => ({
+  ordinaryOpenShellCodexContinuationTarget: (input: { target: unknown }) => input.target,
+}));
 vi.mock('../ordinary-codex-agent-profile.js', () => ({
   readOrdinaryCodexAgentProfile: () => ({ definition: {} }),
 }));
@@ -88,6 +102,7 @@ vi.mock('../openshell-runtime.js', async (original) => ({
   verifiedOpenShellSeed: vi.fn((config) => config.seed),
   OpenShellRuntimeManager: class {
     verifyAPIAccountProvider = boundaries.provider;
+    inspect = boundaries.inspectPhysical;
   },
 }));
 const roots: string[] = [];
@@ -105,20 +120,25 @@ afterEach(() => {
   vi.unstubAllEnvs();
 });
 
-function ownerFixture() {
+function ownerFixture(retained?: import('../codex-conversation-store.js').ArtifactRuntime) {
   const f = fixture();
   vi.stubEnv('MITZO_ORDINARY_OPENSHELL_CODEX_ENABLED', '1');
   vi.stubEnv('MITZO_ORDINARY_OPENSHELL_CODEX_TARGET_FILE', f.selector);
   createOrdinaryOpenShellCodexEntryOwner({
-    events: {} as never,
-    nativeStore: { hasConversation: () => false } as never,
+    events: { getSessionRuntimeBinding: () => undefined } as never,
+    nativeStore: {
+      hasConversation: () => false,
+      readOpenShellCustody: () => undefined,
+      readArtifactRuntime: () => retained,
+    } as never,
+    ...(retained ? { resume: true } : {}),
     account: boundaries.account,
     sessionId: 'session',
     workspaceId: 'workspace',
     taskRoot: f.root,
     operatorConnectionId: 'operator',
     signal: new AbortController().signal,
-    readRetained: () => undefined,
+    readRetained: () => retained,
     dispatch: vi.fn(),
     dispatchContinuation: vi.fn(),
     close: vi.fn(),
@@ -146,6 +166,35 @@ it('qualifies the read-only provider before one fresh readiness check per operat
   // Three identity/route fences per operation: before provider observation,
   // before workspace startup, and after its possible asynchronous work.
   expect(boundaries.route).toHaveBeenCalledTimes(6);
+});
+
+it('qualifies credentials before restarting cold retained custody and verifies readiness before dispatch', async () => {
+  const retained = {
+    runtime: { sandboxId: 'original-id', sandboxName: 'original-name' },
+  } as import('../codex-conversation-store.js').ArtifactRuntime;
+  const { owner, expected } = ownerFixture(retained);
+  boundaries.resumePhysical.mockImplementationOnce(async () => {
+    boundaries.order.push('restart');
+  });
+  boundaries.inspectPhysical.mockImplementationOnce(async () => {
+    boundaries.order.push('inspect');
+    return { id: 'original-id', phase: 'Ready' };
+  });
+  await owner.assertCurrent(expected);
+  expect(boundaries.order).toEqual(['provider', 'ready', 'restart', 'inspect']);
+  expect(boundaries.physicalOwner).toHaveBeenCalledWith(
+    'session',
+    retained,
+    boundaries.account,
+    true,
+  );
+  expect(boundaries.resumePhysical).toHaveBeenCalledWith(
+    'session',
+    retained,
+    boundaries.account,
+    expect.anything(),
+    expect.any(Function),
+  );
 });
 
 it.each(['unavailable', 'rotation', 'revocation'])(
