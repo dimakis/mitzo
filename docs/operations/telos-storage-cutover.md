@@ -17,6 +17,8 @@ change. Codex and Claude share this retained storage registry. Claude's outer
 filesystem boundary is required even without credential isolation or workspace
 runtime enrollment; this boundary is currently qualified for macOS and refuses
 unsupported platforms. Controller project hooks use the same filesystem fence.
+Executable boot-context fallback also requires that fence; HTTP context retrieval
+from ContexGin remains available without local command execution.
 The source-import credential is never inherited by provider children. Providers
 use host tools and HTTP APIs.
 

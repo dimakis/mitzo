@@ -5,7 +5,7 @@ import { PassThrough } from 'node:stream';
 import { mkdtempSync, mkdirSync, readFileSync, realpathSync, rmSync, symlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { credentialSdkBoundary } from '../credential-sdk-boundary.js';
+import { credentialSdkBoundary, runtimeFilesystemSdkBoundary } from '../credential-sdk-boundary.js';
 import { isPrivateCodexPath } from '../codex-private-path.js';
 import type { SandboxWorkerPayload } from '../sandboxed-command-worker.js';
 
@@ -70,6 +70,25 @@ it('protects Telos for Claude without Keychain or workspace enrollment and strip
   expect(payload.config.filesystem.denyWrite).toContain(path);
   expect(payload.config.filesystem.denyWrite).not.toContain(root);
 });
+
+it.each(['provider', 'controller'] as const)(
+  'refuses an unqualified %s platform without an unfenced child',
+  (kind) => {
+    const boundary =
+      kind === 'provider' ? credentialSdkBoundary('linux') : runtimeFilesystemSdkBoundary('linux');
+    expect(boundary).toBeDefined();
+    expect(boundary!.credentialIsolation).toBe(false);
+    expect(() =>
+      boundary!.spawnClaudeCodeProcess({
+        command: process.execPath,
+        args: [],
+        env: {},
+        signal: new AbortController().signal,
+      }),
+    ).toThrow(/requires macOS/);
+    expect(mocked.spawn).not.toHaveBeenCalled();
+  },
+);
 
 it('protects controller environment files and retained copies without Keychain isolation', () => {
   const controller = join(root, 'controller');
