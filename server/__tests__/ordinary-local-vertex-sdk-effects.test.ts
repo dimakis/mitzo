@@ -69,6 +69,7 @@ it('passes final async and sync native authority into actual SDK profile handler
   expect([...sdk.handlers.keys()]).toEqual([
     'SymposiumProposeProfile',
     'SymposiumReadProfiles',
+    'TaskExecution',
     'SchedulePrompt',
     'SessionTimers',
     'SendSessionMessage',

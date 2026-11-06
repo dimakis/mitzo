@@ -40,19 +40,20 @@ import { nativeGrantFence } from '../codex-native-grant-fence.js';
 import { NativeApprovalRequestSchema } from '../codex-native-permission-protocol.js';
 import type { ManagedSession } from '../session-registry.js';
 
+let fixtureHome: string;
 beforeEach(() => {
-  for (const name of [
-    'MITZO_CODEX_PRIVATE_DIR',
-    'CODEX_HOME',
-    'MITZO_KEYCHAIN_HELPER',
-    'MITZO_KEYCHAIN_CONNECTIONS_DIR',
-    'MITZO_ACCOUNT_PROFILES_FILE',
-    'MITZO_ORDINARY_OPENSHELL_CODEX_TARGET_FILE',
-    'MITZO_OPENAI_ACCOUNT_ENROLLMENT_DB',
-  ])
-    vi.stubEnv(name, undefined);
+  fixtureHome = realpathSync(mkdtempSync(join(tmpdir(), 'mitzo-native-policy-home-')));
+  state.home = fixtureHome;
+  for (const name of Object.keys(process.env)) {
+    if (name.startsWith('MITZO_')) vi.stubEnv(name, undefined);
+  }
+  vi.stubEnv('CODEX_HOME', join(fixtureHome, '.codex'));
 });
-afterEach(() => vi.unstubAllEnvs());
+afterEach(() => {
+  vi.unstubAllEnvs();
+  state.home = undefined;
+  rmSync(fixtureHome, { recursive: true, force: true });
+});
 
 it('uses the host GitHub CLI login with native network and external Git approvals, retaining other credential denials', () => {
   const root = realpathSync(mkdtempSync(join(tmpdir(), 'mitzo-native-github-')));

@@ -311,7 +311,7 @@
     "id": "mitzo:PrepareLocalRepository",
     "version": 1,
     "name": "PrepareLocalRepository",
-    "description": "Prepare an isolated repository task. Choose exactly one: path for an existing Mac checkout OR source for existing/clone/new. For a new managed checkout use {source:{kind:\"new\",name:\"my-project\"}} without path. This tool assigns the task directory. Existing and cloned sources use the freshly acquired remote default branch unless an explicit base is selected. Source work remains intact. The task becomes active after this turn finishes. Creating remote hosting requires a separate explicit request. Use native shell and file tools for project setup: mkdir, git init, git clone, git remote add and git remote set-url. Work in the user's requested directory, supplying cwd or git -C on subsequent commands. For writes outside admitted roots, request exact native filesystem permission for the destination and any parent that must be created; request network permission when needed. PrepareLocalRepository is optional for a Mitzo-managed isolated checkout, not a prerequisite for ordinary project work. A failed or pending managed preparation does not block separately authorized native work. Do not change the chat's admitted workspace or treat an existing preparation as permission for a different directory.",
+    "description": "Prepare an isolated repository task. Choose exactly one: path for an existing Mac checkout OR source for existing/clone/new. For a new managed checkout use {source:{kind:\"new\",name:\"my-project\"}} without path. This tool assigns the task directory. Existing and cloned sources use the freshly acquired remote default branch unless an explicit base is selected. Source work remains intact. The task becomes active after this turn finishes. Creating remote hosting requires a separate explicit request. Use native shell and file tools for project setup: mkdir, git init, git clone, git remote add and git remote set-url. Work in the user's requested directory, supplying cwd or git -C on subsequent commands. If Mitzo has already assigned a task branch, develop, commit and publish from that branch; do not switch or rename it to follow a repository's generic create-a-feature-branch instructions. The assigned branch already provides task isolation, and changing it interrupts workspace validation. For writes outside admitted roots, request exact native filesystem permission for the destination and any parent that must be created; request network permission when needed. PrepareLocalRepository is optional for a Mitzo-managed isolated checkout, not a prerequisite for ordinary project work. A failed or pending managed preparation does not block separately authorized native work. Do not change the chat's admitted workspace or treat an existing preparation as permission for a different directory.",
     "source": "Local repositories",
     "required": false,
     "behavior": "write",
@@ -415,6 +415,17 @@
     "required": false,
     "behavior": "mixed",
     "routes": ["codex-owned-local"],
+    "requirement": "Existing session permissions, cancellation and runtime admission apply."
+  },
+  {
+    "id": "mitzo:TaskExecution",
+    "version": 1,
+    "name": "TaskExecution",
+    "description": "Approve one bounded task for this chat and selected same-operator workers, then run routine host-workspace commands, local commits and repository reads without repeated command approvals. Authorize requires title and requestId; select memberSessionIds, repositories, network (none/loopback/internet) and durationMinutes. The card displays exact registered host roots and accounts. Run/commit/github_read require grantId and a fresh requestId; run uses command and optional cwd/timeoutMs, commit uses files/message, github_read uses endpoint/access/view. Status lists your current grants; revoke ends a task owned by this chat. Reuse requestId after uncertainty; an interrupted run is never replayed automatically. Native sandbox tools keep their own policy. This does not authorize merges, production, host credentials or writes outside the selected task roots.",
+    "source": "Session automation",
+    "required": false,
+    "behavior": "mixed",
+    "routes": ["local-api", "codex", "codex-owned-local"],
     "requirement": "Existing session permissions, cancellation and runtime admission apply."
   },
   {

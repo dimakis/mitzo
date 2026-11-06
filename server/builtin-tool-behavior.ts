@@ -24,6 +24,7 @@ const reads = new Set([
   'ReadPastSession',
 ]);
 const mixed = new Set([
+  'TaskExecution',
   'TelosManageItem',
   'Bash',
   'ConnectionRequest',
@@ -54,6 +55,8 @@ export function isReadOnlyBuiltinToolCall(name: string, input: Record<string, un
   if (name === 'RequestWebAccess') return input.operation === 'fetch';
   if (name === 'SessionTimers')
     return ['list', 'sessions', 'read', 'delivery'].includes(String(input.operation));
+  if (name === 'TaskExecution')
+    return input.operation === 'status' || input.operation === 'github_read';
   if (name === 'ConnectionRequest') return input.method === 'GET' || input.method === 'HEAD';
   if (name === 'TelosManageItem') return input.operation === 'read';
   return false;
