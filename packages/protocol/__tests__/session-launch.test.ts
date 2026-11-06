@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { SessionLaunchConfigSchema, StartSessionInputSchema } from '../src/session-launch.js';
+import {
+  SessionLaunchConfigSchema,
+  StartSessionInputSchema,
+  resolveSessionLaunchConfig,
+} from '../src/session-launch.js';
 
 describe('saved session launch intent', () => {
   const configuration = {
@@ -47,5 +51,18 @@ describe('saved session launch intent', () => {
     };
     expect(StartSessionInputSchema.parse(input)).toEqual(input);
     expect(StartSessionInputSchema.safeParse({ ...input, operatorId: 'user' }).success).toBe(false);
+  });
+  it('lets an agent override only thinking while retaining the saved account and exact host', () => {
+    const saved = SessionLaunchConfigSchema.parse(configuration);
+    const input = StartSessionInputSchema.parse({
+      requestId: 'e37fb730-3b66-4b9a-92c9-3977f2d5d9f1',
+      title: 'Quick task',
+      prompt: 'Check this',
+      overrides: { runtime: { account: { reasoningEffort: 'low' } } },
+    });
+    const resolved = resolveSessionLaunchConfig(saved, input.overrides);
+    expect(resolved.runtime.account).toEqual({ ...saved.runtime.account, reasoningEffort: 'low' });
+    expect(resolved.runtime.execution).toEqual(saved.runtime.execution);
+    expect(resolved.runtime.accountReference).toEqual(saved.runtime.accountReference);
   });
 });

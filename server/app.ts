@@ -236,6 +236,8 @@ import { CollaborationApplicationReview } from './collaboration-application-revi
 import { readAgentLibraryProfile } from './agent-library-transport.js';
 import { createSymposiumProfileRouter } from './symposium-profile-routes.js';
 import { SymposiumProfileProposalStore } from './symposium-profile-proposals.js';
+import { initializeSessionLaunches, closeSessionLaunches } from './session-launch-controller.js';
+import { createSessionLaunchRouter } from './session-launch-routes.js';
 import { createSymposiumProfileProposalRouter } from './symposium-profile-proposal-routes.js';
 import {
   readCodexQueue,
@@ -1268,6 +1270,24 @@ const symposiumAccessRequests = new SymposiumAccessRequests(
 );
 const symposiumProfileProposalStore = new SymposiumProfileProposalStore(
   join(BASE_REPO || '.', '.mitzo', 'events.db'),
+);
+const sessionLaunchController = initializeSessionLaunches(
+  join(BASE_REPO || '.', '.mitzo', 'events.db'),
+  (sessionId) => sseRegistry.broadcast('session_launch_changed', { sessionId }),
+);
+mountObservedRouter(
+  app,
+  '/api/session-launch',
+  operatorAuthMiddleware,
+  createSessionLaunchRouter({
+    controller: sessionLaunchController,
+    session: (id) => {
+      const session = eventStore.getSession(id);
+      return session && session.accountBinding && isAvailableTelosWorkConversation(session)
+        ? { title: session.summary || 'Originating chat' }
+        : undefined;
+    },
+  }),
 );
 mountObservedRouter(
   app,
@@ -5839,6 +5859,7 @@ export function closeIdleApplicationResources(): Promise<void> {
     chatSseRegistry.destroy();
     registry.dispose();
     closeAgentTasks();
+    closeSessionLaunches();
     closeAgentLibrary();
     symposiumProfileStore.close();
     symposiumAgentContextStore.close();

@@ -1,0 +1,117 @@
+.session-launch-cards {
+  display: grid;
+  gap: var(--space-3);
+}
+.session-launch-configuration {
+  display: grid;
+  gap: var(--space-4);
+  min-width: 0;
+}
+.session-launch-card {
+  display: grid;
+  gap: var(--space-2);
+  padding: var(--space-4);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-panel);
+  background: var(--color-panel);
+  overflow-wrap: anywhere;
+}
+.session-launch-summary,
+.session-launch-origin {
+  color: var(--color-muted);
+  font-size: var(--text-sm);
+}
+.session-launch-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+}
+.session-launch-actions a,
+.session-launch-origin a {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  min-height: var(--control-height);
+  color: var(--color-accent);
+  overflow-wrap: anywhere;
+}
+.session-launch-card button {
+  min-height: var(--control-height);
+}
+.session-launch-dialog .home-dialog-content {
+  display: flex;
+  flex-direction: column;
+  max-height: calc(100dvh - 2 * var(--page-gutter) - 2px);
+}
+.session-launch-dialog header {
+  flex: none;
+}
+.session-launch-form {
+  display: grid;
+  gap: var(--space-4);
+  min-height: 0;
+  min-width: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  margin-top: var(--space-4);
+  padding: var(--space-1);
+}
+.session-launch-form p {
+  margin: 0;
+}
+.session-launch-form fieldset {
+  display: grid;
+  gap: var(--space-4);
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.session-launch-form label {
+  display: grid;
+  gap: var(--space-2);
+}
+.session-launch-form :is(input:not([type='checkbox']), textarea, select) {
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  min-height: var(--control-height);
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-control);
+  background: var(--color-panel);
+  color: var(--color-text);
+  font: inherit;
+  font-size: var(--text-base);
+}
+.session-launch-form textarea {
+  min-height: calc(var(--control-height) * 3);
+  resize: vertical;
+}
+.session-launch-form .session-launch-check {
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  min-height: var(--control-height);
+}
+.session-launch-check input {
+  width: var(--space-4);
+  height: var(--space-4);
+  margin: 0;
+  accent-color: var(--color-accent);
+}
+.session-launch-form .chat-agent-profile {
+  align-items: stretch;
+}
+.session-launch-form .chat-agent-profile label {
+  align-items: stretch;
+  flex-direction: column;
+  flex: 1 1 100%;
+}
+.session-launch-form :focus-visible,
+.session-launch-card :focus-visible,
+.session-launch-origin :focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: var(--space-1);
+}

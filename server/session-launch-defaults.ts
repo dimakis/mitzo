@@ -22,7 +22,10 @@ export class SessionLaunchDefaultsStore {
     )`);
   }
   get(owner: string): SessionLaunchDefaults {
-    const row = this.db
+    return this.read(this.db, owner);
+  }
+  private read(database: Database.Database, owner: string): SessionLaunchDefaults {
+    const row = database
       .prepare('SELECT revision,configuration FROM session_launch_defaults WHERE owner=?')
       .get(owner) as { revision: number; configuration: string | null } | undefined;
     return row
@@ -36,29 +39,34 @@ export class SessionLaunchDefaultsStore {
       : { revision: 0, configuration: null };
   }
   save(owner: string, raw: unknown): SessionLaunchDefaults {
+    return this.db.transaction(() => this.saveInTransaction(owner, raw, this.db)).immediate();
+  }
+  /** Approval and its optional default save commit through one SQLite writer. */
+  saveInTransaction(
+    owner: string,
+    raw: unknown,
+    database: Database.Database,
+  ): SessionLaunchDefaults {
     const input = SessionLaunchDefaultSaveSchema.parse(raw);
     if (!owner.trim()) throw Error('Authenticated operator required');
-    return this.db
-      .transaction(() => {
-        const previous = this.get(owner);
-        if (previous.revision !== input.expectedRevision)
-          throw new SessionLaunchDefaultsConflict(
-            'Session defaults changed. Reload them before saving.',
-          );
-        const revision = previous.revision + 1;
-        this.db
-          .prepare(
-            `INSERT INTO session_launch_defaults(owner,revision,configuration) VALUES (?,?,?)
+    if (!database.inTransaction) throw Error('An owning approval transaction is required');
+    const previous = this.read(database, owner);
+    if (previous.revision !== input.expectedRevision)
+      throw new SessionLaunchDefaultsConflict(
+        'Session defaults changed. Reload them before saving.',
+      );
+    const revision = previous.revision + 1;
+    database
+      .prepare(
+        `INSERT INTO session_launch_defaults(owner,revision,configuration) VALUES (?,?,?)
         ON CONFLICT(owner) DO UPDATE SET revision=excluded.revision,configuration=excluded.configuration`,
-          )
-          .run(
-            owner,
-            revision,
-            input.configuration === null ? null : JSON.stringify(input.configuration),
-          );
-        return { revision, configuration: input.configuration };
-      })
-      .immediate();
+      )
+      .run(
+        owner,
+        revision,
+        input.configuration === null ? null : JSON.stringify(input.configuration),
+      );
+    return { revision, configuration: input.configuration };
   }
   close() {
     this.db.close();

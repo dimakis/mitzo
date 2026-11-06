@@ -1,5 +1,29 @@
 # Mitzo UI design contract
 
+## Agent-created ordinary sessions
+
+An agent's session proposal appears as a compact quiet card in its originating
+chat. Review uses the shared `HomeDialog`, existing account/model, agent and
+execution pickers, semantic colors, type/spacing/radius scales and shared controls.
+Title, handoff and configuration are editable before **Approve & start**; saving
+the configuration as the persistent default is an explicit separate choice. The
+original composer and draft remain mounted and approval does not navigate away.
+
+The receipt distinguishes waiting for approval, created, starting, started,
+cancelled, failed and unconfirmed states. **Open chat** uses the existing
+`UiIcon` arrow geometry with a labelled touch-sized link. The new conversation
+shows a named **Started from** link above its handoff and in existing Session
+details. No emoji, second settings theme or change to the approved Chat settings
+hierarchy is introduced. Uncertain mutations expose a read-only **Check request**
+action rather than automatically repeating an approval.
+
+The all-intercept `session-launch` fixture checks the shared review and receipt
+on phone and desktop, dark Mint/System and light Teal/Georgia, including larger
+text, narrow wrapping, 44px controls, Escape/focus restoration, full Local Mac
+target retention and the original draft. These tests start no backend or model;
+browser execution and capture evidence must be reported separately from fixture
+availability.
+
 ## Native Codex subagents
 
 Keep one collapsed subagent count/status row within the spawning agent's activity.

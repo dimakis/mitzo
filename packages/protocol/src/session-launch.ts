@@ -37,7 +37,14 @@ export const SessionLaunchOverridesSchema = SessionLaunchConfigSchema.omit({
 })
   .partial()
   .extend({
-    runtime: SessionLaunchConfigSchema.shape.runtime.omit({ version: true }).partial().optional(),
+    runtime: SessionLaunchConfigSchema.shape.runtime
+      .omit({ version: true })
+      .partial()
+      .extend({
+        account: account.partial().nullable().optional(),
+        execution: execution.partial().optional(),
+      })
+      .optional(),
   });
 export const StartSessionInputSchema = z.strictObject({
   requestId: z.uuid(),
@@ -94,8 +101,29 @@ export function resolveSessionLaunchConfig(
   raw?: z.infer<typeof SessionLaunchOverridesSchema>,
 ): SessionLaunchConfig {
   const overrides = SessionLaunchOverridesSchema.parse(raw ?? {});
-  const runtime = { ...saved.runtime, ...overrides.runtime };
-  if (overrides.runtime?.account !== undefined && overrides.runtime.accountReference === undefined)
+  const runtime = {
+    ...saved.runtime,
+    ...overrides.runtime,
+    account:
+      overrides.runtime?.account === null
+        ? null
+        : overrides.runtime?.account === undefined
+          ? saved.runtime.account
+          : { ...saved.runtime.account, ...overrides.runtime.account },
+    execution: { ...saved.runtime.execution, ...overrides.runtime?.execution },
+  };
+  if (
+    overrides.runtime?.execution?.location &&
+    overrides.runtime.execution.location !== saved.runtime.execution.location &&
+    overrides.runtime.execution.targetId === undefined
+  )
+    runtime.execution.targetId = null;
+  if (
+    (overrides.runtime?.account === null ||
+      (overrides.runtime?.account?.accountId !== undefined &&
+        overrides.runtime.account.accountId !== saved.runtime.account?.accountId)) &&
+    overrides.runtime.accountReference === undefined
+  )
     runtime.accountReference = null;
   return SessionLaunchConfigSchema.parse({ ...saved, ...overrides, runtime });
 }

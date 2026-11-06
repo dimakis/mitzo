@@ -3,6 +3,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { SessionLaunchDefaultsStore } from '../session-launch-defaults.js';
+import { SessionLaunchStore } from '../session-launch-store.js';
 
 const configuration = {
   version: 1 as const,
@@ -29,6 +30,71 @@ function path() {
 }
 
 describe('persistent complete session defaults', () => {
+  it('commits defaults with approval and leaves them unchanged for stale or conflicting approval', () => {
+    const file = path();
+    const defaults = new SessionLaunchDefaultsStore(file);
+    const launches = new SessionLaunchStore(file);
+    const request = launches.propose({
+      operatorId: 'user',
+      sourceSessionId: 'source',
+      requestId: '4d51e33b-e58b-4e57-ab37-779ab19917ec',
+      title: 'New chat',
+      prompt: 'Handoff',
+      configuration,
+    });
+    const edits = { title: request.title, prompt: request.prompt, configuration };
+    const save = (database: import('better-sqlite3').Database) => {
+      defaults.saveInTransaction('user', { expectedRevision: 0, configuration }, database);
+    };
+    expect(() => launches.approve(request.proposalId, 'user', edits, 99, save)).toThrow(
+      /revision/i,
+    );
+    expect(defaults.get('user').revision).toBe(0);
+    launches.approve(request.proposalId, 'user', edits, 1, save);
+    expect(defaults.get('user')).toEqual({ revision: 1, configuration });
+    expect(() =>
+      launches.approve(request.proposalId, 'user', { ...edits, title: 'Changed' }, 1, save),
+    ).toThrow(/identity/i);
+    expect(defaults.get('user').revision).toBe(1);
+    defaults.close();
+    launches.close();
+  });
+  it('rolls back the approval when another device changed the default during review', () => {
+    const file = path();
+    const defaults = new SessionLaunchDefaultsStore(file);
+    const launches = new SessionLaunchStore(file);
+    const request = launches.propose({
+      operatorId: 'user',
+      sourceSessionId: 'source',
+      requestId: '57c494af-a810-4c9b-90f7-11745002a46a',
+      title: 'New chat',
+      prompt: 'Handoff',
+      configuration,
+    });
+    defaults.save('user', { expectedRevision: 0, configuration });
+    expect(() =>
+      launches.approve(
+        request.proposalId,
+        'user',
+        { title: request.title, prompt: request.prompt, configuration },
+        1,
+        (database) => {
+          defaults.saveInTransaction(
+            'user',
+            { expectedRevision: 0, configuration: null },
+            database,
+          );
+        },
+      ),
+    ).toThrow(/changed/i);
+    expect(launches.get(request.proposalId, 'user')).toMatchObject({
+      state: 'pending',
+      allocationId: null,
+    });
+    expect(defaults.get('user').configuration).toEqual(configuration);
+    defaults.close();
+    launches.close();
+  });
   it('survives reopening the store with the same exact host and settings', () => {
     const file = path();
     const first = new SessionLaunchDefaultsStore(file);
