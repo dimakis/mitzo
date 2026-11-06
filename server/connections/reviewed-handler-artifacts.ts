@@ -10,8 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.912-symposium-message-selection-integration';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.913-agent-operator-retention';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -267,7 +266,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/session-prompt-router.test.ts':
     'c8020156c5547dfa3acba70253d14de48adca9a3ed936818b185a164ed3dc217',
   '../__tests__/session-prompt-tools.test.ts':
-    '62e4b7492581b6843908e2931674ff6361de87fff4dc28bc2327fdaf185087f5',
+    'ce8fecb4e894e9b4e7b2868d8c03fc75549411fab84c571fa88e0563c6a72246',
   '../session-prompt-definitions.ts':
     '9c7abeec70d2dfbd584e6dd27d53ce022e953eba8013752522104eeca5319b8e',
   '../session-prompt-dispatch.ts':
@@ -275,7 +274,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../session-prompt-router.ts': '4d11907d907fb6fe0df41cbdd9ecd25336c2e647be761f55cba7e01539aebb7a',
   '../session-prompt-runtime.ts':
     '8ab804b640c6f14f7e03d581b54f60fa14d77347833b671fb6cd1c76b42ddd1b',
-  '../session-prompt-tools.ts': '6c9aeafad0d1498179933ff8200d25e5c02e08fc134cd5c9c3d12d5f753bd606',
+  '../session-prompt-tools.ts': '86f3ea0c85172a3115cedc9f2ac3e4e5dbb182d57c6b39074fbe963778c86ddb',
   '../../tests/fixtures/session-timers.tsx':
     'a402981a71637d97cbdb786c24011b236c5183ad9f6ffd44363ae188009cb415',
   '../../tests/offline/session-timers.spec.ts':
@@ -927,7 +926,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/existing-local-repository-workspaces.test.ts':
     '5f33af94efe047dbac10317ba60e9461e0e7e7d598fabaab5d11eac476669e46',
   '../__tests__/agent-communication-native.test.ts':
-    '0e17792e0f4931402b9f3843b10e477aa5cb9bdcca952e060885ccce42ddeea7',
+    'f8114ab52ea5a4605250cb059779b9b5cf6e21f000097f81a4812ec8166558cb',
   '../session-history-authorization.ts':
     'd7a470cd7967595e904e0db11107f25896f775a3cd964084c9819ac4711a8191',
   '../session-history-tools.ts': 'db502512f4cd77ac21ad71d6b4c106594077097f4fbe4fd10c3f1794c34fbb50',
@@ -1077,7 +1076,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/protocol/src/telos-work-controls.ts':
     '1bb5a4acaed5acbe070830a87251929961aaa64e3ec149abd21502e32b0c41b4',
   '../agent-communication-tools.ts':
-    'bb71a5f8cafdfd488b32a4c57ccd6d6afe05c161af5da4b8703a1e34d012635f',
+    'ece6a1b078bb7f21a5e614071811b702d3a2c51246ffc90adc638caa176240cf',
   '../telos-work-control-tools.ts':
     '716f889418970118c872d70c8718f4d268077fedc299f002b72446c205ef3b7d',
   '../telos-work-controls.ts': '684ebfd505612cd01074773b468bd11439909b85da8562ae2c167c0207bddf97',
