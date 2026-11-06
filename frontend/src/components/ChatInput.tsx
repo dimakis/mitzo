@@ -1488,6 +1488,7 @@ function ChatInputContent({
           }}
           cwd={cwd}
           workspaceId={skillWorkspaceId}
+          sessionId={sessionId}
         />
       </MotionPresence>
       {voice?.recording && voice.partialTranscript && (

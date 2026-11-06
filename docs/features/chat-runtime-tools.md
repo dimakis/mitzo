@@ -92,3 +92,18 @@ account, source and root around that read. The resulting prompt commits with the
 command under the existing admission fence; retained decisions still take priority.
 The real preparation regression covers repository-only instructions, a restricted
 repository override, absent destination files and rejected account/source access.
+
+Independent review corrections, 6 November: existing ordinary catalogues now
+select the conversation ID and use its real workspace custody. Terminal resolves
+through that same session-qualified path authority. The joined HTTP regression
+uses the default `.local/share/mitzo/ordinary-tasks` layout outside configured
+repository roots and rejects a substituted cwd. Local HTTP execution reaches an
+`EPERM` in the private-path guard (including the existing file-list journey), so
+the complete route assertions remain CI evidence; the guard is preserved.
+
+For configured local repositories that will create a worktree, catalogue and
+first-command resolution read committed `SKILL.md` bytes at the retained base
+revision. A bounded temporary view carries only those files and is removed after
+the read; it is neither cached nor watched. Source branch changes, dirty files
+and skill symlinks cannot replace the pinned instructions or restrictions. An
+existing-directory selection continues to read its actual retained directory.

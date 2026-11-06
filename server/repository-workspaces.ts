@@ -76,6 +76,7 @@ import {
   type OrdinaryRepositoryRuntimeSelection,
 } from './ordinary-repository-preparation.js';
 import { isGitBranchName } from './git-branch.js';
+import { withPinnedRepositorySkills } from './local-repository-skill-source.js';
 import { copyRepositoryTaskCheckout } from './repository-task-copy.js';
 import { createWorktreeAsync, symlinkRuntimeDirs } from './worktree.js';
 import { loadRepoConfig } from './repo-config.js';
@@ -2076,7 +2077,8 @@ export class RepositoryWorkspaces {
       return publicRepositoryWorkspace(record);
     });
   }
-  /** Read a ready host preparation without reserving or materializing a task. */
+  /** Read a ready host's skills without reserving or materializing a task.
+   * Worktree sources expose only skill files from their pinned commit. */
   async readPreparedHostSource<T>(
     id: string,
     binding: AccountBinding,
@@ -2093,13 +2095,13 @@ export class RepositoryWorkspaces {
       const signal = AbortSignal.timeout(30000);
       await this.authorizeHostRecord(record, binding, signal);
       await this.verifyHostSource(record, signal);
-      const result = await read(this.source(record));
+      const result = await this.readHostSkillSource(record, read, signal);
       await this.authorizeHostRecord(record, binding, signal);
       await this.assertHostSource(record, signal);
       return result;
     });
   }
-  /** Read a reserved task's qualified source before its destination is materialized. */
+  /** Read a reserved task's qualified skill source before its destination is materialized. */
   async readReservedHostSource<T>(
     input: Omit<HostRepositoryReservationInput, 'signal'>,
     read: (directory: string) => T,
@@ -2113,12 +2115,21 @@ export class RepositoryWorkspaces {
       await this.authorizeHostRecord(record, expected.binding, signal);
       await this.verifyHostSource(record, signal);
       await this.assertHostRoot(descriptor.hostReservation);
-      const result = read(this.source(record));
+      const result = await this.readHostSkillSource(record, read, signal);
       await this.authorizeHostRecord(record, expected.binding, signal);
       await this.assertHostSource(record, signal);
       this.getHostReservation(expected);
       return result;
     });
+  }
+  private readHostSkillSource<T>(
+    record: RepositoryWorkspace,
+    read: (directory: string) => T | Promise<T>,
+    signal: AbortSignal,
+  ): T | Promise<T> {
+    return record.localSource && record.localSource.selection !== 'existing'
+      ? withPinnedRepositorySkills(record.localSource, record.baseOid, signal, read)
+      : read(this.source(record));
   }
   private async firstBinding(
     record: RepositoryWorkspace,

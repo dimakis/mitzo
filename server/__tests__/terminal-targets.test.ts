@@ -43,7 +43,7 @@ describe('terminal destinations', () => {
       await createTerminalTargetResolver(d)({ sessionId: 'host-chat' }, 'operator'),
     ).toMatchObject({ kind: 'host', sessionId: 'host-chat', cwd: meta.cwd });
     expect(d.runtime).not.toHaveBeenCalled();
-    expect(d.allowedHost).toHaveBeenCalledWith(meta.cwd);
+    expect(d.allowedHost).toHaveBeenCalledWith(meta.cwd, 'host-chat');
   });
   it('opens the Mac independently of account or conversation', async () => {
     const d = deps();

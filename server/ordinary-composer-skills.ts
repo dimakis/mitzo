@@ -51,7 +51,7 @@ export async function ordinaryWorkspaceSkillEntries(
   return workspaces.readPreparedHostSource(
     id,
     binding(record.binding.accountId, record.binding.model),
-    (directory) => ordinarySkillEntries(buildSkillRegistry(directory)),
+    (directory) => ordinarySkillEntries(buildSkillRegistry(directory, true)),
   );
 }
 
@@ -69,7 +69,7 @@ export async function prepareOrdinarySkillCommand(
     reservation,
     (directory) => ({
       text,
-      prompt: resolveOrdinarySkillPrompt(text, buildSkillRegistry(directory)) ?? text,
+      prompt: resolveOrdinarySkillPrompt(text, buildSkillRegistry(directory, true)) ?? text,
     }),
     signal,
   );

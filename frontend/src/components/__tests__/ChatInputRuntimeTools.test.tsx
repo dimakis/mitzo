@@ -130,7 +130,10 @@ it.each([undefined, 'host-chat'])(
     fireEvent.click(commands);
     const choice = await screen.findByRole('button', { name: /\/mockup/ });
     expect(screen.getByRole('button', { name: /\/restricted/ })).toBeDisabled();
-    expect(apiFetch).toHaveBeenCalledWith('/api/skills?runtime=ordinary', expect.anything());
+    expect(apiFetch).toHaveBeenCalledWith(
+      '/api/skills?runtime=ordinary' + (sessionId ? '&sessionId=' + sessionId : ''),
+      expect.anything(),
+    );
     expect(apiFetch).not.toHaveBeenCalledWith('/api/commands', expect.anything());
     fireEvent.click(choice);
     await waitFor(() =>

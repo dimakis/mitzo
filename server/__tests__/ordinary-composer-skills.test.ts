@@ -86,7 +86,7 @@ it('qualifies the selected ready host workspace before loading its repository ov
     record.binding,
     expect.any(Function),
   );
-  expect(registries.buildSkillRegistry).toHaveBeenCalledWith('/selected/source');
+  expect(registries.buildSkillRegistry).toHaveBeenCalledWith('/selected/source', true);
   service.readPreparedHostSource.mockRejectedValueOnce(Error('Changed workspace'));
   await expect(
     ordinaryWorkspaceSkillEntries(service as never, 'workspace', () => record.binding as never),

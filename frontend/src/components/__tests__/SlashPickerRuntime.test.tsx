@@ -9,6 +9,27 @@ afterEach(() => {
   cleanup();
   vi.mocked(apiFetch).mockReset();
 });
+it('uses conversation identity for an existing ordinary catalogue and clears it when the conversation changes', async () => {
+  vi.mocked(apiFetch).mockResolvedValue(
+    Response.json([{ name: 'owned', description: 'Owned skill', scope: 'repo' }]),
+  );
+  const props = {
+    query: '/',
+    onSelect: vi.fn(),
+    onClose: vi.fn(),
+    runtime: 'ordinary' as const,
+    cwd: '/home/operator/.local/share/mitzo/ordinary-tasks/chat-a',
+  };
+  const view = render(<SlashPicker {...props} sessionId="chat-a" />);
+  await screen.findByRole('button', { name: /owned/ });
+  expect(apiFetch).toHaveBeenCalledWith(
+    '/api/skills?runtime=ordinary&sessionId=chat-a',
+    expect.anything(),
+  );
+  vi.mocked(apiFetch).mockImplementation(() => new Promise(() => {}));
+  view.rerender(<SlashPicker {...props} sessionId="chat-b" />);
+  expect(screen.queryByRole('button', { name: /owned/ })).toBeNull();
+});
 it('uses the prepared workspace catalogue before a conversation exists and clears it on a workspace change', async () => {
   vi.mocked(apiFetch).mockResolvedValue(
     Response.json([{ name: 'repo-skill', description: 'Workspace override', scope: 'repo' }]),

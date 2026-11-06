@@ -3308,6 +3308,20 @@ app.get('/api/config', (_req, res) => {
 });
 
 app.get('/api/skills', (req, res) => {
+  if (req.query.sessionId !== undefined) {
+    if (
+      req.query.runtime !== 'ordinary' ||
+      typeof req.query.sessionId !== 'string' ||
+      req.query.cwd !== undefined ||
+      req.query.repositoryWorkspaceId !== undefined
+    )
+      return res.status(400).json({ error: 'Select a conversation workspace' });
+    const id = req.query.sessionId;
+    const cwd = eventStore.getSession(id)?.cwd;
+    if (!cwd || isRemoteSessionArtifact(id) || !isAllowedPath(cwd, id))
+      return res.status(403).json({ error: 'Workspace commands unavailable' });
+    return res.json(ordinarySkillEntries(buildSkillRegistry(cwd)));
+  }
   if (req.query.repositoryWorkspaceId !== undefined) {
     if (
       req.query.runtime !== 'ordinary' ||
@@ -4417,7 +4431,7 @@ export const terminalService = new TerminalService(new TerminalStore(taskStore.g
         ? { ...meta, title: meta.summary || meta.initialPrompt || 'Chat workspace' }
         : undefined;
     },
-    allowedHost: isConfiguredAllowedPath,
+    allowedHost: (cwd, id) => isAllowedPath(cwd, id),
     remote: isRemoteSessionArtifact,
     runtime: (id, binding) => getCodexConversationStore().readArtifactRuntime(id, binding),
     currentRoute: (binding, id) =>

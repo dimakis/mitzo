@@ -15,19 +15,19 @@ export function setSkillWatcher(watcher: SkillWatcher): void {
 export function hasSkillWatcher(): boolean {
   return skillWatcher !== null;
 }
-export function buildSkillRegistry(cwd?: string): SkillRegistry {
+export function buildSkillRegistry(cwd?: string, transient = false): SkillRegistry {
   const key = cwd ?? '';
-  const cached = registryCache.get(key);
+  const cached = !transient && registryCache.get(key);
   if (cached) return cached;
   const repoDir = cwd ? join(cwd, '.mitzo', 'skills') : undefined;
-  if (repoDir && skillWatcher) skillWatcher.watchDir(repoDir);
+  if (repoDir && skillWatcher && !transient) skillWatcher.watchDir(repoDir);
   const registry = new SkillRegistry({
     bundledDir: BUNDLED_SKILLS_DIR,
     userDir: USER_SKILLS_DIR,
     repoDir,
     nativeNames: NATIVE_COMMAND_NAMES,
   });
-  registryCache.set(key, registry);
+  if (!transient) registryCache.set(key, registry);
   return registry;
 }
 export function invalidateSkillRegistries(): void {
