@@ -110,3 +110,10 @@ configuration. CI's exact native coverage count increases from 15 to 17; prior
 cases remain mandatory. The local type check exceeded the 1GiB heap, so full
 type validation remains a CI responsibility. No live model was called. This
 batch still requires fresh CI and verification against the independent review.
+
+CI 42134873347 passed compile/type/source preflight and exposed two stale
+validator fixtures that still described 15 required signed read cases. Their
+independent expected inventory now includes all 17, and an explicit regression
+rejects the old 15-case report. Both validator suites pass all 26 local checks.
+The real native-read suite's 17 mandatory cases and prior negative checks remain
+intact. Final CI and Centaur verification must include this inventory correction.
