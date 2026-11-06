@@ -8,6 +8,7 @@ import '../../frontend/src/styles/global.css';
 
 const answer =
   'Select part of this answer to copy. Native selection should stay available while you move the selection handles.';
+const readAloud = { active: false, onSpeak: () => {}, onStop: () => {} };
 function Fixture() {
   const [replies, setReplies] = useState(0);
   return (
@@ -24,11 +25,16 @@ function Fixture() {
               timestamp: 1793356740000,
             }}
             onReply={() => setReplies((n) => n + 1)}
+            readAloud={readAloud}
           >
             {role === 'user' ? (
-              <UserBubble text="Copy just a few words from my request." timestamp={1793356740000} />
+              <UserBubble
+                text="Copy just a few words from my request."
+                timestamp={1793356740000}
+                readAloud={readAloud}
+              />
             ) : (
-              <TextBubble content={answer} timestamp={1793356740000} />
+              <TextBubble content={answer} timestamp={1793356740000} readAloud={readAloud} />
             )}
           </MessageActions>
         ))}

@@ -10,8 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.904-startup-transcript-integration';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.905-message-text-selection';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -23,6 +22,16 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
+  '../../frontend/src/lib/message-actions-context.ts':
+    '8717c09b9483d6b929416c978822334cd03b29a03094090b08269ecb9642764b',
+  '../../frontend/src/components/__tests__/MessageActions.selection.test.tsx':
+    'a71bc22da9d01354008696c1415272fdedeb928282942159c27ab19ed1cc788f',
+  '../../frontend/src/components/__tests__/MessageActions.test.tsx':
+    '4e0203e75cdb749e5506a14d83b8a624c7e5706aeded4ba9e246bbe18dd339f3',
+  '../../tests/fixtures/message-text-selection.tsx':
+    'fcdd77511e7d1ceba75c66343a865437266f7131f7fcc21a29c2cc795b05a9c8',
+  '../../tests/offline/message-text-selection.spec.ts':
+    '9e3f630f61a99f345f0ac1291f01b1d045aee971b97f96095c953cbeaf1ebb79',
   '../../docs/operations/startup-transcript-observability.md':
     '40324fd76844a89970053738c53bbfb5207af0b10df4bc7e0f58f461c186ed79',
   '../__tests__/mcp-startup-observation.test.ts':
@@ -193,7 +202,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/owned-local-auth-feedback.test.ts':
     'fa4b4dca12a655e4075c03e6c95701ac9c8c1a6607f867e27668c914e988da21',
   '../../docs/design/ui-design-system.md':
-    '32c8c0cd239b566946845bcc397d7ac56c45580a301948e89745eeed68cc23a3',
+    'c5ac782dc308b6d69e395c02a6e91f31a8f53f4dda36c73bc8afbbec39d33007',
   '../../packages/protocol/src/session-prompts.ts':
     '86f1242cbaa5371b414ac341faa2e128d5ff0fa88c3bcf06dfd39b5424366be2',
   '../__tests__/session-prompt-service.test.ts':
@@ -1324,7 +1333,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/components/SessionWorkLink.tsx':
     '0c6faa7b7e614e1ab58468c6056ead9945baae8814132caedf18dfe6eef6517b',
   '../../frontend/src/components/MessageBubble.tsx':
-    '0a4e818615b2c43afd75532da645180ff6f8e3029fd8f01a1dfd2adc2c2dec5d',
+    'af2963dd08fbb073f3bc09f9d26b3a649ee9f08637b9b3d7fcb9bc01f9c98ec4',
   '../telos-outcome-owner.ts': '7e11bca759dcda14dbc766fd7a02d1a05165a7333d8b78368555145854740161',
   '../../packages/protocol/src/telos-outcome.ts':
     '2e02bc7096e531552c3eeec437f4e777d5b9a14089c3d6a9eb00b5d7942bf758',
@@ -3278,7 +3287,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../.github/workflows/ci-recovery.yml':
     '5d4e9a6560e549d2879ef776c2b4d321d420c25b22ec3a7741390e5bf617111a',
   '../../.github/workflows/ci.yml':
-    '3981800060c8bdbcaebeeefa503e5d3d64f72264c7007efa69e52ef4d0c7f872',
+    '5b2e41200592aa2b8b20074e1d248433a24cbf4d38a21b39a55b3f102aa12439',
   '../../playwright.config.ts': '6c61752a4a2e9cab19d8217b46080c5898bc79c5a0fde1f2b703a254d278daa0',
   '../../playwright.offline.config.ts':
     'fb694df154a2cb402c7f46b417efb357b6d19a72210d269ad0b1580798392adc',
@@ -3469,9 +3478,9 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/components/QueuedDraftTray.css':
     '016f51f306b7aee9d6f9322425f6192b2c0fa70aabcd5473adea565460f89807',
   '../../frontend/src/components/MessageActions.tsx':
-    '6c35e335425b7205601d170d580cc53ac0da1bc3b1136ede1b30b630984abcd5',
+    '372c019c6e2728fa78563b099d722859ca94980ec0c8d534772ace6c59db49d3',
   '../../frontend/src/components/MessageActions.css':
-    'fd733d55f1051d6579110eb28ad96eae9b7b728747f9c76bd9e6d54dc8110d26',
+    '6fcb261d7b6c9d4585e367b22a1e000ad3e8e303e2d5d01febf268a010b1efab',
   '../message-reply-context.ts': 'b0319cb63f8dc1c45a2d78c54d18cd1a63d07d7c76bf26bfa6b4b41c859e17dd',
   '../../packages/protocol/src/message-reply.ts':
     '6d1821e1dc1d65dfd966b6b15215743b713d4d9ce7042839bfee23e4dd74ce2f',
