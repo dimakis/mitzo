@@ -182,6 +182,102 @@ it('pauses and interrupts the original parent before waiting for slow child canc
   await stopped;
 });
 
+it.each(['pending', 'after'] as const)(
+  'cancels a %s child admission through the real parent recovery fence',
+  async (arrival) => {
+    const f = await setup();
+    const policy = codexNativeExecutionPolicy({
+      bindingRevision: 'owner',
+      mode: 'agent',
+      cwd: '/workspace',
+      readableRoots: ['/'],
+      writableRoots: ['/workspace'],
+      deniedRoots: ['/private/auth'],
+    });
+    Object.assign(f.conversationOptions, {
+      enableNativeSubagents: true,
+      nativeExecution: policy,
+      assertNativeExecutionCurrent: () => {},
+      requestNativeApproval: async () => ({ decision: 'decline' }),
+    });
+    await f.c.send({ id: 'recovery-root', prompt: 'Work' });
+    const owner = f.c.getSubagents()!;
+    const original = f.rpc.request.getMockImplementation()!;
+    let release!: () => void;
+    const child = {
+      id: 'recovery-child',
+      parentThreadId: f.getProviderThread(),
+      sessionId: 'tree',
+      cwd: policy.cwd,
+      model: 'test-model',
+      modelProvider: 'openai',
+    };
+    f.rpc.request.mockImplementation(async (method, params) => {
+      if (method === 'thread/read') {
+        if (params.threadId === child.id && arrival === 'pending')
+          await new Promise<void>((resolve) => {
+            release = resolve;
+          });
+        return { thread: { ...child, id: params.threadId } };
+      }
+      if (params.threadId === child.id) {
+        if (method === 'thread/resume')
+          return { thread: child, model: child.model, modelProvider: child.modelProvider };
+        if (method === 'thread/turns/list') return { data: [] };
+        if (method === 'turn/interrupt') return {};
+      }
+      return original(method, params);
+    });
+    const announce = () => {
+      f.callbacks.onNotification('thread/started', { thread: child });
+      f.callbacks.onNotification('turn/started', {
+        threadId: child.id,
+        turn: { id: 'recovery-child-turn' },
+      });
+    };
+    if (arrival === 'pending') {
+      announce();
+      await vi.waitFor(() => expect(release).toBeTypeOf('function'));
+    }
+    const stopping = f.c.interrupt();
+    expect(f.store.read('app', f.getBinding()).recovery).toBe(1);
+    if (arrival === 'pending') release();
+    else {
+      await stopping;
+      announce();
+    }
+    await stopping;
+    await owner.settled();
+    await vi.waitFor(() =>
+      expect(
+        f.rpc.request.mock.calls.some(
+          ([method, params]) =>
+            method === 'turn/interrupt' &&
+            params.threadId === child.id &&
+            params.turnId === 'recovery-child-turn',
+        ),
+      ).toBe(true),
+    );
+    expect(owner.list()[0]).toMatchObject({ available: false, state: 'stopping' });
+    await expect(
+      owner.request(
+        'item/tool/call',
+        {
+          threadId: child.id,
+          turnId: 'recovery-child-turn',
+          callId: 'blocked-recovery-tool',
+          tool: 'Read',
+          arguments: {},
+        },
+        new AbortController().signal,
+      ),
+    ).rejects.toThrow();
+    expect(f.execute).not.toHaveBeenCalled();
+    // The fixture acknowledges the parent interrupt separately from the child.
+    expect(f.c.queue()[0].status).toBe('interrupted');
+  },
+);
+
 it('retains unknown late tool effects independently of its durable error result', async () => {
   const f = await setup();
   Object.assign(f.conversationOptions, { transportClosure: 'terminal' });

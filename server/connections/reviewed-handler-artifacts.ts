@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.893-native-child-qualification-inventory';
+  'v1.0.894-native-child-recovery-cancellation';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -51,7 +51,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     '8b84dee708163ed91ad31a4ac675aa966b02543044fdb3454f0ac826c51ef796',
   '../codex-subagent-routes.ts': '626354e56b192b4c660f9a2187aae075c77ed93cee3569769df391556b761211',
   '../codex-subagent-store.ts': '7588706bb083b0a7d24e22496d1cff00376010b8a086e02bc0e618d56adc2842',
-  '../codex-subagents.ts': 'de473b1e0ab779a098394e62ec5ad9ce792ae46a9cfea950e93db04a6d7bf4f2',
+  '../codex-subagents.ts': 'ee24c6a1f9a9f0b73a9a8ff8469370761fbd5f6e0569a4976064398b32e1e061',
   '../__tests__/notification-routes.test.ts':
     '412f355c591881b5b781a90763d600996b5c46c97c5f3ea13ddad78a6785676f',
   '../__tests__/symposium-review-app.test.ts':
@@ -832,7 +832,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/codex-chat-session.test.ts':
     '7d7630b926023cecefcb822916cd79f2c0b54965dd4ece2426d9cb47673e9f70',
   '../__tests__/codex-conversation.test.ts':
-    '0b9d65311c66f9dafcb6c8a8064959f3bc8637dd9df61d5c772a3ed6183e497d',
+    'c0ea5023d66b2538da62a9dea824d7f755094b93d4e4b05fcb074442c65120e5',
   '../__tests__/codex-native-approvals.test.ts':
     'c5a3d49ff329f067ac3a3df674136b2249dd0e57f14e92ea391fd6b07ecfeeb3',
   '../__tests__/codex-native-artifact-qualification.test.ts':
@@ -1662,7 +1662,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../scripts/attest-knowledge-runtime.py':
     '5737ec8e7fc19a17b6ef5a35c1898e834d2a5d2d2a9f7593b607eaaf1971cfeb',
   '../agent-context-sandbox.ts': '8b61edc17ccc94bc95eae3796e68a0beb9540534e3bfbb348a04154c41995416',
-  '../codex-conversation.ts': '8d6855f37aa4e004b9c809b1c15a2847afe8cb5de607865ff998b69eddaa4475',
+  '../codex-conversation.ts': 'f92a85e21587044a1a8e6c6d77f6bf4b05d63da73030aa3d53afbbdb21b24efb',
   '../codex-conversation-store.ts':
     '935d770bc17608610fb35f3a1fbdd57c21925e6d17678ed83c0b11c00273eeb2',
   '../symposium-custodian-ipc.ts':

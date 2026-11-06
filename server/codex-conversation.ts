@@ -677,7 +677,7 @@ export class CodexConversation {
         return client.request(method, params);
       },
       tools: this.opts.tools,
-      nativeOrigin: (child) => {
+      nativeOrigin: (child, cancelling) => {
         const state = this.opts.store.read(this.opts.conversationId, binding);
         const attempt = this.opts.store.nativeCommandAttempt(
           this.opts.conversationId,
@@ -687,7 +687,7 @@ export class CodexConversation {
         if (
           !attempt ||
           state.threadId !== child.rootThreadId ||
-          state.recovery ||
+          (state.recovery && !cancelling) ||
           (child.commandAttempt !== undefined && child.commandAttempt !== attempt) ||
           (child.threadGeneration !== undefined &&
             child.threadGeneration !== state.threadGeneration)

@@ -66,6 +66,7 @@ interface Options {
   assertCurrent(child: RetainedSubagent, cancelling?: boolean): void;
   nativeOrigin?(
     child: RetainedSubagent,
+    cancelling?: boolean,
   ): Pick<CodexNativeTurnTarget, 'commandId' | 'attempt' | 'generation'>;
   request(method: string, params: ObjectValue, beforeDispatch?: () => void): Promise<unknown>;
   tools: ToolDefinition[];
@@ -392,7 +393,9 @@ export class CodexSubagents {
             admissionEpoch !== this.parentCancellationEpoch ||
             this.parentStopping,
         };
-        const origin = this.opts.nativeOrigin?.(child);
+        // Recovery forbids execution, but an exact native child still needs
+        // identity-checked cancellation admission after its parent was stopped.
+        const origin = this.opts.nativeOrigin?.(child, live.cancelBeforeRun || this.parentStopping);
         if (origin) {
           if (
             previous &&

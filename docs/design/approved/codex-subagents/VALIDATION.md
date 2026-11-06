@@ -117,3 +117,13 @@ independent expected inventory now includes all 17, and an explicit regression
 rejects the old 15-case report. Both validator suites pass all 26 local checks.
 The real native-read suite's 17 mandatory cases and prior negative checks remain
 intact. Final CI and Centaur verification must include this inventory correction.
+
+Centaur review 5794071006 verified three independent-pass findings and retained
+late-admission cancellation as CEN-6F9FD3E90C61/CEN-2AA43C013DA1: the real parent
+Stop sets the durable recovery fence before child admission. Native origin
+verification now permits recovery only for identity-checked cancellation
+admission. Host-tool/base-read capture retains the recovery refusal. Two real
+CodexConversation regressions cover admission already pending and admission
+after parent Stop completes; both observe the child's interrupt and reject host
+execution. Four selected parent integration cases and all 70 owner/store/router
+and CI-validator cases pass locally. Fresh CI and final review remain required.
