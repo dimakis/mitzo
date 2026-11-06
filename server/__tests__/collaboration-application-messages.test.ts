@@ -244,7 +244,12 @@ it.each(['images', 'sourceSnapshots', 'replyToMessageId', 'extra'] as const)(
   },
 );
 
-function completeReply(f: Awaited<ReturnType<typeof setup>>, commandId: string) {
+function completeReply(
+  f: Awaited<ReturnType<typeof setup>>,
+  commandId: string,
+  text = 'Retained answer',
+  beforeEnd?: (messageId: string) => void,
+) {
   const source = {
     commandId,
     messageId: randomUUID(),
@@ -267,11 +272,93 @@ function completeReply(f: Awaited<ReturnType<typeof setup>>, commandId: string) 
   f.store.append(sessionId, 'block_delta', {
     messageId: source.messageId,
     blockId: 'answer',
-    delta: 'Retained answer',
+    delta: text,
   });
   f.store.append(sessionId, 'block_end', { messageId: source.messageId, blockId: 'answer' });
+  beforeEnd?.(source.messageId);
   f.store.append(sessionId, 'message_end', { messageId: source.messageId });
 }
+
+it.each(['queued prompt', 'message count', 'history bytes'] as const)(
+  'recovers an exact finalized answer despite unrelated %s history',
+  async (history) => {
+    const f = await setup();
+    const prompt = await f.send();
+    const appendPrompt = (text: string) =>
+      f.store.append(f.joined.sessionId!, 'user_message', { messageId: randomUUID(), text });
+    if (history === 'message count')
+      for (let i = 0; i < 501; i++) appendPrompt(`Earlier prompt ${i}`);
+    if (history === 'history bytes') for (let i = 0; i < 6; i++) appendPrompt('x'.repeat(100_000));
+    completeReply(
+      f,
+      prompt.deliveries[0].commandId!,
+      'Retained answer',
+      history === 'queued prompt' ? () => appendPrompt('Queued next prompt') : undefined,
+    );
+    // These histories are deliberately ineligible for a whole-context snapshot.
+    expect(() => f.store.getDurableSessionTranscript(f.joined.sessionId!)).toThrow();
+    const view = f.owner.view(f.group);
+    expect(view.messages.find((row) => row.replyToDeliveryId)).toMatchObject({
+      text: 'Retained answer',
+      replyToDeliveryId: prompt.deliveries[0].deliveryId,
+    });
+    expect(f.owner.view(f.group)).toEqual(view);
+    expect(external.dispatch).toHaveBeenCalledTimes(1);
+  },
+);
+
+it.each([100_001, 500_001])(
+  'keeps reads available for a %i-character answer exceeding projection limits',
+  async (size) => {
+    const f = await setup();
+    const prompt = await f.send();
+    completeReply(f, prompt.deliveries[0].commandId!, 'x'.repeat(size));
+    expect(() => f.owner.view(f.group)).not.toThrow();
+    expect(f.owner.view(f.group).messages).toHaveLength(1);
+    completeReply(f, prompt.deliveries[0].commandId!, 'Later eligible answer');
+    const view = f.owner.view(f.group);
+    expect(view.messages.find((row) => row.replyToDeliveryId)?.text).toBe('Later eligible answer');
+    expect(f.owner.view(f.group)).toEqual(view);
+    expect(external.dispatch).toHaveBeenCalledTimes(1);
+  },
+);
+
+it('keeps the retained view readable when one source exceeds the visible block limit', async () => {
+  const f = await setup();
+  const prompt = await f.send();
+  completeReply(f, prompt.deliveries[0].commandId!, 'First block', (messageId) => {
+    for (let i = 0; i < 100; i++) {
+      const blockId = `extra-${i}`;
+      f.store.append(f.joined.sessionId!, 'block_start', { messageId, blockId, blockType: 'text' });
+      f.store.append(f.joined.sessionId!, 'block_delta', { messageId, blockId, delta: 'x' });
+      f.store.append(f.joined.sessionId!, 'block_end', { messageId, blockId });
+    }
+  });
+  expect(() => f.owner.view(f.group)).not.toThrow();
+  expect(f.owner.view(f.group).messages).toHaveLength(1);
+  completeReply(f, prompt.deliveries[0].commandId!, 'Eligible answer after block refusal');
+  expect(f.owner.view(f.group).messages.find((row) => row.replyToDeliveryId)?.text).toBe(
+    'Eligible answer after block refusal',
+  );
+});
+
+it('skips a malformed retained source identifier without suppressing eligible answers', async () => {
+  const f = await setup();
+  const prompt = await f.send();
+  const commandId = prompt.deliveries[0].commandId!;
+  f.store.append(f.joined.sessionId!, 'ordinary_reply_source', {
+    version: 2,
+    commandId,
+    messageId: ' ',
+    providerThreadId: 'fixture-thread',
+    providerTurnId: 'fixture-turn',
+    executionFingerprint: 'fixture',
+  });
+  completeReply(f, commandId);
+  expect(f.owner.view(f.group).messages.find((row) => row.replyToDeliveryId)?.text).toBe(
+    'Retained answer',
+  );
+});
 
 it.each(['removed', 'hidden'] as const)(
   'keeps the retained view readable after a responder is %s before reply projection',

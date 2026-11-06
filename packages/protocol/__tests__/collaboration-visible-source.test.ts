@@ -1,6 +1,9 @@
 import Database from 'better-sqlite3';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
-import { openCollaborationVisibleSource } from '../src/collaboration-visible-source.js';
+import {
+  openCollaborationVisibleSource,
+  readCollaborationFinalizedReply,
+} from '../src/collaboration-visible-source.js';
 
 let db: Database.Database;
 beforeEach(() => {
@@ -28,6 +31,54 @@ function user(seq: number, id: string, text: string) {
     JSON.stringify({ messageId: id, text }),
   );
 }
+
+function finalizedReply() {
+  event(1, 'message_start', { messageId: 'answer' });
+  for (const [offset, blockId, blockType, delta] of [
+    [2, 'reasoning', 'thinking', 'PRIVATE reasoning'],
+    [5, 'visible', 'text', 'Visible answer'],
+  ] as const) {
+    event(offset, 'block_start', { messageId: 'answer', blockId, blockType });
+    event(offset + 1, 'block_delta', { messageId: 'answer', blockId, delta });
+    event(offset + 2, 'block_end', { messageId: 'answer', blockId });
+  }
+  event(8, 'message_end', { messageId: 'answer' });
+}
+
+it('reads only an exact finalized ordinary answer despite unrelated incomplete history', () => {
+  finalizedReply();
+  user(9, 'queued', 'PRIVATE queued prompt');
+  event(10, 'message_start', { messageId: 'still-active' });
+  const source = readCollaborationFinalizedReply(db, 'one', 'answer');
+  expect(source).toMatchObject({
+    sequence: 8,
+    author: { sessionId: 'one' },
+    blocks: [{ blockId: 'visible', content: 'Visible answer' }],
+  });
+  expect(JSON.stringify(source)).not.toContain('PRIVATE');
+  expect(readCollaborationFinalizedReply(db, 'one', 'still-active')).toBeUndefined();
+  expect(readCollaborationFinalizedReply(db, 'another-session', 'answer')).toBeUndefined();
+});
+
+it.each([
+  'duplicate start',
+  'duplicate end',
+  'unclosed block',
+  'payload attribution',
+  'column attribution',
+])('refuses an exact reply with %s', (change) => {
+  finalizedReply();
+  if (change === 'duplicate start') event(9, 'message_start', { messageId: 'answer' });
+  if (change === 'duplicate end') event(9, 'message_end', { messageId: 'answer' });
+  if (change === 'unclosed block') db.prepare('DELETE FROM events WHERE seq=7').run();
+  if (change === 'payload attribution')
+    db.prepare("UPDATE events SET payload=json_set(payload,'$.seatId',NULL) WHERE seq=6").run();
+  if (change === 'column attribution')
+    db.prepare(
+      "UPDATE events SET seat_id='private-seat',symposium_provenance='{}' WHERE seq=6",
+    ).run();
+  expect(() => readCollaborationFinalizedReply(db, 'one', 'answer')).toThrow('snapshot_changed');
+});
 it('witnesses all visible messages independently of bounded page calls and ignores later appends', () => {
   for (let n = 1; n <= 60; n++) user(n * 2, `m${n}`, `Text ${n}`);
   const source = openCollaborationVisibleSource(db, 'one', { sequence: 120, messageId: 'm60' });

@@ -14,7 +14,7 @@ function projectionRequest(group: string, commandId: string, messageId: string) 
 
 /** Project retained native evidence without dispatch, context admission or new
  * sessions. Keyset reads retain old prompt identities outside the display page.
- * One synchronous observation shares each recipient's bounded visible read. */
+ * Each source is decoded independently with bounded visible-block reads. */
 export function reconcileApplicationCollaborationReplies(
   store: EventStore,
   group: string,
@@ -22,10 +22,6 @@ export function reconcileApplicationCollaborationReplies(
 ) {
   const retained = store.collaborationConversation.view(group);
   const replies = new OrdinaryCollaborationReplies(store);
-  const transcripts = new Map<
-    string,
-    ReturnType<EventStore['getDurableSessionTranscript']> | null
-  >();
   let native: CodexConversationStore | undefined;
   let observedNative = false;
   let after = 0;
@@ -82,24 +78,15 @@ export function reconcileApplicationCollaborationReplies(
           if (error instanceof CollaborationContractError) continue;
           throw error;
         }
-        if (!transcripts.has(delivery.sessionId)) {
-          try {
-            transcripts.set(
-              delivery.sessionId,
-              store.getDurableSessionTranscript(delivery.sessionId),
-            );
-          } catch {
-            transcripts.set(delivery.sessionId, null);
-          }
-        }
-        for (const source of transcripts.get(delivery.sessionId)?.messages ?? []) {
-          if (source.author === 'operator') continue;
+        for (const messageId of replySources(store, delivery.sessionId, delivery.commandId)) {
           const mappings = store.getOrdinaryReplySourceEvents(
             delivery.sessionId,
-            source.messageId,
+            messageId,
           ) as Array<{ commandId?: string }>;
           if (mappings.length !== 1 || mappings[0].commandId !== delivery.commandId) continue;
           try {
+            const source = store.readOrdinaryFinalizedReply(delivery.sessionId, messageId);
+            if (!source) continue;
             replies.record(group, {
               requestId: projectionRequest(group, delivery.commandId, source.messageId),
               messageId: prompt.messageId,
@@ -123,4 +110,16 @@ export function reconcileApplicationCollaborationReplies(
     if (page.length < 50) break;
   }
   return store.collaborationConversation.view(group);
+}
+
+function* replySources(store: EventStore, sessionId: string, commandId: string) {
+  let after = 0;
+  for (;;) {
+    const page = store.getOrdinaryReplySourcePage(sessionId, commandId, after);
+    for (const row of page) {
+      after = row.sequence;
+      if (row.messageId) yield row.messageId;
+    }
+    if (page.length < 50) return;
+  }
 }

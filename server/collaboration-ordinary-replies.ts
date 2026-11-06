@@ -2,6 +2,7 @@ import { isDeepStrictEqual } from 'node:util';
 import { z } from 'zod';
 import {
   CollaborationContractError,
+  CollaborationMessageSchema,
   CollaborationSettingsSchema,
   type CollaborationMessageSource,
 } from '@mitzo/protocol';
@@ -106,14 +107,9 @@ export class OrdinaryCollaborationReplies {
         fingerprint: mapping.version === 2 ? mapping.executionFingerprint : undefined,
       },
     );
-    const visible = this.store.openCollaborationVisibleSource(source.conversationId, {
-      sequence: source.throughSequence,
-      messageId: source.messageId,
-    });
-    const messages = visible.readSelected([source.messageId]);
-    const message = messages[0];
+    const message = this.store.readOrdinaryFinalizedReply(source.conversationId, source.messageId);
     if (
-      messages.length !== 1 ||
+      !message ||
       message.conversationId !== source.conversationId ||
       message.messageId !== source.messageId ||
       message.sequence !== source.throughSequence ||
@@ -129,9 +125,11 @@ export class OrdinaryCollaborationReplies {
       )
     )
       throw new CollaborationContractError('reply_conflict');
-    visible.assertCurrent();
+    const text = selected.map((block) => block.content).join('\n\n');
+    if (!CollaborationMessageSchema.shape.text.safeParse(text).success)
+      throw new CollaborationContractError('capacity_refused');
     return {
-      text: selected.map((block) => block.content).join('\n\n'),
+      text,
       settings: CollaborationSettingsSchema.parse({
         binding: admission.binding,
         selection: admission.selection,
