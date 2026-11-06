@@ -55,6 +55,11 @@ const owner: ConversationJoiningOwner = {
         status: 'needs_reviewed_summary',
         reason: 'Choose less context before joining.',
       };
+    if (mode === 'unmeasured')
+      snapshot.snapshot.capacity = {
+        status: 'unverified',
+        reason: 'Context capacity is unavailable. Joining starts no model response.',
+      };
     return snapshot;
   },
   async confirm(input) {

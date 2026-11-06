@@ -206,8 +206,9 @@ it('runs history through the signed native owner without publication configurati
   revokeAuthSession(auth);
   // The existing host bridge closes on logout before another tool callback can
   // reach any adapter; it deliberately rejects rather than delivering a result.
-  await expect(invoke('SearchPastSessions', { query: 'project' })).rejects.toThrow(
-    'Owned Codex lifecycle unavailable',
-  );
+  await expect(invoke('SearchPastSessions', { query: 'project' })).rejects.toMatchObject({
+    name: 'SessionRuntimeError',
+    code: 'auth_revoked',
+  });
   expect(f.rpc.request.mock.calls.filter(([method]) => method === 'turn/start')).toHaveLength(1);
 }, 20000);

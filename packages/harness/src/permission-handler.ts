@@ -15,6 +15,9 @@ import { checkWorktreePolicy, type OnDemandCreateFn } from './worktree-guard.js'
 import { PERMISSION_TIMEOUT_MS, NTFY_NOTIFICATION_DELAY_MS } from './constants.js';
 import { effectivePermissionMode, type SessionRegistry } from './session-registry.js';
 import type { SessionTransport } from './session-transport.js';
+import { recordPermissionAudit } from './permission-audit.js';
+import { createLogger } from './logger.js';
+const log = createLogger('permission-handler');
 
 export const UserQuestionsSchema = z
   .array(
@@ -84,9 +87,17 @@ export function permissionDisplayInput(
 function transportSend(transport: SessionTransport, data: Record<string, unknown>): void {
   try {
     if (transport.isOpen()) transport.send(data);
-  } catch {
+  } catch (error) {
     // A socket can close after isOpen(). Pending requests remain available
     // for reconnect replay; delivery failure must not reject tool resolution.
+    log.warn(
+      'Permission transport delivery failed; pending requests remain available for reconnect',
+      {
+        eventType: data.type,
+        permId: data.permId,
+        errorType: error instanceof Error ? error.name : 'non-Error',
+      },
+    );
   }
 }
 
@@ -192,7 +203,7 @@ export function buildPermissionHandler(
   registry: SessionRegistry,
   handlerOpts?: PermissionHandlerOptions,
 ) {
-  return async (
+  const decide = async (
     toolName: string,
     _toolInput: Record<string, unknown>,
     opts: {
@@ -489,6 +500,15 @@ export function buildPermissionHandler(
           opts.isRetainedSessionGrantCurrent?.() === true
         : isAllowListed(session.sessionAllowList, toolName))
     ) {
+      recordPermissionAudit({
+        phase: 'reused',
+        time: Date.now(),
+        sessionId: session.sessionId,
+        toolName,
+        toolUseID: opts.toolUseID,
+        scopeHash: createHash('sha256').update(grantKey).digest('hex'),
+        outcome: 'allowed',
+      });
       return {
         behavior: 'allow',
         decisionClassification: 'user_permanent',
@@ -652,7 +672,7 @@ export function buildPermissionHandler(
       const onAbort = () => {
         if (hasPending(permId)) {
           resolutionEvent = 'permission_timeout';
-          removePending(permId);
+          removePending(permId, 'cancelled');
           wrappedResolve({
             behavior: 'deny',
             message: 'Tool approval cancelled because the operation was aborted',
@@ -706,6 +726,10 @@ export function buildPermissionHandler(
                   checkSkillPolicy(registry, currentClientId()!, toolName) !== 'deny'),
             }
           : undefined,
+        {
+          toolUseID: originalToolUseID,
+          scopeHash: createHash('sha256').update(grantKey).digest('hex'),
+        },
       );
 
       // Lifecycle listeners may resolve synchronously during registration.
@@ -786,5 +810,30 @@ export function buildPermissionHandler(
       for (const transport of registry.getPermissionTransports(session))
         transportSend(transport, event);
     });
+  };
+  return async (...args: Parameters<typeof decide>): Promise<PermissionResult> => {
+    const sessionId = registry.get(clientId)?.sessionId;
+    try {
+      const result = await decide(...args);
+      recordPermissionAudit({
+        phase: 'evaluated',
+        time: Date.now(),
+        sessionId,
+        toolName: args[0],
+        toolUseID: args[2].toolUseID,
+        outcome: result.behavior === 'allow' ? 'allowed' : 'denied',
+      });
+      return result;
+    } catch (error) {
+      recordPermissionAudit({
+        phase: 'evaluated',
+        time: Date.now(),
+        sessionId,
+        toolName: args[0],
+        toolUseID: args[2].toolUseID,
+        outcome: 'failed',
+      });
+      throw error;
+    }
   };
 }

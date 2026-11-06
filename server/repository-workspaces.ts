@@ -694,6 +694,81 @@ export class RepositoryWorkspaces {
   validateOrdinaryWorkspace(conversationId: string, directory: string) {
     return this.ordinaryWorkspaceProvider().validate(conversationId, directory);
   }
+  /** Read-only renewal of the original allocation, including a crash before its
+   * EventStore receipt. The existing private allocation ledger binds every choice.
+   */
+  async qualifyOrdinarySessionReservation(
+    input: Parameters<RepositoryWorkspaces['prepareOrdinarySession']>[0],
+  ) {
+    return this.runOperation(async () => {
+      const signal = input.signal;
+      const selected = structuredClone({ ...input, signal: undefined });
+      const settings = OrdinarySilentPreparationSelectionSchema.parse(selected.settings);
+      const record = this.getHostRecord(selected.id);
+      const fingerprint = ordinaryPreparationFingerprint({
+        allocationOperationId: selected.allocationOperationId,
+        ...(selected.delegationAttemptId
+          ? { delegationAttemptId: selected.delegationAttemptId }
+          : {}),
+        id: selected.id,
+        binding: selected.binding,
+        taskRoot: selected.taskRoot,
+        settings,
+        agentProfile: selected.agentProfile,
+        sandboxWorkdir: selected.sandboxWorkdir,
+      });
+      const allocation = this.db
+        .prepare(
+          'SELECT workspace_id, fingerprint FROM ordinary_preparation_allocations WHERE operation_id=?',
+        )
+        .get(selected.allocationOperationId) as
+        { workspace_id: string; fingerprint: string } | undefined;
+      const reservation = {
+        id: selected.id,
+        conversationId: nativeStartupSessionId(`repository:${selected.id}`),
+        binding: selected.binding,
+        taskRoot: selected.taskRoot,
+        runtimeBinding: settings.binding,
+        commandFingerprint: fingerprint,
+      };
+      const local = settings.binding.execution.location === 'local';
+      if (
+        !allocation ||
+        allocation.workspace_id !== record.id ||
+        allocation.fingerprint !== fingerprint ||
+        settings.repositoryWorkspaceId !== record.id ||
+        !record.ordinaryPreparation ||
+        !isDeepStrictEqual(record.ordinaryFirstReservation, {
+          conversationId: reservation.conversationId,
+          binding: selected.binding,
+          commandFingerprint: fingerprint,
+        }) ||
+        record.handoff ||
+        record.pendingHostTask ||
+        record.qualifiedLocalPreparation ||
+        record.taskIdentity ||
+        record.sourceReleased ||
+        (record.retirement && record.retirement.disposition !== 'restored') ||
+        (local
+          ? record.state !== 'reserved' || !record.hostReservation || record.sandbox !== false
+          : record.state !== 'ready' ||
+            record.conversationId ||
+            record.hostReservation ||
+            record.sandbox ||
+            selected.sandboxWorkdir !== record.ordinaryPreparation.sandboxWorkdir)
+      )
+        throw Error('Original silent repository reservation unavailable');
+      if (local) this.getHostReservation(reservation);
+      await this.firstBinding(record, reservation, signal);
+      await this.authorizeHostRecord(record, selected.binding, signal);
+      await this.verifyHostSource(record, signal);
+      if (local) await this.assertHostRoot(record.hostReservation!);
+      await this.authorizeHostRecord(record, selected.binding, signal);
+      await this.assertHostSource(record, signal);
+      this.assertUnchangedHostRecord(record);
+      if (local) this.getHostReservation(reservation);
+    });
+  }
   /** Durable application session + real workspace reservation only. Native startup,
    * queues and first-command admission remain entirely with the ordinary owners. */
   async prepareOrdinarySession(

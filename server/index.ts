@@ -164,6 +164,8 @@ import { runWorktreeCleanupForRepos } from './repository-maintenance.js';
 import { contextFromTraceparent } from './trace-context.js';
 import { mountApplicationChatTransport } from './chat-rest-handler.js';
 import { initializeSessionPrompts, closeSessionPrompts } from './session-prompt-runtime.js';
+import { initializeTaskExecution, closeTaskExecution } from './task-execution-runtime.js';
+import { persistPermissionAudit } from './permission-audit.js';
 import { createSessionPromptRouter } from './session-prompt-router.js';
 import { initializeSymposiumNativeHost } from './symposium-native-host.js';
 import { singleFlightReconciliation } from './single-flight-reconciliation.js';
@@ -693,6 +695,8 @@ const v2Ctx: V2HandlerContext = {
 
 mountApplicationChatTransport(app, chatSseRegistry, v2Ctx);
 const sessionPrompts = initializeSessionPrompts(join(BASE_REPO, '.mitzo', 'events.db'), v2Ctx);
+initializeTaskExecution(join(BASE_REPO, '.mitzo', 'events.db'));
+const releasePermissionAudit = persistPermissionAudit(eventStore);
 app.use('/api/session-timers', createSessionPromptRouter(sessionPrompts));
 
 /**
@@ -1346,6 +1350,8 @@ async function shutdown(signal: string) {
   shuttingDown = true;
   closeTelosMainPublicationRuntime();
   await closeSessionPrompts();
+  closeTaskExecution();
+  releasePermissionAudit();
   stopRuntimePerformanceMonitor?.();
   log.info(`${signal} received — shutting down gracefully`);
 

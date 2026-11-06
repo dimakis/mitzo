@@ -29,12 +29,17 @@ export const CollaborationMessageSourceSchema = z.strictObject({
 });
 export const COLLABORATION_EXECUTION_DISABLED = {
   enabled: false,
-  reason:
-    'Fresh-agent preparation and ordinary delivery are not wired. No session or model is started.',
+  reason: 'Group replies are not available yet. Joining alone starts no model response.',
 } as const;
 export const CollaborationExecutionSchema = z.strictObject({
   enabled: z.literal(false),
-  reason: z.literal(COLLABORATION_EXECUTION_DISABLED.reason),
+  // Retained joins and request receipts keep their original bytes on recovery.
+  reason: z.union([
+    z.literal(COLLABORATION_EXECUTION_DISABLED.reason),
+    z.literal(
+      'Fresh-agent preparation and ordinary delivery are not wired. No session or model is started.',
+    ),
+  ]),
 });
 /** An ordinary selection snapshot, never admission, credentials or a runtime registry. */
 export const CollaborationSettingsSchema = z.strictObject({

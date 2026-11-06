@@ -1,4 +1,6 @@
-import { callbackOutcome } from '../turn-callbacks.js';
+import { callbackOutcome, retainCallbackOutcome } from '../turn-callbacks.js';
+import { executeTaskOperation } from '../task-execution-operation.js';
+import { TaskExecutionStore } from '../task-execution-store.js';
 import { execFileSync } from 'node:child_process';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
@@ -60,6 +62,7 @@ describe('native tool execution through session permissions', () => {
     repositoryTasks.validate.mockReset();
     root = await mkdtemp(join(tmpdir(), 'mitzo-native-'));
     testHost.home = join(root, 'home');
+    vi.stubEnv('CODEX_HOME', join(testHost.home, '.codex'));
     await mkdir(testHost.home);
     await mkdir(join(root, 'worktree'));
     registry = new SessionRegistry();
@@ -92,6 +95,125 @@ describe('native tool execution through session permissions', () => {
   });
   const executor = () =>
     createNativeToolExecutor('client', registry, { env: { PATH: '/usr/bin:/bin' } });
+
+  it.each(['settled', 'unknown'] as const)(
+    'retains a failed command as %s through the real task executor adapter',
+    async (outcome) => {
+      const store = new TaskExecutionStore(join(root, 'events.db'));
+      try {
+        const session = registry.get('client')!;
+        session.cwd = await realpath(session.cwd!);
+        const grant = store.approve('operator', session.sessionId!, 'authorization', {
+          title: 'Run regression tests',
+          network: 'none',
+          repositories: [],
+          expiresAt: Date.now() + 60000,
+          members: [{ sessionId: session.sessionId!, fingerprint: 'scope', roots: [session.cwd] }],
+        });
+        const before = vi.mocked(executeSandboxedCommand).mock.calls.length;
+        vi.mocked(executeSandboxedCommand).mockResolvedValueOnce(
+          retainCallbackOutcome({ content: '1 test failed', isError: true }, outcome),
+        );
+        const options = {
+          input: {
+            operation: 'run' as const,
+            grantId: grant.id,
+            requestId: 'failed-test',
+            command: 'npm test',
+          },
+          grant,
+          sessionId: session.sessionId!,
+          session,
+          registry,
+          clientId: 'client',
+          call: { turnId: 'turn', callId: 'failed-call' },
+          store,
+          signal: abort.signal,
+          assertGrant: () => grant,
+          assertRuntimeCurrent: async () => {},
+        };
+        const result = await executeTaskOperation(options);
+        expect(result.isError).toBe(true);
+        expect(store.runStatus(grant.id, session.sessionId!, 'failed-test').state).toBe(
+          outcome === 'settled' ? 'completed' : 'uncertain',
+        );
+        if (outcome === 'settled') {
+          expect(result.content).toBe('1 test failed');
+          expect(await executeTaskOperation(options)).toEqual(result);
+        } else {
+          expect(JSON.parse(result.content).state).toBe('uncertain');
+          await expect(executeTaskOperation(options)).rejects.toThrow(/uncertain/);
+        }
+        expect(vi.mocked(executeSandboxedCommand).mock.calls.length).toBe(before + 1);
+      } finally {
+        store.close();
+      }
+    },
+  );
+
+  it('uses an exact trusted task grant for different routine commands without another card', async () => {
+    for (const command of ['npm test -- first', 'npm test -- second']) {
+      const input = { command };
+      const current = vi.fn();
+      const execute = createNativeToolExecutor('client', registry, {
+        env: { PATH: '/usr/bin:/bin' },
+        taskAuthorization: {
+          grantId: 'grant',
+          toolName: 'Bash',
+          input,
+          assertCurrentSync: current,
+        },
+      });
+      const result = await execute(call('Bash', input), abort.signal);
+      expect(result.is_error).toBe(false);
+      expect(current).toHaveBeenCalled();
+    }
+    expect(sent.filter((event) => event.type === 'permission_request')).toEqual([]);
+  });
+
+  it('refuses a task proof for changed input or an unselected operation before effects', async () => {
+    const execute = createNativeToolExecutor('client', registry, {
+      env: {},
+      taskAuthorization: {
+        grantId: 'grant',
+        toolName: 'Bash',
+        input: { command: 'npm test' },
+        assertCurrentSync() {},
+      },
+    });
+    const before = vi.mocked(executeSandboxedCommand).mock.calls.length;
+    expect((await execute(call('Bash', { command: 'rm -rf .' }), abort.signal)).is_error).toBe(
+      true,
+    );
+    expect((await execute(call('GitHubRead', { endpoint: '/user' }), abort.signal)).is_error).toBe(
+      true,
+    );
+    expect(vi.mocked(executeSandboxedCommand).mock.calls.length).toBe(before);
+  });
+
+  it('rechecks task revocation immediately before spawning a command', async () => {
+    let revoked = false;
+    const input = { command: 'npm test' };
+    vi.mocked(executeSandboxedCommand).mockImplementationOnce(async (options) => {
+      revoked = true;
+      options.beforeSpawn?.();
+      return { content: 'must not run', isError: false };
+    });
+    const execute = createNativeToolExecutor('client', registry, {
+      env: {},
+      taskAuthorization: {
+        grantId: 'grant',
+        toolName: 'Bash',
+        input,
+        assertCurrentSync() {
+          if (revoked) throw Error('Task authorization was revoked');
+        },
+      },
+    });
+    const output = await execute(call('Bash', input), abort.signal);
+    expect(output.is_error).toBe(true);
+    expect(output.content).toMatch(/revoked/);
+  });
 
   it.each(['Write', 'GitHubRead'] as const)(
     'rechecks owned runtime revocation after %s approval before host effects',

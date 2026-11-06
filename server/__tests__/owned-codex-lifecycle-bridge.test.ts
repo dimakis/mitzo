@@ -4,6 +4,7 @@ import {
   CodexAppServerClient,
   CodexServerRequestResolvedError,
   CodexTransportError,
+  CodexHostToolRequestError,
 } from '../codex-app-server-client.js';
 import { describe, expect, it, vi } from 'vitest';
 import type { CodexLifecycleTransport } from '../codex-app-server-client.js';
@@ -13,6 +14,20 @@ import { createCodexNativeApprovalHandler } from '../codex-native-approvals.js';
 import { SessionRegistry } from '../session-registry.js';
 import { resolvePending } from '../permissions.js';
 import { setSkillPolicy } from '@mitzo/harness';
+import { SessionRuntimeError } from '../session-runtime-error.js';
+
+it('retains reviewed workspace failure through physical-close reentry', () => {
+  const f = fixture();
+  f.bridge.attach(f.owner);
+  const failure = new SessionRuntimeError('workspace_branch_changed');
+  vi.mocked(f.lease.close).mockImplementation(() =>
+    f.bridge.lifecycle.onClose(new CodexTransportError('connection')),
+  );
+  f.bridge.lifecycle.onClose(failure);
+  expect(f.owner.onClose).toHaveBeenCalledOnce();
+  expect(f.owner.onClose).toHaveBeenCalledWith(failure);
+  expect(f.lease.close).toHaveBeenCalledOnce();
+});
 
 function fixture() {
   const client = {
@@ -80,6 +95,40 @@ function nativeTransportFixture() {
 }
 
 describe('owned Codex lifecycle bridge', () => {
+  it.each(['invalid_tool_request', 'tool_unavailable'] as const)(
+    'delivers a proven %s refusal and accepts the next native request',
+    async (category) => {
+      const f = nativeTransportFixture();
+      vi.mocked(f.owner.onRequest).mockImplementationOnce(
+        async (_method, _params, _signal, context) => {
+          const failure = new CodexHostToolRequestError(category);
+          context!.registerPreExecutionRefusal!(failure);
+          throw failure;
+        },
+      );
+      f.reply({ id: 'refused', method: 'item/tool/call', params: {} });
+      await vi.waitFor(() => expect(f.sent).toHaveLength(1));
+      expect(f.sent[0]).toMatchObject({ id: 'refused', result: { success: false } });
+      expect(f.child.kill).not.toHaveBeenCalled();
+      expect(f.lease.close).not.toHaveBeenCalled();
+      f.reply({ id: 'next', method: 'item/tool/call', params: {} });
+      await vi.waitFor(() => expect(f.sent).toHaveLength(2));
+      expect(f.sent[1]).toEqual({ id: 'next', result: { content: 'owner-result' } });
+      f.transport.close();
+    },
+  );
+
+  it('refuses an unqualified host-tool error even when its class describes a safe refusal', async () => {
+    const f = nativeTransportFixture();
+    vi.mocked(f.owner.onRequest).mockRejectedValue(
+      new CodexHostToolRequestError('tool_unavailable'),
+    );
+    f.reply({ id: 'unproven', method: 'item/tool/call', params: {} });
+    await vi.waitFor(() => expect(f.child.kill).toHaveBeenCalledOnce());
+    expect(f.sent).toEqual([]);
+    expect(f.lease.close).toHaveBeenCalledOnce();
+  });
+
   it.each([
     'on time',
     'expired input',
@@ -613,3 +662,134 @@ describe('owned Codex lifecycle bridge', () => {
     expect(() => f.bridge.attach(f.owner)).toThrow('Owned Codex lifecycle unavailable');
   });
 });
+
+it.each(['current', 'closed', 'replaced'] as const)(
+  'qualifies a new issuer key before ordered notifications and tool admission (%s)',
+  async (change) => {
+    const f = fixture();
+    f.bridge.attach(f.owner);
+    let required = true;
+    let release!: () => void;
+    const pending = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    f.lease.qualifyCredentialRefresh = vi.fn(() =>
+      required
+        ? pending.then(() => {
+            required = false;
+          })
+        : undefined,
+    );
+    vi.mocked(f.lease.assertCurrentSync).mockImplementation(() => {
+      if (required) throw Error('unqualified issuer key');
+    });
+    const order: string[] = [];
+    vi.mocked(f.owner.onNotification).mockImplementation((method) => {
+      order.push(method);
+    });
+    vi.mocked(f.owner.onRequest).mockImplementation(async () => {
+      order.push('tool');
+      return {};
+    });
+    expect(() => f.bridge.lifecycle.onNotification('first', {})).not.toThrow();
+    f.bridge.lifecycle.onNotification('second', {});
+    const request = f.bridge.lifecycle.onRequest(
+      'item/tool/call',
+      {},
+      new AbortController().signal,
+    );
+    const observed =
+      change === 'current'
+        ? expect(request).resolves.toEqual({})
+        : expect(request).rejects.toThrow();
+    expect(order).toEqual([]);
+    if (change === 'closed') f.bridge.lifecycle.onClose(new CodexTransportError('connection'));
+    if (change === 'replaced') f.setCurrent({ ...f.lease });
+    release();
+    await observed;
+    if (change === 'current') {
+      expect(order).toEqual(['first', 'second', 'tool']);
+      expect(f.lease.close).not.toHaveBeenCalled();
+    } else expect(order).toEqual([]);
+    f.bridge.lifecycle.onClose(new CodexTransportError('connection'));
+  },
+);
+
+it('qualifies a rotated issuer after a callback before the real native response fences run', async () => {
+  const f = nativeTransportFixture();
+  let required = false;
+  let release!: () => void;
+  const pending = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  f.lease.qualifyCredentialRefresh = vi.fn(() =>
+    required
+      ? pending.then(() => {
+          required = false;
+        })
+      : undefined,
+  );
+  vi.mocked(f.lease.assertCurrentSync).mockImplementation(() => {
+    if (required) throw Error('unqualified issuer key');
+  });
+  vi.mocked(f.owner.onRequest).mockImplementationOnce(async () => {
+    required = true;
+    return { content: 'settled-tool' };
+  });
+  f.reply({ id: 'rotated', method: 'item/tool/call', params: {} });
+  await vi.waitFor(() => expect(f.owner.onRequest).toHaveBeenCalledOnce());
+  expect(f.sent).toEqual([]);
+  release();
+  await vi.waitFor(() =>
+    expect(f.sent).toEqual([{ id: 'rotated', result: { content: 'settled-tool' } }]),
+  );
+  expect(f.lease.close).not.toHaveBeenCalled();
+  f.transport.close();
+});
+
+it('owns a failed shared key lookup for every queued notification and closes only its affected lease', async () => {
+  const f = fixture();
+  f.bridge.attach(f.owner);
+  let reject!: (error: Error) => void;
+  const pending = new Promise<void>((_resolve, fail) => {
+    reject = fail;
+  });
+  f.lease.qualifyCredentialRefresh = vi.fn(() => pending);
+  f.bridge.lifecycle.onNotification('first', {});
+  f.bridge.lifecycle.onNotification('second', {});
+  const failure = new SessionRuntimeError('login_verification_unavailable');
+  reject(failure);
+  await new Promise((resolve) => setImmediate(resolve));
+  expect(f.owner.onNotification).not.toHaveBeenCalled();
+  expect(f.owner.onClose).toHaveBeenCalledExactlyOnceWith(failure);
+  expect(f.lease.qualifyCredentialRefresh).toHaveBeenCalledOnce();
+  expect(f.lease.close).toHaveBeenCalledOnce();
+});
+
+it.each(['params', 'method'])(
+  'owns pending key lookup rejection when its notification queue overflows (%s)',
+  async (overflow) => {
+    const f = fixture();
+    const bridge = new OwnedCodexLifecycleBridge(() => f.lease, {
+      maxPendingNotificationBytes: 16,
+    });
+    bridge.attach(f.owner);
+    let reject!: (error: Error) => void;
+    const pending = new Promise<void>((_resolve, fail) => {
+      reject = fail;
+    });
+    f.lease.qualifyCredentialRefresh = vi.fn(() => pending);
+    bridge.lifecycle.onNotification('first', {});
+    expect(() =>
+      bridge.lifecycle.onNotification(
+        overflow === 'method' ? '界'.repeat(6) : 'overflow',
+        overflow === 'method' ? {} : { data: 'larger than the selected queue bound' },
+      ),
+    ).toThrow();
+    reject(Error('lookup cancelled'));
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(f.owner.onNotification).not.toHaveBeenCalled();
+    expect(f.owner.onClose).toHaveBeenCalledOnce();
+    expect(f.lease.close).toHaveBeenCalledOnce();
+  },
+);

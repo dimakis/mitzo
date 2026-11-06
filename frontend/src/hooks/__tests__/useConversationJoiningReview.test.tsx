@@ -141,7 +141,19 @@ it('confirms only the exact frozen snapshot, ordinary settings and membership re
   expect(result.current.join?.state).toBe('pending_preparation');
   expect(result.current.canConfirm).toBe(false);
 });
-it.each(['unverified', 'refused', 'needs_reviewed_summary'] as const)(
+it('allows reviewed joining with unavailable capacity without claiming measured readiness', async () => {
+  const port = owner();
+  port.review.mockResolvedValue(
+    joiningReviewFixture({ capacity: { status: 'unverified', reason: 'Capacity unavailable.' } }),
+  );
+  const { result } = renderHook(() => useConversationJoiningReview(port));
+  await act(() => result.current.prepare(joiningSetupFixture()));
+  expect(result.current.canConfirm).toBe(true);
+  expect(result.current.review?.snapshot.capacity.status).toBe('unverified');
+  await act(() => result.current.confirm());
+  expect(port.confirm).toHaveBeenCalledTimes(1);
+});
+it.each(['refused', 'needs_reviewed_summary'] as const)(
   'keeps %s capacity unavailable for confirmation',
   async (status) => {
     const port = owner();

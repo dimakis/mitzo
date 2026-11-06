@@ -23,6 +23,13 @@ live turns, device acceptance and deployment are separate evidence levels.
 Canonical staging enrollment and live qualification remain unproven; no deployment
 is established here.
 
+The [6 November silent-joining increment](symposium.md#silent-joining-first-simplification-increment)
+records the bounded ordinary-session implementation and current requirement-to-test
+evidence. Its regular application test covers one reviewed allocation and restart;
+group delivery/replies, browser comparison and live/device qualification remain open.
+The 5 November approved simplification removes exact native preflight as a joining
+prerequisite, while preserving exact reviewed content and ordinary turn admission.
+
 ## Collaboration runtime validation
 
 - [ ] **Shared execution contract.** Validate the candidate ordinary account/session
@@ -73,9 +80,10 @@ remain blockers even when usage may stay unknown.
 
 ## Testing and deployment boundary
 
-Live tests reuse [canonical staging](../operations/canonical-staging.md) and its
-required check/enrollment procedure. Do not start another backend/custodian, borrow
-production credentials, force a lock/drain or reuse an uncertain diagnostic operation.
+Canonical staging has been stood down since 15 October. Do not check, restart or
+recreate it. Live tests require a separately selected authorized target. Do not
+start another backend/custodian, borrow production credentials, force a lock/drain
+or reuse an uncertain diagnostic operation.
 Retained resources require their own reconciliation and ownership.
 
 Before a model-backed test, explicitly select an account-supported Luna model and

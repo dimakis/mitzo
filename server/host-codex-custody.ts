@@ -15,6 +15,18 @@ export const HostCodexLoginCustodySchema = z.strictObject({
   sourceAuth: AuthIdentity,
   homeRoot: Identity,
   homeAuth: AuthIdentity,
+  refreshProof: z
+    .strictObject({
+      identitySha256: Hash,
+      issuedAt: z.number().int().nonnegative(),
+      ledger: Identity.extend({
+        name: z
+          .string()
+          .regex(/^login-refresh-[a-f0-9]{64}\.json$/)
+          .optional(),
+      }).strict(),
+    })
+    .optional(),
 });
 export const HostCodexApiLoginCustodySchema = z.strictObject({
   kind: z.literal('api-key'),
