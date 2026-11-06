@@ -239,6 +239,7 @@ import { createOutputContributorRouter } from './output-contributor-routes.js';
 import { createSessionCollaborationRouter } from './session-collaboration-router.js';
 import { CollaborationApplicationReview } from './collaboration-application-review.js';
 import { createApplicationCollaborationJoining } from './collaboration-application-joining.js';
+import { createApplicationCollaborationMessages } from './collaboration-application-messages.js';
 import { readAgentLibraryProfile } from './agent-library-transport.js';
 import { createSymposiumProfileRouter } from './symposium-profile-routes.js';
 import { SymposiumProfileProposalStore } from './symposium-profile-proposals.js';
@@ -247,6 +248,7 @@ import {
   readCodexQueue,
   getCodexRuntime,
   getCodexConversationStore,
+  getExistingCodexConversationStore,
   waitForCodexRuntimeBySessionId,
   readCodexQueueOverview,
   cancelCodexQueuedCommand,
@@ -3513,6 +3515,14 @@ mountObservedRouter(
   operatorAuthMiddleware,
   createSessionCollaborationRouter({
     store: eventStore,
+    messages: () =>
+      createApplicationCollaborationMessages({
+        store: eventStore,
+        workspaces: () => getRepositoryWorkspaces(true),
+        registry,
+        broadcast: (sessionId, event) => getConnectionRegistry()?.broadcast(sessionId, event),
+        nativeStore: getExistingCodexConversationStore,
+      }),
     joining: (auth) =>
       createApplicationCollaborationJoining(
         {

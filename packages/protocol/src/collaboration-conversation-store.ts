@@ -495,6 +495,22 @@ export class CollaborationConversationStore {
       },
     );
   }
+  /** Exact observational retry, before mutable dispatch eligibility is renewed. */
+  messageForRequest(group: string, raw: unknown) {
+    this.group(group);
+    const input = CollaborationMessageInputSchema.parse(raw);
+    if (input.responders.kind === 'selected') input.responders.sessionIds.sort();
+    const row = this.db
+      .prepare(
+        'SELECT fingerprint,result FROM collaboration_requests WHERE collaboration_id=? AND request_id=?',
+      )
+      .get(group, input.requestId) as { fingerprint: string; result: string } | undefined;
+    if (!row) return undefined;
+    if (row.fingerprint !== sha({ kind: 'message', input }))
+      throw new ContractError('request_conflict');
+    const original = CollaborationMessageSchema.parse(JSON.parse(row.result));
+    return this.getMessage(group, original.messageId) ?? undefined;
+  }
   /** Private reservation before asynchronous source reads. Existing ordinary
    * settings and membership are captured once; no context is delivered here. */
   reserveForwardPreparation(group: string, raw: unknown) {
@@ -1466,6 +1482,57 @@ export class CollaborationConversationStore {
     this.group(group);
     z.uuid().parse(messageId);
     return this.current(group, 'message', messageId, CollaborationMessageSchema);
+  }
+  /** Host-only exact lookups; linked joins and old deliveries are not limited
+   * by the recent public view. Neither lookup grants execution authority. */
+  linkedJoinForSession(group: string, sessionId: string) {
+    this.group(group);
+    const rows = this.db
+      .prepare(
+        `SELECT r.body FROM collaboration_records r
+      WHERE collaboration_id=? AND kind='join' AND json_extract(body,'$.sessionId')=?
+      AND json_extract(body,'$.state')='linked' AND NOT EXISTS (
+        SELECT 1 FROM collaboration_records n WHERE n.collaboration_id=r.collaboration_id
+        AND n.kind=r.kind AND n.record_id=r.record_id AND n.revision>r.revision) LIMIT 2`,
+      )
+      .all(group, sessionId) as Row[];
+    if (rows.length > 1) throw new ContractError('reply_conflict');
+    return rows.length ? CollaborationJoinSchema.parse(JSON.parse(rows[0].body)) : undefined;
+  }
+  deliveryForCommand(commandId: string) {
+    const rows = this.db
+      .prepare(
+        `SELECT r.collaboration_id AS groupId,r.body FROM collaboration_records r
+      WHERE kind='message' AND EXISTS (SELECT 1 FROM json_each(r.body,'$.deliveries') d
+        WHERE json_extract(d.value,'$.commandId')=?) AND NOT EXISTS (
+        SELECT 1 FROM collaboration_records n WHERE n.collaboration_id=r.collaboration_id
+        AND n.kind=r.kind AND n.record_id=r.record_id AND n.revision>r.revision) LIMIT 2`,
+      )
+      .all(commandId) as Array<Row & { groupId: string }>;
+    if (rows.length > 1) throw new ContractError('reply_conflict');
+    if (!rows.length) return undefined;
+    const message = CollaborationMessageSchema.parse(JSON.parse(rows[0].body));
+    const deliveries = message.deliveries.filter((row) => row.commandId === commandId);
+    if (deliveries.length !== 1) throw new ContractError('reply_conflict');
+    return { group: rows[0].groupId, message, delivery: deliveries[0] };
+  }
+  /** Host reconciliation keyset, independent of the recent display window. */
+  messagesForReplyReconciliation(group: string, after: number, through: number) {
+    this.group(group);
+    const rows = this.db
+      .prepare(
+        `SELECT r.body FROM collaboration_records r
+      WHERE collaboration_id=? AND kind='message' AND json_extract(body,'$.author')='operator'
+      AND CAST(json_extract(body,'$.sequence') AS INTEGER)>?
+      AND CAST(json_extract(body,'$.sequence') AS INTEGER)<=?
+      AND EXISTS (SELECT 1 FROM json_each(r.body,'$.deliveries') d
+        WHERE json_extract(d.value,'$.purpose')='reply' AND json_extract(d.value,'$.commandId') IS NOT NULL)
+      AND NOT EXISTS (SELECT 1 FROM collaboration_records n WHERE n.collaboration_id=r.collaboration_id
+        AND n.kind=r.kind AND n.record_id=r.record_id AND n.revision>r.revision)
+      ORDER BY CAST(json_extract(body,'$.sequence') AS INTEGER) LIMIT 50`,
+      )
+      .all(group, after, through) as Row[];
+    return rows.map((row) => CollaborationMessageSchema.parse(JSON.parse(row.body)));
   }
   view(group: string) {
     return this.db.transaction(() => {

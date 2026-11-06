@@ -137,6 +137,9 @@ export const CollaborationMessageInputSchema = z.strictObject({
   ]),
   snapshot: CollaborationSnapshotReferenceSchema.nullable(),
 });
+export const CollaborationApplicationMessageRequestSchema = CollaborationMessageInputSchema.extend({
+  clientId: id,
+});
 /** Trusted ordinary driver/source owner input. Text is read from finalized source events. */
 export const CollaborationReplyInputSchema = z.strictObject({
   requestId: z.uuid(),
