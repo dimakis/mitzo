@@ -359,6 +359,7 @@ export function CodexQueueStatus({
               : undefined;
   const actionable =
     !!operationStatus ||
+    queue.canContinue === true ||
     !!queue.recovering ||
     queue.queued > 0 ||
     queue.failed > 0 ||

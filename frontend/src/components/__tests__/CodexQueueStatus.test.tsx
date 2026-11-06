@@ -669,6 +669,68 @@ it('does not offer a cold queue effect without the server original-owner qualifi
   expect(screen.queryByRole('button', { name: 'Reconnect and continue' })).toBeNull();
 });
 
+it.each(['standalone', 'combined'] as const)(
+  'offers qualified recovery with no queued messages in the %s status',
+  async (presentation) => {
+    HTMLDialogElement.prototype.showModal = function () {
+      this.setAttribute('open', '');
+    };
+    HTMLDialogElement.prototype.close = function () {
+      this.removeAttribute('open');
+    };
+    let continued = false;
+    vi.mocked(apiFetch).mockImplementation(async (path) => {
+      if (String(path).endsWith('/continue')) {
+        continued = true;
+        return Response.json({ ok: true });
+      }
+      return meta({
+        paused: !continued,
+        connected: continued,
+        canContinue: !continued,
+        queued: 0,
+        interrupted: 1,
+        failed: 0,
+        recovering: false,
+      });
+    });
+    const status = (
+      <CodexQueueStatus sessionId="interrupted-only" deliveryStatus="Loading conversation…" />
+    );
+    render(
+      presentation === 'combined' ? (
+        <ComposerStatusProvider>
+          {status}
+          <ComposerStatusRail />
+        </ComposerStatusProvider>
+      ) : (
+        status
+      ),
+    );
+    await act(async () => {});
+    if (presentation === 'combined') {
+      expect(screen.getByRole('region', { name: 'Conversation status' }).textContent).toContain(
+        'Reconnection needed',
+      );
+      fireEvent.click(screen.getByRole('button', { name: 'Conversation status details' }));
+    }
+    const recover = screen.getByRole('button', { name: 'Reconnect and continue' });
+    expect(vi.mocked(apiFetch).mock.calls.every(([, options]) => !options?.method)).toBe(true);
+    await userEvent.click(recover);
+    expect(apiFetch).toHaveBeenCalledWith('/api/sessions/interrupted-only/codex-queue/continue', {
+      method: 'POST',
+      headers: { 'X-Connection-ID': 'owned-sse' },
+      signal: expect.any(AbortSignal),
+    });
+    await waitFor(() =>
+      expect(screen.queryByRole('button', { name: 'Reconnect and continue' })).toBeNull(),
+    );
+    expect(
+      vi.mocked(apiFetch).mock.calls.filter(([, options]) => options?.method === 'POST'),
+    ).toHaveLength(1);
+  },
+);
+
 it('keeps the reconnect fallback available when recovery fails', async () => {
   vi.mocked(apiFetch)
     .mockResolvedValueOnce(

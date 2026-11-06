@@ -243,66 +243,69 @@ for (const theme of ['dark', 'light']) {
 }
 
 for (const theme of ['dark', 'light']) {
-  test(`failed undispatched local input uses signed saved-work recovery (${theme})`, async ({
-    page,
-  }, info) => {
-    const files = (await output).outputFiles!;
-    let continued = false;
-    const mutations: Array<{ path: string; connection?: string }> = [];
-    await page.route('**/*', (route) => {
-      const request = route.request();
-      const path = new URL(request.url()).pathname;
-      if (path.endsWith('/meta'))
-        return route.fulfill({
-          json: {
-            codexQueue: {
-              paused: false,
-              connected: true,
-              canContinue: !continued,
-              queued: 0,
-              interrupted: 0,
-              failed: continued ? 0 : 1,
-              retryable: false,
+  for (const scenario of ['failed', 'interrupted'] as const) {
+    test(`${scenario} local input with no queue uses signed saved-work recovery (${theme})`, async ({
+      page,
+    }, info) => {
+      const files = (await output).outputFiles!;
+      let continued = false;
+      const mutations: Array<{ path: string; connection?: string }> = [];
+      await page.route('**/*', (route) => {
+        const request = route.request();
+        const path = new URL(request.url()).pathname;
+        if (path.endsWith('/meta'))
+          return route.fulfill({
+            json: {
+              codexQueue: {
+                paused: scenario === 'interrupted' && !continued,
+                connected: scenario === 'failed' || continued,
+                canContinue: !continued,
+                queued: 0,
+                interrupted: scenario === 'interrupted' ? 1 : 0,
+                failed: scenario === 'failed' && !continued ? 1 : 0,
+                retryable: false,
+              },
             },
-          },
-        });
-      if (request.method() === 'POST' && path.includes('/codex-queue/')) {
-        mutations.push({ path, connection: request.headers()['x-connection-id'] });
-        continued = true;
-        return route.fulfill({ json: { ok: true } });
-      }
-      if (path.startsWith('/api/')) return route.fulfill({ json: [] });
-      const asset = files.find((file) =>
-        path.endsWith(file.path.endsWith('.css') ? '.css' : '.js'),
-      );
-      if (asset)
+          });
+        if (request.method() === 'POST' && path.includes('/codex-queue/')) {
+          mutations.push({ path, connection: request.headers()['x-connection-id'] });
+          continued = true;
+          return route.fulfill({ json: { ok: true } });
+        }
+        if (path.startsWith('/api/')) return route.fulfill({ json: [] });
+        const asset = files.find((file) =>
+          path.endsWith(file.path.endsWith('.css') ? '.css' : '.js'),
+        );
+        if (asset)
+          return route.fulfill({
+            contentType: asset.path.endsWith('.css') ? 'text/css' : 'text/javascript',
+            body: asset.text,
+          });
+        if (path !== '/') return route.abort();
         return route.fulfill({
-          contentType: asset.path.endsWith('.css') ? 'text/css' : 'text/javascript',
-          body: asset.text,
+          contentType: 'text/html',
+          body: `<!doctype html><html data-theme="${theme}" data-accent="mint" data-font="georgia"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="/fixture.css"><div id="root"></div><script type="module" src="/fixture.js"></script></html>`,
         });
-      if (path !== '/') return route.abort();
-      return route.fulfill({
-        contentType: 'text/html',
-        body: `<!doctype html><html data-theme="${theme}" data-accent="mint" data-font="georgia"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="/fixture.css"><div id="root"></div><script type="module" src="/fixture.js"></script></html>`,
       });
+      await page.setViewportSize({
+        width: info.project.name.startsWith('mobile') ? 320 : 1280,
+        height: 844,
+      });
+      await page.goto('/');
+      await expect(queueStatus(page)).toContainText('Your message is saved.');
+      const reconnect = page.getByRole('button', { name: 'Reconnect and continue' });
+      await expect(reconnect).toBeVisible();
+      await expect(page.getByRole('button', { name: 'Retry saved turn' })).toHaveCount(0);
+      await page.screenshot({ path: info.outputPath(`${scenario}-saved-local-${theme}.png`) });
+      expect(mutations).toEqual([]);
+      await reconnect.focus();
+      await page.keyboard.press('Enter');
+      await expect(queueStatus(page)).toHaveCount(0);
+      expect(mutations).toEqual([
+        { path: '/api/sessions/queue-fixture/codex-queue/continue', connection: 'fixture' },
+      ]);
     });
-    await page.setViewportSize({
-      width: info.project.name.startsWith('mobile') ? 320 : 1280,
-      height: 844,
-    });
-    await page.goto('/');
-    await expect(queueStatus(page)).toContainText('Your message is saved.');
-    const reconnect = page.getByRole('button', { name: 'Reconnect and continue' });
-    await expect(reconnect).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Retry saved turn' })).toHaveCount(0);
-    await page.screenshot({ path: info.outputPath(`failed-saved-local-${theme}.png`) });
-    await reconnect.focus();
-    await page.keyboard.press('Enter');
-    await expect(queueStatus(page)).toHaveCount(0);
-    expect(mutations).toEqual([
-      { path: '/api/sessions/queue-fixture/codex-queue/continue', connection: 'fixture' },
-    ]);
-  });
+  }
 }
 
 for (const theme of ['dark', 'light']) {
