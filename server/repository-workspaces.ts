@@ -2076,6 +2076,29 @@ export class RepositoryWorkspaces {
       return publicRepositoryWorkspace(record);
     });
   }
+  /** Read a ready host preparation without reserving or materializing a task. */
+  async readPreparedHostSource<T>(
+    id: string,
+    binding: AccountBinding,
+    read: (directory: string) => T | Promise<T>,
+  ): Promise<T> {
+    return this.runOperation(async () => {
+      const record = this.get(id);
+      if (
+        record.state !== 'ready' ||
+        record.sandbox ||
+        record.ordinaryPreparation?.runtimeBinding.execution.location === 'openshell'
+      )
+        throw Error('Host workspace commands unavailable');
+      const signal = AbortSignal.timeout(30000);
+      await this.authorizeHostRecord(record, binding, signal);
+      await this.verifyHostSource(record, signal);
+      const result = await read(this.source(record));
+      await this.authorizeHostRecord(record, binding, signal);
+      await this.assertHostSource(record, signal);
+      return result;
+    });
+  }
   private async firstBinding(
     record: RepositoryWorkspace,
     expected: ReturnType<RepositoryWorkspaces['snapshotHostInput']>,

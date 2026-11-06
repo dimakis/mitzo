@@ -62,3 +62,12 @@ overwrites its restored draft. Focused rollback, passthrough, workspace catalogu
 and owned SDK admission checks pass. The joined SDK fixture reaches a host path
 canonicalization fence locally before provider input; its full delivery assertions
 remain a required CI check. No model calls are made by these fixtures.
+
+The real prepared-checkout regression also verifies that catalogue discovery reads
+the retained source before a conversation or task directory exists. The repository
+owner rechecks account/source authority before and after that read and does not
+reserve, claim or materialize a task. A revoked source refuses the catalogue. CI's
+mobile screenshot showed that the isolated composer fixture sat at the top of an
+otherwise empty viewport, placing its upward menu offscreen. It now reuses the
+existing bottom-composer fixture layout; real clicks and all draft assertions stay
+in place. The manifest formatting correction was checked across all changed files.

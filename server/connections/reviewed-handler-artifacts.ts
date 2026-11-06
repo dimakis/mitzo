@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.892-chat-runtime-tools';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.893-chat-runtime-tools';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -27,12 +27,12 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/skill-registry-runtime.test.ts':
     '3aafb0d67a40784fb5d47a4447db9dcd47cf33340c35403909638592482d37e1',
   '../ordinary-composer-skills.ts':
-    '80b45b8672924589117c8c004291515476ae0e8193ea24c2686ccd431da707d4',
+    'bc02bd92204887e254e3e1d5c96f9c722ecefad72243f33f86f5da652eba9a1e',
   '../skill-registry-runtime.ts':
     '32da99ef45c6eddb96a1f8b7d1f867cfa1274bd1fe787217bdb1cd9cf5bbb201',
   '../skills.ts': '4d31c6e30caf828782cfc0d0c08f331f8084b6fb41d28873f3332c2c5778cae2',
   '../__tests__/ordinary-composer-skills.test.ts':
-    '1fc514c75afae441a79e88594a826ac1ee95b5bf9828aa0f51dac03076f3db23',
+    '3d8d68be800e6d48e9a2b69700b2c7a751c523a46180923732360ec90452df3e',
   '../../frontend/src/lib/chat-composer-capabilities.ts':
     '103913d70dcdc129d38bbc3373d3e5492460327043873c0fddc19d3e207bbd00',
   '../../frontend/src/lib/__tests__/chat-composer-capabilities.test.ts':
@@ -46,11 +46,11 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/terminal-targets.test.ts':
     '5a8397002333d89347e9f09643961f503194b2a3865735ec2762e15b686d091d',
   '../../tests/fixtures/chat-runtime-tools.tsx':
-    '868adf171c8f152c8cf1ca5a231669f260f8593ed58972b62ef494aa67bc5243',
+    '90f26a50c67ccff4977bd4dbc126cd4fdeb006a9410975258289cc65b0d50c46',
   '../../tests/offline/chat-runtime-tools.spec.ts':
     '96ce7af20b089854955d4708e1fb916f5d1d08785b65832703cb5c3771bf89e6',
   '../../docs/features/chat-runtime-tools.md':
-    '68c0f94f3285b46e84d63a1f9d9269b85cdb898f49fea5125b4c73c741868a21',
+    '21f2ac20836fe8422f9fb5e257162aed35efd4deb0d4eaa25b8809cbb13b242d',
   '../__tests__/notification-routes.test.ts':
     '412f355c591881b5b781a90763d600996b5c46c97c5f3ea13ddad78a6785676f',
   '../__tests__/symposium-review-app.test.ts':
@@ -1805,7 +1805,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../native-tool-executor.ts': '5d3423b5ef1a9ab970d60e65f27f41de08df977bb5f779292ceedfd55c07057c',
   '../repository-preparation-capacity.ts':
     'f042dee9fe5643e989bf229e06c532ee0f42764300583f4fc84a265730bb360b',
-  '../repository-workspaces.ts': '12f3e43cc1dc8f6e1bee73f5a1c0ef4e6cda37785b8098763419cdd5b6e3e8f7',
+  '../repository-workspaces.ts': 'b3bc557da5f013665d83fca2ea5c6a6be4fc66f5762417dcf1da0bf27a16482a',
   '../../packages/protocol/src/session-metadata-store.ts':
     'dc00df7c8119e002a8d4ad68dfd8063d86c5f37c527ce0d14749d9f14a51ed86',
   '../../packages/protocol/src/event-store.ts':

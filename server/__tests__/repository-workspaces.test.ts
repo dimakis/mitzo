@@ -21,6 +21,7 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { RepositoryWorkspaces } from '../repository-workspaces.js';
 import type { AccountBinding } from '@mitzo/protocol';
+import { ordinaryWorkspaceSkillEntries } from '../ordinary-composer-skills.js';
 const copyFailure = vi.hoisted(() => ({ error: undefined as Error | undefined }));
 vi.mock('../repository-task-copy.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../repository-task-copy.js')>();
@@ -92,6 +93,33 @@ async function fixture() {
   await mkdir(taskRoot);
   return { root, taskRoot, service, authorize, inspect, prepare, verify, git };
 }
+it('reads repository skills from the qualified prepared source before a task directory or conversation exists', async () => {
+  const f = await fixture();
+  const skill = join(f.root, 'source', '.mitzo', 'skills', 'prepared-only');
+  await mkdir(skill, { recursive: true });
+  await writeFile(
+    join(skill, 'SKILL.md'),
+    '---\ndescription: Prepared source skill\n---\nUse the prepared source',
+  );
+  const preview = await f.service.preview(
+    binding,
+    'connection',
+    'example/repo',
+    new AbortController().signal,
+  );
+  await f.service.prepare(preview.id, binding, new AbortController().signal);
+  expect(f.service.get(preview.id).directory).toBeUndefined();
+  expect(await ordinaryWorkspaceSkillEntries(f.service, preview.id, () => binding)).toContainEqual(
+    expect.objectContaining({ name: 'prepared-only', scope: 'repo' }),
+  );
+  expect(f.service.get(preview.id)).toMatchObject({ state: 'ready' });
+  expect(f.service.get(preview.id).conversationId).toBeUndefined();
+  f.authorize.mockRejectedValueOnce(Error('Access revoked'));
+  await expect(
+    ordinaryWorkspaceSkillEntries(f.service, preview.id, () => binding),
+  ).rejects.toThrow();
+  f.service.close();
+});
 it('persists a pinned preparation across restart and claims it for only one conversation', async () => {
   const f = await fixture();
   const preview = await f.service.preview(

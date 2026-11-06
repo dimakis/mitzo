@@ -63,7 +63,13 @@ it('qualifies the selected ready host workspace before loading its repository ov
   const { registry } = fixture();
   vi.spyOn(registries, 'buildSkillRegistry').mockReturnValue(registry);
   const record = { state: 'ready', directory: '/selected/task', binding: { accountId: 'work' } };
-  const service = { get: vi.fn(() => record), qualifiedStatus: vi.fn(async () => ({})) };
+  const service = {
+    get: vi.fn(() => record),
+    readPreparedHostSource: vi.fn(
+      async (_id: string, _binding: unknown, read: (directory: string) => unknown) =>
+        read('/selected/task'),
+    ),
+  };
   expect(
     await ordinaryWorkspaceSkillEntries(
       service as never,
@@ -75,13 +81,13 @@ it('qualifies the selected ready host workspace before loading its repository ov
       expect.objectContaining({ name: 'restricted', unavailableReason: expect.any(String) }),
     ]),
   );
-  expect(service.qualifiedStatus).toHaveBeenCalledWith('workspace', record.binding);
+  expect(service.readPreparedHostSource).toHaveBeenCalledWith(
+    'workspace',
+    record.binding,
+    expect.any(Function),
+  );
   expect(registries.buildSkillRegistry).toHaveBeenCalledWith('/selected/task');
-  service.qualifiedStatus.mockRejectedValueOnce(Error('Changed workspace'));
-  await expect(
-    ordinaryWorkspaceSkillEntries(service as never, 'workspace', () => record.binding as never),
-  ).rejects.toThrow();
-  Object.assign(record, { sandbox: true });
+  service.readPreparedHostSource.mockRejectedValueOnce(Error('Changed workspace'));
   await expect(
     ordinaryWorkspaceSkillEntries(service as never, 'workspace', () => record.binding as never),
   ).rejects.toThrow();

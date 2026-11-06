@@ -4,7 +4,6 @@ import type { EventStore } from './event-store.js';
 import { buildSkillRegistry } from './skill-registry-runtime.js';
 import type { RepositoryWorkspaces } from './repository-workspaces.js';
 import type { AccountBinding } from '@mitzo/protocol';
-import { isDeepStrictEqual } from 'node:util';
 
 const restriction = 'This skill requires tool restrictions that this runtime cannot enforce.';
 const nativeNames = new Set(['skills', 'models', 'close', 'deliberate', 'fuse']);
@@ -43,16 +42,16 @@ export function ordinarySkillEntries(registry: SkillRegistry) {
 }
 
 export async function ordinaryWorkspaceSkillEntries(
-  workspaces: Pick<RepositoryWorkspaces, 'get' | 'qualifiedStatus'>,
+  workspaces: Pick<RepositoryWorkspaces, 'get' | 'readPreparedHostSource'>,
   id: string,
   binding: (accountId: string, model: string) => AccountBinding,
 ) {
   const record = workspaces.get(id);
-  if (record.state !== 'ready' || record.sandbox || !record.directory)
-    throw Error('Host workspace commands unavailable');
-  await workspaces.qualifiedStatus(id, binding(record.binding.accountId, record.binding.model));
-  if (!isDeepStrictEqual(record, workspaces.get(id))) throw Error('Workspace changed');
-  return ordinarySkillEntries(buildSkillRegistry(record.directory));
+  return workspaces.readPreparedHostSource(
+    id,
+    binding(record.binding.accountId, record.binding.model),
+    (directory) => ordinarySkillEntries(buildSkillRegistry(directory)),
+  );
 }
 
 /** Run under the owned admission fence; commit the decision with the command. */

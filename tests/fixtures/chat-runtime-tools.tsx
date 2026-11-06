@@ -5,14 +5,15 @@ import { chatComposerCapabilities } from '../../frontend/src/lib/chat-composer-c
 import '../../frontend/src/styles/tokens.css';
 import '../../frontend/src/styles/global.css';
 import '../../frontend/src/styles/workspace-chat.css';
+import './queue-status.css';
 
 function Composer() {
   const { sessionId } = useParams();
   const [params] = useSearchParams();
   const location = params.get('location') === 'openshell' ? 'openshell' : 'local';
   return (
-    <main className="workspace-page">
-      <div className="workspace-chat">
+    <main className="queue-status-fixture workspace-chat">
+      <div className="queue-status-composer">
         <ChatInput
           sessionId={sessionId}
           draftStorageKey={sessionId ? undefined : 'runtime-tools-draft'}
