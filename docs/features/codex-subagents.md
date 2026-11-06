@@ -1,10 +1,10 @@
 # Native Codex subagents
 
-Status verified 4 November 2026 against Mitzo main
-`d6d53c50ec4d0c422e57e5c8bc244fc42ceba9cf`: implementation started with an
-offline protocol probe. Native subagents remain disabled. This document records
-the bounded delivery scope and current evidence; it does not claim acceptance,
-deployment, live child execution or a completed UI.
+Implementation draft, 5 November 2026, based on Mitzo main
+`79c334fa1e640372c1f5c54cf60b24bee50a1970`. Native Mac Codex sessions now opt in
+to upstream multi-agent execution and expose nested child activity and controls.
+OpenShell and adviser sessions retain their existing disabled policy. This is
+source implementation evidence, not acceptance, deployment or live model qualification.
 
 ## Product scope
 
@@ -63,31 +63,52 @@ and [generated item type](https://github.com/openai/codex/blob/rust-v0.160.0/cod
 These are protocol observations as of the verification date, not evidence of
 deployed feature behavior.
 
-## Remaining implementation
+## Runtime and delivery
 
-1. Test-first child admission and event routing: prove native parentage under
-   the current account/transport owner; keep child turns separate from the
-   parent's queue and completion. Subscribe to child output and restore the same
-   identities after reconnect. Existing `CodexConversation` and
-   `CodexSessionEvents` currently filter notifications to the parent thread.
-2. Test-first child tools and controls: verify actual dynamic-tool inheritance,
-   route approvals with visible child attribution, fence active steering to its
-   exact turn and start an ordinary new turn for idle messaging. Record uncertain
-   sends without replay. Target Stop to one child and verify parent-stop behavior
-   across descendants. Preserve account/workspace/permission ceilings and existing
-   recovery ownership; relaxing the parent-thread identity check alone is unsafe.
-3. Test-first nested transcript UI using existing protocol/rendering components:
-   compact row, public output/tool activity, explicit recipient, Message and Stop.
-   Apply the UI design contract and approved-design ledger, including phone
-   validation and preserved context controls.
-4. Verify usage accounting and end-to-end recovery, then advertise support and
-   enable only the qualified route. Keep unqualified routes unavailable. Any live
-   model test needs the separately authorized target and exact supported Luna
-   model/account; source review, merge and production deployment retain their
-   own gates.
+`CodexSubagents` admits children only after reading native parentage, session,
+workspace, provider and model metadata through the original app-server owner.
+Early child events are buffered during admission. Child turns have independent
+state and cannot complete the parent's command queue. Retained identities and
+bounded public output live in the existing private conversation database, scoped
+to the account/profile binding. Private reasoning is excluded. Child token usage
+is shown as observed counters; it is not added to the parent's billing total.
 
-The current runtime policy sets `agents.enabled` and `features.multi_agent` false;
-`stopTask` remains unavailable for Codex. The app-server client now allows
-`turn/steer` for existing ordinary-chat steering, but it does not by itself admit
-or authorize child threads. The next PR should implement the first routing slice,
-using this probe as its protocol baseline, rather than adding another UX mock.
+Dynamic host tools reuse the original executor and current policy checks, with
+durable call identities preventing duplicate effects. Native command and file
+approvals identify the child and retain the existing approval path. Conversation
+checkout preparation and publication remain parent actions. Restored snapshots
+cannot authorize tools until the live child turn has been observed again.
+
+Message steers an active child using its exact turn identity, or starts a new turn
+for an idle child. Stop interrupts only the selected child and waits for the
+terminal event. Parent Stop interrupts its admitted descendants too. Controls use
+stable request IDs; uncertain delivery is checked with the same identity rather
+than resent as a new action. Lost transport, account or policy authority disables
+controls and leaves saved output inspectable.
+
+Authenticated snapshot, event-stream and control routes enforce the conversation's
+original operator boundary. Streaming sends bounded per-child snapshots and closes
+slow or revoked connections. The frontend shares one stream per conversation.
+
+## Approved interface and validation
+
+The original approval is retained in the
+[design ledger](../design/approved/ledger.json), with the verbatim final mock.
+The implementation uses a collapsed row beneath the spawning agent's activity,
+then a shared dialog for child output, tool activity, Message and Stop. Parent
+composer and per-child drafts survive inspection and sibling navigation. The
+existing toolbar, Terminal, context wheel and Resources remain in their owners.
+
+Focused store, owner, policy, route, stream and UI tests cover identity rejection,
+effect deduplication, stale authority, recovery and targeted controls. The existing
+conversation suite passed 452 tests locally after correcting test setup and a
+runtime-policy argument regression. The latest combined source and phone/desktop
+browser fixture are delegated to CI at the user's direction; the local browser
+invocation was interrupted and produced no completed result. See
+[validation evidence](../design/approved/codex-subagents/VALIDATION.md).
+
+No live model turn, restart, production configuration change or deployment was
+performed. Actual upstream child tool inheritance, reconnect and approval behavior
+still need live qualification on the selected supported Luna model and account
+before claiming operational acceptance. Source review, merge and production
+activation retain their separate gates.

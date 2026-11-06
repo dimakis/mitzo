@@ -1,3 +1,4 @@
+import { resetOfflineUserEnvironment } from './fixtures/offline-user-home.js';
 import { afterAll, afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { execFile, execFileSync } from 'node:child_process';
 import { promisify } from 'node:util';
@@ -29,7 +30,10 @@ const cleanups: Array<() => void | Promise<void>> = [];
 const revocations = new EventStore(':memory:');
 setAuthRevocationStore(revocations);
 afterAll(() => revocations.close());
-beforeEach(() => vi.stubEnv('TMPDIR', '/private/tmp'));
+beforeEach(() => {
+  resetOfflineUserEnvironment();
+  vi.stubEnv('TMPDIR', '/private/tmp');
+});
 afterEach(async () => {
   for (const close of cleanups.splice(0).reverse()) await close();
   vi.unstubAllEnvs();
@@ -102,10 +106,18 @@ function owner(context: NativeHostToolContext, root: string) {
   };
 }
 
+it
+  .runIf(process.platform === 'darwin')
+  .each(['DiscoverLocalRepository', 'InspectLocalRepository'] as const)(
+  'executes %s through an actual child claim and native base reader after parent completion',
+  (tool) => signedReadPositive(tool, false, 'root', true),
+);
+
 async function signedReadPositive(
   tool: 'DiscoverLocalRepository' | 'InspectLocalRepository',
   detachedViewer = false,
   pathCase: 'root' | 'nested' | 'missing' | 'missing-parent' | 'catalog' | 'query' = 'root',
+  nativeChild = false,
 ) {
   const started = performance.now();
   let phase: 'setup' | 'call' | 'verification' = 'setup';
@@ -165,7 +177,7 @@ async function signedReadPositive(
         expect(result).toBeDefined();
         return result!;
       },
-      { separateViewer: detachedViewer },
+      { separateViewer: detachedViewer, nativeSubagents: nativeChild },
     );
     source = join(f.f.root, 'read-tools-source');
     await mkdir(source);
@@ -202,6 +214,10 @@ async function signedReadPositive(
     if (pathCase === 'nested') await mkdir(requestedPath, { recursive: true });
     if (pathCase === 'missing') await mkdir(join(source, pathCase));
     if (detachedViewer) f.detachViewer();
+    if (nativeChild) {
+      await f.a.admitChild('repository-child');
+      await f.a.complete();
+    }
     metrics = f.a.metrics;
     setupMetrics = metricSnapshot(metrics);
     setupProfile = profile.snapshot();
@@ -219,7 +235,7 @@ async function signedReadPositive(
           : pathCase === 'query'
             ? { query: 'read-tools-source' }
             : { path: requestedPath },
-        { tool },
+        { tool, ...(nativeChild ? { threadId: 'repository-child', turnId: 'child-turn' } : {}) },
       );
     } finally {
       callEnded = performance.now();

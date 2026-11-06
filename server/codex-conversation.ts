@@ -1,4 +1,6 @@
 import { isReadOnlyBuiltinToolCall } from './builtin-tool-behavior.js';
+import { CodexSubagents } from './codex-subagents.js';
+import { subagentScope } from './codex-subagent-store.js';
 import { observeNativeApprovalCheck } from './local-codex-observation.js';
 import {
   CodexSteerInputSchema,
@@ -146,21 +148,12 @@ export interface CodexStartupConfigObservation {
 
 /** Server-only snapshot from an original verified native host-tool invocation.
  * Base roots exclude retained upstream grants. Its fence expires with that call. */
-export interface NativeBaseReadScope {
-  readonly nativeTarget: Readonly<CodexNativeTurnTarget>;
-  readonly callId: string;
-  readonly toolName: string;
-  readonly requestHash: string;
-  readonly bindingRevision: string;
-  readonly profileRevision: string;
-  readonly policyRevision: string;
-  readonly readableRoots: readonly string[];
-  readonly workspaceRoots: readonly string[];
-  readonly deniedRoots: readonly string[];
-  assertCurrentSync(): void;
-}
+export type { NativeBaseReadScope } from './native-base-read-scope.js';
+import type { NativeBaseReadScope } from './native-base-read-scope.js';
 
 export interface CodexConversationOptions {
+  /** Enabled only by the owned native Mac adapter, never inherited runtime configuration. */
+  enableNativeSubagents?: boolean;
   adviserScope?: AdviserTaskScope;
   /** Read-only idle health deadline; never changes model RPC timeouts. */
   idleProbeTimeoutMs?: number;
@@ -232,6 +225,8 @@ export interface CodexConversationOptions {
       turnId: string;
       assertCurrentSync(): void;
       fileChangePaths?: readonly string[];
+      /** Server-attributed child identity, never supplied by the model. */
+      subagentName?: string;
       registerResponseFence?(assertCurrent: () => void): void;
     }>,
   ) => Promise<ObjectValue>;
@@ -488,6 +483,9 @@ export type CodexTargetedInterruptResult =
   | { status: 'claimed'; receipt: CodexTargetedInterruptReceipt; replayed: boolean };
 
 export class CodexConversation {
+  private subagentOwner?: CodexSubagents;
+  private lastSubagentCommandId?: string;
+  private subagentAnchors = new Set<string>();
   private client: Rpc;
   private transportGeneration = 0;
   private replaySavedSources = false;
@@ -565,6 +563,8 @@ export class CodexConversation {
     };
   }
   private createClient() {
+    this.subagentOwner?.close();
+    this.subagentOwner = undefined;
     const generation = ++this.transportGeneration;
     return this.opts.createClient({
       onNotification: (m, p) => {
@@ -577,6 +577,8 @@ export class CodexConversation {
           return Promise.reject(new CodexTransportError('connection'));
         if (this.borrowedSearch?.owns(p))
           return Promise.reject(new Error('Search request has no executable tools'));
+        const children = this.getSubagents();
+        if (children?.owns(p.threadId)) return children.request(m, p, s, requestContext);
         const active = this.active;
         if (!active || p.threadId !== this.threadId || p.turnId !== active.turnId)
           return this.request(m, p, s, requestContext);
@@ -602,6 +604,137 @@ export class CodexConversation {
       },
       onClose: (error) => this.transportClosed(generation, error),
     });
+  }
+  getSubagents(): CodexSubagents | undefined {
+    if (
+      !this.opts.enableNativeSubagents ||
+      !this.opts.nativeExecution ||
+      !this.binding ||
+      !this.threadId ||
+      !this.ready ||
+      this.closed
+    )
+      return undefined;
+    if (this.active) this.lastSubagentCommandId = this.active.command.id;
+    if (this.subagentOwner) {
+      if (!this.paused && this.active) this.subagentOwner.parentResumed();
+      return this.subagentOwner;
+    }
+    const client = this.client;
+    const generation = this.transportGeneration;
+    const binding = this.binding;
+    const scope = subagentScope(this.opts.conversationId, binding);
+    this.subagentOwner = new CodexSubagents({
+      scope,
+      store: this.opts.store.subagents,
+      root: () => {
+        const policy = this.opts.nativeExecution;
+        const commandId =
+          this.active?.command.id ??
+          this.lastSubagentCommandId ??
+          this.opts.store.subagents.list(scope)[0]?.commandId;
+        return !this.closed &&
+          this.ready &&
+          generation === this.transportGeneration &&
+          policy &&
+          commandId &&
+          this.threadId
+          ? {
+              threadId: this.threadId,
+              commandId,
+              model: this.binding!.model,
+              modelProvider: this.opts.modelProvider ?? 'openai',
+              policy,
+            }
+          : undefined;
+      },
+      assertCurrent: (child, cancelling) => {
+        if (
+          this.closed ||
+          !this.ready ||
+          (this.paused && !cancelling) ||
+          generation !== this.transportGeneration ||
+          this.client !== client ||
+          this.binding?.profileRevision !== binding.profileRevision
+        )
+          throw Error('Original native subagent transport unavailable');
+        if (!this.opts.assertNativeExecutionCurrent || !this.opts.nativeExecution)
+          throw Error('Native subagent policy owner unavailable');
+        this.opts.assertNativeExecutionCurrent(this.opts.nativeExecution, child.commandId);
+      },
+      request: async (method, params, beforeDispatch) => {
+        await this.opts.prepareAgentContext?.(
+          this.opts.startupSignal ?? new AbortController().signal,
+        );
+        if (
+          this.closed ||
+          !this.ready ||
+          this.client !== client ||
+          generation !== this.transportGeneration
+        )
+          throw Error('Original subagent transport unavailable');
+        beforeDispatch?.();
+        return client.request(method, params);
+      },
+      tools: this.opts.tools,
+      nativeOrigin: (child, cancelling) => {
+        const state = this.opts.store.read(this.opts.conversationId, binding);
+        const attempt = this.opts.store.nativeCommandAttempt(
+          this.opts.conversationId,
+          binding,
+          child.commandId,
+        );
+        if (
+          !attempt ||
+          state.threadId !== child.rootThreadId ||
+          (state.recovery && !cancelling) ||
+          (child.commandAttempt !== undefined && child.commandAttempt !== attempt) ||
+          (child.threadGeneration !== undefined &&
+            child.threadGeneration !== state.threadGeneration)
+        )
+          throw Error('Original child command unavailable');
+        const accepted = this.opts.store.readNativeExecution(this.opts.conversationId, binding, {
+          id: child.commandId,
+          attempt,
+        });
+        if (
+          accepted?.phase !== 'accepted' ||
+          accepted.threadId !== child.rootThreadId ||
+          accepted.generation !== state.threadGeneration
+        )
+          throw Error('Original child acceptance unavailable');
+        return {
+          commandId: child.commandId,
+          attempt,
+          generation: state.threadGeneration,
+        };
+      },
+      executeTool: this.opts.executeTool,
+      requestNativeApproval: this.opts.requestNativeApproval,
+      requestUserInput: this.opts.requestUserInput,
+      validateModel: this.opts.validateModel,
+      onChild: (child) => {
+        if (!this.mapper || this.subagentAnchors.has(child.commandId)) return;
+        this.subagentAnchors.add(child.commandId);
+        const toolId = this.mapper.toolStart(child.threadId, 'Agent', {
+          description: 'Subagents',
+          subagent_type: 'Codex',
+          nativeSubagentCommandId: child.commandId,
+        });
+        this.mapper.toolResult(
+          toolId,
+          'Native subagent admitted. Open it to inspect output or give direction.',
+          false,
+        );
+      },
+    });
+    return this.subagentOwner;
+  }
+  pendingSubagentHostTool(
+    call: object,
+    identity: { turnId: string; toolName: string; requestHash: string },
+  ) {
+    return this.subagentOwner?.pendingHostTool(call, identity);
   }
   private retainNativeTransportDiagnostic(
     command: Pick<CodexCommand, 'id' | 'attempt'>,
@@ -952,6 +1085,7 @@ export class CodexConversation {
     this.resetMapper(this.threadId, !state.threadId);
     this.ready = true;
     this.startupObserverInitializing = false;
+    await this.getSubagents()?.restore();
     this.opts.emit({ type: 'system', subtype: 'init', session_id: this.opts.conversationId });
     this.opts.onQueueChange?.();
   }
@@ -1889,6 +2023,7 @@ export class CodexConversation {
           configuration,
           this.opts.profile.workspaceId,
           this.opts.nativeExecution,
+          this.opts.enableNativeSubagents,
         ),
         ...(this.opts.nativeExecution
           ? codexNativePermissionProfiles(this.opts.nativeExecution)
@@ -3181,6 +3316,8 @@ export class CodexConversation {
       );
   }
   private notification(method: string, params: ObjectValue) {
+    const children = this.getSubagents();
+    if (children?.notification(method, params) && params.threadId !== this.threadId) return;
     if (this.closed || params.threadId !== this.threadId) return;
     if (method === 'item/started' && this.active && params.turnId === this.active.turnId) {
       const identity = z
@@ -4328,27 +4465,36 @@ export class CodexConversation {
   }
   async interrupt() {
     if (this.closed) return;
+    const client = this.client;
+    const threadId = this.threadId;
+    const active = this.active;
+    const turnId = active?.turnId;
     this.cancelAutomaticRecovery();
     this.paused = true;
-    const active = this.active;
     // The interrupt request is not a terminal result. Keep active work running
     // durably until its matching turn/completed notification confirms it.
     if (this.binding) this.opts.store.pauseForRecovery(this.opts.conversationId, this.binding);
-    if (!active) return;
-    active.interruptRequested = true;
-    active.abort.abort();
-    if (active.turnId) {
-      try {
-        await this.client.request('turn/interrupt', {
-          threadId: this.threadId,
-          turnId: active.turnId,
-        });
-      } catch (error) {
-        if (!this.closed) throw error;
-      }
+    if (active) {
+      active.interruptRequested = true;
+      active.abort.abort();
     }
+    const interruptParent = async () => {
+      if (turnId) {
+        try {
+          await client.request('turn/interrupt', {
+            threadId,
+            turnId,
+          });
+        } catch (error) {
+          if (!this.closed) throw error;
+        }
+      }
+    };
+    const parent = interruptParent();
+    await Promise.all([parent, this.subagentOwner?.interruptAll()]);
   }
   close() {
+    this.subagentOwner?.close();
     this.commandContexts.clear();
     for (const span of this.queueTimingSpans.values()) finishCommandTimingSpan(span, 'closed');
     this.queueTimingSpans.clear();

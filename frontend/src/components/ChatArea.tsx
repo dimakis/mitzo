@@ -587,6 +587,7 @@ export function ChatArea({
         .map((block, index): ActivityRow<ReactNode> => {
           const progress = progressFor(msg.messageId, msg.symposiumProvenance, block.toolId);
           const keepVisible =
+            Boolean(block.rawInput?.nativeSubagentCommandId) ||
             Boolean(progress) ||
             Boolean(telosWorkerReceipt(block, sessionId)) ||
             (!completedWebsiteRead(block) &&
