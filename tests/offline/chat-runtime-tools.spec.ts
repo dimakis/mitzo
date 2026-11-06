@@ -81,7 +81,13 @@ for (const theme of ['dark', 'light'])
       await terminal.click();
       await page.getByRole('link', { name: 'Back to chat' }).click();
       await expect(input).toHaveValue('/mockup Retained host draft');
-      await page.screenshot({ path: info.outputPath(`runtime-tools-${theme}.png`) });
+      if (await toggle.isVisible()) await toggle.click();
+      await expect(terminal).toBeVisible();
+      await page.screenshot({
+        path: info.outputPath(
+          `responsiveness-runtime-tools-${path.includes('host-chat') ? 'existing' : 'new'}-${theme}.png`,
+        ),
+      });
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
         true,
       );

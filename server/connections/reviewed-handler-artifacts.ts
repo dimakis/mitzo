@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.894-chat-runtime-tools';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.895-chat-runtime-tools';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -48,9 +48,9 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../tests/fixtures/chat-runtime-tools.tsx':
     '90f26a50c67ccff4977bd4dbc126cd4fdeb006a9410975258289cc65b0d50c46',
   '../../tests/offline/chat-runtime-tools.spec.ts':
-    '96ce7af20b089854955d4708e1fb916f5d1d08785b65832703cb5c3771bf89e6',
+    '79e59c9fde6aeb2f39be147999eb9185f4a182fce2e2faaaf42f670d2918da33',
   '../../docs/features/chat-runtime-tools.md':
-    '1b010a1e9733626f89883e979d30d20c9d935f52b61e8b1a9f1a18e7c9ebb47e',
+    'b345d8b8499b0e2f8b72028ad89eb9986ad9fde9217a7e75de6b4584ed32d7da',
   '../__tests__/notification-routes.test.ts':
     '412f355c591881b5b781a90763d600996b5c46c97c5f3ea13ddad78a6785676f',
   '../__tests__/symposium-review-app.test.ts':

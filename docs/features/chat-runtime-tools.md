@@ -78,3 +78,8 @@ router round-trip tests also retain edited drafts for new and existing chats.
 Early source-snapshot and reply validation remains before native startup, with
 skill expansion deferred to the atomic command admission. The existing altered
 Library snapshot regression verifies that neither dispatch nor native RPC starts.
+
+Passing phone/desktop captures use `responsiveness-runtime-tools-*.png`, retained
+by the existing responsiveness artifact upload. New and existing chats have
+separate images; mobile captures keep the supported actions open after the verified
+Terminal round trip so the controls and retained draft can both be inspected.
