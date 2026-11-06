@@ -7,6 +7,9 @@ export default mergeConfig(base, {
     fileParallelism: false,
     include: [
       'server/__tests__/symposium-acceptance-*.test.ts',
+      ...(process.env.SYMPOSIUM_REQUIRED_JOURNEYS !== '1'
+        ? ['server/__tests__/collaboration-application-joining-integration.test.ts']
+        : []),
       ...(process.env.SYMPOSIUM_ARTIFACT_CANDIDATE === '1'
         ? [
             'tests/acceptance/*.candidate.ts',

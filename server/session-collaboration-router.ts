@@ -18,7 +18,7 @@ import {
   COLLABORATION_EXECUTION_DISABLED,
 } from '@mitzo/protocol';
 import { z } from 'zod';
-import { registerAuthSession, isAuthSessionCurrent } from './auth.js';
+import { registerAuthSession, isAuthSessionCurrent, type AuthSession } from './auth.js';
 import { custodianRequestSignal } from './symposium-custodian-authority.js';
 import { captureAgentLibraryAuthorization } from './agent-library-transport.js';
 import { liveTransportAuthSessionId } from './transport-auth-ownership.js';
@@ -54,7 +54,8 @@ export function createSessionCollaborationRouter({
   review,
 }: {
   store: EventStore;
-  joining?: OrdinaryCollaborationJoiningPort;
+  joining?:
+    OrdinaryCollaborationJoiningPort | ((auth: AuthSession) => OrdinaryCollaborationJoiningPort);
   /** Lazy construction uses the existing real workspace owner, never caller settings. */
   review?: () => CollaborationApplicationReview;
 }) {
@@ -235,15 +236,16 @@ export function createSessionCollaborationRouter({
     };
     req.once('aborted', cancel);
     res.once('close', close);
-    const timer = setTimeout(cancel, 120000);
+    const timer = setTimeout(cancel, Math.min(120000, Math.max(0, auth.expiresAt - Date.now())));
     try {
       controller.signal.throwIfAborted();
+      const owner = typeof joining === 'function' ? joining(auth) : joining;
       const result =
         operation === 'recover' && joinId?.success
-          ? await joining.recover(auth.id, id.data, joinId.data, controller.signal)
+          ? await owner.recover(auth.id, id.data, joinId.data, controller.signal)
           : operation === 'reconcile' && joinId?.success
-            ? await joining.reconcile(auth.id, id.data, joinId.data, input.data, controller.signal)
-            : await joining.confirm(auth.id, id.data, input.data, controller.signal);
+            ? await owner.reconcile(auth.id, id.data, joinId.data, input.data, controller.signal)
+            : await owner.confirm(auth.id, id.data, input.data, controller.signal);
       controller.signal.throwIfAborted();
       if (!isAuthSessionCurrent(auth)) throw new Error('Authorization unavailable');
       return res.json(CollaborationJoinSchema.parse(result));
