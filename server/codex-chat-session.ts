@@ -3801,11 +3801,21 @@ async function openCodexChatBound(
       }
       if (name === 'StartSession') {
         if (!launchTools)
-          return { content: 'Session creation requires an ordinary Local Mac Codex session.', isError: true };
+          return {
+            content: 'Session creation requires an ordinary Local Mac Codex session.',
+            isError: true,
+          };
         try {
-          return { content: JSON.stringify(await launchTools.execute(input, signal, callContext)), isError: false };
+          return {
+            content: JSON.stringify(await launchTools.execute(input, signal, callContext)),
+            isError: false,
+          };
         } catch {
-          return { content: 'The session proposal could not be saved under the current session authority. Reuse the same request ID and arguments after checking the original request. No new session is confirmed.', isError: true };
+          return {
+            content:
+              'The session proposal could not be saved under the current session authority. Reuse the same request ID and arguments after checking the original request. No new session is confirmed.',
+            isError: true,
+          };
         }
       }
       const taskResult = await localTaskTools?.execute(name, input, signal, callContext);
