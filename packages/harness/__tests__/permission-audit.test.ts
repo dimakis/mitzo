@@ -1,6 +1,13 @@
-import { afterEach, expect, it } from 'vitest';
+import { afterEach, expect, it, vi } from 'vitest';
 import { onPermissionAudit, type PermissionAuditEvent } from '../src/permission-audit.js';
-import { registerPending, removePending, resolvePending } from '../src/permissions.js';
+import {
+  denyPendingBySession,
+  dismissReviewedTelosSourcePermission,
+  onPermissionLifecycle,
+  registerPending,
+  removePending,
+  resolvePending,
+} from '../src/permissions.js';
 const cleanup: Array<() => void> = [];
 afterEach(() => cleanup.splice(0).forEach((fn) => fn()));
 function fixture() {
@@ -89,4 +96,104 @@ it('records resolver failure explicitly instead of inventing an allow receipt', 
     'resolver failed',
   );
   expect(events.at(-1)).toMatchObject({ phase: 'resolved', outcome: 'failed', decision: 'always' });
+});
+
+it('keeps audit and lifecycle expiry consistent when a resolver crosses the deadline', () => {
+  const { events } = fixture();
+  vi.useFakeTimers();
+  cleanup.push(() => vi.useRealTimers());
+  const lifecycle: unknown[] = [];
+  cleanup.push(onPermissionLifecycle((event) => lifecycle.push(event)));
+  registerPending(
+    'audit-perm',
+    'Bash',
+    () => {
+      vi.advanceTimersByTime(1000);
+      return { behavior: 'deny' };
+    },
+    {},
+    'elevated',
+    'session',
+    {
+      permId: 'audit-perm',
+      toolName: 'Bash',
+      toolInput: '{}',
+      sessionId: 'session',
+      expiresAt: Date.now() + 500,
+    },
+  );
+  resolvePending('audit-perm', 'once');
+  expect(lifecycle.at(-1)).toMatchObject({ resolution: 'expired' });
+  expect(events.at(-1)).toMatchObject({ outcome: 'expired', decision: 'once' });
+});
+
+it.each(['expiry', 'dismissal', 'takeover'] as const)(
+  'records %s resolver errors instead of losing the final decision',
+  (path) => {
+    const { events } = fixture();
+    registerPending(
+      'audit-perm',
+      'Bash',
+      () => {
+        throw Error('resolver failed');
+      },
+      {},
+      'elevated',
+      'session',
+      {
+        permId: 'audit-perm',
+        toolName: 'Bash',
+        toolInput: '{}',
+        sessionId: 'session',
+        ...(path === 'expiry' ? { expiresAt: Date.now() - 1 } : {}),
+        ...(path === 'dismissal' ? { reviewKind: 'telos_source' as const } : {}),
+      },
+      { toolUseId: 'call' },
+    );
+    expect(() => {
+      if (path === 'expiry') resolvePending('audit-perm', 'once');
+      else if (path === 'takeover') denyPendingBySession('session');
+      else
+        dismissReviewedTelosSourcePermission({
+          permId: 'audit-perm',
+          sessionId: 'session',
+          toolUseId: 'call',
+          toolName: 'Bash',
+          toolInput: {},
+          expiresAt: Date.now() + 1000,
+        });
+    }).toThrow('resolver failed');
+    expect(events.at(-1)).toMatchObject({ phase: 'resolved', outcome: 'failed' });
+  },
+);
+
+it('audits retained-save dismissal as a denial', () => {
+  const { events } = fixture();
+  registerPending(
+    'audit-perm',
+    'Bash',
+    (result) => result,
+    {},
+    'elevated',
+    'session',
+    {
+      permId: 'audit-perm',
+      toolName: 'Bash',
+      toolInput: '{}',
+      sessionId: 'session',
+      reviewKind: 'telos_source',
+    },
+    { toolUseId: 'call' },
+  );
+  expect(
+    dismissReviewedTelosSourcePermission({
+      permId: 'audit-perm',
+      sessionId: 'session',
+      toolUseId: 'call',
+      toolName: 'Bash',
+      toolInput: {},
+      expiresAt: Date.now() + 1000,
+    }),
+  ).toBe(true);
+  expect(events.at(-1)).toMatchObject({ phase: 'resolved', outcome: 'denied' });
 });

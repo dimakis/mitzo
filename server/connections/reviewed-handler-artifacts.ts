@@ -36,7 +36,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/harness/src/permission-audit.ts':
     '2ef3a662f54560097d98eb127b6b0425d681e8d34cb7fe44f7cfa616f9b48e1a',
   '../../packages/harness/__tests__/permission-audit.test.ts':
-    'b7ada9f07f8daf9ca1cfc6a5cbbb945d4b496b7903d3f7d1dd556a540f4fd917',
+    '9dc14867bf9a9708acb2a84c81cab58fb00be9a050f828f342e25ede732c24f1',
   '../__tests__/permission-audit.test.ts':
     '1717ab55ad63b836167cd9b60d4a0f07adafc537cb96c7923edb0a6588cd949e',
   '../__tests__/task-execution-tools.test.ts':
@@ -1735,7 +1735,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/harness/src/permission-handler.ts':
     '631e0f5074fbdf2a565fd93725d14e0ac951e35b722ac51a550cb1374179b8c4',
   '../../packages/harness/src/permissions.ts':
-    '230dc9747f893ac451f7d1e6c877b2c78b7ea741eb1d6427f0d7cec1f8daf055',
+    '52cf407eca03315ea04f7b780fda895c53e7f1824bb8f4f7522a3e35708d6f43',
   '../../packages/protocol/src/session-approval-scope.ts':
     'ba694fed805637520dfbfdb160f5d8ba8093a76d1cafe70709dbf18a443423d2',
   '../codex-app-server-client.ts':

@@ -124,12 +124,16 @@ export function resolvePending(
   // is busy. The advertised absolute deadline remains authoritative.
   if (entry.request?.expiresAt !== undefined && entry.request.expiresAt <= Date.now()) {
     pending.delete(permId);
-    entry.resolver({
-      behavior: 'deny',
-      message: 'Tool approval expired without a response; request approval again',
-    });
-    notifyLifecycle({ type: 'resolved', permId, resolution: 'expired' });
-    auditResolution(entry, permId, 'expired', decision);
+    applyPendingResult(
+      entry,
+      permId,
+      {
+        behavior: 'deny',
+        message: 'Tool approval expired without a response; request approval again',
+      },
+      decision,
+      'expired',
+    );
     return false;
   }
 
@@ -166,7 +170,6 @@ export function resolvePending(
     };
   }
   pending.delete(permId);
-  const { resolver } = entry;
 
   let requestedResult: PermissionResult;
   if (effectiveDecision === 'always') {
@@ -188,11 +191,23 @@ export function resolvePending(
       ...(denialReason ? {} : { decisionClassification: 'user_reject' as const }),
     };
   }
+  applyPendingResult(entry, permId, requestedResult, effectiveDecision);
+  return true;
+}
+
+/** Every terminal resolver path shares the same failure and decision reporting. */
+function applyPendingResult(
+  entry: PendingEntry,
+  permId: string,
+  requestedResult: PermissionResult,
+  decision?: 'once' | 'always' | 'deny',
+  fixedOutcome?: 'denied' | 'expired' | 'cancelled',
+) {
   let appliedResult: unknown;
   try {
-    appliedResult = resolver(requestedResult);
+    appliedResult = entry.resolver(requestedResult);
   } catch (error) {
-    auditResolution(entry, permId, 'failed', effectiveDecision);
+    auditResolution(entry, permId, 'failed', decision);
     notifyLifecycle({ type: 'resolved', permId, resolution: 'denied' });
     log.error('Permission resolver failed; no allow receipt was recorded', {
       permId,
@@ -209,18 +224,19 @@ export function resolvePending(
       ? appliedResult.behavior
       : requestedResult.behavior;
 
+  const outcome =
+    fixedOutcome ??
+    (entry.request?.expiresAt !== undefined && entry.request.expiresAt <= Date.now()
+      ? 'expired'
+      : behavior === 'deny'
+        ? 'denied'
+        : 'allowed');
   notifyLifecycle({
     type: 'resolved',
     permId,
-    resolution:
-      entry.request?.expiresAt !== undefined && entry.request.expiresAt <= Date.now()
-        ? 'expired'
-        : behavior === 'deny'
-          ? 'denied'
-          : 'allowed',
+    resolution: outcome === 'cancelled' ? 'expired' : outcome,
   });
-  auditResolution(entry, permId, behavior === 'deny' ? 'denied' : 'allowed', effectiveDecision);
-  return true;
+  auditResolution(entry, permId, outcome, decision);
 }
 
 function auditResolution(
@@ -333,11 +349,16 @@ export function dismissReviewedTelosSourcePermission(proof: PendingTelosSourceRe
   // This exact retained-save denial is independent of the old approval
   // deadline. Generic expiry guidance must not invite a duplicate save.
   pending.delete(proof.permId);
-  entry.resolver({
-    behavior: 'deny',
-    message: 'Reviewed save dismissed; retained save results remain recoverable',
-  });
-  notifyLifecycle({ type: 'resolved', permId: proof.permId, resolution: 'denied' });
+  applyPendingResult(
+    entry,
+    proof.permId,
+    {
+      behavior: 'deny',
+      message: 'Reviewed save dismissed; retained save results remain recoverable',
+    },
+    undefined,
+    'denied',
+  );
   return true;
 }
 
@@ -377,13 +398,17 @@ export function denyPendingBySession(sessionId: string): number {
   for (const [permId, entry] of pending) {
     if (entry.sessionId === sessionId) {
       pending.delete(permId);
-      entry.resolver({
-        behavior: 'deny',
-        message: 'Session taken over by another device',
-        decisionClassification: 'user_reject',
-      });
-      notifyLifecycle({ type: 'resolved', permId, resolution: 'expired' });
-      auditResolution(entry, permId, 'cancelled');
+      applyPendingResult(
+        entry,
+        permId,
+        {
+          behavior: 'deny',
+          message: 'Session taken over by another device',
+          decisionClassification: 'user_reject',
+        },
+        undefined,
+        'cancelled',
+      );
       denied++;
     }
   }
