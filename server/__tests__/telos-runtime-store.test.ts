@@ -32,6 +32,31 @@ const outcome = {
   idempotencyKey: 'original-reviewed-creation',
 };
 describe('Mitzo canonical Telos persistence', () => {
+  it('retains original source age and initial context, priority and links without later overwrites', () => {
+    const { store } = fixture();
+    const record = {
+      id: 'source-item',
+      summary: 'Source work',
+      profile: 'manual',
+      sources: [],
+      priority: 8,
+      categories: ['research'],
+      firstSeen: '2026-01-01T10:00:00Z',
+      contextHints: { people: ['Person'], sessionIds: ['planning'] },
+      links: [{ type: 'external', url: 'https://example.test/plan', title: 'Plan' }],
+    };
+    store.importSources({ items: [record] });
+    store.importSources({
+      items: [{ ...record, priority: 1, categories: [], contextHints: {}, links: [] }],
+    });
+    expect(store.list().items[0]).toMatchObject({
+      priority: 8,
+      categories: ['research'],
+      contextHints: { people: ['Person'], sessionIds: ['planning'] },
+      links: [{ title: 'Plan' }],
+    });
+    expect(store.list().items[0].ageDays).toBeGreaterThan(250);
+  });
   it('creates an outcome and ordered children atomically, with stable receipt recovery', () => {
     const { store, path } = fixture();
     const receipt = store.createOutcome(outcome, () => {});

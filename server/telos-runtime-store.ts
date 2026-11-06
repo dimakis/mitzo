@@ -6,7 +6,11 @@ import {
   openTelosOwnedDatabase,
   type TelosOwnedDatabase,
 } from '@mitzo/protocol/telos-sqlite-owners';
-import { TelosOutcomeCreateBodySchema } from '@mitzo/protocol';
+import {
+  TelosOutcomeCreateBodySchema,
+  TelosOutcomeContextHintsSchema,
+  TelosOutcomeLinkSchema,
+} from '@mitzo/protocol';
 import { TodoActionBody, TodoCreateBody } from './api-schemas.js';
 import { projectTelosWorkRecord } from './telos-work-record.js';
 import { renewDueTelosSnoozes } from './telos-snooze.js';
@@ -31,12 +35,30 @@ export const TelosImportBody = z.strictObject({
         parentId: z.string().nullable().optional(),
         urgency: z.number().min(0).max(1).default(0),
         sources: z.array(source).max(100),
+        priority: z.number().int().min(1).max(10).default(5),
+        categories: z.array(z.string().trim().min(1).max(200)).max(100).default([]),
+        firstSeen: z.iso.datetime({ offset: true }).optional(),
+        contextHints: TelosOutcomeContextHintsSchema.optional(),
+        links: z.array(TelosOutcomeLinkSchema).max(100).default([]),
       }),
     )
     .max(500),
 });
 type Row = Record<string, unknown> & { id: string; parent_id: string | null };
 const digest = (text: string) => createHash('sha256').update(text).digest('hex');
+function storedHints(hints: z.output<typeof TelosOutcomeContextHintsSchema> | undefined) {
+  return JSON.stringify({
+    repos: hints?.repos ?? [],
+    paths: hints?.paths ?? [],
+    issues: hints?.issues ?? [],
+    doc_ids: hints?.docIds ?? [],
+    people: hints?.people ?? [],
+    jira_keys: hints?.jiraKeys ?? [],
+    keywords: hints?.keywords ?? [],
+    task_hint: hints?.taskHint ?? '',
+    session_ids: hints?.sessionIds ?? [],
+  });
+}
 function assertSync(assertion: () => void) {
   const result: unknown = assertion();
   if (result !== undefined) {
@@ -412,6 +434,27 @@ export class TelosRuntimeStore {
               continue;
             if (!existing) {
               this.insert(item.summary, item.profile, item.parentId ?? null, now, id);
+              this.db
+                .prepare(
+                  `UPDATE items SET priority=?,starred=?,categories=?,context_hints=?,
+                first_seen=?,created_at=? WHERE id=?`,
+                )
+                .run(
+                  item.priority,
+                  item.priority === 10 ? 1 : 0,
+                  JSON.stringify(item.categories),
+                  storedHints(item.contextHints),
+                  item.firstSeen ?? now,
+                  item.firstSeen ?? now,
+                  id,
+                );
+              for (const link of item.links)
+                this.db
+                  .prepare(
+                    `INSERT INTO links
+                (id,item_id,type,url,title,description,created_at) VALUES(?,?,?,?,?,?,?)`,
+                  )
+                  .run(randomUUID(), id, link.type, link.url, link.title, link.description, now);
               created++;
             }
             // Repeated source imports never replace authored briefs, structure or lifecycle.
