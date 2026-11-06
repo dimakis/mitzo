@@ -107,3 +107,7 @@ revision. A bounded temporary view carries only those files and is removed after
 the read; it is neither cached nor watched. Source branch changes, dirty files
 and skill symlinks cannot replace the pinned instructions or restrictions. An
 existing-directory selection continues to read its actual retained directory.
+
+This correction batch also integrates accepted main `5abda6acb` (Telos review,
+HTTP actions and inbox authority). Both source inventories and the combined
+protocol event-store changes are retained and require combined-result CI.

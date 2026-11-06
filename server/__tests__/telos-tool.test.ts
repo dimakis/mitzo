@@ -5,6 +5,7 @@ import {
   telosCreateOutcomeDefinition,
   TELOS_CREATE_OUTCOME_TOOL,
   formatTelosSourceResult,
+  formatTelosPermissionDenial,
 } from '../telos-tool.js';
 
 const input = {
@@ -46,6 +47,37 @@ const sourceReceipt = {
 afterEach(() => vi.unstubAllGlobals());
 
 describe('Telos host tool', () => {
+  it('returns requested revisions as actionable feedback rather than a failed creation', () => {
+    const receipt = {
+      kind: 'telos_outcome_changes_requested',
+      permId: 'permission',
+      sessionId: 'planning',
+      toolUseId: 'call',
+      requestId: approvalId,
+      proposalSha256: 'a'.repeat(64),
+      feedback: 'Make the milestone smaller.',
+      originalOutcome: input,
+      nextAction:
+        'Revise the original outcome using this feedback, then call TelosCreateOutcome again for fresh approval. No outcome was created.',
+    };
+    expect(formatTelosPermissionDenial(JSON.stringify(receipt))).toEqual({
+      content: JSON.stringify(receipt),
+      isError: false,
+    });
+    expect(formatTelosPermissionDenial('User denied tool use')).toEqual({
+      content: 'User denied tool use',
+      isError: true,
+    });
+    expect(formatTelosPermissionDenial(JSON.stringify({ kind: receipt.kind }))).toMatchObject({
+      isError: true,
+    });
+    const cancelled = formatTelosPermissionDenial('User denied', true);
+    expect(cancelled.isError).toBe(false);
+    expect(JSON.parse(cancelled.content)).toMatchObject({
+      kind: 'telos_proposal_cancelled',
+      message: expect.stringContaining('Do not retry'),
+    });
+  });
   it('preserves a real recovered created:false receipt and its delivery metadata instead of inferring creation', () => {
     const canonicalCreation = {
       ok: true as const,

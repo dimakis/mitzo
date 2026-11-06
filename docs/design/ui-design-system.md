@@ -788,12 +788,29 @@ light/dark themes, Mint/Georgia appearance, larger text, long request details,
 keyboard focus and 44px controls without a backend or model call.
 
 Reviewed Telos mutations use the same ordinary `PermissionBanner` on desktop and
-mobile, selected only by the host's `reviewKind` marker. Request details contains
-whole completed public messages and retained material revisions, with no initial
-selection. The exact compiled source text, boundary, brief and version pins remain
-inspectable before Once saves that packet. Changing a selection invalidates its
-preview. This request offers Once and Deny; a session allowance cannot approve
-unseen future source selections. Other tools retain their existing scope/actions.
+mobile, selected only by the host's `reviewKind` marker. Outcome creation opens on
+the latest available exchange and prepares its exact source preview automatically.
+The brief and included source text remain visible before **Create outcome** saves
+them. **Change saved context** is optional; it exposes completed public messages,
+earlier-message paging and retained materials. Changing that selection invalidates
+its preview. Adding source to an existing item retains explicit selection and
+Once. The exact compiled text, boundary, brief and version pins remain inspectable.
+Outcome creation offers **Create outcome**, **Request changes** and **Cancel**.
+Request changes opens an inline, labelled feedback field, with **Send changes**,
+**Back to proposal** and **Cancel**. Going back preserves unsent feedback and
+returns focus. The primary action occupies the full footer row; the other two
+retain reachable shared control-height targets. Feedback uses the existing
+question-written controls and base text size. The footer stays outside the
+scrolling body. Source adoption retains Once and Deny; a session allowance cannot
+approve unseen future source selections. Other tools retain their scope/actions.
+
+Sending feedback retains the original proposal and exact feedback request,
+returns it to the original waiting agent and creates no Telos work. The agent's
+revised proposal needs fresh review and approval. Delivery uncertainty locks the
+same feedback for retry; the old proposal cannot be saved. Once saving has begun,
+revision is unavailable and original save recovery remains authoritative. Cancel
+abandons creation. Expected feedback and cancellation results remain readable
+outside Activity without becoming creation failures on the native route.
 The source controls reuse shared fieldsets, semantic tokens, normal disclosure
 and the card's independently scrolling body with reachable 44px decisions. Late
 reads are fenced to the request/session/login. An uncertain save locks its exact
@@ -802,7 +819,7 @@ Only the host can replay a prepared save as a recovery card. It restores its
 original packet after an authenticated read and offers Retry same save and
 Dismiss. Recovery continues that reviewed attempt; Dismiss neither undoes an
 uncertain item save nor discards its retained evidence. A fresh approval still
-uses its original deadline, explicit selection, Once and Deny. Source context and
+uses its original deadline and explicit final save. Source context and
 the proposed brief stay hidden until authentication is rechecked and clear on
 authentication loss. Retained source text wraps beside bounded native checkboxes;
 labels and decisions keep the shared touch target while the card body scrolls.
@@ -812,6 +829,13 @@ material title/revision/source lead the review; raw proposals, IDs, hashes and
 native generation/configuration proof stay under a closed Source details
 disclosure. Missing native provenance does not create unknown seat/configuration
 rows. Ordinary tools keep their original heading, raw request and scope controls.
+
+A failed initial source read offers **Retry source review** within that same
+approval. This only retries authenticated reading/preview, never creation. Failed
+outcome tool calls keep their actual result visible outside collapsed Activity,
+using `ToolResultContent` and existing semantic error styles; an unconfirmed save
+is never labelled as proof that nothing was written. See
+[the outcome creation checks and limits](../features/telos-outcome-creation.md).
 
 ## Artefact sharing links
 

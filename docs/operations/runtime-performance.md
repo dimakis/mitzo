@@ -45,6 +45,13 @@ reporting success and publishing notification changes. Permission responses,
 preferences and read receipts remain available when an inbox source is unreadable;
 only feed and inbox-content reads require a successful source scan.
 
+After draining a scan, archive and delete revalidate the original interactive
+session (or existing internal-token authority), the configured inbox, and fresh
+private and runtime-authority protections for both source and destination.
+Logout or enrollment during reconciliation refuses the mutation and preserves
+the original file. Deterministic route regressions pause the scan and exercise
+each authority change before resuming it.
+
 Content reuse never retains permission. Scans capture current private-path rules,
 and the ledger applies its current visibility policy when reading or delivering
 records. Failed reconciliation returns an unavailable response instead of a partial
