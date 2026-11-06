@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.890-telos-review-recovery';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.891-telos-review-evidence';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -35,7 +35,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../tests/fixtures/telos-outcome-create.tsx':
     '6459d5473179f6647fa54f73f8c61a7f486c8e1c1bdcd23424402de514b6e337',
   '../../tests/offline/telos-outcome-create.spec.ts':
-    '34eed50c8d46c4ea3149bd41e554ce1bae77584784ad556bcc5ab41d4fd32c17',
+    '6beca556465aeb6f270aafe96ba0ccc784bea8b50625ed1e3907c20234c9fbd4',
   '../../docs/features/telos-outcome-creation.md':
     '0b6a2976b60d2d192cc0b818de37b3cab914a8d436be1f38b62670149d58b576',
   '../__tests__/notification-routes.test.ts':

@@ -139,7 +139,9 @@ for (const theme of ['dark', 'light'])
           const sendBounds = await send.boundingBox();
           expect(sendBounds!.height).toBeGreaterThanOrEqual(44);
           expect(sendBounds!.y + sendBounds!.height).toBeLessThanOrEqual(844);
-          await page.screenshot({ path: info.outputPath(`telos-outcome-feedback-${theme}.png`) });
+          await page.screenshot({
+            path: info.outputPath(`reviewed-context-telos-outcome-feedback-${theme}.png`),
+          });
           await send.click();
           await expect(
             page.getByText('Changes sent. Waiting for a revised proposal.'),
@@ -165,7 +167,9 @@ for (const theme of ['dark', 'light'])
           await expect(page.getByText('New outcome · Mobile creation first')).toBeVisible();
           await expect(save).toBeEnabled();
         }
-        await page.screenshot({ path: info.outputPath(`telos-outcome-create-${theme}.png`) });
+        await page.screenshot({
+          path: info.outputPath(`reviewed-context-telos-outcome-create-${theme}.png`),
+        });
         await save.focus();
         await page.keyboard.press('Enter');
         await expect(page.getByText('Reviewed source saved.', { exact: false })).toBeVisible();
