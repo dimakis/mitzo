@@ -1,3 +1,4 @@
+import { findSessionRuntimeError } from './session-runtime-error.js';
 import { reconcileRetainedLocalCodexEffects } from './retained-local-codex-effects.js';
 import {
   freezeOrdinarySkillCommand,
@@ -1247,6 +1248,8 @@ export class OrdinaryLocalCodexOwnedRuntime<K extends LocalWorkspaceKind = 'repo
       if (lease && lease !== retainedLease) lease.close();
       if (coldThreadOwner !== this.#liveThreadOwner || this.#lease !== retainedLease)
         coldThreadOwner?.dispose();
+      const failure = findSessionRuntimeError(error);
+      if (failure) throw failure;
       const capabilityError = findNativeMacExecutionUnavailable(error);
       if (capabilityError) throw capabilityError;
       throw unavailable();

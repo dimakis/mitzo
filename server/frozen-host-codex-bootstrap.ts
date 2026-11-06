@@ -66,6 +66,7 @@ export interface FrozenHostCodexBootstrapLease extends FrozenHostCodexLoginLease
   ): Promise<void>;
   assertModelSelectionCurrentSync?(model: string, thinking: string | null): void;
   assertToolCurrent?(signal: AbortSignal): Promise<void>;
+  qualifyCredentialRefresh?(signal: AbortSignal): void | Promise<void>;
   qualifyModelSelection?(model: string, thinking: string | null): Promise<void>;
   custodySnapshot?(): {
     login: HostCodexAuthenticationCustody;
@@ -379,6 +380,15 @@ export class FrozenHostCodexBootstrapAuthority implements OrdinaryLocalCodexBoot
           : this.observe(expected),
       );
       this.assertSync(expected);
+      if (expected.binding.account.provider === 'openai-codex')
+        await FrozenHostCodexLogin.prepare(
+          this.profile(expected),
+          this.owners.signal,
+          this.owners.retainedCustody && !('kind' in this.owners.retainedCustody.login)
+            ? this.owners.retainedCustody.login
+            : undefined,
+        );
+      this.assertSync(expected);
       if (this.#attempted) throw unavailable();
       if (!claimBeforeBootstrap()) return undefined;
       this.#attempted = true;
@@ -530,10 +540,13 @@ export class FrozenHostCodexBootstrapAuthority implements OrdinaryLocalCodexBoot
               });
               return result.client;
             })
-          : await login.connect((home) => {
-              this.assertSync(expected, undefined, executable);
-              return launch(home, executable);
-            }),
+          : await login.connect(
+              (home) => {
+                this.assertSync(expected, undefined, executable);
+                return launch(home, executable);
+              },
+              (failure) => this.owners.lifecycle?.onClose(failure),
+            ),
       );
       const ownedLogin = loginLease;
       let retired = false;
@@ -548,9 +561,17 @@ export class FrozenHostCodexBootstrapAuthority implements OrdinaryLocalCodexBoot
         try {
           if (retired) throw unavailable();
           this.assertSync(expected, ownedLogin, executable);
-        } catch {
+        } catch (error) {
+          const failure = findSessionRuntimeError(error);
+          if (failure && !retired) {
+            try {
+              this.owners.lifecycle?.onClose(failure);
+            } catch {
+              /* Retire invalid custody below. */
+            }
+          }
           closeLease();
-          throw unavailable();
+          throw failure ?? unavailable();
         }
       };
       let qualifiedModels: Array<{ id: string; reasoningEfforts?: string[] }> = [];
@@ -579,6 +600,7 @@ export class FrozenHostCodexBootstrapAuthority implements OrdinaryLocalCodexBoot
                 throw unavailable();
             }
           };
+          await ownedLogin.qualifyCredentialRefresh?.(signal);
           current();
           strictVoid(
             await observeLocalCodexPhase('workspace_check', () =>
@@ -694,10 +716,13 @@ export class FrozenHostCodexBootstrapAuthority implements OrdinaryLocalCodexBoot
         ].map((key) => [key, Object.getOwnPropertyDescriptor(bootstrapOwners, key)]),
       );
       const loginReferences = Object.fromEntries(
-        ['assertCurrentSync', 'assertCurrent', 'assertCredentialCurrent', 'close'].map((key) => [
-          key,
-          Object.getOwnPropertyDescriptor(ownedLogin, key),
-        ]),
+        [
+          'assertCurrentSync',
+          'assertCurrent',
+          'assertCredentialCurrent',
+          'qualifyCredentialRefresh',
+          'close',
+        ].map((key) => [key, Object.getOwnPropertyDescriptor(ownedLogin, key)]),
       );
       const full = loginReferences.assertCredentialCurrent ?? loginReferences.assertCurrent;
       const withQualifiedWorkspaceReadOwner = async (
@@ -821,6 +846,13 @@ export class FrozenHostCodexBootstrapAuthority implements OrdinaryLocalCodexBoot
           executable: executable.custodySnapshot(),
         }),
         close: closeLease,
+        qualifyCredentialRefresh: (signal) => {
+          this.owners.signal.throwIfAborted();
+          signal.throwIfAborted();
+          if (retired) throw unavailable();
+          this.assertSync(expected, undefined, executable);
+          return ownedLogin.qualifyCredentialRefresh?.(signal);
+        },
         withQualifiedWorkspaceReadOwner,
         assertCurrent: assertToolCurrent,
         assertToolCurrent,

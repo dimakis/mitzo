@@ -24,10 +24,16 @@ export class OwnedCodexLifecycleBridge {
   #closed = false;
   #leaseClosed = false;
   #abort = new AbortController();
+  #notificationTail?: Promise<void>;
+  #pendingNotificationBytes = 0;
+  #pendingNotifications = 0;
 
   constructor(
     private readonly currentLease: () => FrozenHostCodexBootstrapLease | undefined,
-    private readonly options: { admissionTimeoutMs?: number } = {},
+    private readonly options: {
+      admissionTimeoutMs?: number;
+      maxPendingNotificationBytes?: number;
+    } = {},
   ) {
     this.lifecycle = Object.freeze({
       onNotification: (method, params) => {
@@ -55,15 +61,56 @@ export class OwnedCodexLifecycleBridge {
             // execution, another login flow and pre-attachment thread/turn events.
             throw unavailable();
           }
-          this.assertCurrentSync();
-          this.#owner.onNotification(method, params);
+          const lease = this.#lease;
+          if (!lease) throw unavailable();
+          const prior = this.#notificationTail;
+          const qualification = prior
+            ? undefined
+            : this.qualifyCredentialRefresh(lease, this.#abort.signal);
+          // Every started asynchronous operation gets a rejection observer in
+          // this turn, including quota/serialization failure before enqueue.
+          if (qualification) void qualification.catch(() => {});
+          const deliver = () => {
+            this.assertCurrentSync();
+            this.#owner!.onNotification(method, params);
+          };
+          if (qualification || prior) {
+            const bytes = Buffer.byteLength(JSON.stringify(params));
+            if (
+              this.#pendingNotificationBytes + bytes >
+                (this.options.maxPendingNotificationBytes ?? 8 * 1024 * 1024) ||
+              this.#pendingNotifications >= 4096
+            )
+              throw unavailable();
+            this.#pendingNotificationBytes += bytes;
+            this.#pendingNotifications++;
+            const pending = (prior ?? Promise.resolve())
+              .then(() =>
+                prior ? this.qualifyCredentialRefresh(lease, this.#abort.signal) : qualification,
+              )
+              .then(deliver);
+            this.#notificationTail = pending;
+            const settled = () => {
+              this.#pendingNotificationBytes -= bytes;
+              this.#pendingNotifications--;
+              if (this.#notificationTail === pending) this.#notificationTail = undefined;
+            };
+            void pending.then(settled, (error) => {
+              settled();
+              this.close(
+                findSessionRuntimeError(error) ??
+                  new CodexTransportError('connection', { reason: 'notification_handler_failed' }),
+              );
+            });
+          } else deliver();
         } catch (error) {
           this.close(
-            error instanceof CodexTransportError
-              ? error
-              : new CodexTransportError('connection', { reason: 'notification_handler_failed' }),
+            findSessionRuntimeError(error) ??
+              (error instanceof CodexTransportError
+                ? error
+                : new CodexTransportError('connection', { reason: 'notification_handler_failed' })),
           );
-          throw unavailable();
+          throw findSessionRuntimeError(error) ?? unavailable();
         }
       },
       onRequest: async (method, params, signal, context) => {
@@ -73,6 +120,12 @@ export class OwnedCodexLifecycleBridge {
         try {
           if (!this.#owner) throw unavailable();
           signal.throwIfAborted();
+          const captured = this.#lease;
+          if (!captured) throw unavailable();
+          originalLease = captured;
+          if (this.#notificationTail) await this.#notificationTail;
+          const qualification = this.qualifyCredentialRefresh(captured, signal);
+          if (qualification) await qualification;
           const lease = this.assertCurrentSync();
           originalLease = lease;
           context?.registerResponseFence?.(() => {
@@ -106,6 +159,8 @@ export class OwnedCodexLifecycleBridge {
           );
           // The existing conversation/tool ledger owns any effects already
           // completed by the callback. Failure here never asserts no execution.
+          const qualificationAfter = this.qualifyCredentialRefresh(lease, signal);
+          if (qualificationAfter) await qualificationAfter;
           signal.throwIfAborted();
           this.assertCurrentSync();
           return result;
@@ -136,8 +191,9 @@ export class OwnedCodexLifecycleBridge {
               /* A revoked/replaced owner still closes the lease. */
             }
           }
-          if (!requestAlreadyResolved && !safelyRefused) this.close();
-          throw safelyRefused ? error : unavailable();
+          const reviewed = findSessionRuntimeError(error);
+          if (!requestAlreadyResolved && !safelyRefused) this.close(reviewed);
+          throw safelyRefused ? error : (reviewed ?? unavailable());
         }
       },
       onClose: (error) =>
@@ -146,6 +202,23 @@ export class OwnedCodexLifecycleBridge {
             (error instanceof CodexTransportError ? error : unavailable()),
         ),
     } satisfies CodexLifecycleTransport);
+  }
+
+  /** Public issuer-key reads may await; no native event or result is delivered
+   * until the unchanged synchronous account/operator/response fences pass. */
+  private qualifyCredentialRefresh(
+    lease: FrozenHostCodexBootstrapLease,
+    signal: AbortSignal,
+  ): void | Promise<void> {
+    signal.throwIfAborted();
+    if (
+      this.#closed ||
+      this.#abort.signal.aborted ||
+      this.#lease !== lease ||
+      this.currentLease() !== lease
+    )
+      throw unavailable();
+    return lease.qualifyCredentialRefresh?.(signal);
   }
 
   private async admit(lease: FrozenHostCodexBootstrapLease, signal: AbortSignal): Promise<void> {

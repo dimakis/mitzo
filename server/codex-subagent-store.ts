@@ -60,7 +60,11 @@ export interface ChildToolIdentity {
 /** Uses the conversation owner's existing private, FULL-synchronous database.
  * Claims survive transport loss. An unrecorded outcome is never executable again. */
 export class CodexSubagentStore {
-  constructor(private readonly db: Database.Database) {
+  constructor(
+    private readonly db: Database.Database,
+    initialize = true,
+  ) {
+    if (!initialize) return;
     db.exec(`CREATE TABLE IF NOT EXISTS codex_subagents (
       conversation_id TEXT NOT NULL, binding_revision TEXT NOT NULL, thread_id TEXT NOT NULL,
       data TEXT NOT NULL, PRIMARY KEY(conversation_id,binding_revision,thread_id));
