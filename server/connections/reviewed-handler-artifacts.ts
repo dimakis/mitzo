@@ -10,8 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.917-approval-task-authorization-integration';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.918-task-callback-settlement';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -50,7 +49,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../task-execution-definitions.ts':
     '7e525c74b1dc9dc955f4d819ebf4c29f324cc90d8520808b30e7de32fcb8a0fb',
   '../task-execution-operation.ts':
-    'ebba1a6cb6d8f22bfd8482e363b1f3534b81c137a5889ae33b7abee0a68a990e',
+    'bb9d804ec1338aa1f589e88de3b6f4b68fb5e7233d774f340f10ff9885084d1e',
   '../task-execution-scope.ts': 'f39ab4c377268ec4cbdac4b086a47f8a13cd77bd252b6cce93f11283dcb41358',
   '../task-execution-runtime.ts':
     '3d8027c88f7348490683c3fc500625cbe53c9d1e470e40a074f6d90df431351c',
@@ -448,7 +447,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/owned-openshell-codex-chat-consumer.test.ts':
     'c5941cbab2816670ed17b3c595c3439a2950f24bee60352c24ea6f4d238dcf79',
   '../__tests__/native-tool-executor.test.ts':
-    '168129da8bc0e94552f7b731531c7fbd37716263d690aa0292656df40221b75b',
+    '34d083e437b7bafd89a6d2124d3ac2a39294031b91752ddb9cb9ec19a03b7da0',
   '../__tests__/chat-account-startup.test.ts':
     'f3a15eb7ec93a91a8b65a64f56e43bd488f391cde5d4a472f438c42a2ce4347e',
   '../../packages/protocol/__tests__/session-metadata.test.ts':
