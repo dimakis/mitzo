@@ -1,5 +1,6 @@
 import { afterEach, expect, it, vi } from 'vitest';
 import { SendOutbox } from '../send-outbox.js';
+import { runtimeFailureMessage } from '@mitzo/protocol';
 const command = {
   runOn: 'local',
   repositoryWorkspaceId: '11111111-1111-4111-8111-111111111111',
@@ -42,6 +43,134 @@ const receipt = (state = 'consumed') =>
     { status: 202 },
   );
 afterEach(() => vi.useRealTimers());
+it('shows a reviewed pre-admission failure without manufacturing a receipt or acknowledging delivery', async () => {
+  const saved = disk();
+  const runtimeFailure = {
+    runtimeFailureCode: 'login_refresh_reauthorization' as const,
+    diagnosticId: '00000000-0000-4000-8000-000000000001',
+  };
+  const notify = vi.fn();
+  const fetch = vi.fn(async () =>
+    Response.json(
+      {
+        ok: false,
+        code: 'entry_unavailable',
+        error: 'private upstream text',
+        clientMsgId: command.clientMsgId,
+        sessionId: 'old-chat',
+        runtimeFailure,
+      },
+      { status: 409 },
+    ),
+  );
+  const outbox = new SendOutbox({
+    url: '/local/send',
+    storage: saved,
+    fetch,
+    notify,
+    localFirstCommand: true,
+  });
+  outbox.start();
+  try {
+    outbox.enqueue(command, 1, 'draft');
+    await vi.waitFor(() =>
+      expect(notify).toHaveBeenCalledWith(
+        expect.objectContaining({ state: 'uncertain', runtimeFailure }),
+      ),
+    );
+    expect(JSON.parse(saved.getItem()!)[0]).toMatchObject({
+      body: command,
+      uncertain: true,
+      runtimeFailure,
+    });
+    expect(JSON.parse(saved.getItem()!)[0].localReceipt).toBeUndefined();
+    expect(notify).not.toHaveBeenCalledWith(expect.objectContaining({ acknowledged: true }));
+    expect(saved.getItem()).not.toContain('private upstream');
+  } finally {
+    outbox.stop();
+  }
+});
+it.each([
+  'login_refresh_reauthorization',
+  'login_verification_unavailable',
+  'login_refresh_invalid',
+  'auth_expired',
+  'auth_revoked',
+  'runtime_unavailable',
+] as const)(
+  'retains the real server %s diagnostic across reload without replaying the original command',
+  async (code) => {
+    const saved = disk();
+    const diagnostic = {
+      runtimeFailureCode: code,
+      diagnosticId: '00000000-0000-4000-8000-000000000001',
+    };
+    const failure = {
+      telemetry: () => diagnostic,
+      publicMessage: () => runtimeFailureMessage(diagnostic),
+    };
+    const notify = vi.fn();
+    const fetch = vi.fn(async () =>
+      Response.json(
+        {
+          ok: false,
+          code: 'retained_command',
+          error: failure.publicMessage(),
+          clientMsgId: command.clientMsgId,
+          sessionId: 'old-chat',
+          state: 'reserved',
+          runtimeFailure: failure.telemetry(),
+        },
+        { status: 409 },
+      ),
+    );
+    const outbox = new SendOutbox({
+      url: '/local/send',
+      storage: saved,
+      fetch,
+      notify,
+      localFirstCommand: true,
+    });
+    outbox.start();
+    try {
+      expect(outbox.enqueue(command, 1, 'old-chat-draft')).toBe(true);
+      await vi.waitFor(() =>
+        expect(notify).toHaveBeenCalledWith(
+          expect.objectContaining({ state: 'retained', runtimeFailure: failure.telemetry() }),
+        ),
+      );
+      expect(JSON.parse(saved.getItem()!)[0]).toMatchObject({
+        body: command,
+        uncertain: true,
+        runtimeFailure: failure.telemetry(),
+      });
+      expect(saved.getItem()).not.toContain('private upstream');
+    } finally {
+      outbox.stop();
+    }
+    const restoredNotify = vi.fn();
+    const restored = new SendOutbox({
+      url: '/local/send',
+      storage: saved,
+      fetch,
+      notify: restoredNotify,
+      localFirstCommand: true,
+    });
+    restored.start();
+    try {
+      expect(restoredNotify).toHaveBeenCalledWith(
+        expect.objectContaining({
+          state: 'uncertain',
+          runtimeFailure: failure.telemetry(),
+          request: command,
+        }),
+      );
+      expect(fetch).toHaveBeenCalledOnce();
+    } finally {
+      restored.stop();
+    }
+  },
+);
 it('keeps the original durable receipt through a reentrant enqueue when handoff and rollback storage fail', async () => {
   const saved = disk();
   let writesBlocked = false;

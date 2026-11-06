@@ -20,8 +20,8 @@ import type { StoreApi } from 'zustand/vanilla';
 import type { FinishedMessage, MitzoMode, ImageAttachment, SourceSnapshot } from '@mitzo/protocol';
 import {
   splitContextPrompt,
-  KnowledgeRuntimeFailureSchema,
-  knowledgeRuntimeFailureMessage,
+  RuntimeFailureSchema,
+  runtimeFailureMessage,
   type OrdinaryRuntimeContinuationCommand,
   type OrdinaryRuntimeFirstCommand,
   type OrdinaryWorkspaceFirstCommand,
@@ -534,7 +534,7 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
                       ordinaryDelivery?.version === 1 ? ordinaryDelivery.sessionId : sessionId,
                     );
             if (visible) {
-              const runtimeFailure = KnowledgeRuntimeFailureSchema.safeParse(event.runtimeFailure);
+              const runtimeFailure = RuntimeFailureSchema.safeParse(event.runtimeFailure);
               visibleLocalCommandId = request?.clientMsgId;
               let messages = store.getState().messages;
               const ownState =
@@ -547,12 +547,22 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
                 request.runtime.harness === 'codex' &&
                 state === 'consumed' &&
                 event.acknowledged === true &&
-                (!ownState || ['sending', 'queued'].includes(ownState))
+                (!ownState || ['sending', 'queued', 'uncertain'].includes(ownState))
               )
                 messages = messagesReducer(messages, {
                   type: 'COMMAND_STATE',
                   messageId: request.clientMsgId,
                   commandState: 'queued',
+                });
+              if (
+                request &&
+                ['retained', 'reserved', 'uncertain'].includes(state) &&
+                (!ownState || ownState === 'sending')
+              )
+                messages = messagesReducer(messages, {
+                  type: 'COMMAND_STATE',
+                  messageId: request.clientMsgId,
+                  commandState: 'uncertain',
                 });
               const hasReply =
                 request &&
@@ -565,8 +575,8 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
                 ['completed', 'ended', 'interrupted', 'failed', 'cancelled'].includes(ownState);
               store.setState({
                 messages,
-                ...(runtimeFailure.success && state === 'retained'
-                  ? { sendError: knowledgeRuntimeFailureMessage(runtimeFailure.data) }
+                ...(runtimeFailure.success && ['retained', 'reserved', 'uncertain'].includes(state)
+                  ? { sendError: runtimeFailureMessage(runtimeFailure.data) }
                   : ['pending', 'consumed'].includes(state)
                     ? { sendError: null }
                     : {}),

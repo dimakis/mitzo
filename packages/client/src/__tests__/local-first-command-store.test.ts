@@ -1,5 +1,6 @@
 import { expect, it, vi } from 'vitest';
 import { createMitzoStore } from '../store.js';
+import { runtimeFailureMessage } from '@mitzo/protocol';
 const channel = vi.hoisted(() => ({
   listener: (_event: Record<string, unknown>) => {},
   id: null as string | null,
@@ -125,6 +126,40 @@ function setup(
     },
   };
 }
+
+it('shows the original login recovery reason and ends the Sending label while keeping its draft and identity', async () => {
+  const { store, fetch, readStorage } = setup();
+  const diagnostic = {
+    runtimeFailureCode: 'login_refresh_reauthorization' as const,
+    diagnosticId: '00000000-0000-4000-8000-000000000001',
+  };
+  const failure = {
+    telemetry: () => diagnostic,
+    publicMessage: () => runtimeFailureMessage(diagnostic),
+  };
+  fetch.mockResolvedValue(
+    Response.json(
+      {
+        ok: false,
+        code: 'retained_command',
+        error: failure.publicMessage(),
+        clientMsgId: request.clientMsgId,
+        sessionId: 'old-chat',
+        state: 'reserved',
+        runtimeFailure: failure.telemetry(),
+      },
+      { status: 409 },
+    ),
+  );
+  channel.id = 'live-connection';
+  channel.listener({ type: '_open' });
+  expect(store.getState().sendLocalFirstCommand(request, { draftId: 'retained-draft' })).toBe(true);
+  await vi.waitFor(() => expect(store.getState().sendError).toBe(failure.publicMessage()));
+  expect(store.getState().messages.commandStates?.[request.clientMsgId]).toBe('uncertain');
+  expect(store.getState().localCommand).toMatchObject({ state: 'retained', request });
+  expect(readStorage()[0].body).toEqual(request);
+  channel.listener({ type: '_close' });
+});
 
 it('explains a first-command persistence refusal without dispatching or losing its draft', () => {
   const { store, fetch, blockStorage, readStorage } = setup();
