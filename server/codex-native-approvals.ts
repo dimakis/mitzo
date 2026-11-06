@@ -10,6 +10,8 @@ import { nativeGrantFence } from './codex-native-grant-fence.js';
 import { PERMISSION_TIMEOUT_MS } from './constants.js';
 import { checkSkillPolicy, effectivePermissionMode } from '@mitzo/harness';
 import { nativeCommandApprovalScope } from './codex-native-approval-scope.js';
+import { createLogger } from './logger.js';
+const log = createLogger('codex-native-approvals');
 
 export interface PreparedWorkspaceGrantScope {
   readonly runtimeId: string;
@@ -162,6 +164,7 @@ export function createCodexNativeApprovalHandler(options: {
     let assertGrantCurrent = () => {};
     let assertPreparedCurrent = () => {};
     let assertConsentCurrent = () => {};
+    let assertCommandCurrent = () => {};
     let timer: ReturnType<typeof setTimeout> | undefined;
     try {
       assertCurrent();
@@ -193,6 +196,7 @@ export function createCodexNativeApprovalHandler(options: {
         assertCurrent(true);
         assertGrantCurrent();
         assertPreparedCurrent();
+        assertCommandCurrent();
         if (!returningDenial) assertConsentCurrent();
         // These synchronous checks can themselves consume the remaining time.
         // Downgrade the exact response object held by the original RPC client;
@@ -286,7 +290,7 @@ export function createCodexNativeApprovalHandler(options: {
         params: request.params,
         ...(request.method === 'item/fileChange/requestApproval' ? { fileChangePaths } : {}),
       };
-      const sessionGrantKey = nativeCommandApprovalScope(request, {
+      const commandOwner = {
         runtimeId,
         environmentId,
         policyRevision: options.policyRevision,
@@ -294,7 +298,13 @@ export function createCodexNativeApprovalHandler(options: {
         cwd,
         deniedRoots,
         writeProtectedRoots,
-      });
+      };
+      const sessionGrantKey = nativeCommandApprovalScope(request, commandOwner);
+      if (sessionGrantKey)
+        assertCommandCurrent = () => {
+          if (nativeCommandApprovalScope(request, commandOwner) !== sessionGrantKey)
+            throw Error('Native command directory changed during approval');
+        };
       const commandRequest = request.method === 'item/commandExecution/requestApproval';
       const network = commandRequest && request.params.additionalPermissions?.network?.enabled;
       const result = await permission(toolName, input, {
@@ -344,6 +354,7 @@ export function createCodexNativeApprovalHandler(options: {
       });
       assertCurrent();
       assertGrantCurrent();
+      assertCommandCurrent();
       if (result.behavior !== 'allow' || !isDeepStrictEqual(result.updatedInput, input))
         return deny();
       if (sessionGrantKey && result.decisionClassification === 'user_permanent') {
@@ -363,9 +374,19 @@ export function createCodexNativeApprovalHandler(options: {
             }
           : { decision: 'accept' };
       return grant(response);
-    } catch {
+    } catch (error) {
       // Expiry denies this operation; only the owning operation's abort cancels
       // the turn. Offers without decline still use their supported cancel reply.
+      log.warn('Native approval refused during validation', {
+        runtimeId,
+        environmentId,
+        method,
+        requestId: identity.requestId,
+        threadId: identity.threadId,
+        cancelled: signal.aborted,
+        expired: Date.now() >= expiresAt,
+        cause: error instanceof Error ? error.message : 'non-Error validation failure',
+      });
       return deny(signal.aborted);
     } finally {
       clearTimeout(timer);

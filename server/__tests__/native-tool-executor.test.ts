@@ -60,6 +60,7 @@ describe('native tool execution through session permissions', () => {
     repositoryTasks.validate.mockReset();
     root = await mkdtemp(join(tmpdir(), 'mitzo-native-'));
     testHost.home = join(root, 'home');
+    vi.stubEnv('CODEX_HOME', join(testHost.home, '.codex'));
     await mkdir(testHost.home);
     await mkdir(join(root, 'worktree'));
     registry = new SessionRegistry();
@@ -92,6 +93,70 @@ describe('native tool execution through session permissions', () => {
   });
   const executor = () =>
     createNativeToolExecutor('client', registry, { env: { PATH: '/usr/bin:/bin' } });
+
+  it('uses an exact trusted task grant for different routine commands without another card', async () => {
+    for (const command of ['npm test -- first', 'npm test -- second']) {
+      const input = { command };
+      const current = vi.fn();
+      const execute = createNativeToolExecutor('client', registry, {
+        env: { PATH: '/usr/bin:/bin' },
+        taskAuthorization: {
+          grantId: 'grant',
+          toolName: 'Bash',
+          input,
+          assertCurrentSync: current,
+        },
+      });
+      const result = await execute(call('Bash', input), abort.signal);
+      expect(result.is_error).toBe(false);
+      expect(current).toHaveBeenCalled();
+    }
+    expect(sent.filter((event) => event.type === 'permission_request')).toEqual([]);
+  });
+
+  it('refuses a task proof for changed input or an unselected operation before effects', async () => {
+    const execute = createNativeToolExecutor('client', registry, {
+      env: {},
+      taskAuthorization: {
+        grantId: 'grant',
+        toolName: 'Bash',
+        input: { command: 'npm test' },
+        assertCurrentSync() {},
+      },
+    });
+    const before = vi.mocked(executeSandboxedCommand).mock.calls.length;
+    expect((await execute(call('Bash', { command: 'rm -rf .' }), abort.signal)).is_error).toBe(
+      true,
+    );
+    expect((await execute(call('GitHubRead', { endpoint: '/user' }), abort.signal)).is_error).toBe(
+      true,
+    );
+    expect(vi.mocked(executeSandboxedCommand).mock.calls.length).toBe(before);
+  });
+
+  it('rechecks task revocation immediately before spawning a command', async () => {
+    let revoked = false;
+    const input = { command: 'npm test' };
+    vi.mocked(executeSandboxedCommand).mockImplementationOnce(async (options) => {
+      revoked = true;
+      options.beforeSpawn?.();
+      return { content: 'must not run', isError: false };
+    });
+    const execute = createNativeToolExecutor('client', registry, {
+      env: {},
+      taskAuthorization: {
+        grantId: 'grant',
+        toolName: 'Bash',
+        input,
+        assertCurrentSync() {
+          if (revoked) throw Error('Task authorization was revoked');
+        },
+      },
+    });
+    const output = await execute(call('Bash', input), abort.signal);
+    expect(output.is_error).toBe(true);
+    expect(output.content).toMatch(/revoked/);
+  });
 
   it.each(['Write', 'GitHubRead'] as const)(
     'rechecks owned runtime revocation after %s approval before host effects',

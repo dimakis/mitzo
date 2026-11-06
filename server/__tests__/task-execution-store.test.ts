@@ -54,8 +54,11 @@ it('makes approval idempotent without treating a changed request as approved', (
 it('revokes the shared task without a child retaining its old permission', () => {
   const { store, scope } = fixture();
   const grant = store.approve('operator', 'parent', 'request', scope);
+  const cancelled = vi.fn();
+  store.onRevoked(grant.id, cancelled);
   expect(() => store.revoke(grant.id, 'operator', 'worker')).toThrow(/owner/);
   store.revoke(grant.id, 'operator', 'parent');
+  expect(cancelled).toHaveBeenCalledOnce();
   expect(() => store.assertGrant(grant.id, 'operator', 'worker', 'worker-scope')).toThrow(
     /revoked/,
   );

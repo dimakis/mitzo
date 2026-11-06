@@ -33,7 +33,7 @@ export interface SandboxedCommandOptions {
   readableRoots?: string[];
   env: Record<string, string>;
   /** General proxy egress, only after the caller's network-aware command approval. */
-  networkAccess?: 'approved-command';
+  networkAccess?: 'approved-command' | 'loopback';
   signal: AbortSignal;
   timeoutMs?: number;
   maxOutputBytes?: number;
@@ -618,7 +618,10 @@ async function runSandboxedCommand(
   options.signal.throwIfAborted();
   if (options.privateOutput !== undefined && options.privateOutput !== 'separate')
     throw new Error('Invalid private command output transport');
-  if (options.networkAccess !== undefined && options.networkAccess !== 'approved-command')
+  if (
+    options.networkAccess !== undefined &&
+    !['approved-command', 'loopback'].includes(options.networkAccess)
+  )
     throw new Error('Invalid command network authorization');
   if (!['darwin', 'linux'].includes(process.platform))
     throw new Error('OS sandbox is unavailable on this platform');
@@ -724,18 +727,17 @@ async function runSandboxedCommand(
           ],
         },
         network: {
-          allowedDomains: [],
+          allowedDomains:
+            options.networkAccess === 'loopback' ? ['localhost', '127.0.0.1', '[::1]'] : [],
           // Deny explicit local/metadata destinations even if a caller later
           // weakens hostname validation. Redirect targets remain subject to
           // this deny-first list and the exact allowlist in SRT's proxy.
           deniedDomains: [
-            'localhost',
-            '127.0.0.1',
-            '[::1]',
+            ...(options.networkAccess === 'loopback' ? [] : ['localhost', '127.0.0.1', '[::1]']),
             '169.254.169.254',
             'metadata.google.internal',
           ],
-          allowLocalBinding: options.networkAccess === 'approved-command',
+          allowLocalBinding: options.networkAccess !== undefined,
           allowAllUnixSockets: false,
         },
         enableWeakerNestedSandbox: false,

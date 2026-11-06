@@ -74,6 +74,13 @@ it('keeps networking denied by default and rejects an invalid network authorizat
   expect(spawn).not.toHaveBeenCalled();
 });
 
+it('keeps a loopback task grant out of the general network approval callback', async () => {
+  const { payload, manager, spawn } = fixture();
+  payload.networkAccess = 'loopback';
+  expect(await runSandboxedWorker(payload, { manager, spawn: spawn as never })).toBe(0);
+  expect(manager.initialize.mock.calls[0][1]).toBeUndefined();
+});
+
 it('rejects replacement during SRT initialization before constructing the sandbox', async () => {
   const { payload, manager, spawn } = fixture();
   let finish!: () => void;

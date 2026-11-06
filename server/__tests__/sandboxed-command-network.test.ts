@@ -15,7 +15,7 @@ vi.mock('node:child_process', async (original) => ({
 }));
 afterEach(() => vi.restoreAllMocks());
 
-it.each([undefined, 'approved-command'] as const)(
+it.each([undefined, 'loopback', 'approved-command'] as const)(
   'passes only server-approved networking to the isolated worker (%s)',
   async (networkAccess) => {
     const root = await realpath(await mkdtemp(join(tmpdir(), 'mitzo-command-network-')));
@@ -49,10 +49,12 @@ it.each([undefined, 'approved-command'] as const)(
         }),
       ).toEqual({ content: '', isError: false });
       expect(payload?.networkAccess).toBe(networkAccess);
-      expect(payload?.config.network.allowedDomains).toEqual([]);
+      expect(payload?.config.network.allowedDomains).toEqual(
+        networkAccess === 'loopback' ? ['localhost', '127.0.0.1', '[::1]'] : [],
+      );
       expect(payload?.config.network.deniedDomains).toContain('169.254.169.254');
       expect(payload?.config.network.allowAllUnixSockets).toBe(false);
-      expect(payload?.config.network.allowLocalBinding).toBe(networkAccess === 'approved-command');
+      expect(payload?.config.network.allowLocalBinding).toBe(networkAccess !== undefined);
       expect(payload?.config.filesystem.allowWrite).toContain(cwd);
       expect(payload?.filesystemOnly).toBeUndefined();
       expect(childEnvironment?.OPENAI_API_KEY).toBeUndefined();

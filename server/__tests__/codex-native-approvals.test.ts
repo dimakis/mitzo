@@ -115,6 +115,32 @@ function commandParams() {
 }
 
 describe('native approval adapter with the existing pending owner', () => {
+  it('refuses a retained command when its directory is replaced during approval', async () => {
+    const root = realpathSync(mkdtempSync(join(tmpdir(), 'native-command-owner-')));
+    try {
+      const cwd = join(root, 'task');
+      mkdirSync(cwd);
+      const f = setup();
+      f.registry.get('client')!.cwd = cwd;
+      const pending = f.handler(
+        'item/commandExecution/requestApproval',
+        {
+          ...commandParams(),
+          cwd,
+          additionalPermissions: null,
+        },
+        f.controller.signal,
+        f.context,
+      );
+      const id = await request(f);
+      renameSync(cwd, cwd + '-old');
+      mkdirSync(cwd);
+      resolvePending(id, 'always', undefined, 'session');
+      expect(await pending).toEqual({ decision: 'cancel' });
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
   it('declines an expired command without cancelling the turn or granting its retry', async () => {
     vi.useFakeTimers();
     const f = setup();

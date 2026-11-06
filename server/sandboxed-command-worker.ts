@@ -29,7 +29,7 @@ export interface SandboxWorkerPayload {
   /** Trusted SDK runtime-only enrollment fences files without changing network policy. */
   filesystemOnly?: boolean;
   /** Trusted parent has approved this command's general network effects. */
-  networkAccess?: 'approved-command';
+  networkAccess?: 'approved-command' | 'loopback';
   /** Fixed private helper only, never arbitrary Bash's authority bypass. */
   privateNativeFileRequestJson?: string;
   privateNativeFileProgram?: { programPath: string; requestPath: string };
@@ -83,7 +83,10 @@ export async function runSandboxedWorker(
   dependencies: WorkerDependencies = { manager: SandboxManager, spawn },
 ): Promise<number> {
   const { manager, spawn: spawnCommand } = dependencies;
-  if (payload.networkAccess !== undefined && payload.networkAccess !== 'approved-command')
+  if (
+    payload.networkAccess !== undefined &&
+    !['approved-command', 'loopback'].includes(payload.networkAccess)
+  )
     throw new Error('Invalid command network authorization');
   if (payload.networkAccess && payload.filesystemOnly)
     throw new Error('Command network authorization cannot change SDK isolation');
