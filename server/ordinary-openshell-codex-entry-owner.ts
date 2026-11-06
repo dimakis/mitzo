@@ -35,7 +35,10 @@ import {
   openShellRuntimeConfig,
   verifiedOpenShellPolicy,
 } from './openshell-runtime.js';
-import { assertOrdinaryOpenShellPhysicalOwner } from './openshell-lifecycle-controller.js';
+import {
+  assertOrdinaryOpenShellPhysicalOwner,
+  resumeOrdinaryOpenShellPhysicalOwner,
+} from './openshell-lifecycle-controller.js';
 import {
   OrdinaryOpenShellCodexOwnedRuntime,
   type OrdinaryOpenShellCodexOwnedDispatch,
@@ -315,7 +318,8 @@ export function createOrdinaryOpenShellCodexEntryOwner(input: {
     )
       throw unavailable();
     const retained = input.readRetained();
-    if (retained) assertOrdinaryOpenShellPhysicalOwner(input.sessionId, retained, input.account);
+    if (retained)
+      assertOrdinaryOpenShellPhysicalOwner(input.sessionId, retained, input.account, input.resume);
   };
   const assertCurrentSync = (expected: OrdinaryOpenShellCodexExpectation) => {
     assertCurrentIdentitySync(expected);
@@ -358,6 +362,13 @@ export function createOrdinaryOpenShellCodexEntryOwner(input: {
     }
     const artifact = input.readRetained();
     if (artifact) {
+      await resumeOrdinaryOpenShellPhysicalOwner(
+        input.sessionId,
+        artifact,
+        input.account,
+        signal,
+        () => assertCurrentSync(expected),
+      );
       const manager = new OpenShellRuntimeManager({
         ...configured.config,
         account: route,
@@ -418,7 +429,7 @@ export function createOrdinaryOpenShellCodexEntryOwner(input: {
     assertCurrent,
     readRetained: input.readRetained,
     assertRetainedAuthority: (artifact) =>
-      assertOrdinaryOpenShellPhysicalOwner(input.sessionId, artifact, input.account),
+      assertOrdinaryOpenShellPhysicalOwner(input.sessionId, artifact, input.account, input.resume),
     dispatch: input.dispatch,
     dispatchContinuation: input.dispatchContinuation,
     signal,

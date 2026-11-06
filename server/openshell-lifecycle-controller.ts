@@ -659,13 +659,14 @@ export function assertOrdinaryOpenShellPhysicalOwner(
   conversationId: string,
   artifact: import('./codex-conversation-store.js').ArtifactRuntime,
   binding: AccountBinding,
+  allowStopped = false,
 ) {
   if (!configured) throw new Error('Ordinary OpenShell lifecycle authority unavailable');
   const record = configured.store.get(conversationId);
   const physical = artifact.runtime;
   if (
     !record ||
-    record.phase !== 'retained' ||
+    (record.phase !== 'retained' && !(allowStopped && record.phase === 'stopped')) ||
     !physical.sandboxId ||
     record.physicalSandboxId !== physical.sandboxId ||
     record.sandboxName !== physical.sandboxName ||
@@ -680,4 +681,50 @@ export function assertOrdinaryOpenShellPhysicalOwner(
         !sameOpenShellRouteAuthority(record.identity.route, artifact.route)))
   )
     throw new Error('Ordinary OpenShell physical ownership changed');
+}
+
+/** Explicit command admission may restart its exact retained resource. Discovery
+ * and receipt observation never call this, and failed/deleted custody stays fenced. */
+export async function resumeOrdinaryOpenShellPhysicalOwner(
+  conversationId: string,
+  artifact: import('./codex-conversation-store.js').ArtifactRuntime,
+  binding: AccountBinding,
+  signal: AbortSignal,
+  assertCurrent: () => void,
+) {
+  const controller = configured;
+  if (!controller) throw new Error('Ordinary OpenShell lifecycle authority unavailable');
+  // Active native callbacks already hold lifecycle admission. Only cold stopped
+  // custody needs a new reservation, before provider initialization takes its own.
+  if (controller.store.get(conversationId)?.phase !== 'stopped') {
+    assertOrdinaryOpenShellPhysicalOwner(conversationId, artifact, binding);
+    return;
+  }
+  await sharedOpenShellLifecycleCoordinator.mutate(conversationId, async () => {
+    const record = controller.store.get(conversationId);
+    const current = () => {
+      signal.throwIfAborted();
+      if (
+        configured !== controller ||
+        controller.store.get(conversationId)?.generation !== record?.generation
+      )
+        throw new Error('OpenShell lifecycle changed during restart');
+      assertOrdinaryOpenShellPhysicalOwner(conversationId, artifact, binding, true);
+      assertCurrent();
+    };
+    current();
+    if (record?.phase === 'retained') return;
+    if (record?.phase !== 'stopped') throw new Error('OpenShell stopped custody unavailable');
+    await managerFor(record).start(conversationId, artifact.runtime.sandboxId!, signal, current);
+    current();
+    controller.store.upsert({
+      ...record,
+      phase: 'retained',
+      generation: record.generation + 1,
+      lastActivityAt: Date.now(),
+      idleSince: null,
+      stoppedAt: null,
+      stoppedResourceVersion: null,
+    });
+  });
 }
