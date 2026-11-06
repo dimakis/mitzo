@@ -14,6 +14,23 @@ function wrap(ui: React.ReactElement) {
 }
 
 describe('ToolPill', () => {
+  it('shows why outcome creation failed without opening the tool group or raw call', () => {
+    const failed: FinishedBlock = {
+      blockId: 'outcome-failed',
+      blockType: 'tool_use',
+      content: '',
+      toolName: 'TelosCreateOutcome',
+      toolError: true,
+      toolResult: 'Tool approval expired without a response; request approval again',
+    };
+    render(wrap(<ToolGroup tools={[taskProposal, failed]} />));
+    expect(screen.getByRole('region', { name: 'Outcome creation problem' }).textContent).toContain(
+      'Tool approval expired without a response; request approval again',
+    );
+    expect(screen.getByRole('button', { name: /2 tool calls/ }).getAttribute('aria-expanded')).toBe(
+      'false',
+    );
+  });
   const taskProposal: FinishedBlock = {
     blockId: 'task-call',
     blockType: 'tool_use',

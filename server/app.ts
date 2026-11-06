@@ -5199,6 +5199,21 @@ function inboxPathAllowed(inboxPath: string, filename: string, mutating: boolean
     return false;
   }
 }
+function authorizeInboxMutation(req: express.Request, res: express.Response, inboxPath: string) {
+  const session = res.locals.authSession as AuthSession | undefined;
+  if (session ? !isAuthSessionCurrent(session) : !verifyInternalToken(req)) {
+    res.status(401).json({ error: 'Not authenticated' });
+    return false;
+  }
+  if (
+    getRepoConfig().resolvedInboxPath !== inboxPath ||
+    !inboxPathAllowed(inboxPath, req.params.filename as string, true)
+  ) {
+    res.status(403).json({ error: 'Path not allowed' });
+    return false;
+  }
+  return true;
+}
 mountObservedRouter(app, '/api/inbox/:filename', (req, res, next) => {
   const inboxPath = getRepoConfig().resolvedInboxPath;
   if (
@@ -5233,12 +5248,7 @@ app.post('/api/inbox/:filename/approve', async (req, res) => {
     // Drain an older scan before moving the source, then await a fresh scan so
     // delivery cancellation, badges and change events precede the response.
     await notificationCenter.reconcileAsync();
-    // Enrollment can change while the scan is pending. Refresh both guards at
-    // the synchronous mutation boundary rather than reuse middleware authority.
-    if (!inboxPathAllowed(inboxPath, req.params.filename as string, true)) {
-      res.status(403).json({ error: 'Path not allowed' });
-      return;
-    }
+    if (!authorizeInboxMutation(req, res, inboxPath)) return;
     const ok = approveInboxItem(inboxPath, req.params.filename as string);
     if (!ok) {
       res.status(404).json({ error: 'Item not found' });
@@ -5261,10 +5271,7 @@ app.delete('/api/inbox/:filename', async (req, res) => {
       return;
     }
     await notificationCenter.reconcileAsync();
-    if (!inboxPathAllowed(inboxPath, req.params.filename as string, true)) {
-      res.status(403).json({ error: 'Path not allowed' });
-      return;
-    }
+    if (!authorizeInboxMutation(req, res, inboxPath)) return;
     const ok = discardInboxSource(
       notificationCenter.store,
       inboxPath,

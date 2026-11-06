@@ -283,6 +283,7 @@ import {
   TELOS_ADOPT_SOURCE_TOOL,
   TelosOutcomeInput,
   TELOS_CREATE_OUTCOME_TOOL,
+  formatTelosPermissionDenial,
 } from './telos-tool.js';
 
 /** Assigned GitHub connections replace the legacy credential fallback. Retained
@@ -4141,7 +4142,10 @@ async function openCodexChatBound(
           });
           sourceSignal.throwIfAborted();
           if (permission.behavior !== 'allow')
-            return { content: permission.message, isError: true };
+            return formatTelosPermissionDenial(
+              permission.message,
+              permission.decisionClassification === 'user_reject',
+            );
           const { __mitzoTelosApproval, ...approvedProposal } = permission.updatedInput ?? {};
           if (
             typeof __mitzoTelosApproval !== 'string' ||
