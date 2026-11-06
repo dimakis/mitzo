@@ -50,6 +50,18 @@ it('deduplicates threshold alerts and emits recovery', () => {
   );
 });
 
+it('reports telemetry availability transitions without repeated unavailable warnings', () => {
+  const log = { warn: vi.fn(), info: vi.fn() };
+  const o = new OpenShellLifecycleObservability({ log });
+  o.observe({ available: false });
+  o.observe({ available: false });
+  expect(log.warn).toHaveBeenCalledTimes(1);
+  o.observe({ available: true, usageBytes: 0, reclaimableBytes: 0 });
+  expect(log.info).toHaveBeenCalledWith({}, 'OpenShell usage telemetry recovered');
+  o.observe({ available: false });
+  expect(log.warn).toHaveBeenCalledTimes(2);
+});
+
 it('parses optional positive telemetry thresholds and rejects unsafe values', () => {
   expect(
     openShellLifecycleObservabilityThresholds({

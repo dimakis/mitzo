@@ -1,4 +1,5 @@
 import { trace } from '@opentelemetry/api';
+import { performance } from 'node:perf_hooks';
 import { afterAll, expect, it, vi } from 'vitest';
 import {
   InMemorySpanExporter,
@@ -16,9 +17,14 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { tracer } from '../tracing.js';
 
-const diagnosticLog = vi.hoisted(() => ({ warn: vi.fn() }));
+const diagnosticLog = vi.hoisted(() => ({ warn: vi.fn(), info: vi.fn() }));
 vi.mock('../logger.js', () => ({
-  createLogger: () => ({ debug: vi.fn(), info: vi.fn(), error: vi.fn(), warn: diagnosticLog.warn }),
+  createLogger: () => ({
+    debug: vi.fn(),
+    info: diagnosticLog.info,
+    error: vi.fn(),
+    warn: diagnosticLog.warn,
+  }),
 }));
 
 const exporter = new InMemorySpanExporter();
@@ -102,6 +108,28 @@ it('records failures without copying private errors into telemetry', async () =>
   expect(
     JSON.stringify({ attributes: span.attributes, events: span.events, status: span.status }),
   ).not.toContain(error.message);
+});
+
+it('retains slow successful phases at info level and reserves warnings for failures', async () => {
+  diagnosticLog.warn.mockClear();
+  diagnosticLog.info.mockClear();
+  let now = 0;
+  const clock = vi.spyOn(performance, 'now').mockImplementation(() => now);
+  try {
+    await observeLocalCodexPhase('workspace_check', async () => {
+      now = 600;
+    });
+    expect(diagnosticLog.info).toHaveBeenCalledOnce();
+    expect(diagnosticLog.warn).not.toHaveBeenCalled();
+    await expect(
+      observeLocalCodexPhase('workspace_check', async () => {
+        throw Error('unavailable');
+      }),
+    ).rejects.toThrow();
+    expect(diagnosticLog.warn).toHaveBeenCalledOnce();
+  } finally {
+    clock.mockRestore();
+  }
 });
 
 it('marks a returned native tool error as failed without throwing, changing the result or retaining private text', async () => {

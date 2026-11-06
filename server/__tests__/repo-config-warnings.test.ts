@@ -1,0 +1,21 @@
+import { afterEach, expect, it, vi } from 'vitest';
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { loadRepoConfig } from '../repo-config.js';
+const { warn } = vi.hoisted(() => ({ warn: vi.fn() }));
+vi.mock('../logger.js', () => ({ createLogger: () => ({ warn }) }));
+const root = mkdtempSync(join(tmpdir(), 'config-warnings-'));
+afterEach(() => rmSync(root, { recursive: true, force: true }));
+it('reports configuration transitions once while checking repository validity on every load', () => {
+  const repository = join(root, 'optional');
+  writeFileSync(join(root, '.mitzo.json'), JSON.stringify({ repos: { optional: repository } }));
+  expect(loadRepoConfig(root).repos).toEqual({});
+  expect(loadRepoConfig(root).repos).toEqual({});
+  expect(warn).toHaveBeenCalledTimes(1);
+  mkdirSync(join(repository, '.git'), { recursive: true });
+  expect(loadRepoConfig(root).repos).toEqual({ optional: repository });
+  rmSync(repository, { recursive: true });
+  expect(loadRepoConfig(root).repos).toEqual({});
+  expect(warn).toHaveBeenCalledTimes(2);
+});

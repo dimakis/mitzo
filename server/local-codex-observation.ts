@@ -36,8 +36,10 @@ function beginPhase(phase: Phase) {
         span.setAttribute('phase.elapsed_ms', elapsedMs);
         span.setAttribute('phase.outcome', outcome);
         span.end();
-        if (elapsedMs >= 500 || outcome === 'failed')
+        if (outcome === 'failed')
           log.warn('Local Codex phase completed', { phase, elapsedMs, outcome });
+        else if (elapsedMs >= 500)
+          log.info('Local Codex phase completed', { phase, elapsedMs, outcome });
       } catch {
         // Diagnostics cannot replace a result (including owned scratch whose
         // disposer the caller must retain) or the original operation failure.

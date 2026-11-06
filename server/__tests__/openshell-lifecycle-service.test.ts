@@ -109,6 +109,21 @@ it('does not stop or delete after removal authority is revoked during checkpoint
   expect(adapters.delete).not.toHaveBeenCalled();
 });
 
+it('backs off unchanged failed records and immediately retries a new generation', async () => {
+  const { service, store, adapters } = setup('retained');
+  adapters.inspect.mockRejectedValue(Error('Runtime configuration changed'));
+  adapters.onReconcileError = vi.fn();
+  await service.reconcile(new AbortController().signal);
+  await service.reconcile(new AbortController().signal);
+  expect(adapters.inspect).toHaveBeenCalledTimes(1);
+  expect(adapters.onReconcileError).toHaveBeenCalledTimes(1);
+  const record = store.get('c')!;
+  store.upsert({ ...record, generation: record.generation + 1 });
+  await service.reconcile(new AbortController().signal);
+  expect(adapters.inspect).toHaveBeenCalledTimes(2);
+  store.close();
+});
+
 it('reviews a legacy sandbox without enrolling it, then checkpoints and releases only on confirmation', async () => {
   const { service, store, adapters, record } = setup('retained', false);
   const read = vi.fn(() => structuredClone(record));

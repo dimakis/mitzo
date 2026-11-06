@@ -1,3 +1,4 @@
+import './fixtures/offline-user-home.js';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync, realpathSync, renameSync } from 'node:fs';
 import { tmpdir } from 'node:os';

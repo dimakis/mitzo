@@ -128,6 +128,7 @@ export class OpenShellLifecycleService {
     private policy: OpenShellLifecyclePolicy,
     private adapters: LifecycleAdapters,
   ) {}
+  private retries = new Map<string, { generation: number; attempts: number; after: number }>();
   inventory() {
     return this.store.list().map((record) => ({
       conversationId: record.conversationId,
@@ -494,9 +495,13 @@ export class OpenShellLifecycleService {
     }
   }
   async reconcile(signal: AbortSignal) {
+    signal.throwIfAborted();
     if (!this.policy.enabled) return [] as LifecyclePreview[];
     const previews: LifecyclePreview[] = [];
     for (const record of this.store.list()) {
+      signal.throwIfAborted();
+      const retry = this.retries.get(record.conversationId);
+      if (retry?.generation === record.generation && this.now() < retry.after) continue;
       if (record.phase !== 'retained' && record.phase !== 'stopped') continue;
       // Retention consent authorizes destructive deletion only. Checkpointing
       // and stopping an idle retained sandbox remain safe without it.
@@ -519,9 +524,19 @@ export class OpenShellLifecycleService {
           if (this.now() < record.idleSince + this.policy.idleMs) continue;
         }
         const preview = await this.preview(record.conversationId, signal);
+        this.retries.delete(record.conversationId);
         previews.push(preview);
         if (preview.action !== 'none') await this.confirm(preview.token, signal);
       } catch (error) {
+        signal.throwIfAborted();
+        const attempts = retry?.generation === record.generation ? retry.attempts + 1 : 1;
+        this.retries.set(record.conversationId, {
+          generation: record.generation,
+          attempts,
+          after:
+            this.now() +
+            Math.min(60 * 60_000, this.policy.reconcileMs * 2 ** Math.min(attempts - 1, 6)),
+        });
         // One failed sandbox must not prevent independent conversations from
         // being reconciled. The failed record remains fenced for inspection.
         try {
