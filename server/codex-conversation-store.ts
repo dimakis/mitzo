@@ -1,3 +1,6 @@
+import { codexStoredAccountKey } from './codex-stored-account.js';
+import { reauthorizeHostLoginStore } from './host-codex-login-reauthorization-store.js';
+import type { HostCodexLoginReauthorization } from './host-codex-login-reauthorization.js';
 import { callbackOutcome, retainCallbackOutcome } from './turn-callbacks.js';
 import { CodexSubagentStore } from './codex-subagent-store.js';
 import {
@@ -568,8 +571,19 @@ export class CodexConversationStore {
   }
   constructor(
     path: string,
-    private readonly ownership: { requireOwner?: boolean } = {},
+    private readonly ownership: {
+      requireOwner?: boolean;
+      maintenance?: { assertOffline(): void };
+    } = {},
   ) {
+    if (ownership.maintenance) {
+      ownership.maintenance.assertOffline();
+      this.db = new Database(path, { fileMustExist: true });
+      this.db.pragma('synchronous = FULL');
+      this.db.pragma('foreign_keys = ON');
+      this.subagents = new CodexSubagentStore(this.db, false);
+      return;
+    }
     closeSync(openSync(path, 'a', 0o600));
     chmodSync(path, 0o600);
     this.db = new Database(path);
@@ -792,7 +806,7 @@ export class CodexConversationStore {
     })();
   }
   private key(b: AccountBinding) {
-    return JSON.stringify([b.accountId, b.provider, b.model, b.profileRevision]);
+    return codexStoredAccountKey(b);
   }
   /** Presence is metadata only; callers still need exact native account/custody. */
   hasConversation(id: string): boolean {
@@ -1076,6 +1090,37 @@ export class CodexConversationStore {
         if (changed !== 1) throw new Error('Host Codex custody changed concurrently');
       })
       .immediate();
+  }
+  /** Explicit offline login maintenance never acknowledges command effects. */
+  reauthorizeHostLogin(
+    id: string,
+    binding: AccountBinding,
+    operation: HostCodexLoginReauthorization,
+    approvedOperationId: string,
+  ) {
+    return reauthorizeHostLoginStore(this.db, id, binding, operation, approvedOperationId, {
+      read: () => this.read(id, binding),
+      custody: () => this.readHostCustody(id, binding),
+      hasRunningCommand: () => this.hasRunningCommand(id, binding),
+      assertNoPendingThreadDispatch: () => this.assertNoPendingThreadDispatch(id, binding),
+      assertNoPendingThreadOwnership: () => this.assertNoPendingThreadOwnership(id, binding),
+    });
+  }
+  hostLoginReauthorizations(id: string, binding: AccountBinding) {
+    this.read(id, binding);
+    if (
+      !this.db
+        .prepare(
+          "SELECT 1 FROM sqlite_master WHERE type='table' AND name='codex_login_reauthorizations'",
+        )
+        .get()
+    )
+      return [];
+    return this.db
+      .prepare(
+        'SELECT operation_id AS operationId,created_at AS createdAt,completed_at AS completedAt FROM codex_login_reauthorizations WHERE conversation_id=? ORDER BY created_at',
+      )
+      .all(id);
   }
   private hostBundleUpgrade(id: string, binding: AccountBinding) {
     this.read(id, binding);

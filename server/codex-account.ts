@@ -39,28 +39,7 @@ export async function verifyCodexAccount(
   const profile = parsed.data;
   if (profile.nativeAuth)
     throw new Error('Native ChatGPT identity requires isolated Symposium provider verification');
-  const binding: AccountBinding = {
-    accountId: profile.accountId,
-    accountLabel: profile.accountLabel,
-    provider: 'openai-codex',
-    model: profile.model,
-    profileRevision: createHash('sha256')
-      .update(
-        JSON.stringify([
-          'openai-codex',
-          profile.credentialRef,
-          profile.email,
-          profile.planType,
-          profile.workspaceId,
-          profile.sandboxProvider,
-          profile.sandboxProviderType,
-          profile.sandboxProviderId,
-          profile.sandboxGrantId,
-          ...(profile.nativeAuth ? [profile.nativeAuth] : []),
-        ]),
-      )
-      .digest('hex'),
-  };
+  const binding = accountBinding(profile);
   if (
     stored &&
     (stored.accountId !== binding.accountId ||
@@ -91,4 +70,36 @@ export async function verifyCodexAccount(
     );
   }
   return stored ?? binding;
+}
+
+function accountBinding(profile: CodexAccountProfile): AccountBinding {
+  return {
+    accountId: profile.accountId,
+    accountLabel: profile.accountLabel,
+    provider: 'openai-codex',
+    model: profile.model,
+    profileRevision: createHash('sha256')
+      .update(
+        JSON.stringify([
+          'openai-codex',
+          profile.credentialRef,
+          profile.email,
+          profile.planType,
+          profile.workspaceId,
+          profile.sandboxProvider,
+          profile.sandboxProviderType,
+          profile.sandboxProviderId,
+          profile.sandboxGrantId,
+          ...(profile.nativeAuth ? [profile.nativeAuth] : []),
+        ]),
+      )
+      .digest('hex'),
+  };
+}
+/** Pure identity selection shared by native verification and explicit offline
+ * login reauthorization; this grants no credential or execution authority. */
+export function codexAccountBinding(configuration: CodexAccountProfile): AccountBinding {
+  const parsed = Profile.safeParse(configuration);
+  if (!parsed.success || parsed.data.nativeAuth) throw new Error('Invalid Codex account profile');
+  return accountBinding(parsed.data);
 }

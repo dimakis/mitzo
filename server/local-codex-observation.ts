@@ -19,6 +19,7 @@ type Phase =
   | 'bootstrap_login'
   | 'bootstrap_executable'
   | 'bootstrap_connect'
+  | 'login_verification_keys'
   | 'keychain_read'
   | 'native_measurement'
   | 'native_capture'

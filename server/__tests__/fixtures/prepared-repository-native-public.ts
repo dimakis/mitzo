@@ -793,7 +793,7 @@ export const runPublicColdAdmission = async (
         ).length;
         revokeAuthSession(f.auth);
         expect(() => secondLifecycle.onNotification('account/rateLimits/updated', {})).toThrow(
-          'Owned Codex lifecycle unavailable',
+          expect.objectContaining({ name: 'SessionRuntimeError', code: 'auth_revoked' }),
         );
         await expect(
           chat.sendOwnedLocalCodexCommand({

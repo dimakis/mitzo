@@ -2,6 +2,12 @@ import { randomUUID } from 'node:crypto';
 import { KNOWLEDGE_RUNTIME_UNAVAILABLE_MESSAGE } from '@mitzo/protocol';
 
 const messages = {
+  login_verification_unavailable:
+    'ChatGPT login verification is temporarily unavailable. Try again when verification is available. Your draft, saved messages and workspace are retained.',
+  login_refresh_invalid:
+    'The changed ChatGPT login could not be verified for this chat’s selected account. Review sign-in before continuing. Saved work and messages are retained.',
+  login_refresh_reauthorization:
+    'This chat’s saved ChatGPT login predates token-refresh continuity. It needs an explicit account reauthorization before continuing. Saved work and queued messages are retained.',
   auth_expired:
     'Your Mitzo sign-in expired. Sign in again, then review the interrupted turn before continuing. Saved work is preserved.',
   auth_revoked:
