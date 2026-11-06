@@ -192,6 +192,7 @@ export function AccountModelPicker(
         lockAccount={props.lockAccount}
         presentation={props.presentation}
         canSaveDefault={!props.sessionId && !props.lockAccountModel && !props.lockAccount}
+        defaultsControl={props.defaultsControl}
       />
     );
   const sessionKey = `${props.scope === 'symposium' ? 'symposium' : props.scope === 'adviser' ? 'adviser' : (props.sessionId ?? 'new-chat')}:${props.requiredSelection?.accountId ?? ''}:${props.requiredSelection?.model ?? ''}:${JSON.stringify(props.allowedAccountIds?.slice().sort() ?? null)}`;
@@ -219,7 +220,9 @@ function SessionAccountModelPicker({
   onDraftSelectionChange,
   allowedAccountIds,
   presentation = 'default',
+  defaultsControl,
 }: {
+  defaultsControl?: ReactNode;
   presentation?: 'default' | 'settings';
   draftOnly?: boolean;
   preferWorkOpenAI?: boolean;
@@ -943,44 +946,47 @@ function SessionAccountModelPicker({
           </button>
         </QuickSettingsSupplement>
       )}
-      {scope === 'chat' && !legacy && (
-        <PickerOptions collapsible={presentation === 'settings'} saved={!!savedDefault}>
-          {!sessionId && !requiredSelection && !lockAccountModel && !draftOnly && (
-            <>
-              <button
-                disabled={disabled || draftUnavailable}
-                onClick={() => {
-                  setDefaultAccountModel(selection);
-                  setSavedDefault(selection);
-                }}
-              >
-                Make default for new chats
-              </button>
-              {savedDefault && (
-                <button
-                  disabled={disabled}
-                  onClick={() => {
-                    setDefaultAccountModel(null);
-                    setSavedDefault(null);
-                    setNeedsConfirmation(true);
-                    onChange(null);
-                  }}
-                >
-                  Clear new-chat default
-                </button>
+      {defaultsControl !== undefined
+        ? defaultsControl
+        : scope === 'chat' &&
+          !legacy && (
+            <PickerOptions collapsible={presentation === 'settings'} saved={!!savedDefault}>
+              {!sessionId && !requiredSelection && !lockAccountModel && !draftOnly && (
+                <>
+                  <button
+                    disabled={disabled || draftUnavailable}
+                    onClick={() => {
+                      setDefaultAccountModel(selection);
+                      setSavedDefault(selection);
+                    }}
+                  >
+                    Make default for new chats
+                  </button>
+                  {savedDefault && (
+                    <button
+                      disabled={disabled}
+                      onClick={() => {
+                        setDefaultAccountModel(null);
+                        setSavedDefault(null);
+                        setNeedsConfirmation(true);
+                        onChange(null);
+                      }}
+                    >
+                      Clear new-chat default
+                    </button>
+                  )}
+                  <span>
+                    {savedDefault
+                      ? 'Saved default for new chats on this browser.'
+                      : 'No saved account default. Review the account before sending.'}
+                  </span>
+                </>
               )}
-              <span>
-                {savedDefault
-                  ? 'Saved default for new chats on this browser.'
-                  : 'No saved account default. Review the account before sending.'}
-              </span>
-            </>
+              <button disabled={disabled} onClick={() => setAttempt((n) => n + 1)}>
+                Refresh models
+              </button>
+            </PickerOptions>
           )}
-          <button disabled={disabled} onClick={() => setAttempt((n) => n + 1)}>
-            Refresh models
-          </button>
-        </PickerOptions>
-      )}
     </>
   );
   if (presentation !== 'settings') return fields;
@@ -1024,7 +1030,9 @@ function ControlledAccountModelPicker({
   onRefresh,
   canSaveDefault = false,
   presentation = 'default',
+  defaultsControl,
 }: {
+  defaultsControl?: ReactNode;
   presentation?: 'default' | 'settings';
   accounts: Account[];
   selection: AccountSelection | null;
@@ -1165,52 +1173,55 @@ function ControlledAccountModelPicker({
           if (selection) onChange({ ...selection, reasoningEffort: effort || null });
         },
       )}
-      {quick && presentation === 'settings' && (
-        <PickerOptions collapsible saved={!!savedDefault}>
-          {canSaveDefault && (
-            <>
-              <button
-                disabled={
-                  disabled ||
-                  pendingAccount ||
-                  !account ||
-                  !model ||
-                  (!!selection?.reasoningEffort &&
-                    !model.reasoningEfforts?.includes(selection.reasoningEffort))
-                }
-                onClick={() => {
-                  if (!selection) return;
-                  setDefaultAccountModel(selection, accountReference);
-                  setSavedDefault(selection);
-                }}
-              >
-                Make default for new chats
-              </button>
-              {savedDefault && (
-                <button
-                  disabled={disabled}
-                  onClick={() => {
-                    setDefaultAccountModel(null);
-                    setSavedDefault(null);
-                  }}
-                >
-                  Clear new-chat default
+      {defaultsControl !== undefined
+        ? defaultsControl
+        : quick &&
+          presentation === 'settings' && (
+            <PickerOptions collapsible saved={!!savedDefault}>
+              {canSaveDefault && (
+                <>
+                  <button
+                    disabled={
+                      disabled ||
+                      pendingAccount ||
+                      !account ||
+                      !model ||
+                      (!!selection?.reasoningEffort &&
+                        !model.reasoningEfforts?.includes(selection.reasoningEffort))
+                    }
+                    onClick={() => {
+                      if (!selection) return;
+                      setDefaultAccountModel(selection, accountReference);
+                      setSavedDefault(selection);
+                    }}
+                  >
+                    Make default for new chats
+                  </button>
+                  {savedDefault && (
+                    <button
+                      disabled={disabled}
+                      onClick={() => {
+                        setDefaultAccountModel(null);
+                        setSavedDefault(null);
+                      }}
+                    >
+                      Clear new-chat default
+                    </button>
+                  )}
+                </>
+              )}
+              <p>
+                {savedDefault
+                  ? 'Saved default for new chats on this browser.'
+                  : 'No saved account default. Review the account before sending.'}
+              </p>
+              {onRefresh && (
+                <button disabled={disabled} onClick={onRefresh}>
+                  Refresh models
                 </button>
               )}
-            </>
+            </PickerOptions>
           )}
-          <p>
-            {savedDefault
-              ? 'Saved default for new chats on this browser.'
-              : 'No saved account default. Review the account before sending.'}
-          </p>
-          {onRefresh && (
-            <button disabled={disabled} onClick={onRefresh}>
-              Refresh models
-            </button>
-          )}
-        </PickerOptions>
-      )}
       {quick && onRefresh && (
         <QuickSettingsSupplement page="model">
           <button disabled={disabled} onClick={onRefresh}>

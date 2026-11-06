@@ -1,5 +1,7 @@
 import { useSearchParams } from 'react-router-dom';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useSessionLaunchDefaults } from './useSessionLaunchDefaults';
+import { sessionLaunchConfigurationDraft } from '../lib/session-launch-defaults';
 import {
   createChatDraft,
   getChatDraft,
@@ -20,6 +22,8 @@ export function useNewChatDraft(requestedId: string | null, generation: number, 
     missing: boolean;
     generation: number;
     urlOwned: boolean;
+    edited: boolean;
+    defaultsApplied: boolean;
   } | null>(null);
   const releasedReference = useRef<string | null>(null);
   const owner = useMemo(() => {
@@ -36,12 +40,42 @@ export function useNewChatDraft(requestedId: string | null, generation: number, 
       missing: !!requestedId && !saved,
       generation,
       urlOwned: true,
+      edited: false,
+      defaultsApplied: false,
     };
     return next;
   }, [requestedId, generation]);
   // StrictMode may discard a memo calculation. Track the owner React retained,
   // rather than publishing a different owner from a discarded calculation.
   previousOwner.current = owner;
+  const defaults = useSessionLaunchDefaults(
+    enabled && !owner.restored && !owner.missing,
+    owner.draft.id,
+  );
+  const [defaultsRevision, setDefaultsRevision] = useState(0);
+  useEffect(() => {
+    if (
+      !enabled ||
+      !defaults.configuration ||
+      owner.restored ||
+      owner.missing ||
+      owner.edited ||
+      owner.defaultsApplied
+    )
+      return;
+    if (getChatDraft(owner.draft.id)) {
+      owner.edited = true;
+      setDefaultsRevision((value) => value + 1);
+      return;
+    }
+    const seeded = sessionLaunchConfigurationDraft(defaults.configuration);
+    owner.draft = { ...seeded, id: owner.draft.id };
+    owner.defaultsApplied = true;
+    setDefaultsRevision((value) => value + 1);
+  }, [enabled, defaults.configuration, owner]);
+  const markEdited = useCallback(() => {
+    owner.edited = true;
+  }, [owner]);
   const [settingsError, setSettingsError] = useState(false);
   const saveSettings = useCallback(
     (settings: ChatDraft['settings']) => {
@@ -87,7 +121,23 @@ export function useNewChatDraft(requestedId: string | null, generation: number, 
   const releaseUrlOwnership = useCallback(() => {
     owner.urlOwned = false;
   }, [owner]);
-  return { ...owner, saveSettings, settingsError, releaseReference, ownsUrl, releaseUrlOwnership };
+  return {
+    ...owner,
+    defaultsHydrating:
+      enabled &&
+      !owner.restored &&
+      !owner.missing &&
+      !owner.edited &&
+      (defaults.loading || (!!defaults.configuration && !owner.defaultsApplied)),
+    defaults,
+    defaultsRevision,
+    markEdited,
+    saveSettings,
+    settingsError,
+    releaseReference,
+    ownsUrl,
+    releaseUrlOwnership,
+  };
 }
 
 /** Restore the launch context once; later explicit query edits remain authoritative. */

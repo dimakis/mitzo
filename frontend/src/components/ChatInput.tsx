@@ -337,8 +337,10 @@ function ChatInputContent({
     if (!revision || consumedRevision.current === revision) return;
     consumedRevision.current = revision;
     setImages([]);
-    if (!useExternal) setContextBlocks([]);
-  }, [draftReceipt.consumedRevision, useExternal]);
+    // Clear the consumed owner's shadow even while the parent controls context;
+    // assignment may hand this composer back to its internal state next render.
+    setContextBlocks([]);
+  }, [draftReceipt.consumedRevision]);
   const settingsSignature = JSON.stringify(savedChatDraft?.settings);
   const volatileClearedDraft = useRef<{
     settingsSignature: string;
@@ -792,7 +794,7 @@ function ChatInputContent({
                 externalContextBlocks: useExternal ? activeContextBlocks : undefined,
               };
               setImages([]);
-              if (!useExternal) setContextBlocks([]);
+              setContextBlocks([]);
             }
             return;
           }

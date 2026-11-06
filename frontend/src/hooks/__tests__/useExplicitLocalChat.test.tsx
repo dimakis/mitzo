@@ -20,6 +20,36 @@ afterEach(() => {
   localStorage.clear();
 });
 
+it.each(['mac', 'removed-host'])(
+  'hydrates a complete default with its exact Local Mac host without replacing it: %s',
+  async (targetId) => {
+    const inventory = localInventoryFixture();
+    vi.mocked(apiFetch).mockImplementation(async () => Response.json(inventory));
+    const { result, rerender } = renderHook(
+      ({ saved }) => useExplicitLocalChat('fresh-durable', saved, null, true),
+      {
+        initialProps: {
+          saved: undefined as ReturnType<typeof createChatRuntimeSelection> | undefined,
+        },
+      },
+    );
+    await waitFor(() => expect(result.current.inventory).not.toBeNull());
+    const saved = {
+      ...createChatRuntimeSelection(),
+      account: { accountId: 'personal', model: 'luna-fixture', reasoningEffort: 'high' },
+      accountReference: inventory.accounts[0].account,
+      agentProfile: { profileId: 'agent', revision: 1 },
+      execution: { location: 'local' as const, targetId },
+    };
+    rerender({ saved });
+    await waitFor(() =>
+      expect(result.current.intent.execution).toEqual({ location: 'local', targetId }),
+    );
+    expect(result.current.intent.capabilityRevision).toBe(inventory.capabilityRevision);
+    if (targetId === 'removed-host') expect(result.current.reason).toContain('unavailable');
+  },
+);
+
 it('starts fresh chat intent with code-owned Default Mitzo and preserves an explicit Builder link', () => {
   vi.mocked(apiFetch).mockResolvedValue(Response.json(localInventoryFixture()));
   const normal = renderHook(() => useExplicitLocalChat('fresh-default', undefined, null, false));

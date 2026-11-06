@@ -58,6 +58,7 @@ export function useExplicitLocalChat(
   search = '',
   savedAccount?: AccountSelection | null,
   workspaceRevision?: string | null,
+  onEdit?: () => void,
 ) {
   const retained = useContext(ChatRuntimeDraftContext);
   const seed = useCallback(() => {
@@ -96,6 +97,8 @@ export function useExplicitLocalChat(
   if (preferenceScope.current.draftId !== draftId)
     preferenceScope.current = { draftId, fresh: !saved && savedAccount === undefined };
   const [choice, setChoice] = useState(() => ({ draftId, intent: seed() }));
+  const edits = useRef({ draftId, edited: false, saved });
+  if (edits.current.draftId !== draftId) edits.current = { draftId, edited: false, saved };
   const intent = retained?.selection ?? (choice.draftId === draftId ? choice.intent : seed());
   const latestIntent = useRef(intent);
   latestIntent.current = intent;
@@ -124,6 +127,12 @@ export function useExplicitLocalChat(
   }, [draftId, sessionId, search, intent, retained]);
 
   const [inventory, setInventory] = useState<ExplicitLocalInventory | null>(null);
+  useEffect(() => {
+    if (sessionId || !saved || !inventory || edits.current.edited || edits.current.saved === saved)
+      return;
+    edits.current.saved = saved;
+    setChoice({ draftId, intent: { ...seed(), capabilityRevision: inventory.capabilityRevision } });
+  }, [saved, sessionId, draftId, seed, inventory]);
   const [enrollment, setEnrollment] = useState<'loading' | 'off' | 'on' | 'unknown'>('loading');
   const [attempt, setAttempt] = useState(0);
   const metadataReadStarted = useRef(false);
@@ -498,6 +507,8 @@ export function useExplicitLocalChat(
         entry.account.profileRevision === selectedIntent.accountReference?.profileRevision,
     );
   const update = (next: ChatRuntimeSelection, explicitAccountChoice = false) => {
+    edits.current.edited = true;
+    onEdit?.();
     if (explicitAccountChoice) preferenceScope.current.fresh = false;
     const identityChanged =
       explicitAccountChoice ||

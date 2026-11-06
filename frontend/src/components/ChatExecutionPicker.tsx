@@ -102,7 +102,7 @@ function ChatExecutionFields({
       <div className="agent-execution-settings" data-bound={runtime.bound || undefined}>
         <div className="agent-execution-heading">
           <strong>Run on</strong>
-          <span>{runtime.bound ? 'Fixed for this conversation' : 'Default: OpenShell'}</span>
+          <span>{runtime.bound ? 'Fixed for this conversation' : 'Choose where tools run'}</span>
         </div>
         <div role="group" aria-label="Run on" className="agent-execution-cards">
           {(['openshell', 'local'] as const).map((location) => (
