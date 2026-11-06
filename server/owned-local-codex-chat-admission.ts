@@ -89,6 +89,8 @@ interface Owner {
   recovery?: RetainedLocalCodexRecovery;
   /** Private live owner observation, invoked only after exact dispatch admission. */
   authorizeNativeThreadDispatch?: (commandId: string) => void;
+  /** Fresh live peer consent is never reconstructed from retained queue rows. */
+  assertAgentMessagePermissionCurrent?: () => void;
   preparedRepositoryBoundary?: {
     assertCurrentSync(): void;
     adopt(
@@ -169,7 +171,10 @@ export class OwnedLocalCodexChatAdmission {
         owner.expected.agentProfile,
         owner.expected.agentContext,
       );
-      const admission = new OwnedLocalCodexChatAdmission(owner);
+      const admission = new OwnedLocalCodexChatAdmission({
+        ...owner,
+        assertAgentMessagePermissionCurrent: undefined,
+      });
       admission.#resume = true;
       admission.#continuation = true;
       admission.assertReceipt(true);
@@ -186,6 +191,7 @@ export class OwnedLocalCodexChatAdmission {
         const child = new OwnedLocalCodexChatAdmission({
           ...owner,
           recovery: undefined,
+          assertAgentMessagePermissionCurrent: undefined,
           commandId: queued.id,
           expected: { ...structuredClone(owner.expected), selection: receipt.selection },
         });
@@ -308,12 +314,7 @@ export class OwnedLocalCodexChatAdmission {
         recovery: undefined,
         commandId,
         expected,
-        authorizeNativeThreadDispatch: assertPermissionCurrent
-          ? (id) => {
-              assertPermissionCurrent();
-              this.owner.authorizeNativeThreadDispatch?.(id);
-            }
-          : this.owner.authorizeNativeThreadDispatch,
+        assertAgentMessagePermissionCurrent: assertPermissionCurrent,
       });
       if (child.#payload.systemPrompt !== this.#payload.systemPrompt) throw unavailable();
       child.#continuation = true;
@@ -955,6 +956,10 @@ export class OwnedLocalCodexChatAdmission {
       this.#expected.selection.model,
       this.#expected.selection.thinking,
     );
+    if (this.owner.eventStore.agentCommunication.forCommand(commandId)) {
+      if (!this.owner.assertAgentMessagePermissionCurrent) throw unavailable();
+      this.owner.assertAgentMessagePermissionCurrent();
+    }
     this.#dispatched = true;
     this.owner.authorizeNativeThreadDispatch?.(commandId);
   }

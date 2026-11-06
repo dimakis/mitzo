@@ -34,6 +34,7 @@ import {
   sessionAgentCommunicationTools,
   recordAgentMessageAcceptance,
   recordAgentMessageCommandOutcome,
+  cancelCommandWithAgentReceipt,
 } from '../agent-communication-tools.js';
 import { createAgentMessageApprover } from '../agent-communication-permission.js';
 
@@ -1462,6 +1463,103 @@ it('rechecks a queued message grant at provider dispatch after the sending tool 
     ).toBe('failed'),
   );
   expect(f.b.requests.filter((request) => request.method === 'turn/start')).toHaveLength(1);
+}, 20000);
+
+it('refuses a retained peer queue after captureResume loses its live permission fence', async () => {
+  const f = await fixture();
+  const sent = await f.a.call({
+    operation: 'send',
+    requestId: randomUUID(),
+    recipientConversationId: f.b.sessionId,
+    text: 'A retained queue is not fresh peer consent.',
+  });
+  expect(sent.value.status).toBe('queued');
+  f.b.conversation.close();
+  const { OwnedLocalCodexChatAdmission } = await import('../owned-local-codex-chat-admission.js');
+  const { OwnedCodexLifecycleBridge } = await import('../owned-codex-lifecycle-bridge.js');
+  const first = f.b.initial;
+  const resumeId = randomUUID();
+  f.f.events.admitOrdinaryLocalContinuation(
+    {
+      sessionId: f.b.sessionId,
+      cwd: first.workspace.directory,
+      repositoryWorkspaceId: first.workspace.id,
+      accountBinding: first.lease.binding,
+      agentProfile: first.expected.agentProfile,
+      agentContext: first.expected.agentContext,
+      mode: 'agent',
+      selectedModel: first.expected.selection.model,
+      reasoningEffort: first.expected.selection.thinking,
+    },
+    first.expected.binding,
+    {
+      clientMsgId: resumeId,
+      requestFingerprint: 'explicit-resume-fixture',
+      selection: first.expected.selection,
+      payload: first.payload,
+    },
+  );
+  f.f.events.claimOrdinaryLocalCommandDispatch(resumeId);
+  const resumed = OwnedLocalCodexChatAdmission.captureResume({
+    eventStore: f.f.events,
+    sessionId: f.b.sessionId,
+    commandId: resumeId,
+    expected: first.expected,
+    lease: first.lease,
+    bridge: new OwnedCodexLifecycleBridge(() => first.lease),
+    authSessionId: f.auth.id,
+    nativeStore: f.native,
+    custody: f.native.readHostCustody(f.b.sessionId, first.lease.binding)!,
+  });
+  resumed.assertOptions({
+    conversationId: f.b.sessionId,
+    messageId: resumeId,
+    binding: first.lease.binding,
+    profile: first.profile,
+    session: f.b.session,
+    prompt: first.payload.text,
+    systemPrompt: first.payload.systemPrompt,
+    intent: first.payload.intent,
+    images: first.payload.images,
+    model: first.expected.selection.model,
+    reasoningEffort: first.expected.selection.thinking,
+    agentProfile: first.expected.agentProfile,
+    agentContext: first.expected.agentContext,
+    repositoryWorkspace: first.workspace,
+    resume: true,
+  });
+  expect(resumed.canClaimCommand(sent.value.commandId)).toBe(true);
+  expect(() => resumed.assertBeforeDispatch(sent.value.commandId)).toThrow();
+  expect(f.b.requests.filter((request) => request.method === 'turn/start')).toHaveLength(1);
+}, 20000);
+
+it('projects cold queue cancellation into both transcripts without a live callback or receipt lookup', async () => {
+  const f = await fixture();
+  const sent = await f.a.call({
+    operation: 'send',
+    requestId: randomUUID(),
+    recipientConversationId: f.b.sessionId,
+    text: 'Cancel after the recipient runtime closes.',
+  });
+  expect(sent.value.status).toBe('queued');
+  f.b.conversation.close();
+  expect(
+    cancelCommandWithAgentReceipt(
+      f.f.events,
+      f.native,
+      f.b.sessionId,
+      f.b.initial.lease.binding,
+      sent.value.commandId,
+      () => f.native.cancelQueued(f.b.sessionId, f.b.initial.lease.binding, sent.value.commandId),
+    ),
+  ).toBe('cancelled');
+  const { replayEventsToMessages } = await import('../conversation-transcript.js');
+  for (const id of [f.a.sessionId, f.b.sessionId])
+    expect(
+      replayEventsToMessages(f.f.events.getSessionEvents(id)).find(
+        (message) => message.agentMessage?.message.messageId === sent.value.messageId,
+      )?.agentMessage?.message,
+    ).toMatchObject({ status: 'failed', reason: 'cancelled' });
 }, 20000);
 
 it('routes a verified agent send through real approval/admission into a busy native FIFO, then ACKs and correlates an explicit reply', async () => {

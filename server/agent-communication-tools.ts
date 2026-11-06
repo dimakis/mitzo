@@ -17,6 +17,32 @@ import type { AccountBinding } from '@mitzo/protocol';
 import { createLogger } from './logger.js';
 const log = createLogger('agent-communication');
 
+/** The successful cancellation boundary owns projection even without a live
+ * conversation. A receipt lookup by another agent must never be required. */
+export function cancelCommandWithAgentReceipt<T extends string>(
+  events: EventStore,
+  native: CodexConversationStore,
+  conversationId: string,
+  account: AccountBinding,
+  commandId: string,
+  cancel: () => T,
+): T {
+  const result = cancel();
+  if (result === 'cancelled') {
+    const retained = events.agentCommunication.forCommand(commandId);
+    if (retained)
+      recordAgentMessageCommandOutcome(
+        events,
+        native,
+        conversationId,
+        account,
+        retained.operatorAuthSessionId,
+        commandId,
+      );
+  }
+  return result;
+}
+
 export function recordAgentMessageCommandOutcome(
   events: EventStore,
   native: CodexConversationStore,

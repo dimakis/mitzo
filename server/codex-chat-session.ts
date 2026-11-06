@@ -74,6 +74,7 @@ import { sessionPromptDefinitions } from './session-prompt-definitions.js';
 import {
   AGENT_COMMUNICATION_TOOL,
   agentCommunicationDefinitions,
+  cancelCommandWithAgentReceipt,
   recordAgentMessageAcceptance,
   recordAgentMessageCommandOutcome,
   sessionAgentCommunicationTools,
@@ -580,6 +581,7 @@ export function readCodexQueueOverview(conversationId: string, binding: AccountB
   return store().queueOverview(conversationId, binding);
 }
 export function cancelCodexQueuedCommand(
+  events: EventStore,
   conversationId: string,
   binding: AccountBinding,
   commandId: string,
@@ -588,9 +590,9 @@ export function cancelCodexQueuedCommand(
   // Verify the persisted binding even when the live runtime is available.
   store().read(conversationId, binding);
   const live = session ? getCodexRuntime(session) : undefined;
-  return live
-    ? live.cancelQueued(commandId)
-    : store().cancelQueued(conversationId, binding, commandId);
+  return cancelCommandWithAgentReceipt(events, store(), conversationId, binding, commandId, () =>
+    live ? live.cancelQueued(commandId) : store().cancelQueued(conversationId, binding, commandId),
+  );
 }
 type CodexQueueStatus = Pick<
   ReturnType<CodexConversationStore['queueSummary']>,

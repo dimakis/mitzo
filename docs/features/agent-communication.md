@@ -29,6 +29,9 @@ retries only inspect the original request. Delivery means the provider accepted
 the message; a requested pause still requires the recipient's own acknowledgement.
 Queued cancellation updates both transcripts immediately. Live receipts use the
 normal retained-event delivery path for V2 watches and reconnecting viewers.
+Cancellation also projects from the successful cold-store boundary. Resume never
+reconstructs a peer permission fence from retained queue data: input that lost its
+live authorization is blocked before provider dispatch and needs a fresh send.
 
 Local logs inspected on 2026-11-06 showed two peer commands stopping at
 `native_policy` with `providerSubmitted=false`. The previous receipt path
