@@ -391,30 +391,31 @@ export function CodexQueueStatus({
               ? `Automatic retries finished (${capacity.attempts} of ${capacity.maxAttempts}). Try again starts a new retry cycle.`
               : 'Automatic attempts stopped. Saved work is preserved.'
     : undefined;
-  const status =
-    capacityStatus ??
-    (queue.recovering
-      ? queue.recoveryPhase === 'starting_workspace'
-        ? 'Starting workspace…'
-        : 'Reconnecting…'
-      : (operationStatus ??
-        (queue.canContinue === true
-          ? 'Reconnection needed. Your message is saved.'
-          : queue.failed > 0
-            ? queue.retryable === false
-              ? 'This failed turn needs attention and cannot be retried.'
-              : !queue.connected || reattaching
-                ? 'Restarting provider… The failed turn remains saved.'
-                : retryWaitSeconds > 0
-                  ? `OpenAI asked us to wait ${retryWaitSeconds}s before retrying.`
-                  : queue.requiresRetryConfirmation
-                    ? 'Retrying may repeat tool actions that already ran.'
-                    : 'Previous turn failed. Retry when available.'
-            : queue.paused
-              ? 'Reconnection needed. Your message is saved.'
-              : queue.queued > 0
-                ? `${queue.queued} ${queue.queued === 1 ? 'message' : 'messages'} queued`
-                : notice || error || deliveryError || '')));
+  const status = continuing
+    ? 'Continuing chat…'
+    : (capacityStatus ??
+      (queue.recovering
+        ? queue.recoveryPhase === 'starting_workspace'
+          ? 'Starting workspace…'
+          : 'Reconnecting…'
+        : (operationStatus ??
+          (queue.canContinue === true
+            ? 'Chat interrupted. Your work is saved.'
+            : queue.failed > 0
+              ? queue.retryable === false
+                ? 'This failed turn needs attention and cannot be retried.'
+                : !queue.connected || reattaching
+                  ? 'Restarting provider… The failed turn remains saved.'
+                  : retryWaitSeconds > 0
+                    ? `OpenAI asked us to wait ${retryWaitSeconds}s before retrying.`
+                    : queue.requiresRetryConfirmation
+                      ? 'Retrying may repeat tool actions that already ran.'
+                      : 'Previous turn failed. Retry when available.'
+              : queue.paused
+                ? 'Chat interrupted. Your work is saved.'
+                : queue.queued > 0
+                  ? `${queue.queued} ${queue.queued === 1 ? 'message' : 'messages'} queued`
+                  : notice || error || deliveryError || ''))));
 
   const attention = !!(
     error ||
@@ -464,7 +465,7 @@ export function CodexQueueStatus({
         throw new Error(
           typeof body.error === 'string'
             ? body.error
-            : 'Could not reconnect. Your saved message is still queued.',
+            : 'Could not continue this chat. Your work is saved. Try again.',
         );
       }
       if (epoch === sessionEpoch.current) {
@@ -476,7 +477,7 @@ export function CodexQueueStatus({
         setNotice(
           error instanceof Error
             ? error.message
-            : 'Could not reconnect. Your saved message is still queued.',
+            : 'Could not continue this chat. Your work is saved. Try again.',
         );
     } finally {
       if (epoch === sessionEpoch.current) setContinuing(false);
@@ -594,6 +595,18 @@ export function CodexQueueStatus({
     }
   };
 
+  const continueAction =
+    !capacity &&
+    !needsPhaseInspection &&
+    (queue.canContinue === true || (queue.paused && queue.connected && queue.queued > 0)) &&
+    !queue.recovering
+      ? {
+          label: continuing ? 'Continuing…' : 'Continue chat',
+          disabled: continuing,
+          onClick: () => void continueQueue(),
+        }
+      : undefined;
+
   if (collapsed && !combinedStatus) {
     return (
       <>
@@ -632,8 +645,14 @@ export function CodexQueueStatus({
             ? 'warning'
             : 'normal'
       }
-      busy={!!queue.recovering || capacity?.status === 'running' || capacity?.status === 'waiting'}
+      busy={
+        continuing ||
+        !!queue.recovering ||
+        capacity?.status === 'running' ||
+        capacity?.status === 'waiting'
+      }
       queued={queue.queued}
+      action={operationStatus ? undefined : continueAction}
     >
       <div className="codex-status-anchor codex-status-anchor--expanded">
         <aside
@@ -707,20 +726,16 @@ export function CodexQueueStatus({
                 )}
               </>
             )}
-            {!capacity &&
-              !needsPhaseInspection &&
-              (queue.canContinue === true ||
-                (queue.paused && queue.connected && queue.queued > 0)) &&
-              !queue.recovering && (
-                <button
-                  type="button"
-                  className="codex-queue-status-continue"
-                  disabled={continuing}
-                  onClick={() => void continueQueue()}
-                >
-                  {continuing ? 'Reconnecting…' : 'Reconnect and continue'}
-                </button>
-              )}
+            {continueAction && (
+              <button
+                type="button"
+                className="codex-queue-status-continue"
+                disabled={continueAction.disabled}
+                onClick={continueAction.onClick}
+              >
+                {continueAction.label}
+              </button>
+            )}
             {!capacity &&
               !needsPhaseInspection &&
               queue.canContinue !== true &&

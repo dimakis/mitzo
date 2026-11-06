@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, expect, it, vi } from 'vitest';
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { apiFetch } from '../../lib/api-fetch';
 import { CodexQueueStatus } from '../CodexQueueStatus';
@@ -34,6 +34,99 @@ afterEach(() => {
 });
 
 const idleQueue = { paused: false, connected: true, queued: 0, interrupted: 0 };
+
+it.each(['success', 'failure'] as const)(
+  'puts Continue chat in the status row and preserves the next draft on %s',
+  async (outcome) => {
+    let finish!: (response: Response) => void;
+    let continued = false;
+    vi.mocked(apiFetch).mockImplementation(async (path) => {
+      if (String(path).endsWith('/continue')) {
+        const response = await new Promise<Response>((resolve) => {
+          finish = resolve;
+        });
+        continued = response.ok;
+        return response;
+      }
+      return meta({
+        ...idleQueue,
+        connected: continued,
+        paused: !continued,
+        canContinue: !continued,
+        interrupted: 1,
+      });
+    });
+    render(
+      <ComposerStatusProvider>
+        <CodexQueueStatus sessionId="continue-inline" />
+        <ComposerStatusRail />
+        <textarea aria-label="Next message" defaultValue="Keep this next request" />
+      </ComposerStatusProvider>,
+    );
+    await act(async () => {});
+    const rail = screen.getByRole('region', { name: 'Conversation status' });
+    expect(rail.textContent).toContain('Chat interrupted. Your work is saved.');
+    const action = within(rail).getByRole('button', { name: 'Continue chat' });
+    expect(vi.mocked(apiFetch).mock.calls.every(([, options]) => !options?.method)).toBe(true);
+    await userEvent.click(action);
+    const busyAction = within(rail).getByRole('button', { name: 'Continuing…' });
+    expect(rail.textContent).toContain('Continuing chat…');
+    expect(rail.textContent).not.toContain('Chat interrupted');
+    expect(busyAction).toHaveProperty('disabled', true);
+    fireEvent.click(busyAction);
+    expect(
+      vi.mocked(apiFetch).mock.calls.filter(([, options]) => options?.method === 'POST'),
+    ).toHaveLength(1);
+    expect(screen.queryByRole('dialog')).toBeNull();
+    finish(
+      Response.json({ ok: outcome === 'success' }, { status: outcome === 'success' ? 200 : 503 }),
+    );
+    await waitFor(() =>
+      expect(rail.textContent).toContain(
+        outcome === 'success'
+          ? 'Ready'
+          : 'Could not continue this chat. Your work is saved. Try again.',
+      ),
+    );
+    if (outcome === 'failure')
+      expect(within(rail).getByRole('button', { name: 'Continue chat' })).toHaveProperty(
+        'disabled',
+        false,
+      );
+    expect(screen.getByRole('textbox', { name: 'Next message' })).toHaveProperty(
+      'value',
+      'Keep this next request',
+    );
+  },
+);
+
+it('keeps uncertain tool outcomes behind review before offering continuation', async () => {
+  vi.mocked(apiFetch).mockResolvedValue(
+    meta({
+      ...idleQueue,
+      paused: true,
+      canContinue: true,
+      operation: {
+        commandId: 'uncertain',
+        attempt: 1,
+        state: 'ambiguous_effect',
+        nextAction: 'reconcile_native_outcome',
+      },
+    }),
+  );
+  render(
+    <ComposerStatusProvider>
+      <CodexQueueStatus sessionId="inspect-first" />
+      <ComposerStatusRail />
+    </ComposerStatusProvider>,
+  );
+  await act(async () => {});
+  const rail = screen.getByRole('region', { name: 'Conversation status' });
+  expect(rail.textContent).toContain('Check the interrupted turn before continuing.');
+  expect(within(rail).queryByRole('button', { name: 'Continue chat' })).toBeNull();
+  expect(within(rail).getByRole('button', { name: 'Review' })).toBeTruthy();
+  expect(vi.mocked(apiFetch).mock.calls.every(([, options]) => !options?.method)).toBe(true);
+});
 
 it('combines recovery feedback above the composer and keeps queue controls in its details', async () => {
   HTMLDialogElement.prototype.showModal = function () {
@@ -384,7 +477,7 @@ it('stops only the identified capacity recovery while preserving the unrelated q
     }),
   );
   await screen.findByText(/Automatic attempts stopped/);
-  expect(screen.queryByRole('button', { name: 'Reconnect and continue' })).toBeNull();
+  expect(screen.queryByRole('button', { name: 'Continue chat' })).toBeNull();
   await userEvent.click(screen.getByRole('button', { name: 'Review queue' }));
   expect(screen.getByText('Saved follow-up')).toBeTruthy();
   expect(
@@ -529,7 +622,7 @@ it.each(['queued', 'running'])(
     expect(button.hasAttribute('disabled')).toBe(true);
     expect(screen.getByRole('button', { name: 'Stop' })).toBeTruthy();
     expect(screen.queryByText(/Inspect saved progress before continuing/)).toBeNull();
-    expect(screen.queryByRole('button', { name: 'Reconnect and continue' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Continue chat' })).toBeNull();
     expect(screen.queryByRole('button', { name: 'Retry saved turn' })).toBeNull();
     expect(vi.mocked(apiFetch).mock.calls.every(([, options]) => options?.method !== 'POST')).toBe(
       true,
@@ -620,7 +713,7 @@ it('lets a paused connected chat explicitly reconnect and continue saved work', 
     );
 
   render(<CodexQueueStatus sessionId="paused" />);
-  await userEvent.click(await screen.findByRole('button', { name: 'Reconnect and continue' }));
+  await userEvent.click(await screen.findByRole('button', { name: 'Continue chat' }));
 
   await waitFor(() =>
     expect(apiFetch).toHaveBeenCalledWith('/api/sessions/paused/codex-queue/continue', {
@@ -649,7 +742,7 @@ it('allows the qualified original cold Responses queue to reconnect without addi
       meta({ paused: false, connected: true, queued: 0, interrupted: 1, recovering: false }),
     );
   render(<CodexQueueStatus sessionId="cold-full" />);
-  await userEvent.click(await screen.findByRole('button', { name: 'Reconnect and continue' }));
+  await userEvent.click(await screen.findByRole('button', { name: 'Continue chat' }));
   expect(apiFetch).toHaveBeenCalledWith('/api/sessions/cold-full/codex-queue/continue', {
     method: 'POST',
     headers: { 'X-Connection-ID': 'owned-sse' },
@@ -666,7 +759,7 @@ it('does not offer a cold queue effect without the server original-owner qualifi
     .mockResolvedValueOnce(commands([{ id: 'saved', preview: 'Retained work' }]));
   render(<CodexQueueStatus sessionId="cold-unqualified" />);
   await screen.findByRole('button', { name: 'Review queue' });
-  expect(screen.queryByRole('button', { name: 'Reconnect and continue' })).toBeNull();
+  expect(screen.queryByRole('button', { name: 'Continue chat' })).toBeNull();
 });
 
 it.each(['standalone', 'combined'] as const)(
@@ -710,11 +803,11 @@ it.each(['standalone', 'combined'] as const)(
     await act(async () => {});
     if (presentation === 'combined') {
       expect(screen.getByRole('region', { name: 'Conversation status' }).textContent).toContain(
-        'Reconnection needed',
+        'Chat interrupted',
       );
-      fireEvent.click(screen.getByRole('button', { name: 'Conversation status details' }));
+      // The continuation action is available without opening details.
     }
-    const recover = screen.getByRole('button', { name: 'Reconnect and continue' });
+    const recover = screen.getByRole('button', { name: 'Continue chat' });
     expect(vi.mocked(apiFetch).mock.calls.every(([, options]) => !options?.method)).toBe(true);
     await userEvent.click(recover);
     expect(apiFetch).toHaveBeenCalledWith('/api/sessions/interrupted-only/codex-queue/continue', {
@@ -722,9 +815,7 @@ it.each(['standalone', 'combined'] as const)(
       headers: { 'X-Connection-ID': 'owned-sse' },
       signal: expect.any(AbortSignal),
     });
-    await waitFor(() =>
-      expect(screen.queryByRole('button', { name: 'Reconnect and continue' })).toBeNull(),
-    );
+    await waitFor(() => expect(screen.queryByRole('button', { name: 'Continue chat' })).toBeNull());
     expect(
       vi.mocked(apiFetch).mock.calls.filter(([, options]) => options?.method === 'POST'),
     ).toHaveLength(1);
@@ -743,10 +834,10 @@ it('keeps the reconnect fallback available when recovery fails', async () => {
     } as Response);
 
   render(<CodexQueueStatus sessionId="paused-failure" />);
-  await userEvent.click(await screen.findByRole('button', { name: 'Reconnect and continue' }));
+  await userEvent.click(await screen.findByRole('button', { name: 'Continue chat' }));
 
   expect(await screen.findByText('Provider is still unavailable.')).toBeTruthy();
-  expect(screen.getByRole('button', { name: 'Reconnect and continue' })).toBeTruthy();
+  expect(screen.getByRole('button', { name: 'Continue chat' })).toBeTruthy();
 });
 
 it('offers an explicit retry for the saved failed turn without queued follow-ups', async () => {
@@ -1102,7 +1193,7 @@ it('clears a successful reconnect notice when fresh metadata reports no pending 
       meta({ paused: false, connected: true, queued: 0, interrupted: 0, failed: 0 }),
     );
   render(<CodexQueueStatus sessionId="cleared" />);
-  await userEvent.click(await screen.findByRole('button', { name: 'Reconnect and continue' }));
+  await userEvent.click(await screen.findByRole('button', { name: 'Continue chat' }));
   await waitFor(() => expect(apiFetch).toHaveBeenCalledTimes(4));
   expect(screen.queryByRole('status')).toBeNull();
   expect(screen.queryByText('An earlier step may be incomplete.')).toBeNull();
@@ -1181,7 +1272,7 @@ it('shows exact native reconciliation action while preserving queued work and th
   expect(screen.getByRole('status').textContent).toContain(
     'Check the interrupted turn before continuing. Saved work is preserved.',
   );
-  expect(screen.getByRole('button', { name: 'Reconnect and continue' })).toBeTruthy();
+  expect(screen.getByRole('button', { name: 'Continue chat' })).toBeTruthy();
   expect(
     vi.mocked(apiFetch).mock.calls.every(([path]) => !String(path).includes('/continue')),
   ).toBe(true);
@@ -1238,7 +1329,7 @@ it('keeps completed responses distinct from an unfinished follow-up with unknown
     'The response completed. Check unfinished work before continuing.',
   );
   expect(screen.queryByText('Previous turn failed. Retry when available.')).toBeNull();
-  expect(screen.queryByRole('button', { name: 'Reconnect and continue' })).toBeNull();
+  expect(screen.queryByRole('button', { name: 'Continue chat' })).toBeNull();
   expect(vi.mocked(apiFetch).mock.calls.every(([, init]) => init?.method !== 'POST')).toBe(true);
 });
 
@@ -1263,7 +1354,7 @@ it('offers explicit reconciliation when the original completion owner observed s
   expect(screen.getByRole('status').textContent).toContain(
     'The response completed. Reconnect to check its follow-up.',
   );
-  expect(screen.getByRole('button', { name: 'Reconnect and continue' })).toBeTruthy();
+  expect(screen.getByRole('button', { name: 'Continue chat' })).toBeTruthy();
   expect(
     vi.mocked(apiFetch).mock.calls.every(([path]) => !String(path).includes('/continue')),
   ).toBe(true);
