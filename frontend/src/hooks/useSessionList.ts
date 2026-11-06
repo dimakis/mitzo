@@ -189,7 +189,10 @@ export function useSessionList(): UseSessionListReturn {
       {
         method: 'DELETE',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(options.cleanupToken ? { cleanupToken: options.cleanupToken } : {}),
+        body: JSON.stringify({
+          cleanupToken: options.cleanupToken,
+          removalOperationId: options.removalOperationId,
+        }),
       },
     )
       .then((response) => {

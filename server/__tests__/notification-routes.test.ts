@@ -1,10 +1,15 @@
+import './fixtures/offline-user-home.js';
 import { describe, it, expect, vi } from 'vitest';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import express from 'express';
 import request from 'supertest';
 import cookieParser from 'cookie-parser';
 import { login, authMiddleware } from '../auth.js';
 import { NotificationStore } from '../notification-store.js';
 import { NotificationCenter } from '../notification-center.js';
+import { UnifiedInbox } from '../unified-inbox.js';
 import { notificationRouter } from '../notification-routes.js';
 import { INTERNAL_TOKEN } from '../internal-token.js';
 import { registerPending, removePending } from '../permissions.js';
@@ -34,6 +39,56 @@ async function setup() {
   };
 }
 describe('notification API', () => {
+  it.each(['/inbox:changed.md/archive', '/archive-resolved'])(
+    'refreshes newly actionable inbox sources before %s',
+    async (path) => {
+      const s = await setup();
+      const root = mkdtempSync(join(tmpdir(), 'notification-archive-source-'));
+      const inbox = new UnifiedInbox(s.store, () => root);
+      s.center.setAsyncInboxReconciler(() => inbox.reconcileAsync());
+      const source = join(root, 'changed.md');
+      try {
+        writeFileSync(source, '---\nstatus: pending\n---\n# Report\nInformational update');
+        await s.center.reconcileAsync();
+        expect(s.store.get('inbox:changed.md')?.inbox?.needsAttention).toBe(false);
+        writeFileSync(
+          source,
+          '---\nstatus: pending\naction: review\n---\n# Report\nReview required',
+        );
+        const response = await request(s.app)
+          .post('/api/notifications' + path)
+          .set('Authorization', `Bearer ${s.token}`);
+        expect(response.status).toBe(path === '/archive-resolved' ? 200 : 409);
+        if (path === '/archive-resolved') expect(response.body.archived).toBe(0);
+        expect(s.store.get('inbox:changed.md')).toMatchObject({
+          archivedAt: null,
+          inbox: { needsAttention: true },
+        });
+      } finally {
+        s.close();
+        rmSync(root, { recursive: true, force: true });
+      }
+    },
+  );
+  it.each(['/done/archive', '/archive-resolved'])(
+    'retains notifications when source reconciliation fails before %s',
+    async (path) => {
+      const s = await setup();
+      s.store.record({ id: 'done', kind: 'session', title: 'Done', body: '' });
+      s.center.setAsyncInboxReconciler(async () => {
+        throw Error('unreadable source');
+      });
+      try {
+        const response = await request(s.app)
+          .post('/api/notifications' + path)
+          .set('Authorization', `Bearer ${s.token}`);
+        expect(response.status).toBe(503);
+        expect(s.store.get('done')?.archivedAt).toBeNull();
+      } finally {
+        s.close();
+      }
+    },
+  );
   it('keeps permission responses, preferences and receipts available when inbox scans fail', async () => {
     const s = await setup();
     const scan = vi.fn(async () => {
