@@ -168,13 +168,13 @@ it('rejects missing signed actor, forged source, missing call identity, and dese
   );
   expect(f.send).not.toHaveBeenCalled();
 });
-it('keeps listings read-only and makes all three tools selectable across ordinary host routes', async () => {
+it('keeps listings read-only and makes task and session tools selectable across ordinary host routes', async () => {
   const x = fixture();
   expect((await x.tools.execute('SessionTimers', { operation: 'list' }, x.signal))?.isError).toBe(
     false,
   );
   expect(f.approve).not.toHaveBeenCalled();
-  for (const name of ['SchedulePrompt', 'SessionTimers', 'SendSessionMessage'])
+  for (const name of ['TaskExecution', 'SchedulePrompt', 'SessionTimers', 'SendSessionMessage'])
     expect(agentToolCatalog().find((tool) => tool.name === name)?.routes).toEqual([
       'local-api',
       'codex',

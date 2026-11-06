@@ -3803,6 +3803,7 @@ it('qualifies owned native, MCP, profile and publishing tools and rejects other 
         'AgentReadTasks',
         'AgentProposeTask',
         'AgentCommunication',
+        'TaskExecution',
         'SchedulePrompt',
         'SessionTimers',
         'SendSessionMessage',
