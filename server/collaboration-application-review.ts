@@ -300,7 +300,7 @@ export class CollaborationApplicationReview {
         allocationOperationId: join.allocationOperationId,
         id: record.id,
         binding,
-        taskRoot: ordinaryWorkspaceTaskRoot(true),
+        taskRoot: ordinaryWorkspaceTaskRoot(),
         settings,
         agentProfile: agent,
         ...(proof.sandboxWorkdir ? { sandboxWorkdir: proof.sandboxWorkdir } : {}),
