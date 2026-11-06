@@ -106,6 +106,9 @@ export class CodexTurnCompletedError extends Error {
 
 export interface CodexServerRequestContext {
   readonly requestId: string | number;
+  /** Private owning-conversation proof for this exact RPC. Only refusals before
+   * tool claim/execution qualify; an error class alone cannot prove settlement. */
+  readonly registerPreExecutionRefusal?: (error: CodexHostToolRequestError) => void;
   /** Trusted owner fences run synchronously immediately before the RPC reply. */
   readonly registerResponseFence?: (assertCurrent: () => void) => void;
 }
@@ -997,6 +1000,27 @@ export class CodexAppServerClient {
       requestId: id,
       registerResponseFence: (assertCurrent: () => void) => responseFences.push(assertCurrent),
     });
+    const mayReply = () => {
+      if (this.closed || signal.aborted) return false;
+      // Both success and refusal replies resume provider inference. Keep the
+      // same final authority fence and reentrant-close diagnostic for each.
+      this.checkingHostResponse = true;
+      try {
+        for (const assertCurrent of responseFences) {
+          const result: unknown = assertCurrent();
+          if (result !== undefined) {
+            void Promise.resolve(result).catch(() => {});
+            throw new CodexTransportError('connection');
+          }
+        }
+      } catch {
+        this.close(new CodexTransportError('connection', { reason: 'host_response_fence_failed' }));
+        return false;
+      } finally {
+        this.checkingHostResponse = false;
+      }
+      return !this.closed && !signal.aborted;
+    };
     Promise.resolve()
       .then(() => {
         signal.throwIfAborted();
@@ -1004,32 +1028,10 @@ export class CodexAppServerClient {
       })
       .then(
         (result) => {
-          if (this.closed || signal.aborted) return;
-          // A failed lease check may close its physical client before throwing.
-          // Keep this synchronous boundary available to that reentrant close.
-          this.checkingHostResponse = true;
-          try {
-            for (const assertCurrent of responseFences) {
-              const result: unknown = assertCurrent();
-              if (result !== undefined) {
-                void Promise.resolve(result).catch(() => {});
-                throw new CodexTransportError('connection');
-              }
-            }
-          } catch {
-            // Retain the failing boundary before shutdown replaces the cause
-            // with a generic connection error. Never include the fence's text.
-            this.close(
-              new CodexTransportError('connection', { reason: 'host_response_fence_failed' }),
-            );
-            return;
-          } finally {
-            this.checkingHostResponse = false;
-          }
-          if (!this.closed && !signal.aborted) this.write({ id, result });
+          if (mayReply()) this.write({ id, result });
         },
         (error: unknown) => {
-          if (this.closed || signal.aborted) return;
+          if (!mayReply()) return;
           if (method === 'item/tool/call') {
             const known = error instanceof CodexHostToolRequestError;
             createLogger('codex-app-server-client').warn('Codex host tool request rejected', {

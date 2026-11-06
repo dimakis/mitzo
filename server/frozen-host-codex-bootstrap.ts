@@ -2,6 +2,7 @@ import type { ApiHarnessConnection } from './account-harness-connection.js';
 import { findNativeMacExecutionUnavailable } from './codex-native-artifact-qualification.js';
 import { z } from 'zod';
 import { observeLocalCodexPhase, observeLocalCodexSyncPhase } from './local-codex-observation.js';
+import { findSessionRuntimeError } from './session-runtime-error.js';
 import type { AccountBinding } from '@mitzo/protocol';
 import { isDeepStrictEqual } from 'node:util';
 import { custodianControllerMode } from './symposium-custodian-mode.js';
@@ -538,6 +539,7 @@ export class FrozenHostCodexBootstrapAuthority implements OrdinaryLocalCodexBoot
       let retired = false;
       const loginClose = ownedLogin.close;
       const closeLease = () => {
+        if (retired) return;
         retired = true;
         Reflect.apply(loginClose, ownedLogin, []);
       };
@@ -595,9 +597,19 @@ export class FrozenHostCodexBootstrapAuthority implements OrdinaryLocalCodexBoot
             ),
           );
           current();
-        } catch {
+        } catch (error) {
+          const failure = findSessionRuntimeError(error);
+          // Publish the reviewed cause before physical close synchronously
+          // reenters lifecycle shutdown with a generic connection error.
+          if (failure) {
+            try {
+              this.owners.lifecycle?.onClose(failure);
+            } catch {
+              /* Diagnostic delivery cannot prevent retiring invalid custody. */
+            }
+          }
           closeLease();
-          throw unavailable();
+          throw failure ?? unavailable();
         }
       };
       const qualifyModels = async (
@@ -829,6 +841,8 @@ export class FrozenHostCodexBootstrapAuthority implements OrdinaryLocalCodexBoot
       return await operation(this.#lease);
     } catch (error) {
       loginLease?.close();
+      const failure = findSessionRuntimeError(error);
+      if (failure) throw failure;
       const capabilityError = findNativeMacExecutionUnavailable(error);
       if (capabilityError) throw capabilityError;
       throw unavailable();

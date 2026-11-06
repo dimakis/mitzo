@@ -35,7 +35,7 @@ it('opens exact-message reply, copy and voice actions with a full timestamp on r
   fireEvent.click(screen.getByRole('menuitem', { name: 'Reply' }));
   expect(reply).toHaveBeenCalledWith(message);
 });
-it('supports phone swipe and hold without treating vertical scrolling as a reply', () => {
+it('supports phone swipe while leaving scrolling and touch holds native', () => {
   vi.useFakeTimers();
   const reply = vi.fn();
   render(
@@ -54,7 +54,7 @@ it('supports phone swipe and hold without treating vertical scrolling as a reply
   expect(reply).toHaveBeenCalledOnce();
   fireEvent.pointerDown(source, { button: 0, pointerType: 'touch', clientX: 10, clientY: 10 });
   act(() => vi.advanceTimersByTime(600));
-  expect(screen.getByRole('menu', { name: 'Message actions' })).toBeDefined();
+  expect(screen.queryByRole('menu', { name: 'Message actions' })).toBeNull();
 });
 it('keeps desktop drag-to-select native instead of selecting a reply', () => {
   const reply = vi.fn();
