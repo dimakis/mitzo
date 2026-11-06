@@ -2602,9 +2602,18 @@ same-chat receipt check, so recovery cannot interrupt a successor turn. Releasin
 definite refusal preserves dirty local work and fresh peer edits. The brief
 queue/correction hint sits between the tray and text input.
 
-Phone swipe-right, touch-hold, desktop right-click and keyboard context menu offer
-Reply, Copy and Read aloud on complete ordinary messages. Existing copy/voice
-controls stay in each bubble. Each message shows a date and time, with full local
+Phone swipe-right, desktop right-click and keyboard context menu offer Reply,
+Copy and Read aloud on complete ordinary messages. Touch/pen holds and context
+menus belong to native text selection. Active selection cancels reply gestures
+and dismisses the app menu without moving focus. A labelled **Message actions**
+overflow button beside each bubble's existing copy/voice controls gives touch and
+keyboard users explicit menu access. It uses UiIcon, shared semantic tokens,
+control height and focus styling; the existing MotionPresence owns menu motion.
+Escape returns focus to the invoking button. Offline `message-text-selection`
+fixtures cover both speakers, phone/desktop widths, light/dark appearance,
+alternate accents/fonts, reduced motion, selection and 44px controls without
+backend or model calls. OS selection callouts still need physical iOS verification.
+Each message shows a date and time, with full local
 date/seconds/timezone in its menu. A selected reply appears above the input with
 Cancel; queued drafts retain that selection. Transcript quotes scroll to and focus
 the exact source. Routine request lifecycle state collapses into Activity; existing

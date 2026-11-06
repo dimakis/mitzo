@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useRef, useMemo, useContext } from 'react';
 import ReactMarkdown, { defaultUrlTransform } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import rehypeHighlight from 'rehype-highlight';
@@ -30,6 +30,7 @@ import {
 } from '@mitzo/protocol';
 import { ContextInjectionDisclosure } from './ContextInjectionDisclosure';
 import { AgentMessageCard } from './AgentMessageCard';
+import { MessageActionsContext } from '../lib/message-actions-context';
 
 const COLLAPSE_HEIGHT = 300;
 
@@ -60,6 +61,7 @@ export function UserBubble({
   timestamp,
   readAloud,
 }: UserBubbleProps) {
+  const actions = useContext(MessageActionsContext);
   const context = text && splitContextPrompt(text);
   const displayText = context ? context.text : text;
   const injections = contextInjections ?? (context ? context.injections : undefined);
@@ -107,6 +109,7 @@ export function UserBubble({
             {displayText && (
               <CopyButton text={displayText} className="msg-bubble-copy msg-bubble-copy--user" />
             )}
+            {actions}
           </div>
         )}
       </div>
@@ -131,6 +134,7 @@ export function TextBubble({
   readAloud,
   artifactSessionId,
 }: TextBubbleProps) {
+  const actions = useContext(MessageActionsContext);
   const navigate = useNavigate();
   const location = useLocation();
   const processed = useMemo(
@@ -332,6 +336,7 @@ export function TextBubble({
             />
           )}
           <CopyButton text={content} className="msg-bubble-copy" />
+          {actions}
         </div>
       )}
     </div>
