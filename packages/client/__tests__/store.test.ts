@@ -6,6 +6,8 @@ import type { TransportAdapter } from '../src/types.js';
 import type { WebSocketLike } from '../src/ws-connection.js';
 import { WS_READY_STATE } from '../src/types.js';
 import { storedEventToClientMessage } from '@mitzo/protocol';
+import { agentMessageTranscriptRow, type AgentMessage } from '@mitzo/protocol';
+import { messagesReducer } from '../src/slices/messages.js';
 import { INITIAL_TOKENS_STATE } from '../src/slices/tokens.js';
 import type { StoreApi } from 'zustand/vanilla';
 
@@ -92,6 +94,88 @@ function createReadyStore(transport?: TransportAdapter) {
 // ─── Tests ──────────────────────────────────────────────────────────────────
 
 describe('createMitzoStore', () => {
+  it.each(['delivered', 'failed', 'newer-live'] as const)(
+    'reconciles %s peer receipts through foreground history without losing live updates',
+    async (scenario) => {
+      const projection = {
+        message: {
+          messageId: '00000000-0000-4000-8000-000000000001',
+          commandId: 'peer-command',
+          senderConversationId: 'sender',
+          recipientConversationId: 'sess-1',
+          text: 'Retained peer text',
+          replyTo: null,
+          status: 'queued' as const,
+          reason: null,
+          sequence: 1,
+        },
+        direction: 'incoming' as const,
+        senderName: 'Sender',
+        recipientName: 'Receiver',
+        timestamp: 100,
+      };
+      const queued = agentMessageTranscriptRow(projection, 1);
+      const transport = mockTransport();
+      const store = createReadyStore(transport);
+      await store.getState().switchSession('sess-1');
+      store.setState((s) => ({ messages: { ...s.messages, messages: [queued] } }));
+      let finish!: (response: Response) => void;
+      (transport.fetch as ReturnType<typeof vi.fn>).mockImplementation((url: string) =>
+        url.includes('/messages')
+          ? new Promise<Response>((resolve) => {
+              finish = resolve;
+            })
+          : Promise.resolve(Response.json([])),
+      );
+      lastWs.simulateMessage({ type: '_foreground' });
+      const status: AgentMessage['status'] = scenario === 'failed' ? 'failed' : 'delivered';
+      if (scenario === 'newer-live')
+        store.setState((s) => ({
+          messages: messagesReducer(s.messages, {
+            type: 'AGENT_MESSAGE',
+            seq: 9,
+            projection: {
+              ...projection,
+              message: { ...projection.message, status: 'failed', sequence: 3 },
+            },
+          }),
+        }));
+      const receipt = {
+        ...agentMessageTranscriptRow(
+          { ...projection, message: { ...projection.message, status, sequence: 2 } },
+          7,
+        ),
+        startedSeq: 1,
+      };
+      finish(
+        Response.json({
+          messages: [
+            receipt,
+            {
+              messageId: 'durable-marker',
+              role: 'user',
+              startedSeq: 2,
+              blocks: [{ blockId: 'marker', blockType: 'text', content: 'Restored while offline' }],
+            },
+          ],
+          current: null,
+        }),
+      );
+      const expected = scenario === 'newer-live' ? 'failed' : status;
+      const sequence = scenario === 'newer-live' ? 9 : 7;
+      await vi.waitFor(() => {
+        expect(
+          store
+            .getState()
+            .messages.messages.some((message) => message.messageId === 'durable-marker'),
+        ).toBe(true);
+        expect(store.getState().messages.messages[0].agentMessage?.message.status).toBe(expected);
+        expect(store.getState().messages.messages[0].agentMessageSeq).toBe(sequence);
+      });
+      expect(store.getState().messages.messages).toHaveLength(2);
+      expect(store.getState().messages.messages[0].startedSeq).toBe(1);
+    },
+  );
   it('applies a redacted private provenance envelope before its successor without changing transcript content', async () => {
     const store = createReadyStore();
     await store.getState().switchSession('session');

@@ -13,6 +13,20 @@ and Resources. Use semantic tokens, shared motion and 44px controls; the dialog
 fills narrow phone widths. The approved mock and protected checks are recorded
 in the codex-subagents entry of the approved design ledger.
 
+## Visible agent messages
+
+Peer messages use one shared `AgentMessageCard` in the mobile and desktop chat
+transcript. Both participants see the complete text, named conversation links,
+recorded time, copy action and delivery state. Message/reply IDs remain available
+in native details. Queued and uncertain explicitly differ from delivery to the
+agent; delivery does not claim that a requested action was applied.
+
+The card reuses the transcript surface, semantic colors, spacing/type scales,
+panel radius, shared controls and monospace identifier font. It adds no theme or
+composer controls. Receipt changes update the original row. Offline regressions
+cover both directions, failures, narrow/desktop layouts, light/dark appearance,
+larger text, focus, full text and touch-sized conversation links.
+
 ## Session timer dialogs
 
 Timers reuse `HomeDialog`, `UiIcon`, shared primary/secondary/danger controls and
@@ -1035,6 +1049,27 @@ conversations retain their full account/agent/model/thinking/execution/workspace
 details in this top panel, including legacy conversations without a runtime binding.
 
 ## Approved conversation composition
+
+Host Mac chat exposes Terminal in the existing composer actions before and after
+session creation. New-chat navigation retains the saved draft return route; an
+existing conversation keeps its server-resolved workspace destination. An unsent
+OpenShell draft has no host-terminal fallback. Loading conversation metadata
+keeps actions unavailable.
+
+Ordinary host Commands reuses SlashPicker and its existing shared typography,
+semantic colors, motion and keyboard behavior. Supported skills insert their name
+into the retained draft; Send remains separate. Skills requiring unsupported tool
+restrictions show a disabled choice and a reason, including restricted dependencies.
+The catalogue stays scoped to the selected runtime/workspace, with a load failure
+message instead of old choices. Legacy app commands retain their existing route.
+
+Focused composer, destination, resolver and design tests pass. The intercepted
+`chat-runtime-tools` fixture covers new/existing host chats, mobile/desktop,
+dark Mint/System and light Teal/Georgia, command insertion, unavailable reasons,
+terminal navigation and retained drafts. Browser execution remains pending CI:
+the host guard still reports Seatbelt after the approved escalation. No browser
+was launched and no visual inspection is claimed. Source and validation details
+are in [the feature record](../features/chat-runtime-tools.md).
 
 Conversation chrome keeps Account, Model and Thinking first in the single top
 settings disclosure, followed by Agent and Repository. Run on is a primary field in the approved compact popover; repository preparation

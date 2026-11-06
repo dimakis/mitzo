@@ -19,10 +19,46 @@ export const AgentMessageSchema = z.strictObject({
   text: z.string().min(1).max(16000),
   replyTo: z.uuid().nullable(),
   status: z.enum(['pending', 'queued', 'delivered', 'unavailable', 'uncertain', 'failed']),
-  reason: z.enum(['recipient_unavailable', 'admission_uncertain', 'cancelled']).nullable(),
+  reason: z
+    .enum([
+      'recipient_unavailable',
+      'admission_uncertain',
+      'cancelled',
+      'steering_rejected',
+      'before_provider_submission',
+    ])
+    .nullable(),
   sequence: z.number().int().positive().safe(),
+  createdAt: z.number().int().nonnegative().optional(),
 });
 export type AgentMessage = z.infer<typeof AgentMessageSchema>;
+export const AgentMessageProjectionSchema = z.strictObject({
+  message: AgentMessageSchema,
+  direction: z.enum(['incoming', 'outgoing']),
+  senderName: z.string(),
+  recipientName: z.string(),
+  timestamp: z.number().int().nonnegative(),
+});
+export type AgentMessageProjection = z.infer<typeof AgentMessageProjectionSchema>;
+
+/** The public transcript keeps peer authorship separate from human requests. */
+export function agentMessageTranscriptRow(projection: AgentMessageProjection, seq: number) {
+  return {
+    messageId: projection.message.commandId,
+    role: 'assistant',
+    agentMessage: projection,
+    agentMessageSeq: seq,
+    startedSeq: seq,
+    timestamp: projection.timestamp,
+    blocks: [
+      {
+        blockId: `peer-${projection.message.messageId}`,
+        blockType: 'text',
+        content: projection.message.text,
+      },
+    ],
+  } satisfies import('./types.js').FinishedMessage;
+}
 /** Retained peer text is context from another agent, never a user instruction
  * or a grant to mutate work, credentials, approvals, publication or merge state. */
 export function agentMessagePrompt(message: AgentMessage): string {

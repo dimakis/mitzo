@@ -14,7 +14,7 @@ interface Session {
 export function createTerminalTargetResolver(deps: {
   hostCwd: string;
   session(id: string): Session | null | undefined;
-  allowedHost(cwd: string): boolean;
+  allowedHost(cwd: string, sessionId: string): boolean;
   remote(id: string): boolean;
   runtime(
     id: string,
@@ -42,7 +42,7 @@ export function createTerminalTargetResolver(deps: {
     if (meta.sessionType === 'symposium')
       throw Error('Choose a specific agent sandbox for this conversation');
     if (!deps.remote(id)) {
-      if (!deps.allowedHost(meta.cwd)) throw new Error('Chat workspace unavailable');
+      if (!deps.allowedHost(meta.cwd, id)) throw new Error('Chat workspace unavailable');
       return {
         kind: 'host',
         label: meta.title || 'Chat workspace',

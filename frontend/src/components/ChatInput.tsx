@@ -34,6 +34,7 @@ import { SlashPicker } from './SlashPicker';
 import { SessionResourcesDialog } from './SessionResourcesDialog';
 import { ImageAttachmentEditor } from './ImageAttachmentEditor';
 import { ComposerTools } from './ComposerTools';
+import type { ChatComposerCapabilities } from '../lib/chat-composer-capabilities';
 import { SessionTimersDialog } from './SessionTimersDialog';
 import { UiIcon } from './UiIcon';
 import { WorkspaceActionMenu } from './WorkspaceActionMenu';
@@ -74,6 +75,7 @@ export interface ChatInputDraftControl {
 }
 
 interface Props {
+  composerCapabilities?: ChatComposerCapabilities;
   steeringTargetCommandId?: string;
   replyTarget?: MessageReplyContext;
   onClearReply?: () => void;
@@ -122,6 +124,7 @@ interface Props {
   /** Validate the actual edited payload against the selected route before sending. */
   validateSend?: (text: string, images?: ImageAttachment[]) => string | undefined;
   cwd?: string;
+  skillWorkspaceId?: string;
   voice?: UseVoiceReturn;
   branch?: string;
   isWorktree?: boolean;
@@ -182,8 +185,10 @@ function ChatInputContent({
   sendDisabledAction,
   boundedFirstCommand = false,
   guardedConversation = false,
+  composerCapabilities,
   validateSend,
   cwd,
+  skillWorkspaceId,
   voice,
   branch,
   isWorktree,
@@ -204,6 +209,10 @@ function ChatInputContent({
   bootContext,
   sessionContext,
 }: Props) {
+  const commandMode =
+    composerCapabilities?.commands ??
+    (boundedFirstCommand || guardedConversation ? 'unavailable' : 'legacy');
+  const commandsDisabled = commandMode === 'unavailable' || textOnly;
   const draftStorageKey = savedChatDraft
     ? chatDraftStorageKey(savedChatDraft.id)
     : suppliedDraftStorageKey;
@@ -937,7 +946,7 @@ function ChatInputContent({
   // Show/hide slash picker based on input
   // TODO: Verify picker reopens correctly on backspace after space (e.g. "/simplify " → "/simplify")
   useEffect(() => {
-    if (boundedFirstCommand || guardedConversation) {
+    if (commandsDisabled) {
       setShowSlashPicker(false);
       return;
     }
@@ -947,7 +956,7 @@ function ChatInputContent({
     } else {
       setShowSlashPicker(false);
     }
-  }, [displayedText, boundedFirstCommand, guardedConversation]);
+  }, [displayedText, commandsDisabled]);
 
   function handleSlashSelect(name: string) {
     editText((draft) => insertComposerCommand(draft, name));
@@ -1471,6 +1480,7 @@ function ChatInputContent({
       )}
       <MotionPresence open={showSlashPicker} kind="popover" appear={false}>
         <SlashPicker
+          runtime={commandMode === 'ordinary' ? 'ordinary' : 'legacy'}
           query={displayedText.trimStart()}
           onSelect={handleSlashSelect}
           onClose={(reason) => {
@@ -1478,6 +1488,8 @@ function ChatInputContent({
             setShowSlashPicker(false);
           }}
           cwd={cwd}
+          workspaceId={skillWorkspaceId}
+          sessionId={sessionId}
         />
       </MotionPresence>
       {voice?.recording && voice.partialTranscript && (
@@ -1596,9 +1608,11 @@ function ChatInputContent({
               expanded={expanded}
               onExpand={() => setExpanded((value) => !value)}
               terminalHref={
-                sessionId && !boundedFirstCommand && !guardedConversation
-                  ? `/terminal?sessionId=${encodeURIComponent(sessionId)}&returnTo=${encodeURIComponent(`/chat/${sessionId}`)}`
-                  : undefined
+                composerCapabilities
+                  ? composerCapabilities.terminalHref
+                  : sessionId && !boundedFirstCommand && !guardedConversation
+                    ? `/terminal?sessionId=${encodeURIComponent(sessionId)}&returnTo=${encodeURIComponent(`/chat/${sessionId}`)}`
+                    : undefined
               }
               onCommands={() => {
                 if (!displayedText.trim()) editText('/');
@@ -1606,7 +1620,7 @@ function ChatInputContent({
                 textareaRef.current?.focus();
               }}
               commandsExpanded={showSlashPicker}
-              commandsDisabled={boundedFirstCommand || guardedConversation || textOnly}
+              commandsDisabled={commandsDisabled}
               onAttach={() => fileInputRef.current?.click()}
               attachmentDisabled={
                 textOnly || importing || displayedImages.length >= MAX_IMAGE_ATTACHMENTS
