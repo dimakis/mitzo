@@ -5,7 +5,10 @@ import { ORDINARY_COMMAND_RECEIPT_TIMEOUT_MS } from '@mitzo/protocol';
 import { apiFetch } from '../../lib/api-fetch';
 import { CodexQueueStatus } from '../CodexQueueStatus';
 
-vi.mock('../../lib/api-fetch', () => ({ apiFetch: vi.fn() }));
+vi.mock('../../lib/api-fetch', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../lib/api-fetch')>()),
+  apiFetch: vi.fn(),
+}));
 vi.mock('@mitzo/client/hooks', () => ({
   useMitzoStore: (select: (state: unknown) => unknown) =>
     select({ getTransportConnectionId: () => 'current-signed-sse', queueRevision: 0 }),
