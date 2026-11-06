@@ -3,9 +3,6 @@ import {
   closeSync,
   constants,
   fstatSync,
-  ftruncateSync,
-  fsyncSync,
-  writeSync,
   lstatSync,
   realpathSync,
   mkdirSync,
@@ -16,7 +13,6 @@ import {
 } from 'node:fs';
 import { join, resolve } from 'node:path';
 import type { AccountBinding } from '@mitzo/protocol';
-import { z } from 'zod';
 import { readBoundedFile } from './bounded-file-read.js';
 import { codexPrivateDirectory, protectCodexProfileRoots } from './codex-private-path.js';
 import { verifyCodexAccount, type CodexAccountProfile } from './codex-account.js';
@@ -28,20 +24,18 @@ import {
   captureLoginRefreshVersion,
   prepareLoginRefreshKeys,
   loginRefreshSigningKey,
-  MAX_LOGIN_REFRESH_STATE_BYTES,
   HostCodexLoginRefreshVerifier,
 } from './host-codex-login-refresh.js';
 
 const unavailable = () => new Error('Host Codex login unavailable');
-const Version = z.strictObject({
-  sha256: z.string().regex(/^[a-f0-9]{64}$/),
-  issuedAt: z.number().int().nonnegative(),
-  tokenPairs: z
-    .array(z.string().regex(/^[a-f0-9]{64}$/))
-    .min(1)
-    .max(32),
-});
-const RefreshState = z.strictObject({ source: Version, home: Version });
+import {
+  initialLoginRefreshLedger,
+  readLoginRefreshLedger,
+  writeLoginRefreshLedger,
+  LOGIN_REFRESH_LEDGER_BYTES,
+  syncLoginRefreshDirectory,
+  type LoginRefreshState,
+} from './host-codex-login-refresh-ledger.js';
 const refreshStateName = 'login-refresh.json';
 import {
   directory,
@@ -90,7 +84,7 @@ export class FrozenHostCodexLogin {
   #signal?: AbortSignal;
   #refreshProof?: HostCodexLoginCustody['refreshProof'];
   #refreshVerifier?: HostCodexLoginRefreshVerifier;
-  #ledgerCache?: { stamp: FileStamp; state: z.infer<typeof RefreshState> };
+  #ledgerCache?: { stamp: FileStamp; state: LoginRefreshState };
   #lastValidated?: {
     source: ReturnType<typeof readAuth>['stamp'];
     home: ReturnType<typeof readAuth>['stamp'];
@@ -107,19 +101,21 @@ export class FrozenHostCodexLogin {
     this.#sourceRoot = sourceRoot;
     this.#sourceAuth = sourceAuth;
     this.#homeRoot = directory(privateHome);
-    this.#homeAuth = retained?.homeAuth ?? readAuth(privateHome).identity;
+    const initialHome = retained ? undefined : readAuth(privateHome);
+    this.#homeAuth = retained?.homeAuth ?? initialHome!.identity;
     this.#signal = signal;
     if (retained) this.#refreshProof = retained.refreshProof;
     else {
-      const anchor = captureLoginRefreshAnchor(readAuth(privateHome).bytes, profile);
+      const anchor = captureLoginRefreshAnchor(initialHome!.bytes, profile);
       if (anchor) {
-        const version = captureLoginRefreshVersion(readAuth(privateHome).bytes, profile);
+        const version = captureLoginRefreshVersion(initialHome!.bytes, profile);
         const path = join(privateHome, refreshStateName);
-        writeFileSync(path, JSON.stringify({ source: version, home: version }), {
+        writeFileSync(path, initialLoginRefreshLedger({ source: version, home: version }), {
           mode: 0o600,
           flag: 'wx',
           flush: true,
         });
+        syncLoginRefreshDirectory(privateHome);
         this.#refreshProof = {
           ...anchor,
           ledger: (({ dev, ino }) => ({ dev, ino }))(lstatSync(path)),
@@ -329,8 +325,9 @@ export class FrozenHostCodexLogin {
         for (const entry of [fstatSync(fd!), lstatSync(path)]) assertLedgerFile(entry);
       };
       current();
-      const bytes = readBoundedFile(fd, MAX_LOGIN_REFRESH_STATE_BYTES);
-      const state = RefreshState.parse(JSON.parse(bytes.toString('utf8')));
+      const bytes = readBoundedFile(fd, LOGIN_REFRESH_LEDGER_BYTES);
+      const previous = readLoginRefreshLedger(bytes);
+      const state = previous.state;
       const next = structuredClone(state);
       for (const [name, observed] of [
         ['source', source],
@@ -365,10 +362,7 @@ export class FrozenHostCodexLogin {
         throw unavailable();
       current();
       if (JSON.stringify(next) !== JSON.stringify(state)) {
-        const encoded = Buffer.from(JSON.stringify(next));
-        if (writeSync(fd, encoded, 0, encoded.length, 0) !== encoded.length) throw unavailable();
-        ftruncateSync(fd, encoded.length);
-        fsyncSync(fd);
+        writeLoginRefreshLedger(fd, previous, next);
         current();
       }
       this.#ledgerCache = { stamp: fileStamp(fstatSync(fd)), state: next };
@@ -442,6 +436,7 @@ export class FrozenHostCodexLogin {
       await this.qualifyCredentialRefresh(this.#signal);
       this.assertFilesCurrent();
       const binding = await verifyCodexAccount(client, this.#profile);
+      await this.qualifyCredentialRefresh(this.#signal);
       this.assertFilesCurrent();
       const ownedClient = client;
       return {

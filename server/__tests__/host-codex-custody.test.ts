@@ -353,6 +353,15 @@ it('reauthorizes only the exact reviewed legacy login while preserving native hi
       { completedAt: null },
     ]);
     interruptAfterArtifact = false;
+    const completeArtifact = readFileSync(artifact);
+    writeFileSync(artifact, 'unrelated artifact');
+    expect(() =>
+      store.reauthorizeHostLogin('retained', realBinding, operation, operation.operationId),
+    ).toThrow();
+    expect(readFileSync(artifact, 'utf8')).toBe('unrelated artifact');
+    // Model interruption during the unreferenced file write while the exact
+    // intent remains pending; completing this owned prefix must be retryable.
+    writeFileSync(artifact, completeArtifact.subarray(0, 64));
     const [result] = await reauthorizeHostLogins({
       database: join(root, 'native.db'),
       profiles: profilePath,

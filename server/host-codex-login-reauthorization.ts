@@ -1,5 +1,13 @@
 import { createHash } from 'node:crypto';
-import { constants, closeSync, fstatSync, openSync, writeFileSync } from 'node:fs';
+import {
+  constants,
+  closeSync,
+  fstatSync,
+  fsyncSync,
+  lstatSync,
+  openSync,
+  writeSync,
+} from 'node:fs';
 import { join } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
 import {
@@ -15,6 +23,10 @@ import {
   HostCodexLoginRefreshVerifier,
 } from './host-codex-login-refresh.js';
 import { readBoundedFile } from './bounded-file-read.js';
+import {
+  initialLoginRefreshLedger,
+  syncLoginRefreshDirectory,
+} from './host-codex-login-refresh-ledger.js';
 
 const unavailable = () => Error('Reviewed host login reauthorization unavailable');
 const digest = (value: unknown) => createHash('sha256').update(JSON.stringify(value)).digest('hex');
@@ -159,25 +171,49 @@ export class HostCodexLoginReauthorization {
     this.assertMutationCurrent();
     const name = `login-refresh-${this.operationId}.json`;
     const path = join(this.#login.privateHome, name);
-    const bytes = Buffer.from(JSON.stringify(this.state));
-    try {
-      writeFileSync(path, bytes, { mode: 0o600, flag: 'wx', flush: true });
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
-    }
+    const bytes = initialLoginRefreshLedger(this.state);
     let fd: number | undefined;
     try {
-      fd = openSync(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+      const flags = constants.O_RDWR | constants.O_NOFOLLOW | constants.O_NONBLOCK;
+      try {
+        fd = openSync(path, flags | constants.O_CREAT | constants.O_EXCL, 0o600);
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
+        fd = openSync(path, flags);
+      }
       const info = fstatSync(fd);
+      sameIdentity(lstatSync(path), info);
       if (
         !info.isFile() ||
         info.nlink !== 1 ||
         info.uid !== process.getuid?.() ||
-        (info.mode & 0o077) !== 0 ||
-        !readBoundedFile(fd, 4096).equals(bytes)
+        (info.mode & 0o077) !== 0
       )
         throw unavailable();
+      const existing = readBoundedFile(fd, bytes.length);
+      const after = fstatSync(fd);
+      if (
+        info.size !== after.size ||
+        info.mtimeMs !== after.mtimeMs ||
+        info.ctimeMs !== after.ctimeMs ||
+        !bytes.subarray(0, existing.length).equals(existing)
+      )
+        throw unavailable();
+      // The native owner calls this only under its pending exact-operation
+      // intent and unchanged original custody. This file is not live authority
+      // until the final custody CAS. Finish only its exact interrupted prefix.
+      this.assertMutationCurrent();
+      if (
+        existing.length < bytes.length &&
+        writeSync(fd, bytes, existing.length, bytes.length - existing.length, existing.length) !==
+          bytes.length - existing.length
+      )
+        throw unavailable();
+      fsyncSync(fd);
       this.assertCurrent();
+      sameIdentity(lstatSync(path), info);
+      if (!readBoundedFile(fd, bytes.length).equals(bytes)) throw unavailable();
+      syncLoginRefreshDirectory(this.#login.privateHome);
       const anchor = {
         ...this.verifier.anchor,
         issuedAt: Math.min(this.state.source.issuedAt, this.state.home.issuedAt),

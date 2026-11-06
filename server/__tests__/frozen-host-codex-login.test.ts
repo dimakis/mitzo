@@ -551,3 +551,78 @@ it('reloads trusted issuer keys for a valid later rotation and can cold-reopen t
   expect(reopened.custodySnapshot()).toEqual(custody);
   next.close();
 });
+
+it('qualifies issuer rotation during the initial account response before admitting the chat', async () => {
+  const f = refreshFixture();
+  const login = FrozenHostCodexLogin.capture(f.profile, { privateRoot: f.privateRoot });
+  const custody = login.custodySnapshot();
+  const originalRequest = f.client.request.getMockImplementation()!;
+  f.client.request.mockImplementationOnce(async () => {
+    f.fetch.mockImplementation(
+      async (url) =>
+        new Response(
+          JSON.stringify(
+            String(url).endsWith('openid-configuration')
+              ? {
+                  issuer: 'https://auth.openai.com',
+                  jwks_uri: 'https://auth.openai.com/fixture-jwks',
+                }
+              : {
+                  keys: ['fixture-key', 'account-response-key'].map((kid) => ({
+                    ...signingKey.publicKey.export({ format: 'jwk' }),
+                    kid,
+                    alg: 'RS256',
+                    use: 'sig',
+                  })),
+                },
+          ),
+        ),
+    );
+    writeFileSync(
+      join(login.privateHome, 'auth.json'),
+      refreshedAuth(f.epoch + 30, {}, signingKey, 'account-response-key'),
+    );
+    return originalRequest();
+  });
+  const lease = await login.connect(() => f.client);
+  expect(f.client.close).not.toHaveBeenCalled();
+  expect(f.fetch).toHaveBeenCalledTimes(4);
+  expect(login.custodySnapshot()).toEqual(custody);
+  lease.close();
+});
+
+it('cold-reopens after an interrupted inactive ledger write without losing the last accepted version', async () => {
+  const { openSync, closeSync, writeSync } = await import('node:fs');
+  const { readLoginRefreshLedger, LOGIN_REFRESH_SLOT_BYTES } =
+    await import('../host-codex-login-refresh-ledger.js');
+  const f = refreshFixture();
+  const login = FrozenHostCodexLogin.capture(f.profile, { privateRoot: f.privateRoot });
+  const custody = login.custodySnapshot();
+  const lease = await login.connect(() => f.client);
+  const home = join(login.privateHome, 'auth.json');
+  for (let index = 0; index < 4; index++) {
+    writeFileSync(home, refreshedAuth(f.epoch + 20, { jti: `accepted-${index}` }));
+    await lease.assertCurrent();
+  }
+  lease.close();
+  const ledger = join(login.privateHome, 'login-refresh.json');
+  const previous = readLoginRefreshLedger(readFileSync(ledger));
+  writeFileSync(home, refreshedAuth(f.epoch + 30));
+  const fd = openSync(ledger, 'r+');
+  try {
+    const prefix = Buffer.from(
+      JSON.stringify({ sequence: previous.sequence + 1, state: previous.state }).slice(0, 64),
+    );
+    writeSync(fd, prefix, 0, prefix.length, (1 - previous.slot) * LOGIN_REFRESH_SLOT_BYTES);
+  } finally {
+    closeSync(fd);
+  }
+  expect(readLoginRefreshLedger(readFileSync(ledger))).toEqual(previous);
+  const reopened = FrozenHostCodexLogin.reopen(f.profile, custody);
+  const next = await reopened.connect(() => ({ ...f.client, close: vi.fn() }));
+  expect(() => next.assertCurrentSync()).not.toThrow();
+  expect(statSync(ledger).ino).toBe(custody.refreshProof!.ledger.ino);
+  next.close();
+  writeFileSync(home, refreshedAuth(f.epoch + 20, { jti: 'accepted-3' }));
+  expect(() => FrozenHostCodexLogin.reopen(f.profile, custody)).toThrow();
+});

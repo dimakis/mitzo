@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.920-host-chatgpt-history-reauthorization';
+  'v1.0.921-host-chatgpt-refresh-ledger-durability';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -23,12 +23,14 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
+  '../host-codex-login-refresh-ledger.ts':
+    'c85951c34922072589a206af17b55dfc57e400e440b9d1348e98b8a482e84bea',
   '../host-codex-login-recovery-command.ts':
     '320936fbdb16e31c9a5a5582286ecc7d31f9b8cd8e1edf2a421dff929c03b458',
   '../host-codex-login-refresh.ts':
-    '204ffcdfe5ef63bd1735eb4c389ced9aca4eb74adace091cf9e61908a6c6d6cf',
+    '135e806c6b2d23d066863891e8c6d83ec99f2743a591b5c963882707d734a6a0',
   '../host-codex-login-reauthorization.ts':
-    'ba5963a7cef69de31936032846581d46e399c2b4040de72cd8b69f0e3895cf0a',
+    '07f8c14eb6abe391a05b1bdab08d6d11543f4fc47d2e1c0c376dcfa45bda8200',
   '../host-codex-login-reauthorization-store.ts':
     '1e67ffd242017f20482240a12aa7e994df4d0b6c75b41124a5171c3c41d02a63',
   '../host-codex-login-files.ts':
@@ -39,11 +41,11 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../scripts/reauthorize-host-codex-login.ts':
     'abc997f7c3c63b1c3256eef13e9c8bc78c93f854c8849a03216b9640549b6006',
   '../../docs/operations/host-codex-login-refresh.md':
-    'a0bb820e0f7d87d2efb705b9b03caccf2c6facca0dd1c7f1f4f2e78005c93630',
+    '7f190b013c9513b0585e809115ac36fd427aaab0388441d18e5a9dc293c5dde7',
   '../__tests__/frozen-host-codex-login.test.ts':
-    '36cc784a0658ffdb72a20327de60d2ca18d5586aae8019ca27bf6e895a433f27',
+    'e163ffca6290f09a973ed163407599331403e85eb3a15f7d6429e4c2d2054675',
   '../__tests__/owned-codex-lifecycle-bridge.test.ts':
-    '7e4e68eca2a067fe3835447aec4ba6a86ee85a9cc01c8824a400c93ccf5cf343',
+    '69bfe06c30c4c256122864cc5b07eaea2b7ebf26fd489dce2785ab3ec9e2f882',
   '../task-execution-definitions.ts':
     '7e525c74b1dc9dc955f4d819ebf4c29f324cc90d8520808b30e7de32fcb8a0fb',
   '../task-execution-operation.ts':
@@ -1741,13 +1743,13 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../frozen-host-codex-api-login.ts':
     'eb7eddc2842845761c95ee309d9308db5dd8515051d347b165c37e54aeb2b730',
   '../frozen-host-codex-login.ts':
-    '9bf3712003fd06d16e1a36e12392941bf75794786002fe62dd3b9c6307b6d0ff',
+    '61ec5a18593c0698d36ddda35d0b3a541b7530a92533c9c4dc1ba048073c0e26',
   '../frozen-host-codex-executable.ts':
     'ef3c54f4d877eb7fb9af2beee771f5379364c6ccb5d5656ac61d354d3fa0cfc9',
   '../frozen-host-codex-bootstrap.ts':
     '2fe59d3190fc1482010048841ce17bf0b01b3756ec97d53c48ff3885e664ac1f',
   '../owned-codex-lifecycle-bridge.ts':
-    '18a939912acb36747eb2dc6c76a5e29c0d9e0674282bb9c4283f118cb965e826',
+    '3f56c89e89b7f83b1de9a0b59279fb5181864ad43f6fa1372cdd19b14158004f',
   '../owned-local-codex-chat-admission.ts':
     'd9f03803d20b1dccde2aaa4697707c9d2a6773461505c58b187cd42dc6f8cbce',
   '../codex-account.ts': '3cec7e112fae3db683086ff96ec8dde029a6087272f403ce21f65228022eca1c',
@@ -3138,7 +3140,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/frozen-host-codex-reuse.test.ts':
     'f9ea4b311caeb3fec512a2d95ee933766397498861f71fe5ba48e3eb8115ed3d',
   '../__tests__/host-codex-custody.test.ts':
-    '8c7bb4c67ae80ee4a6729f37df33060b977a2ef66153008b4964490c2e121f42',
+    'f33056cce4b0b9022cb5e3c6bf9f5beba5a8139c77584444f488d085a5ad60fd',
   '../__tests__/local-repository-workspaces.test.ts':
     'eb8be1a7d9f0b774273f36a1d102c0650bab1a5a80cb019197c2620a824f5bf1',
   '../__tests__/openshell-runtime-policy-observation.test.ts':

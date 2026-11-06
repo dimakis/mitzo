@@ -70,6 +70,13 @@ updates exact custody with its completion receipt. Process interruption between 
 retryable with the same plan; a completed plan is inspectable without new effects.
 The operator must separately review interrupted/ambiguous work before continuing.
 
+Accepted refresh versions use two fixed checksummed slots in the same physically
+anchored 32 KiB file. Only the inactive slot is written and synced, preserving the
+last accepted state if a write is interrupted. An unreferenced recovery artifact
+can finish only its exact pending operation's byte prefix; unrelated bytes are
+refused unchanged. Files and parent directory entries are synced before publishing
+custody. Completed receipts never reconstruct a live ledger.
+
 An uncertain **first send with no native conversation** is outside this procedure.
 Preserve its original input and attachments, inspect delivery evidence, and obtain
 an explicit replacement-send decision. Never manufacture native history or replay
@@ -79,9 +86,9 @@ it automatically.
 
 The regression coverage extends existing login, bootstrap, admission, lifecycle and
 native custody fixtures. Synthetic RSA signatures, fake native RPC and local SQLite
-exercise the trust boundaries without model calls or credentials. The focused run
-before final review passed 243 tests across nine existing files in 11.02 seconds
-(6.77 seconds executing tests). There is no browser or complete-app journey added.
+exercise the trust boundaries without model calls or credentials. The final focused run
+passed 246 tests across nine existing files in 10.97 seconds
+(6.39 seconds executing tests). There is no browser or complete-app journey added.
 Historical baseline runtime was not measured, so no runtime delta is claimed.
 Broad build/typecheck and required CI/review gates remain mandatory; local checks
 use one worker and a 1 GiB heap while this Mac is under memory pressure or its

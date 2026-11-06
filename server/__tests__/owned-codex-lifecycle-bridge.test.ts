@@ -766,22 +766,30 @@ it('owns a failed shared key lookup for every queued notification and closes onl
   expect(f.lease.close).toHaveBeenCalledOnce();
 });
 
-it('owns pending key lookup rejection when its notification queue overflows', async () => {
-  const f = fixture();
-  const bridge = new OwnedCodexLifecycleBridge(() => f.lease, { maxPendingNotificationBytes: 16 });
-  bridge.attach(f.owner);
-  let reject!: (error: Error) => void;
-  const pending = new Promise<void>((_resolve, fail) => {
-    reject = fail;
-  });
-  f.lease.qualifyCredentialRefresh = vi.fn(() => pending);
-  bridge.lifecycle.onNotification('first', {});
-  expect(() =>
-    bridge.lifecycle.onNotification('overflow', { data: 'larger than the selected queue bound' }),
-  ).toThrow();
-  reject(Error('lookup cancelled'));
-  await new Promise((resolve) => setImmediate(resolve));
-  expect(f.owner.onNotification).not.toHaveBeenCalled();
-  expect(f.owner.onClose).toHaveBeenCalledOnce();
-  expect(f.lease.close).toHaveBeenCalledOnce();
-});
+it.each(['params', 'method'])(
+  'owns pending key lookup rejection when its notification queue overflows (%s)',
+  async (overflow) => {
+    const f = fixture();
+    const bridge = new OwnedCodexLifecycleBridge(() => f.lease, {
+      maxPendingNotificationBytes: 16,
+    });
+    bridge.attach(f.owner);
+    let reject!: (error: Error) => void;
+    const pending = new Promise<void>((_resolve, fail) => {
+      reject = fail;
+    });
+    f.lease.qualifyCredentialRefresh = vi.fn(() => pending);
+    bridge.lifecycle.onNotification('first', {});
+    expect(() =>
+      bridge.lifecycle.onNotification(
+        overflow === 'method' ? '界'.repeat(6) : 'overflow',
+        overflow === 'method' ? {} : { data: 'larger than the selected queue bound' },
+      ),
+    ).toThrow();
+    reject(Error('lookup cancelled'));
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(f.owner.onNotification).not.toHaveBeenCalled();
+    expect(f.owner.onClose).toHaveBeenCalledOnce();
+    expect(f.lease.close).toHaveBeenCalledOnce();
+  },
+);

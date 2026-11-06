@@ -75,7 +75,7 @@ export class OwnedCodexLifecycleBridge {
             this.#owner!.onNotification(method, params);
           };
           if (qualification || prior) {
-            const bytes = Buffer.byteLength(JSON.stringify(params));
+            const bytes = Buffer.byteLength(method) + Buffer.byteLength(JSON.stringify(params));
             if (
               this.#pendingNotificationBytes + bytes >
                 (this.options.maxPendingNotificationBytes ?? 8 * 1024 * 1024) ||

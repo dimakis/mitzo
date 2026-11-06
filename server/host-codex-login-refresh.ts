@@ -39,7 +39,6 @@ export const LoginRefreshAnchorSchema = z.strictObject({
   issuedAt: z.number().int().nonnegative(),
 });
 export type LoginRefreshAnchor = z.infer<typeof LoginRefreshAnchorSchema>;
-export const MAX_LOGIN_REFRESH_STATE_BYTES = 8192;
 export interface LoginRefreshVersion {
   sha256: string;
   issuedAt: number;
