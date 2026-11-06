@@ -97,19 +97,21 @@ export function UserBubble({
                 {time}
               </time>
             )}
-            {displayText && readAloud && (
-              <ReadAloudButton
-                text={displayText}
-                active={readAloud.active}
-                onSpeak={readAloud.onSpeak}
-                onStop={readAloud.onStop}
-                className="msg-bubble-read-aloud msg-bubble-read-aloud--user"
-              />
-            )}
-            {displayText && (
-              <CopyButton text={displayText} className="msg-bubble-copy msg-bubble-copy--user" />
-            )}
-            {actions}
+            <div className="msg-bubble-footer-actions">
+              {displayText && readAloud && (
+                <ReadAloudButton
+                  text={displayText}
+                  active={readAloud.active}
+                  onSpeak={readAloud.onSpeak}
+                  onStop={readAloud.onStop}
+                  className="msg-bubble-read-aloud msg-bubble-read-aloud--user"
+                />
+              )}
+              {displayText && (
+                <CopyButton text={displayText} className="msg-bubble-copy msg-bubble-copy--user" />
+              )}
+              {actions}
+            </div>
           </div>
         )}
       </div>
@@ -326,17 +328,19 @@ export function TextBubble({
               {formatMessageDate(timestamp)}
             </time>
           )}
-          {readAloud && (
-            <ReadAloudButton
-              text={content}
-              active={readAloud.active}
-              onSpeak={readAloud.onSpeak}
-              onStop={readAloud.onStop}
-              className="msg-bubble-read-aloud"
-            />
-          )}
-          <CopyButton text={content} className="msg-bubble-copy" />
-          {actions}
+          <div className="msg-bubble-footer-actions">
+            {readAloud && (
+              <ReadAloudButton
+                text={content}
+                active={readAloud.active}
+                onSpeak={readAloud.onSpeak}
+                onStop={readAloud.onStop}
+                className="msg-bubble-read-aloud"
+              />
+            )}
+            <CopyButton text={content} className="msg-bubble-copy" />
+            {actions}
+          </div>
         </div>
       )}
     </div>

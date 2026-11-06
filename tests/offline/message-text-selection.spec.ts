@@ -41,6 +41,11 @@ for (const theme of ['dark', 'light']) {
     });
     await page.emulateMedia({ reducedMotion: theme === 'light' ? 'reduce' : 'no-preference' });
     await page.goto('/');
+    if (theme === 'light') {
+      await page.evaluate(() => {
+        document.documentElement.style.fontSize = '20px';
+      });
+    }
     for (const role of ['user', 'assistant']) {
       const message = page.getByLabel(`Message from ${role === 'user' ? 'you' : 'Mitzo'}`, {
         exact: true,
@@ -48,6 +53,14 @@ for (const theme of ['dark', 'light']) {
       const text = message.locator(
         role === 'user' ? '.msg-bubble-content' : '.msg-bubble-markdown p',
       );
+      const footerFits = await message.locator('.msg-bubble-footer').evaluate((footer) => {
+        const bubble = footer.closest('.msg-bubble')!.getBoundingClientRect();
+        return Array.from(footer.querySelectorAll('time,button')).every((control) => {
+          const rect = control.getBoundingClientRect();
+          return rect.left >= bubble.left && rect.right <= bubble.right;
+        });
+      });
+      expect(footerFits).toBe(true);
       await text.dispatchEvent('pointerdown', {
         pointerType: 'touch',
         button: 0,

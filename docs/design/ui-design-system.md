@@ -2617,7 +2617,11 @@ and dismisses the app menu without moving focus. A labelled **Message actions**
 overflow button beside each bubble's existing copy/voice controls gives touch and
 keyboard users explicit menu access. It uses UiIcon, shared semantic tokens,
 control height and focus styling; the existing MotionPresence owns menu motion.
-Escape returns focus to the invoking button. Offline `message-text-selection`
+Escape returns focus to the invoking button. Footers keep their action buttons
+together and wrap the date onto its own row
+when narrow widths or larger fonts need more space. No control or date may
+extend outside its bubble. The shared footer uses the existing spacing scale.
+Offline `message-text-selection`
 fixtures cover both speakers, phone/desktop widths, light/dark appearance,
 alternate accents/fonts, reduced motion, selection and 44px controls without
 backend or model calls. OS selection callouts still need physical iOS verification.

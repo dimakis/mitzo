@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.907-message-selection-cleanup-integration';
+  'v1.0.908-message-selection-footer-wrap';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -32,7 +32,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../tests/fixtures/message-text-selection.tsx':
     'fcdd77511e7d1ceba75c66343a865437266f7131f7fcc21a29c2cc795b05a9c8',
   '../../tests/offline/message-text-selection.spec.ts':
-    '9e3f630f61a99f345f0ac1291f01b1d045aee971b97f96095c953cbeaf1ebb79',
+    'eb71f2d56bf242034f55e742cc2a8b230a15179dbd1b207a24006073b37e9274',
   '../session-resource-removal.ts':
     'f0ae3f23b02c89b2b6014b01389992ee77ac79f1c8ca38210289be4bfcc453c9',
   '../session-removal-runtime.ts':
@@ -230,7 +230,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/owned-local-auth-feedback.test.ts':
     'fa4b4dca12a655e4075c03e6c95701ac9c8c1a6607f867e27668c914e988da21',
   '../../docs/design/ui-design-system.md':
-    '495e5863e7fd1f62188ef185601aeb78cf44bc71ed72aed5cf912829b2dde818',
+    '27054f6d949f58d89ea4471b412bd75237c6e32931a290d1c55500e7795a30e6',
   '../../packages/protocol/src/session-prompts.ts':
     '86f1242cbaa5371b414ac341faa2e128d5ff0fa88c3bcf06dfd39b5424366be2',
   '../__tests__/session-prompt-service.test.ts':
@@ -1337,7 +1337,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/types/ws-messages.ts':
     '7a380fb5213533ddd87da2bcfc202e1a6b5cf6b02e34ca73c9310e9007d8a77b',
   '../../frontend/src/styles/global.css':
-    '7a7f2f78814860e8b7ac1f531a3a54bb58a964b738ae4fcfcef5b499c879c819',
+    '67486349381fac34dada992d7d84fd18052b23aeaf3e6b9dead00ff982c382e6',
   '../../frontend/src/components/TelosSourceReview.tsx':
     'c8cf59ec933a25bbd85e5525ff8e094226a95b667757bd7142edb9b213bf2766',
   '../../frontend/src/components/PermissionBanner.tsx':
@@ -1361,7 +1361,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/components/SessionWorkLink.tsx':
     '0c6faa7b7e614e1ab58468c6056ead9945baae8814132caedf18dfe6eef6517b',
   '../../frontend/src/components/MessageBubble.tsx':
-    'af2963dd08fbb073f3bc09f9d26b3a649ee9f08637b9b3d7fcb9bc01f9c98ec4',
+    '75fc92c74e1fec976285b4a79ec0176ed315a1998068ccfab045783dfbb990de',
   '../telos-outcome-owner.ts': '7e11bca759dcda14dbc766fd7a02d1a05165a7333d8b78368555145854740161',
   '../../packages/protocol/src/telos-outcome.ts':
     '2e02bc7096e531552c3eeec437f4e777d5b9a14089c3d6a9eb00b5d7942bf758',
