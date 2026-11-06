@@ -193,12 +193,12 @@ for (const theme of ['dark', 'light']) {
     });
     await page.goto('/');
     await expect(queueStatus(page)).toContainText('Reconnecting…');
-    await expect(page.getByRole('button', { name: 'Reconnect and continue' })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Continue chat' })).toHaveCount(0);
     await page.screenshot({ path: info.outputPath(`recovering-${theme}.png`) });
     // A sustained failure keeps the explicit fallback; success must remove its old warning.
     recovering = false;
     await page.getByRole('button', { name: 'Emit queue metadata change', exact: true }).click();
-    const reconnect = page.getByRole('button', { name: 'Reconnect and continue' });
+    const reconnect = page.getByRole('button', { name: 'Continue chat' });
     await expect(reconnect).toBeVisible();
     await reconnect.focus();
     await page.keyboard.press('Enter');
@@ -243,66 +243,82 @@ for (const theme of ['dark', 'light']) {
 }
 
 for (const theme of ['dark', 'light']) {
-  test(`failed undispatched local input uses signed saved-work recovery (${theme})`, async ({
-    page,
-  }, info) => {
-    const files = (await output).outputFiles!;
-    let continued = false;
-    const mutations: Array<{ path: string; connection?: string }> = [];
-    await page.route('**/*', (route) => {
-      const request = route.request();
-      const path = new URL(request.url()).pathname;
-      if (path.endsWith('/meta'))
-        return route.fulfill({
-          json: {
-            codexQueue: {
-              paused: false,
-              connected: true,
-              canContinue: !continued,
-              queued: 0,
-              interrupted: 0,
-              failed: continued ? 0 : 1,
-              retryable: false,
-            },
-          },
+  for (const scenario of ['failed', 'interrupted'] as const) {
+    for (const presentation of ['standalone', 'combined']) {
+      test(`${scenario} local input with no queue uses signed saved-work recovery (${theme}, ${presentation})`, async ({
+        page,
+      }, info) => {
+        const files = (await output).outputFiles!;
+        let continued = false;
+        const mutations: Array<{ path: string; connection?: string }> = [];
+        await page.route('**/*', (route) => {
+          const request = route.request();
+          const path = new URL(request.url()).pathname;
+          if (path.endsWith('/meta'))
+            return route.fulfill({
+              json: {
+                codexQueue: {
+                  paused: scenario === 'interrupted' && !continued,
+                  connected: scenario === 'failed' || continued,
+                  canContinue: !continued,
+                  queued: 0,
+                  interrupted: scenario === 'interrupted' ? 1 : 0,
+                  failed: scenario === 'failed' && !continued ? 1 : 0,
+                  retryable: false,
+                },
+              },
+            });
+          if (request.method() === 'POST' && path.includes('/codex-queue/')) {
+            mutations.push({ path, connection: request.headers()['x-connection-id'] });
+            continued = true;
+            return route.fulfill({ json: { ok: true } });
+          }
+          if (path.startsWith('/api/')) return route.fulfill({ json: [] });
+          const asset = files.find((file) =>
+            path.endsWith(file.path.endsWith('.css') ? '.css' : '.js'),
+          );
+          if (asset)
+            return route.fulfill({
+              contentType: asset.path.endsWith('.css') ? 'text/css' : 'text/javascript',
+              body: asset.text,
+            });
+          if (path !== '/') return route.abort();
+          return route.fulfill({
+            contentType: 'text/html',
+            body: `<!doctype html><html data-theme="${theme}" data-accent="mint" data-font="georgia"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="/fixture.css"><div id="root"></div><script type="module" src="/fixture.js"></script></html>`,
+          });
         });
-      if (request.method() === 'POST' && path.includes('/codex-queue/')) {
-        mutations.push({ path, connection: request.headers()['x-connection-id'] });
-        continued = true;
-        return route.fulfill({ json: { ok: true } });
-      }
-      if (path.startsWith('/api/')) return route.fulfill({ json: [] });
-      const asset = files.find((file) =>
-        path.endsWith(file.path.endsWith('.css') ? '.css' : '.js'),
-      );
-      if (asset)
-        return route.fulfill({
-          contentType: asset.path.endsWith('.css') ? 'text/css' : 'text/javascript',
-          body: asset.text,
+        await page.setViewportSize({
+          width: info.project.name.startsWith('mobile') ? 320 : 1280,
+          height: 844,
         });
-      if (path !== '/') return route.abort();
-      return route.fulfill({
-        contentType: 'text/html',
-        body: `<!doctype html><html data-theme="${theme}" data-accent="mint" data-font="georgia"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="/fixture.css"><div id="root"></div><script type="module" src="/fixture.js"></script></html>`,
+        await page.goto(presentation === 'combined' ? '/?combined=1' : '/');
+        const status =
+          presentation === 'combined'
+            ? page.getByRole('region', { name: 'Conversation status' })
+            : queueStatus(page);
+        await expect(status).toContainText('Your work is saved.');
+        const reconnect = page.getByRole('button', { name: 'Continue chat' });
+        await expect(reconnect).toBeVisible();
+        await expect(page.getByRole('dialog')).toHaveCount(0);
+        const input = page.getByRole('textbox', { name: 'Message Mitzo' });
+        await input.fill('Preserve this next request');
+        await expect(page.getByRole('button', { name: 'Retry saved turn' })).toHaveCount(0);
+        await page.screenshot({
+          path: info.outputPath(`chat-status-${scenario}-saved-local-${theme}-${presentation}.png`),
+        });
+        expect(mutations).toEqual([]);
+        await reconnect.focus();
+        await page.keyboard.press('Enter');
+        if (presentation === 'combined') await expect(status).toContainText('Ready');
+        else await expect(queueStatus(page)).toHaveCount(0);
+        await expect(input).toHaveValue('Preserve this next request');
+        expect(mutations).toEqual([
+          { path: '/api/sessions/queue-fixture/codex-queue/continue', connection: 'fixture' },
+        ]);
       });
-    });
-    await page.setViewportSize({
-      width: info.project.name.startsWith('mobile') ? 320 : 1280,
-      height: 844,
-    });
-    await page.goto('/');
-    await expect(queueStatus(page)).toContainText('Your message is saved.');
-    const reconnect = page.getByRole('button', { name: 'Reconnect and continue' });
-    await expect(reconnect).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Retry saved turn' })).toHaveCount(0);
-    await page.screenshot({ path: info.outputPath(`failed-saved-local-${theme}.png`) });
-    await reconnect.focus();
-    await page.keyboard.press('Enter');
-    await expect(queueStatus(page)).toHaveCount(0);
-    expect(mutations).toEqual([
-      { path: '/api/sessions/queue-fixture/codex-queue/continue', connection: 'fixture' },
-    ]);
-  });
+    }
+  }
 }
 
 for (const theme of ['dark', 'light']) {
@@ -364,7 +380,7 @@ for (const theme of ['dark', 'light']) {
     await expect(queueStatus(page)).toContainText(
       'Check the interrupted turn before continuing. Saved work is preserved.',
     );
-    await expect(page.getByRole('button', { name: 'Reconnect and continue' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Continue chat' })).toBeVisible();
     await page.getByRole('button', { name: 'Review queue' }).click();
     await expect(page.getByText('Retained next command')).toBeVisible();
     expect(
@@ -376,7 +392,7 @@ for (const theme of ['dark', 'light']) {
     await expect(queueStatus(page)).toContainText(
       'The response completed. Check unfinished work before continuing.',
     );
-    await expect(page.getByRole('button', { name: 'Reconnect and continue' })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Continue chat' })).toHaveCount(0);
     await expect(page.getByText('Retained next command')).toBeVisible();
     await page.screenshot({ path: info.outputPath(`completed-unknown-${theme}.png`) });
     reconcile = true;
@@ -384,12 +400,12 @@ for (const theme of ['dark', 'light']) {
     await expect(queueStatus(page)).toContainText(
       'The response completed. Reconnect to check its follow-up.',
     );
-    await expect(page.getByRole('button', { name: 'Reconnect and continue' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Continue chat' })).toBeVisible();
     await page.screenshot({ path: info.outputPath(`completed-observed-${theme}.png`) });
     const fixture = page.locator('main');
     const revision = Number(await fixture.getAttribute('data-metadata-revision'));
     await page.getByRole('textbox', { name: 'Message Mitzo' }).fill('Retain the next prompt');
-    await page.getByRole('button', { name: 'Reconnect and continue' }).click();
+    await page.getByRole('button', { name: 'Continue chat' }).click();
     await expect(fixture).toHaveAttribute('data-metadata-revision', String(revision + 1));
     await expect(page.getByRole('textbox', { name: 'Message Mitzo' })).toHaveValue(
       'Retain the next prompt',

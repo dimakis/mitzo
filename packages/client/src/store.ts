@@ -1140,7 +1140,9 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
         if (boundedRestore === currentBoundedRestore) boundedRestore = undefined;
         if (request === historyRequest) {
           recoveryInFlight = false;
-          if (throughSeq !== undefined) store.setState({ historyLoading: false });
+          // An accepted receipt can supersede an opening history request too.
+          // The current owner must finish that loading state on every path.
+          store.setState({ historyLoading: false });
         }
       });
   }
