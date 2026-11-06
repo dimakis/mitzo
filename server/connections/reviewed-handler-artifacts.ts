@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.902-chat-tools-peer-integration';
+  'v1.0.903-chat-tools-receipt-history';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -23,6 +23,10 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
+  '../../packages/client/__tests__/messages-slice.test.ts':
+    'ae0160c176f993c8be41a4f22b2bc787fa10eb952c565189bfd08203e557f071',
+  '../../packages/client/__tests__/store.test.ts':
+    'ae3fc0e94e09dcb93ec11e2fa72b468f983d3a21b196a31a5261890496152356',
   '../local-repository-skill-source.ts':
     '494e3fb159976afc6a1face61b02444b571bb86b3bedcc56ec7943639041a727',
   '../../frontend/src/components/__tests__/SlashPicker.test.ts':
@@ -53,7 +57,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../tests/offline/chat-runtime-tools.spec.ts':
     '79e59c9fde6aeb2f39be147999eb9185f4a182fce2e2faaaf42f670d2918da33',
   '../../docs/features/chat-runtime-tools.md':
-    'd504c51ccb0feee1fca2a0fb66883a0b8e012136b5c90f9dfb78b6bdbe5cbee7',
+    'a21e411e5a8866ecef54131eab23d4dd12b64e14b593e4ad51de6f3ed547aad3',
   '../agent-communication-permission.ts':
     'b2a872de9e4a3a09479586c32bf8786d8c831ebd3cd7d1d2915d9d42d44e3b15',
   '../agent-message-transcript.ts':
@@ -1651,7 +1655,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/client/src/sse-connection.ts':
     '0f7f07c617285c102503d1b98e8a8c331fea2a2879cd1f25a965e27f77b5b5fa',
   '../../packages/client/src/store.ts':
-    '7475410c97738940dfc1f850633de7e7d3304c7f018bb1e25158b8fd611060f1',
+    'd394201e9b748a9fdd8b6e0aac4ba7f39ce3f85ddafb678b4dc1ad25b2a43d29',
   '../../packages/harness/src/permission-handler.ts':
     'f16616d3c1776b5254f99ff40e68412f5a91363215d89ec9e2852d5bdb420f66',
   '../../packages/harness/src/permissions.ts':
@@ -1952,7 +1956,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/client/src/protocol-parser.ts':
     'd94858e889b279e6e8f2039558c91bb782731695ef65cdf220f0cd2821d739e9',
   '../../packages/client/src/slices/messages.ts':
-    'aafce82726e18c4f5b2bd258b7539344c7f1dd921e058e8036f30cb8c3f022ff',
+    '8f0908bbd659dc4402062ace6666c15690b125a39e8ed70eaaaafc4d22a41d07',
   '../../packages/harness/src/providers/session-types.ts':
     '9db61b3cb13cf4c1ffe83e2c824f8a79865dcd9c847dec84109ad886910928cb',
   '../../packages/protocol/src/agent-context-pack.ts':

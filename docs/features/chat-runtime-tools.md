@@ -123,3 +123,10 @@ when main moved to `0cf9fbfd3` with traceable peer messages. The next integratio
 retains peer-permission rechecks and durable message projections alongside the
 ordinary skill transaction. The prior accepted review remains the baseline;
 current combined CI and targeted integration review are required again.
+
+The peer integration review found `CEN-3384942E71A5` in history restoration:
+a missed receipt update could leave a card queued after durable history reported
+delivery or failure. Store reconciliation and direct RESTORE now select the
+newest receipt sequence while preserving a newer live update and the original
+card position. Both missed transitions and the reverse live/history race are
+covered; all 261 store/reducer tests pass locally.
