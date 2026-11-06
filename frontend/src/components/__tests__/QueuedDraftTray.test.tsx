@@ -34,7 +34,7 @@ it('does not close a newer queued-prompt editor when an earlier save finishes', 
       busy={false}
       running
       blocked={false}
-      textOnlySteer
+      nativeSteer
       onPause={vi.fn()}
       onSend={vi.fn()}
       onUpdate={() => true}

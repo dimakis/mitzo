@@ -494,7 +494,7 @@
     },
     {
       "id": "chat-status",
-      "activeRevision": "above-composer-2026-11-04",
+      "activeRevision": "direct-interrupt-2026-11-06",
       "revisions": [
         {
           "id": "above-composer-2026-11-04",
@@ -550,6 +550,81 @@
             {
               "path": "tests/offline/chat-queue-steering.spec.ts",
               "sha256": "140987f86a77ba33f4ce9b504ae12c31014c1ec6393cb6ee8b56e81cd4daee8e"
+            }
+          ],
+          "validation": "docs/features/chat-composer-status.md"
+        },
+        {
+          "id": "direct-interrupt-2026-11-06",
+          "approvedBy": "Dimitri (explicit rejection of the correction overflow and direction to use an icon)",
+          "approvedOn": "2026-11-06",
+          "approval": {
+            "thread": "Originating Mitzo chat, MGMT task repo-ac8d1e1d-5617-8629-8a32-b83f31ae4d92; conversation ID unavailable to this runtime",
+            "quote": "a second … menu with a single button? Wtf is this. Let’s dig and fix; I also don’t want the text. Just give me an icon like the rest of the composer; It actually seems I can’t interrupt with a screenshot/ image",
+            "scope": "Replace only the one-item Send options overflow with a direct icon-only lightning action beside Queue and Stop, and support screenshots/images through native correction delivery. Preserve the approved status row, other composer tools and all runtime/delivery boundaries."
+          },
+          "references": [
+            {
+              "path": "docs/design/approved/chat-status/status-above-composer.html",
+              "sha256": "7b4cce395218cb1766272e9f567b7b19c9d512c1e9cc6cf1e95cb40770526739"
+            },
+            {
+              "path": "docs/design/approved/chat-status/direct-interrupt-2026-11-06.md",
+              "sha256": "0d142e6781a8afd5bad10dc5bc209f9235de8bdae408488b470993d570055608"
+            }
+          ],
+          "invariants": [
+            "One always-mounted, single-line status row above the existing composer, using the shared control height and an overlay for full detail.",
+            "Keep message dates, copy, read aloud, reply menus and all existing composer tools and capabilities.",
+            "Routine autosaving stays quiet; actual failures and approvals remain visible. Independent issues remain actionable after another clears.",
+            "Existing queue editing, ordering, pause/resume, attachments, cancellation and recovery remain available through details without changing their owners or dispatch semantics.",
+            "Submitted text and image previews leave together while the original payload remains retained; late receipts cannot erase newer or foreign drafts.",
+            "Routine recovery feedback cannot replace a running agent label with a misleading conversation reconnect label. Genuine blocked/uncertain outcomes retain their explicit checks.",
+            "Shared theme, accent, font, motion, keyboard and touch targets remain effective; the Chat settings approval is unchanged.",
+            "Correction is a direct icon-only lightning button with an accessible name and restriction tooltip; no Send options overflow or visible button text.",
+            "Native screenshot corrections retain exact attachment bytes and their original turn across uncertain delivery and reload; changed payloads cannot replace a retained correction.",
+            "Dispatch locks never depend on animation frames; pending receipts still fence duplicate submissions."
+          ],
+          "sources": [
+            "frontend/src/components/ComposerStatus.tsx",
+            "frontend/src/components/ComposerStatus.css",
+            "frontend/src/lib/composer-status-context.ts",
+            "frontend/src/components/ChatInput.tsx",
+            "frontend/src/components/ChatStatusMessage.tsx",
+            "frontend/src/components/CodexQueueStatus.tsx",
+            "frontend/src/components/WorkspaceActionMenu.tsx",
+            "frontend/src/pages/ChatView.tsx",
+            "frontend/src/pages/DesktopChatView.tsx"
+          ],
+          "checks": [
+            "frontend/src/components/__tests__/ComposerStatus.test.tsx",
+            "frontend/src/components/__tests__/ChatInputStatus.test.tsx",
+            "tests/offline/chat-queue-steering.spec.ts",
+            "frontend/src/components/__tests__/ChatInputCommandStrip.test.tsx",
+            "frontend/src/components/__tests__/MessageActions.test.tsx",
+            "frontend/src/components/__tests__/ChatInputDirectInterrupt.test.tsx",
+            "frontend/src/hooks/__tests__/useTurnSteering.test.tsx"
+          ],
+          "protectedChecks": [
+            {
+              "path": "frontend/src/components/__tests__/ComposerStatus.test.tsx",
+              "sha256": "0cb49ba69f1519d678e36c392a0be04843cf40e7c5238247e26763b533844b85"
+            },
+            {
+              "path": "frontend/src/components/__tests__/ChatInputStatus.test.tsx",
+              "sha256": "f4534e3c51b092d69eaa73f4a156b6488354256765377b6ad5e7e18927d38cd5"
+            },
+            {
+              "path": "tests/offline/chat-queue-steering.spec.ts",
+              "sha256": "14d2e75c9a7e04c003d0283b20a92b30e2b4d66788e18aaee0876b780392dfd6"
+            },
+            {
+              "path": "frontend/src/components/__tests__/ChatInputDirectInterrupt.test.tsx",
+              "sha256": "158933a4001e7d46782df7dcc73f9e0a8aecacf28201ac42c2f7faf6adf2ee6b"
+            },
+            {
+              "path": "frontend/src/hooks/__tests__/useTurnSteering.test.tsx",
+              "sha256": "1467a53e2163b0f39b3ac4c6032404c2e6db7c0cc966d15743fd3041e5555e5a"
             }
           ],
           "validation": "docs/features/chat-composer-status.md"
