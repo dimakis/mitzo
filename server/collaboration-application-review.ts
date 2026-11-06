@@ -28,6 +28,7 @@ import { createCollaborationContextSource } from './collaboration-context-source
 import type { EventStore } from './event-store.js';
 import type { RepositoryWorkspaces } from './repository-workspaces.js';
 import { nativeStartupSessionId } from './ordinary-repository-startup.js';
+import { ordinaryWorkspaceTaskRoot } from './ordinary-workspace-runtime.js';
 
 const unavailable = () => new CollaborationContractError('execution_unavailable');
 
@@ -221,15 +222,19 @@ export class CollaborationApplicationReview {
     if (!target.agent) throw unavailable(); // The ordinary profile resolver has no implicit default.
     const record = this.owners.workspaces.get(target.repositoryWorkspaceId);
     const proof = record.ordinaryPreparation;
+    const reservationSessionId = nativeStartupSessionId(`repository:${record.id}`);
     const originalReservation =
       join &&
-      record.conversationId === nativeStartupSessionId(`repository:${record.id}`) &&
-      record.ordinaryFirstReservation?.conversationId === record.conversationId &&
-      (!join.sessionId || join.sessionId === record.conversationId);
+      record.ordinaryFirstReservation?.conversationId === reservationSessionId &&
+      (!join.sessionId || join.sessionId === reservationSessionId) &&
+      (record.conversationId === reservationSessionId ||
+        (proof?.runtimeBinding.execution.location === 'openshell' &&
+          record.state === 'ready' &&
+          !record.conversationId));
     if (
       !proof ||
       (originalReservation
-        ? !['reserved', 'claimed'].includes(record.state) ||
+        ? !['ready', 'reserved', 'claimed'].includes(record.state) ||
           !isDeepStrictEqual(record.ordinaryFirstReservation?.binding, record.binding)
         : record.state !== 'ready' ||
           record.conversationId ||
@@ -290,6 +295,17 @@ export class CollaborationApplicationReview {
       repositoryWorkspaceId: target.repositoryWorkspaceId,
     };
     await this.owners.workspaces.qualifiedStatus(record.id, binding);
+    if (originalReservation && join.state !== 'linked')
+      await this.owners.workspaces.qualifyOrdinarySessionReservation({
+        allocationOperationId: join.allocationOperationId,
+        id: record.id,
+        binding,
+        taskRoot: ordinaryWorkspaceTaskRoot(true),
+        settings,
+        agentProfile: agent,
+        ...(proof.sandboxWorkdir ? { sandboxWorkdir: proof.sandboxWorkdir } : {}),
+        signal,
+      });
     await assertOrdinarySilentPreparationAuthority(proof, binding, settings, signal);
     const assertCurrent = () => {
       signal.throwIfAborted();

@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.909-symposium-continuation-integration';
+  'v1.0.910-symposium-reservation-authority';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -23,12 +23,16 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
+  '../__tests__/collaboration-application-joining-openshell.test.ts':
+    '83aa34da6b23d66158ac6735b4a7da8a9a1b35e0cb650713abc3af947bd43aec',
+  '../__tests__/fixtures/collaboration-application-review.ts':
+    '7a65b5722ec693cc7aa1704a4e35c40f9bc13c32e71a86891e4e0acde8b730bf',
   '../__tests__/collaboration-joining-reconciliation.test.ts':
     '219afc8f75f5910d892c483b03e071e0e64c6f3188e6c89e44d59f8a4791f4d9',
   '../collaboration-application-joining.ts':
     '1eaadb4f764fda27629db1d72650a540d5f37d6e127c9d7a49cf620ec9b1ac28',
   '../__tests__/collaboration-application-joining.test.ts':
-    '8cb94a9c9abca2df9e4ccb62bbca4c8583eaf89051004fe8d2f729edf28f5295',
+    'be1743f10345640210afd63893f6a33f0dce081bc328333ab6ed9cd36aba8587',
   '../__tests__/collaboration-application-joining-integration.test.ts':
     'd730c4b9e519c96c521aae5897a8287ec12f4c3fc1afa4105f1a9855e908f923',
   '../session-resource-removal.ts':
@@ -1275,7 +1279,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/lib/conversation-joining-recovery.ts':
     'f05570232deea0814fd1db0addee83e8155b61375f887f5476ad4ba30abf0571',
   '../collaboration-application-review.ts':
-    '4413371caebbbe80d27793bf3accdb8b9fcb78bf8f3997073af0b4e593677195',
+    '217beea4e464c4f0cdd9de6562bd74f2a54c1896b47b12fb554e5ddf16c37e9f',
   '../../frontend/src/lib/saved-artifact-location.ts':
     'b884336c70dae85d63d955fb9d454f4a7cd28e8e9d2fca94e3839b7e6b6444a5',
   '../../frontend/src/components/SavedArtifactRouteDialog.tsx':
@@ -1950,7 +1954,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../native-tool-executor.ts': '5d3423b5ef1a9ab970d60e65f27f41de08df977bb5f779292ceedfd55c07057c',
   '../repository-preparation-capacity.ts':
     'f042dee9fe5643e989bf229e06c532ee0f42764300583f4fc84a265730bb360b',
-  '../repository-workspaces.ts': '12f1cc27ace32983f2dd6edd4106bfe0877bbd201fb4aacb077b7ca42c2defda',
+  '../repository-workspaces.ts': '1fba933eba4a2dad836c84ed64f3a754f7c7f64cb2e4edfc58eeacc780570afa',
   '../../packages/protocol/src/session-metadata-store.ts':
     'dc00df7c8119e002a8d4ad68dfd8063d86c5f37c527ce0d14749d9f14a51ed86',
   '../../packages/protocol/src/event-store.ts':

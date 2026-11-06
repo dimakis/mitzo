@@ -14,7 +14,7 @@ Messaging prerequisite [#1222](https://github.com/dimakis/mitzo/pull/1222) merge
 5 November at `6bb45e9b4f81e7b49767f14a47f866f4711a33e9`.
 
 This increment is implementation candidate source on `feat/symposium-ordinary-joining`,
-based on accepted main `3e31ae28d2d1f2a54cdaf3fbcbeab3846a33341b`.
+integrated with accepted main `845452115c10143e0b7d7f0f5c235eb382a21b65`.
 It is not evidence of merge, deployment or live account qualification.
 `CollaborationApplicationReview` resolves the actual unused repository target and
 ordinary account/model/profile/settings. `createApplicationCollaborationJoining`
@@ -28,6 +28,11 @@ still blocks. The original frozen visible content, operator, profile, credential
 and repository authority are checked again before preparation/linking. Exact retries
 recover their original join and allocation; membership conflict uses explicit
 reconciliation. No future provider request is measured or certified at join time.
+Unlinked recovery renews repository grants and source qualification against the
+existing workspace allocation fingerprint, including a crash before the session
+receipt exists. OpenShell's ready reservation retains its original session ID
+without claiming or starting a sandbox. A prepared session that already admitted
+its first command cannot be newly linked; already-linked retries remain observational.
 Prompt delivery remains disabled, and its later implementation must preserve
 ordinary admission, exact authorized content and uncertainty handling.
 
@@ -36,8 +41,16 @@ The approved `symposium-fresh-agent` ledger revision remains
 confirm unmeasured capacity after review; its screens, layout, reference bytes and
 protected checks remain unchanged. The existing capacity status explains the limit.
 
-Evidence checked 6 November 2026 with synthetic Local Codex account/runtime metadata,
+Evidence checked 6 November 2026 with synthetic Local Codex and OpenShell account/runtime metadata,
 real Git/SQLite/ordinary preparation and no inference:
+
+Focused OpenShell tests in `server/__tests__/collaboration-application-joining-openshell.test.ts`
+cover confirmation, both allocation crash windows, a reopened EventStore and
+revoked repository access. External runtime declaration and account readiness are
+substituted; no OpenShell runtime is created or qualified. The application joining
+tests also cover source mutation during qualification, grant revocation between
+authorization checks and allocation-operation mismatch. Both Centaur findings
+`CEN-63DFDEB538A7` and `CEN-27D8517FBA74` require current-head verification before merge.
 
 | Existing milestone requirement                            | Evidence and remaining boundary                                                                                                                                                                                                                                                                                                                                |
 | --------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |

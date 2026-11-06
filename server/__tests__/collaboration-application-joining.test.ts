@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { join } from 'node:path';
+import { writeFile } from 'node:fs/promises';
 import { afterEach, expect, it, vi } from 'vitest';
 import { revokeAuthSession } from '../auth.js';
 import { createApplicationCollaborationJoining } from '../collaboration-application-joining.js';
@@ -122,6 +123,85 @@ it('recovers a crash after allocation from the same ordinary receipt and frozen 
   expect(f.store.listSessions()).toHaveLength(2);
   expect(f.store.getOrdinaryInitialCommandId(receipt.sessionId)).toBeUndefined();
 });
+
+it.each(['after reservation', 'after receipt'] as const)(
+  'renews repository access during recovery %s without replacing the original allocation',
+  async (crash) => {
+    const f = await joiningFixture();
+    const interrupted =
+      crash === 'after reservation'
+        ? vi.spyOn(f.store, 'prepareOrdinarySession')
+        : vi.spyOn(f.store.collaborationConversation, 'recordAllocation');
+    interrupted.mockImplementationOnce(() => {
+      throw Error('Simulated allocation crash');
+    });
+    await expect(
+      f.joining.confirm(f.auth.id, f.group, f.input, f.controller.signal),
+    ).rejects.toThrow('Simulated allocation crash');
+    interrupted.mockRestore();
+    const pending = f.store.collaborationConversation.view(f.group).joins[0];
+    const receipt = f.store.getOrdinarySessionPreparation(pending.allocationOperationId);
+    expect(!!receipt).toBe(crash === 'after receipt');
+    f.access.mockRejectedValue(Error('Repository grant revoked'));
+    await expect(
+      f.joining.recover(f.auth.id, f.group, pending.joinId, f.controller.signal),
+    ).rejects.toThrow('Repository grant revoked');
+    expect(f.store.collaborationConversation.getJoin(f.group, pending.joinId)).toEqual(pending);
+    expect(f.store.getSessionCollaboration(f.group)?.participantSessionIds).toEqual(['source']);
+    f.access.mockResolvedValue({ revision: 1, allowedBaseBranches: ['main'] });
+    const recovered = await f.joining.recover(
+      f.auth.id,
+      f.group,
+      pending.joinId,
+      f.controller.signal,
+    );
+    expect(recovered.state).toBe('linked');
+    expect(recovered.allocationOperationId).toBe(pending.allocationOperationId);
+    if (receipt) expect(recovered.sessionId).toBe(receipt.sessionId);
+    expect(f.store.listSessions()).toHaveLength(2);
+    expect(f.store.getOrdinaryInitialCommandId(recovered.sessionId!)).toBeUndefined();
+  },
+);
+
+it.each(['source changed', 'grant revoked during qualification', 'allocation mismatch'] as const)(
+  'refuses %s before linking a retained allocation',
+  async (change) => {
+    const f = await joiningFixture();
+    const interrupted = vi
+      .spyOn(f.store.collaborationConversation, 'recordAllocation')
+      .mockImplementationOnce(() => {
+        throw Error('Simulated allocation crash');
+      });
+    await expect(
+      f.joining.confirm(f.auth.id, f.group, f.input, f.controller.signal),
+    ).rejects.toThrow('Simulated allocation crash');
+    interrupted.mockRestore();
+    const pending = f.store.collaborationConversation.view(f.group).joins[0];
+    if (change === 'source changed')
+      f.verify.mockImplementationOnce(async (_record, directory) => {
+        await writeFile(join(directory, 'source.txt'), 'Changed during qualification');
+      });
+    if (change === 'grant revoked during qualification')
+      f.access.mockImplementationOnce(async () => {
+        f.access.mockRejectedValue(Error('Repository grant revoked'));
+        return { revision: 1, allowedBaseBranches: ['main'] };
+      });
+    if (change === 'allocation mismatch')
+      await expect(
+        f.owner.resolveJoiningSettings(f.input.settings, f.controller.signal, {
+          ...pending,
+          allocationOperationId: randomUUID(),
+        }),
+      ).rejects.toThrow('Original silent repository reservation unavailable');
+    else
+      await expect(
+        f.joining.recover(f.auth.id, f.group, pending.joinId, f.controller.signal),
+      ).rejects.toThrow();
+    expect(f.store.collaborationConversation.getJoin(f.group, pending.joinId)).toEqual(pending);
+    expect(f.store.getSessionCollaboration(f.group)?.participantSessionIds).toEqual(['source']);
+    expect(f.store.listSessions()).toHaveLength(2);
+  },
+);
 
 it('reconciles a membership conflict explicitly without replacing the original session', async () => {
   const f = await joiningFixture();
