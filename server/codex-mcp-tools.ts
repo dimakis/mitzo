@@ -1,7 +1,6 @@
 import { retainCallbackOutcome } from './turn-callbacks.js';
 import { createHash } from 'node:crypto';
-import { context, trace, SpanStatusCode } from '@opentelemetry/api';
-import { tracer } from './tracing.js';
+import { observeOperationAsync } from './operation-observation.js';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 import type { ToolDefinition } from '@mitzo/harness';
@@ -35,7 +34,15 @@ export interface McpToolsOptions {
   signal: AbortSignal;
   connect?: (config: McpServerConfig, options: McpToolsOptions) => Promise<Connection>;
 }
-async function connect(config: McpServerConfig, options: McpToolsOptions): Promise<Connection> {
+interface StartupSource {
+  index: number;
+  id: string;
+}
+async function connect(
+  config: McpServerConfig,
+  options: McpToolsOptions,
+  source: StartupSource,
+): Promise<Connection> {
   options.signal.throwIfAborted();
   options.assertRuntimeCurrent?.();
   const client = new Client({ name: 'mitzo-codex', version: '1.0.0' });
@@ -48,10 +55,15 @@ async function connect(config: McpServerConfig, options: McpToolsOptions): Promi
       : ({ ...options.env, ...config.env } as Record<string, string>),
     stderr: 'pipe',
   });
+  // The SDK starts the transport during connect; observe that exact invocation once.
+  const startTransport = transport.start.bind(transport);
+  transport.start = () => observeMcpStartup('spawn', source, startTransport);
   try {
     options.signal.throwIfAborted();
     options.assertRuntimeCurrent?.();
-    await client.connect(transport, { signal: options.signal, timeout: 15000 });
+    await observeMcpStartup('initialize', source, () =>
+      client.connect(transport, { signal: options.signal, timeout: 15000 }),
+    );
     options.signal.throwIfAborted();
     options.assertRuntimeCurrent?.();
     transport.stderr?.on('data', () => {});
@@ -85,22 +97,15 @@ function mcpWireName(canonical: string): string {
 }
 /** Bounded phase/index metadata only; provider errors can contain credentials. */
 async function observeMcpStartup<T>(
-  phase: 'connect' | 'list_tools',
-  sourceIndex: number,
+  phase: 'connect' | 'spawn' | 'initialize' | 'list_tools',
+  source: StartupSource,
   work: () => Promise<T>,
 ): Promise<T> {
-  const span = tracer.startSpan(`mcp.startup.${phase}`);
-  span.setAttribute('mcp.source.index', sourceIndex);
-  try {
-    const value = await context.with(trace.setSpan(context.active(), span), work);
-    span.setStatus({ code: SpanStatusCode.OK });
-    return value;
-  } catch (error) {
-    span.setStatus({ code: SpanStatusCode.ERROR });
-    throw error;
-  } finally {
-    span.end();
-  }
+  return observeOperationAsync(`mcp.startup.${phase}`, work, {
+    'mcp.source.index': source.index,
+    'mcp.source.id': source.id,
+    'mcp.transport': 'stdio',
+  });
 }
 /** Owns configured MCP clients; all calls pass the same host permission boundary as native tools. */
 export async function connectCodexMcpTools(
@@ -180,6 +185,10 @@ export async function connectCodexMcpTools(
     let catalogBytes = 2; // JSON array brackets; include commas below.
     const discovery = Promise.all(
       Object.entries(configs).map(async ([server, config], sourceIndex) => {
+        const source = {
+          index: sourceIndex,
+          id: createHash('sha256').update(server).digest('hex').slice(0, 16),
+        };
         if (config.execution === 'sandbox') return [];
         signal.throwIfAborted();
         options.assertRuntimeCurrent?.();
@@ -198,8 +207,10 @@ export async function connectCodexMcpTools(
             ? mcpStdioEnvironment(peerOptions.env, config.env)
             : snapshotMcpEnvironment(peerOptions.env, config.env),
         });
-        const peer = await observeMcpStartup('connect', sourceIndex, () =>
-          (options.connect ?? connect)(config, peerOptions),
+        const peer = await observeMcpStartup('connect', source, () =>
+          options.connect
+            ? options.connect(config, peerOptions)
+            : connect(config, peerOptions, source),
         );
         peers.push(peer);
         if (closed) {
@@ -223,9 +234,7 @@ export async function connectCodexMcpTools(
           signal.throwIfAborted();
           options.assertRuntimeCurrent?.();
           if (++pages > 100) throw new Error('MCP pagination limit exceeded');
-          const page = await observeMcpStartup('list_tools', sourceIndex, () =>
-            peer.listTools(cursor),
-          );
+          const page = await observeMcpStartup('list_tools', source, () => peer.listTools(cursor));
           signal.throwIfAborted();
           options.assertRuntimeCurrent?.();
           for (const received of page.tools) {
