@@ -3590,9 +3590,18 @@ textarea:focus {
 .perm-banner-actions--source {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
+.perm-banner-actions--revision > .perm-banner-btn--once {
+  grid-column: 1 / -1;
+}
+.perm-banner-actions--revision .perm-banner-btn {
+  white-space: normal;
+}
 .telos-source-review {
   font-size: var(--text-sm);
   overflow-wrap: anywhere;
+}
+.telos-source-review .question-written textarea {
+  font-size: var(--text-base);
 }
 .telos-source-choices {
   box-sizing: border-box;
