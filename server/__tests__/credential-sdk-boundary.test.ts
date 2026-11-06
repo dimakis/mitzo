@@ -1,8 +1,10 @@
+import './fixtures/offline-user-home.js';
 import { afterEach, expect, it, vi } from 'vitest';
 import { mkdtempSync, mkdirSync, realpathSync, rmSync, symlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { credentialSdkBoundary } from '../credential-sdk-boundary.js';
+import { canonical } from '../sandbox-authority.js';
 const roots: string[] = [];
 afterEach(() => {
   vi.unstubAllEnvs();
@@ -122,5 +124,7 @@ it.runIf(process.env.MITZO_TEST_OS_SANDBOX === '1')(
 it('protects host OpenShell operator credentials from the entire SDK child tree', async () => {
   const { homedir } = await import('node:os');
   vi.stubEnv('MITZO_SECRET_RELAY_ENABLED', '1');
-  expect(credentialSdkBoundary()!.deniedRoots).toContain(join(homedir(), '.config', 'openshell'));
+  expect(credentialSdkBoundary()!.deniedRoots).toContain(
+    canonical(join(homedir(), '.config', 'openshell')),
+  );
 });

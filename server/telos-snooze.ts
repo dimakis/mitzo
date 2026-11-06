@@ -1,5 +1,26 @@
 import type Database from 'better-sqlite3';
 
+const pad = (value: number, width = 2) => String(value).padStart(width, '0');
+function localDay(now: Date) {
+  return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+}
+
+/** Read-only admission; future and indefinite snoozes need no writer. */
+export function dueTelosSnoozeIds(
+  items: Array<Record<string, unknown> & { id: string }>,
+  now = new Date(),
+): string[] {
+  const today = localDay(now);
+  return items
+    .filter(
+      (row) =>
+        row.status === 'snoozed' &&
+        typeof row.snoozed_until === 'string' &&
+        row.snoozed_until <= today,
+    )
+    .map((row) => row.id);
+}
+
 /** A read-only admission proved a due transition; never escalate on an I/O error. */
 export class TelosCollectionWakeupRequired extends Error {
   constructor() {
@@ -16,16 +37,8 @@ export function renewDueTelosSnoozes(
   assertCurrent: () => void,
   now = new Date(),
 ): boolean {
-  const pad = (value: number, width = 2) => String(value).padStart(width, '0');
-  const today = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
-  const ids = items
-    .filter(
-      (row) =>
-        row.status === 'snoozed' &&
-        typeof row.snoozed_until === 'string' &&
-        row.snoozed_until <= today,
-    )
-    .map((row) => row.id);
+  const today = localDay(now);
+  const ids = dueTelosSnoozeIds(items, now);
   if (!ids.length) return false;
   if (db.readonly) throw new TelosCollectionWakeupRequired();
   if (!db.inTransaction) throw Error('Canonical snooze renewal requires its writer transaction');

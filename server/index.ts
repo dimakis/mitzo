@@ -1,5 +1,7 @@
 // Load runtime configuration before bootstrap dependencies validate or capture it.
 import 'dotenv/config';
+import { selectedTelosDatabaseFiles } from '@mitzo/protocol/telos-sqlite-owners';
+import { ensureTelosRuntimeStorage } from './telos-runtime-storage.js';
 import { setSessionActivityObserver } from './session-activity-events.js';
 import { closeTelosMainPublicationRuntime } from './telos-main-publication-runtime.js';
 import { startKnowledgePrewarming } from './knowledge-prewarming.js';
@@ -171,6 +173,7 @@ import { initializeSymposiumNativeHost } from './symposium-native-host.js';
 import { singleFlightReconciliation } from './single-flight-reconciliation.js';
 
 const log = createLogger('server');
+ensureTelosRuntimeStorage(BASE_REPO);
 
 // Host-only state. No remote recovery runs at boot: unsettled claims remain
 // quarantined until the exact controller marker is obtained separately.
@@ -484,14 +487,10 @@ const orchestrator = new TaskOrchestrator({
           events: eventStore,
           tasks: taskStore,
           work: () =>
-            (work ??= new TelosWorkStore(
-              process.env.TELOS_DB_PATH ||
-                join(BASE_REPO, 'command_center', 'data', 'smart_todo.db'),
-              {
-                ordinaryConversation: (conversationId) =>
-                  isAvailableTelosWorkConversation(eventStore.getSession(conversationId)),
-              },
-            )),
+            (work ??= new TelosWorkStore(selectedTelosDatabaseFiles().canonical, {
+              ordinaryConversation: (conversationId) =>
+                isAvailableTelosWorkConversation(eventStore.getSession(conversationId)),
+            })),
         },
         id,
         eventStore.getSession(id)?.accountBinding ?? undefined,

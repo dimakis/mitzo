@@ -1,3 +1,4 @@
+import './fixtures/offline-user-home.js';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
