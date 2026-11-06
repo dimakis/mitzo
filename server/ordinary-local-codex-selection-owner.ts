@@ -21,6 +21,7 @@ import type {
   RepositoryWorkspaces,
 } from './repository-workspaces.js';
 import { permissionRevision } from './session-permission-revision.js';
+import { findSessionRuntimeError } from './session-runtime-error.js';
 import {
   ordinaryLocalCodexBootstrapId,
   type OrdinaryLocalCodexAdmissionExpectation,
@@ -407,8 +408,8 @@ export class OrdinaryLocalCodexSelectionOwner {
           throw unavailable();
       }
       this.#snapshot ??= identity;
-    } catch {
-      throw unavailable();
+    } catch (error) {
+      throw findSessionRuntimeError(error) ?? unavailable();
     }
   }
   /** Only after the original checkout is claimed, under the uncertain command's lease. */
@@ -444,8 +445,8 @@ export class OrdinaryLocalCodexSelectionOwner {
     try {
       await (this.preparedPrimary()?.workspace ?? this.#workspace).revalidate(this.owners.signal);
       this.assertCurrentSync(expected);
-    } catch {
-      throw unavailable();
+    } catch (error) {
+      throw findSessionRuntimeError(error) ?? unavailable();
     }
   }
   async assertToolCurrent(

@@ -13,6 +13,20 @@ import { createCodexNativeApprovalHandler } from '../codex-native-approvals.js';
 import { SessionRegistry } from '../session-registry.js';
 import { resolvePending } from '../permissions.js';
 import { setSkillPolicy } from '@mitzo/harness';
+import { SessionRuntimeError } from '../session-runtime-error.js';
+
+it('retains reviewed workspace failure through physical-close reentry', () => {
+  const f = fixture();
+  f.bridge.attach(f.owner);
+  const failure = new SessionRuntimeError('workspace_branch_changed');
+  vi.mocked(f.lease.close).mockImplementation(() =>
+    f.bridge.lifecycle.onClose(new CodexTransportError('connection')),
+  );
+  f.bridge.lifecycle.onClose(failure);
+  expect(f.owner.onClose).toHaveBeenCalledOnce();
+  expect(f.owner.onClose).toHaveBeenCalledWith(failure);
+  expect(f.lease.close).toHaveBeenCalledOnce();
+});
 
 function fixture() {
   const client = {

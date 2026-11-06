@@ -6,6 +6,7 @@ import {
 } from './codex-app-server-client.js';
 import type { FrozenHostCodexBootstrapLease } from './frozen-host-codex-bootstrap.js';
 import { observeLocalCodexPhase } from './local-codex-observation.js';
+import { findSessionRuntimeError } from './session-runtime-error.js';
 
 const unavailable = () => new Error('Owned Codex lifecycle unavailable');
 
@@ -114,7 +115,11 @@ export class OwnedCodexLifecycleBridge {
           throw unavailable();
         }
       },
-      onClose: (error) => this.close(error instanceof CodexTransportError ? error : unavailable()),
+      onClose: (error) =>
+        this.close(
+          findSessionRuntimeError(error) ??
+            (error instanceof CodexTransportError ? error : unavailable()),
+        ),
     } satisfies CodexLifecycleTransport);
   }
 

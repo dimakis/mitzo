@@ -258,6 +258,8 @@ it('publishes admitted current workspace in each native turn without a preparati
     expect(guidance).toContain('requested directory');
     expect(guidance).toContain('exact native filesystem permission');
     expect(guidance).toContain('optional');
+    expect(guidance).toContain('already assigned a task branch');
+    expect(guidance).toContain('do not switch or rename');
     expect(guidance).not.toContain('Another repository needs its own verified preparation');
   }
   expect(result.input).toEqual([{ type: 'text', text: 'Continue' }]);
