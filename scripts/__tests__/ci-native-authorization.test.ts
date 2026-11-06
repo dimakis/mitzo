@@ -37,7 +37,7 @@ function validate(report: ReturnType<typeof fixture>) {
     rmSync(directory, { recursive: true, force: true });
   }
 }
-it('accepts all forty-five actual authority cases and only the named optional diagnostic', () => {
+it('accepts all forty-seven actual authority cases and only the named optional diagnostic', () => {
   expect(step.run!.split("node --input-type=module <<'NODE'\n")[0]).toContain(
     'server/__tests__/native-reader-path-authorization.test.ts',
   );

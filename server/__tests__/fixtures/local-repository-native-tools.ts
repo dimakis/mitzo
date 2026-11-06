@@ -38,6 +38,7 @@ export async function localRepositoryNativeToolFixture(
     api?: boolean;
     separateViewer?: boolean;
     nativeBaseReads?: boolean;
+    nativeSubagents?: boolean;
     readableRoots?: readonly string[];
     registeredExecutablePath?: string;
     resumeFromPreviousLogin?: boolean;
@@ -150,13 +151,28 @@ export async function localRepositoryNativeToolFixture(
     selected.rpc.request.mockImplementation(
       async (method: string, params?: Record<string, unknown>) => {
         requests.push({ method, params: params ?? {} });
+        if (options.nativeSubagents && method === 'thread/read')
+          return {
+            thread: {
+              id: params!.threadId,
+              parentThreadId:
+                params!.threadId === `thread-${sessionId}` ? null : `thread-${sessionId}`,
+              sessionId: `thread-${sessionId}`,
+              cwd: selected.reserved.directory,
+              model: 'fixture-model',
+              modelProvider: 'openai',
+            },
+          };
+        if (options.nativeSubagents && method === 'thread/turns/list') return { data: [] };
         if (method === 'thread/start' || method === 'thread/resume')
           return {
             thread: {
               id:
                 options.resumeFromPreviousLogin && method === 'thread/start'
                   ? `thread-${sessionId}-replacement`
-                  : `thread-${sessionId}`,
+                  : options.nativeSubagents && method === 'thread/resume'
+                    ? params!.threadId
+                    : `thread-${sessionId}`,
             },
             model: 'fixture-model',
             modelProvider: 'openai',
@@ -272,6 +288,7 @@ export async function localRepositoryNativeToolFixture(
           return;
         }
         conversation = new CodexConversation({
+          enableNativeSubagents: options.nativeSubagents,
           conversationId: sessionId,
           cwd: dispatch.workspace.directory!,
           profile: dispatch.profile,
@@ -412,6 +429,24 @@ export async function localRepositoryNativeToolFixture(
       metrics,
       rpc: selected.rpc,
       initial,
+      async admitChild(threadId: string) {
+        const root = native.read(sessionId, initial.lease.binding).threadId;
+        callbacks.onNotification('thread/started', {
+          thread: {
+            id: threadId,
+            parentThreadId: root,
+            sessionId: root,
+            cwd: selected.reserved.directory,
+            model: 'fixture-model',
+            modelProvider: 'openai',
+          },
+        });
+        callbacks.onNotification('turn/started', { threadId, turn: { id: 'child-turn' } });
+        const owner = conversation.getSubagents();
+        expect(owner).toBeDefined();
+        await owner!.settled();
+        expect(owner!.list().find((child) => child.threadId === threadId)?.state).toBe('working');
+      },
       async call(
         input: Record<string, unknown>,
         override?: Record<string, unknown>,

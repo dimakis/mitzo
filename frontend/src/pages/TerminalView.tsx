@@ -22,7 +22,7 @@ export function TerminalView() {
   const sessionId = params.get('sessionId') || undefined;
   const back = params.get('returnTo');
   const returnTo =
-    back && /^\/chat(?:\/|$)/.test(back) && !back.startsWith('//')
+    back && /^\/chat(?:[/?]|$)/.test(back) && !back.startsWith('//')
       ? back
       : sessionId && !back
         ? `/chat/${encodeURIComponent(sessionId)}`

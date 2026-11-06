@@ -1,4 +1,5 @@
 import { MotionPresence } from './MotionPresence';
+import { NativeSubagents } from './NativeSubagents';
 import { UiIcon } from './UiIcon';
 import { useState, useCallback, useId } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
@@ -14,6 +15,7 @@ import { RepositoryChatSetupCard } from './RepositoryChatSetupCard';
 import { GoogleSearchResult } from './GoogleSearchResult';
 import { TelosWorkerReceiptCard } from './TelosWorkerReceiptCard';
 import { agentTaskProposalLink } from '../lib/agent-task-proposal-link';
+import { TelosOutcomeNotice } from './TelosOutcomeNotice';
 
 interface Props {
   block: ToolBlock;
@@ -167,6 +169,11 @@ export function ToolPill({ block, sessionId, showSetupCard = true }: Props) {
     [navigate, location, sessionId],
   );
 
+  if (sessionId && block.rawInput?.nativeSubagentCommandId)
+    return (
+      <NativeSubagents sessionId={sessionId} commandId={block.rawInput.nativeSubagentCommandId} />
+    );
+
   return (
     <div
       className={`tool-pill ${interrupted ? 'tool-pill--interrupted' : done ? (hasError ? 'tool-pill--error' : 'tool-pill--done') : 'tool-pill--running'}`}
@@ -200,6 +207,7 @@ export function ToolPill({ block, sessionId, showSetupCard = true }: Props) {
       {showSetupCard && <ConnectionSetupCard block={block} sessionId={sessionId} />}
       {showSetupCard && <RepositoryChatSetupCard block={block} sessionId={sessionId} />}
       {showSetupCard && <TelosWorkerReceiptCard block={block} sessionId={sessionId} />}
+      {showSetupCard && <TelosOutcomeNotice block={block} />}
       {['RequestWebAccess', 'mcp__mitzo-web-access__RequestWebAccess'].includes(
         block.toolName ?? '',
       ) &&

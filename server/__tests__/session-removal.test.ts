@@ -3,6 +3,9 @@ import request from 'supertest';
 import { expect, it, vi } from 'vitest';
 import { createSessionRemovalRouter, sessionNeedsSandboxReview } from '../session-removal.js';
 import type { OpenShellLifecycleService } from '../openshell-lifecycle-service.js';
+import Database from 'better-sqlite3';
+import { SessionRemovalStore } from '../../packages/protocol/src/session-removal-store.js';
+import { SessionResourceRemovalService } from '../session-resource-removal.js';
 
 function fixture(managed = true) {
   const preview = vi.fn(async () => ({ token: 'review', action: 'stop_and_delete', blockers: [] }));
@@ -116,6 +119,58 @@ it('removes a chat with no sandbox without requiring a lifecycle token', async (
   ).toBeNull();
   await request(f.app).delete('/api/sessions/c').expect(200);
   expect(f.hide).toHaveBeenCalledWith('c');
+});
+
+it('requires explicit stop/review, then completes local cleanup before hiding the chat', async () => {
+  const db = new Database(':memory:');
+  try {
+    const hide = vi.fn(),
+      closeRuntime = vi.fn(async () => {}),
+      releaseLocal = vi.fn(async () => {});
+    const service = new SessionResourceRemovalService({
+      store: new SessionRemovalStore(db),
+      fingerprint: () => 'local-workspace',
+      assertProtected: () => {},
+      cancelPrompts: async () => {},
+      closeRuntime,
+      assertSettled: () => {},
+    });
+    const app = express();
+    app.use(express.json());
+    app.use(
+      '/api/sessions',
+      createSessionRemovalRouter({
+        authorize: (_req, _res, next) => next(),
+        lifecycle: () => null,
+        hasSandbox: () => false,
+        hide,
+        changed: vi.fn(),
+        removal: {
+          service,
+          authority: () => () => {},
+          localPreview: () => ({
+            action: 'retire',
+            reason: 'Preserve the owned checkout before retirement.',
+          }),
+          releaseLocal,
+        },
+      }),
+    );
+    const before = await request(app).get('/api/sessions/c/deletion-preview').expect(200);
+    expect(before.body.needsPreparation).toBe(true);
+    expect(closeRuntime).not.toHaveBeenCalled();
+    await request(app).delete('/api/sessions/c').send({}).expect(409);
+    const ready = await request(app).post('/api/sessions/c/prepare-deletion').send({}).expect(200);
+    expect(ready.body.removal.phase).toBe('closing');
+    expect(closeRuntime).toHaveBeenCalledTimes(1);
+    const body = { removalOperationId: ready.body.removal.operationId };
+    await request(app).delete('/api/sessions/c').send(body).expect(200);
+    await request(app).delete('/api/sessions/c').send(body).expect(200);
+    expect(releaseLocal).toHaveBeenCalledTimes(1);
+    expect(hide).toHaveBeenCalled();
+  } finally {
+    db.close();
+  }
 });
 
 it('blocks legacy remote ownership with a custom workdir and preserves explicit local routing', async () => {

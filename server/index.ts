@@ -2,6 +2,7 @@
 import 'dotenv/config';
 import { selectedTelosDatabaseFiles } from '@mitzo/protocol/telos-sqlite-owners';
 import { ensureTelosRuntimeStorage } from './telos-runtime-storage.js';
+import { setSessionActivityObserver } from './session-activity-events.js';
 import { closeTelosMainPublicationRuntime } from './telos-main-publication-runtime.js';
 import { startKnowledgePrewarming } from './knowledge-prewarming.js';
 import { startWarmPoolHost } from './openshell-warm-pool-host.js';
@@ -583,6 +584,7 @@ overviewEmitter = new SessionOverviewEmitter({
   isSessionHidden: (id: string) => eventStore.getSession(id)?.isHidden ?? false,
 });
 setOverviewEmitter(overviewEmitter);
+setSessionActivityObserver((clientId, event) => overviewEmitter.observeEvent(clientId, event));
 
 // --- Health Monitor (SSE broadcast) ---
 const healthMonitor = new HealthMonitor(sseRegistry);

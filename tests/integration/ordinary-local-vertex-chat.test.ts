@@ -115,6 +115,13 @@ it('routes first, queued future and cold commands through the actual SDK owner w
   const { ownedVertexRuntimeFixture } =
     await import('../../server/__tests__/fixtures/owned-local-vertex-runtime.js');
   const f = await ownedVertexRuntimeFixture(cleanups, { chatRoute: true });
+  const { SkillRegistry } = await import('../../server/skills.js');
+  const registries = await import('../../server/skill-registry-runtime.js');
+  const { join } = await import('node:path');
+  vi.spyOn(registries, 'buildSkillRegistry').mockReturnValue(
+    new SkillRegistry({ bundledDir: join(process.cwd(), 'skills') }),
+  );
+  f.request.payload.text = '/mockup First SDK dashboard';
   Object.assign(f.request.payload, { sourceSnapshots: [agentLibrarySource] });
   vi.stubEnv('WORKTREE_ENABLED', 'false');
   services.workspace = f.workspace;
@@ -313,6 +320,9 @@ it('routes first, queued future and cold commands through the actual SDK owner w
   if (typeof deadline === 'function') deadline();
   await vi.waitFor(() => expect(releaseFirst).toBeTypeOf('function'));
   expect(providerInputs[0]).toContain(agentLibrarySource.content);
+  expect(providerInputs[0]).toContain(
+    'Create or refine a clickable mockup for First SDK dashboard',
+  );
   expect(providerInputs[0].split(agentLibrarySource.content)).toHaveLength(2);
   const publicUser = chat.eventStore
     .getSessionEvents(f.reservation.conversationId)
@@ -369,7 +379,7 @@ it('routes first, queued future and cold commands through the actual SDK owner w
       sessionId: f.reservation.conversationId,
       clientMsgId: 'queued',
       selection: { ...wire.selection, model: 'next-model', thinking: 'high' },
-      payload: { text: 'Frozen followup' },
+      payload: { text: '/mockup Frozen followup' },
     }),
   ).resolves.toMatchObject({ status: 202, body: { dispatched: true, state: 'consumed' } });
   expect(services.requests).toHaveLength(1);
@@ -408,6 +418,8 @@ it('routes first, queued future and cold commands through the actual SDK owner w
 
   releaseFirst!();
   await vi.waitFor(() => expect(history).toEqual([f.request.clientMsgId, 'queued']));
+  expect(providerInputs[1]).toContain('Create or refine a clickable mockup for Frozen followup');
+  expect(chat.eventStore.getSendCommand('queued')?.payload.text).toBe('/mockup Frozen followup');
   await vi.waitFor(() =>
     expect(chat.eventStore.getSession(f.reservation.conversationId)?.executionPhase).toBe(
       'TERMINAL',
@@ -464,12 +476,13 @@ it('routes first, queued future and cold commands through the actual SDK owner w
       ...wire,
       sessionId: f.reservation.conversationId,
       clientMsgId: 'cold',
-      payload: { text: 'Same retained task' },
+      payload: { text: '/mockup Same retained task' },
     }),
   ).resolves.toMatchObject({ status: 202, body: { dispatched: true, state: 'consumed' } });
   await vi.waitFor(() =>
     expect(history).toEqual([f.request.clientMsgId, 'queued', 'retained-cold-tail', 'cold']),
   );
+  expect(providerInputs[3]).toContain('Create or refine a clickable mockup for Same retained task');
   expect(services.requests[2].options).toMatchObject({
     resume: f.reservation.conversationId,
     model: 'next-model',

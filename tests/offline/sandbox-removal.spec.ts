@@ -32,6 +32,7 @@ for (const theme of ['dark', 'light'] as const)
     );
     const compiled = await bundle;
     const writes: Array<{ url: string; body: unknown }> = [];
+    let prepared = false;
     const errors: string[] = [];
     page.on('pageerror', (error) => errors.push(error.message));
     await page.routeWebSocket('**/*', (socket) => socket.close());
@@ -40,8 +41,29 @@ for (const theme of ['dark', 'light'] as const)
       if (url.origin !== 'http://mitzo-ui.test') return route.abort();
       if (url.pathname.endsWith('/deletion-preview'))
         return route.fulfill({
-          json: { sandbox: { action: 'stop_and_delete', token: 'reviewed-token', blockers: [] } },
+          json: {
+            sandbox: {
+              action: prepared ? 'stop_and_delete' : 'none',
+              token: 'reviewed-token',
+              blockers: prepared ? [] : ['active_session'],
+            },
+            needsPreparation: !prepared,
+            removal: prepared
+              ? { operationId: 'original-removal', phase: 'closing', canKeep: true }
+              : null,
+          },
         });
+      if (url.pathname.endsWith('/prepare-deletion')) {
+        writes.push({ url: url.pathname, body: route.request().postDataJSON() });
+        prepared = true;
+        return route.fulfill({
+          json: {
+            sandbox: { action: 'stop_and_delete', token: 'reviewed-token', blockers: [] },
+            needsPreparation: false,
+            removal: { operationId: 'original-removal', phase: 'closing', canKeep: true },
+          },
+        });
+      }
       if (route.request().method() === 'DELETE') {
         writes.push({ url: url.pathname + url.search, body: route.request().postDataJSON() });
         return route.fulfill({
@@ -74,19 +96,30 @@ for (const theme of ['dark', 'light'] as const)
     );
     await page.getByRole('button', { name: 'Review chat removal' }).click();
     const dialog = page.getByRole('dialog', { name: 'Delete chat?' });
-    await expect(dialog.getByRole('button', { name: 'Delete chat and sandbox' })).toBeEnabled();
+    const prepare = dialog.getByRole('button', { name: 'Stop and review deletion' });
+    await expect(prepare).toBeEnabled();
+    await expect(dialog.getByRole('button', { name: 'Delete chat and sandbox' })).toBeDisabled();
     expect(writes).toHaveLength(0);
     expect(await dialog.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
     const archive = dialog.getByRole('button', { name: 'Archive chat', exact: true });
     await archive.focus();
     await expect(archive).toBeFocused();
     await page.screenshot({ path: info.outputPath(`sandbox-removal-${theme}.png`) });
+    await prepare.click();
+    await expect(dialog.getByRole('button', { name: 'Delete chat and sandbox' })).toBeEnabled();
+    expect(writes).toHaveLength(1);
+    expect(writes[0].url).toContain('/prepare-deletion');
+    await expect(dialog.getByRole('button', { name: 'Keep chat' })).toBeVisible();
+    await page.screenshot({ path: info.outputPath(`sandbox-removal-prepared-${theme}.png`) });
     await dialog.getByRole('button', { name: 'Delete chat and sandbox' }).click();
     await expect(dialog.getByRole('alert')).toBeVisible();
-    expect(writes[0].body).toEqual({ cleanupToken: 'reviewed-token' });
+    expect(writes[1].body).toEqual({
+      cleanupToken: 'reviewed-token',
+      removalOperationId: 'original-removal',
+    });
     await archive.click();
     await expect(dialog).not.toBeVisible();
-    expect(writes[1].url).toContain('?archive=1');
+    expect(writes[2].url).toContain('?archive=1');
     await expect(page.getByRole('button', { name: 'Review chat removal' })).toBeFocused();
     expect(errors).toEqual([]);
   });

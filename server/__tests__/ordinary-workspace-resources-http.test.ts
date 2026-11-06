@@ -8,6 +8,14 @@ import { RepositoryWorkspaces } from '../repository-workspaces.js';
 import type { ownedOrdinaryRuntimeFixture } from './fixtures/owned-ordinary-workspace-runtime.js';
 
 const services = vi.hoisted(() => ({ workspace: undefined as unknown, remoteRead: vi.fn() }));
+vi.mock('../terminal-backend.js', () => ({
+  TmuxTerminalBackend: class {
+    async start() {
+      return { write() {}, resize() {}, detach() {} };
+    }
+    async end() {}
+  },
+}));
 vi.mock('../session-artifact-reader.js', async (original) => ({
   ...(await original<object>()),
   createSessionArtifactReader: () => services.remoteRead,
@@ -55,6 +63,7 @@ beforeAll(async () => {
   f = await ownedOrdinaryRuntimeFixture(cleanup, {
     chatRoute: true,
     separateConfiguredWorkspace: true,
+    defaultTaskLayout: true,
   });
   services.workspace = f.workspaces;
   await writeFile(join(f.configuredWorkspace, 'global.txt'), 'Configured workspace material');
@@ -85,6 +94,56 @@ const get = (path: string) =>
     .get(path)
     .set('Authorization', 'Bearer ' + f.token)
     .query({ sessionId: first.receipt.sessionId });
+it('loads Commands and opens Terminal through real ordinary custody under the default directory layout', async () => {
+  const skill = join(first.reserved.directory, '.mitzo', 'skills', 'owned-guide');
+  await mkdir(skill, { recursive: true });
+  await writeFile(
+    join(skill, 'SKILL.md'),
+    '---\ndescription: Owned guide\n---\nUse this conversation workspace',
+  );
+  const catalogue = await get('/api/skills').query({ runtime: 'ordinary' });
+  expect(catalogue.status).toBe(200);
+  expect(catalogue.body).toContainEqual(
+    expect.objectContaining({ name: 'owned-guide', scope: 'repo' }),
+  );
+  const open = await request(app.app)
+    .post('/api/terminals')
+    .set('Authorization', 'Bearer ' + f.token)
+    .send({ sessionId: first.receipt.sessionId });
+  expect(open.status).toBe(201);
+  expect(open.body).toMatchObject({
+    cwd: first.reserved.directory,
+    kind: 'host',
+    sessionId: first.receipt.sessionId,
+  });
+  await request(app.app)
+    .delete('/api/terminals/' + open.body.id)
+    .set('Authorization', 'Bearer ' + f.token);
+  expect(() =>
+    chat.eventStore.upsertSession({
+      sessionId: first.receipt.sessionId,
+      cwd: f.configuredWorkspace,
+    }),
+  ).toThrow(/workspace cannot be replaced/);
+  const db = new Database(join(f.configuredWorkspace, '.mitzo', 'events.db'));
+  try {
+    db.prepare('UPDATE sessions SET cwd=? WHERE session_id=?').run(
+      f.configuredWorkspace,
+      first.receipt.sessionId,
+    );
+  } finally {
+    db.close();
+  }
+  expect((await get('/api/skills').query({ runtime: 'ordinary' })).status).toBe(403);
+  expect(
+    (
+      await request(app.app)
+        .post('/api/terminals')
+        .set('Authorization', 'Bearer ' + f.token)
+        .send({ sessionId: first.receipt.sessionId })
+    ).status,
+  ).toBe(409);
+});
 it('serializes the actual ordinary workspace identity without a fabricated repository', async () => {
   const response = await get('/api/sessions/' + first.receipt.sessionId + '/meta');
   expect(response.status).toBe(200);

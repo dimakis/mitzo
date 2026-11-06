@@ -38,6 +38,7 @@ export type ApprovePreparedWorkspaceGrant = (
 ) => Promise<PreparedWorkspaceGrant | undefined>;
 
 export interface CodexNativeApprovalContext extends CodexServerRequestContext {
+  readonly subagentName?: string;
   readonly commandId?: string;
   readonly threadId: string;
   readonly turnId: string;
@@ -278,6 +279,7 @@ export function createCodexNativeApprovalHandler(options: {
       // filesystem scope and callback identity. Bash display would omit them.
       const input = {
         runtimeId,
+        ...(context.subagentName ? { subagent: context.subagentName } : {}),
         environmentId,
         requestId: identity.requestId,
         method: request.method,
@@ -304,15 +306,17 @@ export function createCodexNativeApprovalHandler(options: {
           identity.turnId,
           request.params.itemId,
         ]),
-        title: commandRequest
-          ? request.params.networkApprovalContext
-            ? `Connect to ${request.params.networkApprovalContext.host}`
-            : network
-              ? 'Run command with network access'
-              : 'Run local command'
-          : request.method === 'item/fileChange/requestApproval'
-            ? 'Apply file changes'
-            : 'Allow requested access',
+        title:
+          (context.subagentName ? `Subagent ${context.subagentName} · ` : '') +
+          (commandRequest
+            ? request.params.networkApprovalContext
+              ? `Connect to ${request.params.networkApprovalContext.host}`
+              : network
+                ? 'Run command with network access'
+                : 'Run local command'
+            : request.method === 'item/fileChange/requestApproval'
+              ? 'Apply file changes'
+              : 'Allow requested access'),
         description:
           'Review the displayed operation, working directory and requested access. Existing workspace and credential protections still apply. Approval that expires during validation is refused without granting permission.',
         ...(sessionGrantKey

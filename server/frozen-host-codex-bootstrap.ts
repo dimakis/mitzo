@@ -1,7 +1,7 @@
 import type { ApiHarnessConnection } from './account-harness-connection.js';
 import { findNativeMacExecutionUnavailable } from './codex-native-artifact-qualification.js';
 import { z } from 'zod';
-import { observeLocalCodexPhase } from './local-codex-observation.js';
+import { observeLocalCodexPhase, observeLocalCodexSyncPhase } from './local-codex-observation.js';
 import type { AccountBinding } from '@mitzo/protocol';
 import { isDeepStrictEqual } from 'node:util';
 import { custodianControllerMode } from './symposium-custodian-mode.js';
@@ -371,9 +371,12 @@ export class FrozenHostCodexBootstrapAuthority implements OrdinaryLocalCodexBoot
         !['openai-codex', 'openai'].includes(expected.binding.account.provider)
       )
         throw unavailable();
-      const observed = this.owners.assertQualifiedColdSelectionBeforeBootstrapSync
-        ? await this.observeQualifiedColdBeforeBootstrap(expected)
-        : await this.observe(expected);
+      const bootstrapId = expected.bootstrapId;
+      const observed = await observeLocalCodexPhase('bootstrap_qualification', () =>
+        this.owners.assertQualifiedColdSelectionBeforeBootstrapSync
+          ? this.observeQualifiedColdBeforeBootstrap(expected)
+          : this.observe(expected),
+      );
       this.assertSync(expected);
       if (this.#attempted) throw unavailable();
       if (!claimBeforeBootstrap()) return undefined;
@@ -439,32 +442,38 @@ export class FrozenHostCodexBootstrapAuthority implements OrdinaryLocalCodexBoot
           })
         : undefined;
       const login = api
-        ? retained
-          ? await FrozenHostCodexApiLogin.reopen(
-              authBinding,
-              retained.login,
-              keyAuthority!,
-              this.owners.signal,
-            )
-          : await FrozenHostCodexApiLogin.capture(authBinding, {
-              privateRoot: this.owners.privateRoot,
-              bootstrapId: expected.bootstrapId,
-              authority: keyAuthority!,
-              signal: this.owners.signal,
-            })
-        : retained
-          ? FrozenHostCodexLogin.reopen(ownedProfile, retained.login, this.owners.signal)
-          : FrozenHostCodexLogin.capture(ownedProfile, {
-              privateRoot: this.owners.privateRoot,
-              signal: this.owners.signal,
-              bootstrapId: expected.bootstrapId,
-            });
-      const executable = retained
-        ? FrozenHostCodexExecutable.reopen(retained.executable)
-        : FrozenHostCodexExecutable.captureReusable(
-            observed.executablePath,
-            this.owners.privateRoot ?? codexPrivateDirectory(),
+        ? await observeLocalCodexPhase('bootstrap_login', async () =>
+            retained
+              ? await FrozenHostCodexApiLogin.reopen(
+                  authBinding,
+                  retained.login,
+                  keyAuthority!,
+                  this.owners.signal,
+                )
+              : await FrozenHostCodexApiLogin.capture(authBinding, {
+                  privateRoot: this.owners.privateRoot,
+                  bootstrapId,
+                  authority: keyAuthority!,
+                  signal: this.owners.signal,
+                }),
+          )
+        : observeLocalCodexSyncPhase('bootstrap_login', () =>
+            retained
+              ? FrozenHostCodexLogin.reopen(ownedProfile, retained.login, this.owners.signal)
+              : FrozenHostCodexLogin.capture(ownedProfile, {
+                  privateRoot: this.owners.privateRoot,
+                  signal: this.owners.signal,
+                  bootstrapId,
+                }),
           );
+      const executable = observeLocalCodexSyncPhase('bootstrap_executable', () =>
+        retained
+          ? FrozenHostCodexExecutable.reopen(retained.executable)
+          : FrozenHostCodexExecutable.captureReusable(
+              observed.executablePath,
+              this.owners.privateRoot ?? codexPrivateDirectory(),
+            ),
+      );
       executable.assertForLoginHome(login.privateHome);
       if (retained && executable.companionUpgradePlan()) {
         if (!this.owners.completeRetainedRuntimeBundle) throw unavailable();
@@ -486,7 +495,7 @@ export class FrozenHostCodexBootstrapAuthority implements OrdinaryLocalCodexBoot
             this.owners.lifecycle,
             selected,
           ));
-      loginLease =
+      loginLease = await observeLocalCodexPhase('bootstrap_connect', async () =>
         login instanceof FrozenHostCodexApiLogin
           ? await login.connect(async (home) => {
               this.assertSync(expected, undefined, executable);
@@ -523,7 +532,8 @@ export class FrozenHostCodexBootstrapAuthority implements OrdinaryLocalCodexBoot
           : await login.connect((home) => {
               this.assertSync(expected, undefined, executable);
               return launch(home, executable);
-            });
+            }),
+      );
       const ownedLogin = loginLease;
       let retired = false;
       const loginClose = ownedLogin.close;

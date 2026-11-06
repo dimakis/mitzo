@@ -1,4 +1,5 @@
 import { callbackOutcome, retainCallbackOutcome } from './turn-callbacks.js';
+import { CodexSubagentStore } from './codex-subagent-store.js';
 import {
   CodexSteerInputSchema,
   type CodexSteerInput,
@@ -548,6 +549,7 @@ type PreDispatchEvidence = {
 };
 /** Private server-owned database. A single owning server calls recoverAtStartup before accepting work. */
 export class CodexConversationStore {
+  readonly subagents: CodexSubagentStore;
   private readonly db: Database.Database;
   private liveThreadStoreClosed = false;
   private readonly liveThreadObservers = new Map<string, Set<(event: LiveThreadEvent) => void>>();
@@ -573,6 +575,7 @@ export class CodexConversationStore {
     this.db = new Database(path);
     this.db.pragma('synchronous = FULL');
     this.db.pragma('foreign_keys = ON');
+    this.subagents = new CodexSubagentStore(this.db);
     this.db.exec(
       'CREATE TABLE IF NOT EXISTS codex_runtime_migrations (conversation_id TEXT PRIMARY KEY, binding TEXT NOT NULL, generation INTEGER NOT NULL, data TEXT NOT NULL)',
     );
@@ -3918,16 +3921,25 @@ export class CodexConversationStore {
     binding: AccountBinding,
     raw: CodexSteerInput,
   ): CodexSteerReceipt | undefined {
-    this.read(id, binding);
     const input = CodexSteerInputSchema.parse(raw);
+    const receipt = this.steeringReceiptForRequest(id, binding, input.requestId);
+    if (!receipt) return;
+    if (!isDeepStrictEqual(input, receipt.input))
+      throw Error('Correction identity reused with different input');
+    return receipt;
+  }
+  /** Host receipt recovery by the original durable request, never a new dispatch. */
+  steeringReceiptForRequest(
+    id: string,
+    binding: AccountBinding,
+    requestId: string,
+  ): CodexSteerReceipt | undefined {
+    this.read(id, binding);
     const row = this.db
       .prepare('SELECT input,status FROM codex_steering WHERE conversation_id=? AND request_id=?')
-      .get(id, input.requestId) as
-      { input: string; status: CodexSteerReceipt['status'] } | undefined;
+      .get(id, requestId) as { input: string; status: CodexSteerReceipt['status'] } | undefined;
     if (!row) return;
     const retained = CodexSteerInputSchema.parse(JSON.parse(row.input));
-    if (!isDeepStrictEqual(input, retained))
-      throw Error('Correction identity reused with different input');
     return { input: retained, status: row.status };
   }
   claimSteering(
@@ -4793,6 +4805,14 @@ export class CodexConversationStore {
         requestHash: row.requestHash,
       });
     })();
+  }
+  /** Read one origin attempt without loading the command queue/prompts. This is
+   * historical correlation data; it never supplies callback authority. */
+  nativeCommandAttempt(id: string, binding: AccountBinding, commandId: string): number | undefined {
+    this.read(id, binding);
+    const row = this.hotReadStatement('nativeTurnTarget').get(id, commandId) as
+      { attempt: number } | undefined;
+    return row?.attempt;
   }
   /** Read-only native retirement fence. The repository lifecycle owner supplies
    * its current task identity and separately proves operator/session disposal. */

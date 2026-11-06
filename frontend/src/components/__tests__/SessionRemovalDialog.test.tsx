@@ -3,7 +3,9 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { SessionRemovalDialog } from '../SessionRemovalDialog';
 import { readApiJson } from '../../lib/api-json-read';
+import { sessionRemovalAction } from '../../lib/session-removal-action';
 vi.mock('../../lib/api-json-read', () => ({ readApiJson: vi.fn() }));
+vi.mock('../../lib/session-removal-action', () => ({ sessionRemovalAction: vi.fn() }));
 beforeEach(() => {
   HTMLDialogElement.prototype.showModal = function () {
     this.open = true;
@@ -52,4 +54,55 @@ it('retains the dialog on a refused deletion and requires a fresh review', async
   expect((screen.getByRole('button', { name: 'Delete chat' }) as HTMLButtonElement).disabled).toBe(
     true,
   );
+});
+it('stops and reviews the runtime before offering explicit deletion', async () => {
+  vi.mocked(readApiJson).mockResolvedValue({
+    sandbox: { action: 'none', blockers: ['active_session'] },
+    needsPreparation: true,
+    removal: null,
+  });
+  vi.mocked(sessionRemovalAction).mockResolvedValue({
+    sandbox: { action: 'stop_and_delete', token: 'fresh', blockers: [] },
+    needsPreparation: false,
+    removal: { operationId: 'original', phase: 'closing', canKeep: true },
+  });
+  const remove = vi.fn(async () => true);
+  render(<SessionRemovalDialog sessionId="c" onRemove={remove} onClose={() => {}} />);
+  fireEvent.click(await screen.findByRole('button', { name: 'Stop and review deletion' }));
+  await waitFor(() =>
+    expect(sessionRemovalAction).toHaveBeenCalledWith(
+      '/api/sessions/c/prepare-deletion',
+      {},
+      expect.any(AbortSignal),
+    ),
+  );
+  expect(remove).not.toHaveBeenCalled();
+  fireEvent.click(await screen.findByRole('button', { name: 'Delete chat and sandbox' }));
+  await waitFor(() =>
+    expect(remove).toHaveBeenCalledWith({ cleanupToken: 'fresh', removalOperationId: 'original' }),
+  );
+});
+it('shows retained local disk use and keeps a failed preparation recoverable', async () => {
+  vi.mocked(readApiJson).mockResolvedValue({
+    sandbox: null,
+    needsPreparation: true,
+    removal: { operationId: 'original', phase: 'failed', canKeep: true },
+    localWorkspace: {
+      action: 'retain',
+      reason: 'This workspace remains; disk space is not reclaimed.',
+    },
+  });
+  vi.mocked(sessionRemovalAction).mockResolvedValue({ ok: true });
+  const close = vi.fn();
+  render(<SessionRemovalDialog sessionId="c" onRemove={async () => true} onClose={close} />);
+  await screen.findByText(/disk space/);
+  fireEvent.click(screen.getByRole('button', { name: 'Keep chat' }));
+  await waitFor(() =>
+    expect(sessionRemovalAction).toHaveBeenCalledWith(
+      '/api/sessions/c/keep-chat',
+      { removalOperationId: 'original' },
+      expect.any(AbortSignal),
+    ),
+  );
+  expect(close).toHaveBeenCalled();
 });

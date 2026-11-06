@@ -43,17 +43,19 @@ export function notificationRouter(center: NotificationCenter): Router {
     center.changed();
     res.json({ ok: true });
   });
-  router.post('/archive-resolved', (_req, res) => {
+  router.post('/archive-resolved', reconcileSources, operatorAuthMiddleware, (_req, res) => {
     center.reconcile();
     const archived = center.store.archiveResolved();
     center.changed();
     res.json({ ok: true, archived });
   });
-  router.post('/:id/archive', (req, res) => {
+  router.post('/:id/archive', reconcileSources, operatorAuthMiddleware, (req, res) => {
+    const id = req.params.id;
+    if (typeof id !== 'string')
+      return res.status(400).json({ error: 'A single notification ID is required.' });
     center.reconcile();
-    if (!center.store.get(req.params.id))
-      return res.status(404).json({ error: 'Notification not found' });
-    if (!center.store.archive(req.params.id))
+    if (!center.store.get(id)) return res.status(404).json({ error: 'Notification not found' });
+    if (!center.store.archive(id))
       return res.status(409).json({ error: 'Resolve this request before archiving it.' });
     center.changed();
     res.json({ ok: true });

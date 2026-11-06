@@ -102,6 +102,7 @@ function fixture(harness = 'codex', location = 'local') {
       cwd: location === 'openshell' ? '/sandbox/task' : '/task',
       executionPhase: 'TERMINAL',
     }),
+    removals: { assertAdmissible: vi.fn() },
     getSessionRuntimeBinding: () => f.binding,
     getLatestOrdinaryCommandAdmission: () => ({
       binding: f.binding,

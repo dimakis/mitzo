@@ -1,5 +1,32 @@
 # Mitzo UI design contract
 
+## Native Codex subagents
+
+Keep one collapsed subagent count/status row within the spawning agent's activity.
+Expand it to a quiet list of child names and states; inspect a child in the shared
+HomeDialog with Back and Close. Use TextBubble and ToolPill for public output and
+tool activity. Keep the task and recipient explicit, with Message and Stop in a
+reachable footer and independent body scrolling. Preserve parent and sibling
+drafts, restore focus to the originating child, and disable controls when live
+authority is unavailable. Retain the existing composer, Terminal, context wheel
+and Resources. Use semantic tokens, shared motion and 44px controls; the dialog
+fills narrow phone widths. The approved mock and protected checks are recorded
+in the codex-subagents entry of the approved design ledger.
+
+## Visible agent messages
+
+Peer messages use one shared `AgentMessageCard` in the mobile and desktop chat
+transcript. Both participants see the complete text, named conversation links,
+recorded time, copy action and delivery state. Message/reply IDs remain available
+in native details. Queued and uncertain explicitly differ from delivery to the
+agent; delivery does not claim that a requested action was applied.
+
+The card reuses the transcript surface, semantic colors, spacing/type scales,
+panel radius, shared controls and monospace identifier font. It adds no theme or
+composer controls. Receipt changes update the original row. Offline regressions
+cover both directions, failures, narrow/desktop layouts, light/dark appearance,
+larger text, focus, full text and touch-sized conversation links.
+
 ## Session timer dialogs
 
 Timers reuse `HomeDialog`, `UiIcon`, shared primary/secondary/danger controls and
@@ -111,6 +138,14 @@ modifier takes its foreground/border from the semantic danger token; it introduc
 no palette, spacing or typography scale. Archive keeps resources, while deletion
 requires a fresh lifecycle review and retains the dialog/chat on failure. Copy
 explicitly states that saved history and recovery checkpoints remain.
+
+Coordinated removal adds Stop and review deletion and Keep chat inside the same
+action group. Preparation closes the runtime and cancels submitted queued work;
+physical deletion remains a separate explicit action. Local workspace retention
+is explained before confirmation and never described as reclaimed disk space.
+The existing focus, scrolling, semantic controls and authentication scope remain
+authoritative. See [coordinated chat removal](../features/session-resource-removal.md)
+for verification and outstanding rendered-browser evidence.
 
 Focused component/API/design checks and intercepted browser checks cover mobile
 WebKit/Chromium and desktop Chromium, dark Mint/System and light Teal/Georgia,
@@ -775,12 +810,29 @@ light/dark themes, Mint/Georgia appearance, larger text, long request details,
 keyboard focus and 44px controls without a backend or model call.
 
 Reviewed Telos mutations use the same ordinary `PermissionBanner` on desktop and
-mobile, selected only by the host's `reviewKind` marker. Request details contains
-whole completed public messages and retained material revisions, with no initial
-selection. The exact compiled source text, boundary, brief and version pins remain
-inspectable before Once saves that packet. Changing a selection invalidates its
-preview. This request offers Once and Deny; a session allowance cannot approve
-unseen future source selections. Other tools retain their existing scope/actions.
+mobile, selected only by the host's `reviewKind` marker. Outcome creation opens on
+the latest available exchange and prepares its exact source preview automatically.
+The brief and included source text remain visible before **Create outcome** saves
+them. **Change saved context** is optional; it exposes completed public messages,
+earlier-message paging and retained materials. Changing that selection invalidates
+its preview. Adding source to an existing item retains explicit selection and
+Once. The exact compiled text, boundary, brief and version pins remain inspectable.
+Outcome creation offers **Create outcome**, **Request changes** and **Cancel**.
+Request changes opens an inline, labelled feedback field, with **Send changes**,
+**Back to proposal** and **Cancel**. Going back preserves unsent feedback and
+returns focus. The primary action occupies the full footer row; the other two
+retain reachable shared control-height targets. Feedback uses the existing
+question-written controls and base text size. The footer stays outside the
+scrolling body. Source adoption retains Once and Deny; a session allowance cannot
+approve unseen future source selections. Other tools retain their scope/actions.
+
+Sending feedback retains the original proposal and exact feedback request,
+returns it to the original waiting agent and creates no Telos work. The agent's
+revised proposal needs fresh review and approval. Delivery uncertainty locks the
+same feedback for retry; the old proposal cannot be saved. Once saving has begun,
+revision is unavailable and original save recovery remains authoritative. Cancel
+abandons creation. Expected feedback and cancellation results remain readable
+outside Activity without becoming creation failures on the native route.
 The source controls reuse shared fieldsets, semantic tokens, normal disclosure
 and the card's independently scrolling body with reachable 44px decisions. Late
 reads are fenced to the request/session/login. An uncertain save locks its exact
@@ -789,7 +841,7 @@ Only the host can replay a prepared save as a recovery card. It restores its
 original packet after an authenticated read and offers Retry same save and
 Dismiss. Recovery continues that reviewed attempt; Dismiss neither undoes an
 uncertain item save nor discards its retained evidence. A fresh approval still
-uses its original deadline, explicit selection, Once and Deny. Source context and
+uses its original deadline and explicit final save. Source context and
 the proposed brief stay hidden until authentication is rechecked and clear on
 authentication loss. Retained source text wraps beside bounded native checkboxes;
 labels and decisions keep the shared touch target while the card body scrolls.
@@ -799,6 +851,13 @@ material title/revision/source lead the review; raw proposals, IDs, hashes and
 native generation/configuration proof stay under a closed Source details
 disclosure. Missing native provenance does not create unknown seat/configuration
 rows. Ordinary tools keep their original heading, raw request and scope controls.
+
+A failed initial source read offers **Retry source review** within that same
+approval. This only retries authenticated reading/preview, never creation. Failed
+outcome tool calls keep their actual result visible outside collapsed Activity,
+using `ToolResultContent` and existing semantic error styles; an unconfirmed save
+is never labelled as proof that nothing was written. See
+[the outcome creation checks and limits](../features/telos-outcome-creation.md).
 
 ## Artefact sharing links
 
@@ -999,6 +1058,27 @@ details in this top panel, including legacy conversations without a runtime bind
 
 ## Approved conversation composition
 
+Host Mac chat exposes Terminal in the existing composer actions before and after
+session creation. New-chat navigation retains the saved draft return route; an
+existing conversation keeps its server-resolved workspace destination. An unsent
+OpenShell draft has no host-terminal fallback. Loading conversation metadata
+keeps actions unavailable.
+
+Ordinary host Commands reuses SlashPicker and its existing shared typography,
+semantic colors, motion and keyboard behavior. Supported skills insert their name
+into the retained draft; Send remains separate. Skills requiring unsupported tool
+restrictions show a disabled choice and a reason, including restricted dependencies.
+The catalogue stays scoped to the selected runtime/workspace, with a load failure
+message instead of old choices. Legacy app commands retain their existing route.
+
+Focused composer, destination, resolver and design tests pass. The intercepted
+`chat-runtime-tools` fixture covers new/existing host chats, mobile/desktop,
+dark Mint/System and light Teal/Georgia, command insertion, unavailable reasons,
+terminal navigation and retained drafts. Browser execution remains pending CI:
+the host guard still reports Seatbelt after the approved escalation. No browser
+was launched and no visual inspection is claimed. Source and validation details
+are in [the feature record](../features/chat-runtime-tools.md).
+
 Conversation chrome keeps Account, Model and Thinking first in the single top
 settings disclosure, followed by Agent and Repository. Run on is a primary field in the approved compact popover; repository preparation
 retains its account-bound controls, and session details stay on request. Repository keeps the existing account-bound catalogue,
@@ -1158,6 +1238,17 @@ Native task selects reuse the context editor's explicit token-based height becau
 WebKit ignores their minimum height; offline geometry checks require 44px targets.
 
 ## Session library and context summaries
+
+Activity additions use shared `SessionActivityStatus` and `ActivityBars` in the
+existing collection, search, pins, preview and sidebar. Open chat enriches the
+approved single composer-status row. Explicit elapsed/waiting/completion labels
+use observed clocks; **Updated** identifies saved metadata when message timing is
+unknown. Tool updates do not reorder chats; meaningful freshness batches wait for
+browsing and action controls, with an explicit show-latest action. The existing
+menus, settings, message actions and composer keep their owners and layout.
+See [chat activity and validation](../features/chat-activity-freshness.md) and
+`chat-activity/additive-freshness-2026-11-06`. Browser evidence remains pending
+because the host marker prevented launching the approved offline command.
 
 Recent/search rows lead their secondary metadata with the recorded model choice
 and account label. The saved picker selection takes precedence over the original
