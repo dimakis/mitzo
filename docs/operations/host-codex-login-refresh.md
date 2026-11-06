@@ -90,6 +90,11 @@ exercise the trust boundaries without model calls or credentials. The final focu
 passed 246 tests across nine existing files in 10.97 seconds
 (6.39 seconds executing tests). There is no browser or complete-app journey added.
 Historical baseline runtime was not measured, so no runtime delta is claimed.
+The existing native history/revocation case also passed in 11.12 seconds
+(8.44 seconds executing the case), preserving its real consumer authorization
+boundary while requiring the specific revocation diagnostic. The longer cold
+tool-rollover consumer reuses its existing CI journey and deadline; no additional
+local copy is needed to repeat the shared error-propagation checks.
 Broad build/typecheck and required CI/review gates remain mandatory; local checks
 use one worker and a 1 GiB heap while this Mac is under memory pressure or its
 pressure reading is unavailable.

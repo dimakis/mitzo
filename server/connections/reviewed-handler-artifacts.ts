@@ -41,7 +41,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../scripts/reauthorize-host-codex-login.ts':
     'abc997f7c3c63b1c3256eef13e9c8bc78c93f854c8849a03216b9640549b6006',
   '../../docs/operations/host-codex-login-refresh.md':
-    '7f190b013c9513b0585e809115ac36fd427aaab0388441d18e5a9dc293c5dde7',
+    '50ffa031012908d3e73662c6b187662f6560442e80e66b0cbc5f090e472b2042',
   '../__tests__/frozen-host-codex-login.test.ts':
     'e163ffca6290f09a973ed163407599331403e85eb3a15f7d6429e4c2d2054675',
   '../__tests__/owned-codex-lifecycle-bridge.test.ts':
@@ -591,7 +591,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../single-flight-reconciliation.ts':
     '243227fbf5ff82d42687770551a3d3fa37ea11ea2d7c6d615e8b6bcb3d19def1',
   '../__tests__/session-history-native.test.ts':
-    '9857d4074958f6fd14ef1aae66920e56c45dd1703947f337fcb745dd37b5a599',
+    '3e588974443861af0a54e48253aee22d0918d9343c7228b6c62c066fd90b66b8',
   '../__tests__/session-history-search-cost.test.ts':
     'dd8f96e35b9a1dcda8a1eda68dd6c75576d7b12422a7c96e13b7dbb47ed06588',
   '../__tests__/session-history-search-batch.test.ts':
@@ -3412,7 +3412,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/fixtures/prepared-repository-native-consumer.ts':
     'f7adce5de67e7f3e319d9c8b0ab548a10e38a0ee8d41cc4adb90c2dceceb1d26',
   '../__tests__/fixtures/prepared-repository-native-public.ts':
-    'fa1c0f06efc2edfe535ddf1ce48da6119af9002b58d4a9580c62b0154468369b',
+    '7fda9ca41686a75a78dddbd740962d4995200d2b853121490c2b494a8703da52',
   '../__tests__/prepared-repository-native-cold-resume.test.ts':
     '923bed11cb1d0f10e9c75e3059dda1b72ed012a87859ab02a8779db61965413b',
   '../__tests__/prepared-repository-native-owner-guards.test.ts':
