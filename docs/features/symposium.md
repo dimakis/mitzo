@@ -1,11 +1,64 @@
 # Symposium: current direction and source guide
 
-Updated 17 October 2026. Start here for Symposium product work.
+Updated 6 November 2026. Start here for Symposium product work.
 Existing Telos item: `c0851ba23fcc5d04`; reuse it rather than create another parent
 or a task for every document. Tracker closure and source landing do not prove
 runtime acceptance or authorize deployment.
 
-## Application integration boundary
+## Silent joining: first simplification increment
+
+The user-approved [5 November simplification plan](https://github.com/dimakis/mgmt/blob/c558a7cfe23c8b198d98a806a5d9db2d208f70fa/architecture/discussions/mitzo/symposium-simplification-plan.md)
+supersedes the exact-native-request preflight dependency for joining in the historical
+section below. It preserves the approved UI and ordinary authorization/admission.
+Messaging prerequisite [#1222](https://github.com/dimakis/mitzo/pull/1222) merged
+5 November at `6bb45e9b4f81e7b49767f14a47f866f4711a33e9`.
+
+This increment is implementation candidate source on `feat/symposium-ordinary-joining`,
+based on accepted main `3e31ae28d2d1f2a54cdaf3fbcbeab3846a33341b`.
+It is not evidence of merge, deployment or live account qualification.
+`CollaborationApplicationReview` resolves the actual unused repository target and
+ordinary account/model/profile/settings. `createApplicationCollaborationJoining`
+connects that retained review to `OrdinaryCollaborationJoining` and
+`RepositoryWorkspaces.prepareOrdinarySession` through the existing authenticated
+collaboration routes. It creates no model request, queue, account system or database.
+
+Joining can retain **unverified** capacity when its exact settings belong to a
+trusted completed review. Explicit refusal or a required narrower/reviewed summary
+still blocks. The original frozen visible content, operator, profile, credential
+and repository authority are checked again before preparation/linking. Exact retries
+recover their original join and allocation; membership conflict uses explicit
+reconciliation. No future provider request is measured or certified at join time.
+Prompt delivery remains disabled, and its later implementation must preserve
+ordinary admission, exact authorized content and uncertainty handling.
+
+The approved `symposium-fresh-agent` ledger revision remains
+`fresh-agent-review-2026-10-18-test-syntax`. The existing Before joining action may
+confirm unmeasured capacity after review; its screens, layout, reference bytes and
+protected checks remain unchanged. The existing capacity status explains the limit.
+
+Evidence checked 6 November 2026 with synthetic Local Codex account/runtime metadata,
+real Git/SQLite/ordinary preparation and no inference:
+
+| Existing milestone requirement                            | Evidence and remaining boundary                                                                                                                                                                                                                                                                                                                                |
+| --------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Actual application composition and zero-inference joining | `server/__tests__/collaboration-application-joining-integration.test.ts` imports the real app, authenticates and uses the typed HTTP client. Review, one silent allocation, exact retry, reload and restart pass. The test fails when joining is omitted from app wiring. It now runs in the regular suite.                                                    |
+| Retained authority, recovery and reconciliation           | `server/__tests__/collaboration-application-joining.test.ts` covers changed operator/settings, hidden source, revoked login/source access, crash after allocation, frozen source after later discussion, and membership reconciliation using the original session. Existing joining/storage/router regressions remain required.                                |
+| Approved joining behavior                                 | Hook/component tests cover unmeasured joining, explicit refusal, edited/refrozen brief, retained draft and original recovery. Design contract checks pass. The offline browser fixture adds the unmeasured state; local Playwright stopped at its sandbox guard before launch. Final rendered comparison remains outstanding in CI or a permitted host runner. |
+| Type checks                                               | Protocol/harness/client TypeScript builds and focused semantic checks of the application joining/review/owner/router modules pass. The full server check exceeded the mandated 1 GiB local heap; full server/frontend builds and broader tests remain for CI.                                                                                                  |
+| Explicit group prompt and attributed reply                | Still outstanding. `tests/acceptance/symposium-application-wiring.repro.ts` reuses the passing application journey and retains the required failing delivery/reply continuation. Reuse #1222's ordinary dispatcher when implementing it.                                                                                                                       |
+
+The bounded resolver currently uses the existing silent repository-backed Codex
+route without context recipes. These offline observations qualify no installed
+account or runtime. Responses/Claude/Gemini parity, full web/device comparison,
+physical iOS, fan-out/reader delivery and live qualification remain separate work.
+Keep parent `c0851ba23fcc5d04` and milestone `358d56cb7e4352ff` active. Staging
+remains stood down; no runtime activation or production deployment is authorized.
+
+## Historical application foundation — 17 October
+
+The native-preflight dependency below is historical and superseded for joining by
+the 5 November direction above. Its retained native findings remain evidence;
+they do not add a dependency to silent ordinary-session preparation.
 
 PRs #987 (ordinary preparation and exact context acknowledgements) and #990
 (authenticated silent joining and durable recovery) are source-accepted at

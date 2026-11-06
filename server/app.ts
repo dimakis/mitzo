@@ -233,6 +233,7 @@ import { createOutputContributors } from './output-contributors.js';
 import { createOutputContributorRouter } from './output-contributor-routes.js';
 import { createSessionCollaborationRouter } from './session-collaboration-router.js';
 import { CollaborationApplicationReview } from './collaboration-application-review.js';
+import { createApplicationCollaborationJoining } from './collaboration-application-joining.js';
 import { readAgentLibraryProfile } from './agent-library-transport.js';
 import { createSymposiumProfileRouter } from './symposium-profile-routes.js';
 import { SymposiumProfileProposalStore } from './symposium-profile-proposals.js';
@@ -3507,6 +3508,14 @@ mountObservedRouter(
   operatorAuthMiddleware,
   createSessionCollaborationRouter({
     store: eventStore,
+    joining: (auth) =>
+      createApplicationCollaborationJoining(
+        {
+          store: eventStore,
+          workspaces: getRepositoryWorkspaces(true),
+        },
+        auth,
+      ),
     review: () =>
       new CollaborationApplicationReview({
         store: eventStore,

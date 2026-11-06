@@ -102,6 +102,16 @@ for (const theme of ['dark', 'light']) {
     );
     expect(confirmations).toHaveLength(2);
     expect(confirmations[0]).toEqual(confirmations[1]);
+    await page.goto('/?state=unmeasured');
+    await page.getByRole('button', { name: 'Review joining brief' }).click();
+    await expect(page.getByRole('status')).toContainText('Context capacity is unavailable');
+    await expect(page.getByRole('button', { name: 'Join conversation' })).toBeEnabled();
+    await page.getByRole('button', { name: 'Join conversation' }).click();
+    await expect(
+      page.getByRole('textbox', { name: /Joining brief · sent to every participant/ }),
+    ).toBeDisabled();
+    await page.getByRole('button', { name: 'Check again' }).click();
+    await expect(page.getByText(/Reviewer joined\./)).toBeVisible();
     await page.goto('/?state=capacity');
     await page.getByRole('button', { name: 'Review joining brief' }).click();
     await expect(page.getByRole('button', { name: 'Join conversation' })).toBeDisabled();

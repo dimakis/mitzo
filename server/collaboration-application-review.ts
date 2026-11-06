@@ -8,6 +8,7 @@ import {
   type CollaborationApplicationReviewInput,
   type CollaborationSnapshot,
   type CollaborationSettings,
+  type CollaborationJoin,
 } from '@mitzo/protocol';
 import { isAuthSessionCurrent, type AuthSession } from './auth.js';
 import {
@@ -26,6 +27,7 @@ import { OrdinaryCollaborationReview } from './collaboration-review-owner.js';
 import { createCollaborationContextSource } from './collaboration-context-source.js';
 import type { EventStore } from './event-store.js';
 import type { RepositoryWorkspaces } from './repository-workspaces.js';
+import { nativeStartupSessionId } from './ordinary-repository-startup.js';
 
 const unavailable = () => new CollaborationContractError('execution_unavailable');
 
@@ -182,21 +184,57 @@ export class CollaborationApplicationReview {
     return result(snapshot, resolved.settings, input.selection.expectedMembershipRevision);
   }
 
+  /** Reuse ordinary settings resolution for an authenticated retained review.
+   * A join can revisit its original reservation; setup cannot borrow a used target.
+   */
+  async resolveJoiningSettings(
+    settings: CollaborationSettings,
+    signal: AbortSignal,
+    join?: CollaborationJoin,
+  ) {
+    const resolved = await this.resolveSettings(
+      {
+        agent: settings.selection.agent ?? undefined,
+        accountId: settings.binding.account.accountId,
+        model: settings.selection.model,
+        reasoningEffort: settings.selection.thinking,
+        runOn: settings.binding.execution.location,
+        permissionMode: settings.selection.permission.mode,
+        repositoryWorkspaceId: settings.repositoryWorkspaceId,
+      },
+      undefined,
+      signal,
+      join,
+    );
+    if (!isDeepStrictEqual(resolved.settings, settings))
+      throw new CollaborationContractError('snapshot_changed');
+    return resolved;
+  }
+
   private async resolveSettings(
     target: CollaborationApplicationReviewInput['target'],
-    connectionId: string,
+    connectionId: string | undefined,
     signal: AbortSignal,
+    join?: CollaborationJoin,
   ) {
     signal.throwIfAborted();
     if (!target.agent) throw unavailable(); // The ordinary profile resolver has no implicit default.
     const record = this.owners.workspaces.get(target.repositoryWorkspaceId);
     const proof = record.ordinaryPreparation;
+    const originalReservation =
+      join &&
+      record.conversationId === nativeStartupSessionId(`repository:${record.id}`) &&
+      record.ordinaryFirstReservation?.conversationId === record.conversationId &&
+      (!join.sessionId || join.sessionId === record.conversationId);
     if (
       !proof ||
-      record.state !== 'ready' ||
-      record.conversationId ||
-      record.hostReservation ||
-      record.ordinaryFirstReservation ||
+      (originalReservation
+        ? !['reserved', 'claimed'].includes(record.state) ||
+          !isDeepStrictEqual(record.ordinaryFirstReservation?.binding, record.binding)
+        : record.state !== 'ready' ||
+          record.conversationId ||
+          record.hostReservation ||
+          record.ordinaryFirstReservation) ||
       record.handoff ||
       proof.runtimeBinding.execution.location !== target.runOn ||
       proof.runtimeBinding.harness.implementation !== 'codex'
@@ -233,7 +271,10 @@ export class CollaborationApplicationReview {
       requested: target.agent,
       provider: binding.provider,
       execution: runtime.execution,
-      lookup: (selection) => readAgentLibraryProfile(selection, connectionId),
+      lookup: (selection) =>
+        connectionId
+          ? readAgentLibraryProfile(selection, connectionId)
+          : Promise.resolve(readOrdinaryCodexAgentProfile(getAgentLibrary(), selection)),
     });
     if (!agent || agent.definition.contextRecipe !== undefined) throw unavailable();
     const settings: CollaborationSettings = {
@@ -260,6 +301,12 @@ export class CollaborationApplicationReview {
         throw unavailable();
     };
     assertCurrent();
-    return { settings, assertCurrent };
+    return {
+      settings,
+      assertCurrent,
+      binding,
+      agentProfile: agent,
+      sandboxWorkdir: proof.sandboxWorkdir,
+    };
   }
 }
