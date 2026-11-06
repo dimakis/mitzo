@@ -21,6 +21,7 @@ import { assertPreparedRepositoryTaskTopology } from '../prepared-repository-wor
 import { snapshotRepositoryTaskCheckout } from '../repository-task-checkout.js';
 import { codexNativeExecutionPolicy } from '../codex-native-execution-policy.js';
 import { repositoryObservationProgram } from '../native-repository-observation.js';
+import { SessionRuntimeError } from '../session-runtime-error.js';
 import * as topologyTransport from '../sandboxed-command.js';
 const roots: string[] = [];
 const deployment = vi.hoisted(() => ({ controller: false }));
@@ -1359,6 +1360,34 @@ it.each([false, true])(
     }
   },
 );
+
+it('delivers a reviewed workspace failure before physical close can replace its cause', async () => {
+  const f = fixture();
+  const failure = new SessionRuntimeError('workspace_branch_changed', {
+    cause: Error('private/path secret-token'),
+  });
+  const onClose = vi.fn();
+  let invalid = false;
+  Object.assign(f.options, {
+    lifecycle: { onNotification: vi.fn(), onRequest: vi.fn(), onClose },
+    assertToolSelectionCurrent: async () => {
+      if (invalid) throw failure;
+    },
+  });
+  f.rpc.close.mockImplementation(() => onClose(Error('generic physical closure')));
+  try {
+    await f.authority.withBootstrap(f.expected, f.claim, async (lease) => {
+      invalid = true;
+      await expect(lease.assertToolCurrent!(f.options.signal)).rejects.toThrow();
+      expect(onClose.mock.calls[0]?.[0]).toBe(failure);
+      expect(f.rpc.close).toHaveBeenCalledOnce();
+      expect(f.store.getOrdinaryLocalCommandAdmission('command')?.state).toBe('uncertain');
+    });
+  } finally {
+    f.authority.currentLease()?.close();
+    f.store.close();
+  }
+});
 
 it('forwards the tool admission cancellation signal to workspace validation', async () => {
   const f = fixture();

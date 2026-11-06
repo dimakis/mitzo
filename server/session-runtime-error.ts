@@ -13,6 +13,8 @@ const messages = {
     'This historical repair could not be qualified safely. Original work and queued messages are retained; nothing was dispatched.',
   runtime_unavailable:
     'The execution runtime could not continue. The conversation, workspace and saved messages are retained.',
+  workspace_branch_changed:
+    'This checkout is no longer on its assigned task branch. Saved commits and files are preserved. Restore the assigned branch while retaining the saved work, then review the interrupted turn before continuing.',
   callbacks_pending:
     'The provider finished, but an original tool callback has not settled. Saved messages remain queued. Completed work will not be rerun.',
   callbacks_failed:
