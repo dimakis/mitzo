@@ -12,7 +12,8 @@ export function useSessionLaunch(sessionId: string | null | undefined, enabled =
   const [revision, setRevision] = useState(0);
   const refresh = useCallback(() => setRevision((current) => current + 1), []);
   const activeRequests =
-    snapshot?.sessionId === sessionId &&
+    snapshot !== null &&
+    snapshot.sessionId === sessionId &&
     snapshot.data.requests.some((request) =>
       ['pending', 'starting', 'created', 'uncertain'].includes(request.state),
     );
@@ -66,7 +67,9 @@ export function useSessionLaunch(sessionId: string | null | undefined, enabled =
     };
   }, [sessionId, enabled, revision, refresh]);
   return {
-    ...(enabled && snapshot?.sessionId === sessionId ? snapshot.data : { requests: [] }),
+    ...(enabled && snapshot !== null && snapshot.sessionId === sessionId
+      ? snapshot.data
+      : { requests: [] }),
     refresh,
   };
 }

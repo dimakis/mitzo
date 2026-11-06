@@ -15,6 +15,17 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
+it.each([undefined, null])(
+  'keeps an absent session (%s) quiet without dereferencing a missing snapshot',
+  (sessionId) => {
+    const { result } = renderHook(() => useSessionLaunch(sessionId));
+    expect(result.current.requests).toEqual([]);
+    expect(result.current.origin).toBeUndefined();
+    expect(apiFetch).not.toHaveBeenCalled();
+    expect(eventBus.on).not.toHaveBeenCalled();
+  },
+);
+
 it('refreshes matching session events and reconnection without any mutation', async () => {
   vi.mocked(apiFetch).mockImplementation(
     async () => new Response(JSON.stringify({ requests: [] })),
