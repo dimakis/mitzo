@@ -13,6 +13,7 @@ import { sessionPromptSchemas } from './session-prompt-definitions.js';
 import { getSessionPrompts } from './session-prompt-runtime.js';
 import { sessionPromptReceipt } from './session-prompt-service.js';
 import type { ProfileToolCall } from './session-profile-tools.js';
+import { retainedNativeHostToolOperator } from './native-host-tool-operator.js';
 
 export function sessionPromptTools(
   sessionId: string,
@@ -48,12 +49,19 @@ export function sessionPromptTools(
           return owner;
         };
         const owner = current();
-        const connectionId = owner.session.ownerConnectionId ?? owner.clientId.split(':')[0];
+        const connectionId =
+          retainedNativeHostToolOperator(owner.session) ??
+          owner.session.ownerConnectionId ??
+          owner.clientId.split(':')[0];
         const captured = captureAgentLibraryAuthorization(connectionId);
         const verify = () => {
           const next = current();
           captured.assertCurrent();
-          if ((next.session.ownerConnectionId ?? next.clientId.split(':')[0]) !== connectionId)
+          if (
+            (retainedNativeHostToolOperator(next.session) ??
+              next.session.ownerConnectionId ??
+              next.clientId.split(':')[0]) !== connectionId
+          )
             throw Error('Session operator changed.');
         };
         verify();

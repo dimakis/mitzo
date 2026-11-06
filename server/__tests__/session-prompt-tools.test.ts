@@ -5,6 +5,7 @@ import { bindAgentLibraryTransport } from '../agent-library-transport.js';
 import { bindAgentToolSelection } from '../agent-tool-selection.js';
 import { sessionPromptTools } from '../session-prompt-tools.js';
 import { agentToolCatalog } from '../agent-tool-catalog.js';
+import { retainNativeHostToolOperator } from '../native-host-tool-operator.js';
 
 const f = vi.hoisted(() => ({
   create: vi.fn(async () => ({ id: 'timer', status: 'active' })),
@@ -38,10 +39,9 @@ function fixture(signed = true) {
     sessionAllowList: new Set(),
   });
   const session = registry.get('operator:worker')!;
-  if (signed)
-    cleanup.push(
-      bindAgentLibraryTransport('operator', { id: 'login', expiresAt: Date.now() + 60000 }),
-    );
+  const auth = { id: 'login', expiresAt: Date.now() + 60000 };
+  const disconnectOperator = signed ? bindAgentLibraryTransport('operator', auth) : () => {};
+  cleanup.push(disconnectOperator);
   const tools = sessionPromptTools(
     'worker',
     session,
@@ -54,10 +54,66 @@ function fixture(signed = true) {
     tools,
     registry,
     session,
+    auth,
+    disconnectOperator,
     call: { turnId: 'turn', callId: 'verified-call' },
     signal: new AbortController().signal,
   };
 }
+function retainOperator(x: ReturnType<typeof fixture>) {
+  x.session.ownedLocalAuthSessionId = x.auth.id;
+  const release = retainNativeHostToolOperator(x.session, 'operator');
+  cleanup.push(release);
+  return release;
+}
+it('keeps timer reads and scheduling usable after the viewer disconnects', async () => {
+  const x = fixture();
+  retainOperator(x);
+  x.disconnectOperator();
+  expect((await x.tools.execute('SessionTimers', { operation: 'list' }, x.signal))?.isError).toBe(
+    false,
+  );
+  const input = { requestId: randomUUID(), prompt: 'Continue coordinating', intervalMinutes: 10 };
+  expect((await x.tools.execute('SchedulePrompt', input, x.signal, x.call))?.isError).toBe(false);
+  expect(f.create).toHaveBeenCalledWith(
+    expect.any(Object),
+    expect.objectContaining({ id: x.auth.id }),
+    'agent',
+    'worker',
+    expect.any(Function),
+  );
+});
+it('keeps timer approval under the retained login when a different viewer reattaches', async () => {
+  const x = fixture();
+  retainOperator(x);
+  f.approve.mockImplementationOnce(async (_name, input) => {
+    x.disconnectOperator();
+    cleanup.push(
+      bindAgentLibraryTransport('new-viewer', {
+        id: 'other-login',
+        expiresAt: Date.now() + 60000,
+      }),
+    );
+    x.session.ownerConnectionId = 'new-viewer';
+    return { behavior: 'allow', updatedInput: input };
+  });
+  const input = { requestId: randomUUID(), prompt: 'Continue coordinating', intervalMinutes: 10 };
+  expect((await x.tools.execute('SchedulePrompt', input, x.signal, x.call))?.isError).toBe(false);
+  expect(f.create).toHaveBeenCalledWith(
+    expect.any(Object),
+    expect.objectContaining({ id: x.auth.id }),
+    'agent',
+    'worker',
+    expect.any(Function),
+  );
+});
+it('refuses timer changes after releasing the retained login without falling back to the viewer', async () => {
+  const x = fixture();
+  retainOperator(x)();
+  const input = { requestId: randomUUID(), prompt: 'Do not schedule', intervalMinutes: 10 };
+  expect((await x.tools.execute('SchedulePrompt', input, x.signal, x.call))?.isError).toBe(true);
+  expect(f.create).not.toHaveBeenCalled();
+});
 it('uses verified runtime source for agent timers and callbacks and preserves ordinary approval', async () => {
   const x = fixture();
   const input = { requestId: randomUUID(), prompt: 'Check PR #7', intervalMinutes: 10 };
