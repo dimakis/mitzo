@@ -62,6 +62,7 @@ export interface ManagedSession {
       messageId: string,
       assertSenderCurrent: () => void,
       signal: AbortSignal,
+      assertPermissionCurrent?: () => void,
     ): Promise<{ dispatched: boolean }>;
     retryInitial(command: unknown): Promise<{ dispatched: boolean }>;
     close(): void;

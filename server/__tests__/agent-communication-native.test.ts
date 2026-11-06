@@ -33,6 +33,7 @@ import {
   agentCommunicationDefinitions,
   sessionAgentCommunicationTools,
   recordAgentMessageAcceptance,
+  recordAgentMessageCommandOutcome,
 } from '../agent-communication-tools.js';
 import { createAgentMessageApprover } from '../agent-communication-permission.js';
 
@@ -772,6 +773,7 @@ async function fixture(
     nativePolicyCheck?: (sessionId: string) => unknown;
     productionPolicy?: boolean;
     steerBusy?: 'accepted' | 'lost' | 'rejected';
+    onVerifyBinding?: (sessionId: string) => void;
     /** Defensive fault injection inside a genuine verified callback. These
      * malformed server facets are not evidence of production authority. */
     readScopeFault?: ReadScopeFault;
@@ -984,6 +986,7 @@ async function fixture(
             : {}),
           verifyBinding: async () => {
             await dispatch.admission.assertCurrent();
+            options.onVerifyBinding?.(sessionId);
             return dispatch.lease.binding;
           },
           beforeThreadInitialization: (store) => dispatch.admission.persistCustody(store),
@@ -1005,6 +1008,18 @@ async function fixture(
               threadId,
               turnId,
             ),
+          onQueueChange: () => {
+            for (const command of conversation.queue())
+              if (command.status === 'failed' || command.status === 'cancelled')
+                recordAgentMessageCommandOutcome(
+                  f.events,
+                  native,
+                  sessionId,
+                  dispatch.lease.binding,
+                  auth.id,
+                  command.id,
+                );
+          },
           executeTool: async (name, input, signal, call) => {
             if (!options.observe && !options.assertExtra)
               return {
@@ -1139,8 +1154,8 @@ async function fixture(
       identity: driver,
       initialCommandId: selected.request.clientMsgId,
       admit: (command, signal) => driver.admitContinuation(command, signal),
-      admitAgentMessage: (id, assertCurrent, signal) =>
-        driver.admitAgentMessage(id, assertCurrent, signal),
+      admitAgentMessage: (id, assertCurrent, signal, assertPermissionCurrent) =>
+        driver.admitAgentMessage(id, assertCurrent, signal, assertPermissionCurrent),
       retryInitial: (command) => driver.admit(command),
       close: () => driver.close(),
     };
@@ -1356,6 +1371,99 @@ it('uses one explicit session messaging grant for further sends and correlated r
   expect(f.permissions).toHaveLength(2);
 }, 20000);
 
+it('keeps correlated replies under the receiving chat Ask-mode ceiling', async () => {
+  const f = await fixture();
+  f.setPermissionAction((event) => {
+    resolvePending(event.permId as string, 'always', undefined, event.sessionId as string);
+  });
+  const sent = await f.a.call({
+    operation: 'send',
+    requestId: randomUUID(),
+    recipientConversationId: f.b.sessionId,
+    text: 'A grant does not change your permission mode.',
+  });
+  f.b.session.mode = 'ask';
+  const replyInput = {
+    operation: 'send',
+    requestId: randomUUID(),
+    recipientConversationId: f.a.sessionId,
+    replyTo: sent.value.messageId,
+    text: 'This reply must be denied.',
+  };
+  const approval = await createAgentMessageApprover({
+    events: f.f.events,
+    registry: f.registry,
+    conversationId: f.b.sessionId,
+    assertCurrent: () => {},
+  })(replyInput, new AbortController().signal);
+  expect(approval.behavior).toBe('deny');
+  const reply = await f.b.call(replyInput);
+  expect(reply.response.success).toBe(false);
+  expect(f.permissions).toHaveLength(1);
+  expect(f.f.events.agentCommunication.inbox(f.a.sessionId).messages).toEqual([]);
+}, 20000);
+
+it.each(['send', 'reply'])(
+  'rechecks the original grant after asynchronous %s steering verification',
+  async (kind) => {
+    const revocation: { onVerify?: (id: string) => void } = {};
+    const f = await fixture({
+      steerBusy: 'accepted',
+      onVerifyBinding: (id) => revocation.onVerify?.(id),
+    });
+    f.setPermissionAction((event) => {
+      resolvePending(event.permId as string, 'always', undefined, event.sessionId as string);
+    });
+    const first = await f.a.call({
+      operation: 'send',
+      requestId: randomUUID(),
+      recipientConversationId: f.b.sessionId,
+      text: 'Establish one session grant.',
+    });
+    const sender = kind === 'reply' ? f.b : f.a;
+    const recipient = kind === 'reply' ? f.a : f.b;
+    const before = recipient.requests.filter((request) => request.method === 'turn/steer').length;
+    revocation.onVerify = (id) => {
+      if (id === recipient.sessionId) f.a.session.sessionAllowList.clear();
+    };
+    const sent = await sender.call({
+      operation: 'send',
+      requestId: randomUUID(),
+      recipientConversationId: recipient.sessionId,
+      ...(kind === 'reply' ? { replyTo: first.value.messageId } : {}),
+      text: 'Revoked while the native owner was being verified.',
+    });
+    expect(sent.value.status).not.toBe('delivered');
+    expect(recipient.requests.filter((request) => request.method === 'turn/steer')).toHaveLength(
+      before,
+    );
+    expect(f.permissions).toHaveLength(1);
+  },
+  20000,
+);
+
+it('rechecks a queued message grant at provider dispatch after the sending tool has returned', async () => {
+  const f = await fixture();
+  f.setPermissionAction((event) => {
+    resolvePending(event.permId as string, 'always', undefined, event.sessionId as string);
+  });
+  const sent = await f.a.call({
+    operation: 'send',
+    requestId: randomUUID(),
+    recipientConversationId: f.b.sessionId,
+    text: 'Revoke this queued message before provider submission.',
+  });
+  expect(sent.value.status).toBe('queued');
+  f.a.session.sessionAllowList.clear();
+  await f.b.complete();
+  await vi.waitFor(() =>
+    expect(
+      f.native.commandStatus(f.b.sessionId, f.b.initial.lease.binding, sent.value.commandId),
+    ).toBe('failed'),
+  );
+  expect(f.b.requests.filter((request) => request.method === 'turn/start')).toHaveLength(1);
+}, 20000);
+
 it('routes a verified agent send through real approval/admission into a busy native FIFO, then ACKs and correlates an explicit reply', async () => {
   const f = await fixture();
   const listed = await f.a.call({ operation: 'list' });
@@ -1445,6 +1553,10 @@ it('wakes an idle native queue once while leaving paused recovery and later canc
   expect(f.b.conversation.isPaused()).toBe(true);
   expect(f.b.requests.filter((r) => r.method === 'turn/start')).toHaveLength(2);
   expect(f.b.conversation.cancelQueued(paused.value.commandId)).toBe('cancelled');
+  expect(f.f.events.agentCommunication.read(f.a.sessionId, paused.value.messageId)).toMatchObject({
+    status: 'failed',
+    reason: 'cancelled',
+  });
   const cancelled = await f.a.call({ operation: 'read', messageId: paused.value.messageId });
   expect(cancelled.value).toMatchObject({ status: 'failed', reason: 'cancelled' });
   expect(f.b.requests.filter((r) => r.method === 'turn/start')).toHaveLength(2);

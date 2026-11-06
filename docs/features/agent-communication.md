@@ -18,12 +18,17 @@ Codex chats and correlated replies from those peers. Losing the original live
 owner or clearing its grant removes reply coverage. Runtime, operator, recipient,
 skill/tool and cancellation checks remain in effect for every send. Messages
 convey no publication, filesystem, work-control or merge authority.
+Correlated replies pass through the shared permission constraints, including Ask
+mode. The exact grant owner and membership are rechecked across asynchronous
+admission and at queued provider dispatch; a revoked grant cannot be reused.
 
 A busy recipient receives the message through exact-target native steering.
 An idle recipient uses its original command queue. A paused or cold conversation
 is never resumed implicitly. Acknowledgement loss stays uncertain and exact
 retries only inspect the original request. Delivery means the provider accepted
 the message; a requested pause still requires the recipient's own acknowledgement.
+Queued cancellation updates both transcripts immediately. Live receipts use the
+normal retained-event delivery path for V2 watches and reconnecting viewers.
 
 Local logs inspected on 2026-11-06 showed two peer commands stopping at
 `native_policy` with `providerSubmitted=false`. The previous receipt path

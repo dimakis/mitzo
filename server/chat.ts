@@ -2538,7 +2538,7 @@ This is an independent checkout with its own Git storage, not a linked worktree.
           options.sourceSnapshots,
         );
       q = await openCodexChat({
-        deliverRuntimeFailure: (event) =>
+        deliverRetainedEvent: (event) =>
           deliverRetainedSessionEvent(event, clientId, registry, _connRegistry ?? undefined),
         agentProfile,
         assertAgentContextAuthorization: assertSandboxContextAuthorization,
@@ -3767,8 +3767,13 @@ export async function startOwnedLocalCodexCommand(
           },
         });
       },
-      admitAgentMessage: (messageId, assertSenderCurrent, signal) =>
-        retainedDriver.admitAgentMessage(messageId, assertSenderCurrent, signal),
+      admitAgentMessage: (messageId, assertSenderCurrent, signal, assertPermissionCurrent) =>
+        retainedDriver.admitAgentMessage(
+          messageId,
+          assertSenderCurrent,
+          signal,
+          assertPermissionCurrent,
+        ),
       retryInitial: (command) =>
         preparationOperationId !== undefined
           ? retainedDriver.admitPreparedFirst(preparationOperationId, command)
@@ -4058,7 +4063,7 @@ export async function prepareOwnedCodexChat(
     env.MITZO_SESSION_ID = sessionId;
     env.MITZO_AGENT_NAME = expected.agentProfile?.definition.name ?? '';
     queryInstance = await openCodexChat({
-      deliverRuntimeFailure: (event) =>
+      deliverRetainedEvent: (event) =>
         deliverRetainedSessionEvent(event, clientId, registry, _connRegistry ?? undefined),
       ownedLocal: localAdmission,
       ownedOpenShell: openShellAdmission,

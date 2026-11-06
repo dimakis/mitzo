@@ -1236,7 +1236,7 @@ export class OrdinaryLocalCodexOwnedRuntime<K extends LocalWorkspaceKind = 'repo
   async admitContinuation(
     raw: unknown,
     preparationSignal?: AbortSignal,
-    peer?: { messageId: string; assertCurrent(): void },
+    peer?: { messageId: string; assertCurrent(): void; assertPermissionCurrent?: () => void },
     assertCredentialSetupCurrent?: () => void,
   ): Promise<{ dispatched: boolean }> {
     raw = structuredClone(raw);
@@ -1267,7 +1267,7 @@ export class OrdinaryLocalCodexOwnedRuntime<K extends LocalWorkspaceKind = 'repo
   private async admitContinuationNow(
     raw: unknown,
     preparationSignal?: AbortSignal,
-    peer?: { messageId: string; assertCurrent(): void },
+    peer?: { messageId: string; assertCurrent(): void; assertPermissionCurrent?: () => void },
     assertCredentialSetupCurrent?: () => void,
   ): Promise<{ dispatched: boolean }> {
     const assertAdmissionCurrent = () => {
@@ -1437,7 +1437,7 @@ export class OrdinaryLocalCodexOwnedRuntime<K extends LocalWorkspaceKind = 'repo
           },
           dispatch: async (expected, commandId) => {
             assertAdmissionCurrent();
-            admission.admitContinuation(commandId, expected);
+            admission.admitContinuation(commandId, expected, peer?.assertPermissionCurrent);
             await this.owners.dispatchContinuation!({
               admission,
               lease,
@@ -1511,7 +1511,12 @@ export class OrdinaryLocalCodexOwnedRuntime<K extends LocalWorkspaceKind = 'repo
   /** A separately approved native agent tool may enqueue exactly its retained
    * peer message. The ordinary account/context/workspace/permission coordinator
    * still owns every effect. No public payload can select this entry point. */
-  async admitAgentMessage(messageId: string, assertSenderCurrent: () => void, signal: AbortSignal) {
+  async admitAgentMessage(
+    messageId: string,
+    assertSenderCurrent: () => void,
+    signal: AbortSignal,
+    assertPermissionCurrent?: () => void,
+  ) {
     const assertCurrent = () => {
       signal.throwIfAborted();
       assertSenderCurrent();
@@ -1555,7 +1560,7 @@ export class OrdinaryLocalCodexOwnedRuntime<K extends LocalWorkspaceKind = 'repo
         payload: { text: agentMessagePrompt(message) },
       },
       signal,
-      { messageId, assertCurrent },
+      { messageId, assertCurrent, assertPermissionCurrent },
     );
   }
 

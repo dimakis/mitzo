@@ -1,5 +1,9 @@
 import { randomUUID } from 'node:crypto';
-import { buildPermissionHandler, type SessionRegistry } from '@mitzo/harness';
+import {
+  buildPermissionHandler,
+  effectivePermissionMode,
+  type SessionRegistry,
+} from '@mitzo/harness';
 import type { EventStore } from './event-store.js';
 
 const grantKey = (operator: string, conversation: string) =>
@@ -22,20 +26,30 @@ export function createAgentMessageApprover(options: {
     const operator = owner?.session.ordinaryRuntimeOwner?.authSessionId;
     if (!owner || !operator || owner.session.abortController.signal.aborted)
       throw Error('Current signed native sender required');
+    const ownerIdentity = owner.session.ordinaryRuntimeOwner;
+    const ownGrantKey = grantKey(operator, options.conversationId);
+    let replyGrantCurrent: (() => boolean) | undefined;
     if (typeof input.replyTo === 'string') {
       const original = options.events.agentCommunication.forHost(input.replyTo);
       const peer = options.registry.findBySessionId(original.message.senderConversationId);
-      if (
-        original.operatorAuthSessionId === operator &&
-        original.message.recipientConversationId === options.conversationId &&
-        original.message.senderConversationId === input.recipientConversationId &&
-        peer?.session.ordinaryRuntimeOwner?.authSessionId === operator &&
-        !peer.session.abortController.signal.aborted &&
-        !options.registry.isClosingOut(peer.clientId) &&
-        !options.registry.isUserClose(peer.clientId) &&
-        peer.session.sessionAllowList.has(grantKey(operator, original.message.senderConversationId))
-      )
-        return { behavior: 'allow' as const, updatedInput: input };
+      const peerIdentity = peer?.session.ordinaryRuntimeOwner;
+      replyGrantCurrent = () =>
+        Boolean(
+          original.operatorAuthSessionId === operator &&
+          original.message.recipientConversationId === options.conversationId &&
+          original.message.senderConversationId === input.recipientConversationId &&
+          peer &&
+          options.registry.findBySessionId(original.message.senderConversationId)?.session ===
+            peer.session &&
+          peer.session.ordinaryRuntimeOwner === peerIdentity &&
+          peerIdentity?.authSessionId === operator &&
+          !peer.session.abortController.signal.aborted &&
+          !options.registry.isClosingOut(peer.clientId) &&
+          !options.registry.isUserClose(peer.clientId) &&
+          peer.session.sessionAllowList.has(
+            grantKey(operator, original.message.senderConversationId),
+          ),
+        );
     }
     const decision = await buildPermissionHandler(
       owner.clientId,
@@ -46,7 +60,8 @@ export function createAgentMessageApprover(options: {
       toolUseID: randomUUID(),
       forcePrompt: true,
       allowSessionGrant: true,
-      sessionGrantKey: grantKey(operator, options.conversationId),
+      sessionGrantKey: ownGrantKey,
+      isRetainedSessionGrantCurrent: replyGrantCurrent,
       sessionGrantDescription:
         'Exchange messages between this chat and your other live Local Mac Codex chats for this session, including their replies. This does not authorize their work or merges.',
       title: 'Allow agent messages?',
@@ -55,11 +70,29 @@ export function createAgentMessageApprover(options: {
     });
     options.assertCurrent();
     signal.throwIfAborted();
-    if (
-      options.registry.findBySessionId(options.conversationId)?.session !== owner.session ||
-      owner.session.ordinaryRuntimeOwner?.authSessionId !== operator
-    )
-      throw Error('Agent messaging owner changed');
-    return decision;
+    // Freeze the authority actually used. A correlated grant must not silently
+    // become a different grant if it is revoked during asynchronous admission.
+    const grantCurrent =
+      decision.decisionClassification === 'user_permanent'
+        ? owner.session.sessionAllowList.has(ownGrantKey)
+          ? () => owner.session.sessionAllowList.has(ownGrantKey)
+          : replyGrantCurrent
+        : undefined;
+    const assertCurrent = () => {
+      options.assertCurrent();
+      if (
+        options.registry.findBySessionId(options.conversationId)?.session !== owner.session ||
+        owner.session.ordinaryRuntimeOwner !== ownerIdentity ||
+        ownerIdentity?.authSessionId !== operator ||
+        owner.session.abortController.signal.aborted ||
+        options.registry.isClosingOut(owner.clientId) ||
+        options.registry.isUserClose(owner.clientId) ||
+        effectivePermissionMode(owner.session) === 'ask' ||
+        (decision.decisionClassification === 'user_permanent' && !grantCurrent?.())
+      )
+        throw Error('Agent messaging permission changed');
+    };
+    if (decision.behavior === 'allow') assertCurrent();
+    return { ...decision, assertCurrent };
   };
 }

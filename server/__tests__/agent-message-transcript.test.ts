@@ -12,11 +12,69 @@ import {
   messagesReducer,
 } from '../../packages/client/src/slices/messages.js';
 import { watchAgentMessageTranscript } from '../agent-message-transcript.js';
+import { SessionRegistry, ConnectionRegistry } from '@mitzo/harness';
+import { deliverRetainedSessionEvent } from '../query-loop.js';
 
 const stores: EventStore[] = [];
 const roots: string[] = [];
 afterEach(() => stores.splice(0).forEach((store) => store.close()));
 afterEach(() => roots.splice(0).forEach((root) => rmSync(root, { recursive: true, force: true })));
+
+it('delivers live receipts through V2 watch and reconnect subscribers without legacy observers', async () => {
+  const store = new EventStore(':memory:');
+  stores.push(store);
+  const sessions = new SessionRegistry();
+  const connections = new ConnectionRegistry();
+  const original = { isOpen: () => true, send: vi.fn() };
+  const reconnected = { isOpen: () => true, send: vi.fn() };
+  for (const id of ['a', 'b']) store.upsertSession({ sessionId: id });
+  sessions.register('driver', {
+    sessionId: 'b',
+    transport: { isOpen: () => false, send: vi.fn() },
+    abortController: new AbortController(),
+    mode: 'agent',
+    sessionAllowList: new Set(),
+  });
+  connections.register('tab', original);
+  connections.watch('tab', 'b');
+  const unwatch = watchAgentMessageTranscript(store, 'b', (event) =>
+    deliverRetainedSessionEvent(event, 'driver', sessions, connections),
+  );
+  try {
+    const sent = store.agentCommunication.reserve(
+      'a',
+      'operator',
+      { turnId: 'turn', callId: 'call' },
+      {
+        requestId: randomUUID(),
+        recipientConversationId: 'b',
+        text: 'Every watching tab sees this receipt.',
+      },
+    );
+    await new Promise<void>((resolve) => queueMicrotask(resolve));
+    expect(original.send).toHaveBeenCalledOnce();
+    connections.remove('tab');
+    connections.register('reconnected-tab', reconnected);
+    connections.watch('reconnected-tab', 'b');
+    store.agentCommunication.recordForHost(sent.messageId, 'delivered');
+    await new Promise<void>((resolve) => queueMicrotask(resolve));
+    expect(original.send).toHaveBeenCalledOnce();
+    expect(reconnected.send).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({
+        type: 'agent_message',
+        sessionId: 'b',
+        projection: expect.objectContaining({
+          message: expect.objectContaining({ status: 'delivered' }),
+        }),
+      }),
+    );
+    expect(sessions.get('driver')!.observers.size).toBe(0);
+  } finally {
+    unwatch();
+    sessions.dispose();
+    connections.dispose();
+  }
+});
 
 it('backfills retained invisible messages once on upgrade without attempting delivery', () => {
   const root = mkdtempSync(join(tmpdir(), 'peer-transcript-upgrade-'));

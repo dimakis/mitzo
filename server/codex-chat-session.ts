@@ -75,7 +75,7 @@ import {
   AGENT_COMMUNICATION_TOOL,
   agentCommunicationDefinitions,
   recordAgentMessageAcceptance,
-  recordAgentMessagePreDispatchFailure,
+  recordAgentMessageCommandOutcome,
   sessionAgentCommunicationTools,
 } from './agent-communication-tools.js';
 import {
@@ -729,7 +729,8 @@ interface Options {
   apiTools?: { catalog: ReturnType<typeof getApiToolCatalog> };
   mcpServers: Record<string, McpServerConfig>;
   eventStore: EventStore;
-  deliverRuntimeFailure?: (event: Record<string, unknown>) => void;
+  /** Normal retained-event delivery, including V2 watches and reconnect cursors. */
+  deliverRetainedEvent?: (event: Record<string, unknown>) => void;
   onDemandCreate?: NativeToolOptions['onDemandCreate'];
   onBootContext?: (context: OpenShellBootContext) => void;
   /** Already resolved, authorized and persisted by common chat admission. */
@@ -4259,8 +4260,8 @@ async function openCodexChatBound(
       const queue = runtime.queue();
       if (options.ownedLocal)
         for (const command of queue) {
-          if (command.status === 'failed')
-            recordAgentMessagePreDispatchFailure(
+          if (command.status === 'failed' || command.status === 'cancelled')
+            recordAgentMessageCommandOutcome(
               options.eventStore,
               privateStorage,
               options.conversationId,
@@ -4326,7 +4327,7 @@ async function openCodexChatBound(
           session: options.session,
           error: failure,
           describe: publicCodexRuntimeError,
-          deliver: options.deliverRuntimeFailure,
+          deliver: options.deliverRetainedEvent,
         });
     },
   };
@@ -4393,6 +4394,10 @@ async function openCodexChatBound(
           assertHostCurrentSync();
           const current = options.registry.findBySessionId(options.conversationId);
           if (current?.session !== options.session) return;
+          if (options.deliverRetainedEvent) {
+            options.deliverRetainedEvent(event);
+            return;
+          }
           for (const transport of new Set([
             options.session.transport,
             ...options.session.observers,

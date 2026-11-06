@@ -274,8 +274,10 @@ export class OwnedLocalCodexChatAdmission {
   admitContinuation(
     commandId: string,
     expectedInput: Readonly<OrdinaryLocalCodexAdmissionExpectation>,
+    assertPermissionCurrent?: () => void,
   ): void {
-    if (this.#primary) return this.#primary.admitContinuation(commandId, expectedInput);
+    if (this.#primary)
+      return this.#primary.admitContinuation(commandId, expectedInput, assertPermissionCurrent);
     try {
       this.assertCurrentSync();
       if (
@@ -306,6 +308,12 @@ export class OwnedLocalCodexChatAdmission {
         recovery: undefined,
         commandId,
         expected,
+        authorizeNativeThreadDispatch: assertPermissionCurrent
+          ? (id) => {
+              assertPermissionCurrent();
+              this.owner.authorizeNativeThreadDispatch?.(id);
+            }
+          : this.owner.authorizeNativeThreadDispatch,
       });
       if (child.#payload.systemPrompt !== this.#payload.systemPrompt) throw unavailable();
       child.#continuation = true;

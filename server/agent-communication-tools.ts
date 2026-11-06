@@ -17,7 +17,7 @@ import type { AccountBinding } from '@mitzo/protocol';
 import { createLogger } from './logger.js';
 const log = createLogger('agent-communication');
 
-export function recordAgentMessagePreDispatchFailure(
+export function recordAgentMessageCommandOutcome(
   events: EventStore,
   native: CodexConversationStore,
   conversationId: string,
@@ -32,20 +32,20 @@ export function recordAgentMessagePreDispatchFailure(
     peer.operatorAuthSessionId !== authSessionId
   )
     return false;
+  let reason: 'cancelled' | 'before_provider_submission';
   try {
-    if (
-      native.commandStatus(conversationId, account, commandId) !== 'failed' ||
-      !native.assertUndispatchedCommand(conversationId, account, commandId)
+    const status = native.commandStatus(conversationId, account, commandId);
+    if (status === 'cancelled') reason = 'cancelled';
+    else if (
+      status === 'failed' &&
+      native.assertUndispatchedCommand(conversationId, account, commandId)
     )
-      return false;
+      reason = 'before_provider_submission';
+    else return false;
   } catch {
     return false;
   }
-  events.agentCommunication.recordForHost(
-    peer.message.messageId,
-    'failed',
-    'before_provider_submission',
-  );
+  events.agentCommunication.recordForHost(peer.message.messageId, 'failed', reason);
   return true;
 }
 
@@ -116,7 +116,12 @@ interface Owners {
   approve(
     input: Record<string, unknown>,
     signal: AbortSignal,
-  ): Promise<{ behavior: string; updatedInput?: unknown; message?: string }>;
+  ): Promise<{
+    behavior: string;
+    updatedInput?: unknown;
+    message?: string;
+    assertCurrent?(): void;
+  }>;
   /** The installed native owner starts its existing queue; never acknowledges
    * recovery or turns a Stop into an implicit resume. */
   startQueued(session: ManagedSession): Promise<void>;
@@ -244,7 +249,7 @@ export function sessionAgentCommunicationTools(owners: Owners) {
             );
           else if (
             status === 'failed' &&
-            recordAgentMessagePreDispatchFailure(
+            recordAgentMessageCommandOutcome(
               owners.events,
               owners.native,
               target.sessionId,
@@ -350,6 +355,7 @@ export function sessionAgentCommunicationTools(owners: Owners) {
           throw Error('Exact peer message approval required');
         await owners.assertRuntimeCurrent();
         current();
+        permission.assertCurrent?.();
         eligible(input.recipientConversationId);
         if (!liveRecipient(input.recipientConversationId))
           throw Error('Recipient is unavailable to this signed operator');
@@ -379,6 +385,7 @@ export function sessionAgentCommunicationTools(owners: Owners) {
         }
         const assertAdmissionCurrent = () => {
           current();
+          permission.assertCurrent?.();
           eligible(input.recipientConversationId);
           const live = owners.registry.findBySessionId(input.recipientConversationId);
           if (
@@ -409,6 +416,7 @@ export function sessionAgentCommunicationTools(owners: Owners) {
             message.messageId,
             assertAdmissionCurrent,
             signal,
+            permission.assertCurrent,
           );
           assertAdmissionCurrent();
           if (result.dispatched) {
