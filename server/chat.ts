@@ -5652,7 +5652,12 @@ export async function renameSessionById(
   if (!isRegisteredConversation(session))
     throw new Error('Only registered conversations can be renamed; import external history first');
   const provider = session.accountBinding?.provider;
-  if (provider === 'openai' || provider === 'openai-codex' || provider === 'google-vertex') {
+  if (
+    provider === 'openai' ||
+    provider === 'openai-codex' ||
+    provider === 'google-vertex' ||
+    provider === 'anthropic-claude'
+  ) {
     if (manual) eventStore.markManuallyRenamed(sessionId);
     eventStore.upsertSession({ sessionId, summary: title });
     return;
