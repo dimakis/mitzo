@@ -1,4 +1,6 @@
-import { callbackOutcome } from '../turn-callbacks.js';
+import { callbackOutcome, retainCallbackOutcome } from '../turn-callbacks.js';
+import { executeTaskOperation } from '../task-execution-operation.js';
+import { TaskExecutionStore } from '../task-execution-store.js';
 import { execFileSync } from 'node:child_process';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
@@ -93,6 +95,61 @@ describe('native tool execution through session permissions', () => {
   });
   const executor = () =>
     createNativeToolExecutor('client', registry, { env: { PATH: '/usr/bin:/bin' } });
+
+  it.each(['settled', 'unknown'] as const)(
+    'retains a failed command as %s through the real task executor adapter',
+    async (outcome) => {
+      const store = new TaskExecutionStore(join(root, 'events.db'));
+      try {
+        const session = registry.get('client')!;
+        session.cwd = await realpath(session.cwd!);
+        const grant = store.approve('operator', session.sessionId!, 'authorization', {
+          title: 'Run regression tests',
+          network: 'none',
+          repositories: [],
+          expiresAt: Date.now() + 60000,
+          members: [{ sessionId: session.sessionId!, fingerprint: 'scope', roots: [session.cwd] }],
+        });
+        const before = vi.mocked(executeSandboxedCommand).mock.calls.length;
+        vi.mocked(executeSandboxedCommand).mockResolvedValueOnce(
+          retainCallbackOutcome({ content: '1 test failed', isError: true }, outcome),
+        );
+        const options = {
+          input: {
+            operation: 'run' as const,
+            grantId: grant.id,
+            requestId: 'failed-test',
+            command: 'npm test',
+          },
+          grant,
+          sessionId: session.sessionId!,
+          session,
+          registry,
+          clientId: 'client',
+          call: { turnId: 'turn', callId: 'failed-call' },
+          store,
+          signal: abort.signal,
+          assertGrant: () => grant,
+          assertRuntimeCurrent: async () => {},
+        };
+        const result = await executeTaskOperation(options);
+        expect(result.isError).toBe(true);
+        expect(store.runStatus(grant.id, session.sessionId!, 'failed-test').state).toBe(
+          outcome === 'settled' ? 'completed' : 'uncertain',
+        );
+        if (outcome === 'settled') {
+          expect(result.content).toBe('1 test failed');
+          expect(await executeTaskOperation(options)).toEqual(result);
+        } else {
+          expect(JSON.parse(result.content).state).toBe('uncertain');
+          await expect(executeTaskOperation(options)).rejects.toThrow(/uncertain/);
+        }
+        expect(vi.mocked(executeSandboxedCommand).mock.calls.length).toBe(before + 1);
+      } finally {
+        store.close();
+      }
+    },
+  );
 
   it('uses an exact trusted task grant for different routine commands without another card', async () => {
     for (const command of ['npm test -- first', 'npm test -- second']) {

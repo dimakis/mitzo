@@ -294,7 +294,7 @@ it.each(['', ' \n '])(
     expect(storage.read()).toEqual(original);
     expect(hook.result.current.brief).toBe(joiningBrief);
     expect(hook.result.current.review?.snapshot.capacity.status).toBe('unverified');
-    expect(hook.result.current.canConfirm).toBe(false);
+    expect(hook.result.current.canConfirm).toBe(true);
   },
 );
 
@@ -450,7 +450,7 @@ it.each([
   },
 );
 
-it('replays retained normalized wire through actual hook/journal/client with current connection, no capture reads or readiness promotion', async () => {
+it('replays retained normalized wire through actual hook/journal/client with current connection, no capture reads or invented capacity', async () => {
   const h = await harness(),
     request = input(),
     storage = conversationJoiningRecovery('source-chat');
@@ -487,7 +487,7 @@ it('replays retained normalized wire through actual hook/journal/client with cur
   expect(nextClient).toBe('connection-renewed');
   expect(nextWire).toEqual(oldWire);
   expect(next.result.current.review?.snapshot.capacity.status).toBe('unverified');
-  expect(next.result.current.canConfirm).toBe(false);
+  expect(next.result.current.canConfirm).toBe(true);
   expect(JSON.stringify(storage.read())).not.toMatch(
     /clientId|capacity|assessments|nativeWitness|credential/,
   );

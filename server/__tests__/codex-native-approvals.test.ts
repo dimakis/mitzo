@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { SessionRegistry } from '../session-registry.js';
+import { onPermissionAudit, type PermissionAuditEvent } from '@mitzo/harness';
 import { resolvePending, getPendingRequestsBySession } from '../permissions.js';
 import {
   createCodexNativeApprovalHandler,
@@ -116,6 +117,8 @@ function commandParams() {
 
 describe('native approval adapter with the existing pending owner', () => {
   it('refuses a retained command when its directory is replaced during approval', async () => {
+    const audit: PermissionAuditEvent[] = [];
+    const release = onPermissionAudit((event) => audit.push(event));
     const root = realpathSync(mkdtempSync(join(tmpdir(), 'native-command-owner-')));
     try {
       const cwd = join(root, 'task');
@@ -137,7 +140,46 @@ describe('native approval adapter with the existing pending owner', () => {
       mkdirSync(cwd);
       resolvePending(id, 'always', undefined, 'session');
       expect(await pending).toEqual({ decision: 'cancel' });
+      expect(audit.find((event) => event.phase === 'resolved')).toMatchObject({
+        outcome: 'denied',
+      });
+      expect(f.registry.get('client')!.sessionAllowList.size).toBe(0);
     } finally {
+      release();
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+  it('audits a directory replacement at the final RPC delivery fence', async () => {
+    const root = realpathSync(mkdtempSync(join(tmpdir(), 'native-command-delivery-')));
+    const audit: PermissionAuditEvent[] = [];
+    const release = onPermissionAudit((event) => audit.push(event));
+    try {
+      const cwd = join(root, 'task');
+      mkdirSync(cwd);
+      const f = setup();
+      f.registry.get('client')!.cwd = cwd;
+      const pending = f.handler(
+        'item/commandExecution/requestApproval',
+        {
+          ...commandParams(),
+          cwd,
+          additionalPermissions: null,
+        },
+        f.controller.signal,
+        f.context,
+      );
+      resolvePending(await request(f), 'always', undefined, 'session');
+      expect(await pending).toEqual({ decision: 'accept' });
+      renameSync(cwd, cwd + '-old');
+      mkdirSync(cwd);
+      expect(() => f.fences[0]()).toThrow(/directory changed/);
+      expect(audit.at(-1)).toMatchObject({
+        phase: 'delivery',
+        outcome: 'denied',
+        toolName: 'NativeCommandApproval',
+      });
+    } finally {
+      release();
       rmSync(root, { recursive: true, force: true });
     }
   });

@@ -1004,6 +1004,19 @@ export class CollaborationConversationStore {
     z.uuid().parse(requestId);
     return this.current(group, 'review-compilation', requestId, ReviewCompilation);
   }
+  /** Private retained review identity, never authority supplied by a browser. */
+  getReviewCompilationForSnapshot(group: string, snapshotId: string) {
+    this.group(group);
+    z.uuid().parse(snapshotId);
+    const row = this.db
+      .prepare(
+        `SELECT body FROM collaboration_records WHERE collaboration_id=?
+       AND kind='review-compilation' AND json_extract(body,'$.snapshotId')=?
+       ORDER BY revision DESC LIMIT 1`,
+      )
+      .get(group, snapshotId) as Row | undefined;
+    return row ? ReviewCompilation.parse(JSON.parse(row.body)) : null;
+  }
   completeReviewCompilation(
     group: string,
     requestId: string,
@@ -1205,12 +1218,24 @@ export class CollaborationConversationStore {
     group: string,
     reference: { snapshotId: string; sha256: string },
     settings: CollaborationSettings[],
+    requireCapacity = true,
   ) {
     const snapshot = this.getSnapshot(group, reference.snapshotId);
     if (!snapshot || snapshot.sha256 !== reference.sha256)
       throw new ContractError('snapshot_changed');
     const { version: _version, snapshotId: _snapshotId, sha256, ...content } = snapshot;
     if (sha(content) !== sha256) throw new ContractError('snapshot_changed');
+    // Silent joining retains content, not a provider request. Unavailable native
+    // measurement is honest metadata; actual turns still need ordinary admission.
+    if (!requireCapacity && snapshot.capacity.status === 'unverified') {
+      const review = this.getReviewCompilationForSnapshot(group, snapshot.snapshotId);
+      if (!review) throw new ContractError('capacity_refused');
+      if (
+        settings.some((selected) => !review.settings.some((saved) => sha(saved) === sha(selected)))
+      )
+        throw new ContractError('snapshot_changed');
+      return snapshot;
+    }
     if (snapshot.capacity.status !== 'ready') throw new ContractError('capacity_refused');
     const assessments = snapshot.capacity.assessments;
     if (
@@ -1230,7 +1255,7 @@ export class CollaborationConversationStore {
       CollaborationJoinSchema,
       () => {
         this.membership(group, input.expectedMembershipRevision);
-        this.reviewedSnapshot(group, input.snapshot, [input.settings]);
+        this.reviewedSnapshot(group, input.snapshot, [input.settings], false);
         if (this.recent(group, 'join', CollaborationJoinSchema).length >= 16)
           throw new ContractError('capacity_refused');
         const join = CollaborationJoinSchema.parse({
@@ -1256,6 +1281,20 @@ export class CollaborationConversationStore {
     this.group(group);
     z.uuid().parse(joinId);
     return this.current(group, 'join', joinId, CollaborationJoinSchema);
+  }
+  /** Exact request recovery before renewed authority; never creates a join. */
+  getJoinForRequest(group: string, raw: unknown) {
+    this.group(group);
+    const input = CollaborationJoinInputSchema.parse(raw);
+    const row = this.db
+      .prepare(
+        'SELECT fingerprint,result FROM collaboration_requests WHERE collaboration_id=? AND request_id=?',
+      )
+      .get(group, input.requestId) as { fingerprint: string; result: string } | undefined;
+    if (!row) return null;
+    if (row.fingerprint !== sha({ kind: 'join', input }))
+      throw new ContractError('request_conflict');
+    return this.getJoin(group, CollaborationJoinSchema.parse(JSON.parse(row.result)).joinId);
   }
   recordAllocation(group: string, joinId: string, raw: unknown) {
     const input = CollaborationAllocationSchema.parse(raw);
@@ -1309,7 +1348,7 @@ export class CollaborationConversationStore {
         if (join.state !== 'allocated' || !join.sessionId)
           throw new ContractError('invalid_transition');
         if (sha(join.snapshot) !== sha(input.snapshot)) throw new ContractError('snapshot_changed');
-        this.reviewedSnapshot(group, join.snapshot, [join.settings]);
+        this.reviewedSnapshot(group, join.snapshot, [join.settings], false);
         const proof = this.owners.allocation(join.allocationOperationId);
         if (
           !proof ||
@@ -1338,6 +1377,16 @@ export class CollaborationConversationStore {
         if (join.state !== 'allocated' || !join.sessionId)
           throw new ContractError('invalid_transition');
         const current = this.membership(group, expectedMembershipRevision);
+        // Check inside the membership transaction: ordinary command admission can
+        // race with the final asynchronous authority check before a fresh link.
+        const proof = this.owners.allocation(join.allocationOperationId);
+        if (
+          !proof ||
+          proof.sessionId !== join.sessionId ||
+          sha(proof.settings) !== sha(join.settings) ||
+          (proof.kind === 'prepared' && proof.firstCommandId !== null)
+        )
+          throw new ContractError('allocation_conflict');
         if (!this.owners.available(join.sessionId))
           throw new ContractError('unavailable_recipient');
         const currentSettings = this.owners.settings(join.sessionId);

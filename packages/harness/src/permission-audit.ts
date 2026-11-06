@@ -1,7 +1,7 @@
 import { createLogger } from './logger.js';
 const log = createLogger('permission-audit');
 export interface PermissionAuditEvent {
-  phase: 'requested' | 'resolved' | 'evaluated' | 'reused';
+  phase: 'requested' | 'resolved' | 'evaluated' | 'reused' | 'delivery';
   time: number;
   sessionId?: string;
   permId?: string;

@@ -77,8 +77,9 @@ function ready(state: State) {
   const { snapshot, settings } = state.review;
   return (
     snapshot.joiningBrief === state.brief &&
-    snapshot.capacity.status === 'ready' &&
-    snapshot.capacity.assessments.some((a) => equal(a.settings, settings))
+    (snapshot.capacity.status === 'unverified' ||
+      (snapshot.capacity.status === 'ready' &&
+        snapshot.capacity.assessments.some((a) => equal(a.settings, settings))))
   );
 }
 function readReview(

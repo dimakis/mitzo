@@ -540,21 +540,19 @@ describe('actual ordinary Telos source approval owners', () => {
       sessionAllowList: new Set(),
     });
     const proposal = s.review.operation.kind === 'create' ? s.review.operation.outcome : {};
-    let resumed: Record<string, unknown> | undefined;
-    void buildPermissionHandler('resumed-client', registry)(
+    const pendingResume = buildPermissionHandler('resumed-client', registry)(
       'mcp__telos__TelosCreateOutcome',
       proposal,
       { signal: controller.signal, toolUseID: s.review.toolUseId },
-    ).then((result) => {
-      resumed = result;
-    });
+    );
     await vi.waitFor(() => expect(arrived?.permId).toBe(s.permId));
     const recovered = await f.service.review(s.permId, 'planning', f.actor);
     expect(recovered.recovery?.preview).toEqual(s.preview.preview);
     const receipt = await f.service.approve(s.permId, s.approved, f.actor);
-    await Promise.resolve();
-    expect(resumed?.behavior).toBe('allow');
-    const input = resumed!.updatedInput as Record<string, unknown>;
+    const resumed = await pendingResume;
+    expect(resumed.behavior).toBe('allow');
+    if (resumed.behavior !== 'allow') throw Error('Original provider invocation was refused');
+    const input = resumed.updatedInput as Record<string, unknown>;
     expect(
       f.service.execute(String(input.__mitzoTelosApproval), 'planning', proposal),
     ).toMatchObject({ sourceSnapshotId: receipt.sourceSnapshotId });

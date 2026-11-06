@@ -60,6 +60,8 @@ callback through its owning runtime signal.
 
 Reuse the same request ID after uncertain delivery. An identical completed
 command returns its retained result. A changed command with that ID is rejected.
+A normal nonzero exit is a completed failure and retains its output for recovery.
+Cancellation, timeout, output-limit termination and missing exit evidence remain uncertain.
 A run whose outcome was not durably settled is reported as uncertain and is not
 automatically re-executed. Inspect the workspace and original run status before
 starting new work. A new test variant is a new run under the same task grant.
@@ -71,6 +73,8 @@ hash, final applied decision, cancellation/expiry, retained-grant reuse and wait
 duration for every adapter and transport. Command bodies, question answers and
 credentials are excluded from that audit stream. An audit observer failure is
 logged explicitly and cannot manufacture execution authority.
+Native directory checks run before retaining consent. Later RPC delivery refusals
+have their own audit phase so an earlier approval cannot hide a failed delivery.
 
 ## Existing execution and publication boundaries
 

@@ -8,7 +8,7 @@ import { buildPermissionHandler } from './permission-handler.js';
 import type { SessionRegistry } from './session-registry.js';
 import { nativeGrantFence } from './codex-native-grant-fence.js';
 import { PERMISSION_TIMEOUT_MS } from './constants.js';
-import { checkSkillPolicy, effectivePermissionMode } from '@mitzo/harness';
+import { checkSkillPolicy, effectivePermissionMode, recordPermissionAudit } from '@mitzo/harness';
 import { nativeCommandApprovalScope } from './codex-native-approval-scope.js';
 import { createLogger } from './logger.js';
 const log = createLogger('codex-native-approvals');
@@ -165,6 +165,38 @@ export function createCodexNativeApprovalHandler(options: {
     let assertPreparedCurrent = () => {};
     let assertConsentCurrent = () => {};
     let assertCommandCurrent = () => {};
+    let sessionGrantKey: string | undefined;
+    const toolUseID = JSON.stringify([
+      runtimeId,
+      identity.requestId,
+      identity.threadId,
+      identity.turnId,
+      request.params.itemId,
+    ]);
+    let deliveryRefused = false;
+    const recordDeliveryRefusal = (error: unknown) => {
+      if (deliveryRefused) return;
+      deliveryRefused = true;
+      recordPermissionAudit({
+        phase: 'delivery',
+        time: Date.now(),
+        sessionId: session.sessionId,
+        toolName,
+        toolUseID,
+        scopeHash: sessionGrantKey,
+        outcome: signal.aborted ? 'cancelled' : Date.now() >= expiresAt ? 'expired' : 'denied',
+      });
+      log.warn('Native approval refused during validation or RPC delivery', {
+        runtimeId,
+        environmentId,
+        method,
+        requestId: identity.requestId,
+        threadId: identity.threadId,
+        cancelled: signal.aborted,
+        expired: Date.now() >= expiresAt,
+        cause: error instanceof Error ? error.message : 'non-Error validation failure',
+      });
+    };
     let timer: ReturnType<typeof setTimeout> | undefined;
     try {
       assertCurrent();
@@ -191,18 +223,25 @@ export function createCodexNativeApprovalHandler(options: {
         fileChangePaths,
       );
       const finalFence = () => {
-        // Check every non-expiry authority even if validation crossed the
-        // deadline. Revocation/cancellation/path failures must still close.
-        assertCurrent(true);
-        assertGrantCurrent();
-        assertPreparedCurrent();
-        assertCommandCurrent();
-        if (!returningDenial) assertConsentCurrent();
-        // These synchronous checks can themselves consume the remaining time.
-        // Downgrade the exact response object held by the original RPC client;
-        // expiry alone authorizes only refusal, never a stale grant or retry.
-        if (!returningDenial && Date.now() >= expiresAt && grantResponse)
-          Object.assign(grantResponse, deny(signal.aborted));
+        try {
+          // Check every non-expiry authority even if validation crossed the
+          // deadline. Revocation/cancellation/path failures must still close.
+          assertCurrent(true);
+          assertGrantCurrent();
+          assertPreparedCurrent();
+          assertCommandCurrent();
+          if (!returningDenial) assertConsentCurrent();
+          // These synchronous checks can themselves consume the remaining time.
+          // Downgrade the exact response object held by the original RPC client;
+          // expiry alone authorizes only refusal, never a stale grant or retry.
+          if (!returningDenial && Date.now() >= expiresAt && grantResponse) {
+            recordDeliveryRefusal(Error('Native approval expired before RPC delivery'));
+            Object.assign(grantResponse, deny(signal.aborted));
+          }
+        } catch (error) {
+          recordDeliveryRefusal(error);
+          throw error;
+        }
       };
       context.registerResponseFence?.(finalFence);
       timer = setTimeout(() => expiry.abort(), Math.max(0, expiresAt - Date.now()));
@@ -299,7 +338,7 @@ export function createCodexNativeApprovalHandler(options: {
         deniedRoots,
         writeProtectedRoots,
       };
-      const sessionGrantKey = nativeCommandApprovalScope(request, commandOwner);
+      sessionGrantKey = nativeCommandApprovalScope(request, commandOwner);
       if (sessionGrantKey)
         assertCommandCurrent = () => {
           if (nativeCommandApprovalScope(request, commandOwner) !== sessionGrantKey)
@@ -309,13 +348,7 @@ export function createCodexNativeApprovalHandler(options: {
       const network = commandRequest && request.params.additionalPermissions?.network?.enabled;
       const result = await permission(toolName, input, {
         signal: currentSignal,
-        toolUseID: JSON.stringify([
-          runtimeId,
-          identity.requestId,
-          identity.threadId,
-          identity.turnId,
-          request.params.itemId,
-        ]),
+        toolUseID,
         title:
           (context.subagentName ? `Subagent ${context.subagentName} · ` : '') +
           (commandRequest
@@ -349,6 +382,7 @@ export function createCodexNativeApprovalHandler(options: {
           assertCurrentSync: () => {
             assertCurrent();
             assertGrantCurrent();
+            assertCommandCurrent();
           },
         },
       });
@@ -377,16 +411,7 @@ export function createCodexNativeApprovalHandler(options: {
     } catch (error) {
       // Expiry denies this operation; only the owning operation's abort cancels
       // the turn. Offers without decline still use their supported cancel reply.
-      log.warn('Native approval refused during validation', {
-        runtimeId,
-        environmentId,
-        method,
-        requestId: identity.requestId,
-        threadId: identity.threadId,
-        cancelled: signal.aborted,
-        expired: Date.now() >= expiresAt,
-        cause: error instanceof Error ? error.message : 'non-Error validation failure',
-      });
+      recordDeliveryRefusal(error);
       return deny(signal.aborted);
     } finally {
       clearTimeout(timer);

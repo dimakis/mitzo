@@ -54,6 +54,69 @@ function admitFirstCommand(
   });
 }
 
+it('refuses a first command admitted during final join authorization without losing the allocation', async () => {
+  const f = await fixture();
+  let admitted = false;
+  f.authority.authorizeJoin.mockImplementation(async ({ join }) => {
+    if (join.state === 'allocated' && !admitted) {
+      admitFirstCommand(f, join);
+      admitted = true;
+    }
+  });
+  await expect(f.owner().confirm('operator', f.group, f.input, f.signal)).rejects.toThrow(
+    'allocation_conflict',
+  );
+  const retained = f.store.collaborationConversation.view(f.group).joins[0];
+  expect(retained.state).toBe('allocated');
+  expect(
+    f.store.getOrdinarySessionPreparation(retained.allocationOperationId)?.firstCommandId,
+  ).toBe('first-command');
+  expect(f.store.getSessionCollaboration(f.group)?.participantSessionIds).toEqual(['source']);
+  f.reopen();
+  await expect(f.owner().recover('operator', f.group, retained.joinId, f.signal)).rejects.toThrow(
+    'allocation_conflict',
+  );
+  expect(f.store.collaborationConversation.getJoin(f.group, retained.joinId)).toEqual(retained);
+  expect(f.store.listSessions()).toHaveLength(2);
+});
+
+it('refuses a used session after an allocation-recording crash instead of enrolling it on recovery', async () => {
+  const f = await fixture();
+  const record = vi
+    .spyOn(f.store.collaborationConversation, 'recordAllocation')
+    .mockImplementationOnce(() => {
+      throw Error('Simulated allocation-recording crash');
+    });
+  await expect(f.owner().confirm('operator', f.group, f.input, f.signal)).rejects.toThrow(
+    'Simulated allocation-recording crash',
+  );
+  record.mockRestore();
+  const pending = f.store.collaborationConversation.view(f.group).joins[0];
+  const receipt = f.store.getOrdinarySessionPreparation(pending.allocationOperationId)!;
+  admitFirstCommand(f, { ...pending, state: 'allocated', sessionId: receipt.sessionId });
+  f.reopen();
+  await expect(f.owner().recover('operator', f.group, pending.joinId, f.signal)).rejects.toThrow(
+    'allocation_conflict',
+  );
+  expect(f.store.getSessionCollaboration(f.group)?.participantSessionIds).toEqual(['source']);
+  expect(f.store.getOrdinarySessionPreparation(pending.allocationOperationId)).toMatchObject({
+    sessionId: receipt.sessionId,
+    firstCommandId: 'first-command',
+  });
+  expect(f.store.listSessions()).toHaveLength(2);
+});
+
+it('observes already-linked confirmation and recovery after the first command without relinking', async () => {
+  const f = await fixture();
+  const joined = await f.owner().confirm('operator', f.group, f.input, f.signal);
+  admitFirstCommand(f, joined);
+  f.reopen();
+  const before = f.store.collaborationConversation.events(f.group).highWatermark;
+  expect(await f.owner().recover('operator', f.group, joined.joinId, f.signal)).toEqual(joined);
+  expect(await f.owner().confirm('operator', f.group, f.input, f.signal)).toEqual(joined);
+  expect(f.store.collaborationConversation.events(f.group).highWatermark).toBe(before);
+});
+
 it('explicitly reconciles changed membership after restart using the original silent allocation and frozen review', async () => {
   const { f, allocated, approval } = await conflict();
   f.reopen();

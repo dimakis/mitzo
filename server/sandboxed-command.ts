@@ -6,6 +6,7 @@ import {
   privateRepositoryCheckoutAttributes,
 } from './private-repository-checkout.js';
 import { spawn } from 'node:child_process';
+import { retainCallbackOutcome } from './turn-callbacks.js';
 import { createRequire } from 'node:module';
 import { mkdtemp, mkdir, realpath, rm, writeFile } from 'node:fs/promises';
 import { readFileSync, realpathSync } from 'node:fs';
@@ -858,13 +859,21 @@ async function runSandboxedCommand(
         kill();
         let output = Buffer.concat(chunks).toString('utf8');
         const isError = !!failure || code !== 0 || signal !== null;
+        // A normal nonzero exit is a completed failure. Interrupted or missing
+        // termination evidence cannot settle effects or permit a blind retry.
+        const outcome = !failure && code !== null && signal === null ? 'settled' : 'unknown';
         if (options.privateOutput) {
-          resolveResult({
-            content: failure ?? '',
-            isError,
-            stdout: Buffer.concat(stdout).toString('utf8'),
-            stderr: Buffer.concat(stderr).toString('utf8'),
-          });
+          resolveResult(
+            retainCallbackOutcome(
+              {
+                content: failure ?? '',
+                isError,
+                stdout: Buffer.concat(stdout).toString('utf8'),
+                stderr: Buffer.concat(stderr).toString('utf8'),
+              },
+              outcome,
+            ),
+          );
           return;
         }
         if (
@@ -877,10 +886,15 @@ async function runSandboxedCommand(
           output +=
             '\nShared Git objects are read-only in this sandbox. Git add/commit that create objects require a trusted Git operation outside this command sandbox. File edits and tests remain available.\n';
         }
-        resolveResult({
-          content: failure ? `${failure}\n${output}` : output,
-          isError,
-        });
+        resolveResult(
+          retainCallbackOutcome(
+            {
+              content: failure ? `${failure}\n${output}` : output,
+              isError,
+            },
+            outcome,
+          ),
+        );
       });
     });
   } finally {

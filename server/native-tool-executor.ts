@@ -479,7 +479,7 @@ export function createNativeToolExecutor(
               );
           },
         });
-        return result(output.content, output.isError);
+        return copyCallbackOutcome(output, result(output.content, output.isError));
       }
       const input = { ...parsed.data };
       if ('questions' in input || 'command' in input) return refused('Invalid tool input');
