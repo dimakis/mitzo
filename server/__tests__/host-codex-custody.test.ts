@@ -195,6 +195,14 @@ it('reauthorizes only the exact reviewed legacy login while preserving native hi
   writeFileSync(join(source, 'auth.json'), refreshedAuth(epoch + 30));
   writeFileSync(join(legacy.privateHome, 'auth.json'), refreshedAuth(epoch + 20));
   const privateBefore = readFileSync(join(legacy.privateHome, 'auth.json'), 'utf8');
+  const keys = [
+    {
+      ...signingKey.publicKey.export({ format: 'jwk' }),
+      kid: 'fixture-key',
+      alg: 'RS256',
+      use: 'sig',
+    },
+  ];
   vi.stubGlobal(
     'fetch',
     vi.fn(
@@ -203,16 +211,7 @@ it('reauthorizes only the exact reviewed legacy login while preserving native hi
           JSON.stringify(
             String(url).endsWith('openid-configuration')
               ? { issuer: 'https://auth.openai.com', jwks_uri: 'https://auth.openai.com/test-keys' }
-              : {
-                  keys: [
-                    {
-                      ...signingKey.publicKey.export({ format: 'jwk' }),
-                      kid: 'fixture-key',
-                      alg: 'RS256',
-                      use: 'sig',
-                    },
-                  ],
-                },
+              : { keys },
           ),
         ),
     ),
@@ -237,6 +236,28 @@ it('reauthorizes only the exact reviewed legacy login while preserving native hi
           throw Error('operator authority unavailable');
       }),
     };
+    const prepare = () =>
+      HostCodexLoginReauthorization.prepare(
+        profile,
+        original,
+        operator,
+        new AbortController().signal,
+      );
+    // Historical identity does not grant live account authority. The current
+    // source must remain usable even when the retained private login expired.
+    writeFileSync(join(legacy.privateHome, 'auth.json'), refreshedAuth(epoch - 7200));
+    await expect(prepare()).resolves.toBeDefined();
+    writeFileSync(join(source, 'auth.json'), refreshedAuth(epoch - 7200));
+    await expect(prepare()).rejects.toThrow();
+    writeFileSync(join(source, 'auth.json'), refreshedAuth(epoch + 30));
+    keys.push({ ...keys[0], kid: 'later-key' });
+    writeFileSync(
+      join(legacy.privateHome, 'auth.json'),
+      refreshedAuth(epoch - 7200, {}, signingKey, 'later-key'),
+    );
+    await expect(prepare()).resolves.toBeDefined();
+    expect(fetch).toHaveBeenCalledTimes(4);
+    writeFileSync(join(legacy.privateHome, 'auth.json'), privateBefore);
     const operation = await HostCodexLoginReauthorization.prepare(
       profile,
       original,

@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.919-host-chatgpt-refresh-continuity';
+  'v1.0.920-host-chatgpt-history-reauthorization';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -26,9 +26,9 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../host-codex-login-recovery-command.ts':
     '320936fbdb16e31c9a5a5582286ecc7d31f9b8cd8e1edf2a421dff929c03b458',
   '../host-codex-login-refresh.ts':
-    '08456cf25a809d5a54e4e7f5daef3d3af22359b1bee40667019aa5019b0883a0',
+    '204ffcdfe5ef63bd1735eb4c389ced9aca4eb74adace091cf9e61908a6c6d6cf',
   '../host-codex-login-reauthorization.ts':
-    '5749433a8f20a55001c01ad358f0afda5c7a60ee7a259305de936d76088e51f3',
+    'ba5963a7cef69de31936032846581d46e399c2b4040de72cd8b69f0e3895cf0a',
   '../host-codex-login-reauthorization-store.ts':
     '1e67ffd242017f20482240a12aa7e994df4d0b6c75b41124a5171c3c41d02a63',
   '../host-codex-login-files.ts':
@@ -39,7 +39,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../scripts/reauthorize-host-codex-login.ts':
     'abc997f7c3c63b1c3256eef13e9c8bc78c93f854c8849a03216b9640549b6006',
   '../../docs/operations/host-codex-login-refresh.md':
-    '6aa55e63dcae984e68075618caa228fe61030b40c8059ddb07d7ccf841e6bda1',
+    'a0bb820e0f7d87d2efb705b9b03caccf2c6facca0dd1c7f1f4f2e78005c93630',
   '../__tests__/frozen-host-codex-login.test.ts':
     '36cc784a0658ffdb72a20327de60d2ca18d5586aae8019ca27bf6e895a433f27',
   '../__tests__/owned-codex-lifecycle-bridge.test.ts':
@@ -3138,7 +3138,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/frozen-host-codex-reuse.test.ts':
     'f9ea4b311caeb3fec512a2d95ee933766397498861f71fe5ba48e3eb8115ed3d',
   '../__tests__/host-codex-custody.test.ts':
-    '9ef7dd17ab7595e0c0939715776c5e2adb56da86181401b76df527bae3c1d233',
+    '8c7bb4c67ae80ee4a6729f37df33060b977a2ef66153008b4964490c2e121f42',
   '../__tests__/local-repository-workspaces.test.ts':
     'eb8be1a7d9f0b774273f36a1d102c0650bab1a5a80cb019197c2620a824f5bf1',
   '../__tests__/openshell-runtime-policy-observation.test.ts':

@@ -247,13 +247,13 @@ export class HostCodexLoginRefreshVerifier {
   verify(
     bytes: Buffer,
     previous: LoginRefreshVersion,
-    explicitReauthorization = false,
+    mode: 'refresh' | 'reauthorize-current' | 'reauthorize-history' = 'refresh',
   ): LoginRefreshVersion {
     const observed = inspect(bytes, this.profile);
     const key = this.#keys?.get(observed.header.kid);
     const now = Math.floor(Date.now() / 1000);
     let currentAccess = false;
-    if (explicitReauthorization) {
+    if (mode === 'reauthorize-current') {
       // An ID assertion can expire before its paired access token. Its verified
       // signature and at_hash authenticate these exact access claims as well.
       const document = Document.parse(JSON.parse(bytes.toString('utf8')));
@@ -286,7 +286,7 @@ export class HostCodexLoginRefreshVerifier {
         previous.tokenPairs.includes(observed.tokenPair)) ||
       (observed.claims.iat === previous.issuedAt && previous.tokenPairs.length >= 32) ||
       observed.claims.iat > now + 30 ||
-      (observed.claims.exp <= now && !currentAccess) ||
+      (observed.claims.exp <= now && !currentAccess && mode !== 'reauthorize-history') ||
       (observed.claims.nbf !== undefined && observed.claims.nbf > now) ||
       observed.claims.exp <= observed.claims.iat ||
       !verify(

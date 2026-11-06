@@ -39,6 +39,15 @@ retained conversation without changing its original custody, thread, commands or
 uncertainty state. It does not send a message, acknowledge an interrupted tool,
 resume a turn, write tokens or start/stop a service.
 
+The source login must authenticate now, using a current signed assertion or its
+cryptographically paired current access token. The matching private login may
+have expired: its verified signature proves historical session identity only.
+This exception applies solely to explicit reauthorization; ordinary rotation keeps
+its expiry checks. Both signing-key IDs are qualified before verification.
+Enrollment does not prove provider readiness. Native Codex must refresh an expired
+private access token, and a revoked/reused refresh token can still require explicit
+sign-in. Keep history and uncertain work intact on that failure.
+
 Create a read-only plan using the actual selected native ledger and account profile:
 
 ```sh
@@ -57,7 +66,7 @@ changed custody, running command or pending thread. It checks offline ownership
 before opening writable storage or creating the recovery journal.
 
 The native journal records intent before the owner-only ledger artifact and atomically
-updates exact custody with its completion receipt. A crash between these steps is
+updates exact custody with its completion receipt. Process interruption between these steps is
 retryable with the same plan; a completed plan is inspectable without new effects.
 The operator must separately review interrupted/ambiguous work before continuing.
 

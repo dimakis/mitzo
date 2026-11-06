@@ -85,14 +85,17 @@ export class HostCodexLoginReauthorization {
       throw unavailable();
     const verifier = new HostCodexLoginRefreshVerifier(anchor, profile);
     await verifier.prepare(signal);
+    await verifier.qualifyUnknownSigningKey([source.bytes, home.bytes], signal);
     signal.throwIfAborted();
     operator.assertCurrent();
     // Explicit approval enrolls these *current*, cryptographically matching
     // files. It does not claim their prior bytes were the same OAuth session.
     const initial = { sha256: '', issuedAt: -1, tokenPairs: [] };
     const state = {
-      source: verifier.verify(source.bytes, initial, true),
-      home: verifier.verify(home.bytes, initial, true),
+      source: verifier.verify(source.bytes, initial, 'reauthorize-current'),
+      // Historical expiry is not account authority: the current source above
+      // must authenticate first. Native still owns refreshing this private login.
+      home: verifier.verify(home.bytes, initial, 'reauthorize-history'),
     };
     const operation = new HostCodexLoginReauthorization(
       profile,
@@ -140,8 +143,8 @@ export class HostCodexLoginReauthorization {
     if (source.identity.sha256 !== this.#sourceHash || home.identity.sha256 !== this.#homeHash)
       throw unavailable();
     const initial = { sha256: '', issuedAt: -1, tokenPairs: [] };
-    this.verifier.verify(source.bytes, initial, true);
-    this.verifier.verify(home.bytes, initial, true);
+    this.verifier.verify(source.bytes, initial, 'reauthorize-current');
+    this.verifier.verify(home.bytes, initial, 'reauthorize-history');
     this.signal.throwIfAborted();
     this.operator.assertCurrent();
   }
