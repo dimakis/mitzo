@@ -259,7 +259,7 @@ it('reauthorizes only the exact reviewed legacy login while preserving native hi
         },
       ]),
     );
-    const { reauthorizeHostLogins } = await import('../../scripts/reauthorize-host-codex-login.js');
+    const { reauthorizeHostLogins } = await import('../host-codex-login-recovery-command.js');
     const gate = vi.fn();
     const preview = await reauthorizeHostLogins({
       database: join(root, 'native.db'),

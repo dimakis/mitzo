@@ -23,6 +23,8 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
+  '../host-codex-login-recovery-command.ts':
+    '320936fbdb16e31c9a5a5582286ecc7d31f9b8cd8e1edf2a421dff929c03b458',
   '../host-codex-login-refresh.ts':
     '08456cf25a809d5a54e4e7f5daef3d3af22359b1bee40667019aa5019b0883a0',
   '../host-codex-login-reauthorization.ts':
@@ -35,7 +37,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/fixtures/codex-refresh-auth.ts':
     '9d50ae35dba5228d5869f4cb5225aff2e63be440a94bba4a44d0c5db322cdc2e',
   '../../scripts/reauthorize-host-codex-login.ts':
-    '31b8ac52ca32e409f85c6b1a5883658ed0f88754e09b0f64dc3813c32f6d5877',
+    'abc997f7c3c63b1c3256eef13e9c8bc78c93f854c8849a03216b9640549b6006',
   '../../docs/operations/host-codex-login-refresh.md':
     '6aa55e63dcae984e68075618caa228fe61030b40c8059ddb07d7ccf841e6bda1',
   '../__tests__/frozen-host-codex-login.test.ts':
@@ -3136,7 +3138,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/frozen-host-codex-reuse.test.ts':
     'f9ea4b311caeb3fec512a2d95ee933766397498861f71fe5ba48e3eb8115ed3d',
   '../__tests__/host-codex-custody.test.ts':
-    '9cc4a4bfa9b5636188d55d510b1dc029efcc2c63684fe38256eabe905e4f5039',
+    '9ef7dd17ab7595e0c0939715776c5e2adb56da86181401b76df527bae3c1d233',
   '../__tests__/local-repository-workspaces.test.ts':
     'eb8be1a7d9f0b774273f36a1d102c0650bab1a5a80cb019197c2620a824f5bf1',
   '../__tests__/openshell-runtime-policy-observation.test.ts':
