@@ -215,7 +215,15 @@ for (const theme of ['dark', 'light'])
         (activities) => {
           window.dispatchEvent(new CustomEvent('offline-session-activity', { detail: activities }));
         },
-        [activity(11, state, { waitReason: 'permission', lastEventAt: Date.now(), ...extra })],
+        [
+          activity(11, state, {
+            waitReason: 'permission',
+            lastEventAt: Date.now(),
+            stateChangedAt: state === 'waiting' ? Date.now() : undefined,
+            completedAt: state === 'done' ? Date.now() : undefined,
+            ...extra,
+          }),
+        ],
       );
     };
     await emit('working', {
@@ -533,7 +541,9 @@ for (const theme of ['dark', 'light'])
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
       true,
     );
-    await page.screenshot({ path: testInfo.outputPath(`chat-activity-composer-${theme}.png`) });
+    await page.screenshot({
+      path: testInfo.outputPath(`session-library-composer-activity-${theme}.png`),
+    });
     expect(errors).toEqual([]);
     expect(mutations).toEqual([]);
   });

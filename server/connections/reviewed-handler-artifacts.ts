@@ -3273,7 +3273,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/pages/__tests__/TodoWorkspace.test.tsx':
     '6da5dfa21630d242bb7d070c6487772106a81b31eccfb015f5ea999025d89427',
   '../../tests/offline/session-library.spec.ts':
-    '176b91b7d7b96e736b3664cd26203321cfe27eb1d310c8b3a31a947935737673',
+    '3e3a9a2a380f2c6a90164a57dac91e69551dae672c68c895b310dfdf96479afc',
   '../../frontend/src/hooks/__tests__/useAttentionFeed.canonical.test.tsx':
     'cac18f7dcd86924d644f88afcaaf886f0a01e39ca090d9dd9c882b4e70e9c6af',
   '../../frontend/src/components/__tests__/TelosTreeConversationEntry.refresh.test.tsx':
