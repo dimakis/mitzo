@@ -236,7 +236,8 @@ it.each([false, true])(
       h.f.store.collaborationConversation.getSnapshot(h.f.group, stored.snapshotId!).sha256,
     );
     expect(reopened.result.current.review?.snapshot.capacity.status).toBe('unverified');
-    expect(reopened.result.current.canConfirm).toBe(false);
+    // Silent joining is allowed; this does not promote capacity or submit a turn.
+    expect(reopened.result.current.canConfirm).toBe(true);
     expect(reopened.result.current.error).toBeNull();
     expect(reopened.result.current.brief).toBe(
       edited ? 'Exact edited brief.\nKeep ordering.' : 'Original brief',
