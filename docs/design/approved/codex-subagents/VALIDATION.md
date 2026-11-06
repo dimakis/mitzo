@@ -81,3 +81,32 @@ The focused inbox selection passed 17 cases. A broader local route run passed
 host's denied `.mitzo` enrollment path (EPERM); this includes path-guard 403s
 and pending-scan cases that cannot enter the guarded handler. No guard or test
 assertion was relaxed. CI owns full-suite validation in its isolated environment.
+
+## Independent permission review corrections
+
+On 5 November, final-head CI 42129508719 passed and Centaur review 5793739148
+approved the inbox correction. The independent full pass 5793784653 found four
+additional blockers: CEN-051BA38BEB48 (approval cleanup overwrites Stop),
+CEN-2AA43C013DA1 (late admission escapes parent cancellation), CEN-6F6A7C131BB2
+(child claims are unavailable to real signed read helpers), and CEN-22FF6B7964DD
+(completed children exhaust the live admission bound).
+
+The correction batch gives approval cleanup and optimistic controls explicit
+lifecycle ownership; coordinates late admissions with cancellation epochs even
+across resume; and evicts inactive live owners while preserving saved output and
+lazy, identity-checked Message admission. Trusted host contexts now recognize
+only exact invocation objects registered by the original child owner, backed by
+an unfinished durable child claim and the original acknowledged command attempt
+and thread generation. The same base read policy is exposed through a frozen,
+nonenumerable capability whose fence expires with that callback. Existing
+operator, workspace, account, custody, profile, role and revocation checks remain.
+
+Recorded 6 November: 44 child owner/store/route tests and two parent integration
+tests pass locally. All 17 required signed repository-read cases pass, including
+actual DiscoverLocalRepository and InspectLocalRepository child calls after
+parent completion; one existing opt-in diagnostic remains skipped. The fixture
+uses synthetic home/enrollment paths so native tests do not touch denied host
+configuration. CI's exact native coverage count increases from 15 to 17; prior
+cases remain mandatory. The local type check exceeded the 1GiB heap, so full
+type validation remains a CI responsibility. No live model was called. This
+batch still requires fresh CI and verification against the independent review.

@@ -12,7 +12,7 @@ afterEach(() =>
     .reverse()
     .forEach((fn) => fn()),
 );
-function fixture() {
+function fixture(extra: Partial<ConstructorParameters<typeof CodexSubagents>[0]> = {}) {
   const db = new Database(':memory:');
   cleanup.push(() => db.close());
   const policy = codexNativeExecutionPolicy({
@@ -67,7 +67,9 @@ function fixture() {
       return {};
     },
   );
-  const execute = vi.fn(async () => ({ content: 'Result', isError: false }));
+  const execute = vi.fn<ConstructorParameters<typeof CodexSubagents>[0]['executeTool']>(
+    async () => ({ content: 'Result', isError: false }),
+  );
   const approval = vi.fn<
     NonNullable<ConstructorParameters<typeof CodexSubagents>[0]['requestNativeApproval']>
   >(async () => ({ decision: 'accept' }));
@@ -86,6 +88,7 @@ function fixture() {
     validateModel: (model: string) => {
       if (model !== 'fixture') throw Error('Wrong model');
     },
+    ...extra,
   };
   const owner = new CodexSubagents(options);
   cleanup.push(() => owner.close());
@@ -499,6 +502,239 @@ it('routes attributed native approvals through the existing permission owner and
   f.root.policy = { ...f.root.policy, policyRevision: 'revoked' };
   finish({ decision: 'accept' });
   await expect(pending).rejects.toThrow();
+});
+it('does not let approval cleanup overwrite a Stop waiting for dispatch', async () => {
+  const f = fixture();
+  await f.admit();
+  let approve!: (value: Record<string, unknown>) => void;
+  f.approval.mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        approve = resolve;
+      }),
+  );
+  const approval = f.owner
+    .request(
+      'item/commandExecution/requestApproval',
+      { threadId: 'child', turnId: 'child-turn', itemId: 'command' },
+      new AbortController().signal,
+      { requestId: 77 },
+    )
+    .catch(() => undefined);
+  await vi.waitFor(() => expect(approve).toBeDefined());
+  const original = f.request.getMockImplementation()!;
+  let release!: () => void;
+  let dispatched = false;
+  f.request.mockImplementation(async (method, params, beforeDispatch) => {
+    if (method !== 'turn/interrupt') return original(method, params, beforeDispatch);
+    await new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    beforeDispatch?.();
+    dispatched = true;
+    return {};
+  });
+  const stopping = f.owner.control({
+    requestId: 'approval-stop',
+    threadId: 'child',
+    action: 'stop',
+  });
+  await vi.waitFor(() => expect(release).toBeDefined());
+  approve({ decision: 'accept' });
+  await approval;
+  expect(f.owner.list()[0].state).toBe('stopping');
+  release();
+  expect(await stopping).toBe('accepted');
+  expect(dispatched).toBe(true);
+});
+it('interrupts admissions arriving during and after the parent cancellation sweep', async () => {
+  const f = fixture();
+  await f.admit();
+  const original = f.request.getMockImplementation()!;
+  let release!: () => void;
+  const interrupted: string[] = [];
+  f.request.mockImplementation(async (method, params, beforeDispatch) => {
+    if (method !== 'turn/interrupt') return original(method, params, beforeDispatch);
+    if (params.threadId === 'child')
+      await new Promise<void>((resolve) => {
+        release = resolve;
+      });
+    beforeDispatch?.();
+    interrupted.push(String(params.threadId));
+    return {};
+  });
+  const stopping = f.owner.interruptAll();
+  await vi.waitFor(() => expect(release).toBeDefined());
+  const late = (threadId: string) => {
+    f.notify('thread/started', { thread: { ...f.thread, id: threadId } });
+    f.notify('turn/started', { threadId, turn: { id: threadId + '-turn' } });
+  };
+  late('during');
+  release();
+  await stopping;
+  expect(interrupted).toEqual(expect.arrayContaining(['child', 'during']));
+  late('after');
+  await f.owner.settled();
+  await vi.waitFor(() => expect(interrupted).toContain('after'));
+  expect(f.owner.list().every((child) => !child.available)).toBe(true);
+});
+it('evicts inactive live children without losing saved output or later Message controls', async () => {
+  const f = fixture();
+  for (let index = 0; index < 40; index++) {
+    const threadId = `sequential-${index}`,
+      turnId = `turn-${index}`;
+    f.notify('thread/started', { thread: { ...f.thread, id: threadId } });
+    f.notify('turn/started', { threadId, turn: { id: turnId } });
+    await f.owner.settled();
+    f.notify('item/agentMessage/delta', {
+      threadId,
+      turnId,
+      itemId: 'text',
+      delta: `Output ${index}`,
+    });
+    f.notify('turn/completed', { threadId, turn: { id: turnId, status: 'completed' } });
+  }
+  const children = f.owner.list();
+  expect(children).toHaveLength(40);
+  expect(children[0]).toMatchObject({
+    state: 'completed',
+    available: true,
+    blocks: [{ content: 'Output 0' }],
+  });
+  expect(
+    f.request.mock.calls.filter(
+      ([method, params]) => method === 'thread/read' && params.threadId === 'sequential-0',
+    ),
+  ).toHaveLength(1);
+  expect(
+    await f.owner.control({
+      requestId: 'revisit',
+      threadId: 'sequential-0',
+      action: 'message',
+      text: 'Continue',
+    }),
+  ).toBe('accepted');
+  expect(f.owner.list().find((child) => child.threadId === 'sequential-0')?.state).toBe('working');
+  expect(
+    f.request.mock.calls.filter(
+      ([method, params]) => method === 'thread/read' && params.threadId === 'sequential-0',
+    ),
+  ).toHaveLength(2);
+});
+it('keeps cancellation authority for a pending admission even if the parent resumes first', async () => {
+  const f = fixture();
+  await f.admit();
+  const original = f.request.getMockImplementation()!;
+  let release!: () => void;
+  f.request.mockImplementation(async (method, params, beforeDispatch) => {
+    if (method === 'thread/read' && params.threadId === 'late-resume')
+      await new Promise<void>((resolve) => {
+        release = resolve;
+      });
+    return original(method, params, beforeDispatch);
+  });
+  f.notify('thread/started', { thread: { ...f.thread, id: 'late-resume' } });
+  f.notify('turn/started', { threadId: 'late-resume', turn: { id: 'late-turn' } });
+  await vi.waitFor(() => expect(release).toBeDefined());
+  const stopping = f.owner.interruptAll();
+  f.owner.parentResumed();
+  release();
+  await stopping;
+  expect(
+    f.request.mock.calls.some(
+      ([method, params]) => method === 'turn/interrupt' && params.threadId === 'late-resume',
+    ),
+  ).toBe(true);
+  expect(f.owner.list().find((child) => child.threadId === 'late-resume')?.state).toBe('stopping');
+});
+it('allows a fresh Message to a previously completed child after the parent resumes', async () => {
+  const f = fixture();
+  await f.admit();
+  f.notify('turn/completed', {
+    threadId: 'child',
+    turn: { id: 'child-turn', status: 'completed' },
+  });
+  await f.owner.interruptAll();
+  f.owner.parentResumed();
+  expect(
+    await f.owner.control({
+      requestId: 'fresh-after-stop',
+      threadId: 'child',
+      action: 'message',
+      text: 'Continue',
+    }),
+  ).toBe('accepted');
+  expect(f.owner.list()[0].state).toBe('working');
+  expect(f.request.mock.calls.filter(([method]) => method === 'turn/interrupt')).toHaveLength(0);
+});
+it('takes over a child Stop still preparing when parent cancellation starts', async () => {
+  const f = fixture();
+  await f.admit();
+  const original = f.request.getMockImplementation()!;
+  let release!: () => void;
+  const dispatched: string[] = [];
+  let first = true;
+  f.request.mockImplementation(async (method, params, beforeDispatch) => {
+    if (method !== 'turn/interrupt') return original(method, params, beforeDispatch);
+    if (first) {
+      first = false;
+      await new Promise<void>((resolve) => {
+        release = resolve;
+      });
+    }
+    beforeDispatch?.();
+    dispatched.push(String(params.threadId));
+    return {};
+  });
+  const childStop = f.owner.control({
+    requestId: 'child-stop-first',
+    threadId: 'child',
+    action: 'stop',
+  });
+  await vi.waitFor(() => expect(release).toBeDefined());
+  const parentStop = f.owner.interruptAll();
+  await parentStop;
+  release();
+  expect(await childStop).toBe('rejected');
+  expect(dispatched).toEqual(['child']);
+  expect(f.owner.list()[0].state).toBe('stopping');
+});
+it('retains exact private child claims and original base reads only for the genuine callback', async () => {
+  const f = fixture({ nativeOrigin: () => ({ commandId: 'command', attempt: 1, generation: 0 }) });
+  await f.admit();
+  let captured: (() => unknown) | undefined;
+  f.execute.mockImplementationOnce(async (tool, input, _signal, call) => {
+    const scope = call.captureNativeBaseReadScope!();
+    expect(scope.nativeTarget).toMatchObject({
+      threadId: 'child',
+      turnId: 'child-turn',
+      commandId: 'command',
+    });
+    const identity = { turnId: call.turnId, toolName: tool, requestHash: scope.requestHash };
+    expect(f.owner.pendingHostTool(call, identity)?.callId).toBe(call.callId);
+    expect(f.owner.pendingHostTool({ ...call }, identity)).toBeUndefined();
+    expect(Object.keys(call)).toEqual(['turnId', 'callId']);
+    captured = scope.assertCurrentSync;
+    captured();
+    expect(Object.isFrozen(scope.readableRoots)).toBe(true);
+    input.changed = true;
+    expect(captured).toThrow();
+    delete input.changed;
+    return { content: 'Read succeeded', isError: false };
+  });
+  const response = await f.owner.request(
+    'item/tool/call',
+    {
+      threadId: 'child',
+      turnId: 'child-turn',
+      callId: 'private-child-read',
+      tool: 'Read',
+      arguments: {},
+    },
+    new AbortController().signal,
+  );
+  expect(response.success).toBe(true);
+  expect(captured).toThrow();
 });
 it('targets Stop to one child and waits for the native terminal acknowledgement', async () => {
   const f = fixture();

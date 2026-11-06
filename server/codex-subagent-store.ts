@@ -46,6 +46,8 @@ const RetainedChild = NativeSubagentSnapshotSchema.extend({
   rootThreadId: z.string().min(1),
   commandId: z.string().min(1),
   policyRevision: z.string().min(1),
+  commandAttempt: z.number().int().positive().optional(),
+  threadGeneration: z.number().int().nonnegative().optional(),
 });
 export type RetainedSubagent = z.infer<typeof RetainedChild>;
 export interface ChildToolIdentity {
@@ -90,6 +92,9 @@ export class CodexSubagentStore {
     if (previous) {
       for (const key of ['parentThreadId', 'rootThreadId', 'commandId', 'policyRevision'] as const)
         if (previous[key] !== child[key]) throw Error('Child identity changed');
+      for (const key of ['commandAttempt', 'threadGeneration'] as const)
+        if (previous[key] !== undefined && previous[key] !== child[key])
+          throw Error('Child native origin changed');
       if (child.revision <= previous.revision && !isDeepStrictEqual(previous, child))
         throw Error('Child revision is stale');
     }
@@ -138,6 +143,9 @@ export class CodexSubagentStore {
   toolResult(scope: SubagentScope, call: ChildToolIdentity): CodexToolResult | undefined {
     const row = this.effect(scope, `tool:${call.callId}`, call);
     return row?.result ? JSON.parse(row.result) : undefined;
+  }
+  pendingTool(scope: SubagentScope, call: ChildToolIdentity): boolean {
+    return this.effect(scope, `tool:${call.callId}`, call)?.result === null;
   }
   finishTool(scope: SubagentScope, call: ChildToolIdentity, result: CodexToolResult): void {
     this.finish(scope, `tool:${call.callId}`, call, result);

@@ -148,19 +148,8 @@ export interface CodexStartupConfigObservation {
 
 /** Server-only snapshot from an original verified native host-tool invocation.
  * Base roots exclude retained upstream grants. Its fence expires with that call. */
-export interface NativeBaseReadScope {
-  readonly nativeTarget: Readonly<CodexNativeTurnTarget>;
-  readonly callId: string;
-  readonly toolName: string;
-  readonly requestHash: string;
-  readonly bindingRevision: string;
-  readonly profileRevision: string;
-  readonly policyRevision: string;
-  readonly readableRoots: readonly string[];
-  readonly workspaceRoots: readonly string[];
-  readonly deniedRoots: readonly string[];
-  assertCurrentSync(): void;
-}
+export type { NativeBaseReadScope } from './native-base-read-scope.js';
+import type { NativeBaseReadScope } from './native-base-read-scope.js';
 
 export interface CodexConversationOptions {
   /** Enabled only by the owned native Mac adapter, never inherited runtime configuration. */
@@ -688,6 +677,38 @@ export class CodexConversation {
         return client.request(method, params);
       },
       tools: this.opts.tools,
+      nativeOrigin: (child) => {
+        const state = this.opts.store.read(this.opts.conversationId, binding);
+        const attempt = this.opts.store.nativeCommandAttempt(
+          this.opts.conversationId,
+          binding,
+          child.commandId,
+        );
+        if (
+          !attempt ||
+          state.threadId !== child.rootThreadId ||
+          state.recovery ||
+          (child.commandAttempt !== undefined && child.commandAttempt !== attempt) ||
+          (child.threadGeneration !== undefined &&
+            child.threadGeneration !== state.threadGeneration)
+        )
+          throw Error('Original child command unavailable');
+        const accepted = this.opts.store.readNativeExecution(this.opts.conversationId, binding, {
+          id: child.commandId,
+          attempt,
+        });
+        if (
+          accepted?.phase !== 'accepted' ||
+          accepted.threadId !== child.rootThreadId ||
+          accepted.generation !== state.threadGeneration
+        )
+          throw Error('Original child acceptance unavailable');
+        return {
+          commandId: child.commandId,
+          attempt,
+          generation: state.threadGeneration,
+        };
+      },
       executeTool: this.opts.executeTool,
       requestNativeApproval: this.opts.requestNativeApproval,
       requestUserInput: this.opts.requestUserInput,
@@ -708,6 +729,12 @@ export class CodexConversation {
       },
     });
     return this.subagentOwner;
+  }
+  pendingSubagentHostTool(
+    call: object,
+    identity: { turnId: string; toolName: string; requestHash: string },
+  ) {
+    return this.subagentOwner?.pendingHostTool(call, identity);
   }
   private retainNativeTransportDiagnostic(
     command: Pick<CodexCommand, 'id' | 'attempt'>,

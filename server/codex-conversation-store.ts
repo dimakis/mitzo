@@ -4797,6 +4797,14 @@ export class CodexConversationStore {
       });
     })();
   }
+  /** Read one origin attempt without loading the command queue/prompts. This is
+   * historical correlation data; it never supplies callback authority. */
+  nativeCommandAttempt(id: string, binding: AccountBinding, commandId: string): number | undefined {
+    this.read(id, binding);
+    const row = this.hotReadStatement('nativeTurnTarget').get(id, commandId) as
+      { attempt: number } | undefined;
+    return row?.attempt;
+  }
   /** Read-only native retirement fence. The repository lifecycle owner supplies
    * its current task identity and separately proves operator/session disposal. */
   assertRepositoryTaskStopped(

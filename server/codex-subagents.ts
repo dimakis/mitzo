@@ -1,5 +1,8 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { z } from 'zod';
+import { isDeepStrictEqual } from 'node:util';
+import type { NativeBaseReadScope } from './native-base-read-scope.js';
+import type { CodexNativeTurnTarget } from './codex-conversation-store.js';
 import type { ToolDefinition } from '@mitzo/harness';
 import {
   NativeSubagentControlSchema,
@@ -61,6 +64,9 @@ interface Options {
   store: CodexSubagentStore;
   root(): SubagentRoot | undefined;
   assertCurrent(child: RetainedSubagent, cancelling?: boolean): void;
+  nativeOrigin?(
+    child: RetainedSubagent,
+  ): Pick<CodexNativeTurnTarget, 'commandId' | 'attempt' | 'generation'>;
   request(method: string, params: ObjectValue, beforeDispatch?: () => void): Promise<unknown>;
   tools: ToolDefinition[];
   executeTool(
@@ -72,6 +78,7 @@ interface Options {
       callId: string;
       assertCurrentSync?(): void;
       registerResponseFence?(assertCurrent: () => void): void;
+      captureNativeBaseReadScope?(): NativeBaseReadScope;
     }>,
   ): Promise<CodexToolResult>;
   requestNativeApproval?(
@@ -100,6 +107,10 @@ interface LiveChild {
   files: Map<string, readonly string[] | null>;
   fileRevisions: Map<string, string>;
   lifecycleRevision: number;
+  controlRevision: number;
+  approval?: symbol;
+  cancelBeforeRun: boolean;
+  parentStop?: { epoch: number; turnId: string };
 }
 
 /** One native process/account/tree, with independent child turns. This owner has
@@ -112,12 +123,34 @@ export class CodexSubagents {
   private assignedTasks = new Map<string, string>();
   private parentStopping = false;
   private parentCancellationEpoch = 0;
+  private parentStops = new Set<Promise<unknown>>();
+  private invocations = new WeakMap<
+    object,
+    () => Readonly<
+      CodexNativeTurnTarget & {
+        callId: string;
+        toolName: string;
+        requestHash: string;
+      }
+    >
+  >();
   private listeners = new Set<(child: NativeSubagentSnapshot) => void>();
   private closed = false;
   constructor(private readonly opts: Options) {}
   private snapshot(child: RetainedSubagent): NativeSubagentSnapshot {
-    const live = this.live.has(child.threadId);
-    return { ...subagentSnapshot(child, live), available: live && !this.parentStopping };
+    let available = this.live.has(child.threadId);
+    if (!available && !this.closed && ['completed', 'stopped', 'failed'].includes(child.state)) {
+      try {
+        if (this.retained(child.threadId)) {
+          this.opts.assertCurrent(child, this.parentStopping);
+          this.opts.nativeOrigin?.(child);
+          available = true; // Cold terminal children revalidate native identity before control.
+        }
+      } catch {
+        /* Original ownership is unavailable. */
+      }
+    }
+    return { ...subagentSnapshot(child, available), available: available && !this.parentStopping };
   }
   subscribe(listener: (child: NativeSubagentSnapshot) => void): () => void {
     this.listeners.add(listener);
@@ -134,7 +167,39 @@ export class CodexSubagents {
     return this.opts.store.list(this.opts.scope).map((child) => this.snapshot(child));
   }
   owns(threadId: unknown): boolean {
-    return typeof threadId === 'string' && (this.live.has(threadId) || this.pending.has(threadId));
+    return (
+      typeof threadId === 'string' &&
+      (this.live.has(threadId) || this.pending.has(threadId) || !!this.retained(threadId))
+    );
+  }
+  private retained(threadId: string): RetainedSubagent | undefined {
+    const child = this.opts.store.get(this.opts.scope, threadId);
+    const root = this.opts.root();
+    return child &&
+      root &&
+      child.rootThreadId === root.threadId &&
+      child.policyRevision === root.policy.policyRevision
+      ? child
+      : undefined;
+  }
+  private restoreChild(threadId: string): void {
+    if (this.live.has(threadId) || this.pending.has(threadId)) return;
+    const child = this.retained(threadId),
+      root = this.opts.root();
+    if (child && root) this.admit(threadId, child.parentThreadId, root);
+  }
+  pendingHostTool(
+    call: object,
+    identity: { turnId: string; toolName: string; requestHash: string },
+  ) {
+    const pending = this.invocations.get(call)?.();
+    if (
+      pending &&
+      pending.turnId === identity.turnId &&
+      pending.toolName === identity.toolName &&
+      pending.requestHash === identity.requestHash
+    )
+      return pending;
   }
   async settled(): Promise<void> {
     await Promise.all([...this.pending.values()]);
@@ -198,6 +263,7 @@ export class CodexSubagents {
           );
     }
     if (typeof params.threadId !== 'string') return false;
+    this.restoreChild(params.threadId);
     if (this.pending.has(params.threadId)) {
       const buffer = this.buffered.get(params.threadId)!;
       if (buffer.length < 256 && Buffer.byteLength(JSON.stringify(params)) <= 65536)
@@ -238,6 +304,16 @@ export class CodexSubagents {
         this.assignedTasks.delete(threadId);
       }
     }
+    if (!this.live.has(threadId) && !this.pending.has(threadId)) {
+      for (const live of this.live.values()) {
+        if (this.live.size + this.pending.size < 32) break;
+        if (
+          !this.pending.has(live.child.threadId) &&
+          ['completed', 'stopped', 'failed'].includes(live.child.state)
+        )
+          this.invalidate(live);
+      }
+    }
     if (
       this.live.has(threadId) ||
       this.pending.has(threadId) ||
@@ -246,6 +322,8 @@ export class CodexSubagents {
     )
       return;
     this.buffered.set(threadId, []);
+    const admissionEpoch = this.parentCancellationEpoch;
+    const admittedDuringStop = this.parentStopping;
     // Start after registering the pending identity, before any awaited native I/O.
     const operation = Promise.resolve()
       .then(async () => {
@@ -308,7 +386,22 @@ export class CodexSubagents {
           files: new Map(),
           fileRevisions: new Map(),
           lifecycleRevision: 0,
+          controlRevision: 0,
+          cancelBeforeRun:
+            admittedDuringStop ||
+            admissionEpoch !== this.parentCancellationEpoch ||
+            this.parentStopping,
         };
+        const origin = this.opts.nativeOrigin?.(child);
+        if (origin) {
+          if (
+            previous &&
+            (child.commandAttempt === undefined || child.threadGeneration === undefined)
+          )
+            child.revision++;
+          child.commandAttempt ??= origin.attempt;
+          child.threadGeneration ??= origin.generation;
+        }
         this.live.set(threadId, live);
         this.current(live);
         this.opts.store.save(this.opts.scope, child);
@@ -354,6 +447,7 @@ export class CodexSubagents {
             }),
           );
         this.publish(live);
+        if (live.cancelBeforeRun || this.parentStopping) this.cancelForParent(live);
       })
       .catch(() => {
         const live = this.live.get(threadId);
@@ -457,6 +551,11 @@ export class CodexSubagents {
     const turn = object(params.turn);
     if (method === 'turn/started' && typeof turn.id === 'string') {
       if (live.terminal.has(turn.id)) return;
+      if (
+        child.turnId === turn.id &&
+        ['working', 'needs_permission', 'stopping'].includes(child.state)
+      )
+        return;
       live.lifecycleRevision++;
       if (child.turnId !== turn.id) {
         live.turnAbort.abort();
@@ -467,12 +566,14 @@ export class CodexSubagents {
       child.turnId = turn.id;
       child.state = 'working';
       this.publish(live);
+      if (this.parentStopping || live.cancelBeforeRun) this.cancelForParent(live);
       return;
     }
     if (method === 'turn/completed' && turn.id === child.turnId && typeof turn.id === 'string') {
       live.lifecycleRevision++;
       live.terminal.add(turn.id);
       live.turnAbort.abort();
+      live.cancelBeforeRun = false;
       child.state =
         turn.status === 'completed'
           ? 'completed'
@@ -580,6 +681,7 @@ export class CodexSubagents {
     context?: CodexServerRequestContext,
   ): Promise<ObjectValue> {
     if (this.parentStopping) throw Error('Parent cancellation is in progress');
+    if (typeof params.threadId === 'string') this.restoreChild(params.threadId);
     if (typeof params.threadId === 'string') await this.pending.get(params.threadId);
     if (this.parentStopping) throw Error('Parent cancellation is in progress');
     const live = this.live.get(String(params.threadId));
@@ -617,6 +719,9 @@ export class CodexSubagents {
       if (method === 'item/fileChange/requestApproval' && !paths)
         throw Error('Child file approval is not attributable');
       live.child.state = 'needs_permission';
+      const approval = Symbol('approval');
+      live.approval = approval;
+      const approvalLifecycle = live.lifecycleRevision;
       this.publish(live);
       try {
         const response = await this.opts.requestNativeApproval(method, params, currentSignal, {
@@ -631,10 +736,17 @@ export class CodexSubagents {
         current();
         return response;
       } finally {
-        if (!currentSignal.aborted) {
+        if (
+          !currentSignal.aborted &&
+          live.approval === approval &&
+          live.child.state === 'needs_permission' &&
+          live.child.turnId === turnId &&
+          live.lifecycleRevision === approvalLifecycle
+        ) {
           live.child.state = 'working';
           this.publish(live);
         }
+        if (live.approval === approval) live.approval = undefined;
       }
     }
     if (method !== 'item/tool/call') throw Error('Unsupported child host request');
@@ -686,6 +798,12 @@ export class CodexSubagents {
     const original = () => {
       current();
       if (!callbackOpen) throw Error('Child callback expired');
+      if (
+        createHash('sha256').update(JSON.stringify(call.arguments)).digest('hex') !==
+          identity.requestHash ||
+        !this.opts.store.pendingTool(this.opts.scope, identity)
+      )
+        throw Error('Child claim changed');
     };
     const invocation: Parameters<Options['executeTool']>[3] = { turnId, callId: call.callId };
     Object.defineProperty(invocation, 'assertCurrentSync', { value: original });
@@ -696,6 +814,52 @@ export class CodexSubagents {
           context.registerResponseFence!(fence);
         },
       });
+    if (this.opts.nativeOrigin) {
+      const origin = Object.freeze({ ...this.opts.nativeOrigin(live.child) });
+      const pending = Object.freeze({
+        ...origin,
+        threadId: call.threadId,
+        turnId,
+        callId: call.callId,
+        toolName: call.tool,
+        requestHash: identity.requestHash,
+      });
+      const capture = () => {
+        original();
+        if (!isDeepStrictEqual(this.opts.nativeOrigin!(live.child), origin))
+          throw Error('Child native origin changed');
+        return pending;
+      };
+      this.invocations.set(invocation, capture);
+      const policy = live.policy;
+      const assertBase = Object.freeze(() => {
+        capture();
+        if (
+          this.opts.root()?.policy !== policy ||
+          !Object.isFrozen(policy) ||
+          ![policy.readableRoots, policy.workspaceRoots, policy.deniedRoots].every(Object.isFrozen)
+        )
+          throw Error('Original child base policy changed');
+      });
+      Object.defineProperty(invocation, 'captureNativeBaseReadScope', {
+        value: Object.freeze((): NativeBaseReadScope => {
+          assertBase();
+          return Object.freeze({
+            nativeTarget: Object.freeze({ ...origin, threadId: call.threadId, turnId }),
+            callId: call.callId,
+            toolName: call.tool,
+            requestHash: identity.requestHash,
+            bindingRevision: policy.bindingRevision,
+            profileRevision: policy.profileRevision,
+            policyRevision: policy.policyRevision,
+            readableRoots: Object.freeze([...policy.readableRoots]),
+            workspaceRoots: Object.freeze([...policy.workspaceRoots]),
+            deniedRoots: Object.freeze([...policy.deniedRoots]),
+            assertCurrentSync: assertBase,
+          });
+        }),
+      });
+    }
     let result;
     try {
       result = normalizeCodexToolResult(
@@ -732,10 +896,16 @@ export class CodexSubagents {
     parentStop = false,
   ): Promise<NativeSubagentControlStatus> {
     const input = NativeSubagentControlSchema.parse(raw);
+    const parentEpoch = this.parentCancellationEpoch;
     authorize();
     const receipt = this.opts.store.controlResult(this.opts.scope, input);
     if (receipt) return receipt;
     if (this.parentStopping && !(parentStop && input.action === 'stop')) return 'rejected';
+    this.restoreChild(input.threadId);
+    const admission = this.pending.get(input.threadId);
+    if (admission) await admission;
+    if (parentEpoch !== this.parentCancellationEpoch && !(parentStop && input.action === 'stop'))
+      return 'rejected';
     const live = this.live.get(input.threadId);
     if (!live || this.closed) return 'rejected';
     try {
@@ -746,13 +916,14 @@ export class CodexSubagents {
     const previous = this.opts.store.claimControl(this.opts.scope, input);
     if (previous) return previous;
     let attempted = false;
-    const parentEpoch = this.parentCancellationEpoch;
     const previousState = live.child.state;
     let optimistic:
-      { lifecycle: number; turnId?: string; state: RetainedSubagent['state'] } | undefined;
+      | { lifecycle: number; control: number; turnId?: string; state: RetainedSubagent['state'] }
+      | undefined;
     const rememberTransition = () => {
       optimistic = {
         lifecycle: live.lifecycleRevision,
+        control: ++live.controlRevision,
         turnId: live.child.turnId,
         state: live.child.state,
       };
@@ -781,7 +952,9 @@ export class CodexSubagents {
       authorize();
       this.current(live);
       const active =
-        ['working', 'needs_permission'].includes(live.child.state) && !!live.child.turnId;
+        (['working', 'needs_permission'].includes(live.child.state) ||
+          (parentStop && live.child.state === 'stopping')) &&
+        !!live.child.turnId;
       if (input.action === 'stop') {
         if (!active) throw Error('Child is not working');
         live.child.state = 'stopping';
@@ -847,6 +1020,7 @@ export class CodexSubagents {
         status === 'rejected' &&
         optimistic &&
         optimistic.lifecycle === live.lifecycleRevision &&
+        optimistic.control === live.controlRevision &&
         optimistic.turnId === live.child.turnId &&
         optimistic.state === live.child.state
       ) {
@@ -857,25 +1031,49 @@ export class CodexSubagents {
     this.opts.store.finishControl(this.opts.scope, input, status);
     return status;
   }
+  private cancelForParent(live: LiveChild): void {
+    if (['completed', 'stopped', 'failed'].includes(live.child.state)) {
+      live.cancelBeforeRun = false;
+      return;
+    }
+    live.cancelBeforeRun = true;
+    live.turnAbort.abort();
+    if (
+      !['working', 'needs_permission', 'stopping'].includes(live.child.state) ||
+      !live.child.turnId
+    )
+      return;
+    if (
+      live.parentStop?.epoch === this.parentCancellationEpoch &&
+      live.parentStop.turnId === live.child.turnId
+    )
+      return;
+    live.parentStop = { epoch: this.parentCancellationEpoch, turnId: live.child.turnId };
+    const operation = this.control(
+      { requestId: randomUUID(), threadId: live.child.threadId, action: 'stop' },
+      undefined,
+      true,
+    )
+      .catch(() => {
+        this.invalidate(live);
+      })
+      .finally(() => {
+        this.parentStops.delete(operation);
+      });
+    this.parentStops.add(operation);
+  }
   async interruptAll(): Promise<void> {
     this.parentCancellationEpoch++;
     this.parentStopping = true;
     for (const live of this.live.values()) {
       live.turnAbort.abort();
+      live.cancelBeforeRun = !['completed', 'stopped', 'failed'].includes(live.child.state);
       this.publish(live);
     }
     await this.settled();
-    await Promise.all(
-      [...this.live.values()]
-        .filter((live) => ['working', 'needs_permission'].includes(live.child.state))
-        .map((live) =>
-          this.control(
-            { requestId: randomUUID(), threadId: live.child.threadId, action: 'stop' },
-            undefined,
-            true,
-          ),
-        ),
-    );
+    for (const live of this.live.values()) this.cancelForParent(live);
+    while (this.pending.size || this.parentStops.size)
+      await Promise.all([...this.pending.values(), ...this.parentStops]);
   }
   parentResumed(): void {
     if (!this.parentStopping) return;

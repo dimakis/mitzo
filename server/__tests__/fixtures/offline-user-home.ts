@@ -1,17 +1,20 @@
 import { vi } from 'vitest';
 
-for (const name of [
-  'MITZO_CODEX_PRIVATE_DIR',
-  'CODEX_HOME',
-  'MITZO_KEYCHAIN_HELPER',
-  'MITZO_KEYCHAIN_CONNECTIONS_DIR',
-  'MITZO_ACCOUNT_PROFILES_FILE',
-  'MITZO_ORDINARY_OPENSHELL_CODEX_TARGET_FILE',
-  'MITZO_OPENAI_ACCOUNT_ENROLLMENT_DB',
-  'MITZO_KNOWLEDGE_LIBRARY_CONFIG',
-  'MITZO_WORKSPACE_RUNTIME_CONFIG',
-])
-  vi.stubEnv(name, undefined);
+export function resetOfflineUserEnvironment() {
+  for (const name of [
+    'MITZO_CODEX_PRIVATE_DIR',
+    'CODEX_HOME',
+    'MITZO_KEYCHAIN_HELPER',
+    'MITZO_KEYCHAIN_CONNECTIONS_DIR',
+    'MITZO_ACCOUNT_PROFILES_FILE',
+    'MITZO_ORDINARY_OPENSHELL_CODEX_TARGET_FILE',
+    'MITZO_OPENAI_ACCOUNT_ENROLLMENT_DB',
+    'MITZO_KNOWLEDGE_LIBRARY_CONFIG',
+    'MITZO_WORKSPACE_RUNTIME_CONFIG',
+  ])
+    vi.stubEnv(name, undefined);
+}
+resetOfflineUserEnvironment();
 
 // Exercise real privacy guards against synthetic paths, never the developer's
 // host credential/configuration directories (which native sandboxes deny).
