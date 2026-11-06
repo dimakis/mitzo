@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.905-chat-continuation-transcript-integration';
+  'v1.0.906-chat-continuation-reviewed-selectors';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -576,7 +576,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../skills/pr-shepherd/SKILL.md':
     '7c9e3f2f9337c8e3bdce187b867f45ab3e7c5ce17e932ebe1270c0f09d8faba8',
   '../../frontend/src/pages/__tests__/ChatViewRepositoryAdoption.test.tsx':
-    '8ff1fce13bb1309a11ca2978badf33be65fd679711e71861354314ab8c85b8fc',
+    '991fbd003e6939d7069e03c1fe05fe6ededa7592099db64ebbe3c9d83dd865ff',
   '../../packages/client/src/__tests__/fixtures/metadata-connection.ts':
     '1f34f0e90ef2ff4e345352e2c6c3dd201541a8b22a33fa48d6f1166be59554a3',
   '../../packages/client/src/__tests__/session-metadata-revision.test.ts':
@@ -642,7 +642,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../scripts/ci-browser-batch-reporter.mjs':
     '18dd32bf19a3e129810a5d24691e89841cacb2677d2821dc76f09b9bed3253f2',
   '../../frontend/src/components/__tests__/CodexQueueStatus.local-recovery.test.tsx':
-    'aeb495b274942a0f8bb28ffbf142b0d74e5dc93ce97d23e3ca58dab671938d7e',
+    '6930e35d4ea2f73af054e40a1665f78970924895a62a5920c201ae615915e38f',
   '../__tests__/codex-pre-dispatch-failure.test.ts':
     '5b4532ce07427635d0eccaeefad9990b0dd18c93360dd2e7c28335d358c325ca',
   '../__tests__/codex-stale-preparation-notification.test.ts':
@@ -656,7 +656,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../retained-local-codex-recovery.ts':
     '5825421f387a6ff8050f77a564118ae6e9c5fad8ccb4b27ac99d68319fb77c67',
   '../../tests/offline/queue-status.spec.ts':
-    'd947a854f3688493becd936923ee26d28f4809096e80f103e3664e0b0ef59fea',
+    '50af7d298bfceb45d3e9260f2ba65c7de88a285ff57d5045efc864afd63df6ff',
   '../codex-borrowed-search.ts': '67dd1d8dc6165ca13cc3a41fc9708328bd0c5bf23ef329315499365699d7b144',
   '../__tests__/codex-borrowed-search.test.ts':
     '967cb447fd787e24f4308b125d21e8d9ba8f77c66abd7060fbddde6c7171e34f',

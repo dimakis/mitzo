@@ -305,7 +305,7 @@ for (const theme of ['dark', 'light']) {
         await input.fill('Preserve this next request');
         await expect(page.getByRole('button', { name: 'Retry saved turn' })).toHaveCount(0);
         await page.screenshot({
-          path: info.outputPath(`${scenario}-saved-local-${theme}-${presentation}.png`),
+          path: info.outputPath(`chat-status-${scenario}-saved-local-${theme}-${presentation}.png`),
         });
         expect(mutations).toEqual([]);
         await reconnect.focus();
