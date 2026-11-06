@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.922-agent-session-recovery-integration';
+  'v1.0.923-agent-session-recovery-fixes';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -42,7 +42,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/components/__tests__/SessionLaunchDefaultsControl.test.tsx':
     '156bfbfbd9cf9e5c1131271a4d31a7141b9e4762691cd0b6fc5668f8ac61d682',
   '../../frontend/src/hooks/__tests__/useNewChatDraft.defaults.test.tsx':
-    '5b8d64b1d51bbb63e8590b9ca05e4d91358cb48ef99606ad120ef98f2c98681b',
+    'ceeb79694806edb7994d5db2fb650f477f9cd459f74e600448af181bcd89ba0e',
   '../../frontend/src/hooks/__tests__/useSessionLaunch.test.tsx':
     'e73a4c15457ae095ea884deebe0e164daab9d29eace5b3d1f9025dffddbb3fa5',
   '../../frontend/src/hooks/__tests__/useSessionLaunchDefaults.test.tsx':
@@ -70,7 +70,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/session-launch-runtime.test.ts':
     '152da76d41fc1159a3bdefdc95b81ff370050aa07f9ab7d438c4400754acaac6',
   '../__tests__/session-launch-service.test.ts':
-    'e32ae9a2b2b4ef4a73c5f012a6f3f4c5218e53dd1d473bdf28f84a90bbb0ae5d',
+    'b6ce823614a63e1f9c214bc976582851e90467e3cb984911feafc3a0767105d8',
   '../__tests__/session-launch-store.test.ts':
     '86f879dfc66732f9ca14ac44cc004130b2eafa3c8151d319d706c7f2353a8e77',
   '../__tests__/session-launch-tools.test.ts':
@@ -84,7 +84,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     '992436c4700b6ec1d10941f7d16beba9095320d2e8d4e38e79be5dc81bd724c8',
   '../session-launch-service.ts':
     '850164425e3fca079573b59a9fbd689f3af8bd77df65745ba27bcd2e4e187ca3',
-  '../session-launch-store.ts': '97d753e2c90bb386ddc67e5e75557368089fc5a220fa1fbb7d290d6630c5ba8f',
+  '../session-launch-store.ts': 'c16d00c8eb18d6075ea4b1bad65a4dc17df6e4cbf8ae19943daea90b3a45a336',
   '../session-launch-tools.ts': '6c083e409d20156dd47366773d6a58ad273dbc1682d8c6a6e4b43524e8cb8e69',
   '../../tests/fixtures/session-launch-defaults.tsx':
     '3dacb55545132b3904e637368fafc6c008e386d44e7c2481bba81bd1c05eb8bb',
@@ -1746,7 +1746,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/hooks/useExplicitLocalChat.ts':
     '5ebc3d0f761a296dc0a3db2bb17961faad36cc601925b67e670db4e2a3ee7258',
   '../../frontend/src/hooks/useNewChatDraft.ts':
-    '6ab62ea70f7343edc841d06b83628a61e9cc7421d91bc91e0a2f79178e833ccb',
+    'bcd2fce24a8d445929ab1718532cfebb505c6b3040af9c15ab9e2c301473a3a9',
   '../../frontend/src/lib/launch-draft-delivery.ts':
     '05839a85eee84c490f9679ce36dc624280173a2d19c8b8ca5f8080a7fb19acb3',
   '../../frontend/src/hooks/useDraft.ts':

@@ -48,10 +48,7 @@ export function useNewChatDraft(requestedId: string | null, generation: number, 
   // StrictMode may discard a memo calculation. Track the owner React retained,
   // rather than publishing a different owner from a discarded calculation.
   previousOwner.current = owner;
-  const defaults = useSessionLaunchDefaults(
-    enabled && !owner.restored && !owner.missing,
-    owner.draft.id,
-  );
+  const defaults = useSessionLaunchDefaults(enabled && !owner.missing, owner.draft.id);
   const [defaultsRevision, setDefaultsRevision] = useState(0);
   useEffect(() => {
     if (

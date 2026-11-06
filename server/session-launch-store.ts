@@ -295,8 +295,10 @@ export class SessionLaunchStore {
   fail(id: string, error: string, uncertain = false) {
     return this.mutate(id, (entry) => {
       if (['running', 'cancelled'].includes(entry.record.state)) return;
+      const state = uncertain ? 'uncertain' : 'failed';
+      if (entry.record.state === state && entry.record.error === error) return;
       Object.assign(entry.record, {
-        state: uncertain ? 'uncertain' : 'failed',
+        state,
         error,
         revision: entry.record.revision + 1,
         updatedAt: Date.now(),

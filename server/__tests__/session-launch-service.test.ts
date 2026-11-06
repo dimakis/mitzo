@@ -131,3 +131,31 @@ it('resumes an interrupted startup once under concurrent explicit requests with 
   expect(f.port.resume).toHaveBeenCalledOnce();
   expect(f.port.start).not.toHaveBeenCalled();
 });
+it('keeps unchanged uncertainty polls revision-stable while explicit resume validates', async () => {
+  const f = fixture();
+  const approved = f.store.approve(f.record.proposalId, 'user', edits, 1);
+  f.store.claimStart(f.record.proposalId);
+  vi.mocked(f.port.inspect).mockResolvedValue({ accepted: false, uncertain: true });
+  const uncertain = await f.service.refresh(f.record.proposalId, 'user', f.authority);
+  const polled = await f.service.refresh(f.record.proposalId, 'user', f.authority);
+  expect(polled).toEqual(uncertain);
+  let finishValidation!: () => void;
+  vi.mocked(f.port.validate).mockImplementationOnce(
+    () =>
+      new Promise<void>((resolve) => {
+        finishValidation = resolve;
+      }),
+  );
+  f.port.canResume = vi.fn(async () => {});
+  f.port.resume = vi.fn(async (retained, _authority, prepared) => {
+    expect(retained.commandId).toBe(approved.commandId);
+    expect(retained.allocationId).toBe(approved.allocationId);
+    prepared('child', 'preparation');
+  });
+  const resuming = f.service.resume(f.record.proposalId, 'user', uncertain.revision, f.authority);
+  expect(await f.service.refresh(f.record.proposalId, 'user', f.authority)).toEqual(uncertain);
+  finishValidation();
+  await resuming;
+  expect(f.port.resume).toHaveBeenCalledOnce();
+  expect(f.port.start).not.toHaveBeenCalled();
+});

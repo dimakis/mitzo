@@ -56,3 +56,27 @@ it('never replaces a restored draft or an explicit edit while defaults load', as
   expect(restored.result.current.draft.text).toBe('Retained task');
   expect(restored.result.current.draft.settings.runtimeSelection).toBeUndefined();
 });
+it('loads, retries and saves defaults for a restored draft without hydrating its settings', async () => {
+  const draft = createChatDraft();
+  draft.text = 'Keep this handoff';
+  saveChatDraft(draft);
+  vi.mocked(apiFetch).mockRejectedValueOnce(Error('Offline'));
+  const { result } = renderHook(() => useNewChatDraft(draft.id, 0, true));
+  await waitFor(() => expect(result.current.defaults.error).toBe('Offline'));
+  vi.mocked(apiFetch).mockResolvedValueOnce(Response.json({ revision: 2, configuration }));
+  act(() => result.current.defaults.refresh());
+  await waitFor(() => expect(result.current.defaults.revision).toBe(2));
+  expect(result.current.defaultsHydrating).toBe(false);
+  expect(result.current.draft).toEqual(draft);
+  vi.mocked(apiFetch).mockResolvedValueOnce(Response.json({ revision: 3, configuration: null }));
+  await act(async () => expect(await result.current.defaults.save(null)).toBe(true));
+  expect(result.current.defaults.revision).toBe(3);
+  expect(result.current.draft).toEqual(draft);
+  expect(apiFetch).toHaveBeenLastCalledWith(
+    '/api/session-launch/defaults',
+    expect.objectContaining({
+      method: 'PUT',
+      body: JSON.stringify({ expectedRevision: 2, configuration: null }),
+    }),
+  );
+});
