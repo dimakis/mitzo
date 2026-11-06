@@ -28,7 +28,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     'ac671d94af4d91a3406ee5334f2a2468b2d0612e263ac3a64c95b1b1d11e7e62',
   '../local-session-removal.ts': '6ac2695a89153024b6898601d62a45731ff49993a2d0b604e1f58962388a1d16',
   '../../packages/protocol/src/session-removal-store.ts':
-    'cb3e58a370f72d2fb236f4edca71379e0ab3046838d5b7c127aa5e4bf606248f',
+    'df2ac3cc7f3ac4b8d3b6483b88abcd8f126f15e8b21d6b52ce3bac8b98eba685',
   '../__tests__/session-resource-removal.test.ts':
     '6d158e1c3b8a82ed54ed8512cc849fd2916d48bcf6c84e72f7ec7000985611a1',
   '../__tests__/session-removal-runtime.test.ts':
@@ -36,7 +36,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/local-session-removal.test.ts':
     '4199618a0e26453d58b7dd9b186925c39d7b3eb3221b1b768b2dc708e31fa3c3',
   '../../packages/protocol/__tests__/session-removal-store.test.ts':
-    'e38b03f6162af33fd13aecd3569b9c892d1326967577d9988a00e54c0cc875e9',
+    '4e219c3dc8db42fedc303f3b9ad0501b148e1d33160deccc343a04b99af7304e',
   '../../frontend/src/lib/session-removal-action.ts':
     '82729f13fd8905f67d60be6ee8d4d34a46ec822532357e5225752e8dbc825522',
   '../../frontend/src/lib/__tests__/session-removal-action.test.ts':
