@@ -21,6 +21,9 @@ roots, changing the selected account or widening access requires a new reviewed
 authorization. A grant ID in a message is only a locator. The recipient must
 already be a selected member and independently prove the current operator,
 runtime, mode and root identity before effects.
+Directory proofs include birth time to detect inode reuse after deletion. Routine
+file writes keep that identity; a task root without birth evidence cannot acquire
+a retained task grant.
 
 ## Operations
 

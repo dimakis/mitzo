@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { lstatSync, realpathSync } from 'node:fs';
+import { nativeCommandDirectoryScope } from './codex-native-grant-fence.js';
 import type { ManagedSession } from '@mitzo/harness';
 import type { TaskExecutionGrant } from './task-execution-store.js';
 const hash = (value: unknown) => createHash('sha256').update(JSON.stringify(value)).digest('hex');
@@ -18,11 +18,10 @@ export function memberScope(sessionId: string, session: ManagedSession) {
     ...new Set([session.cwd, ...[...session.worktreePaths.values()].map((entry) => entry.path)]),
   ].sort();
   const identities = roots.map((path) => {
-    const canonical = realpathSync(path);
-    const stat = lstatSync(canonical);
-    if (canonical !== path || !stat.isDirectory() || canonical === '/')
+    const identity = nativeCommandDirectoryScope(path, path);
+    if (path === '/' || !identity || identity[0]?.[1] === null)
       throw Error('Task workspace must be a canonical physical task directory');
-    return [canonical, stat.dev, stat.ino];
+    return identity;
   });
   return {
     sessionId,
