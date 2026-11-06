@@ -40,6 +40,21 @@ function sameInjections(left: ContextInjection[] | undefined, right: ContextInje
   );
 }
 
+/** History can repair missed receipts without replacing a newer live transition. */
+export function mergeAgentMessageReceipt(
+  live: FinishedMessage | undefined,
+  durable: FinishedMessage,
+): Pick<FinishedMessage, 'agentMessage' | 'agentMessageSeq'> {
+  const selected =
+    !durable.agentMessage ||
+    (live?.agentMessage && (live.agentMessageSeq ?? -1) > (durable.agentMessageSeq ?? -1))
+      ? live
+      : durable;
+  return selected?.agentMessage
+    ? { agentMessage: selected.agentMessage, agentMessageSeq: selected.agentMessageSeq }
+    : {};
+}
+
 function projectUserContext(message: FinishedMessage): FinishedMessage {
   if (message.role !== 'user') return message;
   const textBlock = message.blocks.find((block) => block.blockType === 'text');
@@ -1052,9 +1067,18 @@ function reduceLegacyMessages(state: MessagesState, action: MessagesAction): Mes
       return { ...INITIAL_MESSAGES_STATE };
 
     case 'RESTORE': {
+      const existingById = new Map(
+        state.messages.map((m) => [messageIdentity(m.messageId, m.symposiumProvenance), m]),
+      );
       const valid = action.messages
         .filter((m) => m && typeof m.messageId === 'string' && Array.isArray(m.blocks))
-        .map(projectUserContext);
+        .map((m) => {
+          const projected = projectUserContext(m);
+          const live = existingById.get(messageIdentity(m.messageId, m.symposiumProvenance));
+          return projected.agentMessage || live?.agentMessage
+            ? { ...projected, ...mergeAgentMessageReceipt(live, projected) }
+            : projected;
+        });
       state = {
         ...state,
         userReplies: {
@@ -1090,9 +1114,6 @@ function reduceLegacyMessages(state: MessagesState, action: MessagesAction): Mes
           commandStateSequences: { ...state.commandStateSequences, ...restoredSequences },
         };
       if (!action.interrupted) {
-        const existingById = new Map(
-          state.messages.map((m) => [messageIdentity(m.messageId, m.symposiumProvenance), m]),
-        );
         const hasNewMessages = valid.some(
           (m) => !existingById.has(messageIdentity(m.messageId, m.symposiumProvenance)),
         );
@@ -1105,6 +1126,7 @@ function reduceLegacyMessages(state: MessagesState, action: MessagesAction): Mes
             (message.replyToMessageId !== existing.replyToMessageId ||
               message.commandState !== existing.commandState ||
               message.commandStateSeq !== existing.commandStateSeq ||
+              message.agentMessageSeq !== existing.agentMessageSeq ||
               message.steersMessageId !== existing.steersMessageId ||
               JSON.stringify(message.inReplyTo) !== JSON.stringify(existing.inReplyTo))
           );

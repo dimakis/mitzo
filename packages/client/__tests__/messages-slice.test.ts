@@ -2,8 +2,48 @@ import { describe, it, expect } from 'vitest';
 import { messagesReducer, finishCurrent, INITIAL_MESSAGES_STATE } from '../src/slices/messages.js';
 import type { MessagesState } from '../src/slices/messages.js';
 import type { FinishedBlock, FinishedSubagentState, StreamingMessage } from '@mitzo/protocol';
+import { agentMessageTranscriptRow } from '@mitzo/protocol';
 
 const INITIAL = INITIAL_MESSAGES_STATE;
+
+it.each(['delivered', 'failed'] as const)(
+  'restores a missed %s peer receipt and preserves it against stale history',
+  (status) => {
+    const projection = {
+      message: {
+        messageId: '00000000-0000-4000-8000-000000000001',
+        commandId: 'peer-command',
+        senderConversationId: 'sender',
+        recipientConversationId: 'receiver',
+        text: 'Retained peer text',
+        replyTo: null,
+        status: 'queued' as const,
+        reason: null,
+        sequence: 1,
+      },
+      direction: 'incoming' as const,
+      senderName: 'Sender',
+      recipientName: 'Receiver',
+      timestamp: 100,
+    };
+    const queued = agentMessageTranscriptRow(projection, 1);
+    const receipt = {
+      ...agentMessageTranscriptRow(
+        { ...projection, message: { ...projection.message, status, sequence: 2 } },
+        7,
+      ),
+      startedSeq: 1,
+    };
+    const existing = { ...INITIAL, messages: [queued] };
+    const restored = messagesReducer(existing, { type: 'RESTORE', messages: [receipt] });
+    expect(restored.messages[0].agentMessage?.message.status).toBe(status);
+    expect(restored.messages[0].agentMessageSeq).toBe(7);
+    expect(restored.messages[0].startedSeq).toBe(1);
+    const stale = messagesReducer(restored, { type: 'RESTORE', messages: [queued] });
+    expect(stale.messages[0].agentMessage?.message.status).toBe(status);
+    expect(stale.messages[0].agentMessageSeq).toBe(7);
+  },
+);
 
 describe('durable turn position across reconnect', () => {
   it('accepts an authoritative sequence for an existing message during RESTORE', () => {

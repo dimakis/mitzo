@@ -7,6 +7,8 @@ import {
 } from '@mitzo/protocol';
 import type { EventStore } from './event-store.js';
 import { assembleSourceSnapshots } from './source-snapshot-context.js';
+import { captureOrdinarySkillPrompt } from './ordinary-composer-skills.js';
+import { buildSkillRegistry } from './skill-registry-runtime.js';
 /** Called under the conversation's existing admission authority. Selection is
  * same-chat, complete visible text only. Freeze once before native queueing. */
 export function captureMessageReply(
@@ -57,9 +59,26 @@ export function assembleCommandPrompt(
   sessionId: string,
   commandId: string,
   payload: { text: string; replyToMessageId?: string; sourceSnapshots?: SourceSnapshot[] },
+  options: { expandSkills?: boolean } = {},
 ): string {
+  const binding = store.getSessionRuntimeBinding(sessionId);
+  const cwd = store.getSession(sessionId)?.cwd;
+  const text =
+    options.expandSkills !== false &&
+    binding?.version === 2 &&
+    binding.execution.location === 'local' &&
+    cwd &&
+    payload.text.trimStart().startsWith('/')
+      ? captureOrdinarySkillPrompt(
+          store,
+          sessionId,
+          commandId,
+          payload.text,
+          buildSkillRegistry(cwd),
+        )
+      : payload.text;
   const reply = payload.replyToMessageId
     ? captureMessageReply(store, sessionId, commandId, payload.replyToMessageId)
     : undefined;
-  return assembleSourceSnapshots(assembleReplyText(payload.text, reply), payload.sourceSnapshots);
+  return assembleSourceSnapshots(assembleReplyText(text, reply), payload.sourceSnapshots);
 }

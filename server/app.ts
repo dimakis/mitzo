@@ -433,8 +433,21 @@ import { createHomeRouter } from './home-router.js';
 import { HomeStore } from './home-store.js';
 import { readQuoteCatalog } from './quote-catalog.js';
 import { registerToken, removeToken, setTokenStorePath } from './apns.js';
-import { SkillRegistry } from './skills.js';
-import type { SkillWatcher } from './skill-watcher.js';
+import {
+  buildSkillRegistry,
+  hasSkillWatcher,
+  NATIVE_COMMAND_NAMES,
+} from './skill-registry-runtime.js';
+import { ordinarySkillEntries, ordinaryWorkspaceSkillEntries } from './ordinary-composer-skills.js';
+import { z } from 'zod';
+export {
+  buildSkillRegistry,
+  BUNDLED_SKILLS_DIR,
+  USER_SKILLS_DIR,
+  NATIVE_COMMAND_NAMES,
+  setSkillWatcher,
+  invalidateSkillRegistries,
+} from './skill-registry-runtime.js';
 
 import { mkdirSync } from 'fs';
 import { homedir } from 'os';
@@ -451,54 +464,6 @@ import type { OpenShellLifecycleService } from './openshell-lifecycle-service.js
 const log = createLogger('server');
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-
-// Skill registry directories
-export const BUNDLED_SKILLS_DIR = join(__dirname, '..', 'skills');
-export const USER_SKILLS_DIR = join(homedir(), '.mitzo', 'skills');
-
-/** Reserved native command names — skills with these names are ignored. */
-export const NATIVE_COMMAND_NAMES = new Set(['skills', 'models', 'deliberate', 'fuse']);
-
-/** Cached registries keyed by cwd — avoids re-scanning the filesystem on every request. */
-const registryCache = new Map<string, SkillRegistry>();
-
-let skillWatcher: SkillWatcher | null = null;
-
-/** Register the skill file watcher so new repo dirs get watched automatically. */
-export function setSkillWatcher(watcher: SkillWatcher): void {
-  skillWatcher = watcher;
-}
-
-/** Build or retrieve a cached SkillRegistry for a given cwd (repo root). */
-export function buildSkillRegistry(cwd?: string): SkillRegistry {
-  const key = cwd ?? '';
-  const cached = registryCache.get(key);
-  if (cached) return cached;
-
-  const repoDir = cwd ? join(cwd, '.mitzo', 'skills') : undefined;
-
-  // Watch repo skill dir for changes (idempotent). If the directory doesn't
-  // exist yet, watchDir silently skips it. A later invalidation (e.g. from a
-  // change in bundled/user skill dirs) will rebuild the registry and retry.
-  if (repoDir && skillWatcher) {
-    skillWatcher.watchDir(repoDir);
-  }
-
-  const registry = new SkillRegistry({
-    bundledDir: BUNDLED_SKILLS_DIR,
-    userDir: USER_SKILLS_DIR,
-    repoDir,
-    nativeNames: NATIVE_COMMAND_NAMES,
-  });
-  registryCache.set(key, registry);
-  return registry;
-}
-
-/** Invalidate all cached registries — forces rediscovery on next request. */
-export function invalidateSkillRegistries(): void {
-  for (const reg of registryCache.values()) reg.invalidate();
-  registryCache.clear();
-}
 
 const app = express();
 let idleApplicationClosing = false;
@@ -3343,13 +3308,53 @@ app.get('/api/config', (_req, res) => {
 });
 
 app.get('/api/skills', (req, res) => {
-  const cwd = (req.query.cwd as string) || BASE_REPO;
+  if (req.query.sessionId !== undefined) {
+    if (
+      req.query.runtime !== 'ordinary' ||
+      typeof req.query.sessionId !== 'string' ||
+      req.query.cwd !== undefined ||
+      req.query.repositoryWorkspaceId !== undefined
+    )
+      return res.status(400).json({ error: 'Select a conversation workspace' });
+    const id = req.query.sessionId;
+    const cwd = eventStore.getSession(id)?.cwd;
+    if (!cwd || isRemoteSessionArtifact(id) || !isAllowedPath(cwd, id))
+      return res.status(403).json({ error: 'Workspace commands unavailable' });
+    return res.json(ordinarySkillEntries(buildSkillRegistry(cwd)));
+  }
+  if (req.query.repositoryWorkspaceId !== undefined) {
+    if (
+      req.query.runtime !== 'ordinary' ||
+      req.query.cwd !== undefined ||
+      !z.uuid().safeParse(req.query.repositoryWorkspaceId).success
+    )
+      return res.status(400).json({ error: 'Select a prepared workspace' });
+    void Promise.resolve()
+      .then(() =>
+        ordinaryWorkspaceSkillEntries(
+          getRepositoryWorkspaces(true),
+          String(req.query.repositoryWorkspaceId),
+          repositoryWorkspaceBinding,
+        ),
+      )
+      .then(
+        (entries) => res.json(entries),
+        () => res.status(409).json({ error: 'Workspace commands unavailable' }),
+      );
+    return;
+  }
+  const cwd =
+    (req.query.cwd as string) || (req.query.runtime === 'ordinary' ? undefined : BASE_REPO);
   if (cwd && !isAllowedPath(cwd)) {
     res.status(403).json({ error: 'Path not allowed' });
     return;
   }
   const skillRegistry = buildSkillRegistry(cwd);
-  res.json(skillRegistry.listPublic());
+  res.json(
+    req.query.runtime === 'ordinary'
+      ? ordinarySkillEntries(skillRegistry)
+      : skillRegistry.listPublic(),
+  );
 });
 
 app.get('/api/commands', (_req, res) => {
@@ -4427,7 +4432,7 @@ export const terminalService = new TerminalService(new TerminalStore(taskStore.g
         ? { ...meta, title: meta.summary || meta.initialPrompt || 'Chat workspace' }
         : undefined;
     },
-    allowedHost: isConfiguredAllowedPath,
+    allowedHost: (cwd, id) => isAllowedPath(cwd, id),
     remote: isRemoteSessionArtifact,
     runtime: (id, binding) => getCodexConversationStore().readArtifactRuntime(id, binding),
     currentRoute: (binding, id) =>
@@ -5821,7 +5826,7 @@ export function closeIdleApplicationResources(): Promise<void> {
     overviewEmitter ||
     healthMonitor ||
     openShellLifecycleService ||
-    skillWatcher
+    hasSkillWatcher()
   )
     return Promise.reject(new Error('Application resource owners are active'));
   idleApplicationClosing = true;

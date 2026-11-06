@@ -4294,6 +4294,40 @@ export class EventStore {
     });
     return parsed.success ? parsed.data : undefined;
   }
+  admitWithOrdinarySkillContext(
+    sessionId: string,
+    commandId: string,
+    context: { text: string; prompt: string },
+    admit: () => void,
+  ): void {
+    this.db!.transaction(() => {
+      admit();
+      const previous = this.getOrdinarySkillContext(sessionId, commandId);
+      if (previous && (previous.text !== context.text || previous.prompt !== context.prompt))
+        throw Error('Skill command changed');
+      if (!previous)
+        this.append(sessionId, 'ordinary_skill_context', { messageId: commandId, ...context });
+    })();
+  }
+  getOrdinarySkillContext(
+    sessionId: string,
+    commandId: string,
+  ): { text: string; prompt: string } | undefined {
+    const rows = this.db!.prepare(
+      `SELECT payload FROM events WHERE session_id=? AND type='ordinary_skill_context' AND json_extract(payload,'$.messageId')=? ORDER BY seq`,
+    ).all(sessionId, commandId) as Array<{ payload: string }>;
+    if (!rows.length) return undefined;
+    const contexts = rows.map((row) => JSON.parse(row.payload));
+    const first = contexts[0];
+    if (
+      typeof first.text !== 'string' ||
+      typeof first.prompt !== 'string' ||
+      contexts.some((context) => context.text !== first.text || context.prompt !== first.prompt)
+    )
+      throw Error('Skill command changed');
+    return { text: first.text, prompt: first.prompt };
+  }
+
   getMessageReplyContext(sessionId: string, commandId: string): MessageReplyContext | undefined {
     const rows = this.db!.prepare(
       `SELECT payload FROM events WHERE session_id=? AND type='message_reply_context' AND json_extract(payload,'$.messageId')=? ORDER BY seq`,

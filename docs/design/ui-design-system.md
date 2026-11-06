@@ -1050,6 +1050,27 @@ details in this top panel, including legacy conversations without a runtime bind
 
 ## Approved conversation composition
 
+Host Mac chat exposes Terminal in the existing composer actions before and after
+session creation. New-chat navigation retains the saved draft return route; an
+existing conversation keeps its server-resolved workspace destination. An unsent
+OpenShell draft has no host-terminal fallback. Loading conversation metadata
+keeps actions unavailable.
+
+Ordinary host Commands reuses SlashPicker and its existing shared typography,
+semantic colors, motion and keyboard behavior. Supported skills insert their name
+into the retained draft; Send remains separate. Skills requiring unsupported tool
+restrictions show a disabled choice and a reason, including restricted dependencies.
+The catalogue stays scoped to the selected runtime/workspace, with a load failure
+message instead of old choices. Legacy app commands retain their existing route.
+
+Focused composer, destination, resolver and design tests pass. The intercepted
+`chat-runtime-tools` fixture covers new/existing host chats, mobile/desktop,
+dark Mint/System and light Teal/Georgia, command insertion, unavailable reasons,
+terminal navigation and retained drafts. Browser execution remains pending CI:
+the host guard still reports Seatbelt after the approved escalation. No browser
+was launched and no visual inspection is claimed. Source and validation details
+are in [the feature record](../features/chat-runtime-tools.md).
+
 Conversation chrome keeps Account, Model and Thinking first in the single top
 settings disclosure, followed by Agent and Repository. Run on is a primary field in the approved compact popover; repository preparation
 retains its account-bound controls, and session details stay on request. Repository keeps the existing account-bound catalogue,
