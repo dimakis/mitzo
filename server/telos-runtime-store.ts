@@ -159,7 +159,7 @@ export class TelosRuntimeStore {
     profile: string,
     parent: string | null,
     now: string,
-    id = randomUUID(),
+    id: string = randomUUID(),
   ) {
     if (parent && !this.db.prepare('SELECT 1 FROM items WHERE id=?').get(parent))
       throw new TelosWorkError('not_found', 'Telos parent not found');

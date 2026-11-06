@@ -93,7 +93,7 @@ export function createTelosSourceRouter(options: {
   sourceConversation?(id: string): boolean;
   createOutcome?(
     input: TelosOutcomeCreation,
-    assertCurrentSync?: () => void,
+    assertCurrentSync: () => void,
   ): Promise<{ itemId: string }>;
   verifyInternal?(req: Request): boolean;
   sessionId?(clientId: string): string | undefined;
@@ -176,7 +176,7 @@ export function createTelosSourceRouter(options: {
         artifacts,
         assertAuthorized,
         store: approvalStore,
-        createOutcome: async (input: TelosOutcomeCreation, assertCurrentSync?: () => void) => {
+        createOutcome: async (input: TelosOutcomeCreation, assertCurrentSync: () => void) => {
           if (!options.createOutcome) throw new Error('Canonical creator unavailable');
           return options.createOutcome(input, assertCurrentSync);
         },
