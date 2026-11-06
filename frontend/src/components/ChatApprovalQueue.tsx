@@ -91,13 +91,11 @@ export function ChatApprovalQueue({
         let text = 'Loading this approval…';
         if (item.id !== id || item.sessionId !== sessionId)
           text = 'This request is not available in this chat.';
-        else if (
-          item.resolution === 'expired' ||
-          (item.expiresAt != null && item.expiresAt <= Date.now())
-        )
-          text = 'This request has expired.';
+        else if (item.resolution === 'expired') text = 'This request has expired.';
         else if (item.resolution || item.resolvedAt != null)
           text = 'This request was already handled.';
+        else if (item.expiresAt != null && item.expiresAt <= Date.now())
+          text = 'This request has expired.';
         setStatus({ scope, text, failed: false });
       })
       .catch(() => {

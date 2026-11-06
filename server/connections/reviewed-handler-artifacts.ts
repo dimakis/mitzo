@@ -10,7 +10,8 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.891-notification-chat-review';
+export const reviewedConnectionsRuntimeImplementationRevision =
+  'v1.0.892-notification-resolution-status';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -25,11 +26,11 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/components/ApprovalDraftProvider.tsx':
     'e373a5062614a76917ce513d5659086861fbceb258fde2acbdbe022be0e69081',
   '../../frontend/src/components/ChatApprovalQueue.tsx':
-    '71cf904a0ed33af52ae1bd96e8103f2f2c3264228ed4933ccd4f5a96bae6f160',
+    '0fa44c8f2be26eac547a0b72c6d51f02a9a7ec1104a3a0a77e0bc54d8b3b82b4',
   '../../frontend/src/components/NotificationNavigation.tsx':
     '87af6157c3a79ba1616b8eaa33f16f82864e894ad82721534ef8804d58903eba',
   '../../frontend/src/components/__tests__/ChatApprovalQueue.test.tsx':
-    '97c40a426eabbfc2b9c15a9654646fe30fca370604ff8e384ad22752f44eebc1',
+    '671a1bcc34b1d9e9676c7b354f461c1f55a69d57b69871640f5c3acae2d4cb83',
   '../../frontend/src/components/__tests__/NotificationNavigation.test.tsx':
     '619562cb3244a7b75e778517ad30b836a9766d4ef2ec425123a4457ed811c3d9',
   '../../frontend/src/hooks/approval-draft-context.ts':

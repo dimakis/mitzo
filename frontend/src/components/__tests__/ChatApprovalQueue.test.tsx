@@ -126,6 +126,7 @@ it('retains a submitted decision while switching cards so it cannot be submitted
 it.each([
   [{ resolution: 'expired' }, 'This request has expired.'],
   [{ expiresAt: 1 }, 'This request has expired.'],
+  [{ resolution: 'deny', expiresAt: 1 }, 'This request was already handled.'],
   [{ sessionId: 'another' }, 'This request is not available in this chat.'],
 ])(
   'explains unavailable requests without substituting another card: %j',
