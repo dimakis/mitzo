@@ -63,8 +63,10 @@ for (const theme of ['dark', 'light'])
       ({ theme, accent, font }) => {
         class OfflineEventSource extends EventTarget {
           readyState = 1;
+          onopen: (() => void) | null = null;
           constructor() {
             super();
+            queueMicrotask(() => this.onopen?.());
             window.addEventListener('offline-session-activity', (event) => {
               this.dispatchEvent(
                 new MessageEvent('session_activity', {
@@ -216,8 +218,15 @@ for (const theme of ['dark', 'light'])
         [activity(11, state, { waitReason: 'permission', lastEventAt: Date.now(), ...extra })],
       );
     };
-    await emit('working');
-    await expect(page.locator('.session-list .session-item').last()).toContainText('Working');
+    await emit('working', {
+      phase: 'reading',
+      turnStartedAt: Date.now() - 60_000,
+      lastMessageAt: sessions[11].lastModified,
+    });
+    await expect(page.locator('.session-list .session-item').last()).toContainText('Reading files');
+    await expect(page.locator('.session-list .session-item').last()).toContainText('elapsed 1m');
+    const bars = page.locator('.session-list .session-activity-bars');
+    await expect(bars).toBeVisible();
     await expect(rows).toHaveText(initialOrder);
     await page.emulateMedia({ reducedMotion: 'no-preference' });
     await page.locator('.session-list').evaluate((element) => {
@@ -238,6 +247,7 @@ for (const theme of ['dark', 'light'])
     // Wait beyond the batch window: a held pointer must keep its target still.
     await page.waitForTimeout(800);
     await expect(rows).toHaveText(initialOrder);
+    await expect(page.getByRole('button', { name: /1 updated · show latest/ })).toBeVisible();
     await page.evaluate(() =>
       document.dispatchEvent(new PointerEvent('pointerup', { pointerId: 77 })),
     );
@@ -266,6 +276,15 @@ for (const theme of ['dark', 'light'])
               .filter((a) => a.id === 'mitzo:reorder').length,
         ),
     ).toBe(0);
+    // A visible assistant update during the same turn also advances freshness.
+    await page.evaluate(
+      (detail) => window.dispatchEvent(new CustomEvent('offline-session-activity', { detail })),
+      [activity(9, 'working', { phase: 'reply', lastMessageAt: Date.now() + 2000 })],
+    );
+    await expect(rows.first()).toHaveText('Conversation 9');
+    await expect(page.locator('.session-list .session-item').first()).toContainText(
+      'Writing a reply',
+    );
     await page.emulateMedia({ reducedMotion: 'reduce' });
     const scroller = page.locator('.session-list-scroll');
     const searchBox = page.getByRole('searchbox', { name: 'Search conversations' });

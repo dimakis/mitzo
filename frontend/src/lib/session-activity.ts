@@ -31,17 +31,17 @@ export function sessionActivityLabel(activity: SessionActivity): string {
           ? 'Blocked'
           : 'Needs attention';
   if (activity.state === 'working')
-    return {
-      reading: 'Reading files',
-      editing: 'Editing files',
-      command: 'Running command',
-      tool: 'Using tools',
-      reply: 'Writing a reply',
-      thinking: 'Thinking',
-    }[activity.phase ?? 'thinking'];
-  return { init: 'Starting', done: 'Finished', idle: 'Last message', paused: 'Paused' }[
-    activity.state
-  ];
+    return activity.phase
+      ? {
+          reading: 'Reading files',
+          editing: 'Editing files',
+          command: 'Running command',
+          tool: 'Using tools',
+          reply: 'Writing a reply',
+          thinking: 'Thinking',
+        }[activity.phase]
+      : 'Working';
+  return { init: 'Starting', done: 'Finished', idle: 'Idle', paused: 'Paused' }[activity.state];
 }
 export function elapsedTime(at: number, now: number): string {
   const seconds = Math.max(0, Math.floor((now - at) / 1000));

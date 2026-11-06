@@ -3,7 +3,7 @@ import { act, cleanup, renderHook } from '@testing-library/react';
 import { StrictMode } from 'react';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import type { SessionActivity } from '@mitzo/protocol';
-import { useSessionOrder } from '../useSessionOrder';
+import { useSessionOrder, useSessionOrdering } from '../useSessionOrder';
 
 const sessions = [
   { id: 'recent', summary: 'Recent', lastModified: 300 },
@@ -158,6 +158,18 @@ it('cancels pending work on unmount', () => {
   expect(vi.getTimerCount()).toBe(1);
   view.unmount();
   expect(vi.getTimerCount()).toBe(0);
+});
+
+it('exposes held freshness updates for an explicit show-latest action', () => {
+  const view = renderHook(({ activities }) => useSessionOrdering(sessions, activities, true), {
+    initialProps: { activities: [activity('working', 100)] },
+  });
+  view.rerender({ activities: [activity('working', 600, { lastMessageAt: 500 })] });
+  expect(view.result.current.pendingCount).toBe(1);
+  expect(view.result.current.sessions.map((s) => s.id)).toEqual(['recent', 'older']);
+  act(() => view.result.current.showLatest());
+  expect(view.result.current.pendingCount).toBe(0);
+  expect(view.result.current.sessions.map((s) => s.id)).toEqual(['older', 'recent']);
 });
 
 it('reschedules an initial meaningful snapshot through Strict Mode effect replay', () => {

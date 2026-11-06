@@ -23,7 +23,7 @@ import { useLongPress } from '../hooks/useLongPress';
 import { computeSwipeState, REVEAL_WIDTH } from '../lib/swipe-reveal';
 import { selectionChanged } from '../lib/haptics';
 import { useSessionList } from '../hooks/useSessionList';
-import { useSessionOrder } from '../hooks/useSessionOrder';
+import { useSessionOrdering } from '../hooks/useSessionOrder';
 import { useListBrowsing } from '../hooks/useListBrowsing';
 import { MotionList } from '../components/MotionList';
 import type { QuickAction } from '../hooks/useSessionList';
@@ -425,7 +425,11 @@ export function SessionList() {
     (connected === false ? lastKnownActivities : activities).map((a) => [a.sessionId, a]),
   );
   const combined = mergeSessionActivities(sessions, activities);
-  const all = useSessionOrder([...combined.values()], activities, paused);
+  const {
+    sessions: all,
+    pendingCount,
+    showLatest,
+  } = useSessionOrdering([...combined.values()], activities, paused || connected === false);
   const active = all.filter((s) => s.isActive);
   const attention = all.filter((s) => {
     const activity = byId.get(s.id);
@@ -674,6 +678,20 @@ export function SessionList() {
                   : filter === 'active'
                     ? 'In progress'
                     : 'Waiting for you'}
+                {pendingCount > 0 && connected !== false && !menu && !renaming && !removing && (
+                  <button
+                    type="button"
+                    className="session-freshness"
+                    onClick={() => {
+                      showLatest();
+                      scroller.current
+                        ?.querySelector<HTMLElement>('.session-item-navigation')
+                        ?.focus({ preventScroll: true });
+                    }}
+                  >
+                    {pendingCount} updated · show latest ↑
+                  </button>
+                )}
               </p>
               {loading && <p className="session-list-empty">Loading…</p>}
               {!loading && error && (
