@@ -145,7 +145,6 @@ import { createTelosArtifactRouter, telosArtifactSaveJson } from './telos-artifa
 import { createTelosItemRouter } from './telos-item-routes.js';
 import { createTelosWorkRouter, type TelosWorkRoleRequest } from './telos-work-routes.js';
 import { projectCanonicalTelosLifecycleList } from './telos-lifecycle-list.js';
-import { TelosWorkLifecycleListSchema } from '@mitzo/protocol';
 import { createTelosWorkRoleHost } from './telos-work-role-host.js';
 import { createTelosWorkDelegationHost } from './telos-work-delegation-host.js';
 import type { TelosWorkDelegationScope } from './telos-work-delegation.js';
@@ -162,6 +161,7 @@ import { loadOrdinaryOpenShellCodexTarget } from './ordinary-openshell-codex-ent
 import { isDeepStrictEqual } from 'node:util';
 import { createTelosSourceRouter } from './telos-source-routes.js';
 import { createCanonicalTelosOutcome } from './telos-outcome-owner.js';
+import { createTelosTodoRouter, createTelosImportRouter } from './telos-runtime-routes.js';
 import {
   isAvailableTelosWorkConversation,
   isAvailableTelosSourceConversation,
@@ -394,11 +394,6 @@ import {
   FileWriteBody,
   PermissionDecision,
   CalendarResponse,
-  TodoListResponse,
-  TodoCreateBody,
-  TodoOutcomeCreateBody,
-  TodoActionBody,
-  TodoActionResponse,
   TaskCreateBody,
   TaskUpdateBody,
   LoopStartBody,
@@ -782,6 +777,12 @@ mountObservedRouter(
 // Preserve ordinary authentication responses, then require an operator before large bodies.
 installChatCommandJson(app, authMiddleware, operatorAuthMiddleware);
 app.use(express.json({ limit: '10mb' }));
+app.use(
+  createTelosImportRouter({
+    dbPath: () => telosDatabasePath(),
+    token: () => process.env.MITZO_TELOS_IMPORT_TOKEN,
+  }),
+);
 
 const getKnowledgeLibraryRuntime = createKnowledgeLibraryLoader(() =>
   knowledgeLibraryFromEnvironment(process.env, {
@@ -2626,20 +2627,7 @@ app.use(
     ordinaryConversation: (id) => isAvailableTelosWorkConversation(eventStore.getSession(id)),
     sourceConversation: (id) => isAvailableTelosSourceConversation(eventStore.getSession(id)),
     createOutcome: (input, assertCurrentSync) =>
-      createCanonicalTelosOutcome(
-        {
-          script: TODO_SCRIPT,
-          timeoutMs: TODO_TIMEOUT_MS,
-          maxBufferBytes: TODO_MAX_BUFFER_BYTES,
-          execute: (command, args, options) =>
-            execFileAsync(command, args, {
-              ...options,
-              env: { ...process.env, TELOS_DB_PATH: telosDatabasePath() },
-            }),
-        },
-        input,
-        assertCurrentSync,
-      ),
+      createCanonicalTelosOutcome({ dbPath: telosDatabasePath }, input, assertCurrentSync),
   }),
 );
 configureTelosSourcePermissionRecovery(createTelosSourcePermissionRecovery(telosDatabasePath));
@@ -5405,192 +5393,29 @@ app.get('/api/calendar', async (req, res) => {
   }
 });
 
-// --- Todo API ---
-
-const TODO_SCRIPT = join(BASE_REPO, 'command_center', 'todo_api.py');
-const TODO_TIMEOUT_MS = 30_000;
-// The todo list includes source context and can exceed Node's 1 MiB execFile default.
-// Keep the subprocess bounded while leaving headroom above the current production payload.
-const TODO_MAX_BUFFER_BYTES = 8 * 1024 * 1024;
-
-app.get(
-  '/api/todos',
-  (req, res, next) => {
-    const view = TelosWorkLifecycleListSchema.safeParse(req.query.view ?? 'active');
-    if (!view.success)
-      return res.status(400).json({ code: 'invalid', error: 'Invalid lifecycle view' });
-    return view.data === 'active' ? next() : operatorAuthMiddleware(req, res, next);
-  },
-  async (req, res) => {
-    if (req.query.refresh === 'true') {
-      res.status(400).json({
-        code: 'source_refresh_not_supported',
-        error: 'This endpoint only reloads saved Telos items.',
-      });
-      return;
-    }
-    const profile = req.query.profile as string | undefined;
-    const databasePath = telosDatabasePath();
-    const view = TelosWorkLifecycleListSchema.parse(req.query.view ?? 'active');
-
-    if (!existsSync(TODO_SCRIPT)) {
-      log.warn('todo script not found', { path: TODO_SCRIPT });
-      res.status(503).json({ error: 'Todo service unavailable' });
-      return;
-    }
-
-    try {
-      const args = [TODO_SCRIPT, '--list'];
-      if (profile) args.push('--profile', profile);
-
-      const { stdout } = await execFileAsync('python3', args, {
-        timeout: TODO_TIMEOUT_MS,
-        maxBuffer: TODO_MAX_BUFFER_BYTES,
-        env: { ...process.env, TELOS_DB_PATH: databasePath },
-      });
-      const parsed = TodoListResponse.safeParse(JSON.parse(stdout));
-      if (!parsed.success) {
-        log.warn('todo API returned unexpected shape', { error: parsed.error.message });
-        res.status(502).json({ error: 'Todo service unavailable' });
-        return;
-      }
-      res.json(
-        projectCanonicalTelosLifecycleList({
-          canonical: parsed.data,
-          databasePath,
-          view,
-          operator: res.locals.authSession as AuthSession | undefined,
-          policy: {
-            ordinaryConversation: (id) =>
-              isAvailableTelosWorkConversation(eventStore.getSession(id)),
-            sourceConversation: (id) =>
-              isAvailableTelosSourceConversation(eventStore.getSession(id)),
-          },
-        }),
-      );
-    } catch (err: unknown) {
-      if (err instanceof TelosWorkError) {
-        const status = { invalid: 400, unauthorized: 403, conflict: 409, not_found: 404 }[err.code];
-        res.status(status).json({ code: err.code, error: err.message });
-        return;
-      }
-      const message = err instanceof Error ? err.message : 'Unknown error';
-      log.warn('todo API failed', { error: message });
-      res.status(502).json({ error: 'Todo service unavailable' });
-    }
-  },
+// --- Todo API: private Mitzo storage, independent of the workspace runtime ---
+app.use(
+  createTelosTodoRouter({
+    dbPath: telosDatabasePath,
+    operatorAuth: operatorAuthMiddleware,
+    assertCurrent: (_req, res) => {
+      const operator = res.locals.authSession as AuthSession | undefined;
+      if (!operator || !isAuthSessionCurrent(operator))
+        throw new TelosWorkError('unauthorized', 'Current interactive operator required');
+    },
+    project: (canonical, view, _req, res) =>
+      projectCanonicalTelosLifecycleList({
+        canonical,
+        databasePath: telosDatabasePath(),
+        view,
+        operator: res.locals.authSession as AuthSession | undefined,
+        policy: {
+          ordinaryConversation: (id) => isAvailableTelosWorkConversation(eventStore.getSession(id)),
+          sourceConversation: (id) => isAvailableTelosSourceConversation(eventStore.getSession(id)),
+        },
+      }),
+  }),
 );
-
-app.post('/api/todos', async (req, res) => {
-  const body = TodoCreateBody.safeParse(req.body);
-  if (!body.success) {
-    res.status(400).json({ ok: false, error: body.error.issues[0]?.message ?? 'Invalid input' });
-    return;
-  }
-  const { summary, profile, parentId } = body.data;
-
-  if (!existsSync(TODO_SCRIPT)) {
-    res.status(500).json({ ok: false, error: 'Todo script not found' });
-    return;
-  }
-
-  try {
-    const args = [TODO_SCRIPT, '--create', summary, '--profile', profile];
-    if (parentId) {
-      args.push('--parent', parentId);
-    }
-
-    const { stdout } = await execFileAsync('python3', args, {
-      timeout: TODO_TIMEOUT_MS,
-      maxBuffer: TODO_MAX_BUFFER_BYTES,
-    });
-    const parsed = JSON.parse(stdout);
-    if (!parsed.ok) {
-      res.status(400).json(parsed);
-      return;
-    }
-    res.status(201).json(parsed);
-  } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : 'Unknown error';
-    log.warn('todo create failed', { error: message });
-    res.status(500).json({ ok: false, error: message });
-  }
-});
-
-app.post('/api/todos/outcomes', async (req, res) => {
-  const body = TodoOutcomeCreateBody.safeParse(req.body);
-  if (!body.success) {
-    res.status(400).json({ ok: false, error: body.error.issues[0]?.message ?? 'Invalid input' });
-    return;
-  }
-
-  if (!existsSync(TODO_SCRIPT)) {
-    res.status(500).json({ ok: false, error: 'Todo script not found' });
-    return;
-  }
-
-  try {
-    const { stdout } = await execFileAsync(
-      'python3',
-      [TODO_SCRIPT, '--create-outcome-json', JSON.stringify(body.data)],
-      { timeout: TODO_TIMEOUT_MS, maxBuffer: TODO_MAX_BUFFER_BYTES },
-    );
-    const parsed = JSON.parse(stdout);
-    if (!parsed.ok) {
-      res.status(400).json(parsed);
-      return;
-    }
-    res.status(parsed.created ? 201 : 200).json(parsed);
-  } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : 'Unknown error';
-    log.warn('todo outcome create failed', { error: message });
-    res.status(500).json({ ok: false, error: message });
-  }
-});
-
-app.post('/api/todos/:id/action', async (req, res) => {
-  const { id } = req.params;
-
-  const body = TodoActionBody.safeParse(req.body);
-  if (!body.success) {
-    res.status(400).json({ ok: false, error: 'Invalid action body' });
-    return;
-  }
-
-  if (!existsSync(TODO_SCRIPT)) {
-    res.status(500).json({ ok: false, error: 'Todo script not found' });
-    return;
-  }
-
-  try {
-    const args = [TODO_SCRIPT, '--action', body.data.action, id];
-    if (body.data.action === 'snooze' && body.data.days) {
-      args.push(String(body.data.days));
-    }
-    if (body.data.action === 'priority' && body.data.priority !== undefined) {
-      args.push(String(body.data.priority));
-    }
-
-    const { stdout } = await execFileAsync('python3', args, {
-      timeout: TODO_TIMEOUT_MS,
-      maxBuffer: TODO_MAX_BUFFER_BYTES,
-    });
-    const parsed = TodoActionResponse.safeParse(JSON.parse(stdout));
-    if (!parsed.success) {
-      res.status(500).json({ ok: false, error: 'Unexpected response' });
-      return;
-    }
-    if (!parsed.data.ok) {
-      res.status(404).json(parsed.data);
-      return;
-    }
-    res.json(parsed.data);
-  } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : 'Unknown error';
-    log.warn('todo action failed', { error: message });
-    res.status(500).json({ ok: false, error: message });
-  }
-});
 
 // --- Workload API ---
 
