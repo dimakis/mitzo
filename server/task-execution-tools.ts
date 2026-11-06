@@ -21,6 +21,7 @@ import { createLogger } from './logger.js';
 
 import { assertTaskOperator, memberScope, publicGrant } from './task-execution-scope.js';
 import { executeTaskOperation } from './task-execution-operation.js';
+import { retainedNativeHostToolOperator } from './native-host-tool-operator.js';
 const log = createLogger('task-execution');
 /** One host adapter for SDK/Vertex, Responses and native Local/OpenShell calls.
  * A grant ID is only a locator; signed operator and actual workspace identity
@@ -66,7 +67,10 @@ export function sessionTaskExecutionTools(options: {
           return current;
         };
         const source = owner();
-        const connectionId = source.session.ownerConnectionId ?? source.clientId.split(':')[0];
+        const connectionId =
+          retainedNativeHostToolOperator(source.session) ??
+          source.session.ownerConnectionId ??
+          source.clientId.split(':')[0];
         const captured = captureAgentLibraryAuthorization(connectionId);
         assertTaskOperator(session, captured.auth.id);
         operation = captureAgentLibraryOperation(connectionId);
@@ -81,7 +85,11 @@ export function sessionTaskExecutionTools(options: {
           captured.assertCurrent();
           assertTaskOperator(session, captured.auth.id);
           const next = owner();
-          if ((next.session.ownerConnectionId ?? next.clientId.split(':')[0]) !== connectionId)
+          if (
+            (retainedNativeHostToolOperator(next.session) ??
+              next.session.ownerConnectionId ??
+              next.clientId.split(':')[0]) !== connectionId
+          )
             throw Error('Task operator changed');
           return next;
         };
@@ -134,7 +142,9 @@ export function sessionTaskExecutionTools(options: {
             )
               throw Error('Selected task worker is not live');
             const peerConnection =
-              target.session.ownerConnectionId ?? target.clientId.split(':')[0];
+              retainedNativeHostToolOperator(target.session) ??
+              target.session.ownerConnectionId ??
+              target.clientId.split(':')[0];
             const peer = captureAgentLibraryAuthorization(peerConnection);
             peer.assertCurrent();
             if (peer.auth.id !== captured.auth.id)
