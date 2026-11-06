@@ -153,18 +153,33 @@ it('does not reserve stale membership or an unrelated source discussion', async 
   expect(authorize).not.toHaveBeenCalled();
 });
 
-it('keeps unverified capacity unable to confirm a join', async () => {
+it('allows a retained unverified review to prepare silent joining with its exact settings', async () => {
   const request = input();
   const snapshot = await owner().review(group, request);
+  const joinInput = {
+    requestId: randomUUID(),
+    expectedMembershipRevision: 1,
+    name: 'Reviewer',
+    settings,
+    snapshot: { snapshotId: snapshot.snapshotId, sha256: snapshot.sha256 },
+  };
   expect(() =>
     store.collaborationConversation.prepareJoin(group, {
-      requestId: randomUUID(),
-      expectedMembershipRevision: 1,
-      name: 'Reviewer',
-      settings,
-      snapshot: { snapshotId: snapshot.snapshotId, sha256: snapshot.sha256 },
+      ...joinInput,
+      settings: { ...settings, selection: { ...settings.selection, model: 'changed-model' } },
     }),
-  ).toThrow('capacity_refused');
+  ).toThrow('snapshot_changed');
+  expect(store.collaborationConversation.prepareJoin(group, joinInput)).toMatchObject({
+    state: 'pending_preparation',
+    sessionId: null,
+    settings,
+    snapshot: joinInput.snapshot,
+  });
+  expect(
+    store.collaborationConversation.getSnapshot(group, snapshot.snapshotId)?.capacity.status,
+  ).toBe('unverified');
+  expect(store.listSessions()).toHaveLength(1);
+  expect(store.getOrdinaryInitialCommandId('source')).toBeUndefined();
 });
 
 it('keeps equivalent key ordering exact and rejects request IDs used by other mutations', async () => {
