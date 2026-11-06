@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.915-telos-symposium-joining-integration';
+  'v1.0.916-telos-canonical-schema-and-read-contracts';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -28,13 +28,13 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../telos-private-paths.ts': 'e2e1dcafa1241a77f9a8c49419b603243cece84eb713d0f8e8fd404a4f965ab3',
   '../__tests__/telos-provider-isolation.test.ts':
     'c9771e095f1d20ae61880a479a4006f279e2b65868311481f1ab7edf27279727',
-  '../telos-runtime-store.ts': '29f96730dda4cf700f07c82d5a7c95e8c3b1125b18b8ce40ad75277fbc5977bc',
-  '../telos-runtime-storage.ts': 'd1f66f8cbe68c10a92eb8287d8c3d8ad192d85f72b8cc0801d7a4670e502fa60',
+  '../telos-runtime-store.ts': '2515ea8f93bf54a545e6d522b8475b4ab18ec0d307e24b865916507459632ee8',
+  '../telos-runtime-storage.ts': '0e40cb8503e36294ff75ceb0dd1decae092280350d2d6336cc90e57ab636a185',
   '../telos-runtime-routes.ts': '302f8b69c4b846a5e8d436087315ba5664b0f8e6acec7dbf01543b91978998db',
   '../__tests__/telos-runtime-store.test.ts':
-    '6761e57f01963ceda114bd669299f5b6a09ba4ae91c77945cc4cdd2eee9d5f26',
+    '18ff2e10e95e7ea0bd7d65f85a91fad2d0ebf809523dfd28af2747c725a0ba16',
   '../__tests__/telos-runtime-storage.test.ts':
-    'ac395274da9324829ad09b0c29cd48655ccb92ade93542a0c08f64f454457dee',
+    '0bdfacf24176c55c83dc876de9c43d8a2541412a2224ea947e76e52a4f27bcb2',
   '../__tests__/telos-runtime-routes.test.ts':
     '2417de9c8dbd1e3114625ddeeabe147e682fabdad97262a1f9c4a979a7eff170',
   '../__tests__/telos-runtime-migration.test.ts':
@@ -3458,7 +3458,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     '1a16b0959a29736da873f35f8d725d2e43335df82e9761c975c6c7d5772160b7',
   '../../tests/integration/telos-s9/ui.contract.ts':
     'f81b43c65d9aa74425337d944ac158b1650a5ea5561d13e220908a3062f06e93',
-  '../telos-snooze.ts': '405ad3f4938ca67d5032631b267880db929eaaac174d86f6c615e10a7cb14b1b',
+  '../telos-snooze.ts': 'f05dbf716217a83b07b5d705c15593f0741725e55c6c3b14e1ced9f920f1ac86',
   '../__tests__/fixtures/sdk-query-peer.ts':
     '0b5d7ca45552e412d1289cfe8b33a53d37c9545aac8ece2dce44dd528b37cded',
   '../__tests__/callback-incident-evidence.test.ts':

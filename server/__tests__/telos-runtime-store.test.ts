@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import Database from 'better-sqlite3';
 import { TelosRuntimeStore } from '../telos-runtime-store.js';
 import { TelosItemStore } from '../telos-item-store.js';
+import { renewDueTelosSnoozes } from '../telos-snooze.js';
 
 const cleanups: Array<() => void> = [];
 afterEach(() =>
@@ -32,6 +33,118 @@ const outcome = {
   idempotencyKey: 'original-reviewed-creation',
 };
 describe('Mitzo canonical Telos persistence', () => {
+  it.each([
+    { action: { action: 'star' }, starred: 0, expected: { priority: 7, starred: true } },
+    { action: { action: 'unstar' }, starred: 1, expected: { priority: 7, starred: false } },
+    {
+      action: { action: 'priority', priority: 8 },
+      starred: 1,
+      expected: { priority: 8, starred: true },
+    },
+    {
+      action: { action: 'priority', priority: 10 },
+      starred: 0,
+      expected: { priority: 10, starred: false },
+    },
+  ])('keeps priority and stars independent for $action', ({ action, starred, expected }) => {
+    const { store, path } = fixture();
+    const { item } = store.create({ summary: 'Independent controls', profile: 'manual' });
+    const seed = new Database(path);
+    try {
+      seed.prepare('UPDATE items SET priority=7,starred=? WHERE id=?').run(starred, item.id);
+    } finally {
+      seed.close();
+    }
+    store.action(item.id, action);
+    expect(store.list().items[0]).toMatchObject(expected);
+  });
+
+  it('reads committed work beside a writer when snoozes are future or indefinite', () => {
+    const { store, path } = fixture();
+    store.importSources({
+      items: ['visible', 'future', 'indefinite'].map((id) => ({
+        id,
+        summary: id,
+        profile: 'manual',
+        sources: [],
+      })),
+    });
+    const writer = new Database(path);
+    try {
+      writer.exec(
+        "UPDATE items SET status='snoozed',snoozed_until='2999-12-31' WHERE id='future'; UPDATE items SET status='snoozed',snoozed_until=NULL WHERE id='indefinite'; BEGIN IMMEDIATE; UPDATE items SET summary='uncommitted' WHERE id='visible'",
+      );
+      const reader = new TelosRuntimeStore(path);
+      try {
+        expect(() => reader.renewSnoozes()).not.toThrow();
+        expect(reader.list().items).toMatchObject([{ id: 'visible', summary: 'visible' }]);
+        expect(
+          reader.list(undefined, true).items.filter((row) => row.status === 'snoozed'),
+        ).toHaveLength(2);
+      } finally {
+        reader.close();
+      }
+    } finally {
+      if (writer.inTransaction) writer.exec('ROLLBACK');
+      writer.close();
+    }
+  }, 12000);
+
+  it('renews due snoozes exactly once while preserving future and indefinite snoozes', () => {
+    const { store, path } = fixture();
+    store.importSources({
+      items: ['due', 'future', 'indefinite'].map((id) => ({
+        id,
+        summary: id,
+        profile: 'manual',
+        sources: [],
+      })),
+    });
+    const db = new Database(path);
+    try {
+      db.exec(
+        "UPDATE items SET status='snoozed'; UPDATE items SET snoozed_until='2000-01-01' WHERE id='due'; UPDATE items SET snoozed_until='2999-12-31' WHERE id='future'",
+      );
+      store.renewSnoozes();
+      store.renewSnoozes();
+      expect(store.list().items.map((row) => row.id)).toEqual(['due']);
+      expect(
+        db
+          .prepare("SELECT item_id,old_status,new_status FROM history WHERE old_status='snoozed'")
+          .all(),
+      ).toEqual([{ item_id: 'due', old_status: 'snoozed', new_status: 'active' }]);
+    } finally {
+      db.close();
+    }
+  });
+
+  it('rechecks stale snooze candidates inside the renewal transaction', () => {
+    const { store, path } = fixture();
+    const { item } = store.create({ summary: 'Rescheduled snooze', profile: 'manual' });
+    const db = new Database(path);
+    try {
+      db.prepare("UPDATE items SET status='snoozed',snoozed_until='2999-12-31' WHERE id=?").run(
+        item.id,
+      );
+      db.transaction(() =>
+        renewDueTelosSnoozes(
+          db,
+          [{ id: item.id, status: 'snoozed', snoozed_until: '2000-01-01' }],
+          () => {},
+        ),
+      ).immediate();
+      expect(db.prepare('SELECT status,snoozed_until FROM items WHERE id=?').get(item.id)).toEqual({
+        status: 'snoozed',
+        snoozed_until: '2999-12-31',
+      });
+      expect(
+        db.prepare('SELECT count(*) AS count FROM history WHERE item_id=?').get(item.id),
+      ).toEqual({ count: 1 });
+    } finally {
+      db.close();
+    }
+  });
+
   it('keeps starred work ahead of unstarred urgency when listing migrated items', () => {
     const { store } = fixture();
     store.importSources({

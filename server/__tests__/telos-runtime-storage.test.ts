@@ -143,3 +143,45 @@ it('upgrades an older transferred item schema before native reads and outcome cr
     store.close();
   }
 });
+
+it.each(['empty', 'unrelated'] as const)(
+  'refuses an existing %s database without hiding legacy items',
+  (kind) => {
+    const repo = root();
+    const runtime = join(root(), 'runtime');
+    mkdirSync(runtime, { mode: 0o700 });
+    const path = join(runtime, 'telos.db');
+    if (kind === 'empty') writeFileSync(path, '', { mode: 0o600 });
+    else {
+      const unrelated = new Database(path);
+      unrelated.exec('CREATE TABLE unrelated (value TEXT)');
+      unrelated.close();
+      chmodSync(path, 0o600);
+    }
+    const legacy = join(repo, 'command_center/data');
+    mkdirSync(legacy, { recursive: true });
+    const legacyPath = join(legacy, 'smart_todo.db');
+    TelosRuntimeStore.initialize(legacyPath);
+    const original = new TelosRuntimeStore(legacyPath);
+    const saved = original.create({ summary: 'Retained legacy work', profile: 'manual' });
+    original.close();
+    vi.stubEnv('TELOS_DB_PATH', path);
+    vi.stubEnv('MITZO_TELOS_DATA_DIR', runtime);
+    expect(() => ensureTelosRuntimeStorage(repo)).toThrow(/canonical schema/);
+    const check = new Database(path, { readonly: true });
+    try {
+      expect(check.pragma('table_info(items)')).toEqual([]);
+    } finally {
+      check.close();
+    }
+    const retained = new TelosRuntimeStore(legacyPath);
+    try {
+      expect(retained.list().items[0]).toMatchObject({
+        id: saved.item.id,
+        summary: 'Retained legacy work',
+      });
+    } finally {
+      retained.close();
+    }
+  },
+);

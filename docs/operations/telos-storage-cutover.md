@@ -22,6 +22,12 @@ from ContexGin remains available without local command execution.
 The source-import credential is never inherited by provider children. Providers
 use host tools and HTTP APIs.
 
+Existing database files must already contain the canonical item schema. Startup
+can upgrade supported older columns; it refuses empty or unrelated SQLite files
+instead of initializing them over retained legacy work. Reads renew snoozes only
+after a read-only check finds due items, then recheck eligibility under the
+writer lock. Future and indefinite snoozes do not require a canonical writer.
+
 MGMT is a source importer. It submits at most 500 records per request to
 `POST /api/telos/import`. A dedicated `MITZO_TELOS_IMPORT_TOKEN` of at least 32
 characters authenticates only that endpoint. A source record can initialize an

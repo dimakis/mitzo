@@ -13,7 +13,7 @@ import {
 } from '@mitzo/protocol';
 import { TodoActionBody, TodoCreateBody } from './api-schemas.js';
 import { projectTelosWorkRecord } from './telos-work-record.js';
-import { renewDueTelosSnoozes } from './telos-snooze.js';
+import { dueTelosSnoozeIds, renewDueTelosSnoozes } from './telos-snooze.js';
 import { TelosWorkError } from './telos-work-store.js';
 
 const source = z.strictObject({
@@ -288,11 +288,13 @@ export class TelosRuntimeStore {
     })();
   }
   renewSnoozes() {
+    const now = new Date();
     const rows = this.db
       .prepare("SELECT id,status,snoozed_until FROM items WHERE status='snoozed'")
       .all() as Row[];
-    if (!rows.length) return;
-    this.db.transaction(() => renewDueTelosSnoozes(this.db, rows, () => {})).immediate();
+    if (!dueTelosSnoozeIds(rows, now).length) return;
+    // The shared owner rechecks status/date in its conditional SQL after the lock.
+    this.db.transaction(() => renewDueTelosSnoozes(this.db, rows, () => {}, now)).immediate();
   }
   create(raw: unknown) {
     const input = TodoCreateBody.parse(raw);
@@ -394,12 +396,12 @@ export class TelosRuntimeStore {
         if (input.action === 'star' || input.action === 'unstar') {
           const starred = input.action === 'star' ? 1 : 0;
           this.db
-            .prepare('UPDATE items SET starred=?,priority=?,updated_at=? WHERE id=?')
-            .run(starred, starred ? 10 : 5, now, id);
+            .prepare('UPDATE items SET starred=?,updated_at=? WHERE id=?')
+            .run(starred, now, id);
         } else if (input.action === 'priority') {
           this.db
-            .prepare('UPDATE items SET priority=?,starred=?,updated_at=? WHERE id=?')
-            .run(input.priority, input.priority === 10 ? 1 : 0, now, id);
+            .prepare('UPDATE items SET priority=?,updated_at=? WHERE id=?')
+            .run(input.priority, now, id);
         } else {
           const status = { ack: 'acknowledged', done: 'completed', snooze: 'snoozed' }[
             input.action

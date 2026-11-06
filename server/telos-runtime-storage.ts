@@ -60,6 +60,31 @@ export function ensureTelosRuntimeStorage(legacyRepo: string) {
       throw Error('Private owned Telos runtime database required');
     const owner = openTelosOwnedDatabase('canonical', path, { fileMustExist: true });
     try {
+      const columns = new Set(
+        (owner.database.pragma('table_info(items)') as Array<{ name: string }>).map(
+          (column) => column.name,
+        ),
+      );
+      if (
+        ![
+          'id',
+          'summary',
+          'profile',
+          'cluster_id',
+          'urgency',
+          'starred',
+          'status',
+          'snoozed_until',
+          'context_hints',
+          'first_seen',
+          'last_seen',
+          'created_at',
+          'updated_at',
+        ].every((column) => columns.has(column))
+      )
+        throw Error(
+          'Existing Telos canonical schema required; inspect retained storage before startup',
+        );
       owner.database.pragma('foreign_keys = ON');
       owner.database.transaction(() => initializeTelosRuntimeSchema(owner.database)).immediate();
       owner.seal();
