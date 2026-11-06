@@ -7,6 +7,7 @@ import { selectedTelosDatabaseFiles } from '@mitzo/protocol/telos-sqlite-owners'
 import { ensureTelosRuntimeStorage } from '../telos-runtime-storage.js';
 import { TelosRuntimeStore } from '../telos-runtime-store.js';
 import { isPrivateCodexPath } from '../codex-private-path.js';
+import Database from 'better-sqlite3';
 const roots: string[] = [];
 afterEach(() => {
   vi.unstubAllEnvs();
@@ -46,4 +47,46 @@ it('initializes a private fresh installation and refuses a silent empty replacem
   ensureTelosRuntimeStorage(repo);
   expect(statSync(join(data, 'runtime')).mode & 0o777).toBe(0o700);
   expect(statSync(join(data, 'runtime/telos.db')).mode & 0o777).toBe(0o600);
+});
+it('upgrades an older transferred item schema before native reads and outcome creation', () => {
+  const path = join(root(), 'telos.db');
+  TelosRuntimeStore.initialize(path);
+  const old = new Database(path);
+  try {
+    old.exec('DROP INDEX idx_items_idempotency_key');
+    for (const name of [
+      'intent',
+      'rationale',
+      'acceptance_criteria',
+      'idempotency_key',
+      'priority',
+      'categories',
+      'goal_id',
+    ])
+      old.exec(`ALTER TABLE items DROP COLUMN ${name}`);
+  } finally {
+    old.close();
+  }
+  vi.stubEnv('TELOS_DB_PATH', path);
+  ensureTelosRuntimeStorage(root());
+  const store = new TelosRuntimeStore(path);
+  try {
+    expect(
+      store.createOutcome(
+        {
+          summary: 'Recovered work',
+          intent: 'Keep history',
+          rationale: 'Old installation',
+          acceptanceCriteria: ['Native creation works'],
+          milestones: ['Verify'],
+          profile: 'manual',
+          idempotencyKey: 'old-schema-create',
+        },
+        () => {},
+      ),
+    ).toMatchObject({ created: true });
+    expect(store.list().items).toHaveLength(1);
+  } finally {
+    store.close();
+  }
 });

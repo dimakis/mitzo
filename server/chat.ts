@@ -1,3 +1,4 @@
+import { selectedTelosDatabaseFiles } from '@mitzo/protocol/telos-sqlite-owners';
 import {
   reconcilableLocalCodexCommand,
   retainedLocalCodexRecoveryReservation,
@@ -6353,4 +6354,3 @@ export async function startOwnedLocalResponsesCommand(
     releaseStartup();
   }
 }
-import { selectedTelosDatabaseFiles } from '@mitzo/protocol/telos-sqlite-owners';

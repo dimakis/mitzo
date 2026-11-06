@@ -88,25 +88,34 @@ export function initializeTelosRuntimeSchema(db: Database.Database) {
     CREATE TABLE IF NOT EXISTS history (id INTEGER PRIMARY KEY AUTOINCREMENT,
       item_id TEXT NOT NULL REFERENCES items(id) ON DELETE CASCADE, old_status TEXT,
       new_status TEXT NOT NULL, changed_at TEXT NOT NULL);
-    CREATE INDEX IF NOT EXISTS idx_items_parent ON items(parent_id);
     CREATE INDEX IF NOT EXISTS idx_items_profile ON items(profile);
     CREATE INDEX IF NOT EXISTS idx_items_status ON items(status);
     CREATE INDEX IF NOT EXISTS idx_sources_item ON sources(item_id);
     CREATE INDEX IF NOT EXISTS idx_links_item ON links(item_id);
-    CREATE UNIQUE INDEX IF NOT EXISTS idx_items_idempotency_key ON items(idempotency_key)
-      WHERE idempotency_key IS NOT NULL;
     CREATE TABLE IF NOT EXISTS telos_runtime_creation_receipts (
       idempotency_key TEXT PRIMARY KEY, input_hash TEXT NOT NULL, receipt TEXT NOT NULL);
   `);
   const columns = new Set(
     (db.pragma('table_info(items)') as Array<{ name: string }>).map((c) => c.name),
   );
-  if (!columns.has('priority')) {
-    db.exec('ALTER TABLE items ADD COLUMN priority INTEGER NOT NULL DEFAULT 5');
-    db.exec('UPDATE items SET priority=10 WHERE starred=1');
-  }
-  if (!columns.has('categories'))
-    db.exec("ALTER TABLE items ADD COLUMN categories TEXT NOT NULL DEFAULT '[]'");
+  // Transferred older installations can predate structured outcomes and priority.
+  // Add their columns before indexes or native readers reference them.
+  const additions = {
+    intent: "TEXT DEFAULT ''",
+    rationale: "TEXT DEFAULT ''",
+    acceptance_criteria: "TEXT DEFAULT '[]'",
+    idempotency_key: 'TEXT',
+    priority: 'INTEGER NOT NULL DEFAULT 5',
+    categories: "TEXT NOT NULL DEFAULT '[]'",
+    parent_id: 'TEXT REFERENCES items(id) ON DELETE CASCADE',
+    goal_id: 'TEXT',
+  };
+  for (const [column, definition] of Object.entries(additions))
+    if (!columns.has(column)) db.exec(`ALTER TABLE items ADD COLUMN ${column} ${definition}`);
+  if (!columns.has('priority')) db.exec('UPDATE items SET priority=10 WHERE starred=1');
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_items_parent ON items(parent_id);
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_items_idempotency_key ON items(idempotency_key)
+      WHERE idempotency_key IS NOT NULL;`);
 }
 
 export class TelosRuntimeStore {
@@ -242,7 +251,7 @@ export class TelosRuntimeStore {
   list(profile?: string, all = false) {
     return this.db.transaction(() => {
       const rows = this.db
-        .prepare('SELECT * FROM items ORDER BY urgency DESC,first_seen, rowid')
+        .prepare('SELECT * FROM items ORDER BY starred DESC,urgency DESC,first_seen, rowid')
         .all() as Row[];
       // Most reads need no writer. Snooze renewal uses its own immediate transaction.
       const selected = rows.filter((r) => !profile || r.profile === profile);

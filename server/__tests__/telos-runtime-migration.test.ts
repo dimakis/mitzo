@@ -1,17 +1,20 @@
-import { afterEach, expect, it } from 'vitest';
+import { afterEach, expect, it, vi } from 'vitest';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { mkdtempSync, rmSync, readFileSync, statSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import Database from 'better-sqlite3';
 import { createTelosCanonicalData } from './fixtures/telos-canonical-advisor.js';
+import { ensureTelosRuntimeStorage } from '../telos-runtime-storage.js';
+import { TelosRuntimeStore } from '../telos-runtime-store.js';
 const cleanup: Array<() => void> = [];
-afterEach(() =>
+afterEach(() => {
+  vi.unstubAllEnvs();
   cleanup
     .splice(0)
     .reverse()
-    .forEach((fn) => fn()),
-);
+    .forEach((fn) => fn());
+});
 const script = new URL('../../scripts/migrate-telos.py', import.meta.url).pathname;
 function fixture() {
   const source = createTelosCanonicalData();
@@ -83,4 +86,39 @@ it('requires explicit stopped-writer acknowledgement and refuses retained SQLite
     '--writers-stopped',
   ]);
   expect(blocked.status).not.toBe(0);
+});
+it('recovers a legacy outcome creation identity after transfer without creating a second outcome', () => {
+  const { source, root, destination } = fixture();
+  source.db
+    .prepare('UPDATE items SET idempotency_key=? WHERE id=?')
+    .run('reviewed-before-cutover', 'studio');
+  execFileSync('python3', [
+    script,
+    '--source',
+    source.dbPath,
+    '--destination',
+    destination,
+    '--writers-stopped',
+  ]);
+  vi.stubEnv('TELOS_DB_PATH', destination);
+  ensureTelosRuntimeStorage(root);
+  const store = new TelosRuntimeStore(destination);
+  try {
+    const recovered = store.createOutcome(
+      {
+        summary: 'Home studio',
+        intent: 'Record music',
+        rationale: 'Make music',
+        acceptanceCriteria: ['Approved plan'],
+        profile: 'manual',
+        milestones: ['Next step'],
+        idempotencyKey: 'reviewed-before-cutover',
+      },
+      () => {},
+    );
+    expect(recovered).toMatchObject({ created: false, item: { id: 'studio' } });
+    expect(store.list().items).toHaveLength(1);
+  } finally {
+    store.close();
+  }
 });

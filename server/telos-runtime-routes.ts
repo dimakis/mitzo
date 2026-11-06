@@ -13,17 +13,15 @@ function failure(res: Response, error: unknown) {
       : error instanceof TelosWorkError
         ? { invalid: 400, unauthorized: 403, conflict: 409, not_found: 404 }[error.code]
         : 503;
-  res
-    .status(status)
-    .json({
-      ok: false,
-      error:
-        error instanceof TelosWorkError
-          ? error.message
-          : status === 400
-            ? 'Invalid Telos input'
-            : 'Telos storage unavailable',
-    });
+  res.status(status).json({
+    ok: false,
+    error:
+      error instanceof TelosWorkError
+        ? error.message
+        : status === 400
+          ? 'Invalid Telos input'
+          : 'Telos storage unavailable',
+  });
 }
 function withStore(path: string, action: (store: TelosRuntimeStore) => void) {
   const store = new TelosRuntimeStore(path);
@@ -85,12 +83,10 @@ export function createTelosTodoRouter(options: {
     (req, res) => {
       res.setHeader('Cache-Control', 'private, no-store');
       if (req.query.refresh === 'true') {
-        res
-          .status(400)
-          .json({
-            code: 'source_refresh_not_supported',
-            error: 'This endpoint only reloads saved Telos items.',
-          });
+        res.status(400).json({
+          code: 'source_refresh_not_supported',
+          error: 'This endpoint only reloads saved Telos items.',
+        });
         return;
       }
       if (req.query.profile !== undefined && typeof req.query.profile !== 'string') {

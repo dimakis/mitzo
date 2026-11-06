@@ -32,6 +32,16 @@ const outcome = {
   idempotencyKey: 'original-reviewed-creation',
 };
 describe('Mitzo canonical Telos persistence', () => {
+  it('keeps starred work ahead of unstarred urgency when listing migrated items', () => {
+    const { store } = fixture();
+    store.importSources({
+      items: [
+        { id: 'urgent', summary: 'Urgent', profile: 'work', urgency: 1, sources: [] },
+        { id: 'starred', summary: 'Selected', profile: 'work', priority: 10, sources: [] },
+      ],
+    });
+    expect(store.list().items.map((item) => item.id)).toEqual(['starred', 'urgent']);
+  });
   it('retains original source age and initial context, priority and links without later overwrites', () => {
     const { store } = fixture();
     const record = {
