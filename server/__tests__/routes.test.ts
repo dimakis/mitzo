@@ -7,6 +7,7 @@ import { mkdirSync, writeFileSync, readFileSync, symlinkSync } from 'fs';
 import { join, relative } from 'path';
 import { tmpdir, homedir } from 'os';
 import { AccountAliases } from '../account-aliases.js';
+import { EventStore as AuthEventStore } from '../event-store.js';
 
 const mockRemoteArtifactRead = vi.hoisted(() => vi.fn());
 const mockRemoteArtifactFactory = vi.hoisted(() => vi.fn());
@@ -98,6 +99,7 @@ vi.mock('../chat.js', async () => {
     setTaskStore: vi.fn(),
     eventStore: {
       ...createRoutesRuntimeLedgerFixture(),
+      removals: { read: vi.fn(), assertArchivable: vi.fn() },
       setSessionState: vi.fn(),
       append: vi.fn(),
       getLatestEvent: vi.fn().mockReturnValue(null),
@@ -215,6 +217,7 @@ const overviewBroadcast = vi.fn();
 let app: Server;
 let authCookie: string;
 let authSessionId: string;
+let authRevocations: AuthEventStore;
 let setOpenShellLifecycleService: typeof import('../app.js').setOpenShellLifecycleService;
 
 async function getAuthCookie(agent: request.Agent): Promise<string> {
@@ -257,6 +260,8 @@ beforeAll(async () => {
   process.env.NTFY_AUTH_TOKEN = 'test-ntfy-token';
 
   const mod = await import('../app.js');
+  authRevocations = new AuthEventStore(':memory:');
+  (await import('../auth.js')).setAuthRevocationStore(authRevocations);
   app = await listenOnLoopback(mod.app);
   setOpenShellLifecycleService = mod.setOpenShellLifecycleService;
   mod.setOverviewEmitter({
@@ -272,6 +277,7 @@ afterAll(async () => {
   const { releaseTransportConnection } = await import('../transport-auth-ownership.js');
   releaseTransportConnection('conn-abc', authSessionId);
   releaseTransportConnection('conn-other', authSessionId);
+  authRevocations?.close();
 });
 
 beforeEach(async () => {
@@ -757,8 +763,11 @@ describe('session routes', () => {
     expect(getSessionTranscript).toHaveBeenCalledWith('s1');
   });
 
-  it('DELETE /api/sessions/:id — hides session', async () => {
-    const res = await request(app).delete('/api/sessions/s1').set('Cookie', authCookie);
+  it('DELETE /api/sessions/:id?archive=1 — archives session explicitly', async () => {
+    const res = await request(app)
+      .delete('/api/sessions/s1?archive=1')
+      .set('Cookie', authCookie)
+      .send({});
     expect(res.status).toBe(200);
     expect(res.body).toEqual({ ok: true });
     expect(hideSession).toHaveBeenCalledWith('s1');
@@ -771,12 +780,16 @@ describe('session routes', () => {
       sessionType: 'symposium',
       cwd: '/host/workspace',
     } as ReturnType<typeof eventStore.getSession>);
-    const res = await request(app).delete('/api/sessions/symposium').set('Cookie', authCookie);
+    const res = await request(app)
+      .post('/api/sessions/symposium/prepare-deletion')
+      .set('Cookie', authCookie)
+      .send({});
     expect(res.status).toBe(409);
     expect(hideSession).not.toHaveBeenCalled();
     await request(app)
       .delete('/api/sessions/symposium?archive=1')
       .set('Cookie', authCookie)
+      .send({})
       .expect(200);
   });
 

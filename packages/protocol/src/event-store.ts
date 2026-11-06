@@ -2952,6 +2952,7 @@ export class EventStore {
         database: () => this.db,
         statements: this.stmts,
         assertConversationIdentity: (id) => this.assertConversationIdentity(id),
+        assertExecutionAdmission: (id) => this.removals.assertAdmissible(id),
         isRegisteredConversation: (row) => isRegisteredConversation(rowToSession(row)),
         getExecutionAdmission: (id, command) => this.getExecutionAdmission(id, command),
         getProviderAttempts: (token) => this.getProviderAttempts(token),
@@ -3732,15 +3733,12 @@ export class EventStore {
     clientMsgId?: string,
     requestFingerprint?: string,
   ): BeginExecutionResult {
-    return this.db!.transaction(() => {
-      this.removals.assertAdmissible(sessionId);
-      return this.executionLedger.beginExecution(
-        sessionId,
-        executionId,
-        clientMsgId,
-        requestFingerprint,
-      );
-    }).immediate();
+    return this.executionLedger.beginExecution(
+      sessionId,
+      executionId,
+      clientMsgId,
+      requestFingerprint,
+    );
   }
 
   /** Read the terminal outcome of any generation, including superseded commands. */

@@ -66,13 +66,11 @@ export function createSessionRemovalRuntime(deps: {
         'Runtime shutdown is unverified. Keep the chat and reconcile its unfinished work.',
       );
     if (binding.harness.implementation === 'codex')
-      deps
-        .native()
-        .assertRepositoryTaskStopped({
-          conversationId: id,
-          directory: value.cwd!,
-          binding: value.accountBinding!,
-        } as Parameters<CodexConversationStore['assertRepositoryTaskStopped']>[0]);
+      deps.native().assertRepositoryTaskStopped({
+        conversationId: id,
+        directory: value.cwd!,
+        binding: value.accountBinding!,
+      } as Parameters<CodexConversationStore['assertRepositoryTaskStopped']>[0]);
     else if (
       binding.harness.implementation !== 'claude-sdk' ||
       deps.events.getPendingOrdinaryLocalVertexCommandIds(id).length

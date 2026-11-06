@@ -156,10 +156,14 @@ it('checks uncertainty after joining an in-flight delivery during sender removal
   );
   let entered!: () => void;
   let finish!: () => void;
-  const ready = new Promise<void>((resolve) => { entered = resolve; });
+  const ready = new Promise<void>((resolve) => {
+    entered = resolve;
+  });
   f.port.deliver.mockImplementationOnce(async () => {
     entered();
-    await new Promise<void>((resolve) => { finish = resolve; });
+    await new Promise<void>((resolve) => {
+      finish = resolve;
+    });
     throw Error('Response lost');
   });
   f.port.receipt.mockReturnValue('uncertain');
@@ -179,7 +183,9 @@ it('retains unreadable matching receipts but ignores unrelated uncertainty', asy
     'sender',
   );
   f.store.claim(delivery.id);
-  f.port.receipt.mockImplementation(() => { throw Error('Evidence unavailable'); });
+  f.port.receipt.mockImplementation(() => {
+    throw Error('Evidence unavailable');
+  });
   await f.service.cancelSession('other-chat');
   await expect(f.service.cancelSession('sender')).rejects.toThrow(/uncertain/i);
   f.port.receipt.mockReturnValue('absent');
