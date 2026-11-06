@@ -1,6 +1,8 @@
 import { vi } from 'vitest';
 
 for (const name of [
+  'TELOS_DB_PATH',
+  'MITZO_TELOS_DATA_DIR',
   'MITZO_CODEX_PRIVATE_DIR',
   'CODEX_HOME',
   'MITZO_KEYCHAIN_HELPER',

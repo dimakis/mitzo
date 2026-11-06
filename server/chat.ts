@@ -267,8 +267,7 @@ export function resolveOwnedTelosWorkCommandScope(sessionId: string, forNewComma
         getCodexConversationStore().hasAcceptedProviderTurn(id, account),
       work: () => {
         if (work) return work;
-        const path =
-          process.env.TELOS_DB_PATH || join(BASE_REPO, 'command_center', 'data', 'smart_todo.db');
+        const path = selectedTelosDatabaseFiles().canonical;
         const policy = {
           ordinaryConversation: (id: string) =>
             isAvailableTelosWorkConversation(eventStore.getSession(id)),
@@ -6448,3 +6447,4 @@ export async function startOwnedLocalResponsesCommand(
     releaseStartup();
   }
 }
+import { selectedTelosDatabaseFiles } from '@mitzo/protocol/telos-sqlite-owners';

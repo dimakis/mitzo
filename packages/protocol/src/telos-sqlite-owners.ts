@@ -16,6 +16,7 @@ import {
   type BigIntStats,
 } from 'node:fs';
 import { basename, dirname, join, resolve } from 'node:path';
+import { homedir } from 'node:os';
 import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import {
   reserveFamily,
@@ -59,7 +60,12 @@ function selected(files: TelosDatabaseFiles): TelosDatabaseFiles {
 export function selectedTelosDatabaseFiles(): TelosDatabaseFiles {
   const root = resolve(process.env.REPO_PATH || '.');
   return selected({
-    canonical: process.env.TELOS_DB_PATH || join(root, 'command_center/data/smart_todo.db'),
+    canonical:
+      process.env.TELOS_DB_PATH ||
+      join(
+        process.env.MITZO_TELOS_DATA_DIR || join(homedir(), '.mitzo', 'private', 'telos'),
+        'telos.db',
+      ),
     events: join(root, '.mitzo/events.db'),
     tasks: join(root, '.mitzo/tasks.db'),
   });

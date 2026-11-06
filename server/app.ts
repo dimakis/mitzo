@@ -162,6 +162,7 @@ import { isDeepStrictEqual } from 'node:util';
 import { createTelosSourceRouter } from './telos-source-routes.js';
 import { createCanonicalTelosOutcome } from './telos-outcome-owner.js';
 import { createTelosTodoRouter, createTelosImportRouter } from './telos-runtime-routes.js';
+import { selectedTelosDatabaseFiles } from '@mitzo/protocol/telos-sqlite-owners';
 import {
   isAvailableTelosWorkConversation,
   isAvailableTelosSourceConversation,
@@ -2197,8 +2198,7 @@ app.post('/api/internal/task-tools/artifact', (req, res) => {
   });
 });
 
-const telosDatabasePath = () =>
-  resolve(process.env.TELOS_DB_PATH || join(BASE_REPO, 'command_center', 'data', 'smart_todo.db'));
+const telosDatabasePath = () => selectedTelosDatabaseFiles().canonical;
 const lifecycleCanonicalSelection = telosDatabasePath();
 let lifecycleSelectionInvalidated = false;
 function assertInstalledTelosDeletionOwners() {
