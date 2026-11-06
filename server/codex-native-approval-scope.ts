@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { isAbsolute } from 'node:path';
 import type { NativeApprovalRequest } from './codex-native-permission-protocol.js';
+import { nativeCommandDirectoryScope } from './codex-native-grant-fence.js';
 
 /** Retain consent to an exact command, never a shell prefix or a filesystem
  * expansion. The adapter still checks each RPC's current owner and grant fence;
@@ -24,16 +25,19 @@ export function nativeCommandApprovalScope(
     !params.command ||
     !params.cwd ||
     !isAbsolute(params.cwd) ||
-    params.cwd !== owner.cwd ||
+    !owner.cwd ||
     params.approvalId ||
     params.networkApprovalContext ||
     params.additionalPermissions?.fileSystem
   )
     return;
+  const directory = nativeCommandDirectoryScope(params.cwd, owner.cwd);
+  if (!directory) return;
   return `native-command-v1:${createHash('sha256')
     .update(
       JSON.stringify([
         owner,
+        directory,
         params.threadId,
         params.cwd,
         params.command,

@@ -141,6 +141,14 @@ async function canonicalPath(path: string): Promise<string> {
 }
 
 export interface NativeToolOptions {
+  /** Host-owned task proof for one exact call, never accepted from tool JSON. */
+  taskAuthorization?: {
+    readonly grantId: string;
+    readonly toolName: 'Bash' | 'GitHubRead' | 'GitCommit';
+    readonly input: Readonly<Record<string, unknown>>;
+    readonly cwd?: string;
+    assertCurrentSync(): void;
+  };
   /** Optional enrolled-route owner fence, rechecked after approval and at effects. */
   assertRuntimeCurrent?: () => void;
   /** Enrolled source/credential owners may need asynchronous grant reconciliation. */
@@ -152,7 +160,7 @@ export interface NativeToolOptions {
   /** Explicit child environment. The executor never inherits process.env or API credentials. */
   env: Record<string, string>;
   /** Server-owned, explicitly enabled host route. Requires the network-aware Bash grant. */
-  networkAccess?: 'approved-command';
+  networkAccess?: 'approved-command' | 'loopback';
   forcePrompt?: boolean;
   timeoutMs?: number;
   maxOutputBytes?: number;
@@ -168,6 +176,41 @@ export function createNativeToolExecutor(
   const networkAccess = options.networkAccess;
   const onDemandCreate = options.onDemandCreate;
   return async (block: ToolUseBlock, signal: AbortSignal): Promise<ToolResultBlock> => {
+    const task = options.taskAuthorization;
+    const taskName = task?.toolName;
+    const taskId = task?.grantId;
+    const taskCwd = task?.cwd;
+    const taskAssertion = task?.assertCurrentSync;
+    const taskInput = task ? structuredClone(task.input) : undefined;
+    const assertCurrent = () => {
+      signal.throwIfAborted();
+      options.assertRuntimeCurrent?.();
+      if (task) {
+        if (
+          options.taskAuthorization !== task ||
+          !taskId ||
+          task.grantId !== taskId ||
+          task.toolName !== taskName ||
+          taskName !== block.name ||
+          task.cwd !== taskCwd ||
+          task.assertCurrentSync !== taskAssertion ||
+          !isDeepStrictEqual(block.input, taskInput) ||
+          !isDeepStrictEqual(task.input, taskInput)
+        )
+          throw Error('Task authorization does not match this exact operation');
+        task.assertCurrentSync();
+      }
+    };
+    const taskConsent = task
+      ? {
+          isRetainedSessionGrantCurrent: () => {
+            assertCurrent();
+            return true;
+          },
+          sessionGrantKey: `task-execution:${task.grantId}:${block.name}`,
+          allowSessionGrant: true,
+        }
+      : {};
     // This original invocation can prove it never delegated an effect. Once
     // any executor (including lazy workspace creation) starts, errors stay
     // uncertain unless that executor supplies its own settlement evidence.
@@ -196,7 +239,7 @@ export function createNativeToolExecutor(
     try {
       signal.throwIfAborted();
       await options.assertRuntimeCurrentAsync?.();
-      options.assertRuntimeCurrent?.();
+      assertCurrent();
       const session = registry.get(clientId);
       if (!session?.cwd) return refused('Session workspace is unavailable');
       if (
@@ -251,6 +294,7 @@ export function createNativeToolExecutor(
           forcePrompt: options.forcePrompt,
           assertCurrentSync: options.assertRuntimeCurrent,
           assertCurrentAsync: options.assertRuntimeCurrentAsync,
+          ...(task ? { assertTaskAuthorizationCurrent: assertCurrent } : {}),
         });
         options.registerResponseFence?.(assertReadCurrent);
         const executeRead =
@@ -311,6 +355,7 @@ export function createNativeToolExecutor(
           signal,
           toolUseID: block.id,
           forcePrompt: true,
+          ...taskConsent,
         });
         signal.throwIfAborted();
         if (permission.behavior !== 'allow') return refused(permission.message);
@@ -329,7 +374,7 @@ export function createNativeToolExecutor(
           ? await getRepositoryWorkspaces(true).validateHostTask(session.sessionId!, root)
           : undefined;
         await options.assertRuntimeCurrentAsync?.();
-        options.assertRuntimeCurrent?.();
+        assertCurrent();
         executionStarted = true;
         return result(
           await executeTrustedGitCommit(
@@ -342,9 +387,9 @@ export function createNativeToolExecutor(
             new Map(input.files.map((file) => [file, approvedIdentities.get(file) ?? null])),
             task,
             ...(options.assertRuntimeCurrentAsync
-              ? ([options.assertRuntimeCurrent, options.assertRuntimeCurrentAsync] as const)
-              : options.assertRuntimeCurrent
-                ? ([options.assertRuntimeCurrent] as const)
+              ? ([assertCurrent, options.assertRuntimeCurrentAsync] as const)
+              : options.assertRuntimeCurrent || task
+                ? ([assertCurrent] as const)
                 : ([] as const)),
           ),
         );
@@ -359,6 +404,7 @@ export function createNativeToolExecutor(
           signal,
           toolUseID: block.id,
           forcePrompt: options.forcePrompt || parsed.data.require_approval === true,
+          ...(!options.forcePrompt && !parsed.data.require_approval ? taskConsent : {}),
           ...(networkAccess === 'approved-command'
             ? {
                 title: 'Run command with network access',
@@ -407,11 +453,11 @@ export function createNativeToolExecutor(
         if (writableRoots.some((p) => privatePathSnapshot()(p)))
           return refused('Private provider storage is unavailable');
         await options.assertRuntimeCurrentAsync?.();
-        options.assertRuntimeCurrent?.();
+        assertCurrent();
         executionStarted = true;
         const output = await executeSandboxedCommand({
           command: input.command,
-          cwd: await realpath(session.cwd),
+          cwd: await realpath(taskCwd ?? session.cwd),
           writableRoots,
           deniedRoots: await Promise.all(deniedRoots.map(canonicalPath)),
           env: options.env,
@@ -421,7 +467,7 @@ export function createNativeToolExecutor(
           maxOutputBytes: options.maxOutputBytes,
           beforeSpawnAsync: options.assertRuntimeCurrentAsync,
           beforeSpawn: () => {
-            options.assertRuntimeCurrent?.();
+            assertCurrent();
             if (
               registry.get(clientId) !== session ||
               effectivePermissionMode(session) === 'ask' ||
@@ -433,7 +479,7 @@ export function createNativeToolExecutor(
               );
           },
         });
-        return result(output.content, output.isError);
+        return copyCallbackOutcome(output, result(output.content, output.isError));
       }
       const input = { ...parsed.data };
       if ('questions' in input || 'command' in input) return refused('Invalid tool input');
@@ -497,7 +543,7 @@ export function createNativeToolExecutor(
       )
         return refused('Session permissions changed before file execution; retry the tool');
       await options.assertRuntimeCurrentAsync?.();
-      options.assertRuntimeCurrent?.();
+      assertCurrent();
       executionStarted = true;
       const operation = await executeNativeFileOperation(
         {

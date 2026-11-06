@@ -43,6 +43,8 @@ export {
   dismissReviewedTelosSourcePermission,
 } from './permissions.js';
 export type { PendingTelosSourceReview } from './permissions.js';
+export { onPermissionAudit, recordPermissionAudit } from './permission-audit.js';
+export type { PermissionAuditEvent } from './permission-audit.js';
 
 // Tool tiers
 export type { ToolTier } from './tool-tiers.js';

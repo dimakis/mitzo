@@ -2,6 +2,9 @@ import type { PermissionResult } from '@anthropic-ai/claude-agent-sdk';
 import type { PermissionRequest, QuestionAnswers } from '@mitzo/protocol';
 import type { ToolTier } from './tool-tiers.js';
 import { isDeepStrictEqual } from 'node:util';
+import { recordPermissionAudit } from './permission-audit.js';
+import { createLogger } from './logger.js';
+const log = createLogger('permissions');
 
 export interface PendingTelosSourceReview {
   permId: string;
@@ -17,6 +20,8 @@ export interface PendingTelosSourceReview {
 type PermissionResolver = (result: PermissionResult) => unknown;
 
 interface PendingEntry {
+  createdAt: number;
+  audit?: { toolUseID: string; scopeHash: string };
   resolver: PermissionResolver;
   toolName: string;
   toolInput: Record<string, unknown>;
@@ -44,8 +49,11 @@ function notifyLifecycle(event: PermissionLifecycleEvent): void {
   for (const listener of lifecycleListeners) {
     try {
       listener(structuredClone(event));
-    } catch {
-      /* Notification failures cannot change authority. */
+    } catch (error) {
+      log.warn('Permission lifecycle observer failed; decision authority is unchanged', {
+        phase: event.type,
+        errorType: error instanceof Error ? error.name : 'non-Error',
+      });
     }
   }
 }
@@ -59,8 +67,11 @@ export function registerPending(
   sessionId?: string,
   request?: PermissionRequest,
   review?: { toolUseId: string; operatorId?: string; canApprove?(): boolean },
+  audit?: { toolUseID: string; scopeHash: string },
 ) {
   pending.set(permId, {
+    createdAt: Date.now(),
+    audit,
     resolver,
     toolName,
     toolInput: structuredClone(toolInput),
@@ -68,6 +79,15 @@ export function registerPending(
     sessionId,
     request,
     review,
+  });
+  recordPermissionAudit({
+    phase: 'requested',
+    time: Date.now(),
+    sessionId,
+    permId,
+    toolName,
+    ...audit,
+    approvalScope: request?.approvalScope,
   });
   if (request) notifyLifecycle({ type: 'requested', request });
 }
@@ -104,11 +124,16 @@ export function resolvePending(
   // is busy. The advertised absolute deadline remains authoritative.
   if (entry.request?.expiresAt !== undefined && entry.request.expiresAt <= Date.now()) {
     pending.delete(permId);
-    entry.resolver({
-      behavior: 'deny',
-      message: 'Tool approval expired without a response; request approval again',
-    });
-    notifyLifecycle({ type: 'resolved', permId, resolution: 'expired' });
+    applyPendingResult(
+      entry,
+      permId,
+      {
+        behavior: 'deny',
+        message: 'Tool approval expired without a response; request approval again',
+      },
+      decision,
+      'expired',
+    );
     return false;
   }
 
@@ -145,7 +170,6 @@ export function resolvePending(
     };
   }
   pending.delete(permId);
-  const { resolver } = entry;
 
   let requestedResult: PermissionResult;
   if (effectiveDecision === 'always') {
@@ -167,7 +191,31 @@ export function resolvePending(
       ...(denialReason ? {} : { decisionClassification: 'user_reject' as const }),
     };
   }
-  const appliedResult = resolver(requestedResult);
+  applyPendingResult(entry, permId, requestedResult, effectiveDecision);
+  return true;
+}
+
+/** Every terminal resolver path shares the same failure and decision reporting. */
+function applyPendingResult(
+  entry: PendingEntry,
+  permId: string,
+  requestedResult: PermissionResult,
+  decision?: 'once' | 'always' | 'deny',
+  fixedOutcome?: 'denied' | 'expired' | 'cancelled',
+) {
+  let appliedResult: unknown;
+  try {
+    appliedResult = entry.resolver(requestedResult);
+  } catch (error) {
+    auditResolution(entry, permId, 'failed', decision);
+    notifyLifecycle({ type: 'resolved', permId, resolution: 'denied' });
+    log.error('Permission resolver failed; no allow receipt was recorded', {
+      permId,
+      sessionId: entry.sessionId,
+      errorType: error instanceof Error ? error.name : 'non-Error',
+    });
+    throw error;
+  }
   const behavior =
     appliedResult &&
     typeof appliedResult === 'object' &&
@@ -176,17 +224,39 @@ export function resolvePending(
       ? appliedResult.behavior
       : requestedResult.behavior;
 
+  const outcome =
+    fixedOutcome ??
+    (entry.request?.expiresAt !== undefined && entry.request.expiresAt <= Date.now()
+      ? 'expired'
+      : behavior === 'deny'
+        ? 'denied'
+        : 'allowed');
   notifyLifecycle({
     type: 'resolved',
     permId,
-    resolution:
-      entry.request?.expiresAt !== undefined && entry.request.expiresAt <= Date.now()
-        ? 'expired'
-        : behavior === 'deny'
-          ? 'denied'
-          : 'allowed',
+    resolution: outcome === 'cancelled' ? 'expired' : outcome,
   });
-  return true;
+  auditResolution(entry, permId, outcome, decision);
+}
+
+function auditResolution(
+  entry: PendingEntry,
+  permId: string,
+  outcome: 'allowed' | 'denied' | 'expired' | 'cancelled' | 'failed',
+  decision?: 'once' | 'always' | 'deny',
+) {
+  recordPermissionAudit({
+    phase: 'resolved',
+    time: Date.now(),
+    sessionId: entry.sessionId,
+    permId,
+    toolName: entry.toolName,
+    ...entry.audit,
+    approvalScope: entry.request?.approvalScope,
+    outcome,
+    decision,
+    waitMs: Math.max(0, Date.now() - entry.createdAt),
+  });
 }
 
 /** Exact host invocation metadata. Request JSON and display text are not proof. */
@@ -279,16 +349,25 @@ export function dismissReviewedTelosSourcePermission(proof: PendingTelosSourceRe
   // This exact retained-save denial is independent of the old approval
   // deadline. Generic expiry guidance must not invite a duplicate save.
   pending.delete(proof.permId);
-  entry.resolver({
-    behavior: 'deny',
-    message: 'Reviewed save dismissed; retained save results remain recoverable',
-  });
-  notifyLifecycle({ type: 'resolved', permId: proof.permId, resolution: 'denied' });
+  applyPendingResult(
+    entry,
+    proof.permId,
+    {
+      behavior: 'deny',
+      message: 'Reviewed save dismissed; retained save results remain recoverable',
+    },
+    undefined,
+    'denied',
+  );
   return true;
 }
 
-export function removePending(permId: string) {
-  if (pending.delete(permId)) notifyLifecycle({ type: 'resolved', permId, resolution: 'expired' });
+export function removePending(permId: string, outcome: 'expired' | 'cancelled' = 'expired') {
+  const entry = pending.get(permId);
+  if (entry && pending.delete(permId)) {
+    notifyLifecycle({ type: 'resolved', permId, resolution: 'expired' });
+    auditResolution(entry, permId, outcome);
+  }
 }
 
 export function hasPending(permId: string): boolean {
@@ -319,12 +398,17 @@ export function denyPendingBySession(sessionId: string): number {
   for (const [permId, entry] of pending) {
     if (entry.sessionId === sessionId) {
       pending.delete(permId);
-      entry.resolver({
-        behavior: 'deny',
-        message: 'Session taken over by another device',
-        decisionClassification: 'user_reject',
-      });
-      notifyLifecycle({ type: 'resolved', permId, resolution: 'expired' });
+      applyPendingResult(
+        entry,
+        permId,
+        {
+          behavior: 'deny',
+          message: 'Session taken over by another device',
+          decisionClassification: 'user_reject',
+        },
+        undefined,
+        'cancelled',
+      );
       denied++;
     }
   }

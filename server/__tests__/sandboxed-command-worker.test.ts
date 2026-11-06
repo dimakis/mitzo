@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { EventEmitter } from 'node:events';
 import type { SpawnOptions } from 'node:child_process';
+import { spawn as realSpawn } from 'node:child_process';
 import type { SandboxManager } from '@anthropic-ai/sandbox-runtime';
 import { PassThrough } from 'node:stream';
 import { AuthoritySnapshot } from '../sandbox-authority.js';
@@ -49,6 +50,26 @@ function fixture() {
   return { payload, manager, spawn };
 }
 
+it.each([false, true])(
+  'preserves actual command termination with environment transfer %s',
+  async (transferEnvironment) => {
+    const { payload, manager } = fixture();
+    // The OS wrapper is a fixture; execute the real worker, launcher and command
+    // processes to verify termination propagation independently of kernel isolation.
+    manager.wrapWithSandbox.mockImplementation(async (command) => command);
+    if (transferEnvironment) payload.env = { PATH: '/usr/bin:/bin' };
+    for (const [command, expected] of [
+      ['exit 1', 1],
+      ['kill -KILL $$', 255],
+      ['exit 137', 137],
+    ] as const) {
+      expect(await runSandboxedWorker({ ...payload, command }, { manager, spawn: realSpawn })).toBe(
+        expected,
+      );
+    }
+  },
+);
+
 it('enables proxy egress only for an explicitly approved network command', async () => {
   const { payload, manager, spawn } = fixture();
   payload.networkAccess = 'approved-command';
@@ -72,6 +93,13 @@ it('keeps networking denied by default and rejects an invalid network authorizat
   );
   expect(manager.initialize).not.toHaveBeenCalled();
   expect(spawn).not.toHaveBeenCalled();
+});
+
+it('keeps a loopback task grant out of the general network approval callback', async () => {
+  const { payload, manager, spawn } = fixture();
+  payload.networkAccess = 'loopback';
+  expect(await runSandboxedWorker(payload, { manager, spawn: spawn as never })).toBe(0);
+  expect(manager.initialize.mock.calls[0][1]).toBeUndefined();
 });
 
 it('rejects replacement during SRT initialization before constructing the sandbox', async () => {

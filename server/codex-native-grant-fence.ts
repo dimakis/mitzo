@@ -36,13 +36,20 @@ function overlap(first: string, second: string): boolean {
   return within(first, second) || within(second, first);
 }
 function identity(path: string) {
-  const result: Array<unknown> = [];
+  const result: Array<[string, null] | [string, string, string, string, string, boolean]> = [];
   let current = path;
   for (;;) {
     try {
-      const stat = lstatSync(current);
+      const stat = lstatSync(current, { bigint: true });
       if (stat.isSymbolicLink()) throw Error('Native grant aliases are unsupported');
-      result.push([current, stat.dev, stat.ino, stat.mode]);
+      result.push([
+        current,
+        stat.dev.toString(),
+        stat.ino.toString(),
+        stat.mode.toString(),
+        stat.birthtimeNs.toString(),
+        stat.isDirectory(),
+      ]);
     } catch (error) {
       if (!(error instanceof Error) || !('code' in error) || error.code !== 'ENOENT') throw error;
       result.push([current, null]);
@@ -51,6 +58,27 @@ function identity(path: string) {
     if (parent === current) return result;
     current = parent;
   }
+}
+
+/** Bind a retained command to the current admitted directory and its ancestry.
+ * Canonical containment rejects prefix matches and aliases escaping the task.
+ */
+export function nativeCommandDirectoryScope(
+  path: string,
+  root: string,
+): ReturnType<typeof identity> | undefined {
+  const target = canonical(path);
+  const admitted = root === path ? target : canonical(root);
+  if (target !== path || admitted !== root) return;
+  const child = relative(admitted, target);
+  if (child === '..' || child.startsWith(`..${sep}`) || isAbsolute(child)) return;
+  const scope = identity(target);
+  const directory = scope[0]!;
+  // Inodes can be reused immediately after deletion. Birth time distinguishes
+  // directory incarnations while remaining stable when commands create files.
+  // Unavailable birth evidence cannot establish retained directory consent.
+  if (directory.length > 2 && (!directory[5] || directory[4] === '0')) return;
+  return scope;
 }
 
 /** Additional native permissions can outrank parent deny entries in this pin.
