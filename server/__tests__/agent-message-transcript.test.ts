@@ -1,4 +1,4 @@
-import { afterEach, expect, it } from 'vitest';
+import { afterEach, expect, it, vi } from 'vitest';
 import { randomUUID } from 'node:crypto';
 import Database from 'better-sqlite3';
 import { mkdtempSync, rmSync } from 'node:fs';
@@ -62,6 +62,7 @@ it('publishes the same durable events live and stops watching when the owner clo
   for (const id of ['a', 'b']) store.upsertSession({ sessionId: id });
   const published: Record<string, unknown>[] = [];
   const unwatch = watchAgentMessageTranscript(store, 'b', (event) => published.push(event));
+  const reads = vi.spyOn(store, 'getEventsAfter');
   const sent = store.agentCommunication.reserve(
     'a',
     'operator',
@@ -72,6 +73,7 @@ it('publishes the same durable events live and stops watching when the owner clo
   store.agentCommunication.recordForHost(sent.messageId, 'queued');
   await new Promise<void>((resolve) => queueMicrotask(resolve));
   expect(published).toHaveLength(3);
+  expect(reads).toHaveBeenCalledTimes(1);
   expect(
     published.every(
       (event) =>
@@ -84,6 +86,32 @@ it('publishes the same durable events live and stops watching when the owner clo
   store.agentCommunication.recordForHost(sent.messageId, 'delivered');
   await new Promise<void>((resolve) => queueMicrotask(resolve));
   expect(published).toHaveLength(3);
+  expect(reads).toHaveBeenCalledTimes(1);
+});
+
+it('does not lose a receipt update created during a coalesced wakeup', async () => {
+  const store = new EventStore(':memory:');
+  stores.push(store);
+  for (const id of ['a', 'b']) store.upsertSession({ sessionId: id });
+  const seen: string[] = [];
+  const sent = store.agentCommunication.reserve(
+    'a',
+    'operator',
+    { turnId: 'turn', callId: 'call' },
+    { requestId: randomUUID(), recipientConversationId: 'b', text: 'Retain every receipt' },
+  );
+  const unwatch = store.agentCommunication.subscribe('b', () => {
+    seen.push(store.agentCommunication.read('b', sent.messageId).status);
+    if (seen.length === 1) store.agentCommunication.recordForHost(sent.messageId, 'delivered');
+  });
+  store.agentCommunication.claim(sent.messageId);
+  store.agentCommunication.recordForHost(sent.messageId, 'queued');
+  await new Promise<void>((resolve) => setTimeout(resolve, 0));
+  expect(seen).toEqual(['queued', 'delivered']);
+  expect(
+    store.getSessionEvents('b').filter((event) => event.type === 'agent_message'),
+  ).toHaveLength(4);
+  unwatch();
 });
 
 it('shows every send in both transcripts before delivery, with exact text and durable status after replay', () => {
@@ -141,8 +169,8 @@ it('shows every send in both transcripts before delivery, with exact text and du
     for (const event of events) {
       const parsed = parseServerMessage(
         { ...event.payload, type: event.type, seq: event.seq },
-        {} as never,
-        {},
+        { currentSessionId: id },
+        { onSessionAssigned: vi.fn(), onSessionExpired: vi.fn() },
         id,
       );
       for (const action of parsed.messagesActions) state = messagesReducer(state, action);

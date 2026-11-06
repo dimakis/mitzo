@@ -42,10 +42,7 @@ export const AgentMessageProjectionSchema = z.strictObject({
 export type AgentMessageProjection = z.infer<typeof AgentMessageProjectionSchema>;
 
 /** The public transcript keeps peer authorship separate from human requests. */
-export function agentMessageTranscriptRow(
-  projection: AgentMessageProjection,
-  seq: number,
-): import('./types.js').FinishedMessage {
+export function agentMessageTranscriptRow(projection: AgentMessageProjection, seq: number) {
   return {
     messageId: projection.message.commandId,
     role: 'assistant',
@@ -60,7 +57,7 @@ export function agentMessageTranscriptRow(
         content: projection.message.text,
       },
     ],
-  };
+  } satisfies import('./types.js').FinishedMessage;
 }
 /** Retained peer text is context from another agent, never a user instruction
  * or a grant to mutate work, credentials, approvals, publication or merge state. */

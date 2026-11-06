@@ -27,7 +27,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../agent-message-transcript.ts':
     'de594fb78475267a5d8f2f921fbdb33a55590fc66c4e39b70516433f80880fb2',
   '../__tests__/agent-message-transcript.test.ts':
-    '78aa72e854ac2a1491e1bb5af203802e911fd91f781da2ed446ca176a4a917bb',
+    'af02be5d59bd2e53057f13b85af1f8ea7a875cf0ce2047e83ac0e61d9831b3ab',
   '../native-base-read-scope.ts':
     'e5b5f843e1defc7cf2a80d10cf3837541c9a7867669963cfc77857b19ec73718',
   '../../frontend/src/components/__tests__/NativeSubagentsChatArea.test.tsx':
@@ -918,9 +918,9 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../legacy-sandbox-deletion.ts':
     '2b102f1158a5c785d0b504c9a40c30284d6b58d579d06b0fba216c6e74aabf1c',
   '../../packages/protocol/src/agent-communication-store.ts':
-    'a7f11847a4fded641c16c1c138b428cddf5fb0f1c39e1ccb975a3527b77a4509',
+    '753980cf0a20ac3232e466f4ac1d3521afe30ead874178417177b8a5bd976366',
   '../../packages/protocol/src/agent-communication.ts':
-    'eac03126e1b36b13858bf26b838bdeb9f30e8897c9d7645690d93a20009e5acf',
+    'e9e62109ca5af2c47282197761d703e1de35d28a0aa940c6c65b7e30496fa7c9',
   '../../packages/protocol/src/telos-work-controls.ts':
     '1bb5a4acaed5acbe070830a87251929961aaa64e3ec149abd21502e32b0c41b4',
   '../agent-communication-tools.ts':

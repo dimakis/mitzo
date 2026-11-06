@@ -22,6 +22,7 @@ type RetainedMessage = z.infer<typeof Retained>;
  */
 export class AgentCommunicationStore {
   private readonly listeners = new Map<string, Set<() => void>>();
+  private readonly pendingNotifications = new Set<string>();
   /** A wakeup only. Callers must re-read durable state and current authorization. */
   subscribe(conversationId: string, listener: () => void): () => void {
     id.parse(conversationId);
@@ -168,17 +169,22 @@ export class AgentCommunicationStore {
       parsed.message.senderConversationId,
       parsed.message.recipientConversationId,
     ])) {
-      const listeners = this.listeners.get(participant);
-      for (const listener of listeners ?? [])
-        queueMicrotask(() => {
-          if (listeners?.has(listener)) {
-            try {
-              listener();
-            } catch {
-              /* Wakeups do not own the committed receipt. */
-            }
+      if (!this.listeners.has(participant) || this.pendingNotifications.has(participant)) continue;
+      this.pendingNotifications.add(participant);
+      queueMicrotask(() => {
+        // Coalesce wakeups, never the durable events. Clear before callbacks so
+        // a new receipt committed by a listener schedules its own wakeup.
+        this.pendingNotifications.delete(participant);
+        const listeners = this.listeners.get(participant);
+        for (const listener of [...(listeners ?? [])]) {
+          if (!listeners?.has(listener)) continue;
+          try {
+            listener();
+          } catch {
+            /* Wakeups do not own the committed receipt. */
           }
-        });
+        }
+      });
     }
   }
   read(conversationId: string, messageId: string): AgentMessage {
