@@ -53,6 +53,18 @@ function identity(path: string) {
   }
 }
 
+/** Bind a retained command to the current admitted directory and its ancestry.
+ * Canonical containment rejects prefix matches and aliases escaping the task.
+ */
+export function nativeCommandDirectoryScope(path: string, root: string): unknown[] | undefined {
+  const target = canonical(path);
+  const admitted = canonical(root);
+  if (target !== path || admitted !== root) return;
+  const child = relative(admitted, target);
+  if (child === '..' || child.startsWith(`..${sep}`) || isAbsolute(child)) return;
+  return identity(target);
+}
+
 /** Additional native permissions can outrank parent deny entries in this pin.
  * Only explicit, canonical, disjoint paths are eligible. Revalidate path identity
  * at the final RPC write; do not turn opaque glob/special grants into authority.
