@@ -10,6 +10,62 @@ vi.mock('@anthropic-ai/claude-agent-sdk', () => ({
   getSessionInfo: vi.fn(async () => ({ sessionId: 'original', cwd: '/task' })),
   getSessionMessages: vi.fn(async () => [{ uuid: 'input' }]),
 }));
+it.each(['person@example.test', 'other@example.test'])(
+  'verifies the running personal SDK account before yielding a prompt: %s',
+  async (email) => {
+    let prompt!: AsyncIterable<unknown>;
+    const events = new AsyncQueue<Record<string, unknown>>();
+    const accountInfo = vi.fn(async () => ({
+      email,
+      subscriptionType: 'max',
+      apiProvider: 'firstParty',
+    }));
+    vi.mocked(query).mockImplementation((request) => {
+      prompt = request.prompt as AsyncIterable<unknown>;
+      return {
+        accountInfo,
+        close: vi.fn(),
+        [Symbol.asyncIterator]: () => events[Symbol.asyncIterator](),
+      } as never;
+    });
+    const input = new AsyncQueue<import('@anthropic-ai/claude-agent-sdk').SDKUserMessage>();
+    const controller = new AbortController();
+    createOrdinaryLocalVertexSdkQuery({
+      options: {
+        env: {
+          MITZO_CLAUDE_EXPECTED_EMAIL: 'person@example.test',
+          MITZO_CLAUDE_EXPECTED_PLAN: 'max',
+        },
+      },
+      input,
+      lifetime: new SdkHookLifetime(),
+      sdkSessionId: 'original',
+      cwd: '/task',
+      controller,
+      authorize: async () => {},
+      authorizeSync: () => {},
+      adapt: (native) => native as never,
+      settings: () => ({}),
+      inputChanged: () => {},
+    });
+    input.push({
+      type: 'user',
+      session_id: 'original',
+      parent_tool_use_id: null,
+      message: { role: 'user', content: 'Private task' },
+    });
+    const pending = prompt[Symbol.asyncIterator]().next();
+    if (email === 'person@example.test')
+      expect((await pending).value).toMatchObject({ type: 'user' });
+    else {
+      await expect(pending).rejects.toThrow('Claude subscription');
+      expect(controller.signal.aborted).toBe(true);
+    }
+    expect(accountInfo).toHaveBeenCalledTimes(1);
+    input.close();
+    controller.abort();
+  },
+);
 it.each(['hook', 'permission', 'tool'] as const)(
   'settles an original SDK %s callback before exposing the terminal result',
   async (kind) => {

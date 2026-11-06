@@ -117,7 +117,7 @@ export const LocalVertexClaudeFirstCommandSchema = z
     runtime: z.strictObject({
       ...LocalCodexFirstCommandSchema.shape.runtime.shape,
       account: LocalCodexFirstCommandSchema.shape.runtime.shape.account
-        .extend({ provider: z.literal('anthropic-vertex') })
+        .extend({ provider: z.enum(['anthropic-vertex', 'anthropic-claude']) })
         .strict(),
       harness: z.literal('claude-sdk'),
     }),

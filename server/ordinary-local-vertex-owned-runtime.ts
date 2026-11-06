@@ -27,7 +27,11 @@ import {
   type OrdinaryLocalCodexAdmissionExpectation,
 } from './ordinary-local-codex-admission.js';
 import { OrdinaryLocalCodexSelectionOwner } from './ordinary-local-codex-selection-owner.js';
-import { VertexAdcCustody } from './ordinary-local-vertex-custody.js';
+import {
+  captureClaudeSdkCredentials,
+  reopenClaudeSdkCredentials,
+  verifyClaudeSdkCredentials,
+} from './claude-sdk-credentials.js';
 import { buildAgentProfilePrompt } from './agent-library-prompt.js';
 
 const Payload = LocalVertexClaudeFirstCommandSchema.shape.payload;
@@ -133,8 +137,11 @@ export class OrdinaryLocalVertexOwnedRuntime {
     const custody = this.owners.eventStore.getOrdinaryLocalVertexCustody(
       this.owners.reservation.conversationId,
     );
-    if (custody) VertexAdcCustody.reopen(custody.credentialAuthority, env).assertCurrent(env);
-    else VertexAdcCustody.capture(env).assertCurrent(env);
+    const credential = custody
+      ? reopenClaudeSdkCredentials(custody.credentialAuthority, env)
+      : captureClaudeSdkCredentials(env);
+    credential.assertCurrent(env);
+    return credential;
   }
   async assertSetup(commandId: string) {
     this.assertOwner();
@@ -267,7 +274,8 @@ export class OrdinaryLocalVertexOwnedRuntime {
       this.assertOwner();
     };
     assertAdmissionCurrent();
-    this.credentialAuthority();
+    await verifyClaudeSdkCredentials(this.credentialAuthority(), this.environment(), this.#signal);
+    assertAdmissionCurrent();
     const request = OrdinaryLocalVertexCommandRequestSchema.parse(raw);
     if ((!continuation || resume) && request.clientMsgId !== this.owners.commandId)
       throw unavailable();
@@ -292,7 +300,7 @@ export class OrdinaryLocalVertexOwnedRuntime {
         },
         request.runtime.account,
       ) ||
-      account.provider !== 'anthropic-vertex' ||
+      !['anthropic-vertex', 'anthropic-claude'].includes(account.provider) ||
       (!continuation && !isDeepStrictEqual(account, original))
     )
       throw unavailable();
@@ -317,7 +325,11 @@ export class OrdinaryLocalVertexOwnedRuntime {
         descriptor.state !== 'claimed'
       )
         throw unavailable();
-      await assertOrdinaryLocalVertexHistory(custody.sdkSessionId, custody.cwd);
+      await assertOrdinaryLocalVertexHistory(
+        custody.sdkSessionId,
+        custody.cwd,
+        this.environment().CLAUDE_CONFIG_DIR,
+      );
       assertAdmissionCurrent();
       this.credentialAuthority();
     } else if (!continuation && descriptor.state === 'claimed') {
@@ -331,7 +343,7 @@ export class OrdinaryLocalVertexOwnedRuntime {
       !profile ||
       profile.definition.contextRecipe !== undefined ||
       (profile.definition.recipe &&
-        !profile.definition.recipe.compatibleProviders.includes('anthropic-vertex')) ||
+        !profile.definition.recipe.compatibleProviders.includes(original.provider)) ||
       request.selection.context.source !== 'none' ||
       request.selection.context.revision !== null ||
       request.selection.permission.revision !== 0
@@ -461,7 +473,7 @@ export class OrdinaryLocalVertexOwnedRuntime {
           repositoryWorkspaceId: expected.workspace.workspaceId,
           cwd: expected.workspace.cwd,
           binding: expected.binding,
-          credentialAuthority: VertexAdcCustody.capture(this.environment()).snapshot(),
+          credentialAuthority: captureClaudeSdkCredentials(this.environment()).snapshot(),
         };
         this.owners.eventStore.retainOrdinaryLocalVertexCustody(custody);
         this.#commands.set(commandId, {

@@ -1,0 +1,149 @@
+import { execFile } from 'node:child_process';
+import { lstatSync, realpathSync } from 'node:fs';
+import { createRequire } from 'node:module';
+import { isAbsolute } from 'node:path';
+import { promisify } from 'node:util';
+import { z } from 'zod';
+import {
+  ClaudeSubscriptionCustodySchema,
+  type ClaudeSubscriptionCustodySnapshot,
+} from '@mitzo/protocol';
+
+const execute = promisify(execFile);
+const unavailable = () =>
+  Error(
+    'Claude subscription sign-in unavailable; sign in to the configured Claude account on this Mac',
+  );
+export function assertClaudeSubscriptionAccount(
+  info: import('@anthropic-ai/claude-agent-sdk').AccountInfo,
+  env: Readonly<NodeJS.ProcessEnv>,
+) {
+  if (
+    info.apiProvider !== 'firstParty' ||
+    !info.email ||
+    info.email.toLowerCase() !== env.MITZO_CLAUDE_EXPECTED_EMAIL?.toLowerCase() ||
+    info.subscriptionType !== env.MITZO_CLAUDE_EXPECTED_PLAN ||
+    (info.apiKeySource && info.apiKeySource !== 'none')
+  )
+    throw unavailable();
+}
+export function claudeSdkExecutable(): string {
+  if (process.platform !== 'darwin') throw unavailable();
+  return createRequire(import.meta.url).resolve(
+    `@anthropic-ai/claude-agent-sdk-darwin-${process.arch}/claude`,
+  );
+}
+function identity(path: string, directory: boolean) {
+  if (!isAbsolute(path) || realpathSync(path) !== path) throw unavailable();
+  const stat = lstatSync(path, { bigint: true });
+  if (
+    (directory ? !stat.isDirectory() : !stat.isFile()) ||
+    stat.uid !== BigInt(process.getuid!()) ||
+    (stat.mode & (directory ? 0o077n : 0o022n)) !== 0n
+  )
+    throw unavailable();
+  return {
+    path,
+    dev: String(stat.dev),
+    ino: String(stat.ino),
+    uid: String(stat.uid),
+    mode: String(stat.mode),
+    ...(directory
+      ? {}
+      : { size: String(stat.size), mtimeNs: String(stat.mtimeNs), ctimeNs: String(stat.ctimeNs) }),
+  };
+}
+function configured(env: Readonly<NodeJS.ProcessEnv>) {
+  if (
+    !env.CLAUDE_CONFIG_DIR ||
+    !env.MITZO_CLAUDE_EXPECTED_EMAIL ||
+    !env.MITZO_CLAUDE_EXPECTED_PLAN ||
+    Object.keys(env).some(
+      (key) =>
+        /^(ANTHROPIC_|GOOGLE_|GCLOUD_|VERTEX_REGION_|CLAUDE_CODE_USE_)/.test(key) && !!env[key],
+    ) ||
+    env.CLAUDE_CODE_OAUTH_TOKEN
+  )
+    throw unavailable();
+  return {
+    email: env.MITZO_CLAUDE_EXPECTED_EMAIL,
+    planType: env.MITZO_CLAUDE_EXPECTED_PLAN,
+    config: identity(env.CLAUDE_CONFIG_DIR, true),
+  };
+}
+const Status = z.object({
+  loggedIn: z.literal(true),
+  authMethod: z.literal('claude.ai'),
+  apiProvider: z.literal('firstParty'),
+  email: z.email(),
+  subscriptionType: z.enum(['pro', 'max']),
+});
+
+/** Native Claude owns OAuth and token refresh. Only account/root/binary identity is retained here. */
+export class ClaudeSubscriptionCustody {
+  private constructor(private readonly retained: ClaudeSubscriptionCustodySnapshot) {}
+  static capture(env: Readonly<NodeJS.ProcessEnv>, executable = claudeSdkExecutable()) {
+    const selected = configured(env);
+    return new ClaudeSubscriptionCustody(
+      ClaudeSubscriptionCustodySchema.parse({
+        kind: 'claude-host-login',
+        version: 1,
+        ...selected,
+        executable: identity(realpathSync(executable), false),
+      }),
+    );
+  }
+  static reopen(value: unknown, env: Readonly<NodeJS.ProcessEnv>) {
+    const custody = new ClaudeSubscriptionCustody(ClaudeSubscriptionCustodySchema.parse(value));
+    custody.assertCurrent(env);
+    return custody;
+  }
+  snapshot() {
+    return structuredClone(this.retained);
+  }
+  assertCurrent(env: Readonly<NodeJS.ProcessEnv>) {
+    const selected = configured(env);
+    if (
+      JSON.stringify(selected) !==
+        JSON.stringify({
+          email: this.retained.email,
+          planType: this.retained.planType,
+          config: this.retained.config,
+        }) ||
+      JSON.stringify(identity(this.retained.executable.path, false)) !==
+        JSON.stringify(this.retained.executable)
+    )
+      throw unavailable();
+  }
+  async verify(env: Readonly<NodeJS.ProcessEnv>, signal: AbortSignal) {
+    try {
+      signal.throwIfAborted();
+      this.assertCurrent(env);
+      const { stdout } = await execute(
+        this.retained.executable.path,
+        ['auth', 'status', '--json'],
+        {
+          env: Object.fromEntries(
+            ['HOME', 'PATH', 'TMPDIR', 'LANG', 'LC_ALL', 'CLAUDE_CONFIG_DIR'].flatMap((key) =>
+              env[key] === undefined ? [] : [[key, env[key]!]],
+            ),
+          ),
+          signal,
+          timeout: 10_000,
+          maxBuffer: 32_768,
+          encoding: 'utf8',
+        },
+      );
+      const status = Status.parse(JSON.parse(stdout));
+      if (
+        status.email.toLowerCase() !== this.retained.email.toLowerCase() ||
+        status.subscriptionType !== this.retained.planType
+      )
+        throw unavailable();
+      this.assertCurrent(env);
+      signal.throwIfAborted();
+    } catch {
+      throw unavailable();
+    }
+  }
+}
