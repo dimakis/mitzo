@@ -104,6 +104,56 @@ describe('SessionOverviewEmitter', () => {
 
   // ─── getSnapshot ──────────────────────────────────────────────────────────
 
+  it('publishes separate clocks and phases from current-owner live events', () => {
+    vi.setSystemTime(1000);
+    const session = makeActiveSession({ turnInProgress: false });
+    deps = makeDeps({
+      registry: {
+        get: () => session,
+        getActiveSessions: () => [session],
+      } as unknown as SessionOverviewDeps['registry'],
+    });
+    deps.eventStore.updateLastSpeaker = vi.fn();
+    emitter = new SessionOverviewEmitter(deps);
+    emitter.sessionChanged(session.clientId, 'user_message');
+    emitter.sessionChanged(session.clientId, 'turn_start');
+    vi.setSystemTime(2000);
+    emitter.observeEvent(session.clientId, {
+      sessionId: 'session-1',
+      type: 'block_start',
+      blockType: 'tool_use',
+      toolName: 'Read',
+    });
+    expect(emitter.getSnapshot()[0]).toMatchObject({
+      phase: 'reading',
+      turnStartedAt: 1000,
+      lastMessageAt: 1000,
+      lastEventAt: 2000,
+    });
+    vi.setSystemTime(3000);
+    emitter.observeEvent(session.clientId, {
+      sessionId: 'foreign',
+      type: 'block_start',
+      blockType: 'text',
+      messageId: 'x',
+    });
+    expect(emitter.getSnapshot()[0].lastEventAt).toBe(2000);
+    emitter.observeEvent(session.clientId, {
+      sessionId: 'session-1',
+      type: 'block_start',
+      blockType: 'text',
+      messageId: 'm',
+    });
+    expect(emitter.getSnapshot()[0]).toMatchObject({ phase: 'reply', lastMessageAt: 3000 });
+    vi.setSystemTime(4000);
+    emitter.sessionChanged(session.clientId, 'turn_end');
+    expect(emitter.getSnapshot()[0]).toMatchObject({
+      state: 'done',
+      completedAt: 4000,
+      lastMessageAt: 4000,
+    });
+  });
+
   it('does not infer execution from registration or retained input before admission', () => {
     const session = makeActiveSession({ turnInProgress: false });
     deps = makeDeps({

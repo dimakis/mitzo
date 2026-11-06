@@ -84,6 +84,28 @@ it('recognizes new user messages during an already working turn', () => {
   expect(view.result.current.map((s) => s.id)).toEqual(['older', 'recent']);
 });
 
+it('promotes an assistant message within a running turn without promoting tool signals', () => {
+  const view = setup([activity('working', 100, { lastMessageAt: 100 })]);
+  view.rerender({
+    rows: sessions,
+    activities: [activity('working', 600, { lastMessageAt: 500 })],
+    paused: false,
+  });
+  tick();
+  expect(view.result.current.map((s) => s.id)).toEqual(['older', 'recent']);
+});
+
+it('reconciles saved freshness when the live overview is unavailable', () => {
+  const view = setup([]);
+  view.rerender({
+    rows: sessions.map((s) => (s.id === 'older' ? { ...s, lastModified: 700 } : s)),
+    activities: [],
+    paused: false,
+  });
+  tick();
+  expect(view.result.current.map((s) => s.id)).toEqual(['older', 'recent']);
+});
+
 it('defers promotions while browsing and retains the event through later status changes', () => {
   const view = setup();
   view.rerender({

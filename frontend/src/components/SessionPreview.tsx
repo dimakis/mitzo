@@ -4,7 +4,8 @@ import { createPortal } from 'react-dom';
 import ReactMarkdown from 'react-markdown';
 import type { FinishedMessage, Session } from '../types/chat';
 import { apiFetch } from '../lib/api-fetch';
-import { formatRelativeTime } from '../lib/formatTime';
+import type { SessionActivity } from '@mitzo/protocol';
+import { SessionActivityStatus } from './SessionActivityStatus';
 import { formatTokens } from '../lib/formatTokens';
 import { UiIcon } from './UiIcon';
 import { recordTitle } from '../lib/record-title';
@@ -12,6 +13,8 @@ import './SessionPreview.css';
 
 interface Props {
   session: Session;
+  activity?: SessionActivity;
+  connected?: boolean;
   onClose: () => void;
   onOpen: () => void;
   onRename: () => void;
@@ -19,7 +22,15 @@ interface Props {
 }
 
 /** A saved-history peek. It never attaches to or resumes a provider session. */
-export function SessionPreview({ session, onClose, onOpen, onRename, onDelete }: Props) {
+export function SessionPreview({
+  session,
+  activity,
+  connected,
+  onClose,
+  onOpen,
+  onRename,
+  onDelete,
+}: Props) {
   const dialogRef = useRef<HTMLDialogElement>(null);
   const restoreFocus = useRef(document.activeElement);
   const titleId = useId();
@@ -111,10 +122,11 @@ export function SessionPreview({ session, onClose, onOpen, onRename, onDelete }:
           <header className="session-preview-header">
             <div>
               <h2 id={titleId}>{title}</h2>
-              <p>
-                {formatRelativeTime(session.lastModified)}
-                {session.isActive ? ' · Active' : ''}
-              </p>
+              <SessionActivityStatus
+                activity={activity}
+                modifiedAt={session.lastModified}
+                connected={connected}
+              />
             </div>
             <button type="button" aria-label="Close preview" onClick={onClose} autoFocus>
               <UiIcon name="close" size={16} />

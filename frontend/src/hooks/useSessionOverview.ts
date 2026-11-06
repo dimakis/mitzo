@@ -34,23 +34,33 @@ export interface UseSessionOverviewReturn {
   attendCount: number;
   /** Whether SSE is connected. */
   connected: boolean;
+  /** Display-only evidence; never use this to override current HTTP state. */
+  lastKnownActivities: SessionActivity[];
 }
 
 export function useSessionOverview(): UseSessionOverviewReturn {
   const [activities, setActivities] = useState<SessionActivity[]>([]);
+  const [lastKnownActivities, setLastKnownActivities] = useState<SessionActivity[]>([]);
   const [connected, setConnected] = useState(eventBus.connected);
 
   useEffect(() => {
     const unsubActivity = eventBus.on('session_activity', (data) => {
       setActivities(data as SessionActivity[]);
+      setLastKnownActivities(data as SessionActivity[]);
     });
     const unsubConnection = eventBus.onConnectionChange((c) => {
       setConnected(c);
       if (!c) setActivities([]);
     });
+    const clear = () => {
+      setActivities([]);
+      setLastKnownActivities([]);
+    };
+    window.addEventListener('mitzo:auth-lost', clear);
     return () => {
       unsubActivity();
       unsubConnection();
+      window.removeEventListener('mitzo:auth-lost', clear);
     };
   }, []);
 
@@ -60,5 +70,5 @@ export function useSessionOverview(): UseSessionOverviewReturn {
     [activities],
   );
 
-  return { activities: sorted, attendCount, connected };
+  return { activities: sorted, attendCount, connected, lastKnownActivities };
 }

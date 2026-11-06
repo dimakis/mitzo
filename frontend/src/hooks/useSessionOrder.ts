@@ -25,8 +25,15 @@ export function useSessionOrder(
   useEffect(() => {
     const m = model.current;
     let seeded = false;
+    const liveIds = new Set(activities.map((a) => a.sessionId));
     for (const session of sessions) {
-      if (m.ranks.has(session.id)) continue;
+      if (m.ranks.has(session.id)) {
+        // Saved refresh is authoritative when no live projection is available.
+        // A live tool signal must never leak into this fallback clock.
+        if (!liveIds.has(session.id) && session.lastModified > (m.ranks.get(session.id) ?? 0))
+          m.pending.set(session.id, session.lastModified);
+        continue;
+      }
       if (!seeded) m.ranks = new Map(m.ranks);
       seeded = true;
       // An older page can enter chronologically without displacing known rows.
@@ -41,6 +48,8 @@ export function useSessionOrder(
       const previous = m.observations.get(activity.sessionId);
       const baseline = m.ranks.get(activity.sessionId) ?? 0;
       const userAt = activity.lastUserMessageAt ?? 0;
+      const messageAt = activity.lastMessageAt ?? 0;
+      const newAssistantMessage = messageAt > (previous?.lastMessageAt ?? baseline);
       const newMessage = userAt > (previous?.lastUserMessageAt ?? baseline);
       const finished = activity.state === 'done' && previous?.state !== 'done';
       const needsAttention =
@@ -48,6 +57,7 @@ export function useSessionOrder(
         (previous?.state !== 'waiting' || previous.waitReason !== activity.waitReason);
       const eventAt = Math.max(
         newMessage ? userAt : 0,
+        newAssistantMessage ? messageAt : 0,
         // Permission creation need not touch lastEventAt. For a transition we
         // actually witnessed, use its observation time; hydration keeps source
         // chronology rather than making old attention items newly recent.

@@ -22,6 +22,7 @@ import type { TaskStore } from './task-store.js';
 import { hasUncommittedWorkAsync } from './worktree.js';
 import { createLogger } from './logger.js';
 import { sessionModelIdentity } from './session-list-metadata.js';
+import { SessionActivityEvents } from './session-activity-events.js';
 
 export type { SessionActivity, SessionActivityState, WaitReason } from '@mitzo/protocol';
 
@@ -77,6 +78,7 @@ interface UncommittedCacheEntry {
 }
 
 export class SessionOverviewEmitter {
+  private activityEvents = new SessionActivityEvents();
   private deps: SessionOverviewDeps;
   private coalesceTimer: ReturnType<typeof setTimeout> | null = null;
   /** Track last assistant event time per clientId for timeout derivation. */
@@ -114,8 +116,16 @@ export class SessionOverviewEmitter {
     const session = this.deps.registry.get(clientId);
     if (!session || session.turnInProgress === running) return;
     session.turnInProgress = running;
+    if (running) this.activityEvents.start(clientId);
+    else this.activityEvents.finish(clientId);
     this.touch(clientId);
     this.scheduleBroadcast();
+  }
+
+  observeEvent(clientId: string, event: Readonly<Record<string, unknown>>): void {
+    const session = this.deps.registry.get(clientId);
+    if (!session?.turnInProgress || session.sessionId !== event.sessionId) return;
+    if (this.activityEvents.observe(clientId, event)) this.scheduleBroadcast();
   }
 
   /** Registration and retained input do not establish provider execution. */
@@ -125,6 +135,7 @@ export class SessionOverviewEmitter {
     } else if (event === 'end') {
       this.forget(clientId, sessionId);
     } else if (event === 'user_message') {
+      this.activityEvents.message(clientId);
       const session = this.deps.registry.get(clientId);
       if (session?.sessionId) this.updateSpeaker(session.sessionId, 'user');
     } else if (event === 'turn_end') {
@@ -169,6 +180,7 @@ export class SessionOverviewEmitter {
    * Clean up tracking for a removed session.
    */
   forget(clientId: string, sessionId?: string): void {
+    this.activityEvents.forget(clientId);
     if (this.lastEventTimes.delete(clientId)) this.scheduleIdleTransition();
     if (sessionId) {
       this.speakerCache.delete(sessionId);
@@ -346,6 +358,14 @@ export class SessionOverviewEmitter {
       progress,
       lastEventAt,
       lastUserMessageAt: speaker.lastUserMessageAt,
+      ...this.activityEvents.get(session.clientId),
+      lastMessageAt:
+        Math.max(speaker.at ?? 0, this.activityEvents.get(session.clientId).lastMessageAt ?? 0) ||
+        undefined,
+      stateChangedAt: this.activityEvents.state(
+        session.clientId,
+        `${primaryState}:${waitReason ?? ''}`,
+      ),
       taskId,
       uncommittedWork,
       awaitingReply,
@@ -381,6 +401,8 @@ export class SessionOverviewEmitter {
       state,
       flags: [],
       lastEventAt,
+      lastMessageAt: meta.lastSpeakerAt ?? undefined,
+      completedAt: meta.lastSpeaker === 'assistant' ? (meta.lastSpeakerAt ?? undefined) : undefined,
       taskId: meta.goalId ?? undefined,
       uncommittedWork,
       awaitingReply: state === 'done', // Only meaningful while still active
@@ -558,6 +580,7 @@ export class SessionOverviewEmitter {
       this.uncommittedRefreshTimer = null;
     }
     this.lastEventTimes.clear();
+    this.activityEvents.clear();
     this.uncommittedCache.clear();
     this.speakerCache.clear();
   }

@@ -407,6 +407,14 @@ export interface SessionActivity {
   lastEventAt: number;
   /** Most recent observed user message; tool/status events never advance this. */
   lastUserMessageAt?: number;
+  /** Observed visible user/assistant message, independent of tool traffic. */
+  lastMessageAt?: number;
+  /** Provider admission time. Absent when the start was not observed. */
+  turnStartedAt?: number;
+  completedAt?: number;
+  stateChangedAt?: number;
+  /** Content-free description of the current normalized provider event. */
+  phase?: 'thinking' | 'reading' | 'editing' | 'command' | 'tool' | 'reply';
   taskId?: string;
   /** True when the session worktree has uncommitted changes. */
   uncommittedWork?: boolean;

@@ -1,0 +1,57 @@
+.session-activity-status {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  min-width: 0;
+  color: var(--color-muted);
+  font-size: var(--text-xs);
+  line-height: 1.5;
+}
+.session-activity-label {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+.session-activity-status[data-state='working'][data-connected='true'] .session-activity-label {
+  color: var(--color-text);
+}
+.session-activity-status[data-state='waiting'] .session-activity-label {
+  color: var(--color-warning);
+}
+.session-activity-status time {
+  font-variant-numeric: tabular-nums;
+}
+.session-activity-bars {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  height: var(--space-4);
+  flex-shrink: 0;
+  color: var(--color-success);
+}
+.session-activity-bars i {
+  width: 2px;
+  height: var(--space-3);
+  border-radius: var(--radius-control);
+  background: currentColor;
+  animation: session-activity-pulse var(--motion-duration-status) linear infinite;
+}
+.session-activity-bars i:nth-child(2) {
+  animation-direction: reverse;
+  height: var(--space-4);
+}
+.session-activity-bars i:nth-child(3) {
+  height: var(--space-2);
+}
+@keyframes session-activity-pulse {
+  0%,
+  100% {
+    transform: scaleY(0.45);
+    opacity: 0.6;
+  }
+  50% {
+    transform: scaleY(1);
+    opacity: 1;
+  }
+}
