@@ -860,16 +860,16 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
     const observer = deliveryObservers.get(id);
     const origin = deliveryOrigins.get(id);
     const sessionId = deliverySessions.get(id) ?? origin?.observedSessionId;
-    if (source === 'local' && status === 'uncertain' && !origin?.sessionId)
+    if (source === 'local' && status === 'uncertain')
       store.setState((s) => ({
         messages: {
           ...s.messages,
-          // No acknowledged conversation owns this draft's optimistic spinner.
-          // Retain its message and frozen recovery request; a selected session,
-          // real stream or newer draft keeps its independently owned busy state.
+          // The failed send owns only its optimistic spinner, including in an
+          // idle retained chat. Real streams, an already busy origin, navigation
+          // and newer input keep their independently owned running state.
           ...(origin?.control === 'send' &&
           !origin.running &&
-          s.sessions.active === null &&
+          (origin.sessionId ?? null) === s.sessions.active &&
           origin.historyRequest === historyRequest &&
           origin.launchGeneration === launchGeneration &&
           !s.messages.current &&

@@ -532,6 +532,46 @@ it('retains request after logout and never automatically retries on a new authen
   expect(fetch.mock.calls.filter(([path]) => path === '/local/send')).toHaveLength(1);
   expect(store.getState().localCommand?.request).toEqual(request);
 });
+it.each([false, true])(
+  'ends an old chat’s failed send spinner without stopping an already running turn (%s)',
+  async (alreadyRunning) => {
+    const { store, fetch } = setup();
+    channel.id = 'live-sse';
+    await store.getState().switchSession('old-chat');
+    store.setState((state) => ({
+      messages: { ...state.messages, nativeCommands: true, running: alreadyRunning },
+    }));
+    const diagnostic = {
+      runtimeFailureCode: 'login_refresh_reauthorization' as const,
+      diagnosticId: '00000000-0000-4000-8000-000000000001',
+    };
+    fetch.mockResolvedValue(
+      Response.json(
+        {
+          ok: false,
+          code: 'entry_unavailable',
+          error: 'private',
+          clientMsgId: request.clientMsgId,
+          sessionId: 'old-chat',
+          runtimeFailure: diagnostic,
+        },
+        { status: 409 },
+      ),
+    );
+    const delivered = vi.fn();
+    expect(
+      store
+        .getState()
+        .sendLocalFirstCommand({ ...request, sessionId: 'old-chat' }, { onDelivery: delivered }),
+    ).toBe(true);
+    await vi.waitFor(() => expect(delivered).toHaveBeenCalledWith('uncertain'));
+    expect(store.getState().messages.running).toBe(alreadyRunning);
+    expect(store.getState().messages.commandStates?.[request.clientMsgId]).toBe('uncertain');
+    expect(store.getState().sendError).toContain('explicit account reauthorization');
+    channel.listener({ type: '_close' });
+  },
+);
+
 it.each(['retained', 'lost-response'])(
   'ends only unassigned optimistic busy state when a Local send is %s, preserving its draft and exact recovery',
   async (failure) => {

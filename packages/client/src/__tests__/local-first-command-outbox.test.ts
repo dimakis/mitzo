@@ -110,7 +110,7 @@ it.each([
       publicMessage: () => runtimeFailureMessage(diagnostic),
     };
     const notify = vi.fn();
-    const fetch = vi.fn(async () =>
+    const fetch = vi.fn<(url: string, init?: RequestInit) => Promise<Response>>(async () =>
       Response.json(
         {
           ok: false,
@@ -166,6 +166,31 @@ it.each([
         }),
       );
       expect(fetch).toHaveBeenCalledOnce();
+      fetch.mockResolvedValueOnce(
+        Response.json(
+          {
+            ok: true,
+            clientMsgId: command.clientMsgId,
+            sessionId: 'old-chat',
+            dispatched: true,
+            state: 'consumed',
+          },
+          { status: 202 },
+        ),
+      );
+      expect(restored.retryLocalCommand(command.clientMsgId)).toBe(true);
+      await vi.waitFor(() =>
+        expect(restoredNotify).toHaveBeenCalledWith(
+          expect.objectContaining({ state: 'consumed', acknowledged: true }),
+        ),
+      );
+      const accepted = restoredNotify.mock.calls
+        .map(([event]) => event)
+        .find((event) => event.state === 'consumed');
+      expect(accepted).not.toHaveProperty('runtimeFailure');
+      expect(fetch).toHaveBeenCalledTimes(2);
+      expect(JSON.parse(String(fetch.mock.calls[1][1]?.body))).toEqual(command);
+      expect(JSON.parse(saved.getItem()!)).toEqual([]);
     } finally {
       restored.stop();
     }
