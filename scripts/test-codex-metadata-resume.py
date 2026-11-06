@@ -10,6 +10,7 @@ import json
 import os
 from pathlib import Path
 import selectors
+import signal
 import subprocess
 import tempfile
 import time
@@ -104,6 +105,7 @@ def probe(binary, version, exclude_turns):
         child = subprocess.Popen(
             command, cwd=root, env=environment,
             stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+            start_new_session=True,
         )
         selector = selectors.DefaultSelector()
         selector.register(child.stdout, selectors.EVENT_READ)
@@ -189,12 +191,21 @@ def probe(binary, version, exclude_turns):
                 assert result["thread"]["turns"], "Native fixture history was not loaded"
             return size
         finally:
-            child.terminate()
+            try:
+                os.killpg(child.pid, signal.SIGTERM)
+            except ProcessLookupError:
+                pass
             try:
                 child.wait(timeout=5)
             except subprocess.TimeoutExpired:
-                child.kill()
+                os.killpg(child.pid, signal.SIGKILL)
                 child.wait(timeout=5)
+            # The CLI may spawn a marketplace git clone. Stop every process in
+            # this fixture's session before removing its temporary CODEX_HOME.
+            try:
+                os.killpg(child.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
             selector.close()
             child.stdin.close()
             child.stdout.close()

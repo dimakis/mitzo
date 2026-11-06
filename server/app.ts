@@ -248,6 +248,8 @@ import {
   readCodexCapacityRecovery,
 } from './codex-chat-session.js';
 import { createCodexQueueRouter } from './codex-queue-routes.js';
+import { createCodexSubagentRouter } from './codex-subagent-routes.js';
+import { subagentScope, subagentSnapshot } from './codex-subagent-store.js';
 import { createCallbackIncidentRepairRouter } from './callback-incident-repair.js';
 import { assertRepositoryTaskRetirement } from './repository-task-retirement.js';
 import {
@@ -4017,6 +4019,36 @@ function assertQueueOperator(id: string, authorization?: import('./auth.js').Aut
     authorization,
   );
 }
+
+mountObservedRouter(
+  app,
+  '/api/sessions',
+  createCodexSubagentRouter({
+    authorize(id, authorization) {
+      if (eventStore.getSessionRuntimeBinding(id)?.harness.implementation !== 'codex')
+        throw Error('Native Codex conversation required');
+      assertQueueOperator(id, authorization);
+    },
+    owner(id) {
+      const session = registry.findBySessionId(id)?.session;
+      return session ? getCodexRuntime(session)?.getSubagents() : undefined;
+    },
+    retainedControl(id, input) {
+      const binding = eventStore.getSession(id)?.accountBinding;
+      return binding
+        ? getCodexConversationStore().subagents.controlResult(subagentScope(id, binding), input)
+        : undefined;
+    },
+    retained(id) {
+      const binding = eventStore.getSession(id)?.accountBinding;
+      return binding
+        ? getCodexConversationStore()
+            .subagents.list(subagentScope(id, binding))
+            .map((child) => subagentSnapshot(child))
+        : [];
+    },
+  }),
+);
 
 mountObservedRouter(
   app,

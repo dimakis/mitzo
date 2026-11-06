@@ -1403,25 +1403,13 @@ describe('inbox routes', () => {
       expect((await action.set('x-internal-token', INTERNAL_TOKEN)).status).toBe(200);
     },
   );
-  it.each(
-    (['delete', 'approve'] as const).flatMap((operation) =>
-      (
-        [
-          'logout',
-          'private-source',
-          'private-destination',
-          'runtime-source',
-          'runtime-destination',
-        ] as const
-      ).map((change) => ({ operation, change })),
-    ),
-  )(
-    'revalidates inbox $operation after $change during reconciliation',
-    async ({ operation, change }) => {
+  it.each(['delete', 'approve'] as const)(
+    'revalidates inbox %s after logout during reconciliation',
+    async (operation) => {
       const { notificationCenter } = await import('../app.js');
       const { login } = await import('../auth.js');
       const token = (await login(process.env.AUTH_PASSPHRASE!))!;
-      const filename = `authority-${operation}-${change}.md`;
+      const filename = `authority-${operation}-logout.md`;
       const source = join(INBOX_DIR, filename);
       const destination = join(INBOX_DIR, 'archive', filename);
       writeFileSync(source, SAMPLE_INBOX_ITEM);
@@ -1443,29 +1431,73 @@ describe('inbox routes', () => {
         operation === 'delete'
           ? request(app).delete('/api/inbox/' + filename)
           : request(app).post('/api/inbox/' + filename + '/approve');
-      const response = action.set('Authorization', 'Bearer ' + token).then((result) => result);
+      const pending = action.set('Authorization', 'Bearer ' + token).then((response) => response);
       try {
         await reached;
-        if (change === 'logout') {
-          expect(
-            (
-              await request(app)
-                .post('/api/auth/logout')
-                .set('Authorization', 'Bearer ' + token)
-            ).status,
-          ).toBe(200);
-        } else {
-          const path = change.endsWith('source') ? source : destination;
-          if (change.startsWith('private')) protectCodexProfileRoots([path]);
-          else registerWorkspaceRuntimeAuthorityPaths([path]);
-        }
+        expect(
+          (
+            await request(app)
+              .post('/api/auth/logout')
+              .set('Authorization', 'Bearer ' + token)
+          ).status,
+        ).toBe(200);
         release();
-        expect((await response).status).toBe(change === 'logout' ? 401 : 403);
+        expect((await pending).status).toBe(401);
         expect(readFileSync(source, 'utf8')).toBe(SAMPLE_INBOX_ITEM);
         expect(existsSync(destination)).toBe(false);
       } finally {
         release();
-        await response;
+        await pending;
+        scan.mockRestore();
+      }
+    },
+  );
+  it.each(
+    (['approve', 'delete'] as const).flatMap((action) =>
+      (['private', 'authority'] as const).flatMap((kind) =>
+        (['source', 'destination'] as const).map((target) => ({ action, kind, target })),
+      ),
+    ),
+  )(
+    'rejects $action when $kind $target enrollment changes during a scan',
+    async ({ action, kind, target }) => {
+      const { notificationCenter } = await import('../app.js');
+      const filename = `authorization-race-${action}-${kind}-${target}.md`;
+      const source = join(INBOX_DIR, filename);
+      const destination = join(INBOX_DIR, 'archive', filename);
+      writeFileSync(source, SAMPLE_INBOX_ITEM);
+      let release!: () => void;
+      let entered!: () => void;
+      const waiting = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      const reached = new Promise<void>((resolve) => {
+        entered = resolve;
+      });
+      const scan = vi.spyOn(notificationCenter, 'reconcileAsync').mockImplementationOnce(() => {
+        entered();
+        return waiting;
+      });
+      const operation =
+        action === 'approve'
+          ? request(app).post(`/api/inbox/${filename}/approve`)
+          : request(app).delete(`/api/inbox/${filename}`);
+      const pending = operation.set('Cookie', authCookie).then((response) => response);
+      try {
+        // Reaching the awaited scan proves middleware already authorized the file.
+        await reached;
+        const path = target === 'source' ? source : destination;
+        if (kind === 'private') protectCodexProfileRoots([path]);
+        else registerWorkspaceRuntimeAuthorityPaths([path]);
+        release();
+        const response = await pending;
+        expect(response.status).toBe(403);
+        expect(response.body).toEqual({ error: 'Path not allowed' });
+        expect(readFileSync(source, 'utf8')).toBe(SAMPLE_INBOX_ITEM);
+        expect(existsSync(destination)).toBe(false);
+      } finally {
+        release();
+        await pending;
         scan.mockRestore();
       }
     },

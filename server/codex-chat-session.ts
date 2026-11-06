@@ -2554,6 +2554,7 @@ async function openCodexChatBound(
     store: privateStorage,
     deferToolSurfaceReplacement: !!runtimeManager || !!options.ownedLocal,
     enableCapacityRecovery: !options.ownedLocal && !options.ownedOpenShell,
+    enableNativeSubagents: nativeExecutionEnabled && !options.adviserScope,
     ...(ownedHost && !options.adviserScope ? { skillContextTokens: 1500 } : {}),
     transportClosure: options.ownedLocal ? 'terminal' : undefined,
     recoveryReconciliation: options.ownedOpenShell ? 'exact-turn' : undefined,

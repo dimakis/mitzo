@@ -1,4 +1,5 @@
 import { MotionPresence } from './MotionPresence';
+import { NativeSubagents } from './NativeSubagents';
 import { UiIcon } from './UiIcon';
 import { useState, useCallback, useId } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
@@ -167,6 +168,11 @@ export function ToolPill({ block, sessionId, showSetupCard = true }: Props) {
     },
     [navigate, location, sessionId],
   );
+
+  if (sessionId && block.rawInput?.nativeSubagentCommandId)
+    return (
+      <NativeSubagents sessionId={sessionId} commandId={block.rawInput.nativeSubagentCommandId} />
+    );
 
   return (
     <div

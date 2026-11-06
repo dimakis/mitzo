@@ -1,5 +1,18 @@
 # Mitzo UI design contract
 
+## Native Codex subagents
+
+Keep one collapsed subagent count/status row within the spawning agent's activity.
+Expand it to a quiet list of child names and states; inspect a child in the shared
+HomeDialog with Back and Close. Use TextBubble and ToolPill for public output and
+tool activity. Keep the task and recipient explicit, with Message and Stop in a
+reachable footer and independent body scrolling. Preserve parent and sibling
+drafts, restore focus to the originating child, and disable controls when live
+authority is unavailable. Retain the existing composer, Terminal, context wheel
+and Resources. Use semantic tokens, shared motion and 44px controls; the dialog
+fills narrow phone widths. The approved mock and protected checks are recorded
+in the codex-subagents entry of the approved design ledger.
+
 ## Session timer dialogs
 
 Timers reuse `HomeDialog`, `UiIcon`, shared primary/secondary/danger controls and

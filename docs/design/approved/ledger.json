@@ -491,6 +491,65 @@
           "validation": "docs/features/chat-composer-status.md"
         }
       ]
+    },
+    {
+      "id": "codex-subagents",
+      "activeRevision": "nested-child-activity-2026-11-05",
+      "revisions": [
+        {
+          "id": "nested-child-activity-2026-11-05",
+          "approvedBy": "Dimitri (originating approval and current implementation direction)",
+          "approvedOn": "2026-11-05",
+          "approval": {
+            "thread": "911e7aaf-f8a0-8aaf-862e-c322cfd6c163",
+            "quote": "yep, this is excellent, I like this. lets just ensure that we don't get rid of the other icons in the screen chat, for terminal etc. the mock has left these out",
+            "scope": "Nested child row and inspection with targeted Message/Stop; final v005 refinements preserve chat toolbar, phone layout, context wheel and Resources. Approval recovered from original conversation; current user requested implementation on 5 November."
+          },
+          "references": [
+            {
+              "path": "docs/design/approved/codex-subagents/nested.html",
+              "sha256": "e85c12ffb0c004319474c1ed49cd7b5c744e3a4bcb574073477c306198dfa267"
+            }
+          ],
+          "invariants": [
+            "One collapsed count/status row beneath the spawning agent; expand child names and states.",
+            "Child inspection retains task, public output/tool activity and explicit recipient with Message and Stop.",
+            "Parent and sibling drafts survive inspection and navigation; focus returns to the originating child.",
+            "Preserve existing composer, toolbar, Terminal, context wheel and Resources; children do not become Symposium participants.",
+            "Shared dialog, semantic tokens and motion; reachable footer, independent scrolling, 44px targets and phone/desktop widths.",
+            "Unavailable authority disables controls while retaining saved output; uncertain delivery keeps its original request identity."
+          ],
+          "sources": [
+            "frontend/src/components/NativeSubagents.tsx",
+            "frontend/src/components/NativeSubagents.css",
+            "frontend/src/components/ToolPill.tsx",
+            "frontend/src/hooks/useNativeSubagents.ts",
+            "frontend/src/components/ChatArea.tsx",
+            "frontend/src/components/ComposerTools.tsx"
+          ],
+          "checks": [
+            "frontend/src/components/__tests__/NativeSubagents.test.tsx",
+            "tests/offline/native-subagents.spec.ts",
+            "frontend/src/components/__tests__/NativeSubagentsChatArea.test.tsx"
+          ],
+          "protectedChecks": [
+            {
+              "path": "frontend/src/components/__tests__/NativeSubagents.test.tsx",
+              "sha256": "90556b4248ca66e47e978c5a3e7b8672a9f66098230dc774f5d91e65ca199d4b"
+            },
+            {
+              "path": "tests/offline/native-subagents.spec.ts",
+              "sha256": "32359e1c7a446c2792ca45331d3bc488cf270378ad95ca269e12901e89ad256f"
+            },
+            {
+              "path": "frontend/src/components/__tests__/NativeSubagentsChatArea.test.tsx",
+              "sha256": "251b6f7c834cfc5088e347b83e55343c99ba33c4f077017ae4f8aaa54a29b84d"
+            }
+          ],
+          "implementationEvidence": [],
+          "validation": "docs/design/approved/codex-subagents/VALIDATION.md"
+        }
+      ]
     }
   ]
 }
