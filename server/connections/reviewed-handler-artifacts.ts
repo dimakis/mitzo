@@ -228,7 +228,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/symposium-review-app.test.ts':
     '7648dfe9d079c2e6ac22f4131eb47a93133dd9eee4f7ca40205b26c030278160',
   '../__tests__/notification-center.test.ts':
-    'f35bc0faa222437f0cd8bde87854b9fdded76ed480cff43ee6deb2e5709472a3',
+    'dcbd2b36d2eb190afe6094e02b6f0f5e34cfd9568485a9dbfefb4ddb53f8db96',
   '../../docs/operations/runtime-performance.md':
     '1ce453628c3e0fbef6850e53193a3b9981978832f79555661a5eacbdce5f503e',
   '../../packages/protocol/src/session-search-index.ts':
