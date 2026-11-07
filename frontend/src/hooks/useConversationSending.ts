@@ -40,7 +40,7 @@ export function useConversationSending(options: {
   const current = useRef(owner);
   current.current = owner;
   const mounted = useRef(true);
-  const busy = useRef(false);
+  const busy = useRef<object | undefined>(undefined);
   const pending = useRef<Pending | undefined>(undefined);
   const [state, setState] = useState<{
     owner: object;
@@ -75,8 +75,8 @@ export function useConversationSending(options: {
     [draftId, publish],
   );
   const check = useCallback(async () => {
-    if (!valid() || !group || busy.current) return;
-    busy.current = true;
+    if (!valid() || !group || busy.current === owner) return;
+    busy.current = owner;
     try {
       const original = pending.current;
       if (original) {
@@ -87,17 +87,16 @@ export function useConversationSending(options: {
         const latest = await refresh();
         if (!valid()) return;
         // The original message stays retained until a terminal outcome is visible.
-        if (
+        const terminal =
           message &&
           (message.deliveries.every((d) => ['failed', 'unavailable'].includes(d.status)) ||
             latest?.messages.some(
               (m) =>
                 m.replyToDeliveryId &&
                 message.deliveries.some((d) => d.deliveryId === m.replyToDeliveryId),
-            ))
-        )
-          retain();
-        return;
+            ));
+        if (!terminal) return;
+        retain();
       }
       if (!recipient) return;
       const result = await api.recipientReadiness(group, recipient);
@@ -115,10 +114,11 @@ export function useConversationSending(options: {
           error: cause instanceof Error ? cause.message : 'Could not verify delivery.',
         });
     } finally {
-      busy.current = false;
+      if (busy.current === owner) busy.current = undefined;
     }
   }, [
     valid,
+    owner,
     group,
     recipient,
     api,
@@ -165,7 +165,7 @@ export function useConversationSending(options: {
       if (
         disabledReason ||
         !valid() ||
-        busy.current ||
+        busy.current === owner ||
         pending.current ||
         !view ||
         !recipient ||
@@ -185,7 +185,7 @@ export function useConversationSending(options: {
           snapshot: null,
         }),
       };
-      busy.current = true;
+      busy.current = owner;
       try {
         retain(original);
         const receipt = await api.send(group, original.input);
@@ -213,10 +213,22 @@ export function useConversationSending(options: {
         }
         return false;
       } finally {
-        busy.current = false;
+        if (busy.current === owner) busy.current = undefined;
       }
     },
-    [disabledReason, valid, view, recipient, group, authScope, api, retain, refresh, publish],
+    [
+      disabledReason,
+      valid,
+      owner,
+      view,
+      recipient,
+      group,
+      authScope,
+      api,
+      retain,
+      refresh,
+      publish,
+    ],
   );
   return { disabledReason, error: visible.error, pending: visible.pending, check, send };
 }

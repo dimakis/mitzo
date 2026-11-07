@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.947-symposium-readiness-diagnostics';
+  'v1.0.948-symposium-readiness-recovery';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -32,9 +32,9 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/components/__tests__/SharedConversation.test.tsx':
     '95411a3d06f50183bcda1e1c26a3b078f50d065489697e57d7d0d2aabaa0343f',
   '../../frontend/src/hooks/__tests__/useConversationSending.test.tsx':
-    '97ce60f94f2ef84bb6867b03dad97298b24d4e0e9b83a288f0142a7b5eabc270',
+    '96c6db3a610f90e3ba2ddcb62099de806c0e9d4c91e7deee65fd3ca8cb2a7e5e',
   '../../frontend/src/hooks/useConversationSending.ts':
-    '632ee78d5e4bb6eabc136b49be1e67b147d5664f9e0413f5541d327d1207b109',
+    'a603925fad0baf8222853b357b24261dcb09eeed12cefc8bb6763c9fe1ac2ff7',
   '../__tests__/collaboration-application-ui.test.tsx':
     'c17e0e0622d8044ccddf85b5018fac6bce1d78f24806d59e4557cbc18d777660',
   '../__tests__/fixtures/symposium-recording-runtime.ts':
