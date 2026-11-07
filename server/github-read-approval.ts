@@ -6,6 +6,7 @@ import {
   type SessionRegistry,
 } from '@mitzo/harness';
 import type { ManagedSession } from './session-registry.js';
+import { captureSessionCapability } from './session-capability-grants.js';
 
 export type GitHubReadInput = {
   endpoint: string;
@@ -67,21 +68,33 @@ export async function authorizeGitHubRead(
 ) {
   const { clientId, registry, session, runtimeId, signal } = options;
   const approval = githubReadApproval(input.endpoint, session, runtimeId, input.access);
-  const permission = await options.decide('GitHubRead', input, {
-    signal,
-    toolUseID: options.toolUseID,
-    forcePrompt: input.access !== 'public' || options.forcePrompt === true,
-    allowSessionGrant: true,
-    ...approval,
-    ...(options.assertTaskAuthorizationCurrent && !options.forcePrompt
-      ? {
-          isRetainedSessionGrantCurrent: () => {
-            options.assertTaskAuthorizationCurrent!();
-            return true;
-          },
-        }
-      : {}),
-  });
+  const repository = /^\/repos\/([^/]+\/[^/?]+)/.exec(input.endpoint)?.[1];
+  const capability =
+    repository && options.forcePrompt !== true
+      ? captureSessionCapability(session, { kind: 'github-read', repository })
+      : undefined;
+  capability?.();
+  const permission = capability
+    ? {
+        behavior: 'allow' as const,
+        updatedInput: input,
+        decisionClassification: 'user_temporary' as const,
+      }
+    : await options.decide('GitHubRead', input, {
+        signal,
+        toolUseID: options.toolUseID,
+        forcePrompt: input.access !== 'public' || options.forcePrompt === true,
+        allowSessionGrant: true,
+        ...approval,
+        ...(options.assertTaskAuthorizationCurrent && !options.forcePrompt
+          ? {
+              isRetainedSessionGrantCurrent: () => {
+                options.assertTaskAuthorizationCurrent!();
+                return true;
+              },
+            }
+          : {}),
+      });
   signal.throwIfAborted();
   if (permission.behavior !== 'allow') throw Error(permission.message);
   if (!isDeepStrictEqual(permission.updatedInput, input))
@@ -91,6 +104,7 @@ export async function authorizeGitHubRead(
     signal.throwIfAborted();
     options.assertCurrentSync?.();
     options.assertTaskAuthorizationCurrent?.();
+    capability?.();
     if (
       registry.get(clientId) !== session ||
       checkSkillPolicy(registry, clientId, 'GitHubRead') === 'deny' ||

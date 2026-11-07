@@ -3,6 +3,9 @@ import { retainCallbackOutcome } from './turn-callbacks.js';
 import { clearWebSearchGrant } from './web-search-grants.js';
 import { isDeepStrictEqual } from 'node:util';
 import { z } from 'zod';
+import { isIP } from 'node:net';
+import { canonicalPublicDnsAddress } from './connections/iana-address-policy.js';
+import { captureSessionCapability, blockSessionPublicOrigin } from './session-capability-grants.js';
 import {
   buildPermissionHandler,
   checkSkillPolicy,
@@ -39,6 +42,7 @@ interface Grant {
   target: ApprovedUrlTarget;
   account: ReturnType<typeof urlReadAccountIdentity>;
   expires: number;
+  assertCapabilityCurrent?: () => void;
 }
 const revisions = new WeakMap<ManagedSession, Map<string, number>>();
 const grants = new WeakMap<ManagedSession, Map<string, Grant>>();
@@ -70,6 +74,7 @@ export function createUrlAccessTool(
     now: Date.now,
   },
   assertRuntimeCurrent?: () => Promise<void>,
+  registerResponseFence?: (assertCurrent: () => void) => void,
 ) {
   const owner = () =>
     registry.findBySessionId(typeof conversation === 'function' ? conversation() : conversation);
@@ -87,6 +92,7 @@ export function createUrlAccessTool(
       controller: AbortController;
       revision: number;
       waiters: number;
+      assertCapabilityCurrent?: () => void;
     }
   >();
   const tool = {
@@ -115,6 +121,7 @@ export function createUrlAccessTool(
             isError: false,
           };
         if (parsed.data.operation === 'revoke_access') {
+          blockSessionPublicOrigin(current.session, url.origin);
           versions.set(url.origin, (versions.get(url.origin) ?? 0) + 1);
           grants.get(current.session)?.delete(url.origin);
           return { content: `URL read access revoked for ${url.origin}`, isError: false };
@@ -133,6 +140,13 @@ export function createUrlAccessTool(
           return { content: 'URL access changed during resolution; retry', isError: true };
         if (target.origin !== url.origin || !target.addresses.length)
           return { content: 'URL destination could not be resolved safely', isError: true };
+        const capability =
+          url.protocol === 'https:' &&
+          !url.port &&
+          !isIP(url.hostname.replace(/^\[|\]$/g, '')) &&
+          target.addresses.every((a) => canonicalPublicDnsAddress(a.address))
+            ? captureSessionCapability(current.session, { kind: 'public-web', origin: url.origin })
+            : undefined;
         const payload = {
           ...parsed.data,
           url: url.href,
@@ -151,31 +165,30 @@ export function createUrlAccessTool(
         if (!flight) {
           const controller = new AbortController();
           flight = {
+            assertCapabilityCurrent: capability,
             controller,
             revision,
             payload,
             waiters: 0,
-            promise: buildPermissionHandler(current.clientId, registry)(
-              REQUEST_WEB_ACCESS,
-              payload,
-              {
-                signal: controller.signal,
-                toolUseID: randomUUID(),
-                forcePrompt: true,
-                allowSessionGrant: false,
-                rememberSessionGrant: false,
-                approvalScope: 'session',
-                sessionGrantDescription: `Credential-free HTTP GET reads on ${target.origin} using only the reviewed resolved addresses, until this session ends or access is revoked. Other origins, credentials, and changed account policy require separate consent.`,
-                title: redirectedFrom
-                  ? 'Approve redirected destination?'
-                  : 'Allow this session to read this website?',
-                description:
-                  (redirectedFrom
-                    ? `The approved page at ${new URL(redirectedFrom).origin} moved to ${url.origin}. Approve the destination to continue this read. `
-                    : '') +
-                  'Allows credential-free reads through Mitzo’s web tool on the exact origin and resolved addresses shown below. Includes private or local destinations when explicitly shown. Other origins and credentials require separate access.',
-              },
-            ),
+            promise: capability
+              ? Promise.resolve({ behavior: 'allow' as const, updatedInput: payload })
+              : buildPermissionHandler(current.clientId, registry)(REQUEST_WEB_ACCESS, payload, {
+                  signal: controller.signal,
+                  toolUseID: randomUUID(),
+                  forcePrompt: true,
+                  allowSessionGrant: false,
+                  rememberSessionGrant: false,
+                  approvalScope: 'session',
+                  sessionGrantDescription: `Credential-free HTTP GET reads on ${target.origin} using only the reviewed resolved addresses, until this session ends or access is revoked. Other origins, credentials, and changed account policy require separate consent.`,
+                  title: redirectedFrom
+                    ? 'Approve redirected destination?'
+                    : 'Allow this session to read this website?',
+                  description:
+                    (redirectedFrom
+                      ? `The approved page at ${new URL(redirectedFrom).origin} moved to ${url.origin}. Approve the destination to continue this read. `
+                      : '') +
+                    'Allows credential-free reads through Mitzo’s web tool on the exact origin and resolved addresses shown below. Includes private or local destinations when explicitly shown. Other origins and credentials require separate access.',
+                }),
           };
           pending.set(key, flight);
           const created = flight;
@@ -199,6 +212,7 @@ export function createUrlAccessTool(
         await assertRuntimeCurrent?.();
         signal.throwIfAborted();
         if (decision.behavior !== 'allow') return { content: decision.message, isError: true };
+        flight.assertCapabilityCurrent?.();
         if (
           !allowed(current.clientId, current.session) ||
           !isDeepStrictEqual(urlReadAccountIdentity(current.session), account) ||
@@ -212,6 +226,7 @@ export function createUrlAccessTool(
           grants.set(current.session, sessionGrants);
         }
         sessionGrants.set(target.origin, {
+          assertCapabilityCurrent: flight.assertCapabilityCurrent,
           target: structuredClone(target),
           account,
           expires:
@@ -265,6 +280,11 @@ export function createUrlAccessTool(
         return { content: 'Session permissions changed; URL reads are unavailable', isError: true };
       const chain = [{ origin: url.origin, grant }];
       const chainCurrent = () => {
+        try {
+          chain.forEach(({ grant }) => grant.assertCapabilityCurrent?.());
+        } catch {
+          return false;
+        }
         if (
           chain.some(
             ({ grant }) =>
@@ -289,18 +309,27 @@ export function createUrlAccessTool(
           if (!chainCurrent())
             return { content: 'Session permissions changed during URL read', isError: true };
           try {
-            await assertRuntimeCurrent?.();
+            const assertReadCurrent = async () => {
+              await assertRuntimeCurrent?.();
+              signal.throwIfAborted();
+              if (!chainCurrent()) throw Error('URL read consent changed');
+            };
+            await assertReadCurrent();
             const content = await deps.fetch(
               url.href,
               activeGrant.target,
               signal,
-              assertRuntimeCurrent,
+              assertReadCurrent,
               view,
             );
             await assertRuntimeCurrent?.();
             signal.throwIfAborted();
             if (!chainCurrent())
               return { content: 'Session permissions changed during URL read', isError: true };
+            registerResponseFence?.(() => {
+              signal.throwIfAborted();
+              if (!chainCurrent()) throw Error('URL consent changed before response delivery');
+            });
             return { content, isError: false };
           } catch (error) {
             signal.throwIfAborted();
