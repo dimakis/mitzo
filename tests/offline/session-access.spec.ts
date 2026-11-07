@@ -262,6 +262,8 @@ test('Access: pending request, unknown capability and stale refresh', async ({
   await page.getByRole('button', { name: 'Access', exact: true }).click();
   const dialog = page.getByRole('dialog', { name: 'Access' });
   await expect(dialog.getByText('Bash · request')).toBeVisible();
+  await expect(dialog.getByText(/callable tools have not been inventoried/)).toBeHidden();
+  await dialog.getByText('Runtime details', { exact: true }).click();
   await expect(dialog.getByText(/callable tools have not been inventoried/)).toBeVisible();
   await dialog.getByRole('button', { name: 'View pending approvals' }).click();
   await expect(page.locator('.perm-banner')).toBeInViewport();
@@ -444,7 +446,9 @@ test('References: historical links and observed tools are not outputs', async ({
   await page.goto(`/chat/${sessionId}`);
   await page.getByRole('button', { name: 'Open session tray' }).click();
   await page.getByRole('tab', { name: 'References' }).click();
-  await page.getByRole('button', { name: /example.com.*references/ }).click();
+  await expect(page.getByText(/Links shared in this conversation/)).toBeVisible();
+  await page.getByRole('checkbox', { name: 'Include links from tool output' }).check();
+  await page.getByRole('button', { name: /example.com.*reference/ }).click();
   await expect(page.getByRole('button', { name: /example.com\/research/ })).toBeVisible();
   await expect(page.getByRole('tab', { name: 'Sources' })).toBeVisible();
   await expect(page.getByRole('tab', { name: 'Outputs', exact: true })).toBeVisible();

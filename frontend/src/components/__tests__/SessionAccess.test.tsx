@@ -64,6 +64,10 @@ describe('ordinary Access', () => {
     await screen.findByText('Bash · request');
     expect(screen.getByRole('button', { name: 'View pending approvals' })).toBeTruthy();
     expect(screen.getByText('Unknown — runtime limits have not been reported here.')).toBeTruthy();
+    const diagnostics = screen.getByText('Available tools').closest('details');
+    expect(diagnostics).not.toBeNull();
+    expect(diagnostics!.open).toBe(false);
+    expect(screen.getByText(/Permissions and approvals for this chat/)).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: 'Refresh Access' }));
     await screen.findByText(/Stale — refresh failed/);
     await waitFor(() =>

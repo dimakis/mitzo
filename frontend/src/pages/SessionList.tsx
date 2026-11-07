@@ -422,15 +422,22 @@ export function SessionList() {
   const { activities, connected, lastKnownActivities = [] } = useSessionOverview();
   const [filter, setFilter] = useState<'all' | 'active' | 'attention'>('all');
   const byId = new Map(activities.map((a) => [a.sessionId, a]));
-  const displayById = new Map(
-    (connected === false ? lastKnownActivities : activities).map((a) => [a.sessionId, a]),
-  );
-  const combined = mergeSessionActivities(sessions, activities);
+  const displayById = new Map([
+    ...sessions.flatMap((session) =>
+      session.activity ? [[session.id, session.activity] as const] : [],
+    ),
+    ...(connected === false ? lastKnownActivities : activities).map(
+      (a) => [a.sessionId, a] as const,
+    ),
+  ]);
+  // Admit the first history page once, with its activity snapshot. A faster SSE
+  // response must not paint a partial list that then moves when history arrives.
+  const combined = mergeSessionActivities(sessions, loading && !sessions.length ? [] : activities);
   const {
     sessions: all,
     pendingCount,
     showLatest,
-  } = useSessionOrdering([...combined.values()], activities, paused);
+  } = useSessionOrdering([...combined.values()], activities, paused, { manual: true });
   const active = all.filter((s) => s.isActive);
   const attention = all.filter((s) => {
     const activity = byId.get(s.id);

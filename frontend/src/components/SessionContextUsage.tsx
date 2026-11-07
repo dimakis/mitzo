@@ -2,7 +2,13 @@ import type { Session } from '../types/chat';
 import { formatTokens } from '../lib/formatTokens';
 import '../styles/session-library.css';
 
-export function SessionContextUsage({ usage }: { usage?: Session['contextUsage'] }) {
+export function SessionContextUsage({
+  usage,
+  showRemaining = false,
+}: {
+  usage?: Session['contextUsage'];
+  showRemaining?: boolean;
+}) {
   const used = usage?.used;
   if (used == null || !Number.isSafeInteger(used) || used <= 0)
     return <span className="session-context-usage">Context unavailable</span>;
@@ -27,12 +33,16 @@ export function SessionContextUsage({ usage }: { usage?: Session['contextUsage']
           ? `${formatTokens(used)} · limit not reported`
           : `${percentage}% · ${formatTokens(used)} / ${formatTokens(ceiling)}`}
       </span>
+      {showRemaining && ceiling > 0 && (
+        <span>{formatTokens(Math.max(0, ceiling - used))} tokens remaining</span>
+      )}
       {percentage != null && (
         <span
           className="session-context-meter"
           role="meter"
           aria-label="Context used"
           aria-valuenow={percentage}
+          aria-valuetext={`${used.toLocaleString()} of ${ceiling.toLocaleString()} tokens; ${Math.max(0, ceiling - used).toLocaleString()} remaining`}
           aria-valuemin={0}
           aria-valuemax={100}
         >

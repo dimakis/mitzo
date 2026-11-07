@@ -2,6 +2,7 @@ import { UiIcon } from './UiIcon';
 import { useState, useEffect } from 'react';
 import type { ContextBlockEntry } from './ContextPicker';
 import { apiFetch } from '../lib/api-fetch';
+import './ContextPanel.css';
 
 export interface ContextPanelProps {
   selected: string[];

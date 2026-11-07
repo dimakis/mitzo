@@ -388,6 +388,8 @@ export interface Session {
   telosTaskId?: string;
   cwd?: string;
   contextUsage?: SessionContextUsage;
+  /** Snapshot observed with the history response; live SSE remains authoritative. */
+  activity?: SessionActivity;
   closedBy?: SessionClosedBy;
 }
 

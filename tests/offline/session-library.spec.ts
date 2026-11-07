@@ -210,6 +210,7 @@ for (const theme of ['dark', 'light'])
     });
     const rows = page.locator('.session-list .session-item-summary');
     const initialOrder = await rows.allTextContents();
+    const initialListTop = (await rows.first().boundingBox())!.y;
     const emit = async (state: string, extra: Record<string, unknown> = {}) => {
       await page.evaluate(
         (activities) => {
@@ -256,9 +257,14 @@ for (const theme of ['dark', 'light'])
     await page.waitForTimeout(800);
     await expect(rows).toHaveText(initialOrder);
     await expect(page.getByRole('button', { name: /1 updated · show latest/ })).toBeVisible();
+    expect(Math.abs((await rows.first().boundingBox())!.y - initialListTop)).toBeLessThanOrEqual(1);
     await page.evaluate(() =>
       document.dispatchEvent(new PointerEvent('pointerup', { pointerId: 77 })),
     );
+    // Hydration and settling after browsing never move a row automatically.
+    await page.waitForTimeout(2800);
+    await expect(rows).toHaveText(initialOrder);
+    await page.getByRole('button', { name: /updated · show latest/ }).click();
     await expect(rows.first()).toHaveText('Conversation 11');
     await expect(page.locator('.session-list')).toHaveAttribute('data-observed-move', 'true');
     await page.screenshot({ path: testInfo.outputPath(`session-library-reordered-${theme}.png`) });
@@ -268,11 +274,13 @@ for (const theme of ['dark', 'light'])
     await expect(page.locator('.session-list .session-item').first()).toContainText('Idle');
     await expect(rows).toHaveText(['Conversation 11', ...initialOrder.slice(0, -1)]);
     await page.emulateMedia({ reducedMotion: 'reduce' });
-    // A new user message promotes an already working chat without animation.
+    // New messages stay queued until the operator requests the latest order.
     await page.evaluate(
       (detail) => window.dispatchEvent(new CustomEvent('offline-session-activity', { detail })),
       [activity(10, 'working', { lastUserMessageAt: Date.now() + 1000 })],
     );
+    await expect(rows.first()).toHaveText('Conversation 11');
+    await page.getByRole('button', { name: /updated · show latest/ }).click();
     await expect(rows.first()).toHaveText('Conversation 10');
     expect(
       await page
@@ -289,6 +297,8 @@ for (const theme of ['dark', 'light'])
       (detail) => window.dispatchEvent(new CustomEvent('offline-session-activity', { detail })),
       [activity(9, 'working', { phase: 'reply', lastMessageAt: Date.now() + 2000 })],
     );
+    await expect(rows.first()).toHaveText('Conversation 10');
+    await page.getByRole('button', { name: /updated · show latest/ }).click();
     await expect(rows.first()).toHaveText('Conversation 9');
     await expect(page.locator('.session-list .session-item').first()).toContainText(
       'Writing a reply',

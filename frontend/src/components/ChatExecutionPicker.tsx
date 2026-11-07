@@ -28,6 +28,18 @@ function ExecutionHostPicker({
         ),
     ) ?? [];
   const available = targets.some((target) => target.targetId === targetId);
+  if (targets.length < 2 || runtime.bound) {
+    const target = targets.find((candidate) => candidate.targetId === targetId);
+    return (
+      <p className="workspace-muted">
+        {!runtime.inventory
+          ? 'Checking execution hosts…'
+          : targetId && !available
+            ? `Unavailable host: ${targetId}`
+            : (target?.label ?? targets[0]?.label ?? 'No execution host available.')}
+      </p>
+    );
+  }
   return (
     <div className="chat-agent-profile">
       <label>

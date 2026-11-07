@@ -26,6 +26,9 @@ it('opens the same terminal from the hidden composer menu, carrying chat context
   expect(screen.getByRole('link', { name: 'Terminal' }).getAttribute('href')).toContain(
     'sessionId=chat-a',
   );
+  expect(screen.getByRole('link', { name: 'Terminal' }).getAttribute('title')).toBe(
+    'Open the terminal page for this chat',
+  );
 });
 it('reuses the exact collection masthead and gives the chat-launched terminal its Chats tab', () => {
   render(
