@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.945-telos-planning-and-launch-review';
+  'v1.0.946-telos-planning-and-watch-approvals';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -25,6 +25,51 @@ export function reviewedHandlerSourceFingerprint(source: string) {
 export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../telos-workflow-instructions.ts':
     '6a093779349926a931ff99782071ddbd8214333ee670687fc1dbe4771e06b829',
+  '../../frontend/ios/MitzoShared/Tests/MitzoSharedTests/WatchSourceRelayTests.swift':
+    'e244f1d0c764206168ef1c4615fe07fdb59d04239c600747e00fe2ac645e3ce5',
+  '../../frontend/ios/MitzoShared/Tests/MitzoSharedTests/WatchSourcePaginationTests.swift':
+    'd4b822d014ad7a8e5d68c2daf00a64854970b9b1bcd16efc66909951b51972fa',
+  '../../docs/features/watch-approval-types.md':
+    '08cb59068407842170f497a038fa754524992fca67b55329bae2ffccd6be196c',
+  '../../frontend/ios/App/App/AppDelegate.swift':
+    '748e3e35591d35896d6522a5d940781b35a99098def9075ba9dbd411e5406fdc',
+  '../../frontend/ios/MitzoShared/Sources/MitzoShared/Networking/MitzoAPIClient.swift':
+    'd2c01bdcba6ba8e7fb6f5ca8e212a37be39f68c7fd0f407d9fb9d5fa2a37deaf',
+  '../../frontend/ios/MitzoShared/Sources/MitzoShared/Networking/WatchRelay.swift':
+    '3f2e00517fdd47f27ee21c0e0f7edf3ebefb21a6a21fbfb1b5ac99bdd370a637',
+  '../../frontend/ios/MitzoShared/Sources/MitzoShared/Protocol/BackgroundApproval.swift':
+    '485b1e61a8c9edf4ef1751451c79221fc141fd44b22cec1642d517a976a7a178',
+  '../../frontend/ios/MitzoShared/Sources/MitzoShared/Protocol/CoreTypes.swift':
+    '88bd4491a1307b6a4debc39b10b67b35b369fe72cdc6cc9c3958878b6667cc01',
+  '../../frontend/ios/MitzoShared/Sources/MitzoShared/Protocol/Notifications.swift':
+    '1c45016b665fae0b1747496c348982129368a0232c565f17354bc2dceba02e9d',
+  '../../frontend/ios/MitzoShared/Sources/MitzoShared/Protocol/WatchNotificationRouting.swift':
+    '29fc9bffdd01f14dda6c395271cbfb95f472e5a10a946af07d85282546ceed52',
+  '../../frontend/ios/MitzoShared/Sources/MitzoShared/Protocol/WatchSourceReview.swift':
+    '28aec04faedf22da5a5c385ae71fabf1e5183916d2dc2d1cafd854a09aec6fd4',
+  '../../frontend/ios/MitzoShared/Tests/MitzoSharedTests/AllApprovalTypesTests.swift':
+    '0f62b69a776af793fcf92b609665802c8b8252bfdd0a662c8afbb4c327a74b96',
+  '../../frontend/ios/MitzoShared/Tests/MitzoSharedTests/WatchNotificationRoutingTests.swift':
+    'e4fd9fbd5fcc0413d02a470cf0d03bd055116865bb0da9791062fa48e14bf9ca',
+  '../../frontend/ios/MitzoShared/Tests/MitzoSharedTests/WatchQuestionAnswersTests.swift':
+    'ea129554e404af4c273ca472c4d07c7e6a4ff01401cded7bf0575a20c0b78efd',
+  '../../frontend/ios/MitzoShared/Tests/MitzoSharedTests/WatchSourceReviewTests.swift':
+    'c7e1b80f0148498b2ab39c69d7b017fe5741e55255e97456fcea09364a4fdb26',
+  '../../frontend/ios/MitzoWatch/MitzoWatchApp.swift':
+    '2a2b07710baec54f4c6c736a0c4b5daf397f05b7bd2872d5eddf282b76a3e6a7',
+  '../../frontend/ios/MitzoWatch/Services/AppState.swift':
+    '2997e4c2237f1cebcb9b773baa2142fae1f66726071bf2ffef245ec0cfa18409',
+  '../../frontend/ios/MitzoWatch/Views/SessionListView.swift':
+    '8e1da2709e2a2ba8d7c3a54bb0b2205173bf1fcd092e065585c0f08fa0c1ef5d',
+  '../../frontend/src/lib/__tests__/push.test.ts':
+    '3152186873887023167eaab1969aefd7e896a55f0725e0afaf3a9398507f0b66',
+  '../../frontend/src/lib/push.ts':
+    'bb85c01103c7f5983d619e6bfbc79aa49cddea1cf9fc79bc17b4eff56c9c81e9',
+  '../../scripts/test-watch-approval-ui.py':
+    'b271347054e458c7d8a943936f41d483ffad8a210cc5c8383e10164c1dcd7ae9',
+  '../__tests__/watch-approval-types.test.ts':
+    '2aa5dad8331ca48635dc33132b1cafaaf17eb103db86e69732b51a5f959f339e',
+  '../notification-actions.ts': '322bb97a4ebb174427372870c9b5215704387f6f587b987c7e3b6cb4fae2ee44',
   '../__tests__/session-library-operator.test.ts':
     'fd0d47cba957cbd22e5dc6ac2e8c02cf40dc9f0006dbdd6ea81eaf6743a2e50b',
   '../../tests/integration/telos-s9/integrated-candidate/joined-conversation-ready.test.ts':
@@ -409,7 +454,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/symposium-review-app.test.ts':
     '7648dfe9d079c2e6ac22f4131eb47a93133dd9eee4f7ca40205b26c030278160',
   '../__tests__/notification-center.test.ts':
-    'dcbd2b36d2eb190afe6094e02b6f0f5e34cfd9568485a9dbfefb4ddb53f8db96',
+    'd961936865514b1f7206204b65e1803a6993dc60a06d5fdaad44034cc08f888d',
   '../../docs/operations/runtime-performance.md':
     '1ce453628c3e0fbef6850e53193a3b9981978832f79555661a5eacbdce5f503e',
   '../../packages/protocol/src/session-search-index.ts':
@@ -436,7 +481,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/owned-local-auth-feedback.test.ts':
     'fa4b4dca12a655e4075c03e6c95701ac9c8c1a6607f867e27668c914e988da21',
   '../../docs/design/ui-design-system.md':
-    'abb08a0efb190a6cf159a6525e7a1017df878c63dadb6cf4345d01ee2a54ff9c',
+    '874560cf2b6e69005793a599f39abed7ea30cd463fb5de98cfaf0535d318688d',
   '../../packages/protocol/src/session-prompts.ts':
     '86f1242cbaa5371b414ac341faa2e128d5ff0fa88c3bcf06dfd39b5424366be2',
   '../__tests__/session-prompt-service.test.ts':
@@ -1768,7 +1813,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../request-web-access.ts': '7c3827a0e4ddaf8880b6ec02e1af8bc398b4b064a90bf941570751b859e467af',
   '../web-search-adapters.ts': 'b5b1ff2b50903a9beb381c3b053cdce299a5ded6d085ffd25582414bc748243e',
   '../../packages/harness/src/index.ts':
-    '739efd7892625d86ad2d40492acc5d00daf8bdb1ef3fa5b25b90a926cc629002',
+    'ee16c27a7be87758b228b6d2e489c8861b50c6b610274148e149f5ee14f5a355',
   '../../packages/harness/src/session-transport.ts':
     '7aaab4c6a3fb5f362b000e7127a8876fb385928d6786145f974ea8ecd4ce283f',
   '../../frontend/src/components/SymposiumConversation.tsx':
@@ -1777,7 +1822,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     '32be2e13877a0db2e2d8531718b9410138471c01cebc963592df3ed69cdf710a',
   '../owned-local-codex-control.ts':
     '274f18f15fef21ba5ddbde3a6ab0e25cee90c8409f534a3b4db7d448eaacfc00',
-  '../permissions.ts': 'c402e63e948be047adef546c858129aaf218168a41114dd4235d62a23da530ae',
+  '../permissions.ts': '293af4305719050debafc25e43921e2aa83e9bb482a2facf13645df4c43fe0be',
   '../symposium-director-configuration.ts':
     '2fb41b14d1bf19af75f4b6a3dde81e65ad58e4aeab773612f8819b7d6b70c3ca',
   '../symposium-director-route-composition.ts':
@@ -1916,7 +1961,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/harness/src/permission-handler.ts':
     '590489b260fb6e01da99d1e765791f07832d281b7430e76cc2e387ffdd28f28f',
   '../../packages/harness/src/permissions.ts':
-    '52cf407eca03315ea04f7b780fda895c53e7f1824bb8f4f7522a3e35708d6f43',
+    '6aabd48e3db7fad06a90ca13693485bb7955272ab846bd68cc5da2be4b4c22fe',
   '../../packages/protocol/src/session-approval-scope.ts':
     'ba694fed805637520dfbfdb160f5d8ba8093a76d1cafe70709dbf18a443423d2',
   '../codex-app-server-client.ts':
@@ -1928,7 +1973,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     '1a417a58a1bc97c868145219e1d0ebb24e483ba683492e6d2800d85c5f1cda62',
   'capabilities/approval.ts': '416b0297828af8fd7193f2ffcb3218515f9a10f649b87a0f323239a8e2fd0343',
   'capabilities/types.ts': '38d3b2474883ce8ecd37511b58fa96e3a24ff8025bf05cdc4eadc8b148627ddb',
-  '../notification-center.ts': '6cb484bd85a6db143a701a5d0559d6e5549810c8c0b84e4de2b88d962b10d647',
+  '../notification-center.ts': 'b33632ca8d3b9e0c0e238e8fbc0b67bbb4444e6129d724a6d5ec34ffc18f17d0',
   '../notification-routes.ts': 'd0b35c246dc1f7369db1567415c217acd8d4b604ca7074cc65155a62011ff4d5',
   '../symposium-custodian-publication.ts':
     '475e37cf3b7187bcfc022054c183aed4fe6239c2d4736108f40a5abef3a4bc2a',
@@ -3521,7 +3566,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../.github/workflows/ci-recovery.yml':
     '5d4e9a6560e549d2879ef776c2b4d321d420c25b22ec3a7741390e5bf617111a',
   '../../.github/workflows/ci.yml':
-    'a3c104e8f5b61fb8e269bc813bab3e7ff6f9b093ceb8a6fdd5cc43598466fb7c',
+    '766d382dca187834b0658a34aceb44d6859495f0fab6415d1da704b83e58a748',
   '../../playwright.config.ts': '6c61752a4a2e9cab19d8217b46080c5898bc79c5a0fde1f2b703a254d278daa0',
   '../../playwright.offline.config.ts':
     'fb694df154a2cb402c7f46b417efb357b6d19a72210d269ad0b1580798392adc',

@@ -54,7 +54,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         )
 
         let reviewAction = UNNotificationAction(
-            identifier: "REVIEW_PERMISSION_ACTION", title: "Review request", options: [.foreground]
+            identifier: "REVIEW_PERMISSION_ACTION", title: "Approve or deny", options: [.foreground]
         )
         let permissionCategory = UNNotificationCategory(
             identifier: "SESSION_PERMISSION", actions: [reviewAction], intentIdentifiers: [], options: []
@@ -63,12 +63,15 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         let sessionAction = UNNotificationAction(identifier: "ALLOW_SESSION_ACTION", title: "Allow for session", options: [.authenticationRequired])
         let searchAction = UNNotificationAction(identifier: "ALLOW_SEARCH_SESSION_ACTION", title: "Allow searches for session", options: [.authenticationRequired])
         let denyAction = UNNotificationAction(identifier: "DENY_PERMISSION_ACTION", title: "Deny", options: [.destructive, .authenticationRequired])
+        let conversationAction = UNNotificationAction(identifier: "ALLOW_CONVERSATION_ACTION", title: "Grant to conversation", options: [.authenticationRequired])
+        let onceCategory = UNNotificationCategory(identifier: "SESSION_APPROVAL_ONCE", actions: [onceAction, denyAction, reviewAction], intentIdentifiers: [], options: [])
+        let conversationCategory = UNNotificationCategory(identifier: "SESSION_CONVERSATION_APPROVAL", actions: [conversationAction, denyAction, reviewAction], intentIdentifiers: [], options: [])
         let approvalCategory = UNNotificationCategory(identifier: "SESSION_APPROVAL", actions: [onceAction, sessionAction, denyAction, reviewAction], intentIdentifiers: [], options: [])
         let searchCategory = UNNotificationCategory(identifier: "SESSION_SEARCH_PERMISSION", actions: [onceAction, searchAction, denyAction, reviewAction], intentIdentifiers: [], options: [])
         let updateCategory = UNNotificationCategory(
             identifier: "NOTIFICATION_UPDATE", actions: [viewAction], intentIdentifiers: [], options: []
         )
-        UNUserNotificationCenter.current().setNotificationCategories([sessionCategory, permissionCategory, approvalCategory, searchCategory, updateCategory])
+        UNUserNotificationCenter.current().setNotificationCategories([sessionCategory, permissionCategory, approvalCategory, onceCategory, conversationCategory, searchCategory, updateCategory])
     }
 
     func application(_ application: UIApplication,
@@ -169,7 +172,7 @@ private class BackgroundApprovalDelegate: NSObject, UNUserNotificationCenterDele
     func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse,
                                 withCompletionHandler completionHandler: @escaping () -> Void) {
         let action = response.actionIdentifier
-        guard ["ALLOW_ONCE_ACTION", "ALLOW_SESSION_ACTION", "ALLOW_SEARCH_SESSION_ACTION", "DENY_PERMISSION_ACTION"].contains(action) else {
+        guard ["ALLOW_ONCE_ACTION", "ALLOW_SESSION_ACTION", "ALLOW_CONVERSATION_ACTION", "ALLOW_SEARCH_SESSION_ACTION", "DENY_PERMISSION_ACTION"].contains(action) else {
             forward(response, completionHandler: completionHandler)
             return
         }
