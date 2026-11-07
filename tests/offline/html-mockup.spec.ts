@@ -188,7 +188,7 @@ for (const native of [false, true])
       await expect(frame.getByRole('combobox', { name: 'Design' })).toHaveValue('compact');
       expect(reads.filter((path) => path === '/workspace/task-board.html')).toHaveLength(1);
       await expect(page.getByRole('alert')).toHaveText(
-        'File is too large to preview (10 MiB maximum)',
+        '413 File is too large to preview (10 MiB maximum)',
       );
       await page.screenshot({
         path: testInfo.outputPath(`html-preview-limit-${theme}.png`),

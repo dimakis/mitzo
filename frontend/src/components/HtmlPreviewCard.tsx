@@ -44,7 +44,7 @@ function HtmlPreviewCardContent({ filePath, sessionId }: Props) {
             'error' in detail &&
             typeof detail.error === 'string' &&
             detail.error.trim()
-              ? detail.error
+              ? `${res.status} ${detail.error}`
               : `${res.status} ${res.statusText}`;
           throw new Error(message);
         }
