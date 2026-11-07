@@ -15,6 +15,8 @@ import {
 } from '../../lib/chat-drafts';
 import { apiFetch } from '../../lib/api-fetch';
 import type { AccountSelection } from '../../components/AccountModelPicker';
+import { createChatRuntimeSelection } from '../../lib/chat-runtime-selection';
+import { PROFILE_BUILDER_ID, PROFILE_BUILDER_REVISION } from '@mitzo/protocol';
 
 function openAgentSettings() {
   const settings = screen.getByRole('button', { name: /^Workspace controls,/ });
@@ -538,11 +540,37 @@ let useOrdinaryLocalChat = false;
 vi.mock('../../hooks/useExplicitLocalChat', async () => {
   const { disabledLocalChat } = await import('../../test-utils/disabled-local-chat');
   return {
-    useExplicitLocalChat: () => ({ ...disabledLocalChat(), visible: useOrdinaryLocalChat }),
+    useExplicitLocalChat: (_id: string, saved?: ReturnType<typeof createChatRuntimeSelection>) => ({
+      ...disabledLocalChat(),
+      visible: useOrdinaryLocalChat,
+      ...(useOrdinaryLocalChat && saved ? { intent: saved } : {}),
+    }),
   };
 });
 
 for (const Page of [ChatView, DesktopChatView]) {
+  it(`${Page.name} preserves existing profile query order when saving and reopening an ordinary draft`, async () => {
+    useOrdinaryLocalChat = true;
+    const search = `agentProfile=${PROFILE_BUILDER_ID}&agentProfileKind=builtin&profileRevision=${PROFILE_BUILDER_REVISION}`;
+    const draft = { ...createChatDraft(), text: 'Retain this Builder question' };
+    draft.settings.search = search;
+    draft.settings.runtimeSelection = {
+      ...createChatRuntimeSelection(),
+      agentProfile: {
+        kind: 'builtin',
+        profileId: PROFILE_BUILDER_ID,
+        revision: PROFILE_BUILDER_REVISION,
+      },
+    };
+    saveChatDraft(draft);
+    const entry = `/chat?${search}&draft=${draft.id}`;
+    const view = mount(Page, entry);
+    await waitFor(() => expect(getChatDraft(draft.id)?.settings.search).toBe(search));
+    view.unmount();
+    mount(Page, `/chat?draft=${draft.id}`);
+    await waitFor(() => expect(screen.getByTestId('location').textContent).toBe(entry));
+    expect(screen.getByLabelText('Message Mitzo')).toHaveProperty('value', draft.text);
+  });
   it.each([{ contextBlocks: [] }, { contextBlocks: ['Project context'] }])(
     `${Page.name} preserves ordinary new-chat resources with context $contextBlocks`,
     async ({ contextBlocks }) => {

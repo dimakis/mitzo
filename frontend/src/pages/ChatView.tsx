@@ -381,14 +381,15 @@ function ChatViewContent() {
   draftSearch.delete('draft');
   draftSearch.delete('prompt');
   if (explicitNew) {
-    for (const key of ['agentProfile', 'profileRevision', 'agentProfileKind'])
-      draftSearch.delete(key);
     const profile = localRuntime.intent.agentProfile;
     if (profile) {
       draftSearch.set('agentProfile', profile.profileId);
       draftSearch.set('profileRevision', String(profile.revision));
       if (profile.kind) draftSearch.set('agentProfileKind', profile.kind);
-    }
+      else draftSearch.delete('agentProfileKind');
+    } else
+      for (const key of ['agentProfile', 'profileRevision', 'agentProfileKind'])
+        draftSearch.delete(key);
     if (currentExtraTools) draftSearch.set('extraTools', currentExtraTools);
   }
   if (clearedExtraToolsScope === newChatDraft.draft.id) draftSearch.delete('extraTools');
