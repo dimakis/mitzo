@@ -46,6 +46,15 @@ The full fresh-agent edited review/refreeze/join UI journey, independent visual
 acceptance, runtime/device qualification and parent milestone remain open.
 No staging or deployment is authorized by this source landing.
 
+Follow-up CI run `42392570863` passed both formerly failing unit shards and the
+mobile Chromium shard containing the approved-design/composer journeys. Its
+supplemental coordinator journey exposed an older cancelled-body observation
+marker: `<stream>` was parsed as JSON even when a later complete response was
+present. The readiness helper now ignores only that exact retained marker.
+All four focused observer tests pass, including actual malformed-JSON refusal;
+the original complete-response requirements and ten-second deadline are intact.
+Current-head CI and independent review are still required after this correction.
+
 ## 7 November 2026 shared composer implementation checkpoint
 
 Candidate `feat/symposium-shared-composer`, baseline accepted main
