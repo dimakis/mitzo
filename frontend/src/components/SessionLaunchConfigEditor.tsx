@@ -1,4 +1,4 @@
-import { useEffect, useId, useMemo, useState } from 'react';
+import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import type { SessionLaunchConfig } from '@mitzo/protocol';
 import { ChatRuntimeDraftContext } from '../hooks/chat-runtime-draft-context';
 import { useExplicitLocalChat } from '../hooks/useExplicitLocalChat';
@@ -17,6 +17,8 @@ export function SessionLaunchConfigEditor(props: {
   onValidityChange?(reason: string | null): void;
 }) {
   const { configuration, onChange } = props;
+  const currentConfiguration = useRef(configuration);
+  currentConfiguration.current = configuration;
   const [capabilityRevision, setCapabilityRevision] = useState<string | null>(null);
   const selection = useMemo(
     () => ({ ...configuration.runtime, capabilityRevision }),
@@ -26,8 +28,13 @@ export function SessionLaunchConfigEditor(props: {
     () => ({
       selection,
       update(next: ChatRuntimeSelection) {
+        // Inventory observation/review may finish after an explicit field edit.
+        // A callback from an older configuration cannot restore that snapshot.
+        if (currentConfiguration.current !== configuration) return;
+        const updated = { ...configuration, runtime: sessionLaunchRuntime(next) };
+        currentConfiguration.current = updated;
         setCapabilityRevision(next.capabilityRevision);
-        onChange({ ...configuration, runtime: sessionLaunchRuntime(next) });
+        onChange(updated);
       },
     }),
     [selection, configuration, onChange],

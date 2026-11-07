@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, expect, it, vi } from 'vitest';
+import type { ContextType } from 'react';
 import { act, cleanup, render, renderHook, waitFor } from '@testing-library/react';
 import { useExplicitLocalChat } from '../useExplicitLocalChat';
 import { apiFetch } from '../../lib/api-fetch';
@@ -18,6 +19,91 @@ vi.mock('../../lib/api-fetch', () => ({ apiFetch: vi.fn() }));
 afterEach(() => {
   cleanup();
   localStorage.clear();
+});
+
+it('hydrates late complete defaults into the shared responsive owner after inventory seeded legacy intent', async () => {
+  const { ChatRuntimeDraftProvider } = await import('../ChatRuntimeDraftProvider');
+  const inventory = localInventoryFixture();
+  setDefaultAccountModel({ accountId: 'personal', model: 'luna-fixture', reasoningEffort: 'low' });
+  vi.mocked(apiFetch).mockImplementation(async () => Response.json(inventory));
+  const { result, rerender } = renderHook(
+    ({ saved }) => useExplicitLocalChat('late-shared-default', saved, null, true),
+    {
+      initialProps: {
+        saved: undefined as ReturnType<typeof createChatRuntimeSelection> | undefined,
+      },
+      wrapper: ({ children }) => (
+        <ChatRuntimeDraftProvider owner="new:0">{children}</ChatRuntimeDraftProvider>
+      ),
+    },
+  );
+  await waitFor(() =>
+    expect(result.current.intent.accountReference).toEqual(inventory.accounts[0].account),
+  );
+  const saved = {
+    ...createChatRuntimeSelection(),
+    account: { accountId: 'personal', model: 'luna-fixture', reasoningEffort: 'high' },
+    accountReference: inventory.accounts[0].account,
+    agentProfile: { profileId: 'agent', revision: 1 },
+    execution: { location: 'local' as const, targetId: 'mac' },
+  };
+  rerender({ saved });
+  await waitFor(() => expect(result.current.intent.execution).toEqual(saved.execution));
+  expect(result.current.intent.account).toEqual(saved.account);
+});
+
+it('preserves an explicit shared runtime through responsive remount and late defaults', async () => {
+  const { ChatRuntimeDraftProvider } = await import('../ChatRuntimeDraftProvider');
+  vi.mocked(apiFetch).mockImplementation(async () => Response.json(localInventoryFixture()));
+  let active!: ReturnType<typeof useExplicitLocalChat>;
+  function Screen({ saved }: { saved?: ReturnType<typeof createChatRuntimeSelection> }) {
+    active = useExplicitLocalChat('responsive-late-default', saved, null, true);
+    return null;
+  }
+  const view = (key: string, saved?: ReturnType<typeof createChatRuntimeSelection>) => (
+    <ChatRuntimeDraftProvider owner="new:0">
+      <Screen key={key} saved={saved} />
+    </ChatRuntimeDraftProvider>
+  );
+  const { rerender } = render(view('phone'));
+  await waitFor(() => expect(active.inventory).not.toBeNull());
+  act(() => active.update({ ...active.intent, execution: { location: 'local', targetId: 'mac' } }));
+  const explicit = active.intent;
+  rerender(view('desktop'));
+  await waitFor(() => expect(active.inventory).not.toBeNull());
+  rerender(
+    view('desktop', { ...explicit, execution: { location: 'local', targetId: 'other-host' } }),
+  );
+  expect(active.intent).toEqual(explicit);
+});
+
+it('rejects a retained update from a previous shared draft owner', async () => {
+  const { ChatRuntimeDraftProvider } = await import('../ChatRuntimeDraftProvider');
+  const { ChatRuntimeDraftContext } = await import('../chat-runtime-draft-context');
+  const { useContext } = await import('react');
+  let current!: NonNullable<ContextType<typeof ChatRuntimeDraftContext>>;
+  function Probe() {
+    current = useContext(ChatRuntimeDraftContext)!;
+    return null;
+  }
+  const { rerender } = render(
+    <ChatRuntimeDraftProvider owner="old">
+      <Probe />
+    </ChatRuntimeDraftProvider>,
+  );
+  const oldUpdate = current.update;
+  rerender(
+    <ChatRuntimeDraftProvider owner="new">
+      <Probe />
+    </ChatRuntimeDraftProvider>,
+  );
+  const selection = {
+    ...createChatRuntimeSelection(),
+    execution: { location: 'local' as const, targetId: 'new-host' },
+  };
+  act(() => current.update(selection));
+  act(() => oldUpdate(createChatRuntimeSelection(), 'hydrate'));
+  expect(current.selection).toEqual(selection);
 });
 
 it.each(['mac', 'removed-host'])(

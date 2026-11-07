@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.934-retain-profile-url-review';
+  'v1.0.935-retain-observed-session-intent';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -23,6 +23,8 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
+  '../../tests/offline/local-first-command.spec.ts':
+    '68932a67a2311b713420ed8c1c75186eb68fbc7a669ca852788aba49e5c57b86',
   '../../tests/browser/composer-layout.spec.ts':
     'f1e4b8140d4aa12bdf04f2e142c1f2c171f9f526d1173bea9036561517300a87',
   '../../frontend/src/components/__tests__/ChatInputDirectInterrupt.test.tsx':
@@ -42,7 +44,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/components/SessionLaunchCards.tsx':
     '4314b8e6bf237dcc9758f525bc735542198f808419588a1ef89768591bf1e57f',
   '../../frontend/src/components/SessionLaunchConfigEditor.tsx':
-    '52a990a97186f88fca42ad38096d7319e019ae9df19b6e26f3532beb2f40a067',
+    '0a404dff73fbda3e47c27b0d45e33c5c891f824ad8cf925e34013f1c8d05e46b',
   '../../frontend/src/components/SessionLaunchDefaultsControl.tsx':
     '9a0cefd867659fc0c1c435483af276cf72a387d35df9568ad1bb1e267fa0d990',
   '../../frontend/src/components/__tests__/ChatInputSessionDefaults.test.tsx':
@@ -50,7 +52,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/components/__tests__/SessionLaunchCards.test.tsx':
     '2cf9b9bfa2079d8ef0888d67386820e06433c42f6ff112f640edb0ab7c7ae0ec',
   '../../frontend/src/components/__tests__/SessionLaunchConfigEditor.test.tsx':
-    'bc7ea38106eac82eed6882a69abcbfd76ecc9621793b89a52ea49d487f8aae2b',
+    'ef0fb010172183e4873862697af7ccdebf55fe46641b2e5c7cf0b620fcdfda88',
   '../../frontend/src/components/__tests__/SessionLaunchDefaultsControl.test.tsx':
     '156bfbfbd9cf9e5c1131271a4d31a7141b9e4762691cd0b6fc5668f8ac61d682',
   '../../frontend/src/hooks/__tests__/useNewChatDraft.defaults.test.tsx':
@@ -690,7 +692,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../tests/offline/telos-source-approval.spec.ts':
     'a6413e3b8c03d75602f734321e8382c6c177344a97370bb27146fe5e552dff58',
   '../../tests/offline/telos-role-setup.spec.ts':
-    'db36a4c430de77b08dd324a3fb8d213946befd577947b76f07d58af0e0746a07',
+    '59af9a6924da322463936e065f4807157eb3310cac58af4f613f190e941fb3c7',
   '../../tests/offline/telos-role-recovery.spec.ts':
     '1e417e0e14337ced024f12fd10572115c6fa4843f9bebb5bf85a2b5f279594a7',
   '../../tests/offline/telos-reviewed-context.spec.ts':
@@ -1752,11 +1754,11 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/components/WorkspaceControls.tsx':
     'f439a002496c7999033e27fd9374eecb094f35c8077da00d60936528dffed17a',
   '../../frontend/src/hooks/ChatRuntimeDraftProvider.tsx':
-    'fcebbeefa5ff14bd074515519a0c4e1d6774ecd7177921ca2264328239cc9720',
+    'b970658a3d873daebdc75122717b34bc3b9fbbb1951992b1db5c500aea6a9910',
   '../../frontend/src/hooks/chat-runtime-draft-context.ts':
     '32660ff240dd5f62c2a8ab976941553a84b7f3809ed3455ffe4e64ccfcd2613d',
   '../../frontend/src/hooks/useExplicitLocalChat.ts':
-    '8224839d2ef40d553e9d20c94daa8d13a11be84266aed8d019e3b8ae69da1dd3',
+    'c4db89798fca63d3f9f5f33c47352744595faaec8aa7ac118becd0eb9d842b06',
   '../../frontend/src/hooks/useNewChatDraft.ts':
     '5493b65e688bc8de2f5136ab79bf39c9e8668b7b0f781ec7a25fc9fd3ef2a214',
   '../../frontend/src/lib/launch-draft-delivery.ts':
@@ -2571,7 +2573,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/unselected-headless-session.test.ts':
     '5c6893553c8b6d29cccc06b8fe47c2cba1629be46baf8498ea3232e3ce80f53f',
   '../../frontend/src/hooks/__tests__/useExplicitLocalChat.test.tsx':
-    '8090947e6bab95678985b34a17e4e15363f25b8e5bb3541289238ba3163a994c',
+    '78b01b83e34d4bd1050bfd7ed7f1657b52b0f2f107a84cc9a34efa347b297591',
   '../../frontend/src/hooks/__tests__/useExplicitLocalChat.ordinary.test.tsx':
     '3b65940bac98f6e70e0656c0f38fc21013d436d235296b944d8c95d75311b43e',
   '../../frontend/src/test-utils/multi-runtime-inventory-fixture.ts':

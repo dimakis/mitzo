@@ -1,4 +1,5 @@
 import { reviewQueuedDrafts, closeComposerStatus } from '../support/composer-status';
+import { readChatStorage } from '../support/persisted-chat-storage';
 import {
   settingRow,
   chooseSetting,
@@ -40,6 +41,8 @@ async function offline(
   const controls: string[] = [];
   const forbidden: string[] = [];
   const errors: string[] = [];
+  const inventory =
+    location === 'local' ? localInventoryFixture() : ordinaryRuntimeInventoryFixture();
   page.on('pageerror', (error) => errors.push(error.message));
   await page.addInitScript(
     ({ restore, intent }) => {
@@ -127,8 +130,7 @@ async function offline(
         gateOff
           ? { status: 503, json: { ok: false, code: 'entry_disabled', error: 'Unavailable' } }
           : {
-              json:
-                location === 'local' ? localInventoryFixture() : ordinaryRuntimeInventoryFixture(),
+              json: inventory,
             },
       );
     if (
@@ -237,6 +239,7 @@ async function offline(
         return route.fulfill({ json: { ok: true } });
       }
       const fixtures: Record<string, unknown> = {
+        '/api/session-launch/defaults': { revision: 0, configuration: null },
         '/api/auth/check': { authenticated: true },
         '/api/config': { quickActions: [], contextBlocks: {} },
         '/api/accounts': [],
@@ -279,7 +282,7 @@ async function offline(
       return route.fulfill({ status: 404, body: '' });
     }
   });
-  return { requests, forbidden, errors, attachments, controls };
+  return { requests, forbidden, errors, attachments, controls, inventory };
 }
 async function emitLocalState(page: Page, state: 'running' | 'idle') {
   await page.evaluate(
@@ -775,18 +778,48 @@ test('OpenShell conversation: default route starts and continues without legacy 
   await chooseSetting(page, 'Thinking level', 'low');
   await chooseAgent(page, JSON.stringify(['saved', 'agent', 1]));
   await expect(page.getByText('Runs with Codex')).toBeVisible();
-  await expect(
-    page
-      .getByRole('status')
-      .filter({ hasText: 'Execution choices changed. Refresh and review before sending.' }),
-  ).not.toHaveCount(0);
+  const staleChoices = page
+    .getByRole('status')
+    .filter({ hasText: 'Execution choices changed. Refresh and review before sending.' });
+  // Projecting the explicitly chosen agent into the draft URL preserves review.
+  await expect(staleChoices).toHaveCount(0);
   await page.getByRole('button', { name: 'Done', exact: true }).click();
-  await openAgentSettings(page);
+  await page.getByRole('textbox', { name: 'Message Mitzo' }).fill('Inspect OpenShell checkout');
+  await expect(page).toHaveURL(/draft=/);
+  const draftId = new URL(page.url()).searchParams.get('draft')!;
+  await expect
+    .poll(() =>
+      readChatStorage(
+        page,
+        (storage, key) => {
+          const draft = JSON.parse(storage.getItem(key) ?? 'null');
+          return {
+            text: draft?.text,
+            capabilityRevision: draft?.settings.runtimeSelection?.capabilityRevision,
+          };
+        },
+        `mitzo-chat-draft:${draftId}`,
+      ),
+    )
+    .toEqual({
+      text: 'Inspect OpenShell checkout',
+      capabilityRevision: fixture.inventory.capabilityRevision,
+    });
+  // Exercise actual inventory drift, rather than the former URL projection bug.
+  fixture.inventory.capabilityRevision = 'combined-caps-r2';
+  await page.reload();
+  await expect(page.getByRole('textbox', { name: 'Message Mitzo' })).toHaveValue(
+    'Inspect OpenShell checkout',
+  );
+  await expect(staleChoices).not.toHaveCount(0);
   await expect(
-    page
-      .getByRole('status')
-      .filter({ hasText: 'Execution choices changed. Refresh and review before sending.' }),
-  ).toHaveCount(0);
+    page.getByRole('button', { name: /^(Send message|Start session)$/, exact: true }),
+  ).toBeDisabled();
+  expect(fixture.requests).toHaveLength(0);
+  await openAgentSettings(page);
+  await expect(staleChoices).not.toHaveCount(0);
+  await page.getByRole('button', { name: 'OpenShell', exact: true }).click();
+  await expect(staleChoices).toHaveCount(0);
   await openChatSetting(page, 'repository');
   await page
     .getByRole('combobox', { name: 'GitHub repository' })

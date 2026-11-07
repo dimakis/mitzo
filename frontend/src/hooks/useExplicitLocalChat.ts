@@ -141,7 +141,9 @@ export function useExplicitLocalChat(
     // seed once; rereading a retained draft cannot renew its capability review.
     if (sessionId || !saved || !inventory || edits.current.edited || edits.current.saved) return;
     edits.current.saved = saved;
-    setChoice({ draftId, intent: { ...seed(), capabilityRevision: inventory.capabilityRevision } });
+    const hydrated = { ...seed(), capabilityRevision: inventory.capabilityRevision };
+    setChoice({ draftId, intent: hydrated });
+    latestRetained.current?.update(hydrated, 'hydrate');
   }, [saved, sessionId, draftId, seed, inventory]);
   const [enrollment, setEnrollment] = useState<'loading' | 'off' | 'on' | 'unknown'>('loading');
   const [attempt, setAttempt] = useState(0);
