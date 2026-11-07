@@ -1,0 +1,20 @@
+---
+description: Require economical behavioral tests and evidence of expensive test cost
+alwaysApply: true
+---
+
+# Test cost — every agent
+
+Read and follow **Test cost and coverage** in `CLAUDE.md`. This applies to primary
+agents, delegated subagents, automated fixers and reviewers; include the policy in
+delegated task briefs.
+
+- Identify missing behavior; use the cheapest adequate layer and reuse tests and
+  fixtures. TDD can extend an existing test; each change does not need a new file
+  or full browser/native journey.
+- Justify new expensive journeys by distinct coverage and report observed setup,
+  test and CI cost in the PR template using existing evidence. Explain unavailable
+  measurements; do not launch extra full suites solely for reporting.
+- Retain real boundary coverage, required tests/gates and operation deadlines.
+  Share setup only while isolation, authority, ownership and cancellation remain
+  correct. Diagnose material cost growth and avoidable repeated setup in review.
