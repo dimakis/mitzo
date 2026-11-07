@@ -66,6 +66,29 @@ dependency was absent; that invalid control is retained separately, not counted 
 owner-omission evidence. The release's existing native dependency was reused before
 the valid control. This is implementation self-verification, not independent review.
 
+### Landing integration with accepted main 0ea37beb
+
+The prior candidate `736993dbe87368291ada8436389e84ebf828748d` passed all 33
+CI jobs in run `42369675317`, including the actual advisor-refine browser journey,
+and received trusted Centaur final LGTM/merge review `5812085243`. Main then
+advanced to accepted `0ea37bebba1528025f14b0d2ae099f0eefa69067` (PR #1254),
+which retains ordinary-session tool authentication across browser disconnects.
+The application code merged automatically. The sole registry conflict preserves
+both sets of registered sources, adds the accepted session-library operator test,
+and renews all fingerprints with runtime revision
+`v1.0.942-symposium-directed-prompts-integration`.
+
+Read-only correctness/security integration reviews found no blocker in the
+combined session ownership, revocation, queue and dispatch fences. Focused semantic
+checks report zero diagnostics across six affected production modules. Combined
+local regressions record 287 passes, 11 skips and 19 failures across 19 files;
+all failures occur in the native AgentCommunication fixture during owned-runtime
+admission (`Owned local Codex runtime unavailable`), before those assertions.
+The other 18 files pass. This is not counted as a green local suite or evidence
+that the failed native cases work. Fresh combined-result CI and targeted Centaur
+integration verification remain required on the published merge candidate; the
+prior head's approval does not satisfy those gates.
+
 ## Executed application baseline
 
 Accepted main `dcbad645a3179731de96957299bb775eb094bff8`, tree

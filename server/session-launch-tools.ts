@@ -11,7 +11,7 @@ import { captureAgentLibraryAuthorization } from './agent-library-transport.js';
 import { agentToolAllowed } from './agent-tool-selection.js';
 import { getSessionLaunches, type SessionLaunchController } from './session-launch-controller.js';
 import type { ProfileToolCall } from './session-profile-tools.js';
-import { retainedNativeHostToolOperator } from './native-host-tool-operator.js';
+import { sessionToolOperatorConnection } from './native-host-tool-operator.js';
 import { publicSessionLaunchRecord } from './session-launch-store.js';
 
 export const sessionLaunchDefinitions = [
@@ -75,16 +75,12 @@ export function sessionLaunchTools(options: {
         return owner;
       };
       const owner = current();
-      const operator = (session: ManagedSession, clientId: string) =>
-        retainedNativeHostToolOperator(session) ??
-        session.ownerConnectionId ??
-        clientId.split(':')[0];
-      const connectionId = operator(owner.session, owner.clientId);
+      const connectionId = sessionToolOperatorConnection(owner.session, owner.clientId);
       const captured = captureAgentLibraryAuthorization(connectionId);
       await options.assertCurrent();
       const next = current();
       captured.assertCurrent();
-      if (operator(next.session, next.clientId) !== connectionId)
+      if (sessionToolOperatorConnection(next.session, next.clientId) !== connectionId)
         throw Error('Session operator changed.');
       const input = StartSessionInputSchema.parse(raw);
       const controller = (options.controller ?? getSessionLaunches)();

@@ -16,7 +16,7 @@ export function captureAgentLibraryAuthorization(
   const auth = connectionId ? operators.get(connectionId) : undefined;
   if (!auth || auth.expiresAt <= Date.now())
     throw new OperatorAuthorizationError(
-      'Interactive operator authentication is required to select an agent profile',
+      'Interactive operator authentication is required for this operation',
     );
   return {
     auth,
@@ -29,7 +29,7 @@ export function captureAgentLibraryAuthorization(
           ? !isAuthSessionCurrent(auth)
           : operators.get(connectionId!) !== auth)
       )
-        throw new OperatorAuthorizationError('Agent profile authorization expired or revoked');
+        throw new OperatorAuthorizationError('Operator authorization expired or revoked');
     },
   };
 }
