@@ -37,7 +37,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/protocol/src/session-search-query.ts':
     '7a2a23ed00eafea3e30efc312160914dba871bb736e7160770c2f4d9555b5250',
   '../__tests__/session-search-relevance.test.ts':
-    '8e42043abfbf06bcac48dc59729745c5c2767edc5502402c136490d96ac98ede',
+    '95059807df1079cd05ed3be524d00a9bc13135ef8db66cfa4094a7fd1900e09e',
   '../__tests__/session-library-operator.test.ts':
     'fd0d47cba957cbd22e5dc6ac2e8c02cf40dc9f0006dbdd6ea81eaf6743a2e50b',
   '../../tests/integration/telos-s9/integrated-candidate/joined-conversation-ready.test.ts':
@@ -428,7 +428,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/protocol/src/session-search-index.ts':
     '94bd1c990864bb5154037ea6500109a3c9e62cf0990e8d08387515969d303acd',
   '../../packages/protocol/src/session-search-worker.ts':
-    'cb457333d60fd012b2fc8d01b720ff6cf2b859b53fe0d27006cf575428ccc9d2',
+    'f22c1a19113f6abaa27a2873fb120e21ba8ebc05f8c8d08ca17bc84ea74d82e0',
   '../__tests__/fixtures/offline-user-home.ts':
     '0f03dd15977845b06c25a6b72b0806707c35b7fe88d86c3ec44001b8ec640451',
   '../__tests__/git-config-parser-cache.test.ts':

@@ -135,6 +135,19 @@ it('does not fabricate phrases across different messages or text blocks', async 
   expect(await store.searchSessionsAsync('personal subscription')).toHaveLength(1);
 });
 
+it('does not join legacy chunks without a stable message identity', async () => {
+  const store = fixture();
+  chat(store, 'one');
+  store.append('one', 'block_delta', { blockId: 'reused', blockType: 'text', delta: 'personal ' });
+  store.append('one', 'block_delta', {
+    blockId: 'reused',
+    blockType: 'text',
+    delta: 'subscription',
+  });
+  expect(await store.searchSessionsAsync('"personal subscription"')).toEqual([]);
+  expect(await store.searchSessionsAsync('personal subscription')).toHaveLength(1);
+});
+
 it('excludes reasoning, tool data, hidden and internal sessions', async () => {
   const store = fixture();
   chat(store, 'one');

@@ -63,16 +63,20 @@ function append(events: SearchEvent[]): void {
         typeof payload.delta !== 'string'
       )
         continue;
-      const current = pending.get(key);
+      // A block ID alone can be reused by later legacy messages. Retain its
+      // type boundary, but join text only with both stable message/block IDs.
+      const identified = messageId !== '' && typeof payload.blockId === 'string';
+      const documentKey = identified ? key : JSON.stringify([event.session_id, event.seq]);
+      const current = pending.get(documentKey);
       if (current) {
         current.text += payload.delta;
         current.event = event;
       } else
-        pending.set(key, {
+        pending.set(documentKey, {
           text: payload.delta,
           event,
           messageId,
-          rowid: known?.rowid ?? undefined,
+          rowid: identified ? (known?.rowid ?? undefined) : undefined,
         });
     }
     for (const [key, item] of pending) {
