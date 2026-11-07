@@ -173,9 +173,9 @@ it('excludes an actual adapter approval phase from its host execution deadline',
   expect(result.success).toBe(true);
 });
 
-it.each([false, true])(
-  'continues once after authoritative approval expiry only when no later native result is pending (pending=%s)',
-  async (pendingNative) => {
+it.each(['clear', 'unfinished', 'failed-earlier'] as const)(
+  'continues once after authoritative approval expiry only with safe command-wide native outcomes (%s)',
+  async (nativeOutcome) => {
     const f = await setup();
     let approvalRequests = 0;
     f.conversationOptions.requestNativeApproval = async (_method, _params, _signal, context) => {
@@ -189,6 +189,18 @@ it.each([false, true])(
       intent: 'Original request',
     });
     const fail = async (turnId: string, itemId: string) => {
+      if (nativeOutcome === 'failed-earlier') {
+        f.callbacks.onNotification('item/started', {
+          threadId: f.getProviderThread(),
+          turnId,
+          item: { type: 'commandExecution', id: 'earlier', command: 'unknown operation' },
+        });
+        f.callbacks.onNotification('item/completed', {
+          threadId: f.getProviderThread(),
+          turnId,
+          item: { type: 'commandExecution', id: 'earlier', status: 'completed', exitCode: 1 },
+        });
+      }
       f.callbacks.onNotification('item/started', {
         threadId: f.getProviderThread(),
         turnId,
@@ -214,7 +226,7 @@ it.each([false, true])(
         turnId,
         item: { type: 'commandExecution', id: itemId, status: 'declined' },
       });
-      if (pendingNative)
+      if (nativeOutcome === 'unfinished')
         f.callbacks.onNotification('item/started', {
           threadId: f.getProviderThread(),
           turnId,
@@ -226,7 +238,7 @@ it.each([false, true])(
       });
     };
     await fail('turn-1', 'approval-1');
-    if (pendingNative) {
+    if (nativeOutcome !== 'clear') {
       await new Promise<void>((resolve) => setImmediate(resolve));
       expect(f.rpc.request.mock.calls.filter(([method]) => method === 'turn/start')).toHaveLength(
         1,

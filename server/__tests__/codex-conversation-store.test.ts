@@ -92,6 +92,87 @@ it('queues exactly one failure continuation from a settled completed source and 
   store.close();
 });
 
+it.each(['unknown', 'permission_denied', 'cancelled', 'native'] as const)(
+  'retains command-wide %s suppression across later expiry and restart',
+  (kind) => {
+    const { path } = setup();
+    let store = new CodexConversationStore(path);
+    store.create('mixed', binding, '/offline');
+    store.bindThread('mixed', binding, 'thread');
+    store.enqueue('mixed', binding, { id: 'source', prompt: 'Original request' });
+    const source = store.claimNext('mixed', binding)!;
+    store.recordNativeTurnAck('mixed', binding, source, 'thread', 'turn');
+    if (kind === 'native')
+      store.recordToolFailureRecoverySuppression('mixed', binding, 'source', 'turn');
+    else
+      store.recordToolFailure(
+        'mixed',
+        binding,
+        'source',
+        'turn',
+        'earlier',
+        toolFailure(
+          kind === 'unknown' ? 'approval_expired' : kind,
+          'approval',
+          kind === 'unknown' ? 'unknown' : 'not_started',
+        ),
+        'native_approval',
+      );
+    const failure = toolFailure('approval_expired', 'approval', 'not_started');
+    store.recordToolFailure(
+      'mixed',
+      binding,
+      'source',
+      'turn',
+      'expiry',
+      failure,
+      'native_approval',
+    );
+    store.finish('mixed', binding, 'source', 'completed', 'turn');
+    store.close();
+    store = new CodexConversationStore(path);
+    try {
+      expect(
+        store.queueToolFailureContinuation('mixed', binding, 'source', 'turn', failure),
+      ).toBeUndefined();
+    } finally {
+      store.close();
+    }
+  },
+);
+
+it('revalidates durable negative observations after a child was queued and before dispatch', () => {
+  const { path } = setup();
+  const store = new CodexConversationStore(path);
+  try {
+    store.create('mixed', binding, '/offline');
+    store.bindThread('mixed', binding, 'thread');
+    store.enqueue('mixed', binding, { id: 'source', prompt: 'Original request' });
+    const source = store.claimNext('mixed', binding)!;
+    store.recordNativeTurnAck('mixed', binding, source, 'thread', 'turn');
+    const failure = toolFailure('approval_expired', 'approval', 'not_started');
+    store.recordToolFailure(
+      'mixed',
+      binding,
+      'source',
+      'turn',
+      'expiry',
+      failure,
+      'native_approval',
+    );
+    store.finish('mixed', binding, 'source', 'completed', 'turn');
+    const child = store.queueToolFailureContinuation('mixed', binding, 'source', 'turn', failure)!;
+    store.recordToolFailureRecoverySuppression('mixed', binding, 'source', 'turn');
+    expect(
+      store.queueToolFailureContinuation('mixed', binding, 'source', 'turn', failure),
+    ).toBeUndefined();
+    expect(() => store.assertToolFailureContinuation('mixed', binding, child)).toThrow();
+    expect(() => store.claimNext('mixed', binding)).toThrow();
+  } finally {
+    store.close();
+  }
+});
+
 it('lets a newer explicit command cancel an undispatched tool recovery', () => {
   const { path } = setup();
   const store = new CodexConversationStore(path);

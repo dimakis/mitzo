@@ -30,6 +30,41 @@ it('preserves an authoritative approval expiry through the terminal recovery not
   });
 });
 
+it.each(['unknown', 'denied', 'cancelled'] as const)(
+  'never clears earlier %s recovery suppression when another tool expires',
+  (kind) => {
+    const m = new CodexSessionEvents('app', 'thread', 'model', () => {});
+    m.notification('turn/started', { threadId: 'thread', turn: { id: 'turn' } });
+    m.toolResult(
+      'earlier',
+      'failure',
+      true,
+      undefined,
+      kind === 'unknown'
+        ? undefined
+        : toolFailure(
+            kind === 'denied' ? 'permission_denied' : 'cancelled',
+            'approval',
+            'not_started',
+          ),
+    );
+    m.toolResult('success', 'done', false);
+    m.toolResult(
+      'expiry',
+      'expired',
+      true,
+      undefined,
+      toolFailure('approval_expired', 'approval', 'not_started'),
+    );
+    m.notification('turn/completed', {
+      threadId: 'thread',
+      turn: { id: 'turn', status: 'completed' },
+    });
+    expect(m.getUnexplainedFailure()?.code).toBe('approval_expired');
+    expect(m.isToolFailureRecoverySuppressed()).toBe(true);
+  },
+);
+
 it('does not treat buffered text from before a tool failure as a follow-up', () => {
   const events: Record<string, unknown>[] = [];
   const m = new CodexSessionEvents('app', 'thread', 'model', (event) => events.push(event));

@@ -25,6 +25,7 @@ interface GuardScope {
   signal: AbortSignal;
   assertCurrent(): void;
   enter(phase: ToolGuardPhase): () => void;
+  enterCleanup(): (() => void) | undefined;
 }
 const currentGuard = new AsyncLocalStorage<GuardScope>();
 
@@ -48,19 +49,24 @@ export async function withToolGuardPhase<T>(
 
 /** Cleanup still runs after cancellation, with a fresh bounded lifetime. Original
  * executor/authority fences remain in force; this grants no execution permission. */
-export function runBoundedToolCleanup<T>(
+export async function runBoundedToolCleanup<T>(
   work: () => T | Promise<T>,
   timeoutMs = 10_000,
 ): Promise<T> {
-  return currentGuard.exit(() =>
-    runGuardedTool(
-      {
-        signal: new AbortController().signal,
-        policy: { executionMs: timeoutMs, approvalMs: timeoutMs, cleanupMs: timeoutMs },
-      },
-      () => withToolGuardPhase('cleanup', work),
-    ),
-  );
+  const restore = currentGuard.getStore()?.enterCleanup();
+  try {
+    return await currentGuard.exit(() =>
+      runGuardedTool(
+        {
+          signal: new AbortController().signal,
+          policy: { executionMs: timeoutMs, approvalMs: timeoutMs, cleanupMs: timeoutMs },
+        },
+        () => withToolGuardPhase('cleanup', work),
+      ),
+    );
+  } finally {
+    restore?.();
+  }
 }
 
 export interface ToolGuardObservation {
@@ -147,6 +153,10 @@ export async function runGuardedTool<T>(
     const scope: GuardScope = {
       signal,
       assertCurrent,
+      enterCleanup() {
+        if (closed) return;
+        return scope.enter('cleanup');
+      },
       enter(next) {
         assertCurrent();
         account();

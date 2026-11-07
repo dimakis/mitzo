@@ -26,12 +26,23 @@ export class CodexSessionEvents {
   private unexplainedToolFailure = false;
   private unexplainedFailure?: ToolFailure;
   private nativeFailures = new Map<string, ToolFailure>();
+  private recoverySuppressed = false;
+  isToolFailureRecoverySuppressed(): boolean {
+    return this.recoverySuppressed;
+  }
+  private suppressUnsafeRecovery(failure: ToolFailure): void {
+    this.recoverySuppressed ||=
+      failure.effectStatus === 'unknown' ||
+      ['none', 'reconnect', 'inspect_operation'].includes(failure.recovery);
+  }
   getUnexplainedFailure(): ToolFailure | undefined {
     return this.unexplainedToolFailure ? this.unexplainedFailure : undefined;
   }
   recordNativeFailure(itemId: string, failure: ToolFailure): void {
-    if (!this.turnFinished && this.commandTools.has(itemId))
+    if (!this.turnFinished && this.commandTools.has(itemId)) {
       this.nativeFailures.set(itemId, ToolFailureSchema.parse(failure));
+      this.suppressUnsafeRecovery(failure);
+    }
   }
   private usage: CodexTurnUsage;
   constructor(
@@ -164,6 +175,7 @@ export class CodexSessionEvents {
       this.nativeFailures.clear();
       const turnId = object(params.turn).id;
       if (typeof turnId === 'string' && !this.startedTurns.has(turnId)) {
+        this.recoverySuppressed = false;
         this.activeTurnId = turnId;
         this.startedTurns.add(turnId);
         this.usage.start(turnId);
@@ -465,6 +477,7 @@ export class CodexSessionEvents {
     this.unexplainedFailure = result.isError
       ? (failure ?? toolFailure('internal_failure', 'execution', 'unknown'))
       : undefined;
+    if (this.unexplainedFailure) this.suppressUnsafeRecovery(this.unexplainedFailure);
     let precedingText = false;
     const blocks = result.contentItems?.map((item) => {
       if (item.type === 'inputText') {

@@ -646,6 +646,10 @@ export class CodexConversationStore {
       call_id TEXT NOT NULL, target TEXT NOT NULL, failure TEXT NOT NULL, origin TEXT NOT NULL,
       PRIMARY KEY(conversation_id,command_id,attempt,call_id),
       FOREIGN KEY(conversation_id,command_id) REFERENCES codex_commands(conversation_id,id));`);
+    this.db.exec(`CREATE TABLE IF NOT EXISTS codex_tool_failure_suppressions (
+      conversation_id TEXT NOT NULL, command_id TEXT NOT NULL, attempt INTEGER NOT NULL,
+      target TEXT NOT NULL, PRIMARY KEY(conversation_id,command_id,attempt),
+      FOREIGN KEY(conversation_id,command_id) REFERENCES codex_commands(conversation_id,id));`);
     this.db.exec(`CREATE TABLE IF NOT EXISTS codex_steering (
       conversation_id TEXT NOT NULL REFERENCES codex_conversations(id),
       request_id TEXT NOT NULL, input TEXT NOT NULL, target TEXT NOT NULL, status TEXT NOT NULL,
@@ -2246,6 +2250,51 @@ export class CodexConversationStore {
         .run(id, commandId, command.attempt, callId, values.target, values.failure, origin);
   }
 
+  /** Negative-only original-owner observation, including terminal native items.
+   * It cannot qualify an operation for recovery or settle any effect. */
+  recordToolFailureRecoverySuppression(
+    id: string,
+    binding: AccountBinding,
+    commandId: string,
+    turnId: string,
+  ): void {
+    const target = this.toolFailureSourceTarget(id, binding, commandId);
+    if (!target || target.turnId !== turnId) throw Error('Tool failure source changed');
+    this.db
+      .prepare('INSERT OR IGNORE INTO codex_tool_failure_suppressions VALUES (?,?,?,?)')
+      .run(id, commandId, target.attempt, JSON.stringify(target));
+  }
+
+  private toolFailureRecoverySuppressed(id: string, commandId: string, attempt: number): boolean {
+    const receipts = this.db
+      .prepare(
+        `SELECT failure FROM codex_tool_failures
+      WHERE conversation_id=? AND command_id=? AND attempt=?`,
+      )
+      .all(id, commandId, attempt) as { failure: string }[];
+    return (
+      !!this.db
+        .prepare(
+          'SELECT 1 FROM codex_tool_failure_suppressions WHERE conversation_id=? AND command_id=? AND attempt=?',
+        )
+        .get(id, commandId, attempt) ||
+      !!this.db
+        .prepare(
+          `SELECT 1 FROM codex_tools WHERE conversation_id=? AND command_id=?
+      AND (result_content IS NULL OR result_effect_outcome='unknown'
+        OR (result_is_error=1 AND coalesce(result_effect_outcome,'unknown')<>'settled')) LIMIT 1`,
+        )
+        .get(id, commandId) ||
+      receipts.some((receipt) => {
+        const failure = ToolFailureSchema.parse(JSON.parse(receipt.failure));
+        return (
+          failure.effectStatus === 'unknown' ||
+          ['none', 'reconnect', 'inspect_operation'].includes(failure.recovery)
+        );
+      })
+    );
+  }
+
   /** At most one new reasoning turn per original command. This is not a replay
    * of the failed operation and supplies no new permission or executor authority. */
   queueToolFailureContinuation(
@@ -2266,6 +2315,7 @@ export class CodexConversationStore {
         source.toolFailureContinuation ||
         source.environmentContinuation ||
         source.allowedTools ||
+        this.toolFailureRecoverySuppressed(id, commandId, source.attempt) ||
         state.recovery ||
         failure.effectStatus === 'unknown' ||
         ['none', 'reconnect', 'inspect_operation'].includes(failure.recovery)
@@ -2349,6 +2399,7 @@ export class CodexConversationStore {
       !source ||
       source.status !== 'completed' ||
       source.toolFailureContinuation ||
+      this.toolFailureRecoverySuppressed(id, source.id, source.attempt) ||
       !target ||
       target.turnId !== proof.sourceTurnId ||
       target.attempt !== proof.sourceAttempt ||

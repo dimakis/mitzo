@@ -3718,12 +3718,19 @@ export class CodexConversation {
       if (recoverQueuedFollowUp) this.automaticTransportRecoveryAttempted = true;
       if (providerTransportFailed) this.retireTransportForRecovery();
       this.mapper?.notification(method, params, providerFailure);
-      // Terminal projection seals unfinished native items as unknown. Only its
-      // final failure can qualify recovery; an earlier expiry cannot override it.
+      // Terminal projection seals unfinished native items as unknown. Persist
+      // command-wide negative evidence before considering the final failure.
       const finalToolFailure = failedToolSource && this.mapper?.getUnexplainedFailure();
       if (!this.closed && failedToolSource && finalToolFailure) {
         let child: CodexCommandInput | undefined;
         try {
+          if (this.mapper?.isToolFailureRecoverySuppressed())
+            this.opts.store.recordToolFailureRecoverySuppression(
+              this.opts.conversationId,
+              this.binding!,
+              failedToolSource.commandId,
+              turn.data.id,
+            );
           child = this.opts.store.queueToolFailureContinuation(
             this.opts.conversationId,
             this.binding!,

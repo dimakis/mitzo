@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { runBoundedToolCleanup } from '@mitzo/harness';
+import { runBoundedToolCleanup, ToolGuardTimeoutError } from '@mitzo/harness';
 import { toolFailure } from '@mitzo/protocol';
 import { performance } from 'node:perf_hooks';
 import { z } from 'zod';
@@ -37,6 +37,7 @@ const FailureDetailSchema = z.strictObject({
   effectStatus: z.enum(['not_started', 'unknown', 'completed']),
 });
 export const CodexToolFailureDiagnosticSchema = FailureDetailSchema.extend({
+  phase: z.enum(['approval', 'execution', 'cleanup']).optional(),
   primary: FailureDetailSchema.optional(),
   cleanup: z.array(FailureDetailSchema).max(8).optional(),
   cleanupTruncated: z.literal(true).optional(),
@@ -167,6 +168,7 @@ function failureProjection(
       code: selected.code,
       diagnostic: {
         stage: selected.diagnostic.stage,
+        phase: 'cleanup',
         reason: selected.diagnostic.reason,
         effectStatus: 'unknown',
         ...(original
@@ -188,6 +190,7 @@ function failureProjection(
     };
   }
   const typed = chain.find((failure) => failure instanceof CodexToolFailure);
+  const timeout = chain.find((failure) => failure instanceof ToolGuardTimeoutError);
   const boundary = chain.find((failure) => failure instanceof PendingHostTaskError);
   const code: ToolFailureCode = chain.some((failure) => failure.name === 'AbortError')
     ? 'cancelled'
@@ -225,7 +228,11 @@ function failureProjection(
   };
   return {
     code,
-    diagnostic: code === 'cancelled' ? { ...diagnostic, reason: 'cancelled' } : diagnostic,
+    diagnostic: {
+      ...diagnostic,
+      ...(timeout ? { phase: timeout.phase } : {}),
+      ...(code === 'cancelled' ? { reason: 'cancelled' as const } : {}),
+    },
   };
 }
 
@@ -266,7 +273,7 @@ export function codexToolFailureResult(
     content: JSON.stringify({
       failure: toolFailure(
         diagnostic.reason === 'deadline' ? 'tool_timeout' : code,
-        diagnostic.cleanup?.length ? 'cleanup' : 'execution',
+        diagnostic.phase ?? (diagnostic.cleanup?.length ? 'cleanup' : 'execution'),
         diagnostic.effectStatus,
       ),
       error: code,

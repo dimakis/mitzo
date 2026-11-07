@@ -1,13 +1,55 @@
 import { afterEach, expect, it, vi } from 'vitest';
+import { performance } from 'node:perf_hooks';
 import {
   assertToolGuardCurrent,
   runGuardedTool,
+  runBoundedToolCleanup,
   ToolGuardTimeoutError,
   withToolGuardPhase,
 } from '../src/tool-guard.js';
 
-afterEach(() => vi.useRealTimers());
+afterEach(() => {
+  vi.restoreAllMocks();
+  vi.useRealTimers();
+});
 const policy = { executionMs: 100, approvalMs: 1000, cleanupMs: 20 };
+
+it('charges detached cleanup to the enclosing cleanup budget after nearly exhausted execution', async () => {
+  vi.useFakeTimers();
+  vi.spyOn(performance, 'now').mockImplementation(() => Date.now());
+  const observe = vi.fn();
+  const work = runGuardedTool(
+    { signal: new AbortController().signal, policy, onSettled: observe },
+    async () => {
+      await new Promise((resolve) => setTimeout(resolve, 90));
+      await runBoundedToolCleanup(() => new Promise((resolve) => setTimeout(resolve, 15)));
+      return 'done';
+    },
+  );
+  await vi.advanceTimersByTimeAsync(105);
+  await expect(work).resolves.toBe('done');
+  expect(observe.mock.calls[0][0].elapsedMs).toMatchObject({ execution: 90, cleanup: 15 });
+});
+
+it('keeps cumulative enclosing cleanup bounds and still permits cleanup after retirement', async () => {
+  vi.useFakeTimers();
+  vi.spyOn(performance, 'now').mockImplementation(() => Date.now());
+  let cleaned = false;
+  const work = runGuardedTool({ signal: new AbortController().signal, policy }, async () => {
+    try {
+      await runBoundedToolCleanup(() => new Promise((resolve) => setTimeout(resolve, 30)));
+    } finally {
+      await runBoundedToolCleanup(async () => {
+        cleaned = true;
+      });
+    }
+  });
+  const failed = expect(work).rejects.toMatchObject({ phase: 'cleanup' });
+  await vi.advanceTimersByTimeAsync(20);
+  await failed;
+  await vi.advanceTimersByTimeAsync(10);
+  expect(cleaned).toBe(true);
+});
 
 it('returns the original result and preserves a synchronous executor failure', async () => {
   const result = { content: 'ok', isError: false };
