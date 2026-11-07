@@ -25,7 +25,9 @@ export const telosOutcomeShape = {
     .array(z.string().trim().min(1).max(500))
     .min(1)
     .max(24)
-    .describe('Ordered milestones; the first unfinished entry is the next action'),
+    .describe(
+      'Ordered direct child delivery slices, each bounded to one dedicated working session. Do not add an intermediate milestone grouping layer. The first unfinished slice is the next action.',
+    ),
   profile: z
     .string()
     .trim()
@@ -65,7 +67,7 @@ export type TelosOutcomeInput = z.infer<typeof TelosOutcomeInput>;
 export const telosCreateOutcomeDefinition: ToolDefinition = {
   name: TELOS_CREATE_OUTCOME_TOOL,
   description:
-    'Create one durable outcome in live Telos with an explicit result, rationale, evidence criteria, and ordered milestones. Use this instead of running sandbox-local todo scripts. This mutates Telos and requires user approval. If the operator requests changes, revise the retained original outcome using their feedback and call this tool again for fresh review; feedback does not approve creation.',
+    'For a multi-slice ask, first propose Telos, then create the approved outcome in live Telos with its result, rationale, criteria and ordered direct child slices (milestones). Simple tasks stay in chat unless Telos was explicitly requested or already applies. The outcome has an orchestrator/lead chat; each slice has one dedicated working session. Creation does not establish role/session bindings or start execution; use existing reviewed setup, not sandbox-local todo scripts. A coordination outcome can organize a merge-queue orchestrator between parallel feature owners. Requires user approval. If changes are requested, revise the retained proposal for fresh review; feedback does not approve creation.',
   input_schema: z.toJSONSchema(TelosOutcomeInput),
 };
 

@@ -10,7 +10,7 @@ export const telosWorkDefinitions: ToolDefinition[] = [
   {
     name: TELOS_START_SLICE_TOOL,
     description:
-      'Allocate or recover one ordinary worker chat for the exact explicitly selected child of this lead. Returns its retained worker link while staying in the lead chat; does not start a model turn or complete work. Use start to recover existing work; retry requires an explicit user request and the exact predecessor attempt. Reuse requestId after uncertain responses. Never guess an ambiguous child or start siblings.',
+      'Finish session setup for one direct child delivery slice of this outcome orchestrator (assigned lead). Allocate or recover its one dedicated ordinary worker chat, returning the retained link while staying in the lead; does not start a model turn or complete work. Use start to recover existing work; retry requires an explicit user request and the exact predecessor attempt. Reuse requestId after uncertain responses. Never guess an ambiguous child, treat the originating chat as its worker, or start siblings.',
     input_schema: z.toJSONSchema(TelosStartSliceInputSchema),
   },
 ];

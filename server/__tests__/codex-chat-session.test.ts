@@ -35,7 +35,8 @@ const mocks = vi.hoisted(() => ({
   recordKnowledgeAdoption: vi.fn(),
   recordAgentContextAdoption: vi.fn(),
   privateDirectory: '/tmp',
-  conversationOptions: undefined as Record<string, unknown> | undefined,
+  conversationOptions: undefined as
+    (Record<string, unknown> & { systemPrompt?: string }) | undefined,
   useTls: false,
   custodianController: false,
 }));
@@ -835,6 +836,11 @@ it('does not advertise unavailable host tools to an OpenShell runtime', async ()
     'never use a sandbox-local todo script',
   );
   expect(mocks.conversationOptions?.systemPrompt).toContain('TelosFindArtifacts');
+  expect(mocks.conversationOptions?.systemPrompt).toContain('propose Telos');
+  expect(mocks.conversationOptions?.systemPrompt).toContain(
+    'Simple one-session tasks stay in chat',
+  );
+  expect(mocks.conversationOptions?.systemPrompt?.split('## Telos work planning').length).toBe(2);
   expect(mocks.connect).not.toHaveBeenCalled();
   await expect(chat.setPermissionMode?.('agent')).resolves.toBeUndefined();
   await expect(chat.setPermissionMode?.('ask')).rejects.toThrow('Ask mode');
@@ -2768,9 +2774,7 @@ it('does not require Telos outcome capture for ordinary artifact contributors in
     systemPrompt: 'Selected artifact contributor instructions.',
     contributorGuidance: 'Contribute to the selected document.',
   });
-  expect(mocks.conversationOptions?.systemPrompt).not.toContain(
-    'Telos is the de facto persistent home',
-  );
+  expect(mocks.conversationOptions?.systemPrompt).not.toContain('## Telos work planning');
   expect(mocks.conversationOptions?.systemPrompt).not.toContain(
     'Use TelosCreateOutcome for durable Telos capture',
   );
@@ -4779,6 +4783,11 @@ it.each([false, true])(
       expect(mocks.conversationOptions?.tools).toContainEqual(
         expect.objectContaining({ name: 'TelosStartSlice' }),
       );
+      const prompt = mocks.conversationOptions!.systemPrompt!;
+      expect(prompt).toContain('propose Telos');
+      expect(prompt).toContain('one dedicated working session');
+      expect(prompt).toContain('merge-queue orchestrator');
+      expect(prompt.split('## Telos work planning')).toHaveLength(2);
       const execute = mocks.conversationOptions!.executeTool as (
         name: string,
         input: Record<string, unknown>,
@@ -4971,6 +4980,8 @@ it('exposes slice allocation to a retained OpenShell lead without enabling selec
   expect(mocks.conversationOptions?.tools).toContainEqual(
     expect.objectContaining({ name: 'TelosStartSlice' }),
   );
+  expect(mocks.conversationOptions?.systemPrompt).toContain('propose Telos');
+  expect(mocks.conversationOptions?.systemPrompt?.split('## Telos work planning')).toHaveLength(2);
   chat.close();
   store.close();
 });

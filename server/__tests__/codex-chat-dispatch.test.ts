@@ -126,7 +126,9 @@ it('routes a bound Codex account to its controller with context and canonical du
     expect(openCodexChat).toHaveBeenCalledOnce();
     expect(persisted).toEqual(profiles.resolve('personal', 'luna'));
     expect(opened?.systemPrompt).toContain('boot evidence');
-    expect(opened?.systemPrompt).toContain('Telos is the de facto persistent home');
+    expect(opened?.systemPrompt).toContain('propose Telos');
+    expect(opened?.systemPrompt).toContain('Simple one-session tasks stay in chat');
+    expect(opened?.systemPrompt).toContain('TelosSaveArtifact');
     expect(opened?.prompt).toContain('attached context');
     expect(query).not.toHaveBeenCalled();
     expect(id).toBe('5f68a371-73d1-4994-a512-b71d4bc44c65');
@@ -148,7 +150,7 @@ it('routes a bound Codex account to its controller with context and canonical du
     expect(id).toBe('5f68a371-73d1-4994-a512-b71d4bc44c65');
     expect(opened?.messageId).toBe('durable-next-prompt');
     expect(opened?.systemPrompt).toContain('Outcome capture is optional.');
-    expect(opened?.systemPrompt).not.toContain('Telos is the de facto persistent home');
+    expect(opened?.systemPrompt).not.toContain('## Telos work planning');
     await chat.startChat({ send: () => {}, isOpen: () => true }, 'cold-child-ui', 'continue', {
       cwd: root,
       accountId: 'personal',
@@ -159,7 +161,7 @@ it('routes a bound Codex account to its controller with context and canonical du
     });
     expect(opened?.systemPrompt).toContain('Outcome capture is optional.');
     expect(opened?.systemPrompt?.match(/Outcome capture is optional\./g)).toHaveLength(1);
-    expect(opened?.systemPrompt).not.toContain('Telos is the de facto persistent home');
+    expect(opened?.systemPrompt).not.toContain('## Telos work planning');
     expect(query).not.toHaveBeenCalled();
   } finally {
     chat.eventStore.close();

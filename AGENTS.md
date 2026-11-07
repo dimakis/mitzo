@@ -9,6 +9,13 @@ code easier to maintain: prefer focused shared modules, remove duplicated work
 and needless calls, and consolidate repeated fixtures. Preserve authorization,
 revocation and cancellation boundaries when reducing redundant checks.
 
+## Telos work planning
+
+For a multi-slice ask, first propose Telos using [the shared workflow](docs/features/telos-workflow.md).
+Simple one-session tasks stay in chat unless Telos was explicitly requested or an existing item applies.
+An outcome has an orchestrator chat; each direct child is one bounded slice with one working session.
+Use existing reviewed role/session setup. Creating an item alone does not establish session readiness.
+
 ## Symposium source selection
 
 Start Symposium work with [the current source guide](docs/features/symposium.md)

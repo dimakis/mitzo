@@ -4,6 +4,7 @@ import type { ToolDefinition } from '@mitzo/harness';
 import { artifactFilename, MAX_TELOS_ARTIFACT_BYTES } from './telos-artifact-store.js';
 import type { TelosToolResult } from './telos-tool.js';
 import { TELOS_PROGRESS_INSTRUCTIONS } from './telos-item-tools.js';
+import { withTelosWorkflowInstructions } from './telos-workflow-instructions.js';
 
 const itemId = z.string().trim().min(1).max(200);
 export const telosSaveArtifactShape = {
@@ -81,12 +82,12 @@ export const telosArtifactDefinitions: ToolDefinition[] = [
     input_schema: z.toJSONSchema(TelosReadArtifactInput),
   },
 ];
-export const TELOS_ARTIFACT_INSTRUCTIONS = `
+export const TELOS_ARTIFACT_INSTRUCTIONS = withTelosWorkflowInstructions(`
 ${TELOS_PROGRESS_INSTRUCTIONS}
-Telos is the de facto persistent home for task-linked historical work and future work:
-specifications, design documents, drafts, reports and session handovers. Workspace and sandbox-local
-files are working copies; their paths and local todo scripts are not durable Telos storage.
-Use TelosCreateOutcome to create the task if needed. Use TelosSaveArtifact with its itemId and a stable
+For a multi-slice ask, propose Telos using the planning workflow below. Simple tasks stay in chat;
+do not create an outcome merely because you wrote a document. For approved or existing Telos work,
+keep specifications, reports and handovers with its item. Workspace and sandbox-local paths and todo scripts
+are not durable Telos storage. Use TelosSaveArtifact with its itemId and a stable
 filename and a unique requestId to upload each substantial document before handing off or claiming it is saved. Prefer path
 for files, including binary documents; content accepts inline UTF-8 text. The host reads only this
 session's workspace. A successful tool receipt (ID, revision, SHA-256 and URL) proves persistence;
@@ -109,7 +110,7 @@ artifacts; it does not replace the task's document history. Code still belongs i
 Never upload credentials or raw private financial/health evidence to Telos; retain those in their
 private case storage and save only an appropriate spec or handover. Telos tool permissions are
 managed by Mitzo. Use tools that are actually exposed and report any unavailable tool explicitly.
-`;
+`);
 
 /** Curated recipes own task routing; the shared capability contract still explains persistence. */
 export function telosArtifactInstructions(_recipeBound: boolean): string {
