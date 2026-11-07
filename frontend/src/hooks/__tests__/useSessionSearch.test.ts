@@ -39,6 +39,26 @@ afterEach(() => {
 });
 
 describe('useSessionSearch', () => {
+  it('clears stale state when same-route navigation removes the URL query', async () => {
+    const { result, rerender } = renderHook(({ q }) => useSessionSearch(q), {
+      initialProps: { q: 'Claude personal' },
+    });
+    await act(async () => {});
+    expect(result.current.active).toBe(true);
+    rerender({ q: '' });
+    expect(result.current.query).toBe('');
+    expect(result.current.results).toEqual([]);
+    expect(result.current.active).toBe(false);
+  });
+  it('restores a query supplied by the conversation library URL', async () => {
+    const { result } = renderHook(() => useSessionSearch('Claude personal'));
+    expect(result.current.query).toBe('Claude personal');
+    await act(async () => {});
+    expect(apiFetch).toHaveBeenCalledWith(
+      '/api/sessions/search?q=Claude%20personal',
+      expect.any(Object),
+    );
+  });
   it('surfaces HTTP failures and retries the same query without claiming an empty result', async () => {
     vi.mocked(apiFetch).mockResolvedValue({
       ok: false,

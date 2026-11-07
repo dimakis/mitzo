@@ -1,0 +1,5 @@
+.search-match {
+  color: var(--color-text);
+  background: var(--active);
+  font-weight: 600;
+}

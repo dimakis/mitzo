@@ -5,6 +5,8 @@ import { createHash } from 'node:crypto';
 import { AgentLibraryVersionSchema } from './agent-library.js';
 import { AgentContextSnapshotSchema } from './agent-context-recipe.js';
 import { AccountBindingSchema } from './account-binding.js';
+import { searchSnippet } from './session-search-query.js';
+import { repositoryNameFromCwd } from './repository-name.js';
 import {
   SessionRuntimeBindingSchema,
   isOrdinaryCodexWorkspaceBinding,
@@ -512,13 +514,35 @@ export class SessionMetadataStore {
     limit = 20,
     signal?: AbortSignal,
     cacheDirectory?: string,
+    accountAlias?: (id: string, fallback: string) => string,
   ): Promise<SessionSearchResult[]> {
     if (!query.trim()) return [];
     const sessions = () =>
       this.db!.prepare(
-        `SELECT s.session_id,s.summary,s.updated_at
+        `SELECT s.session_id,s.summary,s.updated_at,s.account_binding,s.selected_model,s.cwd
       FROM sessions s WHERE s.is_hidden=0 AND ${REGISTERED_CONVERSATION_SQL}`,
-      ).all() as SearchSession[];
+      )
+        .all()
+        .map((row) => {
+          const meta = row as Pick<
+            SessionRow,
+            'session_id' | 'summary' | 'updated_at' | 'account_binding' | 'selected_model' | 'cwd'
+          >;
+          const binding = parseAccountBinding(meta.account_binding);
+          return {
+            session_id: meta.session_id,
+            summary: meta.summary,
+            updated_at: meta.updated_at,
+            model:
+              meta.selected_model ??
+              (binding?.provider !== 'unavailable' ? binding?.model : undefined),
+            provider: binding?.provider !== 'unavailable' ? binding?.provider : undefined,
+            account: binding
+              ? (accountAlias?.(binding.accountId, binding.accountLabel) ?? binding.accountLabel)
+              : undefined,
+            project: meta.cwd ? repositoryNameFromCwd(meta.cwd) : undefined,
+          } satisfies SearchSession;
+        });
     this.searchIndex ??= new SessionSearchIndex(
       {
         highWater: () =>
@@ -530,7 +554,7 @@ export class SessionMetadataStore {
         page: (after, through) =>
           this.db!.prepare(
             `SELECT seq,session_id,type,
-          CASE WHEN type IN ('user_message','block_delta') THEN payload ELSE '{}' END AS payload,created_at
+          CASE WHEN seat_id IS NULL AND type IN ('user_message','block_start','block_delta') THEN payload ELSE '{}' END AS payload,created_at
         FROM events WHERE seq>? AND seq<=? ORDER BY seq LIMIT 128`,
           ).all(after, through) as SearchEvent[],
         sessions,
@@ -540,7 +564,7 @@ export class SessionMetadataStore {
     const index = this.searchIndex;
     let hits: Awaited<ReturnType<SessionSearchIndex['search']>>;
     try {
-      hits = await index.search(query, Math.min(50, Math.max(1, limit)), signal);
+      hits = await index.search(query, Math.min(50, Math.max(1, limit)), signal, sessions);
     } catch (error) {
       if (!signal?.aborted && this.searchIndex === index) {
         index.close();
@@ -555,7 +579,9 @@ export class SessionMetadataStore {
       .map((hit) => ({
         sessionId: hit.session_id,
         summary: visible.get(hit.session_id)!.summary,
-        snippet: extractSnippet(hit.payload, query),
+        snippet: searchSnippet(JSON.parse(hit.payload).text ?? '', query),
+        matchedFields: hit.matched_fields,
+        messageId: hit.message_id,
         matchedAt: hit.matched_at,
         updatedAt: visible.get(hit.session_id)!.updated_at,
       }));

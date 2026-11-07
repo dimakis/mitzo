@@ -43,6 +43,19 @@ function renderBar(props: Partial<Parameters<typeof SessionSearchBar>[0]> = {}) 
 }
 
 describe('SessionSearchBar', () => {
+  it('shows a retryable failure separately from an empty result', async () => {
+    const retry = vi.fn();
+    renderBar({
+      active: true,
+      query: 'auth',
+      error: 'Couldn’t search sessions. Try again.',
+      retry,
+    });
+    expect(screen.getByRole('alert').textContent).toContain('Couldn’t search sessions');
+    expect(screen.queryByText('No matches')).toBeNull();
+    await userEvent.setup().click(screen.getByRole('button', { name: 'Try again' }));
+    expect(retry).toHaveBeenCalledOnce();
+  });
   it('renders search toggle button', () => {
     renderBar();
     expect(screen.getByTitle('Search sessions')).toBeTruthy();
@@ -67,13 +80,15 @@ describe('SessionSearchBar', () => {
 
   it('renders search results when active', () => {
     renderBar({ active: true, query: 'auth', results: mockResults });
-    expect(screen.getByText('Fix auth bug')).toBeTruthy();
+    expect(screen.getByRole('button', { name: /Fix auth bug/ })).toBeTruthy();
     expect(screen.getByText('Untitled session')).toBeTruthy();
   });
 
   it('shows snippet text in results', () => {
     renderBar({ active: true, query: 'auth', results: mockResults });
-    expect(screen.getByText('...looking at the auth middleware...')).toBeTruthy();
+    expect(screen.getByRole('button', { name: /Fix auth bug/ }).textContent).toContain(
+      '...looking at the auth middleware...',
+    );
   });
 
   it('calls onSelectSession and clear when result is clicked', async () => {
@@ -81,7 +96,7 @@ describe('SessionSearchBar', () => {
     const clear = vi.fn();
     const user = userEvent.setup();
     renderBar({ active: true, query: 'auth', results: mockResults, onSelectSession, clear });
-    await user.click(screen.getByText('Fix auth bug'));
+    await user.click(screen.getByRole('button', { name: /Fix auth bug/ }));
     expect(onSelectSession).toHaveBeenCalledWith('abc123');
     expect(clear).toHaveBeenCalled();
     expect(screen.queryByPlaceholderText('Search sessions...')).toBeNull();
