@@ -185,7 +185,7 @@ for (const theme of ['dark', 'light'])
     const screenshotData = await page.getByAltText('Attachment 1').getAttribute('src');
     await expect(page.getByRole('button', { name: 'Steer current turn' })).toBeEnabled();
     await page.screenshot({
-      path: info.outputPath(`chat-interrupt-image-${theme}.png`),
+      path: info.outputPath(`chat-queue-interrupt-image-${theme}.png`),
       fullPage: true,
     });
     await correct(page);

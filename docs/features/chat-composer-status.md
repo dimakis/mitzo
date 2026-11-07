@@ -90,7 +90,7 @@ tests with one existing conditional skip; an additional invalid-image regression
 then passed with the full 11-test steering hook suite. The 12 focused native
 steering regressions and 9 HTTP route checks pass. Workspace packages compile,
 focused hook/schema type checking and changed-source lint pass, and reviewed
-source fingerprints are refreshed for `v1.0.922-image-turn-corrections`.
+source fingerprints are refreshed for `v1.0.923-direct-interrupt-browser-evidence`.
 
 The larger ordinary-workspace HTTP fixture fails during initial native bootstrap
 with `Local Codex entry unavailable`, before steering. The unchanged `10f84e3a9`
@@ -100,11 +100,23 @@ dependencies. Its text-and-screenshot cases remain required CI coverage.
 The offline browser matrix lists all 12 application cases across phone WebKit,
 phone Chromium and desktop Chromium, both themes and alternate accents/fonts.
 It now checks direct icon geometry and screenshot correction delivery, with a
-`chat-interrupt-image-<theme>.png` capture before sending. Approved execution still
+`chat-queue-interrupt-image-<theme>.png` capture before sending, matching the existing
+CI responsiveness-artifact selection. Approved execution still
 retained the macOS Seatbelt marker, so the repository guard stopped Playwright
 before launch. No local rendered inspection or screenshot is claimed; hosted
 browser checks and capture inspection remain pending. No live provider call or
 production activation was performed.
+
+Landing follow-up: hosted browser interaction tests passed 150 cases and failed
+two viewport cases because the remaining `tests/browser/composer-layout.spec.ts`
+fixture still selected the removed Send options menu. The corrected fixture
+retains the direct controls' 44px width/height and viewport bounds, and adds
+icon-only content, the lightning symbol, absence of the old menu and input focus
+after clicking. The local read-only follow-up found no defects in this delta.
+The approved host task worker passed the environment guard but first lacked its
+browser cache; after selecting the existing matching installation, macOS denied
+browser process registration at startup. No application test ran locally and
+that launch route was not retried. Hosted verification remains authoritative.
 
 The message renderer, dates, copy, read aloud, reply menus, tool/activity rendering,
 account/model controls and approved Chat settings are unchanged. The actual
