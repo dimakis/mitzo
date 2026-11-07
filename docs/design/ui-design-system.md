@@ -85,8 +85,10 @@ and failures remain visible.
 A single existing Retry/continuation action remains directly available in that
 fixed row; multiple actions remain reachable through Review and details.
 
-This reuses UiIcon, WorkspaceActionMenu, HomeDialog and the existing queued draft
-tray. Send correction moves to Send options; the remaining toolbar icons, keyboard
+This reuses UiIcon, HomeDialog and the existing queued draft
+tray. Correction uses the direct, icon-only lightning button beside Queue and Stop;
+its accessible name and tooltip identify interrupt or native steering. No second
+Send options overflow or visible button label is added. The remaining toolbar icons, keyboard
 dispatch rules, message dates/copy/read-aloud controls and approved Chat settings
 stay intact. See [the feature and validation record](../features/chat-composer-status.md)
 and the `chat-status/above-composer-2026-11-04` ledger entry. The offline fixture
@@ -2618,7 +2620,14 @@ worker assignment or model execution. The original conversation stays provenance
 
 Ordinary chat preserves its existing header, model/account controls, toolbar icons
 and dispatch/error/retry notices. Queue, lightning (steer) and Stop use icon-only
-buttons with accessible names and tooltips. Expand grows the composer inline and
+buttons with accessible names and tooltips. The lightning action is directly
+reachable beside Queue and Stop, with restriction explanations in its tooltip.
+Native Codex corrections accept screenshots and images with the existing shared
+attachment limits. Context changes still require a new message. Exact attachment
+bytes remain part of the saved correction identity, including uncertain delivery
+checks, and cannot be replaced or sent to a successor turn on recovery.
+Dispatch guards release independently of animation frames; delivery receipts keep
+their existing duplicate-prevention authority. Expand grows the composer inline and
 uses the existing composer tools menu on narrow screens. Expanding or shrinking
 returns focus to the input and preserves its draft and reply selection.
 

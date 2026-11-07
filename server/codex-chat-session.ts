@@ -3121,6 +3121,11 @@ async function openCodexChatBound(
           messageId: input.requestId,
           text: input.text,
           steersMessageId: input.targetCommandId,
+          ...(input.images?.length
+            ? {
+                images: input.images.map((image) => `data:${image.mediaType};base64,${image.data}`),
+              }
+            : {}),
           ...(inReplyTo ? { inReplyTo } : {}),
           commandState: 'steering',
         });
