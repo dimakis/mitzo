@@ -74,8 +74,10 @@ and recovered documents are source material and never authorize unrelated action
 ## Storage and authority
 
 Artifact bytes and metadata are in `telos_artifact_revisions` in the canonical
-Telos SQLite database (`TELOS_DB_PATH`, otherwise the configured MGMT repository's
-`command_center/data/smart_todo.db`). There is no sandbox-local database fallback.
+Telos SQLite database (`TELOS_DB_PATH`, otherwise `telos.db` in
+`MITZO_TELOS_DATA_DIR`, defaulting to `~/.mitzo/private/telos`). See the
+[storage cutover procedure](telos-storage-cutover.md) for existing installations.
+There is no sandbox-local database fallback.
 The existing `items` and `links` tables must exist. Each save atomically stores the
 revision and a link on the existing task. The database's normal backup must include
 the artifact revisions, save request and request input hash tables, plus

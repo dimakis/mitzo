@@ -4,6 +4,10 @@ import {
 } from '@mitzo/protocol/telos-sqlite-owners';
 import Database from 'better-sqlite3';
 import { createHash } from 'node:crypto';
+import { mkdirSync, existsSync, chmodSync } from 'node:fs';
+import { dirname } from 'node:path';
+import { initializeTelosSchema } from './telos-schema.js';
+import { assertTelosItemActive } from './telos-lifecycle-facts.js';
 import {
   TelosEditItemInputSchema,
   type TelosEditItemInput,
@@ -46,14 +50,24 @@ function assertCurrent(assertion?: () => void): void {
 
 /** Operates on the canonical Telos DB, preserving its existing item/history model. */
 export class TelosItemStore {
-  private db: Database.Database;
+  protected db: Database.Database;
   #telosOwner: TelosOwnedDatabase;
-  constructor(path: string) {
-    this.#telosOwner = openTelosOwnedDatabase('canonical', path, { fileMustExist: true });
+  constructor(path: string, options: { initialize?: boolean; readOnly?: boolean } = {}) {
+    const creating = options.initialize && !existsSync(path);
+    if (options.initialize) mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
+    this.#telosOwner = openTelosOwnedDatabase('canonical', path, {
+      fileMustExist: !options.initialize,
+      ...(options.readOnly ? { readonly: true } : {}),
+    });
     this.db = this.#telosOwner.database;
     try {
+      if (creating) chmodSync(path, 0o600);
       this.db.pragma('busy_timeout = 5000');
       this.db.pragma('foreign_keys = ON');
+      if (options.initialize) {
+        this.db.pragma('journal_mode = WAL');
+        initializeTelosSchema(this.db);
+      }
       this.db
         .prepare(
           'SELECT id,summary,status,parent_id,intent,rationale,acceptance_criteria,updated_at,snoozed_until FROM items LIMIT 1',
@@ -68,6 +82,10 @@ export class TelosItemStore {
   }
   close(): void {
     this.#telosOwner.close();
+  }
+  /** Pure admission read on this owner's original transaction/connection. */
+  assertLifecycleActive(itemId: string): void {
+    assertTelosItemActive(this.db, itemId);
   }
 
   private hasUpdates(): boolean {
@@ -204,7 +222,7 @@ export class TelosItemStore {
           .digest('hex')
           .slice(0, 16);
         const now = new Date().toISOString();
-        this.ensureUpdates();
+        if (!updatesExist) this.ensureUpdates();
         this.db
           .prepare(
             `INSERT INTO items(id,parent_id,summary,intent,rationale,acceptance_criteria,profile,status,
@@ -311,7 +329,7 @@ export class TelosItemStore {
         assertCurrent(assertion);
         // Fresh-effect eligibility must not hide a known committed receipt.
         assertCurrent(beforeApply);
-        this.ensureUpdates();
+        if (!updatesExist) this.ensureUpdates();
         const status = input.status ?? before.status;
         const now = new Date().toISOString();
         if (edit)

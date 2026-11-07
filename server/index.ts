@@ -138,6 +138,8 @@ import { SignalProcessor } from './signal-processor.js';
 import { TaskOrchestrator } from './task-orchestrator.js';
 import { assertTelosWorkExecutionAuthority } from './telos-work-execution-authority.js';
 import { TelosWorkStore } from './telos-work-store.js';
+import { telosDatabasePath } from './telos-database.js';
+import { ensureTelosRuntimeStorage } from './telos-runtime-storage.js';
 import { isAvailableTelosWorkConversation } from './telos-work-conversation.js';
 import { SessionOverviewEmitter } from './session-overview.js';
 import { HealthMonitor } from './health-monitor.js';
@@ -171,6 +173,7 @@ import { initializeSymposiumNativeHost } from './symposium-native-host.js';
 import { singleFlightReconciliation } from './single-flight-reconciliation.js';
 
 const log = createLogger('server');
+ensureTelosRuntimeStorage(BASE_REPO);
 
 // Host-only state. No remote recovery runs at boot: unsettled claims remain
 // quarantined until the exact controller marker is obtained separately.
@@ -484,14 +487,10 @@ const orchestrator = new TaskOrchestrator({
           events: eventStore,
           tasks: taskStore,
           work: () =>
-            (work ??= new TelosWorkStore(
-              process.env.TELOS_DB_PATH ||
-                join(BASE_REPO, 'command_center', 'data', 'smart_todo.db'),
-              {
-                ordinaryConversation: (conversationId) =>
-                  isAvailableTelosWorkConversation(eventStore.getSession(conversationId)),
-              },
-            )),
+            (work ??= new TelosWorkStore(telosDatabasePath(BASE_REPO), {
+              ordinaryConversation: (conversationId) =>
+                isAvailableTelosWorkConversation(eventStore.getSession(conversationId)),
+            })),
         },
         id,
         eventStore.getSession(id)?.accountBinding ?? undefined,

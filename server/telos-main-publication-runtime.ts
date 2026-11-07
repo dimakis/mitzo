@@ -228,14 +228,29 @@ export class TelosMainPublicationRuntime {
       ordinaryConversation: (id: string) =>
         isAvailableTelosWorkConversation(this.events.getSession(id)),
     };
-    const work = readOnly
-      ? TelosWorkStore.openForLifecycleListRead(this.database, policy)
-      : new TelosWorkStore(this.database, policy);
+    let work: TelosWorkStore | undefined;
     let items: TelosItemStore | undefined;
+    const database = this.database;
     try {
-      items = new TelosItemStore(this.database);
-      current();
-      return await operation({ context: scoped, items, work });
+      return await operation({
+        context: scoped,
+        get items() {
+          if (!items) {
+            current();
+            items = new TelosItemStore(database);
+          }
+          return items;
+        },
+        get work() {
+          if (!work) {
+            current();
+            work = readOnly
+              ? TelosWorkStore.openForLifecycleListRead(database, policy)
+              : new TelosWorkStore(database, policy);
+          }
+          return work;
+        },
+      });
     } finally {
       for (const owner of [items, work]) {
         try {
