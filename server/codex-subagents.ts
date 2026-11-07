@@ -154,7 +154,7 @@ export class CodexSubagents {
   private closed = false;
   constructor(private readonly opts: Options) {}
   private snapshot(child: RetainedSubagent): NativeSubagentSnapshot {
-    let available = this.live.has(child.threadId);
+    let available = this.live.has(child.threadId) && !child.inspectionFailure;
     if (
       !available &&
       !this.closed &&

@@ -298,7 +298,21 @@ it('revalidates an observed child on owner restoration before exposing output or
   f.owner.close();
   const restored = new CodexSubagents(f.options);
   cleanup.push(() => restored.close());
-  await restored.restore();
+  const original = f.request.getMockImplementation()!;
+  let release!: () => void;
+  f.request.mockImplementation(async (method, params, beforeDispatch) => {
+    if (method === 'thread/resume')
+      await new Promise<void>((resolve) => {
+        release = resolve;
+      });
+    return original(method, params, beforeDispatch);
+  });
+  const restoring = restored.restore();
+  await vi.waitFor(() => expect(release).toBeTypeOf('function'));
+  const availableDuringInspection = restored.list()[0].available;
+  release();
+  await restoring;
+  expect(availableDuringInspection).toBe(false);
   expect(restored.list()[0]).toMatchObject({
     threadId: 'child',
     available: true,

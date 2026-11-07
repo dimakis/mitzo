@@ -401,10 +401,10 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/codex-subagent-store.test.ts':
     '17cb3848f026986ee4357e9bf527c6883085b515072ee59c4c490bdd7a0abe88',
   '../__tests__/codex-subagents.test.ts':
-    '3377c4b500deec672ab13fbefa65d2a33320888ff2c95deed0b484236f47434f',
+    'b3674273dd8afcee6707548618335507fbe9117459eec5ddfa263a16f19311af',
   '../codex-subagent-routes.ts': '626354e56b192b4c660f9a2187aae075c77ed93cee3569769df391556b761211',
   '../codex-subagent-store.ts': '959c094d09dbca94e4b5b42ae8919b3f09d9e3ecea2f5ab2b7d6717b64e8ab09',
-  '../codex-subagents.ts': 'e2e2f58efd9de74a921c01dea00028c17406be0520b6d1330404831b011d59b5',
+  '../codex-subagents.ts': '6064803d55b9ded91fe23caa1a50cf6be7ee851db4fc7fa835c699eccc0ff46b',
   '../__tests__/notification-routes.test.ts':
     'ec75e73c1c175493818ce14fe3ef7bdd09379cbc3427338b2ee4e9a5269b46f4',
   '../__tests__/symposium-review-app.test.ts':
