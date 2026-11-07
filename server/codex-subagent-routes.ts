@@ -62,12 +62,9 @@ export function createCodexSubagentRouter(deps: Owners) {
       }
       res.json({ agent });
     } catch {
-      res
-        .status(409)
-        .json({
-          error:
-            'Inspection is unavailable under the original authority. Saved output is retained.',
-        });
+      res.status(409).json({
+        error: 'Inspection is unavailable under the original authority. Saved output is retained.',
+      });
     }
   });
   router.get('/:id/codex-subagents/events', (req, res) => {

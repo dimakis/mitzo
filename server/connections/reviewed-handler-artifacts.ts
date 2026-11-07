@@ -448,7 +448,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     '17cb3848f026986ee4357e9bf527c6883085b515072ee59c4c490bdd7a0abe88',
   '../__tests__/codex-subagents.test.ts':
     '6242f60dadf0a8de312eb2c586e735d3321965765ed30a6608ecc20f153e21c5',
-  '../codex-subagent-routes.ts': '5b2ca2043bd7e1c5f0772ced29534a2817762937ef26716a541ec6fb811a671e',
+  '../codex-subagent-routes.ts': '941f0a93f074d2a255b7cccbb4610ceb557f6d8c274c5d21b958df63f2acbef2',
   '../codex-subagent-store.ts': 'be9252211203838df43dd88836a243d646613ddcdf943eb0d0f6f42db76076f9',
   '../codex-subagents.ts': 'fc62d8f3a4b96b6fe36af2a4f3a139a5312b84beca8e249d9507c93d5c150efd',
   '../__tests__/notification-routes.test.ts':
