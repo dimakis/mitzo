@@ -110,6 +110,7 @@ async function initializePush(): Promise<void> {
           'ALLOW_SESSION_ACTION',
           'ALLOW_SEARCH_SESSION_ACTION',
           'DENY_PERMISSION_ACTION',
+          'ALLOW_CONVERSATION_ACTION',
         ].includes(actionId)
       ) {
         window.dispatchEvent(new Event(NOTIFICATIONS_REFRESH_EVENT));

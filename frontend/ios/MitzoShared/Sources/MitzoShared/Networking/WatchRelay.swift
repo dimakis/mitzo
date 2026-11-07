@@ -72,6 +72,14 @@ public final class WatchRelayHost: NSObject, WCSessionDelegate, Sendable {
         let sessionId = message["sessionId"] as? String ?? ""
         let notificationId = message["notificationId"] as? String ?? ""
         let decision = NotificationResponse.Decision(rawValue: message["decision"] as? String ?? "")
+        let answers = message["answers"] as? [String: [String]]
+        let malformedAnswers = message["answers"] != nil && answers == nil
+        let sourcePermId = message["permId"] as? String ?? ""
+        let sourceBefore = message["before"] as? Int
+        let sourceInput: WatchSourceInput? = (message["input"] as? [String: Any]).flatMap {
+            guard let data = try? JSONSerialization.data(withJSONObject: $0) else { return nil }
+            return try? JSONDecoder().decode(WatchSourceInput.self, from: data)
+        }
         let reply = UnsafeSendable(replyHandler)
         let capturedState = state
         let capturedAuthManager = authManager
@@ -86,6 +94,24 @@ public final class WatchRelayHost: NSObject, WCSessionDelegate, Sendable {
                 if let notificationAPIProvider { notificationAPI = notificationAPIProvider() }
                 else { notificationAPI = capturedState.getAPIClient() }
                 switch type {
+                case "source_review", "source_preview", "source_approve":
+                    guard let api = notificationAPI, !sourcePermId.isEmpty, !sessionId.isEmpty else { throw MitzoAPIClient.APIError.invalidResponse }
+                    let data: Data
+                    if type == "source_review" {
+                        data = try JSONEncoder().encode(await api.getSourceReview(permId: sourcePermId, sessionId: sessionId, before: sourceBefore))
+                    } else {
+                        guard let input = sourceInput, input.sessionId == sessionId else { throw MitzoAPIClient.APIError.invalidResponse }
+                        if type == "source_preview" {
+                            data = try JSONEncoder().encode(await api.previewSourceReview(permId: sourcePermId, input: input))
+                        } else {
+                            data = try JSONEncoder().encode(await api.approveSourceReview(permId: sourcePermId, input: input))
+                        }
+                    }
+                    guard data.count < 55000, let payload = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+                        reply.value(["error": "This source page is too large for the Watch relay."])
+                        return
+                    }
+                    reply.value(["_payload": payload])
                 case "send":
                     guard let msg = clientMsg.value else {
                         reply.value(["error": "invalid message"])
@@ -163,12 +189,12 @@ public final class WatchRelayHost: NSObject, WCSessionDelegate, Sendable {
                     reply.value(["ok": true])
 
                 case "respond_notification":
-                    guard let api = notificationAPI, let decision, !sessionId.isEmpty else {
+                    guard let api = notificationAPI, let decision, !sessionId.isEmpty, !malformedAnswers else {
                         reply.value(["error": "Cannot respond. Open Mitzo on your iPhone."])
                         return
                     }
                     try await api.respondNotification(id: notificationId, response:
-                        NotificationResponse(sessionId: sessionId, decision: decision))
+                        NotificationResponse(sessionId: sessionId, decision: decision, answers: answers))
                     reply.value(["ok": true])
 
                 case "auth_token":
@@ -428,10 +454,33 @@ public final class WatchRelayClient: NSObject, WCSessionDelegate, Sendable {
         guard reply["ok"] as? Bool == true else { throw WatchRelayError.invalidResponse }
     }
 
-    public func respondNotification(id: String, sessionId: String, decision: NotificationResponse.Decision) async throws {
-        let reply = try await notificationRelay(["_relay": "respond_notification",
-            "notificationId": id, "sessionId": sessionId, "decision": decision.rawValue])
+    public func respondNotification(id: String, sessionId: String, decision: NotificationResponse.Decision, answers: [String: [String]]? = nil) async throws {
+        var message: [String: Any] = ["_relay": "respond_notification",
+            "notificationId": id, "sessionId": sessionId, "decision": decision.rawValue]
+        if let answers { message["answers"] = answers }
+        let reply = try await notificationRelay(message)
         guard reply["ok"] as? Bool == true else { throw WatchRelayError.invalidResponse }
+    }
+
+    private func sourcePayload<T: Decodable>(_ message: [String: Any]) async throws -> T {
+        let reply = try await notificationRelay(message)
+        guard let payload = reply["_payload"] as? [String: Any] else { throw WatchRelayError.invalidResponse }
+        return try JSONDecoder().decode(T.self, from: JSONSerialization.data(withJSONObject: payload))
+    }
+    public func sourceReview(permId: String, sessionId: String, before: Int? = nil) async throws -> WatchSourceReview {
+        var message: [String: Any] = ["_relay": "source_review", "permId": permId, "sessionId": sessionId]
+        if let before { message["before"] = before }
+        let review: WatchSourceReview = try await sourcePayload(message)
+        guard review.permId == permId, review.sessionId == sessionId else { throw WatchRelayError.invalidResponse }
+        return review
+    }
+    public func sourcePreview(permId: String, input: WatchSourceInput) async throws -> WatchSourcePreview {
+        try await sourcePayload(["_relay": "source_preview", "permId": permId, "sessionId": input.sessionId,
+            "input": JSONSerialization.jsonObject(with: JSONEncoder().encode(input))])
+    }
+    public func sourceApprove(permId: String, input: WatchSourceInput) async throws -> WatchSourceReceipt {
+        try await sourcePayload(["_relay": "source_approve", "permId": permId, "sessionId": input.sessionId,
+            "input": JSONSerialization.jsonObject(with: JSONEncoder().encode(input))])
     }
 
     private func notificationRelay(_ message: [String: Any]) async throws -> [String: Any] {
