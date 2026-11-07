@@ -23,6 +23,8 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
+  '../../frontend/src/hooks/__tests__/useConversationPresentation.test.tsx':
+    'baeff93ece3be5a10f4ae28e9a90b464af83668217ceb1f9f911696e1d6aaefe',
   '../../frontend/src/components/ConversationRepositoryPicker.tsx':
     'bad89b264d8bff41ed745fd33629e658ac947d6bc56b3945baae6fa0df2986cf',
   '../../frontend/src/components/SharedConversation.tsx':
