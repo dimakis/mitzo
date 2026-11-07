@@ -1,5 +1,27 @@
 import Foundation
 
+/// WatchConnectivity accepts property lists, whose dictionaries cannot contain
+/// JSON nulls. Keep complete source packets as encoded Data at that boundary.
+public enum WatchSourceRelayJSON {
+    public static func payload(data: Data) throws -> [String: Data] {
+        guard data.count < 55000 else { throw WatchSourceRelayError.tooLarge }
+        return ["_json": data]
+    }
+    public static func decode<T: Decodable>(_ payload: [String: Any], as type: T.Type) throws -> T {
+        guard let data = payload["_json"] as? Data, data.count < 55000 else { throw WatchSourceRelayError.invalidPayload }
+        return try JSONDecoder().decode(type, from: data)
+    }
+}
+public enum WatchSourceRelayError: LocalizedError {
+    case tooLarge, invalidPayload
+    public var errorDescription: String? {
+        switch self {
+        case .tooLarge: "This source page is too large for the Watch relay."
+        case .invalidPayload: "The source page could not be decoded. Refresh before responding."
+        }
+    }
+}
+
 /// Preserve the host's complete proposal/preview without manufacturing source bytes.
 public indirect enum ReviewValue: Codable, Sendable, Equatable {
     case object([String: ReviewValue]), array([ReviewValue]), string(String), number(Double), bool(Bool), null

@@ -29,6 +29,8 @@ The Watch displays the complete proposal and available original exchange/materia
 choices, then the host-compiled preview before Save. An uncertain save retains the
 same request ID and preview digest; reopening can recover the retained request.
 Generic permission buttons cannot bypass source selection or mint a source receipt.
+Source replies cross WatchConnectivity as encoded JSON Data, preserving explicit
+nulls in host preview and recovery packets without invalid property-list values.
 Source review starts with the latest exchange and supports older exchange pages.
 Message and material pages accumulate without dropping selected IDs or revisions;
 proposal, invocation, scope and overlapping bytes must remain unchanged. Materials

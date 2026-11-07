@@ -114,11 +114,7 @@ public final class WatchRelayHost: NSObject, WCSessionDelegate, Sendable {
                             data = try JSONEncoder().encode(await api.approveSourceReview(permId: sourcePermId, input: input))
                         }
                     }
-                    guard data.count < 55000, let payload = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-                        reply.value(["error": "This source page is too large for the Watch relay."])
-                        return
-                    }
-                    reply.value(["_payload": payload])
+                    reply.value(try WatchSourceRelayJSON.payload(data: data))
                 case "send":
                     guard let msg = clientMsg.value else {
                         reply.value(["error": "invalid message"])
@@ -471,8 +467,7 @@ public final class WatchRelayClient: NSObject, WCSessionDelegate, Sendable {
 
     private func sourcePayload<T: Decodable>(_ message: [String: Any]) async throws -> T {
         let reply = try await notificationRelay(message)
-        guard let payload = reply["_payload"] as? [String: Any] else { throw WatchRelayError.invalidResponse }
-        return try JSONDecoder().decode(T.self, from: JSONSerialization.data(withJSONObject: payload))
+        return try WatchSourceRelayJSON.decode(reply, as: T.self)
     }
     public func sourceReview(permId: String, sessionId: String, before: Int? = nil) async throws -> WatchSourceReview {
         var message: [String: Any] = ["_relay": "source_review", "permId": permId, "sessionId": sessionId]

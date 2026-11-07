@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.944-watch-source-pagination';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.945-watch-source-json-relay';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -22,16 +22,18 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
+  '../../frontend/ios/MitzoShared/Tests/MitzoSharedTests/WatchSourceRelayTests.swift':
+    'e244f1d0c764206168ef1c4615fe07fdb59d04239c600747e00fe2ac645e3ce5',
   '../../frontend/ios/MitzoShared/Tests/MitzoSharedTests/WatchSourcePaginationTests.swift':
     'd4b822d014ad7a8e5d68c2daf00a64854970b9b1bcd16efc66909951b51972fa',
   '../../docs/features/watch-approval-types.md':
-    'f29dedee87f81577f2b5db1d136af68839d29ebc7d5f71d3650ab451e2f2eaa8',
+    '08cb59068407842170f497a038fa754524992fca67b55329bae2ffccd6be196c',
   '../../frontend/ios/App/App/AppDelegate.swift':
     '748e3e35591d35896d6522a5d940781b35a99098def9075ba9dbd411e5406fdc',
   '../../frontend/ios/MitzoShared/Sources/MitzoShared/Networking/MitzoAPIClient.swift':
     'd2c01bdcba6ba8e7fb6f5ca8e212a37be39f68c7fd0f407d9fb9d5fa2a37deaf',
   '../../frontend/ios/MitzoShared/Sources/MitzoShared/Networking/WatchRelay.swift':
-    '2d3353281f4c664bd1614213cf78e72b3c1a5858018a86e303e8eef3fb08191a',
+    '3f2e00517fdd47f27ee21c0e0f7edf3ebefb21a6a21fbfb1b5ac99bdd370a637',
   '../../frontend/ios/MitzoShared/Sources/MitzoShared/Protocol/BackgroundApproval.swift':
     '485b1e61a8c9edf4ef1751451c79221fc141fd44b22cec1642d517a976a7a178',
   '../../frontend/ios/MitzoShared/Sources/MitzoShared/Protocol/CoreTypes.swift':
@@ -41,7 +43,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/ios/MitzoShared/Sources/MitzoShared/Protocol/WatchNotificationRouting.swift':
     '29fc9bffdd01f14dda6c395271cbfb95f472e5a10a946af07d85282546ceed52',
   '../../frontend/ios/MitzoShared/Sources/MitzoShared/Protocol/WatchSourceReview.swift':
-    '81088137a9439b004692638570ff1d4f90f0e247b768895dd04a2b6f18ebe702',
+    '28aec04faedf22da5a5c385ae71fabf1e5183916d2dc2d1cafd854a09aec6fd4',
   '../../frontend/ios/MitzoShared/Tests/MitzoSharedTests/AllApprovalTypesTests.swift':
     '0f62b69a776af793fcf92b609665802c8b8252bfdd0a662c8afbb4c327a74b96',
   '../../frontend/ios/MitzoShared/Tests/MitzoSharedTests/WatchNotificationRoutingTests.swift':
