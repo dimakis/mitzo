@@ -114,6 +114,7 @@ export function createUrlAccessTool(
         if (
           parsed.data.operation === 'request_access' &&
           previous?.expires === Infinity &&
+          !previous.assertCapabilityCurrent &&
           isDeepStrictEqual(previous.account, urlReadAccountIdentity(current.session))
         )
           return {
@@ -230,12 +231,17 @@ export function createUrlAccessTool(
           target: structuredClone(target),
           account,
           expires:
-            decision.decisionClassification === 'user_permanent'
+            flight.assertCapabilityCurrent || decision.decisionClassification === 'user_permanent'
               ? Infinity
               : deps.now() + 15 * 60 * 1000,
         });
+        const duration = flight.assertCapabilityCurrent
+          ? 'while its reusable public-web grant remains active'
+          : decision.decisionClassification === 'user_permanent'
+            ? 'until this session ends'
+            : 'for 15 minutes in this session';
         return {
-          content: `URL read access approved for ${target.origin} ${decision.decisionClassification === 'user_permanent' ? 'until this session ends' : 'for 15 minutes in this session'}. Use RequestWebAccess with operation fetch to read pages on this origin, or revoke_access to remove access.`,
+          content: `URL read access approved for ${target.origin} ${duration}. Use RequestWebAccess with operation fetch to read pages on this origin, or revoke_access to remove access.`,
           isError: false,
         };
       } catch {
@@ -264,6 +270,18 @@ export function createUrlAccessTool(
       }
       const grant = grants.get(current.session)?.get(url.origin);
       if (!grant) return undefined;
+      if (grant.assertCapabilityCurrent) {
+        // Admit each new read against current consent. Keep the old receipt in
+        // any in-flight chain so replacement consent cannot revive that read.
+        try {
+          grant.assertCapabilityCurrent();
+          if (grant.expires <= deps.now()) throw Error('URL capability cache expired');
+        } catch {
+          const sessionGrants = grants.get(current.session);
+          if (sessionGrants?.get(url.origin) === grant) sessionGrants.delete(url.origin);
+          return undefined;
+        }
+      }
       if (!isDeepStrictEqual(grant.account, urlReadAccountIdentity(current.session)))
         clearUrlAccessGrants(current.session);
       if (

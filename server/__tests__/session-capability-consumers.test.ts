@@ -198,6 +198,106 @@ it('retained URL reads recheck preset revocation before both fetch and delivery'
   await tool.fetch('https://example.com/page', signal);
   expect(fetch).toHaveBeenCalledOnce();
 });
+it.each(['expiry', 'revocation'] as const)(
+  'uses replacement public-web consent after %s retires a retained URL receipt',
+  async (change) => {
+    vi.useFakeTimers();
+    const f = fixture();
+    const grant = f.grants.create('operator', {
+      sessionIds: ['one'],
+      capability: { kind: 'public-web' },
+      durationMinutes: 1,
+    });
+    const retainedFetch = vi.fn(async () => 'retained page');
+    const retained = createUrlAccessTool('one', f.registry, {
+      now: Date.now,
+      resolve: async () => publicTarget(),
+      fetch: retainedFetch,
+    });
+    const signal = new AbortController().signal;
+    await retained.request(
+      { operation: 'request_access', url: 'https://example.com', reason: 'Read' },
+      signal,
+    );
+    if (change === 'expiry') vi.setSystemTime(Date.now() + 60_001);
+    else f.grants.revoke('operator', 'one', grant.id);
+    f.grants.create('operator', {
+      sessionIds: ['one'],
+      capability: { kind: 'public-web' },
+      durationMinutes: 60,
+    });
+    const tool = createWebAccessTool('one', f.registry, vi.fn());
+    expect(
+      await tool({ operation: 'fetch', url: 'https://example.com', reason: 'Read' }, signal),
+    ).toMatchObject({ isError: false });
+    expect(fetchPublicPage).toHaveBeenCalledOnce();
+    expect(retainedFetch).not.toHaveBeenCalled();
+    expect(f.sent).toEqual([]);
+  },
+);
+it('keeps capability-backed URL access for the reusable grant duration rather than fifteen minutes', async () => {
+  vi.useFakeTimers();
+  const f = fixture();
+  f.grants.create('operator', {
+    sessionIds: ['one'],
+    capability: { kind: 'public-web' },
+    durationMinutes: 60,
+  });
+  const fetch = vi.fn(async () => 'page');
+  const tool = createUrlAccessTool('one', f.registry, {
+    now: Date.now,
+    resolve: async () => publicTarget(),
+    fetch,
+  });
+  const signal = new AbortController().signal;
+  const approval = await tool.request(
+    { operation: 'request_access', url: 'https://example.com', reason: 'Read' },
+    signal,
+  );
+  vi.setSystemTime(Date.now() + 16 * 60_000);
+  expect(await tool.fetch('https://example.com', signal)).toMatchObject({ isError: false });
+  expect(approval.content).toContain('reusable');
+  expect(fetch).toHaveBeenCalledOnce();
+  expect(f.sent).toEqual([]);
+});
+it('rejects an in-flight retained read even when a replacement grant lets a new read succeed', async () => {
+  const f = fixture();
+  const grant = f.grants.create('operator', {
+    sessionIds: ['one'],
+    capability: { kind: 'public-web' },
+    durationMinutes: 60,
+  });
+  let finish!: (page: string) => void;
+  const fetch = vi.fn(() => new Promise<string>((resolve) => (finish = resolve)));
+  const retained = createUrlAccessTool('one', f.registry, {
+    now: Date.now,
+    resolve: async () => publicTarget(),
+    fetch,
+  });
+  const signal = new AbortController().signal;
+  await retained.request(
+    { operation: 'request_access', url: 'https://example.com', reason: 'Read' },
+    signal,
+  );
+  const pending = retained.fetch('https://example.com', signal);
+  await vi.waitFor(() => expect(fetch).toHaveBeenCalledOnce());
+  f.grants.revoke('operator', 'one', grant.id);
+  f.grants.create('operator', {
+    sessionIds: ['one'],
+    capability: { kind: 'public-web' },
+    durationMinutes: 60,
+  });
+  const tool = createWebAccessTool('one', f.registry, vi.fn());
+  const next = await tool(
+    { operation: 'fetch', url: 'https://example.com', reason: 'Read' },
+    signal,
+  );
+  finish('stale page');
+  expect(await pending).toMatchObject({ isError: true });
+  expect(next.isError).toBe(false);
+  expect(next.content).not.toContain('stale page');
+  expect(f.sent).toEqual([]);
+});
 it('checks public-web consent after DNS and immediately before the socket send', async () => {
   const f = fixture();
   const grant = f.grants.create('operator', {

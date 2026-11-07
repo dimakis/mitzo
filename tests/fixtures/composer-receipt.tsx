@@ -3,6 +3,8 @@ import { createRoot } from 'react-dom/client';
 import { createMitzoStore } from '@mitzo/client';
 import { MitzoStoreProvider, useMitzoStore } from '@mitzo/client/hooks';
 import { ChatInput } from '../../frontend/src/components/ChatInput';
+import { ChatStatusMessage } from '../../frontend/src/components/ChatStatusMessage';
+import { ComposerStatusProvider } from '../../frontend/src/components/ComposerStatus';
 import { createReviewedOutboxStorage } from '../../frontend/src/lib/reviewed-outbox-storage';
 import { createBrowserId } from '../../frontend/src/lib/browser-crypto';
 import '../../frontend/src/styles/tokens.css';
@@ -57,55 +59,85 @@ store.getState().selectLocalCommandSession('cold-chat');
 function ComposerReceiptFixture() {
   const command = useMitzoStore((state) => state.localCommand);
   const send = useMitzoStore((state) => state.sendOrdinaryWorkspaceCommand);
+  const error = useMitzoStore((state) => state.sendError);
+  const recover = useMitzoStore((state) => state.recoverLocalCommand);
+  const commandState = useMitzoStore((state) =>
+    command?.request ? state.messages.commandStates?.[command.request.clientMsgId] : undefined,
+  );
   return (
-    <main className="queue-status-fixture">
-      <p data-testid="receipt-state">{command?.state ?? 'idle'}</p>
-      {!new URLSearchParams(location.search).has('hide') && (
-        <div className="queue-status-composer">
-          <ChatInput
-            sessionId="cold-chat"
-            running={false}
-            guardedConversation
-            onStop={() => {}}
-            acceptedComposerDraft={
-              command?.state === 'consumed' ? command.composerDraft : undefined
-            }
-            onSend={(text, _images, _context, onDelivery, _onAssigned, composerDraft) =>
-              send(
-                {
-                  version: 2,
-                  runOn: 'local',
-                  sessionId: 'cold-chat',
-                  workspace: {
-                    kind: 'ordinary',
-                    workspaceId: '11111111-1111-4111-8111-111111111111',
+    <ComposerStatusProvider>
+      <main className="queue-status-fixture">
+        <p data-testid="receipt-state">{command?.state ?? 'idle'}</p>
+        <p data-testid="command-state">{commandState ?? 'idle'}</p>
+        {!new URLSearchParams(location.search).has('hide') && (
+          <div className="queue-status-composer">
+            <ChatStatusMessage error={error} />
+            <ChatInput
+              sessionId="cold-chat"
+              running={false}
+              guardedConversation
+              sendDisabledReason={
+                command && command.state !== 'consumed'
+                  ? command.state === 'pending'
+                    ? 'Sending…'
+                    : 'Delivery not confirmed.'
+                  : undefined
+              }
+              sendDisabledAction={
+                command && !['pending', 'consumed'].includes(command.state)
+                  ? {
+                      label: 'Retry',
+                      onClick: () => {
+                        recover();
+                      },
+                    }
+                  : undefined
+              }
+              onStop={() => {}}
+              acceptedComposerDraft={
+                command?.state === 'consumed' ? command.composerDraft : undefined
+              }
+              onSend={(text, _images, _context, onDelivery, _onAssigned, composerDraft) =>
+                send(
+                  {
+                    version: 2,
+                    runOn: 'local',
+                    sessionId: 'cold-chat',
+                    workspace: {
+                      kind: 'ordinary',
+                      workspaceId: '11111111-1111-4111-8111-111111111111',
+                    },
+                    clientMsgId: createBrowserId(),
+                    capabilityRevision: 'caps',
+                    runtime: {
+                      account: {
+                        accountId: 'work',
+                        provider: 'openai-codex',
+                        profileRevision: 'r1',
+                      },
+                      harness: 'codex',
+                      targetId: 'mac',
+                      mode: 'agent',
+                    },
+                    selection: {
+                      version: 1,
+                      agent: { profileId: 'agent', revision: 1 },
+                      model: 'luna-fixture',
+                      thinking: 'low',
+                      context: { source: 'none', revision: null },
+                      permission: { mode: 'agent', revision: 0 },
+                    },
+                    payload: { text },
                   },
-                  clientMsgId: createBrowserId(),
-                  capabilityRevision: 'caps',
-                  runtime: {
-                    account: { accountId: 'work', provider: 'openai-codex', profileRevision: 'r1' },
-                    harness: 'codex',
-                    targetId: 'mac',
-                    mode: 'agent',
-                  },
-                  selection: {
-                    version: 1,
-                    agent: { profileId: 'agent', revision: 1 },
-                    model: 'luna-fixture',
-                    thinking: 'low',
-                    context: { source: 'none', revision: null },
-                    permission: { mode: 'agent', revision: 0 },
-                  },
-                  payload: { text },
-                },
-                'continue',
-                { onDelivery, composerDraft },
-              )
-            }
-          />
-        </div>
-      )}
-    </main>
+                  'continue',
+                  { onDelivery, composerDraft },
+                )
+              }
+            />
+          </div>
+        )}
+      </main>
+    </ComposerStatusProvider>
   );
 }
 createRoot(document.getElementById('root')!).render(

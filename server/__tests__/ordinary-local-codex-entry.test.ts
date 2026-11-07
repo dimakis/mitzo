@@ -1,4 +1,6 @@
+import { resetOfflineUserEnvironment } from './fixtures/offline-user-home.js';
 import { ordinaryWireFingerprint } from '../post-adoption-wire-admission.js';
+import { SessionRuntimeError } from '../session-runtime-error.js';
 import { OrdinaryRepositoryPreparationSchema } from '../ordinary-repository-preparation.js';
 import { buildAgentProfilePrompt } from '../agent-library-prompt.js';
 import { canonicalJson } from '../connections/capabilities/input-validation.js';
@@ -27,6 +29,7 @@ import {
   DEFAULT_MITZO_PROFILE_ID,
   DEFAULT_MITZO_PROFILE_REVISION,
   PROFILE_BUILDER_REVISION,
+  OrdinaryRuntimeEntryFailureSchema,
 } from '@mitzo/protocol';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import express from 'express';
@@ -278,6 +281,7 @@ const input = () => ({
 });
 
 beforeEach(() => {
+  resetOfflineUserEnvironment();
   vi.clearAllMocks();
   fixtures.shellTarget.mockReturnValue(undefined);
   fixtures.shellResumable = false;
@@ -541,9 +545,31 @@ it('does not rewrite command receipts or discard reservations on uncertain failu
   const response = await send();
   expect(response.status).toBe(409);
   expect(JSON.stringify(response.body)).not.toContain('private');
+  expect(
+    OrdinaryRuntimeEntryFailureSchema.parse(response.body).runtimeFailure.runtimeFailureCode,
+  ).toBe('runtime_unavailable');
   expect(fail).not.toHaveBeenCalled();
   expect(fixtures.reserve).toHaveBeenCalledTimes(1);
 });
+it.each([
+  'login_refresh_reauthorization',
+  'login_refresh_invalid',
+  'login_verification_unavailable',
+] as const)(
+  'preserves %s at the actual HTTP boundary before a native receipt exists',
+  async (code) => {
+    const failure = new SessionRuntimeError(code, { cause: Error('private login details') });
+    fixtures.start.mockRejectedValue(failure);
+    const response = await send();
+    expect(response.status).toBe(409);
+    const receipt = OrdinaryRuntimeEntryFailureSchema.parse(response.body);
+    expect(receipt.runtimeFailure).toEqual(failure.telemetry());
+    expect(receipt.clientMsgId).toBe(input().clientMsgId);
+    expect(receipt).not.toHaveProperty('state');
+    expect(JSON.stringify(receipt)).not.toContain('private login details');
+    expect(store.getOrdinaryLocalCommandExecutionAdmission(input().clientMsgId)).toBeUndefined();
+  },
+);
 it('refuses a foreign or unmarked live owner before lazy/source effects', async () => {
   const sessionId = nativeStartupSessionId(`repository:${workspaceId}`);
   sessions.register('live', {
