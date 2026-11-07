@@ -148,6 +148,8 @@ for (const { theme, sourceStatus } of sourceCases)
         });
       }
       if (path === '/api/sessions/planning/meta') return route.fulfill({ json: metadata });
+      if (path === '/api/session-launch/requests' && route.request().method() === 'GET')
+        return route.fulfill({ json: { requests: [] } });
       if (path === '/api/sessions/planning/symposium/status')
         return route.fulfill({
           json: { sessionId: 'planning', config: null, seats: [], deliveries: [] },

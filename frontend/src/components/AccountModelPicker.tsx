@@ -946,6 +946,11 @@ function SessionAccountModelPicker({
           </button>
         </QuickSettingsSupplement>
       )}
+      {!quick && defaultsControl !== undefined && scope === 'chat' && !legacy && (
+        <button disabled={disabled} onClick={() => setAttempt((n) => n + 1)}>
+          Refresh models
+        </button>
+      )}
       {defaultsControl !== undefined
         ? defaultsControl
         : scope === 'chat' &&
@@ -1228,6 +1233,11 @@ function ControlledAccountModelPicker({
             Refresh models
           </button>
         </QuickSettingsSupplement>
+      )}
+      {!quick && defaultsControl !== undefined && onRefresh && (
+        <button disabled={disabled} onClick={onRefresh}>
+          Refresh models
+        </button>
       )}
     </>
   );

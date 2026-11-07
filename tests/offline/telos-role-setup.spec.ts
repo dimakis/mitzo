@@ -548,6 +548,8 @@ for (const journey of ['lead', 'refine', 'child', 'leaf', 'coordinator'] as cons
           });
         if (path.endsWith('/compactions'))
           return route.fulfill({ json: { records: [], truncated: false } });
+        if (path === '/api/session-launch/requests' && route.request().method() === 'GET')
+          return route.fulfill({ json: { requests: [] } });
         if (path.startsWith('/api/chat/web-search-consent/'))
           return route.fulfill({
             json: { ok: true, grant: 'denied', revision: 1, updatedAt: 1792144800000 },
