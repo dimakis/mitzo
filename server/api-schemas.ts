@@ -184,7 +184,7 @@ export const TodoOutcomeCreateBody = TelosOutcomeCreateBodySchema;
 export const TodoActionBody = z
   .object({
     action: z.enum(['ack', 'snooze', 'done', 'star', 'unstar', 'priority']),
-    days: z.number().optional(),
+    days: z.number().int().min(1).max(3650).optional(),
     priority: z.number().int().min(1).max(10).optional(),
   })
   .superRefine((body, context) => {

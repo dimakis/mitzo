@@ -559,7 +559,8 @@ describe('authenticated Telos source capture API', () => {
     const manifest: Record<string, string> = reviewedHandlerSourceArtifacts;
     for (const file of [
       '../telos-source-routes.ts',
-      '../telos-outcome-owner.ts',
+      '../telos-native-store.ts',
+      '../telos-schema.ts',
       '../app.ts',
       '../../packages/client/src/telos-work-api.ts',
     ])

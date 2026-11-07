@@ -59,10 +59,17 @@ function selected(files: TelosDatabaseFiles): TelosDatabaseFiles {
 export function selectedTelosDatabaseFiles(): TelosDatabaseFiles {
   const root = resolve(process.env.REPO_PATH || '.');
   return selected({
-    canonical: process.env.TELOS_DB_PATH || join(root, 'command_center/data/smart_todo.db'),
+    canonical: resolveTelosDatabasePath(root),
     events: join(root, '.mitzo/events.db'),
     tasks: join(root, '.mitzo/tasks.db'),
   });
+}
+/** Shared by the canonical API, execution owners and backup. Preserve an
+ * existing legacy selection until explicit cutover; never split its writers. */
+export function resolveTelosDatabasePath(root: string, environment = process.env): string {
+  if (environment.TELOS_DB_PATH) return resolve(environment.TELOS_DB_PATH);
+  const legacy = join(root, 'command_center', 'data', 'smart_todo.db');
+  return resolve(exists(legacy) ? legacy : join(root, '.mitzo', 'telos.db'));
 }
 function exists(path: string): boolean {
   try {

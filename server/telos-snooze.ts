@@ -1,4 +1,8 @@
 import type Database from 'better-sqlite3';
+const pad = (value: number, width = 2) => String(value).padStart(width, '0');
+export function telosLocalDate(date: Date): string {
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+}
 
 /** A read-only admission proved a due transition; never escalate on an I/O error. */
 export class TelosCollectionWakeupRequired extends Error {
@@ -16,8 +20,7 @@ export function renewDueTelosSnoozes(
   assertCurrent: () => void,
   now = new Date(),
 ): boolean {
-  const pad = (value: number, width = 2) => String(value).padStart(width, '0');
-  const today = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+  const today = telosLocalDate(now);
   const ids = items
     .filter(
       (row) =>

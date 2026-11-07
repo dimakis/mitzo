@@ -3958,7 +3958,13 @@ async function openCodexChatBound(
             (owners) =>
               executeTelosBacklogOperation(
                 {
-                  ...owners,
+                  context: owners.context,
+                  get items() {
+                    return owners.items;
+                  },
+                  get work() {
+                    return owners.work;
+                  },
                   approve: (toolName, exact, permissionSignal) =>
                     buildPermissionHandler(owner.clientId, options.registry, {
                       onDemandCreate: options.onDemandCreate,

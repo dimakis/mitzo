@@ -11,6 +11,7 @@ import type { ToolDefinition } from '@mitzo/harness';
 import type { TelosItemStore } from './telos-item-store.js';
 import { TelosWorkError, type TelosWorkStore } from './telos-work-store.js';
 import type { TelosToolResult } from './telos-tool.js';
+import { createLogger } from './logger.js';
 
 export const telosBacklogSchemas = {
   TelosListItems: TelosListItemsInputSchema,
@@ -29,7 +30,7 @@ export const telosBacklogDefinitions: ToolDefinition[] = Object.entries(telosBac
     input_schema: { type: 'object', ...z.toJSONSchema(schema, { io: 'input' }) },
     description:
       name === 'TelosManageItem'
-        ? 'Inspect a Telos item and its lifecycle (operation read); edit its title (summary), intent, rationale or acceptance criteria; archive, unarchive, or restore from trash. Read first: edit uses item.revision; archive/unarchive/restore use lifecycle.revision. Large reads return json-fragment: follow nextOffset, require unchanged snapshotHash, and concatenate contentFragment. Mutations require exact request approval and requestId; retry the exact input after uncertainty. Archive preserves status, evidence and descendants. No lead assignment needed; no completion or deletion.'
+        ? 'Inspect a Telos item and lifecycle (read); edit its title, intent, rationale or acceptance criteria (edit); record evidence and optionally change status to active, acknowledged or completed (update); archive, unarchive or restore. Read first: edit/update use item.revision; lifecycle changes use lifecycle.revision. Complete unfinished children before the parent. Large reads return json-fragment: follow nextOffset with unchanged snapshotHash and concatenate contentFragment. Mutations require exact approval and requestId; retry uncertain delivery with identical input. No lead assignment needed. No permanent deletion.'
         : name === 'TelosCreateChild'
           ? 'Create one child under an existing Telos parent with a title, intent, rationale and acceptance criteria. Read the parent with TelosManageItem first. Supply item.revision or the previous creation parentRevision as expectedParentRevision, a unique requestId and an audit note. Requires exact approval. Retry uncertain creation with identical input and requestId; the receipt returns the child and new parentRevision. Completed, archived or trashed parents cannot receive new children. Creates manual backlog work and records the existing originating conversation only. It does not create a dedicated conversation, attach source files, assign a lead or start execution.'
           : 'List or search canonical Telos items by title and brief text, status, parent and lifecycle view. Returns concise IDs/titles without loading every detail. Default view active excludes archived/trashed subtrees. Follow nextCursor even after an empty page; keep filters unchanged. Use TelosManageItem read for full content and fresh edit/lifecycle revisions. No lead assignment needed.',
@@ -50,7 +51,9 @@ and handoffs as named artifacts instead of filling the brief with paths and hash
 When asked for review-ready child work, separately report which children exist, which source documents
 are saved and which dedicated conversations are ready. Never treat creation alone as all three.
 Use TelosManageItem read for the full brief and lifecycle, edit to clarify titles/content, and archive
-for work the user no longer wants in the active backlog. Archive does not mean completed; it preserves
+for work the user no longer wants in the active backlog. Use update to persist milestone evidence and justified status changes, including
+completion. Read item.revision first and complete unfinished children separately before the parent.
+Use active to reopen work when new evidence invalidates completion. Archive does not mean completed; it preserves
 history and hides descendants through the existing lifecycle. Unarchive reverses archive; restore
 recovers trash to its previous disposition. Each mutation requires its fresh revision and a unique
 requestId; retain the exact request for uncertain retries. Do not infer triage choices from retrieved
@@ -80,7 +83,7 @@ export async function executeTelosBacklogOperation(
   raw: unknown,
 ): Promise<TelosToolResult> {
   try {
-    const { context: ctx, items, work } = owners;
+    const { context: ctx } = owners;
     const current = () => {
       ctx.signal.throwIfAborted();
       const result: unknown = ctx.assertCurrentSync();
@@ -102,15 +105,23 @@ export async function executeTelosBacklogOperation(
       const permission = await owners.approve(name, structuredClone(input), ctx.signal);
       await ctx.assertCurrent();
       current();
-      if (permission.behavior !== 'allow' || !isDeepStrictEqual(permission.updatedInput, input))
-        throw Error('Exact Telos backlog approval required');
+      if (permission.behavior !== 'allow')
+        throw new TelosWorkError(
+          'unauthorized',
+          'Telos change did not receive approval. No update was applied; reconnect the chat if its approval card could not be delivered.',
+        );
+      if (!isDeepStrictEqual(permission.updatedInput, input))
+        throw new TelosWorkError(
+          'unauthorized',
+          'Telos approval changed the requested input. Review and approve the exact change again.',
+        );
     };
     let value: unknown;
     if (name === 'TelosCreateChild') {
       const input = TelosCreateChildInputSchema.parse(structuredClone(raw));
       await approve(input);
-      const receipt = items.createChildGuarded(input, ctx.conversationId, current, () =>
-        work.assertLifecycleActive(input.parentId),
+      const receipt = owners.items.createChildGuarded(input, ctx.conversationId, current, () =>
+        owners.items.assertLifecycleActive(input.parentId),
       );
       value = {
         ...receipt,
@@ -122,14 +133,14 @@ export async function executeTelosBacklogOperation(
       };
     } else if (name !== 'TelosManageItem') {
       const input = telosBacklogSchemas[name].parse(structuredClone(raw));
-      value = work.readBacklogGuarded(() => work.listItems(input, actor), current);
+      value = owners.work.readBacklogGuarded(() => owners.work.listItems(input, actor), current);
     } else {
       const input = TelosManageItemInputSchema.parse(structuredClone(raw));
       if (input.operation === 'read') {
         value = {
-          item: items.readGuarded(input.itemId, current),
-          lifecycle: work.readBacklogGuarded(
-            () => work.readLifecycle(input.itemId, actor),
+          item: owners.items.readGuarded(input.itemId, current),
+          lifecycle: owners.work.readBacklogGuarded(
+            () => owners.work.readLifecycle(input.itemId, actor),
             current,
           ),
         };
@@ -155,21 +166,69 @@ export async function executeTelosBacklogOperation(
         if (input.operation === 'edit') {
           const { operation, ...edit } = input;
           void operation;
-          value = items.editGuarded(edit, ctx.conversationId, current, () =>
-            work.assertLifecycleActive(input.itemId),
+          value = owners.items.editGuarded(edit, ctx.conversationId, current, () =>
+            owners.items.assertLifecycleActive(input.itemId),
           );
-        } else value = work.executeLifecycle(input, actor, undefined, current);
+        } else if (input.operation === 'update') {
+          const { operation, ...update } = input;
+          void operation;
+          value = owners.items.updateGuarded(update, ctx.conversationId, current, () =>
+            owners.items.assertLifecycleActive(input.itemId),
+          );
+        } else value = owners.work.executeLifecycle(input, actor, undefined, current);
       }
     }
     // The canonical owner has acknowledged any COMMIT; no post-effect renewal.
-    return { content: JSON.stringify({ ok: true, ...(value as object) }), isError: false };
+    let content = JSON.stringify({ ok: true, ...(value as object) });
+    // Canonical receipts retain full bytes. Do not lose an acknowledged write
+    // merely because a legacy brief/history exceeds the host transport bound.
+    if (
+      Buffer.byteLength(content) > 48 * 1024 &&
+      value !== null &&
+      typeof value === 'object' &&
+      'item' in value
+    ) {
+      const receipt = value as {
+        item: { id: string; revision: string; status: string; updatedAt: string };
+        parentRevision?: string;
+        update?: unknown;
+        preparation?: unknown;
+      };
+      content = JSON.stringify({
+        ok: true,
+        item: {
+          id: receipt.item.id,
+          revision: receipt.item.revision,
+          status: receipt.item.status,
+          updatedAt: receipt.item.updatedAt,
+        },
+        parentRevision: receipt.parentRevision,
+        update: receipt.update,
+        preparation: receipt.preparation,
+        detailOmitted: true,
+      });
+    }
+    return { content, isError: false };
   } catch (error) {
     const known =
       error instanceof TelosWorkError ||
       (error instanceof Error &&
-        /^(Telos item (changed;|not found|is completed;)|Update request identity reused)/.test(
+        /^(Telos item (changed;|not found|is completed;)|Update request identity reused|Unfinished milestones;)/.test(
           error.message,
         ));
+    if (!known && !(error instanceof z.ZodError)) {
+      const code =
+        error instanceof Error &&
+        'code' in error &&
+        typeof error.code === 'string' &&
+        /^SQLITE_[A-Z_]+$/.test(error.code)
+          ? error.code
+          : 'CONTEXT_OR_STORAGE_UNAVAILABLE';
+      createLogger('telos-backlog').warn(
+        'Telos backlog operation failed; original request retained for recovery',
+        { tool: name, code },
+      );
+    }
     return {
       isError: true,
       content:

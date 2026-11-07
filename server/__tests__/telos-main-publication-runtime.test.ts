@@ -1,7 +1,12 @@
 import { mkdtempSync, writeFileSync, chmodSync, symlinkSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, expect, it } from 'vitest';
+import { afterEach, expect, it, vi } from 'vitest';
+import Database from 'better-sqlite3';
+import { createHash } from 'node:crypto';
+import { MitzoTelosStore } from '../telos-native-store.js';
+import { executeTelosBacklogOperation } from '../telos-backlog-tools.js';
+import { TelosItemStore } from '../telos-item-store.js';
 import { SessionRegistry } from '@mitzo/harness';
 import {
   readTelosMainPublicationConfiguration,
@@ -61,6 +66,63 @@ function fixture() {
   };
   return { root, path, entry, document, write, owners, reads: () => reads };
 }
+it('edits through one item owner without opening or initializing the work store', async () => {
+  const f = fixture(),
+    database = join(f.root, 'telos.db');
+  const store = new MitzoTelosStore(database),
+    item = store.create('Original', 'manual').item;
+  const input = {
+    operation: 'edit',
+    itemId: item.id,
+    requestId: 'runtime-edit',
+    expectedRevision: store.read(item.id).revision,
+    summary: 'Edited',
+    note: 'Verified exact edit',
+  };
+  store.close();
+  const runtime = installTelosMainPublicationRuntime({ ...f.owners, databasePath: () => database });
+  const context = {
+    operatorId: 'operator',
+    conversationId: 'ordinary',
+    toolName: 'TelosManageItem',
+    requestHash: createHash('sha256').update(JSON.stringify(input)).digest('hex'),
+    signal: new AbortController().signal,
+    assertCurrentSync() {},
+    async assertCurrent() {},
+  };
+  const execute = vi.spyOn(Database.prototype, 'exec');
+  try {
+    const result = await runtime.withBacklog(
+      context,
+      (owners) =>
+        executeTelosBacklogOperation(
+          {
+            context: owners.context,
+            get items() {
+              return owners.items;
+            },
+            get work() {
+              return owners.work;
+            },
+            approve: async (_name, exact) => ({ behavior: 'allow', updatedInput: exact }),
+          },
+          'TelosManageItem',
+          input,
+        ),
+      false,
+    );
+    expect(result.isError).toBe(false);
+    expect(execute).not.toHaveBeenCalled();
+    const read = new TelosItemStore(database);
+    try {
+      expect(read.read(item.id).summary).toBe('Edited');
+    } finally {
+      read.close();
+    }
+  } finally {
+    execute.mockRestore();
+  }
+});
 it('loads only private explicit metadata and installs without credential reads or a database', () => {
   const f = fixture();
   expect(readTelosMainPublicationConfiguration(f.path)).toEqual(f.document);
