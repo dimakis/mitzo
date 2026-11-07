@@ -291,6 +291,20 @@ it.each(['persistence', 'marker'] as const)(
       expect.objectContaining({ stage: 'events' }),
     );
     expect(f.request).not.toHaveBeenCalled();
+    expect(f.onChild).toHaveBeenCalledTimes(1);
+    if (stage === 'persistence') {
+      expect(f.onChild).toHaveBeenCalledWith(
+        expect.objectContaining({
+          available: false,
+          inspectionFailure: {
+            stage: 'events',
+            code: 'native_subagent_inspection_failed',
+            reference: expect.any(String),
+          },
+        }),
+      );
+      expect(f.options.store.get(f.options.scope, 'child')?.activityAnchored).toBe(true);
+    }
     expect(JSON.stringify(diagnostic.mock.calls)).not.toContain('private');
   },
 );

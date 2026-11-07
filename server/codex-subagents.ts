@@ -408,6 +408,7 @@ export class CodexSubagents {
     authorize: () => void = () => {},
   ): void {
     let observation: RetainedSubagent | undefined;
+    let markerAttempted = false;
     try {
       if (task) {
         this.assignedTasks.set(threadId, task.slice(0, 8192));
@@ -464,13 +465,13 @@ export class CodexSubagents {
       )
         return;
       this.opts.store.save(this.opts.scope, observed);
-      if (
-        observed.activityAnchored === false &&
-        this.opts.onChild(this.snapshot(observed)) !== false
-      ) {
-        observed.activityAnchored = true;
-        observed.revision++;
-        this.opts.store.save(this.opts.scope, observed);
+      if (observed.activityAnchored === false) {
+        markerAttempted = true;
+        if (this.opts.onChild(this.snapshot(observed)) !== false) {
+          observed.activityAnchored = true;
+          observed.revision++;
+          this.opts.store.save(this.opts.scope, observed);
+        }
       }
       this.deliver(observed);
       let stage: NonNullable<NativeSubagentSnapshot['inspectionFailure']>['stage'] =
@@ -640,26 +641,39 @@ export class CodexSubagents {
         });
       this.pending.set(threadId, operation);
     } catch (error) {
-      this.inspectionFailed(
-        observation ??
-          this.live.get(threadId)?.child ?? {
+      const failedChild = observation ??
+        this.live.get(threadId)?.child ?? {
+          threadId,
+          parentThreadId,
+          rootThreadId: root.threadId,
+          commandId: root.commandId,
+          policyRevision: root.policy.policyRevision,
+          name: 'Subagent',
+          task: task?.slice(0, 8192) ?? '',
+          model: '',
+          state: 'unknown',
+          revision: 1,
+          blocks: [],
+          admissionVerified: false,
+          activityAnchored: false,
+        };
+      this.inspectionFailed(failedChild, 'events', error);
+      // A first-save failure must not suppress the marker that mounts the feed.
+      // Attempt it once independently, preserving the primary diagnostic.
+      if (!markerAttempted && failedChild.activityAnchored === false) {
+        try {
+          if (this.opts.onChild(this.snapshot(failedChild)) !== false) {
+            failedChild.activityAnchored = true;
+            failedChild.revision++;
+            this.opts.store.save(this.opts.scope, failedChild);
+          }
+        } catch {
+          createLogger('codex-subagents').warn('Subagent failure activity could not be anchored', {
+            reference: failedChild.inspectionFailure?.reference,
             threadId,
-            parentThreadId,
-            rootThreadId: root.threadId,
-            commandId: root.commandId,
-            policyRevision: root.policy.policyRevision,
-            name: 'Subagent',
-            task: task?.slice(0, 8192) ?? '',
-            model: '',
-            state: 'unknown',
-            revision: 1,
-            blocks: [],
-            admissionVerified: false,
-            activityAnchored: false,
-          },
-        'events',
-        error,
-      );
+          });
+        }
+      }
     }
   }
   async restore(): Promise<void> {

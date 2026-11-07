@@ -108,7 +108,10 @@ export function NativeSubagents({
               type="button"
               key={agent.threadId}
               className="native-subagent-row"
-              onClick={() => setSelectedId(agent.threadId)}
+              onClick={(event) => {
+                event.currentTarget.focus({ preventScroll: true });
+                setSelectedId(agent.threadId);
+              }}
             >
               <span>{agent.name}</span>
               <span className="native-subagent-state">
