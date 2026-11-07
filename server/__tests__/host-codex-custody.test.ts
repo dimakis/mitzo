@@ -1,3 +1,4 @@
+import './fixtures/offline-user-home.js';
 import { afterEach, expect, it } from 'vitest';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -189,6 +190,7 @@ it('reauthorizes only the exact reviewed legacy login while preserving native hi
   const { codexAccountBinding } = await import('../codex-account.js');
   const realBinding = codexAccountBinding(profile);
   const captured = FrozenHostCodexLogin.capture(profile, { privateRoot });
+  expect(captured.custodySnapshot().refreshProof).toBeDefined();
   const legacy = captured.custodySnapshot();
   delete legacy.refreshProof;
   const original = { ...snapshot(), login: legacy };
@@ -280,7 +282,57 @@ it('reauthorizes only the exact reviewed legacy login while preserving native hi
         },
       ]),
     );
-    const { reauthorizeHostLogins } = await import('../host-codex-login-recovery-command.js');
+    const { reauthorizeHostLogins, planLegacyHostLogins, applyLegacyHostLoginPlan } =
+      await import('../host-codex-login-recovery-command.js');
+    store.create('blocked-legacy', realBinding, '/task');
+    store.setHostCustody('blocked-legacy', realBinding, {
+      ...original,
+      login: { ...legacy, sourceAuth: { ...legacy.sourceAuth, ino: legacy.sourceAuth.ino + 1 } },
+    });
+    store.create('no-login-custody', realBinding, '/task');
+    const secondLogin = FrozenHostCodexLogin.capture(profile, { privateRoot }).custodySnapshot();
+    delete secondLogin.refreshProof;
+    store.create('second-retained', realBinding, '/second-task');
+    store.setHostCustody('second-retained', realBinding, { ...original, login: secondLogin });
+    store.bindThread('second-retained', realBinding, 'second-original-thread');
+    store.enqueue('second-retained', realBinding, {
+      id: 'second-queued',
+      prompt: 'Keep this input',
+      model: binding.model,
+    });
+    const secondCommands = store.commands('second-retained', realBinding);
+    const beforeBatch = store.commands('retained', realBinding);
+    const batch = await planLegacyHostLogins({
+      database: join(root, 'native.db'),
+      profiles: profilePath,
+    });
+    expect(batch.plan).toMatchObject([
+      { conversationId: 'retained', operationId: operation.operationId, status: 'review_required' },
+      { conversationId: 'second-retained', status: 'review_required' },
+    ]);
+    expect(batch.blocked).toEqual([
+      { conversationId: 'blocked-legacy', code: 'login_reauthorization_refused' },
+    ]);
+    expect(batch.scanned).toBe(4);
+    expect(batch.eligible).toBe(2);
+    expect(store.commands('retained', realBinding)).toEqual(beforeBatch);
+    expect(store.readHostCustody('retained', realBinding)).toEqual(original);
+    expect(existsSync(artifact)).toBe(false);
+    const refusedBatch = await applyLegacyHostLoginPlan({
+      database: join(root, 'native.db'),
+      profiles: profilePath,
+      approvedPlan: batch,
+      assertOffline: () => {
+        throw Error('live database');
+      },
+    });
+    expect(refusedBatch).toMatchObject({
+      status: 'incomplete',
+      results: [],
+      stoppedAt: 'retained',
+      remaining: 2,
+    });
+    expect(existsSync(artifact)).toBe(false);
     const gate = vi.fn();
     const preview = await reauthorizeHostLogins({
       database: join(root, 'native.db'),
@@ -391,6 +443,32 @@ it('reauthorizes only the exact reviewed legacy login while preserving native hi
     expect(store.hostLoginReauthorizations('retained', realBinding)).toHaveLength(1);
     expect(operator.assertCurrent).toHaveBeenCalled();
     expect(
+      await applyLegacyHostLoginPlan({
+        database: join(root, 'native.db'),
+        profiles: profilePath,
+        approvedPlan: batch,
+        assertOffline: gate,
+      }),
+    ).toMatchObject({
+      status: 'completed',
+      results: [
+        { conversationId: 'retained', status: 'already_completed' },
+        { conversationId: 'second-retained', status: 'completed' },
+      ],
+      blocked: batch.blocked,
+    });
+    expect(store.readHostCustody('blocked-legacy', realBinding)?.login).not.toHaveProperty(
+      'refreshProof',
+    );
+    expect(store.commands('second-retained', realBinding)).toEqual(secondCommands);
+    expect(store.read('second-retained', realBinding).threadId).toBe('second-original-thread');
+    const remainingLegacy = await planLegacyHostLogins({
+      database: join(root, 'native.db'),
+      profiles: profilePath,
+    });
+    expect(remainingLegacy.plan).toEqual([]);
+    expect(remainingLegacy.blocked).toEqual(batch.blocked);
+    expect(
       await reauthorizeHostLogins({
         database: join(root, 'native.db'),
         profiles: profilePath,
@@ -399,6 +477,28 @@ it('reauthorizes only the exact reviewed legacy login while preserving native hi
         assertOffline: gate,
       }),
     ).toMatchObject([{ status: 'already_completed' }]);
+    const client = {
+      initialize: vi.fn(async () => {}),
+      request: vi.fn(async () => ({
+        account: { type: 'chatgpt', email: profile.email, planType: profile.planType },
+      })),
+      close: vi.fn(),
+    };
+    const recoveredLease = await FrozenHostCodexLogin.reopen(profile, updated.login).connect(
+      () => client,
+    );
+    for (const offset of [40, 50]) {
+      writeFileSync(join(legacy.privateHome, 'auth.json'), refreshedAuth(epoch + offset));
+      await recoveredLease.assertCurrent();
+    }
+    recoveredLease.close();
+    const restartedLease = await FrozenHostCodexLogin.reopen(profile, updated.login).connect(
+      () => client,
+    );
+    await restartedLease.assertCurrent();
+    restartedLease.close();
+    expect(store.commands('retained', realBinding)).toEqual(commands);
+    expect(store.read('retained', realBinding).threadId).toBe('original-thread');
   } finally {
     store.close();
     vi.unstubAllGlobals();
