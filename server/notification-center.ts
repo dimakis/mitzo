@@ -333,8 +333,7 @@ export class NotificationCenter {
         const category = item.permId
           ? permissionNotificationCategory(item.request, prefs.sensitivePreviews)
           : undefined;
-        const quickApproval =
-          category === 'SESSION_APPROVAL' || category === 'SESSION_SEARCH_PERMISSION';
+        const quickApproval = category !== undefined && category !== 'SESSION_PERMISSION';
         const message: NotificationPush = {
           title:
             prefs.sensitivePreviews || item.kind === 'test'
@@ -345,7 +344,7 @@ export class NotificationCenter {
                   ? 'Mitzo has a question'
                   : 'Mitzo update',
           body: quickApproval
-            ? `${item.body}\n${item.request!.toolName}\n${item.request!.toolInput}\n${item.request!.sessionGrantDescription ?? 'Allow for session keeps this approval until the session ends.'}`
+            ? `${item.body}\n${item.request!.toolName}\n${item.request!.toolInput}\n${item.request!.sessionGrantDescription ?? (item.request!.approvalScope === 'conversation' ? 'Grant access to this conversation until revoked.' : item.request!.allowSessionGrant === false ? 'Allow once covers only this request.' : 'Allow for session keeps this approval until the session ends.')}`
             : prefs.sensitivePreviews || item.kind === 'test'
               ? item.body
               : 'Open Mitzo to review this notification.',

@@ -472,6 +472,9 @@ jobs:
       - name: Test Watch receipt routing offline
         run: python3 scripts/test-watch-chat-receipts.py
 
+      - name: Typecheck complete Watch approval UI offline
+        run: python3 scripts/test-watch-approval-ui.py
+
       - name: Build iPhone app with Watch companion
         if: ${{ !cancelled() }}
         run: >-
