@@ -23,6 +23,8 @@ export const SESSION_RUNTIME_MESSAGES = {
     'This historical repair could not be qualified safely. Original work and queued messages are retained; nothing was dispatched.',
   runtime_unavailable:
     'The execution runtime could not continue. The conversation, workspace and saved messages are retained.',
+  native_policy_changed:
+    'Native execution policy changed. Mitzo stopped this turn before granting further access. Review saved work and continue with the current policy; earlier actions will not be replayed automatically.',
   workspace_branch_changed:
     'This checkout is no longer on its assigned task branch. Saved commits and files are preserved. Restore the assigned branch while retaining the saved work, then review the interrupted turn before continuing.',
   callbacks_pending:
