@@ -59,3 +59,53 @@ it('reviews existing picker observations, retains Local Mac host and edits isola
   expect(observed.runtime).not.toHaveProperty('capabilityRevision');
   expect(screen.queryByText('Make default for new chats')).toBeNull();
 });
+
+it.each(['mac', 'retired-host', null])(
+  'reviews and edits host %s with multiple eligible hosts without changing account or context intent',
+  async (initialTarget) => {
+    const inventory = localInventoryFixture();
+    inventory.targets.push({ ...inventory.targets[0], targetId: 'second-mac', label: 'Build Mac' });
+    inventory.routes.push({ ...inventory.routes[0], targetId: 'second-mac' });
+    vi.mocked(apiFetch).mockImplementation(async () => Response.json(inventory));
+    let observed!: SessionLaunchConfig;
+    function Fixture() {
+      const [configuration, setConfiguration] = useState<SessionLaunchConfig>({
+        version: 1,
+        runtime: {
+          version: 1,
+          account: { accountId: 'personal', model: 'luna-fixture', reasoningEffort: 'high' },
+          accountReference: inventory.accounts[0].account,
+          agentProfile: null,
+          execution: { location: 'local', targetId: initialTarget },
+        },
+        mode: 'agent',
+        isolation: true,
+        repositoryWorkspaceId: null,
+        contextBlocks: ['Preserve context'],
+        extraTools: [],
+      });
+      observed = configuration;
+      return (
+        <SessionLaunchConfigEditor configuration={configuration} onChange={setConfiguration} />
+      );
+    }
+    render(
+      <BrowserRouter>
+        <Fixture />
+      </BrowserRouter>,
+    );
+    const host = await screen.findByRole('combobox', { name: 'Execution host' });
+    await waitFor(() => expect(host.querySelector('option[value="second-mac"]')).toBeTruthy());
+    expect((host as HTMLSelectElement).value).toBe(initialTarget ?? '');
+    fireEvent.click(screen.getByRole('button', { name: 'Local Mac' }));
+    expect(observed.runtime.execution.targetId).toBe(initialTarget);
+    fireEvent.change(host, { target: { value: 'second-mac' } });
+    expect(observed.runtime.execution).toEqual({ location: 'local', targetId: 'second-mac' });
+    expect(observed.runtime.account).toEqual({
+      accountId: 'personal',
+      model: 'luna-fixture',
+      reasoningEffort: 'high',
+    });
+    expect(observed.contextBlocks).toEqual(['Preserve context']);
+  },
+);

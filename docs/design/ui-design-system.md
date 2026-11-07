@@ -9,6 +9,13 @@ Title, handoff and configuration are editable before **Approve & start**; saving
 the configuration as the persistent default is an explicit separate choice. The
 original composer and draft remain mounted and approval does not navigate away.
 
+The existing Run on editor includes a labelled Execution host control using the
+shared native select and semantic styles. It lists only server-observed routes
+for the selected account and environment. The exact saved host remains visible
+when unavailable, and selecting the same environment preserves it. Bound chats
+keep the host locked. This adds host review inside the existing field editor;
+the approved settings row order, environment cards and header stay intact.
+
 The receipt distinguishes waiting for approval, created, starting, started,
 cancelled, failed and unconfirmed states. **Open chat** uses the existing
 `UiIcon` arrow geometry with a labelled touch-sized link. The new conversation

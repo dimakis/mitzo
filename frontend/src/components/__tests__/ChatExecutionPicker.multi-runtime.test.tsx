@@ -164,10 +164,11 @@ it('renders precisely two environments for three Local adapters and derives soft
       <ChatExecutionPicker runtime={runtime} />
     </MemoryRouter>,
   );
-  expect(screen.getAllByRole('option').map((o) => o.textContent)).toEqual([
-    'OpenShell',
-    'Local Mac',
-  ]);
+  expect(
+    Array.from(screen.getByLabelText('Run on').querySelectorAll('option')).map(
+      (o) => o.textContent,
+    ),
+  ).toEqual(['OpenShell', 'Local Mac']);
   expect(screen.getByText('Runs with Mitzo Responses')).toBeTruthy();
   fireEvent.change(screen.getByLabelText('Run on'), { target: { value: 'openshell' } });
   expect(update).toHaveBeenCalledWith(

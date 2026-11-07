@@ -36,6 +36,9 @@ function ConfigSummary({ configuration }: { configuration: SessionLaunchConfig }
       {configuration.runtime.account?.model ?? 'Account required'} ·{' '}
       {configuration.runtime.account?.reasoningEffort ?? 'Model default'} ·{' '}
       {configuration.runtime.execution.location === 'local' ? 'Local Mac' : 'OpenShell'}
+      {configuration.runtime.execution.targetId && (
+        <> · {configuration.runtime.execution.targetId}</>
+      )}
     </span>
   );
 }

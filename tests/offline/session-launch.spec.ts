@@ -19,6 +19,12 @@ const bundled = build({
     '@mitzo/client/hooks': resolve('packages/client/src/hooks/index.ts'),
   },
 });
+function hostInventory() {
+  const inventory = localInventoryFixture();
+  inventory.targets.push({ ...inventory.targets[0], targetId: 'build-mac', label: 'Build Mac' });
+  inventory.routes.push({ ...inventory.routes[0], targetId: 'build-mac' });
+  return inventory;
+}
 for (const theme of ['dark', 'light']) {
   test(`agent session launch review, receipt and retained draft (${theme})`, async ({
     page,
@@ -49,7 +55,7 @@ for (const theme of ['dark', 'light']) {
           contentType: 'image/svg+xml',
         });
       if (path === '/api/chat/runtime/capabilities')
-        return route.fulfill({ json: localInventoryFixture() });
+        return route.fulfill({ json: hostInventory() });
       if (path === '/api/accounts') return route.fulfill({ json: { accounts: [] } });
       if (path === '/api/repository-workspaces/catalog')
         return route.fulfill({ json: { repositories: [] } });
@@ -72,6 +78,8 @@ for (const theme of ['dark', 'light']) {
     await expect(dialog.getByLabel('Title', { exact: true })).toHaveValue(/Approval notifications/);
     expect(mutations).toHaveLength(0);
     await dialog.getByLabel('Title', { exact: true }).fill('Approval notifications');
+    await expect(dialog.getByLabel('Execution host')).toHaveValue('mac');
+    await dialog.getByLabel('Execution host').selectOption('build-mac');
     await dialog.getByLabel('Save configuration as default').check();
     await page.screenshot({ path: info.outputPath(`session-launch-${theme}-review.png`) });
     const bounds = await dialog.boundingBox();
@@ -84,6 +92,7 @@ for (const theme of ['dark', 'light']) {
     await page.keyboard.press('Escape');
     await expect(trigger).toBeFocused();
     await trigger.click();
+    await dialog.getByLabel('Execution host').selectOption('build-mac');
     await dialog.getByLabel('Save configuration as default').check();
     await dialog.getByRole('button', { name: 'Approve & start' }).click();
     await expect(dialog).toBeHidden();
@@ -96,7 +105,7 @@ for (const theme of ['dark', 'light']) {
     expect(mutations).toHaveLength(1);
     expect(mutations[0].body.saveAsDefault).toBe(true);
     expect(mutations[0].body.configuration).toMatchObject({
-      runtime: { execution: { location: 'local', targetId: 'mac' } },
+      runtime: { execution: { location: 'local', targetId: 'build-mac' } },
     });
     await page.screenshot({ path: info.outputPath(`session-launch-${theme}-receipt.png`) });
     expect(errors).toEqual([]);

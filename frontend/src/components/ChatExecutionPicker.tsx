@@ -1,4 +1,4 @@
-import { selectedRuntimeRoute } from '../lib/chat-runtime-route';
+import { runtimeRoutes, selectedRuntimeRoute } from '../lib/chat-runtime-route';
 import { Link, useNavigate } from 'react-router-dom';
 import { createChatDraft, saveChatDraft } from '../lib/chat-drafts';
 import { useId, useState } from 'react';
@@ -9,6 +9,62 @@ import './ChatAgentProfilePicker.css';
 import { useQuickSettings } from '../lib/quick-settings-context';
 import { QuickSettingsField } from './QuickChatSettings';
 import { RuntimeBrandMark } from './SettingsBrandMark';
+
+function ExecutionHostPicker({
+  runtime,
+  disabled,
+}: {
+  runtime: ReturnType<typeof useExplicitLocalChat>;
+  disabled: boolean;
+}) {
+  const execution = runtime.bound ? runtime.binding?.execution : runtime.intent.execution;
+  const targetId =
+    execution && 'targetId' in execution ? execution.targetId : runtime.intent.execution.targetId;
+  const routes = runtimeRoutes(runtime.intent, runtime.inventory);
+  const targets =
+    runtime.inventory?.targets.filter((target) =>
+      routes.some(
+        (route) => route.targetId === target.targetId && route.harness === target.harness,
+      ),
+    ) ?? [];
+  const available = targets.some((target) => target.targetId === targetId);
+  return (
+    <div className="chat-agent-profile">
+      <label>
+        Execution host
+        <select
+          aria-label="Execution host"
+          value={targetId ?? ''}
+          disabled={disabled || runtime.bound || !runtime.inventory}
+          onChange={(event) => {
+            if (!targets.some((target) => target.targetId === event.target.value)) return;
+            runtime.update({
+              ...runtime.intent,
+              execution: { ...runtime.intent.execution, targetId: event.target.value },
+              capabilityRevision: null,
+            });
+          }}
+        >
+          {!targetId && (
+            <option value="" disabled>
+              Choose execution host
+            </option>
+          )}
+          {targetId && !available && (
+            <option value={targetId} disabled>
+              Unavailable host: {targetId}
+            </option>
+          )}
+          {targets.map((target) => (
+            <option key={target.targetId} value={target.targetId}>
+              {target.label} ({target.targetId})
+            </option>
+          ))}
+        </select>
+      </label>
+    </div>
+  );
+}
 
 export function ChatExecutionPicker(props: Parameters<typeof ChatExecutionFields>[0]) {
   const quick = useQuickSettings();
@@ -117,7 +173,10 @@ function ChatExecutionFields({
               onClick={() =>
                 runtime.update({
                   ...runtime.intent,
-                  execution: { location, targetId: null },
+                  execution: {
+                    location,
+                    targetId: selected === location ? runtime.intent.execution.targetId : null,
+                  },
                   capabilityRevision: null,
                 })
               }
@@ -139,6 +198,7 @@ function ChatExecutionFields({
             </button>
           ))}
         </div>
+        <ExecutionHostPicker runtime={runtime} disabled={disabled || executionLocked} />
         {software && (
           <span className="agent-execution-software">
             <UiIcon name="terminal" />
@@ -183,6 +243,7 @@ function ChatExecutionFields({
             ? `Run on: ${runtime.binding?.execution.location === 'openshell' ? 'OpenShell' : 'Local Mac'} · fixed for this conversation`
             : `Run on: ${runtime.binding?.execution.location === 'openshell' ? 'OpenShell' : 'Local'} · first command only`}
         </span>
+        <ExecutionHostPicker runtime={runtime} disabled />
         {software && <span>Runs with {software}</span>}
         <p role="status">{runtime.reason}</p>
         <button
@@ -234,6 +295,7 @@ function ChatExecutionFields({
           <option value="local">Local Mac</option>
         </select>
       </label>
+      <ExecutionHostPicker runtime={runtime} disabled={disabled || executionLocked} />
       {software && <p>Runs with {software}</p>}
       {runtime.selectedLocal && (
         <p>
