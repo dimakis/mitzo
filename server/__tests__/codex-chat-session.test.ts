@@ -2774,9 +2774,7 @@ it('does not require Telos outcome capture for ordinary artifact contributors in
     systemPrompt: 'Selected artifact contributor instructions.',
     contributorGuidance: 'Contribute to the selected document.',
   });
-  expect(mocks.conversationOptions?.systemPrompt).not.toContain(
-    'Telos is the de facto persistent home',
-  );
+  expect(mocks.conversationOptions?.systemPrompt).not.toContain('## Telos work planning');
   expect(mocks.conversationOptions?.systemPrompt).not.toContain(
     'Use TelosCreateOutcome for durable Telos capture',
   );

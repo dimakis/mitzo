@@ -31,9 +31,18 @@ export function SessionLaunchConfigEditor(props: {
         // Inventory observation/review may finish after an explicit field edit.
         // A callback from an older configuration cannot restore that snapshot.
         if (currentConfiguration.current !== configuration) return;
+        setCapabilityRevision(next.capabilityRevision);
+        // A capability-only review must not invalidate the current edit handlers.
+        if (
+          next.account === selection.account &&
+          next.accountReference === selection.accountReference &&
+          next.agentProfile === selection.agentProfile &&
+          next.execution.location === selection.execution.location &&
+          next.execution.targetId === selection.execution.targetId
+        )
+          return;
         const updated = { ...configuration, runtime: sessionLaunchRuntime(next) };
         currentConfiguration.current = updated;
-        setCapabilityRevision(next.capabilityRevision);
         onChange(updated);
       },
     }),
