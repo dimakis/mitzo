@@ -126,6 +126,6 @@ for (const theme of ['dark', 'light'])
     ).toBe(true);
     await dialog.getByRole('button', { name: 'Back to conversation' }).click();
     await expect(draft).toHaveValue('Keep my parent draft');
-    await expect(row).toBeFocused();
+    await expect(page.getByRole('button', { name: /Subagent.*Result returned/ })).toBeFocused();
     expect(errors).toEqual([]);
   });
