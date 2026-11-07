@@ -7810,6 +7810,7 @@ it('retains the active native command across redundant global protection discove
         'PrepareLocalRepository',
         { path: '/offline/source' },
         new AbortController().signal,
+        { turnId: 'original-turn', callId: 'prepare-equivalent-policy' },
       ),
     ).rejects.toThrow('Reached original preparation owner');
     mocks.nativeDeniedRoots.push('/offline/separate-credential');
@@ -7821,6 +7822,7 @@ it('retains the active native command across redundant global protection discove
         'PrepareLocalRepository',
         { path: '/offline/source' },
         new AbortController().signal,
+        { turnId: 'original-turn', callId: 'prepare-changed-policy' },
       ),
     ).rejects.toThrow('Native execution policy changed');
     expect(prepared).toHaveBeenCalledTimes(1);

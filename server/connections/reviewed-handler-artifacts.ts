@@ -1224,7 +1224,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../scripts/qualify-codex-native-permissions.mjs':
     '848148f0e305800ab30aa84899798c0b4034c9fe2f062045d8a5672cfc09ae59',
   '../__tests__/codex-chat-session.test.ts':
-    '5ebb3969d7ac75e266cf5f389af7999d06b84be9c7ff1b1997b62df3764fc465',
+    'de441c32b1cb386e1eb80069dfa9570ec57f35afe4bbb983d13e5a1b3a66d7be',
   '../__tests__/codex-conversation.test.ts':
     '1b59a3a06b5e25332934515c442a99a1799f16de3ec6fa65db4429068e3e0ca3',
   '../__tests__/codex-native-approvals.test.ts':
