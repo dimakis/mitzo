@@ -10338,6 +10338,41 @@ it('observes each native base-read claim once per fence and refreshes after the 
   ).resolves.toMatchObject({ success: true });
 });
 
+it('steers screenshot bytes only to the selected active turn with an immutable receipt', async () => {
+  const f = await setup();
+  await f.c.send({ id: 'a', prompt: 'First' });
+  const rpc = f.rpc.request.getMockImplementation()!;
+  f.rpc.request.mockImplementation(async (method, params) =>
+    method === 'turn/steer'
+      ? (f.requests.push({ method, params }), { turnId: params.expectedTurnId })
+      : rpc(method, params),
+  );
+  const input = {
+    requestId: 'image-correction',
+    targetCommandId: 'a',
+    text: 'Use this screenshot',
+    images: [{ data: 'aGk=', mediaType: 'image/png' as const }],
+  };
+  expect(await f.c.steer(input, () => {})).toEqual({ status: 'accepted' });
+  expect(await f.c.steer(input, () => {})).toEqual({ status: 'accepted' });
+  expect(f.requests.filter((r) => r.method === 'turn/steer')).toEqual([
+    {
+      method: 'turn/steer',
+      params: {
+        threadId: f.getProviderThread(),
+        expectedTurnId: 'turn-1',
+        input: [
+          { type: 'text', text: input.text },
+          { type: 'image', url: 'data:image/png;base64,aGk=' },
+        ],
+      },
+    },
+  ]);
+  await expect(
+    f.c.steer({ ...input, images: [{ ...input.images[0], data: 'YQ==' }] }, () => {}),
+  ).rejects.toThrow('Correction identity reused');
+});
+
 it('steers only the selected active turn, preserving the FIFO and at-most-once receipt', async () => {
   const f = await setup();
   await f.c.send({ id: 'a', prompt: 'First' });

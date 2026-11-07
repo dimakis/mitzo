@@ -407,6 +407,7 @@ export {
 } from './paid-reasoning-selection.js';
 
 export * from './chat-input-limits.js';
+export * from './codex-steering.js';
 
 export {
   MessageReplyIdSchema,

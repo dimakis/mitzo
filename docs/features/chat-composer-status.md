@@ -49,10 +49,81 @@ different conversation's work. Unknown delivery keeps the existing uncertainty
 fences and restoration behavior.
 
 The persistent queue/interrupt hint and changing running placeholder are removed.
-The explicit correction action lives in the shared **Send options** menu, including
-its restriction explanation. Queue and Stop remain existing toolbar controls.
+The explicit correction action uses the direct icon-only lightning button beside
+Queue and Stop, with its accessible name and restriction tooltip. This placement
+supersedes the original Send options menu following Dimitri's 6 November request.
 Native and legacy correction routes keep their original semantics; Enter-key
 behavior and all dispatch/retry/target fences are preserved.
+
+### Screenshot corrections, 6 November 2026
+
+Dimitri reported an unavailable correction with a screenshot attached, initially
+appearing to recover after switching apps, then confirmed the image was the
+blocker. He rejected the second one-item overflow and explicitly requested an icon
+like the other composer actions. The append-only approval revision is recorded in
+the chat-status design ledger; the earlier status reference and approval remain.
+
+The composer, native route handler and steering request schema previously enforced
+text-only corrections. Codex's pinned **0.160.0** protocol already accepts image
+inputs for `turn/steer`, with an exact active-turn precondition:
+[TurnSteerParams.json](https://github.com/openai/codex/blob/rust-v0.160.0/codex-rs/app-server-protocol/schema/json/v2/TurnSteerParams.json),
+Git blob `7dbdefa046aed1d29ec163f9c526e8e58c06e644`, verified 6 November.
+This is a Mitzo input restriction, not evidence that the provider lacks image
+steering. No live provider call was used for verification.
+
+One shared protocol schema now validates both client retention and server admission.
+Screenshots travel as native image data URLs, appear in the saved transcript and
+stay inside the original at-most-once correction receipt. Reload and uncertain
+delivery retain image bytes and the original target; changing either cannot
+replace the correction. Explicit steering from Up next supports the same images.
+Context changes continue to require a new command.
+
+A separate regression reproduces a dispatch lock when animation-frame callbacks
+are suspended: after an acknowledged correction, another correction was ignored
+until the next frame. Send and interrupt release their short dispatch guards
+without waiting for a paint; pending delivery still prevents duplicate submission.
+This is a reproduced defect, not a claim about which state caused the original
+phone incident.
+
+Validation for this change: the affected composer/steering/design run passed 359
+tests with one existing conditional skip; an additional invalid-image regression
+then passed with the full 11-test steering hook suite. The 12 focused native
+steering regressions and 9 HTTP route checks pass. Workspace packages compile,
+focused hook/schema type checking and changed-source lint pass, and reviewed
+source fingerprints are refreshed for `v1.0.924-steering-attachment-http`.
+
+The larger ordinary-workspace HTTP fixture fails during initial native bootstrap
+with `Local Codex entry unavailable`, before steering. The unchanged `10f84e3a9`
+baseline reproduces the same failure in a separate checkout with the same offline
+dependencies. Its text-and-screenshot cases remain required CI coverage.
+
+The offline browser matrix lists all 12 application cases across phone WebKit,
+phone Chromium and desktop Chromium, both themes and alternate accents/fonts.
+It now checks direct icon geometry and screenshot correction delivery, with a
+`chat-queue-interrupt-image-<theme>.png` capture before sending, matching the existing
+CI responsiveness-artifact selection. Approved execution still
+retained the macOS Seatbelt marker, so the repository guard stopped Playwright
+before launch. No local rendered inspection or screenshot is claimed; hosted
+browser checks and capture inspection remain pending. No live provider call or
+production activation was performed.
+
+Landing follow-up: hosted browser interaction tests passed 150 cases and failed
+two viewport cases because the remaining `tests/browser/composer-layout.spec.ts`
+fixture still selected the removed Send options menu. The corrected fixture
+retains the direct controls' 44px width/height and viewport bounds, and adds
+icon-only content, the lightning symbol, absence of the old menu and input focus
+after clicking. The local read-only follow-up found no defects in this delta.
+The approved host task worker passed the environment guard but first lacked its
+browser cache; after selecting the existing matching installation, macOS denied
+browser process registration at startup. No application test ran locally and
+that launch route was not retried. Hosted verification remains authoritative.
+
+Centaur review `5808694748` also identified the native steering endpoint missing
+from the authenticated attachment-sized HTTP parser. It now uses that existing
+parser before the general 10 MiB parser. Parser regressions include a 12 MiB
+encoded image correction and ordinary, missing, internal and revoked operator
+authentication for the steering route; native target and receipt checks stay in
+the owning route.
 
 The message renderer, dates, copy, read aloud, reply menus, tool/activity rendering,
 account/model controls and approved Chat settings are unchanged. The actual

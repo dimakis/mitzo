@@ -96,23 +96,21 @@ test('running controls stay reachable with a draft at 320px', async ({ page }) =
   await page.addScriptTag({ content: assets.js });
   const field = page.getByRole('textbox', { name: 'Message Mitzo' });
   await field.fill('Follow up while the agent is running');
-  for (const name of ['Stop generation', 'Queue message', 'Send options']) {
+  for (const name of ['Stop generation', 'Queue message', 'Interrupt and send now']) {
     const control = page.getByRole('button', { name, exact: true });
     await expect(control).toBeVisible();
+    expect((await control.innerText()).trim()).toBe('');
     const bounds = (await control.boundingBox())!;
     expect(bounds.width).toBeGreaterThanOrEqual(44);
     expect(bounds.height).toBeGreaterThanOrEqual(44);
     expect(bounds.x).toBeGreaterThanOrEqual(0);
     expect(bounds.x + bounds.width).toBeLessThanOrEqual(320);
   }
-  await page.getByRole('button', { name: 'Send options', exact: true }).click();
-  const correction = page.getByRole('menuitem', { name: 'Send correction', exact: true });
-  await expect(correction).toBeVisible();
-  const correctionBounds = (await correction.boundingBox())!;
-  expect(correctionBounds.height).toBeGreaterThanOrEqual(44);
-  expect(correctionBounds.x).toBeGreaterThanOrEqual(0);
-  expect(correctionBounds.x + correctionBounds.width).toBeLessThanOrEqual(320);
-  await page.keyboard.press('Escape');
+  await expect(page.getByRole('button', { name: 'Send options', exact: true })).toHaveCount(0);
+  const correction = page.getByRole('button', { name: 'Interrupt and send now', exact: true });
+  await expect(correction.locator('[data-icon="interrupt"]')).toHaveCount(1);
+  await correction.click();
+  await expect(field).toBeFocused();
   expect(await page.locator('.chat-input').evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(
     true,
   );
