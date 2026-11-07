@@ -425,7 +425,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../tests/integration/native-subagent-visibility.test.tsx':
     '75cf48bc38aa942998df4e0ae0a409cf991a205c8bc7c7d60d8d9df5bbde6bdd',
   '../../tests/offline/native-subagent-visibility.spec.ts':
-    '92371293cfdc1908df6c466b8d670f97ad7275dbd4053381d1c15d67c28ec995',
+    '523d0aad7afc1bf587b66379f3299b2844b3a7add2079596840c02e6d0d63e28',
   '../../tests/fixtures/native-subagents.tsx':
     '2a5f7279ceff28f6bec882c065b4f45c3525c700178a5b3826688c15c4f12357',
   '../../tests/offline/native-subagents.spec.ts':

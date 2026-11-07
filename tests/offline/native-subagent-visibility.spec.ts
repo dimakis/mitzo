@@ -108,10 +108,15 @@ for (const theme of ['dark', 'light'])
       (window as unknown as { completeFixtureParent(): void }).completeFixtureParent(),
     );
     await expect(dialog).toBeVisible();
-    await page.screenshot({ path: info.outputPath(`subagent-inspection-failure-${theme}.png`) });
+    await page.screenshot({
+      path: info.outputPath(`native-subagents-inspection-failure-${theme}.png`),
+    });
     await dialog.getByRole('button', { name: 'Retry inspection' }).click();
     await expect(dialog.getByText('Result returned')).toBeVisible();
     await expect(dialog.getByText(/Subagent inspection failed/)).toHaveCount(0);
+    await page.screenshot({
+      path: info.outputPath(`native-subagents-inspection-recovered-${theme}.png`),
+    });
     for (const button of await dialog.getByRole('button').all()) {
       const bounds = await button.boundingBox();
       if (bounds) expect(bounds.height).toBeGreaterThanOrEqual(44);
