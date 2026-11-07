@@ -27,7 +27,9 @@ their existing components/actions. Search/help stick within the results scroller
 Shared `SearchMatchText` renders inert React text and semantic highlights in the
 library and desktop sidebar. Results explain matching fields and retain model/
 account identity. Empty search offers an explicit broader query; failure retains
-Retry. The library saves its query in the URL and restores scroll on history back.
+Retry. The library saves its query in the URL, synchronizes same-route navigation,
+and restores query/scroll through both history back and the phone's Back to chats
+link. Telos-specific return destinations retain priority.
 Approved activity, settings and composer designs retain their existing owners.
 
 ## Validation and limits
@@ -42,12 +44,19 @@ frontend type check exhausted the required 1 GiB local heap and remains a CI gat
 
 The new offline search fixture covers phone WebKit/Chromium and desktop Chromium,
 dark Mint/System and light Teal/Georgia, 320px phone widths, sticky search, wrapping,
-keyboard navigation, loading/empty/error/recovery and history back. All traffic is
+keyboard navigation, loading/empty/error/recovery, in-app return and history back. All traffic is
 intercepted; no backend, credentials or models are used. Local execution was refused
 before launch by the existing Seatbelt host guard, even through approved escalation.
 No environment marker was removed and no browser launch was retried. Rendered
 checks and visual inspection remain pending CI; captures use the existing
 `conversation-library-visuals` artifact pattern.
+
+Landing review on 7 November found and corrected exact-case non-ASCII search
+regression and same-route URL synchronization. Focused independent local follow-ups
+verified those deltas, the bounded in-app return helper and the 128-event assembly
+boundary. Initial hosted browser checks exposed a fixture boot-order error: the
+fixture now initializes durable chat storage before saving its unsent draft, using
+the production boot barrier. Final hosted rendered acceptance remains required.
 
 Semantic retrieval, typo tolerance, structured filters, pagination and navigation
 to an individual matched message remain future work. Results may carry a stable

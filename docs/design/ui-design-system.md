@@ -4,7 +4,8 @@
 
 Active library search reuses conversation rows, identity, activity, preview and
 actions. Pinned and Drafts return on clearing; search/help stick inside the results
-scroller, and query/scroll restore on history back. Approved settings, composer and
+scroller, and query/scroll restore on history back and the phone's Back to chats.
+Same-route navigation keeps URL and results synchronized. Approved settings, composer and
 activity controls retain their owners.
 
 Shared `SearchMatchText` renders inert text with native marks using semantic

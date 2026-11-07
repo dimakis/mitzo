@@ -523,7 +523,16 @@ export function SessionList() {
         replace: true,
         state: { ...location.state, conversationSearchScroll: scroller.current?.scrollTop ?? 0 },
       });
-    navigate(`/chat/${id}`);
+    navigate(`/chat/${id}`, {
+      state: search.active
+        ? {
+            conversationLibraryReturn: {
+              query: search.query,
+              scrollTop: scroller.current?.scrollTop ?? 0,
+            },
+          }
+        : undefined,
+    });
   }
   function dismiss(id: string) {
     setRemoving(id);

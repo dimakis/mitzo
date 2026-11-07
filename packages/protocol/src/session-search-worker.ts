@@ -157,7 +157,7 @@ function search(query: string, limit: number, sessions: SearchSession[]): Search
       SELECT v.document FROM evidence v JOIN documents doc ON doc.rowid=v.document
       WHERE v.session_id=s.session_id ORDER BY v.coverage DESC,doc.matched_at DESC,doc.seq DESC LIMIT 1
     )
-    ORDER BY (e.score + CASE WHEN lower(s.summary)=? THEN 100 ELSE 0 END) DESC,
+    ORDER BY (e.score + CASE WHEN s.summary=? COLLATE NOCASE THEN 100 ELSE 0 END) DESC,
       COALESCE(d.matched_at,s.updated_at) DESC,COALESCE(d.seq,0) DESC,s.session_id
     LIMIT ?
   `,

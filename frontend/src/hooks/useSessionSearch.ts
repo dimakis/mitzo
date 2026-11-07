@@ -77,6 +77,12 @@ export function useSessionSearch(initialQuery = ''): UseSessionSearchReturn {
   }, [doSearch]);
 
   useEffect(() => {
+    if (initial.current === initialQuery) return;
+    initial.current = initialQuery;
+    setQuery(initialQuery);
+  }, [initialQuery, setQuery]);
+
+  useEffect(() => {
     return () => {
       clearTimeout(timerRef.current);
       abortRef.current?.abort();

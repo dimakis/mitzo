@@ -135,6 +135,25 @@ it('does not fabricate phrases across different messages or text blocks', async 
   expect(await store.searchSessionsAsync('personal subscription')).toHaveLength(1);
 });
 
+it('reassembles a text block across the 128-event index page boundary', async () => {
+  const store = fixture();
+  chat(store, 'one');
+  store.append('one', 'block_delta', {
+    messageId: 'answer',
+    blockId: 'text',
+    blockType: 'text',
+    delta: 'personal sub',
+  });
+  for (let i = 0; i < 127; i++) store.append('one', 'tool_result', { text: 'unsearchable noise' });
+  store.append('one', 'block_delta', {
+    messageId: 'answer',
+    blockId: 'text',
+    blockType: 'text',
+    delta: 'scription',
+  });
+  expect(await store.searchSessionsAsync('"personal subscription"')).toHaveLength(1);
+});
+
 it('does not join legacy chunks without a stable message identity', async () => {
   const store = fixture();
   chat(store, 'one');
@@ -210,6 +229,16 @@ it('preserves literal punctuation and tolerates surrounding whitespace', async (
   for (const query of [' C++ 50%_done ', 'xy naïve', '"50%_done"'])
     expect(await store.searchSessionsAsync(query)).toHaveLength(1);
   expect(await store.searchSessionsAsync('50%_missing')).toEqual([]);
+});
+
+it('preserves exact-case Unicode title and message searches', async () => {
+  const store = fixture();
+  chat(store, 'unicode', 'École');
+  store.append('unicode', 'user_message', { text: 'Προσωπικό Личный' });
+  for (const query of ['École', 'Προσωπικό', 'Личный', 'École Личный'])
+    expect((await store.searchSessionsAsync(query)).map((hit) => hit.sessionId)).toEqual([
+      'unicode',
+    ]);
 });
 
 it('does not lose other sessions when one conversation has many matching messages', async () => {

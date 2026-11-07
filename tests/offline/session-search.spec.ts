@@ -145,10 +145,21 @@ for (const theme of ['dark', 'light'])
       });
       await row.focus();
       await row.press('Enter');
-      await page.getByRole('button', { name: 'Back to search' }).click();
+      await page.getByRole('link', { name: 'Back to chats' }).click();
       await expect(input).toHaveValue('Claude personal');
       await expect(page.locator('.conversation-results .session-item')).toHaveCount(20);
       expect(await scroller.evaluate((el) => el.scrollTop)).toBeGreaterThan(100);
+      await row.focus();
+      await row.press('Enter');
+      await page.getByRole('button', { name: 'Back to search' }).click();
+      await expect(input).toHaveValue('Claude personal');
+      await expect(page.locator('.conversation-results .session-item')).toHaveCount(20);
+      if (isMobile) {
+        await page.getByRole('link', { name: 'Search chats', exact: true }).click();
+        await expect(input).toHaveValue('');
+        await input.fill('Claude personal');
+        await expect(page.locator('.conversation-results .session-item')).toHaveCount(20);
+      }
       await input.fill('missing topic');
       await expect(page.getByText('No matching conversations')).toBeVisible();
       await page.screenshot({

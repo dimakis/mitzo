@@ -162,8 +162,8 @@ it('offers an explicit broader query when there are no matches', () => {
   mocks.search.setQuery.mockClear();
   try {
     mount();
-    fireEvent.click(screen.getByRole('button', { name: 'Search for “claude”' }));
-    expect(mocks.search.setQuery).toHaveBeenCalledWith('claude');
+    fireEvent.click(screen.getByRole('button', { name: 'Search for “Claude”' }));
+    expect(mocks.search.setQuery).toHaveBeenCalledWith('Claude');
   } finally {
     Object.assign(mocks.search, previous);
   }
