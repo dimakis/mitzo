@@ -37,7 +37,9 @@ export function captureAgentLibraryAuthorization(
 export function captureAgentLibraryOperation(connectionId: string) {
   const authorization = captureAgentLibraryAuthorization(connectionId);
   const controller = new AbortController();
-  const dispose = registerAuthSession(authorization.auth, () => controller.abort());
+  const dispose = registerAuthSession(authorization.auth, () =>
+    controller.abort(new OperatorAuthorizationError('Operator authorization expired or revoked')),
+  );
   return {
     signal: controller.signal,
     dispose,

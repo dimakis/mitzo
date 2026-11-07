@@ -1,4 +1,5 @@
 import { OperatorAuthorizationError } from './agent-library-transport.js';
+import { UnsettledTaskExecutionError } from './task-execution-store.js';
 
 /** Refusal before dispatch is different from losing a command's outcome. */
 export function taskExecutionFailure(
@@ -8,6 +9,7 @@ export function taskExecutionFailure(
   effectMayHaveStarted: boolean,
 ) {
   const authenticationRequired = cause instanceof OperatorAuthorizationError;
+  const outcomeUnknown = effectMayHaveStarted || cause instanceof UnsettledTaskExecutionError;
   const reconnect =
     'Reconnect this chat in Mitzo; sign in again if prompted. Restore the authenticated connection before retrying.';
   const reconcile =
@@ -23,10 +25,10 @@ export function taskExecutionFailure(
         : 'Task execution failed with a non-Error cause',
     operation,
     requestId,
-    effectStatus: effectMayHaveStarted ? 'unknown' : 'not_started',
+    effectStatus: outcomeUnknown ? 'unknown' : 'not_started',
     recovery: authenticationRequired
-      ? reconnect + (effectMayHaveStarted ? ' After reconnecting: ' + reconcile : '')
-      : effectMayHaveStarted
+      ? reconnect + (outcomeUnknown ? ' After reconnecting: ' + reconcile : '')
+      : outcomeUnknown
         ? reconcile
         : 'This call was refused before execution. Resolve the reported problem before retrying.',
   };

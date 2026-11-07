@@ -10,6 +10,7 @@ import {
 } from '../agent-library-transport.js';
 import { TaskExecutionStore } from '../task-execution-store.js';
 import { sessionTaskExecutionTools } from '../task-execution-tools.js';
+import { revokeAuthSession } from '../auth.js';
 
 const execution = vi.hoisted(() => ({
   waitForAbort: false,
@@ -45,7 +46,7 @@ afterEach(() => {
   execution.failAuthentication = false;
   vi.useRealTimers();
 });
-function fixture() {
+function fixture(auth = { id: 'operator', expiresAt: Date.now() + 600_000 }) {
   const root = realpathSync(mkdtempSync(join(tmpdir(), 'task-tools-')));
   cleanup.push(() => rmSync(root, { recursive: true }));
   const store = new TaskExecutionStore(join(root, 'events.db'));
@@ -53,7 +54,6 @@ function fixture() {
   const registry = new SessionRegistry();
   cleanup.push(() => registry.dispose());
   const sent: Record<string, unknown>[] = [];
-  const auth = { id: 'operator', expiresAt: Date.now() + 600_000 };
   for (const name of ['parent', 'worker', 'stranger']) {
     mkdirSync(join(root, name));
     registry.register(name + ':' + name, {
@@ -97,7 +97,7 @@ function fixture() {
     expect(result.isError, result.content).toBe(false);
     return JSON.parse(result.content).grant;
   }
-  return { root, store, registry, sent, tools, call, signal, request, authorize };
+  return { root, store, registry, sent, tools, call, signal, request, authorize, auth };
 }
 it.each(['disconnected', 'expired'])(
   'explains %s operator authentication without circular status recovery',
@@ -173,6 +173,48 @@ it.each(['runner', 'authentication'])(
       .tools('worker')
       .execute({ operation: 'status', grantId: grant.id, requestId }, f.signal);
     expect(JSON.parse(status.content).run.state).toBe('uncertain');
+    const retry = await f
+      .tools('worker')
+      .execute(
+        { operation: 'run', grantId: grant.id, requestId, command: 'npm test' },
+        f.signal,
+        f.call,
+      );
+    expect(JSON.parse(retry.content)).toMatchObject({
+      effectStatus: 'unknown',
+      requestId,
+      recovery: expect.stringMatching(/original grantId\/requestId/),
+    });
+    expect(execution.calls).toHaveLength(1);
+  },
+);
+it.each(['revocation', 'expiry'])(
+  'reports actual in-flight login %s as authentication loss',
+  async (reason) => {
+    vi.useFakeTimers();
+    const f = fixture({ id: randomUUID(), expiresAt: Date.now() + 60_000 });
+    const grant = await f.authorize();
+    execution.waitForAbort = true;
+    const requestId = randomUUID();
+    const pending = f
+      .tools('worker')
+      .execute(
+        { operation: 'run', grantId: grant.id, requestId, command: 'npm test' },
+        f.signal,
+        f.call,
+      );
+    await vi.waitFor(() => expect(execution.calls).toHaveLength(1));
+    if (reason === 'revocation') revokeAuthSession(f.auth);
+    else await vi.advanceTimersByTimeAsync(f.auth.expiresAt - Date.now() + 1);
+    const result = await pending;
+    expect(result.isError).toBe(true);
+    expect(JSON.parse(result.content)).toMatchObject({
+      code: 'operator_authentication_required',
+      effectStatus: 'unknown',
+      requestId,
+      recovery: expect.stringMatching(/Reconnect.*After reconnecting.*original requestId/),
+    });
+    expect(f.store.runStatus(grant.id, 'worker', requestId).state).toBe('uncertain');
     expect(execution.calls).toHaveLength(1);
   },
 );
