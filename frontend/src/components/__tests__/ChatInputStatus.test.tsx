@@ -95,7 +95,7 @@ it('keeps a synchronously refused screenshot draft visible', () => {
   expect(screen.getByAltText('Attachment 1')).toBeTruthy();
 });
 
-it('keeps a correction restriction available in the send menu', () => {
+it('keeps a correction restriction on the direct interrupt icon', () => {
   render(
     <ChatInput
       initialText="A correction"
@@ -106,13 +106,12 @@ it('keeps a correction restriction available in the send menu', () => {
       interruptDisabledReason="Waiting for the active turn to be confirmed."
     />,
   );
-  fireEvent.click(screen.getByRole('button', { name: 'Send options' }));
-  const correction = screen.getByRole('menuitem', { name: 'Send correction' });
+  const correction = screen.getByRole('button', { name: 'Interrupt and send now' });
   expect(correction).toHaveProperty('disabled', true);
   expect(correction).toHaveProperty('title', 'Waiting for the active turn to be confirmed.');
 });
 
-it('returns keyboard focus to the existing input after a correction menu action', async () => {
+it('returns keyboard focus to the existing input after a direct correction', async () => {
   render(
     <ChatInput
       initialText="A correction"
@@ -122,7 +121,6 @@ it('returns keyboard focus to the existing input after a correction menu action'
       onInterrupt={() => {}}
     />,
   );
-  fireEvent.click(screen.getByRole('button', { name: 'Send options' }));
-  fireEvent.click(screen.getByRole('menuitem', { name: 'Send correction' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Interrupt and send now' }));
   await waitFor(() => expect(document.activeElement).toBe(screen.getByLabelText('Message Mitzo')));
 });
