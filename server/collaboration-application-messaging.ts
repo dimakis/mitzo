@@ -16,6 +16,9 @@ import {
 } from './collaboration-ordinary-replies.js';
 import { compileCollaborationContext } from './collaboration-context-compiler.js';
 import { createCollaborationContextSource } from './collaboration-context-source.js';
+import { createLogger } from './logger.js';
+
+const log = createLogger('collaboration-messaging');
 
 /** Composes group intent with the existing ordinary dispatcher. The collaboration
  * owns recipient receipts; the ordinary command ledger alone proves execution.
@@ -100,8 +103,15 @@ export class ApplicationCollaborationMessaging {
       )
         return result('The participant changed. Refresh before sending.');
       return result(null);
-    } catch {
+    } catch (cause) {
       this.current(auth, signal);
+      log.warn('Could not verify collaboration recipient readiness', {
+        err: cause,
+        code: 'collaboration_recipient_readiness_failed',
+        stage: 'recipient_readiness',
+        collaborationId: group,
+        sessionId,
+      });
       return result(
         'The participant needs attention. Refresh Agents and review its account, context and ordinary session.',
       );

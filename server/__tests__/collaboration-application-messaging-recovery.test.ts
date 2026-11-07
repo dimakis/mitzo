@@ -12,6 +12,13 @@ import {
 } from '../collaboration-ordinary-replies.js';
 
 vi.mock('../auth.js', () => ({ isAuthSessionCurrent: () => true }));
+const diagnostics = vi.hoisted(() => ({
+  debug: vi.fn(),
+  info: vi.fn(),
+  warn: vi.fn(),
+  error: vi.fn(),
+}));
+vi.mock('../logger.js', () => ({ createLogger: () => diagnostics }));
 
 let store: EventStore;
 let owner: ApplicationCollaborationMessaging;
@@ -49,6 +56,7 @@ function port(
 }
 
 beforeEach(() => {
+  diagnostics.warn.mockClear();
   store = new EventStore(':memory:');
   group = randomUUID();
   prompts = [];
@@ -126,6 +134,33 @@ it('observes recipient readiness without commands and refuses missing ordinary c
   store.hideSession('one');
   expect((await messaging.recipientReadiness(auth, group, 'one', signal)).ready).toBe(false);
   expect(inspect).toHaveBeenCalledTimes(2);
+});
+
+it('retains a readiness failure diagnostic while refusing delivery without exposing its cause', async () => {
+  const cause = new Error('Private native inspection failure');
+  const delivery = vi.fn(async () => {});
+  const ordinary = port(delivery);
+  Object.assign(ordinary, { inspectCollaboration: vi.fn().mockRejectedValue(cause) });
+  const messaging = new ApplicationCollaborationMessaging(store, ordinary);
+  const result = await messaging.recipientReadiness(
+    auth,
+    group,
+    'one',
+    new AbortController().signal,
+  );
+  expect(result.ready).toBe(false);
+  expect(result.reason).not.toContain(cause.message);
+  expect(delivery).not.toHaveBeenCalled();
+  expect(diagnostics.warn).toHaveBeenCalledWith(
+    'Could not verify collaboration recipient readiness',
+    expect.objectContaining({
+      err: cause,
+      code: 'collaboration_recipient_readiness_failed',
+      stage: 'recipient_readiness',
+      collaborationId: group,
+      sessionId: 'one',
+    }),
+  );
 });
 
 it.each([false, true])(

@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.946-symposium-composer-watch-relay';
+  'v1.0.947-symposium-readiness-diagnostics';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -97,9 +97,9 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../tests/integration/telos-s9/integrated-candidate/joined-conversation-ready.test.ts':
     '9b5b124215ab138d759eb30d6ccd1a96940c8e87620a1da66d468670b91bf00f',
   '../__tests__/collaboration-application-messaging-recovery.test.ts':
-    'ba7e2e74de11067efa5d655b8b687ac085b499d7e96081e30d7b83ab61f169ff',
+    '995c0d249d765f054633b29af004de54a5b3958188e88078c972a62f59237c43',
   '../collaboration-application-messaging.ts':
-    '6be1e5575d7a0c0528482e84d6b2bff65c93fb9bee1cb6e0bbe981198b7b43b6',
+    'ee9842639e5368064b49dc4c685193ff90f3bc1f6ee19c80ae1801bd9dc520c8',
   '../__tests__/collaboration-application-messaging.test.ts':
     'ed9727e22b71ecef5e9043ff68f626f08967839715805fdfa462dc9d8dcc7996',
   '../__tests__/fixtures/symposium-application-target.ts':
