@@ -113,6 +113,41 @@ it('bounds a noncooperative host tool, fences its late callback and retains unkn
   await vi.waitFor(() => expect(f.store.read('app', f.getBinding()).recovery).toBe(1));
 });
 
+it('bounds ordinary cancellation cleanup without accepting a late unqualified outcome', async () => {
+  const f = await setup();
+  f.conversationOptions.toolGuardPolicy = { executionMs: 1000, approvalMs: 1000, cleanupMs: 20 };
+  let release!: () => void;
+  f.execute.mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        release = () => resolve({ content: 'late success', isError: false });
+      }),
+  );
+  await f.c.send({ id: 'cancel-command', prompt: 'Inspect existing work' });
+  const abort = new AbortController();
+  const work = f.callbacks.onRequest(
+    'item/tool/call',
+    {
+      threadId: f.getProviderThread(),
+      turnId: 'turn-1',
+      callId: 'cancel-call',
+      tool: 'Read',
+      arguments: {},
+    },
+    abort.signal,
+  );
+  await vi.waitFor(() => expect(f.execute).toHaveBeenCalledOnce());
+  abort.abort(Error('User cancelled'));
+  const result = await work;
+  expect(result.success).toBe(false);
+  expect(JSON.parse((result.contentItems as { text: string }[])[0].text)).toMatchObject({
+    diagnostic: { effectStatus: 'unknown' },
+  });
+  release();
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  expect(f.execute).toHaveBeenCalledOnce();
+});
+
 it('excludes an actual adapter approval phase from its host execution deadline', async () => {
   const f = await setup();
   f.conversationOptions.toolGuardPolicy = { executionMs: 30, approvalMs: 200, cleanupMs: 20 };

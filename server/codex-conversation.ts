@@ -4263,29 +4263,30 @@ export class CodexConversation {
             return originalExecution;
           },
         ).catch(async (error: unknown) => {
-          // A consumed RPC can cancel before its original adapter finishes
-          // refusing approval. Drain that same promise, bounded, with its guard
-          // still retired; only its private settled refusal can qualify custody.
-          if (
-            originalExecution &&
-            signal.aborted &&
-            error === signal.reason &&
-            !active.interruptRequested &&
-            !active.abort.signal.aborted &&
-            requestContext?.requestId !== undefined &&
-            ((error instanceof CodexServerRequestResolvedError &&
-              error.requestId === requestContext.requestId) ||
-              (error instanceof CodexTurnCompletedError &&
-                error.requestId === requestContext.requestId &&
-                error.threadId === call.threadId &&
-                error.turnId === call.turnId))
-          ) {
+          // Join the original cancellation cleanup within a bounded lifetime.
+          // Its guard remains retired; only an exact consumed RPC's private
+          // settled refusal can qualify custody, never ordinary Stop/abort.
+          if (originalExecution && toolSignal.aborted && error === toolSignal.reason) {
             try {
               const original = await runBoundedToolCleanup(
                 () => originalExecution!,
                 this.opts.toolGuardPolicy?.cleanupMs,
               );
-              if (original.isError && retainedCallbackOutcome(original) === 'settled')
+              if (
+                original.isError &&
+                retainedCallbackOutcome(original) === 'settled' &&
+                signal.aborted &&
+                error === signal.reason &&
+                !active.interruptRequested &&
+                !active.abort.signal.aborted &&
+                requestContext?.requestId !== undefined &&
+                ((error instanceof CodexServerRequestResolvedError &&
+                  error.requestId === requestContext.requestId) ||
+                  (error instanceof CodexTurnCompletedError &&
+                    error.requestId === requestContext.requestId &&
+                    error.threadId === call.threadId &&
+                    error.turnId === call.turnId))
+              )
                 return original;
             } catch {
               /* Preserve original cancellation and uncertainty. */
