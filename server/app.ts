@@ -164,9 +164,10 @@ import { assertOrdinarySilentPreparationAuthority } from './ordinary-repository-
 import { loadOrdinaryOpenShellCodexTarget } from './ordinary-openshell-codex-entry-owner.js';
 import { isDeepStrictEqual } from 'node:util';
 import { createTelosSourceRouter } from './telos-source-routes.js';
-import { MitzoTelosStore, createMitzoTelosOutcome } from './telos-native-store.js';
+import { createCanonicalTelosOutcome } from './telos-outcome-owner.js';
 import { telosDatabasePath as resolveTelosDatabasePath } from './telos-database.js';
 import { createTelosCrudRouter } from './telos-crud-routes.js';
+import { createTelosImportRouter } from './telos-runtime-routes.js';
 import {
   isAvailableTelosWorkConversation,
   isAvailableTelosSourceConversation,
@@ -756,6 +757,12 @@ mountObservedRouter(
 // Preserve ordinary authentication responses, then require an operator before large bodies.
 installChatCommandJson(app, authMiddleware, operatorAuthMiddleware);
 app.use(express.json({ limit: '10mb' }));
+app.use(
+  createTelosImportRouter({
+    dbPath: () => telosDatabasePath(),
+    token: () => process.env.MITZO_TELOS_IMPORT_TOKEN,
+  }),
+);
 
 const getKnowledgeLibraryRuntime = createKnowledgeLibraryLoader(() =>
   knowledgeLibraryFromEnvironment(process.env, {
@@ -2188,9 +2195,8 @@ app.post('/api/internal/task-tools/artifact', (req, res) => {
   });
 });
 
-// Initialize before any work/source/artifact owner opens the selected database.
+// Server bootstrap validates and initializes private storage once in index.ts.
 const telosDatabasePath = () => resolveTelosDatabasePath(BASE_REPO);
-new MitzoTelosStore(telosDatabasePath()).close();
 const lifecycleCanonicalSelection = telosDatabasePath();
 let lifecycleSelectionInvalidated = false;
 function assertInstalledTelosDeletionOwners() {
@@ -2618,8 +2624,8 @@ app.use(
     operatorAuth: operatorAuthMiddleware,
     ordinaryConversation: (id) => isAvailableTelosWorkConversation(eventStore.getSession(id)),
     sourceConversation: (id) => isAvailableTelosSourceConversation(eventStore.getSession(id)),
-    createOutcome: async (input, assertCurrentSync) =>
-      createMitzoTelosOutcome(telosDatabasePath(), input, assertCurrentSync),
+    createOutcome: (input, assertCurrentSync) =>
+      createCanonicalTelosOutcome({ dbPath: telosDatabasePath }, input, assertCurrentSync),
   }),
 );
 configureTelosSourcePermissionRecovery(createTelosSourcePermissionRecovery(telosDatabasePath));
@@ -5580,7 +5586,15 @@ app.get('/api/calendar', async (req, res) => {
 
 // --- Telos API (one native owner and snapshot per request) ---
 app.use(
-  createTelosCrudRouter({ databasePath: telosDatabasePath, operatorAuth: operatorAuthMiddleware }),
+  createTelosCrudRouter({
+    databasePath: telosDatabasePath,
+    operatorAuth: operatorAuthMiddleware,
+    assertCurrent: (_req, res) => {
+      const operator = res.locals.authSession as AuthSession | undefined;
+      if (!operator || !isAuthSessionCurrent(operator))
+        throw new TelosWorkError('unauthorized', 'Current interactive operator required');
+    },
+  }),
 );
 
 // --- Workload API ---

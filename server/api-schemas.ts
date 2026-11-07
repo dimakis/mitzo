@@ -153,6 +153,8 @@ const TodoItemSchema: z.ZodType<unknown> = z.lazy(() =>
       starred: z.boolean().optional().default(false),
       status: z.enum(['active', 'acknowledged', 'snoozed', 'completed']),
       ageDays: z.number(),
+      rankScore: z.number().optional(),
+      categories: z.array(z.string()).optional().default([]),
       parentId: z.string().nullable().optional().default(null),
       children: z.array(TodoItemSchema).optional().default([]),
       childCount: z.number().optional().default(0),

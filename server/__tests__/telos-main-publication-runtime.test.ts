@@ -69,6 +69,7 @@ function fixture() {
 it('edits through one item owner without opening or initializing the work store', async () => {
   const f = fixture(),
     database = join(f.root, 'telos.db');
+  MitzoTelosStore.initialize(database);
   const store = new MitzoTelosStore(database),
     item = store.create('Original', 'manual').item;
   const input = {

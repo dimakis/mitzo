@@ -16,6 +16,7 @@ import {
   type BigIntStats,
 } from 'node:fs';
 import { basename, dirname, join, resolve } from 'node:path';
+import { homedir } from 'node:os';
 import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import {
   reserveFamily,
@@ -64,12 +65,16 @@ export function selectedTelosDatabaseFiles(): TelosDatabaseFiles {
     tasks: join(root, '.mitzo/tasks.db'),
   });
 }
-/** Shared by the canonical API, execution owners and backup. Preserve an
- * existing legacy selection until explicit cutover; never split its writers. */
-export function resolveTelosDatabasePath(root: string, environment = process.env): string {
+/** One private selection for APIs, execution owners and backup. Startup owns
+ * migration admission; never silently fall back to a legacy writer. */
+export function resolveTelosDatabasePath(_root: string, environment = process.env): string {
   if (environment.TELOS_DB_PATH) return resolve(environment.TELOS_DB_PATH);
-  const legacy = join(root, 'command_center', 'data', 'smart_todo.db');
-  return resolve(exists(legacy) ? legacy : join(root, '.mitzo', 'telos.db'));
+  return resolve(
+    join(
+      environment.MITZO_TELOS_DATA_DIR || join(homedir(), '.mitzo', 'private', 'telos'),
+      'telos.db',
+    ),
+  );
 }
 function exists(path: string): boolean {
   try {

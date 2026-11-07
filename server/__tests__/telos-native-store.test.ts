@@ -5,13 +5,16 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { MitzoTelosStore } from '../telos-native-store.js';
 import { TelosItemStore } from '../telos-item-store.js';
+import { initializeTelosSchema } from '../telos-schema.js';
 
 const roots: string[] = [];
 afterEach(() => roots.splice(0).forEach((root) => rmSync(root, { recursive: true, force: true })));
-function path() {
+function path(initialize = true) {
   const root = mkdtempSync(join(realpathSync(tmpdir()), 'mitzo-telos-native-'));
   roots.push(root);
-  return join(root, 'telos.db');
+  const filename = join(root, 'telos.db');
+  if (initialize) MitzoTelosStore.initialize(filename);
+  return filename;
 }
 const outcome = {
   summary: 'Make Telos usable',
@@ -22,6 +25,82 @@ const outcome = {
   profile: 'manual',
   idempotencyKey: 'native-test',
 };
+it('checks interactive mutation authority after taking the original writer lock', () => {
+  const filename = path(),
+    plain = new MitzoTelosStore(filename);
+  const id = plain.create('Existing', 'manual').item.id;
+  plain.close();
+  const observer = new Database(filename);
+  observer.pragma('busy_timeout = 0');
+  const store = new MitzoTelosStore(filename, {
+    assertCurrentSync: () => {
+      expect(() => observer.exec('BEGIN IMMEDIATE')).toThrow(/locked/);
+      throw Error('revoked interactive authority');
+    },
+  });
+  try {
+    for (const mutate of [
+      () => store.create('Denied', 'manual'),
+      () => store.action(id, { action: 'priority', priority: 9 }),
+      () => store.action(id, { action: 'done' }),
+      () => store.createOutcome(outcome),
+      () =>
+        store.importSources({
+          items: [{ id: 'denied', summary: 'Denied', profile: 'manual', sources: [] }],
+        }),
+    ])
+      expect(mutate).toThrow('revoked interactive authority');
+    expect(store.read(id)).toMatchObject({ summary: 'Existing', status: 'active' });
+    expect(observer.prepare('SELECT priority FROM items WHERE id=?').get(id)).toEqual({
+      priority: 5,
+    });
+    expect(store.list().items).toHaveLength(1);
+  } finally {
+    observer.close();
+    store.close();
+  }
+});
+it('upgrades original runtime receipts once and preserves their bytes across restart and later edits', () => {
+  const filename = path(),
+    store = new MitzoTelosStore(filename);
+  const original = store.createOutcome(outcome);
+  store.close();
+  const db = new Database(filename);
+  try {
+    const saved = db
+      .prepare('SELECT input_hash,receipt FROM mitzo_telos_creation_receipts')
+      .get() as { input_hash: string; receipt: string };
+    db.exec(
+      'DROP TABLE mitzo_telos_creation_receipts; CREATE TABLE telos_runtime_creation_receipts(idempotency_key TEXT PRIMARY KEY,input_hash TEXT NOT NULL,receipt TEXT NOT NULL)',
+    );
+    db.prepare('INSERT INTO telos_runtime_creation_receipts VALUES(?,?,?)').run(
+      outcome.idempotencyKey,
+      saved.input_hash,
+      saved.receipt,
+    );
+    db.prepare('UPDATE items SET summary=? WHERE id=?').run(
+      'Later authored title',
+      original.item.id,
+    );
+    initializeTelosSchema(db);
+    initializeTelosSchema(db);
+    const reopened = new MitzoTelosStore(filename);
+    try {
+      expect(reopened.createOutcome(outcome)).toMatchObject({
+        created: false,
+        item: { id: original.item.id, summary: outcome.summary },
+      });
+      expect(reopened.read(original.item.id).summary).toBe('Later authored title');
+      expect(db.prepare('SELECT receipt FROM mitzo_telos_creation_receipts').get()).toEqual({
+        receipt: saved.receipt,
+      });
+    } finally {
+      reopened.close();
+    }
+  } finally {
+    db.close();
+  }
+});
 it('loads an outcome receipt with a constant number of reads across all milestones', () => {
   const store = new MitzoTelosStore(path());
   const prepare = vi.spyOn(Database.prototype, 'prepare');
@@ -157,7 +236,7 @@ it('rejects non-synchronous creation authority before any effect', () => {
   store.close();
 });
 it('adopts existing canonical rows losslessly, including extensions, artifacts and durable IDs', () => {
-  const filename = path();
+  const filename = path(false);
   const db = new Database(filename);
   db.exec(
     readFileSync(new URL('./fixtures/telos-canonical-3077b7b4/fresh.sql', import.meta.url), 'utf8'),
@@ -166,6 +245,7 @@ it('adopts existing canonical rows losslessly, including extensions, artifacts a
     `INSERT INTO items(id,summary,profile,first_seen,last_seen,created_at,updated_at,context_hints) VALUES('original-id','Original title','work','2026-01-01','2026-01-02','2026-01-01','2026-01-02','{"unknown":{"keep":true}}'); CREATE TABLE private_extension(id TEXT, payload BLOB); INSERT INTO private_extension VALUES('e',X'0102');`,
   );
   const before = db.prepare('SELECT * FROM items').all();
+  initializeTelosSchema(db);
   db.close();
   const store = new MitzoTelosStore(filename);
   expect(store.list().items[0]).toMatchObject({ id: 'original-id' });

@@ -14,13 +14,14 @@ it('selects the same native database for APIs, execution and retained file owner
   roots.push(root);
   vi.stubEnv('REPO_PATH', root);
   vi.stubEnv('TELOS_DB_PATH', '');
-  expect(telosDatabasePath(root)).toBe(join(root, '.mitzo', 'telos.db'));
+  vi.stubEnv('MITZO_TELOS_DATA_DIR', join(root, 'private'));
+  expect(telosDatabasePath(root)).toBe(join(root, 'private', 'telos.db'));
   expect(selectedTelosDatabaseFiles().canonical).toBe(telosDatabasePath(root));
   const legacy = join(root, 'command_center', 'data', 'smart_todo.db');
   mkdirSync(join(root, 'command_center', 'data'), { recursive: true });
   writeFileSync(legacy, 'legacy');
-  expect(telosDatabasePath(root)).toBe(legacy);
-  expect(selectedTelosDatabaseFiles().canonical).toBe(legacy);
+  expect(telosDatabasePath(root)).toBe(join(root, 'private', 'telos.db'));
+  expect(selectedTelosDatabaseFiles().canonical).toBe(telosDatabasePath(root));
   vi.stubEnv('TELOS_DB_PATH', join(root, 'explicit.db'));
   expect(telosDatabasePath(root)).toBe(join(root, 'explicit.db'));
   expect(selectedTelosDatabaseFiles().canonical).toBe(telosDatabasePath(root));

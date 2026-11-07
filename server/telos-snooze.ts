@@ -4,6 +4,22 @@ export function telosLocalDate(date: Date): string {
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
 }
 
+/** Read-only admission; future and indefinite snoozes need no writer. */
+export function dueTelosSnoozeIds(
+  items: Array<Record<string, unknown> & { id: string }>,
+  now = new Date(),
+): string[] {
+  const today = telosLocalDate(now);
+  return items
+    .filter(
+      (row) =>
+        row.status === 'snoozed' &&
+        typeof row.snoozed_until === 'string' &&
+        row.snoozed_until <= today,
+    )
+    .map((row) => row.id);
+}
+
 /** A read-only admission proved a due transition; never escalate on an I/O error. */
 export class TelosCollectionWakeupRequired extends Error {
   constructor() {
@@ -21,14 +37,7 @@ export function renewDueTelosSnoozes(
   now = new Date(),
 ): boolean {
   const today = telosLocalDate(now);
-  const ids = items
-    .filter(
-      (row) =>
-        row.status === 'snoozed' &&
-        typeof row.snoozed_until === 'string' &&
-        row.snoozed_until <= today,
-    )
-    .map((row) => row.id);
+  const ids = dueTelosSnoozeIds(items, now);
   if (!ids.length) return false;
   if (db.readonly) throw new TelosCollectionWakeupRequired();
   if (!db.inTransaction) throw Error('Canonical snooze renewal requires its writer transaction');

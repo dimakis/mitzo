@@ -10,18 +10,24 @@ import { createLogger } from './logger.js';
 export function createTelosCrudRouter(options: {
   databasePath(): string;
   operatorAuth: RequestHandler;
+  assertCurrent?(req: Request, res: Response): void;
 }) {
   const router = Router();
+  router.use('/api/todos', (_req, res, next) => {
+    res.setHeader('Cache-Control', 'private, no-store');
+    next();
+  });
   const execute = (
     res: Response,
     operation: (store: MitzoTelosStore) => void,
     readOnly = false,
+    assertCurrentSync?: () => void,
   ) => {
     // Retry only an explicitly observed due-snooze transition with a writer.
     for (let attempt = 0; attempt < 2; attempt++) {
       let store: MitzoTelosStore | undefined;
       try {
-        store = new MitzoTelosStore(options.databasePath(), { readOnly });
+        store = new MitzoTelosStore(options.databasePath(), { readOnly, assertCurrentSync });
         operation(store);
         return;
       } catch (error) {
@@ -92,9 +98,14 @@ export function createTelosCrudRouter(options: {
         return void res
           .status(400)
           .json({ ok: false, error: input.error.issues[0]?.message ?? 'Invalid input' });
-      execute(res, (store) => {
-        operation(store, input.data, req, res);
-      });
+      execute(
+        res,
+        (store) => {
+          operation(store, input.data, req, res);
+        },
+        false,
+        () => options.assertCurrent?.(req, res),
+      );
     });
   };
   mutation('/api/todos', TodoCreateBody, (store, input, _req, res) =>

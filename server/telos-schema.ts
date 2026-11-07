@@ -3,16 +3,7 @@ import type Database from 'better-sqlite3';
 /** Compatible with canonical MGMT schema 3077b7b4. Additions are serialized;
  * existing records, extension tables and unknown columns are never rewritten. */
 export function initializeTelosSchema(db: Database.Database) {
-  // Installed native schema is immutable for this revision. Ordinary opens
-  // need no writer transaction or repeat CREATE/ALTER/index work.
-  if (
-    db
-      .prepare(
-        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='mitzo_telos_creation_receipts'",
-      )
-      .get()
-  )
-    return;
+  // Bootstrap owns schema checks/upgrades. Ordinary owner opens never call this.
   db.transaction(() => {
     db.exec(`CREATE TABLE IF NOT EXISTS items (
       id TEXT PRIMARY KEY, summary TEXT NOT NULL, intent TEXT DEFAULT '', rationale TEXT DEFAULT '',
@@ -56,5 +47,27 @@ export function initializeTelosSchema(db: Database.Database) {
       CREATE TABLE IF NOT EXISTS telos_item_updates(seq INTEGER PRIMARY KEY,item_id TEXT NOT NULL REFERENCES items(id),session_id TEXT NOT NULL,request_id TEXT NOT NULL,input_hash TEXT NOT NULL,note TEXT NOT NULL,old_status TEXT NOT NULL,new_status TEXT NOT NULL,created_at TEXT NOT NULL,receipt TEXT NOT NULL,UNIQUE(session_id,request_id));
       CREATE INDEX IF NOT EXISTS telos_item_updates_item ON telos_item_updates(item_id,seq);
       UPDATE items SET status='completed' WHERE status='done';`);
+    if (
+      db
+        .prepare(
+          "SELECT 1 FROM sqlite_master WHERE type='table' AND name='telos_runtime_creation_receipts'",
+        )
+        .get()
+    ) {
+      if (
+        db
+          .prepare(
+            `SELECT 1 FROM telos_runtime_creation_receipts old
+        JOIN mitzo_telos_creation_receipts current ON current.request_id=old.idempotency_key
+        WHERE current.input_hash<>old.input_hash OR current.receipt<>old.receipt
+          OR current.item_id<>json_extract(old.receipt,'$.item.id') LIMIT 1`,
+          )
+          .get()
+      )
+        throw Error('Conflicting retained Telos creation receipts require inspection');
+      db.exec(`INSERT OR IGNORE INTO mitzo_telos_creation_receipts(request_id,input_hash,item_id,receipt)
+        SELECT idempotency_key,input_hash,json_extract(receipt,'$.item.id'),receipt
+        FROM telos_runtime_creation_receipts;`);
+    }
   }).immediate();
 }

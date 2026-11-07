@@ -1,122 +1,123 @@
 # Telos as a Mitzo core service
 
-Source: Dimitri's implementation direction in conversation
-`694de895-1f53-8812-bb1b-c0c7038d1b93`, 7 November 2026, including the explicit
-request to trace the complete flow and remove redundant calls and checks.
-Baseline: accepted Mitzo `3079701d8f714945f8478508382e17ff20c61299`.
-This document describes the implementation candidate. A passing local check is
-not publication, production cutover, or live acceptance.
+Source: Dimitri's direction in conversation `694de895-1f53-8812-bb1b-c0c7038d1b93`,
+7 November 2026, to finish migration and trace the full flow without redundant
+calls. This candidate reconciles the existing migration in draft Mitzo PR #1239
+(`5b820b75d05a37bba59e2cb16033c6b281528a34`) with ordinary-chat fixes and accepted
+main `44e872c8a615e30bd75ac9738101dfbfaa1d6aa7`. Companion source importer:
+[MGMT PR #363](https://github.com/dimakis/mgmt/pull/363).
+Local implementation, review and checks do not prove acceptance or activation.
 
-## Ownership and selection
+## One private canonical store
 
-Mitzo initializes and operates the original canonical SQLite schema directly.
-Lists, creation, actions and reviewed source-backed creation no longer execute
-MGMT Python or seed mutable workspace YAML. Saved IDs are never reconstructed
-from titles. Existing columns, source links, history, relationships, artifacts,
-unknown extension tables and bytes remain in the same database.
+One resolver supplies HTTP, ordinary execution, retained file owners and backup.
+`TELOS_DB_PATH` is the explicit override; otherwise the database is
+`<MITZO_TELOS_DATA_DIR>/telos.db`, defaulting to `~/.mitzo/private/telos/telos.db`.
+There is no automatic fallback to an MGMT workspace database.
 
-One resolver supplies the API, ordinary execution and retained file-owner
-selection. `TELOS_DB_PATH` remains the explicit override. New installations use
-`<workspace>/.mitzo/telos.db`. Existing legacy files remain selected until an
-explicit cutover; the server never silently opens an empty second backlog.
-Backup continues to use that same selected canonical database.
+Bootstrap validates storage once before serving requests. It refuses an empty
+replacement over legacy data, ownership records, sidecars or migration receipts.
+Existing files must be owned regular single-link files with private permissions
+and the original canonical item schema; supported older columns are upgraded
+atomically. Existing and fresh storage require an owned, nonsymlink directory
+with mode 0700. Fresh initialization exclusively creates a private file.
+Ordinary opens require the database to exist.
 
-An empty collection supplies the native `manual` profile so the existing UI can
-create its first item without a workspace profile file.
+`TelosRuntimeStore` is the native owner and reuses the item owner's canonical
+connection. The compatibility export `MitzoTelosStore` names that same class;
+it opens no additional owner. Runtime operations execute no MGMT Python or YAML
+refresh. IDs, unknown columns/tables, history, artifacts and links are preserved.
 
-## Complete request paths
+## Complete request flow
 
-| Entry                                              | Admission                                                                        | Persistence and response                                                                                                                                                                                                                                   |
-| -------------------------------------------------- | -------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Work collection                                    | Existing authenticated collection route                                          | Existing canonical owner, committed snapshot and batched projection; no Python.                                                                                                                                                                            |
-| Legacy `/api/todos` list used by existing clients  | Existing API authentication; Archive/Trash also require an interactive operator  | One read-only owner and transaction. Four queries read items, selected sources, selected links and lifecycle ancestry. One memoized ancestry pass and one tree assembly; no per-item DB calls or second work store.                                        |
-| Interactive create/priority/star/snooze/completion | Existing operator authentication and validated request                           | One item owner. Lifecycle admission runs inside its writer transaction. Progress, canonical history and retry receipt share the same commit. Parents cannot complete with unfinished descendants.                                                          |
-| Ordinary agent brief/progress/child change         | Original native/operator context, exact approval, fresh item revision            | Item owner opens on demand. Fresh context and lifecycle are checked at the actual writer boundary. No work-store initialization, role assignment, subprocess, worker allocation or post-commit authorization renewal.                                      |
-| Full agent item inspection                         | Original authenticated context                                                   | Item and work views remain distinct owners because inspection includes progress plus lifecycle/control metadata. Large reads retain the existing fragment protocol.                                                                                        |
-| Reviewed original-source outcome creation          | Existing compiled source preview, explicit approval and current source authority | One native outcome transaction creates root, milestones, history, links and creation receipt. Existing source capture then retains its immutable original exchange, origin backlink and recovery journal. That approved cross-owner protocol is preserved. |
+| Entry                                                     | Admission                                                                      | Persistence and response                                                                                                                                                                   |
+| --------------------------------------------------------- | ------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Work collection                                           | Existing authenticated route                                                   | Existing canonical collection snapshot, batched evidence and memoized lifecycle ancestry.                                                                                                  |
+| Existing client `/api/todos` list                         | API authentication; Archive/Trash additionally require an interactive operator | One read-only owner. Four data queries fetch items, selected evidence and lifecycle ancestry; one tree assembly and no per-item queries. Empty stores expose `manual` for first creation.  |
+| Interactive create, priority, star, snooze and completion | Existing operator authentication and validated input                           | One owner. Lifecycle admission and progress/history commit on the original writer. Parents cannot complete with unfinished descendants. Priority and stars stay independent.               |
+| Ordinary agent brief/progress/child mutation              | Original native/operator context, exact approval and fresh revision            | Item owner opens lazily. Current authority and lifecycle are checked at its writer boundary. No unrelated work-store initialization or post-commit authorization renewal.                  |
+| Full agent inspection                                     | Original authenticated context                                                 | Item and work views remain distinct because inspection includes lifecycle/control metadata. Large reads retain the fragment protocol.                                                      |
+| Reviewed original-source creation                         | Compiled source preview, explicit approval and current source authority        | One outcome transaction creates root, milestones, history, links and immutable receipt. The existing source-capture journal retains original messages and origin backlinks.                |
+| Source import                                             | Dedicated controller-only import credential                                    | One canonical writer. Batches preserve authored fields and progress, updating only source evidence, urgency and last-seen on existing items. No source refresh can overwrite a brief edit. |
 
-An expired snooze is the sole list escalation: a read-only snapshot identifies a
-due transition, then one writer retry rechecks it under the lock and commits
-status plus history together. Ordinary reads acquire no writer. Other errors and
-uncertain effects are never retried automatically.
+Source imports accept at most 500 items and reject duplicate identities, missing
+parents and cycles atomically. Topological assembly is linear. Two batched reads
+load existing identities and evidence; existing parents add one batched lifecycle
+read. Statements are prepared once per batch. New children require active,
+unfinished parents. Evidence keys hash an unambiguous tuple; existing legacy
+evidence identities are retained when refreshed.
 
-Outcome receipt hydration uses five reads regardless of milestone count. Item
-and evidence reads are batched. Exact creation retries recover the original
-receipt, even after later edits, without rewriting the current item. Changed
-input under the same key conflicts. Historical keys with no compatible retained
-receipt require inspection rather than guessing an original request. Deleted
-outcomes cannot be recreated by replaying their old creation key.
+An expired snooze is the sole read escalation. A committed snapshot observes a
+due transition, then a writer conditionally rechecks status/date under its lock.
+Future and indefinite snoozes acquire no writer. Other errors and uncertain
+effects are never automatically replayed. Calendar dates use the host day.
 
-Large legacy brief edits keep the full durable receipt but return a bounded
-acknowledgement with item ID/revision and `detailOmitted`; callers can inspect the
-item using paged reads. A denied or modified approval is reported as approval
-failure, rather than a generic storage outage.
+Outcome receipt hydration uses five reads regardless of milestone count. Exact
+retries return the immutable original receipt after later edits. Changed input
+conflicts; a deleted outcome cannot be recreated by replay. Older retained
+`telos_runtime_creation_receipts` are upgraded without changing receipt bytes.
+A historical item key without a verifiable receipt requires inspection rather
+than guessing an original request from its current edited fields.
 
-## Controlled data cutover
+Large successful ordinary mutations return a bounded item/revision acknowledgement
+with `detailOmitted`, retaining the full durable receipt. Approval failures are
+reported distinctly from storage/context failures.
 
-Use the accepted build only after the normal exact-head review/CI gate. For an
-existing retained file family (a `.telos-file-owners` directory beside the
-canonical database), keep `TELOS_DB_PATH` and all three family files at their
-current paths. Native persistence works in place; no file relocation is needed.
-Birth metadata pins paths and file identities and cannot be copied or regenerated
-to authorize a move. The copy utility refuses retained source/destination
-directories. A future relocation needs a separate supported ownership transition.
+## Private boundaries
 
-For an unenrolled legacy database that needs a new destination, stop Mitzo and
-**all legacy Telos writers** before the final copy. This includes any MGMT
-refresh/import jobs; they must not continue writing a retired source.
+The process-lifetime private-path registry retains current and previous storage
+roots and resolved selector aliases. Provider SDKs and controller hooks retain
+their filesystem fences; import authority is removed from provider environments.
+The narrow import endpoint accepts its own credential, never operator cookies or
+agent tokens. Import responses are private and uncached. The platform qualification
+limits from the migration runbook remain applicable; this change grants no new
+production or model-testing authority.
+
+## Controlled cutover and rollback
+
+Follow [the storage cutover runbook](../operations/telos-storage-cutover.md) using
+accepted sources after required review and CI. Stop Mitzo and all legacy writers,
+including MGMT refresh jobs. The single offline transfer utility is:
 
 ```sh
-node --import tsx scripts/migrate-telos.ts --offline SOURCE DESTINATION
+python3 scripts/migrate-telos.py --source SOURCE --destination ABSOLUTE_DESTINATION --writers-stopped
 ```
 
-The utility uses SQLite backup, including WAL content, rather than copying the
-main file alone. It verifies integrity and a complete schema/table/BLOB inventory
-under one source snapshot, publishes the destination without overwrite and
-preserves the source. Unknown tables and immutable artifacts are included.
-The temporary backup is created exclusively with private permissions before any
-database bytes are written.
-It neither changes runtime configuration nor restarts a service.
+It reserves the source writer, captures a WAL-aware read snapshot, checks schema,
+typed rows/BLOBs, integrity and foreign keys, then publishes exclusively with a
+durable migration receipt. Temporary files and receipts are private from creation.
+Large BLOBs are hashed as bytes without expanding into JSON or hex arrays. Source
+files remain intact; uncertain published destinations remain for inspection.
 
-Set `TELOS_DB_PATH` to the verified destination for the accepted Mitzo release and
-any intentionally retained canonical readers/importers. Restart once, then
-verify list, existing IDs/material revisions, ordinary brief/progress edits,
-source-backed creation, child completion, archive/restore, reconnect and backup.
-Retire the old writer configuration. Do not run two writable canonical copies.
+Retained `.telos-file-owners` entries, including broken symlinks, block standalone
+relocation. Keep such a family's registered paths and explicitly select its
+existing canonical database for native operation, or use a separately supported
+coordinated ownership transition. Never regenerate birth metadata to authorize a
+copy. Do not run two writable canonical copies.
 
-Before rollback, stop writers and preserve a backup of the current destination.
-Never point at the old source after new writes without reconciling those writes;
-that would lose post-cutover work. The unchanged source is a pre-cutover recovery
-point, not an automatically current rollback database.
+Restart the accepted release with the selected private database, then verify IDs,
+revisions, ordinary edits/progress, source-backed creation/import, descendants,
+archive/restore, reconnect and backup. Configure the companion MGMT importer to
+send source batches through the narrow API and retire its old canonical writer.
+
+Before rollback, stop writers and preserve the current destination and receipt.
+The original source is a pre-cutover recovery point: reverting to it after new
+writes requires reconciliation to avoid losing post-cutover work.
 
 ## Verification boundaries
 
-Focused regressions use disposable databases and fake native/provider effects,
-with no model calls, private production rows or production activation. They
-cover constant query counts, committed reads under a concurrent writer, atomic
-rollback, durable replay, oversized receipts, ordinary-chat approval/status
-semantics, original source preservation and WAL/BLOB migration. Existing
-lifecycle, permission, source and retained-owner regressions remain required.
-No UI layout or approved mock is changed by this backend migration.
+Focused regressions use disposable storage and synthetic native/provider effects.
+They cover privacy, import authority and overwrite protection, query budgets,
+committed reads beside writers, immutable replay, atomic rollback, guarded
+completion, oversized acknowledgements and WAL/BLOB migration. No model calls or
+production data mutations are part of these checks. No UI layout is changed.
 
-Local verification on 7 November 2026: the final Telos/native/Todo regression
-selection passed 1,148 tests in 105 files with one worker and a 1 GiB Node heap.
-Frontend and server builds passed, including the reviewed-handler fingerprint
-and security-backport checks. Changed-source lint, formatting and diff checks
-also passed.
-
-Two independent local source reviews identified backup creation permissions,
-retained-family relocation and empty-backlog profile selection. Those findings
-were corrected and both reviewers verified their respective deltas. The final
-focused HTTP/store/collection/migration selection passed 57 tests across five
-files, including the new regressions. These local reviews do not supply Centaur's
-required final approval.
-
-Four integration files were excluded from that final selection. CT06
-(`telos-canonical-journey`), CT09 (`telos-ordinary-canonical-journey`) and CT12
-(`telos-coordinator-v2-native-journey`) fail before the relevant effects because
-host account profiles or workspace selection are unavailable; the same failures
-were reproduced on untouched accepted main. `telos-ordinary-artifact-platform`
-requires the explicitly fenced private host directory. Their original failures
-and baseline evidence remain in the local test-results directory. These journeys
-require a qualified environment before claiming complete live acceptance.
+The consolidated candidate passed 1,818 Telos tests in 184 files. Provider/SDK
+regressions passed 103 tests with three existing skips; the failed legacy
+environment-token regression and synthetic-path fixtures were fixed and their
+three files rerun successfully. Full server type checking, server and frontend
+builds, source fingerprints and staged lint/formatting passed. Exact-head CI and
+Centaur approval are still required before merge. Four host-dependent
+integration files were locally blocked by account/workspace setup or the fenced
+private host path; CI must retain their applicable coverage. Full live acceptance
+and the screenshot's original inner failure remain unproven.

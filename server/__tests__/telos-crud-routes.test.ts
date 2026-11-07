@@ -11,7 +11,7 @@ afterEach(() => roots.splice(0).forEach((p) => rmSync(p, { recursive: true, forc
 it('creates, lists and completes work through HTTP with no MGMT script or alternate database', async () => {
   const root = mkdtempSync(join(realpathSync(tmpdir()), 'telos-http-'));
   roots.push(root);
-  new MitzoTelosStore(join(root, 'telos.db')).close();
+  MitzoTelosStore.initialize(join(root, 'telos.db'));
   const app = express();
   app.use(express.json());
   app.use(
@@ -25,6 +25,7 @@ it('creates, lists and completes work through HTTP with no MGMT script or altern
   );
   const empty = await request(app).get('/api/todos');
   expect(empty.status).toBe(200);
+  expect(empty.headers['cache-control']).toBe('private, no-store');
   expect(empty.body.profiles).toEqual(['manual']);
   const created = await request(app)
     .post('/api/todos')

@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeAll, beforeEach, afterEach } from 'vitest';
+import { initializeTelosSchema } from '../telos-schema.js';
 import type { Express } from 'express';
 import request from 'supertest';
 import { mkdirSync, writeFileSync, readFileSync } from 'fs';
@@ -99,6 +100,7 @@ beforeAll(async () => {
 });
 beforeEach(() => {
   fixture = createTelosCanonicalData();
+  initializeTelosSchema(fixture.db);
   vi.stubEnv('TELOS_DB_PATH', fixture.dbPath);
 });
 afterEach(() => {
