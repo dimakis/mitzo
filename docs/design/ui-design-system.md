@@ -31,6 +31,19 @@ target retention and the original draft. These tests start no backend or model;
 browser execution and capture evidence must be reported separately from fixture
 availability.
 
+## Reusable access grants
+
+The existing Access dialog contains a Reusable access disclosure using
+MotionPresence, grouped access cards and shared controls. Session checkboxes show
+the account, mode and workspace being approved. Capability and duration selectors
+use semantic tokens, the shared type/spacing/radius scales and control height.
+Active grants show their sessions, absolute expiry and a labelled revoke action.
+Authentication changes discard observations; unavailable, expired and uncertain
+states require an explicit refresh. The approved Chat settings layout remains
+unchanged. The intercepted `session-access` fixture covers keyboard actions,
+phone/desktop, both themes, alternate appearance, 44px controls and draft retention.
+See [scope and validation evidence](../features/approval-modes-reusable-access.md).
+
 ## Native Codex subagents
 
 Keep one collapsed subagent count/status row within the spawning agent's activity.

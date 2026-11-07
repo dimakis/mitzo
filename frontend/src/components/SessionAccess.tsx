@@ -7,6 +7,7 @@ import { getConnectionsAccess } from '../lib/connections-access-api';
 import { connectionTitle, connectionStatus } from '../lib/connections-access-presentation';
 import { HomeDialog } from './HomeDialog';
 import { UiIcon } from './UiIcon';
+import { ReusableAccessGrants } from './ReusableAccessGrants';
 import '../styles/session-access.css';
 
 interface Props {
@@ -132,8 +133,8 @@ function AccessContent({ sessionId, selection, connected = true, onShowApproval 
   return (
     <div className="session-access">
       <p className="workspace-muted">
-        Read-only evidence for this conversation. Account configuration does not establish session
-        availability.
+        Current access and reusable grants for this conversation. Account configuration does not
+        establish session availability.
       </p>
       {!sessionId && (
         <p>No session has started. The selected account has not been used in this conversation.</p>
@@ -234,6 +235,7 @@ function AccessContent({ sessionId, selection, connected = true, onShowApproval 
           </button>
         )}
       </section>
+      {sessionId && <ReusableAccessGrants sessionId={sessionId} connected={connected} />}
       <div className="access-resource-actions">
         {sessionId && (
           <button

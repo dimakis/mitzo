@@ -4219,6 +4219,7 @@ async function openCodexChatBound(
           options.registry,
           (query, signal) => runtime.searchWeb(query, signal),
           ownedHost ? assertHostCurrent : undefined,
+          callContext.registerResponseFence,
         )(input, signal);
       }
       if (mcp.definitions.some((tool) => tool.name === name))
