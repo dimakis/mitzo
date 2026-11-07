@@ -45,6 +45,19 @@ after hiding its already projected responder. The non-blocking lifecycle cleanup
 follow-up `CEN-864F4410A950` remains open: definitive preparation failure and owner
 teardown need bounded callback cleanup while uncertain queued commands retain fences.
 
+Broader CI run `42368546667` exposed a test-observer failure in the unchanged
+Telos advisor-refine journey: a failed browser response-body read was represented
+as the string `<unavailable>`, which permanently poisoned JSON readiness parsing.
+The observer now retains a null body; complete real metadata/messages, destination
+selection, loading-state assertions and the ten-second deadline remain required.
+Actual malformed JSON remains a failure. Twenty-five focused readiness/setup tests
+pass, including failed-read recovery and both negative controls. Restoring only
+the original marker makes the positive regression fail; the corrected source is
+restored exactly afterward. A local attempt at the actual browser journey stopped
+at Chromium's macOS Mach-port sandbox permission fence before its assertions, so
+it is not positive application evidence. The retained browser journey remains a CI
+gate. Body-read failure is observed; its underlying cause was not retained.
+
 The omission control temporarily removes only `messaging: collaborationMessaging`
 from the real app mount and restores the exact source in a finally block. Its raw
 receipt is retained in the task checkout's `.scratch/messaging-owner-omission.txt`.
