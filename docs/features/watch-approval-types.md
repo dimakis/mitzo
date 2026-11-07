@@ -30,6 +30,9 @@ choices, then the host-compiled preview before Save. An uncertain save retains t
 same request ID and preview digest; reopening can recover the retained request.
 Generic permission buttons cannot bypass source selection or mint a source receipt.
 Source review starts with the latest exchange and supports older exchange pages.
+Message and material pages accumulate without dropping selected IDs or revisions;
+proposal, invocation, scope and overlapping bytes must remain unchanged. Materials
+beyond the first hundred revisions use the host's original pagination cursor.
 The existing WatchConnectivity page-size limit remains explicit; a page too large
 for the relay reports an error rather than approving unseen or truncated material.
 

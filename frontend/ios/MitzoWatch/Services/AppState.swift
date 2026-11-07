@@ -131,6 +131,9 @@ final class AppState: ObservableObject {
     func sourcePreview(permId: String, input: WatchSourceInput) async throws -> WatchSourcePreview {
         try await relayClient.sourcePreview(permId: permId, input: input)
     }
+    func sourceMaterials(permId: String, input: WatchSourceMaterialsInput) async throws -> WatchSourceMaterialsPage {
+        try await relayClient.sourceMaterials(permId: permId, input: input)
+    }
     func sourceApprove(permId: String, input: WatchSourceInput) async throws -> WatchSourceReceipt {
         let receipt = try await relayClient.sourceApprove(permId: permId, input: input)
         guard receipt.permId == permId, receipt.sessionId == input.sessionId else { throw MitzoAPIClient.APIError.invalidResponse }

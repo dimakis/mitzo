@@ -1,7 +1,7 @@
 import Foundation
 
 /// Preserve the host's complete proposal/preview without manufacturing source bytes.
-public indirect enum ReviewValue: Codable, Sendable {
+public indirect enum ReviewValue: Codable, Sendable, Equatable {
     case object([String: ReviewValue]), array([ReviewValue]), string(String), number(Double), bool(Bool), null
     public init(from decoder: Decoder) throws {
         let value = try decoder.singleValueContainer()
@@ -38,28 +38,30 @@ public indirect enum ReviewValue: Codable, Sendable {
 public struct WatchSourceReview: Codable, Sendable {
     public let permId: String
     public let sessionId: String
+    public let toolUseId: String?
     public let proposalSha256: String
     public let materialScopeSha256: String?
     public let expiresAt: Double
     public let operation: ReviewValue
-    public let messages: [Message]
-    public let artifacts: [Artifact]
+    public private(set) var messages: [Message]
+    public private(set) var artifacts: [Artifact]
     public let cursor: Int?
     public let hasMore: Bool
-    public let earlierCursor: Int?
-    public let artifactsHasMore: Bool?
+    public private(set) var earlierCursor: Int?
+    public private(set) var artifactCursor: ReviewValue?
+    public private(set) var artifactsHasMore: Bool?
     public let recovery: Recovery?
 
-    public struct Message: Codable, Sendable, Identifiable {
+    public struct Message: Codable, Sendable, Identifiable, Equatable {
         public let messageId: String
         public var id: String { messageId }
         public let sequence: Int
         public let author: ReviewValue
         public let blocks: [Block]
         public let unavailableReason: String?
-        public struct Block: Codable, Sendable { public let content: String }
+        public struct Block: Codable, Sendable, Equatable { public let content: String }
     }
-    public struct Artifact: Codable, Sendable, Identifiable {
+    public struct Artifact: Codable, Sendable, Identifiable, Equatable {
         public let artifactId: String
         public var id: String { "\(artifactId):\(revision)" }
         public let revision: Int
@@ -80,11 +82,58 @@ public struct WatchSourceReview: Codable, Sendable {
         let files = artifacts.filter { artifactIDs.contains($0.id) }
         guard let last = chosen.max(by: { $0.sequence < $1.sequence }),
               chosen.count == messageIDs.count, chosen.allSatisfy({ $0.unavailableReason == nil }),
-              files.count == artifactIDs.count else { throw MitzoAPIClient.APIError.invalidResponse }
+              files.count == artifactIDs.count, chosen.count <= 500, files.count <= 100 else { throw MitzoAPIClient.APIError.invalidResponse }
         return WatchSourceInput(sessionId: sessionId, requestId: UUID().uuidString.lowercased(),
             proposalSha256: proposalSha256, materialScopeSha256: materialScopeSha256,
             selection: WatchSourceSelection(boundary: .init(sequence: last.sequence, messageId: last.messageId),
                 mode: "selected", messageIds: chosen.map(\.id), artifacts: files.map { .init(artifactId: $0.artifactId, revision: $0.revision, sha256: $0.sha256) }), previewSha256: nil)
+    }
+    /// A later read may not replace bytes already reviewed or selected.
+    private func union<T: Identifiable & Equatable>(_ existing: [T], _ page: [T]) throws -> [T] where T.ID: Hashable {
+        var byID: [T.ID: T] = [:]
+        var result: [T] = []
+        for value in existing + page {
+            if let previous = byID[value.id] {
+                guard previous == value else { throw MitzoAPIClient.APIError.invalidResponse }
+            } else { byID[value.id] = value; result.append(value) }
+        }
+        return result
+    }
+    public func mergingEarlier(_ page: WatchSourceReview) throws -> WatchSourceReview {
+        try mergingMessages(page, earlier: true)
+    }
+    public func mergingLatest(_ page: WatchSourceReview) throws -> WatchSourceReview {
+        try mergingMessages(page, earlier: false)
+    }
+    private func mergingMessages(_ page: WatchSourceReview, earlier: Bool) throws -> WatchSourceReview {
+        guard permId == page.permId, sessionId == page.sessionId, toolUseId == page.toolUseId,
+              proposalSha256 == page.proposalSha256, materialScopeSha256 == page.materialScopeSha256,
+              expiresAt == page.expiresAt, operation == page.operation, recovery == nil, page.recovery == nil,
+              !earlier || page.earlierCursor == nil || (earlierCursor != nil && page.earlierCursor! < earlierCursor!) else {
+            throw MitzoAPIClient.APIError.invalidResponse
+        }
+        var result = self
+        result.messages = try union(messages, page.messages).sorted { $0.sequence < $1.sequence }
+        result.artifacts = try union(artifacts, page.artifacts)
+        if earlier { result.earlierCursor = page.earlierCursor }
+        return result
+    }
+    public var nextMaterialsInput: WatchSourceMaterialsInput? {
+        guard recovery == nil, artifactsHasMore == true, let after = artifactCursor, let toolUseId else { return nil }
+        return .init(sessionId: sessionId, toolUseId: toolUseId, proposalSha256: proposalSha256, after: after)
+    }
+    public func mergingMaterials(_ page: WatchSourceMaterialsPage, input: WatchSourceMaterialsInput) throws -> WatchSourceReview {
+        guard let expected = nextMaterialsInput, expected == input,
+              page.permId == permId, page.sessionId == sessionId, page.toolUseId == toolUseId,
+              page.proposalSha256 == proposalSha256, page.materialScopeSha256 == materialScopeSha256,
+              !page.hasMore || (page.cursor != nil && page.cursor != artifactCursor) else {
+            throw MitzoAPIClient.APIError.invalidResponse
+        }
+        var result = self
+        result.artifacts = try union(artifacts, page.artifacts)
+        result.artifactCursor = page.cursor
+        result.artifactsHasMore = page.hasMore
+        return result
     }
     public var restoredApproval: WatchSourceInput? {
         guard let recovery, recovery.proposalSha256 == proposalSha256 else { return nil }
@@ -96,6 +145,23 @@ public struct WatchSourceReview: Codable, Sendable {
             proposalSha256: proposalSha256, materialScopeSha256: originalMaterialScope,
             selection: recovery.selection, previewSha256: recovery.previewSha256)
     }
+}
+
+public struct WatchSourceMaterialsInput: Codable, Sendable, Equatable {
+    public let sessionId: String
+    public let toolUseId: String
+    public let proposalSha256: String
+    public let after: ReviewValue
+}
+public struct WatchSourceMaterialsPage: Codable, Sendable {
+    public let permId: String
+    public let sessionId: String
+    public let toolUseId: String
+    public let proposalSha256: String
+    public let materialScopeSha256: String?
+    public let artifacts: [WatchSourceReview.Artifact]
+    public let cursor: ReviewValue?
+    public let hasMore: Bool
 }
 
 public struct WatchSourceSelection: Codable, Sendable {

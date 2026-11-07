@@ -369,7 +369,12 @@ struct WatchSourceApproval: View {
 
     var body: some View {
         VStack(alignment: .leading) {
-            if let error { Text(error).font(.caption).foregroundStyle(.orange) }
+            if let error {
+                Text(error).font(.caption).foregroundStyle(.orange)
+                if !attempted {
+                    Button("Reload source review") { review = nil; messages = []; artifacts = []; load() }.disabled(busy)
+                }
+            }
             if let review {
                 Text("Proposal").font(.headline)
                 Text(review.operation.readable).font(.caption)
@@ -398,6 +403,9 @@ struct WatchSourceApproval: View {
                             Text("\(artifact.title) · \(artifact.filename) · version \(artifact.revision)").font(.caption)
                         }.disabled(busy)
                     }
+                    if review.nextMaterialsInput != nil {
+                        Button("More source materials") { loadMaterials() }.disabled(busy)
+                    }
                     if let before = review.earlierCursor {
                         Button("Earlier exchange") { load(before: before) }.disabled(busy)
                     }
@@ -417,9 +425,13 @@ struct WatchSourceApproval: View {
             defer { busy = false }
             do {
                 let current = try await appState.sourceReview(item, before: before)
-                review = current
-                messages = []
-                artifacts = []
+                if let previous = review, current.recovery == nil {
+                    review = try before == nil ? previous.mergingLatest(current) : previous.mergingEarlier(current)
+                } else {
+                    review = current
+                    messages = []
+                    artifacts = []
+                }
                 if let recovery = current.recovery {
                     if recovery.receipt != nil { dismiss(); return }
                     guard let input = current.restoredApproval else { throw MitzoAPIClient.APIError.invalidResponse }
@@ -428,6 +440,18 @@ struct WatchSourceApproval: View {
                     attempted = true
                 }
             } catch { self.error = "Source review unavailable. Refresh before trying again." }
+        }
+    }
+    private func loadMaterials() {
+        guard let review, let input = review.nextMaterialsInput, !busy else { return }
+        busy = true
+        error = nil
+        Task { @MainActor in
+            defer { busy = false }
+            do {
+                let page = try await appState.sourceMaterials(permId: review.permId, input: input)
+                self.review = try review.mergingMaterials(page, input: input)
+            } catch { self.error = "Source materials changed or are unavailable. Reload before continuing." }
         }
     }
     private func preview() {

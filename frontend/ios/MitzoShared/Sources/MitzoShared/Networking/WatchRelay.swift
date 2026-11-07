@@ -80,6 +80,10 @@ public final class WatchRelayHost: NSObject, WCSessionDelegate, Sendable {
             guard let data = try? JSONSerialization.data(withJSONObject: $0) else { return nil }
             return try? JSONDecoder().decode(WatchSourceInput.self, from: data)
         }
+        let materialInput: WatchSourceMaterialsInput? = (message["input"] as? [String: Any]).flatMap {
+            guard let data = try? JSONSerialization.data(withJSONObject: $0) else { return nil }
+            return try? JSONDecoder().decode(WatchSourceMaterialsInput.self, from: data)
+        }
         let reply = UnsafeSendable(replyHandler)
         let capturedState = state
         let capturedAuthManager = authManager
@@ -94,11 +98,14 @@ public final class WatchRelayHost: NSObject, WCSessionDelegate, Sendable {
                 if let notificationAPIProvider { notificationAPI = notificationAPIProvider() }
                 else { notificationAPI = capturedState.getAPIClient() }
                 switch type {
-                case "source_review", "source_preview", "source_approve":
+                case "source_review", "source_materials", "source_preview", "source_approve":
                     guard let api = notificationAPI, !sourcePermId.isEmpty, !sessionId.isEmpty else { throw MitzoAPIClient.APIError.invalidResponse }
                     let data: Data
                     if type == "source_review" {
                         data = try JSONEncoder().encode(await api.getSourceReview(permId: sourcePermId, sessionId: sessionId, before: sourceBefore))
+                    } else if type == "source_materials" {
+                        guard let input = materialInput, input.sessionId == sessionId else { throw MitzoAPIClient.APIError.invalidResponse }
+                        data = try JSONEncoder().encode(await api.getSourceMaterials(permId: sourcePermId, input: input))
                     } else {
                         guard let input = sourceInput, input.sessionId == sessionId else { throw MitzoAPIClient.APIError.invalidResponse }
                         if type == "source_preview" {
@@ -476,6 +483,10 @@ public final class WatchRelayClient: NSObject, WCSessionDelegate, Sendable {
     }
     public func sourcePreview(permId: String, input: WatchSourceInput) async throws -> WatchSourcePreview {
         try await sourcePayload(["_relay": "source_preview", "permId": permId, "sessionId": input.sessionId,
+            "input": JSONSerialization.jsonObject(with: JSONEncoder().encode(input))])
+    }
+    public func sourceMaterials(permId: String, input: WatchSourceMaterialsInput) async throws -> WatchSourceMaterialsPage {
+        try await sourcePayload(["_relay": "source_materials", "permId": permId, "sessionId": input.sessionId,
             "input": JSONSerialization.jsonObject(with: JSONEncoder().encode(input))])
     }
     public func sourceApprove(permId: String, input: WatchSourceInput) async throws -> WatchSourceReceipt {

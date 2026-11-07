@@ -81,6 +81,15 @@ public actor MitzoAPIClient {
     public func previewSourceReview(permId: String, input: WatchSourceInput) async throws -> WatchSourcePreview {
         try await get(path: sourcePermissionPath(permId) + "/preview", method: "POST", body: JSONEncoder().encode(input), timeout: 20)
     }
+    public func getSourceMaterials(permId: String, input: WatchSourceMaterialsInput) async throws -> WatchSourceMaterialsPage {
+        let after = String(decoding: try JSONEncoder().encode(input.after), as: UTF8.self)
+        return try await get(path: sourcePermissionPath(permId) + "/materials", query: [
+            URLQueryItem(name: "sessionId", value: input.sessionId),
+            URLQueryItem(name: "toolUseId", value: input.toolUseId),
+            URLQueryItem(name: "proposalSha256", value: input.proposalSha256),
+            URLQueryItem(name: "after", value: after)
+        ], timeout: 10)
+    }
     public func approveSourceReview(permId: String, input: WatchSourceInput) async throws -> WatchSourceReceipt {
         try await get(path: sourcePermissionPath(permId) + "/approve", method: "POST", body: JSONEncoder().encode(input), timeout: 20)
     }
