@@ -60,7 +60,13 @@ interface Grant extends SessionCapabilityGrant {
   members: Member[];
   timer?: ReturnType<typeof setTimeout>;
   account?: ManagedSession['accountBinding'];
+  cancellation: AbortController;
 }
+export type CapabilityReceipt = (() => void) & {
+  grantId: string;
+  expiresAt: number;
+  signal: AbortSignal;
+};
 const owners = new WeakMap<ManagedSession, SessionCapabilityGrants>();
 const stores = new Set<WeakRef<SessionCapabilityGrants>>();
 const identities = new WeakMap<object, string>();
@@ -157,6 +163,7 @@ export class SessionCapabilityGrants {
   }
   private async retire(grant: Grant) {
     this.grants.delete(grant.id);
+    grant.cancellation.abort(Error('Capability grant expired or revoked'));
     clearTimeout(grant.timer);
     if (grant.capability.kind === 'development')
       await Promise.allSettled(
@@ -287,6 +294,7 @@ export class SessionCapabilityGrants {
       capability,
       sessionIds: sessions.map((s) => s.sessionId!),
       members,
+      cancellation: new AbortController(),
       expiresAt: Date.now() + parsed.durationMinutes * 60_000,
       ...(parsed.scope
         ? {
@@ -349,9 +357,11 @@ export class SessionCapabilityGrants {
       | { kind: 'public-web'; origin?: string }
       | { kind: 'github-read'; repository: string }
       | Extract<SessionCapability, { kind: 'google-read' | 'telos-progress' }>,
-  ): (() => void) | undefined {
+    grantId?: string,
+  ): CapabilityReceipt | undefined {
     this.prune();
     for (const grant of this.grants.values()) {
+      if (grantId && grant.id !== grantId) continue;
       const capability = grant.capability;
       if (capability.kind !== wanted.kind) continue;
       if (
@@ -378,23 +388,27 @@ export class SessionCapabilityGrants {
         wanted.origin !== undefined &&
         member.blockedOrigins.has(wanted.origin);
       if (blocked()) continue;
-      return () => {
-        if (
-          this.grants.get(grant.id) !== grant ||
-          !grant.members.includes(member) ||
-          blocked() ||
-          !this.memberCurrent(grant, member)
-        )
-          throw Error('Capability grant expired, revoked or changed');
-      };
+      return Object.assign(
+        () => {
+          if (
+            this.grants.get(grant.id) !== grant ||
+            !grant.members.includes(member) ||
+            blocked() ||
+            !this.memberCurrent(grant, member)
+          )
+            throw Error('Capability grant expired, revoked or changed');
+        },
+        { grantId: grant.id, expiresAt: grant.expiresAt, signal: grant.cancellation.signal },
+      );
     }
   }
 }
 export function captureSessionCapability(
   session: ManagedSession,
   wanted: Parameters<SessionCapabilityGrants['capture']>[1],
+  grantId?: string,
 ) {
-  const known = owners.get(session)?.capture(session, wanted);
+  const known = owners.get(session)?.capture(session, wanted, grantId);
   if (known) return known;
   for (const ref of stores) {
     const store = ref.deref();
@@ -402,7 +416,7 @@ export function captureSessionCapability(
       stores.delete(ref);
       continue;
     }
-    const receipt = store.capture(session, wanted);
+    const receipt = store.capture(session, wanted, grantId);
     if (receipt) return receipt;
   }
 }
