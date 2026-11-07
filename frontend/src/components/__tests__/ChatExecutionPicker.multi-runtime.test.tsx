@@ -6,6 +6,35 @@ import { ChatExecutionPicker } from '../ChatExecutionPicker';
 import { multiRuntimeInventoryFixture } from '../../test-utils/multi-runtime-inventory-fixture';
 import { createChatRuntimeSelection } from '../../lib/chat-runtime-selection';
 afterEach(cleanup);
+it('lists only hosts in the selected environment when target IDs are shared', () => {
+  const data = multiRuntimeInventoryFixture();
+  data.routes[0].location = 'local';
+  data.targets.push({ ...data.targets[0], location: 'openshell', label: 'Remote twin' });
+  render(
+    <MemoryRouter>
+      <ChatExecutionPicker
+        presentation="settings"
+        runtime={
+          {
+            visible: true,
+            intent: {
+              ...createChatRuntimeSelection(),
+              account: { accountId: 'personal', model: 'luna-fixture' },
+              accountReference: data.accounts[0].account,
+              execution: { location: 'local', targetId: 'mac' },
+            },
+            inventory: data,
+            update: vi.fn(),
+          } as never
+        }
+      />
+    </MemoryRouter>,
+  );
+  const host = screen.getByRole('combobox', { name: 'Execution host' });
+  expect(Array.from(host.querySelectorAll('option')).map((option) => option.textContent)).toEqual([
+    'This Mac (mac)',
+  ]);
+});
 it('settings uses two named environment cards and retains reasons without redundant review controls', () => {
   const data = multiRuntimeInventoryFixture(),
     update = vi.fn();
@@ -164,10 +193,11 @@ it('renders precisely two environments for three Local adapters and derives soft
       <ChatExecutionPicker runtime={runtime} />
     </MemoryRouter>,
   );
-  expect(screen.getAllByRole('option').map((o) => o.textContent)).toEqual([
-    'OpenShell',
-    'Local Mac',
-  ]);
+  expect(
+    Array.from(screen.getByLabelText('Run on').querySelectorAll('option')).map(
+      (o) => o.textContent,
+    ),
+  ).toEqual(['OpenShell', 'Local Mac']);
   expect(screen.getByText('Runs with Mitzo Responses')).toBeTruthy();
   fireEvent.change(screen.getByLabelText('Run on'), { target: { value: 'openshell' } });
   expect(update).toHaveBeenCalledWith(

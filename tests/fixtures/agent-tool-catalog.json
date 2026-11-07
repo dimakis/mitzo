@@ -418,6 +418,17 @@
     "requirement": "Existing session permissions, cancellation and runtime admission apply."
   },
   {
+    "id": "mitzo:StartSession",
+    "version": 1,
+    "name": "StartSession",
+    "description": "Propose a new ordinary Mitzo chat using the saved default session configuration and optional overrides. The user reviews and edits the complete configuration, title and handoff before Approve & start. A pending proposal has not allocated or started a chat. Reuse the exact requestId and arguments after uncertainty. Saved defaults and chat links grant no permissions. Initial execution supports independent Local Mac Codex sessions; unavailable choices remain editable in review.",
+    "source": "Session creation",
+    "required": false,
+    "behavior": "write",
+    "routes": ["codex-owned-local"],
+    "requirement": "Existing session permissions, cancellation and runtime admission apply."
+  },
+  {
     "id": "mitzo:TaskExecution",
     "version": 1,
     "name": "TaskExecution",

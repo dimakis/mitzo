@@ -368,6 +368,8 @@ jobs:
             test-results/offline/**/quick-sheet-*.png
             test-results/offline/**/prompt-preparation-*.png
             test-results/offline/**/composer-receipt-*.png
+            test-results/offline/**/session-launch-*.png
+            test-results/offline/**/session-defaults-*.png
           retention-days: 7
           if-no-files-found: ignore
 

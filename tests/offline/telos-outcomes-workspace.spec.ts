@@ -371,6 +371,8 @@ for (const theme of ['dark', 'light'])
           },
         });
       }
+      if (url.pathname === '/api/session-launch/defaults' && route.request().method() === 'GET')
+        return route.fulfill({ json: { revision: 0, configuration: null } });
       if (url.pathname === '/api/chat/runtime/capabilities')
         return route.fulfill({ json: localInventoryFixture() });
       if (url.pathname === '/api/accounts')

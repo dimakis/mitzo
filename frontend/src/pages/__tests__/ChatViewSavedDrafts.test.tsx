@@ -15,6 +15,8 @@ import {
 } from '../../lib/chat-drafts';
 import { apiFetch } from '../../lib/api-fetch';
 import type { AccountSelection } from '../../components/AccountModelPicker';
+import { createChatRuntimeSelection } from '../../lib/chat-runtime-selection';
+import { PROFILE_BUILDER_ID, PROFILE_BUILDER_REVISION } from '@mitzo/protocol';
 
 function openAgentSettings() {
   const settings = screen.getByRole('button', { name: /^Workspace controls,/ });
@@ -129,7 +131,28 @@ vi.mock('../../components/SessionPanel', () => ({
 vi.mock('../../components/CommandCenter', () => ({ CommandCenter: () => null }));
 vi.mock('../../components/ScrollFab', () => ({ ScrollFab: () => null }));
 vi.mock('../../components/SlashPicker', () => ({ SlashPicker: () => null }));
-vi.mock('../../components/SessionResourcesDialog', () => ({ SessionResourcesDialog: () => null }));
+vi.mock('../../components/SessionResourcesDialog', () => ({
+  SessionResourcesDialog: ({
+    selectedContextBlocks,
+    onToggleContextBlock,
+    sourceSnapshots,
+  }: {
+    selectedContextBlocks: string[];
+    onToggleContextBlock(name: string): void;
+    sourceSnapshots?: Array<{ content: string }>;
+  }) => (
+    <div aria-label="Session resources">
+      {sourceSnapshots?.map(({ content }) => (
+        <span key={content}>{content}</span>
+      ))}
+      {selectedContextBlocks.map((name) => (
+        <button key={name} onClick={() => onToggleContextBlock(name)}>
+          Remove context {name}
+        </button>
+      ))}
+    </div>
+  ),
+}));
 vi.mock('../../components/MicButton', () => ({ MicButton: () => null }));
 vi.mock('../../components/VoiceSettings', () => ({ VoiceSettings: () => null }));
 vi.mock('../../components/WebSearchConsent', () => ({ WebSearchConsent: () => null }));
@@ -141,7 +164,12 @@ vi.mock('../../hooks/useBriefingChat', () => ({ useBriefingChat: () => ({}) }));
 vi.mock('../../lib/keyboard', () => ({ onKeyboardToggle: () => () => {} }));
 vi.mock('../../lib/haptics', () => ({ impactMedium: vi.fn() }));
 vi.mock('../../lib/api-fetch', () => ({
-  apiFetch: vi.fn(async () => new Response('[]')),
+  apiFetch: vi.fn(
+    async (url: string) =>
+      new Response(
+        url === '/api/session-launch/defaults' ? '{"revision":0,"configuration":null}' : '[]',
+      ),
+  ),
   getApiBaseUrl: () => '',
   AUTH_LOST_EVENT: 'auth-lost',
   AUTH_RESTORED_EVENT: 'auth-restored',
@@ -149,7 +177,13 @@ vi.mock('../../lib/api-fetch', () => ({
 afterEach(() => {
   cleanup();
   useRealSymposium = false;
-  vi.mocked(apiFetch).mockImplementation(async () => new Response('[]'));
+  useOrdinaryLocalChat = false;
+  vi.mocked(apiFetch).mockImplementation(
+    async (url) =>
+      new Response(
+        url === '/api/session-launch/defaults' ? '{"revision":0,"configuration":null}' : '[]',
+      ),
+  );
   vi.restoreAllMocks();
   localStorage.clear();
   sessionStorage.clear();
@@ -193,6 +227,28 @@ function mount(Page: typeof ChatView, entry: string, active?: string, delaySessi
   return { store, send, ...view };
 }
 for (const Page of [ChatView, DesktopChatView]) {
+  it(`${Page.name} retains its initial prompt while waiting for persistent defaults before editing`, async () => {
+    let finishDefaults!: (response: Response) => void;
+    vi.mocked(apiFetch).mockImplementation(async (url) =>
+      url === '/api/session-launch/defaults'
+        ? new Promise<Response>((resolve) => {
+            finishDefaults = resolve;
+          })
+        : new Response('[]'),
+    );
+    const view = mount(Page, '/chat?prompt=Keep+the+launch+prompt');
+    expect(screen.queryByLabelText('Message Mitzo')).toBeNull();
+    expect(screen.getByText('Loading saved agent configuration…')).toBeTruthy();
+    expect(view.send).not.toHaveBeenCalled();
+    await act(async () => finishDefaults(new Response('{"revision":0,"configuration":null}')));
+    expect(await screen.findByLabelText('Message Mitzo')).toHaveProperty(
+      'value',
+      'Keep the launch prompt',
+    );
+    expect(listChatDrafts()[0]?.text).toBe('Keep the launch prompt');
+    expect(view.send).not.toHaveBeenCalled();
+  });
+
   it.each([undefined, 'previous-chat'])(
     `${Page.name} preserves typing in the routed bound draft while session %s hydrates`,
     (previous) => {
@@ -217,7 +273,7 @@ for (const Page of [ChatView, DesktopChatView]) {
     },
   );
 
-  it(`${Page.name} clears an emptied draft reference so reloading opens a usable blank composer`, () => {
+  it(`${Page.name} clears an emptied draft reference so reloading opens a usable blank composer`, async () => {
     const draft = { ...createChatDraft(), text: 'Clear this draft' };
     draft.settings.selection = { accountId: 'work', model: 'luna', reasoningEffort: 'high' };
     draft.settings.mode = 'ask';
@@ -241,7 +297,7 @@ for (const Page of [ChatView, DesktopChatView]) {
     const clearedUrl = screen.getByTestId('location').textContent!;
     view.unmount();
     const reloaded = mount(Page, clearedUrl);
-    expect(screen.getByLabelText('Message Mitzo')).toHaveProperty('value', '');
+    expect(await screen.findByLabelText('Message Mitzo')).toHaveProperty('value', '');
     expect(screen.queryByRole('alert')).toBeNull();
     openAgentSettings();
     fireEvent.click(screen.getByRole('button', { name: 'Hydrate account' }));
@@ -249,8 +305,9 @@ for (const Page of [ChatView, DesktopChatView]) {
     fireEvent.click(screen.getByRole('button', { name: 'Start session' }));
     expect(reloaded.send).toHaveBeenCalled();
   });
-  it(`${Page.name} keeps a preparation-only draft before typing, after clearing and through reload until removal`, () => {
+  it(`${Page.name} keeps a preparation-only draft before typing, after clearing and through reload until removal`, async () => {
     const view = mount(Page, '/chat');
+    await screen.findByLabelText('Message Mitzo');
     openAgentSettings();
     fireEvent.click(screen.getByRole('button', { name: 'Hydrate account' }));
     fireEvent.click(screen.getByRole('button', { name: 'Ready scoped repository' }));
@@ -279,8 +336,9 @@ for (const Page of [ChatView, DesktopChatView]) {
     expect(screen.getByTestId('location').textContent).toBe('/chat');
     expect(screen.queryByRole('alert')).toBeNull();
   });
-  it(`${Page.name} removes a cleared quick-action prompt from its reload URL`, () => {
+  it(`${Page.name} removes a cleared quick-action prompt from its reload URL`, async () => {
     mount(Page, '/chat?prompt=Clear+this+prompt&cwd=%2Fworkspace');
+    await screen.findByLabelText('Message Mitzo');
     fireEvent.change(screen.getByLabelText('Message Mitzo'), { target: { value: '' } });
     expect(screen.getByTestId('location').textContent).toBe('/chat?cwd=%2Fworkspace');
     expect(listChatDrafts()).toEqual([]);
@@ -315,19 +373,19 @@ for (const Page of [ChatView, DesktopChatView]) {
       }),
     );
   });
-  it(`${Page.name} retains a quick-action initial prompt as a fresh editable draft`, () => {
+  it(`${Page.name} retains a quick-action initial prompt as a fresh editable draft`, async () => {
     mount(Page, '/chat?prompt=Review+this+update&cwd=%2Fworkspace');
-    expect((screen.getByLabelText('Message Mitzo') as HTMLTextAreaElement).value).toBe(
+    expect(((await screen.findByLabelText('Message Mitzo')) as HTMLTextAreaElement).value).toBe(
       'Review this update',
     );
     expect(listChatDrafts()[0]?.text).toBe('Review this update');
   });
-  it(`${Page.name} opens a blank New chat and retains the previous editable draft`, () => {
+  it(`${Page.name} opens a blank New chat and retains the previous editable draft`, async () => {
     const draft = { ...createChatDraft(), text: 'Old thought' };
     saveChatDraft(draft);
     mount(Page, `/chat?draft=${draft.id}`);
     fireEvent.click(screen.getByRole('button', { name: 'New chat' }));
-    expect((screen.getByLabelText('Message Mitzo') as HTMLTextAreaElement).value).toBe('');
+    expect(((await screen.findByLabelText('Message Mitzo')) as HTMLTextAreaElement).value).toBe('');
     expect(getChatDraft(draft.id)?.text).toBe('Old thought');
     expect(screen.getByTestId('location').textContent).toBe('/chat');
     fireEvent.change(screen.getByLabelText('Message Mitzo'), {
@@ -341,6 +399,7 @@ for (const Page of [ChatView, DesktopChatView]) {
   });
   it(`${Page.name} gives fresh drafts a reloadable URL preserving launch settings`, async () => {
     mount(Page, '/chat?cwd=%2Fworkspace&extraTools=read&agentProfile=helper&profileRevision=2');
+    await screen.findByLabelText('Message Mitzo');
     openAgentSettings();
     fireEvent.click(screen.getByRole('button', { name: 'Hydrate account' }));
     fireEvent.change(screen.getByLabelText('Message Mitzo'), {
@@ -477,10 +536,68 @@ for (const Page of [ChatView, DesktopChatView]) {
   });
 }
 
+let useOrdinaryLocalChat = false;
 vi.mock('../../hooks/useExplicitLocalChat', async () => {
   const { disabledLocalChat } = await import('../../test-utils/disabled-local-chat');
-  return { useExplicitLocalChat: disabledLocalChat };
+  return {
+    useExplicitLocalChat: (_id: string, saved?: ReturnType<typeof createChatRuntimeSelection>) => ({
+      ...disabledLocalChat(),
+      visible: useOrdinaryLocalChat,
+      ...(useOrdinaryLocalChat && saved ? { intent: saved } : {}),
+    }),
+  };
 });
+
+for (const Page of [ChatView, DesktopChatView]) {
+  it(`${Page.name} preserves existing profile query order when saving and reopening an ordinary draft`, async () => {
+    useOrdinaryLocalChat = true;
+    const search = `agentProfile=${PROFILE_BUILDER_ID}&agentProfileKind=builtin&profileRevision=${PROFILE_BUILDER_REVISION}`;
+    const draft = { ...createChatDraft(), text: 'Retain this Builder question' };
+    draft.settings.search = search;
+    draft.settings.runtimeSelection = {
+      ...createChatRuntimeSelection(),
+      agentProfile: {
+        kind: 'builtin',
+        profileId: PROFILE_BUILDER_ID,
+        revision: PROFILE_BUILDER_REVISION,
+      },
+    };
+    saveChatDraft(draft);
+    const entry = `/chat?${search}&draft=${draft.id}`;
+    const view = mount(Page, entry);
+    await waitFor(() => expect(getChatDraft(draft.id)?.settings.search).toBe(search));
+    view.unmount();
+    mount(Page, `/chat?draft=${draft.id}`);
+    await waitFor(() => expect(screen.getByTestId('location').textContent).toBe(entry));
+    expect(screen.getByLabelText('Message Mitzo')).toHaveProperty('value', draft.text);
+  });
+  it.each([{ contextBlocks: [] }, { contextBlocks: ['Project context'] }])(
+    `${Page.name} preserves ordinary new-chat resources with context $contextBlocks`,
+    async ({ contextBlocks }) => {
+      useOrdinaryLocalChat = true;
+      const draft = { ...createChatDraft(), text: 'Retained task', contextBlocks };
+      draft.settings.sourceSnapshots = [
+        {
+          kind: 'briefing',
+          date: '2026-11-06',
+          revision: 'a'.repeat(64),
+          content: 'Retained source snapshot',
+        },
+      ];
+      saveChatDraft(draft);
+      const view = mount(Page, `/chat?draft=${draft.id}`);
+      expect(await screen.findByLabelText('Session resources')).toBeTruthy();
+      expect(screen.getByText('Retained source snapshot')).toBeTruthy();
+      if (contextBlocks.length) {
+        fireEvent.click(screen.getByRole('button', { name: 'Remove context Project context' }));
+        expect(screen.queryByRole('button', { name: 'Remove context Project context' })).toBeNull();
+        expect(getChatDraft(draft.id)?.contextBlocks).toEqual([]);
+        expect(screen.getByLabelText('Message Mitzo')).toHaveProperty('value', 'Retained task');
+      }
+      expect(view.send).not.toHaveBeenCalled();
+    },
+  );
+}
 
 for (const Page of [ChatView, DesktopChatView]) {
   it(`${Page.name} reopens an unsent briefing in its own draft and New clears its chrome`, async () => {
@@ -508,7 +625,7 @@ for (const Page of [ChatView, DesktopChatView]) {
     expect(getChatDraft(draft.id)?.settings.launch).toMatchObject(launch);
     fireEvent.click(screen.getByRole('button', { name: 'New chat' }));
     expect(screen.queryByRole('button', { name: 'Send launch prompt' })).toBeNull();
-    expect(screen.getByLabelText('Message Mitzo')).toHaveProperty('value', '');
+    expect(await screen.findByLabelText('Message Mitzo')).toHaveProperty('value', '');
     expect(getChatDraft(draft.id)?.settings.launch).toMatchObject(launch);
     expect(view.send).not.toHaveBeenCalled();
     expect(writes).toBeLessThan(80);

@@ -401,6 +401,11 @@ for (const [name, Screen] of [
       }
       fireEvent.click(await screen.findByRole('button', { name: 'Ready repository launch' }));
       const send = screen.getByRole('button', { name: 'Test send' });
+      if (runOn === 'openshell') {
+        expect(getChatDraft(draft.id)?.contextBlocks).toEqual(draft.contextBlocks);
+        expect(send).toBeDisabled();
+        fireEvent.click(screen.getByRole('button', { name: 'Clear saved context for this chat' }));
+      }
       await waitFor(() => expect(send).toBeEnabled());
       act(() =>
         store.setState({
@@ -1287,6 +1292,8 @@ for (const [name, Screen] of [
         },
       },
     });
+    expect(screen.getByRole('button', { name: 'Test send' })).toBeDisabled();
+    fireEvent.click(screen.getByRole('button', { name: 'Clear saved context for this chat' }));
     await waitFor(() => expect(screen.getByRole('button', { name: 'Test send' })).toBeEnabled());
     fireEvent.click(screen.getByRole('button', { name: 'Test send' }));
     expect(localSend).toHaveBeenCalledWith(
