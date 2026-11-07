@@ -20,6 +20,11 @@ total budget. MCP shutdown retires calls immediately, closes each acquired or
 late peer once, and bounds the caller's drain. Its `mcp.shutdown` trace records
 failure even when best-effort shutdown continues.
 
+An execution deadline immediately fences further callbacks and retires the
+provider owner after retaining the failure. SDK callbacks abort their owning
+session; Codex records the unknown result before closing its original transport.
+The provider cannot continue issuing tools under the timed-out turn.
+
 `@mitzo/protocol` defines the shared failure envelope: `code`, `phase`,
 `effectStatus` and `recovery`. Existing diagnostic IDs, task request IDs and
 operation-specific repair guidance remain intact. A public envelope describes an
@@ -55,6 +60,12 @@ undispatched child. Stop, owner/account change, unknown effects, recovery state,
 explicit denial and cancellation suppress automatic dispatch. Recovery children
 cannot request fresh native approvals or recursively create another child. Peer
 and Symposium work keep their separate delivery/consent owners.
+
+Only ordinary prelaunch command approval can certify `not_started`. Subcommand,
+managed-network and stdin callbacks retain unknown parent effects. An actual user
+denial stays a denial even if handling resumes after expiry. Recovery selection
+runs after terminal projection marks all unfinished native items unknown, so an
+earlier settled failure cannot override a later missing result.
 
 ## Coverage and limits
 

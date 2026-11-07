@@ -10,6 +10,7 @@ import {
   checkSkillPolicy,
   effectivePermissionMode,
   runGuardedTool,
+  ToolGuardTimeoutError,
   type ToolGuardPolicy,
   type ManagedSession,
   type SessionRegistry,
@@ -113,45 +114,57 @@ export function createCredentialSdkServer(
               isError: true,
             };
           return (boundary?.runCallback ?? ((work) => work()))(() =>
-            runGuardedTool({ signal, policy: boundary?.toolGuardPolicy }, async (signal) => {
-              const id = sessionId();
-              if (!id)
-                return {
-                  content: [{ type: 'text', text: 'Session is not ready; retry shortly' }],
-                  isError: true,
-                };
-              if (current?.id !== id)
-                current = {
-                  id,
-                  tools: sessionCredentialTools(
+            runGuardedTool(
+              {
+                signal,
+                policy: boundary?.toolGuardPolicy,
+                onSettled: (observation) => {
+                  if (observation.outcome === 'timeout')
+                    session.abortController.abort(new ToolGuardTimeoutError(observation.phase));
+                },
+              },
+              async (signal) => {
+                const id = sessionId();
+                if (!id)
+                  return {
+                    content: [{ type: 'text', text: 'Session is not ready; retry shortly' }],
+                    isError: true,
+                  };
+                if (current?.id !== id)
+                  current = {
                     id,
-                    session,
-                    registry,
-                    prefix,
-                    undefined,
-                    boundary
-                      ? () => boundary.assertCurrent(session.abortController.signal)
-                      : undefined,
-                    boundary
-                      ? () => boundary.assertCurrentSync(session.abortController.signal)
-                      : undefined,
-                    false,
-                    { boundary: boundary?.connectionBoundary },
+                    tools: sessionCredentialTools(
+                      id,
+                      session,
+                      registry,
+                      prefix,
+                      undefined,
+                      boundary
+                        ? () => boundary.assertCurrent(session.abortController.signal)
+                        : undefined,
+                      boundary
+                        ? () => boundary.assertCurrentSync(session.abortController.signal)
+                        : undefined,
+                      false,
+                      { boundary: boundary?.connectionBoundary },
+                    ),
+                  };
+                await boundary?.assertCurrent(signal);
+                const result = await current.tools.execute(definition.name, input, signal, {
+                  turnId: runtimeId,
+                  callId: String(
+                    (extra as { requestId?: unknown } | undefined)?.requestId ?? randomUUID(),
                   ),
+                });
+                await boundary?.assertCurrent(signal);
+                return {
+                  content: [
+                    { type: 'text', text: result?.content ?? 'Connection tool unavailable' },
+                  ],
+                  isError: result?.isError ?? true,
                 };
-              await boundary?.assertCurrent(signal);
-              const result = await current.tools.execute(definition.name, input, signal, {
-                turnId: runtimeId,
-                callId: String(
-                  (extra as { requestId?: unknown } | undefined)?.requestId ?? randomUUID(),
-                ),
-              });
-              await boundary?.assertCurrent(signal);
-              return {
-                content: [{ type: 'text', text: result?.content ?? 'Connection tool unavailable' }],
-                isError: result?.isError ?? true,
-              };
-            }),
+              },
+            ),
           );
         },
       ),

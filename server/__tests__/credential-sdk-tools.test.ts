@@ -158,6 +158,10 @@ it('bounds a stuck SDK tool and prevents its late effect after the deadline', as
     await expect(
       f.call('ConnectionWebSocket', { connectionId: 'ha', message: '{}' }),
     ).rejects.toBeInstanceOf(ToolGuardTimeoutError);
+    expect(
+      await f.call('ConnectionWebSocket', { connectionId: 'ha', message: '{}' }),
+    ).toMatchObject({ isError: true });
+    expect(f.service.websocketRequest).toHaveBeenCalledOnce();
     release();
     await new Promise<void>((resolve) => setImmediate(resolve));
     expect(f.effect).not.toHaveBeenCalled();

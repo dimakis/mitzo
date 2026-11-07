@@ -88,6 +88,21 @@ it('bounds a noncooperative host tool, fences its late callback and retains unkn
   expect(JSON.parse((result.contentItems as { text: string }[])[0].text)).toMatchObject({
     diagnostic: { reason: 'deadline', effectStatus: 'unknown' },
   });
+  await expect(
+    f.callbacks.onRequest(
+      'item/tool/call',
+      {
+        threadId: f.getProviderThread(),
+        turnId: 'turn-1',
+        callId: 'second-call',
+        tool: 'Read',
+        arguments: {},
+      },
+      new AbortController().signal,
+    ),
+  ).rejects.toBeInstanceOf(Error);
+  expect(f.execute).toHaveBeenCalledOnce();
+  expect(f.store.read('app', f.getBinding()).recovery).toBe(1);
   release();
   await new Promise<void>((resolve) => setImmediate(resolve));
   expect(lateError).toBeInstanceOf(Error);
@@ -123,60 +138,83 @@ it('excludes an actual adapter approval phase from its host execution deadline',
   expect(result.success).toBe(true);
 });
 
-it('continues once after an authoritative expired approval without replaying the command', async () => {
-  const f = await setup();
-  let approvalRequests = 0;
-  f.conversationOptions.requestNativeApproval = async (_method, _params, _signal, context) => {
-    approvalRequests++;
-    context.observeFailure?.(toolFailure('approval_expired', 'approval', 'not_started'));
-    return { decision: 'decline' };
-  };
-  await f.c.send({ id: 'expired-source', prompt: 'Original request', intent: 'Original request' });
-  const fail = async (turnId: string, itemId: string) => {
-    f.callbacks.onNotification('item/started', {
-      threadId: f.getProviderThread(),
-      turnId,
-      item: { type: 'commandExecution', id: itemId, command: 'offline-test' },
+it.each([false, true])(
+  'continues once after authoritative approval expiry only when no later native result is pending (pending=%s)',
+  async (pendingNative) => {
+    const f = await setup();
+    let approvalRequests = 0;
+    f.conversationOptions.requestNativeApproval = async (_method, _params, _signal, context) => {
+      approvalRequests++;
+      context.observeFailure?.(toolFailure('approval_expired', 'approval', 'not_started'));
+      return { decision: 'decline' };
+    };
+    await f.c.send({
+      id: 'expired-source',
+      prompt: 'Original request',
+      intent: 'Original request',
     });
-    await f.callbacks.onRequest(
-      'item/commandExecution/requestApproval',
-      {
+    const fail = async (turnId: string, itemId: string) => {
+      f.callbacks.onNotification('item/started', {
         threadId: f.getProviderThread(),
         turnId,
-        itemId,
-        kind: 'command',
-        startedAtMs: Date.now(),
-        environmentId: 'local',
-        cwd: '/workspace',
-        command: 'offline-test',
-      },
-      new AbortController().signal,
-      { requestId: itemId },
+        item: { type: 'commandExecution', id: itemId, command: 'offline-test' },
+      });
+      await f.callbacks.onRequest(
+        'item/commandExecution/requestApproval',
+        {
+          threadId: f.getProviderThread(),
+          turnId,
+          itemId,
+          kind: 'command',
+          startedAtMs: Date.now(),
+          environmentId: 'local',
+          cwd: '/workspace',
+          command: 'offline-test',
+        },
+        new AbortController().signal,
+        { requestId: itemId },
+      );
+      f.callbacks.onNotification('item/completed', {
+        threadId: f.getProviderThread(),
+        turnId,
+        item: { type: 'commandExecution', id: itemId, status: 'declined' },
+      });
+      if (pendingNative)
+        f.callbacks.onNotification('item/started', {
+          threadId: f.getProviderThread(),
+          turnId,
+          item: { type: 'commandExecution', id: 'unfinished', command: 'unknown operation' },
+        });
+      f.callbacks.onNotification('turn/completed', {
+        threadId: f.getProviderThread(),
+        turn: { id: turnId, status: 'completed' },
+      });
+    };
+    await fail('turn-1', 'approval-1');
+    if (pendingNative) {
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      expect(f.rpc.request.mock.calls.filter(([method]) => method === 'turn/start')).toHaveLength(
+        1,
+      );
+      expect(f.c.queue().some((command) => command.toolFailureContinuation)).toBe(false);
+      return;
+    }
+    await vi.waitFor(() =>
+      expect(f.rpc.request.mock.calls.filter(([method]) => method === 'turn/start')).toHaveLength(
+        2,
+      ),
     );
-    f.callbacks.onNotification('item/completed', {
-      threadId: f.getProviderThread(),
-      turnId,
-      item: { type: 'commandExecution', id: itemId, status: 'declined' },
-    });
-    f.callbacks.onNotification('turn/completed', {
-      threadId: f.getProviderThread(),
-      turn: { id: turnId, status: 'completed' },
-    });
-  };
-  await fail('turn-1', 'approval-1');
-  await vi.waitFor(() =>
-    expect(f.rpc.request.mock.calls.filter(([method]) => method === 'turn/start')).toHaveLength(2),
-  );
-  const child = f.c.queue().find((command) => command.toolFailureContinuation)!;
-  expect(child.intent).toBe('Original request');
-  expect(child.prompt).toContain('Do not replay');
-  expect(f.execute).not.toHaveBeenCalled();
-  await fail('turn-2', 'approval-2');
-  await new Promise<void>((resolve) => setImmediate(resolve));
-  expect(f.rpc.request.mock.calls.filter(([method]) => method === 'turn/start')).toHaveLength(2);
-  expect(f.c.queue().filter((command) => command.toolFailureContinuation)).toHaveLength(1);
-  expect(approvalRequests).toBe(1);
-});
+    const child = f.c.queue().find((command) => command.toolFailureContinuation)!;
+    expect(child.intent).toBe('Original request');
+    expect(child.prompt).toContain('Do not replay');
+    expect(f.execute).not.toHaveBeenCalled();
+    await fail('turn-2', 'approval-2');
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    expect(f.rpc.request.mock.calls.filter(([method]) => method === 'turn/start')).toHaveLength(2);
+    expect(f.c.queue().filter((command) => command.toolFailureContinuation)).toHaveLength(1);
+    expect(approvalRequests).toBe(1);
+  },
+);
 
 it.each([false, true])(
   'routes native children through the original executor without completing or steering the parent command (owned=%s)',

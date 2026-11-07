@@ -452,6 +452,7 @@ type ActiveCommand = {
   callbackSettlement?: Promise<void>;
   callbacksSettled?: boolean;
   callbackEffectsUnknown?: boolean;
+  toolGuardRetired?: boolean;
   settledToolCallbacks?: Set<string>;
   command: CodexCommand;
   /** Set before invoking turn/start, including synchronous close/rejection. */
@@ -667,6 +668,7 @@ export class CodexConversation {
           this.closed ||
           !this.ready ||
           (this.paused && !cancelling) ||
+          (this.active?.toolGuardRetired && !cancelling) ||
           generation !== this.transportGeneration ||
           this.client !== client ||
           this.binding?.profileRevision !== binding.profileRevision
@@ -3635,7 +3637,7 @@ export class CodexConversation {
         this.opts.ownerKind !== 'symposium' &&
         !this.opts.adviserScope &&
         (!this.opts.canClaimCommand || this.opts.admitToolFailureContinuation)
-          ? { commandId: this.active.command.id, failure: this.mapper?.getUnexplainedFailure() }
+          ? { commandId: this.active.command.id }
           : undefined;
       this.finishTurnSpan(status, status === 'failed' ? 'provider' : 'none');
       if (['completed', 'interrupted', 'failed'].includes(turn.data.status ?? '')) {
@@ -3715,7 +3717,10 @@ export class CodexConversation {
       if (recoverQueuedFollowUp) this.automaticTransportRecoveryAttempted = true;
       if (providerTransportFailed) this.retireTransportForRecovery();
       this.mapper?.notification(method, params, providerFailure);
-      if (!this.closed && failedToolSource?.failure) {
+      // Terminal projection seals unfinished native items as unknown. Only its
+      // final failure can qualify recovery; an earlier expiry cannot override it.
+      const finalToolFailure = failedToolSource && this.mapper?.getUnexplainedFailure();
+      if (!this.closed && failedToolSource && finalToolFailure) {
         let child: CodexCommandInput | undefined;
         try {
           child = this.opts.store.queueToolFailureContinuation(
@@ -3723,7 +3728,7 @@ export class CodexConversation {
             this.binding!,
             failedToolSource.commandId,
             turn.data.id,
-            failedToolSource.failure,
+            finalToolFailure,
           );
           if (child) {
             const admitted = this.opts.admitToolFailureContinuation?.(child);
@@ -3807,6 +3812,7 @@ export class CodexConversation {
         generation !== this.transportGeneration ||
         this.client !== client ||
         this.active !== active ||
+        active?.toolGuardRetired ||
         active?.abort !== activeAbort ||
         active?.command !== command ||
         command?.id !== commandId ||
@@ -3896,6 +3902,7 @@ export class CodexConversation {
     requestContext?: NativeRequestContext,
     onToolRefusal?: HostToolRefusal,
   ): Promise<ObjectValue> {
+    if (this.active?.toolGuardRetired) throw new CodexTransportError('connection');
     if (
       [
         'item/commandExecution/requestApproval',
@@ -3924,6 +3931,7 @@ export class CodexConversation {
           if (
             this.closed ||
             !active ||
+            active.toolGuardRetired ||
             this.active !== active ||
             generation !== this.transportGeneration ||
             !threadId ||
@@ -4092,6 +4100,7 @@ export class CodexConversation {
         this.paused ||
         !this.ready ||
         this.active !== active ||
+        active.toolGuardRetired ||
         active.interruptRequested ||
         active.completions.has(call.turnId) ||
         this.binding !== callbackBinding ||
@@ -4221,7 +4230,10 @@ export class CodexConversation {
             signal: toolSignal,
             policy: this.opts.toolGuardPolicy,
             onSettled: (observation) => {
-              if (observation.outcome === 'timeout') active.callbackEffectsUnknown = true;
+              if (observation.outcome === 'timeout') {
+                active.callbackEffectsUnknown = true;
+                active.toolGuardRetired = true;
+              }
               log.info('Tool guard settled', {
                 conversationId: this.opts.conversationId,
                 callId: call.callId,
@@ -4254,7 +4266,10 @@ export class CodexConversation {
       )
         retainCallbackOutcome(result, 'settled');
     } catch (error) {
-      if (error instanceof ToolGuardTimeoutError) active.callbackEffectsUnknown = true;
+      if (error instanceof ToolGuardTimeoutError) {
+        active.callbackEffectsUnknown = true;
+        active.toolGuardRetired = true;
+      }
       result = codexToolFailureResult(
         error,
         toolSignal.aborted,
@@ -4416,6 +4431,9 @@ export class CodexConversation {
     } catch {
       /* Observability cannot change an executed result. */
     }
+    // The failure is retained and projected first. Retire this provider owner
+    // before it can issue further effects while the original call is uncertain.
+    if (active.toolGuardRetired) this.close();
     return retainCallbackOutcome(
       {
         success: !result.isError,
