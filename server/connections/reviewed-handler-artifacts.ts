@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.925-approval-modes-reusable-access';
+  'v1.0.926-approval-modes-reusable-access';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -3405,7 +3405,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../.github/workflows/ci-recovery.yml':
     '5d4e9a6560e549d2879ef776c2b4d321d420c25b22ec3a7741390e5bf617111a',
   '../../.github/workflows/ci.yml':
-    'fa0929a3da840e30af0e0f96833da19d544fc8d7acae2dcef31be083f1374612',
+    '49c15b0acaf7c728a2fea112b03ca696c919871022d2176b6bfa7388f1791030',
   '../../playwright.config.ts': '6c61752a4a2e9cab19d8217b46080c5898bc79c5a0fde1f2b703a254d278daa0',
   '../../playwright.offline.config.ts':
     'fb694df154a2cb402c7f46b417efb357b6d19a72210d269ad0b1580798392adc',
