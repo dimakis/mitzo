@@ -15,6 +15,7 @@ import { UiIcon } from './UiIcon';
 import { AccountModelPicker } from './AccountModelPicker';
 import { ChatAgentProfilePicker } from './ChatAgentProfilePicker';
 import './ConversationAgents.css';
+import { ConversationRepositoryPicker } from './ConversationRepositoryPicker';
 
 export interface ConversationAgent {
   id: string;
@@ -413,6 +414,12 @@ function ConversationAgentsBody({
                   <span>Repository</span>
                   <strong>{repository || 'Not selected'}</strong>
                 </div>
+                {joiningOwner?.kind === 'application' && (
+                  <ConversationRepositoryPicker
+                    setup={setup}
+                    onChange={(values) => setSetup((s) => ({ ...s, ...values }))}
+                  />
+                )}
                 <h3>Starting context</h3>
                 <label className="conversation-agent-field">
                   Context

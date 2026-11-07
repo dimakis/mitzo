@@ -42,6 +42,14 @@ export const ChatDraftSchema = z.object({
   ),
   contextBlocks: z.array(z.string()),
   updatedAt: z.number(),
+  // Receipt metadata must not change the editable composer's acceptance proof.
+  collaborationSend: z
+    .object({
+      collaborationId: SessionCollaborationIdSchema,
+      authScope: z.string().min(1),
+      input: CollaborationMessageInputSchema,
+    })
+    .optional(),
   settings: z.object({
     // Draft routing intent only; this never grants read or execution authority.
     collaborationResponders: z

@@ -2,6 +2,69 @@
 
 Living map owner: workstream C, `01a14bdc-d152-7912-84d4-c0012e9d5206`.
 
+## 7 November 2026 shared composer implementation checkpoint
+
+Candidate `feat/symposium-shared-composer`, baseline accepted main
+`44e872c8a615e30bd75ac9738101dfbfaa1d6aa7`, follows merged #1237 and #1252.
+This is implementation self-verification for child `c3ac6bfcc3b29e20`, not
+independent acceptance or installed-runtime qualification. Earlier entries keep
+their original verification dates.
+
+The production responsive host supplies the existing verified auth and transport
+identity to the ordinary collaboration owner. Agents uses the existing review
+and repository preparation surfaces. One explicit selected responder is enabled
+only after read-only server readiness. Compact linked names survive projection
+without treating a linked participant as a pending join. A retained request fence
+survives text clearing and remount; observational recovery cannot initiate work.
+
+`server/__tests__/collaboration-application-ui.test.tsx` runs the real authenticated
+HTTP/application/Git/SQLite/ordinary dispatch and reply owners, using the existing
+review/join/restart prerequisites. The production composer submits exactly one
+turn containing the edited brief and selected source, excluding hidden content.
+The finalized reply is attributed to the joined participant and survives remount
+without duplication. External source/account/runtime declarations and native RPC
+are synthetic; DOM scrolling is a JSDOM seam. This test starts after the API join:
+the combined fresh-agent UI review/refreeze/join acceptance journey remains open.
+
+The final application/recovery run passes 17 tests across three files with one
+worker and a 1 GiB Node heap. Admission can precede the first durable transcript
+record; reconciliation now waits for that record instead of rejecting a valid
+queued command as a changed snapshot. Its focused regression preserves errors for
+unrelated inconsistent histories. Earlier local runs failed the ordinary disk
+admission guard when space dropped below its required margin; after the operator
+freed space, the unchanged guard and positive assertions pass. No resource guard
+was bypassed. The interrupted cleanup/test command had no completion receipt and
+is not counted as successful verification.
+
+The messaging-owner omission control fails the unchanged positive composer
+assertion while its three API prerequisites pass. Exact app source was restored.
+A reply-owner omission attempt coincided with the disk refusal and is inconclusive;
+it is not evidence for that owner. Hook tests cover server refusal and exact-request
+recovery across remount without resending changed text. Draft tests cover acceptance
+without deleting shared recipient/recovery state.
+
+The focused regression command passes another 333 tests across 20 files, with one
+skip: the affected composer/joining/presentation/draft components and hooks,
+protocol/client projection, ordinary dispatcher/router and existing design
+contracts. Protocol/harness/client TypeScript builds, targeted semantic diagnostics
+for changed frontend/server sources, ESLint and registered source fingerprint
+checks pass. Attempting whole-graph frontend diagnostics exceeded the mandated
+1 GiB heap; full builds remain for CI. The final UI application rerun passes all
+four prerequisites/composer cases after cleanup of its temporary scrolling seam.
+
+`tests/offline/symposium-composer.spec.ts` adds six cases across existing desktop,
+mobile and narrow-mobile projects in both themes. It uses production UI with
+intercepted HTTP, no backend/model, and retains screenshot artifacts in CI. Test
+discovery passes. Local execution stopped at the repository's sandbox guard before
+browser launch, including through the approved escalation route. No browser result
+or rendered comparison is claimed; CI or a permitted normal host must supply it.
+The approved ledger, reference images and protected design checks are unchanged.
+
+Outstanding acceptance includes the combined fresh-agent UI journey, rendered
+comparison, exact-head CI/Centaur review, broad build checks and runtime/device
+qualification. The child, milestone and parent remain active. No staging,
+deployment or live inference is authorized by this checkpoint.
+
 ## 7 November 2026 directed prompt/reply implementation checkpoint
 
 Implementation evidence on `feat/symposium-directed-replies`, based on accepted

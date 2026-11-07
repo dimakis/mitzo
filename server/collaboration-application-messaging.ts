@@ -31,6 +31,83 @@ export class ApplicationCollaborationMessaging {
     if (!isAuthSessionCurrent(auth)) throw new CollaborationContractError('execution_unavailable');
   }
 
+  async recipientReadiness(
+    auth: AuthSession,
+    group: string,
+    sessionId: string,
+    signal: AbortSignal,
+  ) {
+    this.current(auth, signal);
+    const view = this.store.collaborationConversation.view(group);
+    const result = (reason: string | null) => ({
+      collaborationId: group,
+      sessionId,
+      membershipRevision: view.membershipRevision,
+      policySequence: view.policySequence,
+      ready: reason === null,
+      reason,
+    });
+    try {
+      if (
+        !view.participantSessionIds.includes(sessionId) ||
+        view.unavailableParticipantSessionIds.includes(sessionId)
+      )
+        return result(
+          'This participant is unavailable. Refresh Agents and choose a current participant.',
+        );
+      if (view.hasEarlierMessages)
+        return result('Choose narrower context before sending this discussion.');
+      if (!this.port.inspectCollaboration) return result('Ordinary group delivery is unavailable.');
+      const settings = this.store.getOrdinaryConversationSettings(sessionId);
+      if (
+        !settings ||
+        settings.binding.harness.implementation !== 'codex' ||
+        settings.binding.execution.location !== 'local'
+      )
+        return result('Choose a repository-backed Local Codex participant.');
+      const context = await this.joiningContext(auth, group, sessionId, settings, signal);
+      for (const reader of view.policies.filter(
+        (p) => p.readsFutureDiscussion && p.sessionId !== sessionId,
+      )) {
+        const readerSettings = this.store.getOrdinaryConversationSettings(reader.sessionId);
+        if (
+          !readerSettings ||
+          readerSettings.binding.harness.implementation !== 'codex' ||
+          readerSettings.binding.execution.location !== 'local' ||
+          view.unavailableParticipantSessionIds.includes(reader.sessionId)
+        )
+          return result(
+            'Review discussion sharing in Agents. A context reader is unavailable on this route.',
+          );
+      }
+      const preparation = this.store.getOrdinarySessionPreparationForConversation(sessionId);
+      await this.port.inspectCollaboration({
+        auth,
+        sessionId,
+        settings,
+        commandId: 'readiness-only',
+        text: '',
+        ...(preparation?.firstCommandId === null
+          ? { preparationOperationId: preparation.allocationOperationId }
+          : {}),
+      });
+      context.assertCurrent();
+      const current = this.store.collaborationConversation.view(group);
+      if (
+        current.membershipRevision !== view.membershipRevision ||
+        current.policySequence !== view.policySequence ||
+        !isDeepStrictEqual(this.store.getOrdinaryConversationSettings(sessionId), settings)
+      )
+        return result('The participant changed. Refresh before sending.');
+      return result(null);
+    } catch {
+      this.current(auth, signal);
+      return result(
+        'The participant needs attention. Refresh Agents and review its account, context and ordinary session.',
+      );
+    }
+  }
+
   private async joiningContext(
     auth: AuthSession,
     group: string,
@@ -402,6 +479,10 @@ export class ApplicationCollaborationMessaging {
           command?.sessionId === delivery.sessionId &&
           this.store.readOrdinaryCommandExecutionEvidence(delivery.commandId);
         if (!execution || execution.state === 'reserved') continue;
+        // Admission can precede the first persisted user/assistant event.
+        // An empty stream has no finalized reply to inspect yet.
+        if (this.store.getSessionPredecessorSeq(delivery.sessionId, Number.MAX_SAFE_INTEGER) === 0)
+          continue;
         let transcript: ReturnType<EventStore['getDurableSessionTranscript']>;
         try {
           transcript = this.store.getDurableSessionTranscript(delivery.sessionId);

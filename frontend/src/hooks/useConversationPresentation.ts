@@ -165,7 +165,7 @@ export function useConversationPresentation(options: ConversationPresentationOpt
       pending.current = null;
   }, []);
   const read = useCallback(
-    async (events: boolean): Promise<{ error: string } | undefined> => {
+    async (events: boolean): Promise<{ error?: string; view?: CollaborationView } | undefined> => {
       if (!valid()) {
         clearPrivate();
         return;
@@ -217,6 +217,7 @@ export function useConversationPresentation(options: ConversationPresentationOpt
         });
         readDraft();
         if (error) return { error };
+        return { view: projection.view };
       } catch (cause) {
         if (fresh()) {
           const error = message(cause);
@@ -228,7 +229,7 @@ export function useConversationPresentation(options: ConversationPresentationOpt
     [valid, clearPrivate, owner, api, collaborationId, publish, reconcile, readDraft],
   );
   const refresh = useCallback(async () => {
-    await read(false);
+    return (await read(false))?.view;
   }, [read]);
   const refreshEvents = useCallback(async () => {
     await read(true);
