@@ -21,6 +21,19 @@ const input = {
 };
 
 describe('native Mac execution permission profile', () => {
+  it('allows Auto networking at both native boundaries while Agent requires approval', () => {
+    const agent = codexNativeExecutionPolicy(input);
+    const auto = codexNativeExecutionPolicy({ ...input, mode: 'auto' });
+    const profiles = codexNativePermissionProfiles(auto).permissions;
+    expect(auto.networkAccess).toBe('enabled');
+    expect(agent.networkAccess).toBe('restricted');
+    expect(auto.permissions).toBe('mitzo-native-auto');
+    expect(profiles['mitzo-native-auto'].filesystem).toEqual(profiles['mitzo-native-agent'].filesystem);
+    expect(profiles['mitzo-native-agent'].network.enabled).toBe(false);
+    expect(() => assertNativeExecutionRefresh(agent, auto)).not.toThrow();
+    expect(codexThreadOptions({ model: 'offline', modelProvider: 'openai', cwd: '/ignored', runtimeConfig: {}, webSearch: 'disabled', systemPrompt: '', nativeExecution: auto })).toMatchObject({ permissions: 'mitzo-native-auto', approvalsReviewer: 'user', approvalPolicy: 'on-request' });
+    expect(codexTurnStartParams({ threadId: 't', commandId: 'c', model: 'offline', prompt: 'run', additionalContext: {}, nativeExecution: agent })).toMatchObject({ permissions: 'mitzo-native-agent', approvalsReviewer: 'user', approvalPolicy: 'on-request' });
+  });
   it('permits ordinary scratch writes only in the agent profile while retaining credential denials', () => {
     const profiles = codexNativePermissionProfiles(codexNativeExecutionPolicy(input)).permissions;
     for (const root of [':tmpdir', ':slash_tmp']) {
@@ -191,6 +204,18 @@ describe('native Mac execution permission profile', () => {
             '/private/provider-auth{,/**}': 'deny',
           },
           network: { enabled: false },
+        },
+        'mitzo-native-auto': {
+          filesystem: {
+            '/': 'read',
+            ':workspace_roots': { '.': 'write', '.git': 'write' },
+            ':tmpdir': 'write',
+            ':slash_tmp': 'write',
+            '/operator/runtime': 'read',
+            '/private/provider-auth': 'deny',
+            '/private/provider-auth{,/**}': 'deny',
+          },
+          network: { enabled: true },
         },
       },
     });
