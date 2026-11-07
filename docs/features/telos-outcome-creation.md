@@ -94,6 +94,9 @@ still require the original live native authority for any new creation, artifact
 or source mutation. A regression loses the acknowledgement after source completion,
 retires the native call, restarts the owners, and recovers the same item without
 additional canonical calls, source captures, artifacts or allocations.
+When the original invocation is still current, reconciliation also releases its
+waiting agent with the existing approval receipt. It does not require another
+save click or dismissal to acknowledge an already completed creation.
 
 Dismissal returns a structured `telos_save_recovery_dismissed` result, including
 the retained canonical item identity when known, the source save status, and an

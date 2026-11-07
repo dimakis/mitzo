@@ -252,6 +252,27 @@ it('reconciles a completed creation after its acknowledgement was lost and the n
   ).rejects.toThrow(/another operator/);
 });
 
+it('releases the original live invocation when review recovers its completed creation', async () => {
+  const a = await selected('create');
+  const create = a.service.capture.createReviewed.bind(a.service.capture);
+  vi.spyOn(a.service.capture, 'createReviewed').mockImplementationOnce(async (...args) => {
+    await create(...args);
+    throw Error('Lost acknowledgement after durable source completion');
+  });
+  await expect(a.service.approve(a.permId, a.input, a.f.actor)).rejects.toThrow(/uncertain/);
+  const counts = a.f.retainedOwnerCounts();
+  const review = await a.service.review(a.permId, 'planning', a.f.actor);
+  expect(review.recovery?.receipt?.receipt.work.itemId).toBe('created-1');
+  expect(getPendingTelosSourceReview(a.permId, 'planning')).toBeUndefined();
+  expect(await a.result).toMatchObject({
+    behavior: 'allow',
+    updatedInput: {
+      __mitzoTelosApproval: a.store.lookup(a.permId, 'planning', 'operator:' + a.f.actor.id)!.id,
+    },
+  });
+  expect(a.f.retainedOwnerCounts()).toEqual(counts);
+});
+
 it.each(['create', 'adopt'] as const)(
   'retains native refusal provenance across prepared %s restart recovery',
   async (kind) => {

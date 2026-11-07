@@ -212,7 +212,10 @@ export class TelosSourceApproval {
       { ...this.captureInput(record), outcome: record.operation.outcome },
       actor,
     );
-    if (receipt) this.complete(record, receipt);
+    if (receipt) {
+      this.complete(record, receipt);
+      this.resume(record);
+    }
   }
   private operation(
     proof: ReturnType<TelosSourceApproval['pending']>,
