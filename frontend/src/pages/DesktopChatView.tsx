@@ -1037,7 +1037,7 @@ function DesktopChatViewContent() {
       return;
     }
     if (localBound) {
-      if (!supportsSteering || images?.length || ctxBlocks?.length || repositoryHandoff.present) {
+      if (!supportsSteering || ctxBlocks?.length || repositoryHandoff.present) {
         onDelivery?.('failed');
         return;
       }
@@ -1049,6 +1049,7 @@ function DesktopChatViewContent() {
         queuedCommandId,
         retainedSteeringTarget,
         onDefinitiveRefusal,
+        images?.map(({ data, mediaType }) => ({ data, mediaType })),
       );
       return;
     }

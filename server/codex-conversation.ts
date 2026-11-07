@@ -4453,7 +4453,13 @@ export class CodexConversation {
       const ack = await client.request('turn/steer', {
         threadId: target.threadId,
         expectedTurnId: target.turnId,
-        input: [{ type: 'text', text }],
+        input: [
+          { type: 'text', text },
+          ...(input.images ?? []).map((image) => ({
+            type: 'image',
+            url: `data:${image.mediaType};base64,${image.data}`,
+          })),
+        ],
       });
       if (z.object({ turnId: z.literal(target.turnId) }).safeParse(ack).success)
         status = 'accepted';

@@ -44,10 +44,19 @@ it('passes exact correction identity and middleware authorization to its origina
   expect(res.body).toEqual({ requestId: 'correction', status: 'accepted' });
   expect(f.steer).toHaveBeenCalledExactlyOnceWith('chat', binding, input, f.auth);
 });
+it('passes validated screenshot bytes with the exact correction identity', async () => {
+  const f = fixture();
+  const body = { ...input, images: [{ data: 'aGk=', mediaType: 'image/png' }] };
+  await request(f.app).post('/sessions/chat/codex-queue/steer').send(body).expect(200);
+  expect(f.steer).toHaveBeenCalledExactlyOnceWith('chat', binding, body, f.auth);
+});
 it.each([
   { ...input, model: 'changed' },
   { ...input, authorization: { id: 'forged' } },
   { ...input, text: ' ' },
+  { ...input, images: [{ data: 'bad!', mediaType: 'image/png' }] },
+  { ...input, images: [{ data: 'aGk=', mediaType: 'image/svg+xml' }] },
+  { ...input, images: [{ data: 'aGk=', mediaType: 'image/png', path: '/private/image' }] },
 ])('rejects correction overrides before calling the provider', async (body) => {
   const f = fixture();
   await request(f.app).post('/sessions/chat/codex-queue/steer').send(body).expect(400);

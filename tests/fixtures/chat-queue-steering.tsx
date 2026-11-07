@@ -150,7 +150,7 @@ function Fixture() {
           }}
           onInterrupt={(
             text,
-            _images,
+            images,
             _context,
             receipt,
             replyTo,
@@ -165,6 +165,7 @@ function Fixture() {
               queuedCommandId,
               retainedTarget,
               onDefinitiveRefusal,
+              images?.map(({ data, mediaType }) => ({ data, mediaType })),
             )
           }
           onStop={() => {
