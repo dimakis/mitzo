@@ -41,6 +41,21 @@ function fixture() {
 }
 
 describe('native execution receipts in the existing command owner', () => {
+  it('retains the distinct Auto network profile in a native execution receipt', () => {
+    const f = fixture();
+    const auto = codexNativeExecutionPolicy({
+      bindingRevision: policy.bindingRevision,
+      mode: 'auto',
+      cwd: policy.cwd,
+      readableRoots: policy.readableRoots,
+      writableRoots: policy.workspaceRoots,
+      deniedRoots: policy.deniedRoots,
+      writeProtectedRoots: policy.writeProtectedRoots,
+    });
+    f.store.prepareNativeExecution('conversation', binding, f.command, 'thread', auto);
+    expect(f.store.readNativeExecution('conversation', binding, f.command)!.policy).toEqual(auto);
+    expect(auto).toMatchObject({ permissions: 'mitzo-native-auto', networkAccess: 'enabled' });
+  });
   it('preserves historical receipts without falsely attesting new temporary-directory access', () => {
     const f = fixture();
     const scratch = codexNativeExecutionPolicy({
@@ -54,6 +69,7 @@ describe('native execution receipts in the existing command owner', () => {
     });
     const legacy = { ...scratch };
     delete legacy.temporaryAccess;
+    delete legacy.profileVersion;
     const digest = (value: unknown) =>
       createHash('sha256').update(JSON.stringify(value)).digest('hex');
     legacy.profileRevision = digest([
