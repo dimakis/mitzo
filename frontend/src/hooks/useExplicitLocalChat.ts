@@ -117,9 +117,18 @@ export function useExplicitLocalChat(
       )
     )
       return;
+    const agentProfile = chatAgentProfileFromSearch(search);
+    // Saving the implicit selection into a draft URL is a projection of the
+    // reviewed intent. Only a different profile invalidates that review.
+    if (
+      agentProfile?.profileId === intent.agentProfile?.profileId &&
+      agentProfile?.revision === intent.agentProfile?.revision &&
+      agentProfile?.kind === intent.agentProfile?.kind
+    )
+      return;
     const next = {
       ...intent,
-      agentProfile: chatAgentProfileFromSearch(search),
+      agentProfile,
       capabilityRevision: null,
     };
     setChoice({ draftId, intent: next });

@@ -438,6 +438,38 @@ it('retains saved Local target, profile and stale choices on disabled or failed 
   expect(result.current.visible).toBe(true);
   expect(result.current.reason).toBeDefined();
 });
+it.each(['local', 'openshell'] as const)(
+  'retains capability review when saving the unchanged implicit agent into the draft URL: %s',
+  async (location) => {
+    const data = localInventoryFixture();
+    vi.mocked(apiFetch).mockImplementation(async () => Response.json(data));
+    setDefaultAccountModel({
+      accountId: 'personal',
+      model: 'luna-fixture',
+      reasoningEffort: 'high',
+    });
+    const { result, rerender } = renderHook(
+      ({ search }) => useExplicitLocalChat('profile-url', undefined, null, true, search),
+      { initialProps: { search: '' } },
+    );
+    await waitFor(() => expect(result.current.inventory).not.toBeNull());
+    act(() =>
+      result.current.update({ ...result.current.intent, execution: { location, targetId: null } }),
+    );
+    const reviewed = result.current.intent;
+    expect(reviewed.capabilityRevision).toBe(data.capabilityRevision);
+    rerender({
+      search: new URLSearchParams({
+        agentProfile: DEFAULT_MITZO_PROFILE_ID,
+        profileRevision: String(DEFAULT_MITZO_PROFILE_REVISION),
+        agentProfileKind: 'builtin',
+        draft: 'profile-url',
+      }).toString(),
+    });
+    expect(result.current.intent).toEqual(reviewed);
+  },
+);
+
 it('does not acknowledge capability drift on refresh until explicit review', async () => {
   const data = localInventoryFixture();
   vi.mocked(apiFetch).mockImplementation(async () => new Response(JSON.stringify(data)));
