@@ -42,6 +42,8 @@ const GrantSchema = TaskExecutionScopeSchema.extend({
 export type TaskExecutionGrant = z.infer<typeof GrantSchema>;
 const RunResult = z.strictObject({ content: z.string().max(131072), isError: z.boolean() });
 const hash = (value: unknown) => createHash('sha256').update(JSON.stringify(value)).digest('hex');
+/** An identical retry must retain the original command's unknown outcome. */
+export class UnsettledTaskExecutionError extends Error {}
 
 /** Consent is durable; it never makes an interrupted command safe to repeat.
  * The host must independently prove operator, runtime, mode and workspace
@@ -215,7 +217,7 @@ export class TaskExecutionStore {
         if (previous) {
           if (previous.fingerprint !== fingerprint) throw Error('Task execution request changed');
           if (previous.result === null)
-            throw Error(
+            throw new UnsettledTaskExecutionError(
               'Task execution outcome is uncertain; inspect the existing work before starting another run',
             );
           return {

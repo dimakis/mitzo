@@ -7,13 +7,17 @@ import { readBuiltinAgentLibraryProfile } from './builtin-agent-library-profile.
 export { readBuiltinAgentLibraryProfile } from './builtin-agent-library-profile.js';
 
 const operators = new Map<string, AuthSession>();
+/** Lets shared consumers report their own operation instead of profile selection. */
+export class OperatorAuthorizationError extends Error {}
 export function captureAgentLibraryAuthorization(
   connectionId?: string,
   options?: { lifetime: 'operation' },
 ) {
   const auth = connectionId ? operators.get(connectionId) : undefined;
   if (!auth || auth.expiresAt <= Date.now())
-    throw Error('Interactive operator authentication is required to select an agent profile');
+    throw new OperatorAuthorizationError(
+      'Interactive operator authentication is required to select an agent profile',
+    );
   return {
     auth,
     assertCurrent() {
@@ -25,7 +29,7 @@ export function captureAgentLibraryAuthorization(
           ? !isAuthSessionCurrent(auth)
           : operators.get(connectionId!) !== auth)
       )
-        throw Error('Agent profile authorization expired or revoked');
+        throw new OperatorAuthorizationError('Agent profile authorization expired or revoked');
     },
   };
 }
@@ -33,14 +37,17 @@ export function captureAgentLibraryAuthorization(
 export function captureAgentLibraryOperation(connectionId: string) {
   const authorization = captureAgentLibraryAuthorization(connectionId);
   const controller = new AbortController();
-  const dispose = registerAuthSession(authorization.auth, () => controller.abort());
+  const dispose = registerAuthSession(authorization.auth, () =>
+    controller.abort(new OperatorAuthorizationError('Operator authorization expired or revoked')),
+  );
   return {
     signal: controller.signal,
     dispose,
     assertCurrent() {
       controller.signal.throwIfAborted();
       authorization.assertCurrent();
-      if (!isAuthSessionCurrent(authorization.auth)) throw Error('Operator authorization revoked');
+      if (!isAuthSessionCurrent(authorization.auth))
+        throw new OperatorAuthorizationError('Operator authorization revoked');
     },
   };
 }
