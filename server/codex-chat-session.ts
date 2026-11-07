@@ -1957,6 +1957,7 @@ async function openCodexChatBound(
       })
     : undefined;
   const googleReadOutputScope = createHash('sha256').update(randomUUID()).digest('hex');
+  const googleRetainedConsent = new Map<string, () => void>();
   const localServiceTools = options.ownedLocal
     ? sessionLocalServiceTools({
         sessionId: options.conversationId,
@@ -3301,20 +3302,28 @@ async function openCodexChatBound(
       if (name === 'GoogleWorkspaceRead' && googleWorkspaceTools) {
         callContext.assertCurrentSync?.();
         assertAgentToolSelected(options.session, name);
-        const result = await googleWorkspaceTools.execute(input, signal);
+        let consentCurrent = () => {};
+        const result = await googleWorkspaceTools.execute(input, signal, (current) => {
+          consentCurrent = current;
+          callContext.registerResponseFence?.(current);
+        });
         callContext.assertCurrentSync?.();
         if (result.isError) return result;
         return {
           ...result,
-          content: projectToolOutput(result.content, (full) =>
-            privateStorage.retainToolOutput(
+          content: projectToolOutput(result.content, (full) => {
+            const retained = privateStorage.retainToolOutput(
               options.conversationId,
               options.binding,
               name,
               full,
               googleReadOutputScope,
-            ),
-          ),
+            );
+            googleRetainedConsent.set(retained, consentCurrent);
+            while (googleRetainedConsent.size > 8)
+              googleRetainedConsent.delete(googleRetainedConsent.keys().next().value!);
+            return retained;
+          }),
         };
       }
       if (options.adviserScope) throw new CodexToolFailure('permission_denied');
@@ -3409,6 +3418,10 @@ async function openCodexChatBound(
           if (!googleWorkspaceTools || output.sourceScope !== googleReadOutputScope)
             throw new CodexToolFailure('stale_owner');
           await googleWorkspaceTools.assertCurrent();
+          const consent = googleRetainedConsent.get(request.data.outputId);
+          if (!consent) throw new CodexToolFailure('stale_owner');
+          consent();
+          callContext.registerResponseFence?.(consent);
         } else if (output.toolName === 'GitHubRead') {
           assertHostCurrentSync();
           const original = githubRetainedReads.get(request.data.outputId);
