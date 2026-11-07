@@ -65,6 +65,35 @@ deployed feature behavior.
 
 ## Runtime and delivery
 
+### Observable inspection failures (7 November 2026)
+
+The owning transport now records an observed child's identity and emits its
+transcript activity marker before inspecting, subscribing to or hydrating the
+child. Observation alone grants no native metadata, transcript, host-tool or
+control authority. Native parentage/session/workspace/provider/model checks and
+the original command-attempt/generation fences still precede executable admission.
+
+Inspection failures retain the row, safe stage and correlation reference, with
+controls disabled and execution status left uncertain. Diagnostics use the existing
+structured logger; native error payloads and private reasoning are excluded. Later
+native events cannot repeatedly retry a failed admission. A recreated owner can
+revalidate the saved observation. Verified public output survives later failures.
+Event-projection and diagnostic-retention failures use the same reporting boundary
+and preserve the primary failure reference.
+
+This corrects the silent-error mechanism identified in the
+[6 November incident handoff](../diagnostics/native-subagent-visibility-handoff-2026-11-06.md).
+The historical failing RPC remains unknown: its cause was discarded, and no
+retained diagnostic establishes which step failed. Offline owner, conversation,
+authenticated-feed/real-renderer and negative-permission regressions verify the
+new failure delivery. They do not establish a live upstream reproduction. The new
+offline browser fixture covers phone/desktop failure states alongside the original
+protected design fixture; local browser execution is blocked by the Seatbelt guard,
+so rendered screenshots and combined-source validation remain CI evidence to collect.
+No live model, production or staging runtime was invoked.
+
+### Executable child admission
+
 `CodexSubagents` admits children only after reading native parentage, session,
 workspace, provider and model metadata through the original app-server owner.
 Early child events are buffered during admission. Child turns have independent

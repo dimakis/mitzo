@@ -740,7 +740,7 @@ export class CodexConversation {
         });
         this.mapper.toolResult(
           toolId,
-          'Native subagent admitted. Open it to inspect output or give direction.',
+          'Native subagent activity observed. Open it to check inspection status and available output.',
           false,
         );
       },
