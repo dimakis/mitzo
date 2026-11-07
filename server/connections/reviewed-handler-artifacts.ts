@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.946-reusable-repository-source-progress-consent';
+  'v1.0.947-reusable-access-inventory-evidence';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -132,7 +132,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/styles/session-access.css':
     '850105edc08ae35e436f1ad88f6c93d2a75ba5093bd28d32d271790e7c8d17ed',
   '../../tests/offline/session-access.spec.ts':
-    '9d5b65feae8ee28eb19e791042f4300674cdb021a0ad54e3dca90b39ca5b0144',
+    '824fb9316457e4f9696d86eedba5e12db9e75ef6e5adbe8ffe35ed98ff4858f8',
   '../../packages/protocol/src/runtime-failure.ts':
     '6ed8ddc55fd19ae3a4bd21477572c65432dd6e5778a42698b0096c0be6c73339',
   '../../scripts/__tests__/reauthorize-host-codex-login.test.ts':
@@ -2929,7 +2929,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/worktree-fetch-observation.test.ts':
     'e943335de38d924ad7ec1f9334f235bbddb0649914ed1604a27176869a9d8094',
   '../../tests/fixtures/agent-tool-catalog.json':
-    '36074b2fbb2d9fe5280380529890f30632d5e708f6cf6236e66643e7ca4c5e12',
+    '1171a34a2ec4a31024e7ec963424352d3a6761405d48390ed4b352792a406521',
   '../../tests/integration/ordinary-local-vertex-chat.test.ts':
     '52cdc3efaf5d5fcdb4ea33691c6bc7743079266d130b6ef55b5fa9725b84764c',
   '../../packages/sqlite-file-owner/package.json':

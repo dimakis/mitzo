@@ -462,7 +462,7 @@ test('Access: selected sessions, expiry, revocation and human-review availabilit
         await dialog.evaluate((element) => element.scrollWidth <= element.clientWidth + 1),
       ).toBe(true);
       await page.screenshot({
-        path: testInfo.outputPath(`reusable-${kind}-${theme}.png`),
+        path: testInfo.outputPath(`reusable-access-${kind}-${theme}.png`),
         animations: 'disabled',
       });
       await scopedRevoke.click();
