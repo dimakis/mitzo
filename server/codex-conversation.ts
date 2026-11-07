@@ -731,8 +731,8 @@ export class CodexConversation {
       requestUserInput: this.opts.requestUserInput,
       validateModel: this.opts.validateModel,
       onChild: (child) => {
-        if (!this.mapper || this.subagentAnchors.has(child.commandId)) return;
-        this.subagentAnchors.add(child.commandId);
+        if (!this.mapper) return false;
+        if (this.subagentAnchors.has(child.commandId)) return true;
         const toolId = this.mapper.toolStart(child.threadId, 'Agent', {
           description: 'Subagents',
           subagent_type: 'Codex',
@@ -743,6 +743,8 @@ export class CodexConversation {
           'Native subagent activity observed. Open it to check inspection status and available output.',
           false,
         );
+        this.subagentAnchors.add(child.commandId);
+        return true;
       },
     });
     return this.subagentOwner;

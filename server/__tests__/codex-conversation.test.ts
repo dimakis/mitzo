@@ -444,6 +444,26 @@ it('emits a durable child activity marker before native inspection can fail', as
   });
   expect(f.c.queue()[0].status).toBe('running');
   expect(f.execute).not.toHaveBeenCalled();
+  const markerCount = () =>
+    f.events.filter(
+      (event) =>
+        event.type === 'assistant' && JSON.stringify(event).includes('nativeSubagentCommandId'),
+    ).length;
+  expect(markerCount()).toBe(1);
+  f.callbacks.onNotification('turn/completed', {
+    threadId: f.getProviderThread(),
+    turn: { id: 'turn-1', status: 'completed' },
+  });
+  await vi.waitFor(() => expect(f.c.queue()[0].status).toBe('completed'));
+  f.c.close();
+  const restored = new CodexConversation({
+    ...f.conversationOptions,
+    storedBinding: f.getBinding(),
+    verifyBinding: async () => f.getBinding(),
+  });
+  cleanup.push(() => restored.close());
+  await restored.initialize();
+  expect(markerCount()).toBe(1);
 });
 
 it('pauses and interrupts the original parent before waiting for slow child cancellation', async () => {

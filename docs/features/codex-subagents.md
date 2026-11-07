@@ -76,8 +76,14 @@ the original command-attempt/generation fences still precede executable admissio
 Inspection failures retain the row, safe stage and correlation reference, with
 controls disabled and execution status left uncertain. Diagnostics use the existing
 structured logger; native error payloads and private reasoning are excluded. Later
-native events cannot repeatedly retry a failed admission. A recreated owner can
-revalidate the saved observation. Verified public output survives later failures.
+native events cannot repeatedly retry a failed admission. An explicit **Retry
+inspection** request rechecks the original operator and owner at every native
+read/subscription boundary; it reloads activity without starting or steering a
+model turn. A recreated owner can also revalidate the saved observation. Verified
+public output survives later failures. Saved activity receipts suppress repeat
+transcript anchors on owner recreation and repair explicitly unanchored new
+observations; legacy records without such receipts are not blindly replayed.
+Emission and receipt persistence are not an atomic cross-store transaction.
 Event-projection and diagnostic-retention failures use the same reporting boundary
 and preserve the primary failure reference.
 

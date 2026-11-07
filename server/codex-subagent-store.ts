@@ -51,6 +51,8 @@ const RetainedChild = NativeSubagentSnapshotSchema.extend({
   threadGeneration: z.number().int().nonnegative().optional(),
   // Observation establishes visibility only. Native identity must still be verified.
   admissionVerified: z.boolean().optional(),
+  /** Missing on legacy rows, whose already emitted activity must not be replayed. */
+  activityAnchored: z.boolean().optional(),
 });
 export type RetainedSubagent = z.infer<typeof RetainedChild>;
 export interface ChildToolIdentity {

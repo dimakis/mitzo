@@ -62,6 +62,19 @@ for (const theme of ['dark', 'light'])
     }, child);
     await page.route('**/*', (route) => {
       const path = new URL(route.request().url()).pathname;
+      if (path.endsWith('/codex-subagents/inspect'))
+        return route.fulfill({
+          json: {
+            agent: {
+              ...child,
+              available: true,
+              state: 'completed',
+              model: 'fixture',
+              revision: 3,
+              inspectionFailure: undefined,
+            },
+          },
+        });
       if (path.startsWith('/api/')) return route.fulfill({ json: [] });
       const file = output.find((entry) =>
         path.endsWith(entry.path.endsWith('.css') ? '.css' : '.js'),
@@ -91,14 +104,14 @@ for (const theme of ['dark', 'light'])
     await expect(dialog.getByText(/inspection failed during activity subscription/)).toBeVisible();
     await expect(dialog.getByRole('button', { name: 'Send to Subagent' })).toBeDisabled();
     await expect(dialog.getByRole('button', { name: 'Stop Subagent' })).toBeDisabled();
-    const refresh = dialog.getByRole('button', { name: 'Refresh activity' });
-    await refresh.click();
-    await expect(dialog).toBeVisible();
     await page.evaluate(() =>
       (window as unknown as { completeFixtureParent(): void }).completeFixtureParent(),
     );
     await expect(dialog).toBeVisible();
     await page.screenshot({ path: info.outputPath(`subagent-inspection-failure-${theme}.png`) });
+    await dialog.getByRole('button', { name: 'Retry inspection' }).click();
+    await expect(dialog.getByText('Result returned')).toBeVisible();
+    await expect(dialog.getByText(/Subagent inspection failed/)).toHaveCount(0);
     for (const button of await dialog.getByRole('button').all()) {
       const bounds = await button.boundingBox();
       if (bounds) expect(bounds.height).toBeGreaterThanOrEqual(44);

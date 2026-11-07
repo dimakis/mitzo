@@ -110,7 +110,7 @@ interface Options {
   ): Promise<ObjectValue>;
   requestUserInput?(params: ObjectValue, signal: AbortSignal): Promise<ObjectValue>;
   validateModel?(model: string): void;
-  onChild(child: NativeSubagentSnapshot): void;
+  onChild(child: NativeSubagentSnapshot): boolean | void;
 }
 interface LiveChild {
   child: RetainedSubagent;
@@ -394,7 +394,13 @@ export class CodexSubagents {
     }
     return true;
   }
-  private admit(threadId: string, parentThreadId: string, root: SubagentRoot, task?: string): void {
+  private admit(
+    threadId: string,
+    parentThreadId: string,
+    root: SubagentRoot,
+    task?: string,
+    authorize: () => void = () => {},
+  ): void {
     if (task) {
       this.assignedTasks.set(threadId, task.slice(0, 8192));
       const live = this.live.get(threadId);
@@ -440,6 +446,7 @@ export class CodexSubagents {
       revision: 1,
       blocks: [],
       admissionVerified: false,
+      activityAnchored: false,
     };
     if (
       observed.rootThreadId !== root.threadId ||
@@ -448,7 +455,14 @@ export class CodexSubagents {
     )
       return;
     this.opts.store.save(this.opts.scope, observed);
-    this.opts.onChild(this.snapshot(observed));
+    if (
+      observed.activityAnchored === false &&
+      this.opts.onChild(this.snapshot(observed)) !== false
+    ) {
+      observed.activityAnchored = true;
+      observed.revision++;
+      this.opts.store.save(this.opts.scope, observed);
+    }
     for (const listener of this.listeners) listener(this.snapshot(observed));
     let stage: NonNullable<NativeSubagentSnapshot['inspectionFailure']>['stage'] = 'inspect_child';
     const failed = (error: unknown) =>
@@ -461,12 +475,30 @@ export class CodexSubagents {
     this.buffered.set(threadId, []);
     const admissionEpoch = this.parentCancellationEpoch;
     const admittedDuringStop = this.parentStopping;
+    const checkAdmission = () => {
+      authorize();
+      const current = this.opts.root();
+      if (
+        this.closed ||
+        !current ||
+        current.threadId !== root.threadId ||
+        current.policy.policyRevision !== root.policy.policyRevision
+      )
+        throw Error('Original child inspection owner changed');
+    };
     // Start after registering the pending identity, before any awaited native I/O.
     const operation = Promise.resolve()
       .then(async () => {
         const checked = Thread.parse(
-          object(await this.opts.request('thread/read', { threadId, includeTurns: false })).thread,
+          object(
+            await this.opts.request(
+              'thread/read',
+              { threadId, includeTurns: false },
+              checkAdmission,
+            ),
+          ).thread,
         );
+        checkAdmission();
         stage = 'validate_identity';
         if (
           checked.id !== threadId ||
@@ -478,8 +510,13 @@ export class CodexSubagents {
           throw new ChildIdentityError('child_identity_mismatch');
         stage = 'inspect_parent';
         const rootMetadata = object(
-          await this.opts.request('thread/read', { threadId: root.threadId, includeTurns: false }),
+          await this.opts.request(
+            'thread/read',
+            { threadId: root.threadId, includeTurns: false },
+            checkAdmission,
+          ),
         );
+        checkAdmission();
         stage = 'validate_identity';
         if (
           object(rootMetadata.thread).id !== root.threadId ||
@@ -553,9 +590,13 @@ export class CodexSubagents {
               excludeTurns: true,
               ...codexNativeExecutionParams(root.policy),
             },
-            () => this.current(live),
+            () => {
+              checkAdmission();
+              this.current(live);
+            },
           ),
         );
+        checkAdmission();
         this.current(live);
         if (
           object(resumed.thread).id !== threadId ||
@@ -566,7 +607,7 @@ export class CodexSubagents {
         // New subscriptions can start after a child has produced output. Hydrate
         // paginated public items only; never replay tool calls from native history.
         stage = 'history';
-        await this.hydrate(live);
+        await this.hydrate(live, checkAdmission);
         this.current(live);
         stage = 'events';
         if (this.assignedTasks.has(threadId)) child.task = this.assignedTasks.get(threadId)!;
@@ -597,15 +638,41 @@ export class CodexSubagents {
         this.admit(child.threadId, child.parentThreadId, root);
     await this.settled();
   }
-  private async hydrate(live: LiveChild): Promise<void> {
+  /** Explicit operator inspection can retry observation, never start or steer a turn. */
+  async inspect(
+    threadId: string,
+    authorize: () => void,
+  ): Promise<NativeSubagentSnapshot | undefined> {
+    authorize();
+    const child = this.retained(threadId),
+      root = this.opts.root();
+    if (!child || !root || this.closed || this.parentStopping) return undefined;
+    if (!this.pending.has(threadId) && (!this.live.has(threadId) || child.inspectionFailure)) {
+      this.failedAdmissions.delete(threadId);
+      this.admit(threadId, child.parentThreadId, root, undefined, authorize);
+    }
+    await this.pending.get(threadId);
+    authorize();
+    const current = this.retained(threadId);
+    return current ? this.snapshot(current) : undefined;
+  }
+  private async hydrate(live: LiveChild, authorize: () => void = () => {}): Promise<void> {
     const page = object(
-      await this.opts.request('thread/turns/list', {
-        threadId: live.child.threadId,
-        limit: 32,
-        sortDirection: 'desc',
-        itemsView: 'notLoaded',
-      }),
+      await this.opts.request(
+        'thread/turns/list',
+        {
+          threadId: live.child.threadId,
+          limit: 32,
+          sortDirection: 'desc',
+          itemsView: 'notLoaded',
+        },
+        () => {
+          authorize();
+          this.current(live);
+        },
+      ),
     );
+    authorize();
     this.current(live);
     if (!Array.isArray(page.data)) throw Error('Child turn history unavailable');
     // Retained older public blocks remain intact. Hydrate the latest bounded
@@ -617,14 +684,22 @@ export class CodexSubagents {
     let cursor: string | undefined;
     for (;;) {
       const items = object(
-        await this.opts.request('thread/items/list', {
-          threadId: live.child.threadId,
-          turnId: turn.id,
-          limit: 64,
-          sortDirection: 'asc',
-          ...(cursor ? { cursor } : {}),
-        }),
+        await this.opts.request(
+          'thread/items/list',
+          {
+            threadId: live.child.threadId,
+            turnId: turn.id,
+            limit: 64,
+            sortDirection: 'asc',
+            ...(cursor ? { cursor } : {}),
+          },
+          () => {
+            authorize();
+            this.current(live);
+          },
+        ),
       );
+      authorize();
       this.current(live);
       if (!Array.isArray(items.data)) throw Error('Child items unavailable');
       for (const raw of items.data) {

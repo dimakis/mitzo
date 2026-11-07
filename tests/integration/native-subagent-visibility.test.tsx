@@ -1,13 +1,16 @@
 // @vitest-environment node-compatible-dom
 import Database from 'better-sqlite3';
 import React from 'react';
+import express from 'express';
+import request from 'supertest';
 import { afterEach, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, within, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { CodexSubagents } from '../../server/codex-subagents.js';
 import { CodexSubagentStore } from '../../server/codex-subagent-store.js';
 import { codexNativeExecutionPolicy } from '../../server/codex-native-execution-policy.js';
 import { ToolPill } from '../../frontend/src/components/ToolPill';
+import { createCodexSubagentRouter } from '../../server/codex-subagent-routes.js';
 
 vi.mock('../../server/logger.js', () => ({ createLogger: () => ({ warn: vi.fn() }) }));
 afterEach(() => {
@@ -38,6 +41,7 @@ it.each(['thread/read', 'thread/resume', 'thread/turns/list'])(
     };
     const onChild = vi.fn();
     const execute = vi.fn();
+    let broken = true;
     const owner = new CodexSubagents({
       scope: { conversationId: 'chat', bindingRevision: 'binding' },
       store: new CodexSubagentStore(db),
@@ -53,14 +57,27 @@ it.each(['thread/read', 'thread/resume', 'thread/turns/list'])(
       executeTool: execute,
       onChild,
       request: async (method, params) => {
-        if (method === failedMethod) throw Error('secret native error');
+        if (broken && method === failedMethod) throw Error('secret native error');
         if (method === 'thread/read') return { thread: { ...thread, id: params.threadId } };
         if (method === 'thread/resume')
           return { thread, model: 'fixture', modelProvider: 'openai' };
+        if (method === 'thread/turns/list') return { data: [{ id: 'turn', status: 'completed' }] };
         return { data: [] };
       },
     });
-    const fetch = vi.fn(async () => {
+    const app = express();
+    app.use(express.json());
+    app.use(
+      '/api/sessions',
+      createCodexSubagentRouter({ authorize: () => {}, owner: () => owner, retained: () => [] }),
+    );
+    const fetch = vi.fn(async (input: string, init?: RequestInit) => {
+      if (input.endsWith('/inspect')) {
+        const response = await request(app)
+          .post(input)
+          .send(JSON.parse(String(init?.body)));
+        return new Response(JSON.stringify(response.body), { status: response.status });
+      }
       const encoder = new TextEncoder();
       const body = new ReadableStream({
         start(controller) {
@@ -113,9 +130,22 @@ it.each(['thread/read', 'thread/resume', 'thread/turns/list'])(
         'disabled',
         true,
       );
-      expect(dialog.getByRole('button', { name: 'Refresh activity' })).toBeTruthy();
+      expect(dialog.getByRole('button', { name: 'Retry inspection' })).toBeTruthy();
       expect(document.body.textContent).not.toContain('secret native error');
       expect(fetch).toHaveBeenCalledTimes(1);
+      broken = false;
+      fireEvent.click(dialog.getByRole('button', { name: 'Retry inspection' }));
+      await waitFor(() => expect(dialog.queryByText(/Subagent inspection failed/)).toBeNull());
+      expect(dialog.getByText('Result returned')).toBeTruthy();
+      fireEvent.change(dialog.getByRole('textbox', { name: 'Message Subagent' }), {
+        target: { value: 'Keep my draft' },
+      });
+      expect(dialog.getByRole('button', { name: 'Send to Subagent' })).toHaveProperty(
+        'disabled',
+        false,
+      );
+      expect(fetch).toHaveBeenCalledTimes(2);
+      expect(onChild).toHaveBeenCalledOnce();
       expect(execute).not.toHaveBeenCalled();
     } finally {
       cleanup();

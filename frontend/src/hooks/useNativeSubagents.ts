@@ -2,6 +2,7 @@ import { useMemo, useSyncExternalStore } from 'react';
 import { z } from 'zod';
 import {
   NativeSubagentStreamEventSchema,
+  NativeSubagentSnapshotSchema,
   type NativeSubagentControl,
   type NativeSubagentControlStatus,
   type NativeSubagentSnapshot,
@@ -106,6 +107,37 @@ class NativeSubagentFeed {
         this.retry = setTimeout(() => void this.connect(), available ? 1500 : 30000);
     }
   }
+  inspect = async (threadId: string): Promise<void> => {
+    try {
+      const response = await apiFetch(
+        `/api/sessions/${encodeURIComponent(this.sessionId)}/codex-subagents/inspect`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ threadId }),
+          signal: AbortSignal.timeout(30000),
+        },
+      );
+      if (!response.ok) throw Error('Inspection unavailable');
+      const { agent } = z
+        .object({ agent: NativeSubagentSnapshotSchema })
+        .parse(await response.json());
+      if (agent.threadId !== threadId) throw Error('Inspection identity changed');
+      this.update({
+        ...this.state,
+        error: undefined,
+        agents: this.state.agents.map((previous) =>
+          previous.threadId === threadId && previous.revision <= agent.revision ? agent : previous,
+        ),
+      });
+    } catch {
+      this.update({
+        ...this.state,
+        error:
+          'Subagent inspection is unavailable. Reconnect the original chat runtime and try again.',
+      });
+    }
+  };
   control = async (input: NativeSubagentControl): Promise<NativeSubagentControlStatus> => {
     try {
       const response = await apiFetch(
@@ -140,5 +172,5 @@ export function useNativeSubagents(sessionId: string) {
     return value;
   }, [sessionId]);
   const state = useSyncExternalStore(feed.subscribe, feed.snapshot, feed.snapshot);
-  return { ...state, reconnect: feed.reconnect, control: feed.control };
+  return { ...state, reconnect: feed.reconnect, inspect: feed.inspect, control: feed.control };
 }

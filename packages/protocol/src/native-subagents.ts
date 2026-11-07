@@ -67,6 +67,7 @@ export const NativeSubagentControlSchema = z.discriminatedUnion('action', [
   z.strictObject({ requestId: identity, threadId: identity, action: z.literal('stop') }),
 ]);
 export type NativeSubagentSnapshot = z.infer<typeof NativeSubagentSnapshotSchema>;
+export const NativeSubagentInspectionSchema = z.strictObject({ threadId: identity });
 export const NativeSubagentStreamEventSchema = z.discriminatedUnion('type', [
   z.strictObject({ type: z.literal('reset'), available: z.boolean() }),
   z.strictObject({ type: z.literal('status'), available: z.boolean() }),

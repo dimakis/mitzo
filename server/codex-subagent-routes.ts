@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import {
   NativeSubagentControlSchema,
+  NativeSubagentInspectionSchema,
   type NativeSubagentSnapshot,
   type NativeSubagentControl,
   type NativeSubagentControlStatus,
@@ -10,7 +11,7 @@ import type { CodexSubagents } from './codex-subagents.js';
 
 interface Owners {
   authorize(id: string, authorization?: AuthSession): void;
-  owner(id: string): Pick<CodexSubagents, 'list' | 'control' | 'subscribe'> | undefined;
+  owner(id: string): Pick<CodexSubagents, 'list' | 'control' | 'subscribe' | 'inspect'> | undefined;
   retained(id: string): NativeSubagentSnapshot[];
   retainedControl?(
     id: string,
@@ -34,6 +35,40 @@ export function createCodexSubagentRouter(deps: Owners) {
   router.get('/:id/codex-subagents', (req, res) => {
     const owner = deps.owner(req.params.id);
     res.json({ agents: owner?.list() ?? deps.retained(req.params.id), available: !!owner });
+  });
+  router.post('/:id/codex-subagents/inspect', async (req, res) => {
+    const input = NativeSubagentInspectionSchema.safeParse(req.body);
+    if (!input.success) {
+      res.status(400).json({ error: 'An exact existing child identity is required.' });
+      return;
+    }
+    const owner = deps.owner(req.params.id);
+    if (!owner) {
+      res
+        .status(409)
+        .json({ error: 'The original runtime is unavailable. Saved output is retained.' });
+      return;
+    }
+    const authorize = () => {
+      deps.authorize(req.params.id, res.locals.authSession as AuthSession | undefined);
+      if (deps.owner(req.params.id) !== owner) throw Error('Original inspection owner changed');
+    };
+    try {
+      const agent = await owner.inspect(input.data.threadId, authorize);
+      authorize();
+      if (!agent) {
+        res.status(404).json({ error: 'This child is unavailable to the original runtime.' });
+        return;
+      }
+      res.json({ agent });
+    } catch {
+      res
+        .status(409)
+        .json({
+          error:
+            'Inspection is unavailable under the original authority. Saved output is retained.',
+        });
+    }
   });
   router.get('/:id/codex-subagents/events', (req, res) => {
     const owner = deps.owner(req.params.id);

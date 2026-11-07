@@ -238,6 +238,7 @@ it('preserves the primary inspection diagnostic when retention also fails', asyn
   const save = f.options.store.save.bind(f.options.store);
   vi.spyOn(f.options.store, 'save')
     .mockImplementationOnce(save)
+    .mockImplementationOnce(save)
     .mockImplementationOnce(() => {
       throw Error('sensitive storage error');
     });
@@ -320,6 +321,59 @@ it('revalidates an observed child on owner restoration before exposing output or
   });
   expect(restored.list()[0].inspectionFailure).toBeUndefined();
   expect(f.request.mock.calls.some(([method]) => method === 'thread/resume')).toBe(true);
+  expect(f.onChild).toHaveBeenCalledOnce();
+});
+
+it('repairs an explicitly unanchored observation once across owner recreation', async () => {
+  const f = fixture();
+  f.onChild.mockReturnValueOnce(false);
+  await f.admit();
+  f.owner.close();
+  const restored = new CodexSubagents(f.options);
+  cleanup.push(() => restored.close());
+  await restored.restore();
+  expect(f.onChild).toHaveBeenCalledTimes(2);
+  restored.close();
+  const again = new CodexSubagents(f.options);
+  cleanup.push(() => again.close());
+  await again.restore();
+  expect(f.onChild).toHaveBeenCalledTimes(2);
+});
+
+it('reinspects a failed child only on an explicit authorized request', async () => {
+  const f = fixture();
+  f.request.mockRejectedValueOnce(Error('transient inspection failure'));
+  await f.admit();
+  const before = f.request.mock.calls.length;
+  f.notify('turn/started', { threadId: 'child', turn: { id: 'ignored' } });
+  expect(f.request.mock.calls).toHaveLength(before);
+  const authorize = vi.fn();
+  const child = await f.owner.inspect('child', authorize);
+  expect(child).toMatchObject({ threadId: 'child', available: true });
+  expect(child?.inspectionFailure).toBeUndefined();
+  expect(authorize).toHaveBeenCalled();
+  expect(f.onChild).toHaveBeenCalledOnce();
+  expect(f.execute).not.toHaveBeenCalled();
+});
+
+it('refuses reinspection after authorization is revoked during native reads', async () => {
+  const f = fixture();
+  f.request.mockRejectedValueOnce(Error('transient failure'));
+  await f.admit();
+  const original = f.request.getMockImplementation()!;
+  let authorized = true;
+  f.request.mockImplementation(async (method, params, beforeDispatch) => {
+    const result = await original(method, params, beforeDispatch);
+    if (method === 'thread/read') authorized = false;
+    return result;
+  });
+  await expect(
+    f.owner.inspect('child', () => {
+      if (!authorized) throw Error('revoked');
+    }),
+  ).rejects.toThrow('revoked');
+  expect(f.owner.list()[0].available).toBe(false);
+  expect(f.request.mock.calls.filter(([method]) => method === 'thread/resume')).toHaveLength(0);
 });
 it('hydrates nonempty paginated history entries in order without replaying tools', async () => {
   const f = fixture();

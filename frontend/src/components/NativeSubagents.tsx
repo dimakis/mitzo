@@ -48,6 +48,7 @@ export function NativeSubagents({
   const [selectedId, setSelectedId] = useState<string>();
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [deliveries, setDeliveries] = useState<Record<string, Delivery>>({});
+  const [inspecting, setInspecting] = useState<Record<string, boolean>>({});
   const listId = useId();
   const selected = agents.find((agent) => agent.threadId === selectedId);
   const delivery = selected ? deliveries[selected.threadId] : undefined;
@@ -165,10 +166,23 @@ export function NativeSubagents({
               <p className="native-subagent-note" role="status">
                 Subagent inspection failed during{' '}
                 {inspectionStages[selected.inspectionFailure.stage]}. Execution status is uncertain;
-                controls are unavailable. Refresh activity to check for updates. Reference:{' '}
+                controls are unavailable. Retry inspection to reload activity. Reference:{' '}
                 {selected.inspectionFailure.reference}.{' '}
-                <button type="button" className="home-secondary" onClick={feed.reconnect}>
-                  Refresh activity
+                <button
+                  type="button"
+                  className="home-secondary"
+                  disabled={inspecting[selected.threadId]}
+                  onClick={async () => {
+                    const threadId = selected.threadId;
+                    setInspecting((previous) => ({ ...previous, [threadId]: true }));
+                    try {
+                      await feed.inspect(threadId);
+                    } finally {
+                      setInspecting((previous) => ({ ...previous, [threadId]: false }));
+                    }
+                  }}
+                >
+                  {inspecting[selected.threadId] ? 'Inspecting…' : 'Retry inspection'}
                 </button>
               </p>
             )}
