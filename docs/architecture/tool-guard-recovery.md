@@ -25,6 +25,14 @@ provider owner after retaining the failure. SDK callbacks abort their owning
 session; Codex records the unknown result before closing its original transport.
 The provider cannot continue issuing tools under the timed-out turn.
 
+An exact native RPC-consumed cancellation may race the original adapter's
+privately settled refusal. The owner can drain that same existing promise within
+the cleanup budget, keeping the original guard retired and its signal aborted.
+Only the original private settled-error receipt qualifies custody; rejection,
+unqualified late success and cleanup timeout retain uncertainty. Gemini leaves a
+cancelled in-flight call unanswered in durable history so restart projects its
+unknown outcome before any new work.
+
 `@mitzo/protocol` defines the shared failure envelope: `code`, `phase`,
 `effectStatus` and `recovery`. Existing diagnostic IDs, task request IDs and
 operation-specific repair guidance remain intact. A public envelope describes an

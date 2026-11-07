@@ -3,6 +3,7 @@ import { ToolFailureSchema, toolFailure, type ToolFailure } from '@mitzo/protoco
 import {
   assertToolGuardCurrent,
   runGuardedTool,
+  runBoundedToolCleanup,
   ToolGuardTimeoutError,
   type ToolGuardPolicy,
 } from '@mitzo/harness';
@@ -4223,6 +4224,7 @@ export class CodexConversation {
       }
     })();
     const toolStarted = performance.now();
+    let originalExecution: Promise<CodexToolResult> | undefined;
     try {
       result = normalizeCodexToolResult(
         await runGuardedTool(
@@ -4252,9 +4254,45 @@ export class CodexConversation {
           },
           (signal) => {
             executionSignal = signal;
-            return this.opts.executeTool(call.tool, call.arguments, signal, invocation);
+            originalExecution = this.opts.executeTool(
+              call.tool,
+              call.arguments,
+              signal,
+              invocation,
+            );
+            return originalExecution;
           },
-        ),
+        ).catch(async (error: unknown) => {
+          // A consumed RPC can cancel before its original adapter finishes
+          // refusing approval. Drain that same promise, bounded, with its guard
+          // still retired; only its private settled refusal can qualify custody.
+          if (
+            originalExecution &&
+            signal.aborted &&
+            error === signal.reason &&
+            !active.interruptRequested &&
+            !active.abort.signal.aborted &&
+            requestContext?.requestId !== undefined &&
+            ((error instanceof CodexServerRequestResolvedError &&
+              error.requestId === requestContext.requestId) ||
+              (error instanceof CodexTurnCompletedError &&
+                error.requestId === requestContext.requestId &&
+                error.threadId === call.threadId &&
+                error.turnId === call.turnId))
+          ) {
+            try {
+              const original = await runBoundedToolCleanup(
+                () => originalExecution!,
+                this.opts.toolGuardPolicy?.cleanupMs,
+              );
+              if (original.isError && retainedCallbackOutcome(original) === 'settled')
+                return original;
+            } catch {
+              /* Preserve original cancellation and uncertainty. */
+            }
+          }
+          throw error;
+        }),
       );
       // Only a returned, reviewed read result can qualify a failed callback here.
       // Explicit owner uncertainty, thrown exceptions and cancellation stay fenced.

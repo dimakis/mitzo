@@ -40,6 +40,9 @@ interface StartupSource {
   index: number;
   id: string;
 }
+function mcpSourceAttributes(source: StartupSource) {
+  return { 'mcp.source.index': source.index, 'mcp.source.id': source.id, 'mcp.transport': 'stdio' };
+}
 async function connect(
   config: McpServerConfig,
   options: McpToolsOptions,
@@ -105,11 +108,7 @@ async function observeMcpStartup<T>(
   source: StartupSource,
   work: () => Promise<T>,
 ): Promise<T> {
-  return observeOperationAsync(`mcp.startup.${phase}`, work, {
-    'mcp.source.index': source.index,
-    'mcp.source.id': source.id,
-    'mcp.transport': 'stdio',
-  });
+  return observeOperationAsync(`mcp.startup.${phase}`, work, mcpSourceAttributes(source));
 }
 /** Owns configured MCP clients; all calls pass the same host permission boundary as native tools. */
 export async function connectCodexMcpTools(
@@ -132,6 +131,7 @@ export async function connectCodexMcpTools(
   const lifetime = new AbortController();
   const signal = AbortSignal.any([options.signal, lifetime.signal]);
   const peerShutdowns = new WeakMap<Connection, Promise<void>>();
+  const peerSources = new WeakMap<Connection, StartupSource>();
   const activePeerShutdowns = new Set<Promise<void>>();
   let shutdownDeadline: number | undefined;
   const closePeer = (peer: Connection): Promise<void> => {
@@ -154,8 +154,10 @@ export async function connectCodexMcpTools(
           shutdownDeadline === undefined
             ? options.toolGuardPolicy?.cleanupMs
             : Math.max(1, shutdownDeadline - performance.now());
-        void observeOperationAsync('mcp.shutdown', () =>
-          runBoundedToolCleanup(() => peer.close(), remaining),
+        void observeOperationAsync(
+          'mcp.shutdown',
+          () => runBoundedToolCleanup(() => peer.close(), remaining),
+          peerSources.has(peer) ? mcpSourceAttributes(peerSources.get(peer)!) : {},
         ).then(resolve, reject);
       } catch (error) {
         reject(error);
@@ -224,6 +226,7 @@ export async function connectCodexMcpTools(
             ? options.connect(config, peerOptions)
             : connect(config, peerOptions, source),
         );
+        peerSources.set(peer, source);
         peers.push(peer);
         if (closed) {
           await closePeer(peer);

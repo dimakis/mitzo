@@ -270,7 +270,7 @@ export async function* runDeferredGeminiLoop(
       } catch (err: unknown) {
         // A local deadline cannot establish whether the original effect stopped.
         // Retire this loop; its owner persists recovery instead of dispatching more work.
-        if (err instanceof ToolGuardTimeoutError) throw err;
+        if (err instanceof ToolGuardTimeoutError || opts.signal?.aborted) throw err;
         const message = err instanceof Error ? err.message : String(err);
         result = {
           type: 'tool_result',
