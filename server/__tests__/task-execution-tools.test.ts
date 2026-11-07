@@ -74,6 +74,9 @@ it('inherits development consent for command variants and stops on its revocatio
   }
   await grants.revoke('operator', 'parent', consent.id);
   expect(
+    JSON.parse((await f.tools('parent').execute({ operation: 'status' }, f.signal)).content).grants,
+  ).toEqual([]);
+  expect(
     (
       await f
         .tools('parent')
@@ -85,6 +88,10 @@ it('inherits development consent for command variants and stops on its revocatio
     ).isError,
   ).toBe(true);
   expect(execution.calls).toHaveLength(2);
+  expect(
+    (await f.tools('parent').execute({ operation: 'revoke', grantId: grant.id }, f.signal, f.call))
+      .isError,
+  ).toBe(false);
 });
 afterEach(() => {
   cleanup

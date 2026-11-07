@@ -9,6 +9,8 @@ import { readRepositoryWorkspaceForConversation } from './repository-workspace-r
 export function repositoryCapabilityIdentity(session: ManagedSession): string | undefined {
   try {
     if (!session.sessionId || session.ordinaryRuntimeOwner?.location === 'openshell') return;
+    // A primary repository grant cannot silently cover secondary repositories.
+    if ([...session.worktreePaths.values()].some((entry) => entry.path !== session.cwd)) return;
     const record = readRepositoryWorkspaceForConversation(session.sessionId);
     const physical = (path: string) => {
       if (realpathSync(path) !== path) throw Error('Noncanonical repository');

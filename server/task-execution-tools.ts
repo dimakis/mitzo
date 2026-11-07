@@ -101,6 +101,14 @@ export function sessionTaskExecutionTools(options: {
         if (input.operation === 'status') {
           const grants = store
             .active(captured.auth.id, sessionId)
+            .filter((grant) => {
+              try {
+                currentTaskCapabilityConsent(registry, grant, sessionId).assertCurrent();
+                return true;
+              } catch {
+                return false;
+              }
+            })
             .filter((grant) =>
               grant.members.some(
                 (member) =>
@@ -242,7 +250,8 @@ export function sessionTaskExecutionTools(options: {
             sessionId,
             memberScope(sessionId, session).fingerprint,
           );
-          currentTaskCapabilityConsent(registry, authorized, sessionId).assertCurrent();
+          if (input.operation !== 'revoke')
+            currentTaskCapabilityConsent(registry, authorized, sessionId).assertCurrent();
           return authorized;
         };
         const grant = assertGrant();

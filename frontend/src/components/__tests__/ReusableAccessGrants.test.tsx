@@ -27,6 +27,7 @@ const inventory = () => ({
       mode: 'agent',
       revision: '1'.repeat(64),
       development: true,
+      repository: 'repo-a',
     },
     {
       sessionId: 'two',
@@ -36,12 +37,55 @@ const inventory = () => ({
       mode: 'agent',
       revision: '2'.repeat(64),
       development: true,
+      repository: 'repo-a',
     },
   ],
   automaticReview: {
     state: 'unavailable',
     reason: 'No qualified reviewer/account route. Human review handles remaining requests.',
   },
+});
+it('reviews repository inheritance and exact Google resource access before granting', async () => {
+  apiFetch.mockResolvedValue({ ok: true, json: async () => inventory() });
+  render(<ReusableAccessGrants sessionId="one" connected />);
+  fireEvent.click(screen.getByRole('button', { name: 'Manage reusable access' }));
+  await screen.findByLabelText('Access type');
+  fireEvent.change(screen.getByLabelText('Access type'), { target: { value: 'development' } });
+  fireEvent.change(screen.getByLabelText('Reuse in'), { target: { value: 'repository' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Grant access' }));
+  await waitFor(() =>
+    expect(apiFetch.mock.calls.some(([, init]) => init?.method === 'POST')).toBe(true),
+  );
+  const development = apiFetch.mock.calls.find(([, init]) => init?.method === 'POST')!;
+  expect(JSON.parse(development[1].body)).toMatchObject({
+    scope: 'repository',
+    capability: { kind: 'development' },
+  });
+  await waitFor(() =>
+    expect(
+      (screen.getByRole('button', { name: 'Refresh grants' }) as HTMLButtonElement).disabled,
+    ).toBe(false),
+  );
+  apiFetch.mockClear();
+  fireEvent.change(screen.getByLabelText('Access type'), { target: { value: 'google-read' } });
+  fireEvent.change(screen.getByLabelText('Google account email'), {
+    target: { value: 'me@example.test' },
+  });
+  fireEvent.change(screen.getByLabelText('Resource ID'), { target: { value: 'doc-a' } });
+  fireEvent.change(screen.getByLabelText('Reuse in'), { target: { value: 'operator' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Grant access' }));
+  await waitFor(() =>
+    expect(apiFetch.mock.calls.some(([, init]) => init?.method === 'POST')).toBe(true),
+  );
+  const google = apiFetch.mock.calls.find(([, init]) => init?.method === 'POST')!;
+  expect(JSON.parse(google[1].body)).toMatchObject({
+    scope: 'operator',
+    capability: {
+      kind: 'google-read',
+      email: 'me@example.test',
+      resource: { kind: 'file', id: 'doc-a' },
+    },
+  });
 });
 it('keeps session checkboxes intrinsic while their names use the remaining row', async () => {
   const style = document.createElement('style');
