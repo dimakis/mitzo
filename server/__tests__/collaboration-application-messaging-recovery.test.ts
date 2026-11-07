@@ -33,16 +33,31 @@ const selection = {
   thinking: null,
 } as const;
 
+function port(
+  deliverOrdinary: OrdinarySessionPromptPort['deliverOrdinary'],
+): OrdinarySessionPromptPort {
+  return {
+    deliverOrdinary,
+    authorized: () => true,
+    inspect: async () => ({ busy: false }),
+    receipt: () => 'absent',
+    deliver: async () => {
+      throw Error('Unexpected legacy delivery');
+    },
+    close: () => {},
+  };
+}
+
 beforeEach(() => {
   store = new EventStore(':memory:');
   group = randomUUID();
   prompts = [];
-  owner = new ApplicationCollaborationMessaging(store, {
-    deliverOrdinary: async (prompt) => {
+  owner = new ApplicationCollaborationMessaging(
+    store,
+    port(async (prompt) => {
       prompts.push(prompt);
-    },
-    close: () => {},
-  } as OrdinarySessionPromptPort);
+    }),
+  );
   for (const sessionId of ['one', 'two']) {
     store.admitOrdinaryLocalCommand(
       {
@@ -141,10 +156,7 @@ it('refuses an overlapping unclaimed fan-out reply without adopting or partially
     prompts.push(prompt);
     if (prompt.sessionId === 'one') await preparing;
   });
-  owner = new ApplicationCollaborationMessaging(store, {
-    deliverOrdinary: dispatch,
-    close: () => {},
-  } as OrdinarySessionPromptPort);
+  owner = new ApplicationCollaborationMessaging(store, port(dispatch));
   const first = owner.send(
     auth,
     group,
