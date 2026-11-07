@@ -35,7 +35,8 @@ const mocks = vi.hoisted(() => ({
   recordKnowledgeAdoption: vi.fn(),
   recordAgentContextAdoption: vi.fn(),
   privateDirectory: '/tmp',
-  conversationOptions: undefined as Record<string, unknown> | undefined,
+  conversationOptions: undefined as
+    (Record<string, unknown> & { systemPrompt?: string }) | undefined,
   useTls: false,
   custodianController: false,
 }));

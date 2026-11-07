@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.943-telos-work-planning';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.944-telos-work-planning-types';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -1181,7 +1181,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../scripts/qualify-codex-native-permissions.mjs':
     '848148f0e305800ab30aa84899798c0b4034c9fe2f062045d8a5672cfc09ae59',
   '../__tests__/codex-chat-session.test.ts':
-    '749c2d70cda7a45302d772ba088371b3fbef673bd30c9f1c355521f23bf31e7a',
+    'b9d276760d959b13f21b2f24534043ce5b16aab1b064e110377cd5daec845013',
   '../__tests__/codex-conversation.test.ts':
     '1b59a3a06b5e25332934515c442a99a1799f16de3ec6fa65db4429068e3e0ca3',
   '../__tests__/codex-native-approvals.test.ts':
