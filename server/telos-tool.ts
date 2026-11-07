@@ -6,6 +6,7 @@ import {
   type TelosSourcePermissionOperation,
   TelosOutcomeRevisionReceiptSchema,
   TelosOutcomeCancellationSchema,
+  TelosSourceRecoveryDismissalSchema,
 } from '@mitzo/protocol';
 import { toolInputError } from './tool-input-error.js';
 import type { ToolDefinition } from '@mitzo/harness';
@@ -77,6 +78,12 @@ export function formatTelosPermissionDenial(
   message: string,
   userCancelled = false,
 ): TelosToolResult {
+  try {
+    if (TelosSourceRecoveryDismissalSchema.safeParse(JSON.parse(message)).success)
+      return { content: message, isError: false };
+  } catch {
+    /* Other denials retain their existing classification. */
+  }
   if (userCancelled)
     return {
       content: JSON.stringify(

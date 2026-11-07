@@ -224,6 +224,34 @@ it('recovers the same completed source receipt without reopening retired native 
   expect(a.f.retainedOwnerCounts()).toEqual(counts);
 });
 
+it('reconciles a completed creation after its acknowledgement was lost and the native call retired', async () => {
+  const a = await selected('create');
+  const create = a.service.capture.createReviewed.bind(a.service.capture);
+  vi.spyOn(a.service.capture, 'createReviewed').mockImplementationOnce(async (...args) => {
+    await create(...args);
+    throw Error('Lost acknowledgement after durable source completion');
+  });
+  await expect(a.service.approve(a.permId, a.input, a.f.actor)).rejects.toThrow(/uncertain/);
+  expect(a.store.lookup(a.permId, 'planning', 'operator:' + a.f.actor.id)?.receipt).toBeNull();
+  const counts = a.f.retainedOwnerCounts();
+  expect(counts).toMatchObject({ canonicalCreates: 1, sources: 1 });
+  a.retire();
+  a.f.restartOwners();
+  const review = await a.f.service.review(a.permId, 'planning', a.f.actor);
+  expect(review.recovery?.receipt).toMatchObject({
+    receipt: { work: { itemId: 'created-1' } },
+    canonicalCreation: { created: true, item: { id: 'created-1' } },
+  });
+  expect(await a.f.service.approve(a.permId, a.input, a.f.actor)).toEqual(review.recovery?.receipt);
+  expect(a.f.retainedOwnerCounts()).toEqual(counts);
+  await expect(
+    a.f.service.approve(a.permId, { ...a.input, requestId: randomUUID() }, a.f.actor),
+  ).rejects.toThrow(/exact original/);
+  await expect(
+    a.f.service.review(a.permId, 'planning', { kind: 'operator', id: 'another-operator' }),
+  ).rejects.toThrow(/another operator/);
+});
+
 it.each(['create', 'adopt'] as const)(
   'retains native refusal provenance across prepared %s restart recovery',
   async (kind) => {

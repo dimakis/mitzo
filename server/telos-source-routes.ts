@@ -189,9 +189,13 @@ export function createTelosSourceRouter(options: {
     } catch (error) {
       const known = error instanceof TelosWorkError;
       const uncertain = error instanceof TelosSourceSaveUncertainError;
-      if (!known && !uncertain) {
+      if (!known && (!uncertain || Object.getOwnPropertyDescriptor(error, 'cause')?.value)) {
         try {
-          log.warn('Reviewed source operation failed', { phase, ...sourceFailure(error) });
+          log.warn('Reviewed source operation failed', {
+            phase,
+            ...(uncertain ? { saveStatus: 'unconfirmed' } : {}),
+            ...sourceFailure(error),
+          });
         } catch {
           // A log sink failure must preserve the original response and cause.
         }
