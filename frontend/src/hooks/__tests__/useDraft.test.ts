@@ -20,6 +20,38 @@ afterEach(() => {
 });
 
 describe('useDraft', () => {
+  it('clears accepted shared text while retaining recipient and original observation intent', () => {
+    const draft = createChatDraft();
+    draft.text = 'Accepted shared prompt';
+    draft.settings.collaborationResponders = {
+      collaborationId: '00000000-0000-4000-8000-000000000001',
+      responders: { kind: 'selected', sessionIds: ['reviewer'] },
+    };
+    draft.collaborationSend = {
+      collaborationId: draft.settings.collaborationResponders.collaborationId,
+      authScope: 'login',
+      input: {
+        requestId: '00000000-0000-4000-8000-000000000002',
+        expectedMembershipRevision: 1,
+        expectedPolicySequence: 0,
+        text: draft.text,
+        responders: draft.settings.collaborationResponders.responders,
+        snapshot: null,
+      },
+    };
+    saveChatDraft(draft);
+    const view = renderHook(() => useDraft(undefined, undefined, chatDraftStorageKey(draft.id)));
+    let proof: ReturnType<(typeof view.result.current)[4]['capture']>;
+    act(() => {
+      proof = view.result.current[4].capture();
+    });
+    act(() => expect(view.result.current[4].consume(proof!)).toBe(true));
+    expect(getChatDraft(draft.id)).toMatchObject({
+      text: '',
+      collaborationSend: draft.collaborationSend,
+      settings: { collaborationResponders: draft.settings.collaborationResponders },
+    });
+  });
   it('revokes older proof when an identical edit cannot write a replacement revision', () => {
     const first = renderHook(() => useDraft('receipt-chat'));
     act(() => first.result.current[1]('Same text'));

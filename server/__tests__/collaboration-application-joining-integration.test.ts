@@ -605,3 +605,38 @@ export function getApplicationJoiningJourney() {
   if (!joinedSessionId) throw Error('BLOCKED: actual application joining prerequisite failed');
   return { api, events, group, joinedSessionId };
 }
+
+/** Real login/HTTP bridge for the production UI acceptance continuation. */
+export async function getApplicationUiJourney() {
+  if (!http) throw Error('Actual application prerequisite failed');
+  const auth = await (
+    await import('../auth.js')
+  ).authenticateToken(cookie.slice('cc_auth='.length));
+  if (!auth) throw Error('Actual application login unavailable');
+  const clientId = crypto.randomUUID();
+  const { claimTransportConnection, releaseTransportConnection } =
+    await import('../transport-auth-ownership.js');
+  const { bindAgentLibraryTransport } = await import('../agent-library-transport.js');
+  claimTransportConnection(clientId, auth.id);
+  const unbind = bindAgentLibraryTransport(clientId, auth);
+  const previous = releaseTransport;
+  releaseTransport = () => {
+    unbind();
+    releaseTransportConnection(clientId, auth.id);
+    previous?.();
+  };
+  const fetch = vi.fn(async (url: string, init?: RequestInit) => {
+    const path = url.startsWith('/') ? url : new URL(url).pathname + new URL(url).search;
+    const response = await http!.request(init?.method ?? 'GET', path, {
+      headers: { cookie },
+      body: init?.body ? JSON.parse(String(init.body)) : undefined,
+    });
+    return new Response(JSON.stringify(response.body), { status: response.status });
+  });
+  return {
+    ...getApplicationJoiningJourney(),
+    typedApi: new MitzoApiClient(fetch),
+    fetch,
+    clientId,
+  };
+}

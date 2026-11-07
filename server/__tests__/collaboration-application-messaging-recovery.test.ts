@@ -99,6 +99,35 @@ function input(responder: string, text: string) {
   };
 }
 
+it('observes recipient readiness without commands and refuses missing ordinary capability', async () => {
+  const inspect = vi.fn(async () => {});
+  const delivery = vi.fn(async () => {});
+  const ordinary = port(delivery);
+  Object.assign(ordinary, { inspectCollaboration: inspect });
+  const messaging = new ApplicationCollaborationMessaging(store, ordinary);
+  const signal = new AbortController().signal;
+  const ready = await messaging.recipientReadiness(auth, group, 'one', signal);
+  expect(ready).toMatchObject({
+    collaborationId: group,
+    sessionId: 'one',
+    membershipRevision: 1,
+    ready: true,
+    reason: null,
+  });
+  expect(inspect).toHaveBeenCalledTimes(1);
+  expect(delivery).not.toHaveBeenCalled();
+  expect(store.collaborationConversation.view(group).messages).toEqual([]);
+  const missing = await owner.recipientReadiness(auth, group, 'one', signal);
+  expect(missing.ready).toBe(false);
+  inspect.mockRejectedValueOnce(
+    new Error('Open a fresh group participant for this delivery route.'),
+  );
+  expect((await messaging.recipientReadiness(auth, group, 'one', signal)).ready).toBe(false);
+  store.hideSession('one');
+  expect((await messaging.recipientReadiness(auth, group, 'one', signal)).ready).toBe(false);
+  expect(inspect).toHaveBeenCalledTimes(2);
+});
+
 it.each([false, true])(
   'preserves the first context ACK across overlapping commands (reverse=%s)',
   async (reverse) => {
@@ -226,6 +255,23 @@ it('returns the original receipt for concurrent exact fan-out retries during pre
   expect(retained!.messageId).toBe(original.messageId);
   expect(prompts).toHaveLength(2);
   expect(new Set(prompts.map((p) => p.commandId)).size).toBe(2);
+});
+
+it('keeps a just-admitted command readable before its first ordinary transcript event', () => {
+  const message = store.collaborationConversation.acceptMessage(group, input('two', 'Reply'));
+  const delivery = message.deliveries.find((d) => d.sessionId === 'two')!;
+  store.collaborationConversation.recordDelivery(group, message.messageId, delivery.deliveryId, {
+    requestId: randomUUID(),
+    expectedRevision: 0,
+    status: 'queued',
+    commandId: 'initial-two',
+    reason: null,
+  });
+  expect(store.getSessionPredecessorSeq('two', Number.MAX_SAFE_INTEGER)).toBe(0);
+  const transcript = vi.spyOn(store, 'getDurableSessionTranscript');
+  expect(() => owner.reconcile(auth, group)).not.toThrow();
+  expect(transcript).not.toHaveBeenCalled();
+  expect(store.collaborationConversation.view(group).messages).toHaveLength(1);
 });
 
 it('defers oversized ordinary history without failing group reads or hiding integrity failures', () => {

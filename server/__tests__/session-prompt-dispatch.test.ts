@@ -154,6 +154,23 @@ function fixture(harness = 'codex', location = 'local') {
     }),
   };
 }
+it('observes ordinary collaboration capability without binding or dispatching and refuses foreign live owners', async () => {
+  const fxt = fixture();
+  const prompt = {
+    sessionId: 'worker',
+    commandId: 'read-only',
+    text: '',
+    auth: fxt.delivery.auth,
+    settings: { binding: f.binding, selection: f.selection, repositoryWorkspaceId: 'workspace' },
+  } as Parameters<NonNullable<typeof fxt.port.inspectCollaboration>>[0];
+  await expect(fxt.port.inspectCollaboration!(prompt)).resolves.toBeUndefined();
+  expect(f.dispatch).not.toHaveBeenCalled();
+  f.live = { session: {}, clientId: 'foreign' };
+  await expect(fxt.port.inspectCollaboration!(prompt)).rejects.toThrow('fresh Local Codex');
+  expect(f.dispatch).not.toHaveBeenCalled();
+  fxt.port.close();
+});
+
 it.each([
   ['codex', 'local'],
   ['codex', 'openshell'],
