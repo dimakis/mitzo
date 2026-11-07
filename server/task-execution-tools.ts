@@ -21,6 +21,7 @@ import { createLogger } from './logger.js';
 
 import { assertTaskOperator, memberScope, publicGrant } from './task-execution-scope.js';
 import { executeTaskOperation } from './task-execution-operation.js';
+import { taskExecutionFailure } from './task-execution-failure.js';
 const log = createLogger('task-execution');
 /** One host adapter for SDK/Vertex, Responses and native Local/OpenShell calls.
  * A grant ID is only a locator; signed operator and actual workspace identity
@@ -43,9 +44,12 @@ export function sessionTaskExecutionTools(options: {
     ): Promise<{ content: string; isError: boolean }> {
       let operation: ReturnType<typeof captureAgentLibraryOperation> | undefined;
       let requestId: string | undefined;
+      let operationName: string | undefined;
+      let effectMayHaveStarted = false;
       try {
         const input = taskExecutionSchema.parse(raw);
         requestId = input.requestId;
+        operationName = input.operation;
         const { session, sessionId, registry, prefix } = options;
         if (!options.assertRuntimeCurrent || !options.assertRuntimeCurrentSync)
           throw Error('Task execution requires a verified ordinary runtime owner');
@@ -194,6 +198,7 @@ export function sessionTaskExecutionTools(options: {
               throw Error('Task authorization input changed during approval');
           }
           assertScope();
+          effectMayHaveStarted = true;
           const grant = store.approve(captured.auth.id, sessionId, input.requestId, scope);
           store.assertGrant(
             grant.id,
@@ -222,6 +227,7 @@ export function sessionTaskExecutionTools(options: {
         };
         const grant = assertGrant();
         if (input.operation === 'revoke') {
+          effectMayHaveStarted = true;
           store.revoke(grant.id, captured.auth.id, sessionId);
           log.info('Task authorization revoked', { grantId: grant.id, sessionId });
           return { content: JSON.stringify({ grantId: grant.id, revoked: true }), isError: false };
@@ -238,22 +244,22 @@ export function sessionTaskExecutionTools(options: {
           signal,
           assertGrant,
           assertRuntimeCurrent: options.assertRuntimeCurrent,
+          onDispatch: () => {
+            effectMayHaveStarted = true;
+          },
         });
       } catch (error) {
-        const message =
-          error instanceof Error ? error.message : 'Task execution failed with a non-Error cause';
+        const failure = taskExecutionFailure(error, operationName, requestId, effectMayHaveStarted);
         log.warn('Task execution refused or failed', {
           sessionId: options.sessionId,
+          operation: failure.operation,
           requestId,
-          cause: message,
+          code: failure.code,
+          effectStatus: failure.effectStatus,
+          cause: failure.error,
         });
         return {
-          content: JSON.stringify({
-            error: message,
-            requestId,
-            recovery:
-              'Inspect TaskExecution status and the existing workspace before retrying uncertain work. Reuse the original requestId.',
-          }),
+          content: JSON.stringify(failure),
           isError: true,
         };
       } finally {

@@ -4,12 +4,17 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { SessionRegistry, resolvePending } from '@mitzo/harness';
-import { bindAgentLibraryTransport } from '../agent-library-transport.js';
+import {
+  bindAgentLibraryTransport,
+  OperatorAuthorizationError,
+} from '../agent-library-transport.js';
 import { TaskExecutionStore } from '../task-execution-store.js';
 import { sessionTaskExecutionTools } from '../task-execution-tools.js';
 
 const execution = vi.hoisted(() => ({
   waitForAbort: false,
+  fail: false,
+  failAuthentication: false,
   calls: [] as Array<{ block: unknown; options: Record<string, unknown> }>,
 }));
 vi.mock('../native-tool-executor.js', () => ({
@@ -18,6 +23,9 @@ vi.mock('../native-tool-executor.js', () => ({
     async (block: unknown, signal: AbortSignal) => {
       (options.assertRuntimeCurrent as () => void)();
       execution.calls.push({ block, options });
+      if (execution.failAuthentication)
+        throw new OperatorAuthorizationError('Operator authorization revoked');
+      if (execution.fail) throw Error('Runner connection lost');
       if (execution.waitForAbort)
         await new Promise<void>((_resolve, reject) => {
           signal.addEventListener('abort', () => reject(signal.reason), { once: true });
@@ -33,6 +41,8 @@ afterEach(() => {
     .forEach((fn) => fn());
   execution.calls.length = 0;
   execution.waitForAbort = false;
+  execution.fail = false;
+  execution.failAuthentication = false;
   vi.useRealTimers();
 });
 function fixture() {
@@ -89,6 +99,83 @@ function fixture() {
   }
   return { root, store, registry, sent, tools, call, signal, request, authorize };
 }
+it.each(['disconnected', 'expired'])(
+  'explains %s operator authentication without circular status recovery',
+  async (reason) => {
+    const f = fixture();
+    const session = f.registry.findBySessionId('worker')!.session;
+    session.ownerConnectionId = 'unavailable-worker';
+    if (reason === 'expired')
+      cleanup.push(
+        bindAgentLibraryTransport('unavailable-worker', {
+          id: 'operator',
+          expiresAt: Date.now() - 1,
+        }),
+      );
+    const result = await f.tools('worker').execute({ operation: 'status' }, f.signal);
+    expect(result.isError).toBe(true);
+    const failure = JSON.parse(result.content);
+    expect(failure).toMatchObject({
+      code: 'operator_authentication_required',
+      operation: 'status',
+      effectStatus: 'not_started',
+    });
+    expect(failure.error).toMatch(/TaskExecution.*authenticated.*connection/i);
+    expect(failure.error).not.toMatch(/agent profile/);
+    expect(failure.recovery).toMatch(/reconnect.*chat/i);
+    expect(failure.recovery).not.toMatch(/Inspect TaskExecution status|requestId/);
+    expect(failure).not.toHaveProperty('requestId');
+    expect(execution.calls).toHaveLength(0);
+    expect(f.sent).toHaveLength(0);
+    session.ownerConnectionId = 'worker';
+    const reconnected = await f.tools('worker').execute({ operation: 'status' }, f.signal);
+    expect(reconnected.isError, reconnected.content).toBe(false);
+    expect(execution.calls).toHaveLength(0);
+  },
+);
+it('does not describe a rejected request as uncertain execution', async () => {
+  const f = fixture();
+  f.registry.findBySessionId('worker')!.session.mode = 'ask';
+  const result = await f
+    .tools('worker')
+    .execute({ operation: 'authorize', title: 'Work', requestId: randomUUID() }, f.signal, f.call);
+  const failure = JSON.parse(result.content);
+  expect(failure.effectStatus).toBe('not_started');
+  expect(failure.recovery).not.toMatch(/uncertain|Inspect TaskExecution status/);
+  expect(execution.calls).toHaveLength(0);
+});
+it.each(['runner', 'authentication'])(
+  'preserves receipt recovery after a dispatched %s failure',
+  async (reason) => {
+    const f = fixture();
+    const grant = await f.authorize();
+    execution.fail = reason === 'runner';
+    execution.failAuthentication = reason === 'authentication';
+    const requestId = randomUUID();
+    const result = await f
+      .tools('worker')
+      .execute(
+        { operation: 'run', grantId: grant.id, requestId, command: 'npm test' },
+        f.signal,
+        f.call,
+      );
+    expect(JSON.parse(result.content)).toMatchObject({
+      operation: 'run',
+      effectStatus: 'unknown',
+      requestId,
+      recovery: expect.stringMatching(/original requestId/),
+    });
+    if (reason === 'authentication') {
+      expect(JSON.parse(result.content).recovery).toMatch(/Reconnect.*After reconnecting/);
+      expect(JSON.parse(result.content).code).toBe('operator_authentication_required');
+    }
+    const status = await f
+      .tools('worker')
+      .execute({ operation: 'status', grantId: grant.id, requestId }, f.signal);
+    expect(JSON.parse(status.content).run.state).toBe('uncertain');
+    expect(execution.calls).toHaveLength(1);
+  },
+);
 it('approves the selected task once and lets its worker run different commands', async () => {
   const f = fixture();
   const grant = await f.authorize();
