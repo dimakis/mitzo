@@ -22,10 +22,12 @@ function ExecutionHostPicker({
     execution && 'targetId' in execution ? execution.targetId : runtime.intent.execution.targetId;
   const routes = runtimeRoutes(runtime.intent, runtime.inventory);
   const targets =
-    runtime.inventory?.targets.filter((target) =>
-      routes.some(
-        (route) => route.targetId === target.targetId && route.harness === target.harness,
-      ),
+    runtime.inventory?.targets.filter(
+      (target) =>
+        target.location === runtime.intent.execution.location &&
+        routes.some(
+          (route) => route.targetId === target.targetId && route.harness === target.harness,
+        ),
     ) ?? [];
   const available = targets.some((target) => target.targetId === targetId);
   return (
