@@ -140,3 +140,15 @@ export class OrdinaryCollaborationReplies {
     };
   }
 }
+
+/** Validated private identity only; observation never grants execution authority. */
+export function ordinaryReplySourceCommand(
+  store: SourceStore,
+  sessionId: string,
+  messageId: string,
+) {
+  const mappings = store.getOrdinaryReplySourceEvents(sessionId, messageId);
+  if (!mappings.length) return undefined;
+  if (mappings.length !== 1) throw new CollaborationContractError('reply_conflict');
+  return RetainedSource.parse(mappings[0]).commandId;
+}

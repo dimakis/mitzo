@@ -30,9 +30,11 @@ public struct NotificationResponse: Encodable, Sendable {
     public enum Decision: String, Sendable, Codable { case once, deny; case session = "always" }
     public let sessionId: String
     public let decision: Decision
-    public init(sessionId: String, decision: Decision) {
+    public let answers: [String: [String]]?
+    public init(sessionId: String, decision: Decision, answers: [String: [String]]? = nil) {
         self.sessionId = sessionId
         self.decision = decision
+        self.answers = answers
     }
 }
 
@@ -48,5 +50,18 @@ public struct NotificationQuestion: Codable, Sendable, Identifiable, Equatable {
     public struct Option: Codable, Sendable, Equatable {
         public let label: String
         public let description: String?
+    }
+}
+
+/// Matches the server's answer contract before sending choices from the wrist.
+public func validNotificationAnswers(_ answers: [String: [String]]?, questions: [NotificationQuestion]) -> Bool {
+    guard let answers, answers.count == questions.count else { return false }
+    return questions.allSatisfy { question in
+        guard let values = answers[question.id], !values.isEmpty, values.count <= 9,
+              question.multiSelect == true || values.count == 1 else { return false }
+        return values.allSatisfy { value in
+            !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && value.utf16.count <= 4000 &&
+            (question.allowFreeform != false || question.options.contains { $0.label == value })
+        }
     }
 }

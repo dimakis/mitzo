@@ -13,6 +13,7 @@ import {
   captureAgentLibraryOperation,
 } from './agent-library-transport.js';
 import { agentToolAllowed } from './agent-tool-selection.js';
+import { sessionToolOperatorConnection } from './native-host-tool-operator.js';
 import type { ProfileToolCall } from './session-profile-tools.js';
 import { taskExecutionSchema } from './task-execution-definitions.js';
 import { getTaskExecutionStore } from './task-execution-runtime.js';
@@ -23,14 +24,7 @@ import { assertTaskOperator, memberScope, publicGrant } from './task-execution-s
 import { executeTaskOperation } from './task-execution-operation.js';
 import { taskExecutionFailure, TaskExecutionRefusal } from './task-execution-failure.js';
 import { retainCallbackOutcome } from './turn-callbacks.js';
-import { retainedNativeHostToolOperator } from './native-host-tool-operator.js';
 const log = createLogger('task-execution');
-
-// Native tools belong to the admitted chat login, independently of its viewer.
-// A released retained identity must fail authentication rather than use a viewer.
-const operatorConnection = ({ session, clientId }: { session: ManagedSession; clientId: string }) =>
-  retainedNativeHostToolOperator(session) ?? session.ownerConnectionId ?? clientId.split(':')[0];
-
 /** One host adapter for SDK/Vertex, Responses and native Local/OpenShell calls.
  * A grant ID is only a locator; signed operator and actual workspace identity
  * are independently checked on every call and before each effect.
@@ -78,7 +72,7 @@ export function sessionTaskExecutionTools(options: {
           return current;
         };
         const source = owner();
-        const connectionId = operatorConnection(source);
+        const connectionId = sessionToolOperatorConnection(source.session, source.clientId);
         const captured = captureAgentLibraryAuthorization(connectionId);
         assertTaskOperator(session, captured.auth.id);
         operation = captureAgentLibraryOperation(connectionId);
@@ -93,7 +87,8 @@ export function sessionTaskExecutionTools(options: {
           captured.assertCurrent();
           assertTaskOperator(session, captured.auth.id);
           const next = owner();
-          if (operatorConnection(next) !== connectionId) throw Error('Task operator changed');
+          if (sessionToolOperatorConnection(next.session, next.clientId) !== connectionId)
+            throw Error('Task operator changed');
           return next;
         };
         await options.assertRuntimeCurrent();
@@ -144,7 +139,7 @@ export function sessionTaskExecutionTools(options: {
               registry.isClosingOut(target.clientId)
             )
               throw Error('Selected task worker is not live');
-            const peerConnection = operatorConnection(target);
+            const peerConnection = sessionToolOperatorConnection(target.session, target.clientId);
             const peer = captureAgentLibraryAuthorization(peerConnection);
             peer.assertCurrent();
             if (peer.auth.id !== captured.auth.id)

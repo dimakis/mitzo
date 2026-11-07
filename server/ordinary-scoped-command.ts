@@ -17,6 +17,7 @@ import {
   sendOwnedOpenShellCodexCommand,
 } from './ordinary-openshell-codex-entry.js';
 import { sessionHarnessForProvider } from './session-harness-routing.js';
+import type { OrdinaryTurnLifecycle } from './ordinary-turn-lifecycle.js';
 
 type LocalOptions = Parameters<typeof startOwnedLocalCodexCommand>[2];
 export interface OwnedOrdinaryDispatchInput {
@@ -38,6 +39,7 @@ export interface OwnedOrdinaryDispatchInput {
   profile?: AgentLibraryVersion;
   sandboxWorkdir?: string;
   onSessionPrepared?: LocalOptions['onSessionPrepared'];
+  ordinaryTurnLifecycle?: OrdinaryTurnLifecycle;
   onQueryEvent?: LocalOptions['onQueryEvent'];
   onTerminalOutcome?: LocalOptions['onTerminalOutcome'];
   onEnded?: LocalOptions['onEnded'];
@@ -174,6 +176,9 @@ export async function dispatchOwnedOrdinaryCommand(input: OwnedOrdinaryDispatchI
             resume: continuation,
             recovery: input.recovery,
             ...(input.onSessionPrepared ? { onSessionPrepared: input.onSessionPrepared } : {}),
+            ...(input.ordinaryTurnLifecycle
+              ? { ordinaryTurnLifecycle: input.ordinaryTurnLifecycle }
+              : {}),
             ...(input.onQueryEvent ? { onQueryEvent: input.onQueryEvent } : {}),
             ...(input.onTerminalOutcome ? { onTerminalOutcome: input.onTerminalOutcome } : {}),
             ...(input.onEnded ? { onEnded: input.onEnded } : {}),

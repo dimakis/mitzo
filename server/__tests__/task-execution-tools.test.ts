@@ -55,7 +55,6 @@ function fixture(auth = { id: 'operator', expiresAt: Date.now() + 600_000 }) {
   const registry = new SessionRegistry();
   cleanup.push(() => registry.dispose());
   const sent: Record<string, unknown>[] = [];
-  const viewers = new Map<string, () => void>();
   for (const name of ['parent', 'worker', 'stranger']) {
     mkdirSync(join(root, name));
     registry.register(name + ':' + name, {
@@ -67,9 +66,7 @@ function fixture(auth = { id: 'operator', expiresAt: Date.now() + 600_000 }) {
       abortController: new AbortController(),
       ownedLocalAuthSessionId: auth.id,
     });
-    const release = bindAgentLibraryTransport(name, auth);
-    viewers.set(name, release);
-    cleanup.push(release);
+    cleanup.push(bindAgentLibraryTransport(name, auth));
   }
   const tools = (id: string, prefix = '') =>
     sessionTaskExecutionTools({
@@ -101,79 +98,31 @@ function fixture(auth = { id: 'operator', expiresAt: Date.now() + 600_000 }) {
     expect(result.isError, result.content).toBe(false);
     return JSON.parse(result.content).grant;
   }
-  return { root, store, registry, sent, tools, call, signal, request, authorize, auth, viewers };
+  return { root, store, registry, sent, tools, call, signal, request, authorize, auth };
 }
-
-function retainOperator(f: ReturnType<typeof fixture>, id: string) {
-  const release = retainNativeHostToolOperator(f.registry.findBySessionId(id)!.session, id);
-  cleanup.push(release);
-  return release;
-}
-
-it.each([false, true])(
-  'retains one native task approval (disconnect before approval=%s)',
-  async (disconnectBeforeApproval) => {
-    const f = fixture();
-    for (const id of ['parent', 'worker']) {
-      retainOperator(f, id);
-      if (disconnectBeforeApproval) f.viewers.get(id)!();
-    }
-    const grant = await f.authorize();
-    if (!disconnectBeforeApproval) {
-      for (const id of ['parent', 'worker']) f.viewers.get(id)!();
-    }
-    const status = await f.tools('parent').execute({ operation: 'status' }, f.signal);
-    expect(status.isError, status.content).toBe(false);
-    expect(JSON.parse(status.content).grants.map((entry: { id: string }) => entry.id)).toEqual([
-      grant.id,
-    ]);
-    for (const command of ['npm test', 'npm run lint']) {
-      const result = await f
-        .tools('worker')
-        .execute(
-          { operation: 'run', grantId: grant.id, requestId: randomUUID(), command },
-          f.signal,
-          f.call,
-        );
-      expect(result.isError, result.content).toBe(false);
-    }
-    expect(execution.calls).toHaveLength(2);
-    expect(f.sent.filter((event) => event.type === 'permission_request')).toHaveLength(1);
-  },
-);
-
-it('never substitutes a connected viewer for a released retained task operator', async () => {
-  const f = fixture();
-  const release = retainOperator(f, 'worker');
-  expect((await f.tools('worker').execute({ operation: 'status' }, f.signal)).isError).toBe(false);
-  release();
-  const result = await f.tools('worker').execute({ operation: 'status' }, f.signal);
-  expect(result.isError).toBe(true);
-  expect(JSON.parse(result.content).code).toBe('operator_authentication_required');
-  expect(execution.calls).toHaveLength(0);
-  expect(f.sent).toHaveLength(0);
+it('authorizes detached retained workers and executes their grant after viewer replacement', async () => {
+  const f = fixture({ id: randomUUID(), expiresAt: Date.now() + 600000 });
+  for (const id of ['parent', 'worker']) {
+    const session = f.registry.findBySessionId(id)!.session;
+    cleanup.push(retainNativeHostToolOperator(session, id));
+    session.ownerConnectionId = 'disconnected-' + id;
+  }
+  const grant = await f.authorize();
+  const result = await f.tools('worker').execute(
+    {
+      operation: 'run',
+      grantId: grant.id,
+      requestId: randomUUID(),
+      command: 'npm test',
+    },
+    f.signal,
+    f.call,
+  );
+  expect(result.isError, result.content).toBe(false);
+  expect(execution.calls).toHaveLength(1);
+  revokeAuthSession(f.auth);
+  expect((await f.tools('worker').execute({ operation: 'status' }, f.signal)).isError).toBe(true);
 });
-
-it.each(['revocation', 'expiry'])(
-  'preserves retained task operator %s after viewer disconnect',
-  async (reason) => {
-    const f = fixture({ id: randomUUID(), expiresAt: Date.now() + 60_000 });
-    retainOperator(f, 'worker');
-    f.viewers.get('worker')!();
-    const status = await f.tools('worker').execute({ operation: 'status' }, f.signal);
-    expect(status.isError, status.content).toBe(false);
-    if (reason === 'revocation') revokeAuthSession(f.auth);
-    else {
-      vi.useFakeTimers({ toFake: ['Date'] });
-      vi.setSystemTime(f.auth.expiresAt + 1);
-    }
-    const result = await f.tools('worker').execute({ operation: 'status' }, f.signal);
-    expect(result.isError).toBe(true);
-    expect(JSON.parse(result.content).code).toBe('operator_authentication_required');
-    expect(execution.calls).toHaveLength(0);
-  },
-);
-
 it.each(['disconnected', 'expired'])(
   'explains %s operator authentication without circular status recovery',
   async (reason) => {
@@ -299,22 +248,11 @@ it.each(['runner', 'authentication'])(
     expect(execution.calls).toHaveLength(1);
   },
 );
-it.each([
-  ['revocation', false],
-  ['expiry', false],
-  ['revocation', true],
-  ['expiry', true],
-] as const)(
-  'reports actual in-flight login %s as authentication loss (retained=%s)',
-  async (reason, retained) => {
+it.each(['revocation', 'expiry'])(
+  'reports actual in-flight login %s as authentication loss',
+  async (reason) => {
     vi.useFakeTimers();
     const f = fixture({ id: randomUUID(), expiresAt: Date.now() + 60_000 });
-    if (retained) {
-      for (const id of ['parent', 'worker']) {
-        retainOperator(f, id);
-        f.viewers.get(id)!();
-      }
-    }
     const grant = await f.authorize();
     execution.waitForAbort = true;
     const requestId = randomUUID();

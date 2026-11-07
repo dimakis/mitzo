@@ -251,6 +251,7 @@ export async function startOwnedOpenShellCodexCommand(
         resolveOwnedTelosWorkCommandScope(sessionId);
         if (prepared || closed) throw unavailable();
         prepared = await prepareOwnedCodexChat(transport, clientId, dispatch, {
+          operatorConnectionId: input.operatorConnectionId,
           ownerConnectionId: input.ownerConnectionId,
           ownerAuthSessionId: captured.auth.id,
           onEnded: close,
