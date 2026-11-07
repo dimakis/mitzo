@@ -1,4 +1,5 @@
 import { codexStoredAccountKey } from './codex-stored-account.js';
+import { ToolFailureSchema, type ToolFailure } from '@mitzo/protocol';
 import { reauthorizeHostLoginStore } from './host-codex-login-reauthorization-store.js';
 import type { HostCodexLoginReauthorization } from './host-codex-login-reauthorization.js';
 import { callbackOutcome, retainCallbackOutcome } from './turn-callbacks.js';
@@ -163,6 +164,15 @@ const AgentContextAdoption = z.strictObject({
 });
 export type AgentContextAdoptionSelection = z.infer<typeof AgentContextAdoption>;
 
+const ToolFailureContinuation = z.strictObject({
+  sourceCommandId: z.string().min(1).max(200),
+  sourceTurnId: RuntimeString,
+  sourceThreadId: RuntimeString,
+  sourceGeneration: z.number().int().nonnegative(),
+  sourceAttempt: z.number().int().positive(),
+  failureId: z.string().min(1).max(200),
+  failure: ToolFailureSchema,
+});
 const CommandInput = z
   .object({
     id: z.string().min(1).max(200),
@@ -174,6 +184,7 @@ const CommandInput = z
     reasoningEffort: z.string().min(1).max(32).nullable().optional(),
     images: ChatImagesSchema.optional(),
     allowedTools: z.array(z.string()).optional(),
+    toolFailureContinuation: ToolFailureContinuation.optional(),
     environmentContinuation: z
       .object({
         sourceCommandId: z.string().min(1),
@@ -429,6 +440,9 @@ function idempotencyInput(input: CodexCommandInput, includeIntent: boolean): str
     ...(input.reasoningEffort !== undefined ? { reasoningEffort: input.reasoningEffort } : {}),
     ...(input.images !== undefined ? { images: input.images } : {}),
     ...(input.allowedTools !== undefined ? { allowedTools: input.allowedTools } : {}),
+    ...(input.toolFailureContinuation
+      ? { toolFailureContinuation: input.toolFailureContinuation }
+      : {}),
     ...(input.environmentContinuation
       ? { environmentContinuation: input.environmentContinuation }
       : {}),
@@ -627,6 +641,15 @@ export class CodexConversationStore {
         PRIMARY KEY(conversation_id,call_id),
         FOREIGN KEY(conversation_id,command_id) REFERENCES codex_commands(conversation_id,id));
       CREATE INDEX IF NOT EXISTS codex_commands_queue_status ON codex_commands(conversation_id,status,sequence);`);
+    this.db.exec(`CREATE TABLE IF NOT EXISTS codex_tool_failures (
+      conversation_id TEXT NOT NULL, command_id TEXT NOT NULL, attempt INTEGER NOT NULL,
+      call_id TEXT NOT NULL, target TEXT NOT NULL, failure TEXT NOT NULL, origin TEXT NOT NULL,
+      PRIMARY KEY(conversation_id,command_id,attempt,call_id),
+      FOREIGN KEY(conversation_id,command_id) REFERENCES codex_commands(conversation_id,id));`);
+    this.db.exec(`CREATE TABLE IF NOT EXISTS codex_tool_failure_suppressions (
+      conversation_id TEXT NOT NULL, command_id TEXT NOT NULL, attempt INTEGER NOT NULL,
+      target TEXT NOT NULL, PRIMARY KEY(conversation_id,command_id,attempt),
+      FOREIGN KEY(conversation_id,command_id) REFERENCES codex_commands(conversation_id,id));`);
     this.db.exec(`CREATE TABLE IF NOT EXISTS codex_steering (
       conversation_id TEXT NOT NULL REFERENCES codex_conversations(id),
       request_id TEXT NOT NULL, input TEXT NOT NULL, target TEXT NOT NULL, status TEXT NOT NULL,
@@ -2116,7 +2139,8 @@ export class CodexConversationStore {
           .prepare(
             `UPDATE codex_commands SET status='cancelled'
           WHERE conversation_id=? AND status='queued'
-          AND json_extract(input, '$.environmentContinuation') IS NOT NULL`,
+          AND (json_extract(input, '$.environmentContinuation') IS NOT NULL
+            OR json_extract(input, '$.toolFailureContinuation') IS NOT NULL)`,
           )
           .run(id);
         const recovery = this.capacityRecovery(id, b);
@@ -2141,6 +2165,265 @@ export class CodexConversationStore {
       return true;
     })();
   }
+  private toolFailureSourceTarget(
+    id: string,
+    binding: AccountBinding,
+    commandId: string,
+  ): CodexNativeTurnTarget | undefined {
+    const state = this.read(id, binding);
+    const row = this.db
+      .prepare(
+        'SELECT status,attempt,native_turns FROM codex_commands WHERE conversation_id=? AND id=?',
+      )
+      .get(id, commandId) as
+      { status: string; attempt: number; native_turns: string | null } | undefined;
+    if (
+      !row ||
+      !['running', 'completed'].includes(row.status) ||
+      state.recovery ||
+      this.pendingThreadOwnership(id, binding)
+    )
+      return;
+    const turns = this.nativeTurns(row.native_turns).filter((turn) => turn.attempt === row.attempt);
+    if (turns.length !== 1) return;
+    const target = this.nativeTarget(commandId, turns[0]);
+    if (target.threadId !== state.threadId || target.generation !== state.threadGeneration) return;
+    const execution = this.readNativeExecution(id, binding, {
+      id: commandId,
+      attempt: row.attempt,
+    });
+    if (
+      execution &&
+      (execution.phase !== 'accepted' ||
+        execution.threadId !== target.threadId ||
+        execution.turnId !== target.turnId ||
+        execution.generation !== target.generation)
+    )
+      return;
+    return target;
+  }
+  /** Trusted original-owner observation, never inferred from tool text. Host
+   * results also require the durable private settlement receipt. */
+  recordToolFailure(
+    id: string,
+    binding: AccountBinding,
+    commandId: string,
+    turnId: string,
+    callId: string,
+    raw: ToolFailure,
+    origin: 'native_approval' | 'host_tool',
+  ): void {
+    this.read(id, binding);
+    const command = this.commands(id, binding).find((row) => row.id === commandId);
+    if (!command || command.status !== 'running' || command.toolFailureContinuation) return;
+    const target = this.nativeTurnTarget(id, binding, commandId, command.attempt);
+    if (!target || target.turnId !== turnId) throw Error('Tool failure source changed');
+    const failure = ToolFailureSchema.parse(raw);
+    if (
+      origin === 'host_tool' &&
+      !this.db
+        .prepare(
+          `SELECT 1 FROM codex_tools
+      WHERE conversation_id=? AND command_id=? AND call_id=? AND turn_id=?
+      AND result_is_error=1 AND result_effect_outcome='settled'`,
+        )
+        .get(id, commandId, callId, turnId)
+    )
+      throw Error('Tool failure has no settled host receipt');
+    if (
+      origin === 'native_approval' &&
+      !['approval_expired', 'permission_denied', 'cancelled'].includes(failure.code)
+    )
+      throw Error('Invalid native approval failure');
+    const old = this.db
+      .prepare(
+        `SELECT target,failure,origin FROM codex_tool_failures
+      WHERE conversation_id=? AND command_id=? AND attempt=? AND call_id=?`,
+      )
+      .get(id, commandId, command.attempt, callId) as
+      { target: string; failure: string; origin: string } | undefined;
+    const values = { target: JSON.stringify(target), failure: JSON.stringify(failure), origin };
+    if (old && !isDeepStrictEqual(old, values)) throw Error('Tool failure receipt conflict');
+    if (!old)
+      this.db
+        .prepare('INSERT INTO codex_tool_failures VALUES (?,?,?,?,?,?,?)')
+        .run(id, commandId, command.attempt, callId, values.target, values.failure, origin);
+  }
+
+  /** Negative-only original-owner observation, including terminal native items.
+   * It cannot qualify an operation for recovery or settle any effect. */
+  recordToolFailureRecoverySuppression(
+    id: string,
+    binding: AccountBinding,
+    commandId: string,
+    turnId: string,
+  ): void {
+    const target = this.toolFailureSourceTarget(id, binding, commandId);
+    if (!target || target.turnId !== turnId) throw Error('Tool failure source changed');
+    this.db
+      .prepare('INSERT OR IGNORE INTO codex_tool_failure_suppressions VALUES (?,?,?,?)')
+      .run(id, commandId, target.attempt, JSON.stringify(target));
+  }
+
+  private toolFailureRecoverySuppressed(id: string, commandId: string, attempt: number): boolean {
+    const receipts = this.db
+      .prepare(
+        `SELECT failure FROM codex_tool_failures
+      WHERE conversation_id=? AND command_id=? AND attempt=?`,
+      )
+      .all(id, commandId, attempt) as { failure: string }[];
+    return (
+      !!this.db
+        .prepare(
+          'SELECT 1 FROM codex_tool_failure_suppressions WHERE conversation_id=? AND command_id=? AND attempt=?',
+        )
+        .get(id, commandId, attempt) ||
+      !!this.db
+        .prepare(
+          `SELECT 1 FROM codex_tools WHERE conversation_id=? AND command_id=?
+      AND (result_content IS NULL OR result_effect_outcome='unknown'
+        OR (result_is_error=1 AND coalesce(result_effect_outcome,'unknown')<>'settled')) LIMIT 1`,
+        )
+        .get(id, commandId) ||
+      receipts.some((receipt) => {
+        const failure = ToolFailureSchema.parse(JSON.parse(receipt.failure));
+        return (
+          failure.effectStatus === 'unknown' ||
+          ['permission_denied', 'cancelled'].includes(failure.code) ||
+          ['none', 'reconnect', 'inspect_operation'].includes(failure.recovery)
+        );
+      })
+    );
+  }
+
+  /** At most one new reasoning turn per original command. This is not a replay
+   * of the failed operation and supplies no new permission or executor authority. */
+  queueToolFailureContinuation(
+    id: string,
+    binding: AccountBinding,
+    commandId: string,
+    turnId: string,
+    raw: ToolFailure,
+  ): CodexCommandInput | undefined {
+    return this.db.transaction(() => {
+      const state = this.read(id, binding);
+      const commands = this.commands(id, binding);
+      const source = commands.find((row) => row.id === commandId);
+      const failure = ToolFailureSchema.parse(raw);
+      if (
+        !source ||
+        source.status !== 'completed' ||
+        source.toolFailureContinuation ||
+        source.environmentContinuation ||
+        source.allowedTools ||
+        this.toolFailureRecoverySuppressed(id, commandId, source.attempt) ||
+        state.recovery ||
+        failure.effectStatus === 'unknown' ||
+        ['none', 'reconnect', 'inspect_operation'].includes(failure.recovery)
+      )
+        return;
+      const childId = `tool-recovery-${createHash('sha256')
+        .update(JSON.stringify([id, commandId]))
+        .digest('hex')}`;
+      const old = commands.find((row) => row.id === childId);
+      if (old) return old.status === 'queued' ? CommandInput.strip().parse(old) : undefined;
+      if (commands.some((row) => row.status === 'queued') || this.unsettledCommandEffects(id))
+        return;
+      if (
+        commands.filter((row) => row.status !== 'queued').at(-1)?.id !== commandId ||
+        state.lastCompletedTurnId !== turnId
+      )
+        return;
+      const target = this.toolFailureSourceTarget(id, binding, commandId);
+      if (!target || target.commandId !== commandId || target.turnId !== turnId) return;
+      const receipt = this.db
+        .prepare(
+          `SELECT call_id,target FROM codex_tool_failures
+        WHERE conversation_id=? AND command_id=? AND attempt=? AND failure=? ORDER BY rowid DESC LIMIT 1`,
+        )
+        .get(id, commandId, source.attempt, JSON.stringify(failure)) as
+        { call_id: string; target: string } | undefined;
+      if (!receipt || !isDeepStrictEqual(JSON.parse(receipt.target), target)) return;
+      const child: CodexCommandInput = {
+        id: childId,
+        prompt:
+          'The preceding turn ended after a settled tool failure without explaining the outcome. Continue the original user-authorized task by reading the retained result and explaining the failure and the next permitted step. Do not replay the failed operation, renew approval automatically, or claim it succeeded. Preserve the original scope, current permissions and any newer user instructions. If blocked, explain exactly what is needed and stop.',
+        intent: source.intent ?? source.prompt,
+        model: source.model ?? binding.model,
+        reasoningEffort: source.reasoningEffort,
+        toolFailureContinuation: {
+          sourceCommandId: commandId,
+          sourceTurnId: turnId,
+          sourceThreadId: target.threadId,
+          sourceGeneration: target.generation,
+          sourceAttempt: target.attempt,
+          failureId: receipt.call_id,
+          failure,
+        },
+      };
+      this.enqueue(id, binding, child);
+      return child;
+    })();
+  }
+
+  assertClaimedToolFailureContinuation(
+    id: string,
+    binding: AccountBinding,
+    command: CodexCommand,
+  ): void {
+    const current = this.commands(id, binding).find((row) => row.id === command.id);
+    if (!current || current.status !== 'running' || current.attempt !== command.attempt)
+      throw Error('Tool failure continuation dispatch changed');
+    this.assertToolFailureContinuation(id, binding, CommandInput.strip().parse(command));
+  }
+
+  assertToolFailureContinuation(
+    id: string,
+    binding: AccountBinding,
+    input: CodexCommandInput,
+  ): void {
+    const state = this.read(id, binding);
+    const parsed = CommandInput.parse(input);
+    const proof = parsed.toolFailureContinuation;
+    const stored = this.db
+      .prepare('SELECT input,status FROM codex_commands WHERE conversation_id=? AND id=?')
+      .get(id, parsed.id) as { input: string; status: string } | undefined;
+    if (
+      !proof ||
+      !stored ||
+      !['queued', 'running'].includes(stored.status) ||
+      JSON.stringify(CommandInput.parse(JSON.parse(stored.input))) !== JSON.stringify(parsed) ||
+      state.recovery ||
+      state.threadId !== proof.sourceThreadId ||
+      state.threadGeneration !== proof.sourceGeneration
+    )
+      throw Error('Tool failure continuation changed');
+    const source = this.commands(id, binding).find((row) => row.id === proof.sourceCommandId);
+    const target = source && this.toolFailureSourceTarget(id, binding, source.id);
+    const receipt = this.db
+      .prepare(
+        `SELECT target,failure FROM codex_tool_failures
+      WHERE conversation_id=? AND command_id=? AND attempt=? AND call_id=?`,
+      )
+      .get(id, proof.sourceCommandId, proof.sourceAttempt, proof.failureId) as
+      { target: string; failure: string } | undefined;
+    if (
+      !source ||
+      source.status !== 'completed' ||
+      source.toolFailureContinuation ||
+      this.toolFailureRecoverySuppressed(id, source.id, source.attempt) ||
+      !target ||
+      target.turnId !== proof.sourceTurnId ||
+      target.attempt !== proof.sourceAttempt ||
+      !receipt ||
+      !isDeepStrictEqual(JSON.parse(receipt.target), target) ||
+      !isDeepStrictEqual(JSON.parse(receipt.failure), proof.failure) ||
+      proof.failure.effectStatus === 'unknown' ||
+      ['none', 'reconnect', 'inspect_operation'].includes(proof.failure.recovery)
+    )
+      throw Error('Tool failure continuation source unavailable');
+  }
+
   /** Trusted host-only continuation; no model text or credential payload selects authority. */
   queueEnvironmentContinuation(
     id: string,
@@ -4671,6 +4954,8 @@ export class CodexConversationStore {
           ? commands.find((c) => c.id === recovery.childCommandId && c.status === 'queued')
           : commands.find((c) => c.status === 'queued');
       if (!next) return;
+      if (next.toolFailureContinuation)
+        this.assertToolFailureContinuation(id, b, CommandInput.strip().parse(next));
       if (next.environmentContinuation) {
         const source = commands.find(
           (command) => command.id === next.environmentContinuation!.sourceCommandId,

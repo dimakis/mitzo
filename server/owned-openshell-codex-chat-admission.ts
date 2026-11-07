@@ -1,4 +1,5 @@
 import { assembleCommandPrompt } from './message-reply-context.js';
+import { admitToolFailureContinuation } from './tool-failure-continuation.js';
 import { MessageReplyIdSchema } from '@mitzo/protocol';
 import {
   CHAT_MAX_IMAGES,
@@ -272,6 +273,26 @@ export class OwnedOpenShellCodexChatAdmission {
       payload,
       enqueued: false,
       dispatched: false,
+    });
+  }
+  admitToolFailureContinuation(input: CodexCommandInput): void {
+    this.assertCurrentSync();
+    const sourceId = input.toolFailureContinuation?.sourceCommandId;
+    const source = sourceId && this.#commands.get(sourceId);
+    if (!source || !source.dispatched) throw unavailable();
+    admitToolFailureContinuation({
+      events: this.owner.events,
+      native: this.owner.nativeStore,
+      sessionId: this.owner.sessionId,
+      account: this.owner.account,
+      location: 'openshell',
+      expected: source.expected,
+      input,
+      assertCurrent: () => this.assertCurrentSync(),
+      register: () => {
+        if (!this.#commands.has(input.id)) this.admitContinuation(input.id, source.expected);
+        if (!this.#commands.get(input.id)!.enqueued) this.assertBeforeEnqueue(input);
+      },
     });
   }
   admitContinuation(commandId: string, expected: OrdinaryOpenShellCodexExpectation) {

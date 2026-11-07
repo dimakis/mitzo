@@ -1,7 +1,7 @@
 import { expect, it, vi } from 'vitest';
 import { createCredentialSdkServer, credentialSdkPermission } from '../credential-sdk-tools.js';
 import * as credentialRuntime from '../credential-connections-runtime.js';
-import { SessionRegistry } from '@mitzo/harness';
+import { SessionRegistry, ToolGuardTimeoutError, type ToolGuardPolicy } from '@mitzo/harness';
 import { TurnCallbacks, assertTurnCallbackEffects } from '../turn-callbacks.js';
 const mocked = vi.hoisted(() => ({
   tools: [] as Array<{
@@ -54,7 +54,7 @@ it('exposes the same discovery, session approval and request tools to SDK sessio
   expect(JSON.stringify(result)).toContain('connections');
 });
 
-function callbackSdkFixture() {
+function callbackSdkFixture(toolGuardPolicy?: Readonly<ToolGuardPolicy>) {
   const effect = vi.fn(async () => '{"ok":true}');
   const send = async (...args: unknown[]) => {
     await (args[5] as () => Promise<void>)();
@@ -94,6 +94,7 @@ function callbackSdkFixture() {
     assertTurnCallbackEffects();
   };
   createCredentialSdkServer(() => 'chat', session, registry, {
+    toolGuardPolicy,
     connectionBoundary: 'sdk-callback',
     runCallback: (work) => callbacks.track(work),
     assertCurrent: async (signal) => {
@@ -142,6 +143,36 @@ const callbackConnectionCases = [
     },
   },
 ] satisfies Array<{ name: string; input: Record<string, unknown> }>;
+
+it('bounds a stuck SDK tool and prevents its late effect after the deadline', async () => {
+  const f = callbackSdkFixture({ executionMs: 20, approvalMs: 100, cleanupMs: 20 });
+  let release!: () => void;
+  f.service.websocketRequest.mockImplementationOnce(async (...args: unknown[]) => {
+    await new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    await (args[5] as () => Promise<void>)();
+    return f.effect();
+  });
+  try {
+    await expect(
+      f.call('ConnectionWebSocket', { connectionId: 'ha', message: '{}' }),
+    ).rejects.toBeInstanceOf(ToolGuardTimeoutError);
+    expect(
+      await f.call('ConnectionWebSocket', { connectionId: 'ha', message: '{}' }),
+    ).toMatchObject({ isError: true });
+    expect(f.service.websocketRequest).toHaveBeenCalledOnce();
+    release();
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    expect(f.effect).not.toHaveBeenCalled();
+    await expect(f.callbacks.settle(new AbortController().signal)).rejects.toMatchObject({
+      code: 'callbacks_failed',
+    });
+  } finally {
+    release?.();
+    f.close();
+  }
+});
 
 it.each(callbackConnectionCases)(
   'retains legacy $name through the registered callback-fenced SDK handler',

@@ -1,4 +1,5 @@
 import type { ContextCompaction, SourceSnapshot } from '@mitzo/protocol';
+import { ToolFailureSchema, toolFailureAction } from '@mitzo/protocol';
 import { observeSessionActivity } from './session-activity-events.js';
 import { randomUUID } from 'node:crypto';
 import type { SessionTransport, ConnectionRegistry } from '@mitzo/harness';
@@ -879,13 +880,16 @@ async function _runQueryLoopInner(
           primaryModels.clear();
           turnAccountBinding = undefined;
           const providerFailure = isError ? result.provider_failure : undefined;
-          if (msg.tool_failure_notice === true && !providerFailure)
+          if (msg.tool_failure_notice === true && !providerFailure) {
+            const failure = ToolFailureSchema.safeParse(msg.tool_failure);
             emit(
               v2('error', {
-                error:
-                  'The last tool did not finish successfully and the agent ended the turn without a follow-up. You can send a message to continue. Check the tool result before retrying.',
+                error: failure.success
+                  ? toolFailureAction(failure.data)
+                  : 'The last tool did not finish successfully and the agent ended the turn without a follow-up. You can send a message to continue. Check the tool result before retrying.',
               }),
             );
+          }
           caughtError ||= isError;
           if (isError) {
             reportTerminalOutcome(

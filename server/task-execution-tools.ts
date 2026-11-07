@@ -21,7 +21,8 @@ import { createLogger } from './logger.js';
 
 import { assertTaskOperator, memberScope, publicGrant } from './task-execution-scope.js';
 import { executeTaskOperation } from './task-execution-operation.js';
-import { taskExecutionFailure } from './task-execution-failure.js';
+import { taskExecutionFailure, TaskExecutionRefusal } from './task-execution-failure.js';
+import { retainCallbackOutcome } from './turn-callbacks.js';
 const log = createLogger('task-execution');
 /** One host adapter for SDK/Vertex, Responses and native Local/OpenShell calls.
  * A grant ID is only a locator; signed operator and actual workspace identity
@@ -193,7 +194,8 @@ export function sessionTaskExecutionTools(options: {
               },
             );
             assertScope();
-            if (decision.behavior !== 'allow') throw Error(decision.message);
+            if (decision.behavior !== 'allow')
+              throw new TaskExecutionRefusal('permission_denied', 'approval', decision.message);
             if (!isDeepStrictEqual(decision.updatedInput, display))
               throw Error('Task authorization input changed during approval');
           }
@@ -249,7 +251,13 @@ export function sessionTaskExecutionTools(options: {
           },
         });
       } catch (error) {
-        const failure = taskExecutionFailure(error, operationName, requestId, effectMayHaveStarted);
+        const failure = taskExecutionFailure(
+          error,
+          operationName,
+          requestId,
+          effectMayHaveStarted,
+          externalSignal.aborted || options.session.abortController.signal.aborted,
+        );
         log.warn('Task execution refused or failed', {
           sessionId: options.sessionId,
           operation: failure.operation,
@@ -258,10 +266,13 @@ export function sessionTaskExecutionTools(options: {
           effectStatus: failure.effectStatus,
           cause: failure.error,
         });
-        return {
-          content: JSON.stringify(failure),
-          isError: true,
-        };
+        return retainCallbackOutcome(
+          {
+            content: JSON.stringify(failure),
+            isError: true,
+          },
+          failure.effectStatus === 'not_started' ? 'settled' : 'unknown',
+        );
       } finally {
         operation?.dispose();
       }

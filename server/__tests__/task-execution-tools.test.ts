@@ -133,6 +133,42 @@ it.each(['disconnected', 'expired'])(
     expect(execution.calls).toHaveLength(0);
   },
 );
+
+it('preserves an explicit task authorization denial without automatic recovery', async () => {
+  const f = fixture();
+  const pending = f.tools('parent').execute(f.request, f.signal, f.call);
+  await vi.waitFor(() =>
+    expect(f.sent.some((event) => event.type === 'permission_request')).toBe(true),
+  );
+  const card = f.sent.find((event) => event.type === 'permission_request')!;
+  resolvePending(card.permId as string, 'deny', undefined, 'parent');
+  const result = await pending;
+  expect(result.isError).toBe(true);
+  expect(JSON.parse(result.content).failure).toMatchObject({
+    code: 'permission_denied',
+    phase: 'approval',
+    effectStatus: 'not_started',
+    recovery: 'none',
+  });
+  expect(execution.calls).toHaveLength(0);
+});
+
+it('classifies invalid task input and cancellation before execution', async () => {
+  const f = fixture();
+  const invalid = await f.tools('parent').execute({ operation: 'missing' }, f.signal, f.call);
+  expect(JSON.parse(invalid.content).failure).toMatchObject({
+    code: 'invalid_input',
+    effectStatus: 'not_started',
+    recovery: 'correct_input',
+  });
+  const cancelled = AbortSignal.abort();
+  const result = await f.tools('parent').execute({ operation: 'status' }, cancelled);
+  expect(JSON.parse(result.content).failure).toMatchObject({
+    code: 'cancelled',
+    effectStatus: 'not_started',
+    recovery: 'none',
+  });
+});
 it('does not describe a rejected request as uncertain execution', async () => {
   const f = fixture();
   f.registry.findBySessionId('worker')!.session.mode = 'ask';

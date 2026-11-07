@@ -1,4 +1,5 @@
 import { isDeepStrictEqual } from 'node:util';
+import { toolFailure, type ToolFailure } from '@mitzo/protocol';
 import type { CodexServerRequestContext } from './codex-app-server-client.js';
 import {
   NativeApprovalRequestSchema,
@@ -41,6 +42,8 @@ export type ApprovePreparedWorkspaceGrant = (
 ) => Promise<PreparedWorkspaceGrant | undefined>;
 
 export interface CodexNativeApprovalContext extends CodexServerRequestContext {
+  /** Original command observer, never supplied by the provider. */
+  observeFailure?(failure: ToolFailure): void;
   readonly subagentName?: string;
   readonly commandId?: string;
   readonly threadId: string;
@@ -81,6 +84,9 @@ export function createCodexNativeApprovalHandler(options: {
     context: CodexNativeApprovalContext,
   ): Promise<Record<string, unknown>> => {
     let returningDenial = false;
+    let commandKind: 'command' | 'writeStdin' | undefined;
+    let preExecutionCommand = false;
+    let explicitDenial = false;
     let grantResponse: Record<string, unknown> | undefined;
     const grant = (response: Record<string, unknown>) => {
       grantResponse = parseNativeApprovalResponse(method, response);
@@ -88,6 +94,25 @@ export function createCodexNativeApprovalHandler(options: {
     };
     const deny = (cancel = false): Record<string, unknown> => {
       returningDenial = true;
+      if (commandKind) {
+        try {
+          context.observeFailure?.(
+            toolFailure(
+              signal.aborted || cancel
+                ? 'cancelled'
+                : explicitDenial
+                  ? 'permission_denied'
+                  : Date.now() >= Number(params.startedAtMs) + timeoutMs
+                    ? 'approval_expired'
+                    : 'permission_denied',
+              'approval',
+              preExecutionCommand ? 'not_started' : 'unknown',
+            ),
+          );
+        } catch {
+          /* Missing observation cannot grant permission or certify recovery. */
+        }
+      }
       return method === 'item/permissions/requestApproval'
         ? { permissions: {}, scope: 'turn' }
         : {
@@ -104,6 +129,15 @@ export function createCodexNativeApprovalHandler(options: {
     const parsed = NativeApprovalRequestSchema.safeParse({ method, id: context.requestId, params });
     if (!parsed.success) return deny();
     const request = parsed.data;
+    if (request.method === 'item/commandExecution/requestApproval') {
+      commandKind = request.params.kind;
+      // Subcommand and managed-network callbacks can occur after earlier effects
+      // within this same parent item; declining this callback proves no rollback.
+      preExecutionCommand =
+        request.params.kind === 'command' &&
+        request.params.approvalId == null &&
+        request.params.networkApprovalContext == null;
+    }
     const session = registry.get(clientId);
     if (!session) return deny();
     const mode = effectivePermissionMode(session);
@@ -395,6 +429,9 @@ export function createCodexNativeApprovalHandler(options: {
           },
         },
       });
+      // Preserve an actual user rejection even if resumption crosses expiry.
+      explicitDenial =
+        result.behavior === 'deny' && result.decisionClassification === 'user_reject';
       assertCurrent();
       assertGrantCurrent();
       assertCommandCurrent();
