@@ -108,7 +108,9 @@ describe('combined Inbox', () => {
     fireEvent.click(trigger);
     const dialog = screen.getByRole('dialog', { name: 'Clean up Inbox' });
     expect(within(dialog).getByText(/across your entire inbox/i)).toBeVisible();
-    expect(within(dialog).getByText(/pending requests and unread updates stay/i)).toBeVisible();
+    expect(
+      within(dialog).getByText(/pending requests stay, including ones you've read/i),
+    ).toBeVisible();
     expect(apiFetch).not.toHaveBeenCalledWith(
       '/api/notifications/archive-resolved',
       expect.anything(),

@@ -80,7 +80,9 @@ for (const theme of ['dark', 'light'] as const) {
     await trigger.click();
     const dialog = page.getByRole('dialog', { name: 'Clean up Inbox' });
     await expect(dialog.getByText(/across your entire inbox/)).toBeVisible();
-    await expect(dialog.getByText(/Pending requests and unread updates stay/)).toBeVisible();
+    await expect(
+      dialog.getByText(/Pending requests stay, including ones you've read/),
+    ).toBeVisible();
     expect(writes).toEqual([]);
     await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
     await expect(trigger).toBeFocused();

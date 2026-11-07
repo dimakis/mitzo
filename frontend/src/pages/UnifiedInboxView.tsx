@@ -394,12 +394,11 @@ export function UnifiedInboxView({ desktop = false }: { desktop?: boolean } = {}
       {cleanupOpen && (
         <HomeDialog title="Clean up Inbox" onClose={() => setCleanupOpen(false)}>
           <p>
-            Archive resolved requests and read updates across your entire inbox, including other
-            views.
+            Archive resolved items and read updates across your entire inbox, including other views.
           </p>
           <p>
-            Pending requests and unread updates stay. Nothing is deleted. Archived items can be
-            restored from Archive.
+            Pending requests stay, including ones you've read. Other items move only after they've
+            been read or resolved. Nothing is deleted. Archived items can be restored from Archive.
           </p>
           {cleanupError && (
             <p role="alert" className="workspace-load-error">

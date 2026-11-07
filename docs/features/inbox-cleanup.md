@@ -6,7 +6,7 @@ cleanup applies to the entire Inbox, including other views.
 
 The shared confirmation dialog explains the operation before **Archive read and
 resolved** is pressed. The server archives resolved records and read updates;
-pending requests and unread updates remain. Nothing is deleted, and archived
+pending requests and unread, unresolved updates remain. Nothing is deleted, and archived
 items remain recoverable in Archive. The result reports the actual archived count.
 A failure retains its explanation and requires closing/reviewing before another
 attempt. Authentication loss closes the dialog and suppresses late results.
