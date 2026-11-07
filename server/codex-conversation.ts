@@ -640,15 +640,7 @@ export class CodexConversation {
     const generation = this.transportGeneration;
     const binding = this.binding;
     const scope = subagentScope(this.opts.conversationId, binding);
-    // Receipts belong to children, but one transcript marker represents a command.
-    // Reconcile before restoration can receive a new sibling or descendant.
-    for (const child of this.opts.store.subagents.list(scope))
-      if (
-        child.rootThreadId === this.threadId &&
-        child.policyRevision === this.opts.nativeExecution.policyRevision &&
-        child.activityAnchored !== false
-      )
-        this.subagentAnchors.add(child.commandId);
+    let anchorsReconciled = false;
     this.subagentOwner = new CodexSubagents({
       scope,
       store: this.opts.store.subagents,
@@ -742,6 +734,19 @@ export class CodexConversation {
       onChild: (child) => {
         if (!this.mapper) return false;
         if (this.subagentAnchors.has(child.commandId)) return true;
+        if (!anchorsReconciled) {
+          // Receipts belong to children, but one marker represents a command.
+          // Reconcile before emission, within the child's reporting boundary.
+          for (const retained of this.opts.store.subagents.list(scope))
+            if (
+              retained.rootThreadId === this.threadId &&
+              retained.policyRevision === this.opts.nativeExecution?.policyRevision &&
+              retained.activityAnchored !== false
+            )
+              this.subagentAnchors.add(retained.commandId);
+          anchorsReconciled = true;
+          if (this.subagentAnchors.has(child.commandId)) return true;
+        }
         const toolId = this.mapper.toolStart(child.threadId, 'Agent', {
           description: 'Subagents',
           subagent_type: 'Codex',

@@ -406,8 +406,7 @@ it.each([false, true])(
   },
 );
 
-it('emits a durable child activity marker before native inspection can fail', async () => {
-  const f = await setup(undefined, undefined, undefined, undefined, async () => binding);
+function enableSubagentFixture(f: Awaited<ReturnType<typeof setup>>) {
   Object.assign(f.conversationOptions, {
     enableNativeSubagents: true,
     nativeExecution: codexNativeExecutionPolicy({
@@ -421,6 +420,35 @@ it('emits a durable child activity marker before native inspection can fail', as
     assertNativeExecutionCurrent: () => {},
     requestNativeApproval: async () => ({ decision: 'decline' }),
   });
+}
+
+it('contains anchor reconciliation storage failures without closing the parent transport', async () => {
+  const f = await setup(undefined, undefined, undefined, undefined, async () => binding);
+  enableSubagentFixture(f);
+  await f.c.send({ id: 'anchor-failure-command', prompt: 'Review' });
+  vi.spyOn(f.store.subagents, 'list').mockImplementationOnce(() => {
+    throw Error('private reconciliation failure');
+  });
+  const requests = f.rpc.request.mock.calls.length;
+  expect(() =>
+    f.callbacks.onNotification('thread/started', {
+      thread: { id: 'unanchored-child', parentThreadId: f.getProviderThread() },
+    }),
+  ).not.toThrow();
+  await f.c.getSubagents()!.settled();
+  expect(f.c.queue()[0].status).toBe('running');
+  expect(f.c.getSubagents()!.list()[0]).toMatchObject({
+    available: false,
+    inspectionFailure: { stage: 'events' },
+  });
+  expect(f.rpc.request.mock.calls).toHaveLength(requests);
+  expect(f.onTransportClosed).not.toHaveBeenCalled();
+  expect(f.execute).not.toHaveBeenCalled();
+});
+
+it('emits a durable child activity marker before native inspection can fail', async () => {
+  const f = await setup(undefined, undefined, undefined, undefined, async () => binding);
+  enableSubagentFixture(f);
   await f.c.send({ id: 'visible-child-command', prompt: 'Review' });
   const original = f.rpc.request.getMockImplementation()!;
   f.rpc.request.mockImplementation(async (method, params) => {
