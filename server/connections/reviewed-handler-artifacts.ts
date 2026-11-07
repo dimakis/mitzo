@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.940-tool-guard-session-integration';
+  'v1.0.941-file-preview-10mib';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -1972,7 +1972,8 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../session-access.ts': 'feeeea5ffcf16bb1c4542191a74d5eebde2ea2dbcac7cf0e5315d05e2249b1dc',
   '../session-metadata-error.ts':
     '377bd861f0e48e022fb49fb8c021e14f2da8d921f9d61c9fa738f31080596eae',
-  '../app.ts': '6803077eec4cd344a14bc0436716467b1cabbae980428ea9f34475ad00757184',
+  '../app.ts': '828ff7f7ed0d2fc6bed254f4aace9a4f98ba5715dbe319cd4235b1b250ef667e',
+  '../file-preview-limits.ts': 'e8b777c6550c382e50363d6b0bb078a81f5857791abf23877eb236dcbdd33e8c',
   '../auth-check-tracing.ts': '067dc344d8ee76ffe39739a99076f614711ca3d11f96682c842c596a7bbd112e',
   '../telemetry-relay.ts': '302bf6cec2b988ae71a123a5dd04d0f2266a82c3ee51873ec64d8be452c25427',
   '../symposium-review-route-composition.ts':
@@ -2530,7 +2531,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../symposium-publication-credentials.ts':
     'e1c578eec9297cf567c6ef31ac3443ad8a36a3fb40ccda2149ac18d18362346d',
   '../openshell-artifact-reader.ts':
-    '8fca47739ca0c207647dc825ee468aa86da4379b2004905669b7dd42f100ea13',
+    'f283d158ff9334e6f95647740148f85d73ae55e3ad8fd168aabfb3a0de47f894',
   '../native-telos-artifact-operations.ts':
     'ca72cbd2123701e0d7821a06f7363cc609fc4500ecdd726aac4572f50abecf36',
   '../github-main-merge-selection.ts':

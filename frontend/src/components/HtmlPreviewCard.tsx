@@ -36,7 +36,18 @@ function HtmlPreviewCardContent({ filePath, sessionId }: Props) {
     async function load() {
       try {
         const res = await apiFetch(artifactApiUrl('read', filePath, sessionId));
-        if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+        if (!res.ok) {
+          const detail: unknown = await res.json().catch(() => null);
+          const message =
+            detail &&
+            typeof detail === 'object' &&
+            'error' in detail &&
+            typeof detail.error === 'string' &&
+            detail.error.trim()
+              ? detail.error
+              : `${res.status} ${res.statusText}`;
+          throw new Error(message);
+        }
         const data: unknown = await res.json();
         if (
           !data ||

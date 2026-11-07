@@ -254,7 +254,8 @@ beforeAll(async () => {
   mockRemoteArtifactRead.mockRejectedValue(new Error('Workspace receipt unavailable'));
   mkdirSync(TEST_REPO, { recursive: true });
   writeFileSync(join(TEST_REPO, 'test.txt'), 'hello world');
-  writeFileSync(join(TEST_REPO, 'oversized.txt'), Buffer.alloc(5 * 1024 * 1024 + 1, 'x'));
+  writeFileSync(join(TEST_REPO, 'preview-limit.html'), Buffer.alloc(10 * 1024 * 1024, 'x'));
+  writeFileSync(join(TEST_REPO, 'oversized.txt'), Buffer.alloc(10 * 1024 * 1024 + 1, 'x'));
   mkdirSync(join(TEST_REPO, 'subdir'), { recursive: true });
   writeFileSync(join(TEST_REPO, 'subdir', 'nested.txt'), 'nested content');
   mkdirSync(SESSION_ARTIFACT_ROOT, { recursive: true });
@@ -1219,13 +1220,23 @@ describe('file routes', () => {
     expect(res.body.ext).toBe('.txt');
   });
 
+  it('GET /api/files/read — accepts an HTML preview at exactly 10 MiB', async () => {
+    const res = await request(app)
+      .get('/api/files/read')
+      .query({ path: join(TEST_REPO, 'preview-limit.html') })
+      .set('Cookie', authCookie);
+    expect(res.status).toBe(200);
+    expect(res.body.content).toBe('x'.repeat(10 * 1024 * 1024));
+    expect(res.body.ext).toBe('.html');
+  });
+
   it('GET /api/files/read — rejects content beyond the bounded preview read', async () => {
     const res = await request(app)
       .get('/api/files/read')
       .query({ path: join(TEST_REPO, 'oversized.txt') })
       .set('Cookie', authCookie);
     expect(res.status).toBe(413);
-    expect(res.body.error).toContain('5 MB maximum');
+    expect(res.body.error).toContain('10 MiB maximum');
   });
 
   it('GET /api/files/read — disallowed path returns 403', async () => {
