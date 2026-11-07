@@ -4,6 +4,64 @@ import { afterEach, expect, it, vi } from 'vitest';
 import { useTurnSteering } from '../useTurnSteering';
 import { apiFetch } from '../../lib/api-fetch';
 vi.mock('../../lib/api-fetch', () => ({ apiFetch: vi.fn() }));
+
+it('refuses invalid screenshot data without dispatching or losing the draft receipt', async () => {
+  const delivery = vi.fn();
+  const hook = renderHook(() => useTurnSteering('invalid-image', 'first', true));
+  await act(async () =>
+    hook.result.current.submit(
+      'Keep this draft',
+      delivery,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      [{ data: 'bad!', mediaType: 'image/png' }],
+    ),
+  );
+  expect(delivery).toHaveBeenCalledExactlyOnceWith('failed');
+  expect(apiFetch).not.toHaveBeenCalled();
+  expect(hook.result.current.error).toContain('draft');
+});
+
+it('retains screenshot bytes across uncertainty, reload and a changed target without replacing them', async () => {
+  const images = [{ data: 'aGk=', mediaType: 'image/png' as const }];
+  vi.mocked(apiFetch).mockRejectedValueOnce(Error('lost'));
+  const hook = renderHook(() => useTurnSteering('image-chat', 'first', true));
+  await act(async () =>
+    hook.result.current.submit(
+      'Use this screenshot',
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      images,
+    ),
+  );
+  const first = JSON.parse(vi.mocked(apiFetch).mock.calls[0][1]!.body as string);
+  expect(first).toMatchObject({ targetCommandId: 'first', text: 'Use this screenshot', images });
+  hook.unmount();
+  const restored = renderHook(() => useTurnSteering('image-chat', 'successor', true));
+  expect(apiFetch).toHaveBeenCalledTimes(1);
+  await act(async () =>
+    restored.result.current.submit(
+      'Use this screenshot',
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      [{ ...images[0], data: 'YQ==' }],
+    ),
+  );
+  expect(apiFetch).toHaveBeenCalledTimes(1);
+  vi.mocked(apiFetch).mockResolvedValueOnce(
+    Response.json({ requestId: first.requestId, status: 'accepted' }),
+  );
+  await act(async () => restored.result.current.retry!());
+  expect(JSON.parse(vi.mocked(apiFetch).mock.calls[1][1]!.body as string)).toEqual(first);
+});
 afterEach(() => {
   cleanup();
   localStorage.clear();

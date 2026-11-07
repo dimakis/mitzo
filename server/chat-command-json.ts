@@ -17,7 +17,7 @@ export function installChatCommandJson(
       (suffix) => `${prefix}/${suffix}`,
     ),
   );
-  paths.push('/api/chat/send', '/api/chat/interrupt');
+  paths.push('/api/chat/send', '/api/chat/interrupt', '/api/sessions/:id/codex-queue/steer');
   const parse = express.json({ limit: CHAT_MAX_COMMAND_BYTES });
   app.post(paths, authenticate, ...additionalAuthentication, (req, res, next) => {
     parse(req, res, (error?: { type?: string }) => {

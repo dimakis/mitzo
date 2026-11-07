@@ -388,7 +388,9 @@ test('Access: selected sessions, expiry, revocation and human-review availabilit
       document.documentElement.dataset.font = theme === 'light' ? 'georgia' : 'system';
     }, theme);
     await dialog.getByLabel('Access type').selectOption('github-read');
-    await dialog.getByLabel('GitHub repository').fill('example/repo');
+    await dialog
+      .getByRole('textbox', { name: 'GitHub repository', exact: true })
+      .fill('example/repo');
     const second = dialog.getByRole('checkbox', {
       name: 'Another task with a long readable title',
       exact: true,
