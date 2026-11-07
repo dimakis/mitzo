@@ -115,6 +115,18 @@
   min-height: var(--control-height);
   padding-block: var(--space-2);
 }
+.reusable-access-session input[type='checkbox'] {
+  flex: 0 0 var(--space-4);
+  width: var(--space-4);
+  height: var(--space-4);
+  margin: 0;
+  padding: 0;
+  accent-color: var(--color-accent);
+}
+.reusable-access-session > span {
+  flex: 1;
+  min-width: 0;
+}
 .reusable-access-session small {
   display: block;
   color: var(--color-muted);

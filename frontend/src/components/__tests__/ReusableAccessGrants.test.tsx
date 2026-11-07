@@ -1,4 +1,6 @@
 // @vitest-environment jsdom
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { afterEach, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { ReusableAccessGrants } from '../ReusableAccessGrants';
@@ -40,6 +42,23 @@ const inventory = () => ({
     state: 'unavailable',
     reason: 'No qualified reviewer/account route. Human review handles remaining requests.',
   },
+});
+it('keeps session checkboxes intrinsic while their names use the remaining row', async () => {
+  const style = document.createElement('style');
+  style.textContent = ['global.css', 'session-access.css']
+    .map((name) => readFileSync(resolve('frontend/src/styles', name), 'utf8'))
+    .join('\n');
+  document.head.append(style);
+  try {
+    apiFetch.mockResolvedValue({ ok: true, json: async () => inventory() });
+    render(<ReusableAccessGrants sessionId="one" connected />);
+    fireEvent.click(screen.getByRole('button', { name: 'Manage reusable access' }));
+    const checkbox = await screen.findByRole('checkbox', { name: 'Another task' });
+    expect(getComputedStyle(checkbox).width).not.toBe('100%');
+    expect(getComputedStyle(checkbox.closest('label')!.querySelector('span')!).flexGrow).toBe('1');
+  } finally {
+    style.remove();
+  }
 });
 it('creates explicit expiring access for selected sessions and revokes the returned grant', async () => {
   const state = inventory();

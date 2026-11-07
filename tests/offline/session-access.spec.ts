@@ -395,6 +395,16 @@ test('Access: selected sessions, expiry, revocation and human-review availabilit
       name: 'Another task with a long readable title',
       exact: true,
     });
+    const selectionLayout = await second.evaluate((input) => {
+      const row = input.closest('label')!;
+      return {
+        checkbox: input.getBoundingClientRect().width,
+        text: row.querySelector('span')!.getBoundingClientRect().width,
+        row: row.getBoundingClientRect().width,
+      };
+    });
+    expect(selectionLayout.checkbox).toBeLessThanOrEqual(24);
+    expect(selectionLayout.text).toBeGreaterThan(selectionLayout.row * 0.75);
     await second.check();
     await dialog.getByLabel('Expires after').selectOption('15');
     const create = dialog.getByRole('button', { name: 'Grant access', exact: true });
