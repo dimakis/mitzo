@@ -86,8 +86,8 @@ struct WatchNotificationDestinationView: View {
             switch destination {
             case .notification(let id):
                 if let item {
-                    WatchNotificationDetail(item: item, onDecision: { decision in
-                        try await appState.respondNotification(item, decision: decision)
+                    WatchNotificationDetail(item: item, onDecision: { decision, answers in
+                        try await appState.respondNotification(item, decision: decision, answers: answers)
                         if let permId = item.request?.permId { onResolved?(permId) }
                     }).environmentObject(appState)
                 } else {
@@ -202,8 +202,8 @@ struct WatchNotificationsView: View {
                 if feed.items.isEmpty { Text("You're all caught up") }
                 ForEach(feed.items) { item in
                     NavigationLink {
-                        WatchNotificationDetail(item: item, onDecision: { decision in
-                            try await appState.respondNotification(item, decision: decision)
+                        WatchNotificationDetail(item: item, onDecision: { decision, answers in
+                            try await appState.respondNotification(item, decision: decision, answers: answers)
                             await refresh()
                         }).environmentObject(appState)
                     } label: {
@@ -235,49 +235,52 @@ struct WatchNotificationDetail: View {
     @EnvironmentObject var appState: AppState
     @Environment(\.dismiss) private var dismiss
     let item: MitzoNotification
-    let onDecision: (NotificationResponse.Decision) async throws -> Void
+    let onDecision: (NotificationResponse.Decision, [String: [String]]?) async throws -> Void
     @State private var busy = false
     @State private var error: String?
+    @State private var choices: [String: [String]] = [:]
+    @State private var freeform: [String: String] = [:]
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 10) {
                 Text(item.title).font(.headline)
                 Text(item.body).font(.caption)
+                if item.request?.reviewKind == "telos_source" {
+                    WatchSourceApproval(item: item, busy: $busy).environmentObject(appState)
+                }
                 if let request = item.request {
                     if let description = request.description { Text(description).font(.caption) }
                     if let questions = request.questions, !questions.isEmpty {
                         ForEach(questions) { question in
-                            VStack(alignment: .leading, spacing: 6) {
-                                Text(question.question).font(.caption).bold()
-                                ForEach(question.options, id: \.label) { option in
-                                    Text(option.label).font(.caption)
-                                    if let description = option.description {
-                                        Text(description).font(.caption2).foregroundStyle(.secondary)
-                                    }
-                                }
-                            }
+                            WatchQuestionInput(question: question,
+                                selection: Binding(get: { choices[question.id] ?? [] }, set: { choices[question.id] = $0 }),
+                                freeform: Binding(get: { freeform[question.id] ?? "" }, set: { freeform[question.id] = $0 }))
+                                .disabled(busy)
                         }
-                    } else if !request.toolInput.isEmpty {
+                    } else if request.reviewKind == nil, !request.toolInput.isEmpty {
                         Text(request.toolInput).font(.system(.caption2, design: .monospaced))
                     }
                 }
                 if let error { Text(error).font(.caption).foregroundStyle(.orange) }
                 TimelineView(.periodic(from: .now, by: 1)) { context in
                     if item.isActionable(at: context.date.timeIntervalSince1970 * 1000) {
-                        if item.kind == "approval", let request = item.request, request.questions == nil {
+                        if let questions = item.request?.questions, !questions.isEmpty {
+                            Button("Submit answers") { respond(.once, answers: questionAnswers) }
+                                .disabled(busy || !validNotificationAnswers(questionAnswers, questions: questions))
+                        } else if item.kind == "approval", let request = item.request, request.reviewKind == nil {
                             Text(request.allowSessionGrant == false
                                  ? "Allow once covers this request."
-                                 : request.sessionGrantDescription ?? "Allow for session keeps this approval until the session ends.").font(.caption2)
+                                 : request.sessionGrantDescription ?? (request.approvalScope == .conversation
+                                     ? "This access stays with the conversation until revoked or its sandbox is deleted."
+                                     : "Allow for session keeps this approval until the session ends.")).font(.caption2)
                             if request.approvalScope != .conversation {
                                 Button("Allow once") { respond(.once) }.disabled(busy)
-                            } else {
-                                Text("Review durable conversation access on your iPhone.").font(.caption)
                             }
                             if request.allowSessionGrant != false {
-                                Button("Allow for session") { respond(.session) }.disabled(busy)
+                                Button(request.approvalScope == .conversation ? "Grant to conversation" : "Allow for session") { respond(.session) }.disabled(busy)
                             }
-                        } else {
+                        } else if item.request?.reviewKind != "telos_source" {
                             Text("Review this request on your iPhone.").font(.caption)
                         }
                         Button(item.request?.questions == nil ? "Deny" : "Cancel", role: item.request?.questions == nil ? .destructive : .cancel) { respond(.deny) }.disabled(busy)
@@ -295,12 +298,188 @@ struct WatchNotificationDetail: View {
         .navigationTitle("Details")
     }
 
-    private func respond(_ decision: NotificationResponse.Decision) {
+    private var questionAnswers: [String: [String]] {
+        Dictionary(uniqueKeysWithValues: (item.request?.questions ?? []).map { question in
+            let text = (freeform[question.id] ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            let selected = choices[question.id] ?? []
+            return (question.id, text.isEmpty ? selected : question.multiSelect == true ? selected + [text] : [text])
+        })
+    }
+
+    private func respond(_ decision: NotificationResponse.Decision, answers: [String: [String]]? = nil) {
         busy = true
         Task { @MainActor in
             defer { busy = false }
-            do { try await onDecision(decision); dismiss() }
+            do { try await onDecision(decision, answers); dismiss() }
             catch { self.error = "Request changed or iPhone unavailable. Go back and refresh." }
+        }
+    }
+}
+
+/// Native controls support touch, VoiceOver, dictation and secure text entry.
+struct WatchQuestionInput: View {
+    let question: NotificationQuestion
+    @Binding var selection: [String]
+    @Binding var freeform: String
+
+    var body: some View {
+        VStack(alignment: .leading) {
+            Text(question.question).font(.caption).bold()
+            ForEach(question.options, id: \.label) { option in
+                Button {
+                    if question.multiSelect == true {
+                        if selection.contains(option.label) { selection.removeAll { $0 == option.label } }
+                        else { selection.append(option.label) }
+                    } else {
+                        selection = [option.label]
+                        freeform = ""
+                    }
+                } label: {
+                    VStack(alignment: .leading) {
+                        Label(option.label, systemImage: selection.contains(option.label) ? "checkmark.circle.fill" : "circle")
+                        if let description = option.description { Text(description).font(.caption2) }
+                    }
+                }
+                .accessibilityAddTraits(selection.contains(option.label) ? .isSelected : [])
+            }
+            if question.allowFreeform != false {
+                if question.isSecret == true { SecureField("Your answer", text: $freeform) }
+                else { TextField("Your answer", text: $freeform) }
+            }
+        }
+        .onChange(of: freeform) { _, text in
+            if question.multiSelect != true, !text.isEmpty { selection = [] }
+        }
+    }
+}
+
+/// Telos keeps its source-selection/preview receipt owner on every device.
+struct WatchSourceApproval: View {
+    @EnvironmentObject var appState: AppState
+    @Environment(\.dismiss) private var dismiss
+    let item: MitzoNotification
+    @Binding var busy: Bool
+    @State private var review: WatchSourceReview?
+    @State private var messages: Set<String> = []
+    @State private var artifacts: Set<String> = []
+    @State private var prepared: WatchSourceInput?
+    @State private var previewText: String?
+    @State private var attempted = false
+    @State private var error: String?
+
+    var body: some View {
+        VStack(alignment: .leading) {
+            if let error {
+                Text(error).font(.caption).foregroundStyle(.orange)
+                if !attempted {
+                    Button("Reload source review") { review = nil; messages = []; artifacts = []; load() }.disabled(busy)
+                }
+            }
+            if let review {
+                Text("Proposal").font(.headline)
+                Text(review.operation.readable).font(.caption)
+                if let previewText {
+                    Text("Selected source and proposal").font(.headline)
+                    Text(previewText).font(.caption)
+                    Button(attempted ? "Retry same save" : "Approve and save") { save() }.disabled(busy)
+                    if !attempted { Button("Change selection") { prepared = nil; self.previewText = nil }.disabled(busy) }
+                } else {
+                    Text("Choose the original exchange to retain").font(.caption)
+                    ForEach(review.messages) { message in
+                        Toggle(isOn: Binding(get: { messages.contains(message.id) }, set: { value in
+                            if value { messages.insert(message.id) } else { messages.remove(message.id) }
+                        })) {
+                            VStack(alignment: .leading) {
+                                Text(message.author.readable).font(.caption2)
+                                ForEach(Array(message.blocks.enumerated()), id: \.offset) { _, block in Text(block.content).font(.caption) }
+                                if let reason = message.unavailableReason { Text(reason).font(.caption2) }
+                            }
+                        }.disabled(busy || message.unavailableReason != nil)
+                    }
+                    ForEach(review.artifacts) { artifact in
+                        Toggle(isOn: Binding(get: { artifacts.contains(artifact.id) }, set: { value in
+                            if value { artifacts.insert(artifact.id) } else { artifacts.remove(artifact.id) }
+                        })) {
+                            Text("\(artifact.title) · \(artifact.filename) · version \(artifact.revision)").font(.caption)
+                        }.disabled(busy)
+                    }
+                    if review.nextMaterialsInput != nil {
+                        Button("More source materials") { loadMaterials() }.disabled(busy)
+                    }
+                    if let before = review.earlierCursor {
+                        Button("Earlier exchange") { load(before: before) }.disabled(busy)
+                    }
+                    Button("Latest exchange") { load() }.disabled(busy)
+                    Button("Preview selection") { preview() }.disabled(busy || messages.isEmpty)
+                }
+            } else if busy { ProgressView() }
+            else { Button("Load source review") { load() } }
+        }
+        .task { if review == nil { load() } }
+    }
+
+    private func load(before: Int? = nil) {
+        busy = true
+        error = nil
+        Task { @MainActor in
+            defer { busy = false }
+            do {
+                let current = try await appState.sourceReview(item, before: before)
+                if let previous = review, current.recovery == nil {
+                    review = try before == nil ? previous.mergingLatest(current) : previous.mergingEarlier(current)
+                } else {
+                    review = current
+                    messages = []
+                    artifacts = []
+                }
+                if let recovery = current.recovery {
+                    if recovery.receipt != nil { dismiss(); return }
+                    guard let input = current.restoredApproval else { throw MitzoAPIClient.APIError.invalidResponse }
+                    prepared = input
+                    previewText = recovery.preview.packet.readable
+                    attempted = true
+                }
+            } catch { self.error = "Source review unavailable. Refresh before trying again." }
+        }
+    }
+    private func loadMaterials() {
+        guard let review, let input = review.nextMaterialsInput, !busy else { return }
+        busy = true
+        error = nil
+        Task { @MainActor in
+            defer { busy = false }
+            do {
+                let page = try await appState.sourceMaterials(permId: review.permId, input: input)
+                self.review = try review.mergingMaterials(page, input: input)
+            } catch { self.error = "Source materials changed or are unavailable. Reload before continuing." }
+        }
+    }
+    private func preview() {
+        guard let review else { return }
+        busy = true
+        error = nil
+        Task { @MainActor in
+            defer { busy = false }
+            do {
+                let input = try review.selection(messageIDs: messages, artifactIDs: artifacts)
+                let response = try await appState.sourcePreview(permId: review.permId, input: input)
+                guard let approval = response.approval(for: review, input: input) else { throw MitzoAPIClient.APIError.invalidResponse }
+                prepared = approval
+                previewText = response.preview.packet.readable
+            } catch { self.error = "Source changed or unavailable. Reload and select again." }
+        }
+    }
+    private func save() {
+        guard let review, let prepared, !busy else { return }
+        attempted = true
+        busy = true
+        error = nil
+        Task { @MainActor in
+            defer { busy = false }
+            do {
+                _ = try await appState.sourceApprove(permId: review.permId, input: prepared)
+                dismiss()
+            } catch { self.error = "Save could not be confirmed. Retry the same save to recover its receipt." }
         }
     }
 }

@@ -17,6 +17,18 @@ covers phone/desktop, both themes and alternate appearance without a backend or
 model. See [scope and validation](../features/conversation-search.md); rendered
 evidence remains pending CI after the host guard refused local execution.
 
+## Native Watch approvals
+
+Watch approval details use native SwiftUI system typography, scrolling, labelled
+buttons, toggles and text/secure fields. Full request details precede decisions;
+once-only, session and durable conversation scopes retain distinct labels. Questions
+support native dictation and original option IDs. Telos source review preserves
+host selection/preview receipts and exact-request recovery rather than substituting
+a generic Allow button. Busy/expired states and server errors remain explicit.
+The existing web appearance and approved-design references are unchanged. See
+[coverage and device acceptance](../features/watch-approval-types.md) for the native
+SDK checks and the remaining physical-device/visual verification.
+
 ## Agent-created ordinary sessions
 
 An agent's session proposal appears as a compact quiet card in its originating
