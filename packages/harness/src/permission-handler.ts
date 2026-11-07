@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { withToolGuardPhase } from './tool-guard.js';
 import { z } from 'zod';
 import type { PermissionRequest, UserQuestion } from '@mitzo/protocol';
 import type { PermissionResult } from '@anthropic-ai/claude-agent-sdk';
@@ -556,7 +557,7 @@ export function buildPermissionHandler(
           'This exact Telos source approval is already pending. Use its existing review card.',
       };
 
-    return new Promise<PermissionResult>((resolve) => {
+    const pending = new Promise<PermissionResult>((resolve) => {
       if (originalSignal.aborted || !nativeScopeCurrent()) {
         resolve({ behavior: 'deny', message: 'Aborted' });
         return;
@@ -810,6 +811,7 @@ export function buildPermissionHandler(
       for (const transport of registry.getPermissionTransports(session))
         transportSend(transport, event);
     });
+    return withToolGuardPhase('approval', () => pending);
   };
   return async (...args: Parameters<typeof decide>): Promise<PermissionResult> => {
     const sessionId = registry.get(clientId)?.sessionId;

@@ -27,6 +27,15 @@ export type { SseClient } from './sse-registry.js';
 
 // Permissions
 export {
+  assertToolGuardCurrent,
+  DEFAULT_TOOL_GUARD_POLICY,
+  runGuardedTool,
+  runBoundedToolCleanup,
+  ToolGuardTimeoutError,
+  withToolGuardPhase,
+} from './tool-guard.js';
+export type { ToolGuardObservation, ToolGuardPhase, ToolGuardPolicy } from './tool-guard.js';
+export {
   onPermissionLifecycle,
   registerPending,
   resolvePending,

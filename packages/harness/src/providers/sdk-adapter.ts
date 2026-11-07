@@ -13,6 +13,7 @@
  * runDeferredGeminiLoop() handles the full tool-use loop.
  */
 
+import { runGuardedTool, ToolGuardTimeoutError, type ToolGuardPolicy } from '../tool-guard.js';
 import type {
   ModelSession,
   ConversationMessage,
@@ -90,7 +91,8 @@ export interface AgenticLoopOptions {
   sessionId?: string;
   maxTurns: number;
   signal?: AbortSignal;
-  executeTool: (block: ToolUseBlock) => Promise<ToolResultBlock>;
+  executeTool: (block: ToolUseBlock, signal: AbortSignal) => Promise<ToolResultBlock>;
+  toolGuardPolicy?: Readonly<ToolGuardPolicy>;
   /** Persist completed model output and each tool outcome before executing further side effects. */
   onHistory?: (messages: ConversationMessage[]) => void | Promise<void>;
 }
@@ -261,8 +263,14 @@ export async function* runDeferredGeminiLoop(
 
       let result: ToolResultBlock;
       try {
-        result = await opts.executeTool(toolUse);
+        result = await runGuardedTool(
+          { signal: opts.signal ?? new AbortController().signal, policy: opts.toolGuardPolicy },
+          (signal) => opts.executeTool(toolUse, signal),
+        );
       } catch (err: unknown) {
+        // A local deadline cannot establish whether the original effect stopped.
+        // Retire this loop; its owner persists recovery instead of dispatching more work.
+        if (err instanceof ToolGuardTimeoutError) throw err;
         const message = err instanceof Error ? err.message : String(err);
         result = {
           type: 'tool_result',

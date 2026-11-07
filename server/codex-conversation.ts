@@ -1,4 +1,10 @@
 import { isReadOnlyBuiltinToolCall } from './builtin-tool-behavior.js';
+import {
+  assertToolGuardCurrent,
+  runGuardedTool,
+  ToolGuardTimeoutError,
+  type ToolGuardPolicy,
+} from '@mitzo/harness';
 import { CodexSubagents } from './codex-subagents.js';
 import { subagentScope } from './codex-subagent-store.js';
 import { observeNativeApprovalCheck } from './local-codex-observation.js';
@@ -152,6 +158,8 @@ export type { NativeBaseReadScope } from './native-base-read-scope.js';
 import type { NativeBaseReadScope } from './native-base-read-scope.js';
 
 export interface CodexConversationOptions {
+  /** Trusted execution policy, never provider/model input. */
+  toolGuardPolicy?: Readonly<ToolGuardPolicy>;
   /** Enabled only by the owned native Mac adapter, never inherited runtime configuration. */
   enableNativeSubagents?: boolean;
   adviserScope?: AdviserTaskScope;
@@ -3987,10 +3995,13 @@ export class CodexConversation {
     const publicId = this.mapper!.toolStart(call.callId, display.name, display.input);
     let result: CodexToolResult;
     let callbackOpen = true;
+    let executionSignal = toolSignal;
     const callbackBinding = this.binding!;
     // Keep existing label-only JSON/strict store contracts unchanged. Spreading
     // or cloning labels deliberately cannot carry this private callback fence.
     const observeOriginalCallCurrent = () => {
+      assertToolGuardCurrent();
+      executionSignal.throwIfAborted();
       toolSignal.throwIfAborted();
       if (
         !callbackOpen ||
@@ -4122,7 +4133,33 @@ export class CodexConversation {
     const toolStarted = performance.now();
     try {
       result = normalizeCodexToolResult(
-        await this.opts.executeTool(call.tool, call.arguments, toolSignal, invocation),
+        await runGuardedTool(
+          {
+            signal: toolSignal,
+            policy: this.opts.toolGuardPolicy,
+            onSettled: (observation) => {
+              if (observation.outcome === 'timeout') active.callbackEffectsUnknown = true;
+              log.info('Tool guard settled', {
+                conversationId: this.opts.conversationId,
+                callId: call.callId,
+                tool: call.tool,
+                ...observation,
+              });
+            },
+            onLateSettlement: (outcome) => {
+              log.warn('Retired tool callback settled', {
+                conversationId: this.opts.conversationId,
+                callId: call.callId,
+                tool: call.tool,
+                outcome,
+              });
+            },
+          },
+          (signal) => {
+            executionSignal = signal;
+            return this.opts.executeTool(call.tool, call.arguments, signal, invocation);
+          },
+        ),
       );
       // Only a returned, reviewed read result can qualify a failed callback here.
       // Explicit owner uncertainty, thrown exceptions and cancellation stay fenced.
@@ -4134,6 +4171,7 @@ export class CodexConversation {
       )
         retainCallbackOutcome(result, 'settled');
     } catch (error) {
+      if (error instanceof ToolGuardTimeoutError) active.callbackEffectsUnknown = true;
       result = codexToolFailureResult(
         error,
         toolSignal.aborted,

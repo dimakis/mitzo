@@ -1,4 +1,6 @@
 import { randomUUID } from 'node:crypto';
+import { runBoundedToolCleanup } from '@mitzo/harness';
+import { performance } from 'node:perf_hooks';
 import { z } from 'zod';
 import { PendingHostTaskError } from './pending-host-task.js';
 import type { CodexToolResult } from './codex-tool-result.js';
@@ -54,6 +56,7 @@ class ToolCleanupFailure extends AggregateError {
 export async function withCodexToolCleanup<T>(
   action: () => Promise<T>,
   cleanups: readonly (() => unknown | Promise<unknown>)[],
+  cleanupTimeoutMs = 10_000,
 ): Promise<T> {
   let value!: T;
   let primary: { error: unknown } | undefined;
@@ -63,9 +66,10 @@ export async function withCodexToolCleanup<T>(
     primary = { error };
   }
   const failures: unknown[] = [];
+  const cleanupDeadline = performance.now() + cleanupTimeoutMs;
   for (const cleanup of cleanups) {
     try {
-      await cleanup();
+      await runBoundedToolCleanup(cleanup, Math.max(1, cleanupDeadline - performance.now()));
     } catch (error) {
       failures.push(error);
     }

@@ -1,4 +1,5 @@
 import { retainCallbackOutcome } from '../turn-callbacks.js';
+import { withToolGuardPhase } from '@mitzo/harness';
 import { createIntegrationToolDiscovery } from '../integration-tool-discovery.js';
 import { webAccessDefinition } from '../request-web-access.js';
 import { summarizeToolInput } from '@mitzo/protocol';
@@ -53,6 +54,73 @@ const binding = {
   model: 'test-model',
   profileRevision: 'chatgpt:test@example.com:test',
 };
+
+it('bounds a noncooperative host tool, fences its late callback and retains unknown effects', async () => {
+  const f = await setup();
+  f.conversationOptions.toolGuardPolicy = { executionMs: 20, approvalMs: 100, cleanupMs: 20 };
+  let release!: () => void;
+  let lateError: unknown;
+  f.execute.mockImplementationOnce(async (_name, _input, _signal, invocation) => {
+    await new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    try {
+      invocation.assertCurrentSync?.();
+    } catch (error) {
+      lateError = error;
+    }
+    return { content: 'late result', isError: false };
+  });
+  await f.c.send({ id: 'guarded-command', prompt: 'Inspect the existing work' });
+  const result = await f.callbacks.onRequest(
+    'item/tool/call',
+    {
+      threadId: f.getProviderThread(),
+      turnId: 'turn-1',
+      callId: 'guarded-call',
+      tool: 'Read',
+      arguments: {},
+    },
+    new AbortController().signal,
+  );
+  expect(result.success).toBe(false);
+  expect(JSON.parse((result.contentItems as { text: string }[])[0].text)).toMatchObject({
+    diagnostic: { reason: 'deadline', effectStatus: 'unknown' },
+  });
+  release();
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  expect(lateError).toBeInstanceOf(Error);
+  f.callbacks.onNotification('turn/completed', {
+    threadId: f.getProviderThread(),
+    turn: { id: 'turn-1', status: 'completed' },
+  });
+  await vi.waitFor(() => expect(f.store.read('app', f.getBinding()).recovery).toBe(1));
+});
+
+it('excludes an actual adapter approval phase from its host execution deadline', async () => {
+  const f = await setup();
+  f.conversationOptions.toolGuardPolicy = { executionMs: 30, approvalMs: 200, cleanupMs: 20 };
+  f.execute.mockImplementationOnce(async () => {
+    await withToolGuardPhase(
+      'approval',
+      () => new Promise<void>((resolve) => setTimeout(resolve, 60)),
+    );
+    return { content: 'approved read', isError: false };
+  });
+  await f.c.send({ id: 'approval-command', prompt: 'Inspect the existing work' });
+  const result = await f.callbacks.onRequest(
+    'item/tool/call',
+    {
+      threadId: f.getProviderThread(),
+      turnId: 'turn-1',
+      callId: 'approval-call',
+      tool: 'Read',
+      arguments: {},
+    },
+    new AbortController().signal,
+  );
+  expect(result.success).toBe(true);
+});
 
 it.each([false, true])(
   'routes native children through the original executor without completing or steering the parent command (owned=%s)',

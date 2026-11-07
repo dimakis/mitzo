@@ -1,4 +1,23 @@
 import { expect, it } from 'vitest';
+
+it('bounds stuck cleanup and still attempts the remaining final fence', async () => {
+  const attempted: string[] = [];
+  const failure = withCodexToolCleanup(
+    async () => 'executed',
+    [
+      async () => {
+        attempted.push('stuck');
+        await new Promise(() => {});
+      },
+      () => {
+        attempted.push('final-fence');
+      },
+    ],
+    20,
+  );
+  await expect(failure).rejects.toThrow('Tool cleanup failed');
+  expect(attempted).toEqual(['stuck', 'final-fence']);
+});
 import { PendingHostTaskError } from '../pending-host-task.js';
 import {
   CodexToolFailure,
