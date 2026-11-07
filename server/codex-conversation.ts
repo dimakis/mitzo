@@ -640,6 +640,15 @@ export class CodexConversation {
     const generation = this.transportGeneration;
     const binding = this.binding;
     const scope = subagentScope(this.opts.conversationId, binding);
+    // Receipts belong to children, but one transcript marker represents a command.
+    // Reconcile before restoration can receive a new sibling or descendant.
+    for (const child of this.opts.store.subagents.list(scope))
+      if (
+        child.rootThreadId === this.threadId &&
+        child.policyRevision === this.opts.nativeExecution.policyRevision &&
+        child.activityAnchored !== false
+      )
+        this.subagentAnchors.add(child.commandId);
     this.subagentOwner = new CodexSubagents({
       scope,
       store: this.opts.store.subagents,

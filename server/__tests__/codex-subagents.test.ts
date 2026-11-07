@@ -436,6 +436,138 @@ it('refuses reinspection after authorization is revoked during native reads', as
   expect(f.owner.list()[0].available).toBe(false);
   expect(f.request.mock.calls.filter(([method]) => method === 'thread/resume')).toHaveLength(0);
 });
+
+it.each(['runtime', 'attempt', 'generation'] as const)(
+  'fences reinspection before its first native dispatch when %s authority changes',
+  async (kind) => {
+    const origin = { commandId: 'command', attempt: 1, generation: 0 };
+    const f = fixture({ nativeOrigin: () => ({ ...origin }) });
+    f.request.mockRejectedValueOnce(Error('transient failure'));
+    await f.admit();
+    expect(f.options.store.get(f.options.scope, 'child')).toMatchObject({
+      commandAttempt: 1,
+      threadGeneration: 0,
+      admissionVerified: false,
+    });
+    if (kind === 'runtime')
+      f.assertCurrent.mockImplementation(() => {
+        throw Error('revoked');
+      });
+    else if (kind === 'attempt') origin.attempt++;
+    else origin.generation++;
+    const dispatch = vi.fn();
+    const original = f.request.getMockImplementation()!;
+    f.request.mockImplementation(async (method, params, beforeDispatch) => {
+      beforeDispatch?.();
+      dispatch(method);
+      return original(method, params, beforeDispatch);
+    });
+    const child = await f.owner.inspect('child', () => {});
+    expect(dispatch).not.toHaveBeenCalled();
+    expect(child).toMatchObject({
+      available: false,
+      blocks: [],
+      inspectionFailure: { stage: 'inspect_child' },
+    });
+    expect(f.execute).not.toHaveBeenCalled();
+  },
+);
+
+it.each(['child', 'parent', 'subscribe', 'history'] as const)(
+  'fences metadata and later dispatch when runtime authority changes during %s reads',
+  async (boundary) => {
+    const f = fixture();
+    f.request.mockRejectedValueOnce(Error('transient failure'));
+    await f.admit();
+    const original = f.request.getMockImplementation()!;
+    const dispatch: string[] = [];
+    f.request.mockImplementation(async (method, params, beforeDispatch) => {
+      beforeDispatch?.();
+      dispatch.push(`${method}:${params.threadId}`);
+      const result = await original(method, params, beforeDispatch);
+      if (
+        (boundary === 'child' && method === 'thread/read' && params.threadId === 'child') ||
+        (boundary === 'parent' && method === 'thread/read' && params.threadId === 'root') ||
+        (boundary === 'subscribe' && method === 'thread/resume') ||
+        (boundary === 'history' && method === 'thread/turns/list')
+      )
+        f.assertCurrent.mockImplementation(() => {
+          throw Error('revoked');
+        });
+      return result;
+    });
+    const child = await f.owner.inspect('child', () => {});
+    expect(dispatch).toHaveLength(
+      boundary === 'child' ? 1 : boundary === 'parent' ? 2 : boundary === 'subscribe' ? 3 : 4,
+    );
+    expect(child).toMatchObject({ available: false, blocks: [] });
+    expect(child?.inspectionFailure).toBeDefined();
+    expect(f.execute).not.toHaveBeenCalled();
+  },
+);
+
+it.each(['attempt', 'generation'] as const)(
+  'rejects an origin %s change while child metadata is in flight',
+  async (field) => {
+    const origin = { commandId: 'command', attempt: 1, generation: 0 };
+    const f = fixture({ nativeOrigin: () => ({ ...origin }) });
+    const original = f.request.getMockImplementation()!;
+    const dispatch: string[] = [];
+    f.request.mockImplementation(async (method, params, beforeDispatch) => {
+      beforeDispatch?.();
+      dispatch.push(`${method}:${params.threadId}`);
+      const result = await original(method, params, beforeDispatch);
+      if (method === 'thread/read' && params.threadId === 'child') origin[field]++;
+      return result;
+    });
+    await f.admit();
+    expect(dispatch).toEqual(['thread/read:child']);
+    expect(f.owner.list()[0]).toMatchObject({ available: false, model: '', blocks: [] });
+    expect(f.options.store.get(f.options.scope, 'child')).toMatchObject({
+      commandAttempt: 1,
+      threadGeneration: 0,
+      admissionVerified: false,
+    });
+    expect(f.execute).not.toHaveBeenCalled();
+  },
+);
+
+it('retains parent-origin restrictions even when runtime authority was already revoked', async () => {
+  const origin = { commandId: 'command', attempt: 1, generation: 0 };
+  const f = fixture({ nativeOrigin: () => ({ ...origin }) });
+  f.assertCurrent.mockImplementationOnce(() => {
+    throw Error('revoked');
+  });
+  await f.admit();
+  origin.attempt++;
+  await f.owner.inspect('child', () => {});
+  expect(f.request).not.toHaveBeenCalled();
+  expect(f.owner.list()[0]).toMatchObject({ available: false, model: '', blocks: [] });
+  expect(f.options.store.get(f.options.scope, 'child')).toMatchObject({
+    commandAttempt: 1,
+    threadGeneration: 0,
+    admissionVerified: false,
+  });
+});
+
+it('rechecks runtime authority after wrapper preparation before native dispatch', async () => {
+  const f = fixture();
+  f.request.mockRejectedValueOnce(Error('transient failure'));
+  await f.admit();
+  const dispatch = vi.fn();
+  f.request.mockImplementation(async (_method, _params, beforeDispatch) => {
+    f.assertCurrent.mockImplementation(() => {
+      throw Error('revoked');
+    });
+    beforeDispatch?.();
+    dispatch();
+    return { thread: f.thread };
+  });
+  await f.owner.inspect('child', () => {});
+  expect(dispatch).not.toHaveBeenCalled();
+  expect(f.execute).not.toHaveBeenCalled();
+});
+
 it('hydrates nonempty paginated history entries in order without replaying tools', async () => {
   const f = fixture();
   const original = f.request.getMockImplementation()!;

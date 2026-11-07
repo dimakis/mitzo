@@ -464,6 +464,23 @@ it('emits a durable child activity marker before native inspection can fail', as
   cleanup.push(() => restored.close());
   await restored.initialize();
   expect(markerCount()).toBe(1);
+  f.callbacks.onNotification('thread/started', {
+    thread: { id: 'new-descendant', parentThreadId: 'uninspectable-child' },
+  });
+  await restored.getSubagents()!.settled();
+  expect(
+    restored
+      .getSubagents()!
+      .list()
+      .find((child) => child.threadId === 'new-descendant'),
+  ).toMatchObject({ commandId: 'visible-child-command' });
+  expect(markerCount()).toBe(1);
+  await restored.send({ id: 'second-visible-command', prompt: 'Next task' });
+  f.callbacks.onNotification('thread/started', {
+    thread: { id: 'second-command-child', parentThreadId: f.getProviderThread() },
+  });
+  await restored.getSubagents()!.settled();
+  expect(markerCount()).toBe(2);
 });
 
 it('pauses and interrupts the original parent before waiting for slow child cancellation', async () => {

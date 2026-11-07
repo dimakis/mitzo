@@ -79,9 +79,12 @@ structured logger; native error payloads and private reasoning are excluded. Lat
 native events cannot repeatedly retry a failed admission. An explicit **Retry
 inspection** request rechecks the original operator and owner at every native
 read/subscription boundary; it reloads activity without starting or steering a
-model turn. A recreated owner can also revalidate the saved observation. Verified
+model turn. Parent command-attempt and generation restrictions are retained before
+the first native read, even while child admission remains unverified. A recreated
+owner can also revalidate the saved observation. Verified
 public output survives later failures. Saved activity receipts suppress repeat
-transcript anchors on owner recreation and repair explicitly unanchored new
+transcript anchors on owner recreation, including new children under the same
+retained command, and repair explicitly unanchored new
 observations; legacy records without such receipts are not blindly replayed.
 Emission and receipt persistence are not an atomic cross-store transaction.
 Event-projection and diagnostic-retention failures use the same reporting boundary
@@ -95,7 +98,9 @@ authenticated-feed/real-renderer and negative-permission regressions verify the
 new failure delivery. They do not establish a live upstream reproduction. The new
 offline browser fixture covers phone/desktop failure states alongside the original
 protected design fixture; local browser execution is blocked by the Seatbelt guard,
-so rendered screenshots and combined-source validation remain CI evidence to collect.
+so hosted CI supplies rendered screenshots and combined-source validation. Phone
+and desktop failure/recovery screenshots were inspected in both themes; the PR
+records their source revision and each candidate's validation.
 No live model, production or staging runtime was invoked.
 
 ### Executable child admission

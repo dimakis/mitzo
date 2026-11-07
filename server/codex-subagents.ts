@@ -43,6 +43,7 @@ class ChildIdentityError extends Error {
       | 'session_mismatch'
       | 'model_unavailable'
       | 'retained_identity_mismatch'
+      | 'command_origin_changed'
       | 'binding_changed',
   ) {
     super(reason);
@@ -496,10 +497,34 @@ export class CodexSubagents {
           current.policy.policyRevision !== root.policy.policyRevision
         )
           throw Error('Original child inspection owner changed');
+        const cancelling =
+          admittedDuringStop ||
+          admissionEpoch !== this.parentCancellationEpoch ||
+          this.parentStopping;
+        const origin = this.opts.nativeOrigin?.(observed, cancelling);
+        if (origin) {
+          if (
+            origin.commandId !== observed.commandId ||
+            (observed.commandAttempt !== undefined && observed.commandAttempt !== origin.attempt) ||
+            (observed.threadGeneration !== undefined &&
+              observed.threadGeneration !== origin.generation)
+          )
+            throw new ChildIdentityError('command_origin_changed');
+          if (observed.commandAttempt === undefined || observed.threadGeneration === undefined) {
+            // Parent acceptance identities restrict future retries; they confer no
+            // child metadata or execution authority while admission is unverified.
+            observed.commandAttempt ??= origin.attempt;
+            observed.threadGeneration ??= origin.generation;
+            observed.revision++;
+            this.opts.store.save(this.opts.scope, observed);
+          }
+        }
+        this.opts.assertCurrent(observed, cancelling);
       };
       // Start after registering the pending identity, before any awaited native I/O.
       const operation = Promise.resolve()
         .then(async () => {
+          checkAdmission();
           const checked = Thread.parse(
             object(
               await this.opts.request(
@@ -622,6 +647,7 @@ export class CodexSubagents {
           // paginated public items only; never replay tool calls from native history.
           stage = 'history';
           await this.hydrate(live, checkAdmission);
+          checkAdmission();
           this.current(live);
           stage = 'events';
           if (this.assignedTasks.has(threadId)) child.task = this.assignedTasks.get(threadId)!;
