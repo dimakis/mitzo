@@ -10,8 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.923-direct-interrupt-browser-evidence';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.924-steering-attachment-http';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -725,9 +724,9 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/main.tsx': '679688aa3e04496cddf90bc14300efc7c8344f4bccb5718643948a3332b70bb1',
   '../../packages/protocol/src/chat-input-limits.ts':
     '1199f2630bd0333de58964af965b87c8466976268f935993e24da693b54a0aeb',
-  '../chat-command-json.ts': '53751991386b497dd8e6be2267bac61ff4d3344d46e5816d159fa8f0039eecc0',
+  '../chat-command-json.ts': '4277bf488510e222b65d42793badbb8e1cb1da03e9bfe40e2f536f1ee6fed9a8',
   '../__tests__/chat-command-json.test.ts':
-    '675c6c281aebefef54c6fb8b067e14db554035f0a7ceea88f4ec4daeee9efcd7',
+    'f5069c01f2b93cbaf32b4a720e948c3eb96a6b7c47ac74a89843383c09476a3e',
   '../../frontend/src/lib/large-chat-storage.ts':
     '2a15ca075e84e434d5eeda75a7f73436bbdbbb02003cf87a81a164667a6a4385',
   '../../frontend/src/lib/__tests__/large-chat-storage.test.ts':

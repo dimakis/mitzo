@@ -90,7 +90,7 @@ tests with one existing conditional skip; an additional invalid-image regression
 then passed with the full 11-test steering hook suite. The 12 focused native
 steering regressions and 9 HTTP route checks pass. Workspace packages compile,
 focused hook/schema type checking and changed-source lint pass, and reviewed
-source fingerprints are refreshed for `v1.0.923-direct-interrupt-browser-evidence`.
+source fingerprints are refreshed for `v1.0.924-steering-attachment-http`.
 
 The larger ordinary-workspace HTTP fixture fails during initial native bootstrap
 with `Local Codex entry unavailable`, before steering. The unchanged `10f84e3a9`
@@ -117,6 +117,13 @@ The approved host task worker passed the environment guard but first lacked its
 browser cache; after selecting the existing matching installation, macOS denied
 browser process registration at startup. No application test ran locally and
 that launch route was not retried. Hosted verification remains authoritative.
+
+Centaur review `5808694748` also identified the native steering endpoint missing
+from the authenticated attachment-sized HTTP parser. It now uses that existing
+parser before the general 10 MiB parser. Parser regressions include a 12 MiB
+encoded image correction and ordinary, missing, internal and revoked operator
+authentication for the steering route; native target and receipt checks stay in
+the owning route.
 
 The message renderer, dates, copy, read aloud, reply menus, tool/activity rendering,
 account/model controls and approved Chat settings are unchanged. The actual
