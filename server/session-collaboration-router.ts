@@ -150,10 +150,14 @@ export function createSessionCollaborationRouter({
     if (!id.success || !input.success)
       return res.status(400).json({ error: 'Invalid message observation' });
     try {
-      messaging?.reconcile(recentAuthorizationSession(res)!, id.data);
-      return res.json({
-        message: store.collaborationConversation.getMessageForRequest(id.data, input.data),
-      });
+      return res.json(
+        messaging
+          ? messaging.observe(recentAuthorizationSession(res)!, id.data, input.data)
+          : {
+              message: store.collaborationConversation.getMessageForRequest(id.data, input.data),
+              terminal: false,
+            },
+      );
     } catch (error) {
       return failure(res, error);
     }

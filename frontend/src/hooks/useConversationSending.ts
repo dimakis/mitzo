@@ -82,20 +82,21 @@ export function useConversationSending(options: {
       if (original) {
         if (original.authScope !== authScope || original.collaborationId !== group)
           throw Error('The original request belongs to another login or conversation.');
-        const { message } = await api.observeSend(group, original.input);
+        const { message, terminal } = await api.observeSend(group, original.input);
         if (!valid()) return;
         const latest = await refresh();
         if (!valid()) return;
         // The original message stays retained until a terminal outcome is visible.
-        const terminal =
-          message &&
-          (message.deliveries.every((d) => ['failed', 'unavailable'].includes(d.status)) ||
-            latest?.messages.some(
-              (m) =>
-                m.replyToDeliveryId &&
-                message.deliveries.some((d) => d.deliveryId === m.replyToDeliveryId),
-            ));
-        if (!terminal) return;
+        const settled =
+          terminal ||
+          (message &&
+            (message.deliveries.every((d) => ['failed', 'unavailable'].includes(d.status)) ||
+              latest?.messages.some(
+                (m) =>
+                  m.replyToDeliveryId &&
+                  message.deliveries.some((d) => d.deliveryId === m.replyToDeliveryId),
+              )));
+        if (!settled) return;
         retain();
       }
       if (!recipient) return;
@@ -173,20 +174,20 @@ export function useConversationSending(options: {
         !authScope
       )
         return false;
-      const original: Pending = {
-        collaborationId: group,
-        authScope,
-        input: CollaborationMessageInputSchema.parse({
-          requestId: createBrowserId(),
-          expectedMembershipRevision: view.membershipRevision,
-          expectedPolicySequence: view.policySequence,
-          text,
-          responders: { kind: 'selected', sessionIds: [recipient] },
-          snapshot: null,
-        }),
-      };
       busy.current = owner;
       try {
+        const original: Pending = {
+          collaborationId: group,
+          authScope,
+          input: CollaborationMessageInputSchema.parse({
+            requestId: createBrowserId(),
+            expectedMembershipRevision: view.membershipRevision,
+            expectedPolicySequence: view.policySequence,
+            text,
+            responders: { kind: 'selected', sessionIds: [recipient] },
+            snapshot: null,
+          }),
+        };
         retain(original);
         const receipt = await api.send(group, original.input);
         if (!valid()) return false;

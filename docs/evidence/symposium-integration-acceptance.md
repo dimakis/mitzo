@@ -2,6 +2,50 @@
 
 Living map owner: workstream C, `01a14bdc-d152-7912-84d4-c0012e9d5206`.
 
+## 7 November 2026 interrupted landing and review corrections
+
+PR #1261 was recovered after an interrupted main integration. Accepted base
+`c38e253855552edc81711ec02366218d08469d73` and reviewed candidate `2615046`
+are retained in its history. Centaur review `5813506337` reported five blockers;
+this follow-up corrects their shared-draft, scrolling, source Stop, terminal
+recovery and input-validation paths. It remains candidate self-verification
+until current-head CI and Centaur verify the changes.
+
+Shared drafts are excluded from ordinary draft discovery, and unresolved send
+receipts resist generic discard. The ordinary screen remains mounted as its
+first session identity is assigned, while shared state is fenced by source,
+client and verified login. The host observes the existing startup/login owner
+instead of starting another authentication operation. Ordinary and shared
+transcripts keep separate scroll refs, and an active source turn retains its
+original composer and Stop callback. Oversized input settles with a visible
+refusal and retained draft instead of an unhandled promise rejection.
+
+The native Codex owner now retains its exact provider terminal notification in
+the existing event store. Observation reads only the original command's terminal
+record; queue consumption, generic cleanup, restart and abandonment cannot prove
+completion. Completed, failed and interrupted turns can release the original
+send fence without an assistant body. Six owner cases cover definite and
+ambiguous outcomes, and the actual authenticated application test verifies the
+native notification through the typed observation client. The application and
+router rerun passes all 25 cases, including the production composer/remount path.
+The focused UI/design/owner run passes 315 tests with one existing skip; its route
+subset initially hit the sandbox listener restriction before the permitted rerun.
+
+The two older responsive-screen fixtures now preserve authentication exports and
+apply store selectors accurately; their 16 continuity cases pass unchanged.
+The new offline composer fixture clicks its auto-closing single-recipient picker
+and verifies the selected name explicitly. Protected design tests, ledgers and
+references remain unchanged. Browser CI on the reviewed candidate exposed
+navigation/remount and authentication-state failures; their rendered follow-up
+is still required. Its native repository workflow also failed with diagnostic
+`2a6e1e7a-b688-4b8a-92bd-e1c478f1a154` during materialization. The retained log
+establishes a roughly 50-second failing phase under host load, but does not
+establish the underlying cause; the next candidate must pass that gate too.
+
+The full fresh-agent edited review/refreeze/join UI journey, independent visual
+acceptance, runtime/device qualification and parent milestone remain open.
+No staging or deployment is authorized by this source landing.
+
 ## 7 November 2026 shared composer implementation checkpoint
 
 Candidate `feat/symposium-shared-composer`, baseline accepted main

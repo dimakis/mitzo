@@ -15,6 +15,41 @@ afterEach(() => {
   localStorage.clear();
   sessionStorage.clear();
 });
+it('settles an oversized prompt as a visible refusal without retaining or dispatching it', async () => {
+  const view = sharedConversationView();
+  const draft = { ...createChatDraft(), text: 'Keep this draft' };
+  saveChatDraft(draft);
+  const fetch = vi.fn(async () =>
+    Response.json({
+      collaborationId: view.collaborationId,
+      sessionId: 'reviewer',
+      membershipRevision: view.membershipRevision,
+      policySequence: view.policySequence,
+      ready: true,
+      reason: null,
+    }),
+  );
+  const api = new CollaborationApiClient(fetch);
+  const proof = () => 'login';
+  const refresh = vi.fn(async () => view);
+  const hook = renderHook(() =>
+    useConversationSending({
+      api,
+      view,
+      draftId: draft.id,
+      authScope: 'login',
+      getVerifiedAuthScope: proof,
+      responders: { kind: 'selected', sessionIds: ['reviewer'] },
+      refresh,
+    }),
+  );
+  await waitFor(() => expect(hook.result.current.disabledReason).toBeUndefined());
+  await act(async () => expect(await hook.result.current.send('x'.repeat(100001))).toBe(false));
+  expect(hook.result.current.error).toBeTruthy();
+  expect(hook.result.current.pending).toBeUndefined();
+  expect(getChatDraft(draft.id)?.text).toBe(draft.text);
+  expect(fetch).toHaveBeenCalledOnce();
+});
 it('requires server readiness and preserves one uncertain request across remount without resending', async () => {
   const view = sharedConversationView();
   const draft = createChatDraft();
@@ -124,54 +159,59 @@ it('checks a newly selected recipient while an older readiness request is still 
   expect(fetch).toHaveBeenCalledTimes(2);
 });
 
-it('checks readiness again after recovery finds the original finalized reply', async () => {
-  const view = sharedConversationView();
-  const draft = createChatDraft();
-  saveChatDraft({
-    ...draft,
-    text: 'Next prompt',
-    collaborationSend: {
-      collaborationId: view.collaborationId,
-      authScope: 'login',
-      input: {
-        requestId: uuid(90),
-        expectedMembershipRevision: view.membershipRevision,
-        expectedPolicySequence: view.policySequence,
-        text: sharedPrompt.text,
-        responders: { kind: 'selected', sessionIds: ['architect'] },
-        snapshot: null,
-      },
-    },
-  });
-  expect(getChatDraft(draft.id)?.collaborationSend).toBeDefined();
-  const fetch = vi.fn(async (url: string) => {
-    if (url.endsWith('/messages/observe')) return Response.json({ message: sharedPrompt });
-    if (url.includes('/recipients/'))
-      return Response.json({
+it.each([false, true])(
+  'checks readiness after terminal recovery with no visible reply=%s',
+  async (empty) => {
+    const view = sharedConversationView();
+    if (empty) view.messages = [sharedPrompt];
+    const draft = createChatDraft();
+    saveChatDraft({
+      ...draft,
+      text: 'Next prompt',
+      collaborationSend: {
         collaborationId: view.collaborationId,
-        sessionId: 'architect',
-        membershipRevision: view.membershipRevision,
-        policySequence: view.policySequence,
-        ready: true,
-        reason: null,
-      });
-    throw Error('Recovery must not dispatch another prompt');
-  });
-  const api = new CollaborationApiClient(fetch);
-  const proof = () => 'login';
-  const refresh = vi.fn(async () => view);
-  const hook = renderHook(() =>
-    useConversationSending({
-      api,
-      view,
-      draftId: draft.id,
-      authScope: 'login',
-      getVerifiedAuthScope: proof,
-      responders: { kind: 'selected', sessionIds: ['architect'] },
-      refresh,
-    }),
-  );
-  await waitFor(() => expect(getChatDraft(draft.id)?.collaborationSend).toBeUndefined());
-  await waitFor(() => expect(hook.result.current.disabledReason).toBeUndefined());
-  expect(fetch).toHaveBeenCalledTimes(2);
-});
+        authScope: 'login',
+        input: {
+          requestId: uuid(90),
+          expectedMembershipRevision: view.membershipRevision,
+          expectedPolicySequence: view.policySequence,
+          text: sharedPrompt.text,
+          responders: { kind: 'selected', sessionIds: ['architect'] },
+          snapshot: null,
+        },
+      },
+    });
+    expect(getChatDraft(draft.id)?.collaborationSend).toBeDefined();
+    const fetch = vi.fn(async (url: string) => {
+      if (url.endsWith('/messages/observe'))
+        return Response.json({ message: sharedPrompt, terminal: empty });
+      if (url.includes('/recipients/'))
+        return Response.json({
+          collaborationId: view.collaborationId,
+          sessionId: 'architect',
+          membershipRevision: view.membershipRevision,
+          policySequence: view.policySequence,
+          ready: true,
+          reason: null,
+        });
+      throw Error('Recovery must not dispatch another prompt');
+    });
+    const api = new CollaborationApiClient(fetch);
+    const proof = () => 'login';
+    const refresh = vi.fn(async () => view);
+    const hook = renderHook(() =>
+      useConversationSending({
+        api,
+        view,
+        draftId: draft.id,
+        authScope: 'login',
+        getVerifiedAuthScope: proof,
+        responders: { kind: 'selected', sessionIds: ['architect'] },
+        refresh,
+      }),
+    );
+    await waitFor(() => expect(getChatDraft(draft.id)?.collaborationSend).toBeUndefined());
+    await waitFor(() => expect(hook.result.current.disabledReason).toBeUndefined());
+    expect(fetch).toHaveBeenCalledTimes(2);
+  },
+);

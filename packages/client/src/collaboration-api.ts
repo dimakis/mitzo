@@ -120,7 +120,10 @@ export class CollaborationApiClient {
   observeSend(id: string, input: CollaborationMessageInput, signal?: AbortSignal) {
     return this.request(
       this.path(id, 'messages/observe'),
-      z.strictObject({ message: CollaborationMessageSchema.nullable() }),
+      z.strictObject({
+        message: CollaborationMessageSchema.nullable(),
+        terminal: z.boolean().default(false),
+      }),
       signal,
       { method: 'POST', body: CollaborationMessageInputSchema.parse(input) },
     );

@@ -118,6 +118,31 @@ export class ApplicationCollaborationMessaging {
     }
   }
 
+  /** Observe the original request and exact durable execution; never infer
+   * completion from a disconnected transport or a missing assistant message. */
+  observe(auth: AuthSession, group: string, raw: unknown) {
+    this.current(auth);
+    const input = CollaborationMessageInputSchema.parse(raw);
+    this.reconcile(auth, group);
+    const message = this.store.collaborationConversation.getMessageForRequest(group, input) ?? null;
+    const view = this.store.collaborationConversation.view(group);
+    const replies = message?.deliveries.filter((d) => d.purpose === 'reply') ?? [];
+    const terminal =
+      replies.length > 0 &&
+      replies.every((delivery) => {
+        if (
+          !delivery.commandId ||
+          !view.participantSessionIds.includes(delivery.sessionId) ||
+          view.unavailableParticipantSessionIds.includes(delivery.sessionId)
+        )
+          return false;
+        const command = this.store.getSendCommand(delivery.commandId);
+        if (command?.sessionId !== delivery.sessionId) return false;
+        return !!this.store.getOrdinaryProviderTurnTerminal(delivery.sessionId, delivery.commandId);
+      });
+    return { message, terminal };
+  }
+
   private async joiningContext(
     auth: AuthSession,
     group: string,
@@ -412,7 +437,15 @@ export class ApplicationCollaborationMessaging {
           signal,
           assertCurrent,
         );
-      } catch {
+      } catch (cause) {
+        log.warn('Ordinary collaboration delivery needs reconciliation', {
+          err: cause,
+          code: 'collaboration_delivery_uncertain',
+          stage: 'ordinary_delivery',
+          collaborationId: group,
+          sessionId: delivery.sessionId,
+          commandId,
+        });
         for (const shared of history) {
           const ref = this.store.collaborationConversation
             .getMessage(group, shared.messageId)!

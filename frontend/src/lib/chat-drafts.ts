@@ -182,7 +182,10 @@ export function listChatDrafts(): ChatDraft[] {
         const draft = getChatDraft(key.slice(PREFIX.length));
         // Acceptance can outlive its composer. Keep recovery bytes for that
         // owner, but only unsent revisions belong in Drafts and its count.
-        return draft && !isAcceptedChatDraft(draft) ? [draft] : [];
+        // Shared drafts stay with their conversation and exact recovery owner.
+        return draft && !draft.settings.collaborationResponders && !isAcceptedChatDraft(draft)
+          ? [draft]
+          : [];
       })
       .sort((a, b) => b.updatedAt - a.updatedAt);
   } catch {
@@ -216,6 +219,8 @@ export function saveChatDraft(draft: ChatDraft): boolean {
 }
 export function deleteChatDraft(id: string, options: { preserveText?: boolean } = {}): boolean {
   try {
+    // A collection discard cannot erase an unresolved delivery observation.
+    if (getChatDraft(id)?.collaborationSend) return false;
     if (!allowComposerDraftPersistence(chatDraftStorageKey(id))) return false;
     chatStorage.removeItem(PREFIX + id);
     if (!options.preserveText) chatStorage.removeItem(chatDraftTextKey(id));

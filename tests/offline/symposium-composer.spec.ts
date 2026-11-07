@@ -131,7 +131,10 @@ for (const theme of ['dark', 'light'])
       const input = page.getByRole('textbox', { name: 'Message Mitzo' });
       await input.fill('Review this exact discussion.');
       await page.getByRole('button', { name: 'Choose who replies' }).click();
-      await page.getByRole('checkbox', { name: 'Reviewer', exact: true }).check();
+      await page.getByRole('checkbox', { name: 'Reviewer', exact: true }).click();
+      await expect(page.getByRole('button', { name: 'Choose who replies' })).toContainText(
+        'Reviewer',
+      );
       await expect(
         page.getByText('Participant paused. Open it before sending.').first(),
       ).toBeVisible();
@@ -149,7 +152,10 @@ for (const theme of ['dark', 'light'])
       expect(sends).toBe(1);
       await input.fill('Keep this draft while checking another recipient.');
       await page.getByRole('button', { name: 'Choose who replies' }).click();
-      await page.getByRole('checkbox', { name: /Reader/ }).check();
+      await page.getByRole('checkbox', { name: /reader/i }).click();
+      await expect(page.getByRole('button', { name: 'Choose who replies' })).toContainText(
+        'reader',
+      );
       await expect(send).toBeDisabled();
       await expect(input).toHaveValue('Keep this draft while checking another recipient.');
       expect(await page.locator('main').evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(

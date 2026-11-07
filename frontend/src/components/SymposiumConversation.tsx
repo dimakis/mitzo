@@ -789,6 +789,7 @@ export function SymposiumConversation({
       <SharedConversationBody
         sourceConversationId={sessionId ?? ''}
         chat={chat}
+        ordinaryComposer={!ordinaryExcluded ? ordinaryComposer : undefined}
         ordinaryHistory={
           <ChatArea
             {...chat}

@@ -13,7 +13,6 @@ import { CollaborationBeginSchema, SessionCollaborationIdSchema } from '@mitzo/p
 import {
   apiFetch,
   currentVerifiedAuthSessionId,
-  restoreCookieAuthentication,
   AUTH_RESTORED_EVENT,
   AUTH_LOST_EVENT,
 } from '../lib/api-fetch';
@@ -44,25 +43,21 @@ export function OrdinarySharedConversationHost({
   const [authScope, setAuthScope] = useState<string>();
   useEffect(() => {
     if (!clientId) return;
-    let active = true;
-    const verify = () =>
-      void restoreCookieAuthentication().then(() => {
-        if (active) setAuthScope(currentVerifiedAuthSessionId());
-      });
+    // Startup/login already owns authentication. Observe its proof and events;
+    // mounting an ordinary chat must not start a second auth/recovery operation.
+    const verify = () => setAuthScope(currentVerifiedAuthSessionId());
     const lost = () => setAuthScope(undefined);
     verify();
     window.addEventListener(AUTH_RESTORED_EVENT, verify);
     window.addEventListener(AUTH_LOST_EVENT, lost);
     return () => {
-      active = false;
       window.removeEventListener(AUTH_RESTORED_EVENT, verify);
       window.removeEventListener(AUTH_LOST_EVENT, lost);
     };
   }, [clientId]);
-  return sourceConversationId ? (
+  return (
     <SharedConversationHost
-      key={sourceConversationId}
-      sourceConversationId={sourceConversationId}
+      sourceConversationId={sourceConversationId ?? ''}
       api={applicationApi}
       clientId={clientId}
       authScope={authScope}
@@ -70,8 +65,6 @@ export function OrdinarySharedConversationHost({
     >
       {children}
     </SharedConversationHost>
-  ) : (
-    children
   );
 }
 export function SharedConversationHost({
@@ -94,17 +87,28 @@ function useSharedConversation({
   authScope?: string;
   getVerifiedAuthScope(): string | undefined;
 }) {
-  const [association, setAssociation] = useState<{
+  const owner = useMemo(
+    () => ({ api, sourceConversationId, clientId, authScope }),
+    [api, sourceConversationId, clientId, authScope],
+  );
+  const [associationState, setAssociation] = useState<{
+    owner: object;
     group?: string;
     begun?: boolean;
     error?: string;
-  }>({});
+  }>({ owner });
+  const association = associationState.owner === owner ? associationState : { owner };
   const [attempt, setAttempt] = useState(0);
-  const [draftId, setDraftId] = useState<string>();
+  const [savedDraft, setDraft] = useState<{ owner: object; id: string }>();
+  const draftId = savedDraft?.owner === owner ? savedDraft.id : undefined;
   useEffect(() => {
-    if (!clientId || !authScope || getVerifiedAuthScope() !== authScope) return;
+    if (!sourceConversationId || !clientId || !authScope || getVerifiedAuthScope() !== authScope)
+      return;
     const controller = new AbortController();
-    setAssociation((previous) => ({ ...previous, error: undefined }));
+    setAssociation((previous) => ({
+      ...(previous.owner === owner ? previous : { owner }),
+      error: undefined,
+    }));
     void api.collaborations
       .sourceSetup(sourceConversationId, clientId, controller.signal)
       .then((setup) => {
@@ -121,7 +125,7 @@ function useSharedConversation({
           if (sessionStorage.getItem(key) !== group)
             throw Error('Could not retain this collaboration identity.');
         }
-        setAssociation({ group, begun: setup.state === 'selected' });
+        setAssociation({ owner, group, begun: setup.state === 'selected' });
         const id = 'shared:' + group;
         if (!getChatDraft(id)) {
           const draft = createChatDraft();
@@ -140,17 +144,17 @@ function useSharedConversation({
           )
             throw Error('Could not retain this shared draft.');
         }
-        setDraftId(id);
+        setDraft({ owner, id });
       })
       .catch((cause) => {
         if (!controller.signal.aborted)
           setAssociation((previous) => ({
-            ...previous,
+            ...(previous.owner === owner ? previous : { owner }),
             error: cause instanceof Error ? cause.message : 'Collaboration unavailable.',
           }));
       });
     return () => controller.abort();
-  }, [api, sourceConversationId, clientId, authScope, getVerifiedAuthScope, attempt]);
+  }, [owner, api, sourceConversationId, clientId, authScope, getVerifiedAuthScope, attempt]);
   const presentation = useConversationPresentation({
     api: api.collaborations,
     collaborationId: association.begun ? (association.group ?? null) : null,
@@ -164,7 +168,7 @@ function useSharedConversation({
     if (!association.group || !clientId || !authScope || getVerifiedAuthScope() !== authScope)
       return undefined;
     const group = association.group;
-    const owner = createConversationJoiningApplicationOwner({
+    const applicationOwner = createConversationJoiningApplicationOwner({
       api,
       sourceConversationId,
       collaborationId: group,
@@ -172,30 +176,31 @@ function useSharedConversation({
       getVerifiedAuthScope,
     });
     return {
-      ...owner,
-      async captureReview(...args: Parameters<typeof owner.captureReview>) {
+      ...applicationOwner,
+      async captureReview(...args: Parameters<typeof applicationOwner.captureReview>) {
         // Only this explicit review action begins the relationship; no session or model is allocated.
         if (!association.begun)
           await api.collaborations.begin(
             group,
             CollaborationBeginSchema.parse({ requestId: group, sessionId: sourceConversationId }),
           );
-        setAssociation((s) => (s.group === group ? { ...s, begun: true } : s));
-        return owner.captureReview(...args);
+        setAssociation((s) => (s.owner === owner && s.group === group ? { ...s, begun: true } : s));
+        return applicationOwner.captureReview(...args);
       },
-      async confirm(...args: Parameters<typeof owner.confirm>) {
-        const join = await owner.confirm(...args);
+      async confirm(...args: Parameters<typeof applicationOwner.confirm>) {
+        const join = await applicationOwner.confirm(...args);
         void refresh();
         return join;
       },
-      async recover(...args: Parameters<typeof owner.recover>) {
-        const join = await owner.recover(...args);
+      async recover(...args: Parameters<typeof applicationOwner.recover>) {
+        const join = await applicationOwner.recover(...args);
         void refresh();
         return join;
       },
     };
   }, [
     association.group,
+    owner,
     association.begun,
     clientId,
     authScope,
@@ -283,13 +288,16 @@ export function SharedConversationBody({
   chat,
   children,
   ordinaryHistory,
+  ordinaryComposer,
 }: {
   sourceConversationId: string;
   chat: ChatAreaProps;
   children: ReactNode;
   ordinaryHistory?: ReactNode;
+  ordinaryComposer?: ReactNode;
 }) {
   const host = useContext(Context);
+  const [sendFailure, setSendFailure] = useState<string>();
   if (!host || host.sourceConversationId !== sourceConversationId) return children;
   if (!host.active)
     return (
@@ -313,6 +321,7 @@ export function SharedConversationBody({
       {projection && (
         <CollaborationTranscript
           {...chat}
+          scrollRef={undefined}
           current={null}
           currentByMessage={{}}
           running={false}
@@ -325,47 +334,61 @@ export function SharedConversationBody({
           onRefresh={() => void presentation.refresh()}
         />
       )}
-      {draft && (
-        <div className="conversation-composer">
-          <ChatInput
-            savedChatDraft={draft}
-            sessionId={draft.id}
-            textOnly
-            boundedFirstCommand
-            externalContextBlocks={EMPTY_CONTEXT}
-            running={false}
-            onStop={() => {}}
-            collaboration={<></>}
-            responders={
-              composerResponders
-                ? {
-                    ...composerResponders,
-                    members: composerResponders.members.map((member) => ({
-                      ...member,
-                      name: names[member.id] ?? member.name,
-                    })),
-                    maximum: 1,
-                    disabled: !!sending.pending,
-                  }
-                : undefined
-            }
-            sendDisabledReason={presentation.error ?? sending.disabledReason}
-            sendDisabledAction={{
-              label: sending.pending ? 'Check original request' : 'Refresh conversation',
-              onClick: () => {
-                void presentation.refresh();
-                void sending.check();
-              },
-            }}
-            onSend={(text, images, context, delivered) => {
-              if (images?.length || context?.length || sending.disabledReason) return false;
-              void sending.send(text).then((ok) => delivered?.(ok ? 'accepted' : 'failed'));
-              return true;
-            }}
-          />
-        </div>
-      )}
+      {chat.running && ordinaryComposer
+        ? ordinaryComposer
+        : draft && (
+            <div className="conversation-composer">
+              <ChatInput
+                savedChatDraft={draft}
+                sessionId={draft.id}
+                textOnly
+                boundedFirstCommand
+                externalContextBlocks={EMPTY_CONTEXT}
+                running={false}
+                onStop={() => {}}
+                collaboration={<></>}
+                responders={
+                  composerResponders
+                    ? {
+                        ...composerResponders,
+                        members: composerResponders.members.map((member) => ({
+                          ...member,
+                          name: names[member.id] ?? member.name,
+                        })),
+                        maximum: 1,
+                        disabled: !!sending.pending,
+                      }
+                    : undefined
+                }
+                sendDisabledReason={presentation.error ?? sending.disabledReason}
+                sendDisabledAction={{
+                  label: sending.pending ? 'Check original request' : 'Refresh conversation',
+                  onClick: () => {
+                    void presentation.refresh();
+                    void sending.check();
+                  },
+                }}
+                onSend={(text, images, context, delivered) => {
+                  if (images?.length || context?.length || sending.disabledReason) return false;
+                  setSendFailure(undefined);
+                  void sending.send(text).then(
+                    (ok) => delivered?.(ok ? 'accepted' : 'failed'),
+                    (cause) => {
+                      setSendFailure(
+                        cause instanceof Error
+                          ? cause.message
+                          : 'Could not send this prompt. Your draft is retained.',
+                      );
+                      delivered?.('failed');
+                    },
+                  );
+                  return true;
+                }}
+              />
+            </div>
+          )}
       {sending.error && <p role="alert">{sending.error}</p>}
+      {sendFailure && <p role="alert">{sendFailure}</p>}
     </>
   );
 }

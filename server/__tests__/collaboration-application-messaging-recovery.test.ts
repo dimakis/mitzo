@@ -211,6 +211,62 @@ it.each([false, true])(
   },
 );
 
+it.each(['completed', 'failed', 'interrupted', 'stopped', 'server_restart', 'abandoned'] as const)(
+  'observes the exact durable %s command outcome without requiring an assistant body or resending',
+  async (reason) => {
+    const request = input('one', 'A prompt with no visible answer');
+    await owner.send(auth, group, request, new AbortController().signal);
+    const prompt = prompts[0];
+    store.completeOrdinaryLocalCommand('initial-one');
+    store.admitOrdinaryLocalContinuation(
+      {
+        sessionId: 'one',
+        cwd: '/fixture',
+        mode: 'agent',
+        repositoryWorkspaceId: 'workspace',
+        accountBinding: { ...binding.account, accountLabel: 'Offline', model: selection.model },
+      },
+      binding,
+      {
+        clientMsgId: prompt.commandId,
+        requestFingerprint: 'terminal-fixture',
+        selection,
+        payload: { text: prompt.text },
+      },
+    );
+    store.claimOrdinaryLocalCommandDispatch(prompt.commandId);
+    store.append('one', 'user_message', { messageId: prompt.commandId, text: prompt.text });
+    prompt.turnLifecycle!.accepted(prompt.commandId, 'thread', 'turn');
+    const execution = store.beginExecution(
+      'one',
+      randomUUID(),
+      prompt.commandId,
+      'terminal-fixture',
+    );
+    expect(owner.observe(auth, group, request).terminal).toBe(false);
+    store.transitionExecution(execution.token, 'TERMINAL', reason);
+    if (reason === 'completed' || reason === 'failed' || reason === 'interrupted') {
+      store.recordOrdinaryProviderTurnTerminal('one', prompt.commandId, reason);
+      store.recordOrdinaryProviderTurnTerminal('one', prompt.commandId, reason);
+      expect(store.getEventsOfType('one', 'ordinary_provider_turn_terminal')).toHaveLength(1);
+      expect(() =>
+        store.recordOrdinaryProviderTurnTerminal('two', prompt.commandId, reason),
+      ).toThrow('identity');
+      expect(() =>
+        store.recordOrdinaryProviderTurnTerminal(
+          'one',
+          prompt.commandId,
+          reason === 'failed' ? 'completed' : 'failed',
+        ),
+      ).toThrow('Conflicting');
+    }
+    const observed = owner.observe(auth, group, request);
+    expect(observed.terminal).toBe(['completed', 'failed', 'interrupted'].includes(reason));
+    expect(observed.message?.deliveries[0].status).toBe('delivered');
+    expect(prompts).toHaveLength(1);
+  },
+);
+
 it('refuses an overlapping unclaimed fan-out reply without adopting or partially accepting it', async () => {
   let release!: () => void;
   const preparing = new Promise<void>((resolve) => {

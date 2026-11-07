@@ -3221,8 +3221,25 @@ async function openCodexChatBound(
           },
         }
       : {}),
-    onProviderTerminal: (messageId, turnId, status) =>
-      options.ordinaryTurnLifecycle?.terminal(messageId, turnId, status),
+    onProviderTerminal: (messageId, turnId, status) => {
+      try {
+        if (options.eventStore.getSendCommand(messageId)?.sessionId === options.conversationId)
+          options.eventStore.recordOrdinaryProviderTurnTerminal(
+            options.conversationId,
+            messageId,
+            status,
+          );
+      } catch (cause) {
+        log.warn('Exact ordinary provider terminal outcome could not be retained', {
+          err: cause,
+          code: 'ordinary_provider_terminal_retention_failed',
+          stage: 'provider_terminal',
+          conversationId: options.conversationId,
+          commandId: messageId,
+        });
+      }
+      options.ordinaryTurnLifecycle?.terminal(messageId, turnId, status);
+    },
     onProviderTerminalConflict: (messageId, _threadId, turnId) =>
       options.ordinaryTurnLifecycle?.terminalConflict?.(messageId, turnId),
     onProviderComplete: (messageId, status) => {

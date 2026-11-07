@@ -85,6 +85,7 @@ it('delivers a reviewed fresh agent prompt through the actual app and projects i
     expect(JSON.stringify(turn.params)).toContain('Edited brief retained exactly');
     expect(JSON.stringify(turn.params)).toContain(input.text);
     expect(JSON.stringify(turn.params)).not.toContain('DO_NOT_LEAK');
+    await vi.waitFor(async () => expect((await api.observeSend(group, input)).terminal).toBe(true));
     const retries = await Promise.all([api.send(group, input), api.send(group, input)]);
     expect(retries.map((m) => m.messageId)).toEqual([accepted.messageId, accepted.messageId]);
     await expect(api.send(group, { ...input, text: 'Changed retry' })).rejects.toThrow();
