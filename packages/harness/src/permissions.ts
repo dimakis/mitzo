@@ -105,6 +105,26 @@ export function isCompletePendingBashCommand(request: PermissionRequest): boolea
   );
 }
 
+/** Banner actions require the full live input, regardless of the tool's name. */
+export function isCompletePendingToolInput(request: PermissionRequest): boolean {
+  const entry = pending.get(request.permId);
+  if (
+    !entry ||
+    entry.toolName !== request.toolName ||
+    entry.sessionId !== request.sessionId ||
+    entry.request?.reviewKind ||
+    request.reviewKind ||
+    request.questions
+  )
+    return false;
+  if (request.toolName === 'Bash') return isCompletePendingBashCommand(request);
+  try {
+    return isDeepStrictEqual(JSON.parse(request.toolInput), entry.toolInput);
+  } catch {
+    return false;
+  }
+}
+
 export function resolvePending(
   permId: string,
   decision: 'once' | 'always' | 'deny',
