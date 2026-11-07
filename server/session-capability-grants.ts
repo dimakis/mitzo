@@ -12,12 +12,26 @@ export const SessionCapability = z.discriminatedUnion('kind', [
     kind: z.literal('github-read'),
     repository: z.string().regex(/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/),
   }),
+  z.strictObject({
+    kind: z.literal('google-read'),
+    email: z.email().max(320),
+    resource: z.discriminatedUnion('kind', [
+      z.strictObject({ kind: z.literal('file'), id: z.string().regex(/^[A-Za-z0-9_-]{1,256}$/) }),
+      z.strictObject({ kind: z.literal('drive-list') }),
+      z.strictObject({
+        kind: z.literal('calendar'),
+        id: z.string().regex(/^[A-Za-z0-9_@.\-+]{1,256}$/),
+      }),
+    ]),
+  }),
+  z.strictObject({ kind: z.literal('telos-progress'), itemId: z.string().trim().min(1).max(200) }),
 ]);
 export type SessionCapability = z.infer<typeof SessionCapability>;
 export const CreateSessionCapabilityGrant = z.strictObject({
   sessionIds: z.array(z.string().min(1).max(200)).min(1).max(32),
   capability: SessionCapability,
   durationMinutes: z.number().int().min(1).max(480),
+  scope: z.enum(['sessions', 'repository', 'operator']).optional(),
   expectedContexts: z.record(z.string(), z.string().regex(/^[a-f0-9]{64}$/)).optional(),
 });
 export interface SessionCapabilityGrant {
@@ -25,6 +39,8 @@ export interface SessionCapabilityGrant {
   capability: SessionCapability;
   sessionIds: string[];
   expiresAt: number;
+  scope?: 'sessions' | 'repository' | 'operator';
+  repository?: string;
 }
 export interface SessionCapabilityInventory {
   sessionId: string;
@@ -43,8 +59,10 @@ interface Grant extends SessionCapabilityGrant {
   operatorId: string;
   members: Member[];
   timer?: ReturnType<typeof setTimeout>;
+  account?: ManagedSession['accountBinding'];
 }
 const owners = new WeakMap<ManagedSession, SessionCapabilityGrants>();
+const stores = new Set<WeakRef<SessionCapabilityGrants>>();
 const identities = new WeakMap<object, string>();
 function identity(owner: object) {
   let id = identities.get(owner);
@@ -83,7 +101,41 @@ export function containsCapabilityPath(root: string, path: string) {
  * delivery boundaries; it cannot widen any native or service credential fence. */
 export class SessionCapabilityGrants {
   private readonly grants = new Map<string, Grant>();
-  constructor(private readonly registry: SessionRegistry) {}
+  constructor(
+    private readonly registry: SessionRegistry,
+    /** Server-owned custody identity, never a path or repository from tool JSON. */
+    private readonly repository: (s: ManagedSession) => string | undefined = () => undefined,
+  ) {
+    stores.add(new WeakRef(this));
+  }
+  private scopeMatches(grant: Grant, s: ManagedSession) {
+    return (
+      isDeepStrictEqual(grant.account, s.accountBinding) &&
+      (grant.scope !== 'repository' ||
+        (s.accountBinding?.provider === 'openai-codex' &&
+          s.ordinaryRuntimeOwner?.location !== 'openshell' &&
+          this.repository(s) === grant.repository))
+    );
+  }
+  private enroll(grant: Grant, s: ManagedSession): Member | undefined {
+    if (!grant.scope || grant.scope === 'sessions') return;
+    try {
+      if (this.owned(grant.operatorId, s.sessionId!, true) !== s || !this.scopeMatches(grant, s))
+        return;
+      const member = {
+        session: s,
+        snapshot: snapshot(s),
+        runtimeOwner: s.ordinaryRuntimeOwner?.identity,
+        blockedOrigins: new Set<string>(),
+      };
+      grant.members.push(member);
+      grant.sessionIds.push(s.sessionId!);
+      owners.set(s, this);
+      return member;
+    } catch {
+      return;
+    }
+  }
   private memberMatches(grant: Grant, member: Member): boolean {
     const s = member.session;
     try {
@@ -93,6 +145,7 @@ export class SessionCapabilityGrants {
         effectivePermissionMode(s) !== 'ask' &&
         this.registry.findBySessionId(s.sessionId!, true)?.session === s &&
         s.ordinaryRuntimeOwner?.identity === member.runtimeOwner &&
+        (!grant.scope || grant.scope === 'sessions' || this.scopeMatches(grant, s)) &&
         isDeepStrictEqual(snapshot(s), member.snapshot)
       );
     } catch {
@@ -120,7 +173,7 @@ export class SessionCapabilityGrants {
       }
       grant.members = grant.members.filter((m) => this.memberCurrent(grant, m));
       grant.sessionIds = grant.members.map((m) => m.session.sessionId!);
-      if (!grant.members.length) {
+      if (!grant.members.length && (!grant.scope || grant.scope === 'sessions')) {
         clearTimeout(grant.timer);
         this.grants.delete(id);
       }
@@ -155,6 +208,7 @@ export class SessionCapabilityGrants {
               development:
                 s.accountBinding?.provider === 'openai-codex' &&
                 s.ordinaryRuntimeOwner?.location !== 'openshell',
+              repository: this.repository(s),
             },
           ];
         } catch {
@@ -170,6 +224,7 @@ export class SessionCapabilityGrants {
         JSON.stringify([
           operatorId,
           snapshot(session),
+          this.repository(session),
           effectivePermissionMode(session),
           identity(session),
           session.ordinaryRuntimeOwner && identity(session.ordinaryRuntimeOwner.identity),
@@ -193,6 +248,22 @@ export class SessionCapabilityGrants {
     this.prune();
     if (this.grants.size >= 256) throw Error('Revoke an existing grant before adding another');
     const capability = parsed.capability;
+    const scope = parsed.scope ?? 'sessions';
+    const repository = scope === 'repository' ? this.repository(sessions[0]!) : undefined;
+    if (
+      (scope === 'repository' && (capability.kind !== 'development' || !repository)) ||
+      (scope === 'operator' &&
+        !['github-read', 'google-read', 'telos-progress'].includes(capability.kind)) ||
+      (scope !== 'sessions' &&
+        sessions.some(
+          (s) =>
+            !isDeepStrictEqual(s.accountBinding, sessions[0]!.accountBinding) ||
+            (scope === 'repository' && this.repository(s) !== repository),
+        ))
+    )
+      throw Error(
+        'Select one repository and account for development, or an exact read/progress scope',
+      );
     if (
       capability.kind === 'development' &&
       sessions.some(
@@ -217,6 +288,13 @@ export class SessionCapabilityGrants {
       sessionIds: sessions.map((s) => s.sessionId!),
       members,
       expiresAt: Date.now() + parsed.durationMinutes * 60_000,
+      ...(parsed.scope
+        ? {
+            scope,
+            ...(repository ? { repository } : {}),
+            account: structuredClone(sessions[0]!.accountBinding),
+          }
+        : {}),
     };
     this.grants.set(grant.id, grant);
     grant.timer = setTimeout(() => {
@@ -226,12 +304,28 @@ export class SessionCapabilityGrants {
     sessions.forEach((s) => owners.set(s, this));
     return this.view(grant);
   }
-  private view({ id, capability, sessionIds, expiresAt }: Grant): SessionCapabilityGrant {
-    return structuredClone({ id, capability, sessionIds, expiresAt });
+  private view({
+    id,
+    capability,
+    sessionIds,
+    expiresAt,
+    scope,
+    repository,
+  }: Grant): SessionCapabilityGrant {
+    return structuredClone({
+      id,
+      capability,
+      sessionIds,
+      expiresAt,
+      ...(scope ? { scope } : {}),
+      ...(repository ? { repository } : {}),
+    });
   }
   list(operatorId: string, sessionId: string): SessionCapabilityGrant[] {
-    this.owned(operatorId, sessionId);
+    const session = this.owned(operatorId, sessionId);
     this.prune();
+    for (const g of this.grants.values())
+      if (g.operatorId === operatorId && !g.sessionIds.includes(sessionId)) this.enroll(g, session);
     return [...this.grants.values()]
       .filter((g) => g.operatorId === operatorId && g.sessionIds.includes(sessionId))
       .map((g) => this.view(g));
@@ -253,12 +347,18 @@ export class SessionCapabilityGrants {
     wanted:
       | { kind: 'development'; paths?: string[] }
       | { kind: 'public-web'; origin?: string }
-      | { kind: 'github-read'; repository: string },
+      | { kind: 'github-read'; repository: string }
+      | Extract<SessionCapability, { kind: 'google-read' | 'telos-progress' }>,
   ): (() => void) | undefined {
     this.prune();
     for (const grant of this.grants.values()) {
       const capability = grant.capability;
       if (capability.kind !== wanted.kind) continue;
+      if (
+        (capability.kind === 'google-read' || capability.kind === 'telos-progress') &&
+        !isDeepStrictEqual(capability, wanted)
+      )
+        continue;
       if (
         capability.kind === 'github-read' &&
         wanted.kind === 'github-read' &&
@@ -270,7 +370,8 @@ export class SessionCapabilityGrants {
         if (wanted.paths?.some((p) => !roots.some((root) => containsCapabilityPath(root, p))))
           continue;
       }
-      const member = grant.members.find((m) => m.session === session);
+      const member =
+        grant.members.find((m) => m.session === session) ?? this.enroll(grant, session);
       if (!member) continue;
       const blocked = () =>
         wanted.kind === 'public-web' &&
@@ -293,7 +394,17 @@ export function captureSessionCapability(
   session: ManagedSession,
   wanted: Parameters<SessionCapabilityGrants['capture']>[1],
 ) {
-  return owners.get(session)?.capture(session, wanted);
+  const known = owners.get(session)?.capture(session, wanted);
+  if (known) return known;
+  for (const ref of stores) {
+    const store = ref.deref();
+    if (!store) {
+      stores.delete(ref);
+      continue;
+    }
+    const receipt = store.capture(session, wanted);
+    if (receipt) return receipt;
+  }
 }
 export function blockSessionPublicOrigin(session: ManagedSession, origin: string) {
   owners.get(session)?.blockPublicOrigin(session, origin);
