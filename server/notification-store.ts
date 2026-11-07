@@ -289,9 +289,9 @@ export class NotificationStore {
   expire(now = Date.now()): number {
     return this.db
       .prepare(
-        "UPDATE notifications SET resolved_at=?, resolution='expired', delivery_status='cancelled' WHERE (perm_id IS NOT NULL OR id LIKE 'seat-access:%') AND resolved_at IS NULL AND expires_at <= ?",
+        "UPDATE notifications SET resolved_at=?, resolution='expired', archived_at=COALESCE(archived_at, ?), delivery_status='cancelled' WHERE (perm_id IS NOT NULL OR id LIKE 'seat-access:%') AND resolved_at IS NULL AND expires_at <= ?",
       )
-      .run(now, now).changes;
+      .run(now, now, now).changes;
   }
   reconcilePermissions(isLive: (id: string) => boolean, now = Date.now()): number {
     let count = this.expire(now);
@@ -307,9 +307,9 @@ export class NotificationStore {
   resolvePermission(permId: string, resolution: NotificationResolution, now = Date.now()): number {
     return this.db
       .prepare(
-        "UPDATE notifications SET resolved_at=?, resolution=?, delivery_status='cancelled' WHERE perm_id=? AND resolved_at IS NULL",
+        "UPDATE notifications SET resolved_at=?, resolution=?, archived_at=COALESCE(archived_at, ?), delivery_status='cancelled' WHERE perm_id=? AND resolved_at IS NULL",
       )
-      .run(now, resolution, permId).changes;
+      .run(now, resolution, now, permId).changes;
   }
   resolveSessionNotice(
     id: string,
@@ -319,24 +319,32 @@ export class NotificationStore {
   ): number {
     return this.db
       .prepare(
-        "UPDATE notifications SET resolved_at=?, resolution=?, delivery_status='cancelled' WHERE id=? AND json_extract(data, '$.sessionId')=? AND perm_id IS NULL AND resolved_at IS NULL",
+        "UPDATE notifications SET resolved_at=?, resolution=?, archived_at=COALESCE(archived_at, ?), delivery_status='cancelled' WHERE id=? AND json_extract(data, '$.sessionId')=? AND perm_id IS NULL AND resolved_at IS NULL",
       )
-      .run(now, resolution, id, sessionId).changes;
+      .run(now, resolution, now, id, sessionId).changes;
   }
   markRead(id: string, now = Date.now()): boolean {
     this.refreshInboxPolicy();
     return (
       this.db
-        .prepare(`UPDATE notifications SET read_at=COALESCE(read_at, ?) WHERE id=? AND ${visible}`)
-        .run(now, id).changes > 0
+        .prepare(
+          `UPDATE notifications SET read_at=COALESCE(read_at, ?),
+          archived_at=CASE WHEN kind='session' AND NOT (${needs}) THEN COALESCE(archived_at, ?) ELSE archived_at END,
+          delivery_status=CASE WHEN kind='session' AND NOT (${needs}) THEN 'cancelled' ELSE delivery_status END
+          WHERE id=? AND ${visible}`,
+        )
+        .run(now, now, id).changes > 0
     );
   }
   markUpdatesRead(now = Date.now()): void {
     this.db
       .prepare(
-        "UPDATE notifications SET read_at=COALESCE(read_at, ?) WHERE kind NOT IN ('approval','question')",
+        `UPDATE notifications SET read_at=COALESCE(read_at, ?),
+          archived_at=CASE WHEN kind='session' AND NOT (${needs}) THEN COALESCE(archived_at, ?) ELSE archived_at END,
+          delivery_status=CASE WHEN kind='session' AND NOT (${needs}) THEN 'cancelled' ELSE delivery_status END
+          WHERE kind NOT IN ('approval','question')`,
       )
-      .run(now);
+      .run(now, now);
   }
   archive(id: string, now = Date.now()): boolean {
     this.expire(now);
@@ -379,7 +387,14 @@ export class NotificationStore {
             : filter === 'history'
               ? 'resolved_at IS NOT NULL'
               : '1=1';
-    const where = `${visible} AND (${filter === 'archived' ? 'archived_at IS NOT NULL' : `archived_at IS NULL AND (${category})`})`;
+    // History is an audit view and includes resolved records after automatic archiving.
+    const lifecycle =
+      filter === 'archived'
+        ? 'archived_at IS NOT NULL'
+        : filter === 'history'
+          ? category
+          : `archived_at IS NULL AND (${category})`;
+    const where = `${visible} AND (${lifecycle})`;
     const items = (
       this.db
         .prepare(

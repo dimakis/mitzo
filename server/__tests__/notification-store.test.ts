@@ -102,17 +102,21 @@ describe('notification archive', () => {
       store.resolvePermission('p2', 'allowed', 1100);
       store.record({ id: 'read', kind: 'session', title: 'Done', body: '' }, 1000);
       store.record({ id: 'unread', kind: 'update', title: 'New', body: '' }, 1000);
+      store.record({ id: 'read-update', kind: 'update', title: 'Report', body: '' }, 1000);
       store.markRead('read', 1100);
+      store.markRead('read-update', 1100);
       store.queue('read', 1200);
       expect(store.archive(approval.id, 1200)).toBe(false);
-      expect(store.archiveResolved(1200)).toBe(2);
+      // Requests and sessions already archived at resolution/acknowledgement.
+      // The explicit bulk action still handles other read updates.
+      expect(store.archiveResolved(1200)).toBe(1);
       expect(
         store
           .feed('all', 1200)
           .items.map((i) => i.id)
           .sort(),
       ).toEqual([approval.id, 'unread'].sort());
-      expect(store.feed('archived', 1200).total).toBe(2);
+      expect(store.feed('archived', 1200).total).toBe(3);
       expect(store.feed('all', 1200).needsYou).toBe(1);
       expect(store.get('resolved')?.resolution).toBe('allowed');
       expect(store.due(1300)).toEqual([]);
