@@ -50,6 +50,16 @@ and approval handling. Ask cannot create timers or send peer messages. Humans
 can inspect and cancel all agent timers through the same UI. This feature does
 not auto-merge PRs or change any merge gate.
 
+Ordinary tool calls use the login retained by the admitted runtime, independently
+of the viewing browser connection. This covers session automation, peer messaging,
+task execution and selected workers, Knowledge, Agent Library tasks/profiles,
+session launch, publication and backlog tools. Local Codex, OpenShell Codex,
+Claude SDK and Gemini retain that identity at startup. A phone disconnect or
+viewer replacement does not change the tool actor. Logout, login expiry, runtime
+shutdown, tool selection and permission checks still apply; a released retained
+identity never falls back to a replacement viewer. Browser control and approval
+endpoints continue to require their own current interactive authentication.
+
 ## API and persistence
 
 The authenticated `/api/session-timers` collection supports GET and POST;

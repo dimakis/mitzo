@@ -13,6 +13,7 @@ import {
   captureAgentLibraryOperation,
 } from './agent-library-transport.js';
 import { agentToolAllowed } from './agent-tool-selection.js';
+import { sessionToolOperatorConnection } from './native-host-tool-operator.js';
 import type { ProfileToolCall } from './session-profile-tools.js';
 import { taskExecutionSchema } from './task-execution-definitions.js';
 import { getTaskExecutionStore } from './task-execution-runtime.js';
@@ -71,7 +72,7 @@ export function sessionTaskExecutionTools(options: {
           return current;
         };
         const source = owner();
-        const connectionId = source.session.ownerConnectionId ?? source.clientId.split(':')[0];
+        const connectionId = sessionToolOperatorConnection(source.session, source.clientId);
         const captured = captureAgentLibraryAuthorization(connectionId);
         assertTaskOperator(session, captured.auth.id);
         operation = captureAgentLibraryOperation(connectionId);
@@ -86,7 +87,7 @@ export function sessionTaskExecutionTools(options: {
           captured.assertCurrent();
           assertTaskOperator(session, captured.auth.id);
           const next = owner();
-          if ((next.session.ownerConnectionId ?? next.clientId.split(':')[0]) !== connectionId)
+          if (sessionToolOperatorConnection(next.session, next.clientId) !== connectionId)
             throw Error('Task operator changed');
           return next;
         };
@@ -138,8 +139,7 @@ export function sessionTaskExecutionTools(options: {
               registry.isClosingOut(target.clientId)
             )
               throw Error('Selected task worker is not live');
-            const peerConnection =
-              target.session.ownerConnectionId ?? target.clientId.split(':')[0];
+            const peerConnection = sessionToolOperatorConnection(target.session, target.clientId);
             const peer = captureAgentLibraryAuthorization(peerConnection);
             peer.assertCurrent();
             if (peer.auth.id !== captured.auth.id)

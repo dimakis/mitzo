@@ -9,6 +9,7 @@ import {
 } from './agent-library-transport.js';
 import { hasPersistentRevocationAuthority } from './auth.js';
 import { agentToolAllowed } from './agent-tool-selection.js';
+import { sessionToolOperatorConnection } from './native-host-tool-operator.js';
 import { isAvailableTelosWorkConversation } from './telos-work-conversation.js';
 import type { EventStore } from './event-store.js';
 import type { CodexConversationStore } from './codex-conversation-store.js';
@@ -173,7 +174,7 @@ export function sessionAgentCommunicationTools(owners: Owners) {
         !call.callId?.trim()
       )
         throw Error('Verified current native sender required');
-      const connectionId = source.session.ownerConnectionId ?? source.clientId.split(':')[0];
+      const connectionId = sessionToolOperatorConnection(source.session, source.clientId);
       const captured = captureAgentLibraryAuthorization(connectionId);
       const operation = captureAgentLibraryOperation(connectionId);
       const signal = AbortSignal.any([
@@ -192,6 +193,7 @@ export function sessionAgentCommunicationTools(owners: Owners) {
           now?.session !== source.session ||
           now.clientId !== source.clientId ||
           now.session.ordinaryRuntimeOwner !== sourceOwner ||
+          sessionToolOperatorConnection(now.session, now.clientId) !== connectionId ||
           sourceOwner?.authSessionId !== captured.auth.id ||
           !agentToolAllowed(owners.session, AGENT_COMMUNICATION_TOOL) ||
           checkSkillPolicy(owners.registry, source.clientId, AGENT_COMMUNICATION_TOOL) === 'deny' ||

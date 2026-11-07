@@ -12,6 +12,7 @@ import { SessionRegistry, resolvePending, type ManagedSession } from '@mitzo/har
 import { ownedRuntimeFixture } from './fixtures/owned-local-codex-runtime.js';
 import { login, authenticateToken, setAuthRevocationStore, revokeAuthSession } from '../auth.js';
 import { bindAgentLibraryTransport } from '../agent-library-transport.js';
+import { retainNativeHostToolOperator } from '../native-host-tool-operator.js';
 import { retainAgentContextAuthority } from '../agent-context-authority.js';
 import {
   captureNativeHostToolContext,
@@ -76,6 +77,19 @@ afterEach(async () => {
   for (const close of cleanups.splice(0).reverse()) await close();
   vi.unstubAllEnvs();
   vi.restoreAllMocks();
+});
+
+it('keeps native peer discovery available after viewer replacement, until operator revocation', async () => {
+  const f = await fixture();
+  cleanups.push(retainNativeHostToolOperator(f.a.session, f.a.session.ownerConnectionId!));
+  f.a.session.ownerConnectionId = 'disconnected-viewer';
+  const result = await f.a.call({ operation: 'list' });
+  expect(result.response.success, String(result.value)).toBe(true);
+  expect(result.value.chats).toEqual(
+    expect.arrayContaining([expect.objectContaining({ conversationId: f.b.sessionId })]),
+  );
+  revokeAuthSession(f.auth);
+  expect((await f.a.call({ operation: 'list' })).response.success).toBe(false);
 });
 
 it('retains the original combined read owner and refuses borrowed context or scope', async () => {
