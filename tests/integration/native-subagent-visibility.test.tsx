@@ -1,14 +1,15 @@
 // @vitest-environment node-compatible-dom
 import Database from 'better-sqlite3';
+import React from 'react';
 import { afterEach, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
-import { CodexSubagents } from '../../../../server/codex-subagents';
-import { CodexSubagentStore } from '../../../../server/codex-subagent-store';
-import { codexNativeExecutionPolicy } from '../../../../server/codex-native-execution-policy';
-import { ToolPill } from '../ToolPill';
+import { CodexSubagents } from '../../server/codex-subagents.js';
+import { CodexSubagentStore } from '../../server/codex-subagent-store.js';
+import { codexNativeExecutionPolicy } from '../../server/codex-native-execution-policy.js';
+import { ToolPill } from '../../frontend/src/components/ToolPill';
 
-vi.mock('../../../../server/logger', () => ({ createLogger: () => ({ warn: vi.fn() }) }));
+vi.mock('../../server/logger.js', () => ({ createLogger: () => ({ warn: vi.fn() }) }));
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
