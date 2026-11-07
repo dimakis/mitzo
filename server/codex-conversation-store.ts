@@ -2289,6 +2289,7 @@ export class CodexConversationStore {
         const failure = ToolFailureSchema.parse(JSON.parse(receipt.failure));
         return (
           failure.effectStatus === 'unknown' ||
+          ['permission_denied', 'cancelled'].includes(failure.code) ||
           ['none', 'reconnect', 'inspect_operation'].includes(failure.recovery)
         );
       })
@@ -2363,6 +2364,17 @@ export class CodexConversationStore {
       this.enqueue(id, binding, child);
       return child;
     })();
+  }
+
+  assertClaimedToolFailureContinuation(
+    id: string,
+    binding: AccountBinding,
+    command: CodexCommand,
+  ): void {
+    const current = this.commands(id, binding).find((row) => row.id === command.id);
+    if (!current || current.status !== 'running' || current.attempt !== command.attempt)
+      throw Error('Tool failure continuation dispatch changed');
+    this.assertToolFailureContinuation(id, binding, CommandInput.strip().parse(command));
   }
 
   assertToolFailureContinuation(

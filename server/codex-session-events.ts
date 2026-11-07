@@ -33,6 +33,7 @@ export class CodexSessionEvents {
   private suppressUnsafeRecovery(failure: ToolFailure): void {
     this.recoverySuppressed ||=
       failure.effectStatus === 'unknown' ||
+      ['permission_denied', 'cancelled'].includes(failure.code) ||
       ['none', 'reconnect', 'inspect_operation'].includes(failure.recovery);
   }
   getUnexplainedFailure(): ToolFailure | undefined {

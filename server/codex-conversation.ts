@@ -2822,6 +2822,12 @@ export class CodexConversation {
       await this.opts.prepareAgentContext?.(active.abort.signal);
       active.abort.signal.throwIfAborted();
       active.preparationStage = 'dispatch_authority';
+      if (command.toolFailureContinuation)
+        this.opts.store.assertClaimedToolFailureContinuation(
+          this.opts.conversationId,
+          this.binding!,
+          command,
+        );
       this.opts.onProviderDispatch?.(command.id);
       if (active.nativeExecution)
         this.opts.assertNativeExecutionCurrent?.(active.nativeExecution, command.id);
@@ -2886,6 +2892,12 @@ export class CodexConversation {
         // A synchronous transport close can reenter close() from request().
         // Once invocation is attempted, missing ACK/history is uncertainty.
         active.preparationStage = 'provider_request';
+        if (command.toolFailureContinuation)
+          this.opts.store.assertClaimedToolFailureContinuation(
+            this.opts.conversationId,
+            this.binding!,
+            command,
+          );
         active.providerSubmitted = true;
         const pendingAck = this.client.request('turn/start', params);
         dispatchSpan.end();

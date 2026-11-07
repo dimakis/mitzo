@@ -173,7 +173,7 @@ it('excludes an actual adapter approval phase from its host execution deadline',
   expect(result.success).toBe(true);
 });
 
-it.each(['clear', 'unfinished', 'failed-earlier'] as const)(
+it.each(['clear', 'unfinished', 'failed-earlier', 'suppressed-during-prepare'] as const)(
   'continues once after authoritative approval expiry only with safe command-wide native outcomes (%s)',
   async (nativeOutcome) => {
     const f = await setup();
@@ -188,6 +188,16 @@ it.each(['clear', 'unfinished', 'failed-earlier'] as const)(
       prompt: 'Original request',
       intent: 'Original request',
     });
+    if (nativeOutcome === 'suppressed-during-prepare')
+      f.conversationOptions.prepareTurn = async () => {
+        await new Promise<void>((resolve) => setImmediate(resolve));
+        f.store.recordToolFailureRecoverySuppression(
+          'app',
+          f.getBinding(),
+          'expired-source',
+          'turn-1',
+        );
+      };
     const fail = async (turnId: string, itemId: string) => {
       if (nativeOutcome === 'failed-earlier') {
         f.callbacks.onNotification('item/started', {
@@ -239,11 +249,20 @@ it.each(['clear', 'unfinished', 'failed-earlier'] as const)(
     };
     await fail('turn-1', 'approval-1');
     if (nativeOutcome !== 'clear') {
+      if (nativeOutcome === 'suppressed-during-prepare')
+        await vi.waitFor(() => expect(f.c.isPaused()).toBe(true));
       await new Promise<void>((resolve) => setImmediate(resolve));
       expect(f.rpc.request.mock.calls.filter(([method]) => method === 'turn/start')).toHaveLength(
         1,
       );
-      expect(f.c.queue().some((command) => command.toolFailureContinuation)).toBe(false);
+      expect(
+        f.c
+          .queue()
+          .some(
+            (command) =>
+              command.toolFailureContinuation && ['queued', 'running'].includes(command.status),
+          ),
+      ).toBe(false);
       return;
     }
     await vi.waitFor(() =>
