@@ -98,9 +98,16 @@ function fixture() {
     name: 'TelosGetItem' | 'TelosUpdateItem',
     raw: Record<string, unknown>,
     overrides: Partial<NativeHostToolContext> = {},
+    assertProgressConsent?: () => void,
   ) =>
     executeNativeTelosItemOperation(
-      { work, items, approve, context: { ...context(name, raw), ...overrides } },
+      {
+        work,
+        items,
+        approve,
+        context: { ...context(name, raw), ...overrides },
+        assertProgressConsent,
+      },
       name,
       raw,
     );
@@ -125,6 +132,21 @@ function fixture() {
     },
   };
 }
+
+it('rechecks inherited progress consent inside the canonical mutation guard', async () => {
+  const f = fixture();
+  let allowed = true;
+  const input = f.update();
+  f.approve.mockImplementationOnce(async (_name, exact) => {
+    allowed = false;
+    return { behavior: 'allow', updatedInput: exact };
+  });
+  const result = await f.run('TelosUpdateItem', input, {}, () => {
+    if (!allowed) throw Error('Revoked');
+  });
+  expect(result.isError).toBe(true);
+  expect(f.items.read('child').status).toBe('active');
+});
 
 it('reads and completes only the explicitly requested child, then its eligible parent through the real canonical owners', async () => {
   const f = fixture();

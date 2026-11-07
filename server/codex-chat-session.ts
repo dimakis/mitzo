@@ -8,6 +8,7 @@ import {
 import { assembleReplyText, captureMessageReply } from './message-reply-context.js';
 import { sessionLocalServiceTools } from './session-local-service-tools.js';
 import { sessionGoogleWorkspaceTools } from './session-google-workspace-tools.js';
+import { captureTelosProgressConsent } from './telos-progress-consent.js';
 import { AdviserTaskScope } from './adviser-task-scope.js';
 import { reportRetainedRuntimeFailure } from './retained-runtime-failure.js';
 import type { CodexToolResult } from './codex-tool-result.js';
@@ -4000,6 +4001,7 @@ async function openCodexChatBound(
         if (!mainPublicationRuntime || !nativeTelosTools.some((tool) => tool.name === name))
           throw Error('Original native Telos item tool unavailable');
         const context = captureSignedContext();
+        const progressConsent = captureTelosProgressConsent(options.session, name, input);
         try {
           await context.assertCurrent();
           const parsed = telosItemSchemas[name].safeParse(input);
@@ -4009,6 +4011,7 @@ async function openCodexChatBound(
             executeNativeTelosItemOperation(
               {
                 ...owners,
+                assertProgressConsent: progressConsent,
                 approve: async (toolName, parsedInput, permissionSignal) => {
                   await owners.context.assertCurrent();
                   const result = await buildPermissionHandler(context.clientId, options.registry, {
@@ -4021,7 +4024,16 @@ async function openCodexChatBound(
                         .update(JSON.stringify([context.turnId, context.callId, toolName]))
                         .digest('hex'),
                     forcePrompt: true,
-                    allowSessionGrant: false,
+                    allowSessionGrant: !!progressConsent,
+                    ...(progressConsent
+                      ? {
+                          sessionGrantKey: `telos-progress:${progressConsent.grantId}`,
+                          isRetainedSessionGrantCurrent: () => {
+                            progressConsent();
+                            return true;
+                          },
+                        }
+                      : {}),
                     approvalScope: 'request',
                     title:
                       toolName === 'TelosGetItem'
