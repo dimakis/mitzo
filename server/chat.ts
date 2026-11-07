@@ -3505,6 +3505,7 @@ export async function startOwnedLocalCodexCommand(
     savedRecovery?: boolean;
     /** Trusted silent allocation receipt; explicit first command only. */
     preparationOperationId?: string;
+    ordinaryTurnLifecycle?: OrdinaryTurnLifecycle;
     adviserScope?: AdviserTaskScope;
     onSessionPrepared?: (session: ManagedSession) => void;
     onQueryEvent?: (event: Readonly<Record<string, unknown>>) => void;
@@ -3713,6 +3714,7 @@ export async function startOwnedLocalCodexCommand(
           onEnded: release,
           adviserScope: input.adviserScope,
           onSessionPrepared: input.onSessionPrepared,
+          ordinaryTurnLifecycle: input.ordinaryTurnLifecycle,
           onQueryEvent: input.onQueryEvent,
           onTerminalOutcome: input.onTerminalOutcome,
         });
@@ -3853,6 +3855,7 @@ export async function prepareOwnedCodexChat(
     onEnded: () => void;
     adviserScope?: AdviserTaskScope;
     onSessionPrepared?: (session: ManagedSession) => void;
+    ordinaryTurnLifecycle?: OrdinaryTurnLifecycle;
     onQueryEvent?: (event: Readonly<Record<string, unknown>>) => void;
   },
 ): Promise<{ run(): Promise<void>; close(): void }> {
@@ -4001,7 +4004,7 @@ export async function prepareOwnedCodexChat(
       ownedLocalAuthSessionId: options.ownerAuthSessionId,
     });
     session = registry.get(clientId)!;
-    if (localAdmission && options.operatorConnectionId)
+    if (options.operatorConnectionId)
       releaseNativeHostOperator = retainNativeHostToolOperator(
         session,
         options.operatorConnectionId,
@@ -4091,6 +4094,7 @@ export async function prepareOwnedCodexChat(
         admission.assertCurrentSync();
         resolveOwnedTelosWorkCommandScope(sessionId, true);
       },
+      ordinaryTurnLifecycle: options.ordinaryTurnLifecycle,
       assertAgentContextAuthorization: () => {
         admission.assertCurrentSync();
         resolveOwnedTelosWorkCommandScope(sessionId);
@@ -6132,6 +6136,7 @@ export async function startOwnedLocalResponsesCommand(
         ownedLocalAuthSessionId: owner.authSessionId,
       });
       session = registry.get(clientId)!;
+      retainNativeHostToolOperator(session, options.operatorConnectionId);
       session.worktreePaths.set('primary', {
         path: selected.expected.workspace.cwd,
         wtId: selected.workspace.id,

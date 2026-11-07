@@ -68,6 +68,7 @@ import {
 } from './telos-work-control-tools.js';
 import { sessionAgentTaskTools, agentTaskToolDefinitions } from './session-agent-task-tools.js';
 import { sessionPromptTools } from './session-prompt-tools.js';
+import { sessionToolOperatorConnection } from './native-host-tool-operator.js';
 import { watchAgentMessageTranscript } from './agent-message-transcript.js';
 import { createAgentMessageApprover } from './agent-communication-permission.js';
 import { sessionPromptDefinitions } from './session-prompt-definitions.js';
@@ -3913,7 +3914,7 @@ async function openCodexChatBound(
           context = signed;
           dispose = () => signed.dispose();
         } else {
-          const operatorConnectionId = owner.session.ownerConnectionId ?? owner.clientId;
+          const operatorConnectionId = sessionToolOperatorConnection(owner.session, owner.clientId);
           const authorization = captureAgentLibraryAuthorization(operatorConnectionId);
           const operation = captureAgentLibraryOperation(operatorConnectionId);
           dispose = operation.dispose;
@@ -3928,7 +3929,8 @@ async function openCodexChatBound(
             if (
               !mainPublicationRuntime.supportsHost(options.registry, options.eventStore) ||
               options.registry.findBySessionId(options.conversationId)?.session !== owner.session ||
-              (owner.session.ownerConnectionId ?? owner.clientId) !== operatorConnectionId ||
+              sessionToolOperatorConnection(owner.session, owner.clientId) !==
+                operatorConnectionId ||
               (owner.session.ownedLocalAuthSessionId !== undefined &&
                 !ordinaryOperatorOwnsConversation(
                   owner.session.ownedLocalAuthSessionId,

@@ -324,6 +324,17 @@ it('routes first, queued future and cold commands through the actual SDK owner w
     'Create or refine a clickable mockup for First SDK dashboard',
   );
   expect(providerInputs[0].split(agentLibrarySource.content)).toHaveLength(2);
+  const sdkSession = chat.registry.findBySessionId(f.reservation.conversationId)!.session;
+  const { sessionToolOperatorConnection } =
+    await import('../../server/native-host-tool-operator.js');
+  const { captureAgentLibraryAuthorization } =
+    await import('../../server/agent-library-transport.js');
+  const viewer = sdkSession.ownerConnectionId;
+  sdkSession.ownerConnectionId = 'disconnected-sdk-viewer';
+  expect(
+    captureAgentLibraryAuthorization(sessionToolOperatorConnection(sdkSession, 'sdk')).auth.id,
+  ).toBe(f.auth.id);
+  sdkSession.ownerConnectionId = viewer;
   const publicUser = chat.eventStore
     .getSessionEvents(f.reservation.conversationId)
     .find((event) => event.type === 'user_message');

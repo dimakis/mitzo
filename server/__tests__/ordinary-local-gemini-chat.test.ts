@@ -350,6 +350,15 @@ it.each([false, true, 'cold-queue'] as const)(
       const beforeWarm = native.queue(f.reservation.conversationId, f.reservation.binding);
       const existingOwner = chat.registry.findBySessionId(f.reservation.conversationId)!.session
         .ordinaryRuntimeOwner;
+      const session = chat.registry.findBySessionId(f.reservation.conversationId)!.session;
+      const { sessionToolOperatorConnection } = await import('../native-host-tool-operator.js');
+      const { captureAgentLibraryAuthorization } = await import('../agent-library-transport.js');
+      const viewer = session.ownerConnectionId;
+      session.ownerConnectionId = 'disconnected-gemini-viewer';
+      expect(
+        captureAgentLibraryAuthorization(sessionToolOperatorConnection(session, 'gemini')).auth.id,
+      ).toBe(f.auth.id);
+      session.ownerConnectionId = viewer;
       const expiredWarm = invoke('/continue', command('expired-warm', 'Preserve original owner'));
       await vi.waitFor(() => expect(validating).toBe(true));
       expireEntry();
