@@ -238,6 +238,60 @@ const ordinaryBody = {
   },
   payload: { text: 'Original ordinary command' },
 };
+it('keeps diagnostic persistence outside the command envelope understood by older clients', () => {
+  const disk = memory();
+  const url = 'https://one.test/local/send';
+  const storage = createReviewedOutboxStorage(disk, url, 'local');
+  const runtimeFailure = {
+    runtimeFailureCode: 'login_refresh_reauthorization',
+    diagnosticId: '00000000-0000-4000-8000-000000000001',
+  };
+  const entry = {
+    body: ordinaryBody,
+    scope: 1,
+    ordinaryDelivery: { version: 2, phase: 'continue' },
+    uncertain: true,
+    runtimeFailure,
+  };
+  storage.setItem('queue', JSON.stringify([entry]));
+  const rowKey = Array.from({ length: disk.length }, (_, index) => disk.key(index)!).find((key) =>
+    key.startsWith('mitzo-local-first-command-outbox:'),
+  )!;
+  const stored = JSON.parse(disk.getItem(rowKey)!);
+  expect(stored).not.toHaveProperty('runtimeFailure');
+  expect(
+    Object.keys(stored).every((key) =>
+      [
+        'body',
+        'scope',
+        'uncertain',
+        'localReceipt',
+        'localDraftId',
+        'ordinaryDelivery',
+        'composerDraft',
+      ].includes(key),
+    ),
+  ).toBe(true);
+  const fresh = createReviewedOutboxStorage(disk, url, 'local');
+  expect(JSON.parse(fresh.getItem('queue')!)).toEqual([entry]);
+  const hintKey = Array.from({ length: disk.length }, (_, index) => disk.key(index)!).find(
+    (key) => key !== rowKey,
+  )!;
+  disk.setItem(
+    hintKey,
+    JSON.stringify({
+      runtimeFailureCode: 'forged',
+      diagnosticId: runtimeFailure.diagnosticId,
+      error: 'private text',
+    }),
+  );
+  const reopened = JSON.parse(fresh.getItem('queue')!)[0];
+  expect(reopened.body).toEqual(ordinaryBody);
+  expect(reopened).not.toHaveProperty('runtimeFailure');
+  expect(JSON.stringify(reopened)).not.toContain('private text');
+  fresh.setItem('queue', '[]');
+  expect(disk.length).toBe(0);
+});
 it.each([false, true])(
   'notifies draft collections only after accepted proof is journalled (failure=%s)',
   (fail) => {

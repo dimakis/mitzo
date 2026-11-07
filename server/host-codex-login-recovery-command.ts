@@ -9,6 +9,7 @@ import { AccountProfiles } from './account-profiles.js';
 import { codexAccountBinding } from './codex-account.js';
 import { CodexConversationStore } from './codex-conversation-store.js';
 import { HostCodexLoginReauthorization } from './host-codex-login-reauthorization.js';
+import { HostCodexCustodySchema } from './host-codex-custody.js';
 
 export const loginReauthorizationUnavailable = () =>
   Error(
@@ -163,4 +164,104 @@ export async function reauthorizeHostLogins(options: {
     }
   }
   return results;
+}
+
+const LegacyLoginPlan = z.strictObject({
+  version: z.literal(1),
+  scanned: z.number().int().nonnegative(),
+  eligible: z.number().int().nonnegative(),
+  plan: z.array(Plan.element).max(10_000),
+  blocked: z
+    .array(
+      z.strictObject({
+        conversationId: z.string().min(1).max(200),
+        code: z.literal('login_reauthorization_refused'),
+      }),
+    )
+    .max(10_000),
+});
+
+/** Inventory all old ordinary host logins without writing SQLite, credentials or
+ * custody. One damaged/foreign chat cannot hide the remaining eligible chats. */
+export async function planLegacyHostLogins(options: { database: string; profiles: string }) {
+  if (!isAbsolute(options.database) || realpathSync(options.database) !== options.database)
+    throw loginReauthorizationUnavailable();
+  const database = new Database(options.database, { readonly: true, fileMustExist: true });
+  const candidates: string[] = [];
+  let scanned = 0;
+  const blocked: z.infer<typeof LegacyLoginPlan>['blocked'] = [];
+  try {
+    for (const value of database
+      .prepare('SELECT id,host_custody,owner_kind FROM codex_conversations ORDER BY id')
+      .iterate()) {
+      const row = value as { id: string; host_custody: string | null; owner_kind: string };
+      scanned++;
+      if (row.owner_kind !== 'ordinary' || !row.host_custody) continue;
+      try {
+        const custody = HostCodexCustodySchema.parse(JSON.parse(row.host_custody));
+        if ('kind' in custody.login || custody.login.refreshProof) continue;
+        candidates.push(row.id);
+      } catch {
+        blocked.push({ conversationId: row.id, code: 'login_reauthorization_refused' });
+      }
+    }
+  } finally {
+    database.close();
+  }
+  // Refuse oversized reports explicitly; never present an incomplete inventory
+  // as recovery for all histories or silently select a mutation subset.
+  if (candidates.length + blocked.length > 10_000) throw loginReauthorizationUnavailable();
+  const plan: z.infer<typeof LegacyLoginPlan>['plan'] = [];
+  for (const conversationId of candidates) {
+    try {
+      const [item] = await reauthorizeHostLogins({ ...options, conversations: [conversationId] });
+      plan.push(Plan.element.parse(item));
+    } catch {
+      blocked.push({ conversationId, code: 'login_reauthorization_refused' });
+    }
+  }
+  return LegacyLoginPlan.parse({
+    version: 1,
+    scanned,
+    eligible: plan.length,
+    plan,
+    blocked,
+  });
+}
+
+/** Apply only the reviewed exact list, never a fresh discovery. Existing native
+ * journals and custody CAS own crash recovery. Stop at the first refusal and
+ * retain successful receipts so an interrupted batch can be retried as reviewed. */
+export async function applyLegacyHostLoginPlan(options: {
+  database: string;
+  profiles: string;
+  approvedPlan: unknown;
+  assertOffline?: () => void;
+}) {
+  const report = LegacyLoginPlan.parse(options.approvedPlan);
+  if (
+    !report.plan.length ||
+    new Set(report.plan.map((item) => item.conversationId)).size !== report.plan.length
+  )
+    throw loginReauthorizationUnavailable();
+  const results: Record<string, unknown>[] = [];
+  for (const item of report.plan) {
+    try {
+      const [result] = await reauthorizeHostLogins({
+        ...options,
+        conversations: [item.conversationId],
+        approvedPlan: [item],
+      });
+      results.push(result);
+    } catch {
+      return {
+        status: 'incomplete' as const,
+        results,
+        stoppedAt: item.conversationId,
+        remaining: report.plan.length - results.length,
+        blocked: report.blocked,
+      };
+    }
+  }
+  return { status: 'completed' as const, results, remaining: 0, blocked: report.blocked };
 }

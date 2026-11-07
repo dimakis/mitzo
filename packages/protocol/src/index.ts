@@ -343,6 +343,12 @@ export { sessionApprovalServer } from './session-approval-scope.js';
 export * from './ordinary-local-admission.js';
 export * from './prepared-repository-transition.js';
 export * from './local-codex-first-command.js';
+export {
+  SESSION_RUNTIME_MESSAGES,
+  RuntimeFailureSchema,
+  runtimeFailureMessage,
+} from './runtime-failure.js';
+export type { RuntimeFailure, SessionRuntimeFailureCode } from './runtime-failure.js';
 export * from './ordinary-command-timeouts.js';
 
 export * from './profile-builder.js';
