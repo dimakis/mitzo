@@ -406,6 +406,66 @@ it.each([false, true])(
   },
 );
 
+it('emits a durable child activity marker before native inspection can fail', async () => {
+  const f = await setup(undefined, undefined, undefined, undefined, async () => binding);
+  Object.assign(f.conversationOptions, {
+    enableNativeSubagents: true,
+    nativeExecution: codexNativeExecutionPolicy({
+      bindingRevision: 'owner',
+      mode: 'agent',
+      cwd: '/workspace',
+      readableRoots: ['/'],
+      writableRoots: ['/workspace'],
+      deniedRoots: ['/private/auth'],
+    }),
+    assertNativeExecutionCurrent: () => {},
+    requestNativeApproval: async () => ({ decision: 'decline' }),
+  });
+  await f.c.send({ id: 'visible-child-command', prompt: 'Review' });
+  const original = f.rpc.request.getMockImplementation()!;
+  f.rpc.request.mockImplementation(async (method, params) => {
+    if (method === 'thread/read' && params.threadId === 'uninspectable-child')
+      throw Error('private upstream details');
+    return original(method, params);
+  });
+  f.callbacks.onNotification('thread/started', {
+    thread: { id: 'uninspectable-child', parentThreadId: f.getProviderThread() },
+  });
+  expect(f.events.some((event) => JSON.stringify(event).includes('nativeSubagentCommandId'))).toBe(
+    true,
+  );
+  await f.c.getSubagents()!.settled();
+  expect(f.c.getSubagents()!.list()[0]).toMatchObject({
+    threadId: 'uninspectable-child',
+    available: false,
+    state: 'unknown',
+    blocks: [],
+    inspectionFailure: { stage: 'inspect_child' },
+  });
+  expect(f.c.queue()[0].status).toBe('running');
+  expect(f.execute).not.toHaveBeenCalled();
+  const markerCount = () =>
+    f.events.filter(
+      (event) =>
+        event.type === 'assistant' && JSON.stringify(event).includes('nativeSubagentCommandId'),
+    ).length;
+  expect(markerCount()).toBe(1);
+  f.callbacks.onNotification('turn/completed', {
+    threadId: f.getProviderThread(),
+    turn: { id: 'turn-1', status: 'completed' },
+  });
+  await vi.waitFor(() => expect(f.c.queue()[0].status).toBe('completed'));
+  f.c.close();
+  const restored = new CodexConversation({
+    ...f.conversationOptions,
+    storedBinding: f.getBinding(),
+    verifyBinding: async () => f.getBinding(),
+  });
+  cleanup.push(() => restored.close());
+  await restored.initialize();
+  expect(markerCount()).toBe(1);
+});
+
 it('pauses and interrupts the original parent before waiting for slow child cancellation', async () => {
   const f = await setup();
   Object.assign(f.conversationOptions, {

@@ -5,7 +5,11 @@ import { CodexSubagentStore } from '../codex-subagent-store.js';
 import { codexNativeExecutionPolicy } from '../codex-native-execution-policy.js';
 import { CodexRequestError } from '../codex-app-server-client.js';
 
+const diagnostic = vi.hoisted(() => vi.fn());
+vi.mock('../logger.js', () => ({ createLogger: () => ({ warn: diagnostic }) }));
+
 const cleanup: (() => void)[] = [];
+afterEach(() => diagnostic.mockClear());
 afterEach(() =>
   cleanup
     .splice(0)
@@ -113,6 +117,325 @@ function fixture(extra: Partial<ConstructorParameters<typeof CodexSubagents>[0]>
     admit,
   };
 }
+it.each([
+  ['thread/read', 'inspect_child'],
+  ['thread/resume', 'subscribe'],
+  ['thread/turns/list', 'history'],
+] as const)('retains observed activity and a safe diagnostic when %s fails', async (rpc, stage) => {
+  const f = fixture();
+  const original = f.request.getMockImplementation()!;
+  f.request.mockImplementation(async (method, params, beforeDispatch) => {
+    if (method === rpc) throw Error('sensitive native payload');
+    return original(method, params, beforeDispatch);
+  });
+  f.notify('thread/started', { thread: f.thread });
+  // The actual transcript anchor must precede every asynchronous inspection.
+  expect(f.onChild).toHaveBeenCalledOnce();
+  expect(f.owner.list()[0]).toMatchObject({ threadId: 'child', available: false });
+  await f.owner.settled();
+  const child = f.owner.list()[0];
+  expect(child).toMatchObject({
+    threadId: 'child',
+    state: 'unknown',
+    available: false,
+    blocks: [],
+    inspectionFailure: {
+      code: 'native_subagent_inspection_failed',
+      stage,
+      reference: expect.any(String),
+    },
+  });
+  expect(diagnostic).toHaveBeenCalledWith(
+    'Native subagent inspection failed',
+    expect.objectContaining({
+      stage,
+      threadId: 'child',
+      conversationId: 'conversation',
+      reference: child.inspectionFailure!.reference,
+    }),
+  );
+  expect(JSON.stringify(diagnostic.mock.calls)).not.toContain('sensitive native payload');
+  const calls = f.request.mock.calls.length;
+  for (let i = 0; i < 4; i++)
+    f.notify('turn/started', { threadId: 'child', turn: { id: 'unverified' } });
+  expect(
+    await f.owner.control({
+      requestId: 'blocked',
+      threadId: 'child',
+      action: 'message',
+      text: 'Continue',
+    }),
+  ).toBe('rejected');
+  expect(f.request.mock.calls).toHaveLength(calls);
+  expect(f.execute).not.toHaveBeenCalled();
+  const saved = f.options.store.list(f.options.scope)[0];
+  expect(saved.inspectionFailure).toEqual(child.inspectionFailure);
+  f.owner.close();
+  expect(f.options.store.list(f.options.scope)[0].inspectionFailure).toEqual(
+    child.inspectionFailure,
+  );
+});
+
+it('observes child identity without requiring optional inspection metadata, but never trusts it', async () => {
+  const f = fixture();
+  f.request.mockRejectedValue(Error('unavailable'));
+  f.notify('thread/started', { thread: { id: 'stranger', parentThreadId: 'another-root' } });
+  expect(f.owner.list()).toEqual([]);
+  f.notify('thread/started', { thread: { id: 'child', parentThreadId: 'root' } });
+  expect(f.onChild).toHaveBeenCalledOnce();
+  await f.owner.settled();
+  expect(f.owner.list()[0]).toMatchObject({ state: 'unknown', available: false, blocks: [] });
+});
+
+it('publishes an observed child to an existing feed while inspection is pending', async () => {
+  const f = fixture();
+  let release!: () => void;
+  f.request.mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        release = () => resolve({});
+      }),
+  );
+  const listener = vi.fn();
+  f.owner.subscribe(listener);
+  f.notify('thread/started', { thread: f.thread });
+  expect(listener).toHaveBeenCalledWith(
+    expect.objectContaining({ threadId: 'child', available: false, blocks: [] }),
+  );
+  await vi.waitFor(() => expect(release).toBeTypeOf('function'));
+  release();
+  await f.owner.settled();
+});
+
+it('identifies missing protocol metadata without logging native field values', async () => {
+  const f = fixture();
+  f.request.mockResolvedValueOnce({
+    thread: {
+      id: 'child',
+      parentThreadId: 'root',
+      sessionId: 'root',
+      cwd: '/tmp',
+      modelProvider: 'openai',
+      preview: 'sensitive task',
+    },
+  });
+  f.notify('thread/started', { thread: { id: 'child', parentThreadId: 'root' } });
+  await f.owner.settled();
+  expect(diagnostic).toHaveBeenCalledWith(
+    'Native subagent inspection failed',
+    expect.objectContaining({
+      stage: 'inspect_child',
+      cause: 'protocol',
+      invalidFields: ['model'],
+    }),
+  );
+  expect(JSON.stringify(diagnostic.mock.calls)).not.toContain('sensitive task');
+});
+
+it('preserves the primary inspection diagnostic when retention also fails', async () => {
+  const f = fixture();
+  f.request.mockRejectedValue(Error('sensitive primary error'));
+  const save = f.options.store.save.bind(f.options.store);
+  vi.spyOn(f.options.store, 'save')
+    .mockImplementationOnce(save)
+    .mockImplementationOnce(save)
+    .mockImplementationOnce(() => {
+      throw Error('sensitive storage error');
+    });
+  const listener = vi.fn();
+  f.owner.subscribe(listener);
+  f.notify('thread/started', { thread: f.thread });
+  await expect(f.owner.settled()).resolves.toBeUndefined();
+  expect(diagnostic).toHaveBeenCalledWith(
+    'Native subagent inspection failed',
+    expect.objectContaining({ stage: 'inspect_child' }),
+  );
+  expect(diagnostic).toHaveBeenCalledWith(
+    'Subagent inspection diagnostic could not be retained',
+    expect.objectContaining({ reference: expect.any(String) }),
+  );
+  expect(listener).toHaveBeenLastCalledWith(
+    expect.objectContaining({
+      available: false,
+      inspectionFailure: {
+        code: 'native_subagent_inspection_failed',
+        stage: 'inspect_child',
+        reference: expect.any(String),
+      },
+    }),
+  );
+  expect(JSON.stringify(diagnostic.mock.calls)).not.toContain('sensitive');
+});
+
+it.each(['persistence', 'marker'] as const)(
+  'contains initial observation %s failures within the child',
+  async (stage) => {
+    const f = fixture();
+    if (stage === 'persistence')
+      vi.spyOn(f.options.store, 'save').mockImplementationOnce(() => {
+        throw Error('private observation failure');
+      });
+    else
+      f.onChild.mockImplementationOnce(() => {
+        throw Error('private projection failure');
+      });
+    expect(() => f.notify('thread/started', { thread: f.thread })).not.toThrow();
+    await f.owner.settled();
+    expect(f.owner.list()[0]).toMatchObject({
+      state: 'unknown',
+      available: false,
+      inspectionFailure: { stage: 'events' },
+    });
+    expect(diagnostic).toHaveBeenCalledWith(
+      'Native subagent inspection failed',
+      expect.objectContaining({ stage: 'events' }),
+    );
+    expect(f.request).not.toHaveBeenCalled();
+    expect(f.onChild).toHaveBeenCalledTimes(1);
+    if (stage === 'persistence') {
+      expect(f.onChild).toHaveBeenCalledWith(
+        expect.objectContaining({
+          available: false,
+          inspectionFailure: {
+            stage: 'events',
+            code: 'native_subagent_inspection_failed',
+            reference: expect.any(String),
+          },
+        }),
+      );
+      expect(f.options.store.get(f.options.scope, 'child')?.activityAnchored).toBe(true);
+    }
+    expect(JSON.stringify(diagnostic.mock.calls)).not.toContain('private');
+  },
+);
+
+it('isolates broken listeners while continuing child admission and other deliveries', async () => {
+  const f = fixture();
+  const good = vi.fn();
+  f.owner.subscribe(() => {
+    throw Error('private listener failure');
+  });
+  f.owner.subscribe(good);
+  await expect(f.admit()).resolves.toBeUndefined();
+  expect(f.owner.list()[0]).toMatchObject({ state: 'working', available: true });
+  expect(good).toHaveBeenCalledWith(
+    expect.objectContaining({ threadId: 'child', state: 'working' }),
+  );
+  expect(diagnostic).toHaveBeenCalledWith(
+    'Subagent activity listener failed',
+    expect.objectContaining({ code: 'native_subagent_delivery_failed' }),
+  );
+  expect(JSON.stringify(diagnostic.mock.calls)).not.toContain('private listener failure');
+});
+
+it('reports event projection failures without erasing already verified output', async () => {
+  const f = fixture();
+  await f.admit();
+  vi.spyOn(f.options.store, 'save').mockImplementationOnce(() => {
+    throw Error('projection unavailable');
+  });
+  f.notify('item/agentMessage/delta', {
+    threadId: 'child',
+    turnId: 'child-turn',
+    itemId: 'answer',
+    delta: 'Saved public output',
+  });
+  expect(f.owner.list()[0]).toMatchObject({
+    available: false,
+    state: 'unknown',
+    inspectionFailure: { stage: 'events' },
+    blocks: [{ content: 'Saved public output' }],
+  });
+  expect(diagnostic).toHaveBeenCalledWith(
+    'Native subagent inspection failed',
+    expect.objectContaining({ stage: 'events' }),
+  );
+});
+
+it('revalidates an observed child on owner restoration before exposing output or controls', async () => {
+  const f = fixture();
+  f.request.mockRejectedValueOnce(Error('inspection unavailable'));
+  f.notify('thread/started', { thread: f.thread });
+  await f.owner.settled();
+  f.owner.close();
+  const restored = new CodexSubagents(f.options);
+  cleanup.push(() => restored.close());
+  const original = f.request.getMockImplementation()!;
+  let release!: () => void;
+  f.request.mockImplementation(async (method, params, beforeDispatch) => {
+    if (method === 'thread/resume')
+      await new Promise<void>((resolve) => {
+        release = resolve;
+      });
+    return original(method, params, beforeDispatch);
+  });
+  const restoring = restored.restore();
+  await vi.waitFor(() => expect(release).toBeTypeOf('function'));
+  const availableDuringInspection = restored.list()[0].available;
+  release();
+  await restoring;
+  expect(availableDuringInspection).toBe(false);
+  expect(restored.list()[0]).toMatchObject({
+    threadId: 'child',
+    available: true,
+    model: 'fixture',
+  });
+  expect(restored.list()[0].inspectionFailure).toBeUndefined();
+  expect(f.request.mock.calls.some(([method]) => method === 'thread/resume')).toBe(true);
+  expect(f.onChild).toHaveBeenCalledOnce();
+});
+
+it('repairs an explicitly unanchored observation once across owner recreation', async () => {
+  const f = fixture();
+  f.onChild.mockReturnValueOnce(false);
+  await f.admit();
+  f.owner.close();
+  const restored = new CodexSubagents(f.options);
+  cleanup.push(() => restored.close());
+  await restored.restore();
+  expect(f.onChild).toHaveBeenCalledTimes(2);
+  restored.close();
+  const again = new CodexSubagents(f.options);
+  cleanup.push(() => again.close());
+  await again.restore();
+  expect(f.onChild).toHaveBeenCalledTimes(2);
+});
+
+it('reinspects a failed child only on an explicit authorized request', async () => {
+  const f = fixture();
+  f.request.mockRejectedValueOnce(Error('transient inspection failure'));
+  await f.admit();
+  const before = f.request.mock.calls.length;
+  f.notify('turn/started', { threadId: 'child', turn: { id: 'ignored' } });
+  expect(f.request.mock.calls).toHaveLength(before);
+  const authorize = vi.fn();
+  const child = await f.owner.inspect('child', authorize);
+  expect(child).toMatchObject({ threadId: 'child', available: true });
+  expect(child?.inspectionFailure).toBeUndefined();
+  expect(authorize).toHaveBeenCalled();
+  expect(f.onChild).toHaveBeenCalledOnce();
+  expect(f.execute).not.toHaveBeenCalled();
+});
+
+it('refuses reinspection after authorization is revoked during native reads', async () => {
+  const f = fixture();
+  f.request.mockRejectedValueOnce(Error('transient failure'));
+  await f.admit();
+  const original = f.request.getMockImplementation()!;
+  let authorized = true;
+  f.request.mockImplementation(async (method, params, beforeDispatch) => {
+    const result = await original(method, params, beforeDispatch);
+    if (method === 'thread/read') authorized = false;
+    return result;
+  });
+  await expect(
+    f.owner.inspect('child', () => {
+      if (!authorized) throw Error('revoked');
+    }),
+  ).rejects.toThrow('revoked');
+  expect(f.owner.list()[0].available).toBe(false);
+  expect(f.request.mock.calls.filter(([method]) => method === 'thread/resume')).toHaveLength(0);
+});
 it('hydrates nonempty paginated history entries in order without replaying tools', async () => {
   const f = fixture();
   const original = f.request.getMockImplementation()!;
@@ -350,7 +673,16 @@ it.each(['cwd', 'model', 'sessionId'] as const)(
     const f = fixture();
     Object.assign(f.thread, { [key]: 'foreign' });
     await f.admit();
-    expect(f.owner.list()).toEqual([]);
+    // Observation remains visible; none of the mismatched native data is exposed.
+    expect(f.owner.list()).toHaveLength(1);
+    expect(f.owner.list()[0]).toMatchObject({
+      state: 'unknown',
+      available: false,
+      model: '',
+      blocks: [],
+      inspectionFailure: { stage: 'validate_identity' },
+    });
+    expect(f.request.mock.calls.some(([method]) => method === 'thread/resume')).toBe(false);
     await expect(
       f.owner.request(
         'item/tool/call',
