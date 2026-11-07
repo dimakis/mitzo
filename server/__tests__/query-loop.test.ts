@@ -2596,7 +2596,8 @@ describe('runQueryLoop', () => {
       const saved = store.getEventsAfter(sessionId, 0);
       const feedback = saved.filter((event) => event.type === 'error');
       expect(feedback).toHaveLength(1);
-      expect(feedback[0].payload.error).toMatch(/tool.*continue/i);
+      expect(feedback[0].payload.error).toMatch(/Inspect the original operation receipt/);
+      expect(feedback[0].payload.error).toMatch(/do not repeat an uncertain effect/);
       expect(saved.some((event) => event.type === 'session_end')).toBe(true);
       expect(
         transport.sent.some(

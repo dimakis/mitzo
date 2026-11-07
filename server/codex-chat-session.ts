@@ -2700,6 +2700,13 @@ async function openCodexChatBound(
       : options.prepareAgentContext,
     ...(options.ownedLocal
       ? {
+          enableToolFailureContinuation: !options.ordinaryTurnLifecycle && !options.adviserScope,
+          admitToolFailureContinuation: (input: Parameters<CodexConversation['enqueue']>[0]) => {
+            options.assertWorkTurnAdmission?.();
+            options.assertAgentContextAuthorization?.();
+            options.ownedLocal!.admitToolFailureContinuation(input);
+            return true;
+          },
           canClaimCommand: (commandId: string) => options.ownedLocal!.canClaimCommand(commandId),
           beforeThreadInitialization: (store: CodexConversationStore) =>
             options.ownedLocal!.persistCustody(store),
@@ -2720,6 +2727,13 @@ async function openCodexChatBound(
       : {}),
     ...(options.ownedOpenShell
       ? {
+          enableToolFailureContinuation: !options.ordinaryTurnLifecycle && !options.adviserScope,
+          admitToolFailureContinuation: (input: Parameters<CodexConversation['enqueue']>[0]) => {
+            options.assertWorkTurnAdmission?.();
+            options.assertAgentContextAuthorization?.();
+            options.ownedOpenShell!.admitToolFailureContinuation(input);
+            return true;
+          },
           canClaimCommand: (commandId: string) =>
             options.ownedOpenShell!.canClaimCommand(commandId),
           beforeEnqueue: (input: Parameters<CodexConversation['enqueue']>[0]) => {

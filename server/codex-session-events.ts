@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { ToolFailureSchema, toolFailure, type ToolFailure } from '@mitzo/protocol';
 import { CodexTurnUsage, observedCodexUsage } from './codex-turn-usage.js';
 import { CodexTextProjection } from './codex-text-projection.js';
 import type { StreamEvent } from '@mitzo/harness';
@@ -23,6 +24,15 @@ export class CodexSessionEvents {
   private turnFinished = false;
   private activeTurnId?: string;
   private unexplainedToolFailure = false;
+  private unexplainedFailure?: ToolFailure;
+  private nativeFailures = new Map<string, ToolFailure>();
+  getUnexplainedFailure(): ToolFailure | undefined {
+    return this.unexplainedToolFailure ? this.unexplainedFailure : undefined;
+  }
+  recordNativeFailure(itemId: string, failure: ToolFailure): void {
+    if (!this.turnFinished && this.commandTools.has(itemId))
+      this.nativeFailures.set(itemId, ToolFailureSchema.parse(failure));
+  }
   private usage: CodexTurnUsage;
   constructor(
     private conversationId: string,
@@ -150,6 +160,8 @@ export class CodexSessionEvents {
     if (method === 'turn/started') {
       this.turnFinished = false;
       this.unexplainedToolFailure = false;
+      this.unexplainedFailure = undefined;
+      this.nativeFailures.clear();
       const turnId = object(params.turn).id;
       if (typeof turnId === 'string' && !this.startedTurns.has(turnId)) {
         this.activeTurnId = turnId;
@@ -249,7 +261,10 @@ export class CodexSessionEvents {
               ? String(commandItem.status ?? '')
               : `exit code ${exitCode}`),
         commandItem.status !== 'completed' || (exitCode !== undefined && exitCode !== 0),
+        undefined,
+        this.nativeFailures.get(commandItem.id),
       );
+      this.nativeFailures.delete(commandItem.id);
       return;
     }
     if (
@@ -393,6 +408,9 @@ export class CodexSessionEvents {
         is_error: turn.status !== 'completed',
         ...(providerFailure ? { provider_failure: providerFailure } : {}),
         ...(this.unexplainedToolFailure && !providerFailure ? { tool_failure_notice: true } : {}),
+        ...(this.unexplainedToolFailure && !providerFailure && this.unexplainedFailure
+          ? { tool_failure: this.unexplainedFailure }
+          : {}),
         usage_status: 'unknown',
       });
     }
@@ -431,13 +449,22 @@ export class CodexSessionEvents {
     });
     return id;
   }
-  toolResult(id: string, content: string, isError: boolean, contentItems?: CodexToolContentItem[]) {
+  toolResult(
+    id: string,
+    content: string,
+    isError: boolean,
+    contentItems?: CodexToolContentItem[],
+    failure?: ToolFailure,
+  ) {
     const result = normalizeCodexToolResult({
       content,
       isError,
       ...(contentItems ? { contentItems } : {}),
     });
     this.unexplainedToolFailure = result.isError;
+    this.unexplainedFailure = result.isError
+      ? (failure ?? toolFailure('internal_failure', 'execution', 'unknown'))
+      : undefined;
     let precedingText = false;
     const blocks = result.contentItems?.map((item) => {
       if (item.type === 'inputText') {

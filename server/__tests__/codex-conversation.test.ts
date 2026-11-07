@@ -1,5 +1,6 @@
 import { retainCallbackOutcome } from '../turn-callbacks.js';
 import { withToolGuardPhase } from '@mitzo/harness';
+import { toolFailure } from '@mitzo/protocol';
 import { createIntegrationToolDiscovery } from '../integration-tool-discovery.js';
 import { webAccessDefinition } from '../request-web-access.js';
 import { summarizeToolInput } from '@mitzo/protocol';
@@ -120,6 +121,61 @@ it('excludes an actual adapter approval phase from its host execution deadline',
     new AbortController().signal,
   );
   expect(result.success).toBe(true);
+});
+
+it('continues once after an authoritative expired approval without replaying the command', async () => {
+  const f = await setup();
+  let approvalRequests = 0;
+  f.conversationOptions.requestNativeApproval = async (_method, _params, _signal, context) => {
+    approvalRequests++;
+    context.observeFailure?.(toolFailure('approval_expired', 'approval', 'not_started'));
+    return { decision: 'decline' };
+  };
+  await f.c.send({ id: 'expired-source', prompt: 'Original request', intent: 'Original request' });
+  const fail = async (turnId: string, itemId: string) => {
+    f.callbacks.onNotification('item/started', {
+      threadId: f.getProviderThread(),
+      turnId,
+      item: { type: 'commandExecution', id: itemId, command: 'offline-test' },
+    });
+    await f.callbacks.onRequest(
+      'item/commandExecution/requestApproval',
+      {
+        threadId: f.getProviderThread(),
+        turnId,
+        itemId,
+        kind: 'command',
+        startedAtMs: Date.now(),
+        environmentId: 'local',
+        cwd: '/workspace',
+        command: 'offline-test',
+      },
+      new AbortController().signal,
+      { requestId: itemId },
+    );
+    f.callbacks.onNotification('item/completed', {
+      threadId: f.getProviderThread(),
+      turnId,
+      item: { type: 'commandExecution', id: itemId, status: 'declined' },
+    });
+    f.callbacks.onNotification('turn/completed', {
+      threadId: f.getProviderThread(),
+      turn: { id: turnId, status: 'completed' },
+    });
+  };
+  await fail('turn-1', 'approval-1');
+  await vi.waitFor(() =>
+    expect(f.rpc.request.mock.calls.filter(([method]) => method === 'turn/start')).toHaveLength(2),
+  );
+  const child = f.c.queue().find((command) => command.toolFailureContinuation)!;
+  expect(child.intent).toBe('Original request');
+  expect(child.prompt).toContain('Do not replay');
+  expect(f.execute).not.toHaveBeenCalled();
+  await fail('turn-2', 'approval-2');
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  expect(f.rpc.request.mock.calls.filter(([method]) => method === 'turn/start')).toHaveLength(2);
+  expect(f.c.queue().filter((command) => command.toolFailureContinuation)).toHaveLength(1);
+  expect(approvalRequests).toBe(1);
 });
 
 it.each([false, true])(

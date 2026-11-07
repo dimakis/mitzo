@@ -1,4 +1,5 @@
 import { isReadOnlyBuiltinToolCall } from './builtin-tool-behavior.js';
+import { ToolFailureSchema, toolFailure, type ToolFailure } from '@mitzo/protocol';
 import {
   assertToolGuardCurrent,
   runGuardedTool,
@@ -158,6 +159,9 @@ export type { NativeBaseReadScope } from './native-base-read-scope.js';
 import type { NativeBaseReadScope } from './native-base-read-scope.js';
 
 export interface CodexConversationOptions {
+  enableToolFailureContinuation?: boolean;
+  /** Original live owner admits the exact durable child under unchanged authority. */
+  admitToolFailureContinuation?(input: CodexCommandInput): boolean | void;
   /** Trusted execution policy, never provider/model input. */
   toolGuardPolicy?: Readonly<ToolGuardPolicy>;
   /** Enabled only by the owned native Mac adapter, never inherited runtime configuration. */
@@ -236,6 +240,7 @@ export interface CodexConversationOptions {
       /** Server-attributed child identity, never supplied by the model. */
       subagentName?: string;
       registerResponseFence?(assertCurrent: () => void): void;
+      observeFailure?(failure: ToolFailure): void;
     }>,
   ) => Promise<ObjectValue>;
   validateModel?: (model: string, reasoningEffort?: string) => void;
@@ -3622,6 +3627,16 @@ export class CodexConversation {
               attempt: this.active.command.attempt,
             })
           : undefined;
+      const failedToolSource =
+        status === 'completed' &&
+        !this.active.interruptRequested &&
+        !this.active.callbackEffectsUnknown &&
+        this.opts.enableToolFailureContinuation !== false &&
+        this.opts.ownerKind !== 'symposium' &&
+        !this.opts.adviserScope &&
+        (!this.opts.canClaimCommand || this.opts.admitToolFailureContinuation)
+          ? { commandId: this.active.command.id, failure: this.mapper?.getUnexplainedFailure() }
+          : undefined;
       this.finishTurnSpan(status, status === 'failed' ? 'provider' : 'none');
       if (['completed', 'interrupted', 'failed'].includes(turn.data.status ?? '')) {
         this.opts.onProviderTerminal?.(this.active.command.id, turn.data.id, status);
@@ -3700,6 +3715,47 @@ export class CodexConversation {
       if (recoverQueuedFollowUp) this.automaticTransportRecoveryAttempted = true;
       if (providerTransportFailed) this.retireTransportForRecovery();
       this.mapper?.notification(method, params, providerFailure);
+      if (!this.closed && failedToolSource?.failure) {
+        let child: CodexCommandInput | undefined;
+        try {
+          child = this.opts.store.queueToolFailureContinuation(
+            this.opts.conversationId,
+            this.binding!,
+            failedToolSource.commandId,
+            turn.data.id,
+            failedToolSource.failure,
+          );
+          if (child) {
+            const admitted = this.opts.admitToolFailureContinuation?.(child);
+            if (admitted !== true) this.opts.beforeEnqueue?.(child);
+            this.opts.store.assertToolFailureContinuation(
+              this.opts.conversationId,
+              this.binding!,
+              child,
+            );
+            this.opts.onCommandQueued?.(child.id);
+            log.info('Tool failure continuation admitted', {
+              conversationId: this.opts.conversationId,
+              sourceCommandId: failedToolSource.commandId,
+              commandId: child.id,
+            });
+          }
+        } catch {
+          if (child) {
+            try {
+              this.opts.store.cancelQueued(this.opts.conversationId, this.binding!, child.id);
+            } catch {
+              /* Preserve uncertain receipt. */
+            }
+          }
+          this.opts.onError?.(
+            new Error(
+              'Tool recovery admission failed; saved work and the original failure are preserved.',
+            ),
+          );
+          this.close();
+        }
+      }
       if (providerFailure)
         this.opts.onError?.(
           new ProviderFailureError(providerFailure, codexTurnFailureDiagnostic(turn.data.error)),
@@ -3898,12 +3954,39 @@ export class CodexConversation {
       assertCurrentSync('before_handler');
       if (!this.opts.requestNativeApproval) throw new Error('Codex native approvals unavailable');
       requestContext!.registerResponseFence?.(() => assertCurrentSync('reply'));
+      // A recovery explanation cannot manufacture a fresh approval cycle.
+      if (active!.command.toolFailureContinuation)
+        return method === 'item/permissions/requestApproval'
+          ? { permissions: {}, scope: 'turn' }
+          : {
+              decision:
+                Array.isArray(params.availableDecisions) &&
+                !params.availableDecisions.includes('decline') &&
+                params.availableDecisions.includes('cancel')
+                  ? 'cancel'
+                  : 'decline',
+            };
       const response = await this.opts.requestNativeApproval(method, params, approvalSignal, {
         ...requestContext!,
         commandId: active!.command.id,
         threadId: threadId!,
         turnId: turnId!,
         assertCurrentSync: () => assertCurrentSync('handler'),
+        observeFailure: (failure: ToolFailure) => {
+          assertCurrentSync('handler');
+          if (typeof params.itemId === 'string') {
+            this.mapper?.recordNativeFailure(params.itemId, failure);
+            this.opts.store.recordToolFailure(
+              this.opts.conversationId,
+              this.binding!,
+              active!.command.id,
+              turnId!,
+              params.itemId,
+              failure,
+              'native_approval',
+            );
+          }
+        },
         ...(fileItemId ? { fileChangePaths: fileChangePaths ?? undefined } : {}),
       });
       assertCurrentSync('after_handler');
@@ -4298,7 +4381,30 @@ export class CodexConversation {
     }
     if (callbackOutcome(result) === 'settled')
       (active.settledToolCallbacks ??= new Set()).add(call.callId);
-    this.mapper!.toolResult(publicId, result.content, result.isError, result.contentItems);
+    let failure: ToolFailure | undefined;
+    if (result.isError) {
+      try {
+        const parsed = ToolFailureSchema.safeParse(JSON.parse(result.content).failure);
+        if (parsed.success)
+          failure =
+            callbackOutcome(result) === 'settled'
+              ? parsed.data
+              : toolFailure(parsed.data.code, parsed.data.phase, 'unknown');
+        if (failure && callbackOutcome(result) === 'settled')
+          this.opts.store.recordToolFailure(
+            this.opts.conversationId,
+            this.binding!,
+            active.command.id,
+            call.turnId,
+            call.callId,
+            failure,
+            'host_tool',
+          );
+      } catch {
+        /* Tool text is not authoritative recovery metadata. */
+      }
+    }
+    this.mapper!.toolResult(publicId, result.content, result.isError, result.contentItems, failure);
     try {
       this.opts.onToolObservation?.({
         toolName: call.tool,

@@ -1,4 +1,5 @@
 import { assembleCommandPrompt } from './message-reply-context.js';
+import { admitToolFailureContinuation } from './tool-failure-continuation.js';
 import { agentContextAuthenticationFailure } from './agent-context-authority.js';
 import { MessageReplyIdSchema } from '@mitzo/protocol';
 import {
@@ -272,6 +273,34 @@ export class OwnedLocalCodexChatAdmission {
       binding.profileRevision === account.profileRevision &&
       (this.#continuation || binding.model === this.#expected.selection.model)
     );
+  }
+  admitToolFailureContinuation(input: CodexCommandInput): void {
+    if (this.#primary) return this.#primary.admitToolFailureContinuation(input);
+    this.assertCurrentSync();
+    const sourceId = input.toolFailureContinuation?.sourceCommandId;
+    const source =
+      sourceId === this.owner.commandId
+        ? this
+        : sourceId
+          ? this.#continuations.get(sourceId)
+          : undefined;
+    if (!source || !this.owner.nativeStore || !source.#dispatched) throw unavailable();
+    admitToolFailureContinuation({
+      events: this.owner.eventStore,
+      native: this.owner.nativeStore,
+      sessionId: this.owner.sessionId,
+      account: this.#binding,
+      location: 'local',
+      expected: source.#expected,
+      input,
+      assertCurrent: () => this.assertCurrentSync(),
+      register: () => {
+        if (!this.#continuations.has(input.id)) this.admitContinuation(input.id, source.#expected);
+        const child = this.#continuations.get(input.id)!;
+        if (!child.#enqueued) this.assertBeforeEnqueue(input);
+        else child.assertReceipt();
+      },
+    });
   }
   /** Register only an already claimed durable continuation. Native FIFO admission
    * remains unavailable until the owning coordinator supplies this capability.

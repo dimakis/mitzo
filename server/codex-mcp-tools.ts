@@ -3,7 +3,7 @@ import { createHash } from 'node:crypto';
 import { observeOperationAsync } from './operation-observation.js';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
-import type { ToolDefinition } from '@mitzo/harness';
+import { runBoundedToolCleanup, type ToolDefinition, type ToolGuardPolicy } from '@mitzo/harness';
 import type { McpServerConfig } from './mcp-config.js';
 import { normalizeMcpToolResult } from './codex-tool-result.js';
 import { CodexToolFailure, codexToolFailureResult } from './codex-tool-failure.js';
@@ -25,6 +25,8 @@ interface Connection {
   close(): Promise<void>;
 }
 export interface McpToolsOptions {
+  /** Trusted host policy; never a tool argument or peer descriptor. */
+  toolGuardPolicy?: Readonly<ToolGuardPolicy>;
   projectTextOutput?: (wire: string, text: string) => string;
   assertRuntimeCurrent?: () => void;
   cwd: string;
@@ -68,7 +70,9 @@ async function connect(
     options.assertRuntimeCurrent?.();
     transport.stderr?.on('data', () => {});
   } catch {
-    await client.close().catch(() => {});
+    await runBoundedToolCleanup(() => client.close(), options.toolGuardPolicy?.cleanupMs).catch(
+      () => {},
+    );
     throw new Error('MCP connection failed');
   }
   return {
@@ -129,6 +133,7 @@ export async function connectCodexMcpTools(
   const signal = AbortSignal.any([options.signal, lifetime.signal]);
   const peerShutdowns = new WeakMap<Connection, Promise<void>>();
   const activePeerShutdowns = new Set<Promise<void>>();
+  let shutdownDeadline: number | undefined;
   const closePeer = (peer: Connection): Promise<void> => {
     let pending = peerShutdowns.get(peer);
     if (!pending) {
@@ -145,7 +150,13 @@ export async function connectCodexMcpTools(
       // Retire the transport immediately, while retaining its actual shutdown
       // promise and at-most-once ownership for concurrent/late cleanup.
       try {
-        void Promise.resolve(peer.close()).then(resolve, reject);
+        const remaining =
+          shutdownDeadline === undefined
+            ? options.toolGuardPolicy?.cleanupMs
+            : Math.max(1, shutdownDeadline - performance.now());
+        void observeOperationAsync('mcp.shutdown', () =>
+          runBoundedToolCleanup(() => peer.close(), remaining),
+        ).then(resolve, reject);
       } catch (error) {
         reject(error);
       }
@@ -161,6 +172,7 @@ export async function connectCodexMcpTools(
   const close = (): Promise<void> => {
     if (shutdown) return shutdown;
     closed = true;
+    shutdownDeadline = performance.now() + (options.toolGuardPolicy?.cleanupMs ?? 10_000);
     cancelStartup?.();
     cancelStartup = undefined;
     lifetime.abort(Error('MCP clients closed'));

@@ -14,6 +14,35 @@ const permissions = {
   network: null,
   fileSystem: { read: ['/extra/read'], write: ['/extra/write'] },
 };
+
+it('reports an expired command approval as not started, distinct from denial and stdin', async () => {
+  const f = setup('agent', 20);
+  const observeFailure = vi.fn();
+  const result = await f.handler(
+    'item/commandExecution/requestApproval',
+    {
+      threadId: 'thread',
+      turnId: 'turn',
+      itemId: 'item',
+      startedAtMs: Date.now(),
+      kind: 'command',
+      environmentId: 'local',
+      cwd: '/workspace',
+      command: 'offline-test',
+    },
+    f.controller.signal,
+    { ...f.context, observeFailure },
+  );
+  expect(result).toEqual({ decision: 'decline' });
+  expect(observeFailure).toHaveBeenCalledExactlyOnceWith(
+    expect.objectContaining({
+      code: 'approval_expired',
+      phase: 'approval',
+      effectStatus: 'not_started',
+      recovery: 'renew_approval',
+    }),
+  );
+});
 function fixture(
   mode: 'ask' | 'agent' | 'auto' = 'agent',
   timeoutMs = 60_000,

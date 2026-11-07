@@ -23,6 +23,7 @@ export async function executeTaskOperation(options: {
   signal: AbortSignal;
   assertGrant(): TaskExecutionGrant;
   assertRuntimeCurrent(): Promise<void>;
+  onDispatch?(): void;
 }): Promise<{ content: string; isError: boolean }> {
   const {
     input,
@@ -121,6 +122,7 @@ export async function executeTaskOperation(options: {
         assertCurrentSync: assertEffect,
       },
     });
+    options.onDispatch?.();
     const output = await execute(
       { type: 'tool_use', id: call.callId, name: toolName, input: exact },
       runSignal,

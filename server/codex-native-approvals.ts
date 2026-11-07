@@ -1,4 +1,5 @@
 import { isDeepStrictEqual } from 'node:util';
+import { toolFailure, type ToolFailure } from '@mitzo/protocol';
 import type { CodexServerRequestContext } from './codex-app-server-client.js';
 import {
   NativeApprovalRequestSchema,
@@ -40,6 +41,8 @@ export type ApprovePreparedWorkspaceGrant = (
 ) => Promise<PreparedWorkspaceGrant | undefined>;
 
 export interface CodexNativeApprovalContext extends CodexServerRequestContext {
+  /** Original command observer, never supplied by the provider. */
+  observeFailure?(failure: ToolFailure): void;
   readonly subagentName?: string;
   readonly commandId?: string;
   readonly threadId: string;
@@ -80,6 +83,7 @@ export function createCodexNativeApprovalHandler(options: {
     context: CodexNativeApprovalContext,
   ): Promise<Record<string, unknown>> => {
     let returningDenial = false;
+    let commandKind: 'command' | 'writeStdin' | undefined;
     let grantResponse: Record<string, unknown> | undefined;
     const grant = (response: Record<string, unknown>) => {
       grantResponse = parseNativeApprovalResponse(method, response);
@@ -87,6 +91,23 @@ export function createCodexNativeApprovalHandler(options: {
     };
     const deny = (cancel = false): Record<string, unknown> => {
       returningDenial = true;
+      if (commandKind) {
+        try {
+          context.observeFailure?.(
+            toolFailure(
+              signal.aborted || cancel
+                ? 'cancelled'
+                : Date.now() >= Number(params.startedAtMs) + timeoutMs
+                  ? 'approval_expired'
+                  : 'permission_denied',
+              'approval',
+              commandKind === 'command' ? 'not_started' : 'unknown',
+            ),
+          );
+        } catch {
+          /* Missing observation cannot grant permission or certify recovery. */
+        }
+      }
       return method === 'item/permissions/requestApproval'
         ? { permissions: {}, scope: 'turn' }
         : {
@@ -103,6 +124,8 @@ export function createCodexNativeApprovalHandler(options: {
     const parsed = NativeApprovalRequestSchema.safeParse({ method, id: context.requestId, params });
     if (!parsed.success) return deny();
     const request = parsed.data;
+    if (request.method === 'item/commandExecution/requestApproval')
+      commandKind = request.params.kind;
     const session = registry.get(clientId);
     if (!session) return deny();
     const mode = effectivePermissionMode(session);

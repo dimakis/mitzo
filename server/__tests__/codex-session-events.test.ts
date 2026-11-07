@@ -5,6 +5,30 @@ import {
   extractToolResultText,
 } from '../../packages/protocol/src/content-blocks.js';
 import { normalizeMcpToolResult } from '../codex-tool-result.js';
+import { toolFailure } from '@mitzo/protocol';
+
+it('preserves an authoritative approval expiry through the terminal recovery notice', () => {
+  const events: Record<string, unknown>[] = [];
+  const m = new CodexSessionEvents('app', 'thread', 'model', (event) => events.push(event));
+  m.notification('turn/started', { threadId: 'thread', turn: { id: 'turn' } });
+  m.notification('item/started', {
+    threadId: 'thread',
+    item: { type: 'commandExecution', id: 'cmd', command: 'offline-test' },
+  });
+  m.recordNativeFailure('cmd', toolFailure('approval_expired', 'approval', 'not_started'));
+  m.notification('item/completed', {
+    threadId: 'thread',
+    item: { type: 'commandExecution', id: 'cmd', status: 'declined' },
+  });
+  m.notification('turn/completed', {
+    threadId: 'thread',
+    turn: { id: 'turn', status: 'completed' },
+  });
+  expect(events.at(-1)).toMatchObject({
+    tool_failure_notice: true,
+    tool_failure: { code: 'approval_expired', effectStatus: 'not_started' },
+  });
+});
 
 it('does not treat buffered text from before a tool failure as a follow-up', () => {
   const events: Record<string, unknown>[] = [];

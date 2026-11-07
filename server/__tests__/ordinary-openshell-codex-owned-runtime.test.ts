@@ -1,5 +1,6 @@
 import { ownedOpenShellFixture } from './fixtures/owned-openshell-runtime.js';
 import { CollaborationSettingsSchema } from '@mitzo/protocol';
+import { toolFailure } from '@mitzo/protocol';
 import { contextDigest } from '../agent-context-compiler.js';
 import { assembleSourceSnapshots } from '../source-snapshot-context.js';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -38,6 +39,51 @@ function fixture(ordinary = false, existingEvents?: EventStore, legacyRevision?:
   );
 }
 describe('bound ordinary OpenShell owner (offline)', () => {
+  it('admits one tool failure continuation with the original OpenShell selection and physical owner', async () => {
+    const f = fixture();
+    const original = f.dispatch.getMockImplementation()!;
+    // Keep the accepted command queued until this test supplies its real native ACK.
+    f.dispatch.mockImplementation((input) =>
+      original({ ...input, assertCredentialSetupCurrent: () => {} }),
+    );
+    await f.driver.admit(f.meta, f.command('first'));
+    const admission = f.dispatch.mock.calls[0][0].admission;
+    const source = f.native.claimNext('session', f.account)!;
+    admission.assertBeforeDispatch(source.id);
+    f.native.recordNativeTurnAck('session', f.account, source, 'native-thread', 'source-turn');
+    const failure = toolFailure('approval_expired', 'approval', 'not_started');
+    f.native.recordToolFailure(
+      'session',
+      f.account,
+      source.id,
+      'source-turn',
+      'approval',
+      failure,
+      'native_approval',
+    );
+    f.native.finish('session', f.account, source.id, 'completed', 'source-turn');
+    const child = f.native.queueToolFailureContinuation(
+      'session',
+      f.account,
+      source.id,
+      'source-turn',
+      failure,
+    )!;
+    admission.admitToolFailureContinuation(child);
+    expect(admission.canClaimCommand(child.id)).toBe(true);
+    expect(f.events.getOrdinaryOpenShellCommandAdmission(child.id)?.selection).toEqual(
+      f.command('first').selection,
+    );
+    expect(f.events.getSendCommand(child.id)?.payload).toMatchObject({
+      intent: 'message first',
+      systemPrompt: 'Frozen instructions',
+    });
+    admission.assertBeforeDispatch(child.id);
+    f.assertCurrentSync.mockImplementationOnce(() => {
+      throw Error('Operator revoked');
+    });
+    expect(() => admission.canClaimCommand(child.id)).toThrow();
+  });
   it('rechecks provider grant authority even after the last dispatched command has settled', async () => {
     const f = fixture();
     await f.driver.admit(f.meta, f.command('first'));
