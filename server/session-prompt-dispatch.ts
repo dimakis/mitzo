@@ -11,6 +11,7 @@ import { isAvailableTelosWorkConversation } from './telos-work-conversation.js';
 import { SessionPromptError, type SessionPromptDelivery } from './session-prompt-store.js';
 import type { CollaborationSettings } from '@mitzo/protocol';
 import type { OwnedOrdinaryDispatchInput } from './ordinary-scoped-command.js';
+import type { OrdinaryTurnLifecycle } from './ordinary-turn-lifecycle.js';
 import type { SessionPromptPort } from './session-prompt-service.js';
 import type { V2HandlerContext } from './ws-handler-v2.js';
 
@@ -32,6 +33,7 @@ export interface OrdinarySessionPrompt {
   settings?: CollaborationSettings;
   preparationOperationId?: string;
   onQueryEvent?: OwnedOrdinaryDispatchInput['onQueryEvent'];
+  turnLifecycle?: OrdinaryTurnLifecycle;
 }
 export interface OrdinarySessionPromptPort extends SessionPromptPort {
   deliverOrdinary(
@@ -44,9 +46,24 @@ export interface OrdinarySessionPromptPort extends SessionPromptPort {
 /** Reuses the ordinary admission/queue/start owner. No provider client, account
  * credential, synthetic browser connection, or peer-specific runtime is created. */
 export function createSessionPromptPort(
-  ctx: Pick<V2HandlerContext, 'eventStore' | 'sessionRegistry' | 'connRegistry'>,
+  ctx: Pick<V2HandlerContext, 'eventStore' | 'sessionRegistry'> & {
+    connRegistry: Pick<V2HandlerContext['connRegistry'], 'broadcast'>;
+  },
 ): OrdinarySessionPromptPort {
   const bindings = new Map<string, () => void>();
+  const turnLifecycles = new Map<string, OrdinaryTurnLifecycle>();
+  const ownedSessions = new WeakSet<object>();
+  const lifecycle: OrdinaryTurnLifecycle = {
+    beforeDispatch: (id) => turnLifecycles.get(id)?.beforeDispatch(id),
+    accepted: (id, thread, turn) => turnLifecycles.get(id)?.accepted(id, thread, turn),
+    terminal: (id, turn, status) => {
+      try {
+        turnLifecycles.get(id)?.terminal(id, turn, status);
+      } finally {
+        turnLifecycles.delete(id);
+      }
+    },
+  };
   const authorized = (auth: AuthSession) =>
     hasPersistentRevocationAuthority() && isAuthSessionCurrent(auth);
   function target(sessionId: string, auth: AuthSession, prompt?: OrdinarySessionPrompt) {
@@ -226,6 +243,16 @@ export function createSessionPromptPort(
     signal.addEventListener('abort', abort, { once: true });
     try {
       current();
+      if (prompt.turnLifecycle && live && !ownedSessions.has(live.session))
+        throw new SessionPromptError(
+          'Open a fresh group participant for this delivery route.',
+          422,
+        );
+      if (prompt.turnLifecycle) {
+        if (turnLifecycles.has(prompt.commandId))
+          throw new SessionPromptError('Original command requires recovery.');
+        turnLifecycles.set(prompt.commandId, prompt.turnLifecycle);
+      }
       await dispatcher.dispatchOwnedOrdinaryCommand({
         transport,
         clientId: live?.clientId ?? `session-prompt:${randomUUID()}:${meta.sessionId}`,
@@ -240,6 +267,7 @@ export function createSessionPromptPort(
         },
         reservation: {
           id: workspace.id,
+          ...(prepared ? { commandFingerprint: prepared.preparationFingerprint } : {}),
           binding: meta.accountBinding!,
           conversationId: meta.sessionId,
           taskRoot,
@@ -253,6 +281,14 @@ export function createSessionPromptPort(
         ...(prepared ? { preparationOperationId: prepared.allocationOperationId } : {}),
         ...(prompt.onQueryEvent ? { onQueryEvent: prompt.onQueryEvent } : {}),
         existingOwner: !!live,
+        ...(binding.harness.implementation === 'codex' && binding.execution.location === 'local'
+          ? {
+              ordinaryTurnLifecycle: lifecycle,
+              onSessionPrepared: (session) => {
+                ownedSessions.add(session);
+              },
+            }
+          : {}),
         workspaceKind: ordinary ? 'ordinary' : 'repository',
         profile,
         ...(binding.execution.location === 'openshell'
@@ -318,6 +354,7 @@ export function createSessionPromptPort(
     close() {
       for (const release of bindings.values()) release();
       bindings.clear();
+      turnLifecycles.clear();
     },
   };
 }

@@ -427,6 +427,24 @@ export class CollaborationConversationStore {
       },
     );
   }
+  /** Observe an exact committed request before considering any new dispatch. */
+  getMessageForRequest(group: string, raw: unknown) {
+    this.group(group);
+    const input = CollaborationMessageInputSchema.parse(raw);
+    if (input.responders.kind === 'selected') input.responders.sessionIds.sort();
+    const row = this.db
+      .prepare(
+        'SELECT fingerprint,result FROM collaboration_requests WHERE collaboration_id=? AND request_id=?',
+      )
+      .get(group, input.requestId) as { fingerprint: string; result: string } | undefined;
+    if (!row) return null;
+    if (row.fingerprint !== sha({ kind: 'message', input }))
+      throw new ContractError('request_conflict');
+    return this.getMessage(
+      group,
+      CollaborationMessageSchema.parse(JSON.parse(row.result)).messageId,
+    );
+  }
   acceptMessage(group: string, raw: unknown) {
     const input = CollaborationMessageInputSchema.parse(raw);
     if (input.responders.kind === 'selected') input.responders.sessionIds.sort();
@@ -1281,6 +1299,25 @@ export class CollaborationConversationStore {
     this.group(group);
     z.uuid().parse(joinId);
     return this.current(group, 'join', joinId, CollaborationJoinSchema);
+  }
+  /** Linked joins are deliberately absent from the pending-join UI projection.
+   * Delivery uses the retained owner record and requires uninterrupted membership. */
+  getLinkedJoinForSession(group: string, sessionId: string) {
+    const membership = this.group(group);
+    const rows = this.db
+      .prepare(
+        `SELECT r.body FROM collaboration_records r
+      WHERE collaboration_id=? AND kind='join' AND json_extract(r.body,'$.sessionId')=?
+      AND json_extract(r.body,'$.state')='linked' AND NOT EXISTS (
+        SELECT 1 FROM collaboration_records n WHERE n.collaboration_id=r.collaboration_id
+        AND n.kind=r.kind AND n.record_id=r.record_id AND n.revision>r.revision) LIMIT 2`,
+      )
+      .all(group, sessionId) as Row[];
+    if (rows.length > 1) throw new ContractError('allocation_conflict');
+    const join = rows.length ? CollaborationJoinSchema.parse(JSON.parse(rows[0].body)) : null;
+    if (join && !this.continuousMember(membership, join.linkedFromRevision! + 1, sessionId))
+      throw new ContractError('snapshot_changed');
+    return join;
   }
   /** Exact request recovery before renewed authority; never creates a join. */
   getJoinForRequest(group: string, raw: unknown) {

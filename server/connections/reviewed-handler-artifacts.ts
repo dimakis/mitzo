@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.940-tool-guard-session-integration';
+  'v1.0.941-symposium-directed-prompts';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -23,6 +23,13 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
+  '../collaboration-application-messaging.ts':
+    '3fa11067268afadca2c9ec1cea6e200e466cf6ce56f5fff98c119ac35ebff677',
+  '../__tests__/collaboration-application-messaging.test.ts':
+    '1f1c4249852ae5b19de01fe06a2001cae33d9ec3564af76aeb034c48379c38bf',
+  '../__tests__/fixtures/symposium-application-target.ts':
+    'f9b01a850151b0b6ff906fa06d8b472855cce535bb73a38e698c51bd1d988c25',
+
   '../../packages/protocol/src/__tests__/tool-failure.test.ts':
     'f9fa837070c3ed2c20bf9bcfe1f32e8a4348c0546572bfdb6437550443ab53d7',
   '../../packages/protocol/src/tool-failure.ts':
@@ -442,7 +449,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/styles/session-timers.css':
     'a98a9a393361601f95fd2a7a89623ea08fc5eb8f2a9b3b13d1d9f8d3070e61d6',
   '../__tests__/session-prompt-dispatch.test.ts':
-    'abe64148b02db1b323e250b1d35cbd40cfd08704f8bef1ff23331b6005df5224',
+    '867051af0df46cda512f36f87e03cd29db79c3b2d842ad1fbe106340c57723e4',
   '../__tests__/session-prompt-router.test.ts':
     'c8020156c5547dfa3acba70253d14de48adca9a3ed936818b185a164ed3dc217',
   '../__tests__/session-prompt-tools.test.ts':
@@ -450,7 +457,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../session-prompt-definitions.ts':
     '368e1b31f4d718e4f0886aeab9e90398604ed2925903df1b884c7be13c89d352',
   '../session-prompt-dispatch.ts':
-    'a8a8a8dbea86fc09e11205d45edaecb24efd53f26a24ae9dbe1e93d4ef9185f6',
+    '4bed021113880a6723d16959da74a05510fd36769afa8123d40fe3cfc9f5069d',
   '../session-prompt-router.ts': '4d11907d907fb6fe0df41cbdd9ecd25336c2e647be761f55cba7e01539aebb7a',
   '../session-prompt-runtime.ts':
     '8ab804b640c6f14f7e03d581b54f60fa14d77347833b671fb6cd1c76b42ddd1b',
@@ -1567,7 +1574,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/protocol/src/stored-event-wire.ts':
     '49d10165e084964d453bbe8aee2c5e2668fd2e8fd74a9f18ca3403555b8e815b',
   '../collaboration-ordinary-replies.ts':
-    '7ccd52095dc6a8aa4ef2bd330e3c267f8cdffa288d2a3d18b745d57d50edbd0a',
+    '7a266b7768247c8288442b4579e04bffbf5998e362ca1560ab584d40a000e588',
   '../codex-session-events.ts': 'b56d76c7b9bbf2fb870fbd25c7c034ad5909e7f35051bad79e60e4ac1654feb0',
   '../collaboration-context-source.ts':
     '4315a579a1741c55d7c62b9b43fdde35967ad1b6e630eb1d1b5389221cac0995',
@@ -1627,7 +1634,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/protocol/src/collaboration-conversation.ts':
     'f083759dec5334cf439a6067260c3f517f0f5427e690b8abcac7caeeaaecafe1',
   '../../packages/protocol/src/collaboration-conversation-store.ts':
-    '829ad804be3591b7de384287e68193f1eb8c34437b8e4f37c83bf35ea5769c53',
+    '7c950bb3ed296127e1d0ba385f123583c8d252534614e11e352e42e944aad6a5',
   '../../packages/client/src/collaboration-api.ts':
     '7f3bf72a97b268a687dab4cd3f6593d510d4e601fc1306504c9bb8e708de5b6c',
   '../../packages/client/src/collaboration-projection.ts':
@@ -1686,7 +1693,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/protocol/src/agent-tasks.ts':
     '41388daf112e457878580cfc9235d7aedaf202b17f78938a0841982ecee1b968',
   '../session-collaboration-router.ts':
-    '71b07ac8b71c7d95772c2760cbc0f26418dc2311fdb3f5850256a5ce15a5188c',
+    'd7de5cdcb92c5ff6cc29e163153d86ff4201733bcef4d22c0c218c76e9dc25cc',
   '../../packages/protocol/src/session-collaboration.ts':
     'e8e47f2b79832f0288063745acbed93c7c5f8f4db71f5c8a71705b1b02a59198',
   '../../packages/protocol/src/session-collaboration-store.ts':
@@ -1960,7 +1967,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     'c103af10de4adc81cdc474b3e69ef2b3de5e447d4dcf15da4fc1894c422b913b',
   '../../packages/protocol/src/session-output-reference-store.ts':
     'de139a8dae52cc0294f50e13fdb96d0666c81e376e282e84c640a0b187dc3014',
-  '../chat.ts': 'bf918b32bcfa800871a8adcc09a737cf54d68a1f6c84839a11a7b8aa045bf790',
+  '../chat.ts': 'ede27fdcc0a0027eb98a33ffcd8a35d450e51c1d765b4a156d325ed4ccc8d770',
   '../../packages/harness/src/session-registry.ts':
     '82b128c64ed7f73f28d42318789187c4c730e33e4a0662dfbf9cd6d68f6e56fd',
   '../agent-context-binding.ts': '4917ff83899105b7ac2c537c8db18111eeb97386d1ca0a2d2b576d872e1db360',
@@ -1972,7 +1979,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../session-access.ts': 'feeeea5ffcf16bb1c4542191a74d5eebde2ea2dbcac7cf0e5315d05e2249b1dc',
   '../session-metadata-error.ts':
     '377bd861f0e48e022fb49fb8c021e14f2da8d921f9d61c9fa738f31080596eae',
-  '../app.ts': '6803077eec4cd344a14bc0436716467b1cabbae980428ea9f34475ad00757184',
+  '../app.ts': '0bb70823725d58edfc22c39f2113596b0ed640c2de959754fcdb727b7f35ef11',
   '../auth-check-tracing.ts': '067dc344d8ee76ffe39739a99076f614711ca3d11f96682c842c596a7bbd112e',
   '../telemetry-relay.ts': '302bf6cec2b988ae71a123a5dd04d0f2266a82c3ee51873ec64d8be452c25427',
   '../symposium-review-route-composition.ts':
@@ -2773,7 +2780,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     '5882c6d3a5c4aa11f224bb227295d10e1a225a4530b606141892bd670eeeecae',
   '../native-commands.ts': '72538f21ed2d0e6610fd4ca424218ec1183f312fe17d2ef4b2f91b09125a19ed',
   '../ordinary-scoped-command.ts':
-    '19313d6ca432b72b9cc5cd9503a378d9300ac4430b5be89e1de5db7acc9bde37',
+    '7667ce7c66092dab348c8919d95fa77341c1bf90978ca6bd4724c60aac2ae5c7',
   '../ordinary-task-worker.ts': '7dadf2c8c24bcf6c34fbe5b01991f6a35417b517943fe0f7f07e05ae303730ea',
   '../paid-reasoning-harness.ts':
     '90a542ca40dd60f2653dd069de267e6c1a430deeea2fc204eab788b534b53e2a',

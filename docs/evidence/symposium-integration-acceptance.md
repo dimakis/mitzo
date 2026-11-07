@@ -2,6 +2,42 @@
 
 Living map owner: workstream C, `01a14bdc-d152-7912-84d4-c0012e9d5206`.
 
+## 7 November 2026 directed prompt/reply implementation checkpoint
+
+Implementation evidence on `feat/symposium-directed-replies`, based on accepted
+main `3079701d8f714945f8478508382e17ff20c61299`. This contributes to the existing
+map and does not replace independent acceptance, the approved design, or the
+milestone's 16 criteria. Earlier baselines below retain their original dates.
+
+| Milestone criteria                                      | Candidate evidence                                                                                                                                                                                                                                                                | Remaining boundary                                                                                                           |
+| ------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| 1, 8, 10, 12: ordinary application journey and contract | `collaboration-application-messaging.test.ts` reuses the real authenticated review/join/restart fixture and consumes its original silent preparation through the shared ordinary dispatcher. Exact joining content, explicit prompt and finalized attributed reply pass.          | API/backend journey only; existing shared composer remains disabled. No installed runtime is qualified.                      |
+| 2, 3, 11: identity and recovery                         | Original allocation stays intact. Exact concurrent message retries share the same message/command and create only one native turn. Changed requests conflict. Finalized reply projection can reconcile from durable source records; ambiguous command effects are never replayed. | Full crash/restart/Stop/partial-recipient matrix remains open. Existing joining recovery evidence is preserved.              |
+| 6, 7, 13: readers, responders and independent execution | Only explicit responders dispatch; pending authorized context is delivered through an ordinary turn. Context delivery waits for its exact native acknowledgement. Reply projection never triggers a response loop.                                                                | Full Defaults/@ fan-out, failed-recipient retries, long discussion paging and independent-account qualification remain open. |
+| 8, 10, 12, 15: authority and actual composition         | Unknown recipients and unsupported snapshots refuse before command effects. Revoking reviewed source access during real ordinary preparation prevents another provider turn. Omitting the production messaging owner must fail the unchanged positive API assertion.              | Broader combined Telos regression and native/runtime qualification remain open.                                              |
+| 4, 5, 14: approved UX                                   | No UI, reference or protected design-check changes in this increment.                                                                                                                                                                                                             | Recipient readiness, composer enablement, rendered comparison and physical device evidence remain outstanding.               |
+| 9, 16: evidence and qualification                       | Focused offline tests use one worker and a 1 GiB Node heap. Real Git/SQLite/app/ordinary owners remain; only external source/account/runtime declarations and native RPC are synthetic. Local dependencies reuse the accepted release, including its native SQLite owner.         | Exact-head review/CI, source acceptance, live account/runtime qualification and production activation are separate.          |
+
+Core test command: `NODE_OPTIONS=--max-old-space-size=1024 node node_modules/vitest/vitest.mjs run server/__tests__/collaboration-application-messaging.test.ts --maxWorkers=1 --no-cache`.
+The three inherited review/durable-read/join cases and new prompt/reply case pass.
+Final focused regression run: 183 tests pass across 13 files, one worker/1 GiB.
+Protocol/harness/client TypeScript builds, focused semantic checks of five server
+modules, ESLint and registered source fingerprint checks pass. Full server builds
+and broader tests remain CI responsibilities under the local memory limit.
+The first integration attempt stopped at the sandbox's loopback listener fence;
+network permission was then granted for the offline HTTP fixture. Broader existing
+owned-chat regressions initially hit protected host defaults; rerunning with
+temporary `MITZO_CODEX_PRIVATE_DIR` and `MITZO_INTERNAL_TOKEN_PATH` passed.
+No permission guard or assertion was weakened to access host configuration.
+
+The omission control temporarily removes only `messaging: collaborationMessaging`
+from the real app mount and restores the exact source in a finally block. Its raw
+receipt is retained in the task checkout's `.scratch/messaging-owner-omission.txt`.
+An earlier control failed before app initialization because the local native SQLite
+dependency was absent; that invalid control is retained separately, not counted as
+owner-omission evidence. The release's existing native dependency was reused before
+the valid control. This is implementation self-verification, not independent review.
+
 ## Executed application baseline
 
 Accepted main `dcbad645a3179731de96957299bb775eb094bff8`, tree
