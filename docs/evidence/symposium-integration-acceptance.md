@@ -55,6 +55,24 @@ All four focused observer tests pass, including actual malformed-JSON refusal;
 the original complete-response requirements and ten-second deadline are intact.
 Current-head CI and independent review are still required after this correction.
 
+Centaur follow-up `5813858175` verified four findings on `2fe0c18` and retained
+one terminal-recovery blocker (`CEN-8BC16F8431AD`). Observation now reads the
+original receipt's exact durable command outcome even after its recipient is
+hidden or unlinked. It retains the command/session identity check, does not
+reopen that recipient's transcript, and grants no new dispatch authority. All
+28 focused recovery tests pass, including unavailable recipients and uncertain
+non-provider outcomes that must remain fenced.
+
+That CI run also passed all four unit shards, native repository/authorization
+workflows and composed/joined consumer coverage. Three browser shards exposed
+the same initial-history source-release scroll defect: mounting restored history
+measured its initial top position as a reader scroll-away. The transcript now
+retains initial follow intent until a scroll or source jump changes it. A new
+regression test failed before the correction; all 48 focused scroll/source tests
+pass afterward, retaining reader scroll-away and source-anchor protections.
+Browser verification and final Centaur approval must cover the next published
+head; these local checks do not establish either gate.
+
 ## 7 November 2026 shared composer implementation checkpoint
 
 Candidate `feat/symposium-shared-composer`, baseline accepted main

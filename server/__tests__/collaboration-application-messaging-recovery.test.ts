@@ -211,9 +211,18 @@ it.each([false, true])(
   },
 );
 
-it.each(['completed', 'failed', 'interrupted', 'stopped', 'server_restart', 'abandoned'] as const)(
-  'observes the exact durable %s command outcome without requiring an assistant body or resending',
-  async (reason) => {
+it.each(
+  (
+    ['completed', 'failed', 'interrupted', 'stopped', 'server_restart', 'abandoned'] as const
+  ).flatMap((reason) =>
+    (['available', 'hidden', 'unlinked'] as const).map((availability) => ({
+      reason,
+      availability,
+    })),
+  ),
+)(
+  'observes the exact durable $reason outcome with a $availability recipient without a transcript or resend',
+  async ({ reason, availability }) => {
     const request = input('one', 'A prompt with no visible answer');
     await owner.send(auth, group, request, new AbortController().signal);
     const prompt = prompts[0];
@@ -260,7 +269,12 @@ it.each(['completed', 'failed', 'interrupted', 'stopped', 'server_restart', 'aba
         ),
       ).toThrow('Conflicting');
     }
+    if (availability === 'hidden') store.hideSession('one');
+    if (availability === 'unlinked')
+      store.setSessionCollaboration(group, { expectedRevision: 1, participantSessionIds: ['two'] });
+    const transcript = vi.spyOn(store, 'getDurableSessionTranscript');
     const observed = owner.observe(auth, group, request);
+    if (availability !== 'available') expect(transcript).not.toHaveBeenCalled();
     expect(observed.terminal).toBe(['completed', 'failed', 'interrupted'].includes(reason));
     expect(observed.message?.deliveries[0].status).toBe('delivered');
     expect(prompts).toHaveLength(1);

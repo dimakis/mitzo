@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.950-symposium-acceptance-readiness';
+  'v1.0.951-symposium-terminal-recovery';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -44,7 +44,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../tests/offline/symposium-composer.spec.ts':
     '8b77ba1c163f793e459eb7005e4f5c55c9f0b8d53dac863d862d58002ce47bbf',
   '../../docs/evidence/symposium-integration-acceptance.md':
-    'eb5d40ae371d844917f841a84c709eb9e38a1cd7191959fb4db005842c91be1f',
+    '93e30ccb302c7da0f16dd336584e778251caa8e49af2568b48611cdaf50e34d7',
   '../../docs/features/symposium.md':
     'ebf89072591dc1b445f795ba53bab6d21a2f600a14c3fcb5aff050cb87fee645',
   '../../frontend/ios/MitzoShared/Tests/MitzoSharedTests/WatchSourceRelayTests.swift':
@@ -97,9 +97,9 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../tests/integration/telos-s9/integrated-candidate/joined-conversation-ready.test.ts':
     '6faad0a87ed0b5fe92d7b62abae7e379ee498fd934de04f879b289f30c60e9e0',
   '../__tests__/collaboration-application-messaging-recovery.test.ts':
-    'fe47538cf42c1207292c28a9de6e6c95bafc37dec25c4f8d6bddf33c828d471a',
+    '6c960ad5ec12923ee747b4d8efdb46404f87f148f71ec04bcf7d2f9d400e52a2',
   '../collaboration-application-messaging.ts':
-    '445d7acc6a439a5622c1dab86bc712fc8ed3312ab1048c98cd350cbaef76f1d6',
+    'adbde6d3c30597c99ba7aa6ef52c08aba8a513dac712727bf018244120696768',
   '../__tests__/collaboration-application-messaging.test.ts':
     '7d674b0f7318c4e897d140a0f4a7666bdf821fce0f3676bef13d43d946fee77c',
   '../__tests__/fixtures/symposium-application-target.ts':
@@ -1810,7 +1810,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/components/TokenBar.tsx':
     '25c80275d287086e2e893a12634435470b38358cc17969d4905e1b4bddcdf354',
   '../../frontend/src/components/ChatArea.tsx':
-    '7dedb88db5a2ed93e1504d11819987e151a8f62522b7743f23d285644f8a6bd0',
+    'dfdf930e6b7f904528e5cef1267fdc142db38d71365cec9b493f7eb871cd2f78',
   '../../frontend/src/components/SlashPicker.tsx':
     '419685fc94e6236f49bf54029bac52a52a479d26cd2e3a6a22f4ec9b28df169b',
   '../../frontend/src/hooks/useCompactionHistory.ts':

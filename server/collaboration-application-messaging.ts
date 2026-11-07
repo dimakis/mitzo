@@ -125,17 +125,14 @@ export class ApplicationCollaborationMessaging {
     const input = CollaborationMessageInputSchema.parse(raw);
     this.reconcile(auth, group);
     const message = this.store.collaborationConversation.getMessageForRequest(group, input) ?? null;
-    const view = this.store.collaborationConversation.view(group);
     const replies = message?.deliveries.filter((d) => d.purpose === 'reply') ?? [];
     const terminal =
       replies.length > 0 &&
       replies.every((delivery) => {
-        if (
-          !delivery.commandId ||
-          !view.participantSessionIds.includes(delivery.sessionId) ||
-          view.unavailableParticipantSessionIds.includes(delivery.sessionId)
-        )
-          return false;
+        // The retained receipt owns this observation after a participant leaves.
+        // Its exact command may be terminal without allowing transcript reads
+        // or a new dispatch to that now-unavailable recipient.
+        if (!delivery.commandId) return false;
         const command = this.store.getSendCommand(delivery.commandId);
         if (command?.sessionId !== delivery.sessionId) return false;
         return !!this.store.getOrdinaryProviderTurnTerminal(delivery.sessionId, delivery.commandId);
