@@ -267,6 +267,53 @@ it('preserves the primary inspection diagnostic when retention also fails', asyn
   expect(JSON.stringify(diagnostic.mock.calls)).not.toContain('sensitive');
 });
 
+it.each(['persistence', 'marker'] as const)(
+  'contains initial observation %s failures within the child',
+  async (stage) => {
+    const f = fixture();
+    if (stage === 'persistence')
+      vi.spyOn(f.options.store, 'save').mockImplementationOnce(() => {
+        throw Error('private observation failure');
+      });
+    else
+      f.onChild.mockImplementationOnce(() => {
+        throw Error('private projection failure');
+      });
+    expect(() => f.notify('thread/started', { thread: f.thread })).not.toThrow();
+    await f.owner.settled();
+    expect(f.owner.list()[0]).toMatchObject({
+      state: 'unknown',
+      available: false,
+      inspectionFailure: { stage: 'events' },
+    });
+    expect(diagnostic).toHaveBeenCalledWith(
+      'Native subagent inspection failed',
+      expect.objectContaining({ stage: 'events' }),
+    );
+    expect(f.request).not.toHaveBeenCalled();
+    expect(JSON.stringify(diagnostic.mock.calls)).not.toContain('private');
+  },
+);
+
+it('isolates broken listeners while continuing child admission and other deliveries', async () => {
+  const f = fixture();
+  const good = vi.fn();
+  f.owner.subscribe(() => {
+    throw Error('private listener failure');
+  });
+  f.owner.subscribe(good);
+  await expect(f.admit()).resolves.toBeUndefined();
+  expect(f.owner.list()[0]).toMatchObject({ state: 'working', available: true });
+  expect(good).toHaveBeenCalledWith(
+    expect.objectContaining({ threadId: 'child', state: 'working' }),
+  );
+  expect(diagnostic).toHaveBeenCalledWith(
+    'Subagent activity listener failed',
+    expect.objectContaining({ code: 'native_subagent_delivery_failed' }),
+  );
+  expect(JSON.stringify(diagnostic.mock.calls)).not.toContain('private listener failure');
+});
+
 it('reports event projection failures without erasing already verified output', async () => {
   const f = fixture();
   await f.admit();

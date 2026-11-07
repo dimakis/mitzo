@@ -10,7 +10,8 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.944-subagent-reinspection';
+export const reviewedConnectionsRuntimeImplementationRevision =
+  'v1.0.945-subagent-observation-boundary';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -401,10 +402,10 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/codex-subagent-store.test.ts':
     '17cb3848f026986ee4357e9bf527c6883085b515072ee59c4c490bdd7a0abe88',
   '../__tests__/codex-subagents.test.ts':
-    'c576067c1a139e57b73e5e17dc86aec0529bbf3c3ee4eb21a3fdeb706b1c7cd4',
+    'ce48465b298362992b538642b72c1d37ab0f4c14c9dac75e6f533bab3f3d3afb',
   '../codex-subagent-routes.ts': '5b2ca2043bd7e1c5f0772ced29534a2817762937ef26716a541ec6fb811a671e',
   '../codex-subagent-store.ts': 'be9252211203838df43dd88836a243d646613ddcdf943eb0d0f6f42db76076f9',
-  '../codex-subagents.ts': 'd0aabf6d91c911ac8ae8447143695072bd6d9fa7c6d12ab4db85f8a1129c23d6',
+  '../codex-subagents.ts': '42d71b9c4a881cf2ae46d3a8330d22528f0d8dbae49d314c183f5eef00f538f3',
   '../__tests__/notification-routes.test.ts':
     'ec75e73c1c175493818ce14fe3ef7bdd09379cbc3427338b2ee4e9a5269b46f4',
   '../__tests__/symposium-review-app.test.ts':
