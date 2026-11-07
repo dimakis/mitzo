@@ -1090,6 +1090,7 @@ describe('session search routes', () => {
       20,
       expect.any(AbortSignal),
       codexPrivateDirectory(),
+      expect.any(Function),
     );
   });
 
@@ -1112,12 +1113,25 @@ describe('session search routes', () => {
       50,
       expect.any(AbortSignal),
       codexPrivateDirectory(),
+      expect.any(Function),
     );
   });
 
   it('GET /api/sessions/search — unauthenticated returns 401', async () => {
     const res = await request(app).get('/api/sessions/search?q=test');
     expect(res.status).toBe(401);
+  });
+
+  it('GET /api/sessions/search — rejects oversized queries before indexing', async () => {
+    for (const q of ['x'.repeat(513), Array.from({ length: 33 }, (_, i) => 'word' + i).join(' ')]) {
+      vi.mocked(eventStore.searchSessionsAsync).mockClear();
+      const res = await request(app)
+        .get('/api/sessions/search')
+        .query({ q })
+        .set('Cookie', authCookie);
+      expect(res.status).toBe(400);
+      expect(eventStore.searchSessionsAsync).not.toHaveBeenCalled();
+    }
   });
 });
 

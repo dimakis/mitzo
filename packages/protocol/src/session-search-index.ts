@@ -45,10 +45,16 @@ export interface SearchSession {
   session_id: string;
   summary: string | null;
   updated_at: number;
+  model?: string;
+  provider?: string;
+  account?: string;
+  project?: string;
 }
 export interface SearchHit extends SearchSession {
   payload: string;
   matched_at: number;
+  matched_fields: NonNullable<import('./types.js').SessionSearchResult['matchedFields']>;
+  message_id?: string;
 }
 
 /** The worker owns only a disposable derived index, never a retained database
@@ -125,7 +131,12 @@ export class SessionSearchIndex {
     });
   }
 
-  search(query: string, limit: number, signal?: AbortSignal): Promise<SearchHit[]> {
+  search(
+    query: string,
+    limit: number,
+    signal?: AbortSignal,
+    sessions: () => SearchSession[] = this.source.sessions,
+  ): Promise<SearchHit[]> {
     const run = async () => {
       signal?.throwIfAborted();
       if (this.closed) throw Error('Search owner closed');
@@ -142,7 +153,7 @@ export class SessionSearchIndex {
         type: 'search',
         query,
         limit,
-        sessions: this.source.sessions(),
+        sessions: sessions(),
       });
       signal?.throwIfAborted();
       return result;

@@ -8607,8 +8607,15 @@ export class EventStore {
     limit = 20,
     signal?: AbortSignal,
     cacheDirectory?: string,
+    accountAlias?: (id: string, fallback: string) => string,
   ): Promise<SessionSearchResult[]> {
-    return this.sessionMetadata.searchSessionsAsync(query, limit, signal, cacheDirectory);
+    return this.sessionMetadata.searchSessionsAsync(
+      query,
+      limit,
+      signal,
+      cacheDirectory,
+      accountAlias,
+    );
   }
 
   markSessionInactive(sessionId: string): void {

@@ -43,6 +43,7 @@ import { loadMcpServers } from './mcp-config.js';
 import { createWarmPoolRouter, type SandboxConversation } from './openshell-warm-pool-router.js';
 import { getOpenShellWarmPool } from './openshell-warm-pool-binding.js';
 import { sessionListMetadata, sessionModelIdentity } from './session-list-metadata.js';
+import { sessionSearchTerms } from '@mitzo/protocol';
 import { readCompactionHistory } from './compaction-history.js';
 import {
   readOwnedVertexQueue,
@@ -3409,6 +3410,12 @@ app.get('/api/sessions/active', (_req, res) => {
 
 app.get('/api/sessions/search', async (req, res) => {
   const q = typeof req.query.q === 'string' ? req.query.q : '';
+  try {
+    sessionSearchTerms(q);
+  } catch {
+    res.status(400).json({ error: 'Use up to 512 characters and 32 words or quoted phrases.' });
+    return;
+  }
   const limit = Math.min(Math.max(1, parseInt(req.query.limit as string) || 20), 50);
   if (!q.trim()) {
     res.json({ results: [] });
@@ -3423,7 +3430,9 @@ app.get('/api/sessions/search', async (req, res) => {
     const cacheDirectory = codexPrivateDirectory();
     protectCodexProfileRoots([cacheDirectory]);
     const results = (
-      await eventStore.searchSessionsAsync(q, limit, abort.signal, cacheDirectory)
+      await eventStore.searchSessionsAsync(q, limit, abort.signal, cacheDirectory, (id, fallback) =>
+        accountAliases.label(id, fallback),
+      )
     ).map((result) => ({
       ...result,
       ...sessionModelIdentity(eventStore.getSession(result.sessionId) ?? {}, (id, fallback) =>

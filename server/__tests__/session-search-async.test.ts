@@ -21,10 +21,13 @@ function fixture() {
   return store;
 }
 
-it('preserves substring, literal wildcard, snippet, visibility and ranking semantics', async () => {
+it('preserves literal substring snippets and visibility for existing single-term searches', async () => {
   const store = fixture();
   for (const query of ['needle', '50%_', '"quoted"', 'C++', 'xy', 'naïve', 'first', 'absent']) {
-    expect(await store.searchSessionsAsync(query, 20)).toEqual(store.searchSessions(query, 20));
+    const hits = await store.searchSessionsAsync(query, 20);
+    expect(hits.map(({ matchedFields: _fields, messageId: _message, ...hit }) => hit)).toEqual(
+      store.searchSessions(query, 20),
+    );
   }
   expect(await store.searchSessionsAsync('needle', 1)).toHaveLength(1);
 });
