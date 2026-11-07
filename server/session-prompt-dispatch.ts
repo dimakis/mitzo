@@ -281,7 +281,9 @@ export function createSessionPromptPort(
         ...(prepared ? { preparationOperationId: prepared.allocationOperationId } : {}),
         ...(prompt.onQueryEvent ? { onQueryEvent: prompt.onQueryEvent } : {}),
         existingOwner: !!live,
-        ...(binding.harness.implementation === 'codex' && binding.execution.location === 'local'
+        ...(prompt.turnLifecycle &&
+        binding.harness.implementation === 'codex' &&
+        binding.execution.location === 'local'
           ? {
               ordinaryTurnLifecycle: lifecycle,
               onSessionPrepared: (session) => {

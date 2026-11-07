@@ -20,7 +20,7 @@ milestone's 16 criteria. Earlier baselines below retain their original dates.
 
 Core test command: `NODE_OPTIONS=--max-old-space-size=1024 node node_modules/vitest/vitest.mjs run server/__tests__/collaboration-application-messaging.test.ts --maxWorkers=1 --no-cache`.
 The three inherited review/durable-read/join cases and new prompt/reply case pass.
-Final focused regression run: 183 tests pass across 13 files, one worker/1 GiB.
+Final focused regression run: 189 tests pass across 14 files, one worker/1 GiB.
 Protocol/harness/client TypeScript builds, focused semantic checks of five server
 modules, ESLint and registered source fingerprint checks pass. Full server builds
 and broader tests remain CI responsibilities under the local memory limit.
@@ -29,6 +29,16 @@ network permission was then granted for the offline HTTP fixture. Broader existi
 owned-chat regressions initially hit protected host defaults; rerunning with
 temporary `MITZO_CODEX_PRIVATE_DIR` and `MITZO_INTERNAL_TOKEN_PATH` passed.
 No permission guard or assertion was weakened to access host configuration.
+
+Landing fixes for Centaur review `5811819783` preserve one command owner for every
+queued context packet and refuse overlapping unclaimed reply intent before accepting
+a new message. Delayed ACKs in either order and concurrent partial fan-out are covered.
+Reconciliation skips hidden/unlinked responders and defers oversized ordinary history
+without suppressing unrelated integrity errors. Existing timer/peer dispatch retains
+tool-failure continuation. The actual-app case also preserves the shared transcript
+after hiding its already projected responder. The non-blocking lifecycle cleanup
+follow-up `CEN-864F4410A950` remains open: definitive preparation failure and owner
+teardown need bounded callback cleanup while uncertain queued commands retain fences.
 
 The omission control temporarily removes only `messaging: collaborationMessaging`
 from the real app mount and restores the exact source in a finally block. Its raw

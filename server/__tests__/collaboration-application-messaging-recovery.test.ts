@@ -1,0 +1,253 @@
+import { afterEach, beforeEach, expect, it, vi } from 'vitest';
+import { randomUUID } from 'node:crypto';
+import { EventStore } from '../event-store.js';
+import { ApplicationCollaborationMessaging } from '../collaboration-application-messaging.js';
+import type {
+  OrdinarySessionPrompt,
+  OrdinarySessionPromptPort,
+} from '../session-prompt-dispatch.js';
+import {
+  captureOrdinaryReplyExecution,
+  recordOrdinaryReplySource,
+} from '../collaboration-ordinary-replies.js';
+
+vi.mock('../auth.js', () => ({ isAuthSessionCurrent: () => true }));
+
+let store: EventStore;
+let owner: ApplicationCollaborationMessaging;
+let group: string;
+let prompts: OrdinarySessionPrompt[];
+const auth = { id: 'operator', expiresAt: Date.now() + 100000 };
+const binding = {
+  version: 2,
+  account: { accountId: 'account', provider: 'openai-codex', profileRevision: 'r1' },
+  harness: { implementation: 'codex' },
+  execution: { location: 'local', targetId: 'mac', targetRevision: 'r1' },
+} as const;
+const selection = {
+  version: 1,
+  agent: { profileId: 'default-mitzo', revision: 1, kind: 'builtin' },
+  context: { source: 'none', revision: null },
+  permission: { mode: 'agent', revision: 0 },
+  model: 'offline-fixture',
+  thinking: null,
+} as const;
+
+beforeEach(() => {
+  store = new EventStore(':memory:');
+  group = randomUUID();
+  prompts = [];
+  owner = new ApplicationCollaborationMessaging(store, {
+    deliverOrdinary: async (prompt) => {
+      prompts.push(prompt);
+    },
+    close: () => {},
+  } as OrdinarySessionPromptPort);
+  for (const sessionId of ['one', 'two']) {
+    store.admitOrdinaryLocalCommand(
+      {
+        sessionId,
+        cwd: '/fixture',
+        mode: 'agent',
+        repositoryWorkspaceId: 'workspace',
+        accountBinding: { ...binding.account, accountLabel: 'Offline', model: selection.model },
+      },
+      binding,
+      {
+        clientMsgId: `initial-${sessionId}`,
+        requestFingerprint: `fp-${sessionId}`,
+        selection,
+        payload: { text: 'Explicit initial prompt' },
+      },
+    );
+    store.claimOrdinaryLocalCommandDispatch(`initial-${sessionId}`);
+  }
+  store.setSessionCollaboration(group, {
+    expectedRevision: 0,
+    participantSessionIds: ['one', 'two'],
+  });
+});
+afterEach(() => {
+  owner.close();
+  store.close();
+});
+
+function input(responder: string, text: string) {
+  const view = store.collaborationConversation.view(group);
+  return {
+    requestId: randomUUID(),
+    expectedMembershipRevision: view.membershipRevision,
+    expectedPolicySequence: view.policySequence,
+    text,
+    responders: { kind: 'selected' as const, sessionIds: [responder] },
+    snapshot: null,
+  };
+}
+
+it.each([false, true])(
+  'preserves the first context ACK across overlapping commands (reverse=%s)',
+  async (reverse) => {
+    store.collaborationConversation.setPolicy(group, {
+      requestId: randomUUID(),
+      expectedMembershipRevision: 1,
+      sessionId: 'two',
+      expectedRevision: 0,
+      readsFutureDiscussion: true,
+      repliesByDefault: false,
+    });
+    const shared = store.collaborationConversation.acceptMessage(
+      group,
+      input('one', 'Unread discussion'),
+    );
+    const send = (text: string) =>
+      owner.send(auth, group, input('two', text), new AbortController().signal);
+    const first = await send('First reply');
+    const second = await send('Second reply');
+    expect(prompts).toHaveLength(2);
+    expect(prompts[0].text).toContain(shared.text);
+    expect(prompts[1].text).not.toContain(shared.text);
+    const order = reverse ? [...prompts].reverse() : prompts;
+    for (const prompt of order) {
+      expect(() => prompt.turnLifecycle!.beforeDispatch(prompt.commandId)).not.toThrow();
+      expect(() =>
+        prompt.turnLifecycle!.accepted(prompt.commandId, 'thread', `turn-${prompt.commandId}`),
+      ).not.toThrow();
+    }
+    const context = store.collaborationConversation
+      .getMessage(group, shared.messageId)!
+      .deliveries.find((d) => d.sessionId === 'two')!;
+    expect(context).toMatchObject({
+      purpose: 'context',
+      status: 'delivered',
+      commandId: prompts[0].commandId,
+    });
+    expect(context.revision).toBe(2);
+    for (const [index, message] of [first, second].entries()) {
+      expect(
+        store.collaborationConversation
+          .getMessage(group, message.messageId)!
+          .deliveries.find((d) => d.sessionId === 'two'),
+      ).toMatchObject({ status: 'delivered', commandId: prompts[index].commandId });
+    }
+  },
+);
+
+it('refuses an overlapping unclaimed fan-out reply without adopting or partially accepting it', async () => {
+  let release!: () => void;
+  const preparing = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const dispatch = vi.fn(async (prompt: OrdinarySessionPrompt) => {
+    prompts.push(prompt);
+    if (prompt.sessionId === 'one') await preparing;
+  });
+  owner = new ApplicationCollaborationMessaging(store, {
+    deliverOrdinary: dispatch,
+    close: () => {},
+  } as OrdinarySessionPromptPort);
+  const first = owner.send(
+    auth,
+    group,
+    {
+      ...input('one', 'Reply independently'),
+      responders: { kind: 'all' },
+    },
+    new AbortController().signal,
+  );
+  await vi.waitFor(() => expect(prompts).toHaveLength(1));
+  try {
+    await expect(
+      owner.send(auth, group, input('two', 'Overlapping reply'), new AbortController().signal),
+    ).rejects.toThrow('execution_unavailable');
+    const retained = store.collaborationConversation.view(group).messages;
+    expect(retained).toHaveLength(1);
+    expect(retained[0].deliveries.find((d) => d.sessionId === 'two')).toMatchObject({
+      status: 'pending',
+      commandId: null,
+    });
+    expect(prompts).toHaveLength(1);
+  } finally {
+    release();
+    await first;
+  }
+  expect(prompts).toHaveLength(2);
+  expect(prompts[0].commandId).not.toBe(prompts[1].commandId);
+  for (const prompt of prompts)
+    prompt.turnLifecycle!.accepted(prompt.commandId, 'thread', prompt.commandId);
+  expect(
+    store.collaborationConversation
+      .view(group)
+      .messages[0].deliveries.every((d) => d.status === 'delivered'),
+  ).toBe(true);
+});
+
+it('defers oversized ordinary history without failing group reads or hiding integrity failures', () => {
+  const message = store.collaborationConversation.acceptMessage(group, input('two', 'Reply'));
+  const delivery = message.deliveries.find((d) => d.sessionId === 'two')!;
+  store.collaborationConversation.recordDelivery(group, message.messageId, delivery.deliveryId, {
+    requestId: randomUUID(),
+    expectedRevision: 0,
+    status: 'queued',
+    commandId: 'initial-two',
+    reason: null,
+  });
+  store.append('two', 'message_start', { messageId: 'large' });
+  store.append('two', 'block_start', { messageId: 'large', blockId: 'text', blockType: 'text' });
+  store.append('two', 'block_delta', {
+    messageId: 'large',
+    blockId: 'text',
+    delta: 'x'.repeat(513 * 1024),
+  });
+  store.append('two', 'block_end', { messageId: 'large', blockId: 'text', blockType: 'text' });
+  store.append('two', 'message_end', { messageId: 'large' });
+  expect(() => store.getDurableSessionTranscript('two')).toThrow();
+  expect(() => owner.reconcile(auth, group)).not.toThrow();
+  expect(store.collaborationConversation.view(group).messages).toHaveLength(1);
+  vi.spyOn(store, 'getDurableSessionTranscript').mockImplementation(() => {
+    throw Error('Broken ledger');
+  });
+  expect(() => owner.reconcile(auth, group)).toThrow('Broken ledger');
+});
+
+it.each(['hide', 'unlink'] as const)(
+  'keeps group reads available without reading a revoked late reply (%s)',
+  (action) => {
+    const message = store.collaborationConversation.acceptMessage(
+      group,
+      input('two', 'Reply explicitly'),
+    );
+    const delivery = message.deliveries.find((d) => d.sessionId === 'two')!;
+    store.collaborationConversation.recordDelivery(group, message.messageId, delivery.deliveryId, {
+      requestId: randomUUID(),
+      expectedRevision: delivery.revision,
+      status: 'queued',
+      commandId: 'initial-two',
+      reason: null,
+    });
+    const source = {
+      commandId: 'initial-two',
+      messageId: 'answer',
+      providerThreadId: 'thread',
+      providerTurnId: 'turn',
+    };
+    const execution = captureOrdinaryReplyExecution(store, 'two', source);
+    recordOrdinaryReplySource(store, 'two', source, execution);
+    store.append('two', 'message_start', { messageId: 'answer' });
+    store.append('two', 'block_start', { messageId: 'answer', blockId: 'text', blockType: 'text' });
+    store.append('two', 'block_delta', {
+      messageId: 'answer',
+      blockId: 'text',
+      delta: 'Late private answer',
+    });
+    store.append('two', 'block_end', { messageId: 'answer', blockId: 'text', blockType: 'text' });
+    store.append('two', 'message_end', { messageId: 'answer' });
+    if (action === 'hide') store.hideSession('two');
+    else
+      store.setSessionCollaboration(group, { expectedRevision: 1, participantSessionIds: ['one'] });
+    const transcript = vi.spyOn(store, 'getDurableSessionTranscript');
+    expect(() => owner.reconcile(auth, group)).not.toThrow();
+    expect(() => owner.reconcile(auth, group)).not.toThrow();
+    expect(transcript).not.toHaveBeenCalled();
+    expect(store.collaborationConversation.view(group).messages).toHaveLength(1);
+  },
+);

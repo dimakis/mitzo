@@ -176,6 +176,21 @@ export class ApplicationCollaborationMessaging {
     const pending = this.store.collaborationConversation.view(group);
     if (pending.hasEarlierMessages) throw new CollaborationContractError('capacity_refused');
     for (const sessionId of responders) {
+      // A prior fan-out may still be preparing another recipient. Never adopt
+      // that recipient's explicit reply into this new command or leave a new
+      // partially accepted message while the original intent is unclaimed.
+      if (
+        pending.messages.some((m) =>
+          m.deliveries.some(
+            (d) =>
+              d.sessionId === sessionId &&
+              d.purpose === 'reply' &&
+              d.commandId === null &&
+              d.status === 'pending',
+          ),
+        )
+      )
+        throw new CollaborationContractError('execution_unavailable');
       const history = pending.messages.filter((m) =>
         m.deliveries.some(
           (d) => d.sessionId === sessionId && d.commandId === null && d.status === 'pending',
@@ -220,7 +235,7 @@ export class ApplicationCollaborationMessaging {
                 d.status === 'pending',
             ),
         );
-      const assertHistoryCurrent = () => {
+      const assertHistoryCurrent = (requireClaim = false) => {
         assertCurrent();
         for (const shared of history) {
           // Never substitute a forwarding note for its exact retained packet or
@@ -234,6 +249,13 @@ export class ApplicationCollaborationMessaging {
             ref.deliveryId,
             delivery.sessionId,
           );
+          if (requireClaim) {
+            const observed = this.store.collaborationConversation
+              .getMessage(group, shared.messageId)!
+              .deliveries.find((d) => d.deliveryId === ref.deliveryId)!;
+            if (observed.commandId !== commandId)
+              throw new CollaborationContractError('reply_conflict');
+          }
           if (
             !isDeepStrictEqual(
               shared.settings[delivery.sessionId],
@@ -253,7 +275,12 @@ export class ApplicationCollaborationMessaging {
       const text = this.prompt(group, history, snapshot, input.text);
       if (Buffer.byteLength(text, 'utf8') > 512 * 1024)
         throw new CollaborationContractError('capacity_refused');
-      this.receipt(group, message, delivery.deliveryId, 'queued', commandId);
+      // Claim the complete packet synchronously. Another queued prompt must not
+      // capture context whose delivery already belongs to this command.
+      for (const shared of history) {
+        const ref = shared.deliveries.find((d) => d.sessionId === delivery.sessionId)!;
+        this.receipt(group, shared, ref.deliveryId, 'queued', commandId);
+      }
       try {
         const preparation = this.store.getOrdinarySessionPreparationForConversation(
           delivery.sessionId,
@@ -266,7 +293,7 @@ export class ApplicationCollaborationMessaging {
             text,
             settings: settings.get(delivery.sessionId)!,
             turnLifecycle: {
-              beforeDispatch: () => assertHistoryCurrent(),
+              beforeDispatch: () => assertHistoryCurrent(true),
               accepted: (acceptedId) => {
                 if (acceptedId !== commandId)
                   throw new CollaborationContractError('reply_conflict');
@@ -285,14 +312,20 @@ export class ApplicationCollaborationMessaging {
           assertCurrent,
         );
       } catch {
-        this.receipt(
-          group,
-          message,
-          delivery.deliveryId,
-          'uncertain',
-          commandId,
-          'Check the original ordinary command; this request will not resend it.',
-        );
+        for (const shared of history) {
+          const ref = this.store.collaborationConversation
+            .getMessage(group, shared.messageId)!
+            .deliveries.find((d) => d.sessionId === delivery.sessionId)!;
+          if (ref.status !== 'delivered')
+            this.receipt(
+              group,
+              shared,
+              ref.deliveryId,
+              'uncertain',
+              commandId,
+              'Check the original ordinary command; this request will not resend it.',
+            );
+        }
       }
     }
     this.reconcile(auth, group);
@@ -339,15 +372,33 @@ export class ApplicationCollaborationMessaging {
   reconcile(auth: AuthSession, group: string) {
     this.current(auth);
     const replies = new OrdinaryCollaborationReplies(this.store);
-    for (const message of this.store.collaborationConversation.view(group).messages) {
+    const view = this.store.collaborationConversation.view(group);
+    for (const message of view.messages) {
       for (const delivery of message.deliveries) {
         if (delivery.purpose !== 'reply' || !delivery.commandId) continue;
+        // Historical receipts survive unlinking and hiding. Reading a group
+        // must neither reopen a revoked source nor fail on its late answer.
+        if (
+          !view.participantSessionIds.includes(delivery.sessionId) ||
+          view.unavailableParticipantSessionIds.includes(delivery.sessionId)
+        )
+          continue;
         const command = this.store.getSendCommand(delivery.commandId);
         const execution =
           command?.sessionId === delivery.sessionId &&
           this.store.readOrdinaryCommandExecutionEvidence(delivery.commandId);
         if (!execution || execution.state === 'reserved') continue;
-        for (const source of this.store.getDurableSessionTranscript(delivery.sessionId).messages) {
+        let transcript: ReturnType<EventStore['getDurableSessionTranscript']>;
+        try {
+          transcript = this.store.getDurableSessionTranscript(delivery.sessionId);
+        } catch (error) {
+          // An oversized ordinary history defers this projection, without
+          // making the retained shared conversation unreadable or resending.
+          if (error instanceof CollaborationContractError && error.code === 'capacity_refused')
+            continue;
+          throw error;
+        }
+        for (const source of transcript.messages) {
           if (source.author === 'operator' || !source.blocks.length) continue;
           if (
             ordinaryReplySourceCommand(this.store, delivery.sessionId, source.messageId) !==

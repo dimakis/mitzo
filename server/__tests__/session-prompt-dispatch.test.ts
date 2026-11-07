@@ -185,6 +185,9 @@ it.each([
       }),
     );
     expect(f.current).toHaveBeenCalled();
+    expect(f.dispatch).not.toHaveBeenCalledWith(
+      expect.objectContaining({ ordinaryTurnLifecycle: expect.anything() }),
+    );
     fxt.port.close();
     expect(f.release).toHaveBeenCalled();
   },
@@ -224,6 +227,7 @@ it('dispatches an explicitly requested first turn into the original silently pre
     settings,
     preparationOperationId: 'original-allocation',
     onQueryEvent: vi.fn(),
+    turnLifecycle: { beforeDispatch: vi.fn(), accepted: vi.fn(), terminal: vi.fn() },
   };
   try {
     await fxt.port.deliverOrdinary(prompt as never, new AbortController().signal, f.current);
@@ -234,6 +238,7 @@ it('dispatches an explicitly requested first turn into the original silently pre
         continuation: false,
         preparationOperationId: 'original-allocation',
         onQueryEvent: prompt.onQueryEvent,
+        ordinaryTurnLifecycle: expect.any(Object),
         command: expect.objectContaining({
           selection: f.selection,
           payload: { text: prompt.text },

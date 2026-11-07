@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.941-symposium-directed-prompts';
+  'v1.0.941-symposium-directed-prompts-r2';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -23,10 +23,12 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
+  '../__tests__/collaboration-application-messaging-recovery.test.ts':
+    '6d179ca6f5d44e7a6dceedb0d4a50803f8094e6d66480bdbae4456b82b2a5c72',
   '../collaboration-application-messaging.ts':
-    '3fa11067268afadca2c9ec1cea6e200e466cf6ce56f5fff98c119ac35ebff677',
+    'd1d33e21c5a29bd8749f7077bf23c22cc5fdf881eef60f57a871157228d2896d',
   '../__tests__/collaboration-application-messaging.test.ts':
-    '1f1c4249852ae5b19de01fe06a2001cae33d9ec3564af76aeb034c48379c38bf',
+    '6d7fa5d735f5ee9f16ffac369cd96c36e655c59dc8662268e7d5e1b32a70687e',
   '../__tests__/fixtures/symposium-application-target.ts':
     'f9b01a850151b0b6ff906fa06d8b472855cce535bb73a38e698c51bd1d988c25',
 
@@ -449,7 +451,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/styles/session-timers.css':
     'a98a9a393361601f95fd2a7a89623ea08fc5eb8f2a9b3b13d1d9f8d3070e61d6',
   '../__tests__/session-prompt-dispatch.test.ts':
-    '867051af0df46cda512f36f87e03cd29db79c3b2d842ad1fbe106340c57723e4',
+    '220f43b9cab724f5caeab73c893f57a6031fcc3bc788902bb1c9e9cb1e699d42',
   '../__tests__/session-prompt-router.test.ts':
     'c8020156c5547dfa3acba70253d14de48adca9a3ed936818b185a164ed3dc217',
   '../__tests__/session-prompt-tools.test.ts':
@@ -457,7 +459,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../session-prompt-definitions.ts':
     '368e1b31f4d718e4f0886aeab9e90398604ed2925903df1b884c7be13c89d352',
   '../session-prompt-dispatch.ts':
-    '4bed021113880a6723d16959da74a05510fd36769afa8123d40fe3cfc9f5069d',
+    'ca3cd118d270ab4af914be3e4a654dd6d49ca86d42b66c96e4f8c680301a464b',
   '../session-prompt-router.ts': '4d11907d907fb6fe0df41cbdd9ecd25336c2e647be761f55cba7e01539aebb7a',
   '../session-prompt-runtime.ts':
     '8ab804b640c6f14f7e03d581b54f60fa14d77347833b671fb6cd1c76b42ddd1b',

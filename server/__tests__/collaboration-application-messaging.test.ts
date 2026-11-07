@@ -161,6 +161,12 @@ it('delivers a reviewed fresh agent prompt through the actual app and projects i
     });
     expect(refused.deliveries[0].status).toBe('uncertain');
     expect(requests.filter((r) => r.method === 'turn/start')).toHaveLength(1);
+    events.hideSession(joinedSessionId);
+    const afterHide = await api.view(group);
+    expect(afterHide.unavailableParticipantSessionIds).toContain(joinedSessionId);
+    expect(
+      afterHide.messages.some((m) => m.replyToDeliveryId === accepted.deliveries[0].deliveryId),
+    ).toBe(true);
   } finally {
     const live = registry.findBySessionId(joinedSessionId);
     if (live) registry.abort(live.clientId);
