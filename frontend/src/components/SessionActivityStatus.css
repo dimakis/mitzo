@@ -40,9 +40,18 @@
 }
 .conversation-library .session-item-navigation > .session-activity-status {
   margin-top: var(--space-2);
+  flex-wrap: nowrap;
+  overflow: hidden;
+}
+.conversation-library .session-activity-label {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
 }
 .conversation-library .session-item-navigation > .session-activity-status time {
   margin-left: auto;
+  flex-shrink: 0;
+  white-space: nowrap;
 }
 .conversation-library .session-item[data-activity='working']:not([data-selected='true']) {
   background: color-mix(in srgb, var(--color-success) 6%, var(--color-surface));
@@ -50,11 +59,11 @@
 .conversation-library .session-item[data-activity='waiting']:not([data-selected='true']) {
   background: color-mix(in srgb, var(--color-warning) 6%, var(--color-surface));
 }
-.conversation-list-caption:has(.session-freshness) {
-  display: flex;
-  flex-wrap: wrap;
+.conversation-list-caption {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  min-height: var(--control-height);
   align-items: center;
-  justify-content: space-between;
   gap: var(--space-2);
 }
 .session-freshness {

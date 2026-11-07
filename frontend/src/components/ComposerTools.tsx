@@ -157,6 +157,7 @@ export function ComposerTools({
             <Link
               className="chat-input-btn"
               aria-label="Terminal"
+              title="Open the terminal page for this chat"
               to={terminalHref}
               onClick={() => setToolsExpanded(false)}
             >
@@ -167,6 +168,7 @@ export function ComposerTools({
             <a
               className="chat-input-btn"
               aria-label="Terminal"
+              title="Open the terminal page for this chat"
               href={terminalHref}
               onClick={() => setToolsExpanded(false)}
             >

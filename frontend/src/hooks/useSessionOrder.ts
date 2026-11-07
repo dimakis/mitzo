@@ -19,6 +19,7 @@ export function useSessionOrdering(
   sessions: Session[],
   activities: SessionActivity[],
   paused: boolean,
+  { manual = false }: { manual?: boolean } = {},
 ) {
   const [ranks, setRanks] = useState(() => new Map(sessions.map((s) => [s.id, s.lastModified])));
   const [pendingCount, setPendingCount] = useState(0);
@@ -59,8 +60,14 @@ export function useSessionOrdering(
       seeded = true;
       // An older page can enter chronologically without displacing known rows.
       // Newly discovered rows wait below the list during an interaction.
-      m.ranks.set(session.id, paused && m.loaded ? -Infinity : session.lastModified);
-      if (paused && m.loaded) m.pending.set(session.id, session.lastModified);
+      const defer = (paused || manual) && m.loaded;
+      // Manual collections append new records in arrival order. Using one
+      // -Infinity rank for every page would reshuffle previous additions by ID.
+      const appendedRank = manual
+        ? Math.min(session.lastModified, ...m.ranks.values()) - 1
+        : -Infinity;
+      m.ranks.set(session.id, defer ? appendedRank : session.lastModified);
+      if (defer) m.pending.set(session.id, session.lastModified);
     }
     if (seeded) setRanks(m.ranks);
     if (sessions.length) m.loaded = true;
@@ -98,7 +105,7 @@ export function useSessionOrdering(
     }
     setPendingCount(m.pending.size);
 
-    if (paused) {
+    if (paused || manual) {
       clearTimeout(m.timer);
       m.timer = undefined;
     } else if (m.pending.size && m.timer === undefined) {
@@ -107,7 +114,7 @@ export function useSessionOrdering(
         Math.max(BATCH_MS, MIN_REORDER_MS - (Date.now() - m.lastCommit)),
       );
     }
-  }, [sessions, activities, paused, showLatest]);
+  }, [sessions, activities, paused, manual, showLatest]);
 
   useEffect(
     () => () => {

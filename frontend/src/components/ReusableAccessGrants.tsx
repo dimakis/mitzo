@@ -283,6 +283,10 @@ export function ReusableAccessGrants(props: { sessionId: string; connected: bool
   return (
     <section className="access-detail-card">
       <h3>Reusable access</h3>
+      <p className="workspace-muted">
+        Allow public websites, GitHub reads or development networking for selected chats. Choose an
+        expiry and revoke access at any time.
+      </p>
       <button
         type="button"
         className="home-secondary"

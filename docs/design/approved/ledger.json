@@ -3,8 +3,64 @@
   "surfaces": [
     {
       "id": "chat-activity",
-      "activeRevision": "additive-freshness-2026-11-06",
+      "activeRevision": "stable-collection-2026-11-07",
       "revisions": [
+        {
+          "id": "stable-collection-2026-11-07",
+          "approvedBy": "Dimitri (explicit request to stop chat-list jumping)",
+          "approvedOn": "2026-11-07",
+          "approval": {
+            "thread": "Originating Mitzo conversation, 7 November 2026",
+            "quote": "That is the constant slow loading of activity of chats in the chats screen and then the chats jump around the page and switch positions.",
+            "scope": "Keep the existing Chats layout and actions; eliminate automatic row movement and deliver initial activity with history. Only the explicit Show latest action applies pending freshness order. Earlier appearance approval remains in force."
+          },
+          "references": [
+            {
+              "path": "docs/design/approved/chat-activity/activity-freshness.html",
+              "sha256": "45325e7952bb6a8a873be9e41dcdb394d0d26266d56d670ea0799a39cb629896"
+            }
+          ],
+          "invariants": [
+            "Preserve approved activity indicators, evidence-based timing, shared tokens and motion preferences.",
+            "Keep all conversation actions, pins, search, settings, message actions and the existing composer in their current owners.",
+            "Chats keeps existing rows stationary through hydration, tool activity, replies, completion, approval requests and the end of browsing; Show latest explicitly applies pending order.",
+            "New records append in arrival order without rearranging earlier additions; activity labels remain live independently of order.",
+            "The first history response includes current activity snapshots; initial SSE hydration cannot paint a partial list ahead of history.",
+            "Disconnected observations remain display-only; no snapshot changes approval or dispatch authority. The sidebar retains bounded freshness batches and browsing holds."
+          ],
+          "sources": [
+            "frontend/src/components/SessionActivityStatus.tsx",
+            "frontend/src/components/SessionActivityStatus.css",
+            "frontend/src/pages/SessionList.tsx",
+            "frontend/src/hooks/useSessionOrder.ts",
+            "server/app.ts",
+            "packages/protocol/src/types.ts"
+          ],
+          "checks": [
+            "frontend/src/components/__tests__/SessionActivityStatus.test.tsx",
+            "frontend/src/components/__tests__/ComposerActivity.test.tsx",
+            "frontend/src/pages/__tests__/SessionLibraryDesktop.test.tsx",
+            "frontend/src/hooks/__tests__/useSessionOrder.test.ts",
+            "frontend/src/hooks/__tests__/useSessionOrder.manual.test.ts",
+            "server/__tests__/routes.test.ts",
+            "tests/offline/session-library.spec.ts"
+          ],
+          "protectedChecks": [
+            {
+              "path": "frontend/src/components/__tests__/SessionActivityStatus.test.tsx",
+              "sha256": "a62f2378d06e1ae84859562393690a6a2b3cd9b4675baddd3e3c43533969d97d"
+            },
+            {
+              "path": "frontend/src/components/__tests__/ComposerActivity.test.tsx",
+              "sha256": "14250f63ee593371674d6569d62eede154c997fb1f131b54ee6953246b2fb3f2"
+            },
+            {
+              "path": "frontend/src/pages/__tests__/SessionLibraryDesktop.test.tsx",
+              "sha256": "e5774880d3bf9c289b160a93bb30ba67d0f4c147e4271b469f3d7f3c69ab784e"
+            }
+          ],
+          "validation": "docs/features/chat-ui-usability.md"
+        },
         {
           "id": "additive-freshness-2026-11-06",
           "approvedBy": "Dimitri (explicit approval of the chat activity mock and additive implementation)",

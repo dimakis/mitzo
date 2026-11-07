@@ -73,6 +73,28 @@ function renderSessionList() {
 }
 
 describe('SessionList status dot', () => {
+  it('shows the activity supplied with history while the event stream is disconnected', async () => {
+    mockFetchResponses({
+      '/api/sessions': [
+        {
+          id: 'http-activity',
+          summary: 'Snapshot conversation',
+          lastModified: 1,
+          activity: {
+            sessionId: 'http-activity',
+            clientId: 'client',
+            title: 'Snapshot conversation',
+            flags: [],
+            state: 'waiting',
+            waitReason: 'permission',
+            lastEventAt: 1,
+          },
+        },
+      ],
+    });
+    renderSessionList();
+    expect(await screen.findByText('Permission needed')).toBeTruthy();
+  });
   it('renders green dot for active+attached session', async () => {
     mockFetchResponses({
       '/api/sessions': [

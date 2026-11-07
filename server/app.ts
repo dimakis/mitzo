@@ -3454,6 +3454,9 @@ app.get('/api/sessions', async (req, res) => {
 
   /** Annotate raw session list with live-status and token metadata. */
   function annotate(sessions: Array<{ id: string; [k: string]: unknown }>) {
+    const activity = new Map(
+      overviewEmitter?.getSnapshot().map((item) => [item.sessionId, item]) ?? [],
+    );
     const activeMap = new Map<string, { attached: boolean }>();
     for (const s of registry.getActiveSessions()) {
       if (s.sessionId) activeMap.set(s.sessionId, { attached: s.attached });
@@ -3463,6 +3466,7 @@ app.get('/api/sessions', async (req, res) => {
       const meta = eventStore.getSession(s.id);
       return {
         ...s,
+        activity: activity.get(s.id),
         isActive: !!live,
         isAttached: live?.attached ?? false,
         totalTokens: meta

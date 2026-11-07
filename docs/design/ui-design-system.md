@@ -9,8 +9,9 @@ Title, handoff and configuration are editable before **Approve & start**; saving
 the configuration as the persistent default is an explicit separate choice. The
 original composer and draft remain mounted and approval does not navigate away.
 
-The existing Run on editor includes a labelled Execution host control using the
-shared native select and semantic styles. It lists only server-observed routes
+The existing Run on editor uses a labelled Execution host select only when there
+are multiple eligible hosts. A single host is plain text; loading and unavailable
+hosts use status text without an empty menu. It lists only server-observed routes
 for the selected account and environment. The exact saved host remains visible
 when unavailable, and selecting the same environment preserves it. Bound chats
 keep the host locked. This adds host review inside the existing field editor;
@@ -1289,11 +1290,16 @@ Activity additions use shared `SessionActivityStatus` and `ActivityBars` in the
 existing collection, search, pins, preview and sidebar. Open chat enriches the
 approved single composer-status row. Explicit elapsed/waiting/completion labels
 use observed clocks; **Updated** identifies saved metadata when message timing is
-unknown. Tool updates do not reorder chats; meaningful freshness batches wait for
-browsing and action controls, with an explicit show-latest action. The existing
+unknown. The Chats collection retains row order until the operator presses
+Show latest; hydration, tool output, message completion and the end of browsing
+never move existing rows automatically. Labels continue to update. New records
+append without moving existing rows. The sidebar retains its bounded freshness
+batches and browsing holds. The existing
 menus, settings, message actions and composer keep their owners and layout.
+The caption always reserves the existing freshness action's control height;
+one-line activity metadata prevents delayed enrichment from pushing other rows.
 See [chat activity and validation](../features/chat-activity-freshness.md) and
-`chat-activity/additive-freshness-2026-11-06`. Browser evidence remains pending
+`chat-activity/stable-collection-2026-11-07`. Browser evidence remains pending
 because the host marker prevented launching the approved offline command.
 
 Recent/search rows lead their secondary metadata with the recorded model choice

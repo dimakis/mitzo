@@ -185,6 +185,31 @@ test('token usage separates capacity from cumulative usage with reachable help',
   await expect(panel).toBeHidden();
 });
 
+test('Context shows the measured budget and remaining tokens in the resource dialog', async ({
+  page,
+  isMobile,
+}, testInfo) => {
+  await page.setViewportSize({ width: isMobile ? 320 : 1280, height: 800 });
+  await fixtureUsage(page);
+  await page.goto('/chat/token-fixture');
+  await page.getByRole('button', { name: 'Open session tray' }).click();
+  await page.getByRole('tab', { name: 'Context', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: 'Resources' });
+  await expect(dialog.getByRole('meter', { name: 'Context used' })).toHaveAttribute(
+    'aria-valuenow',
+    '31',
+  );
+  await expect(dialog.getByText('31% · 81k / 258k')).toBeVisible();
+  await expect(dialog.getByText('178k tokens remaining')).toBeVisible();
+  expect((await dialog.boundingBox())!.width).toBeLessThanOrEqual(isMobile ? 320 : 1280);
+  await page.screenshot({
+    path: testInfo.outputPath('context-budget.png'),
+    animations: 'disabled',
+  });
+  await dialog.press('Escape');
+  await expect(page.getByRole('button', { name: 'Open session tray' })).toBeFocused();
+});
+
 test('token usage remains inspectable when usage is not reported', async ({ page }) => {
   await fixtureUsage(page, false);
   await page.goto('/chat/token-fixture');

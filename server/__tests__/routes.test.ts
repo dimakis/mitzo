@@ -274,6 +274,16 @@ beforeAll(async () => {
   setOpenShellLifecycleService = mod.setOpenShellLifecycleService;
   mod.setOverviewEmitter({
     scheduleBroadcast: overviewBroadcast,
+    getSnapshot: () => [
+      {
+        sessionId: 's1',
+        state: 'working',
+        lastEventAt: 100,
+        title: 'Live chat',
+        flags: [],
+        clientId: 'client-1',
+      },
+    ],
   } as unknown as import('../session-overview.js').SessionOverviewEmitter);
 
   const agent = request(app);
@@ -677,6 +687,14 @@ describe('session routes', () => {
     const { getSessions } = await import('../chat.js');
     await request(app).get('/api/sessions?full=1').set('Cookie', authCookie);
     expect(getSessions).toHaveBeenCalledWith(0, 20);
+  });
+
+  it('GET /api/sessions includes activity in the first history response without waiting for SSE', async () => {
+    const response = await request(app).get('/api/sessions').set('Cookie', authCookie);
+    expect(response.status).toBe(200);
+    expect(
+      response.body.sessions.find((s: { id: string }) => s.id === 's1').activity,
+    ).toMatchObject({ sessionId: 's1', state: 'working' });
   });
 
   it('GET /api/sessions — unauthenticated returns 401', async () => {

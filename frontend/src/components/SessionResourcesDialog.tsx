@@ -17,6 +17,7 @@ import { MockupCollection } from './MockupCollection';
 import { HomeDialog } from './HomeDialog';
 import { UiIcon } from './UiIcon';
 import { ContextPanel } from './ContextPanel';
+import { SessionContextUsage } from './SessionContextUsage';
 import { SessionBanner } from './SessionBanner';
 import { CompactionDetails } from './CompactionMarker';
 import { compactionLabel } from '../lib/compaction-presentation';
@@ -66,6 +67,7 @@ export function SessionResourcesDialog(props: SessionTrayProps) {
     [search, setSearch] = useState(''),
     [domain, setDomain] = useState<string | null>(null),
     [page, setPage] = useState(0);
+  const [includeToolLinks, setIncludeToolLinks] = useState(false);
   const [outputView, setOutputView] = useState<{
     sessionId: string;
     outputs: SessionOutputReference[];
@@ -86,16 +88,26 @@ export function SessionResourcesDialog(props: SessionTrayProps) {
     () => mergeSessionResources(finished, streaming),
     [finished, streaming],
   );
-  const references = useMemo(
+  const visibleReferences = useMemo(
     () =>
       resources.references.filter(
+        (resource) => includeToolLinks || resource.roles?.some((role) => role !== 'research'),
+      ),
+    [resources, includeToolLinks],
+  );
+  const availableRoles = [
+    ...new Set(visibleReferences.flatMap((resource) => resource.roles ?? [])),
+  ];
+  const references = useMemo(
+    () =>
+      visibleReferences.filter(
         (resource) =>
           (category === 'all' || resource.roles?.includes(category)) &&
           `${resource.label} ${resource.href ?? resource.path ?? ''}`
             .toLowerCase()
             .includes(search.toLowerCase()),
       ),
-    [resources, category, search],
+    [visibleReferences, category, search],
   );
   const domains = useMemo(() => [...new Set(references.map(domainOf))], [references]);
   const pages = domain ? references.filter((resource) => domainOf(resource) === domain) : [];
@@ -107,6 +119,11 @@ export function SessionResourcesDialog(props: SessionTrayProps) {
     setOpen(false);
     setDetail(null);
     setOutputView(null);
+    setCategory('all');
+    setSearch('');
+    setDomain(null);
+    setPage(0);
+    setIncludeToolLinks(false);
     return () => detailOperation.current?.abort();
   }, [sessionId]);
   useLayoutEffect(() => {
@@ -422,60 +439,89 @@ export function SessionResourcesDialog(props: SessionTrayProps) {
               )}
               {tab === 'Context' && (
                 <>
-                  <h3>Compaction history</h3>
-                  {props.compactionError && <p role="status">{props.compactionError}</p>}
-                  {props.compactionTruncated && (
-                    <p className="workspace-muted">
-                      Showing recent compaction records; earlier records are not included.
-                    </p>
-                  )}
-                  {(props.compactions ?? []).map((record) => (
-                    <button
-                      type="button"
-                      key={record.id}
-                      className="chat-reference-domain"
-                      onClick={(event) =>
-                        inspect(
-                          { title: 'Context compaction', compaction: record },
-                          event.currentTarget,
-                        )
-                      }
-                    >
-                      <UiIcon name="compact" size={16} />
-                      <span>
-                        {compactionLabel(record)}
-                        <small>
-                          {new Date(record.observedAt).toLocaleTimeString()}
-                          {record.turnIndex !== null ? ` · agent request ${record.turnIndex}` : ''}
-                        </small>
-                      </span>
-                      <UiIcon name="forward" size={16} />
-                    </button>
-                  ))}
-                  {!props.compactions?.length && !props.compactionError && (
-                    <p className="workspace-muted">
-                      No positioned compaction records were reported. Older sessions may only report
-                      a count.
-                    </p>
-                  )}
-                  <h3>Injected context</h3>
-                  {bootContext || sessionContext ? (
-                    <SessionBanner bootContext={bootContext} sessionContext={sessionContext} />
-                  ) : (
-                    <p className="workspace-muted">
-                      No boot or session context was reported for this conversation.
-                    </p>
-                  )}
+                  <h3>Token budget</h3>
+                  <SessionContextUsage
+                    usage={{
+                      used: props.tokenState?.agentContext ?? null,
+                      limits: props.tokenState?.tokenLimits ?? null,
+                      measuredAt: 0,
+                    }}
+                    showRemaining
+                  />
+                  <p className="workspace-muted">
+                    {props.tokenState?.sessionTotalStatus !== undefined
+                      ? 'Latest request input and output, including cached input. The runtime does not report the exact retained context size.'
+                      : 'Input context from the latest model request, including cached input.'}
+                  </p>
                   <h3>Context blocks · {selectedContextBlocks.length} selected</h3>
+                  {contextRemovalOnly && (
+                    <p className="workspace-muted">
+                      To add context on this runtime, paste the relevant text into your message. You
+                      can remove blocks already selected below.
+                    </p>
+                  )}
                   <ContextPanel
                     selected={selectedContextBlocks}
                     onToggle={onToggleContextBlock}
                     removalOnly={contextRemovalOnly}
                   />
-                  <p className="workspace-muted">
-                    Selected blocks go with the next prompt. Selection does not mean the provider
-                    has received them.
-                  </p>
+                  {!contextRemovalOnly && (
+                    <p className="workspace-muted">
+                      Selected blocks will be attached to your next message.
+                    </p>
+                  )}
+                  <details className="chat-resource-context-details">
+                    <summary>
+                      <span>Instructions and compaction history</span>
+                      <UiIcon name="down" />
+                    </summary>
+                    <h3>Compaction history</h3>
+                    {props.compactionError && <p role="status">{props.compactionError}</p>}
+                    {props.compactionTruncated && (
+                      <p className="workspace-muted">
+                        Showing recent compaction records; earlier records are not included.
+                      </p>
+                    )}
+                    {(props.compactions ?? []).map((record) => (
+                      <button
+                        type="button"
+                        key={record.id}
+                        className="chat-reference-domain"
+                        onClick={(event) =>
+                          inspect(
+                            { title: 'Context compaction', compaction: record },
+                            event.currentTarget,
+                          )
+                        }
+                      >
+                        <UiIcon name="compact" size={16} />
+                        <span>
+                          {compactionLabel(record)}
+                          <small>
+                            {new Date(record.observedAt).toLocaleTimeString()}
+                            {record.turnIndex !== null
+                              ? ` · agent request ${record.turnIndex}`
+                              : ''}
+                          </small>
+                        </span>
+                        <UiIcon name="forward" size={16} />
+                      </button>
+                    ))}
+                    {!props.compactions?.length && !props.compactionError && (
+                      <p className="workspace-muted">
+                        No positioned compaction records were reported. Older sessions may only
+                        report a count.
+                      </p>
+                    )}
+                    <h3>Injected context</h3>
+                    {bootContext || sessionContext ? (
+                      <SessionBanner bootContext={bootContext} sessionContext={sessionContext} />
+                    ) : (
+                      <p className="workspace-muted">
+                        No boot or session context was reported for this conversation.
+                      </p>
+                    )}
+                  </details>
                 </>
               )}
               {tab === 'Mockups' && (
@@ -524,15 +570,32 @@ export function SessionResourcesDialog(props: SessionTrayProps) {
               )}
               {tab === 'References' && (
                 <>
-                  <details ref={categoryMenu} className="chat-resource-filter">
-                    <summary>
-                      <span>
-                        {category === 'all' ? 'All reference types' : REFERENCE_ROLES[category]}
-                      </span>
-                      <UiIcon name="down" size={16} />
-                    </summary>
-                    {(['all', ...Object.keys(REFERENCE_ROLES)] as Array<ReferenceRole | 'all'>).map(
-                      (value) => (
+                  <p className="workspace-muted">
+                    Links shared in this conversation by you or the agent, and workspace files.
+                    Saved deliverables are in Outputs.
+                  </p>
+                  <label className="chat-resource-tool-links">
+                    <input
+                      type="checkbox"
+                      checked={includeToolLinks}
+                      onChange={(event) => {
+                        setIncludeToolLinks(event.target.checked);
+                        setCategory('all');
+                        setDomain(null);
+                        setPage(0);
+                      }}
+                    />
+                    Include links from tool output
+                  </label>
+                  {availableRoles.length > 1 && (
+                    <details ref={categoryMenu} className="chat-resource-filter">
+                      <summary>
+                        <span>
+                          {category === 'all' ? 'All reference types' : REFERENCE_ROLES[category]}
+                        </span>
+                        <UiIcon name="down" size={16} />
+                      </summary>
+                      {(['all', ...availableRoles] as Array<ReferenceRole | 'all'>).map((value) => (
                         <button
                           type="button"
                           key={value}
@@ -546,9 +609,9 @@ export function SessionResourcesDialog(props: SessionTrayProps) {
                         >
                           {value === 'all' ? 'All reference types' : REFERENCE_ROLES[value]}
                         </button>
-                      ),
-                    )}
-                  </details>
+                      ))}
+                    </details>
+                  )}
                   <label className="chat-resource-search">
                     Search references
                     <input
@@ -561,8 +624,9 @@ export function SessionResourcesDialog(props: SessionTrayProps) {
                     />
                   </label>
                   <p className="workspace-muted">
-                    {references.length} references · {domains.length} websites / locations. Repeated
-                    URLs share one record with multiple roles.
+                    {references.length} {references.length === 1 ? 'reference' : 'references'} ·{' '}
+                    {domains.length}{' '}
+                    {domains.length === 1 ? 'website / location' : 'websites / locations'}
                   </p>
                   {domain ? (
                     <>
@@ -599,7 +663,10 @@ export function SessionResourcesDialog(props: SessionTrayProps) {
                             {host}
                             <small>
                               {references.filter((resource) => domainOf(resource) === host).length}{' '}
-                              references
+                              {references.filter((resource) => domainOf(resource) === host)
+                                .length === 1
+                                ? 'reference'
+                                : 'references'}
                             </small>
                           </span>
                           <UiIcon name="forward" size={16} />
