@@ -58,6 +58,12 @@ boundary. Initial hosted browser checks exposed a fixture boot-order error: the
 fixture now initializes durable chat storage before saving its unsent draft, using
 the production boot barrier. Final hosted rendered acceptance remains required.
 
+Project search and the activity overview share one directory-name projection,
+including the owning repository of conventional .claude/.cursor worktrees on
+POSIX and Windows paths. Opaque managed repository-task directories still use
+their directory name; recovering their repository label requires a separately
+validated workspace metadata projection.
+
 Semantic retrieval, typo tolerance, structured filters, pagination and navigation
 to an individual matched message remain future work. Results may carry a stable
 message ID, but this release opens the existing conversation route.

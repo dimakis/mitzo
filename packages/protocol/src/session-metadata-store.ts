@@ -6,6 +6,7 @@ import { AgentLibraryVersionSchema } from './agent-library.js';
 import { AgentContextSnapshotSchema } from './agent-context-recipe.js';
 import { AccountBindingSchema } from './account-binding.js';
 import { searchSnippet } from './session-search-query.js';
+import { repositoryNameFromCwd } from './repository-name.js';
 import {
   SessionRuntimeBindingSchema,
   isOrdinaryCodexWorkspaceBinding,
@@ -539,7 +540,7 @@ export class SessionMetadataStore {
             account: binding
               ? (accountAlias?.(binding.accountId, binding.accountLabel) ?? binding.accountLabel)
               : undefined,
-            project: meta.cwd?.split(/[\\/]/).filter(Boolean).at(-1),
+            project: meta.cwd ? repositoryNameFromCwd(meta.cwd) : undefined,
           } satisfies SearchSession;
         });
     this.searchIndex ??= new SessionSearchIndex(

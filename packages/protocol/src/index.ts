@@ -1,5 +1,6 @@
 export * from './markdown-paths.js';
 export { sessionSearchTerms } from './session-search-query.js';
+export { repositoryNameFromCwd } from './repository-name.js';
 export { ToolFailureSchema, toolFailure, toolFailureAction } from './tool-failure.js';
 export type { ToolFailure } from './tool-failure.js';
 export { stripMarkdownCodeBlocks } from './markdown-code-blocks.js';

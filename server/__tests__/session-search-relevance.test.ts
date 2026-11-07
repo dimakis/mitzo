@@ -75,6 +75,23 @@ it('matches words across title, project and messages but requires every word', a
   expect(await store.searchSessionsAsync('personal missing')).toEqual([]);
 });
 
+it.each([
+  '/workspace/mgmt/.claude/worktrees/abc123',
+  '/workspace/mgmt/.cursor/worktrees/abc123/nested',
+  String.raw`C:\workspace\mgmt\.claude\worktrees\abc123`,
+])('matches the owning project for isolated chat cwd %s', async (cwd) => {
+  const store = fixture();
+  store.upsertSession({
+    sessionId: 'isolated',
+    conversationSource: 'mitzo',
+    summary: 'Billing review',
+    cwd,
+  });
+  const hits = await store.searchSessionsAsync('billing mgmt');
+  expect(hits.map((hit) => hit.sessionId)).toEqual(['isolated']);
+  expect(hits[0].matchedFields).toEqual(expect.arrayContaining(['title', 'project']));
+});
+
 it('keeps quoted phrases exact while unquoted words may be separated or reversed', async () => {
   const store = fixture();
   chat(store, 'one');
