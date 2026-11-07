@@ -17,9 +17,7 @@ function ExecutionHostPicker({
   runtime: ReturnType<typeof useExplicitLocalChat>;
   disabled: boolean;
 }) {
-  const execution = runtime.bound ? runtime.binding?.execution : runtime.intent.execution;
-  const targetId =
-    execution && 'targetId' in execution ? execution.targetId : runtime.intent.execution.targetId;
+  const targetId = runtime.intent.execution.targetId;
   const routes = runtimeRoutes(runtime.intent, runtime.inventory);
   const targets =
     runtime.inventory?.targets.filter(
