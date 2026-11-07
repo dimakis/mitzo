@@ -448,8 +448,13 @@ it('does not acknowledge capability drift on refresh until explicit review', asy
     account: { accountId: 'personal', model: 'luna-fixture', reasoningEffort: 'low' },
     capabilityRevision: 'older',
   };
-  const { result } = renderHook(() => useExplicitLocalChat('draft', saved, null, true));
+  const { result, rerender } = renderHook(
+    ({ saved }) => useExplicitLocalChat('draft', saved, null, true),
+    { initialProps: { saved } },
+  );
   await waitFor(() => expect(result.current.inventory).not.toBeNull());
+  expect(result.current.intent.capabilityRevision).toBe('older');
+  rerender({ saved: JSON.parse(JSON.stringify(saved)) });
   expect(result.current.intent.capabilityRevision).toBe('older');
   act(() => result.current.review());
   expect(result.current.intent.capabilityRevision).toBe(data.capabilityRevision);

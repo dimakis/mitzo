@@ -128,8 +128,9 @@ export function useExplicitLocalChat(
 
   const [inventory, setInventory] = useState<ExplicitLocalInventory | null>(null);
   useEffect(() => {
-    if (sessionId || !saved || !inventory || edits.current.edited || edits.current.saved === saved)
-      return;
+    // Defaults can arrive after the fresh draft's inventory. Hydrate that first
+    // seed once; rereading a retained draft cannot renew its capability review.
+    if (sessionId || !saved || !inventory || edits.current.edited || edits.current.saved) return;
     edits.current.saved = saved;
     setChoice({ draftId, intent: { ...seed(), capabilityRevision: inventory.capabilityRevision } });
   }, [saved, sessionId, draftId, seed, inventory]);
