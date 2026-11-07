@@ -12,6 +12,7 @@ import { PERMISSION_TIMEOUT_MS } from './constants.js';
 import { checkSkillPolicy, effectivePermissionMode, recordPermissionAudit } from '@mitzo/harness';
 import { nativeCommandApprovalScope } from './codex-native-approval-scope.js';
 import { createLogger } from './logger.js';
+import { captureNativeDevelopmentGrant } from './native-development-grant.js';
 const log = createLogger('codex-native-approvals');
 
 export interface PreparedWorkspaceGrantScope {
@@ -279,6 +280,14 @@ export function createCodexNativeApprovalHandler(options: {
       };
       context.registerResponseFence?.(finalFence);
       timer = setTimeout(() => expiry.abort(), Math.max(0, expiresAt - Date.now()));
+      const developmentGrant = captureNativeDevelopmentGrant(session, request);
+      if (developmentGrant) {
+        assertConsentCurrent = developmentGrant;
+        assertCurrent();
+        assertGrantCurrent();
+        assertConsentCurrent();
+        return grant({ decision: 'accept' });
+      }
       if (
         request.method === 'item/permissions/requestApproval' &&
         approvePreparedWorkspaceGrant &&

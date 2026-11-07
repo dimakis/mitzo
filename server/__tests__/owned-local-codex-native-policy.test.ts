@@ -73,10 +73,12 @@ it('uses the host GitHub CLI login with native network and external Git approval
       const policy = composeOwnedLocalNativeExecutionPolicy(input);
       expect(policy.deniedRoots).not.toContain(realpathSync(github));
       expect(policy.approvalPolicy).toBe('on-request');
-      for (const profile of Object.values(codexNativePermissionProfiles(policy).permissions)) {
+      for (const [name, profile] of Object.entries(
+        codexNativePermissionProfiles(policy).permissions,
+      )) {
         expect(profile.filesystem).not.toHaveProperty(github);
         expect(profile.filesystem).not.toHaveProperty(`${github}{,/**}`);
-        expect(profile.network.enabled).toBe(false);
+        expect(profile.network.enabled).toBe(name === 'mitzo-native-auto');
       }
       const request = NativeApprovalRequestSchema.parse({
         method: 'item/commandExecution/requestApproval',

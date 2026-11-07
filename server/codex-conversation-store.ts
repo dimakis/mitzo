@@ -346,15 +346,16 @@ const NativeExecutionPolicySnapshotSchema = z
     scopeKind: z.literal('base-profile'),
     grantState: z.literal('upstream-owned'),
     temporaryAccess: z.literal('runtime').optional(),
+    profileVersion: z.literal('auto-network-v1').optional(),
     cwd: NativePolicyPath,
     readableRoots: NativePolicyRoots,
     writableRoots: NativePolicyRoots,
     workspaceRoots: NativePolicyRoots,
     deniedRoots: NativePolicyRoots,
     writeProtectedRoots: NativePolicyRoots,
-    networkAccess: z.literal('restricted'),
+    networkAccess: z.enum(['restricted', 'enabled']),
     approvalPolicy: z.literal('on-request'),
-    permissions: z.enum(['mitzo-native-ask', 'mitzo-native-agent']),
+    permissions: z.enum(['mitzo-native-ask', 'mitzo-native-agent', 'mitzo-native-auto']),
     reviewer: z.literal('user'),
     reviewerAvailability: z.literal('unqualified'),
   })
@@ -371,6 +372,9 @@ const NativeExecutionPolicySnapshotSchema = z
     if (
       policy.profileRevision !== profileRevision ||
       policy.policyRevision !== policyRevision ||
+      (policy.permissions === 'mitzo-native-auto' &&
+        (policy.profileVersion !== 'auto-network-v1' || policy.networkAccess !== 'enabled')) ||
+      (policy.permissions !== 'mitzo-native-auto' && policy.networkAccess !== 'restricted') ||
       !isDeepStrictEqual(
         policy.writableRoots,
         policy.permissions === 'mitzo-native-ask' ? [] : policy.workspaceRoots,

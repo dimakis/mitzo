@@ -388,6 +388,8 @@ import {
 } from './permissions.js';
 import { createTelosSourcePermissionRecovery } from './telos-source-recovery.js';
 import { createSessionAccessRouter, projectSessionAccess } from './session-access.js';
+import { SessionCapabilityGrants } from './session-capability-grants.js';
+import { createSessionCapabilityRouter } from './session-capability-router.js';
 import { createLogger } from './logger.js';
 import {
   handleTaskSet,
@@ -3654,6 +3656,22 @@ mountObservedRouter(
   }),
 );
 
+const sessionCapabilityGrants = new SessionCapabilityGrants(registry);
+mountObservedRouter(
+  app,
+  '/api/sessions/:id/access-grants',
+  operatorAuthMiddleware,
+  createSessionCapabilityRouter({
+    grants: sessionCapabilityGrants,
+    hasSession: (id) => {
+      const meta = eventStore.getSession(id);
+      return Boolean(
+        meta && !meta.isHidden && meta.sessionType !== 'symposium' && !meta.symposiumConfig,
+      );
+    },
+    title: (id) => eventStore.getSession(id)?.summary ?? undefined,
+  }),
+);
 mountObservedRouter(
   app,
   '/api/sessions/:id/access',
