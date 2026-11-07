@@ -72,7 +72,7 @@ for (const theme of ['dark', 'light'])
     await page.getByLabel('Permission mode').selectOption('ask');
     await page.getByLabel('Isolated checkout').uncheck();
     await page
-      .getByLabel('Context', { exact: true })
+      .getByRole('textbox', { name: 'Context', exact: true })
       .fill('Persistent project context\nwith handoff notes');
     await page.getByLabel('Additional tools').fill('Read, Glob');
     await page.getByRole('button', { name: /^Workspace controls/ }).click();
@@ -97,7 +97,7 @@ for (const theme of ['dark', 'light'])
       else await page.reload();
       await expect(page.getByLabel('Permission mode')).toHaveValue('ask');
       await expect(page.getByLabel('Isolated checkout')).not.toBeChecked();
-      await expect(page.getByLabel('Context', { exact: true })).toHaveValue(
+      await expect(page.getByRole('textbox', { name: 'Context', exact: true })).toHaveValue(
         'Persistent project context\nwith handoff notes',
       );
       const restored = JSON.parse((await page.getByTestId('configuration').textContent())!);

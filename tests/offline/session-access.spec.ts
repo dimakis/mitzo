@@ -70,6 +70,7 @@ async function fixture(page: Page, existing = false, pending = true, unknown = f
     });
   });
   const fixtures: Record<string, unknown> = {
+    '/api/session-launch/defaults': { revision: 0, configuration: null },
     '/api/auth/check': { authenticated: true },
     '/api/config': { quickActions: [] },
     '/api/skills': [],

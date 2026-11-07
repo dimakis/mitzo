@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.930-retain-draft-url';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.931-session-browser-fixtures';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -31,7 +31,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../docs/features/agent-session-launch.md':
     '71b144750badf018e68914898f19d20119430da2b120d4921f8dbb35cc86fe37',
   '../../frontend/src/components/SessionLaunchCards.css':
-    '12d62345c5191513994e8516f170a36c067be2063f20d3f1d524266c2caf213f',
+    '741fcfaf0170aa35325e3bd181b667e954988d731227e7fa479485049b3256bb',
   '../../frontend/src/components/SessionLaunchCards.tsx':
     '4314b8e6bf237dcc9758f525bc735542198f808419588a1ef89768591bf1e57f',
   '../../frontend/src/components/SessionLaunchConfigEditor.tsx':
@@ -92,11 +92,11 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../session-launch-store.ts': 'c16d00c8eb18d6075ea4b1bad65a4dc17df6e4cbf8ae19943daea90b3a45a336',
   '../session-launch-tools.ts': '6c083e409d20156dd47366773d6a58ad273dbc1682d8c6a6e4b43524e8cb8e69',
   '../../tests/fixtures/session-launch-defaults.tsx':
-    '3dacb55545132b3904e637368fafc6c008e386d44e7c2481bba81bd1c05eb8bb',
+    '95fd8cddebfa31f139afc11617dad1b448f0d06cdf40ec41588a9bda46894bf9',
   '../../tests/fixtures/session-launch.tsx':
-    'd296a3c53be0e7dec0270610c122c08fc35f09fd0fa7ac17a6e148f5ad81afdd',
+    '79fc568710474afeea748e4b78a46edc9db21908663b559645d6739e62d5fb17',
   '../../tests/offline/session-launch-defaults.spec.ts':
-    '00f5cd224ab6679473d9ea3d4534a1e3bf1b24443cfb4531928d881d3aab7743',
+    'ae3c090d73c638be6fbac36b79e6587416a2cd96837af2daf67dcb59b6434b35',
   '../../tests/offline/session-launch.spec.ts':
     '0640f23bb893a38760cca46843e59f418d29164211b41123fb25dc8ddc83f0b5',
   '../host-codex-login-refresh-ledger.ts':
@@ -683,7 +683,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../tests/offline/telos-source-approval.spec.ts':
     'a6413e3b8c03d75602f734321e8382c6c177344a97370bb27146fe5e552dff58',
   '../../tests/offline/telos-role-setup.spec.ts':
-    'fe79b734f5b7f6a73e8bc3f711283814d23d0628d3bc06a28de14a3cf19a61bb',
+    'db36a4c430de77b08dd324a3fb8d213946befd577947b76f07d58af0e0746a07',
   '../../tests/offline/telos-role-recovery.spec.ts':
     '1e417e0e14337ced024f12fd10572115c6fa4843f9bebb5bf85a2b5f279594a7',
   '../../tests/offline/telos-reviewed-context.spec.ts':
@@ -2572,9 +2572,9 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../tests/offline/builtin-agent-picker.spec.ts':
     '613616b1e3917605d3b16f92eca6ba6250858a55649d879313c2387a7bacbd00',
   '../../tests/offline/multi-runtime-picker.spec.ts':
-    '57d196c1043c17f089b8664f8b841234e0a76d852b433728965b19242ac2cd98',
+    'eccf35d7add6c0552ed5428ed0d8436848eaac4fe7b00efb8cbf2427b1c042ae',
   '../../tests/offline/repository-preparation-recovery.spec.ts':
-    'f7a916fbd66a2f94427f6ed14034085bf715cc2178e0e111e6d9933570e434d1',
+    '971e477cbefc2d3a3ce30e42140c157123ae1d7912a8a864e9daee4519843c2a',
   '../__tests__/ordinary-repository-preparation-api.test.ts':
     'be392a0df72a2018169440df07e18fa8ef4c9f8963ba080061d05235108e0110',
   '../command-timing-trace.ts': 'f4c8ddbcae082c29fd718f09dd4b846b5aacc25574f43d681e31a508bae76560',
@@ -3376,7 +3376,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     '42db839f3847185e7e666e84a9afc1e6a6d038d7b325e9888eb1e51fffabd59b',
   '../telos-backlog-tools.ts': '2a556071ad9f64da138a855e24fc6ff9a244f3e727b9a41c991a4c9a68ca6464',
   '../../tests/offline/telos-outcomes-workspace.spec.ts':
-    '5abd133a09203692eccbae8545ac455c61179304e7e91a832c332264ebc99578',
+    '5050ae8f4d41867db0a9d26ca13c3e3c869a66c086c2f09414ae9d7ca3023d83',
   '../../tests/integration/telos-s9/integrated-candidate/surface-control-inbox.ts':
     '5f3eac2c87dbd3ef090cc97867533b4848a1b450140f93e347fd3b7d87390a64',
   '../../tests/integration/telos-s9/integrated-candidate/surface-control-inbox.test.ts':

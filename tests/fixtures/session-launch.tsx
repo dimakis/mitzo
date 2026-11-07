@@ -19,7 +19,7 @@ const configuration: SessionLaunchConfig = {
     version: 1,
     account: { accountId: 'personal', model: 'luna-fixture', reasoningEffort: 'high' },
     accountReference: inventory.accounts[0].account,
-    agentProfile: { kind: 'library', profileId: 'agent', revision: 1 },
+    agentProfile: { profileId: 'agent', revision: 1 },
     execution: { location: 'local', targetId: 'mac' },
   },
   mode: 'agent',

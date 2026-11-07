@@ -47,6 +47,9 @@
 .session-launch-dialog header {
   flex: none;
 }
+.session-launch-dialog header button {
+  min-width: var(--control-height);
+}
 .session-launch-form {
   display: grid;
   gap: var(--space-4);

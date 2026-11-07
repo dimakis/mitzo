@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { initializeChatStorage } from '../../frontend/src/lib/large-chat-storage';
 import { createRoot } from 'react-dom/client';
 import { MemoryRouter } from 'react-router-dom';
 import type { SessionLaunchConfig } from '@mitzo/protocol';
@@ -122,8 +123,10 @@ function Fixture() {
     </main>
   );
 }
-createRoot(document.getElementById('root')!).render(
-  <MemoryRouter>
-    <Fixture />
-  </MemoryRouter>,
-);
+void initializeChatStorage().then(() => {
+  createRoot(document.getElementById('root')!).render(
+    <MemoryRouter>
+      <Fixture />
+    </MemoryRouter>,
+  );
+});
