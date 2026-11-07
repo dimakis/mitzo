@@ -7,6 +7,7 @@ import type { InboxFeed, MitzoNotification } from '@mitzo/protocol';
 import { useNotifications } from '../components/NotificationProvider';
 import { WorkspacePageHeading } from '../components/WorkspacePageHeading';
 import { UiIcon } from '../components/UiIcon';
+import { HomeDialog } from '../components/HomeDialog';
 import { RequestDetail } from './NotificationsView';
 import { apiFetch, AUTH_LOST_EVENT, AUTH_RESTORED_EVENT } from '../lib/api-fetch';
 import { eventBus } from '../lib/event-bus-singleton';
@@ -65,6 +66,8 @@ export function UnifiedInboxView({ desktop = false }: { desktop?: boolean } = {}
   const [revision, setRevision] = useState(0);
   const [detailRevision, setDetailRevision] = useState(0);
   const [notice, setNotice] = useState('');
+  const [cleanupOpen, setCleanupOpen] = useState(false);
+  const [cleanupError, setCleanupError] = useState('');
   const [undo, setUndo] = useState<string | null>(null);
   const sequence = useRef(0);
   const authGeneration = useRef(0);
@@ -134,6 +137,8 @@ export function UnifiedInboxView({ desktop = false }: { desktop?: boolean } = {}
       invalidate();
       setFeed(null);
       setSelected(null);
+      setCleanupOpen(false);
+      setCleanupError('');
       read.current.clear();
       setLoading(false);
     };
@@ -271,6 +276,34 @@ export function UnifiedInboxView({ desktop = false }: { desktop?: boolean } = {}
       context: buildInboxContext(summary, item.inbox.content),
     });
   }
+  async function cleanUp() {
+    if (!notifications || busy || blocked.current) return;
+    const generation = authGeneration.current;
+    setBusy(true);
+    setCleanupError('');
+    try {
+      const response = await apiFetch('/api/notifications/archive-resolved', { method: 'POST' });
+      if (!response.ok) throw new Error();
+      const result = (await response.json()) as { archived: number };
+      if (!Number.isSafeInteger(result.archived) || result.archived < 0) throw new Error();
+      if (generation !== authGeneration.current || blocked.current) return;
+      setCleanupOpen(false);
+      setUndo(null);
+      setNotice(
+        `Archived ${result.archived} ${result.archived === 1 ? 'item' : 'items'}. Find them in Archive.`,
+      );
+      setRevision((value) => value + 1);
+      // Refresh failure cannot turn a confirmed archive into a replayable failure.
+      void notifications.refresh().catch(() => undefined);
+    } catch {
+      if (generation === authGeneration.current && !blocked.current)
+        setCleanupError(
+          'Could not confirm cleanup. Refresh Inbox to check the result before trying again.',
+        );
+    } finally {
+      setBusy(false);
+    }
+  }
   const hideList = !desktop && !!selectedId;
   const offset = Number(params.get('offset')) || 0;
   const needsCount = feed?.needsYou ?? notifications?.feed?.needsYou;
@@ -358,6 +391,40 @@ export function UnifiedInboxView({ desktop = false }: { desktop?: boolean } = {}
           </Link>
         }
       />
+      {cleanupOpen && (
+        <HomeDialog title="Clean up Inbox" onClose={() => setCleanupOpen(false)}>
+          <p>
+            Archive resolved items and read updates across your entire inbox, including other views.
+          </p>
+          <p>
+            Pending requests stay, including ones you've read. Other items move only after they've
+            been read or resolved. Nothing is deleted. Archived items can be restored from Archive.
+          </p>
+          {cleanupError && (
+            <p role="alert" className="workspace-load-error">
+              {cleanupError}
+            </p>
+          )}
+          <div className="home-inline-actions">
+            <button
+              type="button"
+              className="home-secondary"
+              disabled={busy || !!cleanupError}
+              onClick={() => void cleanUp()}
+            >
+              {busy ? 'Archiving…' : 'Archive read and resolved'}
+            </button>
+            <button
+              type="button"
+              className="home-secondary"
+              disabled={busy}
+              onClick={() => setCleanupOpen(false)}
+            >
+              Cancel
+            </button>
+          </div>
+        </HomeDialog>
+      )}
       {error && (
         <div role="alert" className="workspace-load-error">
           {error}
@@ -493,13 +560,26 @@ export function UnifiedInboxView({ desktop = false }: { desktop?: boolean } = {}
                   ? `${feed?.total ?? 0} matches across all views`
                   : `${feed?.total ?? 0} items`}
               </span>
-              <button
-                disabled={busy}
-                className="workspace-text-link"
-                onClick={() => void act('/read-updates')}
-              >
-                Mark updates read
-              </button>
+              <div className="home-inline-actions">
+                <button
+                  disabled={busy || loading || !feed || !notifications}
+                  className="workspace-text-link"
+                  onClick={(event) => {
+                    event.currentTarget.focus();
+                    setCleanupError('');
+                    setCleanupOpen(true);
+                  }}
+                >
+                  Clean up
+                </button>
+                <button
+                  disabled={busy}
+                  className="workspace-text-link"
+                  onClick={() => void act('/read-updates')}
+                >
+                  Mark updates read
+                </button>
+              </div>
             </div>
             {loading && !feed && <p role="status">Loading Inbox…</p>}
             {!loading && !feed?.items.length && (

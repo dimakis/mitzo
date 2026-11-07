@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import '@testing-library/jest-dom/vitest';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { UnifiedInboxView } from '../UnifiedInboxView';
 import { apiFetch } from '../../lib/api-fetch';
@@ -62,6 +62,12 @@ const suggestion = {
   },
 };
 beforeEach(() => {
+  HTMLDialogElement.prototype.showModal = function () {
+    this.setAttribute('open', '');
+  };
+  HTMLDialogElement.prototype.close = function () {
+    this.removeAttribute('open');
+  };
   vi.clearAllMocks();
   mutate.mockResolvedValue(undefined);
   refresh.mockResolvedValue(undefined);
@@ -85,6 +91,89 @@ function show(path = '/inbox') {
   );
 }
 describe('combined Inbox', () => {
+  it('offers whole-inbox cleanup from an empty Needs you view without deleting unread items', async () => {
+    vi.mocked(apiFetch).mockImplementation(
+      async (path) =>
+        new Response(
+          JSON.stringify(
+            String(path).endsWith('/archive-resolved')
+              ? { ok: true, archived: 3 }
+              : { items: [], total: 0, needsYou: 0, sources: [] },
+          ),
+        ),
+    );
+    show();
+    const trigger = await screen.findByRole('button', { name: 'Clean up' });
+    await waitFor(() => expect(trigger).toBeEnabled());
+    fireEvent.click(trigger);
+    const dialog = screen.getByRole('dialog', { name: 'Clean up Inbox' });
+    expect(within(dialog).getByText(/across your entire inbox/i)).toBeVisible();
+    expect(
+      within(dialog).getByText(/pending requests stay, including ones you've read/i),
+    ).toBeVisible();
+    expect(apiFetch).not.toHaveBeenCalledWith(
+      '/api/notifications/archive-resolved',
+      expect.anything(),
+    );
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Archive read and resolved' }));
+    expect(await screen.findByRole('status')).toHaveTextContent('Archived 3 items');
+    expect(apiFetch).toHaveBeenCalledWith('/api/notifications/archive-resolved', {
+      method: 'POST',
+    });
+    expect(refresh).toHaveBeenCalled();
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  });
+  it('cancels cleanup without making a write', async () => {
+    show();
+    const trigger = await screen.findByRole('button', { name: 'Clean up' });
+    await waitFor(() => expect(trigger).toBeEnabled());
+    fireEvent.click(trigger);
+    fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Cancel' }));
+    expect(apiFetch).not.toHaveBeenCalledWith(
+      '/api/notifications/archive-resolved',
+      expect.anything(),
+    );
+    expect(trigger).toHaveFocus();
+  });
+  it('keeps cleanup failures visible without claiming success', async () => {
+    vi.mocked(apiFetch).mockImplementation(async (path) =>
+      String(path).endsWith('/archive-resolved')
+        ? new Response('', { status: 503 })
+        : new Response(JSON.stringify({ items: [], total: 0, needsYou: 0, sources: [] })),
+    );
+    show();
+    const trigger = await screen.findByRole('button', { name: 'Clean up' });
+    await waitFor(() => expect(trigger).toBeEnabled());
+    fireEvent.click(trigger);
+    const dialog = screen.getByRole('dialog');
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Archive read and resolved' }));
+    expect(await within(dialog).findByRole('alert')).toHaveTextContent('Could not confirm cleanup');
+    expect(screen.queryByText(/Archived \d+ items/)).not.toBeInTheDocument();
+  });
+  it('closes cleanup on authentication loss and ignores a late result', async () => {
+    let reply!: (response: Response) => void;
+    vi.mocked(apiFetch).mockImplementation(async (path) =>
+      String(path).endsWith('/archive-resolved')
+        ? new Promise<Response>((resolve) => {
+            reply = resolve;
+          })
+        : new Response(JSON.stringify({ items: [], total: 0, needsYou: 0, sources: [] })),
+    );
+    show();
+    const trigger = await screen.findByRole('button', { name: 'Clean up' });
+    await waitFor(() => expect(trigger).toBeEnabled());
+    fireEvent.click(trigger);
+    fireEvent.click(
+      within(screen.getByRole('dialog')).getByRole('button', { name: 'Archive read and resolved' }),
+    );
+    await waitFor(() => expect(reply).toBeDefined());
+    await act(async () => {
+      window.dispatchEvent(new Event('auth-lost'));
+      reply(new Response(JSON.stringify({ ok: true, archived: 3 })));
+    });
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(screen.queryByText(/Archived 3 items/)).not.toBeInTheDocument();
+  });
   it('keeps legacy file paths in evidence instead of making them the list summary', async () => {
     vi.mocked(apiFetch).mockResolvedValue(
       new Response(
