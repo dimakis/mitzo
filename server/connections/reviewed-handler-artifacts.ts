@@ -30,11 +30,11 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/components/__tests__/ReusableAccessGrants.test.tsx':
     'ae9a802f45e3748f32b885951c5a0454f3f2f1ef7cf718e01cef23bf56735427',
   '../__tests__/fixtures/session-capabilities.ts':
-    '0eb9e75a18d9a68d5e0c3a834d385a29d891abab277e4ca54dc6080620dc18e0',
+    '74c29b0c4a4058a081588c8b52ffe03070f747d8b37c55bbeb48108929a2f002',
   '../__tests__/session-capability-consumers.test.ts':
-    '0e27f206e5506b90565153449b847e7078e160b549403fe6100be3615aa1ed1d',
+    'd21ba43a3057a691c6732e15b8d249b303c8c296e954e32ad511b283e6abb7ae',
   '../__tests__/session-capability-grants.test.ts':
-    'c66147c1afcfc44f5c28fde423261ab1412fb94d44d8c7b5ea900e3c6a6cdb18',
+    '36864350328570db59105ba465b157841b8ee1cf89f20152b2977973c9ef88e1',
   '../__tests__/session-capability-router.test.ts':
     '42c24fdaf136723ae9293f76e60637545c1d154560a51a0e7b42fd91a3233d2a',
   '../native-development-grant.ts':
@@ -42,7 +42,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../session-capability-grants.ts':
     '84e9a12f84b723f8546464e1aeb3cda2984fa2e024b75f32164a053a26896afe',
   '../session-capability-router.ts':
-    '3152bcbfc6b538bd9778ebbb37f22ad3f9de64faa3f3b6973b318708e430ff72',
+    '80185fe47b950efed5b7dd81b51119be3c3225478d5a765e18be3a41f0696c13',
   '../../frontend/src/styles/session-access.css':
     'c9deb783e4c2d8570a88ece2ceda47b8ab008c8792bb9c16932fcdc2372d6183',
   '../../tests/offline/session-access.spec.ts':

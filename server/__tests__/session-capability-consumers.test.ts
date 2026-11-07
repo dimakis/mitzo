@@ -5,10 +5,15 @@ import { createCodexNativeApprovalHandler } from '../codex-native-approvals.js';
 import { createWebAccessTool } from '../web-access-tool.js';
 import { fetchPublicPage } from '../public-web-fetch.js';
 import { createUrlAccessTool } from '../url-access-tool.js';
-import { fetchApprovedUrl } from '../approved-url-fetch.js';
+import { fetchApprovedUrl, type ApprovedUrlTarget } from '../approved-url-fetch.js';
 import { captureNativeDevelopmentGrant } from '../native-development-grant.js';
 import { NativeApprovalRequestSchema } from '../codex-native-permission-protocol.js';
 vi.mock('../public-web-fetch.js', () => ({ fetchPublicPage: vi.fn().mockResolvedValue('page') }));
+const publicTarget = (): ApprovedUrlTarget => ({
+  url: 'https://example.com/',
+  origin: 'https://example.com',
+  addresses: [{ address: '93.184.216.34', family: 4 }],
+});
 
 afterEach(() => {
   vi.useRealTimers();
@@ -174,10 +179,7 @@ it('retained URL reads recheck preset revocation before both fetch and delivery'
   });
   const tool = createUrlAccessTool('one', f.registry, {
     now: Date.now,
-    resolve: async () => ({
-      origin: 'https://example.com',
-      addresses: [{ address: '93.184.216.34', family: 4 }],
-    }),
+    resolve: async () => publicTarget(),
     fetch,
   });
   const signal = new AbortController().signal;
@@ -243,10 +245,7 @@ it('checks retained URL consent after DNS and immediately before the socket read
     capability: { kind: 'public-web' },
     durationMinutes: 60,
   });
-  const target = {
-    origin: 'https://example.com',
-    addresses: [{ address: '93.184.216.34', family: 4 }],
-  };
+  const target = publicTarget();
   const read = vi.fn(async () => ({
     status: 200,
     type: 'text/plain',
@@ -298,10 +297,7 @@ it('keeps public-web consent fenced until native RPC delivery, including retaine
         f.registry,
         {
           now: Date.now,
-          resolve: async () => ({
-            origin: 'https://example.com',
-            addresses: [{ address: '93.184.216.34', family: 4 }],
-          }),
+          resolve: async () => publicTarget(),
           fetch: async () => 'page',
         },
         undefined,

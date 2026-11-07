@@ -25,6 +25,7 @@ export function capabilityFixture() {
       ownedLocalAuthSessionId: id === 'foreign' ? 'other' : 'operator',
       accountBinding: {
         accountId: 'a',
+        accountLabel: 'Offline account',
         provider: 'openai-codex',
         profileRevision: 'v1',
         model: 'm',

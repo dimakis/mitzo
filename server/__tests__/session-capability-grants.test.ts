@@ -1,44 +1,16 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { SessionRegistry } from '@mitzo/harness';
-import { SessionCapabilityGrants } from '../session-capability-grants.js';
-import { mkdtempSync, mkdirSync, realpathSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { capabilityFixture } from './fixtures/session-capabilities.js';
+import { mkdirSync, rmSync } from 'node:fs';
 
-const registries: SessionRegistry[] = [];
-const directories: string[] = [];
 afterEach(() => {
-  registries.splice(0).forEach((r) => r.dispose());
-  directories.splice(0).forEach((p) => rmSync(p, { recursive: true, force: true }));
   vi.useRealTimers();
 });
 function fixture() {
-  const root = realpathSync(mkdtempSync(join(tmpdir(), 'mitzo-capability-')));
-  directories.push(root);
-  const registry = new SessionRegistry();
-  registries.push(registry);
-  for (const id of ['one', 'two', 'foreign']) {
-    mkdirSync(join(root, id));
-    registry.register(id, {
-      sessionId: id,
-      mode: 'agent',
-      cwd: join(root, id),
-      ownedLocalAuthSessionId: id === 'foreign' ? 'other' : 'operator',
-      accountBinding: {
-        accountId: 'account',
-        provider: 'openai-codex',
-        profileRevision: 'v1',
-        model: 'model',
-      },
-      abortController: new AbortController(),
-      sessionAllowList: new Set(),
-      transport: { send() {}, isOpen: () => true },
-    });
-  }
+  const { registry, grants, session } = capabilityFixture();
   return {
     registry,
-    grants: new SessionCapabilityGrants(registry),
-    one: registry.get('one')!,
+    grants,
+    one: session,
     two: registry.get('two')!,
   };
 }
@@ -50,7 +22,15 @@ describe('operator-selected capability grants', () => {
       location: 'openshell',
       authSessionId: 'operator',
       identity: {},
-    } as never;
+      initialCommandId: 'initial',
+      async admit() {
+        return { dispatched: true };
+      },
+      async retryInitial() {
+        return { dispatched: true };
+      },
+      close() {},
+    };
     grants.create('operator', {
       sessionIds: ['one'],
       capability: { kind: 'public-web' },

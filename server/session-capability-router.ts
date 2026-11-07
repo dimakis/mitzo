@@ -33,7 +33,7 @@ export function createSessionCapabilityRouter(options: {
     }
     next();
   });
-  router.get('/', (req, res) => {
+  router.get<{ id: string }>('/', (req, res) => {
     const id = req.params.id as string;
     const auth = recentAuthorizationSession(res);
     if (!auth) return;
@@ -52,7 +52,7 @@ export function createSessionCapabilityRouter(options: {
       },
     } satisfies SessionCapabilityInventory);
   });
-  router.post('/', (req, res) => {
+  router.post<{ id: string }>('/', (req, res) => {
     const auth = recentAuthorizationSession(res);
     if (!auth) return;
     const parsed = CreateSessionCapabilityGrant.safeParse(req.body);
@@ -75,7 +75,7 @@ export function createSessionCapabilityRouter(options: {
       });
     }
   });
-  router.delete('/:grantId', async (req, res) => {
+  router.delete<{ id: string; grantId: string }>('/:grantId', async (req, res) => {
     const auth = recentAuthorizationSession(res);
     if (!auth) return;
     try {
