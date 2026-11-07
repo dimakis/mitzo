@@ -184,6 +184,7 @@ function AccessContent({ sessionId, selection, connected = true, onShowApproval 
           </button>
         )}
       </section>
+      {sessionId && <ReusableAccessGrants sessionId={sessionId} connected={connected} />}
       <section className="access-detail-card">
         <h3>{sessionId ? 'Session access' : 'Selected route'}</h3>
         <dl className="access-resource-facts">
@@ -231,7 +232,6 @@ function AccessContent({ sessionId, selection, connected = true, onShowApproval 
           </div>
         </dl>
       </section>
-      {sessionId && <ReusableAccessGrants sessionId={sessionId} connected={connected} />}
       <details className="session-access-diagnostics">
         <summary>
           <span>Runtime details</span>
