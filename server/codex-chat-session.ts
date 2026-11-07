@@ -41,11 +41,12 @@ import {
 } from './codex-admission-preparation.js';
 import { executeNativeTelosArtifactOperation } from './native-telos-artifact-operations.js';
 import { executeNativeTelosItemOperation } from './native-telos-item-operations.js';
+import { TELOS_WORKFLOW_INSTRUCTIONS } from './telos-workflow-instructions.js';
 import {
   telosBacklogDefinitions,
   isTelosBacklogTool,
   executeTelosBacklogOperation,
-  TELOS_BACKLOG_INSTRUCTIONS,
+  telosBacklogInstructions,
   type TelosBacklogContext,
 } from './telos-backlog-tools.js';
 import {
@@ -2338,8 +2339,12 @@ async function openCodexChatBound(
         (nativeBacklogTools.length ||
           (connectedOpenShell &&
             mainPublicationRuntime?.supportsHost(options.registry, options.eventStore)))
-          ? TELOS_BACKLOG_INSTRUCTIONS
-          : '',
+          ? telosBacklogInstructions(baseSystemPrompt)
+          : !options.adviserScope &&
+              selectedTelosRole &&
+              !baseSystemPrompt.includes(TELOS_WORKFLOW_INSTRUCTIONS)
+            ? TELOS_WORKFLOW_INSTRUCTIONS
+            : '',
     },
     {
       source: 'runtime-efficiency',
