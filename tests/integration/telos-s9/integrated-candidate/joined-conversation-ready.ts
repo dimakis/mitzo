@@ -13,7 +13,7 @@ export async function waitForPreparedConversation(
 ) {
   const read = (suffix: string) =>
     capturedReads.flatMap((value) => {
-      const response = value as { path?: string; status?: number; body?: string };
+      const response = value as { path?: string; status?: number; body?: string | null };
       if (
         response.path !== `/api/sessions/${sessionId}/${suffix}` ||
         response.status !== 200 ||
@@ -49,7 +49,10 @@ export function observePreparedConversations(page: Page) {
     capturedReads.push({
       path,
       status: response.status(),
-      body: await response.text().catch(() => '<unavailable>'),
+      // Navigation may cancel reading a response whose headers already arrived.
+      // Retain that observation without treating a diagnostic marker as JSON;
+      // only a later complete response can satisfy the unchanged readiness check.
+      body: await response.text().catch(() => null),
     });
   });
   return (sessionId: string) => waitForPreparedConversation(page, capturedReads, sessionId);

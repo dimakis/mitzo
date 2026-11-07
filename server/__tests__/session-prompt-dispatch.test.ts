@@ -185,6 +185,9 @@ it.each([
       }),
     );
     expect(f.current).toHaveBeenCalled();
+    expect(f.dispatch).not.toHaveBeenCalledWith(
+      expect.objectContaining({ ordinaryTurnLifecycle: expect.anything() }),
+    );
     fxt.port.close();
     expect(f.release).toHaveBeenCalled();
   },
@@ -203,6 +206,80 @@ it('fences cancellation and logout after asynchronous preparation', async () => 
   await expect(
     fxt.port.deliver(fxt.delivery, new AbortController().signal, f.current),
   ).rejects.toThrow(/authorization/i);
+});
+
+it('dispatches an explicitly requested first turn into the original silently prepared session', async () => {
+  const fxt = fixture();
+  const settings = {
+    binding: f.binding,
+    selection: f.selection,
+    repositoryWorkspaceId: 'workspace',
+  };
+  fxt.events.getLatestOrdinaryCommandAdmission = () => undefined;
+  fxt.events.getOrdinarySessionPreparationForConversation = () =>
+    ({ allocationOperationId: 'original-allocation', firstCommandId: null }) as never;
+  fxt.events.getOrdinaryConversationSettings = () => settings as never;
+  const prompt = {
+    sessionId: 'worker',
+    commandId: 'explicit-group-command',
+    auth: fxt.delivery.auth,
+    text: 'Exact reviewed shared context\n\nExplicit question',
+    settings,
+    preparationOperationId: 'original-allocation',
+    onQueryEvent: vi.fn(),
+    turnLifecycle: { beforeDispatch: vi.fn(), accepted: vi.fn(), terminal: vi.fn() },
+  };
+  try {
+    await fxt.port.deliverOrdinary(prompt as never, new AbortController().signal, f.current);
+    expect(f.dispatch).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({
+        sessionId: 'worker',
+        commandId: prompt.commandId,
+        continuation: false,
+        preparationOperationId: 'original-allocation',
+        onQueryEvent: prompt.onQueryEvent,
+        ordinaryTurnLifecycle: expect.any(Object),
+        command: expect.objectContaining({
+          selection: f.selection,
+          payload: { text: prompt.text },
+        }),
+      }),
+    );
+  } finally {
+    fxt.port.close();
+  }
+});
+
+it('keeps timers unable to start unused sessions and rejects changed prepared settings before dispatch', async () => {
+  const fxt = fixture();
+  fxt.events.getLatestOrdinaryCommandAdmission = () => undefined;
+  fxt.events.getOrdinarySessionPreparationForConversation = () =>
+    ({ allocationOperationId: 'original-allocation', firstCommandId: null }) as never;
+  fxt.events.getOrdinaryConversationSettings = () =>
+    ({ binding: f.binding, selection: f.selection, repositoryWorkspaceId: 'workspace' }) as never;
+  await expect(
+    fxt.port.deliver(fxt.delivery, new AbortController().signal, f.current),
+  ).rejects.toThrow(/send a message/);
+  await expect(
+    fxt.port.deliverOrdinary(
+      {
+        sessionId: 'worker',
+        commandId: 'explicit',
+        auth: fxt.delivery.auth,
+        text: 'Question',
+        preparationOperationId: 'original-allocation',
+        settings: {
+          binding: f.binding,
+          selection: { ...f.selection, model: 'changed' },
+          repositoryWorkspaceId: 'workspace',
+        },
+      } as never,
+      new AbortController().signal,
+      f.current,
+    ),
+  ).rejects.toThrow();
+  expect(f.dispatch).not.toHaveBeenCalled();
+  fxt.port.close();
 });
 it('labels callbacks with source and work reference without making peer text human authority', () => {
   const fxt = fixture();
