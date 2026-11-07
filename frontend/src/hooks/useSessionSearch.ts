@@ -16,10 +16,11 @@ export interface UseSessionSearchReturn {
 
 const DEBOUNCE_MS = 300;
 
-export function useSessionSearch(): UseSessionSearchReturn {
-  const [query, setQueryState] = useState('');
+export function useSessionSearch(initialQuery = ''): UseSessionSearchReturn {
+  const initial = useRef(initialQuery);
+  const [query, setQueryState] = useState(initialQuery);
   const [results, setResults] = useState<SessionSearchResult[]>([]);
-  const [searching, setSearching] = useState(false);
+  const [searching, setSearching] = useState(Boolean(initialQuery.trim()));
   const [error, setError] = useState<string | null>(null);
   const timerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
   const abortRef = useRef<AbortController>(undefined);
@@ -70,6 +71,10 @@ export function useSessionSearch(): UseSessionSearchReturn {
     },
     [doSearch],
   );
+
+  useEffect(() => {
+    if (initial.current.trim()) doSearch(initial.current);
+  }, [doSearch]);
 
   useEffect(() => {
     return () => {

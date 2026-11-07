@@ -39,6 +39,15 @@ afterEach(() => {
 });
 
 describe('useSessionSearch', () => {
+  it('restores a query supplied by the conversation library URL', async () => {
+    const { result } = renderHook(() => useSessionSearch('Claude personal'));
+    expect(result.current.query).toBe('Claude personal');
+    await act(async () => {});
+    expect(apiFetch).toHaveBeenCalledWith(
+      '/api/sessions/search?q=Claude%20personal',
+      expect.any(Object),
+    );
+  });
   it('surfaces HTTP failures and retries the same query without claiming an empty result', async () => {
     vi.mocked(apiFetch).mockResolvedValue({
       ok: false,

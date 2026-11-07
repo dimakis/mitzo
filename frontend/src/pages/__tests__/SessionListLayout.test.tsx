@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, expect, it, vi } from 'vitest';
 import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react';
-import { MemoryRouter, Route, Routes } from 'react-router-dom';
+import { MemoryRouter, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
 import { SessionList } from '../SessionList';
 import type { SessionActivity, SessionSearchResult } from '@mitzo/protocol';
 
@@ -68,6 +68,7 @@ const mocks = vi.hoisted(() => ({
 vi.mock('../../hooks/useSessionList', () => ({ useSessionList: () => mocks.list }));
 vi.mock('../../hooks/useSessionOverview', () => ({ useSessionOverview: () => mocks.overview }));
 vi.mock('../../hooks/useSessionSearch', () => ({ useSessionSearch: () => mocks.search }));
+vi.mock('../../hooks/useSavedChatDrafts', () => ({ useSavedChatDrafts: () => [{ id: 'unsent' }] }));
 vi.mock('../../components/SessionInspector', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../components/SessionInspector')>();
   return {
@@ -78,6 +79,95 @@ vi.mock('../../components/SessionInspector', async (importOriginal) => {
   };
 });
 afterEach(cleanup);
+function BackToSearch() {
+  const navigate = useNavigate();
+  return <button onClick={() => navigate(-1)}>Back to search</button>;
+}
+function QueryWitness() {
+  const location = useLocation();
+  return <output data-testid="query-witness">{location.search}</output>;
+}
+it('returns to the same search query and scroll position after opening a result', () => {
+  const previous = { ...mocks.search };
+  Object.assign(mocks.search, {
+    active: true,
+    query: 'Claude personal',
+    results: [
+      {
+        sessionId: 'one',
+        summary: 'Billing',
+        snippet: 'Personal account',
+        matchedAt: 1,
+        updatedAt: 2,
+      },
+    ],
+  });
+  try {
+    render(
+      <MemoryRouter initialEntries={['/sessions?q=Claude+personal']}>
+        <QueryWitness />
+        <Routes>
+          <Route path="/sessions" element={<SessionList />} />
+          <Route path="/chat/:id" element={<BackToSearch />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+    const row = screen.getByRole('link', { name: 'Open Billing' });
+    row.closest('.session-list-scroll')!.scrollTop = 177;
+    fireEvent.click(row);
+    fireEvent.click(screen.getByRole('button', { name: 'Back to search' }));
+    expect(screen.getByTestId('query-witness').textContent).toBe('?q=Claude+personal');
+    expect(screen.getByRole('searchbox').getAttribute('value')).toBe('Claude personal');
+    expect(
+      screen.getByRole('link', { name: 'Open Billing' }).closest('.session-list-scroll')?.scrollTop,
+    ).toBe(177);
+  } finally {
+    Object.assign(mocks.search, previous);
+  }
+});
+it('puts search results ahead of pins and drafts and shows highlighted matching evidence', () => {
+  const previous = { ...mocks.search };
+  Object.assign(mocks.search, {
+    active: true,
+    query: 'Claude personal',
+    results: [
+      {
+        sessionId: 'matched',
+        summary: 'Personal billing for Claude',
+        snippet: 'Compare personal subscriptions',
+        matchedAt: 1,
+        updatedAt: 2,
+        matchedFields: ['model', 'account'],
+        model: 'claude-opus-4-8',
+        accountLabel: 'Personal',
+      },
+    ],
+  });
+  try {
+    mount();
+    expect(screen.queryByText('Pinned')).toBeNull();
+    expect(screen.queryByRole('link', { name: /Drafts/ })).toBeNull();
+    const row = screen.getByRole('link', { name: 'Open Personal billing for Claude' });
+    expect(row.querySelectorAll('mark').length).toBeGreaterThan(1);
+    expect(within(row).getByText('Matches model · account')).toBeTruthy();
+    expect(screen.getByText(/Use quotes for an exact phrase/)).toBeTruthy();
+  } finally {
+    Object.assign(mocks.search, previous);
+  }
+});
+
+it('offers an explicit broader query when there are no matches', () => {
+  const previous = { ...mocks.search };
+  Object.assign(mocks.search, { active: true, query: 'Claude personal', results: [] });
+  mocks.search.setQuery.mockClear();
+  try {
+    mount();
+    fireEvent.click(screen.getByRole('button', { name: 'Search for “claude”' }));
+    expect(mocks.search.setQuery).toHaveBeenCalledWith('claude');
+  } finally {
+    Object.assign(mocks.search, previous);
+  }
+});
 it('scrolls search and filters with the conversation rows', () => {
   mount();
   const scroller = screen.getByText('Older chat').closest('.session-list-scroll');
