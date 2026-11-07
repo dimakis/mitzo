@@ -71,6 +71,7 @@ import { sessionPromptTools } from './session-prompt-tools.js';
 import { watchAgentMessageTranscript } from './agent-message-transcript.js';
 import { createAgentMessageApprover } from './agent-communication-permission.js';
 import { sessionPromptDefinitions } from './session-prompt-definitions.js';
+import { sessionLaunchDefinitions, sessionLaunchTools } from './session-launch-tools.js';
 import {
   AGENT_COMMUNICATION_TOOL,
   agentCommunicationDefinitions,
@@ -1913,6 +1914,15 @@ async function openCodexChatBound(
         },
       })
     : undefined;
+  const launchTools = options.ownedLocal
+    ? sessionLaunchTools({
+        sessionId: options.conversationId,
+        session: options.session,
+        registry: options.registry,
+        assertCurrent: assertHostCurrent,
+        assertCurrentSync: assertHostCurrentSync,
+      })
+    : undefined;
   const localProfileTools = options.ownedLocal
     ? sessionProfileTools(
         options.conversationId,
@@ -1967,6 +1977,7 @@ async function openCodexChatBound(
           ...agentTaskToolDefinitions,
           ...sessionPromptDefinitions,
           ...agentCommunicationDefinitions,
+          ...sessionLaunchDefinitions,
           ...localHistoryDefinitions,
           ...localRepositoryReadDefinitions,
           ...localRepositoryPreparationDefinitions,
@@ -2129,6 +2140,7 @@ async function openCodexChatBound(
               ...agentTaskToolDefinitions,
               ...sessionPromptDefinitions,
               ...agentCommunicationDefinitions,
+              ...sessionLaunchDefinitions,
               ...localHistoryDefinitions,
               ...nativeTelosTools,
               ...nativeBacklogTools,
@@ -2423,6 +2435,7 @@ async function openCodexChatBound(
           ...agentTaskToolDefinitions,
           ...sessionPromptDefinitions,
           ...agentCommunicationDefinitions,
+          ...sessionLaunchDefinitions,
           ...localHistoryDefinitions,
           ...localRepositoryReadDefinitions,
           ...localRepositoryPreparationDefinitions,
@@ -3801,6 +3814,25 @@ async function openCodexChatBound(
           return {
             content:
               'Agent communication is unavailable under the current sender, recipient or exact-message approval. If delivery was uncertain, read the original message/request receipt before sending again.',
+            isError: true,
+          };
+        }
+      }
+      if (name === 'StartSession') {
+        if (!launchTools)
+          return {
+            content: 'Session creation requires an ordinary Local Mac Codex session.',
+            isError: true,
+          };
+        try {
+          return {
+            content: JSON.stringify(await launchTools.execute(input, signal, callContext)),
+            isError: false,
+          };
+        } catch {
+          return {
+            content:
+              'The session proposal could not be saved under the current session authority. Reuse the same request ID and arguments after checking the original request. No new session is confirmed.',
             isError: true,
           };
         }

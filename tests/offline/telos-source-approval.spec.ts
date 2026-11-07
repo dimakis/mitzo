@@ -275,6 +275,8 @@ for (const theme of ['dark', 'light'] as const)
               json: { messages: host.messages, current: null, currents: [], cursor: 3 },
             });
           if (path === '/api/sessions/planning/meta') return route.fulfill({ json: metadata });
+          if (path === '/api/session-launch/requests' && route.request().method() === 'GET')
+            return route.fulfill({ json: { requests: [] } });
           if (path === '/api/sessions/planning/symposium/status')
             return route.fulfill({
               json: { sessionId: 'planning', config: null, seats: [], deliveries: [] },

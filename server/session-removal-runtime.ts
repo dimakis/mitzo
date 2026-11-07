@@ -53,6 +53,50 @@ export function createSessionRemovalRuntime(deps: {
     if (check(deps.tasks.getTree()))
       throw Error('Task Board work still owns this chat. Settle it before removal.');
   };
+  /** The ordinary owner journals admission before bootstrap/provider effects.
+   * An exact silent preparation can therefore be removed without inventing a
+   * native conversation, while the durable removal fence prevents admission. */
+  const assertNeverStartedPreparation = (id: string) => {
+    const value = meta(id);
+    const binding = deps.events.getSessionRuntimeBinding(id)!;
+    const preparation = deps.events.getOrdinaryWorkspaceSessionPreparationForConversation(id);
+    if (
+      binding.harness.implementation !== 'codex' ||
+      binding.execution.location !== 'local' ||
+      !value.ordinaryWorkspaceId ||
+      value.repositoryWorkspaceId != null ||
+      !preparation ||
+      preparation.sessionId !== id ||
+      preparation.workspaceId !== value.ordinaryWorkspaceId ||
+      preparation.firstCommandId !== null ||
+      value.executionPhase != null ||
+      deps.events.getOrdinaryInitialCommandId(id) ||
+      deps.events.getLatestOrdinaryCommandAdmission(id) ||
+      deps.events.hasUncertainOrdinaryCommand(id) ||
+      deps.events.hasRecentSendCommandForSession(id, 0) ||
+      deps.registry.findBySessionId(id) ||
+      !deps.events.removals.read(id)
+    )
+      throw Error(
+        'Native runtime absence is not proof of an unused ordinary preparation. Preserve this chat and review its original startup.',
+      );
+    deps.events.assertPreparedOrdinaryWorkspaceSession(
+      preparation.allocationOperationId,
+      {
+        sessionId: id,
+        ordinaryWorkspaceId: value.ordinaryWorkspaceId,
+        cwd: value.cwd!,
+        accountBinding: value.accountBinding!,
+        agentProfile: value.agentProfile ?? undefined,
+        agentContext: value.agentContext ?? undefined,
+        selectedModel: value.selectedModel ?? undefined,
+        reasoningEffort: value.reasoningEffort ?? undefined,
+        mode: value.mode ?? undefined,
+      },
+      binding,
+      preparation.settings.selection,
+    );
+  };
   const assertSettled = (id: string) => {
     assertProtected(id);
     const value = meta(id),
@@ -65,13 +109,16 @@ export function createSessionRemovalRuntime(deps: {
       throw Error(
         'Runtime shutdown is unverified. Keep the chat and reconcile its unfinished work.',
       );
-    if (binding.harness.implementation === 'codex')
-      deps.native().assertRepositoryTaskStopped({
-        conversationId: id,
-        directory: value.cwd!,
-        binding: value.accountBinding!,
-      } as Parameters<CodexConversationStore['assertRepositoryTaskStopped']>[0]);
-    else if (
+    if (binding.harness.implementation === 'codex') {
+      const native = deps.native();
+      if (!native.hasConversation(id)) assertNeverStartedPreparation(id);
+      else
+        native.assertRepositoryTaskStopped({
+          conversationId: id,
+          directory: value.cwd!,
+          binding: value.accountBinding!,
+        } as Parameters<CodexConversationStore['assertRepositoryTaskStopped']>[0]);
+    } else if (
       binding.harness.implementation !== 'claude-sdk' ||
       deps.events.getPendingOrdinaryLocalVertexCommandIds(id).length
     )
@@ -99,17 +146,20 @@ export function createSessionRemovalRuntime(deps: {
       assertProtected(id);
       const value = meta(id),
         binding = deps.events.getSessionRuntimeBinding(id)!;
+      const startup = deps.registry.abortStartup(id);
       // Cancellation and all dispatch checks share the existing durable owners.
       if (binding.harness.implementation === 'codex') {
         const native = deps.native();
-        for (const command of native.commands(id, value.accountBinding!))
-          if (command.status === 'queued')
-            native.cancelQueued(id, value.accountBinding!, command.id);
+        if (!native.hasConversation(id)) {
+          if (!startup) assertNeverStartedPreparation(id);
+        } else
+          for (const command of native.commands(id, value.accountBinding!))
+            if (command.status === 'queued')
+              native.cancelQueued(id, value.accountBinding!, command.id);
       } else if (binding.harness.implementation === 'claude-sdk')
         for (const commandId of deps.events.getPendingOrdinaryLocalVertexCommandIds(id))
           deps.events.cancelOrdinaryLocalVertexQueuedCommand(id, commandId);
       else throw Error('This runtime requires its original shutdown owner.');
-      const startup = deps.registry.abortStartup(id);
       const live = deps.registry.findBySessionId(id);
       if (live) {
         deps.registry.markUserClose(live.clientId);

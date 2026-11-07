@@ -8,6 +8,7 @@ vi.mock('@mitzo/harness', async (original) => ({
 import { WebAccessError } from '../request-web-access.js';
 import { ApprovedUrlRedirect } from '../approved-url-fetch.js';
 import { createUrlAccessTool, clearUrlAccessGrants } from '../url-access-tool.js';
+import { capabilityFixture } from './fixtures/session-capabilities.js';
 beforeEach(() => {
   approve.mockReset();
 });
@@ -296,6 +297,93 @@ it('continues an A to B to A redirect after explicit reapproval of A', async () 
   expect(approve).toHaveBeenCalledTimes(3);
   expect(f.fetch).toHaveBeenCalledTimes(3);
 });
+
+it.each(['resolution', 'delivery'] as const)(
+  'retains original reusable consent across an A to B to A redirect through %s',
+  async (phase) => {
+    const f = capabilityFixture();
+    const consent = {
+      sessionIds: ['one'],
+      capability: { kind: 'public-web' as const },
+      durationMinutes: 60,
+    };
+    let replaceDuringDns = true;
+    approve.mockImplementation(async (_name, input) => ({
+      behavior: 'allow',
+      updatedInput: input,
+      decisionClassification: 'user_permanent',
+    }));
+    const fetch = vi
+      .fn()
+      .mockRejectedValueOnce(new ApprovedUrlRedirect('http://localhost:8123/'))
+      .mockRejectedValueOnce(new ApprovedUrlRedirect('https://example.com/final'))
+      .mockResolvedValue('final page');
+    const fences: Array<() => void> = [];
+    const tool = createUrlAccessTool(
+      'one',
+      f.registry,
+      {
+        now: Date.now,
+        resolve: async (value) => {
+          const url = new URL(value);
+          if (url.pathname === '/final' && replaceDuringDns && phase === 'resolution') {
+            replaceDuringDns = false;
+            f.grants.revoke('operator', 'one', originalGrant);
+            f.grants.create('operator', consent);
+          }
+          return {
+            url: url.href,
+            origin: url.origin,
+            addresses: [
+              {
+                address:
+                  url.hostname === 'localhost' ||
+                  (url.pathname === '/final' && phase === 'delivery')
+                    ? '127.0.0.1'
+                    : '93.184.216.34',
+                family: 4,
+              },
+            ],
+          };
+        },
+        fetch,
+      },
+      undefined,
+      (fence) => fences.push(fence),
+    );
+    const signal = new AbortController().signal;
+    await tool.request(
+      { operation: 'request_access', url: 'http://localhost:8123/', reason: 'Read B' },
+      signal,
+    );
+    const originalGrant = f.grants.create('operator', consent).id;
+    await tool.request(
+      { operation: 'request_access', url: 'https://example.com/start', reason: 'Read A' },
+      signal,
+    );
+    const result = await tool.fetch('https://example.com/start', signal);
+    if (phase === 'delivery') {
+      // Final A has explicit permanent consent for its newly private DNS target.
+      // Its replaced public-web receipt must still fence this particular read.
+      expect(result).toEqual({ isError: false, content: 'final page' });
+      expect(fetch).toHaveBeenCalledTimes(3);
+      expect(approve).toHaveBeenCalledTimes(2);
+      expect(fences).toHaveLength(1);
+      expect(fences[0]).not.toThrow();
+      f.grants.revoke('operator', 'one', originalGrant);
+      expect(fences[0]).toThrow();
+      return;
+    }
+    expect(result?.isError).toBe(true);
+    expect(result?.content).not.toContain('final page');
+    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(fences).toHaveLength(0);
+    expect(approve).toHaveBeenCalledOnce();
+    expect(await tool.fetch('https://example.com/final', signal)).toMatchObject({ isError: false });
+    expect(fetch).toHaveBeenCalledTimes(3);
+    expect(fences).toHaveLength(1);
+  },
+);
 
 it('returns only fixed granted read errors to the UI and agent', async () => {
   const f = fixture();

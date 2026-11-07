@@ -1,5 +1,5 @@
 import { ChatRuntimeDraftContext } from './chat-runtime-draft-context';
-import { useCallback, useMemo, useState, type ReactNode } from 'react';
+import { useCallback, useMemo, useRef, useState, type ReactNode } from 'react';
 import type { ChatRuntimeSelection } from '../lib/chat-runtime-selection';
 /** Compose intent follows the existing new-chat generation across responsive layouts. */
 export function ChatRuntimeDraftProvider({
@@ -12,9 +12,18 @@ export function ChatRuntimeDraftProvider({
   const [retained, setRetained] = useState<{
     owner: string;
     selection: ChatRuntimeSelection;
+    edited: boolean;
   } | null>(null);
+  const currentOwner = useRef(owner);
+  currentOwner.current = owner;
   const update = useCallback(
-    (selection: ChatRuntimeSelection) => setRetained({ owner, selection }),
+    (selection: ChatRuntimeSelection, origin?: 'hydrate') =>
+      setRetained((previous) => {
+        if (currentOwner.current !== owner) return previous;
+        const edited = previous?.owner === owner && previous.edited;
+        if (origin === 'hydrate' && edited) return previous;
+        return { owner, selection, edited: edited || origin !== 'hydrate' };
+      }),
     [owner],
   );
   const selection = retained?.owner === owner ? retained.selection : null;

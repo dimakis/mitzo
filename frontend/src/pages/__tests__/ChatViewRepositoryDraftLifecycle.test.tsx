@@ -55,6 +55,10 @@ vi.mock('../../hooks/useBriefingChat', () => ({ useBriefingChat: () => ({}) }));
 vi.mock('../../lib/keyboard', () => ({ onKeyboardToggle: () => () => {} }));
 vi.mock('../../lib/haptics', () => ({ impactMedium: vi.fn() }));
 import { apiFetch } from '../../lib/api-fetch';
+vi.mock('../../hooks/useSessionLaunchDefaults', async () => ({
+  useSessionLaunchDefaults: (await import('../../test-utils/no-session-launch-defaults'))
+    .noSessionLaunchDefaults,
+}));
 vi.mock('../../lib/api-fetch', () => ({
   apiFetch: vi.fn(),
   getApiBaseUrl: () => '',

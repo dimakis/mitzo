@@ -297,9 +297,13 @@ export function createUrlAccessTool(
       if (!allowed(current.clientId, current.session))
         return { content: 'Session permissions changed; URL reads are unavailable', isError: true };
       const chain = [{ origin: url.origin, grant }];
+      // Cached origin identities may change on explicit reapproval. Every
+      // capability receipt that admitted this read still fences its delivery.
+      const capabilityReceipts = new Set<() => void>();
+      if (grant.assertCapabilityCurrent) capabilityReceipts.add(grant.assertCapabilityCurrent);
       const chainCurrent = () => {
         try {
-          chain.forEach(({ grant }) => grant.assertCapabilityCurrent?.());
+          capabilityReceipts.forEach((assertCurrent) => assertCurrent());
         } catch {
           return false;
         }
@@ -371,12 +375,15 @@ export function createUrlAccessTool(
             const destinationGrant = grants.get(current.session)?.get(destination.origin);
             if (!decision.isError && destinationGrant) {
               // Explicit reapproval may replace a prior origin's grant. Keep
-              // its expiry fence and track the newly accepted grant identity.
+              // its original consent/expiry fences and the new cache identity.
               for (const entry of chain.filter(({ origin }) => origin === destination.origin)) {
+                entry.grant.assertCapabilityCurrent?.();
                 if (entry.grant.expires <= deps.now())
                   return { content: 'Session permissions changed during URL read', isError: true };
                 entry.grant = destinationGrant;
               }
+              if (destinationGrant.assertCapabilityCurrent)
+                capabilityReceipts.add(destinationGrant.assertCapabilityCurrent);
             }
             if (!chainCurrent())
               return { content: 'Session permissions changed during URL read', isError: true };
