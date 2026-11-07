@@ -26,12 +26,59 @@ at admission, I/O, tool and delivery boundaries.
   anchor. Explicitly review the current selected login before authorizing recovery.
 
 These reviewed diagnostics survive bootstrap, transport close and dispatch catches.
+The protocol owns their shared code allowlist and public messages. The client
+validates both retained-command and pre-admission failures, saves only the code
+and diagnostic ID with the original outbox intent, and restores the reason after
+reload. A failure changes a local optimistic Sending label to uncertain; it does
+not invent a delivery receipt or acknowledge the command. Successful exact receipt
+recovery clears the old diagnostic. Unknown codes and raw upstream text stay out
+of the UI. Browser storage keeps diagnostics in a separate bounded namespace so
+older tabs and a rolled-back client can still read the original command envelope.
+Preparation refusals are logged with the same safe diagnostic ID so
+the displayed error can be correlated without logging credentials.
 The `login_verification_keys` observation measures actual public fetches, including
 failures; cached checks do not create network observations. Deferred notifications
 are ordered and bounded, and rejected qualification promises are observed even
 when the lease closes or the notification queue overflows. Never log credentials.
 
 ## Existing histories: explicit offline reauthorization
+
+For a release containing chats created before refresh continuity, inventory the
+whole selected native ledger first. A code deployment alone does not migrate
+their saved login custody. This read-only operation records every eligible chat
+and reports blocked histories separately rather than aborting at the first one:
+
+```sh
+node --import tsx scripts/reauthorize-host-codex-login.ts \
+  --database /absolute/native/conversations.db \
+  --profiles /absolute/accounts.json --all-legacy \
+  --plan-file /absolute/reviewed-legacy-plan.json
+```
+
+Review the plan's account identities, operation IDs, eligible count and blocked
+list. API logins, already anchored logins and rows without host custody are not
+selected. A blocked history remains retained and needs investigation; an empty
+plan does not prove that blocked chats are usable. The report is owner-only and
+contains account display information, never credential bytes.
+
+After separately authorized production maintenance stops the selected runtime,
+apply that exact saved report without rediscovering chats:
+
+```sh
+node --import tsx scripts/reauthorize-host-codex-login.ts \
+  --database /absolute/native/conversations.db \
+  --profiles /absolute/accounts.json \
+  --apply-plan /absolute/reviewed-legacy-plan.json
+```
+
+Batch apply stops on the first refusal, returns completed receipts and the number
+remaining, and exits unsuccessfully for an incomplete batch. Rerun only the same
+reviewed report after reconciling its blocker; completed operations return their
+existing receipts. Newly created chats never enter that approved list. No stage
+of discovery or apply sends, retries or acknowledges a message. Finish by
+re-inventorying the ledger, reviewing remaining blockers, and testing an explicit
+continuation of an existing chat. Service activation and user acceptance remain
+separate evidence from applying a login anchor.
 
 Legacy custody cannot retrospectively prove the original signed session. The
 operator tool establishes a new, explicitly reviewed signed anchor for an exact
@@ -83,6 +130,26 @@ an explicit replacement-send decision. Never manufacture native history or repla
 it automatically.
 
 ## Validation and cost
+
+The follow-up recovery regressions use synthetic signed logins, fake native RPC,
+real local SQLite custody, the actual HTTP entry, outbox/store and browser storage
+adapter. They cover every reviewed server diagnostic, pre-admission failures,
+reload without replay, exact retry, the idle-chat spinner and preservation of an
+already running turn. A two-chat recovery batch reports a separate damaged chat,
+refuses an active database, retains interrupted/queued work and original threads,
+and preserves idempotent receipts. A migrated login accepts two subsequent signed
+refreshes and reopens cold without changing the saved work. Newly captured signed
+logins have their refresh anchor from creation.
+
+The offline composer fixture covers both themes on phone and desktop, showing the
+reauthorization reason and reference after reload, preserving the draft and
+dispatching the identical command only after explicit Retry. The matrix lists
+successfully; browser launch remains blocked by the host Seatbelt marker even
+after an escalation request. No browser screenshots or full-app acceptance are
+claimed locally. Workspace package compilation, focused storage-adapter type
+checking and design checks pass. Full server type checking reaches the required
+1 GiB heap limit and remains a CI gate. No production data, credentials, service
+restart, recovery application or real model call is part of these tests.
 
 The regression coverage extends existing login, bootstrap, admission, lifecycle and
 native custody fixtures. Synthetic RSA signatures, fake native RPC and local SQLite

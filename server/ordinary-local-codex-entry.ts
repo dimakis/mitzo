@@ -1,4 +1,4 @@
-import { findSessionRuntimeError } from './session-runtime-error.js';
+import { findSessionRuntimeError, SessionRuntimeError } from './session-runtime-error.js';
 import {
   capturePostAdoptionWire,
   observePostAdoptionWire,
@@ -1247,7 +1247,9 @@ function createOwnedCodexEntryRouter(
           state: receipt.state,
         });
       } catch (error) {
-        const retainedFailure = findSessionRuntimeError(error);
+        const retainedFailure =
+          findSessionRuntimeError(error) ??
+          new SessionRuntimeError('runtime_unavailable', { cause: error });
         let state: string | undefined;
         try {
           if (ctx.eventStore.getSendCommand(input.clientMsgId)?.sessionId === sessionId)
@@ -1259,11 +1261,17 @@ function createOwnedCodexEntryRouter(
         } catch {
           /* Retain original evidence. */
         }
+        log.warn('Ordinary command preparation failed', {
+          sessionId,
+          clientMsgId: input.clientMsgId,
+          ...retainedFailure.telemetry(),
+          state: state ?? 'not_admitted',
+        });
         return res.status(409).json({
           ok: false,
           code: state ? 'retained_command' : 'entry_unavailable',
-          error: retainedFailure?.publicMessage() ?? unavailable,
-          ...(retainedFailure ? { runtimeFailure: retainedFailure.telemetry() } : {}),
+          error: retainedFailure.publicMessage(),
+          runtimeFailure: retainedFailure.telemetry(),
           clientMsgId: input.clientMsgId,
           sessionId,
           ...(state ? { state } : {}),
