@@ -10,8 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.940-tool-guard-session-integration';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.941-task-operator-continuity';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -185,7 +184,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../task-execution-runtime.ts':
     '3d8027c88f7348490683c3fc500625cbe53c9d1e470e40a074f6d90df431351c',
   '../task-execution-store.ts': 'a30a5c6f7df4defafc05adf677ac40436bb0b5086def83b5e29e4e4c0e04cd8a',
-  '../task-execution-tools.ts': 'fb2669f9a94345ee737055ac48d4e2c5ff89a0d4c5dc12c4c34e316292046684',
+  '../task-execution-tools.ts': '3c9bbaa9deb8ab8c5db3d15fb275b70c93581ef7b62caa48dab1d9008900534d',
   '../permission-audit.ts': '5ed5c6acb8b8f9c75ced2a0ded57c9945ec91d935c540b4b0c020ade94266835',
   '../../packages/harness/src/permission-audit.ts':
     '6bcfffbd3bfa1711315b5ca641b144113b65ab073717ce861f4ebf175cc5387f',
@@ -194,13 +193,13 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/permission-audit.test.ts':
     '1717ab55ad63b836167cd9b60d4a0f07adafc537cb96c7923edb0a6588cd949e',
   '../__tests__/task-execution-tools.test.ts':
-    'af8c11af326cd86f008efb6d5abe4bcee5be0139d784422b0ea54d6119673273',
+    '73604c475a12fae86c0684440f44f90a1653dba2eff7a6971c2e992532ba211e',
   '../__tests__/task-execution-store.test.ts':
     '75fc7c8bdf2179d11ee3f9e22391ec20c1a4d7fe5ff372407ac447103bc8cd74',
   '../__tests__/codex-native-approval-scope.test.ts':
     '18298f5e3d246995959ef2dc1368738403d9f0efb47710f98829e7686a0e792b',
   '../../docs/features/task-execution-authorization.md':
-    '4ed90f5b0b6cde91a88cb80ba6a6d61e432b2417a735ad40a6894024e7f35ecf',
+    '7a0556e78a83a9b823aab2ad9bb9d9131e2be2e520a09864b320547242fc9d5e',
 
   '../__tests__/collaboration-application-joining-openshell.test.ts':
     '83aa34da6b23d66158ac6735b4a7da8a9a1b35e0cb650713abc3af947bd43aec',
