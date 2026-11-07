@@ -10,6 +10,7 @@ import { bindAgentLibraryTransport } from '../agent-library-transport.js';
 import { bindAgentToolSelection } from '../agent-tool-selection.js';
 import { sessionCredentialTools } from '../session-credential-tools.js';
 import { installKnowledgeDraftRuntime } from '../session-knowledge-tools.js';
+import { retainNativeHostToolOperator } from '../native-host-tool-operator.js';
 import {
   reviewedHandlerSourceArtifacts,
   reviewedHandlerSourceFingerprint,
@@ -93,6 +94,27 @@ afterEach(() => {
   registry.dispose();
   store.close();
   rmSync(root, { recursive: true, force: true });
+});
+
+it('reads Knowledge after the admitted viewer disconnects and rejects released authority', async () => {
+  const session = registry.get('client')!;
+  session.ownedLocalAuthSessionId = 'login';
+  const releaseOperator = retainNativeHostToolOperator(session, 'operator');
+  try {
+    unbind();
+    session.ownerConnectionId = 'disconnected-viewer';
+    expect(
+      (await tools().execute('ReadKnowledge', { action: 'list' }, new AbortController().signal))
+        ?.isError,
+    ).toBe(false);
+    releaseOperator();
+    expect(
+      (await tools().execute('ReadKnowledge', { action: 'list' }, new AbortController().signal))
+        ?.isError,
+    ).toBe(true);
+  } finally {
+    releaseOperator();
+  }
 });
 
 it('reads the enrolled accepted document, independently of the writable task copy', async () => {

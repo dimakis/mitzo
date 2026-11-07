@@ -4001,7 +4001,7 @@ export async function prepareOwnedCodexChat(
       ownedLocalAuthSessionId: options.ownerAuthSessionId,
     });
     session = registry.get(clientId)!;
-    if (localAdmission && options.operatorConnectionId)
+    if (options.operatorConnectionId)
       releaseNativeHostOperator = retainNativeHostToolOperator(
         session,
         options.operatorConnectionId,
@@ -6132,6 +6132,7 @@ export async function startOwnedLocalResponsesCommand(
         ownedLocalAuthSessionId: owner.authSessionId,
       });
       session = registry.get(clientId)!;
+      retainNativeHostToolOperator(session, options.operatorConnectionId);
       session.worktreePaths.set('primary', {
         path: selected.expected.workspace.cwd,
         wtId: selected.workspace.id,

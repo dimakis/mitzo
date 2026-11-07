@@ -11,6 +11,7 @@ import {
 import { TaskExecutionStore } from '../task-execution-store.js';
 import { sessionTaskExecutionTools } from '../task-execution-tools.js';
 import { revokeAuthSession } from '../auth.js';
+import { retainNativeHostToolOperator } from '../native-host-tool-operator.js';
 
 const execution = vi.hoisted(() => ({
   waitForAbort: false,
@@ -99,6 +100,29 @@ function fixture(auth = { id: 'operator', expiresAt: Date.now() + 600_000 }) {
   }
   return { root, store, registry, sent, tools, call, signal, request, authorize, auth };
 }
+it('authorizes detached retained workers and executes their grant after viewer replacement', async () => {
+  const f = fixture({ id: randomUUID(), expiresAt: Date.now() + 600000 });
+  for (const id of ['parent', 'worker']) {
+    const session = f.registry.findBySessionId(id)!.session;
+    cleanup.push(retainNativeHostToolOperator(session, id));
+    session.ownerConnectionId = 'disconnected-' + id;
+  }
+  const grant = await f.authorize();
+  const result = await f.tools('worker').execute(
+    {
+      operation: 'run',
+      grantId: grant.id,
+      requestId: randomUUID(),
+      command: 'npm test',
+    },
+    f.signal,
+    f.call,
+  );
+  expect(result.isError, result.content).toBe(false);
+  expect(execution.calls).toHaveLength(1);
+  revokeAuthSession(f.auth);
+  expect((await f.tools('worker').execute({ operation: 'status' }, f.signal)).isError).toBe(true);
+});
 it.each(['disconnected', 'expired'])(
   'explains %s operator authentication without circular status recovery',
   async (reason) => {
