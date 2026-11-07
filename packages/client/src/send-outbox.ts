@@ -423,6 +423,7 @@ export class SendOutbox {
       type: '_local_command_state',
       state,
       ...(runtimeFailure ? { runtimeFailure } : {}),
+      ...(entry.localReceipt?.state === 'consumed' ? { receiptConfirmed: true } : {}),
       ...(acknowledged ? { acknowledged: true } : {}),
       request: structuredClone(entry.body),
       ...(entry.composerDraft ? { composerDraft: structuredClone(entry.composerDraft) } : {}),
@@ -451,6 +452,7 @@ export class SendOutbox {
     const controller = new AbortController();
     this.receiptReads.set(entry, controller);
     let timer: ReturnType<typeof setTimeout> | undefined;
+    let receiptConfirmed = false;
     try {
       const { response, raw } = await Promise.race([
         this.config
@@ -483,17 +485,27 @@ export class SendOutbox {
           receipt.data.sessionId !== entry.body.sessionId)
       )
         return;
+      receiptConfirmed = true;
+      delete entry.runtimeFailure;
       entry.localReceipt = { sessionId: receipt.data.sessionId, state: 'consumed' };
       entry.uncertain = false;
       if (!this.persist()) {
         entry.uncertain = true;
-        return;
+        throw Error('Local receipt could not be retained');
       }
       if (this.config.storage?.flush) await this.config.storage.flush();
       if (generation !== this.generation || !this.active || !this.entries.includes(entry)) return;
       await this.retireLocal(entry, true);
     } catch {
-      // Observation failure never resends a command or overwrites its UI state.
+      // Read failures preserve the prior UI state. Once acceptance is proven,
+      // completion storage failures must not restore an obsolete login reason.
+      if (
+        receiptConfirmed &&
+        generation === this.generation &&
+        this.active &&
+        this.entries.includes(entry)
+      )
+        this.notifyLocal(entry, 'uncertain');
     } finally {
       if (timer) clearTimeout(timer);
       if (this.receiptReads.get(entry) === controller) {

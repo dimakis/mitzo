@@ -270,26 +270,131 @@ it('keeps the original durable receipt through a reentrant enqueue when handoff 
     outbox.rejectAll('Fixture ended');
   }
 });
-it('retains a consumed receipt when its durable handoff fails, then finishes through observation without resending', async () => {
+it.each(['receipt flush', 'source handoff', 'storage flush'])(
+  'retains a consumed receipt without an obsolete login failure when %s fails, then finishes through observation without resending',
+  async (failure) => {
+    const saved = disk();
+    const runtimeFailure = {
+      runtimeFailureCode: 'login_refresh_reauthorization' as const,
+      diagnosticId: '00000000-0000-4000-8000-000000000001',
+    };
+    let writesBlocked = false;
+    let receiptFlushBlocked = false;
+    const storage = {
+      getItem: saved.getItem,
+      setItem: (key: string, value: string) => {
+        if (writesBlocked) throw Error('Storage writes unavailable');
+        saved.setItem(key, value);
+      },
+      flush: async () => {
+        if (writesBlocked || receiptFlushBlocked) throw Error('Storage flush unavailable');
+      },
+    };
+    let failHandoff = true;
+    const notify = vi.fn((event: Record<string, unknown>) => {
+      if (event.state === 'consumed' && failHandoff) {
+        writesBlocked = true;
+        if (failure === 'source handoff') throw Error('Durable handoff unavailable');
+      }
+    });
+    const fetch = vi.fn(async (url: string) => {
+      if (url.endsWith('/receipt')) {
+        receiptFlushBlocked = failure === 'receipt flush' && failHandoff;
+        return receipt();
+      }
+      return Response.json(
+        {
+          ok: false,
+          code: 'entry_unavailable',
+          error: 'Account reauthorization required',
+          clientMsgId: command.clientMsgId,
+          sessionId: 'old-chat',
+          runtimeFailure,
+        },
+        { status: 409 },
+      );
+    });
+    const outbox = new SendOutbox({
+      url: '/local/send',
+      fetch,
+      storage,
+      notify,
+      localFirstCommand: true,
+    });
+    outbox.start();
+    try {
+      outbox.enqueue(command, 1, 'original-draft');
+      await vi.waitFor(() =>
+        expect(notify).toHaveBeenLastCalledWith(
+          expect.objectContaining({ state: 'uncertain', runtimeFailure }),
+        ),
+      );
+      await outbox.reconcileLocalCommand(command.clientMsgId);
+      await vi.waitFor(() =>
+        expect(notify).toHaveBeenLastCalledWith(expect.objectContaining({ state: 'uncertain' })),
+      );
+      const retained = JSON.parse(storage.getItem()!);
+      expect(retained).toHaveLength(1);
+      expect(retained[0]).not.toHaveProperty('runtimeFailure');
+      expect(notify.mock.lastCall?.[0]).not.toHaveProperty('runtimeFailure');
+      expect(retained[0]).toMatchObject({
+        body: command,
+        localDraftId: 'original-draft',
+        localReceipt: { sessionId: 'session', state: 'consumed' },
+      });
+      const reloadedNotify = vi.fn();
+      const reloaded = new SendOutbox({
+        url: '/local/send',
+        fetch,
+        storage,
+        notify: reloadedNotify,
+        localFirstCommand: true,
+      });
+      reloaded.start();
+      expect(reloadedNotify.mock.lastCall?.[0]).not.toHaveProperty('runtimeFailure');
+      expect(reloadedNotify).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          state: 'uncertain',
+          request: command,
+          originDraftId: 'original-draft',
+        }),
+      );
+      reloaded.stop();
+      expect(fetch).toHaveBeenCalledTimes(2);
+      writesBlocked = false;
+      failHandoff = false;
+      await outbox.reconcileLocalCommand(command.clientMsgId);
+      expect(notify).toHaveBeenLastCalledWith(
+        expect.objectContaining({ state: 'consumed', acknowledged: true }),
+      );
+      expect(fetch.mock.calls.map(([url]) => url)).toEqual([
+        '/local/send',
+        '/local/send/receipt',
+        '/local/send/receipt',
+      ]);
+      expect(JSON.parse(storage.getItem()!)).toEqual([]);
+    } finally {
+      outbox.rejectAll('Fixture ended');
+    }
+  },
+);
+it('clears the visible obsolete login reason when a confirmed receipt cannot be written', async () => {
   const saved = disk();
-  let writesBlocked = false;
+  const runtimeFailure = {
+    runtimeFailureCode: 'login_refresh_reauthorization' as const,
+    diagnosticId: '00000000-0000-4000-8000-000000000001',
+  };
+  saved.setItem('', JSON.stringify([{ body: command, scope: 1, uncertain: true, runtimeFailure }]));
+  let writesBlocked = true;
   const storage = {
     getItem: saved.getItem,
     setItem: (key: string, value: string) => {
-      if (writesBlocked) throw Error('Storage writes unavailable');
+      if (writesBlocked) throw Error('Storage unavailable');
       saved.setItem(key, value);
     },
   };
-  let failHandoff = true;
-  const notify = vi.fn((event: Record<string, unknown>) => {
-    if (event.state === 'consumed' && failHandoff) {
-      writesBlocked = true;
-      throw Error('Durable handoff unavailable');
-    }
-  });
-  const fetch = vi.fn(async (url: string) =>
-    url.endsWith('/receipt') ? receipt() : new Promise<Response>(() => {}),
-  );
+  const fetch = vi.fn(async () => receipt());
+  const notify = vi.fn();
   const outbox = new SendOutbox({
     url: '/local/send',
     fetch,
@@ -299,50 +404,21 @@ it('retains a consumed receipt when its durable handoff fails, then finishes thr
   });
   outbox.start();
   try {
-    outbox.enqueue(command, 1, 'original-draft');
+    expect(notify).toHaveBeenLastCalledWith(expect.objectContaining({ runtimeFailure }));
     await outbox.reconcileLocalCommand(command.clientMsgId);
-    await vi.waitFor(() =>
-      expect(notify).toHaveBeenLastCalledWith(expect.objectContaining({ state: 'uncertain' })),
-    );
-    const retained = JSON.parse(storage.getItem()!);
-    expect(retained).toHaveLength(1);
-    expect(retained[0]).toMatchObject({
-      body: command,
-      localDraftId: 'original-draft',
-      localReceipt: { sessionId: 'session', state: 'consumed' },
-    });
-    const reloadedNotify = vi.fn();
-    const reloaded = new SendOutbox({
-      url: '/local/send',
-      fetch,
-      storage,
-      notify: reloadedNotify,
-      localFirstCommand: true,
-    });
-    reloaded.start();
-    expect(reloadedNotify).toHaveBeenLastCalledWith(
-      expect.objectContaining({
-        state: 'uncertain',
-        request: command,
-        originDraftId: 'original-draft',
-      }),
-    );
-    reloaded.stop();
-    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(notify).toHaveBeenLastCalledWith(expect.objectContaining({ state: 'uncertain' }));
+    expect(notify.mock.lastCall?.[0]).not.toHaveProperty('runtimeFailure');
+    expect(notify).not.toHaveBeenCalledWith(expect.objectContaining({ acknowledged: true }));
+    expect(fetch).toHaveBeenCalledTimes(1);
     writesBlocked = false;
-    failHandoff = false;
     await outbox.reconcileLocalCommand(command.clientMsgId);
     expect(notify).toHaveBeenLastCalledWith(
       expect.objectContaining({ state: 'consumed', acknowledged: true }),
     );
-    expect(fetch.mock.calls.map(([url]) => url)).toEqual([
-      '/local/send',
-      '/local/send/receipt',
-      '/local/send/receipt',
-    ]);
-    expect(JSON.parse(storage.getItem()!)).toEqual([]);
+    expect(fetch.mock.calls).toHaveLength(2);
+    expect(JSON.parse(saved.getItem()!)).toEqual([]);
   } finally {
-    outbox.rejectAll('Fixture ended');
+    outbox.stop();
   }
 });
 it('recovers a lost acknowledgement through a read-only exact receipt without resending', async () => {

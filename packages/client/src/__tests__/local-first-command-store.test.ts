@@ -73,6 +73,7 @@ const request = {
 function setup(
   saved: string | null = null,
   sendHandoff?: import('../store.js').MitzoStoreOptions['sendHandoff'],
+  flush?: () => Promise<void>,
 ) {
   let raw: string | null = saved;
   let storageBlocked = false;
@@ -114,6 +115,7 @@ function setup(
           if (storageBlocked) throw Error('Synthetic device storage quota');
           raw = value;
         },
+        ...(flush ? { flush } : {}),
       },
     },
   });
@@ -123,6 +125,9 @@ function setup(
     readStorage: () => JSON.parse(raw ?? '[]'),
     blockStorage: () => {
       storageBlocked = true;
+    },
+    unblockStorage: () => {
+      storageBlocked = false;
     },
   };
 }
@@ -160,6 +165,80 @@ it('shows the original login recovery reason and ends the Sending label while ke
   expect(readStorage()[0].body).toEqual(request);
   channel.listener({ type: '_close' });
 });
+
+it.each(['write', 'flush'])(
+  'clears the obsolete visible login reason after a confirmed receipt despite a %s failure',
+  async (failure) => {
+    let flushBlocked = false;
+    const { store, fetch, blockStorage, unblockStorage, readStorage } = setup(
+      null,
+      undefined,
+      async () => {
+        if (flushBlocked) throw Error('Synthetic receipt flush refusal');
+      },
+    );
+    const delivered = vi.fn();
+    fetch.mockImplementation(async (path: string) => {
+      if (path === '/local/send')
+        return Response.json(
+          {
+            ok: false,
+            code: 'entry_unavailable',
+            clientMsgId: request.clientMsgId,
+            sessionId: 'owned-session',
+            error: 'Account reauthorization required',
+            runtimeFailure: {
+              runtimeFailureCode: 'login_refresh_reauthorization',
+              diagnosticId: '00000000-0000-4000-8000-000000000001',
+            },
+          },
+          { status: 409 },
+        );
+      if (path === '/local/send/receipt')
+        return Response.json(
+          {
+            ok: true,
+            clientMsgId: request.clientMsgId,
+            sessionId: 'owned-session',
+            state: 'consumed',
+            dispatched: false,
+          },
+          { status: 202 },
+        );
+      return Response.json({ messages: [], current: null, cursor: 0 });
+    });
+    channel.id = 'live-connection';
+    channel.listener({ type: '_open' });
+    expect(
+      store.getState().sendLocalFirstCommand(request, {
+        draftId: 'original-draft',
+        onDelivery: delivered,
+      }),
+    ).toBe(true);
+    await vi.waitFor(() =>
+      expect(store.getState().sendError).toContain('explicit account reauthorization'),
+    );
+    if (failure === 'write') blockStorage();
+    else flushBlocked = true;
+    channel.listener({ type: '_open' });
+    await vi.waitFor(() => expect(store.getState().sendError).toBeNull());
+    expect(store.getState().localCommand).toMatchObject({
+      state: 'uncertain',
+      request,
+      originDraftId: 'original-draft',
+    });
+    expect(delivered).not.toHaveBeenCalledWith('accepted');
+    expect(store.getState().sessions.active).toBeNull();
+    expect(readStorage()).toHaveLength(1);
+    unblockStorage();
+    flushBlocked = false;
+    channel.listener({ type: '_open' });
+    await vi.waitFor(() => expect(delivered).toHaveBeenCalledWith('accepted'));
+    expect(fetch.mock.calls.filter(([path]) => path === '/local/send')).toHaveLength(1);
+    expect(readStorage()).toEqual([]);
+    channel.listener({ type: '_close' });
+  },
+);
 
 it('explains a first-command persistence refusal without dispatching or losing its draft', () => {
   const { store, fetch, blockStorage, readStorage } = setup();

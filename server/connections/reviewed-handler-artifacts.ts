@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.922-legacy-chat-recovery-delivery';
+  'v1.0.923-confirmed-receipt-clears-login-failure';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -28,9 +28,9 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../scripts/__tests__/reauthorize-host-codex-login.test.ts':
     '777976c0b8f2a1283af2695aca3ebc615710cd37d09466051180bd2c8399d73e',
   '../../packages/client/src/__tests__/local-first-command-outbox.test.ts':
-    '070b34d238f9a05a792886a636b8f504a2ee8999b995d5a26abf564e5dc4c646',
+    '8c0a2a45f9abd109ee31a15b79460715fa7709c879337923a03363d2f6ea0780',
   '../../packages/client/src/__tests__/local-first-command-store.test.ts':
-    'a7417432c9995d91408fc6f1389712e312def29681d159aa579c59ecf8f415bf',
+    '8aeb587907718d415daf922f8c107ed68dc604197118a5a2f97a8532a6f0320a',
   '../host-codex-login-refresh-ledger.ts':
     'c85951c34922072589a206af17b55dfc57e400e440b9d1348e98b8a482e84bea',
   '../host-codex-login-recovery-command.ts':
@@ -1713,7 +1713,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/types/workspace.ts':
     'c54ac596082365496ebf53ca12ce1602b792acfd09092a216285aa69dd38c162',
   '../../packages/client/src/send-outbox.ts':
-    '9d90159a55d8bad51c7097ee44045dd9ecaf8d05245ce60802a35227e645e6b0',
+    '926185dfd5ed5926597e8f24722d54dea7bd06e63e4691417c8e907073a0c381',
   '../../packages/protocol/src/local-codex-first-command.ts':
     'c35872894cd1ddc866a66e173a666eb5b06cf437d7de9c05970c07901ebed3f1',
   '../ordinary-local-codex-entry.ts':
@@ -1774,7 +1774,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/client/src/sse-connection.ts':
     '0f7f07c617285c102503d1b98e8a8c331fea2a2879cd1f25a965e27f77b5b5fa',
   '../../packages/client/src/store.ts':
-    'b4005461ea906459740747eb68c560aab2a30a985c14da58053e76bb2855c14b',
+    '9553f712b6f0fba4ccc2c18952cdbd90d64b3691cb7ee1581021199e8234dd0b',
   '../../packages/harness/src/permission-handler.ts':
     '631e0f5074fbdf2a565fd93725d14e0ac951e35b722ac51a550cb1374179b8c4',
   '../../packages/harness/src/permissions.ts':
