@@ -171,6 +171,20 @@ export class ApplicationCollaborationMessaging {
       }
     };
     assertCurrent();
+    // Context compilation yields. An identical request may have been accepted
+    // while this caller was preparing; observe its packet before applying the
+    // distinct-request fan-out guard or attempting any new claims.
+    const acceptedWhilePreparing = this.store.collaborationConversation.getMessageForRequest(
+      group,
+      input,
+    );
+    if (acceptedWhilePreparing) {
+      this.reconcile(auth, group);
+      return this.store.collaborationConversation.getMessage(
+        group,
+        acceptedWhilePreparing.messageId,
+      )!;
+    }
     // Renew the pending discussion after compilation awaits, before any message
     // or command mutation. Refuse an overfull packet without retaining a send.
     const pending = this.store.collaborationConversation.view(group);

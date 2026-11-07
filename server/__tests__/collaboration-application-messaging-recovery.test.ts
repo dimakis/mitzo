@@ -193,6 +193,41 @@ it('refuses an overlapping unclaimed fan-out reply without adopting or partially
   ).toBe(true);
 });
 
+it('returns the original receipt for concurrent exact fan-out retries during preparation', async () => {
+  let release!: () => void;
+  const preparing = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  owner = new ApplicationCollaborationMessaging(
+    store,
+    port(async (prompt) => {
+      prompts.push(prompt);
+      if (prompt.sessionId === 'one') await preparing;
+    }),
+  );
+  const request = { ...input('one', 'Answer independently'), responders: { kind: 'all' } };
+  const first = owner.send(auth, group, request, new AbortController().signal);
+  const retry = owner.send(auth, group, request, new AbortController().signal);
+  let original;
+  let retained;
+  try {
+    await vi.waitFor(() => expect(prompts).toHaveLength(1));
+    retained = await retry;
+    expect(store.collaborationConversation.view(group).messages).toHaveLength(1);
+    expect(retained.deliveries.find((d) => d.sessionId === 'two')).toMatchObject({
+      status: 'pending',
+      commandId: null,
+    });
+    expect(prompts).toHaveLength(1);
+  } finally {
+    release();
+    original = await first;
+  }
+  expect(retained!.messageId).toBe(original.messageId);
+  expect(prompts).toHaveLength(2);
+  expect(new Set(prompts.map((p) => p.commandId)).size).toBe(2);
+});
+
 it('defers oversized ordinary history without failing group reads or hiding integrity failures', () => {
   const message = store.collaborationConversation.acceptMessage(group, input('two', 'Reply'));
   const delivery = message.deliveries.find((d) => d.sessionId === 'two')!;

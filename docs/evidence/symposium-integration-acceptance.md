@@ -20,7 +20,7 @@ milestone's 16 criteria. Earlier baselines below retain their original dates.
 
 Core test command: `NODE_OPTIONS=--max-old-space-size=1024 node node_modules/vitest/vitest.mjs run server/__tests__/collaboration-application-messaging.test.ts --maxWorkers=1 --no-cache`.
 The three inherited review/durable-read/join cases and new prompt/reply case pass.
-Final focused regression run: 189 tests pass across 14 files, one worker/1 GiB.
+Final focused regression run: 190 tests pass across 14 files, one worker/1 GiB.
 Protocol/harness/client TypeScript builds, focused semantic checks of five server
 modules, ESLint and registered source fingerprint checks pass. Full server builds
 and broader tests remain CI responsibilities under the local memory limit.
@@ -33,6 +33,11 @@ No permission guard or assertion was weakened to access host configuration.
 Landing fixes for Centaur review `5811819783` preserve one command owner for every
 queued context packet and refuse overlapping unclaimed reply intent before accepting
 a new message. Delayed ACKs in either order and concurrent partial fan-out are covered.
+Follow-up review `5811912577` verified those three fixes and identified
+`CEN-CC5FB78CE31F`: concurrent identical fan-out requests could race the new guard.
+The dispatcher now renews the exact request receipt after context preparation,
+before applying that guard. A delayed-first-recipient regression preserves one
+message and one command per recipient for both concurrent callers.
 Reconciliation skips hidden/unlinked responders and defers oversized ordinary history
 without suppressing unrelated integrity errors. Existing timer/peer dispatch retains
 tool-failure continuation. The actual-app case also preserves the shared transcript

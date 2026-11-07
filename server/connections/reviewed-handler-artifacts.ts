@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.941-symposium-directed-prompts-r3';
+  'v1.0.941-symposium-directed-prompts-r4';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -24,9 +24,9 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/collaboration-application-messaging-recovery.test.ts':
-    'd8d3a25609b66be5bbb6bdcf3855a034072fc64fb74ca23bad32bfbd1dbcb3c7',
+    'b8a20503541abe5d0a579891a0a46f668fd8900706d48fb2e218388c7137642a',
   '../collaboration-application-messaging.ts':
-    'd1d33e21c5a29bd8749f7077bf23c22cc5fdf881eef60f57a871157228d2896d',
+    'b594640fd3c4ed603c4f2a9c021b08d392da332a6603b33c79b383edcd29dcc5',
   '../__tests__/collaboration-application-messaging.test.ts':
     '6d7fa5d735f5ee9f16ffac369cd96c36e655c59dc8662268e7d5e1b32a70687e',
   '../__tests__/fixtures/symposium-application-target.ts':
