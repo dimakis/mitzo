@@ -3,6 +3,10 @@ import { afterEach, expect, it, vi } from 'vitest';
 import { AccountProfiles } from '../account-profiles.js';
 import { resolveNewOrdinarySessionRuntime } from '../ordinary-session-runtime.js';
 import { ClaudeSubscriptionCustody } from '../claude-subscription-custody.js';
+const warn = vi.hoisted(() => vi.fn());
+vi.mock('../logger.js', () => ({
+  createLogger: () => ({ warn, debug: vi.fn(), info: vi.fn(), error: vi.fn() }),
+}));
 afterEach(() => vi.restoreAllMocks());
 
 const personal = {
@@ -33,6 +37,22 @@ it('reuses sign-in evidence in the existing account catalog and reports loss of 
     signIn: { status: 'failed', observedIdentity: null },
   });
   expect(JSON.stringify(profiles.catalog())).not.toContain('Private provider diagnostic');
+  expect(warn).toHaveBeenCalledWith(
+    'Claude subscription sign-in verification failed',
+    expect.objectContaining({
+      code: 'claude_subscription_sign_in_unavailable',
+      stage: 'claude_sign_in_verification',
+      accountId: personal.id,
+      diagnosticId: expect.any(String),
+      reason: 'native_command_failed',
+    }),
+  );
+  expect(JSON.stringify(warn.mock.calls)).not.toContain('Private provider diagnostic');
+  const controller = new AbortController();
+  const cause = Error('Private cancellation');
+  controller.abort(cause);
+  await expect(profiles.checkSignIn(controller.signal)).rejects.toBe(cause);
+  expect(profiles.catalog()[0].signIn.explanation).toContain('cancelled');
 });
 it('projects a subscription account through the existing Claude catalog without Vertex billing or secret paths', () => {
   const profiles = new AccountProfiles([personal]);

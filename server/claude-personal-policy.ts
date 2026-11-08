@@ -14,6 +14,13 @@ export function claudePersonalToolPermission(
   configDirectory: string,
 ) {
   protectCodexProfileRoots([configDirectory]);
+  // Native recursive search runs outside the Bash sandbox and can traverse a
+  // protected root from its ancestor, an absolute pattern or a nested alias.
+  if (name === 'Grep' || name === 'Glob')
+    return {
+      behavior: 'deny' as const,
+      message: 'Use sandboxed Bash for file searches so private account files stay protected.',
+    };
   if (
     (name === 'Bash' && input.dangerouslyDisableSandbox === true) ||
     (['Read', 'Write', 'Edit', 'Glob', 'Grep', 'NotebookEdit'].includes(name) &&
@@ -32,6 +39,7 @@ export function claudePersonalSandbox(configDirectory: string): Options['sandbox
   protectCodexProfileRoots([configDirectory]);
   return {
     enabled: true,
+    failIfUnavailable: true,
     autoAllowBashIfSandboxed: false,
     allowUnsandboxedCommands: false,
     filesystem: { denyRead: privateCodexRoots(), denyWrite: privateCodexRoots() },

@@ -4,7 +4,11 @@ import {
   subscriptionHarnessConnection,
 } from './account-harness-connection.js';
 import { protectCodexProfileRoots } from './codex-private-path.js';
-import { ClaudeSubscriptionCustody } from './claude-subscription-custody.js';
+import {
+  ClaudeSubscriptionCustody,
+  ClaudeSubscriptionSignInError,
+} from './claude-subscription-custody.js';
+import { createLogger } from './logger.js';
 import { readReadyOpenAIAccountProfiles } from './openai-account-enrollment.js';
 import { cachedModels, CatalogModel, refreshModels, readCodexModels } from './model-catalog.js';
 import { CredentialReferenceSchema, credentials } from './credentials.js';
@@ -686,6 +690,7 @@ export class AccountProfiles {
           const evidence = this.signIn(profile);
           const generation = beginSignInCheck(evidence.profileRevision);
           try {
+            signal.throwIfAborted();
             const env = this.sdkEnv(
               this.resolve(profile.id, profile.models[0].id),
               Object.fromEntries(
@@ -708,7 +713,23 @@ export class AccountProfiles {
               },
               generation,
             );
-          } catch {
+          } catch (cause) {
+            const failure =
+              cause instanceof ClaudeSubscriptionSignInError
+                ? cause
+                : new ClaudeSubscriptionSignInError(
+                    signal.aborted ? 'cancelled' : 'native_command_failed',
+                    { cause },
+                  );
+            const diagnostic = {
+              ...failure.telemetry(),
+              accountId: profile.id,
+              profileRevision: evidence.profileRevision,
+            };
+            const log = createLogger('account-profiles');
+            if (signal.aborted)
+              log.debug('Claude subscription sign-in verification cancelled', diagnostic);
+            else log.warn('Claude subscription sign-in verification failed', diagnostic);
             this.recordSignIn(
               evidence.profileRevision,
               {
@@ -716,11 +737,13 @@ export class AccountProfiles {
                 status: 'failed',
                 checkedAt: Date.now(),
                 observedIdentity: null,
-                explanation:
-                  'Sign in to the configured personal Claude account on this Mac, then check again.',
+                explanation: signal.aborted
+                  ? 'Claude sign-in check was cancelled. Check again when ready.'
+                  : `Claude sign-in could not be verified. Check the connection diagnostics and retry. Reference: ${failure.diagnosticId}`,
               },
               generation,
             );
+            if (signal.aborted) signal.throwIfAborted();
           }
         }),
     );

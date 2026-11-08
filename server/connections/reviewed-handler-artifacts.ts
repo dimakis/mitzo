@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.949-personal-claude-recovery';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.949-personal-claude-recovery.2';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -36,25 +36,25 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     'ee28bc33e883e3acc74f0d2f05f7ab9893973ee129a01585915e8cf7244ce779',
   '../model-token-limits.ts': 'f45cfb2117dc520e15ca4c3638a7e518dae2a961bc2aad90b411c5b0c397cebf',
   '../claude-subscription-custody.ts':
-    '4e8525204209d6eabbb5bdbc09fc3f5c77f580e7b89c593fe3a9f6f4e38f4384',
+    'abf4b0adf37ba44ea2e043853da5837c020483a6045113948f1950a410469329',
   '../claude-sdk-credentials.ts':
     '32649b67f005e314b976b68d75ab5c5950b522f912095b87b800596b177d39fb',
   '../claude-account-history.ts':
     '7479fc4e14433a5f918f4f931a027164b063aabf2950bb9a349c5d283f12d7a4',
   '../claude-personal-policy.ts':
-    '2b8879197acffdee9d40a46e334a3243b9edc68dd41a80045ab5d2cf30baee90',
+    'ed6ebb0c4ff8c922297cd02098a3d781e84a5b0d0cd01a51565db4a2755dc7d4',
   '../__tests__/claude-personal-account.test.ts':
-    'a5cf9b15d258757785c05a98625c030ced8a3c0b88a44034ec47c0ed34bddff9',
+    'd4eebbd6e2713ede665de5477c2e66a6ee1a28b9799c146b5f19822ae4add970',
   '../__tests__/claude-subscription-custody.test.ts':
-    'c11f4bafc57d99eb16abbbf47f73e3ebf4b78af448a8463b11bf3c4a3f9ab346',
+    '84eed41389b485ff01fd7ef82127742095677ac758111c72898ef33641e624b3',
   '../__tests__/claude-account-history.test.ts':
     'd6436f966881065bde719731ae07639f18694465b595eaa52d611173f58b4bb0',
   '../__tests__/claude-personal-policy.test.ts':
-    '57b4f06d108cfdd8f50c7143d619523ea2d8b79e978d580113e6599b46572081',
+    'f7fc1ccde245b17a92c50176e928450e39ef5367a5cc8f49956873f308cd32ce',
   '../__tests__/ordinary-local-vertex-owned-runtime.test.ts':
     'd5e0376f33260603d398375be9c78c9a4597d5c96284677e6940d1f06836c3be',
   '../../docs/features/personal-claude-local.md':
-    '762afae29b9a22304e0686e9532b4d57f1f9ce4b1d4318b8a2bea188c1cc365d',
+    '26327d1b62e58ff7f621e60aa95140bea275e88f2201393d435d468a953fad8e',
   '../repository-capability-identity.ts':
     '2e35f24342d36e21f6c559afa93758f9ef83a2e3e435eda6d46e1a6101d16392',
   '../task-capability-consent.ts':
@@ -2036,7 +2036,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../legacy-chat-delivery.ts': '30e041a7b8d1279cefae9198639444fa8e3dd4f76386598ec50ce66741f09f5c',
   '../chat-rest-handler.ts': '90ebbfbf3788386e7f3325b6d0b796823c13da73e8a3f14393e598b3173239b3',
   '../query-loop.ts': 'f4ab6329a63768fa3185654ad1319610218c6f74560fe81d5e13eeca048575aa',
-  '../account-profiles.ts': '148dc301211898ee5cc2789ddad4f21ab77c70edebce216eddc5e7f42e046968',
+  '../account-profiles.ts': '59441063f634e4bf824fd4d95762d4e3f25584e72b71d8675494e0cfe4f479d2',
   '../ordinary-turn-lifecycle.ts':
     'a138e83ba1a2ec8ceaef967858fb926d5de83658d21f555f32c98174afd4064b',
   '../ordinary-contributor-guidance.ts':
@@ -2963,7 +2963,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../tests/fixtures/agent-tool-catalog.json':
     '1171a34a2ec4a31024e7ec963424352d3a6761405d48390ed4b352792a406521',
   '../../tests/integration/ordinary-local-vertex-chat.test.ts':
-    '74977e67c5d5b6f24e74a726eae079f5c815f3f0aace9a0c8bd52d7274c1bbd4',
+    '9753c1e5bbe8e6cdf159c019655d12cafe24d69950676e475d70fbf918bf58ce',
   '../../packages/sqlite-file-owner/package.json':
     'ba7bf5e9f0a1e20908df2eedb45243cd2ea1cd4c74e157ca80086a1a0b465029',
   '../../packages/sqlite-file-owner/binding.gyp':

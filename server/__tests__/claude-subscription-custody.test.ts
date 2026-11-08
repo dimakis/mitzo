@@ -64,3 +64,31 @@ it('rejects logout, another identity, API billing, contaminated environments and
   mkdirSync(f.config, { mode: 0o700 });
   expect(() => custody.assertCurrent(f.env)).toThrow();
 });
+
+it('retains original cancellation and malformed-status causes with safe correlated diagnostics', async () => {
+  const f = fixture(),
+    custody = ClaudeSubscriptionCustody.capture(f.env, f.executable);
+  const controller = new AbortController();
+  const cause = Error('Private cancellation detail');
+  controller.abort(cause);
+  await expect(custody.verify(f.env, controller.signal)).rejects.toMatchObject({
+    cause,
+    reason: 'cancelled',
+    code: 'claude_subscription_sign_in_unavailable',
+    stage: 'claude_sign_in_verification',
+    diagnosticId: expect.any(String),
+  });
+  writeFileSync(join(f.root, 'status.json'), 'private malformed output');
+  try {
+    await custody.verify(f.env, new AbortController().signal);
+    throw Error('verification unexpectedly succeeded');
+  } catch (error) {
+    expect(error).toMatchObject({ reason: 'invalid_response', cause: expect.any(SyntaxError) });
+    const diagnostic = (error as Error & { telemetry(): object }).telemetry();
+    expect(diagnostic).toMatchObject({
+      reason: 'invalid_response',
+      diagnosticId: expect.any(String),
+    });
+    expect(JSON.stringify(diagnostic)).not.toMatch(/private|malformed/);
+  }
+});

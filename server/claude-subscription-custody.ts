@@ -1,4 +1,5 @@
 import { execFile } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
 import { lstatSync, realpathSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { isAbsolute } from 'node:path';
@@ -10,10 +11,36 @@ import {
 } from '@mitzo/protocol';
 
 const execute = promisify(execFile);
-const unavailable = () =>
-  Error(
-    'Claude subscription sign-in unavailable; sign in to the configured Claude account on this Mac',
-  );
+type SignInFailureReason =
+  | 'custody_changed'
+  | 'identity_mismatch'
+  | 'invalid_response'
+  | 'native_command_failed'
+  | 'cancelled';
+export class ClaudeSubscriptionSignInError extends Error {
+  readonly code = 'claude_subscription_sign_in_unavailable';
+  readonly stage = 'claude_sign_in_verification';
+  readonly diagnosticId = randomUUID();
+  constructor(
+    readonly reason: SignInFailureReason,
+    options?: ErrorOptions,
+  ) {
+    super(
+      'Claude subscription sign-in unavailable; check the configured Claude account on this Mac',
+      options,
+    );
+    this.name = 'ClaudeSubscriptionSignInError';
+  }
+  telemetry() {
+    return {
+      code: this.code,
+      stage: this.stage,
+      diagnosticId: this.diagnosticId,
+      reason: this.reason,
+    };
+  }
+}
+const unavailable = () => new ClaudeSubscriptionSignInError('custody_changed');
 export function assertClaudeSubscriptionAccount(
   info: import('@anthropic-ai/claude-agent-sdk').AccountInfo,
   env: Readonly<NodeJS.ProcessEnv>,
@@ -139,11 +166,18 @@ export class ClaudeSubscriptionCustody {
         status.email.toLowerCase() !== this.retained.email.toLowerCase() ||
         status.subscriptionType !== this.retained.planType
       )
-        throw unavailable();
+        throw new ClaudeSubscriptionSignInError('identity_mismatch');
       this.assertCurrent(env);
       signal.throwIfAborted();
-    } catch {
-      throw unavailable();
+    } catch (cause) {
+      if (signal.aborted) throw new ClaudeSubscriptionSignInError('cancelled', { cause });
+      if (cause instanceof ClaudeSubscriptionSignInError) throw cause;
+      throw new ClaudeSubscriptionSignInError(
+        cause instanceof SyntaxError || cause instanceof z.ZodError
+          ? 'invalid_response'
+          : 'native_command_failed',
+        { cause },
+      );
     }
   }
 }

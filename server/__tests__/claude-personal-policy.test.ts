@@ -2,7 +2,7 @@ import { afterEach, expect, it, vi } from 'vitest';
 import { mkdtempSync, mkdirSync, realpathSync, rmSync, symlinkSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { claudePersonalToolPermission } from '../claude-personal-policy.js';
+import { claudePersonalToolPermission, claudePersonalSandbox } from '../claude-personal-policy.js';
 const roots: string[] = [];
 afterEach(() => {
   vi.unstubAllEnvs();
@@ -29,6 +29,17 @@ it('keeps credential files and aliases out of native tools while permitting ordi
   expect(
     claudePersonalToolPermission('Read', { file_path: join(root, 'code.ts') }, root, config),
   ).toBeUndefined();
+  for (const [name, input] of [
+    ['Grep', { path: root, pattern: 'accessToken', glob: '**/.credentials.json' }],
+    ['Grep', { path: join(root, 'workspace'), pattern: 'accessToken' }],
+    ['Glob', { path: root, pattern: join(config, '**/*') }],
+    ['Glob', { pattern: '**/*' }],
+  ] as const) {
+    const result = claudePersonalToolPermission(name, input, root, config);
+    expect(result?.behavior).toBe('deny');
+    expect(result?.message).toContain('sandboxed Bash');
+  }
+  expect(claudePersonalSandbox(config)).toMatchObject({ enabled: true, failIfUnavailable: true });
   expect(
     claudePersonalToolPermission(
       'Bash',

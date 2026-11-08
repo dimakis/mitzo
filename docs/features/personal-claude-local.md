@@ -82,6 +82,12 @@ sandbox with private roots denied and no unsandboxed escape. The existing outer
 SDK boundary and shared permissions remain in place. Public account metadata
 contains billing and sign-in evidence, never the credential directory or tokens.
 
+File searches use sandboxed Bash. Native Grep and Glob are refused for personal
+accounts because recursive searches and absolute patterns can otherwise traverse
+private account storage outside the Bash sandbox. Sign-in failures retain their
+original cause internally and report a sanitized diagnostic reference; cancellation
+remains distinct from a failed account check.
+
 Cold continuation and history reads use the original account configuration.
 The SDK's filesystem history readers run in a separate process for personal
 accounts, so concurrent work/personal sessions never mutate the controller's

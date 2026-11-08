@@ -2,7 +2,7 @@ import '../../server/__tests__/fixtures/offline-user-home.js';
 import { EventEmitter } from 'node:events';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
-import type { McpSdkServerConfigWithInstance } from '@anthropic-ai/claude-agent-sdk';
+import type { McpSdkServerConfigWithInstance, Options } from '@anthropic-ai/claude-agent-sdk';
 import { afterEach, expect, it, vi } from 'vitest';
 import { agentLibrarySource } from '../../server/__tests__/fixtures/agent-library-source.js';
 vi.mock('../../server/claude-account-history.js', () => ({
@@ -362,6 +362,29 @@ it.each([false, true])(
       captureAgentLibraryAuthorization(sessionToolOperatorConnection(sdkSession, 'sdk')).auth.id,
     ).toBe(f.auth.id);
     sdkSession.ownerConnectionId = viewer;
+    if (personal) {
+      const sdkOptions = services.requests[0].options as Options;
+      expect(sdkOptions.sandbox).toMatchObject({
+        enabled: true,
+        failIfUnavailable: true,
+        allowUnsandboxedCommands: false,
+      });
+      for (const tool of ['Grep', 'Glob']) {
+        await expect(
+          sdkOptions.canUseTool!(
+            tool,
+            { path: '/', pattern: '**/.credentials.json' },
+            {
+              signal: new AbortController().signal,
+              toolUseID: `private-search-${tool}`,
+            },
+          ),
+        ).resolves.toMatchObject({
+          behavior: 'deny',
+          message: expect.stringContaining('sandboxed Bash'),
+        });
+      }
+    }
     const publicUser = chat.eventStore
       .getSessionEvents(f.reservation.conversationId)
       .find((event) => event.type === 'user_message');
