@@ -354,6 +354,7 @@ jobs:
             test-results/offline/**/timer-*.png
             test-results/offline/**/sandbox-removal-*.png
             test-results/offline/**/reusable-access-*.png
+            test-results/offline/**/inbox-*.png
           retention-days: 7
           if-no-files-found: warn
 
