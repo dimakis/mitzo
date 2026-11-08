@@ -33,8 +33,9 @@ expiry, acknowledgement and audit/delivery behavior.
 `tests/offline/inbox-cleanup.spec.ts` renders the real view in the shared phone
 and desktop shells with all HTTP intercepted. It covers dark Mint/System and
 light Teal/Georgia with larger text, 320px phones and desktop widths, touch target
-height, overflow, failure/recovery, focus and screenshots. Browser execution is
-pending: this Mac's runtime still reports the Seatbelt sandbox after an escalated
-execution request, and the repository guard stops before launching a browser.
-Do not bypass that guard or claim these captures exist. Run the focused fixture
-on the approved host runner or CI before visual acceptance.
+height, overflow, failure/recovery, focus and screenshots. The CI Offline layouts
+jobs retain successful Inbox captures in their `responsiveness-visuals` artifacts
+for inspection; the PR records the current run and visual acceptance results.
+This Mac's runtime reports the Seatbelt sandbox and the repository guard stops
+before browser launch. Keep that guard intact and use hosted CI for rendered
+verification and capture inspection.
