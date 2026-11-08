@@ -208,7 +208,7 @@ it('clears private projection immediately on auth loss and rejects a late respon
         resolve = done;
       }),
   );
-  let pending!: Promise<void>;
+  let pending!: ReturnType<typeof result.current.refresh>;
   act(() => {
     pending = result.current.refresh();
   });

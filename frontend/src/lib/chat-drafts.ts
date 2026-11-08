@@ -42,6 +42,14 @@ export const ChatDraftSchema = z.object({
   ),
   contextBlocks: z.array(z.string()),
   updatedAt: z.number(),
+  // Receipt metadata must not change the editable composer's acceptance proof.
+  collaborationSend: z
+    .object({
+      collaborationId: SessionCollaborationIdSchema,
+      authScope: z.string().min(1),
+      input: CollaborationMessageInputSchema,
+    })
+    .optional(),
   settings: z.object({
     // Draft routing intent only; this never grants read or execution authority.
     collaborationResponders: z
@@ -174,7 +182,10 @@ export function listChatDrafts(): ChatDraft[] {
         const draft = getChatDraft(key.slice(PREFIX.length));
         // Acceptance can outlive its composer. Keep recovery bytes for that
         // owner, but only unsent revisions belong in Drafts and its count.
-        return draft && !isAcceptedChatDraft(draft) ? [draft] : [];
+        // Shared drafts stay with their conversation and exact recovery owner.
+        return draft && !draft.settings.collaborationResponders && !isAcceptedChatDraft(draft)
+          ? [draft]
+          : [];
       })
       .sort((a, b) => b.updatedAt - a.updatedAt);
   } catch {
@@ -208,6 +219,8 @@ export function saveChatDraft(draft: ChatDraft): boolean {
 }
 export function deleteChatDraft(id: string, options: { preserveText?: boolean } = {}): boolean {
   try {
+    // A collection discard cannot erase an unresolved delivery observation.
+    if (getChatDraft(id)?.collaborationSend) return false;
     if (!allowComposerDraftPersistence(chatDraftStorageKey(id))) return false;
     chatStorage.removeItem(PREFIX + id);
     if (!options.preserveText) chatStorage.removeItem(chatDraftTextKey(id));
