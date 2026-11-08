@@ -75,7 +75,7 @@ public actor MitzoAPIClient {
     public func getSourceReview(permId: String, sessionId: String, before: Int? = nil) async throws -> WatchSourceReview {
         var query = [URLQueryItem(name: "sessionId", value: sessionId)]
         // Begin with the latest exchange; older pages retain the host's cursor.
-        query.append(URLQueryItem(name: "beforeSequence", value: String(before ?? 9007199254740991)))
+        query.append(URLQueryItem(name: "beforeSequence", value: before.map(String.init) ?? "9007199254740991"))
         return try await get(path: sourcePermissionPath(permId), query: query, timeout: 10)
     }
     public func previewSourceReview(permId: String, input: WatchSourceInput) async throws -> WatchSourcePreview {
