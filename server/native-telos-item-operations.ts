@@ -13,6 +13,7 @@ export interface NativeTelosItemOwners {
   context: NativeHostToolContext;
   items: TelosItemStore;
   work: TelosWorkStore;
+  assertProgressConsent?: () => void;
   approve(
     name: Name,
     input: Record<string, unknown>,
@@ -42,6 +43,7 @@ export async function executeNativeTelosItemOperation(
     let originalAssignment: TelosWorkAssignment | undefined;
     const current = () => {
       ctx.signal.throwIfAborted();
+      owners.assertProgressConsent?.();
       const renewed: unknown = ctx.assertCurrentSync();
       if (renewed !== undefined) {
         void Promise.resolve(renewed).catch(() => {});

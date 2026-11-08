@@ -10,6 +10,22 @@ export const TaskExecutionScopeSchema = z.strictObject({
   repositories: z.array(z.string().regex(/^[\w.-]+\/[\w.-]+$/)).max(20),
   expiresAt: z.number().int().positive().safe(),
   durationMinutes: z.number().int().min(1).max(480).optional(),
+  inheritedGrants: z
+    .array(
+      z.strictObject({
+        sessionId: z.string().min(1).max(200),
+        grantId: z.uuid(),
+        capability: z.discriminatedUnion('kind', [
+          z.strictObject({ kind: z.literal('development') }),
+          z.strictObject({
+            kind: z.literal('github-read'),
+            repository: z.string().regex(/^[\w.-]+\/[\w.-]+$/),
+          }),
+        ]),
+      }),
+    )
+    .max(420)
+    .optional(),
   members: z
     .array(
       z.strictObject({
