@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.949-native-policy-continuity';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.950-task-outcome-continuity';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -25,7 +25,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../repository-capability-identity.ts':
     '2e35f24342d36e21f6c559afa93758f9ef83a2e3e435eda6d46e1a6101d16392',
   '../task-capability-consent.ts':
-    '81e258c40f1b161d17010813476b6fcd1a577e26ba13c75f5993e33bf4fc38ec',
+    'ab06a5a8b1d96cf49da95c80bd1504ee54f39d137fd43dec9f8ba0abeea6eb25',
   '../telos-progress-consent.ts':
     '7eb9cdee51442107a622b5b42098236c1eed624f02ae192723df282ef76a07e0',
   '../__tests__/repository-capability-identity.test.ts':
@@ -251,12 +251,12 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../task-execution-definitions.ts':
     'd8d10c7b04353aaad1cb32eb5e09a6209d20e8345255360092dbb341e0b964ac',
   '../task-execution-operation.ts':
-    'db40b0f5e9ae087cd745a36359dfd0df11a7ae2838465932d056ddee85a5ee3d',
+    '11d005ff24b2fdc2b54b0738cd813b5046397ada734b5b0e59e1fc7149212f0d',
   '../task-execution-scope.ts': 'f39ab4c377268ec4cbdac4b086a47f8a13cd77bd252b6cce93f11283dcb41358',
   '../task-execution-runtime.ts':
     '3d8027c88f7348490683c3fc500625cbe53c9d1e470e40a074f6d90df431351c',
   '../task-execution-store.ts': '356775fe62030f84d0ba2c01e607f2bd202399f1efab997fe69d0dc796191598',
-  '../task-execution-tools.ts': '92070e0506441866e98efacdffccf7c78a7732deca9f65f799faecc59f3bd193',
+  '../task-execution-tools.ts': '22bb643cca4ac7cba04cee93f54903032546bef4cb3095ef918e3bfcdb3403ed',
   '../permission-audit.ts': '5ed5c6acb8b8f9c75ced2a0ded57c9945ec91d935c540b4b0c020ade94266835',
   '../../packages/harness/src/permission-audit.ts':
     '6bcfffbd3bfa1711315b5ca641b144113b65ab073717ce861f4ebf175cc5387f',
@@ -265,7 +265,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/permission-audit.test.ts':
     '1717ab55ad63b836167cd9b60d4a0f07adafc537cb96c7923edb0a6588cd949e',
   '../__tests__/task-execution-tools.test.ts':
-    '5e4d6e3ea3d4141f0487db1bbd0a11ab8395ecd1cdbe095011f9f8c7f815f40f',
+    '8c18dece01fa145b7ee71e925d67f38f18ff5606d2f92a326b6fc4edcb355a27',
   '../__tests__/task-execution-store.test.ts':
     '75fc7c8bdf2179d11ee3f9e22391ec20c1a4d7fe5ff372407ac447103bc8cd74',
   '../__tests__/codex-native-approval-scope.test.ts':
