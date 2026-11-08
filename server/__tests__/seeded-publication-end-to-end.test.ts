@@ -181,6 +181,7 @@ const p=cp.spawnSync('/bin/sh',mapped,{encoding:'utf8',env:process.env});process
     });
     const session = {
       sessionId: 'conversation',
+      abortController: new AbortController(),
       ownerConnectionId: 'seed-publishing-operator',
       model: 'fixture',
       cwd: kind === 'host' ? seed : '/sandbox/workspaces/mgmt',

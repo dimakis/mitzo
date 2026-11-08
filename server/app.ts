@@ -184,6 +184,8 @@ import { drainRetainedSymposiumControllers } from './symposium-controller-drain.
 import { createSessionMessagesHandler } from './session-messages-route.js';
 import { mountSymposiumArtifactRoutes } from './symposium-artifact-route-composition.js';
 import { getConnectionRegistry } from './chat.js';
+import { createSessionPromptPort } from './session-prompt-dispatch.js';
+import { ApplicationCollaborationMessaging } from './collaboration-application-messaging.js';
 import {
   publicationControllerApproval,
   clearPublicationControllerSessionGrants,
@@ -391,6 +393,7 @@ import {
 import { createTelosSourcePermissionRecovery } from './telos-source-recovery.js';
 import { createSessionAccessRouter, projectSessionAccess } from './session-access.js';
 import { SessionCapabilityGrants } from './session-capability-grants.js';
+import { repositoryCapabilityIdentity } from './repository-capability-identity.js';
 import { createSessionCapabilityRouter } from './session-capability-router.js';
 import { createLogger } from './logger.js';
 import {
@@ -3533,12 +3536,24 @@ app.get(
   }),
 );
 
+const collaborationMessaging = new ApplicationCollaborationMessaging(
+  eventStore,
+  createSessionPromptPort({
+    eventStore,
+    sessionRegistry: registry,
+    connRegistry: {
+      broadcast: (sessionId, event) => getConnectionRegistry()?.broadcast(sessionId, event),
+    },
+  }),
+);
+
 mountObservedRouter(
   app,
   '/api/session-collaborations',
   operatorAuthMiddleware,
   createSessionCollaborationRouter({
     store: eventStore,
+    messaging: collaborationMessaging,
     joining: (auth) =>
       createApplicationCollaborationJoining(
         {
@@ -3680,7 +3695,7 @@ mountObservedRouter(
   }),
 );
 
-const sessionCapabilityGrants = new SessionCapabilityGrants(registry);
+const sessionCapabilityGrants = new SessionCapabilityGrants(registry, repositoryCapabilityIdentity);
 mountObservedRouter(
   app,
   '/api/sessions/:id/access-grants',
@@ -5951,6 +5966,7 @@ export function closeIdleApplicationResources(): Promise<void> {
     return Promise.reject(new Error('Application resource owners are active'));
   idleApplicationClosing = true;
   idleApplicationClose = (async () => {
+    collaborationMessaging.close();
     await terminalService.closeIdle();
     notificationCenter.closeIdle();
     symposiumAccessRequests.closeIdle();

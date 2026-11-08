@@ -1,9 +1,47 @@
 # Symposium: current direction and source guide
 
-Updated 6 November 2026. Start here for Symposium product work.
+Updated 7 November 2026. Start here for Symposium product work.
 Existing Telos item: `c0851ba23fcc5d04`; reuse it rather than create another parent
 or a task for every document. Tracker closure and source landing do not prove
 runtime acceptance or authorize deployment.
+
+## Directed prompt/reply application increment — 7 November candidate
+
+Candidate branch `feat/symposium-directed-replies`, based on accepted main
+`3079701d8f714945f8478508382e17ff20c61299`, connects authenticated group message
+submission to the ordinary dispatcher already used by session prompts. An explicit
+request can consume the original silent preparation receipt. Timers retain their
+existing refusal to start unused sessions. No scheduler, provider client, account
+system or database is added.
+
+The bounded application route supports repository-backed Local Codex participants
+without context recipes. It delivers the original reviewed joining context and
+authorized pending discussion with the explicit prompt. Ordinary preparation and
+admission retain their safeguards; the existing native lifecycle supplies a final
+source/settings/authorization fence and exact provider acknowledgement. Queue
+admission alone does not mark context delivered. Exact concurrent retries observe
+the original message/command instead of dispatching again; ambiguous failures stay
+uncertain. Finalized visible ordinary replies use the existing private command
+mapping and reply owner, including projection reconciliation during group reads.
+Reading or projecting replies starts no model turn.
+
+The actual-app test in `server/__tests__/collaboration-application-messaging.test.ts`
+reuses the existing review/join/restart journey, real login, HTTP routes, Git/SQLite,
+ordinary admission/driver and source projection. Only synthetic external source,
+account/runtime declarations and the recording native process are substituted.
+It proves exact reviewed content, attribution, concurrent request replay, rejection
+of changed retry/unknown recipients/unsupported snapshots, and source revocation
+during ordinary preparation without a second provider turn. This qualifies no
+installed account/runtime. See the dated entry in the existing
+[requirements-to-evidence map](../evidence/symposium-integration-acceptance.md).
+
+This increment does not enable the shared composer: its execution projection stays
+disabled pending recipient readiness/UI integration and qualification. Live owners
+created outside this dispatcher cannot yet accept group lifecycle callbacks; they
+refuse explicitly. New per-prompt snapshots, retained forwarding, older pending
+discussion beyond the bounded view, full fan-out/failure/Stop coverage, streaming
+projection, physical iOS and runtime parity remain outstanding. No merge, staging,
+deployment, live inference or complete-feature acceptance is established here.
 
 ## Silent joining: first simplification increment
 

@@ -8,6 +8,7 @@ import {
 import { SessionTimerChangeSchema } from '@mitzo/protocol';
 import { agentToolAllowed } from './agent-tool-selection.js';
 import { captureAgentLibraryAuthorization } from './agent-library-transport.js';
+import { sessionToolOperatorConnection } from './native-host-tool-operator.js';
 import { buildPermissionHandler } from './permission-handler.js';
 import { sessionPromptSchemas } from './session-prompt-definitions.js';
 import { getSessionPrompts } from './session-prompt-runtime.js';
@@ -58,12 +59,12 @@ export function sessionPromptTools(
           return owner;
         };
         const owner = current();
-        const connectionId = owner.session.ownerConnectionId ?? owner.clientId.split(':')[0];
+        const connectionId = sessionToolOperatorConnection(owner.session, owner.clientId);
         const captured = captureAgentLibraryAuthorization(connectionId);
         const verify = () => {
           const next = current();
           captured.assertCurrent();
-          if ((next.session.ownerConnectionId ?? next.clientId.split(':')[0]) !== connectionId)
+          if (sessionToolOperatorConnection(next.session, next.clientId) !== connectionId)
             throw Error('Session operator changed.');
         };
         verify();

@@ -2,6 +2,93 @@
 
 Living map owner: workstream C, `01a14bdc-d152-7912-84d4-c0012e9d5206`.
 
+## 7 November 2026 directed prompt/reply implementation checkpoint
+
+Implementation evidence on `feat/symposium-directed-replies`, based on accepted
+main `3079701d8f714945f8478508382e17ff20c61299`. This contributes to the existing
+map and does not replace independent acceptance, the approved design, or the
+milestone's 16 criteria. Earlier baselines below retain their original dates.
+
+| Milestone criteria                                      | Candidate evidence                                                                                                                                                                                                                                                                | Remaining boundary                                                                                                           |
+| ------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| 1, 8, 10, 12: ordinary application journey and contract | `collaboration-application-messaging.test.ts` reuses the real authenticated review/join/restart fixture and consumes its original silent preparation through the shared ordinary dispatcher. Exact joining content, explicit prompt and finalized attributed reply pass.          | API/backend journey only; existing shared composer remains disabled. No installed runtime is qualified.                      |
+| 2, 3, 11: identity and recovery                         | Original allocation stays intact. Exact concurrent message retries share the same message/command and create only one native turn. Changed requests conflict. Finalized reply projection can reconcile from durable source records; ambiguous command effects are never replayed. | Full crash/restart/Stop/partial-recipient matrix remains open. Existing joining recovery evidence is preserved.              |
+| 6, 7, 13: readers, responders and independent execution | Only explicit responders dispatch; pending authorized context is delivered through an ordinary turn. Context delivery waits for its exact native acknowledgement. Reply projection never triggers a response loop.                                                                | Full Defaults/@ fan-out, failed-recipient retries, long discussion paging and independent-account qualification remain open. |
+| 8, 10, 12, 15: authority and actual composition         | Unknown recipients and unsupported snapshots refuse before command effects. Revoking reviewed source access during real ordinary preparation prevents another provider turn. Omitting the production messaging owner must fail the unchanged positive API assertion.              | Broader combined Telos regression and native/runtime qualification remain open.                                              |
+| 4, 5, 14: approved UX                                   | No UI, reference or protected design-check changes in this increment.                                                                                                                                                                                                             | Recipient readiness, composer enablement, rendered comparison and physical device evidence remain outstanding.               |
+| 9, 16: evidence and qualification                       | Focused offline tests use one worker and a 1 GiB Node heap. Real Git/SQLite/app/ordinary owners remain; only external source/account/runtime declarations and native RPC are synthetic. Local dependencies reuse the accepted release, including its native SQLite owner.         | Exact-head review/CI, source acceptance, live account/runtime qualification and production activation are separate.          |
+
+Core test command: `NODE_OPTIONS=--max-old-space-size=1024 node node_modules/vitest/vitest.mjs run server/__tests__/collaboration-application-messaging.test.ts --maxWorkers=1 --no-cache`.
+The three inherited review/durable-read/join cases and new prompt/reply case pass.
+Final focused regression run: 190 tests pass across 14 files, one worker/1 GiB.
+Protocol/harness/client TypeScript builds, focused semantic checks of five server
+modules, ESLint and registered source fingerprint checks pass. Full server builds
+and broader tests remain CI responsibilities under the local memory limit.
+The first integration attempt stopped at the sandbox's loopback listener fence;
+network permission was then granted for the offline HTTP fixture. Broader existing
+owned-chat regressions initially hit protected host defaults; rerunning with
+temporary `MITZO_CODEX_PRIVATE_DIR` and `MITZO_INTERNAL_TOKEN_PATH` passed.
+No permission guard or assertion was weakened to access host configuration.
+
+Landing fixes for Centaur review `5811819783` preserve one command owner for every
+queued context packet and refuse overlapping unclaimed reply intent before accepting
+a new message. Delayed ACKs in either order and concurrent partial fan-out are covered.
+Follow-up review `5811912577` verified those three fixes and identified
+`CEN-CC5FB78CE31F`: concurrent identical fan-out requests could race the new guard.
+The dispatcher now renews the exact request receipt after context preparation,
+before applying that guard. A delayed-first-recipient regression preserves one
+message and one command per recipient for both concurrent callers.
+Reconciliation skips hidden/unlinked responders and defers oversized ordinary history
+without suppressing unrelated integrity errors. Existing timer/peer dispatch retains
+tool-failure continuation. The actual-app case also preserves the shared transcript
+after hiding its already projected responder. The non-blocking lifecycle cleanup
+follow-up `CEN-864F4410A950` remains open: definitive preparation failure and owner
+teardown need bounded callback cleanup while uncertain queued commands retain fences.
+
+Broader CI run `42368546667` exposed a test-observer failure in the unchanged
+Telos advisor-refine journey: a failed browser response-body read was represented
+as the string `<unavailable>`, which permanently poisoned JSON readiness parsing.
+The observer now retains a null body; complete real metadata/messages, destination
+selection, loading-state assertions and the ten-second deadline remain required.
+Actual malformed JSON remains a failure. Twenty-five focused readiness/setup tests
+pass, including failed-read recovery and both negative controls. Restoring only
+the original marker makes the positive regression fail; the corrected source is
+restored exactly afterward. A local attempt at the actual browser journey stopped
+at Chromium's macOS Mach-port sandbox permission fence before its assertions, so
+it is not positive application evidence. The retained browser journey remains a CI
+gate. Body-read failure is observed; its underlying cause was not retained.
+
+The omission control temporarily removes only `messaging: collaborationMessaging`
+from the real app mount and restores the exact source in a finally block. Its raw
+receipt is retained in the task checkout's `.scratch/messaging-owner-omission.txt`.
+An earlier control failed before app initialization because the local native SQLite
+dependency was absent; that invalid control is retained separately, not counted as
+owner-omission evidence. The release's existing native dependency was reused before
+the valid control. This is implementation self-verification, not independent review.
+
+### Landing integration with accepted main 0ea37beb
+
+The prior candidate `736993dbe87368291ada8436389e84ebf828748d` passed all 33
+CI jobs in run `42369675317`, including the actual advisor-refine browser journey,
+and received trusted Centaur final LGTM/merge review `5812085243`. Main then
+advanced to accepted `0ea37bebba1528025f14b0d2ae099f0eefa69067` (PR #1254),
+which retains ordinary-session tool authentication across browser disconnects.
+The application code merged automatically. The sole registry conflict preserves
+both sets of registered sources, adds the accepted session-library operator test,
+and renews all fingerprints with runtime revision
+`v1.0.942-symposium-directed-prompts-integration`.
+
+Read-only correctness/security integration reviews found no blocker in the
+combined session ownership, revocation, queue and dispatch fences. Focused semantic
+checks report zero diagnostics across six affected production modules. Combined
+local regressions record 287 passes, 11 skips and 19 failures across 19 files;
+all failures occur in the native AgentCommunication fixture during owned-runtime
+admission (`Owned local Codex runtime unavailable`), before those assertions.
+The other 18 files pass. This is not counted as a green local suite or evidence
+that the failed native cases work. Fresh combined-result CI and targeted Centaur
+integration verification remain required on the published merge candidate; the
+prior head's approval does not satisfy those gates.
+
 ## Executed application baseline
 
 Accepted main `dcbad645a3179731de96957299bb775eb094bff8`, tree

@@ -7,13 +7,22 @@ import { apiFetch, AUTH_LOST_EVENT, AUTH_RESTORED_EVENT } from '../lib/api-fetch
 import { MotionPresence } from './MotionPresence';
 
 const names = {
-  development: 'Development networking',
+  development: 'Development commands and networking',
   'github-read': 'GitHub repository reads',
+  'google-read': 'Google Workspace reads',
+  'telos-progress': 'Telos progress',
   'public-web': 'Public websites',
 };
 function grantName(capability: SessionCapability) {
   return (
-    names[capability.kind] + (capability.kind === 'github-read' ? `: ${capability.repository}` : '')
+    names[capability.kind] +
+    (capability.kind === 'github-read'
+      ? `: ${capability.repository}`
+      : capability.kind === 'google-read'
+        ? `: ${capability.email} · ${capability.resource.kind === 'drive-list' ? 'Drive file listing' : capability.resource.id}`
+        : capability.kind === 'telos-progress'
+          ? `: ${capability.itemId}`
+          : '')
   );
 }
 function GrantControls({ sessionId, connected }: { sessionId: string; connected: boolean }) {
@@ -21,6 +30,11 @@ function GrantControls({ sessionId, connected }: { sessionId: string; connected:
   const [selected, setSelected] = useState([sessionId]);
   const [kind, setKind] = useState<SessionCapability['kind']>('public-web');
   const [repository, setRepository] = useState('');
+  const [scope, setScope] = useState<'sessions' | 'repository' | 'operator'>('sessions');
+  const [email, setEmail] = useState('');
+  const [resourceKind, setResourceKind] = useState<'file' | 'drive-list' | 'calendar'>('file');
+  const [resourceId, setResourceId] = useState('');
+  const [itemId, setItemId] = useState('');
   const [minutes, setMinutes] = useState(60);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -84,14 +98,29 @@ function GrantControls({ sessionId, connected }: { sessionId: string; connected:
     };
   }, [refresh, sessionId]);
   const stale = !data || now - data.observedAt > 30000;
-  const eligible = data?.sessions.filter((s) => kind !== 'development' || s.development) ?? [];
+  const source = data?.sessions.find((s) => s.sessionId === sessionId);
+  const localOnly = ['development', 'google-read', 'telos-progress'].includes(kind);
+  const eligible =
+    data?.sessions.filter(
+      (s) =>
+        (!localOnly || s.development) &&
+        (scope === 'sessions' || s.account === source?.account) &&
+        (scope !== 'repository' || (!!s.repository && s.repository === source?.repository)),
+    ) ?? [];
   const canCreate =
     connected &&
     !busy &&
     !error &&
     !stale &&
     selected.every((id) => eligible.some((s) => s.sessionId === id)) &&
-    (kind !== 'github-read' || /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(repository));
+    (kind !== 'github-read' || /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(repository)) &&
+    (kind !== 'telos-progress' || itemId.trim().length > 0) &&
+    (kind !== 'google-read' ||
+      (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) &&
+        (resourceKind === 'drive-list' ||
+          (resourceKind === 'file' ? /^[A-Za-z0-9_-]{1,256}$/ : /^[A-Za-z0-9_@.\-+]{1,256}$/).test(
+            resourceId,
+          ))));
   async function mutate(method: 'POST' | 'DELETE', grantId?: string) {
     if (!data || busy || error || !connected || Date.now() - data.observedAt > 30000) return;
     if (method === 'POST' && !canCreate) return;
@@ -109,7 +138,20 @@ function GrantControls({ sessionId, connected }: { sessionId: string; connected:
     }, 15000);
     try {
       const capability: SessionCapability =
-        kind === 'github-read' ? { kind, repository } : { kind };
+        kind === 'github-read'
+          ? { kind, repository }
+          : kind === 'google-read'
+            ? {
+                kind,
+                email,
+                resource:
+                  resourceKind === 'drive-list'
+                    ? { kind: resourceKind }
+                    : { kind: resourceKind, id: resourceId },
+              }
+            : kind === 'telos-progress'
+              ? { kind, itemId: itemId.trim() }
+              : { kind };
       const response = await apiFetch(grantId ? `${path}/${encodeURIComponent(grantId)}` : path, {
         method,
         signal: controller.signal,
@@ -120,6 +162,7 @@ function GrantControls({ sessionId, connected }: { sessionId: string; connected:
                 sessionIds: selected,
                 capability,
                 durationMinutes: minutes,
+                ...(scope !== 'sessions' ? { scope } : {}),
                 expectedContexts: Object.fromEntries(
                   data.sessions
                     .filter((s) => selected.includes(s.sessionId))
@@ -148,13 +191,16 @@ function GrantControls({ sessionId, connected }: { sessionId: string; connected:
   return (
     <div className="reusable-access">
       <p>
-        Grants apply only to the selected conversations, accounts and workspaces until the displayed
-        expiry. They end on account or workspace changes and server restart.
+        Choose where access can be reused and when it expires. Repository access includes future
+        chats and managed workspaces for that repository and AI account. Read and progress access
+        can be shared with future chats using this login and AI account. All grants end on server
+        restart.
       </p>
       <p>
-        Development networking adds no folders. Public websites covers credential-free public HTTPS
-        reads; searches, private destinations and authenticated browsing keep their approvals.
-        Publication, merge and deployment keep their own approvals.
+        Development access covers project commands, tests, builds, local commits and networking
+        inside each chat’s admitted folders. Task execution inherits it. Google access covers the
+        chosen account and resource; Telos progress covers evidence notes and status updates for the
+        chosen item. Publication, merge and deployment keep their own approvals.
       </p>
       {error && <p role="alert">{error}</p>}
       {notice && <p role="status">{notice}</p>}
@@ -180,12 +226,15 @@ function GrantControls({ sessionId, connected }: { sessionId: string; connected:
               value={kind}
               onChange={(event) => {
                 setKind(event.target.value as SessionCapability['kind']);
+                setScope('sessions');
                 setSelected([sessionId]);
               }}
             >
               <option value="public-web">Public websites</option>
               <option value="github-read">GitHub repository reads</option>
-              <option value="development">Development networking (Local Codex)</option>
+              <option value="development">Development commands and networking (Local Codex)</option>
+              <option value="google-read">Google Workspace reads (Local Codex)</option>
+              <option value="telos-progress">Telos progress (Local Codex lead)</option>
             </select>
           </label>
           {kind === 'github-read' && (
@@ -198,6 +247,76 @@ function GrantControls({ sessionId, connected }: { sessionId: string; connected:
                 onChange={(event) => setRepository(event.target.value)}
               />
             </label>
+          )}
+          {kind === 'google-read' && (
+            <>
+              <label>
+                Google account email
+                <input
+                  type="email"
+                  value={email}
+                  maxLength={320}
+                  onChange={(e) => setEmail(e.target.value)}
+                />
+              </label>
+              <label>
+                Google resource
+                <select
+                  value={resourceKind}
+                  onChange={(e) => setResourceKind(e.target.value as typeof resourceKind)}
+                >
+                  <option value="file">One file (Drive, Docs, Sheets or Slides)</option>
+                  <option value="drive-list">Drive file listing</option>
+                  <option value="calendar">One calendar</option>
+                </select>
+              </label>
+              {resourceKind !== 'drive-list' && (
+                <label>
+                  Resource ID
+                  <input
+                    value={resourceId}
+                    maxLength={256}
+                    onChange={(e) => setResourceId(e.target.value)}
+                  />
+                </label>
+              )}
+              <p>
+                File access includes its content. Drive listing covers file metadata across this
+                account. Calendar access covers events in the chosen calendar.
+              </p>
+            </>
+          )}
+          {kind === 'telos-progress' && (
+            <label>
+              Telos item ID
+              <input value={itemId} maxLength={200} onChange={(e) => setItemId(e.target.value)} />
+            </label>
+          )}
+          <label>
+            Reuse in
+            <select
+              value={scope}
+              onChange={(e) => {
+                setScope(e.target.value as typeof scope);
+                setSelected([sessionId]);
+              }}
+            >
+              <option value="sessions">Selected conversations only</option>
+              {kind === 'development' && (
+                <option value="repository" disabled={!source?.repository}>
+                  This repository, including future chats
+                </option>
+              )}
+              {['github-read', 'google-read', 'telos-progress'].includes(kind) && (
+                <option value="operator">This login and AI account, including future chats</option>
+              )}
+            </select>
+          </label>
+          {kind === 'development' && !source?.repository && (
+            <p>
+              Repository sharing requires a managed repository workspace. Selected-conversation
+              access is available here.
+            </p>
           )}
           <fieldset disabled={busy || stale || !connected}>
             <legend>Selected sessions</legend>
@@ -253,6 +372,13 @@ function GrantControls({ sessionId, connected }: { sessionId: string; connected:
           {data.grants.map((grant) => (
             <div className="reusable-access-grant" key={grant.id}>
               <strong>{grantName(grant.capability)}</strong>
+              {grant.scope && grant.scope !== 'sessions' && (
+                <p>
+                  {grant.scope === 'repository'
+                    ? 'This repository and AI account, including future chats'
+                    : 'This login and AI account, including future chats'}
+                </p>
+              )}
               <p>
                 {grant.sessionIds
                   .map((id) => data.sessions.find((s) => s.sessionId === id)?.title ?? id)

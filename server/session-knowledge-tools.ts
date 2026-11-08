@@ -9,6 +9,7 @@ import {
   type SessionRegistry,
 } from '@mitzo/harness';
 import { captureAgentLibraryAuthorization } from './agent-library-transport.js';
+import { sessionToolOperatorConnection } from './native-host-tool-operator.js';
 import { agentToolAllowed } from './agent-tool-selection.js';
 import type { KnowledgeLibraryRuntime } from './knowledge-library-runtime.js';
 import { KnowledgeDraftConflict } from './knowledge-draft-store.js';
@@ -82,8 +83,10 @@ export function sessionKnowledgeTools(
       try {
         const selectedLoader = loader;
         const account = structuredClone(session.accountBinding);
-        const connectionId =
-          session.ownerConnectionId ?? registry.findBySessionId(sessionId)?.clientId.split(':')[0];
+        const initial = registry.findBySessionId(sessionId);
+        if (!initial || initial.session !== session)
+          throw new KnowledgeToolProblem('Original Knowledge session unavailable.');
+        const connectionId = sessionToolOperatorConnection(session, initial.clientId);
         const authority = captureAgentLibraryAuthorization(connectionId);
         signal = AbortSignal.any([signal, session.abortController.signal]);
         const assert = () => {
@@ -95,7 +98,7 @@ export function sessionKnowledgeTools(
             !owner ||
             owner.session !== session ||
             registry.get(owner.clientId) !== session ||
-            (session.ownerConnectionId ?? owner.clientId.split(':')[0]) !== connectionId ||
+            sessionToolOperatorConnection(session, owner.clientId) !== connectionId ||
             !isDeepStrictEqual(session.accountBinding, account) ||
             loader !== selectedLoader ||
             !agentToolAllowed(session, name) ||

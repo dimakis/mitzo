@@ -67,6 +67,33 @@ public actor MitzoAPIClient {
 
     private struct NotificationResponseResult: Decodable { let ok: Bool }
 
+    private func sourcePermissionPath(_ permId: String) throws -> String {
+        let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "-_:"))
+        guard !permId.isEmpty, permId.unicodeScalars.allSatisfy({ allowed.contains($0) }) else { throw APIError.invalidResponse }
+        return "/api/telos/work/source/permissions/\(permId)"
+    }
+    public func getSourceReview(permId: String, sessionId: String, before: Int? = nil) async throws -> WatchSourceReview {
+        var query = [URLQueryItem(name: "sessionId", value: sessionId)]
+        // Begin with the latest exchange; older pages retain the host's cursor.
+        query.append(URLQueryItem(name: "beforeSequence", value: before.map(String.init) ?? "9007199254740991"))
+        return try await get(path: sourcePermissionPath(permId), query: query, timeout: 10)
+    }
+    public func previewSourceReview(permId: String, input: WatchSourceInput) async throws -> WatchSourcePreview {
+        try await get(path: sourcePermissionPath(permId) + "/preview", method: "POST", body: JSONEncoder().encode(input), timeout: 20)
+    }
+    public func getSourceMaterials(permId: String, input: WatchSourceMaterialsInput) async throws -> WatchSourceMaterialsPage {
+        let after = String(decoding: try JSONEncoder().encode(input.after), as: UTF8.self)
+        return try await get(path: sourcePermissionPath(permId) + "/materials", query: [
+            URLQueryItem(name: "sessionId", value: input.sessionId),
+            URLQueryItem(name: "toolUseId", value: input.toolUseId),
+            URLQueryItem(name: "proposalSha256", value: input.proposalSha256),
+            URLQueryItem(name: "after", value: after)
+        ], timeout: 10)
+    }
+    public func approveSourceReview(permId: String, input: WatchSourceInput) async throws -> WatchSourceReceipt {
+        try await get(path: sourcePermissionPath(permId) + "/approve", method: "POST", body: JSONEncoder().encode(input), timeout: 20)
+    }
+
     public func replyToNotification(sessionID: String, text: String) async throws {
         struct Reply: Encodable {
             let sessionId: String

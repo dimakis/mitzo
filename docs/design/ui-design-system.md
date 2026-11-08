@@ -1,5 +1,17 @@
 # Mitzo UI design contract
 
+## Native Watch approvals
+
+Watch approval details use native SwiftUI system typography, scrolling, labelled
+buttons, toggles and text/secure fields. Full request details precede decisions;
+once-only, session and durable conversation scopes retain distinct labels. Questions
+support native dictation and original option IDs. Telos source review preserves
+host selection/preview receipts and exact-request recovery rather than substituting
+a generic Allow button. Busy/expired states and server errors remain explicit.
+The existing web appearance and approved-design references are unchanged. See
+[coverage and device acceptance](../features/watch-approval-types.md) for the native
+SDK checks and the remaining physical-device/visual verification.
+
 ## Agent-created ordinary sessions
 
 An agent's session proposal appears as a compact quiet card in its originating
@@ -39,6 +51,10 @@ MotionPresence, grouped access cards and shared controls. Session checkboxes sho
 the account, mode and workspace being approved. Capability and duration selectors
 use semantic tokens, the shared type/spacing/radius scales and control height.
 Active grants show their sessions, absolute expiry and a labelled revoke action.
+Reuse in adds repository and same-login/account scope choices inside the existing
+card. Google account/resource and Telos item fields use the shared labelled inputs
+and selects. The active grant identifies its exact resource and reuse scope. No
+new surface, palette, spacing scale or approved-settings layout is introduced.
 Authentication changes discard observations; unavailable, expired and uncertain
 states require an explicit refresh. The approved Chat settings layout remains
 unchanged. The intercepted `session-access` fixture covers keyboard actions,

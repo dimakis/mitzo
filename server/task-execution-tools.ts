@@ -13,6 +13,7 @@ import {
   captureAgentLibraryOperation,
 } from './agent-library-transport.js';
 import { agentToolAllowed } from './agent-tool-selection.js';
+import { sessionToolOperatorConnection } from './native-host-tool-operator.js';
 import type { ProfileToolCall } from './session-profile-tools.js';
 import { taskExecutionSchema } from './task-execution-definitions.js';
 import { getTaskExecutionStore } from './task-execution-runtime.js';
@@ -23,6 +24,10 @@ import { assertTaskOperator, memberScope, publicGrant } from './task-execution-s
 import { executeTaskOperation } from './task-execution-operation.js';
 import { taskExecutionFailure, TaskExecutionRefusal } from './task-execution-failure.js';
 import { retainCallbackOutcome } from './turn-callbacks.js';
+import {
+  captureTaskCapabilityConsent,
+  currentTaskCapabilityConsent,
+} from './task-capability-consent.js';
 const log = createLogger('task-execution');
 /** One host adapter for SDK/Vertex, Responses and native Local/OpenShell calls.
  * A grant ID is only a locator; signed operator and actual workspace identity
@@ -71,7 +76,7 @@ export function sessionTaskExecutionTools(options: {
           return current;
         };
         const source = owner();
-        const connectionId = source.session.ownerConnectionId ?? source.clientId.split(':')[0];
+        const connectionId = sessionToolOperatorConnection(source.session, source.clientId);
         const captured = captureAgentLibraryAuthorization(connectionId);
         assertTaskOperator(session, captured.auth.id);
         operation = captureAgentLibraryOperation(connectionId);
@@ -86,7 +91,7 @@ export function sessionTaskExecutionTools(options: {
           captured.assertCurrent();
           assertTaskOperator(session, captured.auth.id);
           const next = owner();
-          if ((next.session.ownerConnectionId ?? next.clientId.split(':')[0]) !== connectionId)
+          if (sessionToolOperatorConnection(next.session, next.clientId) !== connectionId)
             throw Error('Task operator changed');
           return next;
         };
@@ -96,6 +101,14 @@ export function sessionTaskExecutionTools(options: {
         if (input.operation === 'status') {
           const grants = store
             .active(captured.auth.id, sessionId)
+            .filter((grant) => {
+              try {
+                currentTaskCapabilityConsent(registry, grant, sessionId).assertCurrent();
+                return true;
+              } catch {
+                return false;
+              }
+            })
             .filter((grant) =>
               grant.members.some(
                 (member) =>
@@ -138,8 +151,7 @@ export function sessionTaskExecutionTools(options: {
               registry.isClosingOut(target.clientId)
             )
               throw Error('Selected task worker is not live');
-            const peerConnection =
-              target.session.ownerConnectionId ?? target.clientId.split(':')[0];
+            const peerConnection = sessionToolOperatorConnection(target.session, target.clientId);
             const peer = captureAgentLibraryAuthorization(peerConnection);
             peer.assertCurrent();
             if (peer.auth.id !== captured.auth.id)
@@ -156,7 +168,7 @@ export function sessionTaskExecutionTools(options: {
           )
             throw Error('Task roots must not contain the controller authorization database');
           const previous = store.findApprovedRequest(captured.auth.id, sessionId, input.requestId);
-          const scope: TaskExecutionScope = {
+          let scope: TaskExecutionScope = {
             title: input.title,
             network: input.network ?? 'none',
             durationMinutes: input.durationMinutes ?? 240,
@@ -169,12 +181,24 @@ export function sessionTaskExecutionTools(options: {
                 Date.now() + (input.durationMinutes ?? 240) * 60_000,
               ),
           };
+          const inherited = !previous ? captureTaskCapabilityConsent(registry, scope) : undefined;
+          if (previous?.inheritedGrants)
+            scope = { ...scope, inheritedGrants: previous.inheritedGrants };
+          if (inherited)
+            scope = {
+              ...scope,
+              inheritedGrants: inherited.inheritedGrants,
+              expiresAt: inherited.expiresAt,
+            };
           const assertScope = () => {
             current();
+            inherited?.assertCurrent();
+            if (scope.inheritedGrants)
+              currentTaskCapabilityConsent(registry, scope).assertCurrent();
             if (!isDeepStrictEqual(members, memberIds.map(selectedMember)))
               throw Error('Selected task workspace scope changed during approval');
           };
-          if (!previous) {
+          if (!previous && !inherited) {
             const display = {
               ...scope,
               permissions:
@@ -220,12 +244,15 @@ export function sessionTaskExecutionTools(options: {
           current();
           if (effectivePermissionMode(session) === 'ask')
             throw Error('Task execution is blocked by Ask mode');
-          return store.assertGrant(
+          const authorized = store.assertGrant(
             input.grantId!,
             captured.auth.id,
             sessionId,
             memberScope(sessionId, session).fingerprint,
           );
+          if (input.operation !== 'revoke')
+            currentTaskCapabilityConsent(registry, authorized, sessionId).assertCurrent();
+          return authorized;
         };
         const grant = assertGrant();
         if (input.operation === 'revoke') {
@@ -243,7 +270,10 @@ export function sessionTaskExecutionTools(options: {
           clientId: current().clientId,
           call,
           store,
-          signal,
+          signal: AbortSignal.any([
+            signal,
+            currentTaskCapabilityConsent(registry, grant, sessionId).signal,
+          ]),
           assertGrant,
           assertRuntimeCurrent: options.assertRuntimeCurrent,
           onDispatch: () => {

@@ -90,3 +90,12 @@ The six feature browser cases did not run; no new screenshots or visual acceptan
 are claimed. Hosted browser CI remains required. No live backend, model calls,
 staging or deployment was used. Both saved mockup revisions remain intact, with
 `v002.html` at 2,240,120 bytes (2.14 MiB).
+
+Main subsequently advanced to `8c5512ea`, creating a manifest conflict and blocking
+PR CI. Integrated that accepted base, retained its reusable-access capabilities
+and browser coverage alongside this PR's discoverability changes, and regenerated
+the manifest against the combined source under runtime revision
+`v1.0.949-chat-ui-usability`. Only generated manifest entries conflicted. Combined
+source verification and 144 focused component/ordering/design/preflight tests
+pass, including the upstream reusable-grant controls; one existing test is skipped.
+All 186 API route regressions also pass on the combined tree.

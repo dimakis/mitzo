@@ -10,6 +10,7 @@ import {
 } from '@mitzo/protocol';
 import { agentToolAllowed } from './agent-tool-selection.js';
 import { captureAgentLibraryAuthorization } from './agent-library-transport.js';
+import { sessionToolOperatorConnection } from './native-host-tool-operator.js';
 import { custodianControllerClient } from './symposium-custodian-mode.js';
 import { getAgentTasks } from './agent-task-runtime.js';
 import { SymposiumProfileProposalStore } from './symposium-profile-proposals.js';
@@ -64,11 +65,11 @@ export function sessionAgentTaskTools(
           return owner;
         };
         const initial = current();
-        const connectionId = initial.session.ownerConnectionId ?? initial.clientId.split(':')[0];
+        const connectionId = sessionToolOperatorConnection(initial.session, initial.clientId);
         const captured = captureAgentLibraryAuthorization(connectionId);
         const verify = () => {
           const next = current();
-          if ((next.session.ownerConnectionId ?? next.clientId.split(':')[0]) !== connectionId)
+          if (sessionToolOperatorConnection(next.session, next.clientId) !== connectionId)
             throw Error('Task operator changed during the request');
           captured.assertCurrent();
         };

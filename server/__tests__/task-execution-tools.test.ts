@@ -11,6 +11,8 @@ import {
 import { TaskExecutionStore } from '../task-execution-store.js';
 import { sessionTaskExecutionTools } from '../task-execution-tools.js';
 import { revokeAuthSession } from '../auth.js';
+import { retainNativeHostToolOperator } from '../native-host-tool-operator.js';
+import { SessionCapabilityGrants } from '../session-capability-grants.js';
 
 const execution = vi.hoisted(() => ({
   waitForAbort: false,
@@ -35,6 +37,62 @@ vi.mock('../native-tool-executor.js', () => ({
     },
 }));
 const cleanup: Array<() => void> = [];
+it('inherits development consent for command variants and stops on its revocation', async () => {
+  const f = fixture();
+  const parent = f.registry.findBySessionId('parent')!.session;
+  parent.accountBinding = {
+    accountId: 'a',
+    accountLabel: 'Offline',
+    provider: 'openai-codex',
+    model: 'm',
+    profileRevision: 'r',
+  };
+  const grants = new SessionCapabilityGrants(f.registry);
+  const consent = grants.create('operator', {
+    sessionIds: ['parent'],
+    capability: { kind: 'development' },
+    durationMinutes: 60,
+  });
+  const approved = await f
+    .tools('parent')
+    .execute({ ...f.request, memberSessionIds: [], repositories: [] }, f.signal, f.call);
+  expect(approved.isError).toBe(false);
+  expect(f.sent.filter((event) => event.type === 'permission_request')).toHaveLength(0);
+  const grant = JSON.parse(approved.content).grant;
+  for (const command of ['npm test', 'npm run build']) {
+    expect(
+      (
+        await f
+          .tools('parent')
+          .execute(
+            { operation: 'run', grantId: grant.id, requestId: randomUUID(), command },
+            f.signal,
+            f.call,
+          )
+      ).isError,
+    ).toBe(false);
+  }
+  await grants.revoke('operator', 'parent', consent.id);
+  expect(
+    JSON.parse((await f.tools('parent').execute({ operation: 'status' }, f.signal)).content).grants,
+  ).toEqual([]);
+  expect(
+    (
+      await f
+        .tools('parent')
+        .execute(
+          { operation: 'run', grantId: grant.id, requestId: randomUUID(), command: 'npm test' },
+          f.signal,
+          f.call,
+        )
+    ).isError,
+  ).toBe(true);
+  expect(execution.calls).toHaveLength(2);
+  expect(
+    (await f.tools('parent').execute({ operation: 'revoke', grantId: grant.id }, f.signal, f.call))
+      .isError,
+  ).toBe(false);
+});
 afterEach(() => {
   cleanup
     .splice(0)
@@ -99,6 +157,29 @@ function fixture(auth = { id: 'operator', expiresAt: Date.now() + 600_000 }) {
   }
   return { root, store, registry, sent, tools, call, signal, request, authorize, auth };
 }
+it('authorizes detached retained workers and executes their grant after viewer replacement', async () => {
+  const f = fixture({ id: randomUUID(), expiresAt: Date.now() + 600000 });
+  for (const id of ['parent', 'worker']) {
+    const session = f.registry.findBySessionId(id)!.session;
+    cleanup.push(retainNativeHostToolOperator(session, id));
+    session.ownerConnectionId = 'disconnected-' + id;
+  }
+  const grant = await f.authorize();
+  const result = await f.tools('worker').execute(
+    {
+      operation: 'run',
+      grantId: grant.id,
+      requestId: randomUUID(),
+      command: 'npm test',
+    },
+    f.signal,
+    f.call,
+  );
+  expect(result.isError, result.content).toBe(false);
+  expect(execution.calls).toHaveLength(1);
+  revokeAuthSession(f.auth);
+  expect((await f.tools('worker').execute({ operation: 'status' }, f.signal)).isError).toBe(true);
+});
 it.each(['disconnected', 'expired'])(
   'explains %s operator authentication without circular status recovery',
   async (reason) => {

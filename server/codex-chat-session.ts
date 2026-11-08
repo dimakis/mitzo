@@ -8,6 +8,7 @@ import {
 import { assembleReplyText, captureMessageReply } from './message-reply-context.js';
 import { sessionLocalServiceTools } from './session-local-service-tools.js';
 import { sessionGoogleWorkspaceTools } from './session-google-workspace-tools.js';
+import { captureTelosProgressConsent } from './telos-progress-consent.js';
 import { AdviserTaskScope } from './adviser-task-scope.js';
 import { reportRetainedRuntimeFailure } from './retained-runtime-failure.js';
 import type { CodexToolResult } from './codex-tool-result.js';
@@ -68,6 +69,7 @@ import {
 } from './telos-work-control-tools.js';
 import { sessionAgentTaskTools, agentTaskToolDefinitions } from './session-agent-task-tools.js';
 import { sessionPromptTools } from './session-prompt-tools.js';
+import { sessionToolOperatorConnection } from './native-host-tool-operator.js';
 import { watchAgentMessageTranscript } from './agent-message-transcript.js';
 import { createAgentMessageApprover } from './agent-communication-permission.js';
 import { sessionPromptDefinitions } from './session-prompt-definitions.js';
@@ -1956,6 +1958,7 @@ async function openCodexChatBound(
       })
     : undefined;
   const googleReadOutputScope = createHash('sha256').update(randomUUID()).digest('hex');
+  const googleRetainedConsent = new Map<string, () => void>();
   const localServiceTools = options.ownedLocal
     ? sessionLocalServiceTools({
         sessionId: options.conversationId,
@@ -3300,20 +3303,28 @@ async function openCodexChatBound(
       if (name === 'GoogleWorkspaceRead' && googleWorkspaceTools) {
         callContext.assertCurrentSync?.();
         assertAgentToolSelected(options.session, name);
-        const result = await googleWorkspaceTools.execute(input, signal);
+        let consentCurrent = () => {};
+        const result = await googleWorkspaceTools.execute(input, signal, (current) => {
+          consentCurrent = current;
+          callContext.registerResponseFence?.(current);
+        });
         callContext.assertCurrentSync?.();
         if (result.isError) return result;
         return {
           ...result,
-          content: projectToolOutput(result.content, (full) =>
-            privateStorage.retainToolOutput(
+          content: projectToolOutput(result.content, (full) => {
+            const retained = privateStorage.retainToolOutput(
               options.conversationId,
               options.binding,
               name,
               full,
               googleReadOutputScope,
-            ),
-          ),
+            );
+            googleRetainedConsent.set(retained, consentCurrent);
+            while (googleRetainedConsent.size > 8)
+              googleRetainedConsent.delete(googleRetainedConsent.keys().next().value!);
+            return retained;
+          }),
         };
       }
       if (options.adviserScope) throw new CodexToolFailure('permission_denied');
@@ -3408,6 +3419,10 @@ async function openCodexChatBound(
           if (!googleWorkspaceTools || output.sourceScope !== googleReadOutputScope)
             throw new CodexToolFailure('stale_owner');
           await googleWorkspaceTools.assertCurrent();
+          const consent = googleRetainedConsent.get(request.data.outputId);
+          if (!consent) throw new CodexToolFailure('stale_owner');
+          consent();
+          callContext.registerResponseFence?.(consent);
         } else if (output.toolName === 'GitHubRead') {
           assertHostCurrentSync();
           const original = githubRetainedReads.get(request.data.outputId);
@@ -3913,7 +3928,7 @@ async function openCodexChatBound(
           context = signed;
           dispose = () => signed.dispose();
         } else {
-          const operatorConnectionId = owner.session.ownerConnectionId ?? owner.clientId;
+          const operatorConnectionId = sessionToolOperatorConnection(owner.session, owner.clientId);
           const authorization = captureAgentLibraryAuthorization(operatorConnectionId);
           const operation = captureAgentLibraryOperation(operatorConnectionId);
           dispose = operation.dispose;
@@ -3928,7 +3943,8 @@ async function openCodexChatBound(
             if (
               !mainPublicationRuntime.supportsHost(options.registry, options.eventStore) ||
               options.registry.findBySessionId(options.conversationId)?.session !== owner.session ||
-              (owner.session.ownerConnectionId ?? owner.clientId) !== operatorConnectionId ||
+              sessionToolOperatorConnection(owner.session, owner.clientId) !==
+                operatorConnectionId ||
               (owner.session.ownedLocalAuthSessionId !== undefined &&
                 !ordinaryOperatorOwnsConversation(
                   owner.session.ownedLocalAuthSessionId,
@@ -3985,6 +4001,7 @@ async function openCodexChatBound(
         if (!mainPublicationRuntime || !nativeTelosTools.some((tool) => tool.name === name))
           throw Error('Original native Telos item tool unavailable');
         const context = captureSignedContext();
+        const progressConsent = captureTelosProgressConsent(options.session, name, input);
         try {
           await context.assertCurrent();
           const parsed = telosItemSchemas[name].safeParse(input);
@@ -3994,6 +4011,7 @@ async function openCodexChatBound(
             executeNativeTelosItemOperation(
               {
                 ...owners,
+                assertProgressConsent: progressConsent,
                 approve: async (toolName, parsedInput, permissionSignal) => {
                   await owners.context.assertCurrent();
                   const result = await buildPermissionHandler(context.clientId, options.registry, {
@@ -4006,7 +4024,16 @@ async function openCodexChatBound(
                         .update(JSON.stringify([context.turnId, context.callId, toolName]))
                         .digest('hex'),
                     forcePrompt: true,
-                    allowSessionGrant: false,
+                    allowSessionGrant: !!progressConsent,
+                    ...(progressConsent
+                      ? {
+                          sessionGrantKey: `telos-progress:${progressConsent.grantId}`,
+                          isRetainedSessionGrantCurrent: () => {
+                            progressConsent();
+                            return true;
+                          },
+                        }
+                      : {}),
                     approvalScope: 'request',
                     title:
                       toolName === 'TelosGetItem'
