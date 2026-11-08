@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.952-symposium-reusable-access-integration';
+  'v1.0.953-symposium-watch-cursor-integration';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -70,7 +70,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/ios/App/App/AppDelegate.swift':
     '748e3e35591d35896d6522a5d940781b35a99098def9075ba9dbd411e5406fdc',
   '../../frontend/ios/MitzoShared/Sources/MitzoShared/Networking/MitzoAPIClient.swift':
-    'd2c01bdcba6ba8e7fb6f5ca8e212a37be39f68c7fd0f407d9fb9d5fa2a37deaf',
+    '65f36a04df01bd5abced3ed060f7dedae67180218a68ca727f57021d9c338e4e',
   '../../frontend/ios/MitzoShared/Sources/MitzoShared/Networking/WatchRelay.swift':
     '3f2e00517fdd47f27ee21c0e0f7edf3ebefb21a6a21fbfb1b5ac99bdd370a637',
   '../../frontend/ios/MitzoShared/Sources/MitzoShared/Protocol/BackgroundApproval.swift':
@@ -102,7 +102,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/lib/push.ts':
     'bb85c01103c7f5983d619e6bfbc79aa49cddea1cf9fc79bc17b4eff56c9c81e9',
   '../../scripts/test-watch-approval-ui.py':
-    'b271347054e458c7d8a943936f41d483ffad8a210cc5c8383e10164c1dcd7ae9',
+    '855a416c89ef714384d904da2f0f7878d160ec9a01b5043bb73315b8a5bab287',
   '../__tests__/watch-approval-types.test.ts':
     '2aa5dad8331ca48635dc33132b1cafaaf17eb103db86e69732b51a5f959f339e',
   '../notification-actions.ts': '322bb97a4ebb174427372870c9b5215704387f6f587b987c7e3b6cb4fae2ee44',
