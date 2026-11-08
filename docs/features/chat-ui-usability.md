@@ -61,7 +61,7 @@ token budgets, context selection, References, Runtime details, focus and retaine
 drafts. The source-bundled chat-ui-usability fixture needs no full application
 build, backend, credentials or model calls.
 
-Visual acceptance remains pending: the approved native Playwright command still
+Initial visual acceptance remained pending: the approved native Playwright command still
 carried the macOS Seatbelt marker, and the repository guard refused before browser
 launch. No browser was launched or screenshots inspected. The full frontend Vite
 build exhausted the required 1 GiB heap; full build/type and browser acceptance
@@ -69,3 +69,24 @@ remain CI checks. TaskExecution also lost operator authentication before a later
 run; its rejected operation did not start. Permitted native offline checks
 continued in the isolated task checkout. No live service, staging or deployment
 was used.
+
+### PR #1253 validation follow-up · 8 November 2026
+
+Reconciled the clean task checkout against the published PR head
+`dd3419a295860d159ea817cdc2b36270428b9ec7`. Hosted CI built the frontend and
+passed both server and frontend type checks. Preflight failed because this
+change had not refreshed the registered source fingerprints. Bumped the reviewed
+runtime revision and regenerated the 18 affected entries, retaining every
+registered source and the fingerprint verification gate. The source check now
+passes. The focused component, ordering, page, source-preflight and complete design
+guard run passes 149 tests with one existing skip, using one worker and a 1 GiB
+Node heap.
+
+TaskExecution authorization is available again. Its offline browser run initially
+could not locate the installed browsers in its temporary home. Selecting the
+existing host browser cache resolved that lookup, but WebKit startup timed out
+and Chromium process registration failed with macOS MachPort permission denied.
+The six feature browser cases did not run; no new screenshots or visual acceptance
+are claimed. Hosted browser CI remains required. No live backend, model calls,
+staging or deployment was used. Both saved mockup revisions remain intact, with
+`v002.html` at 2,240,120 bytes (2.14 MiB).
