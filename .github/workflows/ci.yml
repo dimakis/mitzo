@@ -353,6 +353,7 @@ jobs:
             test-results/offline/**/agent-messages-*.png
             test-results/offline/**/timer-*.png
             test-results/offline/**/sandbox-removal-*.png
+            test-results/offline/**/reusable-access-*.png
           retention-days: 7
           if-no-files-found: warn
 
@@ -367,6 +368,8 @@ jobs:
             test-results/offline/**/quick-sheet-*.png
             test-results/offline/**/prompt-preparation-*.png
             test-results/offline/**/composer-receipt-*.png
+            test-results/offline/**/session-launch-*.png
+            test-results/offline/**/session-defaults-*.png
           retention-days: 7
           if-no-files-found: ignore
 
@@ -467,6 +470,9 @@ jobs:
 
       - name: Test Watch receipt routing offline
         run: python3 scripts/test-watch-chat-receipts.py
+
+      - name: Typecheck complete Watch approval UI offline
+        run: python3 scripts/test-watch-approval-ui.py
 
       - name: Build iPhone app with Watch companion
         if: ${{ !cancelled() }}

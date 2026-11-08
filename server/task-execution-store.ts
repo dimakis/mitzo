@@ -10,6 +10,22 @@ export const TaskExecutionScopeSchema = z.strictObject({
   repositories: z.array(z.string().regex(/^[\w.-]+\/[\w.-]+$/)).max(20),
   expiresAt: z.number().int().positive().safe(),
   durationMinutes: z.number().int().min(1).max(480).optional(),
+  inheritedGrants: z
+    .array(
+      z.strictObject({
+        sessionId: z.string().min(1).max(200),
+        grantId: z.uuid(),
+        capability: z.discriminatedUnion('kind', [
+          z.strictObject({ kind: z.literal('development') }),
+          z.strictObject({
+            kind: z.literal('github-read'),
+            repository: z.string().regex(/^[\w.-]+\/[\w.-]+$/),
+          }),
+        ]),
+      }),
+    )
+    .max(420)
+    .optional(),
   members: z
     .array(
       z.strictObject({
@@ -42,6 +58,8 @@ const GrantSchema = TaskExecutionScopeSchema.extend({
 export type TaskExecutionGrant = z.infer<typeof GrantSchema>;
 const RunResult = z.strictObject({ content: z.string().max(131072), isError: z.boolean() });
 const hash = (value: unknown) => createHash('sha256').update(JSON.stringify(value)).digest('hex');
+/** An identical retry must retain the original command's unknown outcome. */
+export class UnsettledTaskExecutionError extends Error {}
 
 /** Consent is durable; it never makes an interrupted command safe to repeat.
  * The host must independently prove operator, runtime, mode and workspace
@@ -215,7 +233,7 @@ export class TaskExecutionStore {
         if (previous) {
           if (previous.fingerprint !== fingerprint) throw Error('Task execution request changed');
           if (previous.result === null)
-            throw Error(
+            throw new UnsettledTaskExecutionError(
               'Task execution outcome is uncertain; inspect the existing work before starting another run',
             );
           return {

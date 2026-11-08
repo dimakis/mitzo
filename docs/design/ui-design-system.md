@@ -1,5 +1,65 @@
 # Mitzo UI design contract
 
+## Native Watch approvals
+
+Watch approval details use native SwiftUI system typography, scrolling, labelled
+buttons, toggles and text/secure fields. Full request details precede decisions;
+once-only, session and durable conversation scopes retain distinct labels. Questions
+support native dictation and original option IDs. Telos source review preserves
+host selection/preview receipts and exact-request recovery rather than substituting
+a generic Allow button. Busy/expired states and server errors remain explicit.
+The existing web appearance and approved-design references are unchanged. See
+[coverage and device acceptance](../features/watch-approval-types.md) for the native
+SDK checks and the remaining physical-device/visual verification.
+
+## Agent-created ordinary sessions
+
+An agent's session proposal appears as a compact quiet card in its originating
+chat. Review uses the shared `HomeDialog`, existing account/model, agent and
+execution pickers, semantic colors, type/spacing/radius scales and shared controls.
+Title, handoff and configuration are editable before **Approve & start**; saving
+the configuration as the persistent default is an explicit separate choice. The
+original composer and draft remain mounted and approval does not navigate away.
+
+The existing Run on editor includes a labelled Execution host control using the
+shared native select and semantic styles. It lists only server-observed routes
+for the selected account and environment. The exact saved host remains visible
+when unavailable, and selecting the same environment preserves it. Bound chats
+keep the host locked. This adds host review inside the existing field editor;
+the approved settings row order, environment cards and header stay intact.
+
+The receipt distinguishes waiting for approval, created, starting, started,
+cancelled, failed and unconfirmed states. **Open chat** uses the existing
+`UiIcon` arrow geometry with a labelled touch-sized link. The new conversation
+shows a named **Started from** link above its handoff and in existing Session
+details. No emoji, second settings theme or change to the approved Chat settings
+hierarchy is introduced. Uncertain mutations expose a read-only **Check request**
+action rather than automatically repeating an approval.
+
+The all-intercept `session-launch` fixture checks the shared review and receipt
+on phone and desktop, dark Mint/System and light Teal/Georgia, including larger
+text, narrow wrapping, 44px controls, Escape/focus restoration, full Local Mac
+target retention and the original draft. These tests start no backend or model;
+browser execution and capture evidence must be reported separately from fixture
+availability.
+
+## Reusable access grants
+
+The existing Access dialog contains a Reusable access disclosure using
+MotionPresence, grouped access cards and shared controls. Session checkboxes show
+the account, mode and workspace being approved. Capability and duration selectors
+use semantic tokens, the shared type/spacing/radius scales and control height.
+Active grants show their sessions, absolute expiry and a labelled revoke action.
+Reuse in adds repository and same-login/account scope choices inside the existing
+card. Google account/resource and Telos item fields use the shared labelled inputs
+and selects. The active grant identifies its exact resource and reuse scope. No
+new surface, palette, spacing scale or approved-settings layout is introduced.
+Authentication changes discard observations; unavailable, expired and uncertain
+states require an explicit refresh. The approved Chat settings layout remains
+unchanged. The intercepted `session-access` fixture covers keyboard actions,
+phone/desktop, both themes, alternate appearance, 44px controls and draft retention.
+See [scope and validation evidence](../features/approval-modes-reusable-access.md).
+
 ## Native Codex subagents
 
 Keep one collapsed subagent count/status row within the spawning agent's activity.
@@ -54,8 +114,10 @@ and failures remain visible.
 A single existing Retry/continuation action remains directly available in that
 fixed row; multiple actions remain reachable through Review and details.
 
-This reuses UiIcon, WorkspaceActionMenu, HomeDialog and the existing queued draft
-tray. Send correction moves to Send options; the remaining toolbar icons, keyboard
+This reuses UiIcon, HomeDialog and the existing queued draft
+tray. Correction uses the direct, icon-only lightning button beside Queue and Stop;
+its accessible name and tooltip identify interrupt or native steering. No second
+Send options overflow or visible button label is added. The remaining toolbar icons, keyboard
 dispatch rules, message dates/copy/read-aloud controls and approved Chat settings
 stay intact. See [the feature and validation record](../features/chat-composer-status.md)
 and the `chat-status/above-composer-2026-11-04` ledger entry. The offline fixture
@@ -2587,7 +2649,14 @@ worker assignment or model execution. The original conversation stays provenance
 
 Ordinary chat preserves its existing header, model/account controls, toolbar icons
 and dispatch/error/retry notices. Queue, lightning (steer) and Stop use icon-only
-buttons with accessible names and tooltips. Expand grows the composer inline and
+buttons with accessible names and tooltips. The lightning action is directly
+reachable beside Queue and Stop, with restriction explanations in its tooltip.
+Native Codex corrections accept screenshots and images with the existing shared
+attachment limits. Context changes still require a new message. Exact attachment
+bytes remain part of the saved correction identity, including uncertain delivery
+checks, and cannot be replaced or sent to a successor turn on recovery.
+Dispatch guards release independently of animation frames; delivery receipts keep
+their existing duplicate-prevention authority. Expand grows the composer inline and
 uses the existing composer tools menu on narrow screens. Expanding or shrinking
 returns focus to the input and preserves its draft and reply selection.
 

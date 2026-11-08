@@ -118,6 +118,7 @@ Use native shell and file tools for permitted local work. Use the built-in nativ
 For an out-of-scope edit, request exact scoped native permissions first; durable file-change grantRoot is not supported. Do not retry an unchanged filesystem fence.
 Ask starts with read-only workspace access;
 Agent and Auto permit the admitted workspace writes. A grant adds only its displayed scope and duration.
+Auto permits workspace-command networking; Agent requires network approval unless covered by an explicit current development grant. Changing modes takes effect at the next native turn.
 Automatic review is unavailable on this account until its reviewer and billing route are qualified.
 Escalations use explicit human review unless the existing workspace owner proves an already authorized exact task-root grant.
 Denied, cancelled and expired requests do not authorize execution. Never claim execution without a native result.

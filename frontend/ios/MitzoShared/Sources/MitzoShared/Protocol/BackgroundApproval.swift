@@ -10,15 +10,11 @@ public func backgroundApprovalResponse(
     guard item.sessionId == expectedSessionID, item.isActionable(at: milliseconds),
           let request = item.request, item.id == "permission:\(request.permId)",
           reviewedToolName == request.toolName, reviewedInput == request.toolInput,
-          request.questions == nil, request.approvalScope != .conversation,
+          request.questions == nil, request.reviewKind == nil,
           request.toolInput.utf8.count <= 768 else { return nil }
     if request.toolName == "Bash" {
         guard !request.toolInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
-    } else {
-        guard request.toolName == "RequestWebAccess", let data = request.toolInput.data(using: .utf8),
-              let input = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              ["search", "fetch", "request_access"].contains(input["operation"] as? String ?? "") else { return nil }
-    }
+    } else if request.toolInput.data(using: .utf8).flatMap({ try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }) == nil { return nil }
     let decision: NotificationResponse.Decision
     switch actionID {
     case "DENY_PERMISSION_ACTION": decision = .deny
@@ -26,7 +22,11 @@ public func backgroundApprovalResponse(
         guard request.questions == nil, request.approvalScope != .conversation else { return nil }
         decision = .once
     case "ALLOW_SESSION_ACTION":
-        guard request.allowSessionGrant != false,
+        guard request.allowSessionGrant != false, request.approvalScope != .conversation,
+              reviewedSessionGrantDescription == request.sessionGrantDescription else { return nil }
+        decision = .session
+    case "ALLOW_CONVERSATION_ACTION":
+        guard request.approvalScope == .conversation, request.allowSessionGrant != false,
               reviewedSessionGrantDescription == request.sessionGrantDescription else { return nil }
         decision = .session
     case "ALLOW_SEARCH_SESSION_ACTION":

@@ -61,6 +61,7 @@ export interface ChatAreaProps {
   /** Source-bound previews for shared messages; ordinary callers use sessionId. */
   messageSessionId?(messageId: string): string | undefined;
   /** Additional transcript cards inside the same scroll area. */
+  beforeMessages?: ReactNode;
   afterMessages?: ReactNode;
   onShareMessage?: (messageId: string, provenance?: SymposiumProvenance) => void;
   canShareMessage?: (message: FinishedMessage) => boolean;
@@ -152,6 +153,7 @@ export function ChatArea({
   current,
   currentByMessage = {},
   contextItems = [],
+  beforeMessages,
   afterMessages,
   renderMessageAttribution,
   renderMessageOutcome,
@@ -779,6 +781,7 @@ export function ChatArea({
         onTouchStart={handleTouchStart}
         onTouchEnd={handleTouchEnd}
       >
+        {beforeMessages}
         {messages.length === 0 &&
           !current &&
           Object.keys(currentByMessage).length === 0 &&

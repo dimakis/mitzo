@@ -1,4 +1,12 @@
 import { isReadOnlyBuiltinToolCall } from './builtin-tool-behavior.js';
+import { ToolFailureSchema, toolFailure, type ToolFailure } from '@mitzo/protocol';
+import {
+  assertToolGuardCurrent,
+  runGuardedTool,
+  runBoundedToolCleanup,
+  ToolGuardTimeoutError,
+  type ToolGuardPolicy,
+} from '@mitzo/harness';
 import { CodexSubagents } from './codex-subagents.js';
 import { subagentScope } from './codex-subagent-store.js';
 import { observeNativeApprovalCheck } from './local-codex-observation.js';
@@ -152,6 +160,11 @@ export type { NativeBaseReadScope } from './native-base-read-scope.js';
 import type { NativeBaseReadScope } from './native-base-read-scope.js';
 
 export interface CodexConversationOptions {
+  enableToolFailureContinuation?: boolean;
+  /** Original live owner admits the exact durable child under unchanged authority. */
+  admitToolFailureContinuation?(input: CodexCommandInput): boolean | void;
+  /** Trusted execution policy, never provider/model input. */
+  toolGuardPolicy?: Readonly<ToolGuardPolicy>;
   /** Enabled only by the owned native Mac adapter, never inherited runtime configuration. */
   enableNativeSubagents?: boolean;
   adviserScope?: AdviserTaskScope;
@@ -228,6 +241,7 @@ export interface CodexConversationOptions {
       /** Server-attributed child identity, never supplied by the model. */
       subagentName?: string;
       registerResponseFence?(assertCurrent: () => void): void;
+      observeFailure?(failure: ToolFailure): void;
     }>,
   ) => Promise<ObjectValue>;
   validateModel?: (model: string, reasoningEffort?: string) => void;
@@ -439,6 +453,7 @@ type ActiveCommand = {
   callbackSettlement?: Promise<void>;
   callbacksSettled?: boolean;
   callbackEffectsUnknown?: boolean;
+  toolGuardRetired?: boolean;
   settledToolCallbacks?: Set<string>;
   command: CodexCommand;
   /** Set before invoking turn/start, including synchronous close/rejection. */
@@ -654,6 +669,7 @@ export class CodexConversation {
           this.closed ||
           !this.ready ||
           (this.paused && !cancelling) ||
+          (this.active?.toolGuardRetired && !cancelling) ||
           generation !== this.transportGeneration ||
           this.client !== client ||
           this.binding?.profileRevision !== binding.profileRevision
@@ -2806,6 +2822,12 @@ export class CodexConversation {
       await this.opts.prepareAgentContext?.(active.abort.signal);
       active.abort.signal.throwIfAborted();
       active.preparationStage = 'dispatch_authority';
+      if (command.toolFailureContinuation)
+        this.opts.store.assertClaimedToolFailureContinuation(
+          this.opts.conversationId,
+          this.binding!,
+          command,
+        );
       this.opts.onProviderDispatch?.(command.id);
       if (active.nativeExecution)
         this.opts.assertNativeExecutionCurrent?.(active.nativeExecution, command.id);
@@ -2870,6 +2892,12 @@ export class CodexConversation {
         // A synchronous transport close can reenter close() from request().
         // Once invocation is attempted, missing ACK/history is uncertainty.
         active.preparationStage = 'provider_request';
+        if (command.toolFailureContinuation)
+          this.opts.store.assertClaimedToolFailureContinuation(
+            this.opts.conversationId,
+            this.binding!,
+            command,
+          );
         active.providerSubmitted = true;
         const pendingAck = this.client.request('turn/start', params);
         dispatchSpan.end();
@@ -3614,6 +3642,16 @@ export class CodexConversation {
               attempt: this.active.command.attempt,
             })
           : undefined;
+      const failedToolSource =
+        status === 'completed' &&
+        !this.active.interruptRequested &&
+        !this.active.callbackEffectsUnknown &&
+        this.opts.enableToolFailureContinuation !== false &&
+        this.opts.ownerKind !== 'symposium' &&
+        !this.opts.adviserScope &&
+        (!this.opts.canClaimCommand || this.opts.admitToolFailureContinuation)
+          ? { commandId: this.active.command.id }
+          : undefined;
       this.finishTurnSpan(status, status === 'failed' ? 'provider' : 'none');
       if (['completed', 'interrupted', 'failed'].includes(turn.data.status ?? '')) {
         this.opts.onProviderTerminal?.(this.active.command.id, turn.data.id, status);
@@ -3692,6 +3730,57 @@ export class CodexConversation {
       if (recoverQueuedFollowUp) this.automaticTransportRecoveryAttempted = true;
       if (providerTransportFailed) this.retireTransportForRecovery();
       this.mapper?.notification(method, params, providerFailure);
+      // Terminal projection seals unfinished native items as unknown. Persist
+      // command-wide negative evidence before considering the final failure.
+      const finalToolFailure = failedToolSource && this.mapper?.getUnexplainedFailure();
+      if (!this.closed && failedToolSource && finalToolFailure) {
+        let child: CodexCommandInput | undefined;
+        try {
+          if (this.mapper?.isToolFailureRecoverySuppressed())
+            this.opts.store.recordToolFailureRecoverySuppression(
+              this.opts.conversationId,
+              this.binding!,
+              failedToolSource.commandId,
+              turn.data.id,
+            );
+          child = this.opts.store.queueToolFailureContinuation(
+            this.opts.conversationId,
+            this.binding!,
+            failedToolSource.commandId,
+            turn.data.id,
+            finalToolFailure,
+          );
+          if (child) {
+            const admitted = this.opts.admitToolFailureContinuation?.(child);
+            if (admitted !== true) this.opts.beforeEnqueue?.(child);
+            this.opts.store.assertToolFailureContinuation(
+              this.opts.conversationId,
+              this.binding!,
+              child,
+            );
+            this.opts.onCommandQueued?.(child.id);
+            log.info('Tool failure continuation admitted', {
+              conversationId: this.opts.conversationId,
+              sourceCommandId: failedToolSource.commandId,
+              commandId: child.id,
+            });
+          }
+        } catch {
+          if (child) {
+            try {
+              this.opts.store.cancelQueued(this.opts.conversationId, this.binding!, child.id);
+            } catch {
+              /* Preserve uncertain receipt. */
+            }
+          }
+          this.opts.onError?.(
+            new Error(
+              'Tool recovery admission failed; saved work and the original failure are preserved.',
+            ),
+          );
+          this.close();
+        }
+      }
       if (providerFailure)
         this.opts.onError?.(
           new ProviderFailureError(providerFailure, codexTurnFailureDiagnostic(turn.data.error)),
@@ -3743,6 +3832,7 @@ export class CodexConversation {
         generation !== this.transportGeneration ||
         this.client !== client ||
         this.active !== active ||
+        active?.toolGuardRetired ||
         active?.abort !== activeAbort ||
         active?.command !== command ||
         command?.id !== commandId ||
@@ -3832,6 +3922,7 @@ export class CodexConversation {
     requestContext?: NativeRequestContext,
     onToolRefusal?: HostToolRefusal,
   ): Promise<ObjectValue> {
+    if (this.active?.toolGuardRetired) throw new CodexTransportError('connection');
     if (
       [
         'item/commandExecution/requestApproval',
@@ -3860,6 +3951,7 @@ export class CodexConversation {
           if (
             this.closed ||
             !active ||
+            active.toolGuardRetired ||
             this.active !== active ||
             generation !== this.transportGeneration ||
             !threadId ||
@@ -3890,12 +3982,39 @@ export class CodexConversation {
       assertCurrentSync('before_handler');
       if (!this.opts.requestNativeApproval) throw new Error('Codex native approvals unavailable');
       requestContext!.registerResponseFence?.(() => assertCurrentSync('reply'));
+      // A recovery explanation cannot manufacture a fresh approval cycle.
+      if (active!.command.toolFailureContinuation)
+        return method === 'item/permissions/requestApproval'
+          ? { permissions: {}, scope: 'turn' }
+          : {
+              decision:
+                Array.isArray(params.availableDecisions) &&
+                !params.availableDecisions.includes('decline') &&
+                params.availableDecisions.includes('cancel')
+                  ? 'cancel'
+                  : 'decline',
+            };
       const response = await this.opts.requestNativeApproval(method, params, approvalSignal, {
         ...requestContext!,
         commandId: active!.command.id,
         threadId: threadId!,
         turnId: turnId!,
         assertCurrentSync: () => assertCurrentSync('handler'),
+        observeFailure: (failure: ToolFailure) => {
+          assertCurrentSync('handler');
+          if (typeof params.itemId === 'string') {
+            this.mapper?.recordNativeFailure(params.itemId, failure);
+            this.opts.store.recordToolFailure(
+              this.opts.conversationId,
+              this.binding!,
+              active!.command.id,
+              turnId!,
+              params.itemId,
+              failure,
+              'native_approval',
+            );
+          }
+        },
         ...(fileItemId ? { fileChangePaths: fileChangePaths ?? undefined } : {}),
       });
       assertCurrentSync('after_handler');
@@ -3987,10 +4106,13 @@ export class CodexConversation {
     const publicId = this.mapper!.toolStart(call.callId, display.name, display.input);
     let result: CodexToolResult;
     let callbackOpen = true;
+    let executionSignal = toolSignal;
     const callbackBinding = this.binding!;
     // Keep existing label-only JSON/strict store contracts unchanged. Spreading
     // or cloning labels deliberately cannot carry this private callback fence.
     const observeOriginalCallCurrent = () => {
+      assertToolGuardCurrent();
+      executionSignal.throwIfAborted();
       toolSignal.throwIfAborted();
       if (
         !callbackOpen ||
@@ -3998,6 +4120,7 @@ export class CodexConversation {
         this.paused ||
         !this.ready ||
         this.active !== active ||
+        active.toolGuardRetired ||
         active.interruptRequested ||
         active.completions.has(call.turnId) ||
         this.binding !== callbackBinding ||
@@ -4120,9 +4243,76 @@ export class CodexConversation {
       }
     })();
     const toolStarted = performance.now();
+    let originalExecution: Promise<CodexToolResult> | undefined;
     try {
       result = normalizeCodexToolResult(
-        await this.opts.executeTool(call.tool, call.arguments, toolSignal, invocation),
+        await runGuardedTool(
+          {
+            signal: toolSignal,
+            policy: this.opts.toolGuardPolicy,
+            onSettled: (observation) => {
+              if (observation.outcome === 'timeout') {
+                active.callbackEffectsUnknown = true;
+                active.toolGuardRetired = true;
+              }
+              log.info('Tool guard settled', {
+                conversationId: this.opts.conversationId,
+                callId: call.callId,
+                tool: call.tool,
+                ...observation,
+              });
+            },
+            onLateSettlement: (outcome) => {
+              log.warn('Retired tool callback settled', {
+                conversationId: this.opts.conversationId,
+                callId: call.callId,
+                tool: call.tool,
+                outcome,
+              });
+            },
+          },
+          (signal) => {
+            executionSignal = signal;
+            originalExecution = this.opts.executeTool(
+              call.tool,
+              call.arguments,
+              signal,
+              invocation,
+            );
+            return originalExecution;
+          },
+        ).catch(async (error: unknown) => {
+          // Join the original cancellation cleanup within a bounded lifetime.
+          // Its guard remains retired; only an exact consumed RPC's private
+          // settled refusal can qualify custody, never ordinary Stop/abort.
+          if (originalExecution && toolSignal.aborted && error === toolSignal.reason) {
+            try {
+              const original = await runBoundedToolCleanup(
+                () => originalExecution!,
+                this.opts.toolGuardPolicy?.cleanupMs,
+              );
+              if (
+                original.isError &&
+                retainedCallbackOutcome(original) === 'settled' &&
+                signal.aborted &&
+                error === signal.reason &&
+                !active.interruptRequested &&
+                !active.abort.signal.aborted &&
+                requestContext?.requestId !== undefined &&
+                ((error instanceof CodexServerRequestResolvedError &&
+                  error.requestId === requestContext.requestId) ||
+                  (error instanceof CodexTurnCompletedError &&
+                    error.requestId === requestContext.requestId &&
+                    error.threadId === call.threadId &&
+                    error.turnId === call.turnId))
+              )
+                return original;
+            } catch {
+              /* Preserve original cancellation and uncertainty. */
+            }
+          }
+          throw error;
+        }),
       );
       // Only a returned, reviewed read result can qualify a failed callback here.
       // Explicit owner uncertainty, thrown exceptions and cancellation stay fenced.
@@ -4134,6 +4324,10 @@ export class CodexConversation {
       )
         retainCallbackOutcome(result, 'settled');
     } catch (error) {
+      if (error instanceof ToolGuardTimeoutError) {
+        active.callbackEffectsUnknown = true;
+        active.toolGuardRetired = true;
+      }
       result = codexToolFailureResult(
         error,
         toolSignal.aborted,
@@ -4260,7 +4454,30 @@ export class CodexConversation {
     }
     if (callbackOutcome(result) === 'settled')
       (active.settledToolCallbacks ??= new Set()).add(call.callId);
-    this.mapper!.toolResult(publicId, result.content, result.isError, result.contentItems);
+    let failure: ToolFailure | undefined;
+    if (result.isError) {
+      try {
+        const parsed = ToolFailureSchema.safeParse(JSON.parse(result.content).failure);
+        if (parsed.success)
+          failure =
+            callbackOutcome(result) === 'settled'
+              ? parsed.data
+              : toolFailure(parsed.data.code, parsed.data.phase, 'unknown');
+        if (failure && callbackOutcome(result) === 'settled')
+          this.opts.store.recordToolFailure(
+            this.opts.conversationId,
+            this.binding!,
+            active.command.id,
+            call.turnId,
+            call.callId,
+            failure,
+            'host_tool',
+          );
+      } catch {
+        /* Tool text is not authoritative recovery metadata. */
+      }
+    }
+    this.mapper!.toolResult(publicId, result.content, result.isError, result.contentItems, failure);
     try {
       this.opts.onToolObservation?.({
         toolName: call.tool,
@@ -4272,6 +4489,9 @@ export class CodexConversation {
     } catch {
       /* Observability cannot change an executed result. */
     }
+    // The failure is retained and projected first. Retire this provider owner
+    // before it can issue further effects while the original call is uncertain.
+    if (active.toolGuardRetired) this.close();
     return retainCallbackOutcome(
       {
         success: !result.isError,
@@ -4453,7 +4673,13 @@ export class CodexConversation {
       const ack = await client.request('turn/steer', {
         threadId: target.threadId,
         expectedTurnId: target.turnId,
-        input: [{ type: 'text', text }],
+        input: [
+          { type: 'text', text },
+          ...(input.images ?? []).map((image) => ({
+            type: 'image',
+            url: `data:${image.mediaType};base64,${image.data}`,
+          })),
+        ],
       });
       if (z.object({ turnId: z.literal(target.turnId) }).safeParse(ack).success)
         status = 'accepted';

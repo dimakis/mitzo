@@ -93,6 +93,8 @@ export const ChatDraftSchema = z.object({
     mode: z.enum(['ask', 'agent', 'auto']),
     isolation: z.boolean(),
     repositoryWorkspaceId: z.uuid().nullable().optional(),
+    // Saved source hint only. Never passed as an admitted/prepared workspace.
+    savedRepositoryWorkspaceId: z.string().min(1).max(200).nullable().optional(),
     search: z.string(),
     summary: z
       .object({

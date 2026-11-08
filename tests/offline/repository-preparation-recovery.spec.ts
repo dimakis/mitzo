@@ -113,6 +113,7 @@ for (const theme of ['dark', 'light']) {
           return route.abort();
         }
         const fixtures: Record<string, unknown> = {
+          '/api/session-launch/defaults': { revision: 0, configuration: null },
           '/api/auth/check': { authenticated: true },
           '/api/config': { quickActions: [], contextBlocks: {} },
           '/api/chat/runtime/capabilities': inventory,
@@ -406,6 +407,7 @@ for (const workspaceChoice of ['select', 'default'] as const) {
             return route.abort();
           }
           const fixtures: Record<string, unknown> = {
+            '/api/session-launch/defaults': { revision: 0, configuration: null },
             '/api/auth/check': { authenticated: true },
             '/api/config': { quickActions: [], contextBlocks: {} },
             '/api/chat/runtime/capabilities': inventory,
@@ -751,6 +753,7 @@ for (const [theme, unsupportedContext] of [
           return route.abort();
         }
         const fixtures: Record<string, unknown> = {
+          '/api/session-launch/defaults': { revision: 0, configuration: null },
           '/api/auth/check': { authenticated: true },
           '/api/config': { quickActions: [], contextBlocks: {} },
           '/api/chat/runtime/capabilities': inventory,

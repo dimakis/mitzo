@@ -13,6 +13,8 @@ import {
   CollaborationApplicationReviewRequestSchema,
   CollaborationApplicationReviewResultSchema,
   CollaborationBeginSchema,
+  CollaborationMessageInputSchema,
+  CollaborationMessageSchema,
   CollaborationSourceSetupQuerySchema,
   CollaborationSourceSetupSchema,
   COLLABORATION_EXECUTION_DISABLED,
@@ -25,6 +27,7 @@ import { liveTransportAuthSessionId } from './transport-auth-ownership.js';
 import type { OrdinaryCollaborationJoiningPort } from './collaboration-joining-owner.js';
 import type { CollaborationApplicationReview } from './collaboration-application-review.js';
 import type { EventStore } from './event-store.js';
+import type { ApplicationCollaborationMessaging } from './collaboration-application-messaging.js';
 import { recentAuthorizationSession, requireSameOriginJson } from './connections-router.js';
 
 function failure(res: Response, error: unknown) {
@@ -52,12 +55,14 @@ export function createSessionCollaborationRouter({
   store,
   joining,
   review,
+  messaging,
 }: {
   store: EventStore;
   joining?:
     OrdinaryCollaborationJoiningPort | ((auth: AuthSession) => OrdinaryCollaborationJoiningPort);
   /** Lazy construction uses the existing real workspace owner, never caller settings. */
   review?: () => CollaborationApplicationReview;
+  messaging?: ApplicationCollaborationMessaging;
 }) {
   const router = Router();
   router.use((_req, res, next) => {
@@ -106,6 +111,7 @@ export function createSessionCollaborationRouter({
     const id = SessionCollaborationIdSchema.safeParse(req.params.id);
     if (!id.success) return res.status(400).json({ error: 'Invalid collaboration ID' });
     try {
+      messaging?.reconcile(recentAuthorizationSession(res)!, id.data);
       return res.json(store.collaborationConversation.view(id.data));
     } catch (error) {
       return failure(res, error);
@@ -117,6 +123,7 @@ export function createSessionCollaborationRouter({
     if (!id.success || !cursor.success)
       return res.status(400).json({ error: 'Invalid collaboration cursor' });
     try {
+      messaging?.reconcile(recentAuthorizationSession(res)!, id.data);
       return res.json(store.collaborationConversation.events(id.data, cursor.data.after));
     } catch (error) {
       return failure(res, error);
@@ -269,8 +276,47 @@ export function createSessionCollaborationRouter({
   router.post('/:id/joins/:joinId/reconcile', requireSameOriginJson, (req, res) =>
     join(req, res, 'reconcile'),
   );
-  // Source compilation and ordinary delivery still need their application owners.
-  for (const operation of ['messages', 'snapshots']) {
+  router.post('/:id/messages', requireSameOriginJson, async (req, res) => {
+    const auth = recentAuthorizationSession(res)!;
+    const id = SessionCollaborationIdSchema.safeParse(req.params.id);
+    if (!id.success) return res.status(400).json({ error: 'Invalid collaboration ID' });
+    if (!store.getSessionCollaboration(id.data))
+      return res.status(404).json({ code: 'not_found', error: 'Collaboration not found' });
+    if (!messaging) return unavailable(res);
+    const input = CollaborationMessageInputSchema.safeParse(req.body);
+    if (!input.success) return res.status(400).json({ error: 'Invalid collaboration message' });
+    const controller = new AbortController();
+    const cancel = () => controller.abort();
+    const unregister = registerAuthSession(auth, cancel);
+    const ownerSignal = custodianRequestSignal(req);
+    ownerSignal?.addEventListener('abort', cancel, { once: true });
+    if (ownerSignal?.aborted || req.aborted) cancel();
+    const close = () => {
+      if (!res.writableEnded) cancel();
+    };
+    req.once('aborted', cancel);
+    res.once('close', close);
+    const timer = setTimeout(cancel, Math.min(120000, Math.max(0, auth.expiresAt - Date.now())));
+    try {
+      const result = await messaging.send(auth, id.data, input.data, controller.signal);
+      controller.signal.throwIfAborted();
+      if (!isAuthSessionCurrent(auth)) throw new Error('Authorization unavailable');
+      return res.json(CollaborationMessageSchema.parse(result));
+    } catch (error) {
+      if (res.destroyed) return;
+      if (!isAuthSessionCurrent(auth))
+        return res.status(403).json({ error: 'Operator authorization expired or revoked' });
+      return failure(res, error);
+    } finally {
+      clearTimeout(timer);
+      unregister();
+      ownerSignal?.removeEventListener('abort', cancel);
+      req.off('aborted', cancel);
+      res.off('close', close);
+    }
+  });
+  // New per-prompt source compilation remains with its reviewed source owner.
+  for (const operation of ['snapshots']) {
     router.post(`/:id/${operation}`, requireSameOriginJson, (req, res) => {
       const id = SessionCollaborationIdSchema.safeParse(req.params.id);
       if (!id.success) return res.status(400).json({ error: 'Invalid collaboration ID' });

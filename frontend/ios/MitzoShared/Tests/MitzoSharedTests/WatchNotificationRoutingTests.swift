@@ -9,7 +9,7 @@ import Testing
 }
 
 @Test func watchBackgroundActionsNeverNavigateOrSubmitTwice() {
-    for action in ["ALLOW_ONCE_ACTION", "ALLOW_SESSION_ACTION", "ALLOW_SEARCH_SESSION_ACTION", "DENY_PERMISSION_ACTION", "LATER_ACTION", "com.apple.UNNotificationDismissActionIdentifier", "unknown"] {
+    for action in ["ALLOW_ONCE_ACTION", "ALLOW_SESSION_ACTION", "ALLOW_CONVERSATION_ACTION", "ALLOW_SEARCH_SESSION_ACTION", "DENY_PERMISSION_ACTION", "LATER_ACTION", "com.apple.UNNotificationDismissActionIdentifier", "unknown"] {
         #expect(WatchNotificationDestination(actionID: action, notificationID: "permission:p1", sessionID: "s1") == nil)
     }
     #expect(WatchNotificationDestination(actionID: "VIEW_ACTION", notificationID: "", sessionID: "") == nil)

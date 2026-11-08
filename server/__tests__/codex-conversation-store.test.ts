@@ -11,6 +11,7 @@ import { join } from 'node:path';
 import { afterEach, expect, it, vi } from 'vitest';
 import { CodexConversationStore } from '../codex-conversation-store.js';
 import { normalizeMcpToolResult } from '../codex-tool-result.js';
+import { toolFailure } from '@mitzo/protocol';
 const roots: string[] = [];
 const binding = {
   accountId: 'personal',
@@ -24,6 +25,241 @@ function setup() {
   roots.push(root);
   return { path: join(root, 'private.db'), root };
 }
+
+it('queues exactly one failure continuation from a settled completed source and preserves it across restart', () => {
+  const { path } = setup();
+  let store = new CodexConversationStore(path);
+  store.create('failure-chat', binding, '/offline');
+  store.bindThread('failure-chat', binding, 'thread');
+  store.enqueue('failure-chat', binding, {
+    id: 'source',
+    prompt: 'Original request',
+    intent: 'Original request',
+  });
+  const source = store.claimNext('failure-chat', binding)!;
+  store.recordCapacityAck('failure-chat', binding, source, 'thread', 'turn');
+  store.recordNativeTurnAck('failure-chat', binding, source, 'thread', 'turn');
+  const failure = toolFailure('approval_expired', 'approval', 'not_started');
+  store.recordToolFailure(
+    'failure-chat',
+    binding,
+    'source',
+    'turn',
+    'approval',
+    failure,
+    'native_approval',
+  );
+  expect(
+    store.queueToolFailureContinuation('failure-chat', binding, 'source', 'turn', failure),
+  ).toBeUndefined();
+  store.finish('failure-chat', binding, 'source', 'completed', 'turn');
+  expect(
+    store.queueToolFailureContinuation(
+      'failure-chat',
+      binding,
+      'source',
+      'turn',
+      toolFailure('internal_failure', 'execution', 'not_started'),
+    ),
+  ).toBeUndefined();
+  const child = store.queueToolFailureContinuation(
+    'failure-chat',
+    binding,
+    'source',
+    'turn',
+    failure,
+  )!;
+  expect(child.intent).toBe('Original request');
+  expect(
+    store.queueToolFailureContinuation('failure-chat', binding, 'source', 'turn', failure)?.id,
+  ).toBe(child.id);
+  store.close();
+  store = new CodexConversationStore(path);
+  expect(
+    store.commands('failure-chat', binding).filter((command) => command.toolFailureContinuation),
+  ).toHaveLength(1);
+  expect(() =>
+    store.assertToolFailureContinuation('failure-chat', binding, {
+      ...child,
+      prompt: 'different work',
+    }),
+  ).toThrow();
+  const claimed = store.claimNext('failure-chat', binding)!;
+  store.finish('failure-chat', binding, claimed.id, 'completed', 'child-turn');
+  expect(
+    store.queueToolFailureContinuation('failure-chat', binding, claimed.id, 'child-turn', failure),
+  ).toBeUndefined();
+  store.close();
+});
+
+it.each(['unknown', 'permission_denied', 'cancelled', 'native'] as const)(
+  'retains command-wide %s suppression across later expiry and restart',
+  (kind) => {
+    const { path } = setup();
+    let store = new CodexConversationStore(path);
+    store.create('mixed', binding, '/offline');
+    store.bindThread('mixed', binding, 'thread');
+    store.enqueue('mixed', binding, { id: 'source', prompt: 'Original request' });
+    const source = store.claimNext('mixed', binding)!;
+    store.recordNativeTurnAck('mixed', binding, source, 'thread', 'turn');
+    if (kind === 'native')
+      store.recordToolFailureRecoverySuppression('mixed', binding, 'source', 'turn');
+    else
+      store.recordToolFailure(
+        'mixed',
+        binding,
+        'source',
+        'turn',
+        'earlier',
+        toolFailure(
+          kind === 'unknown' ? 'approval_expired' : kind,
+          'approval',
+          kind === 'unknown' ? 'unknown' : 'not_started',
+        ),
+        'native_approval',
+      );
+    const failure = toolFailure('approval_expired', 'approval', 'not_started');
+    store.recordToolFailure(
+      'mixed',
+      binding,
+      'source',
+      'turn',
+      'expiry',
+      failure,
+      'native_approval',
+    );
+    store.finish('mixed', binding, 'source', 'completed', 'turn');
+    store.close();
+    store = new CodexConversationStore(path);
+    try {
+      expect(
+        store.queueToolFailureContinuation('mixed', binding, 'source', 'turn', failure),
+      ).toBeUndefined();
+    } finally {
+      store.close();
+    }
+  },
+);
+
+it('revalidates durable negative observations after a child was queued and before dispatch', () => {
+  const { path } = setup();
+  const store = new CodexConversationStore(path);
+  try {
+    store.create('mixed', binding, '/offline');
+    store.bindThread('mixed', binding, 'thread');
+    store.enqueue('mixed', binding, { id: 'source', prompt: 'Original request' });
+    const source = store.claimNext('mixed', binding)!;
+    store.recordNativeTurnAck('mixed', binding, source, 'thread', 'turn');
+    const failure = toolFailure('approval_expired', 'approval', 'not_started');
+    store.recordToolFailure(
+      'mixed',
+      binding,
+      'source',
+      'turn',
+      'expiry',
+      failure,
+      'native_approval',
+    );
+    store.finish('mixed', binding, 'source', 'completed', 'turn');
+    const child = store.queueToolFailureContinuation('mixed', binding, 'source', 'turn', failure)!;
+    store.recordToolFailureRecoverySuppression('mixed', binding, 'source', 'turn');
+    expect(
+      store.queueToolFailureContinuation('mixed', binding, 'source', 'turn', failure),
+    ).toBeUndefined();
+    expect(() => store.assertToolFailureContinuation('mixed', binding, child)).toThrow();
+    expect(() => store.claimNext('mixed', binding)).toThrow();
+  } finally {
+    store.close();
+  }
+});
+
+it('lets a newer explicit command cancel an undispatched tool recovery', () => {
+  const { path } = setup();
+  const store = new CodexConversationStore(path);
+  try {
+    store.create('failure-chat', binding, '/offline');
+    store.bindThread('failure-chat', binding, 'thread');
+    store.enqueue('failure-chat', binding, { id: 'source', prompt: 'Original request' });
+    const source = store.claimNext('failure-chat', binding)!;
+    store.recordNativeTurnAck('failure-chat', binding, source, 'thread', 'turn');
+    const failure = toolFailure('approval_expired', 'approval', 'not_started');
+    store.recordToolFailure(
+      'failure-chat',
+      binding,
+      'source',
+      'turn',
+      'approval',
+      failure,
+      'native_approval',
+    );
+    store.finish('failure-chat', binding, 'source', 'completed', 'turn');
+    const child = store.queueToolFailureContinuation(
+      'failure-chat',
+      binding,
+      'source',
+      'turn',
+      failure,
+    )!;
+    store.enqueue('failure-chat', binding, { id: 'new-user', prompt: 'New direction' }, true);
+    expect(() => store.assertToolFailureContinuation('failure-chat', binding, child)).toThrow();
+    expect(store.claimNext('failure-chat', binding)?.id).toBe('new-user');
+  } finally {
+    store.close();
+  }
+});
+
+it.each(['unknown', 'denied', 'cancelled', 'newer-user', 'changed-account'] as const)(
+  'does not automatically continue a failure with %s',
+  (reason) => {
+    const { path } = setup();
+    const store = new CodexConversationStore(path);
+    try {
+      store.create('failure-chat', binding, '/offline');
+      store.bindThread('failure-chat', binding, 'thread');
+      store.enqueue('failure-chat', binding, {
+        id: 'source',
+        prompt: 'Original request',
+        intent: 'Original request',
+      });
+      const source = store.claimNext('failure-chat', binding)!;
+      store.recordCapacityAck('failure-chat', binding, source, 'thread', 'turn');
+      store.recordNativeTurnAck('failure-chat', binding, source, 'thread', 'turn');
+      const failure = toolFailure(
+        reason === 'denied'
+          ? 'permission_denied'
+          : reason === 'cancelled'
+            ? 'cancelled'
+            : 'approval_expired',
+        'approval',
+        reason === 'unknown' ? 'unknown' : 'not_started',
+      );
+      store.recordToolFailure(
+        'failure-chat',
+        binding,
+        'source',
+        'turn',
+        'approval',
+        failure,
+        'native_approval',
+      );
+      store.finish('failure-chat', binding, 'source', 'completed', 'turn');
+      if (reason === 'newer-user')
+        store.enqueue('failure-chat', binding, { id: 'new-user', prompt: 'New direction' }, true);
+      const invoke = () =>
+        store.queueToolFailureContinuation(
+          'failure-chat',
+          reason === 'changed-account' ? { ...binding, accountId: 'other' } : binding,
+          'source',
+          'turn',
+          failure,
+        );
+      if (reason === 'changed-account') expect(invoke).toThrow();
+      else expect(invoke()).toBeUndefined();
+    } finally {
+      store.close();
+    }
+  },
+);
 afterEach(() => {
   for (const root of roots) rmSync(root, { recursive: true, force: true });
   roots.length = 0;

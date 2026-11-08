@@ -6,6 +6,7 @@ import { taskMcpToolCatalog } from './task-mcp-selection.js';
 import { githubMainPublicationTool } from './telos-main-publication.js';
 import { agentTaskToolDefinitions } from './session-agent-task-tools.js';
 import { agentCommunicationDefinitions } from './agent-communication-tools.js';
+import { sessionLaunchDefinitions } from './session-launch-tools.js';
 import { sessionPromptDefinitions } from './session-prompt-definitions.js';
 import type { AgentToolCatalogEntry } from '@mitzo/protocol';
 import { nativeToolDefinitions } from './native-tool-executor.js';
@@ -45,6 +46,7 @@ export function agentToolCatalog(): AgentToolCatalogEntry[] {
     { source: 'GitHub publishing', definitions: [githubPublishingDefinition] },
     { source: 'Knowledge', definitions: knowledgeToolDefinitions },
     { source: 'Agent communication', definitions: agentCommunicationDefinitions },
+    { source: 'Session creation', definitions: sessionLaunchDefinitions },
     { source: 'Session automation', definitions: sessionPromptDefinitions },
     { source: 'History', definitions: sessionHistoryToolDefinitions },
     {
@@ -75,6 +77,7 @@ export function agentToolCatalog(): AgentToolCatalogEntry[] {
           ? ['local-api', 'codex', 'codex-owned-local']
           : source === 'Google Workspace' ||
               source === 'Agent communication' ||
+              source === 'Session creation' ||
               source === 'History' ||
               source === 'Local repositories'
             ? ['codex-owned-local']

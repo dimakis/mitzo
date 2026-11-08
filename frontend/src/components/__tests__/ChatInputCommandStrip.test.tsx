@@ -153,7 +153,7 @@ describe('ChatInput command strip', () => {
     for (const name of [
       'Open session tray',
       'Record voice message',
-      'Send options',
+      'Interrupt and send now',
       'Queue message',
       'Stop generation',
       'Workspace details',

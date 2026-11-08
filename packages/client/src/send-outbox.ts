@@ -11,7 +11,9 @@ import {
   SourceSnapshotsSchema,
   LocalCodexFirstCommandReceiptSchema,
   OrdinaryCodexRetainedCommandObservationSchema,
-  type KnowledgeRuntimeFailure,
+  OrdinaryRuntimeEntryFailureSchema,
+  RuntimeFailureSchema,
+  type RuntimeFailure,
 } from '@mitzo/protocol';
 /** Ordered, acknowledged HTTP delivery. SSE state never gates prompt submission. */
 interface Entry {
@@ -22,6 +24,7 @@ interface Entry {
   localDraftId?: string;
   ordinaryDelivery?: OrdinaryCommandDelivery;
   composerDraft?: ComposerDraftReceipt;
+  runtimeFailure?: RuntimeFailure;
 }
 interface Config {
   url: string;
@@ -87,6 +90,7 @@ export class SendOutbox {
               (key) =>
                 ![
                   'body',
+                  'runtimeFailure',
                   'scope',
                   'uncertain',
                   'localReceipt',
@@ -121,6 +125,9 @@ export class SendOutbox {
             throw Error('Invalid Local receipt');
           return {
             ...entry,
+            // Saved diagnostics are display hints only. Invalid future/device
+            // values cannot invalidate or replace the original command.
+            runtimeFailure: RuntimeFailureSchema.safeParse(entry.runtimeFailure).data,
             body,
             ...(ordinaryDelivery ? { ordinaryDelivery } : {}),
             ...(entry.composerDraft !== undefined
@@ -410,12 +417,13 @@ export class SendOutbox {
     entry: Entry,
     state: string,
     acknowledged = false,
-    runtimeFailure?: KnowledgeRuntimeFailure,
+    runtimeFailure: RuntimeFailure | undefined = entry.runtimeFailure,
   ) {
     this.config.notify({
       type: '_local_command_state',
       state,
       ...(runtimeFailure ? { runtimeFailure } : {}),
+      ...(entry.localReceipt?.state === 'consumed' ? { receiptConfirmed: true } : {}),
       ...(acknowledged ? { acknowledged: true } : {}),
       request: structuredClone(entry.body),
       ...(entry.composerDraft ? { composerDraft: structuredClone(entry.composerDraft) } : {}),
@@ -444,6 +452,7 @@ export class SendOutbox {
     const controller = new AbortController();
     this.receiptReads.set(entry, controller);
     let timer: ReturnType<typeof setTimeout> | undefined;
+    let receiptConfirmed = false;
     try {
       const { response, raw } = await Promise.race([
         this.config
@@ -476,17 +485,27 @@ export class SendOutbox {
           receipt.data.sessionId !== entry.body.sessionId)
       )
         return;
+      receiptConfirmed = true;
+      delete entry.runtimeFailure;
       entry.localReceipt = { sessionId: receipt.data.sessionId, state: 'consumed' };
       entry.uncertain = false;
       if (!this.persist()) {
         entry.uncertain = true;
-        return;
+        throw Error('Local receipt could not be retained');
       }
       if (this.config.storage?.flush) await this.config.storage.flush();
       if (generation !== this.generation || !this.active || !this.entries.includes(entry)) return;
       await this.retireLocal(entry, true);
     } catch {
-      // Observation failure never resends a command or overwrites its UI state.
+      // Read failures preserve the prior UI state. Once acceptance is proven,
+      // completion storage failures must not restore an obsolete login reason.
+      if (
+        receiptConfirmed &&
+        generation === this.generation &&
+        this.active &&
+        this.entries.includes(entry)
+      )
+        this.notifyLocal(entry, 'uncertain');
     } finally {
       if (timer) clearTimeout(timer);
       if (this.receiptReads.get(entry) === controller) {
@@ -620,6 +639,7 @@ export class SendOutbox {
           raw?.sessionId === entry.ordinaryDelivery.sessionId) &&
         (typeof entry.body.sessionId !== 'string' || raw?.sessionId === entry.body.sessionId);
       if (matching && response.status === 202 && success.success) {
+        delete entry.runtimeFailure;
         entry.localReceipt = { sessionId: success.data.sessionId, state: success.data.state };
         if (success.data.state === 'consumed') entry.uncertain = false;
         if (!this.persist()) {
@@ -632,6 +652,8 @@ export class SendOutbox {
         else this.notifyLocal(entry, success.data.state, true);
         this.persist();
       } else if (matching && response.status === 409 && observation.success) {
+        entry.runtimeFailure =
+          'runtimeFailure' in observation.data ? observation.data.runtimeFailure : undefined;
         entry.localReceipt = {
           sessionId: observation.data.sessionId,
           state: observation.data.state,
@@ -644,7 +666,17 @@ export class SendOutbox {
           false,
           'runtimeFailure' in observation.data ? observation.data.runtimeFailure : undefined,
         );
-      } else this.notifyLocal(entry, 'uncertain');
+      } else {
+        const failure = OrdinaryRuntimeEntryFailureSchema.safeParse(raw);
+        if (matching && response.status === 409 && failure.success) {
+          entry.runtimeFailure = failure.data.runtimeFailure;
+          if (!this.persist()) throw Error('Local diagnostic could not be retained');
+          if (this.config.storage?.flush) await this.config.storage.flush();
+          if (generation !== this.generation || !this.active || !this.entries.includes(entry))
+            return;
+        }
+        this.notifyLocal(entry, 'uncertain');
+      }
     } catch {
       if (generation === this.generation && this.entries.includes(entry))
         this.notifyLocal(entry, 'uncertain');

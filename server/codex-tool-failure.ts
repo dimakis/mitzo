@@ -1,4 +1,7 @@
 import { randomUUID } from 'node:crypto';
+import { runBoundedToolCleanup, ToolGuardTimeoutError } from '@mitzo/harness';
+import { toolFailure } from '@mitzo/protocol';
+import { performance } from 'node:perf_hooks';
 import { z } from 'zod';
 import { PendingHostTaskError } from './pending-host-task.js';
 import type { CodexToolResult } from './codex-tool-result.js';
@@ -34,6 +37,7 @@ const FailureDetailSchema = z.strictObject({
   effectStatus: z.enum(['not_started', 'unknown', 'completed']),
 });
 export const CodexToolFailureDiagnosticSchema = FailureDetailSchema.extend({
+  phase: z.enum(['approval', 'execution', 'cleanup']).optional(),
   primary: FailureDetailSchema.optional(),
   cleanup: z.array(FailureDetailSchema).max(8).optional(),
   cleanupTruncated: z.literal(true).optional(),
@@ -54,6 +58,7 @@ class ToolCleanupFailure extends AggregateError {
 export async function withCodexToolCleanup<T>(
   action: () => Promise<T>,
   cleanups: readonly (() => unknown | Promise<unknown>)[],
+  cleanupTimeoutMs = 10_000,
 ): Promise<T> {
   let value!: T;
   let primary: { error: unknown } | undefined;
@@ -63,9 +68,10 @@ export async function withCodexToolCleanup<T>(
     primary = { error };
   }
   const failures: unknown[] = [];
+  const cleanupDeadline = performance.now() + cleanupTimeoutMs;
   for (const cleanup of cleanups) {
     try {
-      await cleanup();
+      await runBoundedToolCleanup(cleanup, Math.max(1, cleanupDeadline - performance.now()));
     } catch (error) {
       failures.push(error);
     }
@@ -162,6 +168,7 @@ function failureProjection(
       code: selected.code,
       diagnostic: {
         stage: selected.diagnostic.stage,
+        phase: 'cleanup',
         reason: selected.diagnostic.reason,
         effectStatus: 'unknown',
         ...(original
@@ -183,6 +190,7 @@ function failureProjection(
     };
   }
   const typed = chain.find((failure) => failure instanceof CodexToolFailure);
+  const timeout = chain.find((failure) => failure instanceof ToolGuardTimeoutError);
   const boundary = chain.find((failure) => failure instanceof PendingHostTaskError);
   const code: ToolFailureCode = chain.some((failure) => failure.name === 'AbortError')
     ? 'cancelled'
@@ -220,7 +228,11 @@ function failureProjection(
   };
   return {
     code,
-    diagnostic: code === 'cancelled' ? { ...diagnostic, reason: 'cancelled' } : diagnostic,
+    diagnostic: {
+      ...diagnostic,
+      ...(timeout ? { phase: timeout.phase } : {}),
+      ...(code === 'cancelled' ? { reason: 'cancelled' as const } : {}),
+    },
   };
 }
 
@@ -259,6 +271,11 @@ export function codexToolFailureResult(
     diagnostic.effectStatus === 'not_started';
   return {
     content: JSON.stringify({
+      failure: toolFailure(
+        diagnostic.reason === 'deadline' ? 'tool_timeout' : code,
+        diagnostic.phase ?? (diagnostic.cleanup?.length ? 'cleanup' : 'execution'),
+        diagnostic.effectStatus,
+      ),
       error: code,
       action: correctRepositoryInput
         ? 'Choose exactly one selector: path for an existing absolute checkout OR source for existing/clone/new, never both. For a new managed checkout use {"source":{"kind":"new","name":"my-project"}} without path. path is not a destination; this tool assigns the task directory. For a project at a requested destination, use native shell with exact filesystem permission instead. Use only documented fields. Correct the arguments and retry; this call did not start repository preparation. Do not reconcile an unrelated repository.'

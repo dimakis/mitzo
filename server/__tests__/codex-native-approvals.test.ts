@@ -14,6 +14,35 @@ const permissions = {
   network: null,
   fileSystem: { read: ['/extra/read'], write: ['/extra/write'] },
 };
+
+it('reports an expired command approval as not started, distinct from denial and stdin', async () => {
+  const f = setup('agent', 20);
+  const observeFailure = vi.fn();
+  const result = await f.handler(
+    'item/commandExecution/requestApproval',
+    {
+      threadId: 'thread',
+      turnId: 'turn',
+      itemId: 'item',
+      startedAtMs: Date.now(),
+      kind: 'command',
+      environmentId: 'local',
+      cwd: '/workspace',
+      command: 'offline-test',
+    },
+    f.controller.signal,
+    { ...f.context, observeFailure },
+  );
+  expect(result).toEqual({ decision: 'decline' });
+  expect(observeFailure).toHaveBeenCalledExactlyOnceWith(
+    expect.objectContaining({
+      code: 'approval_expired',
+      phase: 'approval',
+      effectStatus: 'not_started',
+      recovery: 'renew_approval',
+    }),
+  );
+});
 function fixture(
   mode: 'ask' | 'agent' | 'auto' = 'agent',
   timeoutMs = 60_000,
@@ -95,6 +124,54 @@ function setup(
   fixtures.push(f);
   return f;
 }
+
+it.each([
+  { approvalId: 'subcommand' },
+  { networkApprovalContext: { host: 'example.test', protocol: 'https' } },
+])('retains unknown parent effects when an in-flight approval expires: %j', async (overlay) => {
+  const f = setup('agent', 20);
+  const observeFailure = vi.fn();
+  const result = await f.handler(
+    'item/commandExecution/requestApproval',
+    {
+      ...commandParams(),
+      startedAtMs: Date.now(),
+      ...overlay,
+    },
+    f.controller.signal,
+    { ...f.context, observeFailure },
+  );
+  expect(result).toEqual({ decision: 'cancel' });
+  expect(observeFailure).toHaveBeenCalledExactlyOnceWith(
+    expect.objectContaining({
+      code: 'approval_expired',
+      effectStatus: 'unknown',
+      recovery: 'inspect_operation',
+    }),
+  );
+});
+
+it('preserves explicit denial when the handler resumes after the approval deadline', async () => {
+  vi.useFakeTimers();
+  const f = setup();
+  const started = Date.now();
+  const observeFailure = vi.fn();
+  const pending = f.handler(
+    'item/commandExecution/requestApproval',
+    { ...commandParams(), startedAtMs: started },
+    f.controller.signal,
+    { ...f.context, observeFailure },
+  );
+  const id = await request(f);
+  vi.setSystemTime(started + 59_999);
+  resolvePending(id, 'deny', undefined, 'session');
+  vi.setSystemTime(started + 60_001);
+  expect(await pending).toEqual({ decision: 'cancel' });
+  expect(observeFailure).toHaveBeenCalledExactlyOnceWith(
+    expect.objectContaining({ code: 'permission_denied', recovery: 'none' }),
+  );
+  for (const fence of f.fences) expect(() => fence()).not.toThrow();
+});
 async function request(f: ReturnType<typeof fixture>) {
   await vi.waitFor(() => expect(f.sent[0]?.permId).toBeDefined());
   return f.sent[0].permId as string;

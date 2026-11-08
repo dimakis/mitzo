@@ -184,6 +184,8 @@ import { drainRetainedSymposiumControllers } from './symposium-controller-drain.
 import { createSessionMessagesHandler } from './session-messages-route.js';
 import { mountSymposiumArtifactRoutes } from './symposium-artifact-route-composition.js';
 import { getConnectionRegistry } from './chat.js';
+import { createSessionPromptPort } from './session-prompt-dispatch.js';
+import { ApplicationCollaborationMessaging } from './collaboration-application-messaging.js';
 import {
   publicationControllerApproval,
   clearPublicationControllerSessionGrants,
@@ -242,6 +244,8 @@ import { createApplicationCollaborationJoining } from './collaboration-applicati
 import { readAgentLibraryProfile } from './agent-library-transport.js';
 import { createSymposiumProfileRouter } from './symposium-profile-routes.js';
 import { SymposiumProfileProposalStore } from './symposium-profile-proposals.js';
+import { initializeSessionLaunches, closeSessionLaunches } from './session-launch-controller.js';
+import { createSessionLaunchRouter } from './session-launch-routes.js';
 import { createSymposiumProfileProposalRouter } from './symposium-profile-proposal-routes.js';
 import {
   readCodexQueue,
@@ -388,6 +392,9 @@ import {
 } from './permissions.js';
 import { createTelosSourcePermissionRecovery } from './telos-source-recovery.js';
 import { createSessionAccessRouter, projectSessionAccess } from './session-access.js';
+import { SessionCapabilityGrants } from './session-capability-grants.js';
+import { repositoryCapabilityIdentity } from './repository-capability-identity.js';
+import { createSessionCapabilityRouter } from './session-capability-router.js';
 import { createLogger } from './logger.js';
 import {
   handleTaskSet,
@@ -1274,6 +1281,24 @@ const symposiumAccessRequests = new SymposiumAccessRequests(
 );
 const symposiumProfileProposalStore = new SymposiumProfileProposalStore(
   join(BASE_REPO || '.', '.mitzo', 'events.db'),
+);
+const sessionLaunchController = initializeSessionLaunches(
+  join(BASE_REPO || '.', '.mitzo', 'events.db'),
+  (sessionId) => sseRegistry.broadcast('session_launch_changed', { sessionId }),
+);
+mountObservedRouter(
+  app,
+  '/api/session-launch',
+  operatorAuthMiddleware,
+  createSessionLaunchRouter({
+    controller: sessionLaunchController,
+    session: (id) => {
+      const session = eventStore.getSession(id);
+      return session && session.accountBinding && isAvailableTelosWorkConversation(session)
+        ? { title: session.summary || 'Originating chat' }
+        : undefined;
+    },
+  }),
 );
 mountObservedRouter(
   app,
@@ -3507,12 +3532,24 @@ app.get(
   }),
 );
 
+const collaborationMessaging = new ApplicationCollaborationMessaging(
+  eventStore,
+  createSessionPromptPort({
+    eventStore,
+    sessionRegistry: registry,
+    connRegistry: {
+      broadcast: (sessionId, event) => getConnectionRegistry()?.broadcast(sessionId, event),
+    },
+  }),
+);
+
 mountObservedRouter(
   app,
   '/api/session-collaborations',
   operatorAuthMiddleware,
   createSessionCollaborationRouter({
     store: eventStore,
+    messaging: collaborationMessaging,
     joining: (auth) =>
       createApplicationCollaborationJoining(
         {
@@ -3654,6 +3691,22 @@ mountObservedRouter(
   }),
 );
 
+const sessionCapabilityGrants = new SessionCapabilityGrants(registry, repositoryCapabilityIdentity);
+mountObservedRouter(
+  app,
+  '/api/sessions/:id/access-grants',
+  operatorAuthMiddleware,
+  createSessionCapabilityRouter({
+    grants: sessionCapabilityGrants,
+    hasSession: (id) => {
+      const meta = eventStore.getSession(id);
+      return Boolean(
+        meta && !meta.isHidden && meta.sessionType !== 'symposium' && !meta.symposiumConfig,
+      );
+    },
+    title: (id) => eventStore.getSession(id)?.summary ?? undefined,
+  }),
+);
 mountObservedRouter(
   app,
   '/api/sessions/:id/access',
@@ -5909,6 +5962,7 @@ export function closeIdleApplicationResources(): Promise<void> {
     return Promise.reject(new Error('Application resource owners are active'));
   idleApplicationClosing = true;
   idleApplicationClose = (async () => {
+    collaborationMessaging.close();
     await terminalService.closeIdle();
     notificationCenter.closeIdle();
     symposiumAccessRequests.closeIdle();
@@ -5917,6 +5971,7 @@ export function closeIdleApplicationResources(): Promise<void> {
     chatSseRegistry.destroy();
     registry.dispose();
     closeAgentTasks();
+    closeSessionLaunches();
     closeAgentLibrary();
     symposiumProfileStore.close();
     symposiumAgentContextStore.close();

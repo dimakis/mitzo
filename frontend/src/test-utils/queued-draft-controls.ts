@@ -15,8 +15,9 @@ export function reviewQueue() {
   }
 }
 export function sendCorrection() {
-  fireEvent.click(screen.getByRole('button', { name: 'Send options' }));
-  fireEvent.click(screen.getByRole('menuitem', { name: 'Send correction' }));
+  fireEvent.click(
+    screen.getByRole('button', { name: /^(Interrupt and send now|Steer current turn)$/ }),
+  );
 }
 export function queuedButton(name: string | RegExp) {
   reviewQueue();

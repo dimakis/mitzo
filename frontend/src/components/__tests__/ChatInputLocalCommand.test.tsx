@@ -200,7 +200,7 @@ it('queues Enter during a guarded running turn and leaves steering as an explici
   );
   const input = screen.getByRole('textbox');
   fireEvent.change(input, { target: { value: 'Next task' } });
-  expect(screen.getByRole('button', { name: 'Send options' })).toBeDefined();
+  expect(screen.getByRole('button', { name: 'Steer current turn' })).toBeDefined();
   fireEvent.keyDown(input, { key: 'Enter' });
   await waitFor(() => expect(input).toHaveValue(''));
   expect(onSend).not.toHaveBeenCalled();

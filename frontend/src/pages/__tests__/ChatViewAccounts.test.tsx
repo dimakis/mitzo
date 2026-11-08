@@ -9,6 +9,10 @@ import { createTestStore } from '../../test-utils/createTestStore';
 import { apiFetch } from '../../lib/api-fetch';
 import { ChatView } from '../ChatView';
 import { DesktopChatView } from '../DesktopChatView';
+vi.mock('../../hooks/useSessionLaunchDefaults', async () => ({
+  useSessionLaunchDefaults: (await import('../../test-utils/no-session-launch-defaults'))
+    .noSessionLaunchDefaults,
+}));
 
 // Isolate route authority and callback wiring from sheet navigation. Keep the
 // original editors directly accessible here, as in DesktopChatView.test.tsx.

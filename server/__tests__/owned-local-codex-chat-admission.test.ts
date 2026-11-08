@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import { AccountBindingSchema, type MitzoMode } from '@mitzo/protocol';
+import { toolFailure } from '@mitzo/protocol';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -94,7 +95,7 @@ function fixture() {
         text: 'Frozen prepared prompt',
         systemPrompt: 'Frozen developer instructions',
         intent: 'Original intent',
-        images: [{ data: 'fixture', mediaType: 'image/png' }],
+        images: [{ data: 'Zml4dHVyZQ==', mediaType: 'image/png' }],
       },
     },
   );
@@ -128,12 +129,76 @@ function fixture() {
     prompt: 'Frozen prepared prompt',
     systemPrompt: 'Frozen developer instructions',
     intent: 'Original intent',
-    images: [{ data: 'fixture', mediaType: 'image/png' }],
+    images: [{ data: 'Zml4dHVyZQ==', mediaType: 'image/png' }],
     agentProfile,
     repositoryWorkspace: { id: 'workspace', directory: '/offline/workspace', sandbox: false },
   };
   return { store, input, options, lease, runtime, binding, selection, agentProfile };
 }
+
+it('admits a settled failure continuation through the existing owned command receipts', () => {
+  const f = fixture();
+  const root = mkdtempSync(join(tmpdir(), 'tool-recovery-owner-'));
+  const native = new CodexConversationStore(join(root, 'native.db'));
+  try {
+    f.store.claimOrdinaryLocalCommandDispatch('command');
+    const owner = OwnedLocalCodexChatAdmission.capture({ ...f.input, nativeStore: native });
+    owner.assertOptions(f.options);
+    const input = {
+      id: 'command',
+      prompt: f.options.prompt,
+      intent: f.options.intent,
+      images: f.options.images,
+      model: f.options.model,
+      reasoningEffort: null,
+    };
+    owner.assertBeforeEnqueue(input);
+    f.store.completeOrdinaryLocalCommand('command');
+    owner.assertBeforeDispatch('command');
+    native.create('session', f.binding, f.options.session.cwd);
+    native.bindThread('session', f.binding, 'thread');
+    native.enqueue('session', f.binding, input);
+    const command = native.claimNext('session', f.binding)!;
+    native.recordNativeTurnAck('session', f.binding, command, 'thread', 'turn');
+    const failure = toolFailure('approval_expired', 'approval', 'not_started');
+    native.recordToolFailure(
+      'session',
+      f.binding,
+      'command',
+      'turn',
+      'approval',
+      failure,
+      'native_approval',
+    );
+    native.finish('session', f.binding, 'command', 'completed', 'turn');
+    const child = native.queueToolFailureContinuation(
+      'session',
+      f.binding,
+      'command',
+      'turn',
+      failure,
+    )!;
+    expect(() =>
+      owner.admitToolFailureContinuation({ ...child, prompt: 'unrelated task' }),
+    ).toThrow();
+    expect(f.store.getSendCommand(child.id)).toBeUndefined();
+    owner.admitToolFailureContinuation(child);
+    expect(owner.canClaimCommand(child.id)).toBe(true);
+    expect(owner.nativeExecutionWorkspace(child.id)).toEqual(f.input.expected.workspace);
+    expect(f.store.getOrdinaryLocalCommandExecutionAdmission(child.id)?.selection).toEqual(
+      f.selection,
+    );
+    expect(f.store.getSendCommand(child.id)?.payload).toMatchObject({
+      intent: 'Original intent',
+      systemPrompt: 'Frozen developer instructions',
+    });
+    owner.assertBeforeDispatch(child.id);
+  } finally {
+    native.close();
+    f.store.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
 
 it('observes exact store-owned admission facts only after mutable lease callbacks', () => {
   const f = fixture();

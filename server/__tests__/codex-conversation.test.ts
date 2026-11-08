@@ -1,4 +1,6 @@
 import { retainCallbackOutcome } from '../turn-callbacks.js';
+import { withToolGuardPhase } from '@mitzo/harness';
+import { toolFailure } from '@mitzo/protocol';
 import { createIntegrationToolDiscovery } from '../integration-tool-discovery.js';
 import { webAccessDefinition } from '../request-web-access.js';
 import { summarizeToolInput } from '@mitzo/protocol';
@@ -53,6 +55,232 @@ const binding = {
   model: 'test-model',
   profileRevision: 'chatgpt:test@example.com:test',
 };
+
+it('bounds a noncooperative host tool, fences its late callback and retains unknown effects', async () => {
+  const f = await setup();
+  f.conversationOptions.toolGuardPolicy = { executionMs: 20, approvalMs: 100, cleanupMs: 20 };
+  let release!: () => void;
+  let lateError: unknown;
+  f.execute.mockImplementationOnce(async (_name, _input, _signal, invocation) => {
+    await new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    try {
+      invocation.assertCurrentSync?.();
+    } catch (error) {
+      lateError = error;
+    }
+    return { content: 'late result', isError: false };
+  });
+  await f.c.send({ id: 'guarded-command', prompt: 'Inspect the existing work' });
+  const result = await f.callbacks.onRequest(
+    'item/tool/call',
+    {
+      threadId: f.getProviderThread(),
+      turnId: 'turn-1',
+      callId: 'guarded-call',
+      tool: 'Read',
+      arguments: {},
+    },
+    new AbortController().signal,
+  );
+  expect(result.success).toBe(false);
+  expect(JSON.parse((result.contentItems as { text: string }[])[0].text)).toMatchObject({
+    diagnostic: { reason: 'deadline', effectStatus: 'unknown' },
+  });
+  await expect(
+    f.callbacks.onRequest(
+      'item/tool/call',
+      {
+        threadId: f.getProviderThread(),
+        turnId: 'turn-1',
+        callId: 'second-call',
+        tool: 'Read',
+        arguments: {},
+      },
+      new AbortController().signal,
+    ),
+  ).rejects.toBeInstanceOf(Error);
+  expect(f.execute).toHaveBeenCalledOnce();
+  expect(f.store.read('app', f.getBinding()).recovery).toBe(1);
+  release();
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  expect(lateError).toBeInstanceOf(Error);
+  f.callbacks.onNotification('turn/completed', {
+    threadId: f.getProviderThread(),
+    turn: { id: 'turn-1', status: 'completed' },
+  });
+  await vi.waitFor(() => expect(f.store.read('app', f.getBinding()).recovery).toBe(1));
+});
+
+it('bounds ordinary cancellation cleanup without accepting a late unqualified outcome', async () => {
+  const f = await setup();
+  f.conversationOptions.toolGuardPolicy = { executionMs: 1000, approvalMs: 1000, cleanupMs: 20 };
+  let release!: () => void;
+  f.execute.mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        release = () => resolve({ content: 'late success', isError: false });
+      }),
+  );
+  await f.c.send({ id: 'cancel-command', prompt: 'Inspect existing work' });
+  const abort = new AbortController();
+  const work = f.callbacks.onRequest(
+    'item/tool/call',
+    {
+      threadId: f.getProviderThread(),
+      turnId: 'turn-1',
+      callId: 'cancel-call',
+      tool: 'Read',
+      arguments: {},
+    },
+    abort.signal,
+  );
+  await vi.waitFor(() => expect(f.execute).toHaveBeenCalledOnce());
+  abort.abort(Error('User cancelled'));
+  const result = await work;
+  expect(result.success).toBe(false);
+  expect(JSON.parse((result.contentItems as { text: string }[])[0].text)).toMatchObject({
+    diagnostic: { effectStatus: 'unknown' },
+  });
+  release();
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  expect(f.execute).toHaveBeenCalledOnce();
+});
+
+it('excludes an actual adapter approval phase from its host execution deadline', async () => {
+  const f = await setup();
+  f.conversationOptions.toolGuardPolicy = { executionMs: 30, approvalMs: 200, cleanupMs: 20 };
+  f.execute.mockImplementationOnce(async () => {
+    await withToolGuardPhase(
+      'approval',
+      () => new Promise<void>((resolve) => setTimeout(resolve, 60)),
+    );
+    return { content: 'approved read', isError: false };
+  });
+  await f.c.send({ id: 'approval-command', prompt: 'Inspect the existing work' });
+  const result = await f.callbacks.onRequest(
+    'item/tool/call',
+    {
+      threadId: f.getProviderThread(),
+      turnId: 'turn-1',
+      callId: 'approval-call',
+      tool: 'Read',
+      arguments: {},
+    },
+    new AbortController().signal,
+  );
+  expect(result.success).toBe(true);
+});
+
+it.each(['clear', 'unfinished', 'failed-earlier', 'suppressed-during-prepare'] as const)(
+  'continues once after authoritative approval expiry only with safe command-wide native outcomes (%s)',
+  async (nativeOutcome) => {
+    const f = await setup();
+    let approvalRequests = 0;
+    f.conversationOptions.requestNativeApproval = async (_method, _params, _signal, context) => {
+      approvalRequests++;
+      context.observeFailure?.(toolFailure('approval_expired', 'approval', 'not_started'));
+      return { decision: 'decline' };
+    };
+    await f.c.send({
+      id: 'expired-source',
+      prompt: 'Original request',
+      intent: 'Original request',
+    });
+    if (nativeOutcome === 'suppressed-during-prepare')
+      f.conversationOptions.prepareTurn = async () => {
+        await new Promise<void>((resolve) => setImmediate(resolve));
+        f.store.recordToolFailureRecoverySuppression(
+          'app',
+          f.getBinding(),
+          'expired-source',
+          'turn-1',
+        );
+      };
+    const fail = async (turnId: string, itemId: string) => {
+      if (nativeOutcome === 'failed-earlier') {
+        f.callbacks.onNotification('item/started', {
+          threadId: f.getProviderThread(),
+          turnId,
+          item: { type: 'commandExecution', id: 'earlier', command: 'unknown operation' },
+        });
+        f.callbacks.onNotification('item/completed', {
+          threadId: f.getProviderThread(),
+          turnId,
+          item: { type: 'commandExecution', id: 'earlier', status: 'completed', exitCode: 1 },
+        });
+      }
+      f.callbacks.onNotification('item/started', {
+        threadId: f.getProviderThread(),
+        turnId,
+        item: { type: 'commandExecution', id: itemId, command: 'offline-test' },
+      });
+      await f.callbacks.onRequest(
+        'item/commandExecution/requestApproval',
+        {
+          threadId: f.getProviderThread(),
+          turnId,
+          itemId,
+          kind: 'command',
+          startedAtMs: Date.now(),
+          environmentId: 'local',
+          cwd: '/workspace',
+          command: 'offline-test',
+        },
+        new AbortController().signal,
+        { requestId: itemId },
+      );
+      f.callbacks.onNotification('item/completed', {
+        threadId: f.getProviderThread(),
+        turnId,
+        item: { type: 'commandExecution', id: itemId, status: 'declined' },
+      });
+      if (nativeOutcome === 'unfinished')
+        f.callbacks.onNotification('item/started', {
+          threadId: f.getProviderThread(),
+          turnId,
+          item: { type: 'commandExecution', id: 'unfinished', command: 'unknown operation' },
+        });
+      f.callbacks.onNotification('turn/completed', {
+        threadId: f.getProviderThread(),
+        turn: { id: turnId, status: 'completed' },
+      });
+    };
+    await fail('turn-1', 'approval-1');
+    if (nativeOutcome !== 'clear') {
+      if (nativeOutcome === 'suppressed-during-prepare')
+        await vi.waitFor(() => expect(f.c.isPaused()).toBe(true));
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      expect(f.rpc.request.mock.calls.filter(([method]) => method === 'turn/start')).toHaveLength(
+        1,
+      );
+      expect(
+        f.c
+          .queue()
+          .some(
+            (command) =>
+              command.toolFailureContinuation && ['queued', 'running'].includes(command.status),
+          ),
+      ).toBe(false);
+      return;
+    }
+    await vi.waitFor(() =>
+      expect(f.rpc.request.mock.calls.filter(([method]) => method === 'turn/start')).toHaveLength(
+        2,
+      ),
+    );
+    const child = f.c.queue().find((command) => command.toolFailureContinuation)!;
+    expect(child.intent).toBe('Original request');
+    expect(child.prompt).toContain('Do not replay');
+    expect(f.execute).not.toHaveBeenCalled();
+    await fail('turn-2', 'approval-2');
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    expect(f.rpc.request.mock.calls.filter(([method]) => method === 'turn/start')).toHaveLength(2);
+    expect(f.c.queue().filter((command) => command.toolFailureContinuation)).toHaveLength(1);
+    expect(approvalRequests).toBe(1);
+  },
+);
 
 it.each([false, true])(
   'routes native children through the original executor without completing or steering the parent command (owned=%s)',
@@ -10336,6 +10564,41 @@ it('observes each native base-read claim once per fence and refreshes after the 
   await expect(
     f.callbacks.onRequest('item/tool/call', call, new AbortController().signal),
   ).resolves.toMatchObject({ success: true });
+});
+
+it('steers screenshot bytes only to the selected active turn with an immutable receipt', async () => {
+  const f = await setup();
+  await f.c.send({ id: 'a', prompt: 'First' });
+  const rpc = f.rpc.request.getMockImplementation()!;
+  f.rpc.request.mockImplementation(async (method, params) =>
+    method === 'turn/steer'
+      ? (f.requests.push({ method, params }), { turnId: params.expectedTurnId })
+      : rpc(method, params),
+  );
+  const input = {
+    requestId: 'image-correction',
+    targetCommandId: 'a',
+    text: 'Use this screenshot',
+    images: [{ data: 'aGk=', mediaType: 'image/png' as const }],
+  };
+  expect(await f.c.steer(input, () => {})).toEqual({ status: 'accepted' });
+  expect(await f.c.steer(input, () => {})).toEqual({ status: 'accepted' });
+  expect(f.requests.filter((r) => r.method === 'turn/steer')).toEqual([
+    {
+      method: 'turn/steer',
+      params: {
+        threadId: f.getProviderThread(),
+        expectedTurnId: 'turn-1',
+        input: [
+          { type: 'text', text: input.text },
+          { type: 'image', url: 'data:image/png;base64,aGk=' },
+        ],
+      },
+    },
+  ]);
+  await expect(
+    f.c.steer({ ...input, images: [{ ...input.images[0], data: 'YQ==' }] }, () => {}),
+  ).rejects.toThrow('Correction identity reused');
 });
 
 it('steers only the selected active turn, preserving the FIFO and at-most-once receipt', async () => {
