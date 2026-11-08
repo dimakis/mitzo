@@ -61,6 +61,12 @@ duration of eight hours. Revocation and expiry abort active task command signals
 subsequent operations recheck the durable grant. Stop still cancels the original
 callback through its owning runtime signal.
 
+Native Local Codex task owners and selected workers use the admitted chat's
+retained operator identity, independently of the browser/viewer connection.
+Viewer disconnects do not require signing in or approving the same task again.
+Logout, login expiry and release of the retained identity still refuse task
+operations; a connected viewer cannot substitute for a released identity.
+
 Reuse the same request ID after uncertain delivery. An identical completed
 command returns its retained result. A changed command with that ID is rejected.
 A normal failure exit from 1 through 127 retains its output for recovery.

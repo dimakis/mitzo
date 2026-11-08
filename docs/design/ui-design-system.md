@@ -50,6 +50,10 @@ MotionPresence, grouped access cards and shared controls. Session checkboxes sho
 the account, mode and workspace being approved. Capability and duration selectors
 use semantic tokens, the shared type/spacing/radius scales and control height.
 Active grants show their sessions, absolute expiry and a labelled revoke action.
+Reuse in adds repository and same-login/account scope choices inside the existing
+card. Google account/resource and Telos item fields use the shared labelled inputs
+and selects. The active grant identifies its exact resource and reuse scope. No
+new surface, palette, spacing scale or approved-settings layout is introduced.
 Authentication changes discard observations; unavailable, expired and uncertain
 states require an explicit refresh. The approved Chat settings layout remains
 unchanged. The intercepted `session-access` fixture covers keyboard actions,
