@@ -1,6 +1,15 @@
 import { afterEach, expect, it, vi } from 'vitest';
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, mkdirSync, realpathSync, readlinkSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  existsSync,
+  mkdtempSync,
+  mkdirSync,
+  realpathSync,
+  readlinkSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { RepositoryWorkspaces } from '../repository-workspaces.js';
@@ -8,6 +17,100 @@ import type { AccountBinding, SessionRuntimeBindingV2 } from '@mitzo/protocol';
 import type { OrdinaryRepositoryRuntimeSelection } from '../ordinary-repository-preparation.js';
 import * as localRepository from '../local-repository-worktree.js';
 import { OrdinaryLocalWorkspaceOwner } from '../ordinary-local-workspace-owner.js';
+import {
+  ordinaryWorkspaceSkillEntries,
+  prepareOrdinarySkillCommand,
+} from '../ordinary-composer-skills.js';
+import { EventStore } from '../event-store.js';
+
+it('uses pinned skills for both catalogue and first send when the live source has another branch and dirty instructions', async () => {
+  const f = await fixture();
+  const pinned = join(f.repo, '.mitzo', 'skills', 'pinned-only');
+  const restricted = join(f.repo, '.mitzo', 'skills', 'mockup');
+  for (const path of [pinned, restricted]) mkdirSync(path, { recursive: true });
+  writeFileSync(
+    join(pinned, 'SKILL.md'),
+    '---\ndescription: Pinned skill\n---\nPinned repository guide',
+  );
+  writeFileSync(
+    join(restricted, 'SKILL.md'),
+    '---\ndescription: Pinned restriction\nallowed-tools: Read\n---\nRestricted repository override',
+  );
+  f.git(f.repo, 'add', '.mitzo');
+  f.git(f.repo, 'commit', '-qm', 'pinned skills');
+  const oid = f.git(f.repo, 'rev-parse', 'HEAD');
+  f.git(f.repo, 'checkout', '-qb', 'other-source-branch');
+  rmSync(pinned, { recursive: true });
+  writeFileSync(
+    join(restricted, 'SKILL.md'),
+    '---\ndescription: Unrestricted other branch\n---\nWrong branch instructions',
+  );
+  f.git(f.repo, 'add', '.mitzo');
+  f.git(f.repo, 'commit', '-qm', 'other branch skills');
+  const dirty = join(f.repo, '.mitzo', 'skills', 'dirty-only');
+  mkdirSync(dirty);
+  writeFileSync(
+    join(dirty, 'SKILL.md'),
+    '---\ndescription: Dirty skill\n---\nUncommitted instructions',
+  );
+  const owner = f.reopen();
+  const signal = AbortSignal.timeout(10000);
+  const ready = await owner.selectLocalRepository(
+    binding,
+    'primary',
+    selectionFor(f),
+    signal,
+    undefined,
+    'main',
+  );
+  expect(ready.baseOid).toBe(oid);
+  const entries = await ordinaryWorkspaceSkillEntries(owner, ready.id, () => binding);
+  expect(entries).toContainEqual(expect.objectContaining({ name: 'pinned-only', scope: 'repo' }));
+  expect(entries.some((entry) => entry.name === 'dirty-only')).toBe(false);
+  expect(entries).toContainEqual(
+    expect.objectContaining({
+      name: 'mockup',
+      unavailableReason: expect.stringMatching(/tool restrictions/),
+    }),
+  );
+  const reservation = {
+    id: ready.id,
+    binding,
+    conversationId: 'pinned-skill-chat',
+    taskRoot: f.taskRoot,
+    runtimeBinding: f.runtime,
+    commandFingerprint: 'd'.repeat(64),
+    signal,
+  };
+  const descriptor = await owner.reserveHostTask(reservation);
+  const events = new EventStore(':memory:');
+  try {
+    expect(
+      await prepareOrdinarySkillCommand(owner, reservation, {
+        store: events,
+        id: 'first',
+        text: '/pinned-only',
+        signal,
+      }),
+    ).toMatchObject({ prompt: expect.stringContaining('Pinned repository guide') });
+    await expect(
+      prepareOrdinarySkillCommand(owner, reservation, {
+        store: events,
+        id: 'restricted',
+        text: '/mockup',
+        signal,
+      }),
+    ).rejects.toThrow(/tool restrictions/);
+    expect(existsSync(descriptor.directory)).toBe(false);
+    expect(f.git(f.repo, 'branch', '--show-current')).toBe('other-source-branch');
+    const claimed = await owner.claimReservedHostTask(reservation);
+    expect(f.git(claimed.directory!, 'show', 'HEAD:.mitzo/skills/pinned-only/SKILL.md')).toContain(
+      'Pinned repository guide',
+    );
+  } finally {
+    events.close();
+  }
+});
 
 const roots: string[] = [];
 const owners: RepositoryWorkspaces[] = [];
@@ -116,6 +219,27 @@ const selectionFor = (
     harness: f.runtime.harness.implementation,
     targetId: 'mac',
   },
+});
+
+it('refuses a pinned skill symlink instead of loading another tree or falling back to a global override', async () => {
+  const f = await fixture();
+  const directory = join(f.repo, '.mitzo', 'skills', 'mockup');
+  mkdirSync(directory, { recursive: true });
+  symlinkSync('../../../../outside', join(directory, 'SKILL.md'));
+  f.git(f.repo, 'add', '.mitzo');
+  f.git(f.repo, 'commit', '-qm', 'linked skill');
+  const owner = f.reopen();
+  const ready = await owner.selectLocalRepository(
+    binding,
+    'primary',
+    selectionFor(f),
+    AbortSignal.timeout(10000),
+    undefined,
+    'main',
+  );
+  await expect(ordinaryWorkspaceSkillEntries(owner, ready.id, () => binding)).rejects.toThrow(
+    /Pinned repository skills unavailable/,
+  );
 });
 
 it.each([

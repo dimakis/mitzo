@@ -1,7 +1,7 @@
 import { mkdtempSync, mkdirSync, symlinkSync, rmSync, writeFileSync, realpathSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 const state = vi.hoisted(() => ({
   authority: [] as string[],
   selectors: [] as string[],
@@ -39,6 +39,21 @@ import { nativeGrantFence } from '../codex-native-grant-fence.js';
 import { NativeApprovalRequestSchema } from '../codex-native-permission-protocol.js';
 import type { ManagedSession } from '../session-registry.js';
 
+let fixtureHome: string;
+beforeEach(() => {
+  fixtureHome = realpathSync(mkdtempSync(join(tmpdir(), 'mitzo-native-policy-home-')));
+  state.home = fixtureHome;
+  for (const name of Object.keys(process.env)) {
+    if (name.startsWith('MITZO_')) vi.stubEnv(name, undefined);
+  }
+  vi.stubEnv('CODEX_HOME', join(fixtureHome, '.codex'));
+});
+afterEach(() => {
+  vi.unstubAllEnvs();
+  state.home = undefined;
+  rmSync(fixtureHome, { recursive: true, force: true });
+});
+
 it('uses the host GitHub CLI login with native network and external Git approvals, retaining other credential denials', () => {
   const root = realpathSync(mkdtempSync(join(tmpdir(), 'mitzo-native-github-')));
   try {
@@ -58,10 +73,12 @@ it('uses the host GitHub CLI login with native network and external Git approval
       const policy = composeOwnedLocalNativeExecutionPolicy(input);
       expect(policy.deniedRoots).not.toContain(realpathSync(github));
       expect(policy.approvalPolicy).toBe('on-request');
-      for (const profile of Object.values(codexNativePermissionProfiles(policy).permissions)) {
+      for (const [name, profile] of Object.entries(
+        codexNativePermissionProfiles(policy).permissions,
+      )) {
         expect(profile.filesystem).not.toHaveProperty(github);
         expect(profile.filesystem).not.toHaveProperty(`${github}{,/**}`);
-        expect(profile.network.enabled).toBe(false);
+        expect(profile.network.enabled).toBe(name === 'mitzo-native-auto');
       }
       const request = NativeApprovalRequestSchema.parse({
         method: 'item/commandExecution/requestApproval',

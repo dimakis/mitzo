@@ -1,4 +1,6 @@
 import { retainCallbackOutcome } from '../turn-callbacks.js';
+import { withToolGuardPhase } from '@mitzo/harness';
+import { toolFailure } from '@mitzo/protocol';
 import { createIntegrationToolDiscovery } from '../integration-tool-discovery.js';
 import { webAccessDefinition } from '../request-web-access.js';
 import { summarizeToolInput } from '@mitzo/protocol';
@@ -7,6 +9,7 @@ import Database from 'better-sqlite3';
 import { createHash } from 'node:crypto';
 import { EventStore } from '../event-store.js';
 import { reportRetainedRuntimeFailure } from '../retained-runtime-failure.js';
+import { SessionRuntimeError } from '../session-runtime-error.js';
 import { codexRuntimeDiagnostic } from '../codex-runtime-diagnostics.js';
 import { codexRolloverHistory, codexRolloverSources } from '../codex-rollover-context.js';
 import { mkdtempSync, rmSync } from 'node:fs';
@@ -42,6 +45,8 @@ import {
   trace,
 } from '@opentelemetry/api';
 import { AsyncLocalStorage } from 'node:async_hooks';
+import { OwnedCodexLifecycleBridge } from '../owned-codex-lifecycle-bridge.js';
+import type { FrozenHostCodexBootstrapLease } from '../frozen-host-codex-bootstrap.js';
 const cleanup: (() => void)[] = [];
 const binding = {
   accountId: 'personal',
@@ -50,6 +55,492 @@ const binding = {
   model: 'test-model',
   profileRevision: 'chatgpt:test@example.com:test',
 };
+
+it('bounds a noncooperative host tool, fences its late callback and retains unknown effects', async () => {
+  const f = await setup();
+  f.conversationOptions.toolGuardPolicy = { executionMs: 20, approvalMs: 100, cleanupMs: 20 };
+  let release!: () => void;
+  let lateError: unknown;
+  f.execute.mockImplementationOnce(async (_name, _input, _signal, invocation) => {
+    await new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    try {
+      invocation.assertCurrentSync?.();
+    } catch (error) {
+      lateError = error;
+    }
+    return { content: 'late result', isError: false };
+  });
+  await f.c.send({ id: 'guarded-command', prompt: 'Inspect the existing work' });
+  const result = await f.callbacks.onRequest(
+    'item/tool/call',
+    {
+      threadId: f.getProviderThread(),
+      turnId: 'turn-1',
+      callId: 'guarded-call',
+      tool: 'Read',
+      arguments: {},
+    },
+    new AbortController().signal,
+  );
+  expect(result.success).toBe(false);
+  expect(JSON.parse((result.contentItems as { text: string }[])[0].text)).toMatchObject({
+    diagnostic: { reason: 'deadline', effectStatus: 'unknown' },
+  });
+  await expect(
+    f.callbacks.onRequest(
+      'item/tool/call',
+      {
+        threadId: f.getProviderThread(),
+        turnId: 'turn-1',
+        callId: 'second-call',
+        tool: 'Read',
+        arguments: {},
+      },
+      new AbortController().signal,
+    ),
+  ).rejects.toBeInstanceOf(Error);
+  expect(f.execute).toHaveBeenCalledOnce();
+  expect(f.store.read('app', f.getBinding()).recovery).toBe(1);
+  release();
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  expect(lateError).toBeInstanceOf(Error);
+  f.callbacks.onNotification('turn/completed', {
+    threadId: f.getProviderThread(),
+    turn: { id: 'turn-1', status: 'completed' },
+  });
+  await vi.waitFor(() => expect(f.store.read('app', f.getBinding()).recovery).toBe(1));
+});
+
+it('bounds ordinary cancellation cleanup without accepting a late unqualified outcome', async () => {
+  const f = await setup();
+  f.conversationOptions.toolGuardPolicy = { executionMs: 1000, approvalMs: 1000, cleanupMs: 20 };
+  let release!: () => void;
+  f.execute.mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        release = () => resolve({ content: 'late success', isError: false });
+      }),
+  );
+  await f.c.send({ id: 'cancel-command', prompt: 'Inspect existing work' });
+  const abort = new AbortController();
+  const work = f.callbacks.onRequest(
+    'item/tool/call',
+    {
+      threadId: f.getProviderThread(),
+      turnId: 'turn-1',
+      callId: 'cancel-call',
+      tool: 'Read',
+      arguments: {},
+    },
+    abort.signal,
+  );
+  await vi.waitFor(() => expect(f.execute).toHaveBeenCalledOnce());
+  abort.abort(Error('User cancelled'));
+  const result = await work;
+  expect(result.success).toBe(false);
+  expect(JSON.parse((result.contentItems as { text: string }[])[0].text)).toMatchObject({
+    diagnostic: { effectStatus: 'unknown' },
+  });
+  release();
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  expect(f.execute).toHaveBeenCalledOnce();
+});
+
+it('excludes an actual adapter approval phase from its host execution deadline', async () => {
+  const f = await setup();
+  f.conversationOptions.toolGuardPolicy = { executionMs: 30, approvalMs: 200, cleanupMs: 20 };
+  f.execute.mockImplementationOnce(async () => {
+    await withToolGuardPhase(
+      'approval',
+      () => new Promise<void>((resolve) => setTimeout(resolve, 60)),
+    );
+    return { content: 'approved read', isError: false };
+  });
+  await f.c.send({ id: 'approval-command', prompt: 'Inspect the existing work' });
+  const result = await f.callbacks.onRequest(
+    'item/tool/call',
+    {
+      threadId: f.getProviderThread(),
+      turnId: 'turn-1',
+      callId: 'approval-call',
+      tool: 'Read',
+      arguments: {},
+    },
+    new AbortController().signal,
+  );
+  expect(result.success).toBe(true);
+});
+
+it.each(['clear', 'unfinished', 'failed-earlier', 'suppressed-during-prepare'] as const)(
+  'continues once after authoritative approval expiry only with safe command-wide native outcomes (%s)',
+  async (nativeOutcome) => {
+    const f = await setup();
+    let approvalRequests = 0;
+    f.conversationOptions.requestNativeApproval = async (_method, _params, _signal, context) => {
+      approvalRequests++;
+      context.observeFailure?.(toolFailure('approval_expired', 'approval', 'not_started'));
+      return { decision: 'decline' };
+    };
+    await f.c.send({
+      id: 'expired-source',
+      prompt: 'Original request',
+      intent: 'Original request',
+    });
+    if (nativeOutcome === 'suppressed-during-prepare')
+      f.conversationOptions.prepareTurn = async () => {
+        await new Promise<void>((resolve) => setImmediate(resolve));
+        f.store.recordToolFailureRecoverySuppression(
+          'app',
+          f.getBinding(),
+          'expired-source',
+          'turn-1',
+        );
+      };
+    const fail = async (turnId: string, itemId: string) => {
+      if (nativeOutcome === 'failed-earlier') {
+        f.callbacks.onNotification('item/started', {
+          threadId: f.getProviderThread(),
+          turnId,
+          item: { type: 'commandExecution', id: 'earlier', command: 'unknown operation' },
+        });
+        f.callbacks.onNotification('item/completed', {
+          threadId: f.getProviderThread(),
+          turnId,
+          item: { type: 'commandExecution', id: 'earlier', status: 'completed', exitCode: 1 },
+        });
+      }
+      f.callbacks.onNotification('item/started', {
+        threadId: f.getProviderThread(),
+        turnId,
+        item: { type: 'commandExecution', id: itemId, command: 'offline-test' },
+      });
+      await f.callbacks.onRequest(
+        'item/commandExecution/requestApproval',
+        {
+          threadId: f.getProviderThread(),
+          turnId,
+          itemId,
+          kind: 'command',
+          startedAtMs: Date.now(),
+          environmentId: 'local',
+          cwd: '/workspace',
+          command: 'offline-test',
+        },
+        new AbortController().signal,
+        { requestId: itemId },
+      );
+      f.callbacks.onNotification('item/completed', {
+        threadId: f.getProviderThread(),
+        turnId,
+        item: { type: 'commandExecution', id: itemId, status: 'declined' },
+      });
+      if (nativeOutcome === 'unfinished')
+        f.callbacks.onNotification('item/started', {
+          threadId: f.getProviderThread(),
+          turnId,
+          item: { type: 'commandExecution', id: 'unfinished', command: 'unknown operation' },
+        });
+      f.callbacks.onNotification('turn/completed', {
+        threadId: f.getProviderThread(),
+        turn: { id: turnId, status: 'completed' },
+      });
+    };
+    await fail('turn-1', 'approval-1');
+    if (nativeOutcome !== 'clear') {
+      if (nativeOutcome === 'suppressed-during-prepare')
+        await vi.waitFor(() => expect(f.c.isPaused()).toBe(true));
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      expect(f.rpc.request.mock.calls.filter(([method]) => method === 'turn/start')).toHaveLength(
+        1,
+      );
+      expect(
+        f.c
+          .queue()
+          .some(
+            (command) =>
+              command.toolFailureContinuation && ['queued', 'running'].includes(command.status),
+          ),
+      ).toBe(false);
+      return;
+    }
+    await vi.waitFor(() =>
+      expect(f.rpc.request.mock.calls.filter(([method]) => method === 'turn/start')).toHaveLength(
+        2,
+      ),
+    );
+    const child = f.c.queue().find((command) => command.toolFailureContinuation)!;
+    expect(child.intent).toBe('Original request');
+    expect(child.prompt).toContain('Do not replay');
+    expect(f.execute).not.toHaveBeenCalled();
+    await fail('turn-2', 'approval-2');
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    expect(f.rpc.request.mock.calls.filter(([method]) => method === 'turn/start')).toHaveLength(2);
+    expect(f.c.queue().filter((command) => command.toolFailureContinuation)).toHaveLength(1);
+    expect(approvalRequests).toBe(1);
+  },
+);
+
+it.each([false, true])(
+  'routes native children through the original executor without completing or steering the parent command (owned=%s)',
+  async (owned) => {
+    const wrapped = owned ? await setupOwnedRefusal() : undefined;
+    const f =
+      wrapped ?? (await setup(undefined, undefined, undefined, undefined, async () => binding));
+    const policy = codexNativeExecutionPolicy({
+      bindingRevision: 'owner',
+      mode: 'agent',
+      cwd: '/workspace',
+      readableRoots: ['/'],
+      writableRoots: ['/workspace'],
+      deniedRoots: ['/private/auth'],
+    });
+    Object.assign(f.conversationOptions, {
+      enableNativeSubagents: true,
+      nativeExecution: policy,
+      assertNativeExecutionCurrent: () => {},
+      requestNativeApproval: async () => ({ decision: 'decline' }),
+    });
+    await f.c.send({ id: 'root-command', prompt: 'Review edge cases' });
+    const original = f.rpc.request.getMockImplementation()!;
+    const child = {
+      id: 'child',
+      parentThreadId: f.getProviderThread(),
+      sessionId: 'native-tree',
+      cwd: policy.cwd,
+      model: 'test-model',
+      modelProvider: 'openai',
+      agentNickname: 'Edge cases',
+      preview: 'Check empty queries',
+    };
+    f.rpc.request.mockImplementation(async (method, params) => {
+      if (method === 'thread/read') return { thread: { ...child, id: params.threadId } };
+      if (params.threadId === 'child') {
+        if (method === 'thread/resume')
+          return { thread: child, model: 'test-model', modelProvider: 'openai' };
+        if (method === 'thread/turns/list') return { data: [], nextCursor: null };
+        if (method === 'turn/steer') return { turnId: params.expectedTurnId };
+      }
+      return original(method, params);
+    });
+    f.callbacks.onNotification('thread/started', { thread: child });
+    f.callbacks.onNotification('turn/started', { threadId: 'child', turn: { id: 'child-turn' } });
+    await f.c.getSubagents()!.settled();
+    if (wrapped) {
+      for (const [category, input] of [
+        ['invalid_tool_request', { tool: 'Read', arguments: 'invalid' }],
+        ['tool_unavailable', { tool: 'Unknown', arguments: {} }],
+      ] as const) {
+        await expect(
+          f.callbacks.onRequest(
+            'item/tool/call',
+            {
+              threadId: 'child',
+              turnId: 'child-turn',
+              callId: category,
+              ...input,
+            },
+            new AbortController().signal,
+            { requestId: category },
+          ),
+        ).rejects.toMatchObject({ category });
+        expect(wrapped.close).not.toHaveBeenCalled();
+        expect(f.execute).not.toHaveBeenCalled();
+      }
+    }
+    await f.callbacks.onRequest(
+      'item/tool/call',
+      {
+        threadId: 'child',
+        turnId: 'child-turn',
+        callId: 'child-call',
+        tool: 'Read',
+        arguments: {},
+      },
+      new AbortController().signal,
+    );
+    expect(f.execute).toHaveBeenCalledOnce();
+    f.callbacks.onNotification('turn/completed', {
+      threadId: 'child',
+      turn: { id: 'child-turn', status: 'completed' },
+    });
+    expect(f.c.queue()[0].status).toBe('running');
+    expect(f.c.getSubagents()!.list()[0].state).toBe('completed');
+    let releasePreparation!: () => void;
+    f.conversationOptions.prepareAgentContext = async () =>
+      new Promise<void>((resolve) => {
+        releasePreparation = resolve;
+      });
+    let authorized = true;
+    const directed = f.c.getSubagents()!.control(
+      {
+        requestId: 'revoke-during-prepare',
+        action: 'message',
+        threadId: 'child',
+        text: 'Next check',
+      },
+      () => {
+        if (!authorized) throw Error('Operator revoked');
+      },
+    );
+    await vi.waitFor(() => expect(releasePreparation).toBeTypeOf('function'));
+    authorized = false;
+    releasePreparation();
+    expect(await directed).toBe('rejected');
+    expect(
+      f.rpc.request.mock.calls.filter(
+        ([method, params]) => method === 'turn/start' && params.threadId === 'child',
+      ),
+    ).toHaveLength(0);
+    expect(f.c.getSubagents()!.list()[0].state).toBe('completed');
+    f.conversationOptions.prepareAgentContext = undefined;
+    expect(
+      f.events.some((event) => JSON.stringify(event).includes('nativeSubagentCommandId')),
+    ).toBe(true);
+    f.callbacks.onNotification('turn/completed', {
+      threadId: f.getProviderThread(),
+      turn: { id: 'turn-1', status: 'completed' },
+    });
+    await vi.waitFor(() => expect(f.c.queue()[0].status).toBe('completed'));
+  },
+);
+
+it('pauses and interrupts the original parent before waiting for slow child cancellation', async () => {
+  const f = await setup();
+  Object.assign(f.conversationOptions, {
+    enableNativeSubagents: true,
+    nativeExecution: codexNativeExecutionPolicy({
+      bindingRevision: 'owner',
+      mode: 'agent',
+      cwd: '/workspace',
+      readableRoots: ['/'],
+      writableRoots: ['/workspace'],
+      deniedRoots: ['/private/auth'],
+    }),
+    assertNativeExecutionCurrent: () => {},
+    requestNativeApproval: async () => ({ decision: 'decline' }),
+  });
+  await f.c.send({ id: 'original', prompt: 'Work' });
+  await f.c.send({ id: 'queued', prompt: 'Later' });
+  let release!: () => void;
+  vi.spyOn(f.c.getSubagents()!, 'interruptAll').mockImplementation(
+    () =>
+      new Promise<void>((resolve) => {
+        release = resolve;
+      }),
+  );
+  const stopped = f.c.interrupt();
+  expect(
+    f.rpc.request.mock.calls
+      .filter(([method]) => method === 'turn/interrupt')
+      .map(([, params]) => params),
+  ).toContainEqual({ threadId: f.getProviderThread(), turnId: 'turn-1' });
+  f.callbacks.onNotification('turn/completed', {
+    threadId: f.getProviderThread(),
+    turn: { id: 'turn-1', status: 'interrupted' },
+  });
+  await vi.waitFor(() => expect(f.c.queue()[0].status).toBe('interrupted'));
+  expect(f.c.queue()[1].status).toBe('queued');
+  release();
+  await stopped;
+});
+
+it.each(['pending', 'after'] as const)(
+  'cancels a %s child admission through the real parent recovery fence',
+  async (arrival) => {
+    const f = await setup();
+    const policy = codexNativeExecutionPolicy({
+      bindingRevision: 'owner',
+      mode: 'agent',
+      cwd: '/workspace',
+      readableRoots: ['/'],
+      writableRoots: ['/workspace'],
+      deniedRoots: ['/private/auth'],
+    });
+    Object.assign(f.conversationOptions, {
+      enableNativeSubagents: true,
+      nativeExecution: policy,
+      assertNativeExecutionCurrent: () => {},
+      requestNativeApproval: async () => ({ decision: 'decline' }),
+    });
+    await f.c.send({ id: 'recovery-root', prompt: 'Work' });
+    const owner = f.c.getSubagents()!;
+    const original = f.rpc.request.getMockImplementation()!;
+    let release!: () => void;
+    const child = {
+      id: 'recovery-child',
+      parentThreadId: f.getProviderThread(),
+      sessionId: 'tree',
+      cwd: policy.cwd,
+      model: 'test-model',
+      modelProvider: 'openai',
+    };
+    f.rpc.request.mockImplementation(async (method, params) => {
+      if (method === 'thread/read') {
+        if (params.threadId === child.id && arrival === 'pending')
+          await new Promise<void>((resolve) => {
+            release = resolve;
+          });
+        return { thread: { ...child, id: params.threadId } };
+      }
+      if (params.threadId === child.id) {
+        if (method === 'thread/resume')
+          return { thread: child, model: child.model, modelProvider: child.modelProvider };
+        if (method === 'thread/turns/list') return { data: [] };
+        if (method === 'turn/interrupt') return {};
+      }
+      return original(method, params);
+    });
+    const announce = () => {
+      f.callbacks.onNotification('thread/started', { thread: child });
+      f.callbacks.onNotification('turn/started', {
+        threadId: child.id,
+        turn: { id: 'recovery-child-turn' },
+      });
+    };
+    if (arrival === 'pending') {
+      announce();
+      await vi.waitFor(() => expect(release).toBeTypeOf('function'));
+    }
+    const stopping = f.c.interrupt();
+    expect(f.store.read('app', f.getBinding()).recovery).toBe(1);
+    if (arrival === 'pending') release();
+    else {
+      await stopping;
+      announce();
+    }
+    await stopping;
+    await owner.settled();
+    await vi.waitFor(() =>
+      expect(
+        f.rpc.request.mock.calls.some(
+          ([method, params]) =>
+            method === 'turn/interrupt' &&
+            params.threadId === child.id &&
+            params.turnId === 'recovery-child-turn',
+        ),
+      ).toBe(true),
+    );
+    expect(owner.list()[0]).toMatchObject({ available: false, state: 'stopping' });
+    await expect(
+      owner.request(
+        'item/tool/call',
+        {
+          threadId: child.id,
+          turnId: 'recovery-child-turn',
+          callId: 'blocked-recovery-tool',
+          tool: 'Read',
+          arguments: {},
+        },
+        new AbortController().signal,
+      ),
+    ).rejects.toThrow();
+    expect(f.execute).not.toHaveBeenCalled();
+    // The fixture acknowledges the parent interrupt separately from the child.
+    expect(f.c.queue()[0].status).toBe('interrupted');
+  },
+);
 
 it('retains unknown late tool effects independently of its durable error result', async () => {
   const f = await setup();
@@ -1309,6 +1800,10 @@ async function setup(
     approvedSearchOnCurrentTransport?: boolean;
   },
   initialProviderThread = 'provider-thread',
+  lifecycleWrapper?: (
+    owner: CodexLifecycleTransport,
+    client: ReturnType<CodexConversationOptions['createClient']>,
+  ) => CodexLifecycleTransport,
 ) {
   const dir = mkdtempSync(join(tmpdir(), 'mitzo-codex-'));
   const store = existingStore ?? new CodexConversationStore(join(dir, 'private.db'));
@@ -1442,6 +1937,7 @@ async function setup(
           cb.onNotification(method, params);
         },
       };
+      if (lifecycleWrapper) callbacks = lifecycleWrapper(callbacks, rpc);
       return rpc;
     },
     emit: (e) => events.push(e),
@@ -2929,6 +3425,140 @@ it.each(['functions', '', null, undefined])(
   },
 );
 
+async function setupOwnedRefusal(
+  authorize?: (signal: AbortSignal) => Promise<void>,
+  transportClosure?: CodexConversationOptions['transportClosure'],
+) {
+  const args: Parameters<typeof setup> = [];
+  const close = vi.fn();
+  args[25] = authorize;
+  args[29] = transportClosure;
+  args[32] = (owner, client) => {
+    const lease: FrozenHostCodexBootstrapLease = {
+      client,
+      binding,
+      profile: {
+        accountId: 'personal',
+        accountLabel: 'Offline',
+        model: 'test-model',
+        credentialRef: '/offline',
+        email: 'test@example.com',
+        planType: 'test',
+      },
+      privateHome: '/offline',
+      executableSha256: 'a'.repeat(64),
+      assertCurrent: async () => {},
+      assertCurrentSync: () => {},
+      close,
+    };
+    const bridge = new OwnedCodexLifecycleBridge(() => lease);
+    bridge.attach(owner);
+    return bridge.lifecycle;
+  };
+  return { ...(await setup(...args)), close };
+}
+
+it.each(['invalid_tool_request', 'tool_unavailable'] as const)(
+  'keeps the owned Mac bridge usable after a proven %s refusal',
+  async (category) => {
+    const f = await setupOwnedRefusal(async () => {});
+    await f.c.send({ id: 'refused', prompt: 'read' });
+    await f.c.send({ id: 'next', prompt: 'continue' });
+    const input = {
+      threadId: 'provider-thread',
+      turnId: 'turn-1',
+      callId: 'refused',
+      tool: 'Read',
+      arguments: {},
+    };
+    await expect(
+      f.callbacks.onRequest(
+        'item/tool/call',
+        {
+          ...input,
+          ...(category === 'invalid_tool_request' ? { arguments: 'invalid' } : { tool: 'Unknown' }),
+        },
+        new AbortController().signal,
+        { requestId: 'refused' },
+      ),
+    ).rejects.toMatchObject({ category });
+    expect(f.close).not.toHaveBeenCalled();
+    expect(f.execute).not.toHaveBeenCalled();
+    await expect(
+      f.callbacks.onRequest(
+        'item/tool/call',
+        { ...input, callId: 'valid' },
+        new AbortController().signal,
+        { requestId: 'valid' },
+      ),
+    ).resolves.toMatchObject({ success: true });
+    f.callbacks.onNotification('turn/completed', {
+      threadId: 'provider-thread',
+      turn: { id: 'turn-1', status: 'completed' },
+    });
+    await vi.waitFor(() =>
+      expect(f.c.queue().map(({ status }) => status)).toEqual(['completed', 'running']),
+    );
+    expect(f.onClosed).not.toHaveBeenCalled();
+    expect(f.close).not.toHaveBeenCalled();
+  },
+);
+
+it('keeps owned Mac refusal proof scoped to its original request', async () => {
+  const authorize = vi.fn(async () => {});
+  const f = await setupOwnedRefusal(authorize);
+  await f.c.send({ id: 'refused', prompt: 'read' });
+  const input = {
+    threadId: 'provider-thread',
+    turnId: 'turn-1',
+    callId: 'refused',
+    tool: 'Unknown',
+    arguments: {},
+  };
+  const signal = new AbortController().signal;
+  const failure = await f.callbacks
+    .onRequest('item/tool/call', input, signal, { requestId: 'refused' })
+    .catch((error: unknown) => error);
+  expect(f.close).not.toHaveBeenCalled();
+  vi.spyOn(f.store, 'recordToolResult').mockImplementation(() => {
+    throw failure;
+  });
+  await expect(
+    f.callbacks.onRequest(
+      'item/tool/call',
+      { ...input, callId: 'executed', tool: 'Read' },
+      signal,
+      { requestId: 'executed' },
+    ),
+  ).rejects.toThrow();
+  expect(f.execute).toHaveBeenCalledOnce();
+  expect(f.close).toHaveBeenCalledOnce();
+});
+
+it('closes the owned Mac bridge when final authority changes after a proven refusal', async () => {
+  const authorize = vi.fn(async () => {});
+  const f = await setupOwnedRefusal(authorize);
+  await f.c.send({ id: 'refused', prompt: 'read' });
+  const revoked = Error('private revocation');
+  authorize.mockResolvedValueOnce(undefined).mockRejectedValueOnce(revoked);
+  await expect(
+    f.callbacks.onRequest(
+      'item/tool/call',
+      {
+        threadId: 'provider-thread',
+        turnId: 'turn-1',
+        callId: 'refused',
+        tool: 'Unknown',
+        arguments: {},
+      },
+      new AbortController().signal,
+      { requestId: 'refused' },
+    ),
+  ).rejects.toThrow();
+  expect(f.execute).not.toHaveBeenCalled();
+  expect(f.close).toHaveBeenCalledOnce();
+});
+
 it.each(
   [false, true].flatMap((authorize) =>
     [false, true].map((ledgerFailure) => ({ authorize, ledgerFailure })),
@@ -3384,6 +4014,51 @@ it('reports transport loss during an active turn and preserves its unknown outco
   );
   expect(c.isPaused()).toBe(true);
   expect(c.queue()[0]).toMatchObject({ status: 'interrupted' });
+});
+
+it('reports the reviewed workspace failure through the owned terminal conversation and durable reporter', async () => {
+  const f = await setupOwnedRefusal(undefined, 'terminal');
+  const history = new EventStore(':memory:');
+  try {
+    history.upsertSession({ sessionId: 'app', cwd: '/workspace' });
+    history.insertSendCommand('branch-loss', 'app', { text: 'work' });
+    const saved = history.getSendCommand('branch-loss');
+    f.onError.mockImplementation((error) =>
+      reportRetainedRuntimeFailure({
+        store: history,
+        sessionId: 'app',
+        commandId: 'branch-loss',
+        error,
+      }),
+    );
+    await f.c.send({ id: 'branch-loss', prompt: 'work' });
+    await f.c.send({ id: 'saved-next', prompt: 'next' });
+    const failure = new SessionRuntimeError('workspace_branch_changed', {
+      cause: Error('SECRET /private/checkout'),
+    });
+    f.callbacks.onClose(failure);
+    f.callbacks.onClose(new CodexTransportError('connection'));
+    expect(f.onError).toHaveBeenCalledOnce();
+    expect(f.onError).toHaveBeenCalledWith(failure);
+    const errors = history.getSessionEvents('app').filter((event) => event.type === 'error');
+    expect(errors).toHaveLength(1);
+    expect(errors[0].payload).toMatchObject({
+      error: expect.stringContaining('assigned task branch'),
+      runtimeFailure: {
+        runtimeFailureCode: 'workspace_branch_changed',
+        diagnosticId: failure.diagnosticId,
+      },
+    });
+    expect(JSON.stringify(errors)).not.toMatch(/SECRET|private/);
+    expect(history.getSendCommand('branch-loss')).toEqual(saved);
+    expect(f.c.queue().map(({ status }) => status)).toEqual(['interrupted', 'queued']);
+    expect(f.store.commandLifecycle('app', f.getBinding(), 'branch-loss')).toMatchObject({
+      state: 'ambiguous_effect',
+    });
+    expect(f.requests.filter(({ method }) => method === 'turn/start')).toHaveLength(1);
+  } finally {
+    history.close();
+  }
 });
 
 it.each(['typed', 'unclassified', 'observer-failure'] as const)(
@@ -9889,6 +10564,41 @@ it('observes each native base-read claim once per fence and refreshes after the 
   await expect(
     f.callbacks.onRequest('item/tool/call', call, new AbortController().signal),
   ).resolves.toMatchObject({ success: true });
+});
+
+it('steers screenshot bytes only to the selected active turn with an immutable receipt', async () => {
+  const f = await setup();
+  await f.c.send({ id: 'a', prompt: 'First' });
+  const rpc = f.rpc.request.getMockImplementation()!;
+  f.rpc.request.mockImplementation(async (method, params) =>
+    method === 'turn/steer'
+      ? (f.requests.push({ method, params }), { turnId: params.expectedTurnId })
+      : rpc(method, params),
+  );
+  const input = {
+    requestId: 'image-correction',
+    targetCommandId: 'a',
+    text: 'Use this screenshot',
+    images: [{ data: 'aGk=', mediaType: 'image/png' as const }],
+  };
+  expect(await f.c.steer(input, () => {})).toEqual({ status: 'accepted' });
+  expect(await f.c.steer(input, () => {})).toEqual({ status: 'accepted' });
+  expect(f.requests.filter((r) => r.method === 'turn/steer')).toEqual([
+    {
+      method: 'turn/steer',
+      params: {
+        threadId: f.getProviderThread(),
+        expectedTurnId: 'turn-1',
+        input: [
+          { type: 'text', text: input.text },
+          { type: 'image', url: 'data:image/png;base64,aGk=' },
+        ],
+      },
+    },
+  ]);
+  await expect(
+    f.c.steer({ ...input, images: [{ ...input.images[0], data: 'YQ==' }] }, () => {}),
+  ).rejects.toThrow('Correction identity reused');
 });
 
 it('steers only the selected active turn, preserving the FIFO and at-most-once receipt', async () => {

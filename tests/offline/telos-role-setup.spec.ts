@@ -98,11 +98,12 @@ for (const journey of ['lead', 'refine', 'child', 'leaf', 'coordinator'] as cons
           );
         }
       });
-      async function reloadAfterHealth() {
+      async function reloadAfterHealth(target?: string) {
         // Settle this document's fallback before WebKit starts tearing it down.
         await expect.poll(() => healthCompletion).toEqual({ status: 200, failure: null });
         healthCompletion = undefined;
-        await page.reload();
+        if (target) await page.goto(target);
+        else await page.reload();
       }
       let rejectBeforeAllocation = false;
       let contextReviews = 0;
@@ -548,6 +549,10 @@ for (const journey of ['lead', 'refine', 'child', 'leaf', 'coordinator'] as cons
           });
         if (path.endsWith('/compactions'))
           return route.fulfill({ json: { records: [], truncated: false } });
+        if (path === '/api/session-launch/defaults' && route.request().method() === 'GET')
+          return route.fulfill({ json: { revision: 0, configuration: null } });
+        if (path === '/api/session-launch/requests' && route.request().method() === 'GET')
+          return route.fulfill({ json: { requests: [] } });
         if (path.startsWith('/api/chat/web-search-consent/'))
           return route.fulfill({
             json: { ok: true, grant: 'denied', revision: 1, updatedAt: 1792144800000 },
@@ -616,8 +621,17 @@ for (const journey of ['lead', 'refine', 'child', 'leaf', 'coordinator'] as cons
         capabilityRevision: inventory.capabilityRevision,
       };
       draft.settings.repositoryWorkspaceId = preparationId;
+      // The restored public route must name the same reviewed agent as its
+      // injected runtime. A different explicit URL profile invalidates review.
+      const restoredUrl = new URL(page.url());
+      restoredUrl.searchParams.set('agentProfile', 'agent');
+      restoredUrl.searchParams.set('profileRevision', '1');
+      restoredUrl.searchParams.delete('agentProfileKind');
+      const restoredSearch = new URLSearchParams(restoredUrl.searchParams);
+      restoredSearch.delete('draft');
+      draft.settings.search = restoredSearch.toString();
       await writeChatStorage(page, key, JSON.stringify(draft));
-      await reloadAfterHealth();
+      await reloadAfterHealth(restoredUrl.pathname + restoredUrl.search);
       const assign = page.getByRole('button', { name: actionLabel });
       await expect(assign).toBeEnabled();
       // The welcome animation belongs to an empty chat. Its absolute logo must

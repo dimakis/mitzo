@@ -34,9 +34,9 @@ import { SlashPicker } from './SlashPicker';
 import { SessionResourcesDialog } from './SessionResourcesDialog';
 import { ImageAttachmentEditor } from './ImageAttachmentEditor';
 import { ComposerTools } from './ComposerTools';
+import type { ChatComposerCapabilities } from '../lib/chat-composer-capabilities';
 import { SessionTimersDialog } from './SessionTimersDialog';
 import { UiIcon } from './UiIcon';
-import { WorkspaceActionMenu } from './WorkspaceActionMenu';
 import { ComposerStatusProvider, ComposerStatusRail, ComposerStatusNotice } from './ComposerStatus';
 import { useComposerStatusSink } from '../lib/composer-status-context';
 import { MicButton } from './MicButton';
@@ -74,6 +74,7 @@ export interface ChatInputDraftControl {
 }
 
 interface Props {
+  composerCapabilities?: ChatComposerCapabilities;
   steeringTargetCommandId?: string;
   replyTarget?: MessageReplyContext;
   onClearReply?: () => void;
@@ -122,6 +123,7 @@ interface Props {
   /** Validate the actual edited payload against the selected route before sending. */
   validateSend?: (text: string, images?: ImageAttachment[]) => string | undefined;
   cwd?: string;
+  skillWorkspaceId?: string;
   voice?: UseVoiceReturn;
   branch?: string;
   isWorktree?: boolean;
@@ -182,8 +184,10 @@ function ChatInputContent({
   sendDisabledAction,
   boundedFirstCommand = false,
   guardedConversation = false,
+  composerCapabilities,
   validateSend,
   cwd,
+  skillWorkspaceId,
   voice,
   branch,
   isWorktree,
@@ -204,6 +208,10 @@ function ChatInputContent({
   bootContext,
   sessionContext,
 }: Props) {
+  const commandMode =
+    composerCapabilities?.commands ??
+    (boundedFirstCommand || guardedConversation ? 'unavailable' : 'legacy');
+  const commandsDisabled = commandMode === 'unavailable' || textOnly;
   const draftStorageKey = savedChatDraft
     ? chatDraftStorageKey(savedChatDraft.id)
     : suppliedDraftStorageKey;
@@ -328,8 +336,10 @@ function ChatInputContent({
     if (!revision || consumedRevision.current === revision) return;
     consumedRevision.current = revision;
     setImages([]);
-    if (!useExternal) setContextBlocks([]);
-  }, [draftReceipt.consumedRevision, useExternal]);
+    // Clear the consumed owner's shadow even while the parent controls context;
+    // assignment may hand this composer back to its internal state next render.
+    setContextBlocks([]);
+  }, [draftReceipt.consumedRevision]);
   const settingsSignature = JSON.stringify(savedChatDraft?.settings);
   const volatileClearedDraft = useRef<{
     settingsSignature: string;
@@ -783,7 +793,7 @@ function ChatInputContent({
                 externalContextBlocks: useExternal ? activeContextBlocks : undefined,
               };
               setImages([]);
-              if (!useExternal) setContextBlocks([]);
+              setContextBlocks([]);
             }
             return;
           }
@@ -937,7 +947,7 @@ function ChatInputContent({
   // Show/hide slash picker based on input
   // TODO: Verify picker reopens correctly on backspace after space (e.g. "/simplify " → "/simplify")
   useEffect(() => {
-    if (boundedFirstCommand || guardedConversation) {
+    if (commandsDisabled) {
       setShowSlashPicker(false);
       return;
     }
@@ -947,7 +957,7 @@ function ChatInputContent({
     } else {
       setShowSlashPicker(false);
     }
-  }, [displayedText, boundedFirstCommand, guardedConversation]);
+  }, [displayedText, commandsDisabled]);
 
   function handleSlashSelect(name: string) {
     editText((draft) => insertComposerCommand(draft, name));
@@ -969,25 +979,26 @@ function ChatInputContent({
     const trimmed = text.trim();
     if (!trimmed && images.length === 0) return;
     sendGuard.current = true;
-    if (draftStorageKey !== undefined) flushDraft();
-    const sent = await sendOrdinary({
-      text:
-        trimmed ||
-        (images.some((image) => image.name)
-          ? 'Please read the attached PDF.'
-          : 'What do you see in this image?'),
-      images: [...images],
-      contextBlocks: [...activeContextBlocks],
-      replyTo: replyTarget,
-    });
-    if (sent) {
-      impactMedium();
-      autoResize();
-      textareaRef.current?.focus();
-    }
-    requestAnimationFrame(() => {
+    try {
+      if (draftStorageKey !== undefined) flushDraft();
+      const sent = await sendOrdinary({
+        text:
+          trimmed ||
+          (images.some((image) => image.name)
+            ? 'Please read the attached PDF.'
+            : 'What do you see in this image?'),
+        images: [...images],
+        contextBlocks: [...activeContextBlocks],
+        replyTo: replyTarget,
+      });
+      if (sent) {
+        impactMedium();
+        autoResize();
+        textareaRef.current?.focus();
+      }
+    } finally {
       sendGuard.current = false;
-    });
+    }
   }
 
   function handleKeyDown(e: KeyboardEvent) {
@@ -1283,11 +1294,7 @@ function ChatInputContent({
       void sendOrdinary(q, true, recovering);
       return;
     }
-    if (
-      !onInterrupt ||
-      (interruptLabel === 'Steer current turn' && (q.images.length || q.contextBlocks.length))
-    )
-      return;
+    if (!onInterrupt || (interruptLabel === 'Steer current turn' && q.contextBlocks.length)) return;
     const pending = {};
     interruptPending.current = pending;
     if (!recovering) removeQueued(index);
@@ -1350,8 +1357,8 @@ function ChatInputContent({
 
   const correctionReason =
     interruptDisabledReason ??
-    (interruptLabel === 'Steer current turn' && (images.length || activeContextBlocks.length)
-      ? 'Steering accepts text only. Queue attachments as a new message.'
+    (interruptLabel === 'Steer current turn' && activeContextBlocks.length
+      ? 'Queue context changes as a new message. Corrections keep the active turn’s context.'
       : undefined);
 
   function handleInterrupt() {
@@ -1374,41 +1381,44 @@ function ChatInputContent({
     const pending = {};
     interruptPending.current = pending;
     const submitted = { ...latestDraft.current, replyTo: replyTarget };
-    onInterrupt(
-      attachmentPrompt(trimmed, images),
-      images.length > 0 ? images : undefined,
-      activeContextBlocks.length > 0 ? activeContextBlocks : undefined,
-      (status) => {
-        if (status === 'uncertain') {
-          if (interruptLabel === 'Steer current turn' && interruptPending.current === pending)
-            interruptPending.current = null;
-          return;
-        }
-        if (interruptPending.current === pending) interruptPending.current = null;
-        if (mounted.current) settleDelivery((n) => n + 1);
-        if (!mounted.current || latestDraft.current.scope !== submitted.scope) return;
-        if (
-          latestDraft.current.revision !== submitted.revision ||
-          replyRef.current !== submitted.replyTo
-        ) {
-          if (status === 'failed')
-            restoreRejected({ ...submitted, text: trimmed || 'What do you see in this image?' });
-          return;
-        }
-        if (status === 'accepted') {
-          clearDraft();
-          if (replyRef.current === replyTarget) onClearReply?.();
-          setImages([]);
-          if (!useExternal) setContextBlocks([]);
-        }
-      },
-      ...(replyTarget ? ([replyTarget] as const) : ([] as const)),
-    );
+    try {
+      onInterrupt(
+        attachmentPrompt(trimmed, images),
+        images.length > 0 ? images : undefined,
+        activeContextBlocks.length > 0 ? activeContextBlocks : undefined,
+        (status) => {
+          if (status === 'uncertain') {
+            if (interruptLabel === 'Steer current turn' && interruptPending.current === pending)
+              interruptPending.current = null;
+            return;
+          }
+          if (interruptPending.current === pending) interruptPending.current = null;
+          if (mounted.current) settleDelivery((n) => n + 1);
+          if (!mounted.current || latestDraft.current.scope !== submitted.scope) return;
+          if (
+            latestDraft.current.revision !== submitted.revision ||
+            replyRef.current !== submitted.replyTo
+          ) {
+            if (status === 'failed')
+              restoreRejected({ ...submitted, text: trimmed || 'What do you see in this image?' });
+            return;
+          }
+          if (status === 'accepted') {
+            clearDraft();
+            if (replyRef.current === replyTarget) onClearReply?.();
+            setImages([]);
+            if (!useExternal) setContextBlocks([]);
+          }
+        },
+        ...(replyTarget ? ([replyTarget] as const) : ([] as const)),
+      );
+    } finally {
+      // Dispatch must not depend on painting: iOS can suspend animation frames.
+      // interruptPending owns duplicate prevention until the delivery receipt.
+      sendGuard.current = false;
+    }
     // Local transport acceptance cannot confirm an interrupt. Keep its exact input
     // until an authoritative receipt, and protect edits made while it is pending.
-    requestAnimationFrame(() => {
-      sendGuard.current = false;
-    });
     autoResize();
     textareaRef.current?.focus();
   }
@@ -1416,6 +1426,7 @@ function ChatInputContent({
   return (
     <div className={`chat-input chat-input--compact${expanded ? ' chat-input--expanded' : ''}`}>
       <ComposerStatusRail
+        sessionId={sessionId}
         running={running}
         scope={composerScope}
         awaitingApproval={awaitingApproval}
@@ -1470,6 +1481,7 @@ function ChatInputContent({
       )}
       <MotionPresence open={showSlashPicker} kind="popover" appear={false}>
         <SlashPicker
+          runtime={commandMode === 'ordinary' ? 'ordinary' : 'legacy'}
           query={displayedText.trimStart()}
           onSelect={handleSlashSelect}
           onClose={(reason) => {
@@ -1477,6 +1489,8 @@ function ChatInputContent({
             setShowSlashPicker(false);
           }}
           cwd={cwd}
+          workspaceId={skillWorkspaceId}
+          sessionId={sessionId}
         />
       </MotionPresence>
       {voice?.recording && voice.partialTranscript && (
@@ -1510,7 +1524,7 @@ function ChatInputContent({
               !!sendPending.current ||
               !!interruptPending.current
             }
-            textOnlySteer={interruptLabel === 'Steer current turn'}
+            nativeSteer={interruptLabel === 'Steer current turn'}
             onPause={() => {
               const paused = !queuePaused;
               setQueuePaused(paused);
@@ -1595,9 +1609,11 @@ function ChatInputContent({
               expanded={expanded}
               onExpand={() => setExpanded((value) => !value)}
               terminalHref={
-                sessionId && !boundedFirstCommand && !guardedConversation
-                  ? `/terminal?sessionId=${encodeURIComponent(sessionId)}&returnTo=${encodeURIComponent(`/chat/${sessionId}`)}`
-                  : undefined
+                composerCapabilities
+                  ? composerCapabilities.terminalHref
+                  : sessionId && !boundedFirstCommand && !guardedConversation
+                    ? `/terminal?sessionId=${encodeURIComponent(sessionId)}&returnTo=${encodeURIComponent(`/chat/${sessionId}`)}`
+                    : undefined
               }
               onCommands={() => {
                 if (!displayedText.trim()) editText('/');
@@ -1605,7 +1621,7 @@ function ChatInputContent({
                 textareaRef.current?.focus();
               }}
               commandsExpanded={showSlashPicker}
-              commandsDisabled={boundedFirstCommand || guardedConversation || textOnly}
+              commandsDisabled={commandsDisabled}
               onAttach={() => fileInputRef.current?.click()}
               attachmentDisabled={
                 textOnly || importing || displayedImages.length >= MAX_IMAGE_ATTACHMENTS
@@ -1687,21 +1703,16 @@ function ChatInputContent({
             {running ? (
               <>
                 {canSend && onInterrupt && !boundedFirstCommand && (
-                  <WorkspaceActionMenu
-                    label="Send options"
-                    items={[
-                      {
-                        id: 'correction',
-                        label: 'Send correction',
-                        onSelect: handleInterrupt,
-                        title:
-                          sendDisabledReason ??
-                          correctionReason ??
-                          'Send a correction to the current turn; keep its settings and the queue order',
-                        disabled: !!sendDisabledReason || !!correctionReason || importing,
-                      },
-                    ]}
-                  />
+                  <button
+                    type="button"
+                    className="chat-input-btn chat-input-btn--interrupt"
+                    aria-label={interruptLabel}
+                    title={sendDisabledReason ?? correctionReason ?? interruptLabel}
+                    disabled={!!sendDisabledReason || !!correctionReason || importing}
+                    onClick={handleInterrupt}
+                  >
+                    <UiIcon name="interrupt" />
+                  </button>
                 )}
                 {canSend && !boundedFirstCommand && (
                   <button

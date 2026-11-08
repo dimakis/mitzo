@@ -1,4 +1,14 @@
 import { isReadOnlyBuiltinToolCall } from './builtin-tool-behavior.js';
+import { ToolFailureSchema, toolFailure, type ToolFailure } from '@mitzo/protocol';
+import {
+  assertToolGuardCurrent,
+  runGuardedTool,
+  runBoundedToolCleanup,
+  ToolGuardTimeoutError,
+  type ToolGuardPolicy,
+} from '@mitzo/harness';
+import { CodexSubagents } from './codex-subagents.js';
+import { subagentScope } from './codex-subagent-store.js';
 import { observeNativeApprovalCheck } from './local-codex-observation.js';
 import {
   CodexSteerInputSchema,
@@ -146,21 +156,17 @@ export interface CodexStartupConfigObservation {
 
 /** Server-only snapshot from an original verified native host-tool invocation.
  * Base roots exclude retained upstream grants. Its fence expires with that call. */
-export interface NativeBaseReadScope {
-  readonly nativeTarget: Readonly<CodexNativeTurnTarget>;
-  readonly callId: string;
-  readonly toolName: string;
-  readonly requestHash: string;
-  readonly bindingRevision: string;
-  readonly profileRevision: string;
-  readonly policyRevision: string;
-  readonly readableRoots: readonly string[];
-  readonly workspaceRoots: readonly string[];
-  readonly deniedRoots: readonly string[];
-  assertCurrentSync(): void;
-}
+export type { NativeBaseReadScope } from './native-base-read-scope.js';
+import type { NativeBaseReadScope } from './native-base-read-scope.js';
 
 export interface CodexConversationOptions {
+  enableToolFailureContinuation?: boolean;
+  /** Original live owner admits the exact durable child under unchanged authority. */
+  admitToolFailureContinuation?(input: CodexCommandInput): boolean | void;
+  /** Trusted execution policy, never provider/model input. */
+  toolGuardPolicy?: Readonly<ToolGuardPolicy>;
+  /** Enabled only by the owned native Mac adapter, never inherited runtime configuration. */
+  enableNativeSubagents?: boolean;
   adviserScope?: AdviserTaskScope;
   /** Read-only idle health deadline; never changes model RPC timeouts. */
   idleProbeTimeoutMs?: number;
@@ -232,7 +238,10 @@ export interface CodexConversationOptions {
       turnId: string;
       assertCurrentSync(): void;
       fileChangePaths?: readonly string[];
+      /** Server-attributed child identity, never supplied by the model. */
+      subagentName?: string;
       registerResponseFence?(assertCurrent: () => void): void;
+      observeFailure?(failure: ToolFailure): void;
     }>,
   ) => Promise<ObjectValue>;
   validateModel?: (model: string, reasoningEffort?: string) => void;
@@ -444,6 +453,7 @@ type ActiveCommand = {
   callbackSettlement?: Promise<void>;
   callbacksSettled?: boolean;
   callbackEffectsUnknown?: boolean;
+  toolGuardRetired?: boolean;
   settledToolCallbacks?: Set<string>;
   command: CodexCommand;
   /** Set before invoking turn/start, including synchronous close/rejection. */
@@ -488,6 +498,9 @@ export type CodexTargetedInterruptResult =
   | { status: 'claimed'; receipt: CodexTargetedInterruptReceipt; replayed: boolean };
 
 export class CodexConversation {
+  private subagentOwner?: CodexSubagents;
+  private lastSubagentCommandId?: string;
+  private subagentAnchors = new Set<string>();
   private client: Rpc;
   private transportGeneration = 0;
   private replaySavedSources = false;
@@ -565,6 +578,8 @@ export class CodexConversation {
     };
   }
   private createClient() {
+    this.subagentOwner?.close();
+    this.subagentOwner = undefined;
     const generation = ++this.transportGeneration;
     return this.opts.createClient({
       onNotification: (m, p) => {
@@ -577,6 +592,8 @@ export class CodexConversation {
           return Promise.reject(new CodexTransportError('connection'));
         if (this.borrowedSearch?.owns(p))
           return Promise.reject(new Error('Search request has no executable tools'));
+        const children = this.getSubagents();
+        if (children?.owns(p.threadId)) return children.request(m, p, s, requestContext);
         const active = this.active;
         if (!active || p.threadId !== this.threadId || p.turnId !== active.turnId)
           return this.request(m, p, s, requestContext);
@@ -585,6 +602,7 @@ export class CodexConversation {
           () =>
             this.request(m, p, s, requestContext, (error) => {
               preExecutionRefusal = error;
+              requestContext?.registerPreExecutionRefusal?.(error);
             }),
           (error) =>
             (preExecutionRefusal !== undefined && error === preExecutionRefusal) ||
@@ -602,6 +620,138 @@ export class CodexConversation {
       },
       onClose: (error) => this.transportClosed(generation, error),
     });
+  }
+  getSubagents(): CodexSubagents | undefined {
+    if (
+      !this.opts.enableNativeSubagents ||
+      !this.opts.nativeExecution ||
+      !this.binding ||
+      !this.threadId ||
+      !this.ready ||
+      this.closed
+    )
+      return undefined;
+    if (this.active) this.lastSubagentCommandId = this.active.command.id;
+    if (this.subagentOwner) {
+      if (!this.paused && this.active) this.subagentOwner.parentResumed();
+      return this.subagentOwner;
+    }
+    const client = this.client;
+    const generation = this.transportGeneration;
+    const binding = this.binding;
+    const scope = subagentScope(this.opts.conversationId, binding);
+    this.subagentOwner = new CodexSubagents({
+      scope,
+      store: this.opts.store.subagents,
+      root: () => {
+        const policy = this.opts.nativeExecution;
+        const commandId =
+          this.active?.command.id ??
+          this.lastSubagentCommandId ??
+          this.opts.store.subagents.list(scope)[0]?.commandId;
+        return !this.closed &&
+          this.ready &&
+          generation === this.transportGeneration &&
+          policy &&
+          commandId &&
+          this.threadId
+          ? {
+              threadId: this.threadId,
+              commandId,
+              model: this.binding!.model,
+              modelProvider: this.opts.modelProvider ?? 'openai',
+              policy,
+            }
+          : undefined;
+      },
+      assertCurrent: (child, cancelling) => {
+        if (
+          this.closed ||
+          !this.ready ||
+          (this.paused && !cancelling) ||
+          (this.active?.toolGuardRetired && !cancelling) ||
+          generation !== this.transportGeneration ||
+          this.client !== client ||
+          this.binding?.profileRevision !== binding.profileRevision
+        )
+          throw Error('Original native subagent transport unavailable');
+        if (!this.opts.assertNativeExecutionCurrent || !this.opts.nativeExecution)
+          throw Error('Native subagent policy owner unavailable');
+        this.opts.assertNativeExecutionCurrent(this.opts.nativeExecution, child.commandId);
+      },
+      request: async (method, params, beforeDispatch) => {
+        await this.opts.prepareAgentContext?.(
+          this.opts.startupSignal ?? new AbortController().signal,
+        );
+        if (
+          this.closed ||
+          !this.ready ||
+          this.client !== client ||
+          generation !== this.transportGeneration
+        )
+          throw Error('Original subagent transport unavailable');
+        beforeDispatch?.();
+        return client.request(method, params);
+      },
+      tools: this.opts.tools,
+      nativeOrigin: (child, cancelling) => {
+        const state = this.opts.store.read(this.opts.conversationId, binding);
+        const attempt = this.opts.store.nativeCommandAttempt(
+          this.opts.conversationId,
+          binding,
+          child.commandId,
+        );
+        if (
+          !attempt ||
+          state.threadId !== child.rootThreadId ||
+          (state.recovery && !cancelling) ||
+          (child.commandAttempt !== undefined && child.commandAttempt !== attempt) ||
+          (child.threadGeneration !== undefined &&
+            child.threadGeneration !== state.threadGeneration)
+        )
+          throw Error('Original child command unavailable');
+        const accepted = this.opts.store.readNativeExecution(this.opts.conversationId, binding, {
+          id: child.commandId,
+          attempt,
+        });
+        if (
+          accepted?.phase !== 'accepted' ||
+          accepted.threadId !== child.rootThreadId ||
+          accepted.generation !== state.threadGeneration
+        )
+          throw Error('Original child acceptance unavailable');
+        return {
+          commandId: child.commandId,
+          attempt,
+          generation: state.threadGeneration,
+        };
+      },
+      executeTool: this.opts.executeTool,
+      requestNativeApproval: this.opts.requestNativeApproval,
+      requestUserInput: this.opts.requestUserInput,
+      validateModel: this.opts.validateModel,
+      onChild: (child) => {
+        if (!this.mapper || this.subagentAnchors.has(child.commandId)) return;
+        this.subagentAnchors.add(child.commandId);
+        const toolId = this.mapper.toolStart(child.threadId, 'Agent', {
+          description: 'Subagents',
+          subagent_type: 'Codex',
+          nativeSubagentCommandId: child.commandId,
+        });
+        this.mapper.toolResult(
+          toolId,
+          'Native subagent admitted. Open it to inspect output or give direction.',
+          false,
+        );
+      },
+    });
+    return this.subagentOwner;
+  }
+  pendingSubagentHostTool(
+    call: object,
+    identity: { turnId: string; toolName: string; requestHash: string },
+  ) {
+    return this.subagentOwner?.pendingHostTool(call, identity);
   }
   private retainNativeTransportDiagnostic(
     command: Pick<CodexCommand, 'id' | 'attempt'>,
@@ -674,7 +824,10 @@ export class CodexConversation {
           // any exact provider completion and fences reentrant close callbacks.
           if (active && !active.providerCompletionRetained && !active.interruptRequested)
             this.opts.onError?.(
-              error instanceof CodexTransportError ? error : new CodexTransportError('connection'),
+              findSessionRuntimeError(error) ??
+                (error instanceof CodexTransportError
+                  ? error
+                  : new CodexTransportError('connection')),
             );
         }
       }
@@ -952,6 +1105,7 @@ export class CodexConversation {
     this.resetMapper(this.threadId, !state.threadId);
     this.ready = true;
     this.startupObserverInitializing = false;
+    await this.getSubagents()?.restore();
     this.opts.emit({ type: 'system', subtype: 'init', session_id: this.opts.conversationId });
     this.opts.onQueueChange?.();
   }
@@ -1889,6 +2043,7 @@ export class CodexConversation {
           configuration,
           this.opts.profile.workspaceId,
           this.opts.nativeExecution,
+          this.opts.enableNativeSubagents,
         ),
         ...(this.opts.nativeExecution
           ? codexNativePermissionProfiles(this.opts.nativeExecution)
@@ -2667,6 +2822,12 @@ export class CodexConversation {
       await this.opts.prepareAgentContext?.(active.abort.signal);
       active.abort.signal.throwIfAborted();
       active.preparationStage = 'dispatch_authority';
+      if (command.toolFailureContinuation)
+        this.opts.store.assertClaimedToolFailureContinuation(
+          this.opts.conversationId,
+          this.binding!,
+          command,
+        );
       this.opts.onProviderDispatch?.(command.id);
       if (active.nativeExecution)
         this.opts.assertNativeExecutionCurrent?.(active.nativeExecution, command.id);
@@ -2731,6 +2892,12 @@ export class CodexConversation {
         // A synchronous transport close can reenter close() from request().
         // Once invocation is attempted, missing ACK/history is uncertainty.
         active.preparationStage = 'provider_request';
+        if (command.toolFailureContinuation)
+          this.opts.store.assertClaimedToolFailureContinuation(
+            this.opts.conversationId,
+            this.binding!,
+            command,
+          );
         active.providerSubmitted = true;
         const pendingAck = this.client.request('turn/start', params);
         dispatchSpan.end();
@@ -3181,6 +3348,8 @@ export class CodexConversation {
       );
   }
   private notification(method: string, params: ObjectValue) {
+    const children = this.getSubagents();
+    if (children?.notification(method, params) && params.threadId !== this.threadId) return;
     if (this.closed || params.threadId !== this.threadId) return;
     if (method === 'item/started' && this.active && params.turnId === this.active.turnId) {
       const identity = z
@@ -3473,6 +3642,16 @@ export class CodexConversation {
               attempt: this.active.command.attempt,
             })
           : undefined;
+      const failedToolSource =
+        status === 'completed' &&
+        !this.active.interruptRequested &&
+        !this.active.callbackEffectsUnknown &&
+        this.opts.enableToolFailureContinuation !== false &&
+        this.opts.ownerKind !== 'symposium' &&
+        !this.opts.adviserScope &&
+        (!this.opts.canClaimCommand || this.opts.admitToolFailureContinuation)
+          ? { commandId: this.active.command.id }
+          : undefined;
       this.finishTurnSpan(status, status === 'failed' ? 'provider' : 'none');
       if (['completed', 'interrupted', 'failed'].includes(turn.data.status ?? '')) {
         this.opts.onProviderTerminal?.(this.active.command.id, turn.data.id, status);
@@ -3551,6 +3730,57 @@ export class CodexConversation {
       if (recoverQueuedFollowUp) this.automaticTransportRecoveryAttempted = true;
       if (providerTransportFailed) this.retireTransportForRecovery();
       this.mapper?.notification(method, params, providerFailure);
+      // Terminal projection seals unfinished native items as unknown. Persist
+      // command-wide negative evidence before considering the final failure.
+      const finalToolFailure = failedToolSource && this.mapper?.getUnexplainedFailure();
+      if (!this.closed && failedToolSource && finalToolFailure) {
+        let child: CodexCommandInput | undefined;
+        try {
+          if (this.mapper?.isToolFailureRecoverySuppressed())
+            this.opts.store.recordToolFailureRecoverySuppression(
+              this.opts.conversationId,
+              this.binding!,
+              failedToolSource.commandId,
+              turn.data.id,
+            );
+          child = this.opts.store.queueToolFailureContinuation(
+            this.opts.conversationId,
+            this.binding!,
+            failedToolSource.commandId,
+            turn.data.id,
+            finalToolFailure,
+          );
+          if (child) {
+            const admitted = this.opts.admitToolFailureContinuation?.(child);
+            if (admitted !== true) this.opts.beforeEnqueue?.(child);
+            this.opts.store.assertToolFailureContinuation(
+              this.opts.conversationId,
+              this.binding!,
+              child,
+            );
+            this.opts.onCommandQueued?.(child.id);
+            log.info('Tool failure continuation admitted', {
+              conversationId: this.opts.conversationId,
+              sourceCommandId: failedToolSource.commandId,
+              commandId: child.id,
+            });
+          }
+        } catch {
+          if (child) {
+            try {
+              this.opts.store.cancelQueued(this.opts.conversationId, this.binding!, child.id);
+            } catch {
+              /* Preserve uncertain receipt. */
+            }
+          }
+          this.opts.onError?.(
+            new Error(
+              'Tool recovery admission failed; saved work and the original failure are preserved.',
+            ),
+          );
+          this.close();
+        }
+      }
       if (providerFailure)
         this.opts.onError?.(
           new ProviderFailureError(providerFailure, codexTurnFailureDiagnostic(turn.data.error)),
@@ -3602,6 +3832,7 @@ export class CodexConversation {
         generation !== this.transportGeneration ||
         this.client !== client ||
         this.active !== active ||
+        active?.toolGuardRetired ||
         active?.abort !== activeAbort ||
         active?.command !== command ||
         command?.id !== commandId ||
@@ -3691,6 +3922,7 @@ export class CodexConversation {
     requestContext?: NativeRequestContext,
     onToolRefusal?: HostToolRefusal,
   ): Promise<ObjectValue> {
+    if (this.active?.toolGuardRetired) throw new CodexTransportError('connection');
     if (
       [
         'item/commandExecution/requestApproval',
@@ -3719,6 +3951,7 @@ export class CodexConversation {
           if (
             this.closed ||
             !active ||
+            active.toolGuardRetired ||
             this.active !== active ||
             generation !== this.transportGeneration ||
             !threadId ||
@@ -3749,12 +3982,39 @@ export class CodexConversation {
       assertCurrentSync('before_handler');
       if (!this.opts.requestNativeApproval) throw new Error('Codex native approvals unavailable');
       requestContext!.registerResponseFence?.(() => assertCurrentSync('reply'));
+      // A recovery explanation cannot manufacture a fresh approval cycle.
+      if (active!.command.toolFailureContinuation)
+        return method === 'item/permissions/requestApproval'
+          ? { permissions: {}, scope: 'turn' }
+          : {
+              decision:
+                Array.isArray(params.availableDecisions) &&
+                !params.availableDecisions.includes('decline') &&
+                params.availableDecisions.includes('cancel')
+                  ? 'cancel'
+                  : 'decline',
+            };
       const response = await this.opts.requestNativeApproval(method, params, approvalSignal, {
         ...requestContext!,
         commandId: active!.command.id,
         threadId: threadId!,
         turnId: turnId!,
         assertCurrentSync: () => assertCurrentSync('handler'),
+        observeFailure: (failure: ToolFailure) => {
+          assertCurrentSync('handler');
+          if (typeof params.itemId === 'string') {
+            this.mapper?.recordNativeFailure(params.itemId, failure);
+            this.opts.store.recordToolFailure(
+              this.opts.conversationId,
+              this.binding!,
+              active!.command.id,
+              turnId!,
+              params.itemId,
+              failure,
+              'native_approval',
+            );
+          }
+        },
         ...(fileItemId ? { fileChangePaths: fileChangePaths ?? undefined } : {}),
       });
       assertCurrentSync('after_handler');
@@ -3846,10 +4106,13 @@ export class CodexConversation {
     const publicId = this.mapper!.toolStart(call.callId, display.name, display.input);
     let result: CodexToolResult;
     let callbackOpen = true;
+    let executionSignal = toolSignal;
     const callbackBinding = this.binding!;
     // Keep existing label-only JSON/strict store contracts unchanged. Spreading
     // or cloning labels deliberately cannot carry this private callback fence.
     const observeOriginalCallCurrent = () => {
+      assertToolGuardCurrent();
+      executionSignal.throwIfAborted();
       toolSignal.throwIfAborted();
       if (
         !callbackOpen ||
@@ -3857,6 +4120,7 @@ export class CodexConversation {
         this.paused ||
         !this.ready ||
         this.active !== active ||
+        active.toolGuardRetired ||
         active.interruptRequested ||
         active.completions.has(call.turnId) ||
         this.binding !== callbackBinding ||
@@ -3979,9 +4243,76 @@ export class CodexConversation {
       }
     })();
     const toolStarted = performance.now();
+    let originalExecution: Promise<CodexToolResult> | undefined;
     try {
       result = normalizeCodexToolResult(
-        await this.opts.executeTool(call.tool, call.arguments, toolSignal, invocation),
+        await runGuardedTool(
+          {
+            signal: toolSignal,
+            policy: this.opts.toolGuardPolicy,
+            onSettled: (observation) => {
+              if (observation.outcome === 'timeout') {
+                active.callbackEffectsUnknown = true;
+                active.toolGuardRetired = true;
+              }
+              log.info('Tool guard settled', {
+                conversationId: this.opts.conversationId,
+                callId: call.callId,
+                tool: call.tool,
+                ...observation,
+              });
+            },
+            onLateSettlement: (outcome) => {
+              log.warn('Retired tool callback settled', {
+                conversationId: this.opts.conversationId,
+                callId: call.callId,
+                tool: call.tool,
+                outcome,
+              });
+            },
+          },
+          (signal) => {
+            executionSignal = signal;
+            originalExecution = this.opts.executeTool(
+              call.tool,
+              call.arguments,
+              signal,
+              invocation,
+            );
+            return originalExecution;
+          },
+        ).catch(async (error: unknown) => {
+          // Join the original cancellation cleanup within a bounded lifetime.
+          // Its guard remains retired; only an exact consumed RPC's private
+          // settled refusal can qualify custody, never ordinary Stop/abort.
+          if (originalExecution && toolSignal.aborted && error === toolSignal.reason) {
+            try {
+              const original = await runBoundedToolCleanup(
+                () => originalExecution!,
+                this.opts.toolGuardPolicy?.cleanupMs,
+              );
+              if (
+                original.isError &&
+                retainedCallbackOutcome(original) === 'settled' &&
+                signal.aborted &&
+                error === signal.reason &&
+                !active.interruptRequested &&
+                !active.abort.signal.aborted &&
+                requestContext?.requestId !== undefined &&
+                ((error instanceof CodexServerRequestResolvedError &&
+                  error.requestId === requestContext.requestId) ||
+                  (error instanceof CodexTurnCompletedError &&
+                    error.requestId === requestContext.requestId &&
+                    error.threadId === call.threadId &&
+                    error.turnId === call.turnId))
+              )
+                return original;
+            } catch {
+              /* Preserve original cancellation and uncertainty. */
+            }
+          }
+          throw error;
+        }),
       );
       // Only a returned, reviewed read result can qualify a failed callback here.
       // Explicit owner uncertainty, thrown exceptions and cancellation stay fenced.
@@ -3993,6 +4324,10 @@ export class CodexConversation {
       )
         retainCallbackOutcome(result, 'settled');
     } catch (error) {
+      if (error instanceof ToolGuardTimeoutError) {
+        active.callbackEffectsUnknown = true;
+        active.toolGuardRetired = true;
+      }
       result = codexToolFailureResult(
         error,
         toolSignal.aborted,
@@ -4119,7 +4454,30 @@ export class CodexConversation {
     }
     if (callbackOutcome(result) === 'settled')
       (active.settledToolCallbacks ??= new Set()).add(call.callId);
-    this.mapper!.toolResult(publicId, result.content, result.isError, result.contentItems);
+    let failure: ToolFailure | undefined;
+    if (result.isError) {
+      try {
+        const parsed = ToolFailureSchema.safeParse(JSON.parse(result.content).failure);
+        if (parsed.success)
+          failure =
+            callbackOutcome(result) === 'settled'
+              ? parsed.data
+              : toolFailure(parsed.data.code, parsed.data.phase, 'unknown');
+        if (failure && callbackOutcome(result) === 'settled')
+          this.opts.store.recordToolFailure(
+            this.opts.conversationId,
+            this.binding!,
+            active.command.id,
+            call.turnId,
+            call.callId,
+            failure,
+            'host_tool',
+          );
+      } catch {
+        /* Tool text is not authoritative recovery metadata. */
+      }
+    }
+    this.mapper!.toolResult(publicId, result.content, result.isError, result.contentItems, failure);
     try {
       this.opts.onToolObservation?.({
         toolName: call.tool,
@@ -4131,6 +4489,9 @@ export class CodexConversation {
     } catch {
       /* Observability cannot change an executed result. */
     }
+    // The failure is retained and projected first. Retire this provider owner
+    // before it can issue further effects while the original call is uncertain.
+    if (active.toolGuardRetired) this.close();
     return retainCallbackOutcome(
       {
         success: !result.isError,
@@ -4312,7 +4673,13 @@ export class CodexConversation {
       const ack = await client.request('turn/steer', {
         threadId: target.threadId,
         expectedTurnId: target.turnId,
-        input: [{ type: 'text', text }],
+        input: [
+          { type: 'text', text },
+          ...(input.images ?? []).map((image) => ({
+            type: 'image',
+            url: `data:${image.mediaType};base64,${image.data}`,
+          })),
+        ],
       });
       if (z.object({ turnId: z.literal(target.turnId) }).safeParse(ack).success)
         status = 'accepted';
@@ -4328,27 +4695,36 @@ export class CodexConversation {
   }
   async interrupt() {
     if (this.closed) return;
+    const client = this.client;
+    const threadId = this.threadId;
+    const active = this.active;
+    const turnId = active?.turnId;
     this.cancelAutomaticRecovery();
     this.paused = true;
-    const active = this.active;
     // The interrupt request is not a terminal result. Keep active work running
     // durably until its matching turn/completed notification confirms it.
     if (this.binding) this.opts.store.pauseForRecovery(this.opts.conversationId, this.binding);
-    if (!active) return;
-    active.interruptRequested = true;
-    active.abort.abort();
-    if (active.turnId) {
-      try {
-        await this.client.request('turn/interrupt', {
-          threadId: this.threadId,
-          turnId: active.turnId,
-        });
-      } catch (error) {
-        if (!this.closed) throw error;
-      }
+    if (active) {
+      active.interruptRequested = true;
+      active.abort.abort();
     }
+    const interruptParent = async () => {
+      if (turnId) {
+        try {
+          await client.request('turn/interrupt', {
+            threadId,
+            turnId,
+          });
+        } catch (error) {
+          if (!this.closed) throw error;
+        }
+      }
+    };
+    const parent = interruptParent();
+    await Promise.all([parent, this.subagentOwner?.interruptAll()]);
   }
   close() {
+    this.subagentOwner?.close();
     this.commandContexts.clear();
     for (const span of this.queueTimingSpans.values()) finishCommandTimingSpan(span, 'closed');
     this.queueTimingSpans.clear();

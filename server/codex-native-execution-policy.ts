@@ -14,6 +14,7 @@ export interface CodexNativeExecutionPolicy {
   readonly scopeKind: 'base-profile';
   readonly grantState: 'upstream-owned';
   readonly temporaryAccess?: 'runtime';
+  readonly profileVersion?: 'auto-network-v1';
   readonly cwd: string;
   readonly readableRoots: readonly string[];
   /** Admitted task writes; the named profile separately controls runtime scratch. */
@@ -21,9 +22,9 @@ export interface CodexNativeExecutionPolicy {
   readonly workspaceRoots: readonly string[];
   readonly deniedRoots: readonly string[];
   readonly writeProtectedRoots: readonly string[];
-  readonly networkAccess: 'restricted';
+  readonly networkAccess: 'restricted' | 'enabled';
   readonly approvalPolicy: 'on-request';
-  readonly permissions: 'mitzo-native-ask' | 'mitzo-native-agent';
+  readonly permissions: 'mitzo-native-ask' | 'mitzo-native-agent' | 'mitzo-native-auto';
   readonly reviewer: 'user';
   readonly reviewerAvailability: 'unqualified';
 }
@@ -54,7 +55,12 @@ const NATIVE_TEMPORARY_PATHS = [':tmpdir', ':slash_tmp'] as const;
 export function codexNativeProfileRevision(
   policy: Pick<
     CodexNativeExecutionPolicy,
-    'bindingRevision' | 'readableRoots' | 'deniedRoots' | 'writeProtectedRoots' | 'temporaryAccess'
+    | 'bindingRevision'
+    | 'readableRoots'
+    | 'deniedRoots'
+    | 'writeProtectedRoots'
+    | 'temporaryAccess'
+    | 'profileVersion'
   >,
 ) {
   return digest([
@@ -63,6 +69,7 @@ export function codexNativeProfileRevision(
     policy.deniedRoots,
     policy.writeProtectedRoots,
     ...(policy.temporaryAccess === 'runtime' ? [NATIVE_TEMPORARY_PATHS] : []),
+    ...(policy.profileVersion ? [policy.profileVersion] : []),
   ]);
 }
 
@@ -110,8 +117,9 @@ export function codexNativeExecutionPolicy(input: {
     deniedRoots,
     writeProtectedRoots,
     ...(temporaryAccess ? { temporaryAccess } : {}),
+    profileVersion: 'auto-network-v1',
   });
-  const permissions = input.mode === 'ask' ? 'mitzo-native-ask' : 'mitzo-native-agent';
+  const permissions = `mitzo-native-${input.mode}` as CodexNativeExecutionPolicy['permissions'];
   return Object.freeze({
     version: 'native-mac-permissions-v1',
     bindingRevision: input.bindingRevision,
@@ -121,13 +129,14 @@ export function codexNativeExecutionPolicy(input: {
     scopeKind: 'base-profile',
     grantState: 'upstream-owned',
     ...(temporaryAccess ? { temporaryAccess } : {}),
+    profileVersion: 'auto-network-v1',
     cwd,
     readableRoots,
     writableRoots: input.mode === 'ask' ? Object.freeze([]) : workspaceRoots,
     workspaceRoots,
     deniedRoots,
     writeProtectedRoots,
-    networkAccess: 'restricted',
+    networkAccess: input.mode === 'auto' ? 'enabled' : 'restricted',
     approvalPolicy: 'on-request',
     permissions,
     // Pinned schema support alone does not qualify reviewer model availability,
@@ -137,7 +146,7 @@ export function codexNativeExecutionPolicy(input: {
   });
 }
 
-/** Both profiles retain the same read/credential ceiling. Workspace symbols
+/** Every profile retains the same read/credential ceiling. Workspace symbols
  * materialize from the command owner's runtimeWorkspaceRoots on each turn. */
 export function codexNativePermissionProfiles(policy: CodexNativeExecutionPolicy) {
   const filesystem = (workspaceAccess: 'read' | 'write') =>
@@ -166,6 +175,7 @@ export function codexNativePermissionProfiles(policy: CodexNativeExecutionPolicy
     permissions: {
       'mitzo-native-ask': { filesystem: filesystem('read'), network: { enabled: false } },
       'mitzo-native-agent': { filesystem: filesystem('write'), network: { enabled: false } },
+      'mitzo-native-auto': { filesystem: filesystem('write'), network: { enabled: true } },
     },
   };
 }

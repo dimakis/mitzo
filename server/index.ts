@@ -1,5 +1,6 @@
 // Load runtime configuration before bootstrap dependencies validate or capture it.
 import 'dotenv/config';
+import { setSessionActivityObserver } from './session-activity-events.js';
 import { closeTelosMainPublicationRuntime } from './telos-main-publication-runtime.js';
 import { startKnowledgePrewarming } from './knowledge-prewarming.js';
 import { startWarmPoolHost } from './openshell-warm-pool-host.js';
@@ -163,6 +164,8 @@ import { runWorktreeCleanupForRepos } from './repository-maintenance.js';
 import { contextFromTraceparent } from './trace-context.js';
 import { mountApplicationChatTransport } from './chat-rest-handler.js';
 import { initializeSessionPrompts, closeSessionPrompts } from './session-prompt-runtime.js';
+import { initializeTaskExecution, closeTaskExecution } from './task-execution-runtime.js';
+import { persistPermissionAudit } from './permission-audit.js';
 import { createSessionPromptRouter } from './session-prompt-router.js';
 import { initializeSymposiumNativeHost } from './symposium-native-host.js';
 import { singleFlightReconciliation } from './single-flight-reconciliation.js';
@@ -584,6 +587,7 @@ overviewEmitter = new SessionOverviewEmitter({
   isSessionHidden: (id: string) => eventStore.getSession(id)?.isHidden ?? false,
 });
 setOverviewEmitter(overviewEmitter);
+setSessionActivityObserver((clientId, event) => overviewEmitter.observeEvent(clientId, event));
 
 // --- Health Monitor (SSE broadcast) ---
 const healthMonitor = new HealthMonitor(sseRegistry);
@@ -691,6 +695,8 @@ const v2Ctx: V2HandlerContext = {
 
 mountApplicationChatTransport(app, chatSseRegistry, v2Ctx);
 const sessionPrompts = initializeSessionPrompts(join(BASE_REPO, '.mitzo', 'events.db'), v2Ctx);
+initializeTaskExecution(join(BASE_REPO, '.mitzo', 'events.db'));
+const releasePermissionAudit = persistPermissionAudit(eventStore);
 app.use('/api/session-timers', createSessionPromptRouter(sessionPrompts));
 
 /**
@@ -1344,6 +1350,8 @@ async function shutdown(signal: string) {
   shuttingDown = true;
   closeTelosMainPublicationRuntime();
   await closeSessionPrompts();
+  closeTaskExecution();
+  releasePermissionAudit();
   stopRuntimePerformanceMonitor?.();
   log.info(`${signal} received — shutting down gracefully`);
 

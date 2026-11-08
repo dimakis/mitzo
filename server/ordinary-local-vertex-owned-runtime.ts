@@ -1,3 +1,7 @@
+import {
+  freezeOrdinarySkillCommand,
+  prepareOrdinarySkillCommand,
+} from './ordinary-composer-skills.js';
 import { assembleCommandPrompt } from './message-reply-context.js';
 import { assertAgentToolRoute } from './agent-tool-selection.js';
 import { readOrdinaryCodexAgentProfile } from './ordinary-codex-agent-profile.js';
@@ -287,6 +291,7 @@ export class OrdinaryLocalVertexOwnedRuntime {
       this.owners.reservation.conversationId,
       request.clientMsgId,
       payload,
+      { expandSkills: false },
     );
     const profiles = loadAccountProfiles(),
       original = this.owners.reservation.binding;
@@ -343,7 +348,9 @@ export class OrdinaryLocalVertexOwnedRuntime {
       !profile ||
       profile.definition.contextRecipe !== undefined ||
       (profile.definition.recipe &&
-        !profile.definition.recipe.compatibleProviders.includes(original.provider)) ||
+        !profile.definition.recipe.compatibleProviders.some(
+          (provider) => provider === original.provider,
+        )) ||
       request.selection.context.source !== 'none' ||
       request.selection.context.revision !== null ||
       request.selection.permission.revision !== 0
@@ -391,7 +398,18 @@ export class OrdinaryLocalVertexOwnedRuntime {
           : undefined,
       ),
       events = this.owners.eventStore;
+    const preparedSkill =
+      descriptor.state === 'reserved'
+        ? await prepareOrdinarySkillCommand(this.owners.workspace, this.owners.reservation, {
+            store: events,
+            id: request.clientMsgId,
+            text: payload.text,
+            signal: this.#signal,
+          })
+        : undefined;
     const coordinator = new OrdinaryLocalCodexAdmissionCoordinator({
+      freezePrompt: (meta, id, payload, admit) =>
+        freezeOrdinarySkillCommand(events, meta, id, payload, admit, preparedSkill),
       enabled: true,
       adapter: 'claude-sdk',
       catalog,

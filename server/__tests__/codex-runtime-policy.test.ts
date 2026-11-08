@@ -1,5 +1,6 @@
 import { expect, it } from 'vitest';
 import { codexRuntimeOverrides } from '../codex-runtime-policy.js';
+import { codexNativeExecutionPolicy } from '../codex-native-execution-policy.js';
 it('disables inherited MCP servers and native execution paths while keeping host tools separate', () => {
   const c = codexRuntimeOverrides({ mcp_servers: { work: { command: 'private-secret' } } });
   expect(c['mcp_servers.work.enabled']).toBe(false);
@@ -64,4 +65,21 @@ it('rejects an invalid reasoning summary value', () => {
   expect(() => codexRuntimeOverrides({ model_reasoning_summary: 'unsupported' })).toThrow(
     'Cannot inspect Codex runtime configuration',
   );
+});
+it('enables native agents only with an explicit owned native execution route', () => {
+  expect(codexRuntimeOverrides({}, undefined, undefined, true)['features.multi_agent']).toBe(false);
+  const native = codexNativeExecutionPolicy({
+    bindingRevision: 'binding',
+    mode: 'agent',
+    cwd: '/tmp',
+    readableRoots: ['/'],
+    writableRoots: ['/tmp'],
+    deniedRoots: ['/private/credentials'],
+  });
+  expect(codexRuntimeOverrides({}, undefined, native)['features.multi_agent']).toBe(false);
+  const enabled = codexRuntimeOverrides({}, undefined, native, true);
+  expect(enabled['features.multi_agent']).toBe(true);
+  expect(enabled['agents.enabled']).toBe(true);
+  expect(enabled['features.hooks']).toBe(false);
+  expect(enabled['features.apps']).toBe(false);
 });

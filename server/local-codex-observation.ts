@@ -1,18 +1,25 @@
 import { performance } from 'node:perf_hooks';
-import { context, trace, SpanStatusCode } from '@opentelemetry/api';
+import { trace } from '@opentelemetry/api';
 import { createLogger } from './logger.js';
-import { tracer } from './tracing.js';
+import { beginOperationObservation } from './operation-observation.js';
 
 type Phase =
   | 'repository_selection'
   | 'repository_reservation'
   | 'repository_fetch'
+  | 'repository_base_resolution'
+  | 'repository_commit_resolution'
   | 'repository_credential_check'
   | 'repository_source_qualification'
   | 'repository_object_capture'
   | 'repository_approval'
   | 'repository_materialization'
   | 'bootstrap'
+  | 'bootstrap_qualification'
+  | 'bootstrap_login'
+  | 'bootstrap_executable'
+  | 'bootstrap_connect'
+  | 'login_verification_keys'
   | 'keychain_read'
   | 'native_measurement'
   | 'native_capture'
@@ -25,17 +32,15 @@ type Phase =
   | 'model_qualification';
 const log = createLogger('local-codex-dispatch');
 function beginPhase(phase: Phase) {
-  const span = tracer.startSpan(`local_codex.${phase}`),
+  const observation = beginOperationObservation(`local_codex.${phase}`),
     start = performance.now();
   return {
-    run: <T>(work: () => T): T => context.with(trace.setSpan(context.active(), span), work),
+    run: observation.run,
     end(outcome: 'success' | 'failed') {
       try {
         const elapsedMs = Math.round(performance.now() - start);
-        span.setStatus({ code: outcome === 'success' ? SpanStatusCode.OK : SpanStatusCode.ERROR });
-        span.setAttribute('phase.elapsed_ms', elapsedMs);
-        span.setAttribute('phase.outcome', outcome);
-        span.end();
+        observation.annotate({ 'phase.elapsed_ms': elapsedMs, 'phase.outcome': outcome });
+        observation.end(outcome === 'failed');
         if (outcome === 'failed')
           log.warn('Local Codex phase completed', { phase, elapsedMs, outcome });
         else if (elapsedMs >= 500)

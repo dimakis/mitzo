@@ -25,8 +25,7 @@ const output = build({
   },
 });
 async function correct(page: Page) {
-  await page.getByRole('button', { name: 'Send options' }).click();
-  await page.getByRole('menuitem', { name: 'Send correction' }).click();
+  await page.getByRole('button', { name: 'Steer current turn' }).click();
 }
 for (const theme of ['dark', 'light'])
   test(`queue and steer remain distinct with an icon-only composer (${theme})`, async ({
@@ -125,7 +124,8 @@ for (const theme of ['dark', 'light'])
     await expect(input).toHaveValue('A draft kept while resizing');
     if (await more.isVisible()) await expect(page.locator('.composer-tools')).toBeHidden();
     await input.fill('The current priorities are fine.');
-    for (const name of ['Send options', 'Queue message', 'Stop generation']) {
+    await expect(page.getByRole('button', { name: 'Send options' })).toHaveCount(0);
+    for (const name of ['Steer current turn', 'Queue message', 'Stop generation']) {
       const button = page.getByRole('button', { name, exact: true });
       await expect(button).toBeVisible();
       expect((await button.innerText()).trim()).toBe('');
@@ -171,6 +171,36 @@ for (const theme of ['dark', 'light'])
     });
     await expect(page.getByRole('region', { name: 'Up next' })).not.toBeVisible();
     await closeStatus(page);
+    // Images use the same native correction path; no Stop or queue dispatch.
+    await input.fill('Use this screenshot');
+    await page.locator('input[type=file]').setInputFiles({
+      name: 'correction.png',
+      mimeType: 'image/png',
+      buffer: Buffer.from(
+        'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a3ioAAAAASUVORK5CYII=',
+        'base64',
+      ),
+    });
+    await expect(page.getByAltText('Attachment 1')).toBeVisible();
+    const screenshotData = await page.getByAltText('Attachment 1').getAttribute('src');
+    await expect(page.getByRole('button', { name: 'Steer current turn' })).toBeEnabled();
+    await page.screenshot({
+      path: info.outputPath(`chat-queue-interrupt-image-${theme}.png`),
+      fullPage: true,
+    });
+    await correct(page);
+    await expect.poll(() => steered.length).toBe(3);
+    expect(steered[2]).toMatchObject({
+      targetCommandId: 'first',
+      text: 'Use this screenshot',
+      images: [{ mediaType: 'image/png' }],
+    });
+    const screenshot = (steered[2].images as { mediaType: string; data: string }[])[0];
+    expect(`data:${screenshot.mediaType};base64,${screenshot.data}`).toBe(screenshotData);
+    await expect(page.getByAltText('Attachment 1')).toHaveCount(0);
+    await expect(input).toBeFocused();
+    expect(stopped).toHaveLength(0);
+    expect(queued).toHaveLength(0);
     await input.fill('Check dates next.');
     await input.press('Enter');
     await expect(input).toHaveValue('');

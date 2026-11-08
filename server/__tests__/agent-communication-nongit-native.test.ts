@@ -1,15 +1,11 @@
 import { afterAll, afterEach, expect, it, vi } from 'vitest';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
-import {
-  SessionRegistry,
-  buildPermissionHandler,
-  resolvePending,
-  type ManagedSession,
-} from '@mitzo/harness';
+import { SessionRegistry, resolvePending, type ManagedSession } from '@mitzo/harness';
 import { ownedOrdinaryRuntimeFixture } from './fixtures/owned-ordinary-workspace-runtime.js';
 import { setAuthRevocationStore } from '../auth.js';
 import { bindAgentToolSelection } from '../agent-tool-selection.js';
+import { createAgentMessageApprover } from '../agent-communication-permission.js';
 import { CodexConversationStore } from '../codex-conversation-store.js';
 import { EventStore } from '../event-store.js';
 import { CodexConversation } from '../codex-conversation.js';
@@ -128,13 +124,12 @@ async function fixture() {
           conversationId: sessionId,
           assertRuntimeCurrent: () => dispatch.admission.assertCurrent(),
           assertRuntimeCurrentSync: () => dispatch.admission.assertCurrentSync(),
-          approve: (input, signal) =>
-            buildPermissionHandler(clientId, registry)('AgentCommunication', input, {
-              signal,
-              toolUseID: randomUUID(),
-              forcePrompt: true,
-              allowSessionGrant: false,
-            }),
+          approve: createAgentMessageApprover({
+            events: f.events,
+            registry,
+            conversationId: sessionId,
+            assertCurrent: () => dispatch.admission.assertCurrentSync(),
+          }),
           startQueued: async (target: ManagedSession) => {
             await handles.get(target.sessionId!)!.conversation.startQueued();
           },
@@ -215,8 +210,8 @@ async function fixture() {
       identity: driver,
       initialCommandId: selected.request.clientMsgId,
       admit: (command, signal) => driver.admitContinuation(command, signal),
-      admitAgentMessage: (id, assertCurrent, signal) =>
-        driver.admitAgentMessage(id, assertCurrent, signal),
+      admitAgentMessage: (id, assertCurrent, signal, assertPermissionCurrent) =>
+        driver.admitAgentMessage(id, assertCurrent, signal, assertPermissionCurrent),
       retryInitial: (command) => driver.admit(command),
       close: () => driver.close(),
     };

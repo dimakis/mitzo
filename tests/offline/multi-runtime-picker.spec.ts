@@ -12,6 +12,7 @@ import { extname, resolve } from 'node:path';
 import { sha256Hex } from '../../frontend/src/lib/browser-crypto';
 import { SymposiumProfileDefinitionSchema } from '../../packages/protocol/src/symposium';
 import { multiRuntimeInventoryFixture } from '../../frontend/src/test-utils/multi-runtime-inventory-fixture';
+import { SessionLaunchConfigSchema, type SessionLaunchDefaults } from '@mitzo/protocol';
 
 test.use({ baseURL: 'https://mitzo-ui.test' });
 
@@ -27,6 +28,7 @@ async function offlinePicker(
   const inventory = options.inventory ?? multiRuntimeInventoryFixture({ nativeLocalApi: true });
   const forbidden: string[] = [];
   const errors: string[] = [];
+  let defaults: SessionLaunchDefaults = { revision: 0, configuration: null };
   let releaseCapabilities: () => void = () => undefined;
   const capabilitiesReady = options.holdCapabilities
     ? new Promise<void>((resolve) => {
@@ -71,6 +73,20 @@ async function offlinePicker(
       return route.abort();
     }
     if (url.pathname.startsWith('/api/')) {
+      if (url.pathname === '/api/session-launch/defaults') {
+        if (route.request().method() === 'PUT') {
+          const body = route.request().postDataJSON();
+          expect(body.expectedRevision).toBe(defaults.revision);
+          defaults = {
+            revision: defaults.revision + 1,
+            configuration:
+              body.configuration === null
+                ? null
+                : SessionLaunchConfigSchema.parse(body.configuration),
+          };
+        } else expect(route.request().method()).toBe('GET');
+        return route.fulfill({ json: defaults });
+      }
       if (url.pathname === '/api/chat/runtime/capabilities') await capabilitiesReady;
       if (route.request().method() !== 'GET') {
         if (

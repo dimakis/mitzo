@@ -268,10 +268,10 @@ export class NativeResponsesRunner {
         sessionId: opts.conversationId,
         maxTurns: opts.maxTurns ?? 50,
         signal: abort.signal,
-        executeTool: async (block) => {
+        executeTool: async (block, toolSignal) => {
           try {
             if (opts.commandAuthority) await opts.commandAuthority.assertEffect(messageId!);
-            return await opts.executeTool(block, abort.signal);
+            return await opts.executeTool(block, toolSignal);
           } catch {
             // Redact native failures here; the generic loop catch remains for other callers.
             return {

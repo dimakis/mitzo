@@ -1,4 +1,9 @@
+import { findSessionRuntimeError } from './session-runtime-error.js';
 import { reconcileRetainedLocalCodexEffects } from './retained-local-codex-effects.js';
+import {
+  freezeOrdinarySkillCommand,
+  prepareOrdinarySkillCommand,
+} from './ordinary-composer-skills.js';
 import { assembleCommandPrompt } from './message-reply-context.js';
 import { MessageReplyIdSchema } from '@mitzo/protocol';
 import {
@@ -337,6 +342,7 @@ export class OrdinaryLocalCodexOwnedRuntime<K extends LocalWorkspaceKind = 'repo
         this.#reservation.conversationId,
         request.clientMsgId,
         rawPayload,
+        { expandSkills: false },
       );
       const profiles = loadAccountProfiles();
       const binding = profiles.resolve(request.runtime.account.accountId, request.selection.model);
@@ -796,7 +802,25 @@ export class OrdinaryLocalCodexOwnedRuntime<K extends LocalWorkspaceKind = 'repo
       });
       capturedBootstrap = bootstrap;
       capturedLeaseGetter = bootstrap.currentLease;
+      const preparedSkill =
+        descriptor.state === 'reserved' && this.#workspaceOwner.kind === 'repository'
+          ? await prepareOrdinarySkillCommand(this.owners.workspace, this.#reservation, {
+              store: this.owners.eventStore,
+              id: request.clientMsgId,
+              text: payload.text,
+              signal: this.#signal,
+            })
+          : undefined;
       const coordinator = new OrdinaryLocalCodexAdmissionCoordinator({
+        freezePrompt: (meta, id, payload, admit) =>
+          freezeOrdinarySkillCommand(
+            this.owners.eventStore,
+            meta,
+            id,
+            payload,
+            admit,
+            preparedSkill,
+          ),
         recovery,
         enabled: this.owners.enabled,
         store: coldPrimary
@@ -1224,6 +1248,8 @@ export class OrdinaryLocalCodexOwnedRuntime<K extends LocalWorkspaceKind = 'repo
       if (lease && lease !== retainedLease) lease.close();
       if (coldThreadOwner !== this.#liveThreadOwner || this.#lease !== retainedLease)
         coldThreadOwner?.dispose();
+      const failure = findSessionRuntimeError(error);
+      if (failure) throw failure;
       const capabilityError = findNativeMacExecutionUnavailable(error);
       if (capabilityError) throw capabilityError;
       throw unavailable();
@@ -1236,7 +1262,7 @@ export class OrdinaryLocalCodexOwnedRuntime<K extends LocalWorkspaceKind = 'repo
   async admitContinuation(
     raw: unknown,
     preparationSignal?: AbortSignal,
-    peer?: { messageId: string; assertCurrent(): void },
+    peer?: { messageId: string; assertCurrent(): void; assertPermissionCurrent?: () => void },
     assertCredentialSetupCurrent?: () => void,
   ): Promise<{ dispatched: boolean }> {
     raw = structuredClone(raw);
@@ -1267,7 +1293,7 @@ export class OrdinaryLocalCodexOwnedRuntime<K extends LocalWorkspaceKind = 'repo
   private async admitContinuationNow(
     raw: unknown,
     preparationSignal?: AbortSignal,
-    peer?: { messageId: string; assertCurrent(): void },
+    peer?: { messageId: string; assertCurrent(): void; assertPermissionCurrent?: () => void },
     assertCredentialSetupCurrent?: () => void,
   ): Promise<{ dispatched: boolean }> {
     const assertAdmissionCurrent = () => {
@@ -1291,6 +1317,7 @@ export class OrdinaryLocalCodexOwnedRuntime<K extends LocalWorkspaceKind = 'repo
         this.#reservation.conversationId,
         request.clientMsgId,
         rawPayload,
+        { expandSkills: false },
       );
       const profiles = loadAccountProfiles();
       const binding = profiles.resolve(request.runtime.account.accountId, request.selection.model);
@@ -1379,6 +1406,8 @@ export class OrdinaryLocalCodexOwnedRuntime<K extends LocalWorkspaceKind = 'repo
       };
       const target = this.#runtime.target();
       const coordinator = new OrdinaryLocalCodexAdmissionCoordinator({
+        freezePrompt: (meta, id, payload, admit) =>
+          freezeOrdinarySkillCommand(this.owners.eventStore, meta, id, payload, admit),
         enabled: this.owners.enabled,
         store: {
           qualifiesOrdinaryCommandCapability:
@@ -1437,7 +1466,7 @@ export class OrdinaryLocalCodexOwnedRuntime<K extends LocalWorkspaceKind = 'repo
           },
           dispatch: async (expected, commandId) => {
             assertAdmissionCurrent();
-            admission.admitContinuation(commandId, expected);
+            admission.admitContinuation(commandId, expected, peer?.assertPermissionCurrent);
             await this.owners.dispatchContinuation!({
               admission,
               lease,
@@ -1511,7 +1540,12 @@ export class OrdinaryLocalCodexOwnedRuntime<K extends LocalWorkspaceKind = 'repo
   /** A separately approved native agent tool may enqueue exactly its retained
    * peer message. The ordinary account/context/workspace/permission coordinator
    * still owns every effect. No public payload can select this entry point. */
-  async admitAgentMessage(messageId: string, assertSenderCurrent: () => void, signal: AbortSignal) {
+  async admitAgentMessage(
+    messageId: string,
+    assertSenderCurrent: () => void,
+    signal: AbortSignal,
+    assertPermissionCurrent?: () => void,
+  ) {
     const assertCurrent = () => {
       signal.throwIfAborted();
       assertSenderCurrent();
@@ -1555,7 +1589,7 @@ export class OrdinaryLocalCodexOwnedRuntime<K extends LocalWorkspaceKind = 'repo
         payload: { text: agentMessagePrompt(message) },
       },
       signal,
-      { messageId, assertCurrent },
+      { messageId, assertCurrent, assertPermissionCurrent },
     );
   }
 

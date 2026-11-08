@@ -12,7 +12,7 @@ export function QueuedDraftTray({
   running,
   blocked,
   recoveryBlocked = blocked,
-  textOnlySteer,
+  nativeSteer,
   onPause,
   onSend,
   onUpdate,
@@ -25,7 +25,7 @@ export function QueuedDraftTray({
   running: boolean;
   blocked: boolean;
   recoveryBlocked?: boolean;
-  textOnlySteer: boolean;
+  nativeSteer: boolean;
   onPause(): void;
   onSend(index: number): void;
   onUpdate(index: number, message: QueuedMessage, position: number): boolean;
@@ -133,8 +133,8 @@ export function QueuedDraftTray({
                     title={
                       message.dispatchPending
                         ? 'Check delivery using this message’s saved identity.'
-                        : running && textOnlySteer && message.images.length
-                          ? 'Steering accepts text only. Wait to send these attachments.'
+                        : running && nativeSteer && message.contextBlocks.length
+                          ? 'Queue context changes as a new message. Corrections keep the active turn’s context.'
                           : running
                             ? 'Send this correction to the current turn'
                             : 'Send this prompt now'
@@ -144,8 +144,8 @@ export function QueuedDraftTray({
                       busy ||
                       (!message.dispatchPending &&
                         running &&
-                        textOnlySteer &&
-                        message.images.length > 0)
+                        nativeSteer &&
+                        message.contextBlocks.length > 0)
                     }
                     onClick={() => onSend(index)}
                   >

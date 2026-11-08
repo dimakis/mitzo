@@ -137,6 +137,13 @@ it.each([false, true])(
       );
       vi.spyOn(ClaudeSubscriptionCustody.prototype, 'verify').mockResolvedValue();
     }
+    const { SkillRegistry } = await import('../../server/skills.js');
+    const registries = await import('../../server/skill-registry-runtime.js');
+    const { join } = await import('node:path');
+    vi.spyOn(registries, 'buildSkillRegistry').mockReturnValue(
+      new SkillRegistry({ bundledDir: join(process.cwd(), 'skills') }),
+    );
+    f.request.payload.text = '/mockup First SDK dashboard';
     Object.assign(f.request.payload, { sourceSnapshots: [agentLibrarySource] });
     vi.stubEnv('WORKTREE_ENABLED', 'false');
     services.workspace = f.workspace;
@@ -340,7 +347,21 @@ it.each([false, true])(
     if (typeof deadline === 'function') deadline();
     await vi.waitFor(() => expect(releaseFirst).toBeTypeOf('function'));
     expect(providerInputs[0]).toContain(agentLibrarySource.content);
+    expect(providerInputs[0]).toContain(
+      'Create or refine a clickable mockup for First SDK dashboard',
+    );
     expect(providerInputs[0].split(agentLibrarySource.content)).toHaveLength(2);
+    const sdkSession = chat.registry.findBySessionId(f.reservation.conversationId)!.session;
+    const { sessionToolOperatorConnection } =
+      await import('../../server/native-host-tool-operator.js');
+    const { captureAgentLibraryAuthorization } =
+      await import('../../server/agent-library-transport.js');
+    const viewer = sdkSession.ownerConnectionId;
+    sdkSession.ownerConnectionId = 'disconnected-sdk-viewer';
+    expect(
+      captureAgentLibraryAuthorization(sessionToolOperatorConnection(sdkSession, 'sdk')).auth.id,
+    ).toBe(f.auth.id);
+    sdkSession.ownerConnectionId = viewer;
     const publicUser = chat.eventStore
       .getSessionEvents(f.reservation.conversationId)
       .find((event) => event.type === 'user_message');
@@ -396,7 +417,7 @@ it.each([false, true])(
         sessionId: f.reservation.conversationId,
         clientMsgId: 'queued',
         selection: { ...wire.selection, model: 'next-model', thinking: 'high' },
-        payload: { text: 'Frozen followup' },
+        payload: { text: '/mockup Frozen followup' },
       }),
     ).resolves.toMatchObject({ status: 202, body: { dispatched: true, state: 'consumed' } });
     expect(services.requests).toHaveLength(1);
@@ -437,6 +458,8 @@ it.each([false, true])(
     await vi.waitFor(() => expect(history).toEqual([f.request.clientMsgId, 'queued']), {
       timeout: 5000,
     });
+    expect(providerInputs[1]).toContain('Create or refine a clickable mockup for Frozen followup');
+    expect(chat.eventStore.getSendCommand('queued')?.payload.text).toBe('/mockup Frozen followup');
     await vi.waitFor(() =>
       expect(chat.eventStore.getSession(f.reservation.conversationId)?.executionPhase).toBe(
         'TERMINAL',
@@ -498,13 +521,16 @@ it.each([false, true])(
         ...wire,
         sessionId: f.reservation.conversationId,
         clientMsgId: 'cold',
-        payload: { text: 'Same retained task' },
+        payload: { text: '/mockup Same retained task' },
       }),
     ).resolves.toMatchObject({ status: 202, body: { dispatched: true, state: 'consumed' } });
     await vi.waitFor(
       () =>
         expect(history).toEqual([f.request.clientMsgId, 'queued', 'retained-cold-tail', 'cold']),
       { timeout: 5000 },
+    );
+    expect(providerInputs[3]).toContain(
+      'Create or refine a clickable mockup for Same retained task',
     );
     expect(services.requests[2].options).toMatchObject({
       resume: f.reservation.conversationId,

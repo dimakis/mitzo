@@ -1,6 +1,9 @@
 import { afterEach, expect, it, vi } from 'vitest';
 import { writeFile, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import { SkillRegistry } from '../skills.js';
+import * as registries from '../skill-registry-runtime.js';
+import { assembleCommandPrompt } from '../message-reply-context.js';
 import { ownedVertexRuntimeFixture } from './fixtures/owned-local-vertex-runtime.js';
 import { ClaudeSubscriptionCustody } from '../claude-subscription-custody.js';
 vi.mock('../claude-account-history.js', () => ({
@@ -45,7 +48,7 @@ it('shares admission, follow-ups and cold SDK continuation with a personal subsc
   const dispatch = vi.fn<(input: OrdinaryLocalVertexOwnedDispatch) => Promise<void>>(
     async () => {},
   );
-  const create = (commandId = f.request.clientMsgId) => {
+  const create = (commandId: string = f.request.clientMsgId) => {
     const owner = new OrdinaryLocalVertexOwnedRuntime({
       enabled: true,
       eventStore: f.events,
@@ -86,8 +89,8 @@ it('shares admission, follow-ups and cold SDK continuation with a personal subsc
   expect(dispatch).toHaveBeenCalledTimes(3);
   expect(f.events.getSendCommand('revoked')).toBeUndefined();
 });
-async function fixture() {
-  const f = await ownedVertexRuntimeFixture(cleanups);
+async function fixture(options: Parameters<typeof ownedVertexRuntimeFixture>[1] = {}) {
+  const f = await ownedVertexRuntimeFixture(cleanups, options);
   const dispatch = vi.fn<(input: OrdinaryLocalVertexOwnedDispatch) => Promise<void>>(
     async () => {},
   );
@@ -110,6 +113,33 @@ async function fixture() {
   };
   return { f, dispatch, create };
 }
+it('freezes SDK skill input before first admission and retains it for later and cold dispatch', async () => {
+  const { f, create, dispatch } = await fixture({ chatRoute: true });
+  vi.spyOn(registries, 'buildSkillRegistry').mockReturnValue(
+    new SkillRegistry({ bundledDir: join(process.cwd(), 'skills') }),
+  );
+  f.request.payload.text = '/mockup SDK dashboard';
+  const owner = create();
+  await owner.admit(f.request);
+  const check = (id: string) => {
+    const snapshot = dispatch.mock.calls.at(-1)![0];
+    expect(snapshot.payload.text).toBe('/mockup SDK dashboard');
+    expect(f.events.getOrdinarySkillContext(f.reservation.conversationId, id)?.prompt).toContain(
+      'Create or refine a clickable mockup for SDK dashboard',
+    );
+    expect(
+      assembleCommandPrompt(f.events, f.reservation.conversationId, id, snapshot.payload),
+    ).toContain('Create or refine a clickable mockup for SDK dashboard');
+  };
+  check(f.request.clientMsgId);
+  owner.commandTerminal(f.request.clientMsgId);
+  await owner.admitContinuation({ ...f.request, clientMsgId: 'sdk-next' });
+  check('sdk-next');
+  owner.commandTerminal('sdk-next');
+  owner.close();
+  await create('sdk-cold').admitResume({ ...f.request, clientMsgId: 'sdk-cold' });
+  check('sdk-cold');
+});
 it('uses the existing independent repository claim and immutable SDK/account/ADC custody across future and cold commands', async () => {
   const { f, create, dispatch } = await fixture();
   const owner = create();

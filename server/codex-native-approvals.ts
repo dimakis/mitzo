@@ -1,4 +1,5 @@
 import { isDeepStrictEqual } from 'node:util';
+import { toolFailure, type ToolFailure } from '@mitzo/protocol';
 import type { CodexServerRequestContext } from './codex-app-server-client.js';
 import {
   NativeApprovalRequestSchema,
@@ -8,8 +9,11 @@ import { buildPermissionHandler } from './permission-handler.js';
 import type { SessionRegistry } from './session-registry.js';
 import { nativeGrantFence } from './codex-native-grant-fence.js';
 import { PERMISSION_TIMEOUT_MS } from './constants.js';
-import { checkSkillPolicy, effectivePermissionMode } from '@mitzo/harness';
+import { checkSkillPolicy, effectivePermissionMode, recordPermissionAudit } from '@mitzo/harness';
 import { nativeCommandApprovalScope } from './codex-native-approval-scope.js';
+import { createLogger } from './logger.js';
+import { captureNativeDevelopmentGrant } from './native-development-grant.js';
+const log = createLogger('codex-native-approvals');
 
 export interface PreparedWorkspaceGrantScope {
   readonly runtimeId: string;
@@ -38,6 +42,9 @@ export type ApprovePreparedWorkspaceGrant = (
 ) => Promise<PreparedWorkspaceGrant | undefined>;
 
 export interface CodexNativeApprovalContext extends CodexServerRequestContext {
+  /** Original command observer, never supplied by the provider. */
+  observeFailure?(failure: ToolFailure): void;
+  readonly subagentName?: string;
   readonly commandId?: string;
   readonly threadId: string;
   readonly turnId: string;
@@ -77,6 +84,9 @@ export function createCodexNativeApprovalHandler(options: {
     context: CodexNativeApprovalContext,
   ): Promise<Record<string, unknown>> => {
     let returningDenial = false;
+    let commandKind: 'command' | 'writeStdin' | undefined;
+    let preExecutionCommand = false;
+    let explicitDenial = false;
     let grantResponse: Record<string, unknown> | undefined;
     const grant = (response: Record<string, unknown>) => {
       grantResponse = parseNativeApprovalResponse(method, response);
@@ -84,6 +94,25 @@ export function createCodexNativeApprovalHandler(options: {
     };
     const deny = (cancel = false): Record<string, unknown> => {
       returningDenial = true;
+      if (commandKind) {
+        try {
+          context.observeFailure?.(
+            toolFailure(
+              signal.aborted || cancel
+                ? 'cancelled'
+                : explicitDenial
+                  ? 'permission_denied'
+                  : Date.now() >= Number(params.startedAtMs) + timeoutMs
+                    ? 'approval_expired'
+                    : 'permission_denied',
+              'approval',
+              preExecutionCommand ? 'not_started' : 'unknown',
+            ),
+          );
+        } catch {
+          /* Missing observation cannot grant permission or certify recovery. */
+        }
+      }
       return method === 'item/permissions/requestApproval'
         ? { permissions: {}, scope: 'turn' }
         : {
@@ -100,6 +129,15 @@ export function createCodexNativeApprovalHandler(options: {
     const parsed = NativeApprovalRequestSchema.safeParse({ method, id: context.requestId, params });
     if (!parsed.success) return deny();
     const request = parsed.data;
+    if (request.method === 'item/commandExecution/requestApproval') {
+      commandKind = request.params.kind;
+      // Subcommand and managed-network callbacks can occur after earlier effects
+      // within this same parent item; declining this callback proves no rollback.
+      preExecutionCommand =
+        request.params.kind === 'command' &&
+        request.params.approvalId == null &&
+        request.params.networkApprovalContext == null;
+    }
     const session = registry.get(clientId);
     if (!session) return deny();
     const mode = effectivePermissionMode(session);
@@ -161,6 +199,39 @@ export function createCodexNativeApprovalHandler(options: {
     let assertGrantCurrent = () => {};
     let assertPreparedCurrent = () => {};
     let assertConsentCurrent = () => {};
+    let assertCommandCurrent = () => {};
+    let sessionGrantKey: string | undefined;
+    const toolUseID = JSON.stringify([
+      runtimeId,
+      identity.requestId,
+      identity.threadId,
+      identity.turnId,
+      request.params.itemId,
+    ]);
+    let deliveryRefused = false;
+    const recordDeliveryRefusal = (error: unknown) => {
+      if (deliveryRefused) return;
+      deliveryRefused = true;
+      recordPermissionAudit({
+        phase: 'delivery',
+        time: Date.now(),
+        sessionId: session.sessionId,
+        toolName,
+        toolUseID,
+        scopeHash: sessionGrantKey,
+        outcome: signal.aborted ? 'cancelled' : Date.now() >= expiresAt ? 'expired' : 'denied',
+      });
+      log.warn('Native approval refused during validation or RPC delivery', {
+        runtimeId,
+        environmentId,
+        method,
+        requestId: identity.requestId,
+        threadId: identity.threadId,
+        cancelled: signal.aborted,
+        expired: Date.now() >= expiresAt,
+        cause: error instanceof Error ? error.message : 'non-Error validation failure',
+      });
+    };
     let timer: ReturnType<typeof setTimeout> | undefined;
     try {
       assertCurrent();
@@ -187,20 +258,36 @@ export function createCodexNativeApprovalHandler(options: {
         fileChangePaths,
       );
       const finalFence = () => {
-        // Check every non-expiry authority even if validation crossed the
-        // deadline. Revocation/cancellation/path failures must still close.
-        assertCurrent(true);
-        assertGrantCurrent();
-        assertPreparedCurrent();
-        if (!returningDenial) assertConsentCurrent();
-        // These synchronous checks can themselves consume the remaining time.
-        // Downgrade the exact response object held by the original RPC client;
-        // expiry alone authorizes only refusal, never a stale grant or retry.
-        if (!returningDenial && Date.now() >= expiresAt && grantResponse)
-          Object.assign(grantResponse, deny(signal.aborted));
+        try {
+          // Check every non-expiry authority even if validation crossed the
+          // deadline. Revocation/cancellation/path failures must still close.
+          assertCurrent(true);
+          assertGrantCurrent();
+          assertPreparedCurrent();
+          assertCommandCurrent();
+          if (!returningDenial) assertConsentCurrent();
+          // These synchronous checks can themselves consume the remaining time.
+          // Downgrade the exact response object held by the original RPC client;
+          // expiry alone authorizes only refusal, never a stale grant or retry.
+          if (!returningDenial && Date.now() >= expiresAt && grantResponse) {
+            recordDeliveryRefusal(Error('Native approval expired before RPC delivery'));
+            Object.assign(grantResponse, deny(signal.aborted));
+          }
+        } catch (error) {
+          recordDeliveryRefusal(error);
+          throw error;
+        }
       };
       context.registerResponseFence?.(finalFence);
       timer = setTimeout(() => expiry.abort(), Math.max(0, expiresAt - Date.now()));
+      const developmentGrant = captureNativeDevelopmentGrant(session, request);
+      if (developmentGrant) {
+        assertConsentCurrent = developmentGrant;
+        assertCurrent();
+        assertGrantCurrent();
+        assertConsentCurrent();
+        return grant({ decision: 'accept' });
+      }
       if (
         request.method === 'item/permissions/requestApproval' &&
         approvePreparedWorkspaceGrant &&
@@ -278,13 +365,14 @@ export function createCodexNativeApprovalHandler(options: {
       // filesystem scope and callback identity. Bash display would omit them.
       const input = {
         runtimeId,
+        ...(context.subagentName ? { subagent: context.subagentName } : {}),
         environmentId,
         requestId: identity.requestId,
         method: request.method,
         params: request.params,
         ...(request.method === 'item/fileChange/requestApproval' ? { fileChangePaths } : {}),
       };
-      const sessionGrantKey = nativeCommandApprovalScope(request, {
+      const commandOwner = {
         runtimeId,
         environmentId,
         policyRevision: options.policyRevision,
@@ -292,27 +380,29 @@ export function createCodexNativeApprovalHandler(options: {
         cwd,
         deniedRoots,
         writeProtectedRoots,
-      });
+      };
+      sessionGrantKey = nativeCommandApprovalScope(request, commandOwner);
+      if (sessionGrantKey)
+        assertCommandCurrent = () => {
+          if (nativeCommandApprovalScope(request, commandOwner) !== sessionGrantKey)
+            throw Error('Native command directory changed during approval');
+        };
       const commandRequest = request.method === 'item/commandExecution/requestApproval';
       const network = commandRequest && request.params.additionalPermissions?.network?.enabled;
       const result = await permission(toolName, input, {
         signal: currentSignal,
-        toolUseID: JSON.stringify([
-          runtimeId,
-          identity.requestId,
-          identity.threadId,
-          identity.turnId,
-          request.params.itemId,
-        ]),
-        title: commandRequest
-          ? request.params.networkApprovalContext
-            ? `Connect to ${request.params.networkApprovalContext.host}`
-            : network
-              ? 'Run command with network access'
-              : 'Run local command'
-          : request.method === 'item/fileChange/requestApproval'
-            ? 'Apply file changes'
-            : 'Allow requested access',
+        toolUseID,
+        title:
+          (context.subagentName ? `Subagent ${context.subagentName} · ` : '') +
+          (commandRequest
+            ? request.params.networkApprovalContext
+              ? `Connect to ${request.params.networkApprovalContext.host}`
+              : network
+                ? 'Run command with network access'
+                : 'Run local command'
+            : request.method === 'item/fileChange/requestApproval'
+              ? 'Apply file changes'
+              : 'Allow requested access'),
         description:
           'Review the displayed operation, working directory and requested access. Existing workspace and credential protections still apply. Approval that expires during validation is refused without granting permission.',
         ...(sessionGrantKey
@@ -335,16 +425,22 @@ export function createCodexNativeApprovalHandler(options: {
           assertCurrentSync: () => {
             assertCurrent();
             assertGrantCurrent();
+            assertCommandCurrent();
           },
         },
       });
+      // Preserve an actual user rejection even if resumption crosses expiry.
+      explicitDenial =
+        result.behavior === 'deny' && result.decisionClassification === 'user_reject';
       assertCurrent();
       assertGrantCurrent();
+      assertCommandCurrent();
       if (result.behavior !== 'allow' || !isDeepStrictEqual(result.updatedInput, input))
         return deny();
       if (sessionGrantKey && result.decisionClassification === 'user_permanent') {
+        const consentKey = sessionGrantKey;
         assertConsentCurrent = () => {
-          if (!session.sessionAllowList.has(sessionGrantKey))
+          if (!session.sessionAllowList.has(consentKey))
             throw Error('Native command consent was revoked');
         };
         assertConsentCurrent();
@@ -359,9 +455,10 @@ export function createCodexNativeApprovalHandler(options: {
             }
           : { decision: 'accept' };
       return grant(response);
-    } catch {
+    } catch (error) {
       // Expiry denies this operation; only the owning operation's abort cancels
       // the turn. Offers without decline still use their supported cancel reply.
+      recordDeliveryRefusal(error);
       return deny(signal.aborted);
     } finally {
       clearTimeout(timer);

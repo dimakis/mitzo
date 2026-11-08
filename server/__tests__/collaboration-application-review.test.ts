@@ -47,7 +47,7 @@ it('derives actual settings and compiles visible source without allocating or di
   expect(f.store.listSessions()).toHaveLength(1);
   expect(f.workspaces.get(f.input.target.repositoryWorkspaceId).state).toBe('ready');
   expect(f.store.collaborationConversation.view(f.group).joins).toEqual([]);
-  expect(() =>
+  expect(
     f.store.collaborationConversation.prepareJoin(f.group, {
       requestId: randomUUID(),
       expectedMembershipRevision: 1,
@@ -55,7 +55,7 @@ it('derives actual settings and compiles visible source without allocating or di
       settings: result.settings,
       snapshot: { snapshotId: result.snapshot.snapshotId, sha256: result.snapshot.sha256 },
     }),
-  ).toThrow('capacity_refused');
+  ).toMatchObject({ state: 'pending_preparation', sessionId: null });
 });
 
 it('recovers an exact completed review before resolving changed mutable account settings', async () => {

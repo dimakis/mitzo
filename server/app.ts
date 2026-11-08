@@ -24,6 +24,11 @@ import { assertAgentToolRoute } from './agent-tool-selection.js';
 import { OrdinaryWorkspaceSettingsSchema } from '@mitzo/protocol';
 import { readSandboxOwnershipReview } from './sandbox-ownership-review.js';
 import { createSessionRemovalRouter, sessionNeedsSandboxReview } from './session-removal.js';
+import { createSessionRemovalRuntime } from './session-removal-runtime.js';
+import { SessionResourceRemovalService } from './session-resource-removal.js';
+import { createLocalSessionRemoval } from './local-session-removal.js';
+import { getSessionPrompts } from './session-prompt-runtime.js';
+import { retainAgentContextAuthority } from './agent-context-authority.js';
 import { summarizeSandboxInventory } from './sandbox-inventory.js';
 import {
   readOpenShellSandboxInventory,
@@ -179,6 +184,8 @@ import { drainRetainedSymposiumControllers } from './symposium-controller-drain.
 import { createSessionMessagesHandler } from './session-messages-route.js';
 import { mountSymposiumArtifactRoutes } from './symposium-artifact-route-composition.js';
 import { getConnectionRegistry } from './chat.js';
+import { createSessionPromptPort } from './session-prompt-dispatch.js';
+import { ApplicationCollaborationMessaging } from './collaboration-application-messaging.js';
 import {
   publicationControllerApproval,
   clearPublicationControllerSessionGrants,
@@ -233,9 +240,12 @@ import { createOutputContributors } from './output-contributors.js';
 import { createOutputContributorRouter } from './output-contributor-routes.js';
 import { createSessionCollaborationRouter } from './session-collaboration-router.js';
 import { CollaborationApplicationReview } from './collaboration-application-review.js';
+import { createApplicationCollaborationJoining } from './collaboration-application-joining.js';
 import { readAgentLibraryProfile } from './agent-library-transport.js';
 import { createSymposiumProfileRouter } from './symposium-profile-routes.js';
 import { SymposiumProfileProposalStore } from './symposium-profile-proposals.js';
+import { initializeSessionLaunches, closeSessionLaunches } from './session-launch-controller.js';
+import { createSessionLaunchRouter } from './session-launch-routes.js';
 import { createSymposiumProfileProposalRouter } from './symposium-profile-proposal-routes.js';
 import {
   readCodexQueue,
@@ -248,6 +258,8 @@ import {
   readCodexCapacityRecovery,
 } from './codex-chat-session.js';
 import { createCodexQueueRouter } from './codex-queue-routes.js';
+import { createCodexSubagentRouter } from './codex-subagent-routes.js';
+import { subagentScope, subagentSnapshot } from './codex-subagent-store.js';
 import { createCallbackIncidentRepairRouter } from './callback-incident-repair.js';
 import { assertRepositoryTaskRetirement } from './repository-task-retirement.js';
 import {
@@ -380,6 +392,9 @@ import {
 } from './permissions.js';
 import { createTelosSourcePermissionRecovery } from './telos-source-recovery.js';
 import { createSessionAccessRouter, projectSessionAccess } from './session-access.js';
+import { SessionCapabilityGrants } from './session-capability-grants.js';
+import { repositoryCapabilityIdentity } from './repository-capability-identity.js';
+import { createSessionCapabilityRouter } from './session-capability-router.js';
 import { createLogger } from './logger.js';
 import {
   handleTaskSet,
@@ -431,8 +446,21 @@ import { createHomeRouter } from './home-router.js';
 import { HomeStore } from './home-store.js';
 import { readQuoteCatalog } from './quote-catalog.js';
 import { registerToken, removeToken, setTokenStorePath } from './apns.js';
-import { SkillRegistry } from './skills.js';
-import type { SkillWatcher } from './skill-watcher.js';
+import {
+  buildSkillRegistry,
+  hasSkillWatcher,
+  NATIVE_COMMAND_NAMES,
+} from './skill-registry-runtime.js';
+import { ordinarySkillEntries, ordinaryWorkspaceSkillEntries } from './ordinary-composer-skills.js';
+import { z } from 'zod';
+export {
+  buildSkillRegistry,
+  BUNDLED_SKILLS_DIR,
+  USER_SKILLS_DIR,
+  NATIVE_COMMAND_NAMES,
+  setSkillWatcher,
+  invalidateSkillRegistries,
+} from './skill-registry-runtime.js';
 
 import { mkdirSync } from 'fs';
 import { homedir } from 'os';
@@ -449,54 +477,6 @@ import type { OpenShellLifecycleService } from './openshell-lifecycle-service.js
 const log = createLogger('server');
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-
-// Skill registry directories
-export const BUNDLED_SKILLS_DIR = join(__dirname, '..', 'skills');
-export const USER_SKILLS_DIR = join(homedir(), '.mitzo', 'skills');
-
-/** Reserved native command names — skills with these names are ignored. */
-export const NATIVE_COMMAND_NAMES = new Set(['skills', 'models', 'deliberate', 'fuse']);
-
-/** Cached registries keyed by cwd — avoids re-scanning the filesystem on every request. */
-const registryCache = new Map<string, SkillRegistry>();
-
-let skillWatcher: SkillWatcher | null = null;
-
-/** Register the skill file watcher so new repo dirs get watched automatically. */
-export function setSkillWatcher(watcher: SkillWatcher): void {
-  skillWatcher = watcher;
-}
-
-/** Build or retrieve a cached SkillRegistry for a given cwd (repo root). */
-export function buildSkillRegistry(cwd?: string): SkillRegistry {
-  const key = cwd ?? '';
-  const cached = registryCache.get(key);
-  if (cached) return cached;
-
-  const repoDir = cwd ? join(cwd, '.mitzo', 'skills') : undefined;
-
-  // Watch repo skill dir for changes (idempotent). If the directory doesn't
-  // exist yet, watchDir silently skips it. A later invalidation (e.g. from a
-  // change in bundled/user skill dirs) will rebuild the registry and retry.
-  if (repoDir && skillWatcher) {
-    skillWatcher.watchDir(repoDir);
-  }
-
-  const registry = new SkillRegistry({
-    bundledDir: BUNDLED_SKILLS_DIR,
-    userDir: USER_SKILLS_DIR,
-    repoDir,
-    nativeNames: NATIVE_COMMAND_NAMES,
-  });
-  registryCache.set(key, registry);
-  return registry;
-}
-
-/** Invalidate all cached registries — forces rediscovery on next request. */
-export function invalidateSkillRegistries(): void {
-  for (const reg of registryCache.values()) reg.invalidate();
-  registryCache.clear();
-}
 
 const app = express();
 let idleApplicationClosing = false;
@@ -1301,6 +1281,24 @@ const symposiumAccessRequests = new SymposiumAccessRequests(
 );
 const symposiumProfileProposalStore = new SymposiumProfileProposalStore(
   join(BASE_REPO || '.', '.mitzo', 'events.db'),
+);
+const sessionLaunchController = initializeSessionLaunches(
+  join(BASE_REPO || '.', '.mitzo', 'events.db'),
+  (sessionId) => sseRegistry.broadcast('session_launch_changed', { sessionId }),
+);
+mountObservedRouter(
+  app,
+  '/api/session-launch',
+  operatorAuthMiddleware,
+  createSessionLaunchRouter({
+    controller: sessionLaunchController,
+    session: (id) => {
+      const session = eventStore.getSession(id);
+      return session && session.accountBinding && isAvailableTelosWorkConversation(session)
+        ? { title: session.summary || 'Originating chat' }
+        : undefined;
+    },
+  }),
 );
 mountObservedRouter(
   app,
@@ -3341,13 +3339,53 @@ app.get('/api/config', (_req, res) => {
 });
 
 app.get('/api/skills', (req, res) => {
-  const cwd = (req.query.cwd as string) || BASE_REPO;
+  if (req.query.sessionId !== undefined) {
+    if (
+      req.query.runtime !== 'ordinary' ||
+      typeof req.query.sessionId !== 'string' ||
+      req.query.cwd !== undefined ||
+      req.query.repositoryWorkspaceId !== undefined
+    )
+      return res.status(400).json({ error: 'Select a conversation workspace' });
+    const id = req.query.sessionId;
+    const cwd = eventStore.getSession(id)?.cwd;
+    if (!cwd || isRemoteSessionArtifact(id) || !isAllowedPath(cwd, id))
+      return res.status(403).json({ error: 'Workspace commands unavailable' });
+    return res.json(ordinarySkillEntries(buildSkillRegistry(cwd)));
+  }
+  if (req.query.repositoryWorkspaceId !== undefined) {
+    if (
+      req.query.runtime !== 'ordinary' ||
+      req.query.cwd !== undefined ||
+      !z.uuid().safeParse(req.query.repositoryWorkspaceId).success
+    )
+      return res.status(400).json({ error: 'Select a prepared workspace' });
+    void Promise.resolve()
+      .then(() =>
+        ordinaryWorkspaceSkillEntries(
+          getRepositoryWorkspaces(true),
+          String(req.query.repositoryWorkspaceId),
+          repositoryWorkspaceBinding,
+        ),
+      )
+      .then(
+        (entries) => res.json(entries),
+        () => res.status(409).json({ error: 'Workspace commands unavailable' }),
+      );
+    return;
+  }
+  const cwd =
+    (req.query.cwd as string) || (req.query.runtime === 'ordinary' ? undefined : BASE_REPO);
   if (cwd && !isAllowedPath(cwd)) {
     res.status(403).json({ error: 'Path not allowed' });
     return;
   }
   const skillRegistry = buildSkillRegistry(cwd);
-  res.json(skillRegistry.listPublic());
+  res.json(
+    req.query.runtime === 'ordinary'
+      ? ordinarySkillEntries(skillRegistry)
+      : skillRegistry.listPublic(),
+  );
 });
 
 app.get('/api/commands', (_req, res) => {
@@ -3494,12 +3532,32 @@ app.get(
   }),
 );
 
+const collaborationMessaging = new ApplicationCollaborationMessaging(
+  eventStore,
+  createSessionPromptPort({
+    eventStore,
+    sessionRegistry: registry,
+    connRegistry: {
+      broadcast: (sessionId, event) => getConnectionRegistry()?.broadcast(sessionId, event),
+    },
+  }),
+);
+
 mountObservedRouter(
   app,
   '/api/session-collaborations',
   operatorAuthMiddleware,
   createSessionCollaborationRouter({
     store: eventStore,
+    messaging: collaborationMessaging,
+    joining: (auth) =>
+      createApplicationCollaborationJoining(
+        {
+          store: eventStore,
+          workspaces: getRepositoryWorkspaces(true),
+        },
+        auth,
+      ),
     review: () =>
       new CollaborationApplicationReview({
         store: eventStore,
@@ -3549,11 +3607,68 @@ mountObservedRouter(
   }),
 );
 
+const removalRuntime = createSessionRemovalRuntime({
+  events: eventStore,
+  registry,
+  tasks: taskStore,
+  native: getCodexConversationStore,
+  stop: (id) => stopChat(id),
+});
+const resourceRemovals = new SessionResourceRemovalService({
+  ...removalRuntime,
+  fingerprint: (id) =>
+    removalRuntime.fingerprint(id) +
+    (eventStore.getSessionRuntimeBinding(id)?.execution.location === 'local'
+      ? localRemoval.fingerprint(id)
+      : ''),
+  store: eventStore.removals,
+  cancelPrompts: (id) => getSessionPrompts().cancelSession(id),
+  restorePrompts: (id) => getSessionPrompts().store.keepSession(id),
+});
+const localRemoval = createLocalSessionRemoval({
+  events: eventStore,
+  workspaces: () => getRepositoryWorkspaces(true),
+  resolveBinding: repositoryWorkspaceBinding,
+  assertStopped: (record) =>
+    assertRepositoryTaskRetirement(record, {
+      events: eventStore,
+      registry,
+      assertNativeStopped: (workspace) =>
+        getCodexConversationStore().assertRepositoryTaskStopped(workspace),
+      protectedDirectories: [process.cwd()],
+    }),
+});
 mountObservedRouter(
   app,
   '/api/sessions',
   createSessionRemovalRouter({
     authorize: operatorAuthMiddleware,
+    removal: {
+      service: resourceRemovals,
+      authority: (_req, res) => {
+        if (res.locals.removalAuthority) return res.locals.removalAuthority;
+        const auth = res.locals.authSession as AuthSession | undefined;
+        if (!auth) throw Error('Sign in again before continuing this removal.');
+        const controller = new AbortController();
+        const retained = retainAgentContextAuthority(auth, controller);
+        const release = () => {
+          controller.abort();
+          retained.release();
+        };
+        res.once('finish', release);
+        res.once('close', release);
+        return (res.locals.removalAuthority = Object.assign(
+          () => {
+            retained.assertCurrent();
+            if (!auth || !hasPersistentRevocationAuthority() || !isAuthSessionCurrent(auth))
+              throw Error('Sign in again before continuing this removal.');
+          },
+          { signal: controller.signal },
+        ));
+      },
+      localPreview: localRemoval.preview,
+      releaseLocal: localRemoval.release,
+    },
     lifecycle: () => openShellLifecycleService,
     previewLegacy: (id, signal) =>
       previewLegacyOpenShellDeletion(id, eventStore, getCodexConversationStore(), signal),
@@ -3576,6 +3691,22 @@ mountObservedRouter(
   }),
 );
 
+const sessionCapabilityGrants = new SessionCapabilityGrants(registry, repositoryCapabilityIdentity);
+mountObservedRouter(
+  app,
+  '/api/sessions/:id/access-grants',
+  operatorAuthMiddleware,
+  createSessionCapabilityRouter({
+    grants: sessionCapabilityGrants,
+    hasSession: (id) => {
+      const meta = eventStore.getSession(id);
+      return Boolean(
+        meta && !meta.isHidden && meta.sessionType !== 'symposium' && !meta.symposiumConfig,
+      );
+    },
+    title: (id) => eventStore.getSession(id)?.summary ?? undefined,
+  }),
+);
 mountObservedRouter(
   app,
   '/api/sessions/:id/access',
@@ -4021,6 +4152,36 @@ function assertQueueOperator(id: string, authorization?: import('./auth.js').Aut
 mountObservedRouter(
   app,
   '/api/sessions',
+  createCodexSubagentRouter({
+    authorize(id, authorization) {
+      if (eventStore.getSessionRuntimeBinding(id)?.harness.implementation !== 'codex')
+        throw Error('Native Codex conversation required');
+      assertQueueOperator(id, authorization);
+    },
+    owner(id) {
+      const session = registry.findBySessionId(id)?.session;
+      return session ? getCodexRuntime(session)?.getSubagents() : undefined;
+    },
+    retainedControl(id, input) {
+      const binding = eventStore.getSession(id)?.accountBinding;
+      return binding
+        ? getCodexConversationStore().subagents.controlResult(subagentScope(id, binding), input)
+        : undefined;
+    },
+    retained(id) {
+      const binding = eventStore.getSession(id)?.accountBinding;
+      return binding
+        ? getCodexConversationStore()
+            .subagents.list(subagentScope(id, binding))
+            .map((child) => subagentSnapshot(child))
+        : [];
+    },
+  }),
+);
+
+mountObservedRouter(
+  app,
+  '/api/sessions',
   createCallbackIncidentRepairRouter({
     enabled: () => process.env.MITZO_CALLBACK_INCIDENT_REPAIR_ENABLED === '1',
     originalSourceRoot: () => {
@@ -4108,6 +4269,7 @@ mountObservedRouter(
                 authorization,
               )
             : cancelCodexQueuedCommand(
+                eventStore,
                 id,
                 binding,
                 commandId,
@@ -4266,6 +4428,13 @@ app.get('/api/sessions/:id/compactions', (req, res) => {
 });
 
 app.delete('/api/sessions', (_req, res) => {
+  try {
+    resourceRemovals.assertArchivable();
+  } catch (error) {
+    return res.status(409).json({
+      error: error instanceof Error ? error.message : 'Resource release could not be verified.',
+    });
+  }
   hideAllSessions();
   clearPublicationControllerSessionGrants(registry);
   overviewEmitter?.scheduleBroadcast();
@@ -4394,7 +4563,7 @@ export const terminalService = new TerminalService(new TerminalStore(taskStore.g
         ? { ...meta, title: meta.summary || meta.initialPrompt || 'Chat workspace' }
         : undefined;
     },
-    allowedHost: isConfiguredAllowedPath,
+    allowedHost: (cwd, id) => isAllowedPath(cwd, id),
     remote: isRemoteSessionArtifact,
     runtime: (id, binding) => getCodexConversationStore().readArtifactRuntime(id, binding),
     currentRoute: (binding, id) =>
@@ -5149,25 +5318,45 @@ app.post('/api/inbox', (req, res) => {
 
 // Inbox archive/delete can move documents too; enrolled operator authority is
 // never a document, including a JSON file with an .md filename.
-mountObservedRouter(app, '/api/inbox/:filename', (req, res, next) => {
-  const inboxPath = getRepoConfig().resolvedInboxPath;
-  if (!inboxPath) return next();
+function inboxPathAllowed(inboxPath: string, filename: string, mutating: boolean): boolean {
   try {
-    const source = join(inboxPath, req.params.filename);
+    const source = join(inboxPath, filename);
     const privatePath = privatePathSnapshot();
-    const mutating = req.method !== 'GET' && req.method !== 'HEAD';
-    const destination = join(inboxPath, 'archive', req.params.filename);
-    if (
+    const destination = join(inboxPath, 'archive', filename);
+    return (
       !privatePath(source) &&
       (!mutating ||
         (!isWorkspaceRuntimeAuthorityWritePath(source) &&
           !privatePath(destination) &&
           !isWorkspaceRuntimeAuthorityWritePath(destination)))
-    )
-      return next();
+    );
   } catch {
     /* Unreadable authority fails closed. */
+    return false;
   }
+}
+function authorizeInboxMutation(req: express.Request, res: express.Response, inboxPath: string) {
+  const session = res.locals.authSession as AuthSession | undefined;
+  if (session ? !isAuthSessionCurrent(session) : !verifyInternalToken(req)) {
+    res.status(401).json({ error: 'Not authenticated' });
+    return false;
+  }
+  if (
+    getRepoConfig().resolvedInboxPath !== inboxPath ||
+    !inboxPathAllowed(inboxPath, req.params.filename as string, true)
+  ) {
+    res.status(403).json({ error: 'Path not allowed' });
+    return false;
+  }
+  return true;
+}
+mountObservedRouter(app, '/api/inbox/:filename', (req, res, next) => {
+  const inboxPath = getRepoConfig().resolvedInboxPath;
+  if (
+    !inboxPath ||
+    inboxPathAllowed(inboxPath, req.params.filename, req.method !== 'GET' && req.method !== 'HEAD')
+  )
+    return next();
   res.status(403).json({ error: 'Path not allowed' });
 });
 
@@ -5195,6 +5384,7 @@ app.post('/api/inbox/:filename/approve', async (req, res) => {
     // Drain an older scan before moving the source, then await a fresh scan so
     // delivery cancellation, badges and change events precede the response.
     await notificationCenter.reconcileAsync();
+    if (!authorizeInboxMutation(req, res, inboxPath)) return;
     const ok = approveInboxItem(inboxPath, req.params.filename as string);
     if (!ok) {
       res.status(404).json({ error: 'Item not found' });
@@ -5217,6 +5407,7 @@ app.delete('/api/inbox/:filename', async (req, res) => {
       return;
     }
     await notificationCenter.reconcileAsync();
+    if (!authorizeInboxMutation(req, res, inboxPath)) return;
     const ok = discardInboxSource(
       notificationCenter.store,
       inboxPath,
@@ -5766,11 +5957,12 @@ export function closeIdleApplicationResources(): Promise<void> {
     overviewEmitter ||
     healthMonitor ||
     openShellLifecycleService ||
-    skillWatcher
+    hasSkillWatcher()
   )
     return Promise.reject(new Error('Application resource owners are active'));
   idleApplicationClosing = true;
   idleApplicationClose = (async () => {
+    collaborationMessaging.close();
     await terminalService.closeIdle();
     notificationCenter.closeIdle();
     symposiumAccessRequests.closeIdle();
@@ -5779,6 +5971,7 @@ export function closeIdleApplicationResources(): Promise<void> {
     chatSseRegistry.destroy();
     registry.dispose();
     closeAgentTasks();
+    closeSessionLaunches();
     closeAgentLibrary();
     symposiumProfileStore.close();
     symposiumAgentContextStore.close();

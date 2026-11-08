@@ -1,11 +1,115 @@
 # Symposium: current direction and source guide
 
-Updated 17 October 2026. Start here for Symposium product work.
+Updated 7 November 2026. Start here for Symposium product work.
 Existing Telos item: `c0851ba23fcc5d04`; reuse it rather than create another parent
 or a task for every document. Tracker closure and source landing do not prove
 runtime acceptance or authorize deployment.
 
-## Application integration boundary
+## Directed prompt/reply application increment — 7 November candidate
+
+Candidate branch `feat/symposium-directed-replies`, based on accepted main
+`3079701d8f714945f8478508382e17ff20c61299`, connects authenticated group message
+submission to the ordinary dispatcher already used by session prompts. An explicit
+request can consume the original silent preparation receipt. Timers retain their
+existing refusal to start unused sessions. No scheduler, provider client, account
+system or database is added.
+
+The bounded application route supports repository-backed Local Codex participants
+without context recipes. It delivers the original reviewed joining context and
+authorized pending discussion with the explicit prompt. Ordinary preparation and
+admission retain their safeguards; the existing native lifecycle supplies a final
+source/settings/authorization fence and exact provider acknowledgement. Queue
+admission alone does not mark context delivered. Exact concurrent retries observe
+the original message/command instead of dispatching again; ambiguous failures stay
+uncertain. Finalized visible ordinary replies use the existing private command
+mapping and reply owner, including projection reconciliation during group reads.
+Reading or projecting replies starts no model turn.
+
+The actual-app test in `server/__tests__/collaboration-application-messaging.test.ts`
+reuses the existing review/join/restart journey, real login, HTTP routes, Git/SQLite,
+ordinary admission/driver and source projection. Only synthetic external source,
+account/runtime declarations and the recording native process are substituted.
+It proves exact reviewed content, attribution, concurrent request replay, rejection
+of changed retry/unknown recipients/unsupported snapshots, and source revocation
+during ordinary preparation without a second provider turn. This qualifies no
+installed account/runtime. See the dated entry in the existing
+[requirements-to-evidence map](../evidence/symposium-integration-acceptance.md).
+
+This increment does not enable the shared composer: its execution projection stays
+disabled pending recipient readiness/UI integration and qualification. Live owners
+created outside this dispatcher cannot yet accept group lifecycle callbacks; they
+refuse explicitly. New per-prompt snapshots, retained forwarding, older pending
+discussion beyond the bounded view, full fan-out/failure/Stop coverage, streaming
+projection, physical iOS and runtime parity remain outstanding. No merge, staging,
+deployment, live inference or complete-feature acceptance is established here.
+
+## Silent joining: first simplification increment
+
+The user-approved [5 November simplification plan](https://github.com/dimakis/mgmt/blob/c558a7cfe23c8b198d98a806a5d9db2d208f70fa/architecture/discussions/mitzo/symposium-simplification-plan.md)
+supersedes the exact-native-request preflight dependency for joining in the historical
+section below. It preserves the approved UI and ordinary authorization/admission.
+Messaging prerequisite [#1222](https://github.com/dimakis/mitzo/pull/1222) merged
+5 November at `6bb45e9b4f81e7b49767f14a47f866f4711a33e9`.
+
+This increment is implementation candidate source on `feat/symposium-ordinary-joining`,
+integrated with accepted main `ddd35972a91023e318d6596576b50d20d0070d23`.
+It is not evidence of merge, deployment or live account qualification.
+`CollaborationApplicationReview` resolves the actual unused repository target and
+ordinary account/model/profile/settings. `createApplicationCollaborationJoining`
+connects that retained review to `OrdinaryCollaborationJoining` and
+`RepositoryWorkspaces.prepareOrdinarySession` through the existing authenticated
+collaboration routes. It creates no model request, queue, account system or database.
+
+Joining can retain **unverified** capacity when its exact settings belong to a
+trusted completed review. Explicit refusal or a required narrower/reviewed summary
+still blocks. The original frozen visible content, operator, profile, credential
+and repository authority are checked again before preparation/linking. Exact retries
+recover their original join and allocation; membership conflict uses explicit
+reconciliation. No future provider request is measured or certified at join time.
+Unlinked recovery renews repository grants and source qualification against the
+existing workspace allocation fingerprint, including a crash before the session
+receipt exists. OpenShell's ready reservation retains its original session ID
+without claiming or starting a sandbox. A prepared session that already admitted
+its first command cannot be newly linked; already-linked retries remain observational.
+Prompt delivery remains disabled, and its later implementation must preserve
+ordinary admission, exact authorized content and uncertainty handling.
+
+The approved `symposium-fresh-agent` ledger revision remains
+`fresh-agent-review-2026-10-18-test-syntax`. The existing Before joining action may
+confirm unmeasured capacity after review; its screens, layout, reference bytes and
+protected checks remain unchanged. The existing capacity status explains the limit.
+
+Evidence checked 6 November 2026 with synthetic Local Codex and OpenShell account/runtime metadata,
+real Git/SQLite/ordinary preparation and no inference:
+
+Focused OpenShell tests in `server/__tests__/collaboration-application-joining-openshell.test.ts`
+cover confirmation, both allocation crash windows, a reopened EventStore and
+revoked repository access. External runtime declaration and account readiness are
+substituted; no OpenShell runtime is created or qualified. The application joining
+tests also cover source mutation during qualification, grant revocation between
+authorization checks and allocation-operation mismatch. Both Centaur findings
+`CEN-63DFDEB538A7` and `CEN-27D8517FBA74` require current-head verification before merge.
+
+| Existing milestone requirement                            | Evidence and remaining boundary                                                                                                                                                                                                                                                                                                                                |
+| --------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Actual application composition and zero-inference joining | `server/__tests__/collaboration-application-joining-integration.test.ts` imports the real app, authenticates and uses the typed HTTP client. Review, one silent allocation, exact retry, reload and restart pass. The test fails when joining is omitted from app wiring. It now runs in the regular suite.                                                    |
+| Retained authority, recovery and reconciliation           | `server/__tests__/collaboration-application-joining.test.ts` covers changed operator/settings, hidden source, revoked login/source access, crash after allocation, frozen source after later discussion, and membership reconciliation using the original session. Existing joining/storage/router regressions remain required.                                |
+| Approved joining behavior                                 | Hook/component tests cover unmeasured joining, explicit refusal, edited/refrozen brief, retained draft and original recovery. Design contract checks pass. The offline browser fixture adds the unmeasured state; local Playwright stopped at its sandbox guard before launch. Final rendered comparison remains outstanding in CI or a permitted host runner. |
+| Type checks                                               | Protocol/harness/client TypeScript builds and focused semantic checks of the application joining/review/owner/router modules pass. The full server check exceeded the mandated 1 GiB local heap; full server/frontend builds and broader tests remain for CI.                                                                                                  |
+| Explicit group prompt and attributed reply                | Still outstanding. `tests/acceptance/symposium-application-wiring.repro.ts` reuses the passing application journey and retains the required failing delivery/reply continuation. Reuse #1222's ordinary dispatcher when implementing it.                                                                                                                       |
+
+The bounded resolver currently uses the existing silent repository-backed Codex
+route without context recipes. These offline observations qualify no installed
+account or runtime. Responses/Claude/Gemini parity, full web/device comparison,
+physical iOS, fan-out/reader delivery and live qualification remain separate work.
+Keep parent `c0851ba23fcc5d04` and milestone `358d56cb7e4352ff` active. Staging
+remains stood down; no runtime activation or production deployment is authorized.
+
+## Historical application foundation — 17 October
+
+The native-preflight dependency below is historical and superseded for joining by
+the 5 November direction above. Its retained native findings remain evidence;
+they do not add a dependency to silent ordinary-session preparation.
 
 PRs #987 (ordinary preparation and exact context acknowledgements) and #990
 (authenticated silent joining and durable recovery) are source-accepted at

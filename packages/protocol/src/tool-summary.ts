@@ -48,6 +48,10 @@ export function getRawInput(
       const prompt = String(input.prompt || '');
       return {
         type: 'agent',
+        ...(typeof input.nativeSubagentCommandId === 'string' &&
+        input.nativeSubagentCommandId.length <= 200
+          ? { nativeSubagentCommandId: input.nativeSubagentCommandId }
+          : {}),
         ...(desc && { description: desc.slice(0, TOOL_SUMMARY_MAX_CHARS) }),
         ...(stype && { subagent_type: stype.slice(0, TOOL_SUMMARY_MAX_CHARS) }),
         ...(prompt && { prompt: prompt.slice(0, RAW_INPUT_MAX_CHARS) }),

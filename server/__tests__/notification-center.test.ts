@@ -110,7 +110,7 @@ describe('central notification delivery', () => {
       expect(feed).not.toHaveBeenCalled();
       expect(count).toHaveBeenCalledOnce();
     } finally {
-      ids.forEach(removePending);
+      ids.forEach((id) => removePending(id));
       center.close();
       store.close();
     }
@@ -293,14 +293,14 @@ describe('central notification delivery', () => {
   it.each([
     ['search', 'session', 'SESSION_SEARCH_PERMISSION'],
     ['fetch', 'request', 'SESSION_APPROVAL'],
-    ['grant', 'conversation', 'SESSION_PERMISSION'],
+    ['grant', 'conversation', 'SESSION_CONVERSATION_APPROVAL'],
   ] as const)(
     'selects actions appropriate to %s approval scope',
     async (operation, approvalScope, category) => {
       const { store, center, push } = setup();
       store.setPreferences({ sensitivePreviews: true });
       const permId = `category-${operation}`;
-      registerPending(permId, 'RequestWebAccess', vi.fn(), {}, 'unknown', 's1', {
+      registerPending(permId, 'RequestWebAccess', vi.fn(), { operation }, 'unknown', 's1', {
         permId,
         toolName: 'RequestWebAccess',
         toolInput: JSON.stringify({ operation }),
@@ -406,25 +406,17 @@ describe('central notification delivery', () => {
       store.close();
     }
   });
-  it.each(['oversized', 'unknown'])(
+  it.each(['oversized'])(
     'keeps %s requests review-only even with previews enabled',
     async (kind) => {
       const { store, center, push } = setup();
       store.setPreferences({ sensitivePreviews: true });
-      registerPending(
-        'review-only',
-        kind === 'unknown' ? 'CustomGrant' : 'Bash',
-        vi.fn(),
-        {},
-        'elevated',
-        's1',
-        {
-          permId: 'review-only',
-          toolName: kind === 'unknown' ? 'CustomGrant' : 'Bash',
-          toolInput: kind === 'oversized' ? 'x'.repeat(2000) : '{}',
-          sessionId: 's1',
-        },
-      );
+      registerPending('review-only', 'Bash', vi.fn(), {}, 'elevated', 's1', {
+        permId: 'review-only',
+        toolName: 'Bash',
+        toolInput: kind === 'oversized' ? 'x'.repeat(2000) : '{}',
+        sessionId: 's1',
+      });
       await center.flush();
       expect(push.mock.calls[0][0].category).toBe('SESSION_PERMISSION');
       expect(push.mock.calls[0][0].data.approvalInput).toBeUndefined();

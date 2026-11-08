@@ -8,11 +8,13 @@ import {
 import { SessionTimerChangeSchema } from '@mitzo/protocol';
 import { agentToolAllowed } from './agent-tool-selection.js';
 import { captureAgentLibraryAuthorization } from './agent-library-transport.js';
+import { sessionToolOperatorConnection } from './native-host-tool-operator.js';
 import { buildPermissionHandler } from './permission-handler.js';
 import { sessionPromptSchemas } from './session-prompt-definitions.js';
 import { getSessionPrompts } from './session-prompt-runtime.js';
 import { sessionPromptReceipt } from './session-prompt-service.js';
 import type { ProfileToolCall } from './session-profile-tools.js';
+import { sessionTaskExecutionTools } from './task-execution-tools.js';
 
 export function sessionPromptTools(
   sessionId: string,
@@ -22,6 +24,14 @@ export function sessionPromptTools(
   assertRuntimeCurrent?: () => Promise<void>,
   assertRuntimeCurrentSync?: () => void,
 ) {
+  const tasks = sessionTaskExecutionTools({
+    sessionId,
+    session,
+    registry,
+    prefix,
+    assertRuntimeCurrent,
+    assertRuntimeCurrentSync,
+  });
   return {
     async execute(
       name: string,
@@ -30,6 +40,7 @@ export function sessionPromptTools(
       call?: ProfileToolCall,
     ) {
       if (!Object.hasOwn(sessionPromptSchemas, name)) return undefined;
+      if (name === 'TaskExecution') return tasks.execute(input, externalSignal, call);
       try {
         if (!assertRuntimeCurrent || !assertRuntimeCurrentSync)
           throw Error('Session automation requires a current ordinary runtime owner.');
@@ -48,12 +59,12 @@ export function sessionPromptTools(
           return owner;
         };
         const owner = current();
-        const connectionId = owner.session.ownerConnectionId ?? owner.clientId.split(':')[0];
+        const connectionId = sessionToolOperatorConnection(owner.session, owner.clientId);
         const captured = captureAgentLibraryAuthorization(connectionId);
         const verify = () => {
           const next = current();
           captured.assertCurrent();
-          if ((next.session.ownerConnectionId ?? next.clientId.split(':')[0]) !== connectionId)
+          if (sessionToolOperatorConnection(next.session, next.clientId) !== connectionId)
             throw Error('Session operator changed.');
         };
         verify();

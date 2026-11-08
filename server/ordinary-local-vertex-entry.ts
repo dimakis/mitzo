@@ -6,6 +6,7 @@ import { isDeepStrictEqual } from 'node:util';
 import type { SessionTransport } from '@mitzo/harness';
 import { hasPersistentRevocationAuthority } from './auth.js';
 import { captureAgentLibraryAuthorization } from './agent-library-transport.js';
+import { retainNativeHostToolOperator } from './native-host-tool-operator.js';
 import { getAgentLibrary } from './agent-library-runtime.js';
 import { getRepositoryWorkspaces } from './repository-workspace-runtime.js';
 import type { HostRepositoryReservationInput } from './repository-workspaces.js';
@@ -198,6 +199,7 @@ export async function startOwnedLocalVertexCommand(
           const session = registry.findBySessionId(sessionId)?.session;
           if (!session) throw unavailable();
           session.ownedLocalAuthSessionId = owner.authSessionId;
+          retainNativeHostToolOperator(session, options.operatorConnectionId);
           session.ordinaryRuntimeOwner = {
             location: 'local',
             authSessionId: owner.authSessionId,

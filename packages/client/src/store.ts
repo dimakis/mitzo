@@ -20,15 +20,19 @@ import type { StoreApi } from 'zustand/vanilla';
 import type { FinishedMessage, MitzoMode, ImageAttachment, SourceSnapshot } from '@mitzo/protocol';
 import {
   splitContextPrompt,
-  KnowledgeRuntimeFailureSchema,
-  knowledgeRuntimeFailureMessage,
+  RuntimeFailureSchema,
+  runtimeFailureMessage,
   type OrdinaryRuntimeContinuationCommand,
   type OrdinaryRuntimeFirstCommand,
   type OrdinaryWorkspaceFirstCommand,
 } from '@mitzo/protocol';
 
 import type { TransportAdapter } from './types.js';
-import { messagesReducer, INITIAL_MESSAGES_STATE } from './slices/messages.js';
+import {
+  messagesReducer,
+  INITIAL_MESSAGES_STATE,
+  mergeAgentMessageReceipt,
+} from './slices/messages.js';
 import type { MessagesState, MessagesAction } from './slices/messages.js';
 import { INITIAL_SESSIONS_STATE } from './slices/sessions.js';
 import type { SessionsState } from './slices/sessions.js';
@@ -324,6 +328,7 @@ function mergeLiveWithDurable(
   const durableContext = durableText && splitContextPrompt(durableText.content);
   return {
     ...liveContent,
+    ...mergeAgentMessageReceipt(live, durable),
     ...(durable.inReplyTo ? { inReplyTo: durable.inReplyTo } : {}),
     ...(durable.replyToMessageId ? { replyToMessageId: durable.replyToMessageId } : {}),
     ...(durable.steersMessageId ? { steersMessageId: durable.steersMessageId } : {}),
@@ -529,7 +534,7 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
                       ordinaryDelivery?.version === 1 ? ordinaryDelivery.sessionId : sessionId,
                     );
             if (visible) {
-              const runtimeFailure = KnowledgeRuntimeFailureSchema.safeParse(event.runtimeFailure);
+              const runtimeFailure = RuntimeFailureSchema.safeParse(event.runtimeFailure);
               visibleLocalCommandId = request?.clientMsgId;
               let messages = store.getState().messages;
               const ownState =
@@ -542,12 +547,22 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
                 request.runtime.harness === 'codex' &&
                 state === 'consumed' &&
                 event.acknowledged === true &&
-                (!ownState || ['sending', 'queued'].includes(ownState))
+                (!ownState || ['sending', 'queued', 'uncertain'].includes(ownState))
               )
                 messages = messagesReducer(messages, {
                   type: 'COMMAND_STATE',
                   messageId: request.clientMsgId,
                   commandState: 'queued',
+                });
+              if (
+                request &&
+                ['retained', 'reserved', 'uncertain'].includes(state) &&
+                (!ownState || ownState === 'sending')
+              )
+                messages = messagesReducer(messages, {
+                  type: 'COMMAND_STATE',
+                  messageId: request.clientMsgId,
+                  commandState: 'uncertain',
                 });
               const hasReply =
                 request &&
@@ -560,9 +575,9 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
                 ['completed', 'ended', 'interrupted', 'failed', 'cancelled'].includes(ownState);
               store.setState({
                 messages,
-                ...(runtimeFailure.success && state === 'retained'
-                  ? { sendError: knowledgeRuntimeFailureMessage(runtimeFailure.data) }
-                  : ['pending', 'consumed'].includes(state)
+                ...(runtimeFailure.success && ['retained', 'reserved', 'uncertain'].includes(state)
+                  ? { sendError: runtimeFailureMessage(runtimeFailure.data) }
+                  : event.receiptConfirmed === true || ['pending', 'consumed'].includes(state)
                     ? { sendError: null }
                     : {}),
                 localCommand: {
@@ -845,16 +860,16 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
     const observer = deliveryObservers.get(id);
     const origin = deliveryOrigins.get(id);
     const sessionId = deliverySessions.get(id) ?? origin?.observedSessionId;
-    if (source === 'local' && status === 'uncertain' && !origin?.sessionId)
+    if (source === 'local' && status === 'uncertain')
       store.setState((s) => ({
         messages: {
           ...s.messages,
-          // No acknowledged conversation owns this draft's optimistic spinner.
-          // Retain its message and frozen recovery request; a selected session,
-          // real stream or newer draft keeps its independently owned busy state.
+          // The failed send owns only its optimistic spinner, including in an
+          // idle retained chat. Real streams, an already busy origin, navigation
+          // and newer input keep their independently owned running state.
           ...(origin?.control === 'send' &&
           !origin.running &&
-          s.sessions.active === null &&
+          (origin.sessionId ?? null) === s.sessions.active &&
           origin.historyRequest === historyRequest &&
           origin.launchGeneration === launchGeneration &&
           !s.messages.current &&
@@ -1135,7 +1150,9 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
         if (boundedRestore === currentBoundedRestore) boundedRestore = undefined;
         if (request === historyRequest) {
           recoveryInFlight = false;
-          if (throughSeq !== undefined) store.setState({ historyLoading: false });
+          // An accepted receipt can supersede an opening history request too.
+          // The current owner must finish that loading state on every path.
+          store.setState({ historyLoading: false });
         }
       });
   }

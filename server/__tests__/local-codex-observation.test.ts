@@ -95,6 +95,26 @@ it('parents nested startup checks to their actual phase across awaits', async ()
   expect(child.parentSpanContext?.spanId).toBe(parent.spanContext().spanId);
 });
 
+it('does not make byte qualification or cleanup depend on creating a telemetry span', async () => {
+  const starting = vi.spyOn(tracer, 'startSpan').mockImplementation(() => {
+    throw Error('Exporter unavailable');
+  });
+  try {
+    const artifact = { dispose: vi.fn() };
+    expect(observeLocalCodexSyncPhase('bootstrap_executable', () => artifact)).toBe(artifact);
+    expect(await observeLocalCodexPhase('bootstrap_connect', async () => artifact)).toBe(artifact);
+    const original = Error('Private original failure');
+    await expect(
+      observeLocalCodexPhase('bootstrap_connect', async () => {
+        throw original;
+      }),
+    ).rejects.toBe(original);
+    expect(artifact.dispose).not.toHaveBeenCalled();
+  } finally {
+    starting.mockRestore();
+  }
+});
+
 it('records failures without copying private errors into telemetry', async () => {
   exporter.reset();
   const error = new Error('private-credential-diagnostic');

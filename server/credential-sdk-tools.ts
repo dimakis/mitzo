@@ -9,6 +9,9 @@ import { createSdkMcpServer, tool } from '@anthropic-ai/claude-agent-sdk';
 import {
   checkSkillPolicy,
   effectivePermissionMode,
+  runGuardedTool,
+  ToolGuardTimeoutError,
+  type ToolGuardPolicy,
   type ManagedSession,
   type SessionRegistry,
 } from '@mitzo/harness';
@@ -74,6 +77,7 @@ export function createCredentialSdkServer(
   registry: SessionRegistry,
   boundary?: {
     profilesOnly?: boolean;
+    toolGuardPolicy?: Readonly<ToolGuardPolicy>;
     connectionBoundary?: ConnectionBoundary;
     assertCurrent(signal: AbortSignal): Promise<void>;
     assertCurrentSync(signal: AbortSignal): void;
@@ -93,56 +97,76 @@ export function createCredentialSdkServer(
         definition.name,
         definition.description,
         schemas[definition.name as keyof typeof schemas].shape,
-        async (input, extra) =>
-          (boundary?.runCallback ?? ((work) => work()))(async () => {
-            const id = sessionId();
-            if (!id)
-              return {
-                content: [{ type: 'text', text: 'Session is not ready; retry shortly' }],
-                isError: true,
-              };
-            if (current?.id !== id)
-              current = {
-                id,
-                tools: sessionCredentialTools(
-                  id,
-                  session,
-                  registry,
-                  prefix,
-                  undefined,
-                  boundary
-                    ? () => boundary.assertCurrent(session.abortController.signal)
-                    : undefined,
-                  boundary
-                    ? () => boundary.assertCurrentSync(session.abortController.signal)
-                    : undefined,
-                  false,
-                  { boundary: boundary?.connectionBoundary },
-                ),
-              };
-            const callSignal =
-              extra !== null &&
-              typeof extra === 'object' &&
-              'signal' in extra &&
-              extra.signal instanceof AbortSignal
-                ? extra.signal
-                : undefined;
-            const signal = callSignal
-              ? AbortSignal.any([session.abortController.signal, callSignal])
-              : session.abortController.signal;
-            await boundary?.assertCurrent(signal);
-            const result = await current.tools.execute(definition.name, input, signal, {
-              turnId: runtimeId,
-              callId: String(
-                (extra as { requestId?: unknown } | undefined)?.requestId ?? randomUUID(),
-              ),
-            });
-            await boundary?.assertCurrent(signal);
+        async (input, extra) => {
+          const callSignal =
+            extra !== null &&
+            typeof extra === 'object' &&
+            'signal' in extra &&
+            extra.signal instanceof AbortSignal
+              ? extra.signal
+              : undefined;
+          const signal = callSignal
+            ? AbortSignal.any([session.abortController.signal, callSignal])
+            : session.abortController.signal;
+          if (signal.aborted)
             return {
-              content: [{ type: 'text', text: result?.content ?? 'Connection tool unavailable' }],
-              isError: result?.isError ?? true,
+              content: [{ type: 'text', text: 'Tool call cancelled before dispatch.' }],
+              isError: true,
             };
-          }),
+          return (boundary?.runCallback ?? ((work) => work()))(() =>
+            runGuardedTool(
+              {
+                signal,
+                policy: boundary?.toolGuardPolicy,
+                onSettled: (observation) => {
+                  if (observation.outcome === 'timeout')
+                    session.abortController.abort(new ToolGuardTimeoutError(observation.phase));
+                },
+              },
+              async (signal) => {
+                const id = sessionId();
+                if (!id)
+                  return {
+                    content: [{ type: 'text', text: 'Session is not ready; retry shortly' }],
+                    isError: true,
+                  };
+                if (current?.id !== id)
+                  current = {
+                    id,
+                    tools: sessionCredentialTools(
+                      id,
+                      session,
+                      registry,
+                      prefix,
+                      undefined,
+                      boundary
+                        ? () => boundary.assertCurrent(session.abortController.signal)
+                        : undefined,
+                      boundary
+                        ? () => boundary.assertCurrentSync(session.abortController.signal)
+                        : undefined,
+                      false,
+                      { boundary: boundary?.connectionBoundary },
+                    ),
+                  };
+                await boundary?.assertCurrent(signal);
+                const result = await current.tools.execute(definition.name, input, signal, {
+                  turnId: runtimeId,
+                  callId: String(
+                    (extra as { requestId?: unknown } | undefined)?.requestId ?? randomUUID(),
+                  ),
+                });
+                await boundary?.assertCurrent(signal);
+                return {
+                  content: [
+                    { type: 'text', text: result?.content ?? 'Connection tool unavailable' },
+                  ],
+                  isError: result?.isError ?? true,
+                };
+              },
+            ),
+          );
+        },
       ),
     ),
   });

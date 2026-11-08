@@ -4,6 +4,7 @@ import {
   getPendingTelosSourceReview,
   resolveReviewedTelosSourcePermission,
   capturePendingTelosSourceReviewCurrent,
+  resolvePending,
 } from '@mitzo/harness';
 import {
   TelosOutcomeProposalSchema,
@@ -17,6 +18,9 @@ import {
   type TelosSourcePermissionOperation,
   type TelosSourcePermissionPreviewRequest,
   type TelosOutcomeCreation,
+  type TelosSourcePermissionReview,
+  TelosOutcomeRevisionRequestSchema,
+  TelosOutcomeRevisionReceiptSchema,
 } from '@mitzo/protocol';
 import { TelosWorkError, type TelosWorkActor, type TelosWorkStore } from './telos-work-store.js';
 import { TelosSourceCapture } from './telos-source-capture.js';
@@ -36,6 +40,28 @@ import {
 } from './native-telos-worker-materials.js';
 
 const adopt = z.strictObject({ itemId: z.string().min(1).max(200) });
+/** Suggest only public text already qualified by the source owner. Saving still
+ * requires a compiled preview and the operator's explicit approval. */
+function latestExchange(
+  messages: Pick<
+    TelosSourcePermissionReview['messages'][number],
+    'author' | 'messageId' | 'blocks' | 'unavailableReason'
+  >[],
+): string[] {
+  const eligible = messages.filter(
+    (message) => !message.unavailableReason && message.blocks.some((block) => block.content.trim()),
+  );
+  const lastUser = eligible.map((message) => message.author).lastIndexOf('operator');
+  const start =
+    lastUser < 0
+      ? Math.max(0, eligible.length - 1)
+      : lastUser === eligible.length - 1 &&
+          lastUser > 0 &&
+          eligible[lastUser - 1].author !== 'operator'
+        ? lastUser - 1
+        : lastUser;
+  return eligible.slice(start).map((message) => message.messageId);
+}
 export class TelosSourceSaveUncertainError extends Error {
   constructor() {
     super(
@@ -185,7 +211,58 @@ export class TelosSourceApproval {
       for (const pin of record.preview.packet.context.artifacts) scope?.assertPin(pin);
     };
   }
-  async review(permId: string, sessionId: string, actor: TelosWorkActor, afterSequence = 0) {
+  /** Feedback ends only the original pending proposal. It never authorizes a
+   * canonical save or resumes a prepared/uncertain creation attempt. */
+  async requestChanges(permId: string, raw: unknown, actor: TelosWorkActor) {
+    const actorId = this.operator(actor);
+    const input = TelosOutcomeRevisionRequestSchema.parse(raw);
+    let record = this.options.store.revision(permId, input.sessionId, actorId, input);
+    if (record?.delivered) return record.receipt;
+    // Receipt recovery is an authenticated read of the exact retained request.
+    // A consumed, expired or revoked invocation cannot authorize redelivery, and
+    // its absence alone cannot prove whether the agent received the feedback.
+    if (record && !getPendingTelosSourceReview(permId, input.sessionId))
+      return { ...record.receipt, deliveryStatus: 'unconfirmed' as const };
+    const proof = this.pending(permId, input.sessionId, actor);
+    const current = this.pendingCurrent(proof, actor);
+    const operation = this.operation(proof, actor);
+    if (
+      operation.kind !== 'create' ||
+      proof.toolUseId !== input.toolUseId ||
+      sourceApprovalHash(operation) !== input.proposalSha256 ||
+      (record && !isDeepStrictEqual(record.proof, proof))
+    )
+      throw new TelosWorkError('conflict', 'Original outcome proposal changed; review again');
+    current();
+    record ??= this.options.store.prepareRevision(
+      proof,
+      actorId,
+      input,
+      TelosOutcomeRevisionReceiptSchema.parse({
+        ...input,
+        kind: 'telos_outcome_changes_requested',
+        permId,
+        originalOutcome: operation.outcome,
+        nextAction:
+          'Revise the original outcome using this feedback, then call TelosCreateOutcome again for fresh approval. No outcome was created.',
+      }),
+    );
+    current();
+    if (!resolvePending(permId, 'deny', undefined, input.sessionId, JSON.stringify(record.receipt)))
+      throw new TelosWorkError(
+        'conflict',
+        'Feedback retained but delivery to the original agent is unconfirmed',
+      );
+    this.options.store.revisionDelivered(permId);
+    return record.receipt;
+  }
+  async review(
+    permId: string,
+    sessionId: string,
+    actor: TelosWorkActor,
+    afterSequence = 0,
+    beforeSequence?: number,
+  ) {
     const actorId = this.operator(actor),
       retained = this.options.store.lookup(permId, sessionId, actorId);
     if (retained) {
@@ -226,8 +303,13 @@ export class TelosSourceApproval {
     const materialScope = this.materialScope(proof, operation, actor);
     if (!Number.isSafeInteger(afterSequence) || afterSequence < 0)
       throw new TelosWorkError('invalid', 'Invalid source cursor');
-    const anchors = this.options.events.getSymposiumPerspectiveEvents(sessionId, afterSequence, 51);
-    const rawPage = anchors.slice(0, 50);
+    const anchors = this.options.events.getSymposiumPerspectiveEvents(
+      sessionId,
+      afterSequence,
+      51,
+      beforeSequence,
+    );
+    const rawPage = beforeSequence === undefined ? anchors.slice(0, 50) : anchors.slice(-50);
     const page = rawPage.filter((e) => e.type === 'user_message' || e.type === 'message_end');
     const cursor = rawPage.at(-1)?.seq ?? afterSequence;
     const source = createTelosConversationSource({
@@ -297,6 +379,10 @@ export class TelosSourceApproval {
       artifactsHasMore: materialPage.hasMore,
       cursor,
       hasMore: anchors.length > 50,
+      ...(beforeSequence !== undefined && rawPage.length ? { earlierCursor: rawPage[0].seq } : {}),
+      ...(beforeSequence === Number.MAX_SAFE_INTEGER && operation.kind === 'create'
+        ? { suggestedMessageIds: latestExchange(messages) }
+        : {}),
     });
   }
   private discoverMaterials(

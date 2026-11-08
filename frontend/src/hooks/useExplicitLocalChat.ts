@@ -58,6 +58,7 @@ export function useExplicitLocalChat(
   search = '',
   savedAccount?: AccountSelection | null,
   workspaceRevision?: string | null,
+  onEdit?: () => void,
 ) {
   const retained = useContext(ChatRuntimeDraftContext);
   const seed = useCallback(() => {
@@ -96,6 +97,8 @@ export function useExplicitLocalChat(
   if (preferenceScope.current.draftId !== draftId)
     preferenceScope.current = { draftId, fresh: !saved && savedAccount === undefined };
   const [choice, setChoice] = useState(() => ({ draftId, intent: seed() }));
+  const edits = useRef({ draftId, edited: false, saved });
+  if (edits.current.draftId !== draftId) edits.current = { draftId, edited: false, saved };
   const intent = retained?.selection ?? (choice.draftId === draftId ? choice.intent : seed());
   const latestIntent = useRef(intent);
   latestIntent.current = intent;
@@ -114,9 +117,18 @@ export function useExplicitLocalChat(
       )
     )
       return;
+    const agentProfile = chatAgentProfileFromSearch(search);
+    // Saving the implicit selection into a draft URL is a projection of the
+    // reviewed intent. Only a different profile invalidates that review.
+    if (
+      agentProfile?.profileId === intent.agentProfile?.profileId &&
+      agentProfile?.revision === intent.agentProfile?.revision &&
+      agentProfile?.kind === intent.agentProfile?.kind
+    )
+      return;
     const next = {
       ...intent,
-      agentProfile: chatAgentProfileFromSearch(search),
+      agentProfile,
       capabilityRevision: null,
     };
     setChoice({ draftId, intent: next });
@@ -124,6 +136,15 @@ export function useExplicitLocalChat(
   }, [draftId, sessionId, search, intent, retained]);
 
   const [inventory, setInventory] = useState<ExplicitLocalInventory | null>(null);
+  useEffect(() => {
+    // Defaults can arrive after the fresh draft's inventory. Hydrate that first
+    // seed once; rereading a retained draft cannot renew its capability review.
+    if (sessionId || !saved || !inventory || edits.current.edited || edits.current.saved) return;
+    edits.current.saved = saved;
+    const hydrated = { ...seed(), capabilityRevision: inventory.capabilityRevision };
+    setChoice({ draftId, intent: hydrated });
+    latestRetained.current?.update(hydrated, 'hydrate');
+  }, [saved, sessionId, draftId, seed, inventory]);
   const [enrollment, setEnrollment] = useState<'loading' | 'off' | 'on' | 'unknown'>('loading');
   const [attempt, setAttempt] = useState(0);
   const metadataReadStarted = useRef(false);
@@ -143,6 +164,7 @@ export function useExplicitLocalChat(
     reason?: string;
     intent: ChatRuntimeSelection | null;
     repositoryWorkspaceId?: string;
+    cwd?: string;
     repositoryContext?: z.infer<typeof RepositoryContextSchema>;
     mode?: 'ask' | 'agent' | 'auto';
     agentProfile?: AgentLibraryVersion;
@@ -356,6 +378,7 @@ export function useExplicitLocalChat(
               ? AgentContextSnapshotSchema.parse(body.agentContext)
               : undefined,
           repositoryWorkspaceId: body.repositoryWorkspaceId,
+          cwd: typeof body.cwd === 'string' ? body.cwd : undefined,
           repositoryContext:
             body.sessionId === sessionId &&
             repository.success &&
@@ -496,6 +519,8 @@ export function useExplicitLocalChat(
         entry.account.profileRevision === selectedIntent.accountReference?.profileRevision,
     );
   const update = (next: ChatRuntimeSelection, explicitAccountChoice = false) => {
+    edits.current.edited = true;
+    onEdit?.();
     if (explicitAccountChoice) preferenceScope.current.fresh = false;
     const identityChanged =
       explicitAccountChoice ||
@@ -554,6 +579,7 @@ export function useExplicitLocalChat(
     commandAvailable,
     ordinaryWorkspaceId: currentMeta?.ordinaryWorkspaceId,
     repositoryWorkspaceId: currentMeta?.repositoryWorkspaceId,
+    cwd: metadataPending ? undefined : currentMeta?.cwd,
     repositoryContext: metadataPending ? undefined : currentMeta?.repositoryContext,
     agentProfile: currentMeta?.agentProfile,
     agentContext: currentMeta?.agentContext,

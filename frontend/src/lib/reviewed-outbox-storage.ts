@@ -1,4 +1,4 @@
-import { CHAT_MAX_COMMAND_BYTES } from '@mitzo/protocol';
+import { CHAT_MAX_COMMAND_BYTES, RuntimeFailureSchema, type RuntimeFailure } from '@mitzo/protocol';
 import { V2SendMessage } from '@mitzo/protocol';
 import { parseLocalCommandDelivery } from '@mitzo/client';
 import {
@@ -19,6 +19,7 @@ type Entry = {
   ordinaryDelivery?: unknown;
   composerDraft?: unknown;
   localReceipt?: { state?: unknown };
+  runtimeFailure?: unknown;
 };
 const MAX_ENTRY_BYTES = CHAT_MAX_COMMAND_BYTES + 64 * 1024;
 const MAX_TOTAL_BYTES = 2 * MAX_ENTRY_BYTES;
@@ -33,6 +34,22 @@ export function createReviewedOutboxStorage(
   const prefix = `mitzo-${route === 'local' ? 'local-first-command' : 'reviewed-send'}-outbox:${encodeURIComponent(backendSendUrl)}:`;
   let owned = new Set<string>();
   const key = (id: string) => prefix + encodeURIComponent(id);
+  // Display-only diagnostics must not extend the strict command envelope read
+  // by an older open tab or a rolled-back client. Their separate namespace
+  // cannot be mistaken for a queued command by those consumers.
+  const diagnosticKey = (id: string) =>
+    `mitzo-command-diagnostic:${encodeURIComponent(backendSendUrl)}:${encodeURIComponent(id)}`;
+  function diagnostic(id: string): RuntimeFailure | undefined {
+    if (route !== 'local') return undefined;
+    try {
+      const raw = disk.getItem(diagnosticKey(id));
+      return raw && raw.length <= 512
+        ? RuntimeFailureSchema.safeParse(JSON.parse(raw)).data
+        : undefined;
+    } catch {
+      return undefined;
+    }
+  }
   function decode(raw: string): Entry {
     if (new TextEncoder().encode(raw).length > MAX_ENTRY_BYTES)
       throw new Error('Reviewed command exceeds storage bound');
@@ -97,19 +114,31 @@ export function createReviewedOutboxStorage(
     getItem() {
       const entries = all();
       owned = new Set(entries.keys());
-      return JSON.stringify([...entries.values()].map(decode));
+      return JSON.stringify(
+        [...entries].map(([id, raw]) => {
+          const entry = decode(raw);
+          const hint = diagnostic(id);
+          return hint ? { ...entry, runtimeFailure: hint } : entry;
+        }),
+      );
     },
     setItem(_name, raw) {
       const values: unknown = JSON.parse(raw);
       if (!Array.isArray(values) || values.length > 100)
         throw new Error('Reviewed command queue capacity reached');
       const next = new Map<string, string>();
+      const diagnostics = new Map<string, RuntimeFailure | undefined>();
       for (const value of values) {
         const serialized = JSON.stringify(value);
         const entry = decode(serialized);
         const id = String(entry.body.clientMsgId);
         if (next.has(id)) throw new Error('Duplicate reviewed command');
-        next.set(id, serialized);
+        if (route === 'local') {
+          diagnostics.set(id, RuntimeFailureSchema.safeParse(entry.runtimeFailure).data);
+          const envelope = { ...entry };
+          delete envelope.runtimeFailure;
+          next.set(id, JSON.stringify(envelope));
+        } else next.set(id, serialized);
       }
       const existing = all();
       const merged = new Map(existing);
@@ -129,6 +158,12 @@ export function createReviewedOutboxStorage(
       if (added.length > 1) throw new Error('Reviewed commands must be retained individually');
       for (const [id, value] of next)
         if (existing.has(id) && existing.get(id) !== value) disk.setItem(key(id), value);
+      // Save hints before adding a new command, preserving the existing rule
+      // that a quota failure cannot leave a partially accepted new launch.
+      for (const [id, failure] of diagnostics) {
+        if (failure) disk.setItem(diagnosticKey(id), JSON.stringify(failure));
+        else if (disk.getItem(diagnosticKey(id)) !== null) disk.removeItem(diagnosticKey(id));
+      }
       let acceptedDraft = false;
       for (const id of owned) {
         if (next.has(id)) continue;
@@ -151,6 +186,8 @@ export function createReviewedOutboxStorage(
           acceptedDraft = true;
         }
         disk.removeItem(key(id));
+        if (route === 'local' && disk.getItem(diagnosticKey(id)) !== null)
+          disk.removeItem(diagnosticKey(id));
       }
       for (const [id, value] of added) disk.setItem(key(id), value);
       owned = new Set(next.keys());

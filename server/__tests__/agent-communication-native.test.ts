@@ -7,15 +7,12 @@ import { captureNativeLocalRepositoryReader } from '../local-repository-native-r
 import { captureNativeLocalRepositoryPreparationSource } from '../local-repository-preparation-source.js';
 import { LocalRepositoryReadAccess } from '../local-repository-read-access.js';
 import { createHash, randomUUID } from 'node:crypto';
-import {
-  SessionRegistry,
-  buildPermissionHandler,
-  resolvePending,
-  type ManagedSession,
-} from '@mitzo/harness';
+import { agentMessagePrompt, type AgentMessage } from '@mitzo/protocol';
+import { SessionRegistry, resolvePending, type ManagedSession } from '@mitzo/harness';
 import { ownedRuntimeFixture } from './fixtures/owned-local-codex-runtime.js';
 import { login, authenticateToken, setAuthRevocationStore, revokeAuthSession } from '../auth.js';
 import { bindAgentLibraryTransport } from '../agent-library-transport.js';
+import { retainNativeHostToolOperator } from '../native-host-tool-operator.js';
 import { retainAgentContextAuthority } from '../agent-context-authority.js';
 import {
   captureNativeHostToolContext,
@@ -26,6 +23,7 @@ import { CodexConversationStore } from '../codex-conversation-store.js';
 import { EventStore } from '../event-store.js';
 import { CodexConversation, type CodexConversationOptions } from '../codex-conversation.js';
 import { composeOwnedLocalNativeExecutionPolicy } from '../owned-local-codex-native-policy.js';
+import { codexNativeExecutionPolicy } from '../codex-native-execution-policy.js';
 import { createCodexNativeApprovalHandler } from '../codex-native-approvals.js';
 import type { CodexLifecycleTransport } from '../codex-app-server-client.js';
 import {
@@ -36,7 +34,10 @@ import {
   agentCommunicationDefinitions,
   sessionAgentCommunicationTools,
   recordAgentMessageAcceptance,
+  recordAgentMessageCommandOutcome,
+  cancelCommandWithAgentReceipt,
 } from '../agent-communication-tools.js';
+import { createAgentMessageApprover } from '../agent-communication-permission.js';
 
 const hostReadGuard = vi.hoisted(() => ({ forbidden: false }));
 vi.mock('node:child_process', async (original) => {
@@ -76,6 +77,19 @@ afterEach(async () => {
   for (const close of cleanups.splice(0).reverse()) await close();
   vi.unstubAllEnvs();
   vi.restoreAllMocks();
+});
+
+it('keeps native peer discovery available after viewer replacement, until operator revocation', async () => {
+  const f = await fixture();
+  cleanups.push(retainNativeHostToolOperator(f.a.session, f.a.session.ownerConnectionId!));
+  f.a.session.ownerConnectionId = 'disconnected-viewer';
+  const result = await f.a.call({ operation: 'list' });
+  expect(result.response.success, String(result.value)).toBe(true);
+  expect(result.value.chats).toEqual(
+    expect.arrayContaining([expect.objectContaining({ conversationId: f.b.sessionId })]),
+  );
+  revokeAuthSession(f.auth);
+  expect((await f.a.call({ operation: 'list' })).response.success).toBe(false);
 });
 
 it('retains the original combined read owner and refuses borrowed context or scope', async () => {
@@ -771,13 +785,18 @@ async function fixture(
     nativeBaseReads?: boolean;
     hostWideNativeReads?: boolean;
     nativePrivateName?: string;
-    nativePolicyCheck?: () => unknown;
+    nativePolicyCheck?: (sessionId: string) => unknown;
+    productionPolicy?: boolean;
+    steerBusy?: 'accepted' | 'lost' | 'rejected';
+    onVerifyBinding?: (sessionId: string) => void;
     /** Defensive fault injection inside a genuine verified callback. These
      * malformed server facets are not evidence of production authority. */
     readScopeFault?: ReadScopeFault;
     onReadScopeGetter?: () => void;
   } = {},
 ) {
+  vi.stubEnv('MITZO_WORKSPACE_RUNTIME_CONFIG', undefined);
+  vi.stubEnv('MITZO_KNOWLEDGE_LIBRARY_CONFIG', undefined);
   const f = await ownedRuntimeFixture(cleanups, {
     tools: [{ id: 'mitzo:AgentCommunication', version: 1 }],
   });
@@ -843,6 +862,10 @@ async function fixture(
             modelProvider: 'openai',
           };
         if (method === 'turn/start') return { turn: { id: `turn-${++turn}` } };
+        if (method === 'turn/steer') {
+          if (options.steerBusy === 'lost') throw Error('Steering response lost');
+          return { turnId: params!.expectedTurnId };
+        }
         return originalRequest(method);
       },
     );
@@ -885,27 +908,58 @@ async function fixture(
           conversationId: sessionId,
           assertRuntimeCurrent: () => dispatch.admission.assertCurrent(),
           assertRuntimeCurrentSync: () => dispatch.admission.assertCurrentSync(),
-          approve: (input, signal) =>
-            buildPermissionHandler(clientId, registry)('AgentCommunication', input, {
-              signal,
-              toolUseID: randomUUID(),
-              forcePrompt: true,
-              allowSessionGrant: false,
-            }),
+          approve: createAgentMessageApprover({
+            events: f.events,
+            registry,
+            conversationId: sessionId,
+            assertCurrent: () => dispatch.admission.assertCurrentSync(),
+          }),
           startQueued: async (target: ManagedSession) => {
             await handles.get(target.sessionId!)!.conversation.startQueued();
           },
+          ...(options.steerBusy
+            ? {
+                steer: async (
+                  target: ManagedSession,
+                  message: AgentMessage,
+                  assertCurrent: () => void,
+                ) => {
+                  const runtime = handles.get(target.sessionId!)!.conversation;
+                  const active = runtime.captureInterruptTarget();
+                  if (!active) return 'inactive' as const;
+                  const result = await runtime.steer(
+                    {
+                      requestId: message.commandId,
+                      targetCommandId: active.commandId,
+                      text: agentMessagePrompt(message),
+                    },
+                    assertCurrent,
+                  );
+                  return result.status === 'stale_target' ? ('inactive' as const) : result.status;
+                },
+              }
+            : {}),
         });
         const selectedNativePolicy = () =>
-          composeOwnedLocalNativeExecutionPolicy({
-            session,
-            binding: dispatch.lease.binding,
-            ...(options.hostWideNativeReads
-              ? {}
-              : { readableRoots: [dispatch.workspace.directory!] }),
-            assertCurrentSync: () => dispatch.admission.assertCurrentSync(),
-          });
-        const nativeExecution = options.nativeBaseReads ? selectedNativePolicy() : undefined;
+          options.productionPolicy
+            ? codexNativeExecutionPolicy({
+                bindingRevision: 'offline-policy-owner',
+                mode: session.mode,
+                cwd: dispatch.workspace.directory!,
+                readableRoots: ['/'],
+                writableRoots: [dispatch.workspace.directory!],
+                deniedRoots: [join(f.root, 'custody')],
+              })
+            : composeOwnedLocalNativeExecutionPolicy({
+                session,
+                binding: dispatch.lease.binding,
+                ...(options.hostWideNativeReads
+                  ? {}
+                  : { readableRoots: [dispatch.workspace.directory!] }),
+                assertCurrentSync: () => dispatch.admission.assertCurrentSync(),
+              });
+        const nativeExecution =
+          options.nativeBaseReads || options.productionPolicy ? selectedNativePolicy() : undefined;
         conversation = new CodexConversation({
           conversationId: sessionId,
           cwd: dispatch.workspace.directory!,
@@ -924,12 +978,16 @@ async function fixture(
           ...(nativeExecution
             ? {
                 nativeExecution,
-                resolveNativeExecutionPolicy: async () => selectedNativePolicy(),
+                resolveNativeExecutionPolicy: async ({ commandId }) => {
+                  if (options.productionPolicy)
+                    dispatch.admission.nativeExecutionWorkspace(commandId);
+                  return selectedNativePolicy();
+                },
                 assertNativeExecutionCurrent: (policy: NonNullable<typeof nativeExecution>) => {
                   dispatch.admission.assertCurrentSync();
                   if (selectedNativePolicy().policyRevision !== policy.policyRevision)
                     throw Error('Original selected native read policy changed');
-                  return options.nativePolicyCheck?.();
+                  return options.nativePolicyCheck?.(sessionId);
                 },
                 requestNativeApproval: createCodexNativeApprovalHandler({
                   clientId,
@@ -943,12 +1001,17 @@ async function fixture(
             : {}),
           verifyBinding: async () => {
             await dispatch.admission.assertCurrent();
+            options.onVerifyBinding?.(sessionId);
             return dispatch.lease.binding;
           },
           beforeThreadInitialization: (store) => dispatch.admission.persistCustody(store),
           beforeEnqueue: (input) => dispatch.admission.assertBeforeEnqueue(input),
           canClaimCommand: (id) => dispatch.admission.canClaimCommand(id),
           onProviderDispatch: (id) => dispatch.admission.assertBeforeDispatch(id),
+          assertSteeringCurrent: () => {
+            dispatch.admission.assertCurrentSync();
+            if (options.steerBusy === 'rejected') throw Error('Offline steering not permitted');
+          },
           onProviderAccepted: (id, threadId, turnId) =>
             recordAgentMessageAcceptance(
               f.events,
@@ -960,6 +1023,18 @@ async function fixture(
               threadId,
               turnId,
             ),
+          onQueueChange: () => {
+            for (const command of conversation.queue())
+              if (command.status === 'failed' || command.status === 'cancelled')
+                recordAgentMessageCommandOutcome(
+                  f.events,
+                  native,
+                  sessionId,
+                  dispatch.lease.binding,
+                  auth.id,
+                  command.id,
+                );
+          },
           executeTool: async (name, input, signal, call) => {
             if (!options.observe && !options.assertExtra)
               return {
@@ -1094,8 +1169,8 @@ async function fixture(
       identity: driver,
       initialCommandId: selected.request.clientMsgId,
       admit: (command, signal) => driver.admitContinuation(command, signal),
-      admitAgentMessage: (id, assertCurrent, signal) =>
-        driver.admitAgentMessage(id, assertCurrent, signal),
+      admitAgentMessage: (id, assertCurrent, signal, assertPermissionCurrent) =>
+        driver.admitAgentMessage(id, assertCurrent, signal, assertPermissionCurrent),
       retryInitial: (command) => driver.admit(command),
       close: () => driver.close(),
     };
@@ -1163,6 +1238,343 @@ async function fixture(
     },
   };
 }
+
+it('reports positive pre-provider native policy failure as failed, visibly, without replay', async () => {
+  const policyState: { blockedSession?: string } = {};
+  const f = await fixture({
+    productionPolicy: true,
+    nativePolicyCheck: (sessionId) => {
+      if (sessionId === policyState.blockedSession) throw Error('Offline native policy changed');
+    },
+  });
+  await f.b.complete();
+  policyState.blockedSession = f.b.sessionId;
+  const input = {
+    operation: 'send',
+    requestId: randomUUID(),
+    recipientConversationId: f.b.sessionId,
+    text: 'This message did not reach the provider.',
+  };
+  const sent = await f.a.call(input);
+  expect(sent.response.success).toBe(true);
+  expect(sent.value).toMatchObject({ status: 'failed', reason: 'before_provider_submission' });
+  expect(f.b.requests.filter((request) => request.method === 'turn/start')).toHaveLength(1);
+  expect((await f.a.call(input)).value.status).toBe('failed');
+  const { replayEventsToMessages } = await import('../conversation-transcript.js');
+  expect(
+    replayEventsToMessages(f.f.events.getSessionEvents(f.b.sessionId)).find(
+      (message) => message.agentMessage,
+    )?.agentMessage?.message.status,
+  ).toBe('failed');
+}, 20000);
+
+it('delivers through the production command workspace policy after a busy recipient finishes', async () => {
+  const f = await fixture({ productionPolicy: true });
+  const result = await f.a.call({
+    operation: 'send',
+    requestId: randomUUID(),
+    recipientConversationId: f.b.sessionId,
+    text: 'Do not strand the command at native_policy.',
+  });
+  expect(result.value.status).toBe('queued');
+  await f.b.complete();
+  await vi.waitFor(async () =>
+    expect(
+      (await f.a.call({ operation: 'read', messageId: result.value.messageId })).value.status,
+    ).toBe('delivered'),
+  );
+}, 20000);
+
+it('delivers an attributed peer message to the current native turn once without waiting for completion or enqueuing another command', async () => {
+  const f = await fixture({ steerBusy: 'accepted' });
+  const input = {
+    operation: 'send',
+    requestId: randomUUID(),
+    recipientConversationId: f.b.sessionId,
+    text: 'Pause PR work at the next safe checkpoint.',
+  };
+  const sent = await f.a.call(input);
+  expect(sent.value.status).toBe('delivered');
+  expect(f.b.requests.filter((request) => request.method === 'turn/steer')).toHaveLength(1);
+  expect(f.b.requests.filter((request) => request.method === 'turn/start')).toHaveLength(1);
+  expect(
+    f.native
+      .commands(f.b.sessionId, f.b.initial.lease.binding)
+      .some((command) => command.id === sent.value.commandId),
+  ).toBe(false);
+  expect(JSON.stringify(f.b.requests.find((request) => request.method === 'turn/steer'))).toContain(
+    'grants no action',
+  );
+  expect((await f.a.call(input)).response.success).toBe(true);
+  expect(f.b.requests.filter((request) => request.method === 'turn/steer')).toHaveLength(1);
+  expect(f.permissions).toHaveLength(1);
+}, 20000);
+
+it('records a rejected active-turn message visibly without falling back to another command', async () => {
+  const f = await fixture({ steerBusy: 'rejected' });
+  const input = {
+    operation: 'send',
+    requestId: randomUUID(),
+    recipientConversationId: f.b.sessionId,
+    text: 'A rejected steering request must be visible.',
+  };
+  const sent = await f.a.call(input);
+  expect(sent.response.success).toBe(true);
+  expect(sent.value).toMatchObject({ status: 'failed', reason: 'steering_rejected' });
+  expect(f.b.requests.filter((request) => request.method === 'turn/steer')).toHaveLength(0);
+  expect(
+    f.native
+      .commands(f.b.sessionId, f.b.initial.lease.binding)
+      .some((command) => command.id === sent.value.commandId),
+  ).toBe(false);
+  expect((await f.a.call(input)).value.status).toBe('failed');
+}, 20000);
+
+it('does not enqueue or steer again after losing an active-turn delivery acknowledgement', async () => {
+  const f = await fixture({ steerBusy: 'lost' });
+  const input = {
+    operation: 'send',
+    requestId: randomUUID(),
+    recipientConversationId: f.b.sessionId,
+    text: 'Delivery outcome must stay honest.',
+  };
+  const sent = await f.a.call(input);
+  expect(sent.value.status).toBe('uncertain');
+  await f.a.call(input);
+  await f.a.call({ operation: 'lookup', requestId: input.requestId });
+  expect(f.b.requests.filter((request) => request.method === 'turn/steer')).toHaveLength(1);
+  expect(
+    f.native
+      .commands(f.b.sessionId, f.b.initial.lease.binding)
+      .some((command) => command.id === sent.value.commandId),
+  ).toBe(false);
+}, 20000);
+
+it('uses one explicit session messaging grant for further sends and correlated replies, and observes revocation', async () => {
+  const f = await fixture();
+  f.setPermissionAction((event) => {
+    resolvePending(event.permId as string, 'always', undefined, event.sessionId as string);
+  });
+  const input = {
+    operation: 'send',
+    requestId: randomUUID(),
+    recipientConversationId: f.b.sessionId,
+    text: 'Coordinate this landing.',
+  };
+  const first = await f.a.call(input);
+  expect(first.response.success).toBe(true);
+  expect(f.permissions).toHaveLength(1);
+  expect(f.permissions[0].allowSessionGrant).not.toBe(false);
+  expect(
+    (await f.a.call({ ...input, requestId: randomUUID(), text: 'Hold the next merge.' })).response
+      .success,
+  ).toBe(true);
+  const reply = {
+    operation: 'send',
+    requestId: randomUUID(),
+    recipientConversationId: f.a.sessionId,
+    replyTo: first.value.messageId,
+    text: 'Holding.',
+  };
+  expect((await f.b.call(reply)).response.success).toBe(true);
+  expect(f.permissions).toHaveLength(1);
+  f.registry.findBySessionId(f.a.sessionId)!.session.sessionAllowList.clear();
+  f.setPermissionAction((event) => {
+    resolvePending(event.permId as string, 'once', undefined, event.sessionId as string);
+  });
+  expect((await f.b.call({ ...reply, requestId: randomUUID() })).response.success).toBe(true);
+  expect(f.permissions).toHaveLength(2);
+}, 20000);
+
+it('keeps correlated replies under the receiving chat Ask-mode ceiling', async () => {
+  const f = await fixture();
+  f.setPermissionAction((event) => {
+    resolvePending(event.permId as string, 'always', undefined, event.sessionId as string);
+  });
+  const sent = await f.a.call({
+    operation: 'send',
+    requestId: randomUUID(),
+    recipientConversationId: f.b.sessionId,
+    text: 'A grant does not change your permission mode.',
+  });
+  f.b.session.mode = 'ask';
+  const replyInput = {
+    operation: 'send',
+    requestId: randomUUID(),
+    recipientConversationId: f.a.sessionId,
+    replyTo: sent.value.messageId,
+    text: 'This reply must be denied.',
+  };
+  const approval = await createAgentMessageApprover({
+    events: f.f.events,
+    registry: f.registry,
+    conversationId: f.b.sessionId,
+    assertCurrent: () => {},
+  })(replyInput, new AbortController().signal);
+  expect(approval.behavior).toBe('deny');
+  const reply = await f.b.call(replyInput);
+  expect(reply.response.success).toBe(false);
+  expect(f.permissions).toHaveLength(1);
+  expect(f.f.events.agentCommunication.inbox(f.a.sessionId).messages).toEqual([]);
+}, 20000);
+
+it.each(['send', 'reply'])(
+  'rechecks the original grant after asynchronous %s steering verification',
+  async (kind) => {
+    const revocation: { onVerify?: (id: string) => void } = {};
+    const f = await fixture({
+      steerBusy: 'accepted',
+      onVerifyBinding: (id) => revocation.onVerify?.(id),
+    });
+    f.setPermissionAction((event) => {
+      resolvePending(event.permId as string, 'always', undefined, event.sessionId as string);
+    });
+    const first = await f.a.call({
+      operation: 'send',
+      requestId: randomUUID(),
+      recipientConversationId: f.b.sessionId,
+      text: 'Establish one session grant.',
+    });
+    const sender = kind === 'reply' ? f.b : f.a;
+    const recipient = kind === 'reply' ? f.a : f.b;
+    const before = recipient.requests.filter((request) => request.method === 'turn/steer').length;
+    revocation.onVerify = (id) => {
+      if (id === recipient.sessionId) f.a.session.sessionAllowList.clear();
+    };
+    const sent = await sender.call({
+      operation: 'send',
+      requestId: randomUUID(),
+      recipientConversationId: recipient.sessionId,
+      ...(kind === 'reply' ? { replyTo: first.value.messageId } : {}),
+      text: 'Revoked while the native owner was being verified.',
+    });
+    expect(sent.value.status).not.toBe('delivered');
+    expect(recipient.requests.filter((request) => request.method === 'turn/steer')).toHaveLength(
+      before,
+    );
+    expect(f.permissions).toHaveLength(1);
+  },
+  20000,
+);
+
+it('rechecks a queued message grant at provider dispatch after the sending tool has returned', async () => {
+  const f = await fixture();
+  f.setPermissionAction((event) => {
+    resolvePending(event.permId as string, 'always', undefined, event.sessionId as string);
+  });
+  const sent = await f.a.call({
+    operation: 'send',
+    requestId: randomUUID(),
+    recipientConversationId: f.b.sessionId,
+    text: 'Revoke this queued message before provider submission.',
+  });
+  expect(sent.value.status).toBe('queued');
+  f.a.session.sessionAllowList.clear();
+  await f.b.complete();
+  await vi.waitFor(() =>
+    expect(
+      f.native.commandStatus(f.b.sessionId, f.b.initial.lease.binding, sent.value.commandId),
+    ).toBe('failed'),
+  );
+  expect(f.b.requests.filter((request) => request.method === 'turn/start')).toHaveLength(1);
+}, 20000);
+
+it('refuses a retained peer queue after captureResume loses its live permission fence', async () => {
+  const f = await fixture();
+  const sent = await f.a.call({
+    operation: 'send',
+    requestId: randomUUID(),
+    recipientConversationId: f.b.sessionId,
+    text: 'A retained queue is not fresh peer consent.',
+  });
+  expect(sent.value.status).toBe('queued');
+  f.b.conversation.close();
+  const { OwnedLocalCodexChatAdmission } = await import('../owned-local-codex-chat-admission.js');
+  const { OwnedCodexLifecycleBridge } = await import('../owned-codex-lifecycle-bridge.js');
+  const first = f.b.initial;
+  const resumeId = randomUUID();
+  f.f.events.admitOrdinaryLocalContinuation(
+    {
+      sessionId: f.b.sessionId,
+      cwd: first.workspace.directory,
+      repositoryWorkspaceId: first.workspace.id,
+      accountBinding: first.lease.binding,
+      agentProfile: first.expected.agentProfile,
+      agentContext: first.expected.agentContext,
+      mode: 'agent',
+      selectedModel: first.expected.selection.model,
+      reasoningEffort: first.expected.selection.thinking,
+    },
+    first.expected.binding,
+    {
+      clientMsgId: resumeId,
+      requestFingerprint: 'explicit-resume-fixture',
+      selection: first.expected.selection,
+      payload: first.payload,
+    },
+  );
+  f.f.events.claimOrdinaryLocalCommandDispatch(resumeId);
+  const resumed = OwnedLocalCodexChatAdmission.captureResume({
+    eventStore: f.f.events,
+    sessionId: f.b.sessionId,
+    commandId: resumeId,
+    expected: first.expected,
+    lease: first.lease,
+    bridge: new OwnedCodexLifecycleBridge(() => first.lease),
+    authSessionId: f.auth.id,
+    nativeStore: f.native,
+    custody: f.native.readHostCustody(f.b.sessionId, first.lease.binding)!,
+  });
+  resumed.assertOptions({
+    conversationId: f.b.sessionId,
+    messageId: resumeId,
+    binding: first.lease.binding,
+    profile: first.profile,
+    session: f.b.session,
+    prompt: first.payload.text,
+    systemPrompt: first.payload.systemPrompt,
+    intent: first.payload.intent,
+    images: first.payload.images,
+    model: first.expected.selection.model,
+    reasoningEffort: first.expected.selection.thinking,
+    agentProfile: first.expected.agentProfile,
+    agentContext: first.expected.agentContext,
+    repositoryWorkspace: first.workspace,
+    resume: true,
+  });
+  expect(resumed.canClaimCommand(sent.value.commandId)).toBe(true);
+  expect(() => resumed.assertBeforeDispatch(sent.value.commandId)).toThrow();
+  expect(f.b.requests.filter((request) => request.method === 'turn/start')).toHaveLength(1);
+}, 20000);
+
+it('projects cold queue cancellation into both transcripts without a live callback or receipt lookup', async () => {
+  const f = await fixture();
+  const sent = await f.a.call({
+    operation: 'send',
+    requestId: randomUUID(),
+    recipientConversationId: f.b.sessionId,
+    text: 'Cancel after the recipient runtime closes.',
+  });
+  expect(sent.value.status).toBe('queued');
+  f.b.conversation.close();
+  expect(
+    cancelCommandWithAgentReceipt(
+      f.f.events,
+      f.native,
+      f.b.sessionId,
+      f.b.initial.lease.binding,
+      sent.value.commandId,
+      () => f.native.cancelQueued(f.b.sessionId, f.b.initial.lease.binding, sent.value.commandId),
+    ),
+  ).toBe('cancelled');
+  const { replayEventsToMessages } = await import('../conversation-transcript.js');
+  for (const id of [f.a.sessionId, f.b.sessionId])
+    expect(
+      replayEventsToMessages(f.f.events.getSessionEvents(id)).find(
+        (message) => message.agentMessage?.message.messageId === sent.value.messageId,
+      )?.agentMessage?.message,
+    ).toMatchObject({ status: 'failed', reason: 'cancelled' });
+}, 20000);
 
 it('routes a verified agent send through real approval/admission into a busy native FIFO, then ACKs and correlates an explicit reply', async () => {
   const f = await fixture();
@@ -1253,6 +1665,10 @@ it('wakes an idle native queue once while leaving paused recovery and later canc
   expect(f.b.conversation.isPaused()).toBe(true);
   expect(f.b.requests.filter((r) => r.method === 'turn/start')).toHaveLength(2);
   expect(f.b.conversation.cancelQueued(paused.value.commandId)).toBe('cancelled');
+  expect(f.f.events.agentCommunication.read(f.a.sessionId, paused.value.messageId)).toMatchObject({
+    status: 'failed',
+    reason: 'cancelled',
+  });
   const cancelled = await f.a.call({ operation: 'read', messageId: paused.value.messageId });
   expect(cancelled.value).toMatchObject({ status: 'failed', reason: 'cancelled' });
   expect(f.b.requests.filter((r) => r.method === 'turn/start')).toHaveLength(2);

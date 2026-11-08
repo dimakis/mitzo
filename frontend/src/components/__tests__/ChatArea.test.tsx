@@ -57,6 +57,42 @@ vi.mock('../PermissionBanner', () => ({
 afterEach(() => cleanup());
 
 describe('ChatArea', () => {
+  it('shows an incoming peer message as an attributed card while the assistant is working', () => {
+    const peer = {
+      messageId: 'agent-message:receipt',
+      role: 'assistant' as const,
+      blocks: [],
+      agentMessage: {
+        direction: 'incoming' as const,
+        senderName: 'Merge coordinator',
+        recipientName: 'Subagents',
+        timestamp: 1793925200000,
+        message: {
+          messageId: 'c5d70b9d-8b6f-4640-bdf4-a958abb272f6',
+          commandId: 'agent-message:receipt',
+          senderConversationId: 'sender',
+          recipientConversationId: 'recipient',
+          text: 'Please hold the next merge.',
+          replyTo: null,
+          status: 'queued' as const,
+          reason: null,
+          sequence: 1,
+        },
+      },
+    };
+    render(
+      <ChatArea
+        messages={[peer]}
+        current={null}
+        running={true}
+        permission={null}
+        onPermissionRespond={vi.fn()}
+      />,
+    );
+    expect(screen.getByRole('article', { name: 'Agent message received' })).toBeTruthy();
+    expect(screen.getByText('Please hold the next merge.')).toBeTruthy();
+    expect(screen.queryByTestId('user-bubble')).toBeNull();
+  });
   it('passes the host source-review marker and selected conversation to the shared approval card', () => {
     const permission = {
       permId: 'source',

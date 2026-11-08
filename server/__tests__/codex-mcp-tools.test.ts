@@ -23,6 +23,41 @@ function deferred<T>() {
   return { promise, resolve, reject };
 }
 
+it('bounds an uncooperative MCP shutdown while preserving one close owner and retiring calls', async () => {
+  vi.useFakeTimers();
+  const pending = deferred<void>();
+  const close = vi.fn(() => pending.promise);
+  let settled = false;
+  const tools = await connectCodexMcpTools(
+    { stuck: { command: 'fixture' } },
+    {
+      cwd: '/workspace',
+      env: {},
+      signal: new AbortController().signal,
+      toolGuardPolicy: { executionMs: 100, approvalMs: 100, cleanupMs: 20 },
+      connect: async () => ({
+        listTools: async () => ({ tools: [{ name: 'read', inputSchema: {} }] }),
+        callTool: vi.fn(),
+        close,
+      }),
+    },
+  );
+  const shutdown = tools.close().then(() => {
+    settled = true;
+  });
+  try {
+    await vi.advanceTimersByTimeAsync(21);
+    expect(settled).toBe(true);
+    await tools.close();
+    expect(close).toHaveBeenCalledOnce();
+    expect(() => tools.assertToolCurrent(tools.definitions[0].name)).toThrow();
+  } finally {
+    pending.reject(Error('late transport failure'));
+    await shutdown;
+    vi.useRealTimers();
+  }
+});
+
 it('starts independent MCP discovery concurrently and preserves configured source/page order', async () => {
   const firstPage = deferred<{
     tools: { name: string; inputSchema: Record<string, unknown> }[];

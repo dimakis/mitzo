@@ -1,4 +1,6 @@
 import type { ContextCompaction, SourceSnapshot } from '@mitzo/protocol';
+import { ToolFailureSchema, toolFailureAction } from '@mitzo/protocol';
+import { observeSessionActivity } from './session-activity-events.js';
 import { randomUUID } from 'node:crypto';
 import type { SessionTransport, ConnectionRegistry } from '@mitzo/harness';
 import { summarizeToolInput, getRawInput } from './tool-summary.js';
@@ -164,6 +166,13 @@ function sendOrBuffer(
       persistedSeq = seq;
     }
   }
+
+  if (
+    sessionId &&
+    ['block_start', 'tool_result', 'message_end'].includes(String(data.type)) &&
+    registry.get(clientId)?.sessionId === sessionId
+  )
+    observeSessionActivity(clientId, enriched);
 
   // Suspend buffer: if the session is proactively suspended (iOS backgrounding),
   // buffer events instead of delivering via the driver transport (which is
@@ -873,13 +882,16 @@ async function _runQueryLoopInner(
           primaryModels.clear();
           turnAccountBinding = undefined;
           const providerFailure = isError ? result.provider_failure : undefined;
-          if (msg.tool_failure_notice === true && !providerFailure)
+          if (msg.tool_failure_notice === true && !providerFailure) {
+            const failure = ToolFailureSchema.safeParse(msg.tool_failure);
             emit(
               v2('error', {
-                error:
-                  'The last tool did not finish successfully and the agent ended the turn without a follow-up. You can send a message to continue. Check the tool result before retrying.',
+                error: failure.success
+                  ? toolFailureAction(failure.data)
+                  : 'The last tool did not finish successfully and the agent ended the turn without a follow-up. You can send a message to continue. Check the tool result before retrying.',
               }),
             );
+          }
           caughtError ||= isError;
           if (isError) {
             reportTerminalOutcome(

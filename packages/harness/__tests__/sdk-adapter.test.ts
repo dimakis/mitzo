@@ -1,4 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
+import { ToolGuardTimeoutError } from '../src/tool-guard.js';
 import type {
   ModelSession,
   StreamEvent,
@@ -12,6 +13,30 @@ import {
 } from '../src/providers/sdk-adapter.js';
 
 // ── Helpers ─────────────────────────────────────────────────────
+
+it('stops the deferred loop when a tool ignores its deadline, without another model dispatch', async () => {
+  const session = mockSession([
+    toolUseTurnEvents('Write', 'stuck', {}),
+    textTurnEvents('must not dispatch'),
+  ]);
+  const turn = vi.spyOn(session, 'turn');
+  let executionSignal!: AbortSignal;
+  const executeTool = vi.fn(async (_block, signal: AbortSignal) => {
+    executionSignal = signal;
+    return new Promise<never>(() => {});
+  });
+  await expect(
+    collect(
+      runDeferredGeminiLoop(session, [], {
+        maxTurns: 3,
+        executeTool,
+        toolGuardPolicy: { executionMs: 20, approvalMs: 100, cleanupMs: 20 },
+      }),
+    ),
+  ).rejects.toBeInstanceOf(ToolGuardTimeoutError);
+  expect(executionSignal.aborted).toBe(true);
+  expect(turn).toHaveBeenCalledOnce();
+});
 
 /** Build a mock ModelSession that yields canned events per turn. */
 function mockSession(turnsEvents: StreamEvent[][]): ModelSession {
@@ -343,6 +368,7 @@ describe('runDeferredGeminiLoop', () => {
     expect(executeTool).toHaveBeenCalledTimes(1);
     expect(executeTool).toHaveBeenCalledWith(
       expect.objectContaining({ name: 'Read', id: 'tool-1' }),
+      expect.any(AbortSignal),
     );
 
     // Two assistant events (one per turn)

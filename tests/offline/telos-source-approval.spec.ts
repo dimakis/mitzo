@@ -275,6 +275,8 @@ for (const theme of ['dark', 'light'] as const)
               json: { messages: host.messages, current: null, currents: [], cursor: 3 },
             });
           if (path === '/api/sessions/planning/meta') return route.fulfill({ json: metadata });
+          if (path === '/api/session-launch/requests' && route.request().method() === 'GET')
+            return route.fulfill({ json: { requests: [] } });
           if (path === '/api/sessions/planning/symposium/status')
             return route.fulfill({
               json: { sessionId: 'planning', config: null, seats: [], deliveries: [] },
@@ -404,7 +406,7 @@ for (const theme of ['dark', 'light'] as const)
                 fieldsets.every((fieldset) => fieldset.scrollWidth <= fieldset.clientWidth),
               ),
           ).toBe(true);
-          for (const name of ['Allow Once', 'Deny']) {
+          for (const name of ['Allow Once', kind === 'create' ? 'Cancel' : 'Deny']) {
             const action = card.getByRole('button', { name, exact: true });
             await expect(action).toBeInViewport();
             expect((await action.boundingBox())!.height).toBeGreaterThanOrEqual(44);
@@ -522,7 +524,7 @@ for (const theme of ['dark', 'light'] as const)
         const savedCount = host.counts().sources.total;
 
         const denied = await request('create', 'native');
-        await denied.getByRole('button', { name: 'Deny', exact: true }).click();
+        await denied.getByRole('button', { name: 'Cancel', exact: true }).click();
         await expect(denied).toHaveCount(0);
         expect(host.counts().sources.total).toBe(savedCount);
         expect(host.counts().canonicalCreates).toBe(1);

@@ -71,7 +71,7 @@ vi.mock('@mitzo/harness', async (importOriginal) => {
   };
 });
 
-import { getPendingCountBySession } from '@mitzo/harness';
+import { getPendingCountBySession, registerPending, removePending } from '@mitzo/harness';
 const mockGetPending = getPendingCountBySession as ReturnType<typeof vi.fn>;
 
 // ─── Mock worktree module ────────────────────────────────────────────────────
@@ -103,6 +103,83 @@ describe('SessionOverviewEmitter', () => {
   });
 
   // ─── getSnapshot ──────────────────────────────────────────────────────────
+
+  it('broadcasts approval creation and resolution without waiting for provider traffic', () => {
+    deps = makeDeps();
+    emitter = new SessionOverviewEmitter(deps);
+    registerPending('overview-test', 'Read', vi.fn(), {}, undefined, 'session-1', {
+      permId: 'overview-test',
+      sessionId: 'session-1',
+      toolName: 'Read',
+      toolInput: '',
+    });
+    vi.advanceTimersByTime(201);
+    expect(deps.sseRegistry.broadcast).toHaveBeenCalledWith('session_activity', []);
+    vi.mocked(deps.sseRegistry.broadcast).mockClear();
+    removePending('overview-test');
+    vi.advanceTimersByTime(201);
+    expect(deps.sseRegistry.broadcast).toHaveBeenCalledWith('session_activity', []);
+    emitter.destroy();
+    vi.mocked(deps.sseRegistry.broadcast).mockClear();
+    registerPending('overview-test', 'Read', vi.fn(), {}, undefined, 'session-1', {
+      permId: 'overview-test',
+      toolName: 'Read',
+      toolInput: '',
+    });
+    vi.advanceTimersByTime(201);
+    expect(deps.sseRegistry.broadcast).not.toHaveBeenCalled();
+    removePending('overview-test');
+  });
+
+  it('publishes separate clocks and phases from current-owner live events', () => {
+    vi.setSystemTime(1000);
+    const session = makeActiveSession({ turnInProgress: false });
+    deps = makeDeps({
+      registry: {
+        get: () => session,
+        getActiveSessions: () => [session],
+      } as unknown as SessionOverviewDeps['registry'],
+    });
+    deps.eventStore.updateLastSpeaker = vi.fn();
+    emitter = new SessionOverviewEmitter(deps);
+    emitter.sessionChanged(session.clientId, 'user_message');
+    emitter.sessionChanged(session.clientId, 'turn_start');
+    vi.setSystemTime(2000);
+    emitter.observeEvent(session.clientId, {
+      sessionId: 'session-1',
+      type: 'block_start',
+      blockType: 'tool_use',
+      toolName: 'Read',
+    });
+    expect(emitter.getSnapshot()[0]).toMatchObject({
+      phase: 'reading',
+      turnStartedAt: 1000,
+      lastMessageAt: 1000,
+      lastEventAt: 2000,
+    });
+    vi.setSystemTime(3000);
+    emitter.observeEvent(session.clientId, {
+      sessionId: 'foreign',
+      type: 'block_start',
+      blockType: 'text',
+      messageId: 'x',
+    });
+    expect(emitter.getSnapshot()[0].lastEventAt).toBe(2000);
+    emitter.observeEvent(session.clientId, {
+      sessionId: 'session-1',
+      type: 'block_start',
+      blockType: 'text',
+      messageId: 'm',
+    });
+    expect(emitter.getSnapshot()[0]).toMatchObject({ phase: 'reply', lastMessageAt: 3000 });
+    vi.setSystemTime(4000);
+    emitter.sessionChanged(session.clientId, 'turn_end');
+    expect(emitter.getSnapshot()[0]).toMatchObject({
+      state: 'done',
+      completedAt: 4000,
+      lastMessageAt: 4000,
+    });
+  });
 
   it('does not infer execution from registration or retained input before admission', () => {
     const session = makeActiveSession({ turnInProgress: false });

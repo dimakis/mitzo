@@ -31,6 +31,8 @@ vi.mock('../../hooks/useSessionOverview', () => ({
         state: 'working',
         flags: [],
         lastEventAt: 2,
+        phase: 'reading',
+        turnStartedAt: 1,
       },
     ],
     attendCount: 0,
@@ -92,6 +94,15 @@ it('automatically previews the first desktop row, then right-click selects and o
   const second = screen.getByRole('button', { name: 'Preview Second conversation' });
   fireEvent.contextMenu(second, { clientX: 120, clientY: 180 });
   expect(screen.getByRole('menu', { name: 'Session actions' })).toBeTruthy();
+  for (const name of [
+    'Pin conversation',
+    'Rename',
+    'Copy session ID',
+    'Session details',
+    'Delete conversation',
+  ])
+    expect(screen.getByRole('menuitem', { name })).toBeTruthy();
+  expect(screen.getAllByText('Reading files').length).toBeGreaterThan(0);
   expect(screen.queryByRole('menuitem', { name: 'Preview conversation' })).toBeNull();
   fireEvent.click(screen.getByRole('menuitem', { name: 'Pin conversation' }));
   expect(screen.getByRole('region', { name: 'Pinned conversations' })).toBeTruthy();

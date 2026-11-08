@@ -4,6 +4,7 @@ import { isAbsolute, resolve } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
 import { detectDefaultBranch, fetchWorktreeBase } from './worktree.js';
 import { readOnlyGitExecutable } from './read-only-git.js';
+import { SessionRuntimeError } from './session-runtime-error.js';
 
 const unavailable = () => Error('Original local repository is unavailable');
 const git = (cwd: string, ...args: string[]) =>
@@ -131,11 +132,12 @@ export function inspectLocalRepositoryWorktree(
     output.length !== 4 ||
     output[0] !== directoryPath ||
     output[1] !== source.commonDirectory ||
-    output[2] === source.commonDirectory ||
-    output[3] !== `refs/heads/${branch}`
+    output[2] === source.commonDirectory
   )
     throw unavailable();
   directory(output[2]);
   directory(source.commonDirectory);
+  if (output[3] !== `refs/heads/${branch}`)
+    throw new SessionRuntimeError('workspace_branch_changed');
   return output[2];
 }

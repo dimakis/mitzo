@@ -1,9 +1,11 @@
 import { SessionRuntimeError } from './session-runtime-error.js';
+import { assertToolGuardCurrent } from '@mitzo/harness';
 import { AsyncLocalStorage } from 'node:async_hooks';
 export type TurnCallbackRunner = <T>(operation: () => Promise<T>) => Promise<T>;
 const effectOwners = new AsyncLocalStorage<() => void>();
 /** A fresh effect check in an original callback cannot borrow a later turn. */
 export function assertTurnCallbackEffects(): void {
+  assertToolGuardCurrent();
   effectOwners.getStore()?.();
 }
 const outcomes = new WeakMap<object, 'settled' | 'unknown'>();

@@ -500,33 +500,47 @@ it('delivers a queued reply with the exact server-captured source text through a
       .filter((e) => e.type === 'message_reply_context'),
   ).toHaveLength(1);
 });
-it('delivers a reply correction to the exact active native turn with the same-chat reference included', async () => {
-  await mount();
-  const input = first();
-  await api.firstCommand(input);
-  const rpc = f.first.rpc.request.getMockImplementation()!;
-  f.first.rpc.request.mockImplementation(async (method, ...args) =>
-    method === 'turn/steer'
-      ? ({ turnId: 'offline-ordinary-turn-1' } as never)
-      : rpc(method, ...args),
-  );
-  const { getCodexRuntime } = await import('../codex-chat-session.js');
-  const runtime = getCodexRuntime(chat.registry.findBySessionId(input.sessionId)!.session)!;
-  expect(
-    await runtime.steer(
-      {
-        requestId: 'quoted-correction',
-        targetCommandId: input.clientMsgId,
-        text: 'Use this correction.',
-        replyToMessageId: input.clientMsgId,
-      },
-      () => {},
-    ),
-  ).toEqual({ status: 'accepted' });
-  const sent = JSON.stringify(
-    f.first.rpc.request.mock.calls.filter(([method]) => method === 'turn/steer').at(-1),
-  );
-  expect(sent).toContain(input.payload.text);
-  expect(sent).toContain('Use this correction.');
-  expect(sent).toContain('mitzo_message_reply');
-});
+it.each([false, true])(
+  'delivers a reply correction to the exact active native turn with its same-chat reference (screenshot=%s)',
+  async (screenshot) => {
+    await mount();
+    const input = first();
+    await api.firstCommand(input);
+    const rpc = f.first.rpc.request.getMockImplementation()!;
+    f.first.rpc.request.mockImplementation(async (method, ...args) =>
+      method === 'turn/steer'
+        ? ({ turnId: 'offline-ordinary-turn-1' } as never)
+        : rpc(method, ...args),
+    );
+    const { getCodexRuntime } = await import('../codex-chat-session.js');
+    const runtime = getCodexRuntime(chat.registry.findBySessionId(input.sessionId)!.session)!;
+    expect(
+      await runtime.steer(
+        {
+          requestId: 'quoted-correction',
+          targetCommandId: input.clientMsgId,
+          text: 'Use this correction.',
+          replyToMessageId: input.clientMsgId,
+          ...(screenshot ? { images: [{ data: 'aGk=', mediaType: 'image/png' as const }] } : {}),
+        },
+        () => {},
+      ),
+    ).toEqual({ status: 'accepted' });
+    const sent = JSON.stringify(
+      f.first.rpc.request.mock.calls.filter(([method]) => method === 'turn/steer').at(-1),
+    );
+    expect(sent).toContain(input.payload.text);
+    expect(sent).toContain('Use this correction.');
+    expect(sent).toContain('mitzo_message_reply');
+    if (screenshot) {
+      expect(sent).toContain('data:image/png;base64,aGk=');
+      expect(
+        JSON.stringify(
+          chat.eventStore
+            .getSessionEvents(input.sessionId)
+            .filter((e) => e.type === 'user_message'),
+        ),
+      ).toContain('data:image/png;base64,aGk=');
+    }
+  },
+);

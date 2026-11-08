@@ -3,6 +3,38 @@ import { it, expect, vi, afterEach } from 'vitest';
 import { act, render, screen, fireEvent, cleanup, waitFor, within } from '@testing-library/react';
 import { AccountModelPicker } from '../AccountModelPicker';
 
+it.each([false, true])(
+  'retains model refresh beside complete defaults (controlled=%s)',
+  async (controlled) => {
+    vi.mocked(apiFetch).mockImplementation(async () => Response.json(profiles));
+    const refresh = vi.fn();
+    render(
+      <AccountModelPicker
+        sessionId={null}
+        preferredModel="sonnet"
+        presentation="settings"
+        onChange={vi.fn()}
+        defaultsControl={<span>Complete session defaults</span>}
+        controlled={
+          controlled
+            ? {
+                accounts: profiles,
+                selection: { accountId: 'work', model: 'sonnet' },
+                onChange: vi.fn(),
+                onRefresh: refresh,
+              }
+            : undefined
+        }
+      />,
+    );
+    const button = await screen.findByRole('button', { name: 'Refresh models' });
+    fireEvent.click(button);
+    if (controlled) expect(refresh).toHaveBeenCalledOnce();
+    else await waitFor(() => expect(apiFetch).toHaveBeenCalledTimes(2));
+    expect(screen.getByText('Complete session defaults')).toBeTruthy();
+  },
+);
+
 it('settings labels Thinking level without changing bound account and model guards', () => {
   const onChange = vi.fn();
   render(

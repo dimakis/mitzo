@@ -348,7 +348,12 @@ jobs:
             test-results/offline/**/responsiveness-*.png
             test-results/offline/**/chat-status-*.png
             test-results/offline/**/chat-queue-*.png
+            test-results/offline/**/message-actions-*.png
+            test-results/offline/**/native-subagents-*.png
+            test-results/offline/**/agent-messages-*.png
             test-results/offline/**/timer-*.png
+            test-results/offline/**/sandbox-removal-*.png
+            test-results/offline/**/reusable-access-*.png
           retention-days: 7
           if-no-files-found: warn
 
@@ -363,6 +368,8 @@ jobs:
             test-results/offline/**/quick-sheet-*.png
             test-results/offline/**/prompt-preparation-*.png
             test-results/offline/**/composer-receipt-*.png
+            test-results/offline/**/session-launch-*.png
+            test-results/offline/**/session-defaults-*.png
           retention-days: 7
           if-no-files-found: ignore
 
@@ -463,6 +470,9 @@ jobs:
 
       - name: Test Watch receipt routing offline
         run: python3 scripts/test-watch-chat-receipts.py
+
+      - name: Typecheck complete Watch approval UI offline
+        run: python3 scripts/test-watch-approval-ui.py
 
       - name: Build iPhone app with Watch companion
         if: ${{ !cancelled() }}
@@ -574,7 +584,7 @@ jobs:
           const required = [
             ['native-host-operator-lifetime.test.ts', 9],
             ['native-local-repository-preparation-registration-dispatch.test.ts', 4],
-            ['native-local-repository-read-tools.test.ts', 15],
+            ['native-local-repository-read-tools.test.ts', 17],
             ['native-reader-path-authorization.test.ts', 14],
             ['qualified-local-repository-materializer.test.ts', 2],
             ['qualified-local-repository-operation-owner.test.ts', 1],

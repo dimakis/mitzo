@@ -5,6 +5,8 @@ import { bindAgentLibraryTransport } from '../agent-library-transport.js';
 import { bindAgentToolSelection } from '../agent-tool-selection.js';
 import { sessionPromptTools } from '../session-prompt-tools.js';
 import { agentToolCatalog } from '../agent-tool-catalog.js';
+import { retainNativeHostToolOperator } from '../native-host-tool-operator.js';
+import { revokeAuthSession } from '../auth.js';
 
 const f = vi.hoisted(() => ({
   create: vi.fn(async () => ({ id: 'timer', status: 'active' })),
@@ -58,6 +60,75 @@ function fixture(signed = true) {
     signal: new AbortController().signal,
   };
 }
+it.each(['logout', 'expiry', 'release'])(
+  'sends after viewer disconnect but refuses %s without borrowing a replacement viewer',
+  async (reason) => {
+    const x = fixture(false);
+    const auth = { id: randomUUID(), expiresAt: Date.now() + 60000 };
+    x.session.ownedLocalAuthSessionId = auth.id;
+    x.session.ownerConnectionId = 'viewer';
+    const disconnect = bindAgentLibraryTransport('viewer', auth);
+    cleanup.push(disconnect);
+    const release = retainNativeHostToolOperator(x.session, 'viewer');
+    cleanup.push(release);
+    disconnect();
+    const input = { requestId: randomUUID(), sessionId: 'coordinator', text: 'Finished' };
+    expect((await x.tools.execute('SendSessionMessage', input, x.signal, x.call))?.isError).toBe(
+      false,
+    );
+    cleanup.push(
+      bindAgentLibraryTransport('replacement', { id: randomUUID(), expiresAt: auth.expiresAt }),
+    );
+    x.session.ownerConnectionId = 'replacement';
+    if (reason === 'logout') revokeAuthSession(auth);
+    else if (reason === 'expiry') {
+      vi.useFakeTimers({ toFake: ['Date'] });
+      vi.setSystemTime(auth.expiresAt + 1);
+    } else release();
+    expect(
+      (
+        await x.tools.execute(
+          'SendSessionMessage',
+          { ...input, requestId: randomUUID() },
+          x.signal,
+          x.call,
+        )
+      )?.isError,
+    ).toBe(true);
+    expect(f.send).toHaveBeenCalledTimes(1);
+    vi.useRealTimers();
+  },
+);
+
+it('keeps the admitted sender through a viewer reconnect during message approval', async () => {
+  const x = fixture(false);
+  const auth = { id: randomUUID(), expiresAt: Date.now() + 60000 };
+  x.session.ownedLocalAuthSessionId = auth.id;
+  x.session.ownerConnectionId = 'viewer';
+  const disconnect = bindAgentLibraryTransport('viewer', auth);
+  cleanup.push(disconnect, retainNativeHostToolOperator(x.session, 'viewer'));
+  f.approve.mockImplementationOnce(async (_name, input) => {
+    disconnect();
+    x.session.ownerConnectionId = 'new-viewer';
+    return { behavior: 'allow', updatedInput: input };
+  });
+  expect(
+    (
+      await x.tools.execute(
+        'SendSessionMessage',
+        { requestId: randomUUID(), sessionId: 'coordinator', text: 'Finished' },
+        x.signal,
+        x.call,
+      )
+    )?.isError,
+  ).toBe(false);
+  expect(f.send).toHaveBeenCalledWith(
+    expect.anything(),
+    expect.objectContaining({ id: auth.id }),
+    'worker',
+    expect.any(Function),
+  );
+});
 it('uses verified runtime source for agent timers and callbacks and preserves ordinary approval', async () => {
   const x = fixture();
   const input = { requestId: randomUUID(), prompt: 'Check PR #7', intervalMinutes: 10 };
@@ -112,13 +183,13 @@ it('rejects missing signed actor, forged source, missing call identity, and dese
   );
   expect(f.send).not.toHaveBeenCalled();
 });
-it('keeps listings read-only and makes all three tools selectable across ordinary host routes', async () => {
+it('keeps listings read-only and makes task and session tools selectable across ordinary host routes', async () => {
   const x = fixture();
   expect((await x.tools.execute('SessionTimers', { operation: 'list' }, x.signal))?.isError).toBe(
     false,
   );
   expect(f.approve).not.toHaveBeenCalled();
-  for (const name of ['SchedulePrompt', 'SessionTimers', 'SendSessionMessage'])
+  for (const name of ['TaskExecution', 'SchedulePrompt', 'SessionTimers', 'SendSessionMessage'])
     expect(agentToolCatalog().find((tool) => tool.name === name)?.routes).toEqual([
       'local-api',
       'codex',

@@ -34,7 +34,8 @@ export async function cleanupApplicationReviewFixtures() {
 export const digest = (value: string | Uint8Array) =>
   createHash('sha256').update(value).digest('hex');
 
-export async function fixture() {
+export async function fixture(options: { runOn?: 'local' | 'openshell' } = {}) {
+  const runOn = options.runOn ?? 'local';
   vi.stubGlobal(
     'fetch',
     vi.fn(async () => {
@@ -56,7 +57,14 @@ export async function fixture() {
       id: 'personal',
       label: 'Offline personal',
       provider: 'openai-codex',
-      credentialRef: loginRoot,
+      ...(runOn === 'local'
+        ? { credentialRef: loginRoot }
+        : {
+            sandboxProvider: 'offline-provider',
+            sandboxProviderType: 'openai-codex-oauth',
+            sandboxProviderId: 'offline-provider-id',
+            sandboxGrantId: 'offline-grant',
+          }),
       email: 'offline@example.invalid',
       planType: 'plus',
       models: [{ id: 'fixture-model', label: 'Fixture', reasoningEfforts: ['low'] }],
@@ -99,6 +107,7 @@ export async function fixture() {
     MITZO_CODEX_ENABLED: '1',
     MITZO_OPENAI_ACCOUNT_ENROLLMENT_DB: '',
     MITZO_ORDINARY_LOCAL_CODEX_ENABLED: '1',
+    MITZO_ORDINARY_OPENSHELL_CODEX_ENABLED: runOn === 'openshell' ? '1' : '0',
     MITZO_ORDINARY_LOCAL_CODEX_NATIVE_FILE: nativePath,
     MITZO_ORDINARY_LOCAL_CODEX_TARGET_FILE: targetPath,
     MITZO_INTERNAL_TOKEN_PATH: join(root, 'internal-token'),
@@ -173,8 +182,10 @@ export async function fixture() {
     loadAccountProfiles().resumeRouting(selected);
     return { revision: 1, allowedBaseBranches: ['main'] };
   });
+  const verify = vi.fn(async (_record: unknown, _directory: string) => {});
   const workspaces = new RepositoryWorkspaces(join(root, 'repositories'), {
     authorize: access,
+    verify,
     inspect: async () => ({ repository: 'example/repo', baseBranch: 'main', baseOid }),
     prepare: async (_preview, directory, branch) => {
       await cp(source, directory, { recursive: true });
@@ -207,18 +218,18 @@ export async function fixture() {
       importedIdleChatClosed = true;
     });
   }
-  const inventory = ordinaryRepositoryRuntimeInventory('local', 'codex');
+  const inventory = ordinaryRepositoryRuntimeInventory(runOn, 'codex');
   const preview = await workspaces.preview(
     binding,
     'external-github-account',
     'example/repo',
     controller.signal,
     {
-      runOn: 'local',
+      runOn,
       runtime: {
         account: inventory.result.accounts[0].account,
         harness: 'codex',
-        targetId: 'offline-mac',
+        targetId: inventory.result.targets[0].targetId,
       },
     },
   );
@@ -244,13 +255,13 @@ export async function fixture() {
       joiningBrief: 'Original brief',
     },
     target: {
-      runOn: 'local' as const,
+      runOn,
       accountId: 'personal',
       model: 'fixture-model',
       reasoningEffort: 'low' as string | null,
       agent: { profileId: published.profileId, revision: published.revision },
       repositoryWorkspaceId: preview.id,
-      permissionMode: 'ask' as const,
+      permissionMode: runOn === 'local' ? ('ask' as const) : ('agent' as const),
     },
   };
   const owner = new CollaborationApplicationReview({ store, workspaces });
@@ -269,6 +280,7 @@ export async function fixture() {
     owner,
     review,
     access,
+    verify,
     profilesPath,
     profiles,
     binding,

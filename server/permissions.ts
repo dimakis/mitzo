@@ -5,6 +5,7 @@ export {
   removePending,
   hasPending,
   isCompletePendingBashCommand,
+  isCompletePendingToolInput,
   getPendingSessionId,
   denyPendingBySession,
   getPendingTelosSourceReview,

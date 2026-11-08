@@ -27,12 +27,22 @@ export type { SseClient } from './sse-registry.js';
 
 // Permissions
 export {
+  assertToolGuardCurrent,
+  DEFAULT_TOOL_GUARD_POLICY,
+  runGuardedTool,
+  runBoundedToolCleanup,
+  ToolGuardTimeoutError,
+  withToolGuardPhase,
+} from './tool-guard.js';
+export type { ToolGuardObservation, ToolGuardPhase, ToolGuardPolicy } from './tool-guard.js';
+export {
   onPermissionLifecycle,
   registerPending,
   resolvePending,
   removePending,
   hasPending,
   isCompletePendingBashCommand,
+  isCompletePendingToolInput,
   getPendingSessionId,
   denyPendingBySession,
   getPendingCountBySession,
@@ -43,6 +53,8 @@ export {
   dismissReviewedTelosSourcePermission,
 } from './permissions.js';
 export type { PendingTelosSourceReview } from './permissions.js';
+export { onPermissionAudit, recordPermissionAudit } from './permission-audit.js';
+export type { PermissionAuditEvent } from './permission-audit.js';
 
 // Tool tiers
 export type { ToolTier } from './tool-tiers.js';

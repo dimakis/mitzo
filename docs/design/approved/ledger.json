@@ -2,6 +2,70 @@
   "version": 1,
   "surfaces": [
     {
+      "id": "chat-activity",
+      "activeRevision": "additive-freshness-2026-11-06",
+      "revisions": [
+        {
+          "id": "additive-freshness-2026-11-06",
+          "approvedBy": "Dimitri (explicit approval of the chat activity mock and additive implementation)",
+          "approvedOn": "2026-11-06",
+          "approval": {
+            "thread": "Originating Mitzo conversation, MGMT task repo-f8d34b06-e8bc-8aaa-b6f9-a416505f57c3; conversation ID unavailable to this runtime",
+            "quote": "We don't go fucking with any of the designs that we already have approved, right? This is just additional. So let's go do this. This looks class.",
+            "scope": "Activity indicators, explicit timing and freshness ordering across the existing library, filters, search, pins, preview, sidebar and open chat. Preserve all approved designs and existing actions. The prototype's reduced-motion toggle is excluded from product UI; its simulated content, navigation, composer and message bubbles do not replace existing product components."
+          },
+          "references": [
+            {
+              "path": "docs/design/approved/chat-activity/activity-freshness.html",
+              "sha256": "45325e7952bb6a8a873be9e41dcdb394d0d26266d56d670ea0799a39cb629896"
+            }
+          ],
+          "invariants": [
+            "Add activity bars and evidence-based labels to existing components using shared semantic tokens and motion timing.",
+            "Keep pin/unpin conversation, Today pins, rename, copy session ID, details, delete, swipe, long press, right click and keyboard actions available through their existing owners.",
+            "Preserve approved chat settings, message dates/actions and the single mounted status row above the existing composer, including all queue, delivery and recovery behavior.",
+            "Separate turn elapsed, completion, waiting, last message and last activity clocks. Unknown starts remain unknown; saved modification time is labelled Updated.",
+            "Messages, completion and approval requests advance freshness in bounded batches. Tool activity does not repeatedly reorder the list; browsing/actions hold position and expose queued updates.",
+            "Pins keep device order, search keeps result order while browsing, and disconnected observations remain display-only last-seen evidence.",
+            "No product motion toggle is introduced. Existing appearance and operating-system motion preferences remain effective."
+          ],
+          "sources": [
+            "frontend/src/components/SessionActivityStatus.tsx",
+            "frontend/src/components/SessionActivityStatus.css",
+            "frontend/src/pages/SessionList.tsx",
+            "frontend/src/components/ComposerStatus.tsx",
+            "frontend/src/components/SessionPanel.tsx",
+            "frontend/src/hooks/useSessionOrder.ts",
+            "server/session-activity-events.ts",
+            "server/session-overview.ts"
+          ],
+          "checks": [
+            "frontend/src/components/__tests__/SessionActivityStatus.test.tsx",
+            "frontend/src/components/__tests__/ComposerActivity.test.tsx",
+            "frontend/src/pages/__tests__/SessionLibraryDesktop.test.tsx",
+            "frontend/src/hooks/__tests__/useSessionOrder.test.ts",
+            "server/__tests__/session-overview.test.ts",
+            "tests/offline/session-library.spec.ts"
+          ],
+          "protectedChecks": [
+            {
+              "path": "frontend/src/components/__tests__/SessionActivityStatus.test.tsx",
+              "sha256": "a62f2378d06e1ae84859562393690a6a2b3cd9b4675baddd3e3c43533969d97d"
+            },
+            {
+              "path": "frontend/src/components/__tests__/ComposerActivity.test.tsx",
+              "sha256": "14250f63ee593371674d6569d62eede154c997fb1f131b54ee6953246b2fb3f2"
+            },
+            {
+              "path": "frontend/src/pages/__tests__/SessionLibraryDesktop.test.tsx",
+              "sha256": "e5774880d3bf9c289b160a93bb30ba67d0f4c147e4271b469f3d7f3c69ab784e"
+            }
+          ],
+          "validation": "docs/features/chat-activity-freshness.md"
+        }
+      ]
+    },
+    {
       "id": "chat-settings",
       "activeRevision": "quick-sheet-2026-10-17",
       "revisions": [
@@ -430,7 +494,7 @@
     },
     {
       "id": "chat-status",
-      "activeRevision": "above-composer-2026-11-04",
+      "activeRevision": "direct-interrupt-2026-11-06",
       "revisions": [
         {
           "id": "above-composer-2026-11-04",
@@ -489,6 +553,145 @@
             }
           ],
           "validation": "docs/features/chat-composer-status.md"
+        },
+        {
+          "id": "direct-interrupt-2026-11-06",
+          "approvedBy": "Dimitri (explicit rejection of the correction overflow and direction to use an icon)",
+          "approvedOn": "2026-11-06",
+          "approval": {
+            "thread": "Originating Mitzo chat, MGMT task repo-ac8d1e1d-5617-8629-8a32-b83f31ae4d92; conversation ID unavailable to this runtime",
+            "quote": "a second … menu with a single button? Wtf is this. Let’s dig and fix; I also don’t want the text. Just give me an icon like the rest of the composer; It actually seems I can’t interrupt with a screenshot/ image",
+            "scope": "Replace only the one-item Send options overflow with a direct icon-only lightning action beside Queue and Stop, and support screenshots/images through native correction delivery. Preserve the approved status row, other composer tools and all runtime/delivery boundaries."
+          },
+          "references": [
+            {
+              "path": "docs/design/approved/chat-status/status-above-composer.html",
+              "sha256": "7b4cce395218cb1766272e9f567b7b19c9d512c1e9cc6cf1e95cb40770526739"
+            },
+            {
+              "path": "docs/design/approved/chat-status/direct-interrupt-2026-11-06.md",
+              "sha256": "0d142e6781a8afd5bad10dc5bc209f9235de8bdae408488b470993d570055608"
+            }
+          ],
+          "invariants": [
+            "One always-mounted, single-line status row above the existing composer, using the shared control height and an overlay for full detail.",
+            "Keep message dates, copy, read aloud, reply menus and all existing composer tools and capabilities.",
+            "Routine autosaving stays quiet; actual failures and approvals remain visible. Independent issues remain actionable after another clears.",
+            "Existing queue editing, ordering, pause/resume, attachments, cancellation and recovery remain available through details without changing their owners or dispatch semantics.",
+            "Submitted text and image previews leave together while the original payload remains retained; late receipts cannot erase newer or foreign drafts.",
+            "Routine recovery feedback cannot replace a running agent label with a misleading conversation reconnect label. Genuine blocked/uncertain outcomes retain their explicit checks.",
+            "Shared theme, accent, font, motion, keyboard and touch targets remain effective; the Chat settings approval is unchanged.",
+            "Correction is a direct icon-only lightning button with an accessible name and restriction tooltip; no Send options overflow or visible button text.",
+            "Native screenshot corrections retain exact attachment bytes and their original turn across uncertain delivery and reload; changed payloads cannot replace a retained correction.",
+            "Dispatch locks never depend on animation frames; pending receipts still fence duplicate submissions."
+          ],
+          "sources": [
+            "frontend/src/components/ComposerStatus.tsx",
+            "frontend/src/components/ComposerStatus.css",
+            "frontend/src/lib/composer-status-context.ts",
+            "frontend/src/components/ChatInput.tsx",
+            "frontend/src/components/ChatStatusMessage.tsx",
+            "frontend/src/components/CodexQueueStatus.tsx",
+            "frontend/src/components/WorkspaceActionMenu.tsx",
+            "frontend/src/pages/ChatView.tsx",
+            "frontend/src/pages/DesktopChatView.tsx"
+          ],
+          "checks": [
+            "frontend/src/components/__tests__/ComposerStatus.test.tsx",
+            "frontend/src/components/__tests__/ChatInputStatus.test.tsx",
+            "tests/offline/chat-queue-steering.spec.ts",
+            "frontend/src/components/__tests__/ChatInputCommandStrip.test.tsx",
+            "frontend/src/components/__tests__/MessageActions.test.tsx",
+            "frontend/src/components/__tests__/ChatInputDirectInterrupt.test.tsx",
+            "frontend/src/hooks/__tests__/useTurnSteering.test.tsx",
+            "tests/browser/composer-layout.spec.ts"
+          ],
+          "protectedChecks": [
+            {
+              "path": "frontend/src/components/__tests__/ComposerStatus.test.tsx",
+              "sha256": "0cb49ba69f1519d678e36c392a0be04843cf40e7c5238247e26763b533844b85"
+            },
+            {
+              "path": "frontend/src/components/__tests__/ChatInputStatus.test.tsx",
+              "sha256": "f4534e3c51b092d69eaa73f4a156b6488354256765377b6ad5e7e18927d38cd5"
+            },
+            {
+              "path": "tests/offline/chat-queue-steering.spec.ts",
+              "sha256": "1bbd2b696dccfe394c5b8faf3ee4754d379228c7c37fee91ca905839cf032893"
+            },
+            {
+              "path": "frontend/src/components/__tests__/ChatInputDirectInterrupt.test.tsx",
+              "sha256": "158933a4001e7d46782df7dcc73f9e0a8aecacf28201ac42c2f7faf6adf2ee6b"
+            },
+            {
+              "path": "frontend/src/hooks/__tests__/useTurnSteering.test.tsx",
+              "sha256": "1467a53e2163b0f39b3ac4c6032404c2e6db7c0cc966d15743fd3041e5555e5a"
+            },
+            {
+              "path": "tests/browser/composer-layout.spec.ts",
+              "sha256": "f1e4b8140d4aa12bdf04f2e142c1f2c171f9f526d1173bea9036561517300a87"
+            }
+          ],
+          "validation": "docs/features/chat-composer-status.md"
+        }
+      ]
+    },
+    {
+      "id": "codex-subagents",
+      "activeRevision": "nested-child-activity-2026-11-05",
+      "revisions": [
+        {
+          "id": "nested-child-activity-2026-11-05",
+          "approvedBy": "Dimitri (originating approval and current implementation direction)",
+          "approvedOn": "2026-11-05",
+          "approval": {
+            "thread": "911e7aaf-f8a0-8aaf-862e-c322cfd6c163",
+            "quote": "yep, this is excellent, I like this. lets just ensure that we don't get rid of the other icons in the screen chat, for terminal etc. the mock has left these out",
+            "scope": "Nested child row and inspection with targeted Message/Stop; final v005 refinements preserve chat toolbar, phone layout, context wheel and Resources. Approval recovered from original conversation; current user requested implementation on 5 November."
+          },
+          "references": [
+            {
+              "path": "docs/design/approved/codex-subagents/nested.html",
+              "sha256": "e85c12ffb0c004319474c1ed49cd7b5c744e3a4bcb574073477c306198dfa267"
+            }
+          ],
+          "invariants": [
+            "One collapsed count/status row beneath the spawning agent; expand child names and states.",
+            "Child inspection retains task, public output/tool activity and explicit recipient with Message and Stop.",
+            "Parent and sibling drafts survive inspection and navigation; focus returns to the originating child.",
+            "Preserve existing composer, toolbar, Terminal, context wheel and Resources; children do not become Symposium participants.",
+            "Shared dialog, semantic tokens and motion; reachable footer, independent scrolling, 44px targets and phone/desktop widths.",
+            "Unavailable authority disables controls while retaining saved output; uncertain delivery keeps its original request identity."
+          ],
+          "sources": [
+            "frontend/src/components/NativeSubagents.tsx",
+            "frontend/src/components/NativeSubagents.css",
+            "frontend/src/components/ToolPill.tsx",
+            "frontend/src/hooks/useNativeSubagents.ts",
+            "frontend/src/components/ChatArea.tsx",
+            "frontend/src/components/ComposerTools.tsx"
+          ],
+          "checks": [
+            "frontend/src/components/__tests__/NativeSubagents.test.tsx",
+            "tests/offline/native-subagents.spec.ts",
+            "frontend/src/components/__tests__/NativeSubagentsChatArea.test.tsx"
+          ],
+          "protectedChecks": [
+            {
+              "path": "frontend/src/components/__tests__/NativeSubagents.test.tsx",
+              "sha256": "90556b4248ca66e47e978c5a3e7b8672a9f66098230dc774f5d91e65ca199d4b"
+            },
+            {
+              "path": "tests/offline/native-subagents.spec.ts",
+              "sha256": "32359e1c7a446c2792ca45331d3bc488cf270378ad95ca269e12901e89ad256f"
+            },
+            {
+              "path": "frontend/src/components/__tests__/NativeSubagentsChatArea.test.tsx",
+              "sha256": "251b6f7c834cfc5088e347b83e55343c99ba33c4f077017ae4f8aaa54a29b84d"
+            }
+          ],
+          "implementationEvidence": [],
+          "validation": "docs/design/approved/codex-subagents/VALIDATION.md"
         }
       ]
     }

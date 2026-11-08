@@ -40,6 +40,7 @@ export async function ownedOrdinaryRuntimeFixture(
     tools?: AgentToolReference[];
     chatRoute?: boolean;
     separateConfiguredWorkspace?: boolean;
+    defaultTaskLayout?: boolean;
     delegationAttemptId?: string;
     api?: boolean;
   } = {},
@@ -52,8 +53,11 @@ export async function ownedOrdinaryRuntimeFixture(
   if (options.separateConfiguredWorkspace) await mkdir(configuredWorkspace, { mode: 0o700 });
   const loginRoot = join(root, 'login'),
     privateRoot = join(root, 'native-custody'),
-    taskRoot = join(root, 'tasks');
-  for (const path of [loginRoot, privateRoot, taskRoot]) await mkdir(path, { mode: 0o700 });
+    taskRoot = options.defaultTaskLayout
+      ? join(root, '.local', 'share', 'mitzo', 'ordinary-tasks')
+      : join(root, 'tasks');
+  for (const path of [loginRoot, privateRoot, taskRoot])
+    await mkdir(path, { mode: 0o700, recursive: true });
   if (options.chatRoute) {
     await mkdir(join(configuredWorkspace, '.mitzo'), { mode: 0o700 });
     vi.stubEnv('REPO_PATH', configuredWorkspace);

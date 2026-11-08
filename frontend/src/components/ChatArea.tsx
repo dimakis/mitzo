@@ -12,6 +12,7 @@ import type { ContextCompaction } from '@mitzo/protocol';
 import { seatAccentColor } from '../lib/seat-color';
 import { useCallback, useEffect, useMemo, useRef, useState, Fragment, type ReactNode } from 'react';
 import { UserBubble, TextBubble } from './MessageBubble';
+import { AgentMessageCard } from './AgentMessageCard';
 import { ThinkingBlock } from './ThinkingBlock';
 import { ToolPill } from './ToolPill';
 import { telosWorkerReceipt } from './TelosWorkerReceiptCard';
@@ -60,6 +61,7 @@ export interface ChatAreaProps {
   /** Source-bound previews for shared messages; ordinary callers use sessionId. */
   messageSessionId?(messageId: string): string | undefined;
   /** Additional transcript cards inside the same scroll area. */
+  beforeMessages?: ReactNode;
   afterMessages?: ReactNode;
   onShareMessage?: (messageId: string, provenance?: SymposiumProvenance) => void;
   canShareMessage?: (message: FinishedMessage) => boolean;
@@ -151,6 +153,7 @@ export function ChatArea({
   current,
   currentByMessage = {},
   contextItems = [],
+  beforeMessages,
   afterMessages,
   renderMessageAttribution,
   renderMessageOutcome,
@@ -497,6 +500,14 @@ export function ChatArea({
       }
       if (turn.kind === 'finished') {
         const msg = turn.value;
+        if (msg.agentMessage)
+          return [
+            {
+              key: `agent:${msg.messageId}`,
+              scope: 'context',
+              value: <AgentMessageCard projection={msg.agentMessage} />,
+            },
+          ];
         if (msg.role === 'user') {
           const textBlock = msg.blocks.find((b) => b.blockType === 'text');
           return [
@@ -587,6 +598,7 @@ export function ChatArea({
         .map((block, index): ActivityRow<ReactNode> => {
           const progress = progressFor(msg.messageId, msg.symposiumProvenance, block.toolId);
           const keepVisible =
+            Boolean(block.rawInput?.nativeSubagentCommandId) ||
             Boolean(progress) ||
             Boolean(telosWorkerReceipt(block, sessionId)) ||
             (!completedWebsiteRead(block) &&
@@ -769,6 +781,7 @@ export function ChatArea({
         onTouchStart={handleTouchStart}
         onTouchEnd={handleTouchEnd}
       >
+        {beforeMessages}
         {messages.length === 0 &&
           !current &&
           Object.keys(currentByMessage).length === 0 &&

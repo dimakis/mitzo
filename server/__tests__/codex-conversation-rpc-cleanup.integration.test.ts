@@ -246,6 +246,35 @@ it.each(['known-not-started', 'unknown'] as const)(
   },
 );
 
+it('bounds consumed-request cleanup when its original tool never settles', async () => {
+  const f = await fixture();
+  f.options.toolGuardPolicy = { executionMs: 1000, approvalMs: 1000, cleanupMs: 20 };
+  const execute = vi.fn(() => new Promise<never>(() => {}));
+  f.options.executeTool = execute;
+  f.reply({
+    id: 'tool',
+    method: 'item/tool/call',
+    params: {
+      threadId: 'thread',
+      turnId: 'turn',
+      callId: 'call',
+      tool: 'Read',
+      arguments: {},
+    },
+  });
+  await vi.waitFor(() => expect(execute).toHaveBeenCalledOnce());
+  f.reply({
+    method: 'turn/completed',
+    params: { threadId: 'thread', turn: { id: 'turn', status: 'completed' } },
+  });
+  await vi.waitFor(() => expect(f.conversation.queue()[0].status).toBe('completed'));
+  expect(f.store.commandLifecycle('conversation', f.getBinding(), 'command').effectStatus).toBe(
+    'unknown',
+  );
+  expect(execute).toHaveBeenCalledOnce();
+  f.noReply('tool');
+});
+
 /** Real stdio client, owned lease/bridge, conversation and private store. Only
  * the offline protocol peer and application admission/UI boundaries are fixtures. */
 async function fixture(toolName = 'Read') {

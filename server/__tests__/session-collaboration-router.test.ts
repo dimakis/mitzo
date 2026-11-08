@@ -297,8 +297,7 @@ function installJoining() {
     linkedFromRevision: null,
     execution: {
       enabled: false,
-      reason:
-        'Fresh-agent preparation and ordinary delivery are not wired. No session or model is started.',
+      reason: 'Group replies are not available yet. Joining alone starts no model response.',
     },
   };
   const joining = {

@@ -32,6 +32,7 @@ import {
   type SessionSummaryPage,
 } from './session-metadata-store.js';
 import { SessionLifecycleStore } from './session-lifecycle-store.js';
+import { SessionRemovalStore } from './session-removal-store.js';
 import {
   ConversationReplayStore,
   type ConversationTextEvent,
@@ -453,6 +454,7 @@ const OrdinaryCommandWireScopeSchema = z.strictObject({
 type OrdinaryCommandWireScope = z.infer<typeof OrdinaryCommandWireScopeSchema>;
 
 export class EventStore {
+  readonly removals: SessionRemovalStore;
   private readonly ordinaryWireAdmission = new AsyncLocalStorage<{
     scope: OrdinaryCommandWireScope;
     assertCurrentSync: () => void;
@@ -549,9 +551,12 @@ export class EventStore {
     payload: Record<string, unknown>,
   ): void {
     this.assertConversationIdentity(sessionId);
-    this.db!.prepare(
-      'INSERT INTO send_commands (client_msg_id, session_id, payload) VALUES (?, ?, ?)',
-    ).run(clientMsgId, sessionId, JSON.stringify(payload));
+    this.db!.transaction(() => {
+      this.removals.assertAdmissible(sessionId);
+      this.db!.prepare(
+        'INSERT INTO send_commands (client_msg_id, session_id, payload) VALUES (?, ?, ?)',
+      ).run(clientMsgId, sessionId, JSON.stringify(payload));
+    }).immediate();
   }
 
   prepareOrdinaryWorkspaceSession(...args: Parameters<OrdinaryWorkspaceSessionStore['prepare']>) {
@@ -935,6 +940,7 @@ export class EventStore {
     location: 'local' | 'openshell' | 'responses' | 'vertex',
     preparationOperationId?: string,
   ): { duplicate: boolean; admission: OrdinaryLocalCommandAdmission } {
+    this.removals.assertAdmissible(meta.sessionId);
     if (meta.ordinaryWorkspaceId != null) {
       if (!['local', 'openshell'].includes(location) || !preparationOperationId)
         throw Error('Ordinary workspace requires its original prepared local admission');
@@ -2269,6 +2275,7 @@ export class EventStore {
     location: 'local' | 'openshell' | 'responses' | 'vertex',
     preparedPrimaryCommandId?: string,
   ): { duplicate: boolean; admission: OrdinaryLocalCommandAdmission } {
+    this.removals.assertAdmissible(meta.sessionId);
     if (meta.ordinaryWorkspaceId != null) {
       const prepared = this.ordinaryWorkspaceSessions.forConversation(meta.sessionId);
       if (
@@ -2585,6 +2592,8 @@ export class EventStore {
 
   private claimOrdinaryCommandDispatch(clientMsgId: string): boolean {
     return this.db!.transaction(() => {
+      const command = this.getSendCommand(clientMsgId);
+      if (command?.sessionId) this.removals.assertAdmissible(command.sessionId);
       const admission = this.getOrdinaryCommandAdmission(clientMsgId);
       if (!admission) throw new Error('Ordinary command admission required');
       if (admission.state !== 'reserved' || this.getSendCommand(clientMsgId)?.error) return false;
@@ -2728,6 +2737,7 @@ export class EventStore {
       db.pragma('journal_mode = WAL');
       db.pragma('foreign_keys = ON');
       db.exec(SCHEMA);
+      this.removals = new SessionRemovalStore(db);
       db.exec(`CREATE TABLE IF NOT EXISTS ordinary_session_preparations (
       operation_id TEXT PRIMARY KEY, session_id TEXT NOT NULL UNIQUE, workspace_id TEXT NOT NULL UNIQUE,
       receipt TEXT NOT NULL, metadata TEXT NOT NULL);`);
@@ -2759,7 +2769,25 @@ export class EventStore {
       this.migrateConversationSource(db);
       this.migrateUserMessageIndex(db);
       this.sessionOutputs = new SessionOutputReferenceStore(db);
-      this.agentCommunication = new AgentCommunicationStore(db);
+      this.agentCommunication = new AgentCommunicationStore(db, (message) => {
+        const senderName =
+          this.getSession(message.senderConversationId)?.summary ?? message.senderConversationId;
+        const recipientName =
+          this.getSession(message.recipientConversationId)?.summary ??
+          message.recipientConversationId;
+        const timestamp = message.createdAt ?? Date.now();
+        for (const [sessionId, direction] of [
+          [message.senderConversationId, 'outgoing'],
+          [message.recipientConversationId, 'incoming'],
+        ]) {
+          this.append(sessionId, 'agent_message', {
+            type: 'agent_message',
+            v: 2,
+            ts: timestamp,
+            projection: { message, direction, senderName, recipientName, timestamp },
+          });
+        }
+      });
       this.sessionCollaborations = new SessionCollaborationStore(db, (membership) =>
         this.collaborationConversation.membershipChanged(membership),
       );
@@ -2942,6 +2970,7 @@ export class EventStore {
         database: () => this.db,
         statements: this.stmts,
         assertConversationIdentity: (id) => this.assertConversationIdentity(id),
+        assertExecutionAdmission: (id) => this.removals.assertAdmissible(id),
         isRegisteredConversation: (row) => isRegisteredConversation(rowToSession(row)),
         getExecutionAdmission: (id, command) => this.getExecutionAdmission(id, command),
         getProviderAttempts: (token) => this.getProviderAttempts(token),
@@ -2969,6 +2998,7 @@ export class EventStore {
         getProviderAttempts: (token) => this.getProviderAttempts(token),
         toClientState,
       });
+      this.agentCommunication.backfillTranscript();
       owner.seal();
     } catch (error) {
       owner.close();
@@ -4173,18 +4203,25 @@ export class EventStore {
   }
 
   /** Bounded ordered anchors for audience-specific transcript projections. */
-  getSymposiumPerspectiveEvents(sessionId: string, afterSeq = 0, limit = 200): StoredEvent[] {
+  getSymposiumPerspectiveEvents(
+    sessionId: string,
+    afterSeq = 0,
+    limit = 200,
+    beforeSeq?: number,
+  ): StoredEvent[] {
     if (
       !Number.isSafeInteger(afterSeq) ||
       afterSeq < 0 ||
       !Number.isSafeInteger(limit) ||
       limit < 1 ||
-      limit > 500
+      limit > 500 ||
+      (beforeSeq !== undefined &&
+        (!Number.isSafeInteger(beforeSeq) || beforeSeq < 1 || afterSeq !== 0))
     )
       throw new Error('Invalid Symposium perspective page');
     const rows = this.db!.prepare(
       `SELECT seq, session_id, type, payload, created_at, seat_id, symposium_provenance
-        FROM events e WHERE session_id = ? AND seq > ?
+        FROM events e WHERE session_id = ? AND seq ${beforeSeq === undefined ? '>' : '<'} ?
          AND type IN ('message_end', 'user_message', 'symposium_delivery_dispatched')
          AND (type != 'message_end' OR NOT EXISTS (
            SELECT 1 FROM events prior
@@ -4193,9 +4230,9 @@ export class EventStore {
              AND prior.symposium_provenance IS e.symposium_provenance
               AND json_extract(prior.payload, '$.messageId') = json_extract(e.payload, '$.messageId')
           ))
-       ORDER BY seq LIMIT ?`,
-    ).all(sessionId, afterSeq, limit) as EventRow[];
-    return rows.map(rowToEvent);
+       ORDER BY seq ${beforeSeq === undefined ? 'ASC' : 'DESC'} LIMIT ?`,
+    ).all(sessionId, beforeSeq ?? afterSeq, limit) as EventRow[];
+    return (beforeSeq === undefined ? rows : rows.reverse()).map(rowToEvent);
   }
 
   /** Exact ordinary source identity; only completed visible text is returned. */
@@ -4268,6 +4305,40 @@ export class EventStore {
     });
     return parsed.success ? parsed.data : undefined;
   }
+  admitWithOrdinarySkillContext(
+    sessionId: string,
+    commandId: string,
+    context: { text: string; prompt: string },
+    admit: () => void,
+  ): void {
+    this.db!.transaction(() => {
+      admit();
+      const previous = this.getOrdinarySkillContext(sessionId, commandId);
+      if (previous && (previous.text !== context.text || previous.prompt !== context.prompt))
+        throw Error('Skill command changed');
+      if (!previous)
+        this.append(sessionId, 'ordinary_skill_context', { messageId: commandId, ...context });
+    })();
+  }
+  getOrdinarySkillContext(
+    sessionId: string,
+    commandId: string,
+  ): { text: string; prompt: string } | undefined {
+    const rows = this.db!.prepare(
+      `SELECT payload FROM events WHERE session_id=? AND type='ordinary_skill_context' AND json_extract(payload,'$.messageId')=? ORDER BY seq`,
+    ).all(sessionId, commandId) as Array<{ payload: string }>;
+    if (!rows.length) return undefined;
+    const contexts = rows.map((row) => JSON.parse(row.payload));
+    const first = contexts[0];
+    if (
+      typeof first.text !== 'string' ||
+      typeof first.prompt !== 'string' ||
+      contexts.some((context) => context.text !== first.text || context.prompt !== first.prompt)
+    )
+      throw Error('Skill command changed');
+    return { text: first.text, prompt: first.prompt };
+  }
+
   getMessageReplyContext(sessionId: string, commandId: string): MessageReplyContext | undefined {
     const rows = this.db!.prepare(
       `SELECT payload FROM events WHERE session_id=? AND type='message_reply_context' AND json_extract(payload,'$.messageId')=? ORDER BY seq`,
