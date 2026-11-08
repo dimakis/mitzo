@@ -126,6 +126,8 @@ import {
 } from './codex-native-approvals.js';
 import {
   assertNativeExecutionRefresh,
+  assertNativeExecutionCurrent,
+  NativeExecutionPolicyChangedError,
   type CodexNativeExecutionPolicy,
 } from './codex-native-execution-policy.js';
 import { withPreparedRepositoryBarrierReadScope } from './prepared-repository-barrier-read.js';
@@ -2254,11 +2256,9 @@ async function openCodexChatBound(
   const originalNativePolicyCurrent = options.assertNativeExecutionCurrent;
   const assertNativePolicyCurrent = (policy: CodexNativeExecutionPolicy, commandId: string) => {
     assertHostCurrentSync();
-    if (
-      options.assertNativeExecutionCurrent !== originalNativePolicyCurrent ||
-      selectedNativePolicy().policyRevision !== policy.policyRevision
-    )
-      throw Error('Native execution policy changed during the active command');
+    if (options.assertNativeExecutionCurrent !== originalNativePolicyCurrent)
+      throw new NativeExecutionPolicyChangedError(['owner']);
+    assertNativeExecutionCurrent(policy, selectedNativePolicy());
     const checked: unknown = originalNativePolicyCurrent
       ? Reflect.apply(originalNativePolicyCurrent, options, [policy, commandId])
       : undefined;
@@ -3551,10 +3551,8 @@ async function openCodexChatBound(
           throw Error('Tool unavailable for owned local Codex chat');
         assertHostCurrentSync();
         const currentPolicy = selectedNativePolicy();
-        if (
-          currentPolicy.policyRevision !== nativeExecution.policyRevision ||
-          ![...currentPolicy.readableRoots, ...currentPolicy.workspaceRoots].includes('/')
-        )
+        assertNativeExecutionCurrent(nativeExecution, currentPolicy);
+        if (![...currentPolicy.readableRoots, ...currentPolicy.workspaceRoots].includes('/'))
           throw Error('Original native repository preparation scope unavailable');
         return executeNativeLocalRepositoryPreparation(
           Object.freeze({
