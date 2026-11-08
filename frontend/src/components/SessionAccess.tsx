@@ -8,6 +8,7 @@ import { connectionTitle, connectionStatus } from '../lib/connections-access-pre
 import { HomeDialog } from './HomeDialog';
 import { UiIcon } from './UiIcon';
 import { ReusableAccessGrants } from './ReusableAccessGrants';
+import { connectionModes } from '../lib/connections-mode-presentation';
 import '../styles/session-access.css';
 
 interface Props {
@@ -133,8 +134,8 @@ function AccessContent({ sessionId, selection, connected = true, onShowApproval 
   return (
     <div className="session-access">
       <p className="workspace-muted">
-        Current access and reusable grants for this conversation. Account configuration does not
-        establish session availability.
+        Permissions and approvals for this chat. Review pending requests and manage access you have
+        granted.
       </p>
       {!sessionId && (
         <p>No session has started. The selected account has not been used in this conversation.</p>
@@ -163,6 +164,28 @@ function AccessContent({ sessionId, selection, connected = true, onShowApproval 
         </p>
       )}
       <section className="access-detail-card">
+        <h3>Pending approvals</h3>
+        {evidence?.pending ? (
+          evidence.pending.length ? (
+            evidence.pending.map((p) => (
+              <p key={p.permId}>
+                {p.toolName} · {p.scope}
+              </p>
+            ))
+          ) : (
+            <p>No pending requests observed.</p>
+          )
+        ) : (
+          <p>Pending requests have not been reported.</p>
+        )}
+        {current && Boolean(evidence?.pending?.length) && onShowApproval && (
+          <button className="home-secondary" onClick={onShowApproval}>
+            View pending approvals
+          </button>
+        )}
+      </section>
+      {sessionId && <ReusableAccessGrants sessionId={sessionId} connected={connected} />}
+      <section className="access-detail-card">
         <h3>{sessionId ? 'Session access' : 'Selected route'}</h3>
         <dl className="access-resource-facts">
           <div>
@@ -178,12 +201,15 @@ function AccessContent({ sessionId, selection, connected = true, onShowApproval 
             <dd>{evidence?.model ?? (!sessionId ? selection?.model : null) ?? 'Unknown'}</dd>
           </div>
           <div>
-            <dt>Effective mode</dt>
-            <dd>{evidence?.mode ?? 'Unknown'}</dd>
-          </div>
-          <div>
-            <dt>Service attachments</dt>
-            <dd>Unknown — configured services have not been observed in this session.</dd>
+            <dt>Mode</dt>
+            <dd>
+              {connectionModes.find((mode) => mode.id === evidence?.mode)?.label ?? 'Unknown'}
+              {evidence?.mode && (
+                <p className="workspace-muted">
+                  {connectionModes.find((mode) => mode.id === evidence.mode)?.summary}
+                </p>
+              )}
+            </dd>
           </div>
           <div>
             <dt>Tool approvals</dt>
@@ -204,6 +230,22 @@ function AccessContent({ sessionId, selection, connected = true, onShowApproval 
                 : 'Unknown'}
             </dd>
           </div>
+        </dl>
+      </section>
+      <details className="session-access-diagnostics">
+        <summary>
+          <span>Runtime details</span>
+          <UiIcon name="down" />
+        </summary>
+        <p className="workspace-muted">
+          This runtime does not report these measurements here. Unknown does not mean denied or
+          unavailable.
+        </p>
+        <dl className="access-resource-facts">
+          <div>
+            <dt>Service attachments</dt>
+            <dd>Unknown — configured services have not been observed in this session.</dd>
+          </div>
           <div>
             <dt>Available tools</dt>
             <dd>Unknown — callable tools have not been inventoried for this route.</dd>
@@ -213,29 +255,7 @@ function AccessContent({ sessionId, selection, connected = true, onShowApproval 
             <dd>Unknown — runtime limits have not been reported here.</dd>
           </div>
         </dl>
-      </section>
-      <section className="access-detail-card">
-        <h3>Pending approvals</h3>
-        {evidence?.pending ? (
-          evidence.pending.length ? (
-            evidence.pending.map((p) => (
-              <p key={p.permId}>
-                {p.toolName} · {p.scope}
-              </p>
-            ))
-          ) : (
-            <p>No pending requests observed.</p>
-          )
-        ) : (
-          <p>Unknown</p>
-        )}
-        {current && Boolean(evidence?.pending?.length) && onShowApproval && (
-          <button className="home-secondary" onClick={onShowApproval}>
-            View pending approvals
-          </button>
-        )}
-      </section>
-      {sessionId && <ReusableAccessGrants sessionId={sessionId} connected={connected} />}
+      </details>
       <div className="access-resource-actions">
         {sessionId && (
           <button

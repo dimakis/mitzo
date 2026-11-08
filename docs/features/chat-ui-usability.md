@@ -1,0 +1,101 @@
+# Chat controls and stable history
+
+Requested by Dimitri on 7 November 2026, with phone screenshots showing a
+single-host menu, delayed activity and moving chat rows, an Access screen full
+of unknown measurements, missing context capacity and noisy references.
+Implementation base: `3079701d8f714945f8478508382e17ff20c61299`.
+
+The Run on editor uses a select only for multiple eligible hosts. A single host
+is readable text. Loading, unavailable and saved missing hosts remain explicit;
+the picker never replaces an unavailable saved host with another host.
+
+Chats receives the current activity snapshot in its first history response.
+Live labels continue to update, while row order changes only through the existing
+Show latest action. Initial SSE hydration cannot display a partial list ahead
+of the first history page. Newly discovered rows append without displacing
+existing rows. Search, pins, menus, deletion and the sidebar keep their existing
+owners; disconnected snapshots never establish current authority.
+The collection caption reserves its action height before an update arrives;
+activity metadata stays on one line so enrichment does not push later rows down.
+
+Access leads with pending approvals and explains the selected mode. Existing
+session grants, reusable access, refresh and Connections remain available.
+Unsupported service/tool/limit diagnostics start behind Runtime details. This
+view observes access; opening it does not grant access or start execution.
+
+Resources → Context shows the same measured usage and capacity as the token
+wheel, including remaining tokens when capacity is valid. Unknown, expired and
+stale capacity never produces a percentage. Native request totals are explained
+as request usage rather than an exact retained context measurement. Context
+blocks receive readable mobile rows and an explanation when the runtime only
+permits removing selections. Instructions and compaction history remain available
+behind a disclosure. Context selection does not itself deliver a provider input.
+
+References explains its purpose and defaults to conversation links and workspace
+files. Tool-only URLs remain available through Include links from tool output.
+Role filters appear only when multiple roles exist. References remain mentions,
+not proof of an output, successful read, authorization or publication.
+
+Terminal continues to navigate to the chat-scoped terminal page, preserving its
+return link and draft. Its tooltip now says where it opens. An inline terminal
+is a separate layout choice awaiting the operator's preference.
+
+## Design and validation
+
+The change reuses HomeDialog, UiIcon, semantic palette/type/spacing/radius tokens,
+existing environment cards, context usage meters and collection controls. The
+operator's request to stop reordering is recorded as a new chat-activity ledger
+revision; the earlier approval and reference are retained. No palette or font
+source is introduced.
+
+Test-first regressions demonstrated the original host, missing budget, noisy
+references, automatic reordering and missing HTTP activity behavior. Initial
+focused frontend checks: 84 passed. The final focused component/hook/page/design
+run passes 203 checks with one existing skip; all 186 API route regressions pass
+using a loopback-only test listener. ESLint and formatting pass for changed files.
+The final geometry fix is covered by the design rerun and pending browser fixture.
+
+Offline browser fixtures cover stable ordering after browsing ends, explicit
+refresh, narrow phone/desktop controls, light/dark and alternate appearance,
+token budgets, context selection, References, Runtime details, focus and retained
+drafts. The source-bundled chat-ui-usability fixture needs no full application
+build, backend, credentials or model calls.
+
+Initial visual acceptance remained pending: the approved native Playwright command still
+carried the macOS Seatbelt marker, and the repository guard refused before browser
+launch. No browser was launched or screenshots inspected. The full frontend Vite
+build exhausted the required 1 GiB heap; full build/type and browser acceptance
+remain CI checks. TaskExecution also lost operator authentication before a later
+run; its rejected operation did not start. Permitted native offline checks
+continued in the isolated task checkout. No live service, staging or deployment
+was used.
+
+### PR #1253 validation follow-up · 8 November 2026
+
+Reconciled the clean task checkout against the published PR head
+`dd3419a295860d159ea817cdc2b36270428b9ec7`. Hosted CI built the frontend and
+passed both server and frontend type checks. Preflight failed because this
+change had not refreshed the registered source fingerprints. Bumped the reviewed
+runtime revision and regenerated the 18 affected entries, retaining every
+registered source and the fingerprint verification gate. The source check now
+passes. The focused component, ordering, page, source-preflight and complete design
+guard run passes 149 tests with one existing skip, using one worker and a 1 GiB
+Node heap.
+
+TaskExecution authorization is available again. Its offline browser run initially
+could not locate the installed browsers in its temporary home. Selecting the
+existing host browser cache resolved that lookup, but WebKit startup timed out
+and Chromium process registration failed with macOS MachPort permission denied.
+The six feature browser cases did not run; no new screenshots or visual acceptance
+are claimed. Hosted browser CI remains required. No live backend, model calls,
+staging or deployment was used. Both saved mockup revisions remain intact, with
+`v002.html` at 2,240,120 bytes (2.14 MiB).
+
+Main subsequently advanced to `8c5512ea`, creating a manifest conflict and blocking
+PR CI. Integrated that accepted base, retained its reusable-access capabilities
+and browser coverage alongside this PR's discoverability changes, and regenerated
+the manifest against the combined source under runtime revision
+`v1.0.949-chat-ui-usability`. Only generated manifest entries conflicted. Combined
+source verification and 144 focused component/ordering/design/preflight tests
+pass, including the upstream reusable-grant controls; one existing test is skipped.
+All 186 API route regressions also pass on the combined tree.

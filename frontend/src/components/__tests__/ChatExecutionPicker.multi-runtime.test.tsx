@@ -30,10 +30,9 @@ it('lists only hosts in the selected environment when target IDs are shared', ()
       />
     </MemoryRouter>,
   );
-  const host = screen.getByRole('combobox', { name: 'Execution host' });
-  expect(Array.from(host.querySelectorAll('option')).map((option) => option.textContent)).toEqual([
-    'This Mac (mac)',
-  ]);
+  expect(screen.queryByRole('combobox', { name: 'Execution host' })).toBeNull();
+  expect(screen.getByText('This Mac')).toBeTruthy();
+  expect(screen.queryByText('Remote twin')).toBeNull();
 });
 it('settings uses two named environment cards and retains reasons without redundant review controls', () => {
   const data = multiRuntimeInventoryFixture(),

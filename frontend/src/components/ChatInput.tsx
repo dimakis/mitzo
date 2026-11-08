@@ -1651,6 +1651,7 @@ function ChatInputContent({
             />
             {(!useExternal || onExternalContextBlockToggle) && (
               <SessionResourcesDialog
+                tokenState={tokenState}
                 sourceSnapshots={savedChatDraft?.settings.sourceSnapshots}
                 sessionId={sessionId}
                 compactions={compactions}
