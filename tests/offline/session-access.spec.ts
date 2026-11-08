@@ -321,6 +321,7 @@ test('Access: selected sessions, expiry, revocation and human-review availabilit
       mode: 'agent',
       revision: '1'.repeat(64),
       development: true,
+      repository: 'fixture-repository',
     },
     {
       sessionId: 'second',
@@ -330,6 +331,7 @@ test('Access: selected sessions, expiry, revocation and human-review availabilit
       mode: 'agent',
       revision: '2'.repeat(64),
       development: true,
+      repository: 'fixture-repository',
     },
   ];
   await page.route(`**/api/sessions/${sessionId}/access-grants**`, async (route) => {
@@ -350,6 +352,7 @@ test('Access: selected sessions, expiry, revocation and human-review availabilit
           capability: body.capability,
           sessionIds: body.sessionIds,
           expiresAt: Date.now() + 15 * 60000,
+          scope: body.scope,
         },
       ];
       return route.fulfill({ status: 201, json: grants[0] });
@@ -427,11 +430,49 @@ test('Access: selected sessions, expiry, revocation and human-review availabilit
     });
     await revoke.click();
     await expect(dialog.getByText('No active reusable grants.')).toBeVisible();
+    for (const kind of ['development', 'google-read', 'telos-progress']) {
+      await dialog.getByLabel('Access type').selectOption(kind);
+      if (kind === 'google-read') {
+        await dialog.getByLabel('Google account email').fill('fixture@example.test');
+        await dialog.getByLabel('Resource ID').fill('fixture-document');
+      }
+      if (kind === 'telos-progress') await dialog.getByLabel('Telos item ID').fill('fixture-item');
+      await dialog
+        .getByLabel('Reuse in')
+        .selectOption(kind === 'development' ? 'repository' : 'operator');
+      await second.check();
+      await create.click();
+      const scopedRevoke = dialog.getByRole('button', {
+        name: /^Revoke (Development|Google Workspace|Telos progress)/,
+      });
+      await expect(scopedRevoke).toBeVisible();
+      await expect(
+        dialog
+          .locator('.reusable-access-grant')
+          .getByText(
+            kind === 'development'
+              ? 'This repository and AI account, including future chats'
+              : 'This login and AI account, including future chats',
+            { exact: true },
+          ),
+      ).toHaveCount(1);
+      await scopedRevoke.scrollIntoViewIfNeeded();
+      expect((await scopedRevoke.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+      expect(
+        await dialog.evaluate((element) => element.scrollWidth <= element.clientWidth + 1),
+      ).toBe(true);
+      await page.screenshot({
+        path: testInfo.outputPath(`reusable-access-${kind}-${theme}.png`),
+        animations: 'disabled',
+      });
+      await scopedRevoke.click();
+      await expect(dialog.getByText('No active reusable grants.')).toBeVisible();
+    }
   }
   await dialog.press('Escape');
   await expect(access).toBeFocused();
   await expect(composer).toHaveValue('Preserve this unsent draft');
-  expect(writes).toHaveLength(2);
+  expect(writes).toHaveLength(8);
   expect(errors).toEqual([]);
 });
 

@@ -394,6 +394,7 @@ import {
 import { createTelosSourcePermissionRecovery } from './telos-source-recovery.js';
 import { createSessionAccessRouter, projectSessionAccess } from './session-access.js';
 import { SessionCapabilityGrants } from './session-capability-grants.js';
+import { repositoryCapabilityIdentity } from './repository-capability-identity.js';
 import { createSessionCapabilityRouter } from './session-capability-router.js';
 import { createLogger } from './logger.js';
 import {
@@ -3691,7 +3692,7 @@ mountObservedRouter(
   }),
 );
 
-const sessionCapabilityGrants = new SessionCapabilityGrants(registry);
+const sessionCapabilityGrants = new SessionCapabilityGrants(registry, repositoryCapabilityIdentity);
 mountObservedRouter(
   app,
   '/api/sessions/:id/access-grants',

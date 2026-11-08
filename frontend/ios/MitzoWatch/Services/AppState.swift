@@ -124,16 +124,32 @@ final class AppState: ObservableObject {
         try await relayClient.requestNotification(id: id)
     }
 
+    func sourceReview(_ item: MitzoNotification, before: Int? = nil) async throws -> WatchSourceReview {
+        guard let request = item.request, request.reviewKind == "telos_source", let session = item.sessionId else { throw MitzoAPIClient.APIError.invalidResponse }
+        return try await relayClient.sourceReview(permId: request.permId, sessionId: session, before: before)
+    }
+    func sourcePreview(permId: String, input: WatchSourceInput) async throws -> WatchSourcePreview {
+        try await relayClient.sourcePreview(permId: permId, input: input)
+    }
+    func sourceMaterials(permId: String, input: WatchSourceMaterialsInput) async throws -> WatchSourceMaterialsPage {
+        try await relayClient.sourceMaterials(permId: permId, input: input)
+    }
+    func sourceApprove(permId: String, input: WatchSourceInput) async throws -> WatchSourceReceipt {
+        let receipt = try await relayClient.sourceApprove(permId: permId, input: input)
+        guard receipt.permId == permId, receipt.sessionId == input.sessionId else { throw MitzoAPIClient.APIError.invalidResponse }
+        return receipt
+    }
+
     func replyToNotification(sessionID: String, text: String) async throws {
         try await relayClient.replyToNotification(sessionID: sessionID, text: text)
     }
 
-    func respondNotification(_ item: MitzoNotification, decision: NotificationResponse.Decision) async throws {
+    func respondNotification(_ item: MitzoNotification, decision: NotificationResponse.Decision, answers: [String: [String]]? = nil) async throws {
         let current = try await loadNotification(id: item.id)
-        guard let response = watchNotificationResponse(reviewed: item, current: current, decision: decision) else {
+        guard let response = watchNotificationResponse(reviewed: item, current: current, decision: decision, answers: answers) else {
             throw RelayResponseError.serverRejected("This request changed or is no longer active. Refresh before responding.")
         }
-        try await relayClient.respondNotification(id: current.id, sessionId: response.sessionId, decision: response.decision)
+        try await relayClient.respondNotification(id: current.id, sessionId: response.sessionId, decision: response.decision, answers: response.answers)
     }
 
     // MARK: - Active Chat
