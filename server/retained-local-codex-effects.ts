@@ -25,6 +25,16 @@ import { composeOwnedLocalNativeExecutionPolicyForWorkspace } from './owned-loca
 import { observeNativeRecoveryTurn } from './codex-interrupted-effects.js';
 
 const unavailable = () => Error('Original local turn effects require further inspection');
+/** Query-loop timing can finish after the live owner retires. Those counters
+ * do not change custody; all selection, lifecycle and execution fields remain. */
+function recoveryMetadata({
+  durationMs: _durationMs,
+  lastStateChange: _lastStateChange,
+  updatedAt: _updatedAt,
+  ...meta
+}: NonNullable<ReturnType<EventStore['getSession']>>) {
+  return meta;
+}
 function capture(
   events: EventStore,
   native: CodexConversationStore,
@@ -124,7 +134,18 @@ function capture(
     native.read(id, binding).cwd !== meta.cwd
   )
     throw unavailable();
-  return { meta, binding, runtime, custody, target, phase, execution, admission, send, prepared };
+  return {
+    meta: recoveryMetadata(meta),
+    binding,
+    runtime,
+    custody,
+    target,
+    phase,
+    execution,
+    admission,
+    send,
+    prepared,
+  };
 }
 /** One original reservation projection for both undispatched-input recovery and
  * inspection-only recovery. Ordinary roots retain their allocation fingerprint. */
