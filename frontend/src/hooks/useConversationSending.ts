@@ -137,7 +137,7 @@ export function useConversationSending(options: {
     publish({ ready: undefined, reason: undefined, pending: original, error: undefined });
     void check();
     const lost = () => {
-      publish({ ready: false, reason: 'Sign in to verify this conversation.' });
+      publish({ ready: false });
     };
     window.addEventListener(AUTH_LOST_EVENT, lost);
     return () => {
@@ -152,7 +152,7 @@ export function useConversationSending(options: {
   }, [state.pending, check, valid]);
   const visible = state.owner === owner ? state : { owner };
   const disabledReason = !valid()
-    ? 'Sign in to verify this conversation.'
+    ? 'Conversation unavailable.'
     : visible.pending
       ? 'Check the original request. Queued or uncertain work will not be resent.'
       : !recipient

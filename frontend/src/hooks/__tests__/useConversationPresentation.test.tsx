@@ -201,7 +201,10 @@ it('disables reads and mutations without current proof from the existing auth ow
   expect(result.current.projection).toBeNull();
   expect(result.current.draft).toBeNull();
   expect(h.fetch).not.toHaveBeenCalled();
-  expect(result.current.error).toMatch(/Sign in/);
+  // ProtectedRoute owns login recovery; collaboration must not ask for a second login.
+  expect(result.current.error).toBeNull();
+  expect(result.current.policyDisabled).toBe(true);
+  expect(result.current.setResponders({ kind: 'all' })).toBe(false);
 });
 it('does not read merely because an auth scope string exists without the current owner getter', async () => {
   const h = harness();

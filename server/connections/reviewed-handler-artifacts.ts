@@ -23,7 +23,7 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/hooks/__tests__/useConversationPresentation.test.tsx':
-    'd052e096fa203300d5a409c1c8a8944e39d10e48222082ab0478b93544d3a64d',
+    'b9547214d542a3077acbe4c3ea9b856a8f1d6f1ebe063c2c9b7498f50ef89218',
   '../../frontend/src/components/__tests__/SharedConversationStatus.test.tsx':
     '5744e6db4e4c8ee8d6811fe9d52206dc074e85538683c303ad0b3186abdcaa5b',
   '../../tests/fixtures/ordinary-collaboration-status.tsx':
@@ -37,9 +37,9 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/components/__tests__/SharedConversation.test.tsx':
     'aeea744f0b515216fb92232c4cfcfaf5fe9bce4c89ffd3e32624acb0df02f810',
   '../../frontend/src/hooks/__tests__/useConversationSending.test.tsx':
-    'e303c1228dcacc268e874fc4c0fa2bd0e7142721fbc365715d5b3387c232003f',
+    'de28b0e53ff61d2e5fda2455de784e1b168de140b747b85dd8ccae360cf74745',
   '../../frontend/src/hooks/useConversationSending.ts':
-    '90e77e864b8bdfd0fa8dbcc328878be830f0b37701b93c4904197c372d3041a9',
+    '8519cb2f28253571542226363aa9fd8167b6b28511bfb6d8cc6634957c7bdcb1',
   '../__tests__/collaboration-application-ui.test.tsx':
     'c17e0e0622d8044ccddf85b5018fac6bce1d78f24806d59e4557cbc18d777660',
   '../__tests__/fixtures/symposium-recording-runtime.ts':
@@ -1740,7 +1740,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/components/CollaborationTranscript.css':
     'e617da58d37e75e41c4f165ff976675017d4bd650c8949a6b0f2f4fe1634c392',
   '../../frontend/src/hooks/useConversationPresentation.ts':
-    '3d4e0ba6b7d5b9ed740a1ba05397074edaf711a387f410640185b5a000325b0a',
+    '0f536df7d12478a3d515dfeae49f99d96b6bb9812cb345f61557fa4e756ff0bc',
   '../../frontend/src/lib/conversation-presentation.ts':
     'cc15c8961398998acff1315699feb77cd614278d9109804b5f1495d796a5d9bd',
   '../openshell-cli-environment.ts':
