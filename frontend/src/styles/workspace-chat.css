@@ -120,11 +120,16 @@
     font-weight: 600;
   }
   .desktop-chat-center .chat-messages {
-    padding: 28px max(24px, calc((100% - 860px) / 2));
+    padding: var(--space-6) var(--page-gutter);
+  }
+  .desktop-chat-center .msg-bubble--assistant {
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
   }
   .desktop-chat-center .chat-input {
-    padding-right: max(24px, calc((100% - 860px) / 2));
-    padding-left: max(24px, calc((100% - 860px) / 2));
+    padding-right: var(--page-gutter);
+    padding-left: var(--page-gutter);
     padding-bottom: 18px;
   }
   .desktop-chat-center .desktop-chat-header {
@@ -192,6 +197,18 @@
     opacity: 1;
     min-width: 28px;
   }
+}
+
+/* Tables use the available conversation width; long summaries wrap. The
+   existing scroll wrapper still contains intrinsically wide embedded content. */
+.workspace-chat .msg-bubble--assistant table {
+  width: 100%;
+  table-layout: auto;
+}
+.workspace-chat .msg-bubble--assistant th,
+.workspace-chat .msg-bubble--assistant td {
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 @media (min-width: 1200px) {
   .session-tray--toolbar .session-tray-columns {
