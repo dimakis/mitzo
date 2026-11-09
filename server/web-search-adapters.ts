@@ -325,10 +325,16 @@ export async function searchSdk(
     const log = createLogger('web-search');
     if (signal.aborted) log.debug('Claude SDK search cancelled', diagnostic);
     else log.warn('Claude SDK search failed', diagnostic);
+    // The SDK can replace an input-stream refusal with a generic AbortError.
+    const cause = signal.aborted
+      ? signal.reason
+      : abort.signal.aborted
+        ? abort.signal.reason
+        : error;
     throw webSearchFailure(
       'Claude SDK',
       signal.aborted ? 'was interrupted' : 'could not complete on the selected route',
-      { cause: error },
+      { cause },
     );
   } finally {
     signal.removeEventListener('abort', cancel);

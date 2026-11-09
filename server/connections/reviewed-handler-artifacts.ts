@@ -10,8 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.958-personal-claude-current-base.2';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.959-personal-claude-search';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -61,17 +60,23 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../docs/features/personal-claude-local.md':
     '7ab2e17a7dee26d2530055065691682ff444e074b117eb8688f44311de1127ab',
   '../../frontend/src/hooks/__tests__/useConversationPresentation.test.tsx':
-    'baeff93ece3be5a10f4ae28e9a90b464af83668217ceb1f9f911696e1d6aaefe',
+    'b9547214d542a3077acbe4c3ea9b856a8f1d6f1ebe063c2c9b7498f50ef89218',
+  '../../frontend/src/components/__tests__/SharedConversationStatus.test.tsx':
+    '18e0840ca9b9b3928db0c418d419cf3c46005ed3ee60c620ae608a14afdddf35',
+  '../../tests/fixtures/ordinary-collaboration-status.tsx':
+    'fbfdc6f94adfd67fcf54f3f62bc1b547770aaec3195801d6037f107e39a4dfde',
+  '../../tests/offline/ordinary-collaboration-status.spec.ts':
+    '0e576f8662399a7e369f50c714d082ed85ceecc2c94788723fc0a4965b298583',
   '../../frontend/src/components/ConversationRepositoryPicker.tsx':
     'bad89b264d8bff41ed745fd33629e658ac947d6bc56b3945baae6fa0df2986cf',
   '../../frontend/src/components/SharedConversation.tsx':
-    'ddc6174cd2288e0fa372de17362d202576c74a8915cf3e7ce56e4ff9395dad89',
+    'cfcd04e04b3969a2981705377af21765304e85ec80014dc8168be628452271b1',
   '../../frontend/src/components/__tests__/SharedConversation.test.tsx':
     'aeea744f0b515216fb92232c4cfcfaf5fe9bce4c89ffd3e32624acb0df02f810',
   '../../frontend/src/hooks/__tests__/useConversationSending.test.tsx':
-    'e303c1228dcacc268e874fc4c0fa2bd0e7142721fbc365715d5b3387c232003f',
+    'de28b0e53ff61d2e5fda2455de784e1b168de140b747b85dd8ccae360cf74745',
   '../../frontend/src/hooks/useConversationSending.ts':
-    '90e77e864b8bdfd0fa8dbcc328878be830f0b37701b93c4904197c372d3041a9',
+    '8519cb2f28253571542226363aa9fd8167b6b28511bfb6d8cc6634957c7bdcb1',
   '../__tests__/collaboration-application-ui.test.tsx':
     'c17e0e0622d8044ccddf85b5018fac6bce1d78f24806d59e4557cbc18d777660',
   '../__tests__/fixtures/symposium-recording-runtime.ts':
@@ -1772,7 +1777,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/components/CollaborationTranscript.css':
     'e617da58d37e75e41c4f165ff976675017d4bd650c8949a6b0f2f4fe1634c392',
   '../../frontend/src/hooks/useConversationPresentation.ts':
-    'e634cf5c9357e4738bb8bb5856a6b29346a71a87e7ea5a4b1aca0bb960740ccc',
+    '0f536df7d12478a3d515dfeae49f99d96b6bb9812cb345f61557fa4e756ff0bc',
   '../../frontend/src/lib/conversation-presentation.ts':
     'cc15c8961398998acff1315699feb77cd614278d9109804b5f1495d796a5d9bd',
   '../openshell-cli-environment.ts':
@@ -1884,7 +1889,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     '2cb79bc6ae7f3f02fa0156100c3cbc74524a0523279d873d1851d085a6b19cb5',
   '../web-page-content.ts': '348452aa0875f774d67f8b3b9f65bc793683e0295123e2c63fbb6011e1fbe67c',
   '../request-web-access.ts': '7c3827a0e4ddaf8880b6ec02e1af8bc398b4b064a90bf941570751b859e467af',
-  '../web-search-adapters.ts': '82103d3c925059fbc7319cee82ffcf72f79ff0062f0f6888469b193497cb9df3',
+  '../web-search-adapters.ts': '0e5d118d35df1af158fca9298652cb153a1ac339be4b38e45c056f4ecc899c75',
   '../../packages/harness/src/index.ts':
     'ee16c27a7be87758b228b6d2e489c8861b50c6b610274148e149f5ee14f5a355',
   '../../packages/harness/src/session-transport.ts':
@@ -2891,7 +2896,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/terminal-router.test.ts':
     '34c9754c598ab37ac996fb9f0ea2b3a2e7d63ea00c1af73d4a80e89e50b95ce9',
   '../__tests__/web-search-adapters.test.ts':
-    'f3d3db8845b5535d0aa5505577114eb86ae14d10c6c02c3085fe420eed035e85',
+    '165f52b6f91f5ad03f423c787a410d8fa64f168bf3de9544542e6344f2536821',
   '../adviser-harness-failure.ts':
     'ac311607c69114d86322ad600a9ed79b0d946d9cd6a2552c91448154b4ffd050',
   '../adviser-harness-runtime.ts':

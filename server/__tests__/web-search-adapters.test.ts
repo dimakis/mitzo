@@ -20,6 +20,46 @@ afterAll(() => {
   rmSync(workspaceRoot, { recursive: true, force: true });
 });
 describe('selected-account native search adapters', () => {
+  it('retains the original identity failure when the SDK translates prompt refusal into an abort', async () => {
+    const original = Error('Private account initialization failure');
+    const sdk = (request: Parameters<typeof query>[0]) =>
+      Object.assign(
+        (async function* () {
+          try {
+            if (typeof request.prompt === 'string')
+              throw Error('Personal search input was not gated');
+            for await (const input of request.prompt) {
+              throw Error('Identity refusal released input: ' + input.type);
+            }
+          } catch {
+            // The real SDK transport replaces a rejected input stream with AbortError.
+            throw Error('Operation aborted');
+          }
+          yield { type: 'result' };
+        })(),
+        {
+          accountInfo: async () => {
+            throw original;
+          },
+        },
+      );
+    await expect(
+      searchSdk(
+        'approved query',
+        new AbortController().signal,
+        {
+          ...owner,
+          model: 'selected-claude',
+          executable: '/selected/claude',
+          env: {
+            MITZO_CLAUDE_EXPECTED_EMAIL: 'person@example.test',
+            MITZO_CLAUDE_EXPECTED_PLAN: 'max',
+          },
+        },
+        sdk,
+      ),
+    ).rejects.toMatchObject({ cause: original });
+  });
   it.each([true, false])(
     'gates personal search input on the actual child account and retained executable; matches=%s',
     async (matches) => {

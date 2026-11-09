@@ -24,6 +24,7 @@ import { useConversationSending } from '../hooks/useConversationSending';
 import { ConversationAgents } from './ConversationAgents';
 import { CollaborationTranscript } from './CollaborationTranscript';
 import { ChatInput } from './ChatInput';
+import { ChatStatusMessage } from './ChatStatusMessage';
 import type { ChatAreaProps } from './ChatArea';
 
 const applicationApi = new MitzoApiClient(apiFetch);
@@ -235,7 +236,12 @@ function useSharedConversation({
     names,
     active,
     error: association.error,
-    retry: () => setAttempt((n) => n + 1),
+    retry: () => {
+      // Setup and the retained conversation read have different owners. Repeating
+      // unchanged setup does not rerun a failed read of the same collaboration.
+      if (association.error) setAttempt((n) => n + 1);
+      else void refresh();
+    },
   };
 }
 
@@ -303,14 +309,10 @@ export function SharedConversationBody({
     return (
       <>
         {children}
-        {(host.error || (host.joiningOwner && host.presentation.error)) && (
-          <div role="alert">
-            {host.error ?? host.presentation.error}
-            <button type="button" className="home-secondary" onClick={host.retry}>
-              Refresh collaboration
-            </button>
-          </div>
-        )}
+        <ChatStatusMessage
+          error={host.error ?? (host.joiningOwner ? host.presentation.error : null)}
+          action={{ label: 'Refresh collaboration', onClick: host.retry }}
+        />
       </>
     );
   const { presentation, sending, names } = host;

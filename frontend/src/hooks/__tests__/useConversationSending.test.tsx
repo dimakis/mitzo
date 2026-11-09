@@ -9,12 +9,65 @@ import {
   uuid,
 } from '../../../../tests/fixtures/symposium-shared-conversation-data';
 import { useConversationSending } from '../useConversationSending';
+import { AUTH_LOST_EVENT } from '../../lib/api-fetch';
 
 afterEach(() => {
   cleanup();
   localStorage.clear();
   sessionStorage.clear();
 });
+it('defers login recovery to the application while refusing sends and readiness reads without its proof', async () => {
+  const view = sharedConversationView();
+  const draft = { ...createChatDraft(), text: 'Retain my ordinary draft' };
+  saveChatDraft(draft);
+  let verified: string | undefined;
+  const proof = () => verified;
+  const fetch = vi.fn(async () =>
+    Response.json({
+      collaborationId: view.collaborationId,
+      sessionId: 'reviewer',
+      membershipRevision: view.membershipRevision,
+      policySequence: view.policySequence,
+      ready: true,
+      reason: null,
+    }),
+  );
+  const api = new CollaborationApiClient(fetch);
+  const refresh = vi.fn(async () => view);
+  const { result } = renderHook(() =>
+    useConversationSending({
+      api,
+      view,
+      draftId: draft.id,
+      authScope: 'login',
+      getVerifiedAuthScope: proof,
+      responders: { kind: 'selected', sessionIds: ['reviewer'] },
+      refresh,
+    }),
+  );
+  expect(result.current.disabledReason).toBe('Conversation unavailable.');
+  await act(async () => {
+    await result.current.check();
+    expect(await result.current.send('Do not send')).toBe(false);
+  });
+  expect(fetch).not.toHaveBeenCalled();
+  verified = 'login';
+  await act(async () => {
+    await result.current.check();
+  });
+  expect(result.current.disabledReason).toBeUndefined();
+  act(() => {
+    verified = undefined;
+    window.dispatchEvent(new Event(AUTH_LOST_EVENT));
+  });
+  expect(result.current.disabledReason).toBe('Conversation unavailable.');
+  await act(async () => {
+    expect(await result.current.send('Still do not send')).toBe(false);
+  });
+  expect(fetch).toHaveBeenCalledOnce();
+  expect(getChatDraft(draft.id)?.text).toBe(draft.text);
+});
+
 it('settles an oversized prompt as a visible refusal without retaining or dispatching it', async () => {
   const view = sharedConversationView();
   const draft = { ...createChatDraft(), text: 'Keep this draft' };
