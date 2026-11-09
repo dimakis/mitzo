@@ -1867,6 +1867,7 @@ export class CodexConversation {
             await assertRecoveryAuthority();
             assertRecoveryContinuation();
           },
+          this.opts.cwd,
         );
         nativeStatus = observed.status;
         interruptedEffects = observed.settledEffects;
@@ -2260,6 +2261,7 @@ export class CodexConversation {
             this.opts.assertNativeExecutionCurrent!(this.opts.nativeExecution, target.commandId);
           assertCurrent();
         },
+        this.opts.cwd,
       );
       assertCurrent();
       if (observed.status !== 'interrupted' || !observed.settledEffects)

@@ -417,6 +417,7 @@ export async function reconcileRetainedLocalCodexEffects(options: {
                 await owner.revalidate();
                 current();
               },
+              original.execution.policy.cwd,
             );
             current();
           },

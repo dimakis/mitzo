@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.960-retained-task-outcomes';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.961-native-child-recovery';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -22,6 +22,7 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
+  '../codex-recovery-tree.ts': '39e05139a4e42a0b9e456b281c6f73b38cc581df805392cb889a91afe6f45b8b',
   '../retained-task-execution-result.ts':
     '68b83aa87505d503ac397157c7e33a61b1b97b9691f5f26a14c50d444f489202',
   '../../frontend/src/hooks/__tests__/useConversationPresentation.test.tsx':
@@ -591,7 +592,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../github-publishing-source.ts':
     '97c1d2f24308e430973afdf4492a9513fda9e7eedcb80464fac71e8fcbc9ca01',
   '../retained-local-codex-effects.ts':
-    '078f8438df2b6008e4f0a1475b1df6f0648c05610b7cb36f24ef44add8353a82',
+    '8adb70fcbab9874abae8c07c10bce8ac6c220b008c1bd50978b293ef0149fb0c',
   '../builtin-tool-behavior.ts': 'd7c560af1c878e840d4a74e95e1d09ba854bf390c496e306bb620a5fd177b618',
   '../../packages/protocol/__tests__/ordinary-local-admission.test.ts':
     '8fdde207ca4b1f8b91a527969c374d12b9c4b1e5f8b6c66004c89dfb7fa4ebc0',
@@ -665,7 +666,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/components/__tests__/TelosChatRouteLayout.source.test.tsx':
     'af65704accb313d8b70a9267175983fb7a12e882bbccaa34ce19149b14a15a30',
   '../codex-interrupted-effects.ts':
-    'e00a5661c41855b035b7cff1919f5eb48564fbfe0ada5524e0e0f7b875342458',
+    'b441eba86b5588274c9a23ac1c67306c2b662d39e55b138b893c3a8ce5705511',
   '../__tests__/symposium-personal-connection-router.test.ts':
     '672b6da994f8e1d233b6c39efe477d10fb4344131b06c240826ccd4cbf16cd14',
   '../__tests__/chat-startup-metadata.test.ts':
@@ -2096,7 +2097,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../scripts/attest-knowledge-runtime.py':
     '5737ec8e7fc19a17b6ef5a35c1898e834d2a5d2d2a9f7593b607eaaf1971cfeb',
   '../agent-context-sandbox.ts': '8b61edc17ccc94bc95eae3796e68a0beb9540534e3bfbb348a04154c41995416',
-  '../codex-conversation.ts': '993ddb62687ff08ce20b10aeba30063f0cb749b56aeb72cacc9f840414b3f8c9',
+  '../codex-conversation.ts': 'da1d3e9ed1816f5a9c6350cf23edb899d175dd93935a858406146d30a53e6bd1',
   '../codex-conversation-store.ts':
     '98a965538f75b9a7dd2077c142b025fe792f6728f820dbc4d3904baa91d1e2f7',
   '../symposium-custodian-ipc.ts':
@@ -3683,7 +3684,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/telos-source-route-diagnostics.test.ts':
     'c86ae1b37bcfaaee96a8e5e5059915ced33d87cc2b52a1c88b4707586d5e82a2',
   '../__tests__/codex-recovery-read-budget.test.ts':
-    '4a7ebb10d21e5f60d856aec661300e68cea540e3ea18b0fa45282ccaf4938983',
+    '2b9b566884f4130a97131412346d52ee609e7dda4d6ae60fecde8f04fed6be9c',
   '../__tests__/ordinary-openshell-completion-flow.test.ts':
     '0637bbc1269e21a024645eff61fa514cd67d716b6e354f9692d03172fbf31738',
   '../__tests__/fixtures/openshell-publication-effects.ts':
