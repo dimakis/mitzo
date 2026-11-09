@@ -3,6 +3,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { createHash } from 'node:crypto';
 import express from 'express';
 import request from 'supertest';
 import cookieParser from 'cookie-parser';
@@ -14,8 +15,8 @@ import { notificationRouter } from '../notification-routes.js';
 import { INTERNAL_TOKEN } from '../internal-token.js';
 import { registerPending, removePending } from '../permissions.js';
 
-async function setup() {
-  const store = new NotificationStore(':memory:');
+async function setup(path = ':memory:') {
+  const store = new NotificationStore(path);
   const center = new NotificationCenter(store, {
     push: vi.fn().mockResolvedValue({ status: 'accepted', acceptedDevices: [] }),
     changed: vi.fn(),
@@ -39,6 +40,160 @@ async function setup() {
   };
 }
 describe('notification API', () => {
+  it('rechecks a replaced live permission scope instead of trusting the stored banner', async () => {
+    const s = await setup();
+    const resolver = vi.fn();
+    const permId = 'changed-live-scope';
+    const original = { permId, toolName: 'Bash', toolInput: 'npm test', sessionId: 's1' };
+    registerPending(permId, 'Bash', resolver, { command: 'npm test' }, 'elevated', 's1', original);
+    registerPending(permId, 'Bash', resolver, { command: 'npm test' }, 'elevated', 's1', {
+      ...original,
+      allowSessionGrant: false,
+    });
+    try {
+      const result = await request(s.app)
+        .post(`/api/notifications/permission:${permId}/respond`)
+        .set('Authorization', `Bearer ${s.token}`)
+        .send({
+          sessionId: 's1',
+          decision: 'always',
+          requestId: 'a0d3463d-b88c-46b0-9c9b-b63b1666da21',
+          nativeAction: 'ALLOW_SESSION_ACTION',
+          reviewed: { toolName: 'Bash', toolInput: 'npm test' },
+        });
+      expect(result.status).toBe(409);
+      expect(resolver).not.toHaveBeenCalled();
+    } finally {
+      removePending(permId);
+      s.close();
+    }
+  });
+  it.each([
+    ['ALLOW_ONCE_ACTION', 'once', 'request', 'Bash'],
+    ['ALLOW_SESSION_ACTION', 'always', 'request', 'Bash'],
+    ['ALLOW_CONVERSATION_ACTION', 'always', 'conversation', 'GrantIntegration'],
+    ['ALLOW_SEARCH_SESSION_ACTION', 'always', 'session', 'RequestWebAccess'],
+    ['DENY_PERMISSION_ACTION', 'deny', 'request', 'Bash'],
+  ] as const)(
+    'settles %s with its original owning-adapter scope',
+    async (nativeAction, decision, scope, toolName) => {
+      const s = await setup();
+      const resolver = vi.fn();
+      const permId = 'native-scope';
+      const toolInput = toolName === 'Bash' ? 'npm test' : JSON.stringify({ operation: 'search' });
+      registerPending(
+        permId,
+        toolName,
+        resolver,
+        toolName === 'Bash' ? { command: 'npm test' } : { operation: 'search' },
+        'unknown',
+        's1',
+        { permId, toolName, toolInput, sessionId: 's1', approvalScope: scope },
+      );
+      try {
+        const result = await request(s.app)
+          .post(`/api/notifications/permission:${permId}/respond`)
+          .set('Authorization', `Bearer ${s.token}`)
+          .send({
+            sessionId: 's1',
+            decision,
+            requestId: '0cb76542-541b-4e4b-a36a-176b4b24cabc',
+            nativeAction,
+            reviewed: { toolName, toolInput },
+          });
+        expect(result.status).toBe(200);
+        expect(result.body).toMatchObject({
+          ok: true,
+          receipt: {
+            nativeAction,
+            decision,
+            status: 'settled',
+            resolution: decision === 'deny' ? 'denied' : 'allowed',
+          },
+        });
+        expect(resolver).toHaveBeenCalledWith(
+          expect.objectContaining({
+            decisionClassification:
+              decision === 'deny'
+                ? 'user_reject'
+                : decision === 'once'
+                  ? 'user_temporary'
+                  : 'user_permanent',
+          }),
+        );
+      } finally {
+        removePending(permId);
+        s.close();
+      }
+    },
+  );
+
+  it.each(['received', 'settled'] as const)(
+    'reopens a durable %s receipt and never replays its approval',
+    async (status) => {
+      const root = mkdtempSync(join(tmpdir(), 'native-response-recovery-'));
+      const path = join(root, 'notifications.db');
+      let s = await setup(path);
+      const resolver = vi.fn();
+      const permId = 'durable-native';
+      const id = `permission:${permId}`;
+      const body = {
+        sessionId: 's1',
+        decision: 'always',
+        requestId: 'f6a4394f-cf30-4c10-8429-16d1c5dfeb70',
+        nativeAction: 'ALLOW_SESSION_ACTION',
+        reviewed: { toolName: 'Bash', toolInput: 'npm test' },
+      };
+      registerPending(permId, 'Bash', resolver, { command: 'npm test' }, 'elevated', 's1', {
+        permId,
+        toolName: 'Bash',
+        toolInput: 'npm test',
+        sessionId: 's1',
+      });
+      try {
+        if (status === 'received') {
+          s.store.responses.begin(
+            {
+              requestId: body.requestId,
+              notificationId: id,
+              sessionId: 's1',
+              nativeAction: body.nativeAction,
+              decision: 'always',
+              receivedAt: Date.now(),
+              status,
+            },
+            createHash('sha256').update(JSON.stringify(body)).digest('hex'),
+          );
+        } else {
+          const result = await request(s.app)
+            .post(`/api/notifications/${id}/respond`)
+            .set('Authorization', `Bearer ${s.token}`)
+            .send(body);
+          expect(result.body.ok).toBe(true);
+        }
+        const count = resolver.mock.calls.length;
+        s.close();
+        s = await setup(path);
+        const result = await request(s.app)
+          .post(`/api/notifications/${id}/respond`)
+          .set('Authorization', `Bearer ${s.token}`)
+          .send(body);
+        expect(result.body).toMatchObject({
+          ok: status === 'settled',
+          receipt: { status, decision: 'always', nativeAction: body.nativeAction },
+        });
+        expect(resolver).toHaveBeenCalledTimes(count);
+        const recovered = await request(s.app)
+          .get(`/api/notifications/${id}/responses/${body.requestId}?sessionId=s1`)
+          .set('Authorization', `Bearer ${s.token}`);
+        expect(recovered.body).toEqual(result.body);
+      } finally {
+        removePending(permId);
+        s.close();
+        rmSync(root, { recursive: true, force: true });
+      }
+    },
+  );
   it('retains the exact native session action and settled receipt without replaying it', async () => {
     const s = await setup();
     const resolver = vi.fn(() => ({ behavior: 'allow' }));

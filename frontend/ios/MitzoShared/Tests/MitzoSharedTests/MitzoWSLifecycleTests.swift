@@ -8,11 +8,15 @@ private actor TestSocket: MitzoWebSocket {
     private var incoming: [URLSessionWebSocketTask.Message] = []
     private var receiver: CheckedContinuation<URLSessionWebSocketTask.Message, Error>?
     private var failurePending = false
+    private var pauseHello = false
+    private var helloContinuation: CheckedContinuation<Void, Never>?
+    private(set) var helloWaiting = false
 
     func resume() async {}
     func isRunning() async -> Bool { !cancelled }
     func send(_ message: URLSessionWebSocketTask.Message) async throws {
         if cancelled { throw CancellationError() }
+        if pauseHello { helloWaiting = true; await withCheckedContinuation { helloContinuation = $0 } }
         switch message {
         case .data(let data): sent.append(String(decoding: data, as: UTF8.self))
         case .string(let text): sent.append(text)
@@ -37,6 +41,21 @@ private actor TestSocket: MitzoWebSocket {
         receiver = nil
     }
     func cancel() async { cancelled = true }
+    func stallHello() { pauseHello = true }
+    func releaseHello() { pauseHello = false; helloContinuation?.resume(); helloContinuation = nil }
+}
+
+@Test func cancellingConnectDuringHelloRetiresTheSocket() async throws {
+    let socket = TestSocket()
+    await socket.stallHello()
+    let client = MitzoWSClient(url: URL(string: "https://offline.invalid")!, socketFactory: { _ in socket })
+    let connection = Task { await client.connect { _ in } }
+    try await eventually { await socket.helloWaiting }
+    connection.cancel()
+    await socket.releaseHello()
+    await connection.value
+    #expect(await socket.cancelled)
+    await client.disconnect()
 }
 
 @Test func aRetiredSocketCannotWelcomeOrDisconnectItsReplacement() async throws {

@@ -4,7 +4,12 @@ import { z } from 'zod';
 import { NotificationFilter, NotificationPreferences } from '@mitzo/protocol';
 import type { NotificationCenter } from './notification-center.js';
 import { operatorAuthMiddleware } from './auth.js';
-import { getPendingSessionId, hasPending, resolvePending } from './permissions.js';
+import {
+  getPendingSessionId,
+  getPendingRequestsBySession,
+  hasPending,
+  resolvePending,
+} from './permissions.js';
 import { reconcileInbox } from './inbox-reconciliation.js';
 import {
   nativeApprovalActions,
@@ -155,6 +160,13 @@ export function notificationRouter(center: NotificationCenter): Router {
         status: 'received',
       };
       center.store.responses.begin(receipt, fingerprint);
+      log.info('Native notification response received', {
+        requestId: receipt.requestId,
+        sessionId: item.sessionId,
+        permId: item.permId,
+        nativeAction: receipt.nativeAction,
+        decision: receipt.decision,
+      });
     }
     const reject = (code: string, status = 409) => {
       if (receipt) {
@@ -183,7 +195,14 @@ export function notificationRouter(center: NotificationCenter): Router {
     if (
       body.nativeAction &&
       body.reviewed &&
-      !validNativeNotificationAction(item.request, body.nativeAction, body.decision, body.reviewed)
+      !validNativeNotificationAction(
+        getPendingRequestsBySession(item.sessionId).find(
+          (request) => request.permId === item.permId,
+        ),
+        body.nativeAction,
+        body.decision,
+        body.reviewed,
+      )
     )
       return reject('approval_scope_changed');
     if (parsed.data.decision === 'once' && item.request?.approvalScope === 'conversation')
@@ -225,6 +244,15 @@ export function notificationRouter(center: NotificationCenter): Router {
         ...(resolution ? { resolution } : { code: 'approval_settlement_unconfirmed' }),
       };
       center.store.responses.finish(receipt);
+      log.info('Native notification response settled', {
+        requestId: receipt.requestId,
+        sessionId: item.sessionId,
+        permId: item.permId,
+        nativeAction: receipt.nativeAction,
+        decision: receipt.decision,
+        status: receipt.status,
+        resolution: receipt.resolution,
+      });
       return res.json(receiptResult(receipt));
     }
     res.json({ ok: true });

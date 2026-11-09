@@ -44,6 +44,12 @@ public struct NativeApprovalReceipt: Codable, Sendable {
     public var confirmsDecision: Bool {
         status == "settled" && resolution == (decision == .deny ? "denied" : "allowed")
     }
+    public var outcomeCode: String {
+        if confirmsDecision { return "approval_confirmed" }
+        if resolution == "expired" { return "approval_expired" }
+        if status == "rejected" || resolution == "denied" { return "approval_rejected" }
+        return "approval_unconfirmed"
+    }
 }
 
 public struct BackgroundApprovalFailure: Error {
@@ -93,8 +99,7 @@ public func submitBackgroundApproval(_ action: NativeApprovalAction, using api: 
     }
     try Task.checkCancellation()
     guard action.identity.matches(receipt), receipt.confirmsDecision else {
-        throw BackgroundApprovalFailure(code: receipt.status == "rejected" || receipt.resolution == "denied"
-            ? "approval_rejected" : receipt.resolution == "expired" ? "approval_expired" : "approval_unconfirmed")
+        throw BackgroundApprovalFailure(code: action.identity.matches(receipt) ? receipt.outcomeCode : "approval_unconfirmed")
     }
     return receipt
 }

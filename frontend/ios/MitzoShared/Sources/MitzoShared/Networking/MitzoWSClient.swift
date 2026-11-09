@@ -159,11 +159,17 @@ public actor MitzoWSClient {
             // hello precedes welcome. Ordinary messages stay queued until the
             // welcome arrives; sending hello through that queue deadlocks.
             try await opened.send(.data(JSONEncoder().encode(ClientMessage.hello())))
-            guard current == generation, !Task.isCancelled else { return }
+            guard current == generation, !Task.isCancelled else {
+                if current == generation { await disconnect() }
+                return
+            }
             startReceiving(opened, generation: current)
             startHeartbeat(opened, generation: current)
         } catch {
-            guard current == generation, !Task.isCancelled else { return }
+            guard current == generation, !Task.isCancelled else {
+                if current == generation { await disconnect() }
+                return
+            }
             eventHandler?(.error(error))
             await handleDisconnect(generation: current)
         }

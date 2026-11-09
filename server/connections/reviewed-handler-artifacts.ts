@@ -10,7 +10,8 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.975-portable-git-ref-index';
+export const reviewedConnectionsRuntimeImplementationRevision =
+  'v1.0.976-ios-notification-receipts';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -22,6 +23,32 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
+  '../../docs/features/ios-notification-approval-recovery.md':
+    '50d75e6dfe5551ecfa56e623340932b36e0b66ff25f001be55738b84b4cfc404',
+  '../native-notification-action.ts':
+    'a214a9f3a589025beb2e214a56773ddd6a032893f838d0e2ecd1554f3661ab2a',
+  '../notification-response-receipts.ts':
+    '7d2cbee00670b82e8ce0ec93d21ff5bf22b063eb35c44da7fa62193f6420959e',
+  '../../scripts/__tests__/ios-scene-lifecycle.test.ts':
+    '280bfd74dd505d886cbbe9fa855eb156617418a282a77bf04765c2f3f733b226',
+  '../../frontend/ios/MitzoShared/Tests/MitzoSharedTests/MitzoWSLifecycleTests.swift':
+    '511feedf69b31f53162e215bdefb5b6e6ef4d0941ea590f1aab391049272939d',
+  '../../frontend/ios/MitzoShared/Tests/MitzoSharedTests/NativeRelayConfigurationTests.swift':
+    '83393640122164ae9aa3432afdc93e2733c294872382bb7aa38c2cae74cf09ca',
+  '../../frontend/ios/MitzoShared/Tests/MitzoSharedTests/NativeApprovalExecutionTests.swift':
+    '9f1a6db80e2f547895c8871ceac79594b26804cde128dd884d92e462672ac129',
+  '../../frontend/ios/MitzoShared/Sources/MitzoShared/Protocol/NativeApprovalAction.swift':
+    '6495ea21e6ee851f10dba655071209631f1fbf2512c173171d0a361cc736ceb6',
+  '../../frontend/ios/MitzoShared/Sources/MitzoShared/Networking/BackgroundApprovalExecution.swift':
+    '674226d041e788d722cae416be8d1b3a58f003c6e874ae0ea4e668d381da9ed8',
+  '../../frontend/ios/MitzoShared/Sources/MitzoShared/Networking/SceneForegroundReconnect.swift':
+    '36af190792991416e9680da0b6258eca866da83bf2daff87fc92f8714dc01b39',
+  '../../frontend/ios/MitzoShared/Sources/MitzoShared/Networking/NativeRelayConfiguration.swift':
+    'ee62c0e9b96a7c711038d08d76c1620cd6ae12381505f756aa3dcaec79e7629c',
+  '../../frontend/ios/MitzoShared/Sources/MitzoShared/Networking/MitzoWSClient.swift':
+    '1cea74257fe74a29893a939bd6f7e2bdda512eead3da56fb52a1bd598cb1d7d8',
+  '../../frontend/ios/App/App/WatchRelayCoordinator.swift':
+    'e214ba689346071daff115c1b1221696c1db22d59b4a5c9ea4630860eefa8cd6',
   '../codex-preparation-failure.ts':
     'be139b3b781c66f0556add892f74523ccaa5ba61343b36548f5e75f9bbd74f5f',
   '../__tests__/codex-preparation-failure.test.ts':
@@ -125,9 +152,9 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../docs/features/watch-approval-types.md':
     '08cb59068407842170f497a038fa754524992fca67b55329bae2ffccd6be196c',
   '../../frontend/ios/App/App/AppDelegate.swift':
-    '748e3e35591d35896d6522a5d940781b35a99098def9075ba9dbd411e5406fdc',
+    'a1e6811d25897491c7fae9ccf888b291e763157277e21d00c16d39e18ac5754b',
   '../../frontend/ios/MitzoShared/Sources/MitzoShared/Networking/MitzoAPIClient.swift':
-    '65f36a04df01bd5abced3ed060f7dedae67180218a68ca727f57021d9c338e4e',
+    'd28aba886b6285d109342b9981212a6a7ddfb073fb652048dcc4c6a50066d74b',
   '../../frontend/ios/MitzoShared/Sources/MitzoShared/Networking/WatchRelay.swift':
     '3f2e00517fdd47f27ee21c0e0f7edf3ebefb21a6a21fbfb1b5ac99bdd370a637',
   '../../frontend/ios/MitzoShared/Sources/MitzoShared/Protocol/BackgroundApproval.swift':
@@ -543,7 +570,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../codex-subagent-store.ts': '95ad681cfd8369251a87d297c7e10924376098768b420d79760db64bf9677e49',
   '../codex-subagents.ts': '1cc027728f3921c4ad224f3125ffb991f55520256004eab6ece9d787b5a9e3b7',
   '../__tests__/notification-routes.test.ts':
-    'ec75e73c1c175493818ce14fe3ef7bdd09379cbc3427338b2ee4e9a5269b46f4',
+    'b286b89488ddfccc23f953a46795fd227ebdee8f74d3c4752fe303aae27b374d',
   '../__tests__/symposium-review-app.test.ts':
     '7648dfe9d079c2e6ac22f4131eb47a93133dd9eee4f7ca40205b26c030278160',
   '../__tests__/notification-center.test.ts':
@@ -2067,7 +2094,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   'capabilities/approval.ts': '416b0297828af8fd7193f2ffcb3218515f9a10f649b87a0f323239a8e2fd0343',
   'capabilities/types.ts': '38d3b2474883ce8ecd37511b58fa96e3a24ff8025bf05cdc4eadc8b148627ddb',
   '../notification-center.ts': 'b33632ca8d3b9e0c0e238e8fbc0b67bbb4444e6129d724a6d5ec34ffc18f17d0',
-  '../notification-routes.ts': 'd0b35c246dc1f7369db1567415c217acd8d4b604ca7074cc65155a62011ff4d5',
+  '../notification-routes.ts': '36f3d088666f1c49913f335761f5852430c8d8d49117b057c2eced922f46ae6d',
   '../symposium-custodian-publication.ts':
     '475e37cf3b7187bcfc022054c183aed4fe6239c2d4736108f40a5abef3a4bc2a',
   '../symposium-publication-approval.ts':
@@ -2137,7 +2164,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../ws-handler-v2.ts': '8442cc4dc8c491ca3c6ec281676c5528028e4f5e6aec643e95481ca85a80f02a',
   '../briefings.ts': '277b26171abc42266a3b621ff7ab10306792764cb55bbc635e41c4ba20e98d49',
   '../home-router.ts': '744708f3503d3ef46114998ce9bb6a68b3068a3c7d57e0c264298cdb69aac982',
-  '../notification-store.ts': '7355b74da37fdfee252135fbe4900b443e15b4216368909a3ec88c348e63b69e',
+  '../notification-store.ts': 'cb3524321ae69bad53eb471b62058a3c36666bb9228ed878000a199dec10b6fc',
   '../unified-inbox.ts': '6ca474e1069e33341bfe53f87b3022372645e250beffa0d7082b138bf90911df',
   '../inbox.ts': '06abae2a6e493924b18cfe44a5afd6b6ad9c5a6180b5af429aef05aa5d127ad2',
   '../codex-queue-routes.ts': 'e01a64f37be6e7d26c57a079bc9da85af2488e77f5d0dae09c9089e8e16b6f76',

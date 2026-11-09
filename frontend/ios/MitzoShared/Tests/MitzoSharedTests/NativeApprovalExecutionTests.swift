@@ -45,13 +45,16 @@ private actor HTTPFixture {
     var loggedOut = false
     let action: NativeApprovalAction
     let item: MitzoNotification
-    init(action: NativeApprovalAction, item: MitzoNotification) { self.action = action; self.item = item }
+    let stalledFetch: StalledOperation?
+    init(action: NativeApprovalAction, item: MitzoNotification, stalledFetch: StalledOperation? = nil) {
+        self.action = action; self.item = item; self.stalledFetch = stalledFetch
+    }
     func token() throws -> String {
         tokenReads += 1
         if loggedOut { throw AuthManager.AuthError.noToken }
         return "offline-fixture"
     }
-    func send(_ request: URLRequest) throws -> (Data, URLResponse) {
+    func send(_ request: URLRequest) async throws -> (Data, URLResponse) {
         requests.append(request)
         let url = request.url!
         let body: Data
@@ -61,10 +64,39 @@ private actor HTTPFixture {
                 sessionId: action.sessionId, nativeAction: action.actionID, decision: .session, status: "settled", resolution: "allowed")
             struct Reply: Encodable { let receipt: NativeApprovalReceipt }
             body = try JSONEncoder().encode(Reply(receipt: receipt))
-        } else { body = try JSONEncoder().encode(item) }
+        } else { await stalledFetch?.wait(); body = try JSONEncoder().encode(item) }
         return (body, HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil)!)
     }
     func logout() { loggedOut = true }
+}
+
+private actor WorkCompletion {
+    private(set) var finished = false
+    func finish() { finished = true }
+}
+
+@Test func expiredNativeCallbackCannotPostAfterItsLateHTTPFetchReturns() async throws {
+    let item = try ApprovalFixture().item
+    let action = nativeAction("ALLOW_SESSION_ACTION"), stalled = StalledOperation()
+    let fixture = HTTPFixture(action: action, item: item, stalledFetch: stalled)
+    let api = MitzoAPIClient(baseURL: URL(string: "https://offline.invalid")!, currentToken: { try await fixture.token() },
+        transport: { try await fixture.send($0) })
+    let probe = CompletionProbe(), work = WorkCompletion()
+    let execution = BackgroundApprovalExecution(timeout: 2, completion: { probe.record($0) })
+    execution.start {
+        do { _ = try await submitBackgroundApproval(action, using: api) }
+        catch { await work.finish(); throw error }
+        await work.finish()
+    }
+    let deadline = Date().addingTimeInterval(1)
+    while await fixture.requests.isEmpty && Date() < deadline { try await Task.sleep(nanoseconds: 2_000_000) }
+    execution.cancel() // The native OS background-expiration handler uses this path.
+    #expect(probe.code == "approval_cancelled")
+    await stalled.release()
+    while !(await work.finished) && Date() < deadline { try await Task.sleep(nanoseconds: 2_000_000) }
+    #expect(await work.finished)
+    #expect(await fixture.requests.map(\.httpMethod) == ["GET"])
+    #expect(probe.count == 1)
 }
 
 @Test func actualNativeHTTPAdapterKeepsActionScopeIdentityAndReadsReceiptAfterLostResponse() async throws {
@@ -116,6 +148,10 @@ private actor HTTPFixture {
     let wrong = NativeApprovalReceipt(requestId: "other", notificationId: action.notificationId,
         sessionId: "s1", nativeAction: action.actionID, decision: .session, status: "settled", resolution: "allowed")
     #expect(!retained.matches(wrong))
+    let expired = NativeApprovalReceipt(requestId: action.requestId, notificationId: action.notificationId,
+        sessionId: "s1", nativeAction: action.actionID, decision: .session, status: "rejected", resolution: "expired")
+    #expect(expired.outcomeCode == "approval_expired")
+    #expect(!expired.confirmsDecision)
 }
 
 private final class CompletionProbe: @unchecked Sendable {
@@ -131,8 +167,12 @@ private final class CompletionProbe: @unchecked Sendable {
 
 private actor StalledOperation {
     var continuation: CheckedContinuation<Void, Never>?
-    func wait() async { await withCheckedContinuation { continuation = $0 } }
-    func release() { continuation?.resume(); continuation = nil }
+    private var released = false
+    func wait() async {
+        if released { return }
+        await withCheckedContinuation { continuation = $0 }
+    }
+    func release() { released = true; continuation?.resume(); continuation = nil }
 }
 
 @Test func callbackDeadlineAndExpirationCompleteOnceEvenWhenWorkIgnoresCancellation() async throws {

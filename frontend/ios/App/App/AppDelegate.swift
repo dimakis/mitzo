@@ -6,12 +6,15 @@ import OSLog
 
 @UIApplicationMain
 class AppDelegate: UIResponder, UIApplicationDelegate {
+    private static let lifecycleLog = Logger(subsystem: "com.mitzo.app", category: "lifecycle")
 
     var window: UIWindow?
-    private lazy var watchRelay = WatchRelayCoordinator()
+    // WatchConnectivity must accept background Watch wakes without opening a WS.
+    private let watchRelay = WatchRelayCoordinator()
     private let approvalDelegate = BackgroundApprovalDelegate()
 
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
+        Self.lifecycleLog.info("app_launched process=\(ProcessInfo.processInfo.processIdentifier) state=\(application.applicationState.rawValue)")
         // Background action launches may never create a scene or webview.
         UNUserNotificationCenter.current().delegate = approvalDelegate
         registerNotificationCategories()
@@ -95,7 +98,8 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
     }
 
     func applicationWillTerminate(_ application: UIApplication) {
-        // Called when the application is about to terminate. Save data if appropriate. See also applicationDidEnterBackground:.
+        // iOS does not promise this callback for a crash, jetsam or suspension.
+        Self.lifecycleLog.info("app_will_terminate process=\(ProcessInfo.processInfo.processIdentifier)")
     }
 
     func application(_ app: UIApplication, open url: URL, options: [UIApplication.OpenURLOptionsKey: Any] = [:]) -> Bool {
@@ -205,6 +209,7 @@ private class BackgroundApprovalDelegate: NSObject, UNUserNotificationCenterDele
                 reviewedToolName: info["approvalToolName"] as? String, reviewedInput: info["approvalInput"] as? String,
                 reviewedSessionGrantDescription: info["approvalSessionGrantDescription"] as? String)
             let attempt = Attempt(identity: submission.identity, origin: server.absoluteString, deliveredID: deliveredID, code: "approval_in_flight")
+            Self.log.info("approval_started request=\(submission.requestId, privacy: .public) action=\(action, privacy: .public) process=\(ProcessInfo.processInfo.processIdentifier) state=\(UIApplication.shared.applicationState.rawValue)")
             save(attempt)
             var backgroundTask: UIBackgroundTaskIdentifier = .invalid
             let execution = BackgroundApprovalExecution { result in
@@ -276,10 +281,16 @@ private class BackgroundApprovalDelegate: NSObject, UNUserNotificationCenterDele
                 let api = MitzoAPIClient(baseURL: server, authManager: AuthManager())
                 do {
                     let receipt = try await api.approvalReceipt(attempt.identity)
-                    guard attempt.identity.matches(receipt), receipt.confirmsDecision else { continue }
-                    attempt.code = "approval_confirmed"; save(attempt)
-                    UNUserNotificationCenter.current().removeDeliveredNotifications(withIdentifiers: [attempt.deliveredID, "\(attempt.deliveredID)-response-error"])
-                    Self.log.info("approval_reconciled request=\(attempt.identity.requestId, privacy: .public)")
+                    guard attempt.identity.matches(receipt) else { continue }
+                    let previous = attempt.code
+                    attempt.code = receipt.outcomeCode; save(attempt)
+                    if receipt.confirmsDecision {
+                        UNUserNotificationCenter.current().removeDeliveredNotifications(withIdentifiers: [attempt.deliveredID, "\(attempt.deliveredID)-response-error"])
+                        Self.log.info("approval_reconciled request=\(attempt.identity.requestId, privacy: .public)")
+                    } else if previous != attempt.code {
+                        showFailure(UNUserNotificationCenter.current(), deliveredID: attempt.deliveredID,
+                            info: ["notificationId": attempt.identity.notificationId, "sessionId": attempt.identity.sessionId], code: attempt.code)
+                    }
                 } catch {
                     Self.log.notice("approval_receipt_unconfirmed request=\(attempt.identity.requestId, privacy: .public) code=\(backgroundApprovalErrorCode(error), privacy: .public)")
                 }

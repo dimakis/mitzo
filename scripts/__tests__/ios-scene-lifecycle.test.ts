@@ -7,10 +7,16 @@ const app = fileURLToPath(new URL('../../frontend/ios/App/App/', import.meta.url
 
 it('keeps a background approval launch independent of the foreground Watch socket', () => {
   const source = readFileSync(`${app}AppDelegate.swift`, 'utf8');
-  const launch = source.match(/func application\([^]*?didFinishLaunchingWithOptions[^]*?return true/);
+  const launch = source.match(
+    /func application\([^]*?didFinishLaunchingWithOptions[^]*?return true/,
+  );
   expect(launch).not.toBeNull();
   expect(launch![0]).not.toContain('watchRelay.start()');
-  expect(source).toContain('private lazy var watchRelay = WatchRelayCoordinator()');
+  expect(source).toContain('private let watchRelay = WatchRelayCoordinator()');
+  const relay = readFileSync(`${app}WatchRelayCoordinator.swift`, 'utf8');
+  const initialize = relay.match(/init\(\)[^]*?\n    }/);
+  expect(initialize?.[0]).toContain('watchRelay.activate(wsClient: nil, apiClient: nil)');
+  expect(initialize?.[0]).not.toContain('connect()');
   const attach = source.match(/func attachNotificationRouter\([^]*?\n    }/);
   expect(attach?.[0]).toContain('watchRelay.start()');
 });
