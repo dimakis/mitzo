@@ -2,7 +2,7 @@ import { EventStore } from '../event-store.js';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import type { query } from '@anthropic-ai/claude-agent-sdk';
+import type { AccountInfo, query } from '@anthropic-ai/claude-agent-sdk';
 import { afterAll, afterEach, describe, expect, it, vi } from 'vitest';
 import { searchGemini, searchSdk } from '../web-search-adapters.js';
 const executionStore = new EventStore(':memory:');
@@ -64,7 +64,7 @@ describe('selected-account native search adapters', () => {
     'gates personal search input on the actual child account and retained executable; matches=%s',
     async (matches) => {
       let delivered = false;
-      const accountInfo = vi.fn(async () => ({
+      const accountInfo = vi.fn(async (): Promise<AccountInfo> => ({
         apiProvider: 'firstParty',
         email: matches ? 'person@example.test' : 'other@example.test',
         subscriptionType: 'max',

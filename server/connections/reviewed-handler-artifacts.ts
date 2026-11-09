@@ -10,7 +10,8 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.959-personal-claude-search';
+export const reviewedConnectionsRuntimeImplementationRevision =
+  'v1.0.960-personal-claude-search-test';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -2896,7 +2897,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/terminal-router.test.ts':
     '34c9754c598ab37ac996fb9f0ea2b3a2e7d63ea00c1af73d4a80e89e50b95ce9',
   '../__tests__/web-search-adapters.test.ts':
-    '165f52b6f91f5ad03f423c787a410d8fa64f168bf3de9544542e6344f2536821',
+    'cb50ec2a4384077bfa9ae9aa724a3f158b14375693643268f8db2d3a45e60566',
   '../adviser-harness-failure.ts':
     'ac311607c69114d86322ad600a9ed79b0d946d9cd6a2552c91448154b4ffd050',
   '../adviser-harness-runtime.ts':
