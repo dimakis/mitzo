@@ -164,6 +164,23 @@ it('pages interrupted results within frames and rejects incomplete or changing n
   expect(request).toHaveBeenCalledTimes(4);
   expect(guard).toHaveBeenCalledTimes(3);
 
+  // The incident includes terminal turns with 836 items; length alone must not
+  // strand their owner at the former 128-item cutoff. Keep every I/O fence.
+  let longPages = 0;
+  const longRead = vi.fn(async (method: string) =>
+    method === 'thread/turns/list'
+      ? metadata
+      : {
+          data: [{ turnId: 'turn', item: { id: String(++longPages), type: 'contextCompaction' } }],
+          nextCursor: longPages < 836 ? String(longPages) : null,
+        },
+  );
+  guard.mockClear();
+  const longResult = await observeNativeRecoveryTurn(longRead, 'app', target, true, guard);
+  expect(interruptedEffectCalls(longResult.settledEffects!, 'app', target)).toEqual([]);
+  expect(longPages).toBe(836);
+  expect(guard).toHaveBeenCalledTimes(837);
+
   for (const variant of [
     'foreign',
     'duplicate',
@@ -173,6 +190,7 @@ it('pages interrupted results within frames and rejects incomplete or changing n
     'empty',
     'changed',
     'oversized',
+    'bytes',
   ] as const) {
     let reads = 0,
       pages = 0;
@@ -188,25 +206,28 @@ it('pages interrupted results within frames and rejects incomplete or changing n
       return {
         data: [
           {
-            ...entry(variant === 'duplicate' ? 'same' : String(pages)),
+            ...entry(
+              variant === 'duplicate' ? 'same' : String(pages),
+              variant === 'bytes' ? 'x'.repeat(2_200_000) : '',
+            ),
             turnId: variant === 'foreign' ? 'other' : 'turn',
           },
         ],
         nextCursor:
           variant === 'cursor' || variant === 'duplicate'
             ? 'next'
-            : variant === 'budget'
+            : variant === 'budget' || variant === 'bytes'
               ? String(pages)
               : null,
       };
     });
     const failure = observeNativeRecoveryTurn(invalid, 'app', target, true, guard);
-    if (variant === 'budget' || variant === 'oversized')
+    if (variant === 'budget' || variant === 'oversized' || variant === 'bytes')
       await expect(failure).rejects.toMatchObject({
-        code: variant === 'budget' ? 'recovery_history_limit' : 'recovery_history_unavailable',
+        code: variant === 'oversized' ? 'recovery_history_unavailable' : 'recovery_history_limit',
       });
     else await expect(failure).rejects.toThrow();
-    expect(pages).toBeLessThanOrEqual(128);
+    expect(pages).toBeLessThanOrEqual(variant === 'bytes' ? 8 : 1024);
     expect(
       invalid.mock.calls.some(
         ([method]) => !['thread/turns/list', 'thread/items/list'].includes(method),

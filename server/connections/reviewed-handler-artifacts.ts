@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.954-session-recovery-integration';
+  'v1.0.955-bounded-long-turn-recovery';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -664,7 +664,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/components/__tests__/TelosChatRouteLayout.source.test.tsx':
     'af65704accb313d8b70a9267175983fb7a12e882bbccaa34ce19149b14a15a30',
   '../codex-interrupted-effects.ts':
-    '507734821d1412e7733ee137ef10d63e1874b3ef841b3f9906e9512b5163fcc7',
+    '588c8ed29eef84a73a2977c7556c065d2812d1f4dfe74852508ce645b636cc0e',
   '../__tests__/symposium-personal-connection-router.test.ts':
     '672b6da994f8e1d233b6c39efe477d10fb4344131b06c240826ccd4cbf16cd14',
   '../__tests__/chat-startup-metadata.test.ts':
@@ -3682,7 +3682,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/telos-source-route-diagnostics.test.ts':
     'c86ae1b37bcfaaee96a8e5e5059915ced33d87cc2b52a1c88b4707586d5e82a2',
   '../__tests__/codex-recovery-read-budget.test.ts':
-    '38033bec83cdbb69ac806b1135a43b965a93ff8de635a2aac6fef712c8c36d65',
+    '4a7ebb10d21e5f60d856aec661300e68cea540e3ea18b0fa45282ccaf4938983',
   '../__tests__/ordinary-openshell-completion-flow.test.ts':
     '0637bbc1269e21a024645eff61fa514cd67d716b6e354f9692d03172fbf31738',
   '../__tests__/fixtures/openshell-publication-effects.ts':

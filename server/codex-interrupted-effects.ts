@@ -35,7 +35,10 @@ const ItemPage = z.object({
 });
 // Bound work independently of retained history. Oversized individual items still
 // fail closed at the transport frame limit; never retry with full-turn hydration.
-const MAX_INTERRUPTED_ITEMS = 128;
+// Real retained turns in this incident contain up to 836 items. Bound both
+// the number of RPCs and aggregate inspected bytes, retaining one item/frame.
+const MAX_INTERRUPTED_ITEMS = 1024;
+const MAX_INTERRUPTED_BYTES = 16 * 1024 * 1024;
 const AppliedFileChanges = z.object({
   status: z.literal('completed'),
   changes: z.array(CodexNativeFileChange).min(1),
@@ -87,6 +90,7 @@ export async function observeNativeRecoveryTurn(
   const cursors = new Set<string>();
   let cursor: string | undefined;
   let exhausted = false;
+  let inspectedBytes = 0;
   for (let count = 0; count < MAX_INTERRUPTED_ITEMS; count++) {
     await beforeAdditionalRead();
     const page = ItemPage.parse(
@@ -98,6 +102,9 @@ export async function observeNativeRecoveryTurn(
         ...(cursor ? { cursor } : {}),
       }),
     );
+    inspectedBytes += Buffer.byteLength(JSON.stringify(page));
+    if (inspectedBytes > MAX_INTERRUPTED_BYTES)
+      throw new SessionRuntimeError('recovery_history_limit');
     if (!page.data.length && page.nextCursor !== null)
       throw Error('Interrupted native item page is incomplete');
     const entry = page.data[0];
