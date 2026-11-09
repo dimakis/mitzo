@@ -258,6 +258,58 @@ it('ends a stalled pre-send storage flush and ignores its late completion until 
     outbox.stop();
   }
 });
+
+it('reports launch-proof cleanup failure without resurrecting an accepted command', async () => {
+  const saved = disk();
+  const cause = new Error('private cleanup failure');
+  const onDeliveryDiagnostic = vi.fn();
+  const notify = vi.fn((event: Record<string, unknown>) => {
+    if (event.type === '_local_command_retired') throw cause;
+  });
+  const initial = {
+    ...command,
+    payload: {
+      ...command.payload,
+      sourceSnapshots: [
+        {
+          kind: 'briefing',
+          date: '2026-11-09',
+          revision: 'a'.repeat(64),
+          content: 'Reviewed briefing',
+        },
+      ],
+    },
+  };
+  const fetch = vi.fn().mockImplementation(async () => receipt());
+  const outbox = new SendOutbox({
+    url: '/local/send',
+    storage: saved,
+    fetch,
+    notify,
+    localFirstCommand: true,
+    onDeliveryDiagnostic,
+  });
+  outbox.start();
+  try {
+    expect(outbox.enqueue(initial, 1, 'draft')).toBe(true);
+    await vi.waitFor(() =>
+      expect(onDeliveryDiagnostic).toHaveBeenCalledWith(
+        expect.objectContaining({
+          diagnostic: expect.objectContaining({ stage: 'cleanup', code: 'cleanup_failed' }),
+        }),
+        cause,
+      ),
+    );
+    expect(JSON.parse(saved.getItem()!)).toEqual([]);
+    expect(notify).toHaveBeenCalledWith(
+      expect.objectContaining({ state: 'consumed', acknowledged: true }),
+    );
+    expect(notify).not.toHaveBeenCalledWith(expect.objectContaining({ state: 'uncertain' }));
+    expect(fetch).toHaveBeenCalledOnce();
+  } finally {
+    outbox.stop();
+  }
+});
 it('shows a reviewed pre-admission failure without manufacturing a receipt or acknowledging delivery', async () => {
   const saved = disk();
   const runtimeFailure = {

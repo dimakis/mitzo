@@ -621,7 +621,10 @@ export class SendOutbox {
           cause,
         );
         if (receiptConfirmed || this.activeLocalEntry !== entry)
-          this.notifyLocal(entry, 'uncertain');
+          this.notifyLocal(
+            entry,
+            receiptConfirmed ? 'uncertain' : (this.localStates.get(entry) ?? 'uncertain'),
+          );
       }
     } finally {
       if (timer) clearTimeout(timer);
@@ -682,8 +685,14 @@ export class SendOutbox {
       try {
         // Sensitive launch proof can retire only after the outbox removal is durable.
         this.config.notify({ type: '_local_command_retired', clientMsgId: entry.body.clientMsgId });
-      } catch {
-        // Cleanup failure cannot resurrect admitted work or overwrite its success.
+      } catch (cause) {
+        // Cleanup failure is observable without resurrecting admitted work.
+        this.deliveryFailure(
+          entry,
+          { operation: 'receipt', stage: 'cleanup', startedAt: Date.now() },
+          'cleanup_failed',
+          cause,
+        );
       }
     }
     // Exact consumed acceptance releases only this original HTTP wait. Its
@@ -801,6 +810,7 @@ export class SendOutbox {
             cause: this.persistenceCause,
           });
         if (this.config.storage?.flush) await this.flushLocal(attempt);
+        attempt.stage = 'handoff';
         this.notifyLocal(
           entry,
           'retained',

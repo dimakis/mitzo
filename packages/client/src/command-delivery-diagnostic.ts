@@ -3,7 +3,7 @@ import { z } from 'zod';
 /** Display/telemetry evidence only. Never a receipt or permission to dispatch. */
 export const CommandDeliveryDiagnosticSchema = z.strictObject({
   operation: z.enum(['submit', 'receipt']),
-  stage: z.enum(['storage', 'request', 'response', 'handoff']),
+  stage: z.enum(['storage', 'request', 'response', 'handoff', 'cleanup']),
   code: z.enum([
     'storage_failed',
     'storage_timeout',
@@ -15,6 +15,7 @@ export const CommandDeliveryDiagnosticSchema = z.strictObject({
     'http_rejected',
     'runtime_failed',
     'handoff_failed',
+    'cleanup_failed',
   ]),
   httpStatus: z.number().int().min(100).max(599).optional(),
   startedAt: z.number().int().nonnegative(),

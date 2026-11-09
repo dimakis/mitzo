@@ -84,6 +84,45 @@ it('keeps an unconfirmed receipt diagnostic across reconnect until the original 
   }
 });
 
+it('preserves a known retained reservation and its original failure when a receipt read loses transport', async () => {
+  const { outbox, fetch, notify, retained } = setup();
+  fetch.mockResolvedValue(
+    Response.json(
+      {
+        ok: false,
+        code: 'retained_command',
+        error: 'Local Codex entry unavailable',
+        clientMsgId: command.clientMsgId,
+        sessionId: command.sessionId,
+        state: 'reserved',
+      },
+      { status: 409 },
+    ),
+  );
+  outbox.start();
+  try {
+    outbox.enqueue(command, 1);
+    await vi.waitFor(() =>
+      expect(notify).toHaveBeenLastCalledWith(expect.objectContaining({ state: 'retained' })),
+    );
+    fetch.mockRejectedValue(new TypeError('receipt connection lost'));
+    await outbox.reconcileLocalCommand(command.clientMsgId);
+    expect(notify).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        state: 'retained',
+        deliveryDiagnostic: expect.objectContaining({
+          operation: 'submit',
+          code: 'runtime_failed',
+        }),
+      }),
+    );
+    expect(retained()[0].localReceipt).toEqual({ sessionId: command.sessionId, state: 'reserved' });
+    expect(fetch).toHaveBeenCalledTimes(2);
+  } finally {
+    outbox.stop();
+  }
+});
+
 it('rechecks a receipt hint received while the previous read was still pending', async () => {
   const { outbox, fetch, notify, retained } = setup(true);
   let finish!: (value: Response) => void;
