@@ -310,6 +310,53 @@ it('reports launch-proof cleanup failure without resurrecting an accepted comman
     outbox.stop();
   }
 });
+
+it('keeps a later storage refusal distinct from an already completed request deadline', async () => {
+  vi.useFakeTimers();
+  const cause = new Error('private quota failure');
+  const storage = {
+    ...disk(),
+    flush: vi
+      .fn()
+      .mockResolvedValueOnce(undefined)
+      .mockImplementationOnce(
+        () => new Promise<void>((_resolve, reject) => setTimeout(() => reject(cause), 2000)),
+      ),
+  };
+  const fetch = vi.fn(
+    () => new Promise<Response>((resolve) => setTimeout(() => resolve(receipt()), 14_000)),
+  );
+  const notify = vi.fn();
+  const onDeliveryDiagnostic = vi.fn();
+  const outbox = new SendOutbox({
+    url: '/local/send',
+    storage,
+    fetch,
+    notify,
+    localFirstCommand: true,
+    timeoutMs: 15_000,
+    onDeliveryDiagnostic,
+  });
+  outbox.start();
+  try {
+    outbox.enqueue(command, 1, 'draft');
+    await vi.advanceTimersByTimeAsync(16_001);
+    expect(onDeliveryDiagnostic).toHaveBeenCalledWith(
+      expect.objectContaining({
+        diagnostic: expect.objectContaining({
+          code: 'storage_failed',
+          stage: 'storage',
+          httpStatus: 202,
+        }),
+      }),
+      cause,
+    );
+    expect(fetch).toHaveBeenCalledOnce();
+    expect(JSON.parse(storage.getItem()!)[0].localReceipt.state).toBe('consumed');
+  } finally {
+    outbox.stop();
+  }
+});
 it('shows a reviewed pre-admission failure without manufacturing a receipt or acknowledging delivery', async () => {
   const saved = disk();
   const runtimeFailure = {

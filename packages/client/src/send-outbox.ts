@@ -571,6 +571,8 @@ export class SendOutbox {
           }, 15_000);
         }),
       ]);
+      if (timer) clearTimeout(timer);
+      timer = undefined;
       if (generation !== this.generation || !this.active || !this.entries.includes(entry)) return;
       const receipt = LocalCodexFirstCommandReceiptSchema.safeParse(raw);
       if (
@@ -772,6 +774,8 @@ export class SendOutbox {
           }, this.config.timeoutMs ?? ORDINARY_COMMAND_RECEIPT_TIMEOUT_MS);
         }),
       ]);
+      if (timeout) clearTimeout(timeout);
+      timeout = undefined;
       if (generation !== this.generation || !this.entries.includes(entry)) return;
       const success = LocalCodexFirstCommandReceiptSchema.safeParse(raw);
       const observation = OrdinaryCodexRetainedCommandObservationSchema.safeParse(raw);
