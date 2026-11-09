@@ -7,7 +7,7 @@ import type { ManagedSession } from './session-registry.js';
 import { loadAccountProfiles } from './account-profiles.js';
 import { privateCodexPathSnapshot } from './codex-private-path.js';
 import {
-  workspaceRuntimeAuthorityPaths,
+  workspaceRuntimeNativeAuthorityPaths,
   workspaceRuntimeSelectorEntries,
 } from './workspace-runtime-private-paths.js';
 import { codexNativeExecutionPolicy } from './codex-native-execution-policy.js';
@@ -84,7 +84,7 @@ export function composeOwnedLocalNativeExecutionPolicyForWorkspace(
     })
   )
     throw Error('Native workspace contains a runtime authority selector');
-  const writeProtectedRoots = [...workspaceRuntimeAuthorityPaths(), ...selectors].filter(
+  const writeProtectedRoots = workspaceRuntimeNativeAuthorityPaths().filter(
     (path) => !privatePaths.isPrivate(path),
   );
   const policy = codexNativeExecutionPolicy({

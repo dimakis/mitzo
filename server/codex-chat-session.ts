@@ -3639,7 +3639,21 @@ async function openCodexChatBound(
         }
       }
       if (localHistoryDefinitions.some((tool) => tool.name === name)) {
-        const context = captureNativeContext();
+        let context: ReturnType<typeof captureNativeContext>;
+        try {
+          context = captureNativeContext();
+        } catch (error) {
+          // No history adapter has run at this boundary. A refused original
+          // policy is not an unknown external effect requiring reconciliation.
+          if (!(error instanceof NativeExecutionPolicyChangedError)) throw error;
+          const failure = new CodexToolFailure('stale_owner', {
+            stage: 'tool_execution',
+            reason: 'custody_changed',
+            effectStatus: 'not_started',
+          });
+          failure.cause = error;
+          throw failure;
+        }
         try {
           const tools = sessionHistoryTools({
             store: options.eventStore,
