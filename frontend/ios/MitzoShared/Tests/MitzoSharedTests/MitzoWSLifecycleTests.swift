@@ -81,12 +81,37 @@ private actor TestSocket: MitzoWebSocket {
 private actor SocketFactory {
     let sockets: [TestSocket]
     private(set) var count = 0
-    init(_ sockets: [TestSocket]) { self.sockets = sockets }
-    func make() -> any MitzoWebSocket {
+    let gate: FactoryGate?
+    init(_ sockets: [TestSocket], gate: FactoryGate? = nil) { self.sockets = sockets; self.gate = gate }
+    func make() async -> any MitzoWebSocket {
         let socket = sockets[min(count, sockets.count - 1)]
         count += 1
+        if count == 1 { await gate?.wait() }
         return socket
     }
+}
+
+private actor FactoryGate {
+    private var continuation: CheckedContinuation<Void, Never>?
+    private(set) var waiting = false
+    func wait() async { waiting = true; await withCheckedContinuation { continuation = $0 } }
+    func release() { continuation?.resume(); continuation = nil }
+}
+
+@Test func cancellingSocketCreationAllowsAnotherConnect() async throws {
+    let first = TestSocket(), second = TestSocket(), gate = FactoryGate()
+    let factory = SocketFactory([first, second], gate: gate)
+    let client = MitzoWSClient(url: URL(string: "https://offline.invalid")!, socketFactory: { _ in await factory.make() })
+    let connection = Task { await client.connect { _ in } }
+    try await eventually { await gate.waiting }
+    connection.cancel()
+    await gate.release()
+    await connection.value
+    #expect(await first.cancelled)
+    await client.connect { _ in }
+    try await eventually { await second.sent.count == 1 }
+    await client.disconnect()
+    await second.fail()
 }
 
 private func eventually(_ predicate: () async -> Bool) async throws {

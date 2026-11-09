@@ -150,7 +150,11 @@ public actor MitzoWSClient {
         eventHandler?(.stateChanged(.connecting))
 
         let opened = await socketFactory(url)
-        guard current == generation, !Task.isCancelled else { await opened.cancel(); return }
+        guard current == generation, !Task.isCancelled else {
+            if current == generation { await disconnect() }
+            await opened.cancel()
+            return
+        }
         socket = opened
         await opened.resume()
 
