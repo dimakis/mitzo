@@ -108,8 +108,14 @@ function saveDraft(key: string, text: string, preserveEmpty = false): boolean {
     if (!allowComposerDraftPersistence(key)) return false;
     const id = chatDraftIdFromKey(key);
     if (id) {
-      if (!text && !preserveEmpty) return deleteChatDraft(id);
-      else {
+      if (!text && !preserveEmpty) {
+        const draft = getChatDraft(id);
+        // A shared composer outlives one accepted prompt. Keep recipient intent
+        // and the original send observation fence while clearing its contents.
+        if (draft?.settings.collaborationResponders || draft?.collaborationSend)
+          return saveChatDraft({ ...draft, text: '', images: [], contextBlocks: [] });
+        return deleteChatDraft(id);
+      } else {
         const draft = getChatDraft(id);
         if (draft) return saveChatDraft({ ...draft, text });
       }

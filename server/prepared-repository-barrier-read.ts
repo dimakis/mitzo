@@ -1,5 +1,7 @@
-import type { CodexNativeExecutionPolicy } from './codex-native-execution-policy.js';
-import { isDeepStrictEqual } from 'node:util';
+import {
+  assertNativeExecutionCurrent,
+  type CodexNativeExecutionPolicy,
+} from './codex-native-execution-policy.js';
 
 /** Private host-internal admission action. Historical native call identities are
  * deliberately absent: this action is owned by the live selected policy and
@@ -63,7 +65,8 @@ export async function withPreparedRepositoryBarrierReadScope<T>(
       unavailable();
     assertSync(Reflect.apply(originalCurrent, owners, []));
     const current = Reflect.apply(originalSelected, owners, []);
-    if (!Object.isFrozen(current) || !isDeepStrictEqual(current, policy)) unavailable();
+    if (!Object.isFrozen(current)) unavailable();
+    assertNativeExecutionCurrent(policy, current);
     assertSync(
       originalNativeCurrent
         ? Reflect.apply(originalNativeCurrent, owners, [policy, sourceCommandId])

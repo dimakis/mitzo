@@ -15,6 +15,31 @@ import { createChatRuntimeSelection } from '../chat-runtime-selection';
 beforeEach(() => localStorage.clear());
 afterEach(() => vi.restoreAllMocks());
 describe('saved new-chat drafts', () => {
+  it('keeps shared drafts and their uncertain requests out of ordinary discovery and discard', () => {
+    const draft = { ...createChatDraft(), text: 'Retained shared request' };
+    const collaborationId = '00000000-0000-4000-8000-000000000001';
+    const responders = { kind: 'selected' as const, sessionIds: ['reviewer'] };
+    const shared = {
+      ...draft,
+      settings: { ...draft.settings, collaborationResponders: { collaborationId, responders } },
+      collaborationSend: {
+        collaborationId,
+        authScope: 'login',
+        input: {
+          requestId: '00000000-0000-4000-8000-000000000002',
+          expectedMembershipRevision: 1,
+          expectedPolicySequence: 0,
+          text: draft.text,
+          responders,
+          snapshot: null,
+        },
+      },
+    };
+    expect(saveChatDraft(shared)).toBe(true);
+    expect(listChatDrafts()).toEqual([]);
+    expect(deleteChatDraft(shared.id)).toBe(false);
+    expect(getChatDraft(shared.id)?.collaborationSend).toEqual(shared.collaborationSend);
+  });
   it('retains execution intent and exact capability revision without migrating legacy drafts', () => {
     const legacy = { ...createChatDraft(), text: 'Legacy draft' };
     saveChatDraft(legacy);

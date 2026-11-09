@@ -1586,6 +1586,15 @@ as a frozen server review. Exact artifact selection, joining-brief confirmation,
 ordinary allocation/delivery and full shared-conversation composition remain later
 integration work. Opening setup and previews does not call a model.
 
+The 7 November shared-composer candidate connects ordinary collaboration owners
+to these controls. After joining, it retains ordinary history and adds the shared
+`CollaborationTranscript` and existing `ChatInput`. It uses the existing tokens,
+focus/motion behavior and Agents dialog; no new visual variant is introduced.
+The bounded text-only route requires one explicit @ responder and current server
+readiness. Refusal leaves the draft editable; uncertain delivery exposes Check
+original request. Rendered acceptance of this integration remains outstanding.
+The approved fresh-agent ledger and reference images retain their accepted bytes.
+
 The all-intercept `symposium-approved-design` fixture renders the actual mobile /
 desktop chat screens with simulated data. It checks WebKit, mobile Chromium and
 desktop Chromium, 320/390/1280px, light/dark, Mint/Georgia and Teal/System,

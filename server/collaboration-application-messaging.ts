@@ -16,6 +16,9 @@ import {
 } from './collaboration-ordinary-replies.js';
 import { compileCollaborationContext } from './collaboration-context-compiler.js';
 import { createCollaborationContextSource } from './collaboration-context-source.js';
+import { createLogger } from './logger.js';
+
+const log = createLogger('collaboration-messaging');
 
 /** Composes group intent with the existing ordinary dispatcher. The collaboration
  * owns recipient receipts; the ordinary command ledger alone proves execution.
@@ -29,6 +32,112 @@ export class ApplicationCollaborationMessaging {
   private current(auth: AuthSession, signal?: AbortSignal) {
     signal?.throwIfAborted();
     if (!isAuthSessionCurrent(auth)) throw new CollaborationContractError('execution_unavailable');
+  }
+
+  async recipientReadiness(
+    auth: AuthSession,
+    group: string,
+    sessionId: string,
+    signal: AbortSignal,
+  ) {
+    this.current(auth, signal);
+    const view = this.store.collaborationConversation.view(group);
+    const result = (reason: string | null) => ({
+      collaborationId: group,
+      sessionId,
+      membershipRevision: view.membershipRevision,
+      policySequence: view.policySequence,
+      ready: reason === null,
+      reason,
+    });
+    try {
+      if (
+        !view.participantSessionIds.includes(sessionId) ||
+        view.unavailableParticipantSessionIds.includes(sessionId)
+      )
+        return result(
+          'This participant is unavailable. Refresh Agents and choose a current participant.',
+        );
+      if (view.hasEarlierMessages)
+        return result('Choose narrower context before sending this discussion.');
+      if (!this.port.inspectCollaboration) return result('Ordinary group delivery is unavailable.');
+      const settings = this.store.getOrdinaryConversationSettings(sessionId);
+      if (
+        !settings ||
+        settings.binding.harness.implementation !== 'codex' ||
+        settings.binding.execution.location !== 'local'
+      )
+        return result('Choose a repository-backed Local Codex participant.');
+      const context = await this.joiningContext(auth, group, sessionId, settings, signal);
+      for (const reader of view.policies.filter(
+        (p) => p.readsFutureDiscussion && p.sessionId !== sessionId,
+      )) {
+        const readerSettings = this.store.getOrdinaryConversationSettings(reader.sessionId);
+        if (
+          !readerSettings ||
+          readerSettings.binding.harness.implementation !== 'codex' ||
+          readerSettings.binding.execution.location !== 'local' ||
+          view.unavailableParticipantSessionIds.includes(reader.sessionId)
+        )
+          return result(
+            'Review discussion sharing in Agents. A context reader is unavailable on this route.',
+          );
+      }
+      const preparation = this.store.getOrdinarySessionPreparationForConversation(sessionId);
+      await this.port.inspectCollaboration({
+        auth,
+        sessionId,
+        settings,
+        commandId: 'readiness-only',
+        text: '',
+        ...(preparation?.firstCommandId === null
+          ? { preparationOperationId: preparation.allocationOperationId }
+          : {}),
+      });
+      context.assertCurrent();
+      const current = this.store.collaborationConversation.view(group);
+      if (
+        current.membershipRevision !== view.membershipRevision ||
+        current.policySequence !== view.policySequence ||
+        !isDeepStrictEqual(this.store.getOrdinaryConversationSettings(sessionId), settings)
+      )
+        return result('The participant changed. Refresh before sending.');
+      return result(null);
+    } catch (cause) {
+      this.current(auth, signal);
+      log.warn('Could not verify collaboration recipient readiness', {
+        err: cause,
+        code: 'collaboration_recipient_readiness_failed',
+        stage: 'recipient_readiness',
+        collaborationId: group,
+        sessionId,
+      });
+      return result(
+        'The participant needs attention. Refresh Agents and review its account, context and ordinary session.',
+      );
+    }
+  }
+
+  /** Observe the original request and exact durable execution; never infer
+   * completion from a disconnected transport or a missing assistant message. */
+  observe(auth: AuthSession, group: string, raw: unknown) {
+    this.current(auth);
+    const input = CollaborationMessageInputSchema.parse(raw);
+    this.reconcile(auth, group);
+    const message = this.store.collaborationConversation.getMessageForRequest(group, input) ?? null;
+    const replies = message?.deliveries.filter((d) => d.purpose === 'reply') ?? [];
+    const terminal =
+      replies.length > 0 &&
+      replies.every((delivery) => {
+        // The retained receipt owns this observation after a participant leaves.
+        // Its exact command may be terminal without allowing transcript reads
+        // or a new dispatch to that now-unavailable recipient.
+        if (!delivery.commandId) return false;
+        const command = this.store.getSendCommand(delivery.commandId);
+        if (command?.sessionId !== delivery.sessionId) return false;
+        return !!this.store.getOrdinaryProviderTurnTerminal(delivery.sessionId, delivery.commandId);
+      });
+    return { message, terminal };
   }
 
   private async joiningContext(
@@ -325,7 +434,15 @@ export class ApplicationCollaborationMessaging {
           signal,
           assertCurrent,
         );
-      } catch {
+      } catch (cause) {
+        log.warn('Ordinary collaboration delivery needs reconciliation', {
+          err: cause,
+          code: 'collaboration_delivery_uncertain',
+          stage: 'ordinary_delivery',
+          collaborationId: group,
+          sessionId: delivery.sessionId,
+          commandId,
+        });
         for (const shared of history) {
           const ref = this.store.collaborationConversation
             .getMessage(group, shared.messageId)!
@@ -402,6 +519,10 @@ export class ApplicationCollaborationMessaging {
           command?.sessionId === delivery.sessionId &&
           this.store.readOrdinaryCommandExecutionEvidence(delivery.commandId);
         if (!execution || execution.state === 'reserved') continue;
+        // Admission can precede the first persisted user/assistant event.
+        // An empty stream has no finalized reply to inspect yet.
+        if (this.store.getSessionPredecessorSeq(delivery.sessionId, Number.MAX_SAFE_INTEGER) === 0)
+          continue;
         let transcript: ReturnType<EventStore['getDurableSessionTranscript']>;
         try {
           transcript = this.store.getDurableSessionTranscript(delivery.sessionId);

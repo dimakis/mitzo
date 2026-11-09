@@ -103,7 +103,7 @@ export function sessionTaskExecutionTools(options: {
             .active(captured.auth.id, sessionId)
             .filter((grant) => {
               try {
-                currentTaskCapabilityConsent(registry, grant, sessionId).assertCurrent();
+                currentTaskCapabilityConsent(registry, grant).assertCurrent();
                 return true;
               } catch {
                 return false;
@@ -251,7 +251,7 @@ export function sessionTaskExecutionTools(options: {
             memberScope(sessionId, session).fingerprint,
           );
           if (input.operation !== 'revoke')
-            currentTaskCapabilityConsent(registry, authorized, sessionId).assertCurrent();
+            currentTaskCapabilityConsent(registry, authorized).assertCurrent();
           return authorized;
         };
         const grant = assertGrant();
@@ -270,10 +270,7 @@ export function sessionTaskExecutionTools(options: {
           clientId: current().clientId,
           call,
           store,
-          signal: AbortSignal.any([
-            signal,
-            currentTaskCapabilityConsent(registry, grant, sessionId).signal,
-          ]),
+          signal: AbortSignal.any([signal, currentTaskCapabilityConsent(registry, grant).signal]),
           assertGrant,
           assertRuntimeCurrent: options.assertRuntimeCurrent,
           onDispatch: () => {

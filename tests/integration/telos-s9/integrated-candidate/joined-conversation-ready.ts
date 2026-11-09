@@ -17,7 +17,10 @@ export async function waitForPreparedConversation(
       if (
         response.path !== `/api/sessions/${sessionId}/${suffix}` ||
         response.status !== 200 ||
-        typeof response.body !== 'string'
+        typeof response.body !== 'string' ||
+        // Older journey observers retain this exact marker for a cancelled body.
+        // It cannot satisfy readiness; actual malformed JSON still fails below.
+        response.body === '<stream>'
       )
         return [];
       return [JSON.parse(response.body)];

@@ -21,6 +21,9 @@ export function recoverableLocalCodexCommand(
   const meta = events.getSession(sessionId);
   if (!meta?.accountBinding) return undefined;
   try {
+    // Saved-input recovery cannot settle a predecessor. Leave the queue action
+    // to the effects-reconciliation owner before considering later inputs.
+    if (native.continuationBlocker(sessionId, meta.accountBinding)) return undefined;
     for (const commandId of native.undispatchedRecoveryCandidateIds(
       sessionId,
       meta.accountBinding,

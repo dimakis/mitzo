@@ -9,6 +9,7 @@ import {
 const log = createLogger('session-prompts');
 
 export interface SessionPromptPort {
+  maintenanceHeld?(): boolean;
   sessions?(auth: AuthSession): Promise<Array<{ sessionId: string; title: string }>>;
   authorized(auth: AuthSession): boolean;
   inspect(sessionId: string, auth: AuthSession): Promise<{ busy: boolean }>;
@@ -123,6 +124,7 @@ export class SessionPromptService {
     }
   }
   private async run() {
+    if (this.port.maintenanceHeld?.()) return;
     // Reconcile retained uncertain delivery even after a timer has been paused.
     for (const delivery of this.store.deliveries(['dispatching', 'uncertain'])) {
       if (this.receipt(delivery) === 'accepted') this.store.finish(delivery.id, 'accepted', null);
@@ -198,7 +200,7 @@ export class SessionPromptService {
       current();
       const { busy } = await this.port.inspect(delivery.recipientSessionId, delivery.auth);
       current();
-      if (busy) return;
+      if (busy || this.port.maintenanceHeld?.()) return;
       claimed = this.store.claim(delivery.id);
       if (!claimed) return;
       current();

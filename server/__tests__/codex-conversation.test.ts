@@ -324,7 +324,19 @@ it.each([false, true])(
       }
       return original(method, params);
     });
-    f.callbacks.onNotification('thread/started', { thread: child });
+    if (owned)
+      f.callbacks.onNotification('item/completed', {
+        threadId: f.getProviderThread(),
+        turnId: 'turn-1',
+        item: {
+          type: 'subAgentActivity',
+          id: 'spawn',
+          kind: 'started',
+          agentThreadId: 'child',
+          agentPath: '/root/reviewer',
+        },
+      });
+    else f.callbacks.onNotification('thread/started', { thread: child });
     f.callbacks.onNotification('turn/started', { threadId: 'child', turn: { id: 'child-turn' } });
     await f.c.getSubagents()!.settled();
     if (wrapped) {
@@ -8043,6 +8055,175 @@ it('claims an exact accepted target once and reconciles its original interruptio
     first.status === 'claimed' ? first.receipt : undefined,
   );
 });
+it('holds new native FIFO claims without blocking the current terminal evidence', async () => {
+  const f = await setup();
+  await f.c.send({ id: 'before-deployment', prompt: 'First' });
+  const target = f.c.captureInterruptTarget()!;
+  f.conversationOptions.canStartCommand = () => false;
+  await f.c.enqueue({ id: 'saved-followup', prompt: 'Keep this queued input' });
+  expect(f.c.deploymentTurnSettled(target)).toBe(false);
+  f.callbacks.onNotification('turn/completed', {
+    threadId: target.threadId,
+    turn: { id: target.turnId, status: 'completed' },
+  });
+  await vi.waitFor(() => expect(f.c.deploymentTurnSettled(target)).toBe(true));
+  expect(f.requests.filter((r) => r.method === 'turn/start')).toHaveLength(1);
+  expect(f.c.queue().find((command) => command.id === 'saved-followup')?.status).toBe('queued');
+  f.conversationOptions.canStartCommand = () => true;
+  await f.c.startQueued();
+  expect(f.requests.filter((r) => r.method === 'turn/start')).toHaveLength(2);
+});
+it('refuses deployment settlement for an interrupted native command with unknown effects', async () => {
+  const f = await setup();
+  await f.c.send({ id: 'deployment-command', prompt: 'Existing task' });
+  const target = f.c.captureInterruptTarget()!;
+  f.callbacks.onNotification('turn/completed', {
+    threadId: target.threadId,
+    turn: { id: target.turnId, status: 'interrupted' },
+  });
+  await vi.waitFor(() => expect(f.c.deploymentTurnSettled(target)).toBe(true));
+  const original = f.rpc.request.getMockImplementation()!;
+  f.rpc.request.mockImplementation(async (method, params) =>
+    method === 'thread/turns/list' || method === 'thread/items/list'
+      ? recoveryPage(method, params, {
+          id: target.turnId,
+          status: 'interrupted',
+          error: null,
+          itemsView: 'full',
+          items: [
+            { type: 'commandExecution', id: 'still-running', status: 'inProgress', exitCode: null },
+          ],
+        })
+      : original(method, params),
+  );
+  await expect(f.c.observeDeploymentSettlement(target, () => {})).rejects.toThrow(
+    /effects remain unknown/,
+  );
+  expect(f.requests.filter(({ method }) => method === 'turn/start')).toHaveLength(1);
+  expect(f.store.read('app', f.getBinding()).recovery).toBe(1);
+});
+it('retains cold parent uncertainty in the global deployment inventory after transport retirement', async () => {
+  const f = await setup();
+  await f.c.send({ id: 'cold-deployment-effect', prompt: 'Original task' });
+  f.c.close();
+  expect(f.store.hasRunningCommands()).toBe(false);
+  expect(f.store.deploymentRecoveryPending()).toBe(true);
+  expect(f.store.deploymentRecoveryPending(['app'])).toBe(false);
+});
+it('blocks a cold returned unknown host receipt without phase or ambiguity and ignores generic acknowledgement', async () => {
+  const f = await setup();
+  await f.c.send({ id: 'legacy-unknown', prompt: 'Original retained task' });
+  const target = f.c.captureInterruptTarget()!;
+  const identity = {
+    turnId: target.turnId,
+    toolName: 'Read',
+    requestHash: createHash('sha256').update('{}').digest('hex'),
+  };
+  f.store.claimTool('app', f.getBinding(), target.commandId, 'returned-unknown', identity);
+  f.store.recordToolResult(
+    'app',
+    f.getBinding(),
+    target.commandId,
+    'returned-unknown',
+    identity,
+    retainCallbackOutcome({ content: 'Original returned outcome', isError: true }, 'unknown'),
+  );
+  f.callbacks.onNotification('turn/completed', {
+    threadId: target.threadId,
+    turn: { id: target.turnId, status: 'interrupted' },
+  });
+  f.c.close();
+  // Retained sources can lack these convenience flags. The original receipt,
+  // not a reconstructed phase or generic acknowledgement, owns its uncertainty.
+  const db = (f.store as unknown as { db: Database.Database }).db;
+  db.prepare(
+    "UPDATE codex_commands SET status='interrupted',completion_phases=NULL,ambiguous=0 WHERE conversation_id='app' AND id=?",
+  ).run(target.commandId);
+  expect(f.store.hasRunningCommands()).toBe(false);
+  f.store.acknowledgeRecovery('app', f.getBinding());
+  expect(f.store.deploymentRecoveryPending()).toBe(true);
+  expect(
+    db
+      .prepare(
+        "SELECT result_content,result_effect_outcome FROM codex_tools WHERE call_id='returned-unknown'",
+      )
+      .get(),
+  ).toEqual({ result_content: 'Original returned outcome', result_effect_outcome: 'unknown' });
+});
+it('records only fresh original settlement facts and invalidates them when receipts change', async () => {
+  const f = await setup();
+  await f.c.send({ id: 'proved-deployment', prompt: 'Original task' });
+  const target = f.c.captureInterruptTarget()!;
+  await f.callbacks.onRequest(
+    'item/tool/call',
+    {
+      threadId: target.threadId,
+      turnId: target.turnId,
+      callId: 'known-read',
+      tool: 'Read',
+      arguments: {},
+    },
+    new AbortController().signal,
+  );
+  f.callbacks.onNotification('turn/completed', {
+    threadId: target.threadId,
+    turn: { id: target.turnId, status: 'interrupted' },
+  });
+  await vi.waitFor(() => expect(f.c.deploymentTurnSettled(target)).toBe(true));
+  const request = f.rpc.request.getMockImplementation()!;
+  f.rpc.request.mockImplementation(async (method, params) =>
+    method === 'thread/turns/list' || method === 'thread/items/list'
+      ? recoveryPage(method, params, {
+          id: target.turnId,
+          status: 'interrupted',
+          error: null,
+          itemsView: 'full',
+          items: [
+            {
+              type: 'dynamicToolCall',
+              id: 'known-read',
+              tool: 'Read',
+              arguments: {},
+              status: 'completed',
+              success: true,
+            },
+          ],
+        })
+      : request(method, params),
+  );
+  const db = (f.store as unknown as { db: Database.Database }).db;
+  await expect(
+    f.c.observeDeploymentSettlement(target, () => {
+      throw Error('Revoked');
+    }),
+  ).rejects.toThrow('Revoked');
+  expect(db.prepare('SELECT count(*) AS n FROM codex_effect_settlements').get()).toEqual({ n: 0 });
+  expect(() =>
+    f.store.assertDeploymentHostEffects(
+      'app',
+      f.getBinding(),
+      target,
+      undefined,
+      {} as never,
+      () => {},
+    ),
+  ).toThrow(/observation/);
+  expect(db.prepare('SELECT count(*) AS n FROM codex_effect_settlements').get()).toEqual({ n: 0 });
+  let checkedUnderLock = false;
+  expect(
+    await f.c.observeDeploymentSettlement(target, () => {
+      checkedUnderLock ||= db.inTransaction;
+    }),
+  ).toBe(true);
+  expect(checkedUnderLock).toBe(true);
+  expect(db.prepare('SELECT count(*) AS n FROM codex_effect_settlements').get()).toEqual({ n: 1 });
+  // A late or altered original result cannot borrow the earlier positive fact.
+  db.prepare(
+    "UPDATE codex_tools SET result_effect_outcome='unknown' WHERE call_id='known-read'",
+  ).run();
+  expect(f.store.deploymentRecoveryPending()).toBe(true);
+  expect(f.execute).toHaveBeenCalledOnce();
+});
 it('refuses a retired target before pausing or cancelling the successor', async () => {
   const f = await setup();
   await f.c.send({ id: 'target-a', prompt: 'First' });
@@ -9224,6 +9405,7 @@ it.each(
     ]);
     expect(f.requests.filter(({ method }) => method === 'turn/start')).toHaveLength(1);
     expect(f.store.read('app', f.getBinding()).recovery).toBe(0);
+    expect(f.store.deploymentRecoveryPending()).toBe(false);
     expect(f.store.completionPhase('app', f.getBinding(), 'uncertain-native', 1)?.status).toBe(
       'completed',
     );
@@ -9346,25 +9528,28 @@ it('keeps interrupted effects fenced for incomplete snapshots and unmatched dura
     expect(f.requests.filter(({ method }) => method === 'turn/start')).toHaveLength(0);
   }
   db.prepare("UPDATE codex_tools SET result_is_error=0,result_effect_outcome='settled'").run();
+  const frameFailure = new CodexTransportError('protocol', {
+    reason: 'frame_too_large',
+    frameBytes: 4_194_305,
+    limitBytes: 4_194_304,
+  });
   f.rpc.request.mockImplementation(async (method, params) => {
-    if (method === 'thread/items/list')
-      throw new CodexTransportError('protocol', {
-        reason: 'frame_too_large',
-        frameBytes: 4_194_305,
-        limitBytes: 4_194_304,
-      });
+    if (method === 'thread/items/list') throw frameFailure;
     return method === 'thread/turns/list'
       ? recoveryPage(method, params, turn)
       : request(method, params);
   });
-  await expect(f.c.acknowledgeRecovery()).rejects.toThrow(CodexTransportError);
+  const recoveryError = await f.c.acknowledgeRecovery().catch((error: unknown) => error);
+  expect(recoveryError).toBeInstanceOf(SessionRuntimeError);
+  expect(recoveryError).toMatchObject({ code: 'recovery_history_unavailable' });
+  expect((recoveryError as SessionRuntimeError).cause).toBe(frameFailure);
   expect(f.store.read('app', f.getBinding()).recovery).toBe(1);
   expect(f.store.completionPhase('app', f.getBinding(), 'uncertain-native', 1)?.status).toBe(
     'unknown',
   );
   expect(f.requests.filter(({ method }) => method === 'turn/start')).toHaveLength(0);
   const phase = f.store.completionPhase('app', f.getBinding(), 'uncertain-native', 1)!;
-  expect(() =>
+  const reconcile = (assertCurrent?: () => void) =>
     f.store.reconcileCompletionPhase(
       'app',
       f.getBinding(),
@@ -9372,8 +9557,17 @@ it('keeps interrupted effects fenced for incomplete snapshots and unmatched dura
       phase.workspaceDigest,
       phase.policyRevision,
       {} as never,
-    ),
-  ).toThrow(/observation/);
+      assertCurrent,
+    );
+  expect(() => reconcile()).toThrow('Interrupted effect recovery authority unavailable');
+  const assertCurrent = vi.fn();
+  expect(() => reconcile(assertCurrent)).toThrow(
+    'Fresh interrupted native effect observation unavailable',
+  );
+  expect(assertCurrent).toHaveBeenCalledOnce();
+  expect(f.store.completionPhase('app', f.getBinding(), 'uncertain-native', 1)).toEqual(phase);
+  expect(f.store.read('app', f.getBinding()).recovery).toBe(1);
+  expect(f.requests.filter(({ method }) => method === 'turn/start')).toHaveLength(0);
 });
 
 it.each(['stop', 'account', 'receipt', 'effect-outcome'] as const)(

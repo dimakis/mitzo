@@ -47,6 +47,13 @@ function schemas() {
         ThreadItem: {
           oneOf: [
             {
+              ...object(['id', 'kind', 'agentThreadId', 'agentPath']),
+              properties: {
+                ...object(['id', 'kind', 'agentThreadId', 'agentPath']).properties,
+                type: { enum: ['subAgentActivity'] },
+              },
+            },
+            {
               ...object([
                 'id',
                 'senderThreadId',
@@ -69,6 +76,7 @@ function schemas() {
             },
           ],
         },
+        SubAgentActivityKind: { enum: ['started', 'interacted', 'completed'] },
         CollabAgentTool: { enum: ['spawnAgent', 'sendInput', 'wait', 'closeAgent'] },
       },
     },
@@ -88,6 +96,8 @@ describe('offline Codex subagent qualification', () => {
       evidence: 'generated_protocol_only',
       modelCalls: 0,
       threadIdentityFields: ['id', 'parentThreadId', 'sessionId', 'forkedFromId'],
+      subagentActivityFields: ['id', 'kind', 'agentThreadId', 'agentPath'],
+      subagentActivityKinds: ['started', 'interacted', 'completed'],
       collaborationItemType: 'collabAgentToolCall',
       collaborationIdentityFields: [
         'id',
@@ -127,6 +137,15 @@ describe('offline Codex subagent qualification', () => {
       expect(() => qualifyCodexSubagentContract('0.160.0', input)).toThrow(`Thread.${field}`);
     },
   );
+
+  it('requires the emitted child-activity identity and lifecycle contract', () => {
+    const input = schemas();
+    input.notifications.definitions.ThreadItem.oneOf.shift();
+    expect(() => qualifyCodexSubagentContract('0.160.0', input)).toThrow('subAgentActivity.id');
+    const kinds = schemas();
+    kinds.notifications.definitions.SubAgentActivityKind.enum = ['started'];
+    expect(() => qualifyCodexSubagentContract('0.160.0', kinds)).toThrow('interacted');
+  });
 
   it('rejects a steering contract without its required active-turn fence', () => {
     const input = schemas();

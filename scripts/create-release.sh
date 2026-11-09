@@ -140,7 +140,7 @@ RELEASE_DIR="$FINAL_RELEASE_DIR"
 
 (
   cd "$RELEASE_DIR"
-  ./scripts/deploy.sh
+  MITZO_RELEASE_DEPLOY_LOCK_PID="$$" ./scripts/deploy.sh
 )
 
 echo "Released $SOURCE_COMMIT from $REMOTE_REF to $RELEASE_DIR"

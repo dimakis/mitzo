@@ -346,6 +346,23 @@ describe('native tool execution through session permissions', () => {
   );
 
   it.each(['authenticated', 'public'] as const)(
+    'preserves a positively settled %s GitHub refusal through the native adapter',
+    async (access) => {
+      const read = access === 'public' ? executePublicGitHubRead : executeTrustedGitHubRead;
+      vi.mocked(read).mockRejectedValueOnce(retainCallbackOutcome(Error('HTTP 403'), 'settled'));
+      const pending = createNativeToolExecutor('client', registry, { env: {}, forcePrompt: true })(
+        call('GitHubRead', { endpoint: '/repos/example/project', access }),
+        abort.signal,
+      );
+      await vi.waitFor(() => expect(sent.some((e) => e.type === 'permission_request')).toBe(true));
+      resolvePending(sent.find((e) => e.type === 'permission_request')!.permId as string, 'once');
+      const response = await pending;
+      expect(response.is_error).toBe(true);
+      expect(callbackOutcome(response)).toBe('settled');
+    },
+  );
+
+  it.each(['authenticated', 'public'] as const)(
     'preserves uncertainty when an already dispatched %s GitHub read is cancelled',
     async (access) => {
       const read = access === 'public' ? executePublicGitHubRead : executeTrustedGitHubRead;
