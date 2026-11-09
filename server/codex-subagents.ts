@@ -143,6 +143,7 @@ export class CodexSubagents {
   >();
   private listeners = new Set<(child: NativeSubagentSnapshot) => void>();
   private closed = false;
+  private parentStopAuthorization?: () => void;
   constructor(private readonly opts: Options) {}
   private snapshot(child: RetainedSubagent): NativeSubagentSnapshot {
     let available = this.live.has(child.threadId);
@@ -1061,6 +1062,9 @@ export class CodexSubagents {
     this.opts.store.finishControl(this.opts.scope, input, status);
     return status;
   }
+  hasPendingActivity(): boolean {
+    return this.pending.size > 0 || this.parentStops.size > 0;
+  }
   private cancelForParent(live: LiveChild): void {
     if (['completed', 'stopped', 'failed'].includes(live.child.state)) {
       live.cancelBeforeRun = false;
@@ -1081,7 +1085,7 @@ export class CodexSubagents {
     live.parentStop = { epoch: this.parentCancellationEpoch, turnId: live.child.turnId };
     const operation = this.control(
       { requestId: randomUUID(), threadId: live.child.threadId, action: 'stop' },
-      undefined,
+      this.parentStopAuthorization,
       true,
     )
       .catch(() => {
@@ -1092,7 +1096,9 @@ export class CodexSubagents {
       });
     this.parentStops.add(operation);
   }
-  async interruptAll(): Promise<void> {
+  async interruptAll(authorize?: () => void): Promise<void> {
+    authorize?.();
+    this.parentStopAuthorization = authorize;
     this.parentCancellationEpoch++;
     this.parentStopping = true;
     for (const live of this.live.values()) {
@@ -1101,11 +1107,13 @@ export class CodexSubagents {
       this.publish(live);
     }
     await this.settled();
+    authorize?.();
     for (const live of this.live.values()) this.cancelForParent(live);
     while (this.pending.size || this.parentStops.size)
       await Promise.all([...this.pending.values(), ...this.parentStops]);
   }
   parentResumed(): void {
+    this.parentStopAuthorization = undefined;
     if (!this.parentStopping) return;
     this.parentStopping = false;
     for (const live of this.live.values()) this.publish(live);

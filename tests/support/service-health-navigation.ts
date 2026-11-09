@@ -1,10 +1,14 @@
 import { expect, type Frame, type Page, type Request } from '@playwright/test';
 
-/** Observe each fixture document's real startup read before its next hard navigation.
+/** Await each fixture document's real startup read before asserting its UI or navigating again.
  * WebKit misreports new requests from a departing document as access-control errors.
  * Keep pageerror guards strict; do not replace the read, suppress it or sleep.
  */
-export async function navigateWithServiceHealth(page: Page, navigate: () => Promise<unknown>) {
+export async function navigateWithApplicationRead(
+  page: Page,
+  navigate: () => Promise<unknown>,
+  pathname: string,
+) {
   let committed = false;
   let started = new WeakSet<Request>();
   const commit = (frame: Frame) => {
@@ -14,7 +18,7 @@ export async function navigateWithServiceHealth(page: Page, navigate: () => Prom
   };
   const record = (request: Request) => {
     const url = new URL(request.url());
-    if (committed && url.pathname === '/api/service-health' && request.frame() === page.mainFrame())
+    if (committed && url.pathname === pathname && request.frame() === page.mainFrame())
       started.add(request);
   };
   page.on('framenavigated', commit);
@@ -36,4 +40,8 @@ export async function navigateWithServiceHealth(page: Page, navigate: () => Prom
     page.off('request', record);
     page.off('framenavigated', commit);
   }
+}
+
+export function navigateWithServiceHealth(page: Page, navigate: () => Promise<unknown>) {
+  return navigateWithApplicationRead(page, navigate, '/api/service-health');
 }

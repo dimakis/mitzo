@@ -2577,6 +2577,11 @@ async function openCodexChatBound(
   };
   let acceptedReplyExecution: ReturnType<typeof captureOrdinaryReplyExecution> | undefined;
   const runtimeOptions: CodexConversationOptions = {
+    canStartCommand: () => options.eventStore.deployment.canDispatch(options.conversationId),
+    assertSubagentControlAdmission: () => {
+      if (options.eventStore.deployment.active())
+        throw Error('Deployment holds new child commands');
+    },
     conversationId: options.conversationId,
     cwd: options.session.cwd!,
     profile: options.profile,
