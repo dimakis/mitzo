@@ -762,6 +762,14 @@ async function exerciseLibraryJourney(
       animations: 'disabled',
     });
     await recipeToggle.uncheck();
+    // Editing marks the working copy dirty even when the value is restored.
+    await page.getByRole('button', { name: 'Discard unsaved edits', exact: true }).click();
+    await editProfile(page);
+    await page.getByRole('tab', { name: 'Context', exact: true }).click();
+    await expect(recipeToggle).not.toBeChecked();
+    await expect(
+      page.getByRole('button', { name: 'Discard unsaved edits', exact: true }),
+    ).toHaveCount(0);
     const contextSource = page.getByRole('combobox', { name: 'Context source', exact: true });
     expect(
       await contextSource.evaluate((element) => element.getBoundingClientRect().height),
