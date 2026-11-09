@@ -18,6 +18,7 @@ export type ProtectedSdkProcess = SpawnedProcess & {
 import { canonical, AuthoritySnapshot, validatePath } from './sandbox-authority.js';
 import { getCredentialConnectionsRuntime } from './credential-connections-runtime.js';
 import type { SandboxWorkerPayload } from './sandboxed-command-worker.js';
+import { telosPrivateStorageRoots } from './telos-private-paths.js';
 import {
   workspaceRuntimeAuthorityPaths,
   workspaceRuntimePrivateFiles,
@@ -42,10 +43,12 @@ function selectorWritePattern(entry: string): string {
 }
 
 function runtimeFilesystemProtection() {
-  const privateFiles = [...new Set(workspaceRuntimePrivateFiles().map(canonical))];
+  const storageRoots = telosPrivateStorageRoots().map(canonical);
+  const authorityFiles = workspaceRuntimePrivateFiles().map(canonical);
+  const privateFiles = [...new Set([...authorityFiles, ...storageRoots])];
   const sourceRoots = workspaceRuntimeAuthorityPaths().map(canonical);
   const selectors = workspaceRuntimeSelectorEntries();
-  const writeRoots = [...new Set([...privateFiles.map(dirname), ...sourceRoots])];
+  const writeRoots = [...new Set([...authorityFiles.map(dirname), ...sourceRoots])];
   [...privateFiles, ...writeRoots].forEach(validatePath);
   return { privateFiles, writeRoots, selectors, patterns: selectors.map(selectorWritePattern) };
 }
@@ -90,6 +93,7 @@ function createSdkBoundary(
       storage.some(existsSync));
   if (
     !credentialIsolation &&
+    initialRuntime.privateFiles.length === 0 &&
     initialRuntime.writeRoots.length === 0 &&
     selectedWriteRoots.length === 0
   )
@@ -98,11 +102,11 @@ function createSdkBoundary(
     ...new Set(
       [
         ...initialRuntime.privateFiles,
+        join(process.cwd(), '.env'),
         ...(credentialIsolation
           ? [
               ...storage,
               join(homedir(), '.mitzo'),
-              join(process.cwd(), '.env'),
               join(homedir(), '.mitzo', 'internal-token'),
               join(homedir(), 'Library', 'Keychains'),
               join(homedir(), '.config', 'openshell'),
@@ -129,14 +133,11 @@ function createSdkBoundary(
   Object.freeze(deniedRoots);
   // Deployment retains complete environment copies. Fixed family patterns also
   // fence interrupted/future copies across restart without scanning the directory.
-  const privateEnvironmentPatterns: string[] = [];
-  if (credentialIsolation) {
-    const environmentRoot = canonical(process.cwd());
-    validatePath(environmentRoot);
-    privateEnvironmentPatterns.push(
-      ...['.env.before-runtime-*', '.env.runtime-*'].map((name) => join(environmentRoot, name)),
-    );
-  }
+  const environmentRoot = canonical(process.cwd());
+  validatePath(environmentRoot);
+  const privateEnvironmentPatterns = ['.env.before-runtime-*', '.env.runtime-*'].map((name) =>
+    join(environmentRoot, name),
+  );
   return {
     credentialIsolation,
     deniedRoots,
@@ -194,6 +195,8 @@ function createSdkBoundary(
         : [worker];
       const quote = (part: string) => "'" + part.replaceAll("'", "'\\''") + "'";
       const targetEnv = { ...options.env };
+      // Source-import authority belongs to the controller in every SDK mode.
+      delete targetEnv.MITZO_TELOS_IMPORT_TOKEN;
       if (credentialIsolation || selectedWriteRoots.length > 0) {
         for (const name of [
           'AUTH_PASSPHRASE',

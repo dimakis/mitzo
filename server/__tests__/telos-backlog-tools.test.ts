@@ -166,6 +166,28 @@ it('approves exact brief edits and canonical archive/unarchive with retryable re
   ).toBe(false);
   expect(f.items.read('studio').status).toBe('active');
 });
+it('records ordinary-chat progress and completion with exact approval and durable replay', async () => {
+  const f = fixture();
+  const input = {
+    operation: 'update',
+    itemId: 'studio',
+    requestId: 'ordinary-progress',
+    expectedRevision: f.items.read('studio').revision,
+    note: 'Verified the acoustic plan; ready for review.',
+    status: 'completed',
+  };
+  const result = await f.run('TelosManageItem', input);
+  expect(result.isError).toBe(false);
+  expect(f.approve).toHaveBeenCalledWith('TelosManageItem', input, expect.any(AbortSignal));
+  expect(f.items.read('studio')).toMatchObject({
+    status: 'completed',
+    updates: [{ note: input.note, sessionId: 'ordinary-chat' }],
+  });
+  expect(await f.run('TelosManageItem', input)).toEqual(result);
+  expect((await f.run('TelosManageItem', { ...input, note: 'Different evidence' })).isError).toBe(
+    true,
+  );
+});
 it('rejects destructive, empty, spoofed and approval-modified requests, including retirement during approval', async () => {
   const f = fixture();
   for (const raw of [
@@ -198,5 +220,42 @@ it('rejects destructive, empty, spoofed and approval-modified requests, includin
     return { behavior: 'allow', updatedInput: input };
   });
   expect((await f.run('TelosManageItem', edit)).isError).toBe(true);
+  expect(f.items.read('studio').summary).toBe('Home studio');
+});
+it('keeps a committed legacy-brief edit receipt within the transport bound', async () => {
+  const f = fixture();
+  f.db
+    .prepare('UPDATE items SET summary=? WHERE id=?')
+    .run('Legacy context '.repeat(10000), 'studio');
+  const result = await f.run('TelosManageItem', {
+    operation: 'edit',
+    itemId: 'studio',
+    requestId: 'bounded-edit',
+    expectedRevision: f.items.read('studio').revision,
+    intent: 'Retain the original context',
+    note: 'Verified edit',
+  });
+  expect(result.isError).toBe(false);
+  expect(Buffer.byteLength(result.content)).toBeLessThan(48 * 1024);
+  expect(JSON.parse(result.content)).toMatchObject({
+    ok: true,
+    item: { id: 'studio', revision: f.items.read('studio').revision },
+  });
+  expect(f.items.read('studio').intent).toBe('Retain the original context');
+});
+it('distinguishes denied approval from a storage outage', async () => {
+  const f = fixture();
+  f.approve.mockImplementationOnce(async () => ({ behavior: 'deny' }) as never);
+  const result = await f.run('TelosManageItem', {
+    operation: 'edit',
+    itemId: 'studio',
+    requestId: 'denied',
+    expectedRevision: f.items.read('studio').revision,
+    summary: 'Changed',
+    note: 'Requested edit',
+  });
+  expect(result.isError).toBe(true);
+  expect(result.content).toContain('approval');
+  expect(result.content).not.toContain('operation unavailable');
   expect(f.items.read('studio').summary).toBe('Home studio');
 });

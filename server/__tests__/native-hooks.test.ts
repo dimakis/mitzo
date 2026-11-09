@@ -1,11 +1,17 @@
 import { callbackOutcome, retainCallbackOutcome } from '../turn-callbacks.js';
-import { afterEach, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { existsSync, mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { createNativeHooks, NativeHooks } from '../native-hooks.js';
 import * as commands from '../protected-sdk-command.js';
+import { sdkProjectCommandFixture } from './fixtures/sdk-project-command.js';
 const roots: string[] = [];
+beforeEach(() => {
+  vi.spyOn(commands, 'createWorkspaceRuntimeCommandRunner').mockReturnValue(
+    sdkProjectCommandFixture,
+  );
+});
 afterEach(() => roots.splice(0).forEach((root) => rmSync(root, { recursive: true, force: true })));
 afterEach(() => vi.restoreAllMocks());
 function setup(hooks: unknown) {
