@@ -1,6 +1,7 @@
 /** Discover operator authority before any runtime request or model tool can write it. */
 import { existsSync, lstatSync, readFileSync, readlinkSync, realpathSync } from 'node:fs';
 import { basename, dirname, isAbsolute, join, resolve } from 'node:path';
+import { tmpdir } from 'node:os';
 
 function privateJson(path: string): Record<string, unknown> {
   const file = lstatSync(path);
@@ -51,10 +52,50 @@ export function configuredWorkspaceRuntimePrivatePaths(
 const observedAuthority = new Set<string>();
 const observedPrivateFiles = new Set<string>();
 const observedSelectorEntries = new Set<string>();
+const protectedNamespaces = new Set<string>();
+const contains = (root: string, path: string) =>
+  root === '/' || path === root || path.startsWith(root + '/');
+function assertNamespace(root: string): void {
+  if (
+    canonical(root) !== root ||
+    [canonical(tmpdir()), canonical('/tmp')].some((scratch) => contains(root, scratch))
+  )
+    throw Error('Runtime authority namespace topology changed');
+}
+/** Called only after the host owner validates an isolated physical state root.
+ * This permanently restricts writes; it does not grant reads or execution. */
+export function registerWorkspaceRuntimeAuthorityNamespace(path: string): void {
+  absolute(path);
+  const root = resolve(path);
+  if (!lstatSync(root).isDirectory() || realpathSync(root) !== root)
+    throw Error('Runtime authority namespace must be physical');
+  assertNamespace(root);
+  observedAuthority.add(root);
+  protectedNamespaces.add(root);
+}
+/** Only qualified namespaces can replace their own changing publication paths.
+ * Raw pointers/targets remain in host mutation and workspace-overlap guards. */
+export function workspaceRuntimeNativeAuthorityPaths(): string[] {
+  const paths = [...workspaceRuntimeAuthorityPaths(), ...observedSelectorEntries];
+  for (const root of protectedNamespaces) assertNamespace(root);
+  return [
+    ...new Set([
+      ...protectedNamespaces,
+      ...paths.map((path) => {
+        const lexical = resolve(path);
+        const root = [...protectedNamespaces].find((entry) => contains(entry, lexical));
+        if (!root) return path;
+        if (!contains(root, observeSelectorLinks(lexical, root)))
+          throw Error('Runtime authority selector escaped namespace');
+        return root;
+      }),
+    ]),
+  ];
+}
 /** Resolve component-by-component, reserving every executable pointer entry.
  * Entries are exact pointers, not protected directory subtrees (e.g. /tmp).
  */
-function observeSelectorLinks(path: string) {
+function observeSelectorLinks(path: string, namespace?: string) {
   let components = resolve(path).split('/').filter(Boolean);
   let directory = '/';
   let hops = 0;
@@ -64,7 +105,7 @@ function observeSelectorLinks(path: string) {
     try {
       stat = lstatSync(entry);
     } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return;
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return join(entry, ...components);
       throw error;
     }
     if (stat.isSymbolicLink()) {
@@ -72,10 +113,13 @@ function observeSelectorLinks(path: string) {
       observedSelectorEntries.add(entry);
       const target = readlinkSync(entry);
       const next = isAbsolute(target) ? resolve(target) : resolve(dirname(entry), target);
+      if (namespace && !contains(namespace, next))
+        throw Error('Runtime authority selector escaped namespace');
       components = [...next.split('/').filter(Boolean), ...components];
       directory = '/';
     } else directory = entry;
   }
+  return directory;
 }
 function canonical(path: string): string {
   try {

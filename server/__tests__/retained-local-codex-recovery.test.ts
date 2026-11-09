@@ -491,7 +491,7 @@ async function reconcileRetainedColdTurn(
         requestId: randomUUID(),
       }
     : policyDrift
-      ? { endpoint: '/repos/owner/repo/pulls', access: 'public' }
+      ? { conversationId: 'registered-past-session' }
       : {
           operation: 'fetch',
           url: 'http://localhost:16686/api/v3/traces',
@@ -508,7 +508,7 @@ async function reconcileRetainedColdTurn(
   }
   const identity = {
     turnId: 'original-turn',
-    toolName: taskStore ? 'TaskExecution' : policyDrift ? 'GitHubRead' : 'RequestWebAccess',
+    toolName: taskStore ? 'TaskExecution' : policyDrift ? 'ReadPastSession' : 'RequestWebAccess',
     requestHash: createHash('sha256').update(JSON.stringify(arguments_)).digest('hex'),
   };
   native.claimTool(id, binding, command.id, 'failed-read', identity);
