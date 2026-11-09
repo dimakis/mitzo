@@ -758,7 +758,9 @@ async function exerciseLibraryJourney(
     await page.keyboard.press('Space');
     await expect(personalProvider).toBeChecked();
     await page.getByRole('group', { name: 'Reusable review recipe', exact: true }).screenshot({
-      path: testInfo.outputPath(`personal-claude-recipe-${theme}-${accent}-${font}.png`),
+      path: testInfo.outputPath(
+        `agent-tools-personal-claude-recipe-${theme}-${accent}-${font}.png`,
+      ),
       animations: 'disabled',
     });
     await recipeToggle.uncheck();

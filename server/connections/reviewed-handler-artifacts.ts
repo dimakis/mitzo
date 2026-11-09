@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.963-personal-claude-recipe-cleanup';
+  'v1.0.964-personal-claude-visual-evidence';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -3298,7 +3298,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../tests/integration/telos-s9/resume-acceptance/vitest.resume.config.ts':
     'ce35e9f43b7e82f8d78698b36d4ea5e3183a1efdae94ab93d6c2198c272f6add',
   '../../tests/offline/agent-library.spec.ts':
-    'e4d8ff0c9f83f97a2e8a501833d53f58ef64f1ba95e558b680226fec2c298ee1',
+    'ffe947a8e74f6c8440854cd638a10d5c01a9f6d37905e427dda6a2992ffc97e6',
   '../native-telos-item-operations.ts':
     '7cdb36cad341ba7dd82824bc284c45e6e2cb73c3433b04b198496948d811ed53',
   '../__tests__/native-telos-item-operations.test.ts':
