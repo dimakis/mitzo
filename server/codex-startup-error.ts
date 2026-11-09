@@ -26,6 +26,11 @@ const errorCodes = new Map([
   ['SQLITE_BUSY', 'Conversation storage is busy.'],
 ]);
 const diagnosticFiles = new Set([
+  'chat',
+  'ordinary-openshell-codex-entry',
+  'ordinary-openshell-codex-entry-owner',
+  'ordinary-openshell-codex-owned-runtime',
+  'owned-openshell-codex-chat-admission',
   'openshell-runtime',
   'codex-chat-session',
   'codex-conversation',
