@@ -61,7 +61,7 @@ export interface ChildToolIdentity {
 /** Uses the conversation owner's existing private, FULL-synchronous database.
  * Claims survive transport loss. An unrecorded outcome is never executable again. */
 export class CodexSubagentStore {
-  private readonly hasEffectOutcomeColumn: boolean;
+  private readonly hasEffectOutcomeTable: boolean;
   constructor(
     private readonly db: Database.Database,
     initialize = true,
@@ -74,36 +74,68 @@ export class CodexSubagentStore {
       conversation_id TEXT NOT NULL, binding_revision TEXT NOT NULL, effect_id TEXT NOT NULL,
       identity TEXT NOT NULL, result TEXT,
       PRIMARY KEY(conversation_id,binding_revision,effect_id));`);
-    const hasColumn = (
-      db.prepare('PRAGMA table_info(codex_subagent_effects)').all() as Array<{ name: string }>
-    ).some((column) => column.name === 'effect_outcome');
-    if (initialize && !hasColumn)
-      db.exec('ALTER TABLE codex_subagent_effects ADD COLUMN effect_outcome TEXT');
-    this.hasEffectOutcomeColumn = initialize || hasColumn;
+    // Keep the original five-column table compatible with retained rollback
+    // writers that use positional INSERT. Outcome proof is an independent fact.
+    if (initialize)
+      db.exec(`CREATE TABLE IF NOT EXISTS codex_subagent_effect_outcomes (
+        conversation_id TEXT NOT NULL, binding_revision TEXT NOT NULL, effect_id TEXT NOT NULL,
+        receipt_digest TEXT NOT NULL, outcome TEXT NOT NULL CHECK(outcome IN ('settled','unknown')),
+        PRIMARY KEY(conversation_id,binding_revision,effect_id))`);
+    this.hasEffectOutcomeTable = !!db
+      .prepare(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='codex_subagent_effect_outcomes'",
+      )
+      .get();
   }
   /** Unqualified retained child activity blocks a deployment, including cold unknown trees. */
   unsettledConversationIds(): string[] {
     const rows = this.db
       .prepare('SELECT conversation_id,data FROM codex_subagents')
       .all() as Array<{ conversation_id: string; data: string }>;
-    const effects = this.db
-      .prepare(
-        `SELECT DISTINCT conversation_id FROM codex_subagent_effects WHERE result IS NULL OR result='"uncertain"' OR (effect_id LIKE 'tool:%' AND ${this.hasEffectOutcomeColumn ? 'effect_outcome' : 'NULL'} IS NOT 'settled')`,
+    const unsettled = new Set(
+      rows
+        .filter(
+          (row) =>
+            !['completed', 'failed', 'stopped'].includes(
+              RetainedChild.parse(JSON.parse(row.data)).state,
+            ),
+        )
+        .map((row) => row.conversation_id),
+    );
+    // Stream the joined receipts: bound memory and avoid one query per effect.
+    // Metadata is historical proof only while its exact original bytes match.
+    const effects = this.db.prepare(`SELECT e.conversation_id,e.identity,e.result,
+      ${this.hasEffectOutcomeTable ? 'o.receipt_digest,o.outcome' : 'NULL AS receipt_digest,NULL AS outcome'}
+      FROM codex_subagent_effects e ${this.effectOutcomeJoin()}
+      WHERE e.result IS NULL OR e.result='"uncertain"' OR e.effect_id LIKE 'tool:%'`);
+    for (const row of effects.iterate() as Iterable<{
+      conversation_id: string;
+      identity: string;
+      result: string | null;
+      receipt_digest: string | null;
+      outcome: string | null;
+    }>) {
+      if (unsettled.has(row.conversation_id)) continue;
+      if (
+        row.result === null ||
+        row.result === '"uncertain"' ||
+        row.outcome !== 'settled' ||
+        row.receipt_digest !== this.receiptDigest(row.identity, row.result)
       )
-      .all() as Array<{ conversation_id: string }>;
-    return [
-      ...new Set(
-        [
-          ...rows.filter(
-            (row) =>
-              !['completed', 'failed', 'stopped'].includes(
-                RetainedChild.parse(JSON.parse(row.data)).state,
-              ),
-          ),
-          ...effects,
-        ].map((row) => row.conversation_id),
-      ),
-    ];
+        unsettled.add(row.conversation_id);
+    }
+    return [...unsettled];
+  }
+  private receiptDigest(identity: string, result: string | null) {
+    return createHash('sha256')
+      .update(JSON.stringify([identity, result]))
+      .digest('hex');
+  }
+  private effectOutcomeJoin() {
+    return this.hasEffectOutcomeTable
+      ? `LEFT JOIN codex_subagent_effect_outcomes o
+      ON o.conversation_id=e.conversation_id AND o.binding_revision=e.binding_revision AND o.effect_id=e.effect_id`
+      : '';
   }
   list(scope: SubagentScope): RetainedSubagent[] {
     return (
@@ -143,13 +175,20 @@ export class CodexSubagentStore {
   private effect(scope: SubagentScope, key: string, identity: unknown) {
     const row = this.db
       .prepare(
-        `SELECT identity,result,${this.hasEffectOutcomeColumn ? 'effect_outcome' : 'NULL'} AS outcome FROM codex_subagent_effects WHERE conversation_id=? AND binding_revision=? AND effect_id=?`,
+        `SELECT e.identity,e.result,${this.hasEffectOutcomeTable ? 'o.receipt_digest,o.outcome' : 'NULL AS receipt_digest,NULL AS outcome'} FROM codex_subagent_effects e ${this.effectOutcomeJoin()} WHERE e.conversation_id=? AND e.binding_revision=? AND e.effect_id=?`,
       )
       .get(scope.conversationId, scope.bindingRevision, key) as
-      | { identity: string; result: string | null; outcome: 'settled' | 'unknown' | null }
+      | {
+          identity: string;
+          result: string | null;
+          receipt_digest: string | null;
+          outcome: 'settled' | 'unknown' | null;
+        }
       | undefined;
     if (row && !isDeepStrictEqual(JSON.parse(row.identity), identity))
       throw Error('Effect identity changed');
+    if (row && row.receipt_digest !== this.receiptDigest(row.identity, row.result))
+      row.outcome = null;
     return row;
   }
   private claim(scope: SubagentScope, key: string, identity: unknown): boolean {
@@ -192,7 +231,7 @@ export class CodexSubagentStore {
     return this.effect(scope, `tool:${call.callId}`, call)?.result === null;
   }
   finishTool(scope: SubagentScope, call: ChildToolIdentity, result: CodexToolResult): void {
-    if (!this.hasEffectOutcomeColumn) throw Error('Child effect metadata is read-only');
+    if (!this.hasEffectOutcomeTable) throw Error('Child effect metadata is read-only');
     const outcome = callbackOutcome(result);
     this.db
       .transaction(() => {
@@ -201,11 +240,16 @@ export class CodexSubagentStore {
         if (previous.result !== null && previous.outcome !== outcome)
           throw Error('Child effect outcome changed');
         this.finish(scope, `tool:${call.callId}`, call, result);
+        if (previous.result !== null) return;
         this.db
-          .prepare(
-            'UPDATE codex_subagent_effects SET effect_outcome=? WHERE conversation_id=? AND binding_revision=? AND effect_id=?',
-          )
-          .run(outcome, scope.conversationId, scope.bindingRevision, `tool:${call.callId}`);
+          .prepare('INSERT INTO codex_subagent_effect_outcomes VALUES(?,?,?,?,?)')
+          .run(
+            scope.conversationId,
+            scope.bindingRevision,
+            `tool:${call.callId}`,
+            this.receiptDigest(previous.identity, JSON.stringify(result)),
+            outcome,
+          );
       })
       .immediate();
   }

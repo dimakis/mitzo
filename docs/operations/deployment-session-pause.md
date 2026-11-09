@@ -30,7 +30,10 @@ never delete uncertainty records to unblock a restart.
    acknowledgement cannot qualify them. New facts follow fresh opaque native proof
    and original-host checks under current authority, leaving the original failure
    unchanged. Changed receipts or native lineage invalidate qualification. Legacy child receipts without trusted effect metadata remain blocked
-   until independently reconciled; migration never labels them settled. The ledger distinguishes interrupted capture from an empty
+   until independently reconciled; migration never labels them settled. Trusted child outcomes
+   use a separate receipt-digest table so the retained rollback server can still use
+   its original five-column inserts. Missing or changed original receipts never
+   inherit that proof. The ledger distinguishes interrupted capture from an empty
    successfully captured inventory.
 3. `node scripts/deployment-sessions.mjs activate` claims external activation
    ownership while the source is still quiescent. Its private capability stays in
