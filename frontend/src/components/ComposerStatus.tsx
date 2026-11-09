@@ -230,7 +230,9 @@ export function ComposerStatusRail({
                 ? live
                   ? 'Agent working'
                   : 'Reconnecting; showing last known activity'
-                : 'Ready for your next message'}
+                : issues.length > 0
+                  ? 'Needs attention before continuing'
+                  : 'Ready for your next message'}
             </p>
             {activity && (
               <SessionActivityStatus

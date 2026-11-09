@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.952-recovery-diagnostics';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.953-recovery-status';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -382,7 +382,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/pages/__tests__/SessionLibraryFreshness.test.tsx':
     'dc1d544f7428128729b65bff22d832150a6c77e94d062d096f32ae67f2f7741a',
   '../../frontend/src/components/__tests__/ComposerActivity.lifecycle.test.tsx':
-    '6d08e5230f8187ba744ae8df6ff09b8a3c24f9ecaede41f99879b33713361a64',
+    '2503ac79d17fd29f8adf5e13b81381df532425285f9661935035a1009820e9b9',
   '../../frontend/src/components/__tests__/CodexQueueStatus.test.tsx':
     '80437e99e4f0459ff327ae231549fa5721aab7b8549e3ccad2dbf73af299946d',
   '../../frontend/src/components/ActiveSessionsList.tsx':
@@ -995,7 +995,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/client/src/__tests__/local-receipt-recheck.test.ts':
     'e832495ac09bab7ddf5f839989ec3669d162d03262b52044b2411196a9e63c10',
   '../../tests/offline/composer-receipt.spec.ts':
-    '8a4023002d90b419341e75c603445b009e9a803d5d184cbf47ac9ded1bdcfa55',
+    '0f679672b2934ce31ff44b7d1501b15f6be3f689b597e7b9b3c0be31430ab38b',
   '../../tests/fixtures/composer-receipt.tsx':
     '07125f56f48492fe6c0fe13cfa8c1b560db4fdff5c393e2289aefd101a346a34',
   '../__tests__/qualified-private-staging.test.ts':
@@ -3796,7 +3796,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../tests/integration/telos-s9/integrated-candidate/supplemental-vitest-base.ts':
     'b9e107f73e7f3b030faf67efd5b0606b788f049d1861654e5b6b31598220a8d6',
   '../../frontend/src/components/ComposerStatus.tsx':
-    '474643b27320807b55af665d9cf7aaac8b6faf9a9d6e95f0de501466ece08747',
+    'c23dc3cada19e416bb86bcfe7182d686d7d966954d44d994319d038d3620da6f',
   '../../frontend/src/components/ComposerStatus.css':
     '508a40472279d43e008f22e9fd67b87e0b687e58446f7ad6027040c3d53a0096',
   '../../frontend/src/lib/composer-status-context.ts':
