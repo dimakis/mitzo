@@ -535,6 +535,73 @@ async function reconcileRetainedColdTurn(
   const db = (native as unknown as { db: Database.Database }).db;
   if (!taskStore && !policyDrift)
     db.prepare('UPDATE codex_tools SET result_effect_outcome=NULL').run(); // original legacy receipt
+  if (policyDrift && completionPhase) {
+    // Reuse this real owned-store fixture for the completed history-read case.
+    // Readiness is a negative observation, never a fabricated effect settlement.
+    const commandBefore = db
+      .prepare('SELECT * FROM codex_commands WHERE id=?')
+      .get(command.id) as Record<string, unknown>;
+    const ownerBefore = db
+      .prepare('SELECT * FROM codex_conversations WHERE id=?')
+      .get(id) as Record<string, unknown>;
+    const receiptsBefore = db.prepare('SELECT * FROM codex_tools').all();
+    db.prepare("UPDATE codex_commands SET status='completed',ambiguous=0 WHERE id=?").run(
+      command.id,
+    );
+    expect(native.deploymentRecoveryPending()).toBe(false);
+    for (const [table, key, column, value, originalValue] of [
+      ['codex_commands', command.id, 'status', 'interrupted', 'completed'],
+      [
+        'codex_commands',
+        command.id,
+        'native_execution_history',
+        null,
+        commandBefore.native_execution_history,
+      ],
+      ['codex_commands', command.id, 'native_turns', null, commandBefore.native_turns],
+      ['codex_conversations', id, 'host_custody', null, ownerBefore.host_custody],
+      ['codex_conversations', id, 'binding', '[]', ownerBefore.binding],
+      ['codex_conversations', id, 'owner_kind', 'symposium', ownerBefore.owner_kind],
+    ] as const) {
+      db.prepare(`UPDATE ${table} SET ${column}=? WHERE id=?`).run(value, key);
+      expect(native.deploymentRecoveryPending()).toBe(true);
+      db.prepare(`UPDATE ${table} SET ${column}=? WHERE id=?`).run(originalValue, key);
+    }
+    for (const [column, value, originalValue] of [
+      ['turn_id', 'different-turn', identity.turnId],
+      ['request_hash', null, identity.requestHash],
+      ['tool_name', 'mcp__configured__ReadPastSession', identity.toolName],
+      ['result_content', null, retainedResult.content],
+    ] as const) {
+      db.prepare(`UPDATE codex_tools SET ${column}=? WHERE call_id='failed-read'`).run(value);
+      expect(native.deploymentRecoveryPending()).toBe(true);
+      db.prepare(`UPDATE codex_tools SET ${column}=? WHERE call_id='failed-read'`).run(
+        originalValue,
+      );
+    }
+    // A single unknown write alongside the read must keep the global fence.
+    db.prepare("UPDATE codex_commands SET status='running' WHERE id=?").run(command.id);
+    const writeIdentity = { ...identity, toolName: 'Write' };
+    native.claimTool(id, binding, command.id, 'unknown-write', writeIdentity);
+    native.recordToolResult(
+      id,
+      binding,
+      command.id,
+      'unknown-write',
+      writeIdentity,
+      retainedResult,
+    );
+    db.prepare("UPDATE codex_commands SET status='completed' WHERE id=?").run(command.id);
+    expect(native.deploymentRecoveryPending()).toBe(true);
+    db.prepare("DELETE FROM codex_tools WHERE call_id='unknown-write'").run();
+    expect(native.deploymentRecoveryPending()).toBe(false);
+    expect(db.prepare('SELECT * FROM codex_tools').all()).toEqual(receiptsBefore);
+    expect(db.prepare('SELECT count(*) AS n FROM codex_effect_settlements').get()).toEqual({
+      n: 0,
+    });
+    db.prepare("UPDATE codex_commands SET status='running' WHERE id=?").run(command.id);
+  }
+
   if (completionPhase)
     native.observeEmptyCompletionPhase(
       id,

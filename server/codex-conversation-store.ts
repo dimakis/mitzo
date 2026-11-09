@@ -3,7 +3,7 @@ import type {
   RetainedHostResultObserver,
   RetainedNativeEffectEvidence,
 } from './retained-native-effect-evidence.js';
-import { codexStoredAccountKey } from './codex-stored-account.js';
+import { codexStoredAccountKey, readCodexStoredAccountKey } from './codex-stored-account.js';
 import { hasRetainedTaskExecutionResult } from './retained-task-execution-result.js';
 import { ToolFailureSchema, type ToolFailure } from '@mitzo/protocol';
 import { reauthorizeHostLoginStore } from './host-codex-login-reauthorization-store.js';
@@ -3033,7 +3033,9 @@ export class CodexConversationStore {
     return unknown.some(
       (row) =>
         !excluded.has(row.conversation_id) &&
-        !this.qualifiedEffectSettlement(row.conversation_id, row.command_id),
+        !this.db.transaction(() =>
+          this.qualifiedDeploymentHostEffects(row.conversation_id, row.command_id),
+        )(),
     );
   }
   runningConversationIds(): string[] {
@@ -3462,18 +3464,36 @@ export class CodexConversationStore {
       result_content_items: string | null;
     }>;
   }
-  private hostReceiptDigest(id: string, commandId: string) {
-    return createHash('sha256')
-      .update(JSON.stringify(this.interruptedHostReceipts(id, commandId)))
-      .digest('hex');
+  private hostReceiptDigest(
+    id: string,
+    commandId: string,
+    receipts = this.interruptedHostReceipts(id, commandId),
+  ) {
+    return createHash('sha256').update(JSON.stringify(receipts)).digest('hex');
   }
-  private qualifiedEffectSettlement(id: string, commandId: string): boolean {
+  /** Deployment readiness only: this neither clears recovery nor changes a
+   * receipt. The caller's read transaction keeps the original evidence coherent. */
+  private qualifiedDeploymentHostEffects(id: string, commandId: string): boolean {
     const row = this.db
       .prepare(
-        'SELECT c.attempt,c.native_turns,v.thread_generation AS generation FROM codex_commands c JOIN codex_conversations v ON v.id=c.conversation_id WHERE c.conversation_id=? AND c.id=?',
+        `SELECT c.attempt,c.native_turns,c.status,c.ambiguous,c.native_execution_history,
+          v.thread_generation AS generation,v.binding,v.host_custody,v.owner_kind
+        FROM codex_commands c JOIN codex_conversations v ON v.id=c.conversation_id
+        WHERE c.conversation_id=? AND c.id=?`,
       )
       .get(id, commandId) as
-      { attempt: number; native_turns: string | null; generation: number } | undefined;
+      | {
+          attempt: number;
+          native_turns: string | null;
+          generation: number;
+          status: string;
+          ambiguous: number | null;
+          native_execution_history: string | null;
+          binding: string;
+          host_custody: string | null;
+          owner_kind: string | null;
+        }
+      | undefined;
     if (!row) return false;
     const turns = this.nativeTurns(row.native_turns).filter((turn) => turn.attempt === row.attempt);
     if (turns.length !== 1) return false;
@@ -3484,10 +3504,50 @@ export class CodexConversationStore {
         'SELECT thread_id FROM codex_thread_generations WHERE conversation_id=? AND generation=?',
       )
       .get(id, target.generation) as { thread_id: string } | undefined;
-    return (
-      lineage?.thread_id === target.threadId &&
-      this.effectSettlements.matches(id, target, this.hostReceiptDigest(id, commandId))
-    );
+    if (lineage?.thread_id !== target.threadId) return false;
+    const receipts = this.interruptedHostReceipts(id, commandId);
+    if (this.effectSettlements.matches(id, target, this.hostReceiptDigest(id, commandId, receipts)))
+      return true;
+    // Only this built-in's returned history reads can qualify without new native
+    // inspection. Configured MCP tools have distinct encoded wire identities.
+    // Missing results/ownership, ambiguous phases and children retain their
+    // existing independent deployment fences. Today's policy grants nothing here.
+    if (
+      row.status !== 'completed' ||
+      row.ambiguous === 1 ||
+      row.owner_kind !== 'ordinary' ||
+      receipts.some((receipt) => receipt.result_content === null)
+    )
+      return false;
+    try {
+      readCodexStoredAccountKey(row.binding);
+      HostCodexCustodySchema.parse(JSON.parse(row.host_custody ?? 'null'));
+      const execution = this.nativeExecutions(row.native_execution_history).find(
+        (entry) => entry.attempt === target.attempt,
+      );
+      if (
+        execution?.phase !== 'accepted' ||
+        execution.threadId !== target.threadId ||
+        execution.turnId !== target.turnId ||
+        execution.generation !== target.generation
+      )
+        return false;
+      const unknown = receipts.filter((receipt) => receipt.result_effect_outcome === 'unknown');
+      return (
+        unknown.length > 0 &&
+        unknown.every(
+          (receipt) =>
+            receipt.tool_name === 'ReadPastSession' &&
+            receipt.turn_id === target.turnId &&
+            !!receipt.call_id.trim() &&
+            /^[a-f0-9]{64}$/.test(receipt.request_hash ?? '') &&
+            receipt.result_content !== null &&
+            [0, 1].includes(receipt.result_is_error!),
+        )
+      );
+    } catch {
+      return false; // Incomplete historical custody is never replaced with a grant.
+    }
   }
   /** Compare one fresh native observation with the original durable host receipts.
    * Used by both interrupted-only and completion-phase recovery; never changes results. */
