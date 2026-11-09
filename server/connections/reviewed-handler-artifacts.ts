@@ -10,8 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.955-bounded-long-turn-recovery';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.956-recovery-ci-dependency';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -3408,7 +3407,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../secret-relay-runtime.ts': '9cc241b6fd22ca948021e0db06346e81718e12f5eaf340742d42c7b0a172711f',
   '../secret-relay.ts': 'cb4efaae8cb99f879de787d5f2ce1c1e364b7c0abf0db333420e10e11493f95d',
   '../../package.json': 'c8e444f0e363b8723a64551bcad7b00c278690ac10b34049164a0a3837ee152e',
-  '../../package-lock.json': 'f4b1613e00b863da92337278f7bd5630ce6509d7cbf6b3681a38043c54a52f9c',
+  '../../package-lock.json': '3144423abf0e4abebf72f3db1550a03d11e7daa7534a467b97800d3e582a622c',
   '../../packages/harness/package.json':
     '974deedfb3b496939f6c0a441048234b57bca0af746f4107d41e1406b81b1768',
   '../../scripts/build-zod3-security-backport.mjs':

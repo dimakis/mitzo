@@ -2,24 +2,9 @@
   "codexCliVersion": "0.160.0",
   "evidence": "generated_protocol_only",
   "modelCalls": 0,
-  "threadIdentityFields": [
-    "id",
-    "parentThreadId",
-    "sessionId",
-    "forkedFromId"
-  ],
-  "subagentActivityFields": [
-    "id",
-    "kind",
-    "agentThreadId",
-    "agentPath"
-  ],
-  "subagentActivityKinds": [
-    "started",
-    "interacted",
-    "interrupted",
-    "completed"
-  ],
+  "threadIdentityFields": ["id", "parentThreadId", "sessionId", "forkedFromId"],
+  "subagentActivityFields": ["id", "kind", "agentThreadId", "agentPath"],
+  "subagentActivityKinds": ["started", "interacted", "interrupted", "completed"],
   "collaborationItemType": "collabAgentToolCall",
   "collaborationIdentityFields": [
     "id",
@@ -41,33 +26,13 @@
     "listAgents"
   ],
   "controls": {
-    "thread/read": [
-      "threadId"
-    ],
-    "thread/resume": [
-      "threadId"
-    ],
-    "turn/start": [
-      "threadId",
-      "input"
-    ],
-    "turn/steer": [
-      "threadId",
-      "expectedTurnId",
-      "input"
-    ],
-    "turn/interrupt": [
-      "threadId",
-      "turnId"
-    ]
+    "thread/read": ["threadId"],
+    "thread/resume": ["threadId"],
+    "turn/start": ["threadId", "input"],
+    "turn/steer": ["threadId", "expectedTurnId", "input"],
+    "turn/interrupt": ["threadId", "turnId"]
   },
-  "dynamicToolIdentityFields": [
-    "threadId",
-    "turnId",
-    "callId",
-    "tool",
-    "arguments"
-  ],
+  "dynamicToolIdentityFields": ["threadId", "turnId", "callId", "tool", "arguments"],
   "executionQualified": false,
   "remainingChecks": [
     "child_event_subscription_and_replay",
