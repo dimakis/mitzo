@@ -311,6 +311,7 @@ export function createSessionPromptPort(
     }
   }
   return {
+    maintenanceHeld: () => !!ctx.eventStore.deployment.active(),
     authorized,
     async inspectCollaboration(prompt) {
       const { binding, live, prepared, meta } = target(prompt.sessionId, prompt.auth, prompt);

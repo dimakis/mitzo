@@ -588,11 +588,13 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
                 messages,
                 ...(runtimeFailure.success && ['retained', 'reserved', 'uncertain'].includes(state)
                   ? { sendError: runtimeFailureMessage(runtimeFailure.data) }
-                  : event.receiptConfirmed === true || ['pending', 'consumed'].includes(state)
-                    ? { sendError: null }
-                    : deliveryDiagnostic
-                      ? { sendError: commandDeliveryMessage(deliveryDiagnostic) }
-                      : {}),
+                  : deliveryDiagnostic && state === 'uncertain'
+                    ? { sendError: commandDeliveryMessage(deliveryDiagnostic) }
+                    : event.receiptConfirmed === true || ['pending', 'consumed'].includes(state)
+                      ? { sendError: null }
+                      : deliveryDiagnostic
+                        ? { sendError: commandDeliveryMessage(deliveryDiagnostic) }
+                        : {}),
                 localCommand: {
                   request,
                   ...(composerDraft ? { composerDraft } : {}),

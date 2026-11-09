@@ -15,8 +15,10 @@ The dedicated ordinary outbox retains a bounded display diagnostic for storage,
 transport, deadline, HTTP, receipt and handoff failures. It records the operation,
 failing stage, stable code, known HTTP status and measured time. An unconfirmed
 receipt check preserves the known command state and the original submission
-failure. A validated matching acceptance clears the old diagnostic. A diagnostic
-never supplies acceptance, authentication, permission or dispatch authority.
+failure. A validated matching acceptance clears the old submission diagnostic;
+a subsequent saving or local recovery failure remains visible until recovery
+succeeds. Successful local-only Retry clears that failure without resubmission.
+A diagnostic never supplies acceptance, authentication, permission or dispatch authority.
 
 Storage flushes have a 15-second deadline, including the flush before HTTP
 submission. Previously, this flush could wait forever before the network timeout
@@ -34,6 +36,12 @@ stage/code/status/time and a fixed exception category. Raw exceptions, message
 text, credentials, backend URLs and response bodies are excluded. Cold optional
 telemetry never delays submission or starts another request.
 
+Acceptance removes obsolete display hints before enlarging the command envelope
+with its receipt. Otherwise, a lost-response diagnostic could consume the quota
+needed to save that receipt and leave accepted text in the composer. A focused
+quota regression and the actual prepared-repository composer integration reproduce
+that failure before this ordering repair and pass afterward.
+
 Validation extends the existing ordinary outbox, receipt, client-store, real
 browser-storage-adapter and ChatArea fixtures. It covers a stalled storage commit,
 late completion, exact-ID retry, lost acknowledgment, malformed replies, refused
@@ -42,9 +50,16 @@ exclusion. The existing all-intercept Local command browser fixture adds phone
 and desktop cases in dark Mint/System and light Teal/Georgia, checking the label,
 keyboard Retry and unchanged retry payload. It starts no backend or model.
 
-Local focused unit and shared design guards pass. Shared packages compile with a
-1 GiB heap. The full frontend type checker and Vite build each exceed that heap;
-the complete-app browser cases therefore require CI before acceptance. Preserve
-those failed build receipts rather than treating them as successful browser runs.
+The final historical head `c702a5fe` passed hosted compilation, frontend build,
+browser interactions and every phone/desktop layout shard. Inspected retained
+captures: [phone dark](../design/assets/command-delivery-mobile-dark.png) and
+[desktop light](../design/assets/command-delivery-desktop-light.png). These captures
+prove that historical UI, not the final combined candidate or a physical device.
+Its CI run `42624572719` failed the composer case repaired above and two joined
+acceptance timeouts (Stop isolation and coordinator CT12). Those failures remain
+evidence; final combined-result CI and exact-head Centaur approval are required.
+Local focused unit and shared design guards pass with one worker and a 1 GiB heap.
+The original owner's frontend heap failures and all unique scratch evidence are
+preserved in its source checkout and copied into the replacement's scratch archive.
 The approved `chat-status/direct-interrupt-2026-11-06` layout and protected checks
 are unchanged; no new styling mechanism or design exception is introduced.

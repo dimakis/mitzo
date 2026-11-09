@@ -1,14 +1,16 @@
+import { isIntrinsicRecoveryRead } from './builtin-tool-behavior.js';
+import { CodexEffectSettlements } from './codex-effect-settlements.js';
 import type {
   RetainedHostResultObserver,
   RetainedNativeEffectEvidence,
 } from './retained-native-effect-evidence.js';
-import { codexStoredAccountKey } from './codex-stored-account.js';
+import { codexStoredAccountKey, readCodexStoredAccountKey } from './codex-stored-account.js';
 import { hasRetainedTaskExecutionResult } from './retained-task-execution-result.js';
 import { ToolFailureSchema, type ToolFailure } from '@mitzo/protocol';
 import { reauthorizeHostLoginStore } from './host-codex-login-reauthorization-store.js';
 import type { HostCodexLoginReauthorization } from './host-codex-login-reauthorization.js';
 import { callbackOutcome, retainCallbackOutcome } from './turn-callbacks.js';
-import { CodexSubagentStore } from './codex-subagent-store.js';
+import { CodexSubagentStore, subagentScope } from './codex-subagent-store.js';
 import {
   CodexSteerInputSchema,
   type CodexSteerInput,
@@ -576,6 +578,7 @@ type PreDispatchEvidence = {
 /** Private server-owned database. A single owning server calls recoverAtStartup before accepting work. */
 export class CodexConversationStore {
   readonly subagents: CodexSubagentStore;
+  private readonly effectSettlements: CodexEffectSettlements;
   private readonly db: Database.Database;
   private liveThreadStoreClosed = false;
   private readonly liveThreadObservers = new Map<string, Set<(event: LiveThreadEvent) => void>>();
@@ -605,6 +608,7 @@ export class CodexConversationStore {
       this.db.pragma('synchronous = FULL');
       this.db.pragma('foreign_keys = ON');
       this.subagents = new CodexSubagentStore(this.db, false);
+      this.effectSettlements = new CodexEffectSettlements(this.db, false);
       return;
     }
     closeSync(openSync(path, 'a', 0o600));
@@ -613,6 +617,7 @@ export class CodexConversationStore {
     this.db.pragma('synchronous = FULL');
     this.db.pragma('foreign_keys = ON');
     this.subagents = new CodexSubagentStore(this.db);
+    this.effectSettlements = new CodexEffectSettlements(this.db, true);
     this.db.exec(
       'CREATE TABLE IF NOT EXISTS codex_runtime_migrations (conversation_id TEXT PRIMARY KEY, binding TEXT NOT NULL, generation INTEGER NOT NULL, data TEXT NOT NULL)',
     );
@@ -2933,6 +2938,123 @@ export class CodexConversationStore {
       return true;
     }
   }
+  assertDeploymentHostEffects(
+    id: string,
+    binding: AccountBinding,
+    target: CodexNativeTurnTarget,
+    policyRevision: string | undefined,
+    effects: SettledInterruptedEffects,
+    assertCurrent: () => void,
+  ) {
+    target = CodexNativeTurnTargetSchema.parse(target);
+    this.db
+      .transaction(() => {
+        const authorityResult: unknown = assertCurrent();
+        if (authorityResult !== undefined) {
+          void Promise.resolve(authorityResult).catch(() => {});
+          throw Error('Native settlement authority must be synchronous');
+        }
+        this.read(id, binding);
+        this.assertNoPendingThreadDispatch(id, binding);
+        this.assertNoPendingThreadOwnership(id, binding);
+        this.assertCompletionPhaseTarget(id, binding, target, true);
+        const digest = this.assertSettledInterruptedHostEffects(
+          id,
+          binding,
+          target,
+          policyRevision,
+          effects,
+        );
+        this.effectSettlements.remember(id, target, digest, policyRevision);
+      })
+      .immediate();
+  }
+  /** Deployment observes terminal evidence; cancellation ACKs and missing rows never qualify. */
+  deploymentTurnSettled(
+    id: string,
+    binding: AccountBinding,
+    target: CodexNativeTurnTarget,
+  ): boolean {
+    target = CodexNativeTurnTargetSchema.parse(target);
+    this.read(id, binding);
+    this.assertNoPendingThreadDispatch(id, binding);
+    this.assertNoPendingThreadOwnership(id, binding);
+    const row = this.db
+      .prepare(
+        'SELECT status,attempt,native_turns FROM codex_commands WHERE conversation_id=? AND id=?',
+      )
+      .get(id, target.commandId) as
+      { status: string; attempt: number; native_turns: string | null } | undefined;
+    if (
+      !row ||
+      row.attempt !== target.attempt ||
+      !['completed', 'interrupted', 'failed'].includes(row.status)
+    )
+      return false;
+    if (
+      !this.nativeTurns(row.native_turns).some((turn) =>
+        isDeepStrictEqual(this.nativeTarget(target.commandId, turn), target),
+      )
+    )
+      return false;
+    if (this.hasRunningCommands(id) || this.continuationBlocker(id, binding)) return false;
+    return this.subagents
+      .list(subagentScope(id, binding))
+      .every((child) => ['completed', 'failed', 'stopped'].includes(child.state));
+  }
+  /** Global negative observation includes cold owners; no effect fence is cleared. */
+  deploymentRecoveryPending(exceptIds: readonly string[] = []): boolean {
+    const excluded = new Set(exceptIds);
+    const ownership = this.db
+      .prepare(
+        `SELECT conversation_id FROM codex_pending_thread_dispatches
+      UNION SELECT conversation_id FROM codex_thread_acceptances WHERE ownership_pending=1 OR terminal_conflict=1`,
+      )
+      .all() as Array<{ conversation_id: string }>;
+    if (ownership.some((row) => !excluded.has(row.conversation_id))) return true;
+    const candidates = this.db
+      .prepare(
+        `SELECT DISTINCT conversation_id FROM codex_commands
+      WHERE completion_phases IS NOT NULL OR ambiguous=1
+      UNION SELECT conversation_id FROM codex_tools WHERE result_content IS NULL OR result_effect_outcome='unknown'`,
+      )
+      .all() as Array<{ conversation_id: string }>;
+    if (
+      candidates.some(
+        (row) =>
+          !excluded.has(row.conversation_id) && !!this.unsettledCommandEffects(row.conversation_id),
+      )
+    )
+      return true;
+    const unknown = this.db
+      .prepare(
+        "SELECT DISTINCT conversation_id,command_id FROM codex_tools WHERE result_content IS NOT NULL AND result_effect_outcome='unknown'",
+      )
+      .all() as Array<{ conversation_id: string; command_id: string }>;
+    return unknown.some(
+      (row) =>
+        !excluded.has(row.conversation_id) &&
+        !this.db.transaction(() =>
+          this.qualifiedDeploymentHostEffects(row.conversation_id, row.command_id),
+        )(),
+    );
+  }
+  runningConversationIds(): string[] {
+    return (
+      this.db
+        .prepare("SELECT DISTINCT conversation_id FROM codex_commands WHERE status='running'")
+        .all() as Array<{ conversation_id: string }>
+    ).map((row) => row.conversation_id);
+  }
+  hasRunningCommands(id?: string): boolean {
+    return !!(id
+      ? this.db
+          .prepare(
+            "SELECT 1 FROM codex_commands WHERE status='running' AND conversation_id=? LIMIT 1",
+          )
+          .get(id)
+      : this.db.prepare("SELECT 1 FROM codex_commands WHERE status='running' LIMIT 1").get());
+  }
   /** Negative readiness observation only; never reconciles effects or releases a queue. */
   continuationBlocker(id: string, binding: AccountBinding) {
     this.read(id, binding);
@@ -3267,7 +3389,7 @@ export class CodexConversationStore {
             this.continuationBlocker(id, binding)?.commandId !== target.commandId
           )
             throw Error('Interrupted recovery lacks original owned execution evidence');
-          this.assertSettledInterruptedHostEffects(
+          const digest = this.assertSettledInterruptedHostEffects(
             id,
             binding,
             target,
@@ -3275,6 +3397,7 @@ export class CodexConversationStore {
             effects,
             observeHostResult,
           );
+          this.effectSettlements.remember(id, target, digest, execution.policy.policyRevision);
           this.db
             .prepare(
               `UPDATE codex_commands SET ambiguous=0,retryable=0
@@ -3325,6 +3448,108 @@ export class CodexConversationStore {
       })
       .immediate();
   }
+  private interruptedHostReceipts(id: string, commandId: string) {
+    return this.db
+      .prepare(
+        `SELECT call_id,turn_id,tool_name,request_hash,
+      result_content,result_is_error,result_effect_outcome,result_content_items FROM codex_tools WHERE conversation_id=? AND command_id=? ORDER BY call_id`,
+      )
+      .all(id, commandId) as Array<{
+      call_id: string;
+      turn_id: string | null;
+      tool_name: string | null;
+      request_hash: string | null;
+      result_content: string | null;
+      result_is_error: number | null;
+      result_effect_outcome: string | null;
+      result_content_items: string | null;
+    }>;
+  }
+  private hostReceiptDigest(
+    id: string,
+    commandId: string,
+    receipts = this.interruptedHostReceipts(id, commandId),
+  ) {
+    return createHash('sha256').update(JSON.stringify(receipts)).digest('hex');
+  }
+  /** Deployment readiness only: this neither clears recovery nor changes a
+   * receipt. The caller's read transaction keeps the original evidence coherent. */
+  private qualifiedDeploymentHostEffects(id: string, commandId: string): boolean {
+    const row = this.db
+      .prepare(
+        `SELECT c.attempt,c.native_turns,c.status,c.ambiguous,c.native_execution_history,
+          v.thread_generation AS generation,v.binding,v.host_custody,v.owner_kind
+        FROM codex_commands c JOIN codex_conversations v ON v.id=c.conversation_id
+        WHERE c.conversation_id=? AND c.id=?`,
+      )
+      .get(id, commandId) as
+      | {
+          attempt: number;
+          native_turns: string | null;
+          generation: number;
+          status: string;
+          ambiguous: number | null;
+          native_execution_history: string | null;
+          binding: string;
+          host_custody: string | null;
+          owner_kind: string | null;
+        }
+      | undefined;
+    if (!row) return false;
+    const turns = this.nativeTurns(row.native_turns).filter((turn) => turn.attempt === row.attempt);
+    if (turns.length !== 1) return false;
+    const target = this.nativeTarget(commandId, turns[0]);
+    if (target.generation > row.generation) return false;
+    const lineage = this.db
+      .prepare(
+        'SELECT thread_id FROM codex_thread_generations WHERE conversation_id=? AND generation=?',
+      )
+      .get(id, target.generation) as { thread_id: string } | undefined;
+    if (lineage?.thread_id !== target.threadId) return false;
+    const receipts = this.interruptedHostReceipts(id, commandId);
+    if (this.effectSettlements.matches(id, target, this.hostReceiptDigest(id, commandId, receipts)))
+      return true;
+    // Only the shared reviewed intrinsic-read identities can qualify without
+    // new native inspection. Configured MCP tools have distinct wire identities.
+    // Missing results/ownership, ambiguous phases and children retain their
+    // existing independent deployment fences. Today's policy grants nothing here.
+    if (
+      row.status !== 'completed' ||
+      row.ambiguous === 1 ||
+      row.owner_kind !== 'ordinary' ||
+      receipts.some((receipt) => receipt.result_content === null)
+    )
+      return false;
+    try {
+      readCodexStoredAccountKey(row.binding);
+      HostCodexCustodySchema.parse(JSON.parse(row.host_custody ?? 'null'));
+      const execution = this.nativeExecutions(row.native_execution_history).find(
+        (entry) => entry.attempt === target.attempt,
+      );
+      if (
+        execution?.phase !== 'accepted' ||
+        execution.threadId !== target.threadId ||
+        execution.turnId !== target.turnId ||
+        execution.generation !== target.generation
+      )
+        return false;
+      const unknown = receipts.filter((receipt) => receipt.result_effect_outcome === 'unknown');
+      return (
+        unknown.length > 0 &&
+        unknown.every(
+          (receipt) =>
+            isIntrinsicRecoveryRead(receipt.tool_name ?? '') &&
+            receipt.turn_id === target.turnId &&
+            !!receipt.call_id.trim() &&
+            /^[a-f0-9]{64}$/.test(receipt.request_hash ?? '') &&
+            receipt.result_content !== null &&
+            [0, 1].includes(receipt.result_is_error!),
+        )
+      );
+    } catch {
+      return false; // Incomplete historical custody is never replaced with a grant.
+    }
+  }
   /** Compare one fresh native observation with the original durable host receipts.
    * Used by both interrupted-only and completion-phase recovery; never changes results. */
   private assertSettledInterruptedHostEffects(
@@ -3338,21 +3563,7 @@ export class CodexConversationStore {
     const observed = interruptedEffectCalls(effects, id, target);
     const calls = observed.filter((call) => call.threadId === target.threadId);
     const childCalls = observed.filter((call) => call.threadId !== target.threadId);
-    const receipts = this.db
-      .prepare(
-        `SELECT call_id,turn_id,tool_name,request_hash,
-      result_content,result_is_error,result_effect_outcome,result_content_items FROM codex_tools WHERE conversation_id=? AND command_id=?`,
-      )
-      .all(id, target.commandId) as Array<{
-      call_id: string;
-      turn_id: string | null;
-      tool_name: string | null;
-      request_hash: string | null;
-      result_content: string | null;
-      result_is_error: number | null;
-      result_effect_outcome: string | null;
-      result_content_items: string | null;
-    }>;
+    const receipts = this.interruptedHostReceipts(id, target.commandId);
     const byId = new Map(receipts.map((receipt) => [receipt.call_id, receipt]));
     let ownedExecution = false;
     let originalExecution: ReturnType<CodexConversationStore['readNativeExecution']>;
@@ -3435,6 +3646,7 @@ export class CodexConversationStore {
       })
     )
       throw Error('Interrupted native host effects lack matching settled receipts');
+    return createHash('sha256').update(JSON.stringify(receipts)).digest('hex');
   }
 
   /** A fresh account/workspace authority boundary supplies this reconciliation.
@@ -3471,7 +3683,7 @@ export class CodexConversationStore {
           .get(id, target.commandId) as { completion_phases: string | null; status: string };
         if (row.status === 'interrupted' && interruptedEffects && !phase.priorEffectsUnknown) {
           if (!assertCurrent) throw Error('Interrupted effect recovery authority unavailable');
-          this.assertSettledInterruptedHostEffects(
+          const digest = this.assertSettledInterruptedHostEffects(
             id,
             binding,
             target,
@@ -3479,6 +3691,7 @@ export class CodexConversationStore {
             interruptedEffects,
             observeHostResult,
           );
+          this.effectSettlements.remember(id, target, digest, phase.policyRevision);
         } else if (!['running', 'completed'].includes(row.status))
           throw Error('Completion phase requires the exact completed native outcome');
         this.saveCompletionPhases(

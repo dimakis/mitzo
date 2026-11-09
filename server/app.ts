@@ -4123,7 +4123,7 @@ async function reattachCodexQueue(
   return runtime ? 'ready' : codexReattachments.has(id) ? 'reattaching' : 'unavailable';
 }
 
-function assertQueueOperator(id: string, authorization?: import('./auth.js').AuthSession) {
+export function assertQueueOperator(id: string, authorization?: import('./auth.js').AuthSession) {
   assertOwnedCodexQueueControl(
     {
       runtimeBinding: (sessionId) => eventStore.getSessionRuntimeBinding(sessionId),

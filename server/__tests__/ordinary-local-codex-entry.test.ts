@@ -1,6 +1,7 @@
 import { resetOfflineUserEnvironment } from './fixtures/offline-user-home.js';
 import { ordinaryWireFingerprint } from '../post-adoption-wire-admission.js';
 import { SessionRuntimeError } from '../session-runtime-error.js';
+import { CodexStartupError } from '../codex-startup-error.js';
 import { OrdinaryRepositoryPreparationSchema } from '../ordinary-repository-preparation.js';
 import { buildAgentProfilePrompt } from '../agent-library-prompt.js';
 import { canonicalJson } from '../connections/capabilities/input-validation.js';
@@ -67,6 +68,7 @@ import {
 } from '../ordinary-repository-startup.js';
 
 const fixtures = vi.hoisted(() => ({
+  warn: vi.fn(),
   reserve: vi.fn(),
   reserveSandbox: vi.fn(),
   continue: vi.fn(),
@@ -88,6 +90,16 @@ const fixtures = vi.hoisted(() => ({
   nativeCwd: '/offline/checkout',
   nativeBootstrapFingerprint: undefined as string | undefined,
 }));
+vi.mock('../logger.js', async (original) => {
+  const actual = await original<typeof import('../logger.js')>();
+  return {
+    ...actual,
+    createLogger: (module: string) => ({
+      ...actual.createLogger(module),
+      ...(module === 'local-codex-entry' ? { warn: fixtures.warn } : {}),
+    }),
+  };
+});
 vi.mock('../codex-chat-session.js', () => ({
   getCodexConversationStore: () => ({
     readHostCustody: (sessionId: string) => ({
@@ -550,6 +562,26 @@ it('does not rewrite command receipts or discard reservations on uncertain failu
   ).toBe('runtime_unavailable');
   expect(fail).not.toHaveBeenCalled();
   expect(fixtures.reserve).toHaveBeenCalledTimes(1);
+});
+it('logs reviewed startup details while keeping upstream cause text out of the HTTP receipt', async () => {
+  const cause = Object.assign(Error('private credential /private/path'), { code: 'ECONNREFUSED' });
+  fixtures.start.mockRejectedValue(new CodexStartupError('runtime_connection', cause));
+  const response = await send();
+  const receipt = OrdinaryRuntimeEntryFailureSchema.parse(response.body);
+  expect(response.status).toBe(409);
+  expect(fixtures.warn).toHaveBeenCalledWith(
+    'Ordinary command preparation failed',
+    expect.objectContaining({
+      sessionId: expect.any(String),
+      clientMsgId: input().clientMsgId,
+      diagnosticId: receipt.runtimeFailure.diagnosticId,
+      startupPhase: 'runtime_connection',
+      startupErrorCode: 'ECONNREFUSED',
+    }),
+  );
+  expect(JSON.stringify([response.body, fixtures.warn.mock.calls])).not.toMatch(
+    /private credential|private\/path/,
+  );
 });
 it.each([
   'login_refresh_reauthorization',

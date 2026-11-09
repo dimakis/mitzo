@@ -240,11 +240,16 @@ it.each(['write', 'flush'])(
     if (failure === 'write') blockStorage();
     else flushBlocked = true;
     channel.listener({ type: '_open' });
-    await vi.waitFor(() => expect(store.getState().sendError).toBeNull());
+    await vi.waitFor(() =>
+      expect(store.getState().sendError).toBe(
+        'Could not finish saving this message. Keep this chat open and retry.',
+      ),
+    );
     expect(store.getState().localCommand).toMatchObject({
       state: 'uncertain',
       request,
       originDraftId: 'original-draft',
+      deliveryDiagnostic: { stage: 'storage', code: 'storage_failed' },
     });
     expect(delivered).not.toHaveBeenCalledWith('accepted');
     expect(store.getState().sessions.active).toBeNull();
@@ -253,8 +258,39 @@ it.each(['write', 'flush'])(
     flushBlocked = false;
     channel.listener({ type: '_open' });
     await vi.waitFor(() => expect(delivered).toHaveBeenCalledWith('accepted'));
+    expect(store.getState().sendError).toBeNull();
     expect(fetch.mock.calls.filter(([path]) => path === '/local/send')).toHaveLength(1);
     expect(readStorage()).toEqual([]);
+    channel.listener({ type: '_close' });
+  },
+);
+
+it.each([2, 3, 4])(
+  'shows accepted-command recovery failure at flush %s, then clears it on local-only Retry',
+  async (failedFlush) => {
+    let flushes = 0;
+    const { store, fetch, readStorage } = setup(null, undefined, async () => {
+      if (++flushes === failedFlush) throw Error('Synthetic accepted-command flush failure');
+    });
+    channel.id = 'live-connection';
+    channel.listener({ type: '_open' });
+    expect(store.getState().sendLocalFirstCommand(request, { draftId: 'original-draft' })).toBe(
+      true,
+    );
+    await vi.waitFor(() =>
+      expect(store.getState().localCommand).toMatchObject({
+        state: 'uncertain',
+        request,
+        deliveryDiagnostic: { stage: 'storage', code: 'storage_failed' },
+      }),
+    );
+    expect(store.getState().sendError).toContain('Could not finish saving this message');
+    expect(readStorage()).toHaveLength(1);
+    expect(store.getState().recoverLocalCommand()).toBe(true);
+    await vi.waitFor(() => expect(readStorage()).toEqual([]));
+    expect(store.getState().sendError).toBeNull();
+    expect(store.getState().localCommand?.state).toBe('consumed');
+    expect(fetch.mock.calls.filter(([path]) => path === '/local/send')).toHaveLength(1);
     channel.listener({ type: '_close' });
   },
 );

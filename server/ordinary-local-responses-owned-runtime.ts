@@ -391,6 +391,8 @@ export class OrdinaryLocalResponsesOwnedRuntime implements ResponsesCommandAutho
     for (const commandId of queue.cancelledIds) this.#commands.delete(commandId);
   }
   async claimNextCommand(): Promise<string | undefined> {
+    if (!this.owners.eventStore.deployment.canDispatch(this.owners.reservation.conversationId))
+      return;
     this.assertOwner();
     const reservation = this.owners.reservation,
       native = this.owners.nativeStore;
@@ -429,6 +431,7 @@ export class OrdinaryLocalResponsesOwnedRuntime implements ResponsesCommandAutho
         reservation.binding,
         (candidate) => {
           if (
+            !this.owners.eventStore.deployment.canDispatch(reservation.conversationId) ||
             candidate !== id ||
             this.owners.eventStore.getOrdinaryLocalResponsesCommandAdmission(id)?.state !==
               'consumed'

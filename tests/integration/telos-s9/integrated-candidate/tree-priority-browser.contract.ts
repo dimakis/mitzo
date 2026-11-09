@@ -3,6 +3,7 @@ import { expect as browserExpect } from '@playwright/test';
 import { randomUUID, createHash } from 'node:crypto';
 import { join } from 'node:path';
 import { writeFile } from 'node:fs/promises';
+import { navigateWithApplicationRead } from '../../../support/service-health-navigation';
 import { createJoinedOrdinaryApplication } from './joined-ordinary-application';
 
 it('CT13/14 actual App: recursive canonical tree, category pins and provenance survive priority 1–10 writes and reload', async () => {
@@ -260,7 +261,7 @@ it('CT13/14 actual App: recursive canonical tree, category pins and provenance s
   await browserExpect(row('Install acoustic panels')).toBeVisible();
   await browserExpect(row('Audio programme')).toBeVisible();
   await browserExpect(row('Repository context review')).toHaveCount(0);
-  await page.reload();
+  await navigateWithApplicationRead(page, () => page.reload(), '/api/telos/work/collection');
   await browserExpect(pins.getByRole('button', { name: 'Recording', exact: true })).toHaveAttribute(
     'aria-pressed',
     'true',
@@ -330,7 +331,11 @@ it('CT13/14 actual App: recursive canonical tree, category pins and provenance s
     });
     const accepted = await record();
     expect(accepted.priority).toBe(value);
-    await page.reload();
+    await navigateWithApplicationRead(
+      page,
+      () => page.reload(),
+      '/api/telos/work/items/studio/record',
+    );
     await browserExpect(workspace).toBeVisible();
     await browserExpect(priority).toHaveValue(String(value));
     await workspace.getByRole('button', { name: 'Back', exact: true }).click();

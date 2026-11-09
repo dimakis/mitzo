@@ -896,3 +896,31 @@ it('refuses permission delivery if the exact child file-change proposal changes 
   finish({ decision: 'accept' });
   await expect(pending).rejects.toThrow();
 });
+
+it('retains deployment cancellation authority through delayed child control I/O', async () => {
+  const f = fixture();
+  await f.admit();
+  const original = f.request.getMockImplementation()!;
+  let release!: () => void,
+    authorized = true,
+    dispatched = false;
+  f.request.mockImplementation(async (method, params, beforeDispatch) => {
+    if (method !== 'turn/interrupt') return original(method, params, beforeDispatch);
+    await new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    beforeDispatch?.();
+    dispatched = true;
+    return {};
+  });
+  const stopping = f.owner.interruptAll(() => {
+    if (!authorized) throw Error('Deployment operator revoked');
+  });
+  await vi.waitFor(() => expect(release).toBeDefined());
+  expect(f.owner.hasPendingActivity()).toBe(true);
+  authorized = false;
+  release();
+  await stopping;
+  expect(dispatched).toBe(false);
+  expect(f.owner.list()[0]!.state).not.toBe('completed');
+});

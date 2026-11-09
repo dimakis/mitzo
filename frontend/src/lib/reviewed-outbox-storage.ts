@@ -186,18 +186,24 @@ export function createReviewedOutboxStorage(
       // SendOutbox enqueues one command at a time. Write that new key last, so
       // quota failure cannot leave a silently accepted partial new launch.
       if (added.length > 1) throw new Error('Reviewed commands must be retained individually');
+      // Acceptance clears obsolete display hints. Release their quota before
+      // growing the authoritative envelope with its receipt; hints never own
+      // the space needed to finish recovery of the original command.
+      for (const [id, failure] of diagnostics)
+        if (!failure && disk.getItem(diagnosticKey(id)) !== null)
+          disk.removeItem(diagnosticKey(id));
+      for (const [id, failure] of deliveryDiagnostics)
+        if (!failure && disk.getItem(deliveryDiagnosticKey(id)) !== null)
+          disk.removeItem(deliveryDiagnosticKey(id));
       for (const [id, value] of next)
         if (existing.has(id) && existing.get(id) !== value) disk.setItem(key(id), value);
       // Save hints before adding a new command, preserving the existing rule
       // that a quota failure cannot leave a partially accepted new launch.
       for (const [id, failure] of diagnostics) {
         if (failure) disk.setItem(diagnosticKey(id), JSON.stringify(failure));
-        else if (disk.getItem(diagnosticKey(id)) !== null) disk.removeItem(diagnosticKey(id));
       }
       for (const [id, failure] of deliveryDiagnostics) {
         if (failure) disk.setItem(deliveryDiagnosticKey(id), JSON.stringify(failure));
-        else if (disk.getItem(deliveryDiagnosticKey(id)) !== null)
-          disk.removeItem(deliveryDiagnosticKey(id));
       }
       let acceptedDraft = false;
       for (const id of owned) {

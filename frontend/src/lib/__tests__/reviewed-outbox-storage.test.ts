@@ -238,6 +238,56 @@ const ordinaryBody = {
   },
   payload: { text: 'Original ordinary command' },
 };
+it('releases obsolete delivery hints before retaining an accepted receipt at quota', () => {
+  const disk = memory();
+  const setItem = disk.setItem;
+  let quota = Infinity;
+  const used = () =>
+    Array.from({ length: disk.length }, (_, index) => disk.key(index)!).reduce(
+      (sum, key) => sum + key.length + disk.getItem(key)!.length,
+      0,
+    );
+  disk.setItem = (key, value) => {
+    const current = disk.getItem(key);
+    const next =
+      used() - (current === null ? 0 : key.length + current.length) + key.length + value.length;
+    if (next > quota) throw new DOMException('Web Storage is full', 'QuotaExceededError');
+    setItem(key, value);
+  };
+  const storage = createReviewedOutboxStorage(disk, '/api/chat/local-codex/send', 'local');
+  const entry = {
+    body: ordinaryBody,
+    scope: 1,
+    uncertain: true,
+    ordinaryDelivery: { version: 2, phase: 'continue' },
+  };
+  storage.getItem('queue');
+  storage.setItem(
+    'queue',
+    JSON.stringify([
+      {
+        ...entry,
+        deliveryDiagnostic: {
+          operation: 'submit',
+          stage: 'request',
+          code: 'transport_failed',
+          startedAt: 0,
+          elapsedMs: 10,
+        },
+      },
+    ]),
+  );
+  quota = used();
+  const accepted = {
+    ...entry,
+    uncertain: false,
+    localReceipt: { sessionId: ordinaryBody.sessionId, state: 'consumed' },
+  };
+  expect(() => storage.setItem('queue', JSON.stringify([accepted]))).not.toThrow();
+  expect(JSON.parse(storage.getItem('queue')!)).toEqual([accepted]);
+  expect(used()).toBeLessThanOrEqual(quota);
+});
+
 it('keeps diagnostic persistence outside the command envelope understood by older clients', () => {
   const disk = memory();
   const url = 'https://one.test/local/send';
