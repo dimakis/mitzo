@@ -29,6 +29,7 @@ vi.mock('../knowledge-library-private-paths.js', () => ({
 }));
 vi.mock('../workspace-runtime-private-paths.js', () => ({
   workspaceRuntimeAuthorityPaths: () => state.authority,
+  workspaceRuntimeNativeAuthorityPaths: () => [...state.authority, ...state.selectors],
   workspaceRuntimeSelectorEntries: () => state.selectors,
   workspaceRuntimePrivateFiles: () => [],
 }));

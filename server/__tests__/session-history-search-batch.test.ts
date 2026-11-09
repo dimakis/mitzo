@@ -136,12 +136,23 @@ it.each(['projection', 'final-await'] as const)(
 
 it('individually authorizes visible targets and rechecks their original identity without granting unregistered history', async () => {
   const f = fixture();
-  const targets = await f.access.authorizeSearchPage!(
-    ['first', 'hidden', 'missing'],
-    f.context.signal,
-  );
+  f.events.registerInternalSdkExecution({
+    sdkSessionId: 'internal-target',
+    parentSessionId: 'first',
+    operationId: 'history-fixture-internal',
+    purpose: 'web_search',
+    cwd: '/offline-fixture',
+  });
+  const denied = ['hidden', 'missing', 'internal-target'];
+  const targets = await f.access.authorizeSearchPage!(['first', ...denied], f.context.signal);
   expect(targets[0]).toBeTruthy();
-  expect(targets.slice(1)).toEqual([null, null]);
+  expect(targets.slice(1)).toEqual([null, null, null]);
+  // The read and search consumers use the same real registration/visibility
+  // boundary; vary these without repeating complete native owner bootstraps.
+  for (const id of denied)
+    await expect(f.access.authorizeRead(id, f.context.signal)).rejects.toThrow(
+      'History target unavailable',
+    );
   f.events.hideSession('first');
   expect(() => targets[0]!.assertCurrent()).toThrow('History target unavailable');
 });
