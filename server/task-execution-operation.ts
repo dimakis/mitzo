@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto';
+import { taskExecutionFingerprint } from './task-execution-store.js';
 import { realpathSync } from 'node:fs';
 import { isAbsolute, resolve } from 'node:path';
 import type { z } from 'zod';
@@ -10,7 +10,7 @@ import type { taskExecutionSchema } from './task-execution-definitions.js';
 import type { TaskExecutionGrant, TaskExecutionStore } from './task-execution-store.js';
 import { createLogger } from './logger.js';
 const log = createLogger('task-execution');
-const hash = (value: unknown) => createHash('sha256').update(JSON.stringify(value)).digest('hex');
+
 export async function executeTaskOperation(options: {
   input: z.infer<typeof taskExecutionSchema>;
   grant: TaskExecutionGrant;
@@ -75,7 +75,7 @@ export async function executeTaskOperation(options: {
       grant.id,
       sessionId,
       input.requestId,
-      hash([toolName, exact, cwd, input.timeoutMs ?? 60000]),
+      taskExecutionFingerprint(toolName, exact, cwd, input.timeoutMs),
     );
     if (before.state === 'completed') {
       assertGrant();

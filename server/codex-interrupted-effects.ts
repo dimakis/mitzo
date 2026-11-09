@@ -10,6 +10,7 @@ type HostCall = Readonly<{
   callId: string;
   toolName: string;
   requestHash: string;
+  arguments: Record<string, unknown>;
   isError: boolean;
   readOnly: boolean;
 }>;
@@ -163,6 +164,7 @@ export async function observeNativeRecoveryTurn(
             callId: item.id,
             toolName,
             requestHash: createHash('sha256').update(JSON.stringify(args)).digest('hex'),
+            arguments: args,
             isError: !item.success,
             readOnly: isReadOnlyBuiltinToolCall(toolName, args),
           });

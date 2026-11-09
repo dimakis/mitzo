@@ -1,3 +1,4 @@
+import { initializeTaskExecution, closeTaskExecution } from '../task-execution-runtime.js';
 import { composeOwnedLocalNativeExecutionPolicyForWorkspace } from '../owned-local-codex-native-policy.js';
 import { registerWorkspaceRuntimeAuthorityPaths } from '../workspace-runtime-private-paths.js';
 import { login, authenticateToken, revokeAuthSession } from '../auth.js';
@@ -459,23 +460,59 @@ async function reconcileRetainedColdTurn(
   native.prepareNativeExecution(id, binding, command, 'original-thread', policy);
   native.recordNativeTurnAck(id, binding, command, 'original-thread', 'original-turn');
   native.acceptNativeExecution(id, binding, command, 'original-thread', 'original-turn');
-  const arguments_ = {
-    operation: 'fetch',
-    url: 'http://localhost:16686/api/v3/traces',
-    reason: 'inspect',
-  };
+  const taskStore = !completionPhase
+    ? initializeTaskExecution(join(f.root, 'events.db'))
+    : undefined;
+  if (taskStore) cleanups.push(closeTaskExecution);
+  const grant = taskStore?.approve(
+    native.readHostCustody(id, binding)!.authSessionId,
+    id,
+    randomUUID(),
+    {
+      title: 'Original task',
+      network: 'none',
+      repositories: [],
+      expiresAt: Date.now() + 60000,
+      members: [
+        {
+          sessionId: id,
+          fingerprint: 'original-task-scope',
+          roots: [original.workspace.directory!],
+          account: binding,
+        },
+      ],
+    },
+  );
+  const arguments_: Record<string, unknown> = grant
+    ? {
+        operation: 'run',
+        command: 'exit 1',
+        grantId: grant.id,
+        requestId: randomUUID(),
+      }
+    : {
+        operation: 'fetch',
+        url: 'http://localhost:16686/api/v3/traces',
+        reason: 'inspect',
+      };
+  const retainedResult = { content: 'Original operation failed.', isError: true };
+  const runFingerprint = createHash('sha256')
+    .update(JSON.stringify(['Bash', { command: 'exit 1' }, original.workspace.directory!, 60000]))
+    .digest('hex');
+  if (taskStore && grant) {
+    taskStore.begin(grant.id, id, String(arguments_.requestId), runFingerprint);
+    taskStore.finish(grant.id, id, String(arguments_.requestId), retainedResult);
+    taskStore.revoke(grant.id, grant.operatorId, id); // Past evidence is not renewed execution authority.
+  }
   const identity = {
     turnId: 'original-turn',
-    toolName: 'RequestWebAccess',
+    toolName: taskStore ? 'TaskExecution' : 'RequestWebAccess',
     requestHash: createHash('sha256').update(JSON.stringify(arguments_)).digest('hex'),
   };
   native.claimTool(id, binding, command.id, 'failed-read', identity);
-  native.recordToolResult(id, binding, command.id, 'failed-read', identity, {
-    content: 'Approved read exceeded the 2 MB download safety limit.',
-    isError: true,
-  });
+  native.recordToolResult(id, binding, command.id, 'failed-read', identity, retainedResult);
   const db = (native as unknown as { db: Database.Database }).db;
-  db.prepare('UPDATE codex_tools SET result_effect_outcome=NULL').run(); // original legacy receipt
+  if (!taskStore) db.prepare('UPDATE codex_tools SET result_effect_outcome=NULL').run(); // original legacy receipt
   if (completionPhase)
     native.observeEmptyCompletionPhase(
       id,
@@ -534,7 +571,7 @@ async function reconcileRetainedColdTurn(
             item: {
               id: 'failed-read',
               type: 'dynamicToolCall',
-              tool: 'RequestWebAccess',
+              tool: identity.toolName,
               arguments: arguments_,
               status: 'failed',
               success: false,
@@ -594,7 +631,10 @@ async function reconcileRetainedColdTurn(
   // receipt observations. No extra repository, database or native journey.
   for (const [column, value] of nativeStatus === 'interrupted'
     ? ([
-        ['result_effect_outcome', 'unknown'],
+        [
+          taskStore ? 'result_content' : 'result_effect_outcome',
+          taskStore ? 'changed result' : 'unknown',
+        ],
         ['result_content', null],
         ['request_hash', 'f'.repeat(64)],
       ] as const)
@@ -605,6 +645,23 @@ async function reconcileRetainedColdTurn(
     expect(native.commandStatus(id, binding, command.id)).toBe('interrupted');
     const originalTool = before.tools[0] as Record<string, unknown>;
     db.prepare(`UPDATE codex_tools SET ${column}=?`).run(originalTool[column]);
+  }
+  if (taskStore) {
+    const taskDb = (taskStore as unknown as { db: Database.Database }).db;
+    const originalRun = taskDb.prepare('SELECT * FROM task_execution_runs').get() as Record<
+      string,
+      unknown
+    >;
+    for (const [column, value] of [
+      ['result', null],
+      ['fingerprint', 'changed'],
+      ['session_id', 'foreign'],
+    ] as const) {
+      taskDb.prepare(`UPDATE task_execution_runs SET ${column}=?`).run(value);
+      await expect(driver.reconcileRetainedEffects()).rejects.toThrow();
+      expect(native.read(id, binding).recovery).toBe(1);
+      taskDb.prepare(`UPDATE task_execution_runs SET ${column}=?`).run(originalRun[column]);
+    }
   }
   const originalEmail = f.configuration[0].email;
   let changedAccount = false;

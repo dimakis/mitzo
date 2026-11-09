@@ -1,5 +1,8 @@
 import Database from 'better-sqlite3';
 import { createHash, randomUUID } from 'node:crypto';
+import { isDeepStrictEqual } from 'node:util';
+import { codexStoredAccountKey } from './codex-stored-account.js';
+import type { AccountBinding } from '@mitzo/protocol';
 import { z } from 'zod';
 import { createLogger } from './logger.js';
 const log = createLogger('task-execution-store');
@@ -58,6 +61,12 @@ const GrantSchema = TaskExecutionScopeSchema.extend({
 export type TaskExecutionGrant = z.infer<typeof GrantSchema>;
 const RunResult = z.strictObject({ content: z.string().max(131072), isError: z.boolean() });
 const hash = (value: unknown) => createHash('sha256').update(JSON.stringify(value)).digest('hex');
+export const taskExecutionFingerprint = (
+  tool: string,
+  input: Record<string, unknown>,
+  cwd: string,
+  timeoutMs = 60000,
+) => hash([tool, input, cwd, timeoutMs]);
 /** An identical retry must retain the original command's unknown outcome. */
 export class UnsettledTaskExecutionError extends Error {}
 
@@ -264,6 +273,37 @@ export class TaskExecutionStore {
     return row.result === null
       ? { state: 'uncertain' }
       : { state: 'completed', result: RunResult.parse(JSON.parse(row.result)) };
+  }
+  /** Historical observation only. Revocation/expiry never authorizes another run,
+   * but does not erase the original executor's immutable completed result. */
+  hasMatchingCompletedRun(input: {
+    grantId: string;
+    sessionId: string;
+    requestId: string;
+    fingerprint: string;
+    cwd: string;
+    binding: AccountBinding;
+    result: z.infer<typeof RunResult>;
+  }): boolean {
+    const row = this.db
+      .prepare(
+        `SELECT r.fingerprint,r.result,g.data FROM task_execution_runs r
+      JOIN task_execution_grants g ON g.id=r.grant_id
+      WHERE r.grant_id=? AND r.session_id=? AND r.request_id=?`,
+      )
+      .get(input.grantId, input.sessionId, input.requestId) as
+      { fingerprint: string; result: string | null; data: string } | undefined;
+    if (!row || row.result === null || row.fingerprint !== input.fingerprint) return false;
+    const member = GrantSchema.parse(JSON.parse(row.data)).members.find(
+      (value) => value.sessionId === input.sessionId,
+    );
+    return (
+      !!member?.account &&
+      codexStoredAccountKey(member.account as AccountBinding) ===
+        codexStoredAccountKey(input.binding) &&
+      member.roots.some((root) => input.cwd === root || input.cwd.startsWith(root + '/')) &&
+      isDeepStrictEqual(RunResult.parse(JSON.parse(row.result)), input.result)
+    );
   }
   finish(grantId: string, sessionId: string, requestId: string, result: z.infer<typeof RunResult>) {
     const applied = this.db

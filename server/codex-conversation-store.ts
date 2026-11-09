@@ -1,4 +1,5 @@
 import { codexStoredAccountKey } from './codex-stored-account.js';
+import { hasRetainedTaskExecutionResult } from './retained-task-execution-result.js';
 import { ToolFailureSchema, type ToolFailure } from '@mitzo/protocol';
 import { reauthorizeHostLoginStore } from './host-codex-login-reauthorization-store.js';
 import type { HostCodexLoginReauthorization } from './host-codex-login-reauthorization.js';
@@ -3341,11 +3342,12 @@ export class CodexConversationStore {
       result_effect_outcome: string | null;
     }>;
     const byId = new Map(receipts.map((receipt) => [receipt.call_id, receipt]));
-    let legacyOwnedReads = false;
+    let ownedExecution = false;
     if (
       calls.some(
         (call) =>
-          call.isError && call.readOnly && byId.get(call.callId)?.result_effect_outcome === null,
+          call.toolName === 'TaskExecution' ||
+          (call.isError && call.readOnly && byId.get(call.callId)?.result_effect_outcome === null),
       )
     ) {
       // Old owned-local sources disabled project hooks. Positive original
@@ -3356,7 +3358,7 @@ export class CodexConversationStore {
           id: target.commandId,
           attempt: target.attempt,
         });
-        legacyOwnedReads =
+        ownedExecution =
           !!this.readHostCustody(id, binding) &&
           originalNative?.phase === 'accepted' &&
           originalNative.turnId === target.turnId &&
@@ -3381,7 +3383,16 @@ export class CodexConversationStore {
           !(
             receipt.result_effect_outcome === 'settled' ||
             (receipt.result_effect_outcome === null &&
-              (!call.isError || (call.readOnly && legacyOwnedReads)))
+              (!call.isError || (call.readOnly && ownedExecution))) ||
+            (call.toolName === 'TaskExecution' &&
+              ownedExecution &&
+              hasRetainedTaskExecutionResult(
+                id,
+                binding,
+                this.read(id, binding).cwd,
+                call.arguments,
+                { content: receipt.result_content, isError: call.isError },
+              ))
           )
         );
       })
