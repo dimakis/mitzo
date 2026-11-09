@@ -455,6 +455,15 @@ const OrdinaryCommandWireScopeSchema = z.strictObject({
 });
 type OrdinaryCommandWireScope = z.infer<typeof OrdinaryCommandWireScopeSchema>;
 
+/** A retained provenance reference cannot select one exact execution revision.
+ * Storage/identity failures use their original errors and remain observable. */
+export class OrdinaryExecutionEvidenceUnavailable extends Error {
+  constructor() {
+    super('Exact historical execution revision required');
+    this.name = 'OrdinaryExecutionEvidenceUnavailable';
+  }
+}
+
 export class EventStore {
   readonly removals: SessionRemovalStore;
   readonly deployment: DeploymentStore;
@@ -1612,7 +1621,7 @@ export class EventStore {
       AND (? IS NULL OR json_extract(execution_admission,'$.requestFingerprint')=?) ORDER BY revision DESC LIMIT 2`,
     ).all(commandId, fingerprint ?? null, fingerprint ?? null) as Array<{ transition_id: string }>;
     if (fingerprint === undefined && revisions.length === 0) return original;
-    if (revisions.length !== 1) throw Error('Exact historical execution revision required');
+    if (revisions.length !== 1) throw new OrdinaryExecutionEvidenceUnavailable();
     const execution = this.readPreparedRepositoryCommandExecutionEvidence(
       commandId,
       revisions[0].transition_id,

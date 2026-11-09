@@ -30,7 +30,7 @@ uses its retained execution fingerprint before promoting a delivery receipt.
 
 Offline checks on this replacement:
 
-- 83 recovery, ordinary-reply and visible-source tests pass, including source
+- 84 recovery, ordinary-reply and visible-source tests pass, including source
   pagination across malformed/oversized IDs and exact repeated reads.
 - 81 application/UI/provenance/transcript checks pass through real authentication,
   HTTP, Git/SQLite, preparation, admission and the native driver. External runtime,
@@ -43,6 +43,15 @@ Offline checks on this replacement:
   answer in the fixture. No production transport relaxation was needed.
 - Protocol/harness/client builds, scoped lint, formatting, source fingerprints and
   diff checks pass. No user-facing UI source or approved design reference changes.
+
+The schema-valid unknown-fingerprint regression also failed before repair and
+passes with a typed missing-execution-reference refusal. The ordinary execution
+owner retains its original error text/class ancestry; only historical reply
+observation translates that specific error. Runtime identity/storage failures
+remain observable. CI exposed a private-database access in the corruption fixture;
+injection at the append boundary corrects its type safety without relaxing the
+validated source writer. Local browser attempts remain blocked by macOS process
+registration and the explicit host guard; no rendered pass is claimed.
 
 #1242 is not a remaining dependency: accepted #1266/#1272 supply its retained
 operator and callback settlement behavior. The active owner independently

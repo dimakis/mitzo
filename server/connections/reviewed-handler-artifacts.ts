@@ -101,7 +101,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../tests/offline/symposium-composer.spec.ts':
     '8b77ba1c163f793e459eb7005e4f5c55c9f0b8d53dac863d862d58002ce47bbf',
   '../../docs/evidence/symposium-integration-acceptance.md':
-    '6f1acb43bc16cfb36c46d2fbf540cc7fc362a105d8ec607ec0fb6e3f0960165f',
+    '5fb1955527727a99d50319ad35e564070e0c56f0d3c81512635a2026cc683bb9',
   '../../docs/features/symposium.md':
     'a89c9774039a4d065eb1ad26356619981857a493efe8c35b496ead30463d5a14',
   '../repository-capability-identity.ts':
@@ -168,7 +168,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../tests/integration/telos-s9/integrated-candidate/joined-conversation-ready.test.ts':
     '6faad0a87ed0b5fe92d7b62abae7e379ee498fd934de04f879b289f30c60e9e0',
   '../__tests__/collaboration-application-messaging-recovery.test.ts':
-    '75db3265702dd58167f019763f359f472aabe356664e3e8e98ed71c1b994828b',
+    '727f1fa626295aa4637add81c3002aa5cd0a6e84864e52d02569def95d348e07',
   '../collaboration-application-messaging.ts':
     'a397c6946bfa77cf2c6cf4521d2fd7baf13939cd4e7412fb06f16cd7e7cda63e',
   '../__tests__/collaboration-application-messaging.test.ts':
@@ -711,7 +711,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/github-publication-preflight.test.ts':
     'b1419cb2f49a2b21840338cc91603222113737daa802ee207030769028b8c390',
   '../ordinary-codex-command-execution.ts':
-    '9c4e94d03908cf6895f6cf290186a1403b758392fe44e293d2a8f17dde6fb31f',
+    'a7fe4d88810e1c2a24b973b987088f06dfd42ad7267e7cf9a553ee6210d2d1cb',
   '../__tests__/fixtures/ordinary-repository-transition.ts':
     '1ff8c89c249f5bf6c7a5376f7d6e5ada3a0782bc4d9ec5c05f04f768836ca4d3',
   '../../frontend/src/components/__tests__/TelosWorkControls.freshness.test.tsx':
@@ -2300,7 +2300,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/protocol/src/session-metadata-store.ts':
     'dc00df7c8119e002a8d4ad68dfd8063d86c5f37c527ce0d14749d9f14a51ed86',
   '../../packages/protocol/src/event-store.ts':
-    '05a6d07100e564c6fa9683b367dc8b72eb7b3cc9b8e1a4b95a34c670176b600a',
+    '4cdb62ba124b28c001cf35a54670b7b9841dab25510b7dc1f4e78108942b3fb7',
   '../../packages/protocol/src/session-lifecycle-store.ts':
     '2a219b360a5fbe72b0a550c714bf76a15c6f5969cbbe4251671050257b98e267',
   '../../packages/protocol/src/conversation-replay-store.ts':

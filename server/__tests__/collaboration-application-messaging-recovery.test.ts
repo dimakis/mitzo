@@ -443,38 +443,49 @@ function finalizedAnswer(text = 'Retained answer', beforeEnd?: (id: string) => v
   return source;
 }
 
-it.each(['providerThreadId', 'providerTurnId', 'executionFingerprint', 'version'] as const)(
-  'refuses malformed retained %s with a valid finalized message identity',
-  (field) => {
-    retainedPrompt();
-    // Simulate malformed legacy/corrupt retained evidence, not the validated writer.
-    const append = store.append.bind(store);
-    const corrupt = vi
-      .spyOn(store, 'append')
-      .mockImplementation((session, type, payload) =>
-        append(
-          session,
-          type,
-          type === 'ordinary_reply_source'
-            ? { ...payload, [field]: field === 'version' ? 'unknown' : 'x'.repeat(100001) }
-            : payload,
-        ),
-      );
-    finalizedAnswer();
-    corrupt.mockRestore();
-    expect(() => owner.reconcile(auth, group)).not.toThrow();
-    expect(store.collaborationConversation.view(group).messages).toHaveLength(1);
-    finalizedAnswer('Later eligible answer');
-    owner.reconcile(auth, group);
-    expect(store.collaborationConversation.view(group).messages.at(-1)?.text).toBe(
-      'Later eligible answer',
+it.each([
+  'providerThreadId',
+  'providerTurnId',
+  'executionFingerprint',
+  'version',
+  'unknown fingerprint',
+] as const)('refuses malformed retained %s with a valid finalized message identity', (field) => {
+  retainedPrompt();
+  // Simulate malformed legacy/corrupt retained evidence, not the validated writer.
+  const append = store.append.bind(store);
+  const corrupt = vi
+    .spyOn(store, 'append')
+    .mockImplementation((session, type, payload) =>
+      append(
+        session,
+        type,
+        type === 'ordinary_reply_source'
+          ? {
+              ...payload,
+              [field === 'unknown fingerprint' ? 'executionFingerprint' : field]:
+                field === 'version'
+                  ? 'unknown'
+                  : field === 'unknown fingerprint'
+                    ? 'forged'
+                    : 'x'.repeat(100001),
+            }
+          : payload,
+      ),
     );
-    expect(diagnostics.warn).toHaveBeenCalledWith(
-      'Could not project finalized collaboration reply',
-      expect.objectContaining({ code: 'reply_conflict' }),
-    );
-  },
-);
+  finalizedAnswer();
+  corrupt.mockRestore();
+  expect(() => owner.reconcile(auth, group)).not.toThrow();
+  expect(store.collaborationConversation.view(group).messages).toHaveLength(1);
+  finalizedAnswer('Later eligible answer');
+  owner.reconcile(auth, group);
+  expect(store.collaborationConversation.view(group).messages.at(-1)?.text).toBe(
+    'Later eligible answer',
+  );
+  expect(diagnostics.warn).toHaveBeenCalledWith(
+    'Could not project finalized collaboration reply',
+    expect.objectContaining({ code: 'reply_conflict' }),
+  );
+});
 
 it('refuses an empty finalized answer without poisoning subsequent reads', () => {
   retainedPrompt();
