@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.966-deployment-pause-resume';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.967-deployment-lock-fixture';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -22,6 +22,8 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
+  '../../scripts/__tests__/release-runtime-declarations.test.ts':
+    '35d1bb9ce4b57dac8bcbc58e0cc55314370541523a8ad066bf1a884209f58a55',
   '../../scripts/deployment-sessions.d.mts':
     '7c8fdd7acc44b4ca80749cb25d6531c96c479dd239b24d43d198926f5483799f',
   '../../docs/operations/deployment-session-pause.md':
