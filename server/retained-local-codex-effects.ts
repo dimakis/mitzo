@@ -89,15 +89,15 @@ function capture(
       binding,
     );
   const custody = native.readHostCustody(id, binding);
-  const target = native.completionPhaseRecoveryTarget(id, binding);
+  const target =
+    native.completionPhaseRecoveryTarget(id, binding) ?? native.nativeRecoveryTarget(id, binding);
   const phase = target && native.completionPhase(id, binding, target.commandId, target.attempt);
   if (
     !custody ||
     !ordinaryOperatorOwnsConversation(custody.authSessionId, auth) ||
     !target ||
-    !phase ||
-    phase.observedOutcome !== 'completed' ||
-    phase.priorEffectsUnknown ||
+    native.continuationBlocker(id, binding)?.commandId !== target.commandId ||
+    (phase && (phase.observedOutcome !== 'completed' || phase.priorEffectsUnknown)) ||
     native.commandStatus(id, binding, target.commandId) !== 'interrupted' ||
     !isDeepStrictEqual(native.nativeRecoveryTarget(id, binding), target)
   )
@@ -112,7 +112,7 @@ function capture(
     execution.turnId !== target.turnId ||
     execution.generation !== target.generation ||
     execution.policy.cwd !== meta.cwd ||
-    execution.policy.policyRevision !== phase.policyRevision
+    (phase && execution.policy.policyRevision !== phase.policyRevision)
   )
     throw unavailable();
   const admission = events.getOrdinaryLocalCommandExecutionAdmission(target.commandId);

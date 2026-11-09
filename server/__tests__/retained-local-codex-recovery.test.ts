@@ -426,6 +426,7 @@ it.each([
 async function reconcileRetainedColdTurn(
   nativeStatus: 'interrupted' | 'completed',
   policyDrift = false,
+  completionPhase = true,
 ) {
   const f = await ownedRuntimeFixture(cleanups);
   const first = f.create();
@@ -475,15 +476,16 @@ async function reconcileRetainedColdTurn(
   });
   const db = (native as unknown as { db: Database.Database }).db;
   db.prepare('UPDATE codex_tools SET result_effect_outcome=NULL').run(); // original legacy receipt
-  native.observeEmptyCompletionPhase(
-    id,
-    binding,
-    command,
-    'original-thread',
-    'original-turn',
-    createHash('sha256').update(original.workspace.directory!).digest('hex'),
-    policy.policyRevision,
-  );
+  if (completionPhase)
+    native.observeEmptyCompletionPhase(
+      id,
+      binding,
+      command,
+      'original-thread',
+      'original-turn',
+      createHash('sha256').update(original.workspace.directory!).digest('hex'),
+      policy.policyRevision,
+    );
   native.pauseForRecovery(id, binding, command.id, 'interrupted', 'resume', undefined, true, true);
   native.enqueue(id, binding, { id: 'saved-follow-up', prompt: 'Preserve queued work' });
   const custody = native.readHostCustody(id, binding)!;
@@ -639,6 +641,8 @@ async function reconcileRetainedColdTurn(
   metadata.mockRestore();
   expect(native.read(id, binding).recovery).toBe(0);
   expect(native.continuationBlocker(id, binding)).toBeUndefined();
+  if (!completionPhase)
+    expect(native.completionPhase(id, binding, command.id, command.attempt)).toBeUndefined();
   expect(native.readHostCustody(id, binding)).toEqual(custody);
   expect(readFileSync(draft, 'utf8')).toBe('Preserve the interrupted task');
   expect(native.readNativeExecution(id, binding, command)?.policy.bindingRevision).toBe(
@@ -675,3 +679,6 @@ it.each(['interrupted', 'completed'] as const)(
 
 it('reconciles settled interrupted work after a real policy change under fresh authority without replay', () =>
   reconcileRetainedColdTurn('interrupted', true));
+
+it('recovers an interrupted turn without a completion phase, retaining its original outcome and receipts', () =>
+  reconcileRetainedColdTurn('interrupted', true, false));
