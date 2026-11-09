@@ -1,4 +1,6 @@
+import { initializeTaskExecution, closeTaskExecution } from '../task-execution-runtime.js';
 import { composeOwnedLocalNativeExecutionPolicyForWorkspace } from '../owned-local-codex-native-policy.js';
+import { registerWorkspaceRuntimeAuthorityPaths } from '../workspace-runtime-private-paths.js';
 import { login, authenticateToken, revokeAuthSession } from '../auth.js';
 import { bindAgentLibraryTransport } from '../agent-library-transport.js';
 import { reconcilableLocalCodexCommand } from '../retained-local-codex-effects.js';
@@ -8,7 +10,10 @@ import { join } from 'node:path';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { ownedRuntimeFixture } from './fixtures/owned-local-codex-runtime.js';
 import { CodexConversationStore } from '../codex-conversation-store.js';
-import { RetainedLocalCodexRecovery } from '../retained-local-codex-recovery.js';
+import {
+  RetainedLocalCodexRecovery,
+  recoverableLocalCodexCommand,
+} from '../retained-local-codex-recovery.js';
 import Database from 'better-sqlite3';
 import { CodexConversation } from '../codex-conversation.js';
 import type { CodexLifecycleTransport } from '../codex-app-server-client.js';
@@ -16,6 +21,12 @@ import {
   OrdinaryLocalCodexOwnedRuntime,
   type OrdinaryLocalCodexOwnedDispatch,
 } from '../ordinary-local-codex-owned-runtime.js';
+// Recovery fixtures use synthetic credentials only; do not inspect the host's
+// denied credential home while composing fresh native protection policies.
+vi.mock('node:os', async (original) => {
+  const actual = await original<typeof import('node:os')>();
+  return { ...actual, homedir: () => `${actual.tmpdir()}/mitzo-recovery-offline-home` };
+});
 vi.mock('../auth.js', async (original) => ({
   ...(await original<typeof import('../auth.js')>()),
   hasPersistentRevocationAuthority: () => true,
@@ -413,7 +424,11 @@ it.each([
   },
 );
 
-async function reconcileRetainedColdTurn(nativeStatus: 'interrupted' | 'completed') {
+async function reconcileRetainedColdTurn(
+  nativeStatus: 'interrupted' | 'completed',
+  policyDrift = false,
+  completionPhase = true,
+) {
   const f = await ownedRuntimeFixture(cleanups);
   const first = f.create();
   await first.admit(f.request);
@@ -445,34 +460,186 @@ async function reconcileRetainedColdTurn(nativeStatus: 'interrupted' | 'complete
   native.prepareNativeExecution(id, binding, command, 'original-thread', policy);
   native.recordNativeTurnAck(id, binding, command, 'original-thread', 'original-turn');
   native.acceptNativeExecution(id, binding, command, 'original-thread', 'original-turn');
-  const arguments_ = {
-    operation: 'fetch',
-    url: 'http://localhost:16686/api/v3/traces',
-    reason: 'inspect',
-  };
+  const taskStore = !completionPhase
+    ? initializeTaskExecution(join(f.root, 'events.db'))
+    : undefined;
+  if (taskStore) cleanups.push(closeTaskExecution);
+  const grant = taskStore?.approve(
+    native.readHostCustody(id, binding)!.authSessionId,
+    id,
+    randomUUID(),
+    {
+      title: 'Original task',
+      network: 'none',
+      repositories: [],
+      expiresAt: Date.now() + 60000,
+      members: [
+        {
+          sessionId: id,
+          fingerprint: 'original-task-scope',
+          roots: [original.workspace.directory!],
+          account: binding,
+        },
+      ],
+    },
+  );
+  const arguments_: Record<string, unknown> = grant
+    ? {
+        operation: 'run',
+        command: 'exit 1',
+        grantId: grant.id,
+        requestId: randomUUID(),
+      }
+    : policyDrift
+      ? { conversationId: 'registered-past-session' }
+      : {
+          operation: 'fetch',
+          url: 'http://localhost:16686/api/v3/traces',
+          reason: 'inspect',
+        };
+  const retainedResult = { content: 'Original operation failed.', isError: true };
+  const runFingerprint = createHash('sha256')
+    .update(JSON.stringify(['Bash', { command: 'exit 1' }, original.workspace.directory!, 60000]))
+    .digest('hex');
+  if (taskStore && grant) {
+    taskStore.begin(grant.id, id, String(arguments_.requestId), runFingerprint);
+    taskStore.finish(grant.id, id, String(arguments_.requestId), retainedResult);
+    taskStore.revoke(grant.id, grant.operatorId, id); // Past evidence is not renewed execution authority.
+  }
   const identity = {
     turnId: 'original-turn',
-    toolName: 'RequestWebAccess',
+    toolName: taskStore ? 'TaskExecution' : policyDrift ? 'ReadPastSession' : 'RequestWebAccess',
     requestHash: createHash('sha256').update(JSON.stringify(arguments_)).digest('hex'),
   };
   native.claimTool(id, binding, command.id, 'failed-read', identity);
-  native.recordToolResult(id, binding, command.id, 'failed-read', identity, {
-    content: 'Approved read exceeded the 2 MB download safety limit.',
-    isError: true,
-  });
+  native.recordToolResult(id, binding, command.id, 'failed-read', identity, retainedResult);
+  const peerInput = {
+    operation: 'send',
+    requestId: randomUUID(),
+    recipientConversationId: 'other-chat',
+    text: 'Original requested message',
+  };
+  if (taskStore) {
+    const peerIdentity = {
+      turnId: 'original-turn',
+      toolName: 'AgentCommunication',
+      requestHash: createHash('sha256').update(JSON.stringify(peerInput)).digest('hex'),
+    };
+    native.claimTool(id, binding, command.id, 'failed-peer', peerIdentity);
+    native.recordToolResult(id, binding, command.id, 'failed-peer', peerIdentity, {
+      content: 'Original send refused',
+      isError: true,
+    });
+  }
+
   const db = (native as unknown as { db: Database.Database }).db;
-  db.prepare('UPDATE codex_tools SET result_effect_outcome=NULL').run(); // original legacy receipt
-  native.observeEmptyCompletionPhase(
-    id,
-    binding,
-    command,
-    'original-thread',
-    'original-turn',
-    createHash('sha256').update(original.workspace.directory!).digest('hex'),
-    policy.policyRevision,
-  );
+  if (!taskStore && !policyDrift)
+    db.prepare('UPDATE codex_tools SET result_effect_outcome=NULL').run(); // original legacy receipt
+  if (policyDrift && completionPhase) {
+    // Reuse this real owned-store fixture for the completed history-read case.
+    // Readiness is a negative observation, never a fabricated effect settlement.
+    const commandBefore = db
+      .prepare('SELECT * FROM codex_commands WHERE id=?')
+      .get(command.id) as Record<string, unknown>;
+    const ownerBefore = db
+      .prepare('SELECT * FROM codex_conversations WHERE id=?')
+      .get(id) as Record<string, unknown>;
+    const receiptsBefore = db.prepare('SELECT * FROM codex_tools').all();
+    db.prepare("UPDATE codex_commands SET status='completed',ambiguous=0 WHERE id=?").run(
+      command.id,
+    );
+    expect(native.deploymentRecoveryPending()).toBe(false);
+    // Older completed intrinsic reads must use the same reviewed contract.
+    for (const tool of ['GitHubRead', 'Read', 'DescribeIntegrationTool']) {
+      db.prepare("UPDATE codex_tools SET tool_name=? WHERE call_id='failed-read'").run(tool);
+      expect(native.deploymentRecoveryPending()).toBe(false);
+    }
+    db.prepare("UPDATE codex_tools SET tool_name=? WHERE call_id='failed-read'").run(
+      identity.toolName,
+    );
+    for (const [table, key, column, value, originalValue] of [
+      ['codex_commands', command.id, 'status', 'interrupted', 'completed'],
+      [
+        'codex_commands',
+        command.id,
+        'native_execution_history',
+        null,
+        commandBefore.native_execution_history,
+      ],
+      ['codex_commands', command.id, 'native_turns', null, commandBefore.native_turns],
+      ['codex_conversations', id, 'host_custody', null, ownerBefore.host_custody],
+      ['codex_conversations', id, 'binding', '[]', ownerBefore.binding],
+      ['codex_conversations', id, 'owner_kind', 'symposium', ownerBefore.owner_kind],
+    ] as const) {
+      db.prepare(`UPDATE ${table} SET ${column}=? WHERE id=?`).run(value, key);
+      expect(native.deploymentRecoveryPending()).toBe(true);
+      db.prepare(`UPDATE ${table} SET ${column}=? WHERE id=?`).run(originalValue, key);
+    }
+    for (const [column, value, originalValue] of [
+      ['turn_id', 'different-turn', identity.turnId],
+      ['request_hash', null, identity.requestHash],
+      ['tool_name', 'mcp__configured__ReadPastSession', identity.toolName],
+      ['result_content', null, retainedResult.content],
+    ] as const) {
+      db.prepare(`UPDATE codex_tools SET ${column}=? WHERE call_id='failed-read'`).run(value);
+      expect(native.deploymentRecoveryPending()).toBe(true);
+      db.prepare(`UPDATE codex_tools SET ${column}=? WHERE call_id='failed-read'`).run(
+        originalValue,
+      );
+    }
+    // A single unknown write alongside the read must keep the global fence.
+    db.prepare("UPDATE codex_commands SET status='running' WHERE id=?").run(command.id);
+    const writeIdentity = { ...identity, toolName: 'Write' };
+    native.claimTool(id, binding, command.id, 'unknown-write', writeIdentity);
+    native.recordToolResult(
+      id,
+      binding,
+      command.id,
+      'unknown-write',
+      writeIdentity,
+      retainedResult,
+    );
+    db.prepare("UPDATE codex_commands SET status='completed' WHERE id=?").run(command.id);
+    expect(native.deploymentRecoveryPending()).toBe(true);
+    db.prepare("DELETE FROM codex_tools WHERE call_id='unknown-write'").run();
+    expect(native.deploymentRecoveryPending()).toBe(false);
+    expect(db.prepare('SELECT * FROM codex_tools').all()).toEqual(receiptsBefore);
+    expect(db.prepare('SELECT count(*) AS n FROM codex_effect_settlements').get()).toEqual({
+      n: 0,
+    });
+    db.prepare("UPDATE codex_commands SET status='running' WHERE id=?").run(command.id);
+  }
+
+  if (completionPhase)
+    native.observeEmptyCompletionPhase(
+      id,
+      binding,
+      command,
+      'original-thread',
+      'original-turn',
+      createHash('sha256').update(original.workspace.directory!).digest('hex'),
+      policy.policyRevision,
+    );
   native.pauseForRecovery(id, binding, command.id, 'interrupted', 'resume', undefined, true, true);
+  native.enqueue(id, binding, { id: 'saved-follow-up', prompt: 'Preserve queued work' });
   const custody = native.readHostCustody(id, binding)!;
+  const draft = join(original.workspace.directory!, 'unfinished-work.txt');
+  writeFileSync(draft, 'Preserve the interrupted task');
+  if (policyDrift) {
+    const newlySelectedRuntime = join(f.root, 'new-runtime-executable');
+    writeFileSync(newlySelectedRuntime, 'offline runtime fixture');
+    registerWorkspaceRuntimeAuthorityPaths([newlySelectedRuntime]);
+    const fresh = composeOwnedLocalNativeExecutionPolicyForWorkspace(
+      { binding, assertCurrentSync: () => original.admission.assertCurrentSync() },
+      () => ({
+        cwd: original.workspace.directory!,
+        mode: original.expected.selection.permission.mode,
+        workspaceRoots: [original.workspace.directory!],
+        authSessionId: executionLogin,
+      }),
+    );
+    expect(fresh.policyRevision).not.toBe(policy.policyRevision);
+  }
   const before = {
     send: f.events.getSendCommand(command.id),
     admission: f.events.getOrdinaryLocalCommandExecutionAdmission(command.id),
@@ -490,10 +657,79 @@ async function reconcileRetainedColdTurn(nativeStatus: 'interrupted' | 'complete
   const baseRequest = probe.rpc.request.getMockImplementation()!;
   let afterItem = () => {};
   probe.rpc.request.mockImplementation(async (method, params) => {
+    if (method === 'thread/read')
+      return {
+        thread: {
+          id: params?.threadId,
+          parentThreadId: params?.threadId === 'original-thread' ? null : 'original-thread',
+          sessionId: 'original-tree',
+          cwd: original.workspace.directory!,
+          modelProvider: 'openai',
+          status: { type: 'notLoaded' },
+        },
+      };
     if (method === 'thread/turns/list')
-      return { data: [{ id: 'original-turn', status: nativeStatus, error: null }] };
+      return {
+        data: [
+          {
+            id: params?.threadId === 'child' ? 'child-turn' : 'original-turn',
+            status: params?.threadId === 'child' ? 'completed' : nativeStatus,
+            error: null,
+          },
+        ],
+        nextCursor: null,
+      };
     if (method === 'thread/items/list') {
       afterItem();
+      if (params?.threadId === 'child')
+        return {
+          data: [
+            {
+              turnId: 'child-turn',
+              item: {
+                id: 'child-read',
+                type: 'dynamicToolCall',
+                tool: 'DescribeIntegrationTool',
+                arguments: { name: 'GitHubRead' },
+                status: 'failed',
+                success: false,
+              },
+            },
+          ],
+          nextCursor: null,
+        };
+      if (params?.cursor === 'peer-refusal')
+        return {
+          data: [
+            {
+              turnId: 'original-turn',
+              item: {
+                id: 'failed-peer',
+                type: 'dynamicToolCall',
+                tool: 'AgentCommunication',
+                arguments: peerInput,
+                status: 'failed',
+                success: false,
+              },
+            },
+          ],
+          nextCursor: null,
+        };
+      if (params?.cursor === 'child-activity')
+        return {
+          data: [
+            {
+              turnId: 'original-turn',
+              item: {
+                id: 'child-start',
+                type: 'subAgentActivity',
+                kind: 'started',
+                agentThreadId: 'child',
+              },
+            },
+          ],
+          nextCursor: null,
+        };
       return {
         data: [
           {
@@ -501,14 +737,14 @@ async function reconcileRetainedColdTurn(nativeStatus: 'interrupted' | 'complete
             item: {
               id: 'failed-read',
               type: 'dynamicToolCall',
-              tool: 'RequestWebAccess',
+              tool: identity.toolName,
               arguments: arguments_,
               status: 'failed',
               success: false,
             },
           },
         ],
-        nextCursor: null,
+        nextCursor: taskStore ? 'peer-refusal' : policyDrift ? 'child-activity' : null,
       };
     }
     return baseRequest(method, params);
@@ -522,6 +758,9 @@ async function reconcileRetainedColdTurn(nativeStatus: 'interrupted' | 'complete
   expect(reconcilableLocalCodexCommand(f.events, native, id, actor.id, f.workspace)).toBe(
     command.id,
   );
+  const inputCandidates = vi.spyOn(native, 'undispatchedRecoveryCandidateIds');
+  expect(recoverableLocalCodexCommand(f.events, native, id, actor.id)).toBeUndefined();
+  expect(inputCandidates).not.toHaveBeenCalled();
   const claims = vi.spyOn(f.events, 'claimOrdinaryLocalCommandDispatch');
   const latest = f.events.getLatestEvent.bind(f.events);
   for (const scope of [
@@ -558,17 +797,47 @@ async function reconcileRetainedColdTurn(nativeStatus: 'interrupted' | 'complete
   // receipt observations. No extra repository, database or native journey.
   for (const [column, value] of nativeStatus === 'interrupted'
     ? ([
-        ['result_effect_outcome', 'unknown'],
+        [
+          taskStore ? 'result_content' : policyDrift ? 'tool_name' : 'result_effect_outcome',
+          taskStore ? 'changed result' : policyDrift ? 'UnreviewedMutation' : 'unknown',
+        ],
         ['result_content', null],
         ['request_hash', 'f'.repeat(64)],
       ] as const)
     : []) {
-    db.prepare(`UPDATE codex_tools SET ${column}=?`).run(value);
+    db.prepare(`UPDATE codex_tools SET ${column}=? WHERE call_id='failed-read'`).run(value);
+    if (column === 'tool_name') identity.toolName = String(value);
     await expect(driver.reconcileRetainedEffects()).rejects.toThrow();
     expect(native.read(id, binding).recovery).toBe(1);
     expect(native.commandStatus(id, binding, command.id)).toBe('interrupted');
     const originalTool = before.tools[0] as Record<string, unknown>;
-    db.prepare(`UPDATE codex_tools SET ${column}=?`).run(originalTool[column]);
+    db.prepare(`UPDATE codex_tools SET ${column}=? WHERE call_id='failed-read'`).run(
+      originalTool[column],
+    );
+    identity.toolName = String(originalTool.tool_name);
+  }
+  if (taskStore) {
+    const reserved = vi
+      .spyOn(f.events.agentCommunication, 'findRequest')
+      .mockReturnValue({} as never);
+    await expect(driver.reconcileRetainedEffects()).rejects.toThrow();
+    expect(native.read(id, binding).recovery).toBe(1);
+    reserved.mockRestore();
+    const taskDb = (taskStore as unknown as { db: Database.Database }).db;
+    const originalRun = taskDb.prepare('SELECT * FROM task_execution_runs').get() as Record<
+      string,
+      unknown
+    >;
+    for (const [column, value] of [
+      ['result', null],
+      ['fingerprint', 'changed'],
+      ['session_id', 'foreign'],
+    ] as const) {
+      taskDb.prepare(`UPDATE task_execution_runs SET ${column}=?`).run(value);
+      await expect(driver.reconcileRetainedEffects()).rejects.toThrow();
+      expect(native.read(id, binding).recovery).toBe(1);
+      taskDb.prepare(`UPDATE task_execution_runs SET ${column}=?`).run(originalRun[column]);
+    }
   }
   const originalEmail = f.configuration[0].email;
   let changedAccount = false;
@@ -593,10 +862,22 @@ async function reconcileRetainedColdTurn(nativeStatus: 'interrupted' | 'complete
   expect(native.read(id, binding).recovery).toBe(1);
   f.configuration[0].email = originalEmail;
   f.writeProfiles();
+  // Routine query-loop timing updates can race cold inspection. Keep actual
+  // custody/selection observations; vary only these three non-authority fields.
+  const getMeta = f.events.getSession.bind(f.events);
+  let timing = Date.now();
+  const metadata = vi.spyOn(f.events, 'getSession').mockImplementation((sessionId) => {
+    const meta = getMeta(sessionId);
+    return meta && { ...meta, durationMs: ++timing, updatedAt: timing, lastStateChange: timing };
+  });
   await driver.reconcileRetainedEffects();
+  metadata.mockRestore();
   expect(native.read(id, binding).recovery).toBe(0);
   expect(native.continuationBlocker(id, binding)).toBeUndefined();
+  if (!completionPhase)
+    expect(native.completionPhase(id, binding, command.id, command.attempt)).toBeUndefined();
   expect(native.readHostCustody(id, binding)).toEqual(custody);
+  expect(readFileSync(draft, 'utf8')).toBe('Preserve the interrupted task');
   expect(native.readNativeExecution(id, binding, command)?.policy.bindingRevision).toBe(
     policy.bindingRevision,
   );
@@ -604,7 +885,7 @@ async function reconcileRetainedColdTurn(nativeStatus: 'interrupted' | 'complete
     native.commands(id, binding).map(({ status, attempt, id }) => ({ status, attempt, id })),
   ).toEqual(
     before.command.map(({ status, attempt, id }) => ({
-      status: nativeStatus === 'completed' ? 'completed' : status,
+      status: nativeStatus === 'completed' && id === command.id ? 'completed' : status,
       attempt,
       id,
     })),
@@ -626,5 +907,11 @@ async function reconcileRetainedColdTurn(nativeStatus: 'interrupted' | 'complete
 }
 it.each(['interrupted', 'completed'] as const)(
   'reconciles an already dispatched cold turn observed %s without replay',
-  reconcileRetainedColdTurn,
+  (status) => reconcileRetainedColdTurn(status),
 );
+
+it('reconciles settled interrupted work after a real policy change under fresh authority without replay', () =>
+  reconcileRetainedColdTurn('interrupted', true));
+
+it('recovers an interrupted turn without a completion phase, retaining its original outcome and receipts', () =>
+  reconcileRetainedColdTurn('interrupted', true, false));

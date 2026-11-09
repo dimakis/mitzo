@@ -16,6 +16,7 @@ import {
   CollaborationJoinReconcileInputSchema,
   CollaborationMessageInputSchema,
   CollaborationMessageSchema,
+  CollaborationRecipientReadinessSchema,
   CollaborationSnapshotReferenceSchema,
   CollaborationSnapshotSelectionSchema,
   CollaborationApplicationReviewInputSchema,
@@ -36,6 +37,7 @@ export class CollaborationApiError extends Error {
     readonly status: number,
     readonly code: string,
     message: string,
+    readonly dispatchNotStarted = false,
   ) {
     super(message);
   }
@@ -69,6 +71,7 @@ export class CollaborationApiClient {
         response.status,
         typeof body?.code === 'string' ? body.code : 'unavailable',
         typeof body?.error === 'string' ? body.error : 'Collaboration unavailable',
+        body?.dispatchNotStarted === true,
       );
     }
     return schema.parse(await response.json());
@@ -102,6 +105,28 @@ export class CollaborationApiClient {
   }
   view(id: string, signal?: AbortSignal) {
     return this.request(this.path(id, 'conversation'), CollaborationViewSchema, signal);
+  }
+  recipientReadiness(id: string, sessionId: string, signal?: AbortSignal) {
+    CollaborationBeginSchema.shape.sessionId.parse(sessionId);
+    return this.request(
+      this.path(id, `recipients/${encodeURIComponent(sessionId)}`),
+      CollaborationRecipientReadinessSchema.refine(
+        (r) => r.collaborationId === id && r.sessionId === sessionId,
+        'Recipient identity changed',
+      ),
+      signal,
+    );
+  }
+  observeSend(id: string, input: CollaborationMessageInput, signal?: AbortSignal) {
+    return this.request(
+      this.path(id, 'messages/observe'),
+      z.strictObject({
+        message: CollaborationMessageSchema.nullable(),
+        terminal: z.boolean().default(false),
+      }),
+      signal,
+      { method: 'POST', body: CollaborationMessageInputSchema.parse(input) },
+    );
   }
   /** Observational canonical fresh-flow selection, never arbitrary first-row reuse. */
   sourceSetup(sourceConversationId: string, clientId: string, signal?: AbortSignal) {

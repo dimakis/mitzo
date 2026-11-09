@@ -4,6 +4,7 @@ import { ProviderFailureError, providerFailureTelemetry } from './provider-failu
 import { CodexStartupError } from './codex-startup-error.js';
 import { RuntimePolicyAttestationError } from './openshell-runtime-policy.js';
 import { findSessionRuntimeError } from './session-runtime-error.js';
+import { NativeExecutionPolicyChangedError } from './codex-native-execution-policy.js';
 
 const requestMethods = new Set([
   'initialize',
@@ -21,6 +22,8 @@ const requestMethods = new Set([
 
 /** Only fixed diagnostics from typed errors; never relay upstream exception text. */
 export function codexRuntimeDiagnostic(error: Error): string | undefined {
+  const retained = findSessionRuntimeError(error);
+  if (retained) return retained.message;
   if (error.message === 'OpenShell ChatGPT grant is expired, revoked, or requires sign-in')
     return 'The selected ChatGPT connection needs a fresh sign-in. Reconnect that account before retrying.';
   if (error instanceof RuntimePolicyAttestationError)
@@ -72,7 +75,13 @@ export function codexRuntimeDiagnostic(error: Error): string | undefined {
 /** Shared by startup and running turns, with bounded fields safe for logs. */
 export function codexRuntimeErrorTelemetry(error: Error): Record<string, unknown> {
   const retained = findSessionRuntimeError(error);
-  if (retained) return retained.telemetry();
+  if (retained)
+    return {
+      ...retained.telemetry(),
+      ...(retained instanceof NativeExecutionPolicyChangedError
+        ? { nativePolicyChangedFields: retained.changedFields }
+        : {}),
+    };
   if (error.message === 'OpenShell ChatGPT grant is expired, revoked, or requires sign-in')
     return { subscriptionSignInRequired: true };
   if (error instanceof RuntimePolicyAttestationError)

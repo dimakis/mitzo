@@ -34,6 +34,20 @@ it('logs a bounded application source location without the stack or private path
   expect(JSON.stringify(telemetry)).not.toMatch(/PRIVATE_COMMAND|sk-secret|private|other/);
 });
 
+it.each([
+  'chat',
+  'ordinary-openshell-codex-entry',
+  'ordinary-openshell-codex-entry-owner',
+  'ordinary-openshell-codex-owned-runtime',
+  'owned-openshell-codex-chat-admission',
+])('identifies an admission guard in %s without logging its private stack', (module) => {
+  const cause = Error('PRIVATE_COMMAND');
+  cause.stack = `Error: PRIVATE_COMMAND\n    at guard (/private/sk-secret/server/${module}.ts:123:4)`;
+  const telemetry = codexRuntimeErrorTelemetry(new CodexStartupError('runtime_admission', cause));
+  expect(telemetry.startupErrorLocation).toBe(`${module}:123:4`);
+  expect(JSON.stringify(telemetry)).not.toMatch(/PRIVATE_COMMAND|sk-secret|private/);
+});
+
 it('retains command exit status without logging the command or stderr', () => {
   const cause = Object.assign(new Error('PRIVATE_COMMAND'), {
     cmd: 'ssh sk-secret',

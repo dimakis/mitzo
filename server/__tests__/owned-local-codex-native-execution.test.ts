@@ -43,6 +43,7 @@ import * as library from '../agent-library-runtime.js';
 import { setConnectionsRuntime } from '../connections-runtime.js';
 import { googleWorkspaceChatFixture } from './fixtures/google-workspace-chat.js';
 import { resolvePending } from '../permissions.js';
+import { SessionCapabilityGrants } from '../session-capability-grants.js';
 const cleanups: Array<() => void | Promise<void>> = [];
 afterAll(async () => {
   for (const close of cleanups.splice(0).reverse()) await close();
@@ -319,12 +320,42 @@ it('reads Google documents through an admitted Local Mac chat while credentials 
   );
   expect(retained).toMatchObject({ success: true });
   expect(JSON.stringify(retained)).toContain('Approved long Google document.');
+  const grants = new SessionCapabilityGrants(chat.registry);
+  const grant = grants.create(auth.id, {
+    sessionIds: [f.reservation.conversationId],
+    capability: {
+      kind: 'google-read',
+      email: 'fixture@example.test',
+      resource: { kind: 'file', id: 'fixture-document' },
+    },
+    durationMinutes: 60,
+  });
+  const beforeReusable = approvals().length;
+  const reusable = await call('GoogleWorkspaceRead', readInput, 'reusable-google-read');
+  expect(reusable).toMatchObject({ success: true });
+  expect(approvals()).toHaveLength(beforeReusable);
+  const reusablePreview = JSON.parse((reusable.contentItems as Array<{ text: string }>)[0]!.text);
+  expect(
+    await call(
+      'ReadToolOutput',
+      { outputId: reusablePreview.outputId, limit: 1000 },
+      'reusable-retained',
+    ),
+  ).toMatchObject({ success: true });
+  await grants.revoke(auth.id, f.reservation.conversationId, grant.id);
+  const revokedOutput = await call(
+    'ReadToolOutput',
+    { outputId: reusablePreview.outputId, limit: 1000 },
+    'revoked-retained',
+  );
+  expect(revokedOutput).toMatchObject({ success: false });
+  expect(JSON.stringify(revokedOutput)).not.toContain('Approved long Google document.');
   const retiredRead = call('GoogleWorkspaceRead', readInput, 'retired-google-read');
   const retiredApproval = await nextApproval(approvals().length);
   setConnectionsRuntime(null);
   resolvePending(retiredApproval.permId, 'once', undefined, f.reservation.conversationId);
   expect(await retiredRead).toMatchObject({ success: false });
-  expect(google.contentReads()).toHaveLength(2);
+  expect(google.contentReads()).toHaveLength(3);
   expect(JSON.stringify(transport.send.mock.calls)).not.toContain('SECRET');
   const profiles = JSON.stringify(thread.config);
   expect(profiles).toContain('.config/gws');

@@ -19,6 +19,10 @@ const f = vi.hoisted(() => ({
   openshellResume: vi.fn(),
   continuationTarget: vi.fn(),
   blocker: undefined as undefined | { commandId: string; kind: string },
+  reconcile: vi.fn(),
+}));
+vi.mock('../retained-local-codex-effects.js', () => ({
+  reconcilableLocalCodexCommand: f.reconcile,
 }));
 vi.mock('../codex-chat-session.js', () => ({
   getCodexConversationStore: () => ({
@@ -62,6 +66,7 @@ import { ordinaryOpenShellCodexTarget } from '../ordinary-openshell-codex-route.
 import { ordinaryCodexContinuationStatus } from '../ordinary-codex-continuation-status.js';
 afterEach(() => vi.unstubAllEnvs());
 function setup() {
+  f.reconcile.mockReset().mockReturnValue(undefined);
   f.blocker = undefined;
   f.uncertain = false;
   f.untransferred.mockReset().mockReturnValue(false);
@@ -132,6 +137,15 @@ it('explains original callback effects before expensive runtime qualification or
     reason: expect.stringContaining('unresolved tool or completion effects'),
   });
   expect(f.resume).not.toHaveBeenCalled();
+});
+it('offers Send for qualified cold reconciliation without requiring a separate continue action', () => {
+  setup();
+  f.blocker = { commandId: 'original-turn', kind: 'completion_phase' };
+  f.reconcile.mockReturnValue('original-turn');
+  f.resume.mockReturnValue(true);
+  expect(ordinaryCodexContinuationStatus('conversation', 'original')).toEqual({ available: true });
+  expect(f.reconcile).toHaveBeenCalledOnce();
+  expect(f.blocker).toEqual({ commandId: 'original-turn', kind: 'completion_phase' });
 });
 it('refuses disabled, changed and foreign routes before execution support', () => {
   setup();

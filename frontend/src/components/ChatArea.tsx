@@ -336,7 +336,9 @@ export function ChatArea({
       shouldFollowStreamRef.current = distanceFromBottom <= SCROLL_NEAR_BOTTOM_PX;
     };
 
-    updateFollowState();
+    // A mounted transcript can already contain restored history while a source
+    // lookup owns its position. Initial geometry is not a reader scroll-away;
+    // retain follow intent until an actual scroll or source jump changes it.
     el.addEventListener('scroll', updateFollowState, { passive: true });
     return () => el.removeEventListener('scroll', updateFollowState);
   }, [scrollRef]);

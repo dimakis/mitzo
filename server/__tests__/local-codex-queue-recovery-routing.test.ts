@@ -4,6 +4,7 @@ import type { Express, NextFunction, Request, Response } from 'express';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
+import { SessionRuntimeError } from '../session-runtime-error.js';
 import type { EventStore } from '../event-store.js';
 type EffectsEligibility =
   typeof import('../retained-local-codex-effects.js').reconcilableLocalCodexCommand;
@@ -208,15 +209,32 @@ it('rejects unauthorized queue recovery before the local consumer runs', async (
   ).toBe(403);
   expect(fixture.continue).not.toHaveBeenCalled();
 });
-it('reports consumer recovery failure rather than local dispatch success', async () => {
-  fixture.continue.mockRejectedValueOnce(Error('Saved input no longer safe'));
-  const response = await request(app)
-    .post(`/api/sessions/${id}/codex-queue/continue`)
-    .set('X-Connection-ID', 'current-signed-sse')
-    .send({});
-  expect(response.status).toBe(409);
-  expect(fixture.continue).toHaveBeenCalledOnce();
-});
+it.each([false, true])(
+  'retains a sanitized recovery diagnostic with a matching HTTP reference (typed=%s)',
+  async (typed) => {
+    const specific = new SessionRuntimeError('native_policy_changed');
+    const cause = typed
+      ? Error('private upstream path', { cause: specific })
+      : Error('private upstream path');
+    fixture.continue.mockRejectedValueOnce(cause);
+    const response = await request(app)
+      .post(`/api/sessions/${id}/codex-queue/continue`)
+      .set('X-Connection-ID', 'current-signed-sse')
+      .send({});
+    expect(response.status).toBe(409);
+    expect(fixture.continue).toHaveBeenCalledOnce();
+    expect(response.body.runtimeFailure).toMatchObject({
+      runtimeFailureCode: typed ? 'native_policy_changed' : 'recovery_unavailable',
+      diagnosticId: expect.any(String),
+    });
+    if (typed) expect(response.body.runtimeFailure.diagnosticId).toBe(specific.diagnosticId);
+    expect(response.body.error).toContain(response.body.runtimeFailure.diagnosticId);
+    expect(response.body.error).not.toContain('private upstream path');
+    const saved = store.getLatestEvent(id, 'error')!;
+    expect(saved.payload.runtimeFailure).toEqual(response.body.runtimeFailure);
+    expect(saved.payload.error).toBe(response.body.error);
+  },
+);
 
 it('does not offer saved recovery while a live unpaused owner is already progressing', async () => {
   fixture.queue.paused = false;

@@ -1,7 +1,7 @@
 import { afterAll, expect, it, vi } from 'vitest';
 import { createHash } from 'node:crypto';
 import { z } from 'zod';
-import { mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Express } from 'express';
@@ -86,12 +86,13 @@ async function loadApplication() {
   const profiles = join(root, 'accounts.json');
   const limits = join(root, 'model-limits.json');
   if (fresh) {
+    mkdirSync(join(root, 'telos-private'), { mode: 0o700 });
     writeFileSync(profiles, '[]', { mode: 0o600 });
     writeFileSync(limits, '{}');
   }
   for (const [key, value] of Object.entries({
     REPO_PATH: root,
-    TELOS_DB_PATH: join(root, 'telos.db'),
+    TELOS_DB_PATH: join(root, 'telos-private', 'telos.db'),
     MITZO_INTERNAL_TOKEN_PATH: join(root, 'internal-token'),
     MITZO_CODEX_PRIVATE_DIR: join(root, 'private'),
     MITZO_ORDINARY_TASK_ROOT: join(root, 'tasks'),
@@ -604,4 +605,39 @@ it('joins a reviewed fresh ordinary session without inference or native capacity
 export function getApplicationJoiningJourney() {
   if (!joinedSessionId) throw Error('BLOCKED: actual application joining prerequisite failed');
   return { api, events, group, joinedSessionId };
+}
+
+/** Real login/HTTP bridge for the production UI acceptance continuation. */
+export async function getApplicationUiJourney() {
+  if (!http) throw Error('Actual application prerequisite failed');
+  const auth = await (
+    await import('../auth.js')
+  ).authenticateToken(cookie.slice('cc_auth='.length));
+  if (!auth) throw Error('Actual application login unavailable');
+  const clientId = crypto.randomUUID();
+  const { claimTransportConnection, releaseTransportConnection } =
+    await import('../transport-auth-ownership.js');
+  const { bindAgentLibraryTransport } = await import('../agent-library-transport.js');
+  claimTransportConnection(clientId, auth.id);
+  const unbind = bindAgentLibraryTransport(clientId, auth);
+  const previous = releaseTransport;
+  releaseTransport = () => {
+    unbind();
+    releaseTransportConnection(clientId, auth.id);
+    previous?.();
+  };
+  const fetch = vi.fn(async (url: string, init?: RequestInit) => {
+    const path = url.startsWith('/') ? url : new URL(url).pathname + new URL(url).search;
+    const response = await http!.request(init?.method ?? 'GET', path, {
+      headers: { cookie },
+      body: init?.body ? JSON.parse(String(init.body)) : undefined,
+    });
+    return new Response(JSON.stringify(response.body), { status: response.status });
+  });
+  return {
+    ...getApplicationJoiningJourney(),
+    typedApi: new MitzoApiClient(fetch),
+    fetch,
+    clientId,
+  };
 }

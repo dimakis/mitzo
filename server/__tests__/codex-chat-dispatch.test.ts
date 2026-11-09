@@ -36,6 +36,13 @@ vi.mock('../prompt-compare.js', () => ({
   capturePromptComparison: vi.fn().mockResolvedValue(undefined),
 }));
 vi.mock('../mcp-config.js', () => ({ loadMcpServers: () => ({}) }));
+vi.mock('../protected-sdk-command.js', async (original) => {
+  const { sdkProjectCommandFixture } = await import('./fixtures/sdk-project-command.js');
+  return {
+    ...(await original<object>()),
+    createWorkspaceRuntimeCommandRunner: vi.fn(() => sdkProjectCommandFixture),
+  };
+});
 vi.mock('../responses-chat-session.js', () => ({
   openResponsesChat: vi.fn(),
   getNativeResponsesStore: () => ({ load: () => null }),
@@ -127,6 +134,7 @@ it('routes a bound Codex account to its controller with context and canonical du
     expect(persisted).toEqual(profiles.resolve('personal', 'luna'));
     expect(opened?.systemPrompt).toContain('boot evidence');
     expect(opened?.systemPrompt).toContain('propose Telos');
+    expect(opened?.systemPrompt).toContain('outcome -> feature items -> session-sized slices');
     expect(opened?.systemPrompt).toContain('Simple one-session tasks stay in chat');
     expect(opened?.systemPrompt).toContain('TelosSaveArtifact');
     expect(opened?.prompt).toContain('attached context');

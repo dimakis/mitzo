@@ -13,7 +13,9 @@ revocation and cancellation boundaries when reducing redundant checks.
 
 For a multi-slice ask, first propose Telos using [the shared workflow](docs/features/telos-workflow.md).
 Simple one-session tasks stay in chat unless Telos was explicitly requested or an existing item applies.
-An outcome has an orchestrator chat; each direct child is one bounded slice with one working session.
+Use outcome → feature items → session-sized slices. The outcome orchestrator coordinates features,
+integration, merge order and CI; a feature lead coordinates its slices. A standalone feature needs no outcome wrapper.
+Runtime kinds do not redefine these levels or prove nested lead/session support.
 Use existing reviewed role/session setup. Creating an item alone does not establish session readiness.
 
 ## Symposium source selection

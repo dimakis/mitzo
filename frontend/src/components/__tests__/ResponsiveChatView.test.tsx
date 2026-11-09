@@ -2,7 +2,6 @@
 import { reviewerOperations } from '../../lib/symposium-reviewer-operations';
 import { afterEach, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
-import { useMitzoStore } from '@mitzo/client/hooks';
 import { ResponsiveChatView } from '../ResponsiveChatView';
 import { AddAgentSheet } from '../AddReviewerSheet';
 import { useIsDesktop } from '../../hooks/useMediaQuery';
@@ -24,8 +23,18 @@ vi.mock('../../pages/ChatView', () => ({
     </div>
   ),
 }));
-vi.mock('@mitzo/client/hooks', () => ({ useMitzoStore: vi.fn(() => 'session') }));
-vi.mock('../../lib/api-fetch', () => ({
+const store = vi.hoisted(() => ({ active: 'session' as string | null }));
+vi.mock('@mitzo/client/hooks', () => ({
+  useMitzoStore: (select: (state: unknown) => unknown) =>
+    select({
+      sessions: { active: store.active },
+      chatDraftRevision: 0,
+      messages: { messages: [], running: false },
+      connection: null,
+    }),
+}));
+vi.mock('../../lib/api-fetch', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../lib/api-fetch')>()),
   apiFetch: async () =>
     new Response(JSON.stringify({ config: null, seats: [], runtimeAvailable: false })),
 }));
@@ -34,6 +43,7 @@ vi.mock('../AccountModelPicker', () => ({ AccountModelPicker: () => null }));
 afterEach(() => {
   cleanup();
   reviewerOperations.reset();
+  store.active = 'session';
 });
 it('switches the complete screen when the viewport crosses the mobile breakpoint', () => {
   vi.mocked(useIsDesktop).mockReturnValue(true);
@@ -63,10 +73,10 @@ it('keeps the shared agent draft open across desktop/mobile wrapper changes', as
 
 it('preserves the chat screen while a new session is assigned', () => {
   vi.mocked(useIsDesktop).mockReturnValue(true);
-  vi.mocked(useMitzoStore).mockReturnValue(null);
+  store.active = null;
   const { rerender } = render(<ResponsiveChatView />);
   fireEvent.change(screen.getByLabelText('Draft text'), { target: { value: 'Pending draft' } });
-  vi.mocked(useMitzoStore).mockReturnValue('assigned-session');
+  store.active = 'assigned-session';
   rerender(<ResponsiveChatView />);
   expect((screen.getByLabelText('Draft text') as HTMLInputElement).value).toBe('Pending draft');
 });

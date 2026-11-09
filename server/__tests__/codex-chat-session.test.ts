@@ -39,6 +39,7 @@ const mocks = vi.hoisted(() => ({
     (Record<string, unknown> & { systemPrompt?: string }) | undefined,
   useTls: false,
   custodianController: false,
+  nativeDeniedRoots: ['/offline/owned-login'],
 }));
 // These controller tests already replace the conversation, provider and lease.
 // Use a source-faithful qualified lease marker and an explicit synthetic scope;
@@ -58,7 +59,7 @@ vi.mock('../owned-local-codex-native-policy.js', async (original) => {
         cwd: input.session.cwd!,
         readableRoots: input.readableRoots ?? ['/'],
         writableRoots: [input.session.cwd!],
-        deniedRoots: ['/offline/owned-login'],
+        deniedRoots: mocks.nativeDeniedRoots,
       });
     },
   };
@@ -174,6 +175,7 @@ import type { FrozenHostCodexBootstrapLease } from '../frozen-host-codex-bootstr
 import type { OrdinaryLocalCodexAdmissionExpectation } from '../ordinary-local-codex-admission.js';
 
 beforeEach(() => {
+  mocks.nativeDeniedRoots = ['/offline/owned-login'];
   vi.spyOn(OpenShellRuntimeManager.prototype, 'inspectTaskCapabilities').mockResolvedValue({
     mgmtCli: false,
     meetingPrep: false,
@@ -837,6 +839,9 @@ it('does not advertise unavailable host tools to an OpenShell runtime', async ()
   );
   expect(mocks.conversationOptions?.systemPrompt).toContain('TelosFindArtifacts');
   expect(mocks.conversationOptions?.systemPrompt).toContain('propose Telos');
+  expect(mocks.conversationOptions?.systemPrompt).toContain(
+    'outcome -> feature items -> session-sized slices',
+  );
   expect(mocks.conversationOptions?.systemPrompt).toContain(
     'Simple one-session tasks stay in chat',
   );
@@ -4785,6 +4790,7 @@ it.each([false, true])(
       );
       const prompt = mocks.conversationOptions!.systemPrompt!;
       expect(prompt).toContain('propose Telos');
+      expect(prompt).toContain('outcome -> feature items -> session-sized slices');
       expect(prompt).toContain('one dedicated working session');
       expect(prompt).toContain('merge-queue orchestrator');
       expect(prompt.split('## Telos work planning')).toHaveLength(2);
@@ -7792,3 +7798,53 @@ it.each([
     }
   },
 );
+
+it('retains the active native command across redundant global protection discovery but rejects real drift', async () => {
+  mocks.initialize.mockResolvedValue(undefined);
+  mocks.send.mockResolvedValue(undefined);
+  mocks.connect.mockResolvedValue({ definitions: [], close: mocks.mcpClose });
+  const f = ownedLocalOptions();
+  f.opts.assertAgentContextAuthorization = vi.fn();
+  const preparation = await import('../native-local-repository-preparation.js');
+  const workspaces = vi
+    .spyOn(repositoryWorkspaceRuntime, 'getRepositoryWorkspaces')
+    .mockReturnValue({} as never);
+  const prepared = vi
+    .spyOn(preparation, 'executeNativeLocalRepositoryPreparation')
+    .mockRejectedValue(Error('Reached original preparation owner'));
+  const chat = await openCodexChat(f.opts);
+  try {
+    const opts =
+      mocks.conversationOptions as unknown as import('../codex-conversation.js').CodexConversationOptions;
+    const original = opts.nativeExecution!;
+    opts.assertNativeExecutionCurrent!(original, 'owned-command');
+    mocks.nativeDeniedRoots.push('/offline/owned-login/another-chat');
+    expect(() => opts.assertNativeExecutionCurrent!(original, 'owned-command')).not.toThrow();
+    await expect(
+      opts.executeTool(
+        'PrepareLocalRepository',
+        { path: '/offline/source' },
+        new AbortController().signal,
+        { turnId: 'original-turn', callId: 'prepare-equivalent-policy' },
+      ),
+    ).rejects.toThrow('Reached original preparation owner');
+    mocks.nativeDeniedRoots.push('/offline/separate-credential');
+    expect(() => opts.assertNativeExecutionCurrent!(original, 'owned-command')).toThrow(
+      'Native execution policy changed',
+    );
+    await expect(
+      opts.executeTool(
+        'PrepareLocalRepository',
+        { path: '/offline/source' },
+        new AbortController().signal,
+        { turnId: 'original-turn', callId: 'prepare-changed-policy' },
+      ),
+    ).rejects.toThrow('Native execution policy changed');
+    expect(prepared).toHaveBeenCalledTimes(1);
+  } finally {
+    workspaces.mockRestore();
+    prepared.mockRestore();
+    chat.close();
+    f.eventStore.close();
+  }
+});

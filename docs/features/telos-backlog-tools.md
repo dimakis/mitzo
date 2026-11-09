@@ -1,8 +1,8 @@
 # Telos backlog tools
 
 For a multi-slice ask, first propose Telos using the [shared planning workflow](telos-workflow.md).
-The outcome has an orchestrator chat; each direct child is one bounded delivery slice
-with one dedicated working session. Creating backlog items does not finish role/session setup.
+An outcome coordinates feature items; each feature lead coordinates session-sized slices.
+Creating backlog items does not finish role/session setup or establish nested delegation support.
 
 Ordinary OpenShell and native Mac Codex chats can browse and maintain Telos without
 an assigned lead role. Explicit agent profiles must select the new tools; existing

@@ -66,7 +66,27 @@ it('revokes the shared task without a child retaining its old permission', () =>
 });
 it('refuses expired grants and retains run uncertainty across retries and restart', () => {
   const { store, path, scope } = fixture();
-  const grant = store.approve('operator', 'parent', 'request', scope);
+  const binding = {
+    accountId: 'offline',
+    accountLabel: 'Offline',
+    provider: 'openai' as const,
+    model: 'synthetic',
+    profileRevision: 'original',
+  };
+  const grant = store.approve('operator', 'parent', 'request', {
+    ...scope,
+    members: scope.members.map((member) => ({ ...member, account: binding })),
+  });
+  const evidence = {
+    grantId: grant.id,
+    sessionId: 'worker',
+    requestId: 'run-1',
+    fingerprint: 'command-hash',
+    cwd: '/task/worker',
+    binding,
+    result: { content: '3 passed', isError: false },
+  };
+  expect(store.hasMatchingCompletedRun(evidence)).toBe(false);
   expect(store.begin(grant.id, 'worker', 'run-1', 'command-hash')).toEqual({ state: 'running' });
   const reopened = new TaskExecutionStore(path);
   cleanups.push(() => reopened.close());
@@ -77,9 +97,19 @@ it('refuses expired grants and retains run uncertainty across retries and restar
     state: 'completed',
     result: { content: '3 passed', isError: false },
   });
+  expect(reopened.hasMatchingCompletedRun(evidence)).toBe(true);
+  for (const change of [
+    { fingerprint: 'other' },
+    { sessionId: 'parent' },
+    { cwd: '/task/worker-other' },
+    { binding: { ...binding, accountId: 'other' } },
+    { result: { content: 'different', isError: false } },
+  ])
+    expect(reopened.hasMatchingCompletedRun({ ...evidence, ...change })).toBe(false);
   vi.useFakeTimers();
   vi.setSystemTime(scope.expiresAt);
   expect(() => store.assertGrant(grant.id, 'operator', 'worker', 'worker-scope')).toThrow(
     /expired/,
   );
+  expect(reopened.hasMatchingCompletedRun(evidence)).toBe(true);
 });

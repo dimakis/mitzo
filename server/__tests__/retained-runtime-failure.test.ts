@@ -7,7 +7,25 @@ import { deliverRetainedSessionEvent } from '../query-loop.js';
 import { EventStore } from '../event-store.js';
 import { reportRetainedRuntimeFailure } from '../retained-runtime-failure.js';
 import { SessionRuntimeError } from '../session-runtime-error.js';
+import { NativeExecutionPolicyChangedError } from '../codex-native-execution-policy.js';
+import { RuntimeFailureSchema, runtimeFailureMessage } from '@mitzo/protocol';
 import { replayError, recordAcceptedReplaySession } from '../public-replay-error.js';
+it('retains a policy diagnostic that the strict client protocol can restore', () => {
+  const store = new EventStore(':memory:');
+  try {
+    store.upsertSession({ sessionId: 'policy-chat', cwd: '/offline/task' });
+    const error = new NativeExecutionPolicyChangedError(['deniedRoots']);
+    reportRetainedRuntimeFailure({ store, sessionId: 'policy-chat', error });
+    const event = store.getLatestEvent('policy-chat', 'error')!;
+    const failure = RuntimeFailureSchema.parse(event.payload.runtimeFailure);
+    expect(runtimeFailureMessage(failure)).toContain('Native execution policy changed');
+    expect(failure.diagnosticId).toBe(error.diagnosticId);
+    expect(event.payload.error).toBe(runtimeFailureMessage(failure));
+    expect(event.payload).not.toHaveProperty('nativePolicyChangedFields');
+  } finally {
+    store.close();
+  }
+});
 it('leaves an unsaved input failure to its original startup reporter', () => {
   const dir = mkdtempSync(join(tmpdir(), 'mitzo-unsaved-error-'));
   const store = new EventStore(join(dir, 'events.db'));

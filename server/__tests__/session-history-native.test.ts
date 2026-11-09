@@ -19,6 +19,11 @@ const setup = await vi.hoisted(async () => {
   return { root, remove: () => fs.rmSync(root, { recursive: true, force: true }) };
 });
 vi.mock('../mcp-config.js', () => ({ loadMcpServers: () => ({}) }));
+// Synthetic executable and RPCs; retain the actual native policy/owner path.
+vi.mock('../codex-native-artifact-qualification.js', async (original) => ({
+  ...(await original<typeof import('../codex-native-artifact-qualification.js')>()),
+  assertQualifiedNativeMacExecutionArtifact: vi.fn(),
+}));
 vi.mock('@anthropic-ai/claude-agent-sdk', () => ({
   query: () => {
     throw Error('Offline fixture forbids SDK/model calls');
@@ -26,6 +31,13 @@ vi.mock('@anthropic-ai/claude-agent-sdk', () => ({
   listSessions: () => [],
 }));
 import { randomUUID } from 'node:crypto';
+import { mkdirSync, symlinkSync, unlinkSync, realpathSync, mkdtempSync, rmSync } from 'node:fs';
+import { join, dirname } from 'node:path';
+import { tmpdir } from 'node:os';
+import {
+  registerWorkspaceRuntimeAuthorityNamespace,
+  registerWorkspaceRuntimeAuthorityPaths,
+} from '../workspace-runtime-private-paths.js';
 import { OrdinaryLocalCodexHostRuntime } from '../ordinary-local-codex-host-runtime.js';
 import { ownedRuntimeFixture } from './fixtures/owned-local-codex-runtime.js';
 import { CodexAppServerClient, type CodexLifecycleTransport } from '../codex-app-server-client.js';
@@ -45,14 +57,19 @@ afterAll(async () => {
 });
 
 it('runs history through the signed native owner without publication configuration, and withholds hidden/revoked targets', async () => {
+  const knowledge = realpathSync(mkdtempSync(join(tmpdir(), 'mitzo-native-knowledge-')));
+  cleanups.push(() => rmSync(knowledge, { recursive: true, force: true }));
+  registerWorkspaceRuntimeAuthorityNamespace(knowledge);
   const runtimeChecks = vi.spyOn(OrdinaryLocalCodexHostRuntime.prototype, 'assertCurrentSync');
   const f = await ownedRuntimeFixture(cleanups, {
     chatRoute: true,
     tools: [
+      ...['Bash', 'Read', 'Write', 'Edit'].map((name) => ({ id: `mitzo:${name}`, version: 1 })),
       { id: 'mitzo:SearchPastSessions', version: 1 },
       { id: 'mitzo:ReadPastSession', version: 1 },
     ],
   });
+  vi.stubGlobal('process', Object.create(process, { platform: { value: 'darwin' } }));
   const chat = await import('../chat.js');
   const native = await import('../codex-chat-session.js');
   setAuthRevocationStore(chat.eventStore);
@@ -148,17 +165,31 @@ it('runs history through the signed native owner without publication configurati
     return { response, text, value: response.success ? JSON.parse(text) : undefined };
   };
   runtimeChecks.mockClear();
-  const unmatched = await invoke('SearchPastSessions', { query: 'unmatchable-needle' });
+  const unmatched = await invoke('SearchPastSessions', {
+    query: 'unmatchable-needle',
+    scope: 'summaries',
+  });
   expect(unmatched.response.success).toBe(true);
   expect(unmatched.value.sessions).toEqual([]);
   // A bounded summary search must not fan out through thousands of full
   // native runtime/credential/workspace fences while blocking other chats.
   expect(runtimeChecks.mock.calls.length).toBeLessThan(1000);
-  const searched = await invoke('SearchPastSessions', { query: 'Prior project' });
+  const searched = await invoke('SearchPastSessions', { query: 'Public old', limit: 1 });
   expect(searched.response.success).toBe(true);
   expect(searched.value.sessions).toMatchObject([
     { conversationId: 'history-target', summary: 'Prior project' },
   ]);
+  expect(searched.value.sessions[0].snippet).toContain('Public old');
+  // Admission predates both publications. The real callback must still work
+  // after rotation; per-revision policy equality is covered by the config fixture.
+  for (const revision of ['first', 'second']) {
+    const seed = join(knowledge, revision, 'mgmt');
+    mkdirSync(seed, { recursive: true });
+    const current = join(knowledge, 'current');
+    if (revision === 'second') unlinkSync(current);
+    symlinkSync(join(knowledge, revision), current);
+    registerWorkspaceRuntimeAuthorityPaths([join(current, 'mgmt')]);
+  }
   const read = await invoke('ReadPastSession', { conversationId: 'history-target' });
   expect(read.response.success).toBe(true);
   expect(read.value.entries.map((entry: { text: string }) => entry.text)).toEqual([
@@ -167,6 +198,14 @@ it('runs history through the signed native owner without publication configurati
   ]);
   expect(read.text).not.toContain('private');
   const ownedSession = chat.registry.findBySessionId(f.reservation.conversationId)!.session;
+  expect(
+    native
+      .getCodexConversationStore()
+      .readNativeExecution(f.reservation.conversationId, ownedSession.accountBinding!, {
+        id: f.request.clientMsgId,
+        attempt: 1,
+      })?.policy.writeProtectedRoots,
+  ).toContain(knowledge);
   ownedSession.activeSkillPolicy = new Set(['SearchPastSessions']);
   const restricted = await invoke('SearchPastSessions', { query: 'Public old' });
   expect(restricted.response.success).toBe(true);
@@ -174,26 +213,9 @@ it('runs history through the signed native owner without publication configurati
   expect(
     (await invoke('SearchPastSessions', { query: 'Public old', scope: 'all' })).response.success,
   ).toBe(false);
-  expect((await invoke('SearchPastSessions', { query: 'Prior project' })).response.success).toBe(
-    true,
-  );
   ownedSession.activeSkillPolicy = null;
-  expect(
-    (await invoke('ReadPastSession', { conversationId: 'hidden-target' })).response.success,
-  ).toBe(false);
-  expect(
-    (await invoke('ReadPastSession', { conversationId: 'unregistered-target' })).response.success,
-  ).toBe(false);
-  chat.eventStore.registerInternalSdkExecution({
-    sdkSessionId: 'internal-target',
-    parentSessionId: f.reservation.conversationId,
-    operationId: 'history-fixture-internal',
-    purpose: 'web_search',
-    cwd: setup.root,
-  });
-  expect(
-    (await invoke('ReadPastSession', { conversationId: 'internal-target' })).response.success,
-  ).toBe(false);
+  // Hidden/missing/internal target variants share the real authorization fixture
+  // in session-history-search-batch; retain native hide-during-read/logout here.
   const readEvents = chat.eventStore.getHistoryEventPage.bind(chat.eventStore);
   vi.spyOn(chat.eventStore, 'getHistoryEventPage').mockImplementationOnce((id, ...page) => {
     const result = readEvents(id, ...page);
@@ -203,6 +225,18 @@ it('runs history through the signed native owner without publication configurati
   const hiddenDuringRead = await invoke('ReadPastSession', { conversationId: 'history-target' });
   expect(hiddenDuringRead.response.success).toBe(false);
   expect(hiddenDuringRead.text).not.toContain('Public old');
+  registerWorkspaceRuntimeAuthorityPaths([
+    join(dirname(knowledge), `new-unrelated-authority-${randomUUID()}`),
+  ]);
+  const beforeRefusal = vi.spyOn(chat.eventStore, 'getHistoryEventPage');
+  beforeRefusal.mockClear();
+  const refused = await invoke('ReadPastSession', { conversationId: 'history-target' });
+  expect(refused.response.success).toBe(false);
+  expect(JSON.parse(refused.text)).toMatchObject({
+    error: 'stale_owner',
+    diagnostic: { reason: 'custody_changed', effectStatus: 'not_started' },
+  });
+  expect(beforeRefusal).not.toHaveBeenCalled();
   revokeAuthSession(auth);
   // The existing host bridge closes on logout before another tool callback can
   // reach any adapter; it deliberately rejects rather than delivering a result.

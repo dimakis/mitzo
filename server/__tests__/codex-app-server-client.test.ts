@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { verifiedRuntimeServiceEnvironment } from '../openshell-runtime-policy.js';
 import { tracer } from '../tracing.js';
 import { BorrowedCodexSearch } from '../codex-borrowed-search.js';
+import { NativeExecutionPolicyChangedError } from '../codex-native-execution-policy.js';
 import { searchCodex } from '../codex-approved-search.js';
 import {
   codexRuntimeErrorTelemetry,
@@ -663,6 +664,39 @@ describe('Codex app-server transport', () => {
         }),
       );
       expect(lifecycle.onClose.mock.calls[0][0].message).not.toMatch(/SECRET|private/);
+      client.close();
+    },
+  );
+
+  it.each(['before_handler', 'reply'])(
+    'retains a typed policy failure at %s without emitting a grant',
+    async (stage) => {
+      const { child, sent, reply } = processStub();
+      const failure = new NativeExecutionPolicyChangedError(['writeProtectedRoots']);
+      const lifecycle = {
+        onNotification: vi.fn(),
+        onRequest: vi.fn<CodexLifecycleTransport['onRequest']>(
+          async (_method, _params, _signal, context) => {
+            if (stage === 'before_handler') throw failure;
+            context!.registerResponseFence!(() => {
+              throw failure;
+            });
+            return { decision: 'accept' };
+          },
+        ),
+        onClose: vi.fn(),
+      };
+      const client = new CodexAppServerClient(child, { lifecycle });
+      reply({ id: 'changed-policy', method: 'item/commandExecution/requestApproval', params: {} });
+      await vi.waitFor(() => expect(lifecycle.onClose).toHaveBeenCalledOnce());
+      const error = lifecycle.onClose.mock.calls[0][0];
+      expect(sent).toEqual([]);
+      expect(codexRuntimeErrorTelemetry(error)).toMatchObject({
+        runtimeFailureCode: 'native_policy_changed',
+        diagnosticId: failure.diagnosticId,
+        nativePolicyChangedFields: ['writeProtectedRoots'],
+      });
+      expect(codexRuntimeDiagnostic(error)).toContain('Native execution policy changed');
       client.close();
     },
   );

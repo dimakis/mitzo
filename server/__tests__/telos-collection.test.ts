@@ -5,6 +5,7 @@ import { TelosItemStore } from '../telos-item-store.js';
 import { TelosWorkStore } from '../telos-work-store.js';
 import { renewDueTelosSnoozes } from '../telos-snooze.js';
 import { createLegacyBackupSeed } from './fixtures/legacy-backup-seed.js';
+import { projectTelosCollection } from '../telos-collection.js';
 
 const fixtures: ReturnType<typeof createTelosCanonicalData>[] = [];
 afterEach(() => {
@@ -16,6 +17,15 @@ function fixture() {
   fixtures.push(f);
   return f;
 }
+it('offers a native profile before any items exist so the first UI creation can proceed', () => {
+  const f = fixture();
+  const store = new TelosWorkStore(f.dbPath, { ordinaryConversation: () => false });
+  try {
+    expect(projectTelosCollection(f.db, [], [], 'active').profiles).toEqual(['manual']);
+  } finally {
+    store.close();
+  }
+});
 it('keeps the backup provenance seed snoozed on the incident calendar day', () => {
   vi.useFakeTimers();
   vi.setSystemTime(new Date('2026-11-01T12:00:00Z'));

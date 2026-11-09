@@ -177,18 +177,24 @@ it('fails deployment before replacing launchd configuration or stopping the serv
   writeFileSync(join(root, 'scripts/deploy.sh'), readFileSync('scripts/deploy.sh'));
   writeFileSync(join(root, 'scripts/assert-deployable.sh'), '#!/bin/sh\nexit 0\n', { mode: 0o755 });
   const calls = join(root, 'calls');
-  for (const name of ['node', 'npm', 'launchctl', 'podman', 'docker', 'sed'])
+  for (const name of ['node', 'npm', 'launchctl', 'podman', 'docker', 'sed', 'shlock'])
     writeFileSync(
       join(root, 'bin', name),
       `#!/bin/sh\necho '${name}' "$@" >> '${calls}'\ncase "$*" in *release-runtime-declarations.mjs*) exit 77;; esac\nexit 0\n`,
       { mode: 0o755 },
     );
+  // Keep the new deployment lock in this fixture's namespace. shlock is an
+  // offline command port; the preflight must fail before any service control.
+  writeFileSync(join(root, 'bin', 'id'), `#!/bin/sh\necho fixture-${root.split('/').at(-1)}\n`, {
+    mode: 0o755,
+  });
   const result = spawnSync('bash', [join(root, 'scripts/deploy.sh')], {
     encoding: 'utf8',
     env: { PATH: join(root, 'bin') + ':' + process.env.PATH, HOME: root },
   });
   expect(result.status).toBe(77);
   const observed = readFileSync(calls, 'utf8');
+  expect(observed).toContain('shlock -f /tmp/com.mitzo.server.fixture-');
   expect(observed).toContain('npm run build:server');
   expect(observed).toContain('node scripts/release-runtime-declarations.mjs --prepare');
   expect(observed).not.toMatch(/launchctl|podman|docker|sed/);

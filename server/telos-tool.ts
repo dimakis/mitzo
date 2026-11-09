@@ -26,7 +26,7 @@ export const telosOutcomeShape = {
     .min(1)
     .max(24)
     .describe(
-      'Ordered direct child delivery slices, each bounded to one dedicated working session. Do not add an intermediate milestone grouping layer. The first unfinished slice is the next action.',
+      'Ordered milestones; the first unfinished entry is the next action. Inspect saved children before adding feature items or session-sized slices. Milestone labels alone do not establish feature contracts or session assignments.',
     ),
   profile: z
     .string()
@@ -67,7 +67,7 @@ export type TelosOutcomeInput = z.infer<typeof TelosOutcomeInput>;
 export const telosCreateOutcomeDefinition: ToolDefinition = {
   name: TELOS_CREATE_OUTCOME_TOOL,
   description:
-    'For a multi-slice ask, first propose Telos, then create the approved outcome in live Telos with its result, rationale, criteria and ordered direct child slices (milestones). Simple tasks stay in chat unless Telos was explicitly requested or already applies. The outcome has an orchestrator/lead chat; each slice has one dedicated working session. Creation does not establish role/session bindings or start execution; use existing reviewed setup, not sandbox-local todo scripts. A coordination outcome can organize a merge-queue orchestrator between parallel feature owners. Requires user approval. If changes are requested, revise the retained proposal for fresh review; feedback does not approve creation.',
+    'For shared work across features, first propose Telos, then create the approved outcome in live Telos with its result, rationale, criteria and ordered milestones. Use this instead of sandbox-local scripts. Work model: outcome → feature items → session-sized slices. A standalone feature needs no invented outcome wrapper; inspect supported creators and saved children. Simple tasks stay in chat unless Telos was requested or already applies. An outcome orchestrator coordinates features, integration, merge order and CI; feature leads coordinate slices. Creation does not assign roles, create working sessions or execute work. Use supported reviewed setup and report missing capability. Requires user approval; revise requested changes for fresh review, since feedback does not approve creation.',
   input_schema: z.toJSONSchema(TelosOutcomeInput),
 };
 
