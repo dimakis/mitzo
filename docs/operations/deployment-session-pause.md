@@ -25,7 +25,11 @@ never delete uncertainty records to unblock a restart.
 2. Cancellation acknowledgement is not pause proof. The source runtime must
    observe the exact terminal turn, bounded native item/tree evidence and original
    settled host receipts. Unknown shell/patch/host effects or missing evidence
-   block activation. Legacy child receipts without trusted effect metadata remain blocked
+   block activation. Returned unknown parent receipts require a separate exact-target
+   settlement fact bound to the full original receipt digest; a generic recovery
+   acknowledgement cannot qualify them. New facts follow fresh opaque native proof
+   and original-host checks under current authority, leaving the original failure
+   unchanged. Changed receipts or native lineage invalidate qualification. Legacy child receipts without trusted effect metadata remain blocked
    until independently reconciled; migration never labels them settled. The ledger distinguishes interrupted capture from an empty
    successfully captured inventory.
 3. `node scripts/deployment-sessions.mjs activate` claims external activation

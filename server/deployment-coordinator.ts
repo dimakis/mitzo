@@ -33,9 +33,10 @@ export class DeploymentCoordinator {
   ) {}
   private authorize(operation: Operation, auth: AuthSession) {
     this.port.authorize(auth);
-    if (operation.auth.id !== auth.id || operation.auth.expiresAt !== auth.expiresAt)
+    const current = this.store.active();
+    if (current?.id !== operation.id) throw Error('Original deployment hold required');
+    if (current.auth.id !== auth.id || current.auth.expiresAt !== auth.expiresAt)
       throw Error('Original deployment operator required');
-    if (this.store.active()?.id !== operation.id) throw Error('Original deployment hold required');
   }
   private serialize(id: string, action: string, run: () => Promise<Operation>) {
     if (this.inFlight) {
@@ -111,6 +112,7 @@ export class DeploymentCoordinator {
       this.authorize(operation, auth);
       if (operation.sessions.every((entry) => entry.state === 'paused') && this.port.quiescent())
         operation = this.store.update(id, (value) => {
+          if (value.phase !== 'pausing') throw Error('Deployment phase changed');
           value.phase = 'paused';
         });
       return operation;
@@ -249,6 +251,8 @@ export class DeploymentCoordinator {
     }
     this.port.authorize(auth);
     return this.store.update(id, (value) => {
+      this.port.authorize(auth);
+      this.assertActivationOwner(value, activationId);
       value.authHistory = [...(value.authHistory ?? []), { ...value.auth, replacedAt: Date.now() }];
       value.auth = { ...auth };
     });
@@ -292,7 +296,20 @@ export class DeploymentCoordinator {
         this.port.validate(entry, auth);
         if (this.port.receipt(entry) !== 'absent')
           throw Error('Original continuation receipt changed');
-        return this.change(id, sessionId, 'paused', null);
+        return this.store.update(id, (value) => {
+          current();
+          const fresh = value.sessions.find((session) => session.sessionId === sessionId);
+          if (
+            value.phase !== 'resuming' ||
+            !fresh ||
+            fresh.state !== 'blocked' ||
+            fresh.deliveryAttempted ||
+            this.port.receipt(fresh) !== 'absent'
+          )
+            throw Error('Original blocked continuation changed');
+          fresh.state = 'paused';
+          fresh.error = null;
+        });
       },
     );
   }

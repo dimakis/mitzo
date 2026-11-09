@@ -1,3 +1,4 @@
+import { CodexEffectSettlements } from '../codex-effect-settlements.js';
 import { callbackOutcome, retainCallbackOutcome } from '../turn-callbacks.js';
 import { createHash } from 'node:crypto';
 import {
@@ -1930,5 +1931,28 @@ it('settles historical native policy evidence only for the accepted target under
     expect(f.store.commandStatus('target-chat', binding, 'command-a')).toBe('running');
   } finally {
     f.store.close();
+  }
+});
+
+it('keeps missing legacy settlement facts unqualified without migrating readonly evidence', () => {
+  const db = new Database(':memory:');
+  try {
+    const proof = new CodexEffectSettlements(db, false);
+    const target = {
+      commandId: 'original',
+      attempt: 1,
+      threadId: 'thread',
+      turnId: 'turn',
+      generation: 0,
+    };
+    expect(proof.matches('chat', target, 'a'.repeat(64))).toBe(false);
+    expect(() => proof.remember('chat', target, 'a'.repeat(64))).toThrow(/Readonly legacy/);
+    expect(
+      db
+        .prepare("SELECT count(*) AS n FROM sqlite_master WHERE name='codex_effect_settlements'")
+        .get(),
+    ).toEqual({ n: 0 });
+  } finally {
+    db.close();
   }
 });

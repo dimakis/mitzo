@@ -4656,6 +4656,7 @@ export class CodexConversation {
         target,
         this.opts.nativeExecution?.policyRevision,
         observed.settledEffects,
+        current,
       );
     }
     current();

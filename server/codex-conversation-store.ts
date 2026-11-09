@@ -1,3 +1,4 @@
+import { CodexEffectSettlements } from './codex-effect-settlements.js';
 import type {
   RetainedHostResultObserver,
   RetainedNativeEffectEvidence,
@@ -576,6 +577,7 @@ type PreDispatchEvidence = {
 /** Private server-owned database. A single owning server calls recoverAtStartup before accepting work. */
 export class CodexConversationStore {
   readonly subagents: CodexSubagentStore;
+  private readonly effectSettlements: CodexEffectSettlements;
   private readonly db: Database.Database;
   private liveThreadStoreClosed = false;
   private readonly liveThreadObservers = new Map<string, Set<(event: LiveThreadEvent) => void>>();
@@ -605,6 +607,7 @@ export class CodexConversationStore {
       this.db.pragma('synchronous = FULL');
       this.db.pragma('foreign_keys = ON');
       this.subagents = new CodexSubagentStore(this.db, false);
+      this.effectSettlements = new CodexEffectSettlements(this.db, false);
       return;
     }
     closeSync(openSync(path, 'a', 0o600));
@@ -613,6 +616,7 @@ export class CodexConversationStore {
     this.db.pragma('synchronous = FULL');
     this.db.pragma('foreign_keys = ON');
     this.subagents = new CodexSubagentStore(this.db);
+    this.effectSettlements = new CodexEffectSettlements(this.db, true);
     this.db.exec(
       'CREATE TABLE IF NOT EXISTS codex_runtime_migrations (conversation_id TEXT PRIMARY KEY, binding TEXT NOT NULL, generation INTEGER NOT NULL, data TEXT NOT NULL)',
     );
@@ -2939,8 +2943,30 @@ export class CodexConversationStore {
     target: CodexNativeTurnTarget,
     policyRevision: string | undefined,
     effects: SettledInterruptedEffects,
+    assertCurrent: () => void,
   ) {
-    this.assertSettledInterruptedHostEffects(id, binding, target, policyRevision, effects);
+    target = CodexNativeTurnTargetSchema.parse(target);
+    this.db
+      .transaction(() => {
+        const authorityResult: unknown = assertCurrent();
+        if (authorityResult !== undefined) {
+          void Promise.resolve(authorityResult).catch(() => {});
+          throw Error('Native settlement authority must be synchronous');
+        }
+        this.read(id, binding);
+        this.assertNoPendingThreadDispatch(id, binding);
+        this.assertNoPendingThreadOwnership(id, binding);
+        this.assertCompletionPhaseTarget(id, binding, target, true);
+        const digest = this.assertSettledInterruptedHostEffects(
+          id,
+          binding,
+          target,
+          policyRevision,
+          effects,
+        );
+        this.effectSettlements.remember(id, target, digest, policyRevision);
+      })
+      .immediate();
   }
   /** Deployment observes terminal evidence; cancellation ACKs and missing rows never qualify. */
   deploymentTurnSettled(
@@ -2992,9 +3018,22 @@ export class CodexConversationStore {
       UNION SELECT conversation_id FROM codex_tools WHERE result_content IS NULL OR result_effect_outcome='unknown'`,
       )
       .all() as Array<{ conversation_id: string }>;
-    return candidates.some(
+    if (
+      candidates.some(
+        (row) =>
+          !excluded.has(row.conversation_id) && !!this.unsettledCommandEffects(row.conversation_id),
+      )
+    )
+      return true;
+    const unknown = this.db
+      .prepare(
+        "SELECT DISTINCT conversation_id,command_id FROM codex_tools WHERE result_content IS NOT NULL AND result_effect_outcome='unknown'",
+      )
+      .all() as Array<{ conversation_id: string; command_id: string }>;
+    return unknown.some(
       (row) =>
-        !excluded.has(row.conversation_id) && !!this.unsettledCommandEffects(row.conversation_id),
+        !excluded.has(row.conversation_id) &&
+        !this.qualifiedEffectSettlement(row.conversation_id, row.command_id),
     );
   }
   runningConversationIds(): string[] {
@@ -3347,7 +3386,7 @@ export class CodexConversationStore {
             this.continuationBlocker(id, binding)?.commandId !== target.commandId
           )
             throw Error('Interrupted recovery lacks original owned execution evidence');
-          this.assertSettledInterruptedHostEffects(
+          const digest = this.assertSettledInterruptedHostEffects(
             id,
             binding,
             target,
@@ -3355,6 +3394,7 @@ export class CodexConversationStore {
             effects,
             observeHostResult,
           );
+          this.effectSettlements.remember(id, target, digest, execution.policy.policyRevision);
           this.db
             .prepare(
               `UPDATE codex_commands SET ambiguous=0,retryable=0
@@ -3405,6 +3445,50 @@ export class CodexConversationStore {
       })
       .immediate();
   }
+  private interruptedHostReceipts(id: string, commandId: string) {
+    return this.db
+      .prepare(
+        `SELECT call_id,turn_id,tool_name,request_hash,
+      result_content,result_is_error,result_effect_outcome,result_content_items FROM codex_tools WHERE conversation_id=? AND command_id=? ORDER BY call_id`,
+      )
+      .all(id, commandId) as Array<{
+      call_id: string;
+      turn_id: string | null;
+      tool_name: string | null;
+      request_hash: string | null;
+      result_content: string | null;
+      result_is_error: number | null;
+      result_effect_outcome: string | null;
+      result_content_items: string | null;
+    }>;
+  }
+  private hostReceiptDigest(id: string, commandId: string) {
+    return createHash('sha256')
+      .update(JSON.stringify(this.interruptedHostReceipts(id, commandId)))
+      .digest('hex');
+  }
+  private qualifiedEffectSettlement(id: string, commandId: string): boolean {
+    const row = this.db
+      .prepare(
+        'SELECT c.attempt,c.native_turns,v.thread_generation AS generation FROM codex_commands c JOIN codex_conversations v ON v.id=c.conversation_id WHERE c.conversation_id=? AND c.id=?',
+      )
+      .get(id, commandId) as
+      { attempt: number; native_turns: string | null; generation: number } | undefined;
+    if (!row) return false;
+    const turns = this.nativeTurns(row.native_turns).filter((turn) => turn.attempt === row.attempt);
+    if (turns.length !== 1) return false;
+    const target = this.nativeTarget(commandId, turns[0]);
+    if (target.generation > row.generation) return false;
+    const lineage = this.db
+      .prepare(
+        'SELECT thread_id FROM codex_thread_generations WHERE conversation_id=? AND generation=?',
+      )
+      .get(id, target.generation) as { thread_id: string } | undefined;
+    return (
+      lineage?.thread_id === target.threadId &&
+      this.effectSettlements.matches(id, target, this.hostReceiptDigest(id, commandId))
+    );
+  }
   /** Compare one fresh native observation with the original durable host receipts.
    * Used by both interrupted-only and completion-phase recovery; never changes results. */
   private assertSettledInterruptedHostEffects(
@@ -3418,21 +3502,7 @@ export class CodexConversationStore {
     const observed = interruptedEffectCalls(effects, id, target);
     const calls = observed.filter((call) => call.threadId === target.threadId);
     const childCalls = observed.filter((call) => call.threadId !== target.threadId);
-    const receipts = this.db
-      .prepare(
-        `SELECT call_id,turn_id,tool_name,request_hash,
-      result_content,result_is_error,result_effect_outcome,result_content_items FROM codex_tools WHERE conversation_id=? AND command_id=?`,
-      )
-      .all(id, target.commandId) as Array<{
-      call_id: string;
-      turn_id: string | null;
-      tool_name: string | null;
-      request_hash: string | null;
-      result_content: string | null;
-      result_is_error: number | null;
-      result_effect_outcome: string | null;
-      result_content_items: string | null;
-    }>;
+    const receipts = this.interruptedHostReceipts(id, target.commandId);
     const byId = new Map(receipts.map((receipt) => [receipt.call_id, receipt]));
     let ownedExecution = false;
     let originalExecution: ReturnType<CodexConversationStore['readNativeExecution']>;
@@ -3515,6 +3585,7 @@ export class CodexConversationStore {
       })
     )
       throw Error('Interrupted native host effects lack matching settled receipts');
+    return createHash('sha256').update(JSON.stringify(receipts)).digest('hex');
   }
 
   /** A fresh account/workspace authority boundary supplies this reconciliation.
@@ -3551,7 +3622,7 @@ export class CodexConversationStore {
           .get(id, target.commandId) as { completion_phases: string | null; status: string };
         if (row.status === 'interrupted' && interruptedEffects && !phase.priorEffectsUnknown) {
           if (!assertCurrent) throw Error('Interrupted effect recovery authority unavailable');
-          this.assertSettledInterruptedHostEffects(
+          const digest = this.assertSettledInterruptedHostEffects(
             id,
             binding,
             target,
@@ -3559,6 +3630,7 @@ export class CodexConversationStore {
             interruptedEffects,
             observeHostResult,
           );
+          this.effectSettlements.remember(id, target, digest, phase.policyRevision);
         } else if (!['running', 'completed'].includes(row.status))
           throw Error('Completion phase requires the exact completed native outcome');
         this.saveCompletionPhases(

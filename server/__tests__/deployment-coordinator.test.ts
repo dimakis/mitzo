@@ -318,3 +318,29 @@ it('recovers an already accepted historical continuation without reacquiring tas
   ).toBe('completed');
   expect(f.port.resume).not.toHaveBeenCalled();
 });
+
+it('rechecks durable continuation custody before reopening a blocked delivery', async () => {
+  const f = fixture();
+  f.begin();
+  f.settle();
+  await f.coordinator.pause('operation', f.auth);
+  f.coordinator.activate('operation', f.auth, 'activation-secret');
+  f.commit('b'.repeat(40));
+  f.port.validate = () => {
+    throw Error('Unavailable');
+  };
+  await f.coordinator.resume('operation', f.auth, { activationId: 'activation-secret' });
+  f.port.validate = () => {};
+  f.port.settled = async () => {
+    f.events.deployment.update('operation', (operation) => {
+      operation.sessions[0]!.state = 'resuming';
+      operation.sessions[0]!.deliveryAttempted = true;
+    });
+    return true;
+  };
+  await expect(
+    f.coordinator.reconcileBlocked('operation', 'chat', f.auth, 'activation-secret'),
+  ).rejects.toThrow(/changed/);
+  expect(f.events.deployment.get('operation').sessions[0]!.state).toBe('resuming');
+  expect(f.port.resume).not.toHaveBeenCalled();
+});
