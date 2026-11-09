@@ -1,5 +1,6 @@
 import { reviewQueuedDrafts, closeComposerStatus } from '../support/composer-status';
 import { readChatStorage } from '../support/persisted-chat-storage';
+import { navigateWithServiceHealth } from '../support/service-health-navigation';
 import {
   settingRow,
   chooseSetting,
@@ -768,7 +769,7 @@ test('OpenShell conversation: default route starts and continues without legacy 
   const fixture = await offline(page, false, false, true, 'openshell');
   if (testInfo.project.name.startsWith('mobile'))
     await page.setViewportSize({ width: 390, height: 844 });
-  await page.goto('/chat');
+  await navigateWithServiceHealth(page, () => page.goto('/chat'));
   await openAgentSettings(page);
   await expect(page.getByRole('button', { name: 'OpenShell', exact: true })).toHaveAttribute(
     'aria-pressed',
@@ -807,7 +808,7 @@ test('OpenShell conversation: default route starts and continues without legacy 
     });
   // Exercise actual inventory drift, rather than the former URL projection bug.
   fixture.inventory.capabilityRevision = 'combined-caps-r2';
-  await page.reload();
+  await navigateWithServiceHealth(page, () => page.reload());
   await expect(page.getByRole('textbox', { name: 'Message Mitzo' })).toHaveValue(
     'Inspect OpenShell checkout',
   );

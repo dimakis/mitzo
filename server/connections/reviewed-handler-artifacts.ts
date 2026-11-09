@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.964-retained-application-recovery';
+  'v1.0.965-retained-recovery-test-contracts';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -189,7 +189,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/client/src/__tests__/local-first-command-store.test.ts':
     '8aeb587907718d415daf922f8c107ed68dc604197118a5a2f97a8532a6f0320a',
   '../../tests/offline/local-first-command.spec.ts':
-    '68932a67a2311b713420ed8c1c75186eb68fbc7a669ca852788aba49e5c57b86',
+    'f2e9bacf3ba9815e8670991d85fdec3417d6766f708216cac67ce70ce6274ed8',
   '../../tests/browser/composer-layout.spec.ts':
     'f1e4b8140d4aa12bdf04f2e142c1f2c171f9f526d1173bea9036561517300a87',
   '../../frontend/src/components/__tests__/ChatInputDirectInterrupt.test.tsx':
@@ -1288,7 +1288,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/codex-chat-session.test.ts':
     'de441c32b1cb386e1eb80069dfa9570ec57f35afe4bbb983d13e5a1b3a66d7be',
   '../__tests__/codex-conversation.test.ts':
-    'e041231cfc1562b7780d30ba84a8bb51c654e53d5c342f76bc30ae4682ed01ca',
+    '315cf3b18eaa5482f855544932720a446090bf1752b18e751472a74fd8471ebc',
   '../__tests__/codex-native-approvals.test.ts':
     '386645f67e0681776b66e25c35863ee694b5da3cd6a9aeda558e0e2e3ecc24f4',
   '../__tests__/codex-native-artifact-qualification.test.ts':
