@@ -47,6 +47,17 @@ export const CollaborationSettingsSchema = z.strictObject({
   selection: OrdinaryLocalCommandSelectionSchema,
   repositoryWorkspaceId: id,
 });
+/** Observational readiness for one explicit recipient; never an admission receipt. */
+export const CollaborationRecipientReadinessSchema = z
+  .strictObject({
+    collaborationId: SessionCollaborationIdSchema,
+    sessionId: id,
+    membershipRevision: sequence,
+    policySequence: sequence,
+    ready: z.boolean(),
+    reason: z.string().min(1).max(1000).nullable(),
+  })
+  .refine((value) => value.ready === (value.reason === null), 'Readiness reason mismatch');
 /** Trusted existing review reservation identity; not accepted from public routes. */
 export const CollaborationReviewIdentitySchema = z.strictObject({
   collaborationId: SessionCollaborationIdSchema,
@@ -505,6 +516,11 @@ export const CollaborationViewSchema = z.strictObject({
   messages: z.array(CollaborationMessageSchema).max(50),
   hasEarlierMessages: z.boolean(),
   joins: z.array(CollaborationJoinSchema).max(16),
+  // Compact linked names are distinct from pending join/recovery records.
+  joinedParticipants: z
+    .array(z.strictObject({ sessionId: id, name: z.string().min(1).max(100) }))
+    .max(16)
+    .optional(),
   execution: CollaborationExecutionSchema,
 });
 export const CollaborationCursorSchema = z.strictObject({

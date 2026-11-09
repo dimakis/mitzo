@@ -352,6 +352,7 @@ jobs:
             test-results/offline/**/native-subagents-*.png
             test-results/offline/**/agent-messages-*.png
             test-results/offline/**/timer-*.png
+            test-results/offline/**/shared-composer-*.png
             test-results/offline/**/sandbox-removal-*.png
             test-results/offline/**/reusable-access-*.png
           retention-days: 7

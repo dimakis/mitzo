@@ -4097,6 +4097,48 @@ export class EventStore {
     return rows.map((row) => JSON.parse(row.payload));
   }
 
+  /** Exact native provider terminal notification, distinct from display state,
+   * dispatch consumption, transport closure and generic execution cleanup. */
+  getOrdinaryProviderTurnTerminal(
+    sessionId: string,
+    commandId: string,
+  ): 'completed' | 'failed' | 'interrupted' | undefined {
+    const rows = this.db!.prepare(
+      `SELECT json_extract(payload,'$.status') AS status FROM events
+       WHERE session_id=? AND type='ordinary_provider_turn_terminal'
+       AND json_extract(payload,'$.messageId')=? ORDER BY seq LIMIT 2`,
+    ).all(sessionId, commandId) as Array<{ status: unknown }>;
+    if (!rows.length) return undefined;
+    if (
+      rows.some(
+        (row) =>
+          !['completed', 'failed', 'interrupted'].includes(String(row.status)) ||
+          row.status !== rows[0].status,
+      )
+    )
+      throw Error('Conflicting ordinary provider terminal evidence');
+    return rows[0].status as 'completed' | 'failed' | 'interrupted';
+  }
+
+  recordOrdinaryProviderTurnTerminal(
+    sessionId: string,
+    commandId: string,
+    status: 'completed' | 'failed' | 'interrupted',
+  ): void {
+    this.db!.transaction(() => {
+      if (
+        this.getSendCommand(commandId)?.sessionId !== sessionId ||
+        !['completed', 'failed', 'interrupted'].includes(status)
+      )
+        throw Error('Original ordinary command terminal identity required');
+      const previous = this.getOrdinaryProviderTurnTerminal(sessionId, commandId);
+      if (previous && previous !== status)
+        throw Error('Conflicting ordinary provider terminal evidence');
+      if (!previous)
+        this.append(sessionId, 'ordinary_provider_turn_terminal', { messageId: commandId, status });
+    }).immediate();
+  }
+
   /** Private exact delivery ledger; never load unrelated conversation payloads. */
   getOrdinaryCollaborationDeliveryEvents(sessionId: string, commandId: string): StoredEvent[] {
     const rows = this.db!.prepare(
