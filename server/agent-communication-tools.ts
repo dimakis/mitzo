@@ -1,3 +1,4 @@
+import { retainCallbackOutcome } from './turn-callbacks.js';
 import { z } from 'zod';
 import { waitForChange } from './wait-for-change.js';
 import { isDeepStrictEqual } from 'node:util';
@@ -165,18 +166,28 @@ interface Owners {
 export function sessionAgentCommunicationTools(owners: Owners) {
   return {
     async execute(raw: unknown, externalSignal: AbortSignal, call: ProfileToolCall) {
-      const input = AgentCommunicationInput.parse(raw);
-      const source = owners.registry.findBySessionId(owners.conversationId);
-      if (
-        !source ||
-        source.session !== owners.session ||
-        !call.turnId?.trim() ||
-        !call.callId?.trim()
-      )
-        throw Error('Verified current native sender required');
-      const connectionId = sessionToolOperatorConnection(source.session, source.clientId);
-      const captured = captureAgentLibraryAuthorization(connectionId);
-      const operation = captureAgentLibraryOperation(connectionId);
+      let effectsStarted = false;
+      const { input, source, captured, operation, connectionId } = (() => {
+        try {
+          const input = AgentCommunicationInput.parse(raw);
+          const source = owners.registry.findBySessionId(owners.conversationId);
+          if (
+            !source ||
+            source.session !== owners.session ||
+            !call.turnId?.trim() ||
+            !call.callId?.trim()
+          )
+            throw Error('Verified current native sender required');
+          const connectionId = sessionToolOperatorConnection(source.session, source.clientId);
+          const captured = captureAgentLibraryAuthorization(connectionId);
+          const operation = captureAgentLibraryOperation(connectionId);
+          return { input, source, captured, operation, connectionId };
+        } catch (error) {
+          if (error instanceof Error && !externalSignal.aborted)
+            retainCallbackOutcome(error, 'settled');
+          throw error;
+        }
+      })();
       const signal = AbortSignal.any([
         externalSignal,
         operation.signal,
@@ -231,6 +242,8 @@ export function sessionAgentCommunicationTools(owners: Owners) {
           : undefined;
       };
       const reconcile = (message: AgentMessage) => {
+        // This path can update an existing delivery receipt.
+        effectsStarted = true;
         const retained = owners.events.agentCommunication.forHost(message.messageId);
         if (retained.operatorAuthSessionId !== captured.auth.id)
           throw Error('Original signed operator required');
@@ -365,7 +378,8 @@ export function sessionAgentCommunicationTools(owners: Owners) {
         };
         // Exact retries only inspect already-authorized immutable work. They do
         // not ask again, re-admit, or require the recipient to remain live.
-        if (owners.events.agentCommunication.findRequest(owners.conversationId, input.requestId))
+        if (owners.events.agentCommunication.findRequest(owners.conversationId, input.requestId)) {
+          effectsStarted = true;
           return reconcile(
             owners.events.agentCommunication.reserve(
               owners.conversationId,
@@ -374,6 +388,7 @@ export function sessionAgentCommunicationTools(owners: Owners) {
               send,
             ),
           );
+        }
         eligible(input.recipientConversationId);
         if (!liveRecipient(input.recipientConversationId))
           throw Error('Recipient is unavailable to this signed operator');
@@ -387,6 +402,7 @@ export function sessionAgentCommunicationTools(owners: Owners) {
         eligible(input.recipientConversationId);
         if (!liveRecipient(input.recipientConversationId))
           throw Error('Recipient is unavailable to this signed operator');
+        effectsStarted = true;
         const message = owners.events.agentCommunication.reserve(
           owners.conversationId,
           captured.auth.id,
@@ -466,6 +482,10 @@ export function sessionAgentCommunicationTools(owners: Owners) {
         return reconcile(
           owners.events.agentCommunication.read(owners.conversationId, message.messageId),
         );
+      } catch (error) {
+        if (error instanceof Error && !effectsStarted && !externalSignal.aborted)
+          retainCallbackOutcome(error, 'settled');
+        throw error;
       } finally {
         operation.dispose();
       }

@@ -52,6 +52,12 @@ const ToolCall = z.object({
   tool: id,
   arguments: z.record(z.string(), z.unknown()),
 });
+const SubagentActivity = z.object({
+  type: z.literal('subAgentActivity'),
+  id,
+  kind: z.enum(['started', 'interacted', 'completed']),
+  agentThreadId: id,
+});
 export interface SubagentRoot {
   threadId: string;
   commandId: string;
@@ -246,6 +252,19 @@ export class CodexSubagents {
       }
     }
     const item = object(params.item);
+    // Current native spawn_agent emits an activity hint instead of the older
+    // collaboration item. The hint grants nothing: admit still reads and
+    // verifies parentage, session tree, account, model and workspace ownership.
+    const activity =
+      method === 'item/started' || method === 'item/completed'
+        ? SubagentActivity.safeParse(item)
+        : undefined;
+    if (
+      root &&
+      activity?.success &&
+      (params.threadId === root.threadId || this.owns(params.threadId))
+    )
+      this.admit(activity.data.agentThreadId, String(params.threadId), root);
     if (
       root &&
       (params.threadId === root.threadId || this.owns(params.threadId)) &&

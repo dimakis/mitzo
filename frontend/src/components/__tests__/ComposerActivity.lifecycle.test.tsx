@@ -1,7 +1,11 @@
 // @vitest-environment jsdom
 import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
-import { ComposerStatusProvider, ComposerStatusRail } from '../ComposerStatus';
+import {
+  ComposerStatusProvider,
+  ComposerStatusRail,
+  ComposerStatusNotice,
+} from '../ComposerStatus';
 
 const bus = vi.hoisted(() => {
   const events = new Map<string, (data: unknown) => void>();
@@ -72,4 +76,24 @@ it('hydrates a newly mounted rail and stops live presentation when its running t
   expect(within(dialog).queryByText('Agent working')).toBeNull();
   act(() => window.dispatchEvent(new Event('mitzo:auth-lost')));
   expect(within(dialog).queryByText(/last seen/)).toBeNull();
+});
+
+it('describes a stopped recovery fence without claiming the chat is ready', () => {
+  function Fixture({ blocked = true }) {
+    return (
+      <ComposerStatusProvider>
+        {blocked && (
+          <ComposerStatusNotice message="Original tool effects need review" tone="warning" />
+        )}
+        <ComposerStatusRail />
+      </ComposerStatusProvider>
+    );
+  }
+  const view = render(<Fixture />);
+  fireEvent.click(screen.getByRole('button', { name: 'Conversation status details' }));
+  const dialog = screen.getByRole('dialog', { name: 'Conversation status' });
+  expect(within(dialog).queryByText('Ready for your next message')).toBeNull();
+  expect(within(dialog).getByText('Needs attention before continuing')).toBeTruthy();
+  view.rerender(<Fixture blocked={false} />);
+  expect(within(dialog).getByText('Ready for your next message')).toBeTruthy();
 });

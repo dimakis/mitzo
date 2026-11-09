@@ -11,7 +11,8 @@ import {
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { isAbsolute, join, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, URL } from 'node:url';
+import process from 'node:process';
 
 const controls = {
   'thread/read': ['ThreadReadParams', ['threadId']],
@@ -53,6 +54,13 @@ export function qualifyCodexSubagentContract(version, schemas) {
   ]);
   requireMethods(schemas.requests, 'ServerRequest', ['item/tool/call']);
   const definitions = schemas.notifications.definitions;
+  const activity = definitions?.ThreadItem?.oneOf?.find((item) =>
+    item.properties?.type?.enum?.includes('subAgentActivity'),
+  );
+  const subagentActivityKinds = definitions?.SubAgentActivityKind?.enum;
+  for (const kind of ['started', 'interacted', 'completed'])
+    if (!subagentActivityKinds?.includes(kind))
+      throw new Error(`Missing subAgentActivity kind ${kind}`);
   const collaboration = definitions?.ThreadItem?.oneOf?.find((item) =>
     item.properties?.type?.enum?.includes('collabAgentToolCall'),
   );
@@ -70,6 +78,13 @@ export function qualifyCodexSubagentContract(version, schemas) {
       'sessionId',
       'forkedFromId',
     ]),
+    subagentActivityFields: requireFields(
+      activity,
+      'subAgentActivity',
+      ['id', 'kind', 'agentThreadId', 'agentPath'],
+      true,
+    ),
+    subagentActivityKinds,
     collaborationItemType: 'collabAgentToolCall',
     collaborationIdentityFields: requireFields(collaboration, 'collabAgentToolCall', [
       'id',

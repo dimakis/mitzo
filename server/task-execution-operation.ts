@@ -4,7 +4,7 @@ import { isAbsolute, resolve } from 'node:path';
 import type { z } from 'zod';
 import type { ManagedSession, SessionRegistry } from '@mitzo/harness';
 import { createNativeToolExecutor } from './native-tool-executor.js';
-import { callbackOutcome } from './turn-callbacks.js';
+import { callbackOutcome, copyCallbackOutcome, retainCallbackOutcome } from './turn-callbacks.js';
 import type { ProfileToolCall } from './session-profile-tools.js';
 import type { taskExecutionSchema } from './task-execution-definitions.js';
 import type { TaskExecutionGrant, TaskExecutionStore } from './task-execution-store.js';
@@ -79,7 +79,8 @@ export async function executeTaskOperation(options: {
     );
     if (before.state === 'completed') {
       assertGrant();
-      return before.result;
+      // Only settled results reach finish; durable replay retains that evidence.
+      return retainCallbackOutcome(before.result, 'settled');
     }
     const revoked = new AbortController();
     const unsubscribe = store.onRevoked(grant.id, () =>
@@ -127,10 +128,10 @@ export async function executeTaskOperation(options: {
       { type: 'tool_use', id: call.callId, name: toolName, input: exact },
       runSignal,
     );
-    const result = {
+    const result = copyCallbackOutcome(output, {
       content: typeof output.content === 'string' ? output.content : JSON.stringify(output.content),
       isError: output.is_error === true,
-    };
+    });
     if (callbackOutcome(output) === 'unknown') {
       log.warn('Task operation outcome retained as uncertain', {
         grantId: grant.id,

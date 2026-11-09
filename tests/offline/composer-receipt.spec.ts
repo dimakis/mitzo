@@ -93,6 +93,8 @@ for (const theme of ['dark', 'light']) {
     expect(sends).toHaveLength(1);
     await page.getByRole('button', { name: 'Conversation status details' }).click();
     const dialog = page.getByRole('dialog', { name: 'Conversation status' });
+    await expect(dialog.getByText('Ready for your next message')).toHaveCount(0);
+    await expect(dialog.getByText('Needs attention before continuing')).toBeVisible();
     await expect(dialog.getByText(/needs an explicit account reauthorization/)).toBeVisible();
     await expect(dialog.getByText(/Untrusted upstream/)).toHaveCount(0);
     await expect(dialog.getByText(/Reference: 00000000-0000-4000-8000-000000000001/)).toBeVisible();
