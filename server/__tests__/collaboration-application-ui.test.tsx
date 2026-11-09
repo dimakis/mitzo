@@ -8,7 +8,7 @@ import { recordApplicationMessagingRuntime } from './fixtures/symposium-recordin
 
 // Production client, auth, UI, application, storage, dispatch and reply owners.
 // Only external source/account/runtime declarations and native RPC are synthetic.
-it('sends one selected prompt from the production shared composer and retains the attributed app reply after remount', async () => {
+it('sends first and later selected prompts from the production shared composer after remount', async () => {
   const h = await getApplicationUiJourney();
   // JSDOM supplies no scrolling implementation; browser geometry is checked separately.
   const originalScrollTo = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'scrollTo');
@@ -108,6 +108,37 @@ it('sends one selected prompt from the production shared composer and retains th
       expect(screen.getAllByText('Reviewed the selected design.')).toHaveLength(1),
     );
     expect(runtime.requests.filter((r) => r.method === 'turn/start')).toHaveLength(1);
+    // A later explicit prompt must reuse the ordinary owner and retained
+    // recipient intent after remount, without replaying the first delivery.
+    await waitFor(() =>
+      expect(
+        h.events.getOrdinaryProviderTurnTerminal(h.joinedSessionId, reply.source!.commandId),
+      ).toBe('completed'),
+    );
+    fireEvent.change(screen.getByRole('textbox', { name: 'Message Mitzo' }), {
+      target: { value: 'Review a second question explicitly.' },
+    });
+    await waitFor(() =>
+      expect(
+        (screen.getByRole('button', { name: 'Send message' }) as HTMLButtonElement).disabled,
+      ).toBe(false),
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Send message' }));
+    await waitFor(
+      () => expect(screen.getAllByText('Reviewed the selected design.')).toHaveLength(2),
+      { timeout: 10000 },
+    );
+    const turns = runtime.requests.filter((r) => r.method === 'turn/start');
+    expect(turns).toHaveLength(2);
+    expect(JSON.stringify(turns[1].params)).toContain('Review a second question explicitly.');
+    const after = await h.api.view(h.group);
+    const answers = after.messages.filter((m) => m.author !== 'operator');
+    expect(answers).toHaveLength(2);
+    expect(new Set(answers.map((m) => m.source?.commandId)).size).toBe(2);
+    expect(new Set(answers.map((m) => m.replyToDeliveryId)).size).toBe(2);
+    expect(
+      answers.every((m) => m.author !== 'operator' && m.author.sessionId === h.joinedSessionId),
+    ).toBe(true);
   } finally {
     cleanup();
     const { registry } = await import('../chat.js');

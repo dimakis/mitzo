@@ -1,9 +1,32 @@
 # Symposium: current direction and source guide
 
-Updated 7 November 2026. Start here for Symposium product work.
+Updated 9 November 2026. Start here for Symposium product work.
 Existing Telos item: `c0851ba23fcc5d04`; reuse it rather than create another parent
 or a task for every document. Tracker closure and source landing do not prove
 runtime acceptance or authorize deployment.
+
+## Accepted shared composer and reply recovery
+
+PRs #1252 and #1261 are merged. Current source supports server-owned recipient
+readiness, silent joining, first and later explicit Local Codex prompts through
+the shared composer, attributed finalized replies, exact observational retries
+and retained uncertain sends. This is bounded source acceptance, not installed
+runtime or live user acceptance.
+
+The remaining unique recovery behavior from draft #1244 is ported into the
+accepted messaging owner: finalized answers recover independently of unrelated
+history size/interleaving and the recent shared-message page. Malformed or
+oversized sources refuse individually; later eligible answers remain readable.
+Full-prefix joining/snapshot qualification and ordinary provenance remain intact.
+See the dated [evidence map](../evidence/symposium-integration-acceptance.md).
+The old #1244 dispatch/UI paths are superseded; recommend retiring that draft
+after its unique recovery replacement lands. #1242's relevant production fixes
+are already accepted through #1266/#1272 and are not an outstanding prerequisite.
+
+The complete edited fresh-agent review/refreeze/join browser journey and
+independent visual acceptance remain open. No source merge establishes deployment,
+physical iOS or full runtime/account qualification. The dated candidate records
+below describe their original checkpoints.
 
 ## Shared composer — 7 November candidate
 

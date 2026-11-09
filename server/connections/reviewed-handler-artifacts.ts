@@ -93,17 +93,17 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/hooks/useConversationSending.ts':
     '8519cb2f28253571542226363aa9fd8167b6b28511bfb6d8cc6634957c7bdcb1',
   '../__tests__/collaboration-application-ui.test.tsx':
-    'c17e0e0622d8044ccddf85b5018fac6bce1d78f24806d59e4557cbc18d777660',
+    '263f8c084f5834445a617dd121728cb95826e2aa1a482bbfc41e007bc18ed932',
   '../__tests__/fixtures/symposium-recording-runtime.ts':
-    'a627abb23bab48c4de3732f90d1476faf3856d97946034805059a1b66131b887',
+    'e4dddcbd70295e6af43f6600baa80cc13738ee0708d0f0d7491ca3d1a4b80a26',
   '../../tests/fixtures/symposium-composer.tsx':
     '3e821497de4f4088e1610134821046e992e81117e897cb1c30864ccc2ff6b8ad',
   '../../tests/offline/symposium-composer.spec.ts':
     '8b77ba1c163f793e459eb7005e4f5c55c9f0b8d53dac863d862d58002ce47bbf',
   '../../docs/evidence/symposium-integration-acceptance.md':
-    '93e30ccb302c7da0f16dd336584e778251caa8e49af2568b48611cdaf50e34d7',
+    '30340d219260ffac42be7a0e6c7b06b605052f91b7ae4f2fa826ba63c6f291a4',
   '../../docs/features/symposium.md':
-    'ebf89072591dc1b445f795ba53bab6d21a2f600a14c3fcb5aff050cb87fee645',
+    'a89c9774039a4d065eb1ad26356619981857a493efe8c35b496ead30463d5a14',
   '../repository-capability-identity.ts':
     '2e35f24342d36e21f6c559afa93758f9ef83a2e3e435eda6d46e1a6101d16392',
   '../task-capability-consent.ts':

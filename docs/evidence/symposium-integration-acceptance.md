@@ -2,6 +2,58 @@
 
 Living map owner: workstream C, `01a14bdc-d152-7912-84d4-c0012e9d5206`.
 
+## 9 November 2026 independent finalized-reply recovery
+
+Accepted main `279e6703dedebaeb130993fd6e2657b2aed73c0a` contains #1252's
+ordinary directed dispatch and #1261's shared composer, readiness and replies.
+The dispatch/UI implementation in draft #1244 (`f8bd8ae`) is superseded by those
+accepted owners. Its independent finalized-reply recovery remains unique and is
+ported here through `ApplicationCollaborationMessaging`; the obsolete dispatcher,
+application routes and UI are not reinstated. Retire #1244 after this replacement
+lands, preserving its review and source history rather than merging duplicate code.
+
+The current-main regressions produced eight assertion failures: queued
+interleaving, 501 prior messages, over 512 KiB of history, oversized reply text,
+over 100 text blocks and a prompt outside the recent shared view. Recovery now
+enumerates retained prompts and exact ordinary source mappings in bounded keyset
+pages, checks finalized visible text independently, and uses the existing reply
+owner to verify pinned native execution and attribution. Ordinary full-prefix
+snapshot qualification is unchanged. No read requests inference or redispatch.
+
+Malformed mapping fields, oversized mapping payloads and empty answers have typed
+per-source refusals; structured diagnostics omit source text. Later eligible
+answers still project. Unexpected storage/programming failures propagate.
+Local read-only review identified these additional cases and an unpinned
+historical-execution lookup; all were repaired with failing-then-passing tests.
+The mapping reader bounds payload bytes before hydration, and reply projection
+uses its retained execution fingerprint before promoting a delivery receipt.
+
+Offline checks on this replacement:
+
+- 83 recovery, ordinary-reply and visible-source tests pass, including source
+  pagination across malformed/oversized IDs and exact repeated reads.
+- 81 application/UI/provenance/transcript checks pass through real authentication,
+  HTTP, Git/SQLite, preparation, admission and the native driver. External runtime,
+  account declarations and native RPC alone are synthetic. Counts include shared
+  fixture tests and are not unique feature-acceptance totals.
+- The production composer journey additionally sends a later explicit prompt after
+  remount, proving distinct command/delivery attribution and exactly two native
+  turns. The recording transport now emits unique turn/item IDs and the ordinary
+  `turn/started` event; its earlier incomplete stream explained a missing second
+  answer in the fixture. No production transport relaxation was needed.
+- Protocol/harness/client builds, scoped lint, formatting, source fingerprints and
+  diff checks pass. No user-facing UI source or approved design reference changes.
+
+#1242 is not a remaining dependency: accepted #1266/#1272 supply its retained
+operator and callback settlement behavior. The active owner independently
+verified those paths (176 checks, 11 existing skips) and retained the stronger
+callback-consumer regression in #1257. That evidence is separate from this PR's
+current-head CI/review, which remain mandatory before merge.
+
+This qualifies bounded source/offline behavior only. The complete fresh-agent
+edited review/refreeze/join browser journey, independent visual acceptance,+physical iOS, other runtime/account routes and the broader milestone remain
+separate acceptance work. No staging, deployment or live inference was performed.
+
 ## 7 November 2026 interrupted landing and review corrections
 
 PR #1261 was recovered after an interrupted main integration. Accepted base

@@ -51,22 +51,28 @@ export async function recordApplicationMessagingRuntime(events: EventStore) {
               modelProvider: 'openai',
             };
           if (method === 'turn/start') {
+            const turnNumber = requests.filter((r) => r.method === 'turn/start').length;
+            const turnId = `private-native-turn-${turnNumber}`;
             setTimeout(() => {
+              lifecycle!.onNotification('turn/started', {
+                threadId: 'private-native-thread',
+                turn: { id: turnId, status: 'inProgress' },
+              });
               lifecycle!.onNotification('item/completed', {
                 threadId: 'private-native-thread',
-                turnId: 'private-native-turn',
+                turnId,
                 item: {
-                  id: 'native-answer',
+                  id: `native-answer-${turnNumber}`,
                   type: 'agentMessage',
                   text: 'Reviewed the selected design.',
                 },
               });
               lifecycle!.onNotification('turn/completed', {
                 threadId: 'private-native-thread',
-                turn: { id: 'private-native-turn', status: 'completed' },
+                turn: { id: turnId, status: 'completed' },
               });
             }, 10);
-            return { turn: { id: 'private-native-turn' } };
+            return { turn: { id: turnId } };
           }
           throw Error(`Unexpected offline native method: ${method}`);
         },
