@@ -6,6 +6,7 @@ import {
   codexNativeExecutionPolicy,
   codexNativePermissionProfiles,
   assertNativeExecutionRefresh,
+  assertNativeExecutionCurrent,
 } from '../codex-native-execution-policy.js';
 import { codexThreadOptions, codexTurnStartParams } from '../codex-ordinary-packet.js';
 import { codexRuntimeOverrides } from '../codex-runtime-policy.js';
@@ -19,6 +20,89 @@ const input = {
   deniedRoots: ['/private/provider-auth'],
   writeProtectedRoots: ['/operator/runtime'],
 };
+
+it('keeps an admitted command current when another runtime adds redundant protection entries', () => {
+  const initial = codexNativeExecutionPolicy(input);
+  const next = codexNativeExecutionPolicy({
+    ...input,
+    deniedRoots: [...input.deniedRoots, '/private/provider-auth/another-chat'],
+  });
+  expect(next.policyRevision).not.toBe(initial.policyRevision);
+  expect(() => assertNativeExecutionCurrent(initial, next)).not.toThrow();
+  expect(() => assertNativeExecutionRefresh(initial, next)).not.toThrow();
+  expect(() => assertNativeExecutionCurrent(next, initial)).not.toThrow();
+  expect(() => assertNativeExecutionRefresh(next, initial)).not.toThrow();
+});
+
+it.each(['agent', 'auto'] as const)(
+  'retains %s positive read-rule changes across implicit native temporary writes',
+  (mode) => {
+    const initial = codexNativeExecutionPolicy({
+      ...input,
+      mode,
+      writeProtectedRoots: ['/private'],
+    });
+    const next = codexNativeExecutionPolicy({
+      ...input,
+      mode,
+      writeProtectedRoots: ['/private', '/private/tmp/new-runtime'],
+    });
+    expect(() => assertNativeExecutionCurrent(initial, next)).toThrow(
+      'Native execution policy changed',
+    );
+    expect(() => assertNativeExecutionRefresh(initial, next)).toThrow(
+      'Native execution policy changed',
+    );
+    expect(() => assertNativeExecutionCurrent(next, initial)).toThrow(
+      'Native execution policy changed',
+    );
+    expect(() => assertNativeExecutionRefresh(next, initial)).toThrow(
+      'Native execution policy changed',
+    );
+  },
+);
+
+it.each(['profileRevision', 'policyRevision'] as const)(
+  'rejects a substituted %s rather than treating it as redundant discovery',
+  (field) => {
+    const initial = codexNativeExecutionPolicy(input);
+    const forged = Object.freeze({ ...initial, [field]: '0'.repeat(64) });
+    expect(() => assertNativeExecutionCurrent(initial, forged)).toThrow(
+      'Native execution policy changed',
+    );
+    expect(() => assertNativeExecutionRefresh(initial, forged)).toThrow(
+      'Native execution policy changed',
+    );
+  },
+);
+
+it.each([
+  { deniedRoots: [...input.deniedRoots, '/new-private'] },
+  { deniedRoots: ['/private/provider-auth/child'] },
+  { deniedRoots: [...input.deniedRoots, '/private/provider-auth-sibling'] },
+  { deniedRoots: [] },
+  { writeProtectedRoots: [...input.writeProtectedRoots, '/new-runtime'] },
+  { writeProtectedRoots: [] },
+  { mode: 'auto' as const },
+  { bindingRevision: 'replacement-account' },
+  { readableRoots: ['/workspace/one'] },
+  { cwd: '/workspace/two', writableRoots: ['/workspace/two'] },
+])('retains the command fence for a real scope change: %j', (change) => {
+  const initial = codexNativeExecutionPolicy(input);
+  // An empty protection list is malformed at composition and must also fail closed.
+  if (change.deniedRoots?.length === 0) {
+    expect(() => codexNativeExecutionPolicy({ ...input, ...change })).toThrow();
+    return;
+  }
+  const next = codexNativeExecutionPolicy({ ...input, ...change });
+  try {
+    assertNativeExecutionCurrent(initial, next);
+    throw Error('changed authority was accepted');
+  } catch (error) {
+    expect(error).toMatchObject({ code: 'native_policy_changed' });
+    expect((error as Error).message).not.toContain('/new-private');
+  }
+});
 
 describe('native Mac execution permission profile', () => {
   it('allows Auto networking at both native boundaries while Agent requires approval', () => {

@@ -33,6 +33,51 @@ const outcome = {
   idempotencyKey: 'original-reviewed-creation',
 };
 describe('Mitzo canonical Telos persistence', () => {
+  it.each(['completed', 'other-profile', 'archived', 'trashed'])(
+    'bounds the requested collection after excluding %s history',
+    (history) => {
+      const { store, path } = fixture();
+      const { item } = store.create({ summary: 'Current work', profile: 'work' });
+      const seed = new Database(path);
+      try {
+        seed.exec(`WITH RECURSIVE n(i) AS (VALUES(1) UNION ALL SELECT i+1 FROM n WHERE i<5001)
+          INSERT INTO items(id,summary,profile,status,context_hints,first_seen,last_seen,created_at,updated_at)
+          SELECT 'history-'||i,'Retained history','work','active','{}','2026-01-01','2026-01-01','2026-01-01','2026-01-01' FROM n`);
+        if (history === 'completed')
+          seed.exec("UPDATE items SET status='completed' WHERE id LIKE 'history-%'");
+        else if (history === 'other-profile')
+          seed.exec("UPDATE items SET profile='personal' WHERE id LIKE 'history-%'");
+        else
+          seed
+            .prepare(
+              'INSERT INTO telos_work_lifecycle(item_id,data) SELECT id,? FROM items WHERE id LIKE ?',
+            )
+            .run(
+              JSON.stringify({
+                disposition: history,
+                restoreDisposition: 'active',
+                pauseControlIds: [],
+                generation: 1,
+              }),
+              'history-%',
+            );
+        expect(store.list('work').items.map((row) => row.id)).toEqual([item.id]);
+        expect(() =>
+          store.list(
+            history === 'other-profile' ? 'personal' : 'work',
+            history === 'completed' || history === 'other-profile'
+              ? true
+              : history === 'archived'
+                ? 'archive'
+                : 'trash',
+          ),
+        ).toThrow(/bounded selection/);
+      } finally {
+        seed.close();
+      }
+    },
+  );
+
   it.each([
     { action: { action: 'star' }, starred: 0, expected: { priority: 7, starred: true } },
     { action: { action: 'unstar' }, starred: 1, expected: { priority: 7, starred: false } },

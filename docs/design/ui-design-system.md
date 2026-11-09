@@ -1,5 +1,24 @@
 # Mitzo UI design contract
 
+## Resizable desktop columns
+
+DesktopShell owns the navigation, conversations and resources column widths.
+The shared ResizeDivider supports pointer capture, keyboard arrows, Home/End
+and double-click reset. Collapsed/absent panels have no divider. The conversation
+preview reuses it with its existing percentage limits. Widths persist as optional
+browser preferences; unavailable storage keeps changes in the current tab and
+shows one quiet status with a sanitized structured console diagnostic. Window
+resizing fits expanded panels around a usable center without overwriting their
+saved widths. Resizing never remounts the chat or composer.
+
+Desktop assistant responses fill the available pane inside the shared page
+gutter. Tables wrap long summaries on both desktop and phone, retaining their
+scroll wrapper for intrinsically wide content. The user explicitly requested
+these width changes on 9 November 2026; the existing settings, status, message
+actions and mobile navigation designs are preserved. Divider widths, panel
+bounds and center budget are structural geometry; surfaces, focus, spacing and
+type use the shared semantic tokens. See [scope and validation](../features/desktop-panel-layout.md).
+
 ## Native Watch approvals
 
 Watch approval details use native SwiftUI system typography, scrolling, labelled
@@ -1585,6 +1604,15 @@ trusted source/capacity/preparation composition. No preview content is represent
 as a frozen server review. Exact artifact selection, joining-brief confirmation,
 ordinary allocation/delivery and full shared-conversation composition remain later
 integration work. Opening setup and previews does not call a model.
+
+The 7 November shared-composer candidate connects ordinary collaboration owners
+to these controls. After joining, it retains ordinary history and adds the shared
+`CollaborationTranscript` and existing `ChatInput`. It uses the existing tokens,
+focus/motion behavior and Agents dialog; no new visual variant is introduced.
+The bounded text-only route requires one explicit @ responder and current server
+readiness. Refusal leaves the draft editable; uncertain delivery exposes Check
+original request. Rendered acceptance of this integration remains outstanding.
+The approved fresh-agent ledger and reference images retain their accepted bytes.
 
 The all-intercept `symposium-approved-design` fixture renders the actual mobile /
 desktop chat screens with simulated data. It checks WebKit, mobile Chromium and

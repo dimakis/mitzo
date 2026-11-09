@@ -162,6 +162,9 @@ it('retires the original runtime before replacement and never revives it on inva
   });
   expect(getTelosMainPublicationRuntime()).toBe(second);
   expect(first.supports(f.owners.registry, f.owners.events, 'selected-account')).toBe(false);
+  expect(() =>
+    first.observeRetainedEdit(f.owners.events, 'item', 'chat', 'request', () => {}),
+  ).toThrow(/unavailable/);
   first.close();
   expect(getTelosMainPublicationRuntime()).toBe(second);
   expect(() => initializeTelosMainPublicationRuntime(f.owners, join(f.root, 'absent'))).toThrow();
@@ -179,6 +182,9 @@ it('refuses asynchronous native authority before opening any canonical store or 
     },
     () => true,
   ]) {
+    expect(() =>
+      runtime.observeRetainedEdit(f.owners.events, 'item', 'chat', 'request', assertion),
+    ).toThrow(/unavailable/);
     const context = { assertCurrentSync: assertion } as unknown as NativeMainPublicationCall;
     await expect(runtime.request(context, {})).rejects.toThrow(/unavailable/);
   }

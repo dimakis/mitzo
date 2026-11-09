@@ -1,5 +1,9 @@
 // Load runtime configuration before bootstrap dependencies validate or capture it.
 import 'dotenv/config';
+import { createDeploymentRuntime } from './deployment-runtime.js';
+import { createDeploymentRouter } from './deployment-routes.js';
+import { getLocalCommit } from './git-version.js';
+import { assertQueueOperator } from './app.js';
 import { setSessionActivityObserver } from './session-activity-events.js';
 import { closeTelosMainPublicationRuntime } from './telos-main-publication-runtime.js';
 import { startKnowledgePrewarming } from './knowledge-prewarming.js';
@@ -694,6 +698,34 @@ const v2Ctx: V2HandlerContext = {
 
 mountApplicationChatTransport(app, chatSseRegistry, v2Ctx);
 const sessionPrompts = initializeSessionPrompts(join(BASE_REPO, '.mitzo', 'events.db'), v2Ctx);
+const deploymentCommit = getLocalCommit();
+const deploymentRuntime = createDeploymentRuntime(v2Ctx, {
+  commit: () => {
+    if (!deploymentCommit) throw Error('Release identity unavailable');
+    return deploymentCommit;
+  },
+  healthy: () => {
+    const snapshot = healthMonitor.getSnapshot();
+    return (
+      snapshot.checkedAt > Date.now() - 60_000 &&
+      snapshot.services.length === 2 &&
+      snapshot.services.every((service) => service.ok)
+    );
+  },
+  backgroundIdle: () =>
+    orchestrator.getStatus().state !== 'running' &&
+    !eventStore
+      .listSessions()
+      .some(
+        (session) =>
+          session.symposiumConfig &&
+          session.executionPhase &&
+          session.executionPhase !== 'TERMINAL',
+      ),
+  authorizeSession: assertQueueOperator,
+});
+app.use('/api/deployment', createDeploymentRouter(deploymentRuntime.coordinator));
+
 initializeTaskExecution(join(BASE_REPO, '.mitzo', 'events.db'));
 const releasePermissionAudit = persistPermissionAudit(eventStore);
 app.use('/api/session-timers', createSessionPromptRouter(sessionPrompts));
@@ -1349,6 +1381,7 @@ async function shutdown(signal: string) {
   shuttingDown = true;
   closeTelosMainPublicationRuntime();
   await closeSessionPrompts();
+  deploymentRuntime.close();
   closeTaskExecution();
   releasePermissionAudit();
   stopRuntimePerformanceMonitor?.();

@@ -136,7 +136,7 @@ export function sessionHistoryTools(owners: Owners) {
         access = owners.capture(call, toolName);
         const captured = access;
         const signal = AbortSignal.any([externalSignal, captured.signal]);
-        const selectedTargets: { assertCurrent(): void }[] = [];
+        const selectedTargets = new Set<{ assertCurrent(): void }>();
         const current = () => {
           signal.throwIfAborted();
           captured.assertCurrent();
@@ -152,7 +152,7 @@ export function sessionHistoryTools(owners: Owners) {
           const target = await captured.authorizeRead(id, signal);
           if (!target || typeof target.assertCurrent !== 'function')
             throw Error('Current target authority required');
-          selectedTargets.push(target);
+          selectedTargets.add(target);
           await refresh();
         };
         await refresh();
@@ -262,7 +262,7 @@ export function sessionHistoryTools(owners: Owners) {
               .includes(request.query.toLocaleLowerCase());
             if (!titleMatches && scope === 'all') {
               if (remaining === 0) break;
-              if (target) selectedTargets.push(target);
+              if (target) selectedTargets.add(target);
               const boundary = seq.parse(captured.readBoundary(id));
               const cursor = index === 0 ? request.cursor : undefined;
               const throughSeq = cursor?.throughSeq ?? boundary;
@@ -337,7 +337,7 @@ export function sessionHistoryTools(owners: Owners) {
             )
               break;
             sessions.push(entry);
-            if (target) selectedTargets.push(target);
+            if (target) selectedTargets.add(target);
             consumed++;
             // The authorized page projection has no await or outward effect.
             // Recheck its selected targets together at the final refresh, as

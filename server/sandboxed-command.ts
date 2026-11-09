@@ -1,4 +1,5 @@
 import { repositoryObservationProgram } from './native-repository-observation.js';
+import { createLogger } from './logger.js';
 import { nativePreparationPublicationWriteRoots } from './native-preparation-publication.js';
 import {
   privateRepositoryCheckoutCommand,
@@ -24,6 +25,7 @@ import {
   projectPrivateNativeFileHelperRequest,
   type NativeReadAnchor,
 } from './native-file-operation.js';
+const log = createLogger('sandboxed-command');
 
 export interface SandboxedCommandOptions {
   command: string;
@@ -859,12 +861,19 @@ async function runSandboxedCommand(
         kill();
         let output = Buffer.concat(chunks).toString('utf8');
         const isError = !!failure || code !== 0 || signal !== null;
-        // A normal nonzero exit is a completed failure. Interrupted or missing
-        // termination evidence cannot settle effects or permit a blind retry.
+        // A normal nonzero exit, including Git's fatal-error code 128, is a
+        // completed failure. Shell signal encodings start at 129; those and
+        // missing termination evidence cannot settle effects or permit a retry.
         const outcome =
-          !failure && code !== null && code >= 0 && code < 128 && signal === null
+          !failure && code !== null && code >= 0 && code <= 128 && signal === null
             ? 'settled'
             : 'unknown';
+        log.info('Sandbox command terminated', {
+          exitCode: code,
+          exitSignal: signal,
+          effectOutcome: outcome,
+          ...(failure ? { failureReason: failure } : {}),
+        });
         if (options.privateOutput) {
           resolveResult(
             retainCallbackOutcome(

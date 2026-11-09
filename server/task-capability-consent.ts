@@ -26,20 +26,15 @@ export function captureTaskCapabilityConsent(registry: SessionRegistry, scope: T
     assertCurrent: () => receipts.forEach((r) => r()),
   };
 }
-export function currentTaskCapabilityConsent(
-  registry: SessionRegistry,
-  scope: TaskExecutionScope,
-  sessionId?: string,
-) {
-  const receipts = (scope.inheritedGrants ?? [])
-    .filter((entry) => !sessionId || entry.sessionId === sessionId)
-    .map((entry) => {
-      const session = registry.findBySessionId(entry.sessionId)?.session;
-      const receipt = session && captureSessionCapability(session, entry.capability, entry.grantId);
-      if (!receipt) throw Error('Inherited task consent expired, revoked or changed');
-      receipt();
-      return receipt;
-    });
+export function currentTaskCapabilityConsent(registry: SessionRegistry, scope: TaskExecutionScope) {
+  // The task derives from every parent's consent, regardless of which member runs.
+  const receipts = (scope.inheritedGrants ?? []).map((entry) => {
+    const session = registry.findBySessionId(entry.sessionId)?.session;
+    const receipt = session && captureSessionCapability(session, entry.capability, entry.grantId);
+    if (!receipt) throw Error('Inherited task consent expired, revoked or changed');
+    receipt();
+    return receipt;
+  });
   return {
     signal: AbortSignal.any(receipts.map((r) => r.signal)),
     assertCurrent: () => receipts.forEach((r) => r()),

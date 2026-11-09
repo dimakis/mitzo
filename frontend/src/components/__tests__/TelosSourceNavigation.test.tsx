@@ -298,6 +298,19 @@ it('releases a failed source lookup for restore and following after returning to
   expect(jump).not.toHaveBeenCalled();
 });
 
+it('releases failed source navigation when history was already present on mount', async () => {
+  vi.spyOn(Element.prototype, 'scrollHeight', 'get').mockReturnValue(2_000);
+  vi.spyOn(Element.prototype, 'clientHeight', 'get').mockReturnValue(500);
+  vi.spyOn(TelosWorkApiClient.prototype, 'readSource').mockRejectedValue(Error('Unavailable'));
+  const bottom = vi.fn();
+  Element.prototype.scrollTo = bottom;
+  Element.prototype.scrollIntoView = vi.fn();
+  const scrollRef = { current: null as HTMLDivElement | null };
+  render(<Surface scrollRef={scrollRef} />);
+  await screen.findByText('Original exchange unavailable');
+  await waitFor(() => expect(bottom).toHaveBeenCalledWith({ top: 2_000 }));
+});
+
 it('keeps a newer source lookup fenced when an older lookup fails after transcript restore', async () => {
   const pending: { resolve(value: typeof view): void; reject(error: Error): void }[] = [];
   const read = vi.spyOn(TelosWorkApiClient.prototype, 'readSource').mockImplementation(

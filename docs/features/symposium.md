@@ -5,6 +5,43 @@ Existing Telos item: `c0851ba23fcc5d04`; reuse it rather than create another par
 or a task for every document. Tracker closure and source landing do not prove
 runtime acceptance or authorize deployment.
 
+## Shared composer — 7 November candidate
+
+PRs [#1237](https://github.com/dimakis/mitzo/pull/1237) (silent joining) and
+[#1252](https://github.com/dimakis/mitzo/pull/1252) (directed prompts and replies)
+are merged. Candidate `feat/symposium-shared-composer` starts from accepted main
+`44e872c8a615e30bd75ac9738101dfbfaa1d6aa7` and connects their application owners
+to the existing Agents surface and composer. It contributes to child
+`c3ac6bfcc3b29e20` under active milestone `358d56cb7e4352ff`.
+
+The bounded route requires one explicitly selected responder. An authenticated,
+observational server check verifies current membership, settings, reviewed context
+and ordinary Local Codex availability before enabling Send. Dispatch repeats its
+existing authority checks. A fresh participant's reviewed name appears in Agents,
+the responder picker and its finalized reply. The existing repository preparation
+picker supplies the fresh target; opening a conversation allocates no session.
+
+The shared draft retains the exact request before sending. Accepted sends clear
+the text while preserving recipient intent and recovery metadata. An uncertain
+response keeps the original request across remounts: Check original request only
+observes its receipt and finalized reply, and never dispatches it again. The
+original ordinary history remains visible. Finalized replies refresh through the
+existing collaboration projection; no streaming or response loop is introduced.
+
+The actual-app UI test sends through the production composer after the real API
+review/join/restart prerequisites. It proves one native turn, exact reviewed
+content, attribution and remount retention. The complete Add agent / edited review /
+refreeze / join journey still needs a combined UI acceptance run. The offline
+browser fixture covers light/dark, desktop/mobile, refusal, send and retained
+drafts, but its local execution stopped at the host sandbox guard before launch;
+rendered acceptance remains a CI or permitted host-runner gate. See the dated
+[evidence checkpoint](../evidence/symposium-integration-acceptance.md).
+
+This candidate does not qualify an installed runtime. Defaults/fan-out, streaming,
+Stop/restart coverage, forwarding, long-history paging, other providers and physical
+iOS remain outside this slice. The approved design ledger and reference images
+are unchanged. Source review, CI, acceptance and deployment remain separate.
+
 ## Directed prompt/reply application increment — 7 November candidate
 
 Candidate branch `feat/symposium-directed-replies`, based on accepted main

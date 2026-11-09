@@ -61,3 +61,18 @@ export function isReadOnlyBuiltinToolCall(name: string, input: Record<string, un
   if (name === 'TelosManageItem') return input.operation === 'read';
   return false;
 }
+
+/** Historical unknown results need a stronger contract than HTTP GET/HEAD.
+ * Generic web/connection requests may target side-effecting endpoints. These
+ * reviewed built-ins only inspect repository metadata, files, tool definitions
+ * or bounded public conversation history. Search remains outside this contract. */
+export function isIntrinsicRecoveryRead(name: string): boolean {
+  return [
+    'GitHubRead',
+    'DiscoverLocalRepository',
+    'InspectLocalRepository',
+    'DescribeIntegrationTool',
+    'Read',
+    'ReadPastSession',
+  ].includes(name);
+}

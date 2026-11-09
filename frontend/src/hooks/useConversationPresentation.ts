@@ -124,7 +124,9 @@ export function useConversationPresentation(options: ConversationPresentationOpt
     readId.current++;
     controller.current?.abort();
     pending.current = null;
-    publish({ ...empty(), error: 'Sign in to verify this conversation.' });
+    // The application's ProtectedRoute owns login recovery. Retire private
+    // collaboration state without inventing a second feature-specific login.
+    publish(empty());
   }, [owner, empty, publish]);
   const readDraft = useCallback(() => {
     if (!valid()) return;
@@ -165,7 +167,7 @@ export function useConversationPresentation(options: ConversationPresentationOpt
       pending.current = null;
   }, []);
   const read = useCallback(
-    async (events: boolean): Promise<{ error: string } | undefined> => {
+    async (events: boolean): Promise<{ error?: string; view?: CollaborationView } | undefined> => {
       if (!valid()) {
         clearPrivate();
         return;
@@ -217,6 +219,7 @@ export function useConversationPresentation(options: ConversationPresentationOpt
         });
         readDraft();
         if (error) return { error };
+        return { view: projection.view };
       } catch (cause) {
         if (fresh()) {
           const error = message(cause);
@@ -228,7 +231,7 @@ export function useConversationPresentation(options: ConversationPresentationOpt
     [valid, clearPrivate, owner, api, collaborationId, publish, reconcile, readDraft],
   );
   const refresh = useCallback(async () => {
-    await read(false);
+    return (await read(false))?.view;
   }, [read]);
   const refreshEvents = useCallback(async () => {
     await read(true);
@@ -426,7 +429,7 @@ export function useConversationPresentation(options: ConversationPresentationOpt
     projection,
     draft: visible.draft,
     loading: visible.loading,
-    error: authorized ? visible.error : 'Sign in to verify this conversation.',
+    error: visible.error,
     draftError: visible.draftError,
     policyError: visible.policyError,
     pendingPolicy: visible.pendingPolicy,

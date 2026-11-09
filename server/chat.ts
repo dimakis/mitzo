@@ -13,7 +13,7 @@ import {
 } from './task-worker-authority.js';
 import { assertTurnCallbackEffects, type TurnCallbackRunner } from './turn-callbacks.js';
 import { createSdkTurnQuery } from './sdk-turn-query.js';
-import { findSessionRuntimeError } from './session-runtime-error.js';
+import { findSessionRuntimeError, SessionRuntimeError } from './session-runtime-error.js';
 import { reportRetainedRuntimeFailure } from './retained-runtime-failure.js';
 import { AdviserTaskScope } from './adviser-task-scope.js';
 import { createSessionTranscriptReader } from './session-transcript-reader.js';
@@ -108,6 +108,7 @@ import { SESSION_TOOL_INSTRUCTIONS } from './session-credential-tools.js';
 import { isRegisteredConversation } from '@mitzo/protocol';
 import { clearWebSearchGrant } from './web-search-grants.js';
 import { codexRuntimeDiagnostic, codexRuntimeErrorTelemetry } from './codex-runtime-diagnostics.js';
+import { retainCodexPreparationFailure } from './codex-preparation-failure.js';
 import {
   createGithubPublishingTool,
   GITHUB_PUBLISHING_INSTRUCTIONS,
@@ -1305,6 +1306,10 @@ export async function startChat(
   // repository, registry or transport effects. Keep one generated message ID so
   // the native path cannot later select an unchecked conversation identity.
   const initialMessageId = options.clientMsgId ?? randomUUID();
+  eventStore.deployment.assertAdmission(
+    options.resume ?? options.initialSessionId ?? clientId,
+    initialMessageId,
+  );
   const onStartupAdmission = options.onStartupAdmission;
   let startupAdmissionSettled = false;
   options = {
@@ -3370,6 +3375,37 @@ export async function sendOwnedLocalCodexCommand(input: {
   }
 }
 
+async function reconcileOwnedLocalCodexEffects(input: {
+  reservation: Omit<HostRepositoryReservationInput, 'signal'>;
+  workspaceKind: LocalWorkspaceKind;
+  commandId: string;
+  operatorConnectionId: string;
+  signal: AbortSignal;
+}) {
+  // Both explicit Send and the retained queue action inspect through the same
+  // original-command owner. Neither can use the new message's admission to
+  // settle an older turn or dispatch input from this inspection-only runtime.
+  const driver = new OrdinaryLocalCodexOwnedRuntime({
+    ...input,
+    enabled: true,
+    eventStore,
+    library: getAgentLibrary(),
+    workspace:
+      input.workspaceKind === 'ordinary'
+        ? getOrdinaryWorkspaces(true)
+        : getRepositoryWorkspaces(true),
+    nativeStore: getCodexConversationStore(),
+    dispatch: async () => {
+      throw Error('Reconciliation cannot dispatch input');
+    },
+  });
+  try {
+    await driver.reconcileRetainedEffects();
+  } finally {
+    driver.close();
+  }
+}
+
 /** Explicit existing queue action. Acceptance observation remains read-only;
  * this action reopens the original saved input even after its outbox retires. */
 export async function continueOwnedLocalCodexQueue(
@@ -3419,7 +3455,11 @@ export async function continueOwnedLocalCodexQueue(
         )
       : undefined;
   const commandId = undispatchedId ?? effectsId;
-  if (!commandId) throw Error('Saved input has no qualified recovery');
+  if (!commandId) {
+    if (native.continuationBlocker(sessionId, meta.accountBinding))
+      throw new SessionRuntimeError('unsettled_effects');
+    throw Error('Saved input has no qualified recovery');
+  }
   const workspaceKind = meta.ordinaryWorkspaceId ? 'ordinary' : 'repository';
   const workspace =
     workspaceKind === 'ordinary'
@@ -3440,29 +3480,13 @@ export async function continueOwnedLocalCodexQueue(
   const timer = setTimeout(() => preparation.abort(), 120000);
   try {
     if (effectsId) {
-      const driver = new OrdinaryLocalCodexOwnedRuntime({
-        enabled: true,
-        eventStore,
-        library: getAgentLibrary(),
+      await reconcileOwnedLocalCodexEffects({
         workspaceKind,
-        workspace:
-          workspaceKind === 'ordinary'
-            ? getOrdinaryWorkspaces(true)
-            : getRepositoryWorkspaces(true),
         reservation,
         commandId,
         operatorConnectionId: connectionId,
         signal: preparation.signal,
-        nativeStore: native,
-        dispatch: async () => {
-          throw Error('Reconciliation cannot dispatch input');
-        },
       });
-      try {
-        await driver.reconcileRetainedEffects();
-      } finally {
-        driver.close();
-      }
       captured.assertCurrent();
       return;
     }
@@ -3636,6 +3660,29 @@ export async function startOwnedLocalCodexCommand(
       if (adopted) {
         reservation.id = adopted.id;
         workspaceKind = 'repository';
+      }
+      if (native.continuationBlocker(sessionId, reservation.binding)) {
+        const effectsId = reconcilableLocalCodexCommand(
+          eventStore,
+          native,
+          sessionId,
+          ownerAuthSessionId,
+          () =>
+            workspaceKind === 'ordinary'
+              ? getOrdinaryWorkspaces(true)
+              : getRepositoryWorkspaces(true),
+        );
+        if (effectsId) {
+          await reconcileOwnedLocalCodexEffects({
+            reservation,
+            workspaceKind: workspaceKind ?? 'repository',
+            commandId: effectsId,
+            operatorConnectionId,
+            signal,
+          });
+          signal.throwIfAborted();
+          captured.assertCurrent();
+        }
       }
     }
     driver = new OrdinaryLocalCodexOwnedRuntime<LocalWorkspaceKind>({
@@ -3932,7 +3979,7 @@ export async function prepareOwnedCodexChat(
         : { repositoryWorkspace: workspace }),
     });
   } catch (error) {
-    throw findSessionRuntimeError(error) ?? unavailable();
+    throw retainCodexPreparationFailure('runtime_admission', error);
   }
 
   const { expected, workspace, payload, profile } = selected;
@@ -4165,11 +4212,20 @@ export async function prepareOwnedCodexChat(
   } catch (error) {
     try {
       close();
-    } catch {
-      /* Retain uncertainty even if shutdown cannot finish. */
+    } catch (cleanupError) {
+      log.warn('Owned Codex preparation cleanup remains unconfirmed', {
+        sessionId,
+        clientMsgId: commandId,
+        cleanupFailureCode: 'owned_preparation_cleanup_failed',
+        ...codexRuntimeErrorTelemetry(retainCodexPreparationFailure('runtime_connection', error)),
+        cleanup: codexRuntimeErrorTelemetry(
+          retainCodexPreparationFailure('runtime_connection', cleanupError),
+        ),
+      });
     }
     throw (
-      findNativeMacExecutionUnavailable(error) ?? findSessionRuntimeError(error) ?? unavailable()
+      findNativeMacExecutionUnavailable(error) ??
+      retainCodexPreparationFailure('runtime_connection', error)
     );
   } finally {
     releaseStartup?.();
@@ -4572,6 +4628,7 @@ export async function sendToChat(
   return withSpanAsync('chat.send', { 'chat.clientId': clientId }, async () => {
     if (signal?.aborted) return false;
     const session = registry.get(clientId);
+    eventStore.deployment.assertAdmission(session?.sessionId ?? clientId, clientMsgId);
     if (session?.sessionId && eventStore.getSessionRuntimeBinding(session.sessionId))
       throw new Error('Runtime-bound commands require guarded admission');
     if (session?.sessionId)

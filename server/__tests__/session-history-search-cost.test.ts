@@ -2,13 +2,26 @@ import { expect, it, vi } from 'vitest';
 import { captureSessionHistoryAuthorization } from '../session-history-authorization.js';
 import { sessionHistoryTools } from '../session-history-tools.js';
 import type { NativeHostToolContext } from '../native-host-tool-context.js';
+import { bindAgentToolSelection } from '../agent-tool-selection.js';
 import type { EventStore } from '../event-store.js';
 
 // Compose the real search and authorization adapter. Only the underlying native
 // owner is counted here; no credentials, provider RPC, filesystem or model calls.
-async function measureSearch(size: number, matches = false) {
+async function measureSearch(size: number, matches = false, transcripts = false) {
+  const session = {};
+  bindAgentToolSelection(
+    session,
+    {
+      tools: [
+        { id: 'mitzo:SearchPastSessions', version: 1 },
+        ...(transcripts ? [{ id: 'mitzo:ReadPastSession', version: 1 }] : []),
+      ],
+    } as never,
+    'codex-owned-local',
+  );
   const call = { turnId: 'offline-turn', callId: 'offline-call' };
   const context = {
+    session,
     signal: new AbortController().signal,
     toolName: 'SearchPastSessions',
     ...call,
@@ -30,11 +43,15 @@ async function measureSearch(size: number, matches = false) {
     store: {
       listSessionSummaries: () => ({ sessions, hasMore: true }),
       getEventsAfter: () => [],
+      getHistoryEventPage: () => ({ events: [], hasMore: false }),
     },
     capture: () =>
       captureSessionHistoryAuthorization({
         context: context as unknown as NativeHostToolContext,
-        events: { getSession } as unknown as EventStore,
+        events: {
+          getSession,
+          captureReconnectState: () => ({ cursor: 0 }),
+        } as unknown as EventStore,
         call,
         toolName: 'SearchPastSessions',
       }),
@@ -42,7 +59,7 @@ async function measureSearch(size: number, matches = false) {
   });
   const result = await tools.execute(
     'SearchPastSessions',
-    { query: 'absent', scope: 'summaries' },
+    { query: 'absent', scope: transcripts ? 'all' : 'summaries' },
     context.signal,
     call,
   );
@@ -75,3 +92,12 @@ it.each([false, true])(
     expect(result.targetReads).toBeLessThanOrEqual(400);
   },
 );
+
+it('refreshes transcript-read authority per I/O boundary without multiplying it per retained target', async () => {
+  const result = await measureSearch(100, false, true);
+  expect(result.ownerAsync).toBeLessThanOrEqual(8);
+  // One fresh owner fence for each transcript boundary plus bounded delivery
+  // fences, independent of how many prior targets the result retains.
+  expect(result.ownerSync).toBeLessThanOrEqual(150);
+  expect(result.targetReads).toBeLessThanOrEqual(700);
+});

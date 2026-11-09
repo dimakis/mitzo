@@ -1524,6 +1524,15 @@ export class CollaborationConversationStore {
         messages: messages.slice(-50),
         hasEarlierMessages: messages.length > 50,
         joins: this.recent(group, 'join', CollaborationJoinSchema),
+        joinedParticipants: membership.participantSessionIds.flatMap((sessionId) => {
+          try {
+            const join = this.getLinkedJoinForSession(group, sessionId);
+            return join ? [{ sessionId, name: join.name }] : [];
+          } catch {
+            // Broken/discontinued join identity cannot grant readiness or hide retained replies.
+            return [];
+          }
+        }),
         execution: COLLABORATION_EXECUTION_DISABLED,
       });
     })();

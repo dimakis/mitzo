@@ -113,6 +113,38 @@ function fixture(extra: Partial<ConstructorParameters<typeof CodexSubagents>[0]>
     admit,
   };
 }
+it('qualifies native activity hints through the original parent and native child identity', async () => {
+  const f = fixture();
+  const activity = {
+    type: 'subAgentActivity',
+    id: 'spawn',
+    kind: 'started',
+    agentThreadId: 'child',
+    agentPath: '/root/reviewer',
+  };
+  for (const [threadId, item] of [
+    ['foreign', activity],
+    ['root', { ...activity, kind: 'future' }],
+    ['root', { ...activity, agentThreadId: '' }],
+  ] as const)
+    f.notify('item/completed', { threadId, item });
+  await f.owner.settled();
+  expect(f.request).not.toHaveBeenCalled();
+  f.thread.parentThreadId = 'foreign';
+  f.notify('item/completed', { threadId: 'root', item: activity });
+  await f.owner.settled();
+  expect(f.owner.list()).toEqual([]);
+  expect(f.request.mock.calls.some(([method]) => method === 'thread/resume')).toBe(false);
+  f.thread.parentThreadId = 'root';
+  f.notify('item/completed', { threadId: 'root', item: activity });
+  f.notify('turn/started', { threadId: 'child', turn: { id: 'child-turn' } });
+  await f.owner.settled();
+  expect(f.owner.list()).toEqual([
+    expect.objectContaining({ threadId: 'child', state: 'working' }),
+  ]);
+  expect(f.execute).not.toHaveBeenCalled();
+});
+
 it('hydrates nonempty paginated history entries in order without replaying tools', async () => {
   const f = fixture();
   const original = f.request.getMockImplementation()!;
@@ -863,4 +895,32 @@ it('refuses permission delivery if the exact child file-change proposal changes 
   });
   finish({ decision: 'accept' });
   await expect(pending).rejects.toThrow();
+});
+
+it('retains deployment cancellation authority through delayed child control I/O', async () => {
+  const f = fixture();
+  await f.admit();
+  const original = f.request.getMockImplementation()!;
+  let release!: () => void,
+    authorized = true,
+    dispatched = false;
+  f.request.mockImplementation(async (method, params, beforeDispatch) => {
+    if (method !== 'turn/interrupt') return original(method, params, beforeDispatch);
+    await new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    beforeDispatch?.();
+    dispatched = true;
+    return {};
+  });
+  const stopping = f.owner.interruptAll(() => {
+    if (!authorized) throw Error('Deployment operator revoked');
+  });
+  await vi.waitFor(() => expect(release).toBeDefined());
+  expect(f.owner.hasPendingActivity()).toBe(true);
+  authorized = false;
+  release();
+  await stopping;
+  expect(dispatched).toBe(false);
+  expect(f.owner.list()[0]!.state).not.toBe('completed');
 });

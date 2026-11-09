@@ -83,3 +83,13 @@ it.each(['cancelled-only', 'malformed-json'] as const)(
   },
   15000,
 );
+
+it('requires complete JSON after the retained legacy cancelled-read marker', async () => {
+  const f = fixture();
+  await f.respond('meta', async () => '<stream>');
+  await f.meta();
+  await f.messages();
+  await f.wait();
+  expect(dom.poll).toHaveBeenCalledOnce();
+  expect(dom.count).toHaveBeenCalledWith(0);
+}, 15000);

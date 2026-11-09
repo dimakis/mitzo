@@ -176,6 +176,9 @@ export interface CodexConversationOptions {
   beforeEnqueue?: (input: CodexCommandInput) => void;
   /** A guarded enqueue may retain uncertainty until its outer receipt commits. */
   canClaimCommand?: (commandId: string) => boolean;
+  /** Maintenance fences new FIFO claims; active tool and terminal receipts still settle. */
+  canStartCommand?: () => boolean;
+  assertSubagentControlAdmission?: () => void;
   /** Owning physical custody must persist before the first native thread effect. */
   beforeThreadInitialization?: (store: CodexConversationStore, binding: AccountBinding) => void;
   ownerKind?: 'ordinary' | 'symposium';
@@ -690,6 +693,8 @@ export class CodexConversation {
           generation !== this.transportGeneration
         )
           throw Error('Original subagent transport unavailable');
+        if (method === 'turn/start' || method === 'turn/steer')
+          this.opts.assertSubagentControlAdmission?.();
         beforeDispatch?.();
         return client.request(method, params);
       },
@@ -1867,6 +1872,7 @@ export class CodexConversation {
             await assertRecoveryAuthority();
             assertRecoveryContinuation();
           },
+          this.opts.cwd,
         );
         nativeStatus = observed.status;
         interruptedEffects = observed.settledEffects;
@@ -2260,6 +2266,7 @@ export class CodexConversation {
             this.opts.assertNativeExecutionCurrent!(this.opts.nativeExecution, target.commandId);
           assertCurrent();
         },
+        this.opts.cwd,
       );
       assertCurrent();
       if (observed.status !== 'interrupted' || !observed.settledEffects)
@@ -2588,7 +2595,8 @@ export class CodexConversation {
   }
   private pump(): Promise<void> {
     if (this.pumping) return this.pumping;
-    if (this.active || this.paused || this.closed) return Promise.resolve();
+    if (this.active || this.paused || this.closed || this.opts.canStartCommand?.() === false)
+      return Promise.resolve();
     const next = this.queue().find((command) => command.status === 'queued');
     const commandContext = next && this.commandContexts.get(next.id);
     this.pumping = context
@@ -2710,6 +2718,7 @@ export class CodexConversation {
       );
       if (nextQueued && this.opts.canClaimCommand(nextQueued) === false) return;
     }
+    if (this.opts.canStartCommand?.() === false) return;
     const command = this.opts.store.claimNext(this.opts.conversationId, this.binding!);
     if (!command) return;
     finishCommandTimingSpan(this.queueTimingSpans.get(command.id), 'claimed');
@@ -4587,6 +4596,84 @@ export class CodexConversation {
     });
     return { status: 'claimed', receipt: claim.receipt, replayed: false };
   }
+  /** Deployment pauses the original parent and its owned child tree. Claims remain
+   * uncertain until separately observed terminal/effect evidence settles. */
+  async pauseForDeployment(requestId: string, target: CodexInterruptTarget, authorize: () => void) {
+    authorize();
+    const result = await this.interruptIfCurrent(requestId, target);
+    authorize();
+    if (result.status === 'claimed' && !result.replayed)
+      await this.subagentOwner?.interruptAll(authorize);
+    return result;
+  }
+  deploymentChildActivity() {
+    return this.subagentOwner?.hasPendingActivity() ?? false;
+  }
+  async observeDeploymentSettlement(rawTarget: CodexNativeTurnTarget, authorize: () => void) {
+    const target = CodexNativeTurnTargetSchema.parse(rawTarget);
+    if (!this.deploymentTurnSettled(target)) return false;
+    const client = this.client,
+      generation = this.transportGeneration,
+      binding = this.binding!;
+    const current = () => {
+      authorize();
+      if (
+        !this.deploymentTurnSettled(target) ||
+        this.client !== client ||
+        this.transportGeneration !== generation ||
+        this.binding !== binding
+      )
+        throw Error('Original deployment pause owner changed');
+      if (this.opts.nativeExecution)
+        this.opts.assertNativeExecutionCurrent?.(this.opts.nativeExecution, target.commandId);
+    };
+    current();
+    await this.verifyCurrentBinding(binding);
+    current();
+    const observed = await observeNativeRecoveryTurn(
+      (method, params) => {
+        current();
+        return client.request(method, params);
+      },
+      this.opts.conversationId,
+      target,
+      true,
+      async () => {
+        current();
+        await this.verifyCurrentBinding(binding);
+        current();
+      },
+      this.opts.cwd,
+    );
+    current();
+    if (observed.status === 'failed')
+      throw Error('Failed native deployment effects need inspection');
+    if (observed.status === 'interrupted') {
+      if (!observed.settledEffects) throw Error('Fresh interrupted native effect proof required');
+      this.opts.store.assertDeploymentHostEffects(
+        this.opts.conversationId,
+        binding,
+        target,
+        this.opts.nativeExecution?.policyRevision,
+        observed.settledEffects,
+        current,
+      );
+    }
+    current();
+    return true;
+  }
+  deploymentTurnSettled(target: CodexNativeTurnTarget) {
+    const terminal = this.terminalTurns.get(JSON.stringify([target.threadId, target.turnId]));
+    return (
+      !this.closed &&
+      !this.active &&
+      !this.deploymentChildActivity() &&
+      terminal?.commandId === target.commandId &&
+      ['completed', 'interrupted', 'failed'].includes(terminal.status) &&
+      !!this.binding &&
+      this.opts.store.deploymentTurnSettled(this.opts.conversationId, this.binding, target)
+    );
+  }
   /** A correction uses the accepted turn's unchanged settings. It never starts,
    * interrupts, retries or reorders a command. A durable claim fences lost ACKs. */
   async steer(raw: CodexSteerInput, authorize: () => void): Promise<CodexSteerResult> {
@@ -4624,7 +4711,14 @@ export class CodexConversation {
       this.opts.assertSteeringCurrent();
       if (active.nativeExecution)
         this.opts.assertNativeExecutionCurrent?.(active.nativeExecution, active.command.id);
-    } catch {
+    } catch (error) {
+      log.warn('Correction refused before native submission', {
+        conversationId: this.opts.conversationId,
+        commandId: active.command.id,
+        requestId: input.requestId,
+        phase: 'admission',
+        ...(error instanceof Error ? codexRuntimeErrorTelemetry(error) : {}),
+      });
       return { status: 'rejected' };
     }
     if (!this.opts.store.claimSteering(this.opts.conversationId, this.binding, input, target)) {

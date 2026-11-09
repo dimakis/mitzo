@@ -164,6 +164,23 @@ it('pages interrupted results within frames and rejects incomplete or changing n
   expect(request).toHaveBeenCalledTimes(4);
   expect(guard).toHaveBeenCalledTimes(3);
 
+  // The incident includes terminal turns with 836 items; length alone must not
+  // strand their owner at the former 128-item cutoff. Keep every I/O fence.
+  let longPages = 0;
+  const longRead = vi.fn(async (method: string) =>
+    method === 'thread/turns/list'
+      ? metadata
+      : {
+          data: [{ turnId: 'turn', item: { id: String(++longPages), type: 'contextCompaction' } }],
+          nextCursor: longPages < 836 ? String(longPages) : null,
+        },
+  );
+  guard.mockClear();
+  const longResult = await observeNativeRecoveryTurn(longRead, 'app', target, true, guard);
+  expect(interruptedEffectCalls(longResult.settledEffects!, 'app', target)).toEqual([]);
+  expect(longPages).toBe(836);
+  expect(guard).toHaveBeenCalledTimes(837);
+
   for (const variant of [
     'foreign',
     'duplicate',
@@ -173,6 +190,7 @@ it('pages interrupted results within frames and rejects incomplete or changing n
     'empty',
     'changed',
     'oversized',
+    'bytes',
   ] as const) {
     let reads = 0,
       pages = 0;
@@ -188,20 +206,28 @@ it('pages interrupted results within frames and rejects incomplete or changing n
       return {
         data: [
           {
-            ...entry(variant === 'duplicate' ? 'same' : String(pages)),
+            ...entry(
+              variant === 'duplicate' ? 'same' : String(pages),
+              variant === 'bytes' ? 'x'.repeat(2_200_000) : '',
+            ),
             turnId: variant === 'foreign' ? 'other' : 'turn',
           },
         ],
         nextCursor:
           variant === 'cursor' || variant === 'duplicate'
             ? 'next'
-            : variant === 'budget'
+            : variant === 'budget' || variant === 'bytes'
               ? String(pages)
               : null,
       };
     });
-    await expect(observeNativeRecoveryTurn(invalid, 'app', target, true, guard)).rejects.toThrow();
-    expect(pages).toBeLessThanOrEqual(128);
+    const failure = observeNativeRecoveryTurn(invalid, 'app', target, true, guard);
+    if (variant === 'budget' || variant === 'oversized' || variant === 'bytes')
+      await expect(failure).rejects.toMatchObject({
+        code: variant === 'oversized' ? 'recovery_history_unavailable' : 'recovery_history_limit',
+      });
+    else await expect(failure).rejects.toThrow();
+    expect(pages).toBeLessThanOrEqual(variant === 'bytes' ? 8 : 1024);
     expect(
       invalid.mock.calls.some(
         ([method]) => !['thread/turns/list', 'thread/items/list'].includes(method),
@@ -239,7 +265,7 @@ it('settles observed terminal command failures and applied patches without repla
         ? metadata
         : { data: [{ turnId: 'turn', item }], nextCursor: null },
     );
-  for (const item of valid) {
+  for (const item of [...valid, { type: 'contextCompaction', id: 'compacted' }]) {
     const read = request(item);
     const result = await observeNativeRecoveryTurn(read, 'app', target, true, async () => {});
     expect(interruptedEffectCalls(result.settledEffects!, 'app', target)).toEqual([]);
@@ -278,4 +304,145 @@ it('settles observed terminal command failures and applied patches without repla
     await expect(
       observeNativeRecoveryTurn(request(item), 'app', target, true, async () => {}),
     ).rejects.toThrow();
+});
+
+it('verifies every terminal child turn and parent link before recovering a tree', async () => {
+  const target = {
+    commandId: 'original',
+    attempt: 1,
+    threadId: 'root',
+    turnId: 'root-turn',
+    generation: 0,
+  };
+  const threads = {
+    root: {
+      id: 'root',
+      parentThreadId: null,
+      sessionId: 'tree',
+      cwd: '/task',
+      modelProvider: 'openai',
+      status: { type: 'notLoaded' },
+    },
+    child: {
+      id: 'child',
+      parentThreadId: 'root',
+      sessionId: 'tree',
+      cwd: '/task',
+      modelProvider: 'openai',
+      status: { type: 'notLoaded' },
+    },
+  };
+  const activity = (id: string, agentThreadId: string) => ({
+    id,
+    type: 'subAgentActivity',
+    kind: 'interacted',
+    agentThreadId,
+  });
+  const history = {
+    'root-turn': [activity('spawn', 'child')],
+    'child-new': [{ id: 'patch', type: 'commandExecution', status: 'completed', exitCode: 0 }],
+    'child-old': [
+      activity('reply-to-parent', 'root'),
+      { id: 'failed', type: 'commandExecution', status: 'failed', exitCode: 1 },
+      {
+        id: 'child-read',
+        type: 'dynamicToolCall',
+        tool: 'GitHubRead',
+        arguments: { endpoint: '/repos/owner/repo' },
+        status: 'failed',
+        success: false,
+      },
+    ],
+  };
+  const guard = vi.fn(async () => {});
+  for (const variant of [
+    'settled',
+    'interrupted-child',
+    'optional-child-error',
+    'active',
+    'foreign',
+    'cycle',
+    'cwd',
+    'budget',
+    'earlier-unknown',
+    'child-write',
+    'changed',
+    'empty',
+    'revoked',
+  ] as const) {
+    let childReads = 0;
+    const request = vi.fn(async (method: string, params: Record<string, unknown>) => {
+      const threadId = params.threadId as keyof typeof threads;
+      if (method === 'thread/read')
+        return {
+          thread: {
+            ...threads[threadId],
+            ...(threadId === 'child' && variant === 'foreign' ? { sessionId: 'foreign' } : {}),
+            ...(threadId === 'child' && variant === 'cycle' ? { parentThreadId: 'child' } : {}),
+            ...(threadId === 'child' && variant === 'cwd' ? { cwd: '/other' } : {}),
+            ...(threadId === 'child' && variant === 'active' ? { status: { type: 'active' } } : {}),
+          },
+        };
+      if (method === 'thread/turns/list') {
+        if (threadId === 'child' && variant === 'empty') return { data: [], nextCursor: null };
+        if (threadId === 'child') childReads++;
+        const turnId =
+          threadId === 'root' ? 'root-turn' : params.cursor ? 'child-old' : 'child-new';
+        return {
+          data: [
+            {
+              id: variant === 'changed' && childReads > 2 ? 'replacement' : turnId,
+              status: threadId === 'root' ? 'interrupted' : 'completed',
+              ...(threadId === 'child' && variant === 'optional-child-error'
+                ? {}
+                : { error: null }),
+            },
+          ],
+          nextCursor: threadId === 'child' && !params.cursor ? 'older' : null,
+        };
+      }
+      expect(method).toBe('thread/items/list');
+      if (variant === 'revoked' && threadId === 'child') throw Error('authority revoked');
+      const turnId = params.turnId as keyof typeof history;
+      const index = Number(params.cursor ?? 0);
+      if (variant === 'budget' && threadId === 'child')
+        return {
+          data: [{ turnId, item: { id: String(index), type: 'reasoning' } }],
+          nextCursor: String(index + 1),
+        };
+      const item =
+        variant === 'earlier-unknown' && turnId === 'child-old' && index === 1
+          ? { id: 'pending', type: 'commandExecution', status: 'inProgress', exitCode: null }
+          : structuredClone(history[turnId][index]);
+      if (variant === 'interrupted-child' && turnId === 'root-turn')
+        Object.assign(item, { kind: 'interrupted' });
+      if (variant === 'child-write' && turnId === 'child-old' && index === 2)
+        Object.assign(item, { tool: 'GitCommit' });
+      return {
+        data: [{ turnId, item }],
+        nextCursor: index + 1 < history[turnId].length ? String(index + 1) : null,
+      };
+    });
+    const result = observeNativeRecoveryTurn(request, 'app', target, true, guard, '/task');
+    if (['settled', 'interrupted-child', 'optional-child-error'].includes(variant)) {
+      expect(interruptedEffectCalls((await result).settledEffects!, 'app', target)).toEqual([
+        expect.objectContaining({
+          threadId: 'child',
+          turnId: 'child-old',
+          toolName: 'GitHubRead',
+          intrinsicRead: true,
+        }),
+      ]);
+      expect(
+        request.mock.calls.filter(
+          ([method, params]) => method === 'thread/items/list' && params.turnId === 'child-old',
+        ),
+      ).toHaveLength(3);
+    } else await expect(result).rejects.toThrow();
+    expect(
+      request.mock.calls.every(([method]) =>
+        ['thread/read', 'thread/turns/list', 'thread/items/list'].includes(method),
+      ),
+    ).toBe(true);
+  }
 });

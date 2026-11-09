@@ -31,7 +31,8 @@ import { loadOrdinaryOpenShellCodexTarget } from './ordinary-openshell-codex-ent
 import { projectOrdinaryOpenShellCodexCapabilities } from './ordinary-openshell-codex-route.js';
 import { resolveOrdinarySessionRuntime } from './ordinary-session-runtime.js';
 import { custodianControllerMode, custodianOwnerMode } from './symposium-custodian-mode.js';
-import { getRepositoryWorkspaces } from './repository-workspace-runtime.js';
+import { getRepositoryWorkspaces, getOrdinaryWorkspaces } from './repository-workspace-runtime.js';
+import { reconcilableLocalCodexCommand } from './retained-local-codex-effects.js';
 import { canResumeUntransferredPreparedRepository } from './owned-prepared-repository-transition.js';
 
 /** Read-only action support; dispatch always requalifies the original authority. */
@@ -81,7 +82,13 @@ export function ordinaryCodexContinuationStatus(
       return blocked(
         'A previous command has an unconfirmed dispatch. Its original receipt and workspace are retained.',
       );
-    if (ownsNative && native.continuationBlocker(sessionId, meta.accountBinding!))
+    if (
+      ownsNative &&
+      native.continuationBlocker(sessionId, meta.accountBinding!) &&
+      !reconcilableLocalCodexCommand(eventStore, native, sessionId, authSessionId!, () =>
+        meta.ordinaryWorkspaceId ? getOrdinaryWorkspaces(true) : getRepositoryWorkspaces(true),
+      )
+    )
       return blocked(sessionRuntimeMessage('unsettled_effects'));
     const location = binding.execution.location;
     if (

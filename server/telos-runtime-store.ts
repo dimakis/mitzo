@@ -159,17 +159,17 @@ export class TelosRuntimeStore extends TelosItemStore {
     const db = this.db;
     const read = db.transaction(() => {
       const select = db.prepare(
-        'SELECT * FROM items ORDER BY starred DESC,urgency DESC,first_seen,rowid LIMIT 5001',
+        'SELECT * FROM items ORDER BY starred DESC,urgency DESC,first_seen,rowid',
       );
       const rows = select.all() as Array<Record<string, unknown> & { id: string }>;
-      if (rows.length > 5000) throw Error('Telos collection exceeds bounded selection');
       if (dueTelosSnoozeIds(rows).length) {
         dueRows = rows;
         throw new TelosCollectionWakeupRequired();
       }
-      const items = this.projectRows(rows);
-      const profiles = telosCollectionProfiles(items.map((i) => i.profile));
-      const matching = items.filter((i) => !profile || i.profile === profile);
+      // Select before hydrating evidence: retained history and other profiles
+      // must not consume the requested collection's bound or parse budget.
+      const profiles = telosCollectionProfiles(rows.map((i) => String(i.profile)));
+      const matching = rows.filter((i) => !profile || i.profile === profile);
       const disposition = { active: 'active', archive: 'archived', trash: 'trashed' }[selectedView];
       const lifecycle = new Set(
         readTelosLifecycleVisibility(
@@ -184,17 +184,20 @@ export class TelosRuntimeStore extends TelosItemStore {
           .filter(
             (i) =>
               lifecycle.has(i.id) &&
-              (all || selectedView !== 'active' || ['active', 'acknowledged'].includes(i.status)),
+              (all ||
+                selectedView !== 'active' ||
+                ['active', 'acknowledged'].includes(String(i.status))),
           )
           .map((i) => i.id),
       );
       if (!all && selectedView === 'active') {
         const children = new Map<string, string[]>();
         for (const item of matching)
-          if (item.status === 'completed' && item.parentId && lifecycle.has(item.id)) {
-            const siblings = children.get(item.parentId) ?? [];
+          if (item.status === 'completed' && item.parent_id && lifecycle.has(item.id)) {
+            const parentId = String(item.parent_id);
+            const siblings = children.get(parentId) ?? [];
             siblings.push(item.id);
-            children.set(item.parentId, siblings);
+            children.set(parentId, siblings);
           }
         const queue = [...visible];
         for (let cursor = 0; cursor < queue.length; cursor++)
@@ -204,7 +207,10 @@ export class TelosRuntimeStore extends TelosItemStore {
               queue.push(id);
             }
       }
-      const selected = new Map(matching.filter((i) => visible.has(i.id)).map((i) => [i.id, i]));
+      const selectedRows = matching.filter((i) => visible.has(i.id));
+      if (selectedRows.length > 5000) throw Error('Telos collection exceeds bounded selection');
+      const items = this.projectRows(selectedRows);
+      const selected = new Map(items.map((i) => [i.id, i]));
       const roots: typeof items = [];
       for (const item of selected.values()) {
         // The single lifecycle traversal already validated all ancestry.
@@ -292,7 +298,7 @@ export class TelosRuntimeStore extends TelosItemStore {
     for (const link of input.outcome?.links ?? [])
       (this.insertLink ??= db.prepare(
         'INSERT INTO links(id,item_id,type,url,title,description,created_at) VALUES(?,?,?,?,?,?,?)',
-      )).run(randomUUID(), input.id, link.type, link.url, link.title, link.description, now);
+      )).run(randomUUID(), input.id, link.type, link.url.trim(), link.title, link.description, now);
   }
   create(raw: unknown, profile?: string, parentId?: string) {
     const input = TodoCreateBody.parse(
@@ -320,12 +326,15 @@ export class TelosRuntimeStore extends TelosItemStore {
   createOutcome(raw: unknown, assertCurrent?: () => void): NativeTelosCreationReceipt {
     const input = TelosOutcomeCreateBodySchema.parse(raw);
     if (
-      input.links?.some(
-        (link) =>
-          link.url.startsWith('/') ||
-          link.url.includes('.claude/worktrees/') ||
-          link.url.includes('.cursor/worktrees/'),
-      )
+      input.links?.some((link) => {
+        const url = link.url.trim();
+        return (
+          !url ||
+          url.startsWith('/') ||
+          url.includes('.claude/worktrees/') ||
+          url.includes('.cursor/worktrees/')
+        );
+      })
     )
       throw new TelosWorkError(
         'invalid',

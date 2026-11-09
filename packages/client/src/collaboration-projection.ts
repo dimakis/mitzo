@@ -49,6 +49,10 @@ export function applyCollaborationEvents(
           return refuse();
         view.membershipRevision = change.membership.revision;
         view.participantSessionIds = change.membership.participantSessionIds;
+        if (view.joinedParticipants)
+          view.joinedParticipants = view.joinedParticipants.filter((p) =>
+            view.participantSessionIds.includes(p.sessionId),
+          );
         view.unavailableParticipantSessionIds = view.unavailableParticipantSessionIds.filter((id) =>
           view.participantSessionIds.includes(id),
         );
@@ -106,6 +110,16 @@ export function applyCollaborationEvents(
         break;
       }
       case 'join':
+        if (
+          change.join.state === 'linked' &&
+          change.join.sessionId &&
+          view.participantSessionIds.includes(change.join.sessionId)
+        ) {
+          view.joinedParticipants = [
+            ...(view.joinedParticipants ?? []).filter((p) => p.sessionId !== change.join.sessionId),
+            { sessionId: change.join.sessionId, name: change.join.name },
+          ];
+        }
         view.joins = view.joins.filter((j) => j.joinId !== change.join.joinId);
         if (change.join.state !== 'linked') view.joins.push(change.join);
         view.joins.sort((a, b) => (a.joinId < b.joinId ? -1 : a.joinId > b.joinId ? 1 : 0));

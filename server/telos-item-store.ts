@@ -1,3 +1,5 @@
+import { installCurrentFileProbe } from '@mitzo/sqlite-file-owner';
+import { lstatSync, realpathSync } from 'node:fs';
 import {
   openTelosOwnedDatabase,
   type TelosOwnedDatabase,
@@ -52,7 +54,10 @@ function assertCurrent(assertion?: () => void): void {
 export class TelosItemStore {
   protected db: Database.Database;
   #telosOwner: TelosOwnedDatabase;
-  constructor(path: string, options: { initialize?: boolean; readOnly?: boolean } = {}) {
+  constructor(
+    private readonly path: string,
+    options: { initialize?: boolean; readOnly?: boolean } = {},
+  ) {
     const creating = options.initialize && !existsSync(path);
     if (options.initialize) mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
     this.#telosOwner = openTelosOwnedDatabase('canonical', path, {
@@ -135,6 +140,56 @@ export class TelosItemStore {
     };
   }
 
+  private updateReceipt(sessionId: string, requestId: string) {
+    return this.db
+      .prepare(
+        'SELECT input_hash,receipt FROM telos_item_updates WHERE session_id=? AND request_id=?',
+      )
+      .get(sessionId, requestId) as { input_hash: string; receipt: string } | undefined;
+  }
+  /** Inspect the canonical atomic ledger without creating schema or retrying an edit. */
+  observeUpdateReceipt(
+    itemId: string,
+    sessionId: string,
+    requestId: string,
+    assertion: () => void,
+  ) {
+    if (typeof assertion !== 'function' || this.db.inTransaction)
+      throw Error('Original guarded Telos reader required');
+    return this.db.transaction(() => {
+      assertCurrent(assertion);
+      // This is a read, not deletion authority or enrollment. Legacy canonical
+      // databases also require SQLite's actual open-file/path identity probe.
+      installCurrentFileProbe(this.db);
+      const fileCurrent = () => {
+        if (
+          (
+            this.db.prepare('SELECT mitzo_file_owner_current() AS current').get() as {
+              current: number;
+            }
+          ).current !== 1
+        )
+          throw Error('Canonical Telos database identity changed');
+      };
+      fileCurrent();
+      const stat = lstatSync(this.path, { bigint: true });
+      if (!stat.isFile()) throw Error('Canonical Telos database identity changed');
+      const canonicalDatabaseIdentity = {
+        realpath: realpathSync(this.path),
+        dev: String(stat.dev),
+        ino: String(stat.ino),
+        uid: String(stat.uid),
+      };
+      const updateReceipt = this.hasUpdates()
+        ? (this.updateReceipt(sessionId, requestId) ?? null)
+        : null;
+      const itemExists = !!this.db.prepare('SELECT 1 FROM items WHERE id=?').get(itemId);
+      assertCurrent(assertion);
+      fileCurrent();
+      return { canonicalDatabaseIdentity, updateReceipt, itemExists };
+    })();
+  }
+
   /** One writer and receipt path for creation, brief edits and progress updates.
    * Reuse schema observations only within this transaction, never across calls. */
   private writeWithReceipt<T extends TelosItemUpdateReceipt>(
@@ -150,11 +205,7 @@ export class TelosItemStore {
         const inputHash = createHash('sha256').update(JSON.stringify(fingerprint)).digest('hex');
         const updatesExist = this.hasUpdates();
         if (updatesExist) {
-          const previous = this.db
-            .prepare(
-              'SELECT input_hash,receipt FROM telos_item_updates WHERE session_id=? AND request_id=?',
-            )
-            .get(sessionId, requestId) as { input_hash: string; receipt: string } | undefined;
+          const previous = this.updateReceipt(sessionId, requestId);
           if (previous) {
             if (previous.input_hash !== inputHash)
               throw Error('Update request identity reused with different input');

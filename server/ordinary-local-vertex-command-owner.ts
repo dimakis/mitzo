@@ -169,6 +169,7 @@ export class OrdinaryLocalVertexCommandOwner {
     return next;
   }
   async #dispatch(preparationSignal?: AbortSignal, admittingCommandId?: string): Promise<void> {
+    if (!this.owners.store.deployment.canDispatch(this.owners.sessionId)) return;
     while (this.#pending.length && this.owners.store.getSendCommand(this.#pending[0]!)?.error)
       this.#pending.shift();
     if (this.#active || this.#paused || !this.#pending.length) return;
@@ -201,6 +202,7 @@ export class OrdinaryLocalVertexCommandOwner {
           !!this.owners.store.getExecutionAdmission(this.owners.sessionId, commandId)
     )
       throw Error('SDK dispatch cannot be replayed');
+    if (!this.owners.store.deployment.canDispatch(this.owners.sessionId)) return;
     const execution = this.owners.store.beginOrdinaryLocalVertexCommandExecution(
       this.owners.sessionId,
       commandId,
