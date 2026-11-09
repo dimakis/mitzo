@@ -84,6 +84,7 @@ import { CollaborationConversationStore } from './collaboration-conversation-sto
 import {
   captureCollaborationDurableTranscript,
   openCollaborationVisibleSource,
+  readCollaborationFinalizedReply,
 } from './collaboration-visible-source.js';
 import { CollaborationContractError } from './collaboration-conversation.js';
 import { SessionCollaborationError } from './session-collaboration.js';
@@ -4114,10 +4115,37 @@ export class EventStore {
    */
   getOrdinaryReplySourceEvents(sessionId: string, messageId: string): unknown[] {
     const rows = this.db!.prepare(
-      `SELECT payload FROM events WHERE session_id=? AND type='ordinary_reply_source'
+      `SELECT CASE WHEN length(CAST(payload AS BLOB))<=8192 THEN payload END AS payload
+       FROM events WHERE session_id=? AND type='ordinary_reply_source'
        AND json_extract(payload,'$.messageId')=? ORDER BY seq LIMIT 2`,
-    ).all(sessionId, messageId) as Array<{ payload: string }>;
-    return rows.map((row) => JSON.parse(row.payload));
+    ).all(sessionId, messageId) as Array<{ payload: string | null }>;
+    if (rows.some((row) => row.payload === null))
+      throw new CollaborationContractError('reply_conflict');
+    return rows.map((row) => JSON.parse(row.payload!));
+  }
+
+  /** Keyset inventory for one retained command. No transcript payloads are hydrated. */
+  getOrdinaryReplySourcePage(sessionId: string, commandId: string, after: number) {
+    return this.db!.prepare(
+      `SELECT seq AS sequence,
+         CASE WHEN json_type(payload,'$.messageId')='text'
+           AND length(CAST(json_extract(payload,'$.messageId') AS BLOB))<=800
+           AND length(json_extract(payload,'$.messageId')) BETWEEN 1 AND 200
+         THEN json_extract(payload,'$.messageId') END AS messageId
+       FROM events WHERE session_id=? AND type='ordinary_reply_source'
+         AND json_extract(payload,'$.commandId')=? AND seq>?
+       ORDER BY seq LIMIT 50`,
+    ).all(sessionId, commandId, after) as Array<{ sequence: number; messageId: string | null }>;
+  }
+
+  /** Host-only exact reply observation, with the ordinary identity/privacy fence. */
+  readOrdinaryFinalizedReply(sessionId: string, messageId: string) {
+    return this.db!.transaction(() => {
+      this.assertConversationIdentity(sessionId);
+      if (!this.isCollaborationParticipantAvailable(sessionId))
+        throw new SessionCollaborationError('not_found');
+      return readCollaborationFinalizedReply(this.db!, sessionId, messageId);
+    })();
   }
 
   /** Exact native provider terminal notification, distinct from display state,
