@@ -208,7 +208,8 @@
 .workspace-chat .msg-bubble--assistant th,
 .workspace-chat .msg-bubble--assistant td {
   white-space: normal;
-  overflow-wrap: anywhere;
+  word-break: normal;
+  overflow-wrap: break-word;
 }
 @media (min-width: 1200px) {
   .session-tray--toolbar .session-tray-columns {

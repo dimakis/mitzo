@@ -65,3 +65,10 @@ Final-base integration retains accepted main `3f594189` (PR #1272), which fixes
 native policy/history recovery without changing frontend layout or dependencies.
 The only conflict was the shared runtime revision stamp; it advances to
 `v1.0.972-desktop-panel-layout` while retaining both sets of source fingerprints.
+
+CI captures at `83ce4266` confirmed full-width responses and working dividers in
+light/dark themes. They also exposed a word-breaking problem in narrow identifier
+columns: `anywhere` allowed automatic table sizing to split even a one-word
+heading. Table cells now preserve word boundaries for intrinsic sizing while
+wrapping summaries, and the browser fixture checks that its one-word heading
+remains intact. The scroll wrapper still contains exceptionally wide data.

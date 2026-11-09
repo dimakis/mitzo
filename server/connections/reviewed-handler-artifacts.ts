@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.972-desktop-panel-layout';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.973-desktop-table-words';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -1915,7 +1915,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../symposium-artifact-route-composition.ts':
     '8d9e87e2a2873f0dc841429a5b9a43b93aa194237e4f9594b572e87bff27142b',
   '../../frontend/src/styles/workspace-chat.css':
-    '8cc720c738031d470c1bd2327bfcea6ccb2d08d44e898e5975a6646cbe1023f5',
+    '4262d87444e56ae882b5c392ef7509edb188a608d39c08c9cd73ddfaaf19858d',
   '../../frontend/src/client-store.ts':
     '9a1e34bce06cd0f3b6d6c2d25e154ec925fc5b58510377ee5f1b5f038fd3fd64',
   '../../frontend/src/components/AccountModelPicker.tsx':

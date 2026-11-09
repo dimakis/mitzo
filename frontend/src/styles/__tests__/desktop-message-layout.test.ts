@@ -24,4 +24,5 @@ it('lets desktop responses use their pane and wraps long table summaries', () =>
   expect(response.width).toBe('100%');
   expect(response.maxWidth).toBe('100%');
   expect(getComputedStyle(document.querySelector('td')!).whiteSpace).toBe('normal');
+  expect(getComputedStyle(document.querySelector('td')!).overflowWrap).toBe('break-word');
 });

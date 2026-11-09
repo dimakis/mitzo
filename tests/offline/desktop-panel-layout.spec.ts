@@ -147,6 +147,16 @@ for (const theme of ['dark', 'light'])
         .first()
         .evaluate((e) => getComputedStyle(e).whiteSpace),
     ).toBe('normal');
+    expect(
+      await page
+        .locator('th')
+        .first()
+        .evaluate((element) => {
+          const range = document.createRange();
+          range.selectNodeContents(element);
+          return range.getClientRects().length;
+        }),
+    ).toBe(1);
     const overflow = await page
       .locator('.table-scroll-wrapper')
       .evaluate((e) => e.scrollWidth - e.clientWidth);
