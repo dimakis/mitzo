@@ -9,7 +9,10 @@ import { join } from 'node:path';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { ownedRuntimeFixture } from './fixtures/owned-local-codex-runtime.js';
 import { CodexConversationStore } from '../codex-conversation-store.js';
-import { RetainedLocalCodexRecovery } from '../retained-local-codex-recovery.js';
+import {
+  RetainedLocalCodexRecovery,
+  recoverableLocalCodexCommand,
+} from '../retained-local-codex-recovery.js';
 import Database from 'better-sqlite3';
 import { CodexConversation } from '../codex-conversation.js';
 import type { CodexLifecycleTransport } from '../codex-app-server-client.js';
@@ -482,6 +485,7 @@ async function reconcileRetainedColdTurn(
     policy.policyRevision,
   );
   native.pauseForRecovery(id, binding, command.id, 'interrupted', 'resume', undefined, true, true);
+  native.enqueue(id, binding, { id: 'saved-follow-up', prompt: 'Preserve queued work' });
   const custody = native.readHostCustody(id, binding)!;
   const draft = join(original.workspace.directory!, 'unfinished-work.txt');
   writeFileSync(draft, 'Preserve the interrupted task');
@@ -549,6 +553,9 @@ async function reconcileRetainedColdTurn(
   expect(reconcilableLocalCodexCommand(f.events, native, id, actor.id, f.workspace)).toBe(
     command.id,
   );
+  const inputCandidates = vi.spyOn(native, 'undispatchedRecoveryCandidateIds');
+  expect(recoverableLocalCodexCommand(f.events, native, id, actor.id)).toBeUndefined();
+  expect(inputCandidates).not.toHaveBeenCalled();
   const claims = vi.spyOn(f.events, 'claimOrdinaryLocalCommandDispatch');
   const latest = f.events.getLatestEvent.bind(f.events);
   for (const scope of [
@@ -620,7 +627,16 @@ async function reconcileRetainedColdTurn(
   expect(native.read(id, binding).recovery).toBe(1);
   f.configuration[0].email = originalEmail;
   f.writeProfiles();
+  // Routine query-loop timing updates can race cold inspection. Keep actual
+  // custody/selection observations; vary only these three non-authority fields.
+  const getMeta = f.events.getSession.bind(f.events);
+  let timing = Date.now();
+  const metadata = vi.spyOn(f.events, 'getSession').mockImplementation((sessionId) => {
+    const meta = getMeta(sessionId);
+    return meta && { ...meta, durationMs: ++timing, updatedAt: timing, lastStateChange: timing };
+  });
   await driver.reconcileRetainedEffects();
+  metadata.mockRestore();
   expect(native.read(id, binding).recovery).toBe(0);
   expect(native.continuationBlocker(id, binding)).toBeUndefined();
   expect(native.readHostCustody(id, binding)).toEqual(custody);
@@ -632,7 +648,7 @@ async function reconcileRetainedColdTurn(
     native.commands(id, binding).map(({ status, attempt, id }) => ({ status, attempt, id })),
   ).toEqual(
     before.command.map(({ status, attempt, id }) => ({
-      status: nativeStatus === 'completed' ? 'completed' : status,
+      status: nativeStatus === 'completed' && id === command.id ? 'completed' : status,
       attempt,
       id,
     })),
