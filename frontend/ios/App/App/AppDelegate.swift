@@ -2,6 +2,7 @@ import UIKit
 import UserNotifications
 import Capacitor
 import MitzoShared
+import OSLog
 
 @UIApplicationMain
 class AppDelegate: UIResponder, UIApplicationDelegate {
@@ -23,6 +24,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         // Capacitor installs its router during bridge creation. Restore the
         // same app-owned delegate, preserving any cold-launch responses.
         UNUserNotificationCenter.current().delegate = approvalDelegate
+        approvalDelegate.reconcileReceipts()
     }
 
     private func registerNotificationCategories() {
@@ -89,6 +91,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
 
     func reconnectWatchRelay() {
         watchRelay.reconnect()
+        approvalDelegate.reconcileReceipts()
     }
 
     func applicationWillTerminate(_ application: UIApplication) {
@@ -134,6 +137,17 @@ class MitzoBridgeViewController: CAPBridgeViewController {
 }
 
 private class BackgroundApprovalDelegate: NSObject, UNUserNotificationCenterDelegate {
+    private static let log = Logger(subsystem: "com.mitzo.app", category: "notification-approval")
+    private struct Attempt: Codable {
+        let identity: NativeApprovalIdentity
+        let origin: String
+        let deliveredID: String
+        var code: String
+    }
+    private static let attemptsKey = "mitzo_notification_approval_attempts"
+    // Accessed on the main actor along with UIKit background-task ownership.
+    private var executions: [String: BackgroundApprovalExecution] = [:]
+    private var reconciling = false
     private let lock = NSLock()
     private var fallback: NotificationRouter?
     private var deferredResponses: [UNNotificationResponse] = []
@@ -178,30 +192,98 @@ private class BackgroundApprovalDelegate: NSObject, UNUserNotificationCenterDele
         }
         let info = response.notification.request.content.userInfo
         let deliveredID = response.notification.request.identifier
-        Task {
-            do {
-                guard let id = info["notificationId"] as? String,
-                      let sessionID = info["sessionId"] as? String,
-                      let server = notificationServerURL(UserDefaults.standard.string(forKey: "mitzo_notification_server_url")) else { throw MitzoAPIClient.APIError.invalidResponse }
-                // A fresh manager reads the shared Keychain and respects logout.
-                let api = MitzoAPIClient(baseURL: server, authManager: AuthManager())
-                let item = try await api.getNotification(id: id)
-                guard item.id == id, let decision = backgroundApprovalResponse(actionID: action, item: item, expectedSessionID: sessionID,
-                    reviewedToolName: info["approvalToolName"] as? String, reviewedInput: info["approvalInput"] as? String, reviewedSessionGrantDescription: info["approvalSessionGrantDescription"] as? String) else {
-                    throw MitzoAPIClient.APIError.invalidResponse
-                }
-                try await api.respondNotification(id: id, response: decision)
-                center.removeDeliveredNotifications(withIdentifiers: [deliveredID])
-            } catch {
-                let content = UNMutableNotificationContent()
-                content.title = "Approval could not be confirmed"
-                content.body = "The request may have expired or Mitzo may be unreachable. Review its current status before trying again."
-                content.categoryIdentifier = "NOTIFICATION_UPDATE"
-                content.userInfo = info
-                content.sound = .default
-                try? await center.add(UNNotificationRequest(identifier: "\(deliveredID)-response-error", content: content, trigger: nil))
+        Task { @MainActor in
+            guard let id = info["notificationId"] as? String,
+                  let sessionID = info["sessionId"] as? String,
+                  let server = notificationServerURL(UserDefaults.standard.string(forKey: "mitzo_notification_server_url")) else {
+                Self.log.error("approval_invalid_context")
+                showFailure(center, deliveredID: deliveredID, info: info, code: "approval_invalid_context")
+                completionHandler()
+                return
             }
-            completionHandler()
+            let submission = NativeApprovalAction(notificationId: id, sessionId: sessionID, actionID: action,
+                reviewedToolName: info["approvalToolName"] as? String, reviewedInput: info["approvalInput"] as? String,
+                reviewedSessionGrantDescription: info["approvalSessionGrantDescription"] as? String)
+            let attempt = Attempt(identity: submission.identity, origin: server.absoluteString, deliveredID: deliveredID, code: "approval_in_flight")
+            save(attempt)
+            var backgroundTask: UIBackgroundTaskIdentifier = .invalid
+            let execution = BackgroundApprovalExecution { result in
+                Task { @MainActor in
+                    self.executions.removeValue(forKey: submission.requestId)
+                    if backgroundTask != .invalid {
+                        UIApplication.shared.endBackgroundTask(backgroundTask)
+                        backgroundTask = .invalid
+                    }
+                    switch result {
+                    case .success:
+                        var confirmed = attempt; confirmed.code = "approval_confirmed"; self.save(confirmed)
+                        center.removeDeliveredNotifications(withIdentifiers: [deliveredID, "\(deliveredID)-response-error"])
+                        Self.log.info("approval_confirmed request=\(submission.requestId, privacy: .public) action=\(action, privacy: .public)")
+                    case .failure(let error):
+                        let code = backgroundApprovalErrorCode(error)
+                        var failed = attempt; failed.code = code; self.save(failed)
+                        let cause = ((error as? BackgroundApprovalFailure)?.cause ?? error) as NSError
+                        Self.log.error("approval_failed request=\(submission.requestId, privacy: .public) action=\(action, privacy: .public) code=\(code, privacy: .public) domain=\(cause.domain, privacy: .public) nativeCode=\(cause.code) cause=\(cause, privacy: .private)")
+                        self.showFailure(center, deliveredID: deliveredID, info: info, code: code)
+                    }
+                    // Notice scheduling is callback-based and cannot hold the OS completion open.
+                    completionHandler()
+                }
+            }
+            executions[submission.requestId] = execution
+            backgroundTask = UIApplication.shared.beginBackgroundTask(withName: "Mitzo notification approval") { execution.cancel() }
+            let api = MitzoAPIClient(baseURL: server, authManager: AuthManager())
+            execution.start { _ = try await submitBackgroundApproval(submission, using: api) }
+        }
+    }
+
+    @MainActor private func attempts() -> [Attempt] {
+        guard let data = UserDefaults.standard.data(forKey: Self.attemptsKey),
+              let attempts = try? JSONDecoder().decode([Attempt].self, from: data) else { return [] }
+        return attempts
+    }
+    @MainActor private func save(_ attempt: Attempt) {
+        var stored = attempts().filter { $0.identity.requestId != attempt.identity.requestId }
+        stored.append(attempt)
+        if let data = try? JSONEncoder().encode(Array(stored.suffix(50))) {
+            UserDefaults.standard.set(data, forKey: Self.attemptsKey)
+        } else { Self.log.error("approval_diagnostic_persistence_failed") }
+    }
+    @MainActor private func showFailure(_ center: UNUserNotificationCenter, deliveredID: String, info: [AnyHashable: Any], code: String) {
+        let content = UNMutableNotificationContent()
+        content.title = "Approval could not be confirmed"
+        content.body = "Open Mitzo to check this request before trying again. Reference: \(code)."
+        content.categoryIdentifier = "NOTIFICATION_UPDATE"
+        content.userInfo = ["notificationId": info["notificationId"] as? String ?? "", "sessionId": info["sessionId"] as? String ?? "", "approvalOutcome": code]
+        content.sound = .default
+        center.add(UNNotificationRequest(identifier: "\(deliveredID)-response-error", content: content, trigger: nil)) { error in
+            if let error {
+                let cause = error as NSError
+                Self.log.error("approval_notice_failed code=\(code, privacy: .public) domain=\(cause.domain, privacy: .public) nativeCode=\(cause.code)")
+            }
+        }
+    }
+    func reconcileReceipts() {
+        Task { @MainActor in
+            guard !reconciling else { return }
+            reconciling = true
+            defer { reconciling = false }
+            let origin = notificationServerURL(UserDefaults.standard.string(forKey: "mitzo_notification_server_url"))
+            for var attempt in attempts() where attempt.code != "approval_confirmed" {
+                guard executions[attempt.identity.requestId] == nil,
+                      let server = notificationServerURL(attempt.origin), server == origin else { continue }
+                // Fresh authentication, same origin and identity. Reconnect NEVER resubmits.
+                let api = MitzoAPIClient(baseURL: server, authManager: AuthManager())
+                do {
+                    let receipt = try await api.approvalReceipt(attempt.identity)
+                    guard attempt.identity.matches(receipt), receipt.confirmsDecision else { continue }
+                    attempt.code = "approval_confirmed"; save(attempt)
+                    UNUserNotificationCenter.current().removeDeliveredNotifications(withIdentifiers: [attempt.deliveredID, "\(attempt.deliveredID)-response-error"])
+                    Self.log.info("approval_reconciled request=\(attempt.identity.requestId, privacy: .public)")
+                } catch {
+                    Self.log.notice("approval_receipt_unconfirmed request=\(attempt.identity.requestId, privacy: .public) code=\(backgroundApprovalErrorCode(error), privacy: .public)")
+                }
+            }
         }
     }
 }
