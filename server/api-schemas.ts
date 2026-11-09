@@ -153,6 +153,8 @@ const TodoItemSchema: z.ZodType<unknown> = z.lazy(() =>
       starred: z.boolean().optional().default(false),
       status: z.enum(['active', 'acknowledged', 'snoozed', 'completed']),
       ageDays: z.number(),
+      rankScore: z.number().optional(),
+      categories: z.array(z.string()).optional().default([]),
       parentId: z.string().nullable().optional().default(null),
       children: z.array(TodoItemSchema).optional().default([]),
       childCount: z.number().optional().default(0),
@@ -184,7 +186,7 @@ export const TodoOutcomeCreateBody = TelosOutcomeCreateBodySchema;
 export const TodoActionBody = z
   .object({
     action: z.enum(['ack', 'snooze', 'done', 'star', 'unstar', 'priority']),
-    days: z.number().optional(),
+    days: z.number().int().min(1).max(3650).optional(),
     priority: z.number().int().min(1).max(10).optional(),
   })
   .superRefine((body, context) => {

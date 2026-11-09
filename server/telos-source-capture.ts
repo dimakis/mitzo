@@ -349,7 +349,7 @@ export class TelosSourceCapture {
     actor: TelosWorkActor,
     createOutcome: (
       body: TelosOutcomeCreation,
-      assertCurrentSync?: () => void,
+      assertCurrentSync: () => void,
     ) => Promise<{ itemId: string }>,
     readPreparedPreview?: () => TelosSourcePreview,
     assertOperationCurrent?: () => void,
