@@ -1,5 +1,6 @@
 import { afterAll, expect, it, vi } from 'vitest';
-import { randomUUID } from 'node:crypto';
+import { randomUUID, createHash } from 'node:crypto';
+import { codexNativeExecutionPolicy } from '../codex-native-execution-policy.js';
 import { ConnectionRegistry } from '@mitzo/harness';
 import {
   claimTransportConnection,
@@ -76,6 +77,30 @@ it('the actual owned consumer recovers exact and saved inputs once, serializes r
         chat.eventStore.getOrdinaryLocalCommandExecutionAdmission(currentCommandId)?.state,
       ).toBe('consumed');
       providerCalls++;
+      if (providerCalls === 4) {
+        // This synthetic peer retains native policy before its ACK, as a
+        // native-enabled runtime does. The consumer fixture otherwise uses
+        // host tools, so it does not request native execution permissions.
+        const store = native.getCodexConversationStore();
+        const command = store
+          .commands(f.reservation.conversationId, f.reservation.binding)
+          .find((entry) => entry.id === currentCommandId)!;
+        const cwd = store.read(f.reservation.conversationId, f.reservation.binding).cwd;
+        store.prepareNativeExecution(
+          f.reservation.conversationId,
+          f.reservation.binding,
+          command,
+          'real-host-thread',
+          codexNativeExecutionPolicy({
+            bindingRevision: 'offline-original-policy',
+            mode: 'agent',
+            cwd,
+            readableRoots: [cwd],
+            writableRoots: [cwd],
+            deniedRoots: [setup.root + '/private'],
+          }),
+        );
+      }
       return { turn: { id: `real-host-turn-${providerCalls}` } };
     }
     if (method === 'thread/turns/list')
@@ -309,4 +334,117 @@ it('the actual owned consumer recovers exact and saved inputs once, serializes r
       legacyRequest.clientMsgId,
     ),
   ).toBe('failed');
+
+  // A new message is the recovery action. Reuse this actual cold consumer:
+  // positively observed completion is inspected under its original command
+  // before the new message gets a different execution owner.
+  const completedCommand = nativeStore
+    .commands(f.reservation.conversationId, f.reservation.binding)
+    .find((command) => command.id === currentCommandId)!;
+  await vi.waitFor(() =>
+    expect(
+      nativeStore.nativeTurnTarget(
+        f.reservation.conversationId,
+        f.reservation.binding,
+        completedCommand.id,
+        completedCommand.attempt,
+      ),
+    ).toBeDefined(),
+  );
+  nativeStore.acceptNativeExecution(
+    f.reservation.conversationId,
+    f.reservation.binding,
+    completedCommand,
+    'real-host-thread',
+    'real-host-turn-4',
+  );
+  const execution = nativeStore.readNativeExecution(
+    f.reservation.conversationId,
+    f.reservation.binding,
+    completedCommand,
+  )!;
+  nativeStore.observeEmptyCompletionPhase(
+    f.reservation.conversationId,
+    f.reservation.binding,
+    completedCommand,
+    'real-host-thread',
+    'real-host-turn-4',
+    createHash('sha256').update(execution.policy.cwd).digest('hex'),
+    execution.policy.policyRevision,
+  );
+  nativeStore.pauseForRecovery(
+    f.reservation.conversationId,
+    f.reservation.binding,
+    currentCommandId,
+    'interrupted',
+    'resume',
+    undefined,
+    true,
+    true,
+  );
+  chat.registry.abort(clientId);
+  await vi.waitFor(() =>
+    expect(chat.registry.findBySessionId(f.reservation.conversationId)).toBeFalsy(),
+  );
+  const ping = {
+    ...structuredClone(f.request),
+    clientMsgId: randomUUID(),
+    payload: { text: 'Continue this chat' },
+  };
+  currentCommandId = ping.clientMsgId;
+  await expect(
+    chat.startOwnedLocalCodexCommand(transport, clientId, {
+      ...input,
+      command: ping,
+      commandId: currentCommandId,
+      resume: true,
+    }),
+  ).resolves.toMatchObject({ dispatched: true });
+  await vi.waitFor(() => expect(providerCalls).toBe(5));
+  expect(
+    nativeStore.commandStatus(
+      f.reservation.conversationId,
+      f.reservation.binding,
+      completedCommand.id,
+    ),
+  ).toBe('completed');
+
+  // Reuse the live consumer and its real admission/custody records. A saved
+  // follow-up cannot make an earlier ambiguous turn eligible for input recovery.
+  const blockedFollowUp = {
+    ...structuredClone(f.request),
+    clientMsgId: randomUUID(),
+    payload: { text: 'Keep this follow-up queued until the original outcome is known' },
+  };
+  await chat.registry
+    .findBySessionId(f.reservation.conversationId)!
+    .session.ordinaryRuntimeOwner!.admit(blockedFollowUp, new AbortController().signal);
+  nativeStore.pauseForRecovery(
+    f.reservation.conversationId,
+    f.reservation.binding,
+    currentCommandId,
+    'interrupted',
+    'resume',
+    undefined,
+    true,
+    true,
+  );
+  chat.registry.abort(clientId);
+  await vi.waitFor(() =>
+    expect(chat.registry.findBySessionId(f.reservation.conversationId)).toBeFalsy(),
+  );
+  const queuedBefore = nativeStore.commands(f.reservation.conversationId, f.reservation.binding);
+  const launchesBefore = launch.mock.calls.length;
+  await expect(
+    chat.continueOwnedLocalCodexQueue(
+      f.reservation.conversationId,
+      auth,
+      f.dependencies.operatorConnectionId,
+    ),
+  ).rejects.toMatchObject({ code: 'unsettled_effects' });
+  expect(launch).toHaveBeenCalledTimes(launchesBefore);
+  expect(providerCalls).toBe(5);
+  expect(nativeStore.commands(f.reservation.conversationId, f.reservation.binding)).toEqual(
+    queuedBefore,
+  );
 }, 50000);

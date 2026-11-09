@@ -15,7 +15,7 @@ import { assertTurnCallbackEffects, type TurnCallbackRunner } from './turn-callb
 import { createSdkTurnQuery } from './sdk-turn-query.js';
 import { claudePersonalSandbox, claudePersonalToolPermission } from './claude-personal-policy.js';
 import { readClaudeAccountHistory } from './claude-account-history.js';
-import { findSessionRuntimeError } from './session-runtime-error.js';
+import { findSessionRuntimeError, SessionRuntimeError } from './session-runtime-error.js';
 import { reportRetainedRuntimeFailure } from './retained-runtime-failure.js';
 import { AdviserTaskScope } from './adviser-task-scope.js';
 import { createSessionTranscriptReader } from './session-transcript-reader.js';
@@ -3389,6 +3389,37 @@ export async function sendOwnedLocalCodexCommand(input: {
   }
 }
 
+async function reconcileOwnedLocalCodexEffects(input: {
+  reservation: Omit<HostRepositoryReservationInput, 'signal'>;
+  workspaceKind: LocalWorkspaceKind;
+  commandId: string;
+  operatorConnectionId: string;
+  signal: AbortSignal;
+}) {
+  // Both explicit Send and the retained queue action inspect through the same
+  // original-command owner. Neither can use the new message's admission to
+  // settle an older turn or dispatch input from this inspection-only runtime.
+  const driver = new OrdinaryLocalCodexOwnedRuntime({
+    ...input,
+    enabled: true,
+    eventStore,
+    library: getAgentLibrary(),
+    workspace:
+      input.workspaceKind === 'ordinary'
+        ? getOrdinaryWorkspaces(true)
+        : getRepositoryWorkspaces(true),
+    nativeStore: getCodexConversationStore(),
+    dispatch: async () => {
+      throw Error('Reconciliation cannot dispatch input');
+    },
+  });
+  try {
+    await driver.reconcileRetainedEffects();
+  } finally {
+    driver.close();
+  }
+}
+
 /** Explicit existing queue action. Acceptance observation remains read-only;
  * this action reopens the original saved input even after its outbox retires. */
 export async function continueOwnedLocalCodexQueue(
@@ -3438,7 +3469,11 @@ export async function continueOwnedLocalCodexQueue(
         )
       : undefined;
   const commandId = undispatchedId ?? effectsId;
-  if (!commandId) throw Error('Saved input has no qualified recovery');
+  if (!commandId) {
+    if (native.continuationBlocker(sessionId, meta.accountBinding))
+      throw new SessionRuntimeError('unsettled_effects');
+    throw Error('Saved input has no qualified recovery');
+  }
   const workspaceKind = meta.ordinaryWorkspaceId ? 'ordinary' : 'repository';
   const workspace =
     workspaceKind === 'ordinary'
@@ -3459,29 +3494,13 @@ export async function continueOwnedLocalCodexQueue(
   const timer = setTimeout(() => preparation.abort(), 120000);
   try {
     if (effectsId) {
-      const driver = new OrdinaryLocalCodexOwnedRuntime({
-        enabled: true,
-        eventStore,
-        library: getAgentLibrary(),
+      await reconcileOwnedLocalCodexEffects({
         workspaceKind,
-        workspace:
-          workspaceKind === 'ordinary'
-            ? getOrdinaryWorkspaces(true)
-            : getRepositoryWorkspaces(true),
         reservation,
         commandId,
         operatorConnectionId: connectionId,
         signal: preparation.signal,
-        nativeStore: native,
-        dispatch: async () => {
-          throw Error('Reconciliation cannot dispatch input');
-        },
       });
-      try {
-        await driver.reconcileRetainedEffects();
-      } finally {
-        driver.close();
-      }
       captured.assertCurrent();
       return;
     }
@@ -3655,6 +3674,29 @@ export async function startOwnedLocalCodexCommand(
       if (adopted) {
         reservation.id = adopted.id;
         workspaceKind = 'repository';
+      }
+      if (native.continuationBlocker(sessionId, reservation.binding)) {
+        const effectsId = reconcilableLocalCodexCommand(
+          eventStore,
+          native,
+          sessionId,
+          ownerAuthSessionId,
+          () =>
+            workspaceKind === 'ordinary'
+              ? getOrdinaryWorkspaces(true)
+              : getRepositoryWorkspaces(true),
+        );
+        if (effectsId) {
+          await reconcileOwnedLocalCodexEffects({
+            reservation,
+            workspaceKind: workspaceKind ?? 'repository',
+            commandId: effectsId,
+            operatorConnectionId,
+            signal,
+          });
+          signal.throwIfAborted();
+          captured.assertCurrent();
+        }
       }
     }
     driver = new OrdinaryLocalCodexOwnedRuntime<LocalWorkspaceKind>({
