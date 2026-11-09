@@ -132,6 +132,25 @@ function setup(
   };
 }
 
+it('shows a transport failure beside the composer and preserves its diagnostic until receipt recovery', async () => {
+  const { store, fetch } = setup();
+  fetch.mockRejectedValue(new TypeError('private transport detail'));
+  channel.id = 'live-connection';
+  channel.listener({ type: '_open' });
+  expect(store.getState().sendLocalFirstCommand(request, { draftId: 'draft' })).toBe(true);
+  await vi.waitFor(() =>
+    expect(store.getState().localCommand).toMatchObject({
+      state: 'uncertain',
+      deliveryDiagnostic: { code: 'transport_failed', operation: 'submit' },
+    }),
+  );
+  expect(store.getState().sendError).toBe(
+    'Could not confirm delivery over the connection. Retry checks the same message.',
+  );
+  expect(store.getState().sendError).not.toContain('private');
+  channel.listener({ type: '_close' });
+});
+
 it('shows the original login recovery reason and ends the Sending label while keeping its draft and identity', async () => {
   const { store, fetch, readStorage } = setup();
   const diagnostic = {
@@ -766,6 +785,7 @@ it.each(['consumed', 'uncertain', 'reserved'])(
       state: 'retained',
       sessionId: 'observed-session',
       originDraftId: 'original-draft',
+      deliveryDiagnostic: expect.objectContaining({ code: 'runtime_failed', httpStatus: 409 }),
     });
     expect(assigned).not.toHaveBeenCalled();
     expect(store.getState().sessions.active).toBeNull();

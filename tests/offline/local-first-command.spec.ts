@@ -566,6 +566,70 @@ test('Local first command: metadata failure stays blocked and Retry restores the
   expect(fixture.errors).toEqual([]);
 });
 
+for (const theme of ['dark', 'light'] as const)
+  test(`Ordinary delivery failure keeps the original follow-up through retry (${theme})`, async ({
+    page,
+  }, info) => {
+    const fixture = await offline(page, false, false, true);
+    const attempts: Array<Record<string, unknown>> = [];
+    await page.addInitScript((appearance) => {
+      localStorage.setItem('mitzo-theme', appearance);
+      localStorage.setItem('mitzo-accent', appearance === 'dark' ? 'mint' : 'teal');
+      localStorage.setItem('mitzo-font', appearance === 'dark' ? 'system' : 'georgia');
+    }, theme);
+    await page.route('**/api/chat/local-codex/continue', async (route) => {
+      const body = route.request().postDataJSON();
+      attempts.push(body);
+      if (attempts.length === 1) return route.abort('failed');
+      return route.fulfill({
+        status: 202,
+        json: {
+          ok: true,
+          clientMsgId: body.clientMsgId,
+          sessionId,
+          dispatched: true,
+          state: 'consumed',
+        },
+      });
+    });
+    await page.route('**/api/chat/local-codex/continue/receipt', (route) =>
+      route.fulfill({
+        status: 409,
+        json: {
+          ok: false,
+          code: 'receipt_pending',
+          clientMsgId: attempts[0]?.clientMsgId,
+          sessionId,
+        },
+      }),
+    );
+    await page.goto(`/chat/${sessionId}`);
+    const workspace = page.getByRole('button', { name: /^Workspace controls/ });
+    if ((await workspace.getAttribute('aria-expanded')) === 'true') await workspace.click();
+    const input = page.getByRole('textbox', { name: 'Message Mitzo' });
+    await input.fill('I missed the approval. Please try again.');
+    await input.press('Enter');
+    await expect(page.getByText('Message delivery not confirmed', { exact: true })).toBeVisible();
+    await expect(page.getByText('Correction delivery not confirmed', { exact: true })).toHaveCount(
+      0,
+    );
+    expect(attempts).toHaveLength(1);
+    const retry = page.getByRole('button', { name: 'Retry', exact: true });
+    await expect(retry).toBeEnabled();
+    await retry.focus();
+    await expect(retry).toBeFocused();
+    await page.screenshot({
+      path: info.outputPath(`ordinary-delivery-${theme}.png`),
+      fullPage: true,
+    });
+    await retry.press('Enter');
+    await expect.poll(() => attempts.length).toBe(2);
+    expect(attempts[1]).toEqual(attempts[0]);
+    await expect(page.getByText('Message delivery not confirmed', { exact: true })).toHaveCount(0);
+    expect(fixture.forbidden).toEqual([]);
+    expect(fixture.errors).toEqual([]);
+  });
+
 test('Local first command: screenshot above the former 1 MiB command cap remains sendable', async ({
   page,
 }, testInfo) => {

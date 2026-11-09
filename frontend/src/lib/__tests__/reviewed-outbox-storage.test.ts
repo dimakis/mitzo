@@ -246,12 +246,20 @@ it('keeps diagnostic persistence outside the command envelope understood by olde
     runtimeFailureCode: 'login_refresh_reauthorization',
     diagnosticId: '00000000-0000-4000-8000-000000000001',
   };
+  const deliveryDiagnostic = {
+    operation: 'submit',
+    stage: 'request',
+    code: 'transport_failed',
+    startedAt: 100,
+    elapsedMs: 50,
+  };
   const entry = {
     body: ordinaryBody,
     scope: 1,
     ordinaryDelivery: { version: 2, phase: 'continue' },
     uncertain: true,
     runtimeFailure,
+    deliveryDiagnostic,
   };
   storage.setItem('queue', JSON.stringify([entry]));
   const rowKey = Array.from({ length: disk.length }, (_, index) => disk.key(index)!).find((key) =>
@@ -259,6 +267,7 @@ it('keeps diagnostic persistence outside the command envelope understood by olde
   )!;
   const stored = JSON.parse(disk.getItem(rowKey)!);
   expect(stored).not.toHaveProperty('runtimeFailure');
+  expect(stored).not.toHaveProperty('deliveryDiagnostic');
   expect(
     Object.keys(stored).every((key) =>
       [
@@ -274,8 +283,8 @@ it('keeps diagnostic persistence outside the command envelope understood by olde
   ).toBe(true);
   const fresh = createReviewedOutboxStorage(disk, url, 'local');
   expect(JSON.parse(fresh.getItem('queue')!)).toEqual([entry]);
-  const hintKey = Array.from({ length: disk.length }, (_, index) => disk.key(index)!).find(
-    (key) => key !== rowKey,
+  const hintKey = Array.from({ length: disk.length }, (_, index) => disk.key(index)!).find((key) =>
+    key.startsWith('mitzo-command-diagnostic:'),
   )!;
   disk.setItem(
     hintKey,
@@ -289,6 +298,7 @@ it('keeps diagnostic persistence outside the command envelope understood by olde
   expect(reopened.body).toEqual(ordinaryBody);
   expect(reopened).not.toHaveProperty('runtimeFailure');
   expect(JSON.stringify(reopened)).not.toContain('private text');
+  expect(reopened.deliveryDiagnostic).toEqual(deliveryDiagnostic);
   fresh.setItem('queue', '[]');
   expect(disk.length).toBe(0);
 });

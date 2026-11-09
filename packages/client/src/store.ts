@@ -68,6 +68,12 @@ import { MitzoConnection } from './connection.js';
 import type { MitzoConnectionConfig } from './connection.js';
 import { SseConnection } from './sse-connection.js';
 import { SendOutbox, hasReviewedSource } from './send-outbox.js';
+import {
+  CommandDeliveryDiagnosticSchema,
+  commandDeliveryMessage,
+  type CommandDeliveryDiagnostic,
+  type CommandDeliveryObserver,
+} from './command-delivery-diagnostic.js';
 import type { SseConnectionConfig } from './sse-connection.js';
 import type { ChatConnection } from './chat-connection.js';
 import { messageIdentity } from './message-identity.js';
@@ -172,6 +178,7 @@ export interface MitzoStoreState {
     sessionId?: string;
     originDraftId?: string;
     composerDraft?: ComposerDraftReceipt;
+    deliveryDiagnostic?: CommandDeliveryDiagnostic;
   } | null;
   sendLocalFirstCommand(
     request: OrdinaryRuntimeFirstCommand | OrdinaryRuntimeContinuationCommand,
@@ -268,6 +275,7 @@ export interface MitzoStoreOptions {
   localFirstCommandConfig?: {
     url: string;
     storage: Pick<Storage, 'getItem' | 'setItem'> & { flush?: () => Promise<void> };
+    onDeliveryDiagnostic?: CommandDeliveryObserver;
   };
   /** Start with transports latched off until restoreAuthentication() after an explicit login. */
   initiallyAuthenticated?: boolean;
@@ -535,6 +543,9 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
                     );
             if (visible) {
               const runtimeFailure = RuntimeFailureSchema.safeParse(event.runtimeFailure);
+              const deliveryDiagnostic = CommandDeliveryDiagnosticSchema.safeParse(
+                event.deliveryDiagnostic,
+              ).data;
               visibleLocalCommandId = request?.clientMsgId;
               let messages = store.getState().messages;
               const ownState =
@@ -579,10 +590,13 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
                   ? { sendError: runtimeFailureMessage(runtimeFailure.data) }
                   : event.receiptConfirmed === true || ['pending', 'consumed'].includes(state)
                     ? { sendError: null }
-                    : {}),
+                    : deliveryDiagnostic
+                      ? { sendError: commandDeliveryMessage(deliveryDiagnostic) }
+                      : {}),
                 localCommand: {
                   request,
                   ...(composerDraft ? { composerDraft } : {}),
+                  ...(deliveryDiagnostic ? { deliveryDiagnostic } : {}),
                   ...(ordinaryDelivery ? { ordinaryPhase: ordinaryDelivery.phase } : {}),
                   ...(ordinaryDelivery?.version === 1
                     ? { preparedSessionId: ordinaryDelivery.sessionId }

@@ -56,6 +56,34 @@ function setup(restored = false) {
 }
 afterEach(() => vi.restoreAllMocks());
 
+it('keeps an unconfirmed receipt diagnostic across reconnect until the original acceptance is proved', async () => {
+  const { outbox, fetch, notify, retained } = setup(true);
+  fetch.mockImplementation(async () => pending());
+  outbox.start();
+  try {
+    await outbox.reconcileLocalCommand(command.clientMsgId);
+    expect(notify).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        state: 'uncertain',
+        deliveryDiagnostic: expect.objectContaining({
+          operation: 'receipt',
+          code: 'receipt_pending',
+          httpStatus: 409,
+        }),
+      }),
+    );
+    expect(retained()[0].deliveryDiagnostic.code).toBe('receipt_pending');
+    fetch.mockImplementation(async () => response());
+    await outbox.reconcileLocalCommand(command.clientMsgId);
+    expect(retained()).toEqual([]);
+    expect(notify).toHaveBeenLastCalledWith(expect.objectContaining({ state: 'consumed' }));
+    expect(notify.mock.lastCall![0].deliveryDiagnostic).toBeUndefined();
+    expect(fetch.mock.calls.every(([url]) => url.endsWith('/receipt'))).toBe(true);
+  } finally {
+    outbox.stop();
+  }
+});
+
 it('rechecks a receipt hint received while the previous read was still pending', async () => {
   const { outbox, fetch, notify, retained } = setup(true);
   let finish!: (value: Response) => void;

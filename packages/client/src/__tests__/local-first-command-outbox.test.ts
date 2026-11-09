@@ -43,6 +43,221 @@ const receipt = (state = 'consumed') =>
     { status: 202 },
   );
 afterEach(() => vi.useRealTimers());
+
+it('retains a sanitized transport failure and retries the original follow-up after approval expiry', async () => {
+  const saved = disk();
+  const notify = vi.fn();
+  const onDeliveryDiagnostic = vi.fn();
+  const cause = new TypeError('private upstream URL and payload');
+  const followUp = {
+    ...command,
+    sessionId: 'session',
+    payload: { text: 'I missed the approval. Try again.' },
+  };
+  const fetch = vi.fn().mockRejectedValueOnce(cause).mockResolvedValueOnce(receipt());
+  const config = {
+    url: '/local/send',
+    storage: saved,
+    fetch,
+    notify,
+    localFirstCommand: true,
+    onDeliveryDiagnostic,
+  };
+  const outbox = new SendOutbox(config);
+  outbox.start();
+  try {
+    expect(outbox.enqueue(followUp, 1, 'draft')).toBe(true);
+    await vi.waitFor(() =>
+      expect(notify).toHaveBeenCalledWith(
+        expect.objectContaining({
+          state: 'uncertain',
+          deliveryDiagnostic: expect.objectContaining({
+            operation: 'submit',
+            stage: 'request',
+            code: 'transport_failed',
+          }),
+        }),
+      ),
+    );
+    expect(onDeliveryDiagnostic).toHaveBeenCalledWith(
+      expect.objectContaining({
+        clientMsgId: command.clientMsgId,
+        sessionId: 'session',
+        diagnostic: expect.objectContaining({ code: 'transport_failed' }),
+      }),
+      cause,
+    );
+    expect(saved.getItem()).not.toContain('private upstream');
+    expect(JSON.parse(saved.getItem()!)[0].deliveryDiagnostic.code).toBe('transport_failed');
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(outbox.retryLocalCommand(command.clientMsgId)).toBe(true);
+    await vi.waitFor(() => expect(JSON.parse(saved.getItem()!)).toEqual([]));
+    expect(fetch).toHaveBeenCalledTimes(2);
+    for (const [url, init] of fetch.mock.calls) {
+      expect(url).toBe('/local/continue');
+      expect(JSON.parse(init.body)).toEqual(followUp);
+    }
+    expect(notify).toHaveBeenLastCalledWith(expect.objectContaining({ state: 'consumed' }));
+    expect(notify.mock.lastCall![0].deliveryDiagnostic).toBeUndefined();
+  } finally {
+    outbox.stop();
+  }
+});
+
+it.each([
+  [
+    'invalid_receipt',
+    () => new Response('<private upstream response>', { status: 502 }),
+    'response',
+    502,
+  ],
+  [
+    'http_rejected',
+    () => Response.json({ error: 'private refusal' }, { status: 403 }),
+    'response',
+    403,
+  ],
+] as const)(
+  'records %s without retaining the response body',
+  async (code, result, stage, httpStatus) => {
+    const saved = disk();
+    const notify = vi.fn();
+    const outbox = new SendOutbox({
+      url: '/local/send',
+      storage: saved,
+      fetch: async () => result(),
+      notify,
+      localFirstCommand: true,
+    });
+    outbox.start();
+    try {
+      outbox.enqueue(command, 1, 'draft');
+      await vi.waitFor(() =>
+        expect(notify).toHaveBeenCalledWith(
+          expect.objectContaining({
+            state: 'uncertain',
+            deliveryDiagnostic: expect.objectContaining({ code, stage, httpStatus }),
+          }),
+        ),
+      );
+      expect(saved.getItem()).not.toContain('private');
+    } finally {
+      outbox.stop();
+    }
+  },
+);
+
+it('distinguishes a timed-out submission from a network rejection', async () => {
+  vi.useFakeTimers();
+  const notify = vi.fn();
+  const outbox = new SendOutbox({
+    url: '/local/send',
+    storage: disk(),
+    fetch: () => new Promise(() => {}),
+    notify,
+    localFirstCommand: true,
+    timeoutMs: 50,
+  });
+  outbox.start();
+  try {
+    outbox.enqueue(command, 1, 'draft');
+    await vi.advanceTimersByTimeAsync(51);
+    expect(notify).toHaveBeenCalledWith(
+      expect.objectContaining({
+        state: 'uncertain',
+        deliveryDiagnostic: expect.objectContaining({ code: 'timeout', operation: 'submit' }),
+      }),
+    );
+  } finally {
+    outbox.stop();
+  }
+});
+
+it('reports the original storage cause without starting a request or replacing the draft', async () => {
+  const cause = new Error('private disk failure');
+  const storage = {
+    ...disk(),
+    flush: async () => {
+      throw cause;
+    },
+  };
+  const onDeliveryDiagnostic = vi.fn();
+  const fetch = vi.fn();
+  const notify = vi.fn();
+  const outbox = new SendOutbox({
+    url: '/local/send',
+    storage,
+    fetch,
+    notify,
+    localFirstCommand: true,
+    onDeliveryDiagnostic,
+  });
+  outbox.start();
+  try {
+    outbox.enqueue(command, 1, 'draft');
+    await vi.waitFor(() =>
+      expect(onDeliveryDiagnostic).toHaveBeenCalledWith(
+        expect.objectContaining({
+          diagnostic: expect.objectContaining({ stage: 'storage', code: 'storage_failed' }),
+        }),
+        cause,
+      ),
+    );
+    expect(fetch).not.toHaveBeenCalled();
+    expect(JSON.parse(storage.getItem()!)[0].body).toEqual(command);
+    expect(storage.getItem()).not.toContain('private disk failure');
+  } finally {
+    outbox.stop();
+  }
+});
+
+it('ends a stalled pre-send storage flush and ignores its late completion until explicit retry', async () => {
+  vi.useFakeTimers();
+  let release!: () => void;
+  const storage = {
+    ...disk(),
+    flush: vi
+      .fn()
+      .mockImplementationOnce(
+        () =>
+          new Promise<void>((resolve) => {
+            release = resolve;
+          }),
+      )
+      .mockResolvedValue(undefined),
+  };
+  const fetch = vi.fn().mockResolvedValue(receipt());
+  const notify = vi.fn();
+  const outbox = new SendOutbox({
+    url: '/local/send',
+    storage,
+    fetch,
+    notify,
+    localFirstCommand: true,
+  });
+  outbox.start();
+  try {
+    outbox.enqueue(command, 1, 'draft');
+    await vi.advanceTimersByTimeAsync(15_001);
+    expect(notify).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        state: 'uncertain',
+        deliveryDiagnostic: expect.objectContaining({ stage: 'storage', code: 'storage_timeout' }),
+      }),
+    );
+    expect(fetch).not.toHaveBeenCalled();
+    release();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(fetch).not.toHaveBeenCalled();
+    expect(outbox.retryLocalCommand(command.clientMsgId)).toBe(true);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(fetch).toHaveBeenCalledOnce();
+    expect(JSON.parse(fetch.mock.calls[0][1].body)).toEqual(command);
+    expect(JSON.parse(storage.getItem()!)).toEqual([]);
+  } finally {
+    outbox.stop();
+  }
+});
 it('shows a reviewed pre-admission failure without manufacturing a receipt or acknowledging delivery', async () => {
   const saved = disk();
   const runtimeFailure = {
