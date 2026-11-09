@@ -8055,6 +8055,53 @@ it('claims an exact accepted target once and reconciles its original interruptio
     first.status === 'claimed' ? first.receipt : undefined,
   );
 });
+it('holds new native FIFO claims without blocking the current terminal evidence', async () => {
+  const f = await setup();
+  await f.c.send({ id: 'before-deployment', prompt: 'First' });
+  const target = f.c.captureInterruptTarget()!;
+  f.conversationOptions.canStartCommand = () => false;
+  await f.c.enqueue({ id: 'saved-followup', prompt: 'Keep this queued input' });
+  expect(f.c.deploymentTurnSettled(target)).toBe(false);
+  f.callbacks.onNotification('turn/completed', {
+    threadId: target.threadId,
+    turn: { id: target.turnId, status: 'completed' },
+  });
+  await vi.waitFor(() => expect(f.c.deploymentTurnSettled(target)).toBe(true));
+  expect(f.requests.filter((r) => r.method === 'turn/start')).toHaveLength(1);
+  expect(f.c.queue().find((command) => command.id === 'saved-followup')?.status).toBe('queued');
+  f.conversationOptions.canStartCommand = () => true;
+  await f.c.startQueued();
+  expect(f.requests.filter((r) => r.method === 'turn/start')).toHaveLength(2);
+});
+it('refuses deployment settlement for an interrupted native command with unknown effects', async () => {
+  const f = await setup();
+  await f.c.send({ id: 'deployment-command', prompt: 'Existing task' });
+  const target = f.c.captureInterruptTarget()!;
+  f.callbacks.onNotification('turn/completed', {
+    threadId: target.threadId,
+    turn: { id: target.turnId, status: 'interrupted' },
+  });
+  await vi.waitFor(() => expect(f.c.deploymentTurnSettled(target)).toBe(true));
+  const original = f.rpc.request.getMockImplementation()!;
+  f.rpc.request.mockImplementation(async (method, params) =>
+    method === 'thread/turns/list' || method === 'thread/items/list'
+      ? recoveryPage(method, params, {
+          id: target.turnId,
+          status: 'interrupted',
+          error: null,
+          itemsView: 'full',
+          items: [
+            { type: 'commandExecution', id: 'still-running', status: 'inProgress', exitCode: null },
+          ],
+        })
+      : original(method, params),
+  );
+  await expect(f.c.observeDeploymentSettlement(target, () => {})).rejects.toThrow(
+    /effects remain unknown/,
+  );
+  expect(f.requests.filter(({ method }) => method === 'turn/start')).toHaveLength(1);
+  expect(f.store.read('app', f.getBinding()).recovery).toBe(1);
+});
 it('refuses a retired target before pausing or cancelling the successor', async () => {
   const f = await setup();
   await f.c.send({ id: 'target-a', prompt: 'First' });

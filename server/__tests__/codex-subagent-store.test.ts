@@ -1,3 +1,4 @@
+import { callbackOutcome, retainCallbackOutcome } from '../turn-callbacks.js';
 import Database from 'better-sqlite3';
 import { afterEach, expect, it } from 'vitest';
 import { CodexSubagentStore } from '../codex-subagent-store.js';
@@ -85,4 +86,53 @@ it('deduplicates control requests and rejects changed content under an existing 
   expect(store.controlResult(scope, input)).toBe('accepted');
   expect(store.claimControl(scope, input)).toBe('accepted');
   expect(() => store.claimControl(scope, { ...input, text: 'changed' })).toThrow('identity');
+});
+
+it('keeps child discovery and uncertain control or tool receipts visible to deployment quiescence', () => {
+  const { store } = fixture();
+  store.save(scope, child);
+  expect(store.unsettledConversationIds()).toEqual(['conversation']);
+  store.save(scope, { ...child, state: 'completed', revision: 2 });
+  expect(store.unsettledConversationIds()).toEqual([]);
+  const control = {
+    requestId: 'lost-control',
+    threadId: child.threadId,
+    action: 'message' as const,
+    text: 'Continue',
+  };
+  store.claimControl(scope, control);
+  expect(store.unsettledConversationIds()).toEqual(['conversation']);
+  store.finishControl(scope, control, 'uncertain');
+  expect(store.unsettledConversationIds()).toEqual(['conversation']);
+});
+
+it.each([
+  ['returned failure', { content: 'failure', isError: true }, 'unknown'],
+  [
+    'explicit unknown success',
+    retainCallbackOutcome({ content: 'returned', isError: false }, 'unknown'),
+    'unknown',
+  ],
+  [
+    'settled read failure',
+    retainCallbackOutcome({ content: 'not found', isError: true }, 'settled'),
+    'settled',
+  ],
+] as const)('retains child effect outcome across reconstruction: %s', (_label, result, outcome) => {
+  const { db, store } = fixture();
+  store.save(scope, { ...child, state: 'completed' });
+  const call = {
+    threadId: child.threadId,
+    turnId: child.turnId,
+    callId: 'original',
+    tool: 'Read',
+    requestHash: 'hash',
+  };
+  store.claimTool(scope, call);
+  store.finishTool(scope, call, result);
+  const reopened = new CodexSubagentStore(db);
+  expect(callbackOutcome(reopened.toolResult(scope, call))).toBe(outcome);
+  expect(reopened.unsettledConversationIds()).toEqual(
+    outcome === 'settled' ? [] : ['conversation'],
+  );
 });

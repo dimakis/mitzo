@@ -1304,6 +1304,10 @@ export async function startChat(
   // repository, registry or transport effects. Keep one generated message ID so
   // the native path cannot later select an unchecked conversation identity.
   const initialMessageId = options.clientMsgId ?? randomUUID();
+  eventStore.deployment.assertAdmission(
+    options.resume ?? options.initialSessionId ?? clientId,
+    initialMessageId,
+  );
   const onStartupAdmission = options.onStartupAdmission;
   let startupAdmissionSettled = false;
   options = {
@@ -4613,6 +4617,7 @@ export async function sendToChat(
   return withSpanAsync('chat.send', { 'chat.clientId': clientId }, async () => {
     if (signal?.aborted) return false;
     const session = registry.get(clientId);
+    eventStore.deployment.assertAdmission(session?.sessionId ?? clientId, clientMsgId);
     if (session?.sessionId && eventStore.getSessionRuntimeBinding(session.sessionId))
       throw new Error('Runtime-bound commands require guarded admission');
     if (session?.sessionId)

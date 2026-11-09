@@ -8,7 +8,7 @@ import { ToolFailureSchema, type ToolFailure } from '@mitzo/protocol';
 import { reauthorizeHostLoginStore } from './host-codex-login-reauthorization-store.js';
 import type { HostCodexLoginReauthorization } from './host-codex-login-reauthorization.js';
 import { callbackOutcome, retainCallbackOutcome } from './turn-callbacks.js';
-import { CodexSubagentStore } from './codex-subagent-store.js';
+import { CodexSubagentStore, subagentScope } from './codex-subagent-store.js';
 import {
   CodexSteerInputSchema,
   type CodexSteerInput,
@@ -2932,6 +2932,64 @@ export class CodexConversationStore {
     } catch {
       return true;
     }
+  }
+  assertDeploymentHostEffects(
+    id: string,
+    binding: AccountBinding,
+    target: CodexNativeTurnTarget,
+    policyRevision: string | undefined,
+    effects: SettledInterruptedEffects,
+  ) {
+    this.assertSettledInterruptedHostEffects(id, binding, target, policyRevision, effects);
+  }
+  /** Deployment observes terminal evidence; cancellation ACKs and missing rows never qualify. */
+  deploymentTurnSettled(
+    id: string,
+    binding: AccountBinding,
+    target: CodexNativeTurnTarget,
+  ): boolean {
+    target = CodexNativeTurnTargetSchema.parse(target);
+    this.read(id, binding);
+    this.assertNoPendingThreadDispatch(id, binding);
+    this.assertNoPendingThreadOwnership(id, binding);
+    const row = this.db
+      .prepare(
+        'SELECT status,attempt,native_turns FROM codex_commands WHERE conversation_id=? AND id=?',
+      )
+      .get(id, target.commandId) as
+      { status: string; attempt: number; native_turns: string | null } | undefined;
+    if (
+      !row ||
+      row.attempt !== target.attempt ||
+      !['completed', 'interrupted', 'failed'].includes(row.status)
+    )
+      return false;
+    if (
+      !this.nativeTurns(row.native_turns).some((turn) =>
+        isDeepStrictEqual(this.nativeTarget(target.commandId, turn), target),
+      )
+    )
+      return false;
+    if (this.hasRunningCommands(id) || this.continuationBlocker(id, binding)) return false;
+    return this.subagents
+      .list(subagentScope(id, binding))
+      .every((child) => ['completed', 'failed', 'stopped'].includes(child.state));
+  }
+  runningConversationIds(): string[] {
+    return (
+      this.db
+        .prepare("SELECT DISTINCT conversation_id FROM codex_commands WHERE status='running'")
+        .all() as Array<{ conversation_id: string }>
+    ).map((row) => row.conversation_id);
+  }
+  hasRunningCommands(id?: string): boolean {
+    return !!(id
+      ? this.db
+          .prepare(
+            "SELECT 1 FROM codex_commands WHERE status='running' AND conversation_id=? LIMIT 1",
+          )
+          .get(id)
+      : this.db.prepare("SELECT 1 FROM codex_commands WHERE status='running' LIMIT 1").get());
   }
   /** Negative readiness observation only; never reconciles effects or releases a queue. */
   continuationBlocker(id: string, binding: AccountBinding) {

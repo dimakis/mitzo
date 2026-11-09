@@ -1,3 +1,4 @@
+import { DeploymentStore } from './deployment-store.js';
 import { MessageReplyContextSchema, type MessageReplyContext } from './message-reply.js';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { isAbsolute, resolve, sep } from 'node:path';
@@ -455,6 +456,7 @@ type OrdinaryCommandWireScope = z.infer<typeof OrdinaryCommandWireScopeSchema>;
 
 export class EventStore {
   readonly removals: SessionRemovalStore;
+  readonly deployment: DeploymentStore;
   private readonly ordinaryWireAdmission = new AsyncLocalStorage<{
     scope: OrdinaryCommandWireScope;
     assertCurrentSync: () => void;
@@ -553,6 +555,7 @@ export class EventStore {
     this.assertConversationIdentity(sessionId);
     this.db!.transaction(() => {
       this.removals.assertAdmissible(sessionId);
+      this.deployment.assertAdmission(sessionId, clientMsgId);
       this.db!.prepare(
         'INSERT INTO send_commands (client_msg_id, session_id, payload) VALUES (?, ?, ?)',
       ).run(clientMsgId, sessionId, JSON.stringify(payload));
@@ -941,6 +944,7 @@ export class EventStore {
     preparationOperationId?: string,
   ): { duplicate: boolean; admission: OrdinaryLocalCommandAdmission } {
     this.removals.assertAdmissible(meta.sessionId);
+    this.deployment.assertAdmission(meta.sessionId, input.clientMsgId);
     if (meta.ordinaryWorkspaceId != null) {
       if (!['local', 'openshell'].includes(location) || !preparationOperationId)
         throw Error('Ordinary workspace requires its original prepared local admission');
@@ -2276,6 +2280,7 @@ export class EventStore {
     preparedPrimaryCommandId?: string,
   ): { duplicate: boolean; admission: OrdinaryLocalCommandAdmission } {
     this.removals.assertAdmissible(meta.sessionId);
+    this.deployment.assertAdmission(meta.sessionId, input.clientMsgId);
     if (meta.ordinaryWorkspaceId != null) {
       const prepared = this.ordinaryWorkspaceSessions.forConversation(meta.sessionId);
       if (
@@ -2593,7 +2598,10 @@ export class EventStore {
   private claimOrdinaryCommandDispatch(clientMsgId: string): boolean {
     return this.db!.transaction(() => {
       const command = this.getSendCommand(clientMsgId);
-      if (command?.sessionId) this.removals.assertAdmissible(command.sessionId);
+      if (command?.sessionId) {
+        this.removals.assertAdmissible(command.sessionId);
+        this.deployment.assertAdmission(command.sessionId, clientMsgId);
+      }
       const admission = this.getOrdinaryCommandAdmission(clientMsgId);
       if (!admission) throw new Error('Ordinary command admission required');
       if (admission.state !== 'reserved' || this.getSendCommand(clientMsgId)?.error) return false;
@@ -2738,6 +2746,7 @@ export class EventStore {
       db.pragma('foreign_keys = ON');
       db.exec(SCHEMA);
       this.removals = new SessionRemovalStore(db);
+      this.deployment = new DeploymentStore(db);
       db.exec(`CREATE TABLE IF NOT EXISTS ordinary_session_preparations (
       operation_id TEXT PRIMARY KEY, session_id TEXT NOT NULL UNIQUE, workspace_id TEXT NOT NULL UNIQUE,
       receipt TEXT NOT NULL, metadata TEXT NOT NULL);`);
@@ -2970,7 +2979,11 @@ export class EventStore {
         database: () => this.db,
         statements: this.stmts,
         assertConversationIdentity: (id) => this.assertConversationIdentity(id),
-        assertExecutionAdmission: (id) => this.removals.assertAdmissible(id),
+        assertExecutionAdmission: (id) => {
+          this.removals.assertAdmissible(id);
+          if (!this.deployment.canDispatch(id))
+            throw Error('Server deployment has paused execution admission');
+        },
         isRegisteredConversation: (row) => isRegisteredConversation(rowToSession(row)),
         getExecutionAdmission: (id, command) => this.getExecutionAdmission(id, command),
         getProviderAttempts: (token) => this.getProviderAttempts(token),
