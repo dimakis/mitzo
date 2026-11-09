@@ -143,7 +143,7 @@ it('preserves an OpenShell initialization failure through the real driver and ch
   const f = ownedOpenShellFixture(resources, true, chat.eventStore, undefined, { api: true });
   const original = new CodexStartupError('sandbox_preparation', Error('private sandbox cause'));
   vi.mocked(openCodexChat).mockRejectedValueOnce(original);
-  f.owners.dispatch = async (dispatch) => {
+  f.owners.dispatch.mockImplementation(async (dispatch) => {
     await chat.prepareOwnedCodexChat(
       { isOpen: () => true, send: vi.fn() },
       'shell-consumer',
@@ -154,7 +154,7 @@ it('preserves an OpenShell initialization failure through the real driver and ch
         onEnded: f.owners.close,
       },
     );
-  };
+  });
   try {
     await expect(
       f.driver.admitPreparedFirst(f.preparationOperationId!, f.meta, f.command('shell-first')),
