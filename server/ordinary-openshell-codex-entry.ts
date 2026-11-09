@@ -2,7 +2,9 @@ import { assembleCommandPrompt } from './message-reply-context.js';
 import { ordinaryOperatorOwnsConversation } from './ordinary-operator-identity.js';
 import { deliverRetainedSessionEvent } from './query-loop.js';
 import { reportRetainedRuntimeFailure } from './retained-runtime-failure.js';
-import { findSessionRuntimeError } from './session-runtime-error.js';
+import { retainCodexPreparationFailure } from './codex-preparation-failure.js';
+import { codexRuntimeErrorTelemetry } from './codex-runtime-diagnostics.js';
+import { createLogger } from './logger.js';
 import {
   resolveTelosWorkRoleContext,
   resolveTelosWorkSystemPrompt,
@@ -38,6 +40,7 @@ export const OrdinaryOpenShellCodexCommandRequestSchema = OrdinaryCodexFirstComm
 );
 type SessionUpsert = Parameters<typeof eventStore.upsertSession>[0];
 const unavailable = () => new Error('Ordinary OpenShell Codex entry unavailable');
+const log = createLogger('openshell-codex-entry');
 
 export function ownedOpenShellCodexContinuationTarget(
   sessionId: string,
@@ -371,11 +374,33 @@ export async function startOwnedOpenShellCodexCommand(
     });
     return result;
   } catch (error) {
+    const failure = retainCodexPreparationFailure('runtime_admission', error);
     try {
       prepared?.close();
-    } finally {
-      close();
+    } catch (cleanupError) {
+      log.warn('OpenShell prepared query cleanup remains unconfirmed', {
+        sessionId,
+        clientMsgId: initial.command.clientMsgId,
+        cleanupFailureCode: 'prepared_query_cleanup_failed',
+        ...codexRuntimeErrorTelemetry(failure),
+        cleanup: codexRuntimeErrorTelemetry(
+          retainCodexPreparationFailure('runtime_admission', cleanupError),
+        ),
+      });
     }
-    throw findSessionRuntimeError(error) ?? unavailable();
+    try {
+      close();
+    } catch (cleanupError) {
+      log.warn('OpenShell entry cleanup remains unconfirmed', {
+        sessionId,
+        clientMsgId: initial.command.clientMsgId,
+        cleanupFailureCode: 'entry_owner_cleanup_failed',
+        ...codexRuntimeErrorTelemetry(failure),
+        cleanup: codexRuntimeErrorTelemetry(
+          retainCodexPreparationFailure('runtime_admission', cleanupError),
+        ),
+      });
+    }
+    throw failure;
   }
 }
