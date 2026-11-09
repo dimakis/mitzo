@@ -1,3 +1,4 @@
+import { DeploymentStore } from './deployment-store.js';
 import { MessageReplyContextSchema, type MessageReplyContext } from './message-reply.js';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { isAbsolute, resolve, sep } from 'node:path';
@@ -455,6 +456,7 @@ type OrdinaryCommandWireScope = z.infer<typeof OrdinaryCommandWireScopeSchema>;
 
 export class EventStore {
   readonly removals: SessionRemovalStore;
+  readonly deployment: DeploymentStore;
   private readonly ordinaryWireAdmission = new AsyncLocalStorage<{
     scope: OrdinaryCommandWireScope;
     assertCurrentSync: () => void;
@@ -553,6 +555,7 @@ export class EventStore {
     this.assertConversationIdentity(sessionId);
     this.db!.transaction(() => {
       this.removals.assertAdmissible(sessionId);
+      this.deployment.assertAdmission(sessionId, clientMsgId);
       this.db!.prepare(
         'INSERT INTO send_commands (client_msg_id, session_id, payload) VALUES (?, ?, ?)',
       ).run(clientMsgId, sessionId, JSON.stringify(payload));
@@ -941,6 +944,7 @@ export class EventStore {
     preparationOperationId?: string,
   ): { duplicate: boolean; admission: OrdinaryLocalCommandAdmission } {
     this.removals.assertAdmissible(meta.sessionId);
+    this.deployment.assertAdmission(meta.sessionId, input.clientMsgId);
     if (meta.ordinaryWorkspaceId != null) {
       if (!['local', 'openshell'].includes(location) || !preparationOperationId)
         throw Error('Ordinary workspace requires its original prepared local admission');
@@ -2276,6 +2280,7 @@ export class EventStore {
     preparedPrimaryCommandId?: string,
   ): { duplicate: boolean; admission: OrdinaryLocalCommandAdmission } {
     this.removals.assertAdmissible(meta.sessionId);
+    this.deployment.assertAdmission(meta.sessionId, input.clientMsgId);
     if (meta.ordinaryWorkspaceId != null) {
       const prepared = this.ordinaryWorkspaceSessions.forConversation(meta.sessionId);
       if (
@@ -2593,7 +2598,10 @@ export class EventStore {
   private claimOrdinaryCommandDispatch(clientMsgId: string): boolean {
     return this.db!.transaction(() => {
       const command = this.getSendCommand(clientMsgId);
-      if (command?.sessionId) this.removals.assertAdmissible(command.sessionId);
+      if (command?.sessionId) {
+        this.removals.assertAdmissible(command.sessionId);
+        this.deployment.assertAdmission(command.sessionId, clientMsgId);
+      }
       const admission = this.getOrdinaryCommandAdmission(clientMsgId);
       if (!admission) throw new Error('Ordinary command admission required');
       if (admission.state !== 'reserved' || this.getSendCommand(clientMsgId)?.error) return false;
@@ -2703,6 +2711,15 @@ export class EventStore {
     );
   }
 
+  /** Cold durable uncertainty and pre-registry startup ownership both block maintenance. */
+  deploymentStartupPending(): boolean {
+    return (
+      this.ordinaryStartups.size > 0 ||
+      !!this.db!.prepare(
+        "SELECT 1 FROM send_commands WHERE json_extract(ordinary_admission,'$.state') IN ('reserved','uncertain') OR (preparing=1 AND error IS NULL) LIMIT 1",
+      ).get()
+    );
+  }
   private ordinaryStartups = new Map<string, number>();
 
   /** Synchronous with initial Symposium conversion; held across ordinary startup awaits. */
@@ -2710,6 +2727,7 @@ export class EventStore {
     const ids = [...new Set(sessionIds)];
     for (const id of ids) {
       this.assertConversationIdentity(id);
+      if (!this.deployment.canDispatch(id)) throw Error('Deployment holds ordinary startup');
       if (this.getSession(id)?.symposiumConfig)
         throw new Error('Use Symposium directed prompts for this session');
     }
@@ -2738,6 +2756,7 @@ export class EventStore {
       db.pragma('foreign_keys = ON');
       db.exec(SCHEMA);
       this.removals = new SessionRemovalStore(db);
+      this.deployment = new DeploymentStore(db);
       db.exec(`CREATE TABLE IF NOT EXISTS ordinary_session_preparations (
       operation_id TEXT PRIMARY KEY, session_id TEXT NOT NULL UNIQUE, workspace_id TEXT NOT NULL UNIQUE,
       receipt TEXT NOT NULL, metadata TEXT NOT NULL);`);
@@ -2970,7 +2989,11 @@ export class EventStore {
         database: () => this.db,
         statements: this.stmts,
         assertConversationIdentity: (id) => this.assertConversationIdentity(id),
-        assertExecutionAdmission: (id) => this.removals.assertAdmissible(id),
+        assertExecutionAdmission: (id) => {
+          this.removals.assertAdmissible(id);
+          if (!this.deployment.canDispatch(id))
+            throw Error('Server deployment has paused execution admission');
+        },
         isRegisteredConversation: (row) => isRegisteredConversation(rowToSession(row)),
         getExecutionAdmission: (id, command) => this.getExecutionAdmission(id, command),
         getProviderAttempts: (token) => this.getProviderAttempts(token),
@@ -4095,6 +4118,48 @@ export class EventStore {
        AND json_extract(payload,'$.messageId')=? ORDER BY seq LIMIT 2`,
     ).all(sessionId, messageId) as Array<{ payload: string }>;
     return rows.map((row) => JSON.parse(row.payload));
+  }
+
+  /** Exact native provider terminal notification, distinct from display state,
+   * dispatch consumption, transport closure and generic execution cleanup. */
+  getOrdinaryProviderTurnTerminal(
+    sessionId: string,
+    commandId: string,
+  ): 'completed' | 'failed' | 'interrupted' | undefined {
+    const rows = this.db!.prepare(
+      `SELECT json_extract(payload,'$.status') AS status FROM events
+       WHERE session_id=? AND type='ordinary_provider_turn_terminal'
+       AND json_extract(payload,'$.messageId')=? ORDER BY seq LIMIT 2`,
+    ).all(sessionId, commandId) as Array<{ status: unknown }>;
+    if (!rows.length) return undefined;
+    if (
+      rows.some(
+        (row) =>
+          !['completed', 'failed', 'interrupted'].includes(String(row.status)) ||
+          row.status !== rows[0].status,
+      )
+    )
+      throw Error('Conflicting ordinary provider terminal evidence');
+    return rows[0].status as 'completed' | 'failed' | 'interrupted';
+  }
+
+  recordOrdinaryProviderTurnTerminal(
+    sessionId: string,
+    commandId: string,
+    status: 'completed' | 'failed' | 'interrupted',
+  ): void {
+    this.db!.transaction(() => {
+      if (
+        this.getSendCommand(commandId)?.sessionId !== sessionId ||
+        !['completed', 'failed', 'interrupted'].includes(status)
+      )
+        throw Error('Original ordinary command terminal identity required');
+      const previous = this.getOrdinaryProviderTurnTerminal(sessionId, commandId);
+      if (previous && previous !== status)
+        throw Error('Conflicting ordinary provider terminal evidence');
+      if (!previous)
+        this.append(sessionId, 'ordinary_provider_turn_terminal', { messageId: commandId, status });
+    }).immediate();
   }
 
   /** Private exact delivery ledger; never load unrelated conversation payloads. */

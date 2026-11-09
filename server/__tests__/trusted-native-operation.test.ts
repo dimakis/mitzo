@@ -1,3 +1,4 @@
+import { retainedCallbackOutcome } from '../turn-callbacks.js';
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import {
@@ -36,6 +37,28 @@ import {
 } from '../trusted-native-operation.js';
 import { captureLocalRepository } from '../local-repository-worktree.js';
 import { snapshotRepositoryTaskCheckout } from '../repository-task-checkout.js';
+
+it.each([false, true])(
+  'settles an observed GitHub CLI refusal while preserving cancellation (cancelled=%s)',
+  async (cancelled) => {
+    githubProcess.execute.mockReset();
+    const abort = new AbortController();
+    githubProcess.execute.mockImplementation((_file, _args, _options, callback) => {
+      if (cancelled) abort.abort();
+      callback(
+        Object.assign(Error('gh failed'), { code: 1, signal: null, killed: false }),
+        '',
+        'gh: Not Found (HTTP 404)',
+      );
+      return {};
+    });
+    const failure = await executeTrustedGitHubRead('/repos/example/project', abort.signal).catch(
+      (error: unknown) => error,
+    );
+    expect(failure).toBeInstanceOf(Error);
+    expect(retainedCallbackOutcome(failure as Error)).toBe(cancelled ? undefined : 'settled');
+  },
+);
 
 it.each(['dispatch', 'delivery'] as const)(
   'rechecks GitHub read authority at %s without a real network process',

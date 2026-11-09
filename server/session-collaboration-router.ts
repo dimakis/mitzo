@@ -15,6 +15,7 @@ import {
   CollaborationBeginSchema,
   CollaborationMessageInputSchema,
   CollaborationMessageSchema,
+  CollaborationRecipientReadinessSchema,
   CollaborationSourceSetupQuerySchema,
   CollaborationSourceSetupSchema,
   COLLABORATION_EXECUTION_DISABLED,
@@ -30,7 +31,7 @@ import type { EventStore } from './event-store.js';
 import type { ApplicationCollaborationMessaging } from './collaboration-application-messaging.js';
 import { recentAuthorizationSession, requireSameOriginJson } from './connections-router.js';
 
-function failure(res: Response, error: unknown) {
+function failure(res: Response, error: unknown, dispatchNotStarted = false) {
   if (error instanceof CollaborationContractError) {
     const status =
       error.code === 'not_found'
@@ -40,7 +41,11 @@ function failure(res: Response, error: unknown) {
           : error.code === 'execution_unavailable'
             ? 503
             : 422;
-    return res.status(status).json({ error: error.message, code: error.code });
+    return res.status(status).json({
+      error: error.message,
+      code: error.code,
+      ...(dispatchNotStarted ? { dispatchNotStarted: true } : {}),
+    });
   }
   if (error instanceof SessionCollaborationError)
     return res
@@ -113,6 +118,46 @@ export function createSessionCollaborationRouter({
     try {
       messaging?.reconcile(recentAuthorizationSession(res)!, id.data);
       return res.json(store.collaborationConversation.view(id.data));
+    } catch (error) {
+      return failure(res, error);
+    }
+  });
+  router.get('/:id/recipients/:sessionId', async (req, res) => {
+    const id = SessionCollaborationIdSchema.safeParse(req.params.id);
+    const session = CollaborationBeginSchema.shape.sessionId.safeParse(req.params.sessionId);
+    if (!id.success || !session.success)
+      return res.status(400).json({ error: 'Invalid recipient' });
+    try {
+      if (!messaging) throw new CollaborationContractError('execution_unavailable');
+      return res.json(
+        CollaborationRecipientReadinessSchema.parse(
+          await messaging.recipientReadiness(
+            recentAuthorizationSession(res)!,
+            id.data,
+            session.data,
+            new AbortController().signal,
+          ),
+        ),
+      );
+    } catch (error) {
+      return failure(res, error);
+    }
+  });
+  // Observation uses the exact retained public request; it never calls send.
+  router.post('/:id/messages/observe', requireSameOriginJson, (req, res) => {
+    const id = SessionCollaborationIdSchema.safeParse(req.params.id);
+    const input = CollaborationMessageInputSchema.safeParse(req.body);
+    if (!id.success || !input.success)
+      return res.status(400).json({ error: 'Invalid message observation' });
+    try {
+      return res.json(
+        messaging
+          ? messaging.observe(recentAuthorizationSession(res)!, id.data, input.data)
+          : {
+              message: store.collaborationConversation.getMessageForRequest(id.data, input.data),
+              terminal: false,
+            },
+      );
     } catch (error) {
       return failure(res, error);
     }
@@ -306,7 +351,15 @@ export function createSessionCollaborationRouter({
       if (res.destroyed) return;
       if (!isAuthSessionCurrent(auth))
         return res.status(403).json({ error: 'Operator authorization expired or revoked' });
-      return failure(res, error);
+      // A definite synchronous contract refusal before retaining a message has
+      // no ordinary command owner. All retained/ambiguous outcomes stay fenced.
+      let notStarted = false;
+      try {
+        notStarted = !store.collaborationConversation.getMessageForRequest(id.data, input.data);
+      } catch {
+        /* preserve uncertainty */
+      }
+      return failure(res, error, notStarted);
     } finally {
       clearTimeout(timer);
       unregister();

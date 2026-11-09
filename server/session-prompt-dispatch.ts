@@ -36,6 +36,8 @@ export interface OrdinarySessionPrompt {
   turnLifecycle?: OrdinaryTurnLifecycle;
 }
 export interface OrdinarySessionPromptPort extends SessionPromptPort {
+  /** Read-only ordinary owner/capability check; no allocation, binding or turn. */
+  inspectCollaboration?(prompt: OrdinarySessionPrompt): Promise<void>;
   deliverOrdinary(
     prompt: OrdinarySessionPrompt,
     signal: AbortSignal,
@@ -309,7 +311,62 @@ export function createSessionPromptPort(
     }
   }
   return {
+    maintenanceHeld: () => !!ctx.eventStore.deployment.active(),
     authorized,
+    async inspectCollaboration(prompt) {
+      const { binding, live, prepared, meta } = target(prompt.sessionId, prompt.auth, prompt);
+      if (
+        binding.harness.implementation !== 'codex' ||
+        binding.execution.location !== 'local' ||
+        (live && !ownedSessions.has(live.session)) ||
+        ctx.eventStore.hasUncertainOrdinaryCommand(prompt.sessionId)
+      )
+        throw new SessionPromptError('Choose a fresh Local Codex group participant.', 422);
+      const [entry, chat] = await Promise.all([
+        import('./ordinary-local-codex-entry.js'),
+        import('./chat.js'),
+      ]);
+      if (
+        !live &&
+        !prepared &&
+        !chat.canResumeOwnedLocalCodexDriver(meta.sessionId, prompt.auth.id)
+      )
+        throw new SessionPromptError(
+          'Open this participant to resolve its ordinary session state.',
+          422,
+        );
+      const inventory = entry.ordinaryRepositoryRuntimeInventory('local', 'codex', binding);
+      const resolved = inventory.catalog.resolve({
+        account: binding.account,
+        harness: 'codex',
+        targetId: binding.execution.targetId,
+        mode: prompt.settings!.selection.permission.mode,
+      });
+      if (resolved.status !== 'compatible' || !isDeepStrictEqual(resolved.binding, binding))
+        throw new SessionPromptError('The participant account or runtime is unavailable.', 422);
+      const [workspaces, library, profiles] = await Promise.all([
+        import('./repository-workspace-runtime.js'),
+        import('./agent-library-runtime.js'),
+        import('./ordinary-codex-agent-profile.js'),
+      ]);
+      const profile = profiles.readOrdinaryCodexAgentProfile(
+        library.getAgentLibrary(),
+        prompt.settings!.selection.agent,
+      );
+      const workspace = workspaces
+        .getRepositoryWorkspaces(true)
+        .get(prompt.settings!.repositoryWorkspaceId);
+      if (
+        !profile ||
+        profile.definition?.contextRecipe !== undefined ||
+        !workspace ||
+        workspace.conversationId !== meta.sessionId ||
+        workspace.directory !== meta.cwd ||
+        !workspace.hostReservation
+      )
+        throw new SessionPromptError('Review the participant agent and prepared repository.', 422);
+      target(prompt.sessionId, prompt.auth, prompt);
+    },
     async sessions(auth) {
       if (!authorized(auth)) throw new SessionPromptError('Sign in to view sessions.', 403);
       return ctx.eventStore.listSessions(1000).flatMap((meta) => {

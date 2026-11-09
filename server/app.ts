@@ -1,3 +1,5 @@
+import { SessionRuntimeError, findSessionRuntimeError } from './session-runtime-error.js';
+import { reportRetainedRuntimeFailure } from './retained-runtime-failure.js';
 import { reconcilableLocalCodexCommand } from './retained-local-codex-effects.js';
 import { sessionMetadataDiagnostic } from './session-metadata-error.js';
 import { createQueuedMessageReceiptHandler } from './queued-message-receipt.js';
@@ -4121,7 +4123,7 @@ async function reattachCodexQueue(
   return runtime ? 'ready' : codexReattachments.has(id) ? 'reattaching' : 'unavailable';
 }
 
-function assertQueueOperator(id: string, authorization?: import('./auth.js').AuthSession) {
+export function assertQueueOperator(id: string, authorization?: import('./auth.js').AuthSession) {
   assertOwnedCodexQueueControl(
     {
       runtimeBinding: (sessionId) => eventStore.getSessionRuntimeBinding(sessionId),
@@ -4329,35 +4331,35 @@ app.post('/api/sessions/:id/codex-queue/continue', async (req, res) => {
       .json({ error: 'Use the original sign-in to manage this conversation’s queue.' });
     return;
   }
-  if (
-    ['responses', 'gemini'].includes(
-      eventStore.getSessionRuntimeBinding(sessionId)?.harness.implementation ?? '',
-    )
-  ) {
+  const rejectRecovery = (error: unknown) => {
+    // Retention and delivery are authority boundaries too: a revoked operator
+    // cannot append a diagnostic or receive session-specific recovery details.
     try {
-      await continueOwnedLocalResponsesQueue(
-        sessionId,
-        res.locals.authSession,
-        typeof req.headers['x-connection-id'] === 'string'
-          ? req.headers['x-connection-id']
-          : undefined,
-      );
-      res.json({ ok: true });
+      assertQueueOperator(sessionId, res.locals.authSession);
     } catch {
-      res.status(409).json({
-        error:
-          'Saved work could not reconnect. Check the original sign-in, account, settings and prior outcome before trying again.',
-      });
+      res
+        .status(403)
+        .json({ error: 'Use the original sign-in to manage this conversation’s queue.' });
+      return;
     }
-    return;
-  }
+    const failure =
+      findSessionRuntimeError(error) ??
+      new SessionRuntimeError('recovery_unavailable', { cause: error });
+    reportRetainedRuntimeFailure({ store: eventStore, sessionId, error: failure });
+    res.status(409).json({ error: failure.publicMessage(), runtimeFailure: failure.telemetry() });
+  };
   const runtimeBinding = eventStore.getSessionRuntimeBinding(sessionId);
-  if (
-    runtimeBinding?.harness.implementation === 'codex' &&
-    runtimeBinding.execution.location === 'local'
-  ) {
+  const localContinue = ['responses', 'gemini'].includes(
+    runtimeBinding?.harness.implementation ?? '',
+  )
+    ? continueOwnedLocalResponsesQueue
+    : runtimeBinding?.harness.implementation === 'codex' &&
+        runtimeBinding.execution.location === 'local'
+      ? continueOwnedLocalCodexQueue
+      : undefined;
+  if (localContinue) {
     try {
-      await continueOwnedLocalCodexQueue(
+      await localContinue(
         sessionId,
         res.locals.authSession,
         typeof req.headers['x-connection-id'] === 'string'
@@ -4365,11 +4367,8 @@ app.post('/api/sessions/:id/codex-queue/continue', async (req, res) => {
           : undefined,
       );
       res.json({ ok: true });
-    } catch {
-      res.status(409).json({
-        error:
-          'Saved work could not reconnect. Check the original sign-in, account, settings and prior outcome before trying again.',
-      });
+    } catch (error) {
+      rejectRecovery(error);
     }
     return;
   }
@@ -4399,10 +4398,8 @@ app.post('/api/sessions/:id/codex-queue/continue', async (req, res) => {
     assertQueueOperator(sessionId, res.locals.authSession);
     await runtime.acknowledgeRecovery();
     res.json({ ok: true });
-  } catch {
-    res
-      .status(409)
-      .json({ error: 'Cannot continue this queue. Check account configuration and connection.' });
+  } catch (error) {
+    rejectRecovery(error);
   }
 });
 

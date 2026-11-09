@@ -2,6 +2,140 @@
 
 Living map owner: workstream C, `01a14bdc-d152-7912-84d4-c0012e9d5206`.
 
+## 7 November 2026 interrupted landing and review corrections
+
+PR #1261 was recovered after an interrupted main integration. Accepted base
+`c38e253855552edc81711ec02366218d08469d73` and reviewed candidate `2615046`
+are retained in its history. Centaur review `5813506337` reported five blockers;
+this follow-up corrects their shared-draft, scrolling, source Stop, terminal
+recovery and input-validation paths. It remains candidate self-verification
+until current-head CI and Centaur verify the changes.
+
+Shared drafts are excluded from ordinary draft discovery, and unresolved send
+receipts resist generic discard. The ordinary screen remains mounted as its
+first session identity is assigned, while shared state is fenced by source,
+client and verified login. The host observes the existing startup/login owner
+instead of starting another authentication operation. Ordinary and shared
+transcripts keep separate scroll refs, and an active source turn retains its
+original composer and Stop callback. Oversized input settles with a visible
+refusal and retained draft instead of an unhandled promise rejection.
+
+The native Codex owner now retains its exact provider terminal notification in
+the existing event store. Observation reads only the original command's terminal
+record; queue consumption, generic cleanup, restart and abandonment cannot prove
+completion. Completed, failed and interrupted turns can release the original
+send fence without an assistant body. Six owner cases cover definite and
+ambiguous outcomes, and the actual authenticated application test verifies the
+native notification through the typed observation client. The application and
+router rerun passes all 25 cases, including the production composer/remount path.
+The focused UI/design/owner run passes 315 tests with one existing skip; its route
+subset initially hit the sandbox listener restriction before the permitted rerun.
+
+The two older responsive-screen fixtures now preserve authentication exports and
+apply store selectors accurately; their 16 continuity cases pass unchanged.
+The new offline composer fixture clicks its auto-closing single-recipient picker
+and verifies the selected name explicitly. Protected design tests, ledgers and
+references remain unchanged. Browser CI on the reviewed candidate exposed
+navigation/remount and authentication-state failures; their rendered follow-up
+is still required. Its native repository workflow also failed with diagnostic
+`2a6e1e7a-b688-4b8a-92bd-e1c478f1a154` during materialization. The retained log
+establishes a roughly 50-second failing phase under host load, but does not
+establish the underlying cause; the next candidate must pass that gate too.
+
+The full fresh-agent edited review/refreeze/join UI journey, independent visual
+acceptance, runtime/device qualification and parent milestone remain open.
+No staging or deployment is authorized by this source landing.
+
+Follow-up CI run `42392570863` passed both formerly failing unit shards and the
+mobile Chromium shard containing the approved-design/composer journeys. Its
+supplemental coordinator journey exposed an older cancelled-body observation
+marker: `<stream>` was parsed as JSON even when a later complete response was
+present. The readiness helper now ignores only that exact retained marker.
+All four focused observer tests pass, including actual malformed-JSON refusal;
+the original complete-response requirements and ten-second deadline are intact.
+Current-head CI and independent review are still required after this correction.
+
+Centaur follow-up `5813858175` verified four findings on `2fe0c18` and retained
+one terminal-recovery blocker (`CEN-8BC16F8431AD`). Observation now reads the
+original receipt's exact durable command outcome even after its recipient is
+hidden or unlinked. It retains the command/session identity check, does not
+reopen that recipient's transcript, and grants no new dispatch authority. All
+28 focused recovery tests pass, including unavailable recipients and uncertain
+non-provider outcomes that must remain fenced.
+
+That CI run also passed all four unit shards, native repository/authorization
+workflows and composed/joined consumer coverage. Three browser shards exposed
+the same initial-history source-release scroll defect: mounting restored history
+measured its initial top position as a reader scroll-away. The transcript now
+retains initial follow intent until a scroll or source jump changes it. A new
+regression test failed before the correction; all 48 focused scroll/source tests
+pass afterward, retaining reader scroll-away and source-anchor protections.
+Browser verification and final Centaur approval must cover the next published
+head; these local checks do not establish either gate.
+
+## 7 November 2026 shared composer implementation checkpoint
+
+Candidate `feat/symposium-shared-composer`, baseline accepted main
+`44e872c8a615e30bd75ac9738101dfbfaa1d6aa7`, follows merged #1237 and #1252.
+This is implementation self-verification for child `c3ac6bfcc3b29e20`, not
+independent acceptance or installed-runtime qualification. Earlier entries keep
+their original verification dates.
+
+The production responsive host supplies the existing verified auth and transport
+identity to the ordinary collaboration owner. Agents uses the existing review
+and repository preparation surfaces. One explicit selected responder is enabled
+only after read-only server readiness. Compact linked names survive projection
+without treating a linked participant as a pending join. A retained request fence
+survives text clearing and remount; observational recovery cannot initiate work.
+
+`server/__tests__/collaboration-application-ui.test.tsx` runs the real authenticated
+HTTP/application/Git/SQLite/ordinary dispatch and reply owners, using the existing
+review/join/restart prerequisites. The production composer submits exactly one
+turn containing the edited brief and selected source, excluding hidden content.
+The finalized reply is attributed to the joined participant and survives remount
+without duplication. External source/account/runtime declarations and native RPC
+are synthetic; DOM scrolling is a JSDOM seam. This test starts after the API join:
+the combined fresh-agent UI review/refreeze/join acceptance journey remains open.
+
+The final application/recovery run passes 17 tests across three files with one
+worker and a 1 GiB Node heap. Admission can precede the first durable transcript
+record; reconciliation now waits for that record instead of rejecting a valid
+queued command as a changed snapshot. Its focused regression preserves errors for
+unrelated inconsistent histories. Earlier local runs failed the ordinary disk
+admission guard when space dropped below its required margin; after the operator
+freed space, the unchanged guard and positive assertions pass. No resource guard
+was bypassed. The interrupted cleanup/test command had no completion receipt and
+is not counted as successful verification.
+
+The messaging-owner omission control fails the unchanged positive composer
+assertion while its three API prerequisites pass. Exact app source was restored.
+A reply-owner omission attempt coincided with the disk refusal and is inconclusive;
+it is not evidence for that owner. Hook tests cover server refusal and exact-request
+recovery across remount without resending changed text. Draft tests cover acceptance
+without deleting shared recipient/recovery state.
+
+The focused regression command passes another 333 tests across 20 files, with one
+skip: the affected composer/joining/presentation/draft components and hooks,
+protocol/client projection, ordinary dispatcher/router and existing design
+contracts. Protocol/harness/client TypeScript builds, targeted semantic diagnostics
+for changed frontend/server sources, ESLint and registered source fingerprint
+checks pass. Attempting whole-graph frontend diagnostics exceeded the mandated
+1 GiB heap; full builds remain for CI. The final UI application rerun passes all
+four prerequisites/composer cases after cleanup of its temporary scrolling seam.
+
+`tests/offline/symposium-composer.spec.ts` adds six cases across existing desktop,
+mobile and narrow-mobile projects in both themes. It uses production UI with
+intercepted HTTP, no backend/model, and retains screenshot artifacts in CI. Test
+discovery passes. Local execution stopped at the repository's sandbox guard before
+browser launch, including through the approved escalation route. No browser result
+or rendered comparison is claimed; CI or a permitted normal host must supply it.
+The approved ledger, reference images and protected design checks are unchanged.
+
+Outstanding acceptance includes the combined fresh-agent UI journey, rendered
+comparison, exact-head CI/Centaur review, broad build checks and runtime/device
+qualification. The child, milestone and parent remain active. No staging,
+deployment or live inference is authorized by this checkpoint.
+
 ## 7 November 2026 directed prompt/reply implementation checkpoint
 
 Implementation evidence on `feat/symposium-directed-replies`, based on accepted

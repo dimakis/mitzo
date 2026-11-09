@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import Database from 'better-sqlite3';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, rmSync, renameSync, copyFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { TelosItemStore } from '../telos-item-store.js';
@@ -42,7 +42,7 @@ function fixture() {
 
 describe('Telos item progress', () => {
   it('reads the contract and exact milestone IDs without creating schema', () => {
-    const { store, db } = fixture();
+    const { store, db, path } = fixture();
     expect(store.read('parent')).toMatchObject({
       id: 'parent',
       status: 'active',
@@ -54,6 +54,28 @@ describe('Telos item progress', () => {
       db.prepare("SELECT name FROM sqlite_master WHERE name='telos_item_updates'").get(),
     ).toBeUndefined();
     expect(() => store.read('missing')).toThrow('Telos item not found');
+    expect(store.observeUpdateReceipt('parent', 'session', 'request', () => {})).toMatchObject({
+      updateReceipt: null,
+      itemExists: true,
+    });
+    expect(() =>
+      store.observeUpdateReceipt('parent', 'session', 'request', () => {
+        throw Error('revoked');
+      }),
+    ).toThrow('revoked');
+    expect(
+      db.prepare("SELECT name FROM sqlite_master WHERE name='telos_item_updates'").get(),
+    ).toBeUndefined();
+    renameSync(path, path + '.original');
+    copyFileSync(path + '.original', path);
+    try {
+      expect(() => store.observeUpdateReceipt('parent', 'session', 'request', () => {})).toThrow(
+        /identity changed/,
+      );
+    } finally {
+      rmSync(path);
+      renameSync(path + '.original', path);
+    }
   });
 
   it('atomically persists completion, history and session-attributed evidence across connections', () => {
@@ -72,6 +94,10 @@ describe('Telos item progress', () => {
     const other = new TelosItemStore(path);
     try {
       expect(other.read('child').updates).toEqual([receipt.update]);
+      expect(
+        other.observeUpdateReceipt('child', 'session-a', receipt.update.requestId, () => {})
+          .updateReceipt,
+      ).not.toBeNull();
       expect(other.read('parent').children[0].status).toBe('completed');
     } finally {
       other.close();

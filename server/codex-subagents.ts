@@ -66,6 +66,12 @@ const ToolCall = z.object({
   tool: id,
   arguments: z.record(z.string(), z.unknown()),
 });
+const SubagentActivity = z.object({
+  type: z.literal('subAgentActivity'),
+  id,
+  kind: z.enum(['started', 'interacted', 'completed']),
+  agentThreadId: id,
+});
 export interface SubagentRoot {
   threadId: string;
   commandId: string;
@@ -153,6 +159,7 @@ export class CodexSubagents {
   >();
   private listeners = new Set<(child: NativeSubagentSnapshot) => void>();
   private closed = false;
+  private parentStopAuthorization?: () => void;
   constructor(private readonly opts: Options) {}
   private snapshot(child: RetainedSubagent): NativeSubagentSnapshot {
     let available = this.live.has(child.threadId) && !child.inspectionFailure;
@@ -346,6 +353,19 @@ export class CodexSubagents {
       }
     }
     const item = object(params.item);
+    // Current native spawn_agent emits an activity hint instead of the older
+    // collaboration item. The hint grants nothing: admit still reads and
+    // verifies parentage, session tree, account, model and workspace ownership.
+    const activity =
+      method === 'item/started' || method === 'item/completed'
+        ? SubagentActivity.safeParse(item)
+        : undefined;
+    if (
+      root &&
+      activity?.success &&
+      (params.threadId === root.threadId || this.owns(params.threadId))
+    )
+      this.admit(activity.data.agentThreadId, String(params.threadId), root);
     if (
       root &&
       (params.threadId === root.threadId || this.owns(params.threadId)) &&
@@ -1314,6 +1334,9 @@ export class CodexSubagents {
     this.opts.store.finishControl(this.opts.scope, input, status);
     return status;
   }
+  hasPendingActivity(): boolean {
+    return this.pending.size > 0 || this.parentStops.size > 0;
+  }
   private cancelForParent(live: LiveChild): void {
     if (['completed', 'stopped', 'failed'].includes(live.child.state)) {
       live.cancelBeforeRun = false;
@@ -1334,7 +1357,7 @@ export class CodexSubagents {
     live.parentStop = { epoch: this.parentCancellationEpoch, turnId: live.child.turnId };
     const operation = this.control(
       { requestId: randomUUID(), threadId: live.child.threadId, action: 'stop' },
-      undefined,
+      this.parentStopAuthorization,
       true,
     )
       .catch(() => {
@@ -1345,7 +1368,9 @@ export class CodexSubagents {
       });
     this.parentStops.add(operation);
   }
-  async interruptAll(): Promise<void> {
+  async interruptAll(authorize?: () => void): Promise<void> {
+    authorize?.();
+    this.parentStopAuthorization = authorize;
     this.parentCancellationEpoch++;
     this.parentStopping = true;
     for (const live of this.live.values()) {
@@ -1354,11 +1379,13 @@ export class CodexSubagents {
       this.publish(live);
     }
     await this.settled();
+    authorize?.();
     for (const live of this.live.values()) this.cancelForParent(live);
     while (this.pending.size || this.parentStops.size)
       await Promise.all([...this.pending.values(), ...this.parentStops]);
   }
   parentResumed(): void {
+    this.parentStopAuthorization = undefined;
     if (!this.parentStopping) return;
     this.parentStopping = false;
     for (const live of this.live.values()) this.publish(live);
