@@ -121,7 +121,7 @@ for (const theme of ['dark', 'light'])
         const inputBox = (await page.locator('.chat-input-row').boundingBox())!;
         expect(errorBox.y + errorBox.height).toBeLessThanOrEqual(inputBox.y);
         await page.screenshot({
-          path: info.outputPath(`collaboration-${stage}-${theme}.png`),
+          path: info.outputPath(`chat-status-collaboration-${stage}-${theme}.png`),
           fullPage: true,
         });
         await retry.click();
@@ -145,7 +145,7 @@ for (const theme of ['dark', 'light'])
         true,
       );
       await page.screenshot({
-        path: info.outputPath(`ordinary-${stage}-${theme}-keyboard.png`),
+        path: info.outputPath(`chat-status-ordinary-${stage}-${theme}-keyboard.png`),
         fullPage: true,
       });
       expect(reads).toEqual({

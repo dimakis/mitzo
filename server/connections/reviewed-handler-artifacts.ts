@@ -29,7 +29,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../tests/fixtures/ordinary-collaboration-status.tsx':
     'fbfdc6f94adfd67fcf54f3f62bc1b547770aaec3195801d6037f107e39a4dfde',
   '../../tests/offline/ordinary-collaboration-status.spec.ts':
-    '83a41d2530fd5cf0eee9940573e3348287c15bfec0e56868e796baf25a0b9ff1',
+    '0e576f8662399a7e369f50c714d082ed85ceecc2c94788723fc0a4965b298583',
   '../../frontend/src/components/ConversationRepositoryPicker.tsx':
     'bad89b264d8bff41ed745fd33629e658ac947d6bc56b3945baae6fa0df2986cf',
   '../../frontend/src/components/SharedConversation.tsx':
