@@ -4727,7 +4727,14 @@ export class CodexConversation {
       this.opts.assertSteeringCurrent();
       if (active.nativeExecution)
         this.opts.assertNativeExecutionCurrent?.(active.nativeExecution, active.command.id);
-    } catch {
+    } catch (error) {
+      log.warn('Correction refused before native submission', {
+        conversationId: this.opts.conversationId,
+        commandId: active.command.id,
+        requestId: input.requestId,
+        phase: 'admission',
+        ...(error instanceof Error ? codexRuntimeErrorTelemetry(error) : {}),
+      });
       return { status: 'rejected' };
     }
     if (!this.opts.store.claimSteering(this.opts.conversationId, this.binding, input, target)) {

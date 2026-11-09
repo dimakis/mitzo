@@ -1,4 +1,5 @@
 import { findSessionRuntimeError, SessionRuntimeError } from './session-runtime-error.js';
+import { codexRuntimeErrorTelemetry } from './codex-runtime-diagnostics.js';
 import {
   capturePostAdoptionWire,
   observePostAdoptionWire,
@@ -1264,6 +1265,7 @@ function createOwnedCodexEntryRouter(
         log.warn('Ordinary command preparation failed', {
           sessionId,
           clientMsgId: input.clientMsgId,
+          ...codexRuntimeErrorTelemetry(error instanceof Error ? error : retainedFailure),
           ...retainedFailure.telemetry(),
           state: state ?? 'not_admitted',
         });

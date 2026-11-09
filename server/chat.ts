@@ -107,6 +107,7 @@ import { SESSION_TOOL_INSTRUCTIONS } from './session-credential-tools.js';
 import { isRegisteredConversation } from '@mitzo/protocol';
 import { clearWebSearchGrant } from './web-search-grants.js';
 import { codexRuntimeDiagnostic, codexRuntimeErrorTelemetry } from './codex-runtime-diagnostics.js';
+import { retainCodexPreparationFailure } from './codex-preparation-failure.js';
 import {
   createGithubPublishingTool,
   GITHUB_PUBLISHING_INSTRUCTIONS,
@@ -3977,7 +3978,7 @@ export async function prepareOwnedCodexChat(
         : { repositoryWorkspace: workspace }),
     });
   } catch (error) {
-    throw findSessionRuntimeError(error) ?? unavailable();
+    throw retainCodexPreparationFailure('runtime_admission', error);
   }
 
   const { expected, workspace, payload, profile } = selected;
@@ -4210,11 +4211,20 @@ export async function prepareOwnedCodexChat(
   } catch (error) {
     try {
       close();
-    } catch {
-      /* Retain uncertainty even if shutdown cannot finish. */
+    } catch (cleanupError) {
+      log.warn('Owned Codex preparation cleanup remains unconfirmed', {
+        sessionId,
+        clientMsgId: commandId,
+        cleanupFailureCode: 'owned_preparation_cleanup_failed',
+        ...codexRuntimeErrorTelemetry(retainCodexPreparationFailure('runtime_connection', error)),
+        cleanup: codexRuntimeErrorTelemetry(
+          retainCodexPreparationFailure('runtime_connection', cleanupError),
+        ),
+      });
     }
     throw (
-      findNativeMacExecutionUnavailable(error) ?? findSessionRuntimeError(error) ?? unavailable()
+      findNativeMacExecutionUnavailable(error) ??
+      retainCodexPreparationFailure('runtime_connection', error)
     );
   } finally {
     releaseStartup?.();

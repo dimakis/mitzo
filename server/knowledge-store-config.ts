@@ -1,4 +1,5 @@
 /** Trusted host enrollment. Documents and provider messages cannot select stores or adapter programs. */
+import { registerWorkspaceRuntimeAuthorityNamespace } from './workspace-runtime-private-paths.js';
 import { cachedKnowledgeConversion } from './knowledge-adapter-cache.js';
 import { execFile } from 'node:child_process';
 import { createHash } from 'node:crypto';
@@ -96,6 +97,9 @@ export function mgmtKnowledgeAdapter(
     ...(isAbsolute(sourceUrl) ? [sourceUrl] : []),
   ];
   privateState(adapter.root, workspaces);
+  // Protect all publication revisions and mutable pointers before admitting a
+  // native chat. Selecting another publication must not retire unrelated turns.
+  registerWorkspaceRuntimeAuthorityNamespace(adapter.root);
   const publicationsPath = join(adapter.root, 'publications');
   const verifyPublications = () => {
     const stat = lstatSync(publicationsPath, { throwIfNoEntry: false });

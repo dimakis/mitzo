@@ -10,6 +10,7 @@ import { createHash } from 'node:crypto';
 import { EventStore } from '../event-store.js';
 import { reportRetainedRuntimeFailure } from '../retained-runtime-failure.js';
 import { SessionRuntimeError } from '../session-runtime-error.js';
+import * as runtimeDiagnostics from '../codex-runtime-diagnostics.js';
 import { codexRuntimeDiagnostic } from '../codex-runtime-diagnostics.js';
 import { codexRolloverHistory, codexRolloverSources } from '../codex-rollover-context.js';
 import { mkdtempSync, rmSync } from 'node:fs';
@@ -10989,8 +10990,10 @@ it('rechecks the operator after publishing correction progress, before any steer
 it('requires the universal steering owner fence even without a native filesystem policy', async () => {
   const f = await setup();
   await f.c.send({ id: 'a', prompt: 'First' });
+  const failure = new SessionRuntimeError('native_policy_changed');
+  const diagnostic = vi.spyOn(runtimeDiagnostics, 'codexRuntimeErrorTelemetry');
   f.conversationOptions.assertSteeringCurrent = () => {
-    throw Error('Delegated work revoked');
+    throw failure;
   };
   expect(
     await f.c.steer(
@@ -10998,6 +11001,7 @@ it('requires the universal steering owner fence even without a native filesystem
       () => {},
     ),
   ).toEqual({ status: 'rejected' });
+  expect(diagnostic).toHaveBeenCalledWith(failure);
   expect(f.requests.filter((r) => r.method === 'turn/steer')).toHaveLength(0);
 });
 it('reserves a correction ID against later ordinary commands too', async () => {

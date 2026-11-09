@@ -65,6 +65,8 @@ class NativeSubagentFeed {
   };
   private async connect() {
     this.stop();
+    // Reconnecting does not prove that any retained child still has live authority.
+    this.update({ ...this.state, available: false });
     const abort = new AbortController();
     this.abort = abort;
     let available = true;
@@ -79,7 +81,18 @@ class NativeSubagentFeed {
         const value = NativeSubagentStreamEventSchema.parse(raw);
         if (value.type === 'reset') {
           available = value.available;
-          this.update({ agents: [], available });
+          // Reset starts a snapshot, but a disconnect can interrupt it. Keep
+          // known output and attribution until each child is freshly observed.
+          this.update({
+            agents: this.state.agents.map((agent) => ({
+              ...agent,
+              available: false,
+              state: ['starting', 'working', 'needs_permission', 'stopping'].includes(agent.state)
+                ? 'unknown'
+                : agent.state,
+            })),
+            available,
+          });
         } else if (value.type === 'status') {
           available = value.available;
           this.update({ ...this.state, available });
