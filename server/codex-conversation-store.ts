@@ -1,4 +1,9 @@
+import type {
+  RetainedHostResultObserver,
+  RetainedNativeEffectEvidence,
+} from './retained-native-effect-evidence.js';
 import { codexStoredAccountKey } from './codex-stored-account.js';
+import { hasRetainedTaskExecutionResult } from './retained-task-execution-result.js';
 import { ToolFailureSchema, type ToolFailure } from '@mitzo/protocol';
 import { reauthorizeHostLoginStore } from './host-codex-login-reauthorization-store.js';
 import type { HostCodexLoginReauthorization } from './host-codex-login-reauthorization.js';
@@ -3217,13 +3222,14 @@ export class CodexConversationStore {
     id: string,
     binding: AccountBinding,
     target: CodexNativeTurnTarget,
-    expectedPhase: CompletionPhaseReceipt,
+    expectedPhase: CompletionPhaseReceipt | undefined,
     policy: CodexNativeExecutionPolicy,
     status: 'completed' | 'interrupted',
     effects: SettledInterruptedEffects | undefined,
     assertCurrent: () => void,
     assertOriginal: () => void,
     afterNativeReconciliation?: () => void,
+    observeHostResult?: RetainedHostResultObserver,
   ): void {
     this.db
       .transaction(() => {
@@ -3236,11 +3242,48 @@ export class CodexConversationStore {
           ) ||
           !isDeepStrictEqual(this.nativeRecoveryTarget(id, binding), target) ||
           this.commandStatus(id, binding, target.commandId) !== 'interrupted' ||
-          expectedPhase.observedOutcome !== 'completed' ||
-          expectedPhase.priorEffectsUnknown ||
+          (expectedPhase &&
+            (expectedPhase.observedOutcome !== 'completed' || expectedPhase.priorEffectsUnknown)) ||
           (status !== 'completed' && (status !== 'interrupted' || !effects))
         )
           throw Error('Retained reconciliation target changed');
+        if (!expectedPhase) {
+          // No downstream phase was admitted: do not manufacture hook success.
+          // Only the exact interrupted turn with fully proved effects can retire.
+          const execution = this.readNativeExecution(id, binding, {
+            id: target.commandId,
+            attempt: target.attempt,
+          });
+          if (
+            status !== 'interrupted' ||
+            !effects ||
+            !this.readHostCustody(id, binding) ||
+            execution?.phase !== 'accepted' ||
+            execution.threadId !== target.threadId ||
+            execution.turnId !== target.turnId ||
+            execution.generation !== target.generation ||
+            execution.policy.cwd !== policy.cwd ||
+            execution.policy.bindingRevision !== policy.bindingRevision ||
+            this.continuationBlocker(id, binding)?.commandId !== target.commandId
+          )
+            throw Error('Interrupted recovery lacks original owned execution evidence');
+          this.assertSettledInterruptedHostEffects(
+            id,
+            binding,
+            target,
+            execution.policy.policyRevision,
+            effects,
+            observeHostResult,
+          );
+          this.db
+            .prepare(
+              `UPDATE codex_commands SET ambiguous=0,retryable=0
+            WHERE conversation_id=? AND id=? AND attempt=? AND status='interrupted'`,
+            )
+            .run(id, target.commandId, target.attempt);
+          this.acknowledgeRecovery(id, binding, target);
+          return;
+        }
         // Revalidate original external authority under the writer lock. The
         // snapshot check above is consumed once; later checks retain that authority.
         this.reconcileNativeRecovery(
@@ -3265,6 +3308,7 @@ export class CodexConversationStore {
             policy,
             effects,
             current,
+            observeHostResult,
           );
         else
           this.reconcileCompletionPhase(
@@ -3275,11 +3319,124 @@ export class CodexConversationStore {
             policy.policyRevision,
             effects,
             current,
+            observeHostResult,
           );
         this.acknowledgeRecovery(id, binding, target);
       })
       .immediate();
   }
+  /** Compare one fresh native observation with the original durable host receipts.
+   * Used by both interrupted-only and completion-phase recovery; never changes results. */
+  private assertSettledInterruptedHostEffects(
+    id: string,
+    binding: AccountBinding,
+    target: CodexNativeTurnTarget,
+    policyRevision: string | undefined,
+    effects: SettledInterruptedEffects,
+    observeHostResult?: RetainedHostResultObserver,
+  ) {
+    const observed = interruptedEffectCalls(effects, id, target);
+    const calls = observed.filter((call) => call.threadId === target.threadId);
+    const childCalls = observed.filter((call) => call.threadId !== target.threadId);
+    const receipts = this.db
+      .prepare(
+        `SELECT call_id,turn_id,tool_name,request_hash,
+      result_content,result_is_error,result_effect_outcome,result_content_items FROM codex_tools WHERE conversation_id=? AND command_id=?`,
+      )
+      .all(id, target.commandId) as Array<{
+      call_id: string;
+      turn_id: string | null;
+      tool_name: string | null;
+      request_hash: string | null;
+      result_content: string | null;
+      result_is_error: number | null;
+      result_effect_outcome: string | null;
+      result_content_items: string | null;
+    }>;
+    const byId = new Map(receipts.map((receipt) => [receipt.call_id, receipt]));
+    let ownedExecution = false;
+    let originalExecution: ReturnType<CodexConversationStore['readNativeExecution']>;
+    let originalCustody: ReturnType<CodexConversationStore['readHostCustody']>;
+    if (
+      observed.some(
+        (call) =>
+          call.threadId !== target.threadId ||
+          byId.get(call.callId)?.result_effect_outcome !== 'settled',
+      )
+    ) {
+      // Old owned-local sources disabled project hooks. Positive original
+      // custody plus accepted policy qualify only this historical cohort.
+      // Returned failures of intrinsic reads have no mutation to reconcile.
+      // Preserve their original outcome; this never settles unknown writes.
+      try {
+        originalExecution = this.readNativeExecution(id, binding, {
+          id: target.commandId,
+          attempt: target.attempt,
+        });
+        originalCustody = this.readHostCustody(id, binding);
+        ownedExecution =
+          !!originalCustody &&
+          originalExecution?.phase === 'accepted' &&
+          originalExecution.turnId === target.turnId &&
+          originalExecution.threadId === target.threadId &&
+          originalExecution.generation === target.generation &&
+          originalExecution.policy.policyRevision === policyRevision;
+      } catch {
+        /* Unavailable original owned-local evidence retains the fence. */
+      }
+    }
+    if (childCalls.some((call) => !ownedExecution || !call.intrinsicRead))
+      throw Error('Interrupted child host effects require original owned read authority');
+    if (
+      calls.length !== receipts.length ||
+      calls.some((call) => {
+        const receipt = byId.get(call.callId);
+        const evidence = (): RetainedNativeEffectEvidence => ({
+          target,
+          execution: originalExecution!,
+          custody: originalCustody!,
+          diagnostic: this.commandLifecycle(id, binding, target.commandId).diagnostic,
+          callId: call.callId,
+          requestHash: call.requestHash,
+          effectOutcome: receipt!.result_effect_outcome,
+          contentItems: receipt!.result_content_items,
+        });
+        return (
+          !receipt ||
+          receipt.turn_id !== target.turnId ||
+          receipt.tool_name !== call.toolName ||
+          receipt.request_hash !== call.requestHash ||
+          receipt.result_content === null ||
+          receipt.result_is_error !== Number(call.isError) ||
+          !(
+            receipt.result_effect_outcome === 'settled' ||
+            (receipt.result_effect_outcome === null && !call.isError) ||
+            (call.readOnly &&
+              ownedExecution &&
+              (receipt.result_effect_outcome === null || call.intrinsicRead)) ||
+            (call.toolName === 'TaskExecution' &&
+              ownedExecution &&
+              hasRetainedTaskExecutionResult(
+                id,
+                binding,
+                this.read(id, binding).cwd,
+                call.arguments,
+                { content: receipt.result_content, isError: call.isError },
+                evidence,
+              )) ||
+            (ownedExecution &&
+              observeHostResult?.(
+                call,
+                { content: receipt.result_content, isError: call.isError },
+                evidence,
+              ) === true)
+          )
+        );
+      })
+    )
+      throw Error('Interrupted native host effects lack matching settled receipts');
+  }
+
   /** A fresh account/workspace authority boundary supplies this reconciliation.
    * It consumes original success evidence and never invokes a hook or tool. */
   reconcileCompletionPhase(
@@ -3290,6 +3447,7 @@ export class CodexConversationStore {
     policyRevision?: string,
     interruptedEffects?: SettledInterruptedEffects,
     assertCurrent?: () => void,
+    observeHostResult?: RetainedHostResultObserver,
   ) {
     this.db
       .transaction(() => {
@@ -3312,71 +3470,15 @@ export class CodexConversationStore {
           )
           .get(id, target.commandId) as { completion_phases: string | null; status: string };
         if (row.status === 'interrupted' && interruptedEffects && !phase.priorEffectsUnknown) {
-          const calls = interruptedEffectCalls(interruptedEffects, id, target);
           if (!assertCurrent) throw Error('Interrupted effect recovery authority unavailable');
-          const receipts = this.db
-            .prepare(
-              `SELECT call_id,turn_id,tool_name,request_hash,
-            result_content,result_is_error,result_effect_outcome FROM codex_tools WHERE conversation_id=? AND command_id=?`,
-            )
-            .all(id, target.commandId) as Array<{
-            call_id: string;
-            turn_id: string | null;
-            tool_name: string | null;
-            request_hash: string | null;
-            result_content: string | null;
-            result_is_error: number | null;
-            result_effect_outcome: string | null;
-          }>;
-          const byId = new Map(receipts.map((receipt) => [receipt.call_id, receipt]));
-          let legacyOwnedReads = false;
-          if (
-            calls.some(
-              (call) =>
-                call.isError &&
-                call.readOnly &&
-                byId.get(call.callId)?.result_effect_outcome === null,
-            )
-          ) {
-            // Old owned-local sources disabled project hooks. Positive original
-            // custody plus accepted policy qualify only this historical cohort.
-            // Other owners and explicit unknown outcomes gain no read inference.
-            try {
-              const originalNative = this.readNativeExecution(id, binding, {
-                id: target.commandId,
-                attempt: target.attempt,
-              });
-              legacyOwnedReads =
-                !!this.readHostCustody(id, binding) &&
-                originalNative?.phase === 'accepted' &&
-                originalNative.turnId === target.turnId &&
-                originalNative.threadId === target.threadId &&
-                originalNative.generation === target.generation &&
-                originalNative.policy.policyRevision === phase.policyRevision;
-            } catch {
-              /* Unavailable original owned-local evidence retains the fence. */
-            }
-          }
-          if (
-            calls.length !== receipts.length ||
-            calls.some((call) => {
-              const receipt = byId.get(call.callId);
-              return (
-                !receipt ||
-                receipt.turn_id !== target.turnId ||
-                receipt.tool_name !== call.toolName ||
-                receipt.request_hash !== call.requestHash ||
-                receipt.result_content === null ||
-                receipt.result_is_error !== Number(call.isError) ||
-                !(
-                  receipt.result_effect_outcome === 'settled' ||
-                  (receipt.result_effect_outcome === null &&
-                    (!call.isError || (call.readOnly && legacyOwnedReads)))
-                )
-              );
-            })
-          )
-            throw Error('Interrupted native host effects lack matching settled receipts');
+          this.assertSettledInterruptedHostEffects(
+            id,
+            binding,
+            target,
+            phase.policyRevision,
+            interruptedEffects,
+            observeHostResult,
+          );
         } else if (!['running', 'completed'].includes(row.status))
           throw Error('Completion phase requires the exact completed native outcome');
         this.saveCompletionPhases(
@@ -3410,6 +3512,7 @@ export class CodexConversationStore {
     currentPolicy: CodexNativeExecutionPolicy,
     interruptedEffects: SettledInterruptedEffects | undefined,
     assertCurrent: () => void,
+    observeHostResult?: RetainedHostResultObserver,
   ) {
     const current = () => {
       if (typeof assertCurrent !== 'function')
@@ -3460,6 +3563,7 @@ export class CodexConversationStore {
             )
               throw Error('Historical native execution receipt changed');
           },
+          observeHostResult,
         );
       })
       .immediate();

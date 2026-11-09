@@ -1,4 +1,5 @@
-import { isReadOnlyBuiltinToolCall } from './builtin-tool-behavior.js';
+import { inspectNativeRecoveryTree } from './codex-recovery-tree.js';
+import { isReadOnlyBuiltinToolCall, isIntrinsicRecoveryRead } from './builtin-tool-behavior.js';
 import { createHash } from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
 import { z } from 'zod';
@@ -8,10 +9,14 @@ import { CodexNativeFileChange } from './codex-native-file-change.js';
 
 type HostCall = Readonly<{
   callId: string;
+  threadId: string;
+  turnId: string;
   toolName: string;
   requestHash: string;
+  arguments: Record<string, unknown>;
   isError: boolean;
   readOnly: boolean;
+  intrinsicRead: boolean;
 }>;
 /** Process-local evidence from a fresh native RPC, never a JSON recovery grant. */
 export type SettledInterruptedEffects = Readonly<{ readonly nativeEffects: unique symbol }>;
@@ -54,10 +59,18 @@ export async function observeNativeRecoveryTurn(
   target: CodexNativeTurnTarget,
   inspectInterruptedEffects: boolean,
   beforeAdditionalRead: () => Promise<void>,
+  expectedCwd?: string,
 ) {
+  let rpcCount = 0;
+  let inspectedBytes = 0;
   const read = async (method: string, params: Record<string, unknown>) => {
+    if (++rpcCount > 2048) throw new SessionRuntimeError('recovery_history_limit');
     try {
-      return await request(method, params);
+      const result = await request(method, params);
+      inspectedBytes += Buffer.byteLength(JSON.stringify(result));
+      if (inspectedBytes > MAX_INTERRUPTED_BYTES)
+        throw new SessionRuntimeError('recovery_history_limit');
+      return result;
     } catch (error) {
       throw (
         findSessionRuntimeError(error) ??
@@ -86,103 +99,131 @@ export async function observeNativeRecoveryTurn(
   if (turn.error !== null)
     throw Error('Interrupted native effects require an error-free turn observation');
   const calls: HostCall[] = [];
-  const ids = new Set<string>();
-  const cursors = new Set<string>();
-  let cursor: string | undefined;
-  let exhausted = false;
-  let inspectedBytes = 0;
-  for (let count = 0; count < MAX_INTERRUPTED_ITEMS; count++) {
-    await beforeAdditionalRead();
-    const page = ItemPage.parse(
-      await read('thread/items/list', {
-        threadId: target.threadId,
-        turnId: target.turnId,
-        limit: 1,
-        sortDirection: 'asc',
-        ...(cursor ? { cursor } : {}),
-      }),
-    );
-    inspectedBytes += Buffer.byteLength(JSON.stringify(page));
-    if (inspectedBytes > MAX_INTERRUPTED_BYTES)
-      throw new SessionRuntimeError('recovery_history_limit');
-    if (!page.data.length && page.nextCursor !== null)
-      throw Error('Interrupted native item page is incomplete');
-    const entry = page.data[0];
-    if (entry && entry.turnId !== target.turnId)
-      throw Error('Interrupted native item belongs to another turn');
-    if (entry) {
-      const item = entry.item;
-      if (ids.has(item.id)) throw Error('Interrupted native item identity is duplicated');
-      ids.add(item.id);
-      switch (item.type) {
-        case 'userMessage':
-        case 'agentMessage':
-        case 'reasoning':
-        case 'plan':
-        case 'contextCompaction':
-          break;
-        case 'commandExecution':
-          // A failed shell command with an observed exit code has a known
-          // terminal result. This settles its effects; it does not mark the
-          // command successful, rerun it, or erase its failure from history.
-          if (
-            !(item.status === 'completed' && item.exitCode === 0) &&
-            !(
-              item.status === 'failed' &&
-              z.number().int().min(1).max(255).safeParse(item.exitCode).success
+  const references = new Set<string>();
+  let itemReads = 0;
+  const inspectItems = async (threadId: string, turnId: string) => {
+    const ids = new Set<string>();
+    const cursors = new Set<string>();
+    let cursor: string | undefined;
+    let exhausted = false;
+    for (; itemReads < MAX_INTERRUPTED_ITEMS;) {
+      itemReads++;
+      await beforeAdditionalRead();
+      const page = ItemPage.parse(
+        await read('thread/items/list', {
+          threadId,
+          turnId,
+          limit: 1,
+          sortDirection: 'asc',
+          ...(cursor ? { cursor } : {}),
+        }),
+      );
+      if (!page.data.length && page.nextCursor !== null)
+        throw Error('Interrupted native item page is incomplete');
+      const entry = page.data[0];
+      if (entry && entry.turnId !== turnId)
+        throw Error('Interrupted native item belongs to another turn');
+      if (entry) {
+        const item = entry.item;
+        if (ids.has(item.id)) throw Error('Interrupted native item identity is duplicated');
+        ids.add(item.id);
+        switch (item.type) {
+          case 'userMessage':
+          case 'agentMessage':
+          case 'reasoning':
+          case 'plan':
+          case 'contextCompaction':
+            break;
+          case 'commandExecution':
+            // A failed shell command with an observed exit code has a known
+            // terminal result. This settles its effects; it does not mark the
+            // command successful, rerun it, or erase its failure from history.
+            if (
+              !(item.status === 'completed' && item.exitCode === 0) &&
+              !(
+                item.status === 'failed' &&
+                z.number().int().min(1).max(255).safeParse(item.exitCode).success
+              )
             )
-          )
-            throw Error('Interrupted native command effects remain unknown');
-          break;
-        case 'fileChange':
-          // Native completed patches are already applied. Failed/in-progress
-          // patches can be partial and must retain their original uncertainty.
-          AppliedFileChanges.parse(item);
-          break;
-        case 'webSearch':
-        case 'imageView':
-          // Native reads have no mutation to replay. The pinned item contract
-          // has no required status; preserve any explicit nonterminal refusal.
-          z.object({
-            status: z.enum(['completed', 'failed']).optional(),
-            ...(item.type === 'webSearch' ? { query: z.string() } : { path: z.string().min(1) }),
-          }).parse(item);
-          break;
-        case 'dynamicToolCall': {
-          if (
-            item.namespace != null ||
-            !(
-              (item.status === 'completed' && item.success === true) ||
-              (item.status === 'failed' && item.success === false)
+              throw Error('Interrupted native command effects remain unknown');
+            break;
+          case 'fileChange':
+            // Native completed patches are already applied. Failed/in-progress
+            // patches can be partial and must retain their original uncertainty.
+            AppliedFileChanges.parse(item);
+            break;
+          case 'webSearch':
+          case 'imageView':
+            // Native reads have no mutation to replay. The pinned item contract
+            // has no required status; preserve any explicit nonterminal refusal.
+            z.object({
+              status: z.enum(['completed', 'failed']).optional(),
+              ...(item.type === 'webSearch' ? { query: z.string() } : { path: z.string().min(1) }),
+            }).parse(item);
+            break;
+          case 'subAgentActivity': {
+            const activity = z
+              .object({
+                kind: z.enum(['started', 'interacted', 'completed', 'interrupted']),
+                agentThreadId: z.string().min(1).max(200),
+              })
+              .parse(item);
+            references.add(activity.agentThreadId);
+            break;
+          }
+          case 'dynamicToolCall': {
+            if (
+              item.namespace != null ||
+              !(
+                (item.status === 'completed' && item.success === true) ||
+                (item.status === 'failed' && item.success === false)
+              )
             )
-          )
-            throw Error('Interrupted host tool effects remain unknown');
-          const toolName = z.string().min(1).parse(item.tool);
-          const args = z.record(z.string(), z.unknown()).parse(item.arguments);
-          calls.push({
-            callId: item.id,
-            toolName,
-            requestHash: createHash('sha256').update(JSON.stringify(args)).digest('hex'),
-            isError: !item.success,
-            readOnly: isReadOnlyBuiltinToolCall(toolName, args),
-          });
-          break;
+              throw Error('Interrupted host tool effects remain unknown');
+            const toolName = z.string().min(1).parse(item.tool);
+            const args = z.record(z.string(), z.unknown()).parse(item.arguments);
+            if (threadId !== target.threadId && !isIntrinsicRecoveryRead(toolName))
+              throw new SessionRuntimeError('recovery_effects_unverified');
+            calls.push({
+              threadId,
+              turnId,
+              callId: item.id,
+              toolName,
+              requestHash: createHash('sha256').update(JSON.stringify(args)).digest('hex'),
+              arguments: args,
+              isError: !item.success,
+              readOnly: isReadOnlyBuiltinToolCall(toolName, args),
+              intrinsicRead: isIntrinsicRecoveryRead(toolName),
+            });
+            break;
+          }
+          default:
+            // MCP/collaboration and future native item types need
+            // their own settlement contract. Never infer success from terminal turn metadata.
+            throw new SessionRuntimeError('recovery_effects_unverified');
         }
-        default:
-          // MCP/collaboration and future native item types need
-          // their own settlement contract. Never infer success from terminal turn metadata.
-          throw new SessionRuntimeError('recovery_effects_unverified');
       }
+      if (page.nextCursor === null) {
+        exhausted = true;
+        break;
+      }
+      if (cursors.has(page.nextCursor)) throw Error('Interrupted native item cursor is duplicated');
+      cursors.add(page.nextCursor);
+      cursor = page.nextCursor;
     }
-    if (page.nextCursor === null) {
-      exhausted = true;
-      break;
-    }
-    if (cursors.has(page.nextCursor)) throw Error('Interrupted native item cursor is duplicated');
-    cursors.add(page.nextCursor);
-    cursor = page.nextCursor;
-  }
-  if (!exhausted) throw new SessionRuntimeError('recovery_history_limit');
+    if (!exhausted) throw new SessionRuntimeError('recovery_history_limit');
+  };
+  await inspectItems(target.threadId, target.turnId);
+  await inspectNativeRecoveryTree(
+    target.threadId,
+    expectedCwd,
+    references,
+    async (method, params) => {
+      await beforeAdditionalRead();
+      return read(method, params);
+    },
+    inspectItems,
+  );
   await beforeAdditionalRead();
   const final = Page.parse(
     await read('thread/turns/list', {
