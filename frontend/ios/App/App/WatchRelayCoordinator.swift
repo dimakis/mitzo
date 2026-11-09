@@ -5,16 +5,13 @@
 import UIKit
 import MitzoShared
 
-final class WatchRelayCoordinator: @unchecked Sendable {
+@MainActor
+final class WatchRelayCoordinator {
     private let authManager = AuthManager()
     private let watchRelay: WatchRelayHost
     private var wsClient: MitzoWSClient?
-    private let lock = NSLock()
-
-    private var serverURL: URL {
-        let stored = UserDefaults.standard.string(forKey: "mitzo_server_url")
-        return URL(string: stored ?? "https://dimakis-mac.tail:3100")!
-    }
+    private var connectionGeneration: UInt64 = 0
+    private var started = false
 
     init() {
         watchRelay = WatchRelayHost(authManager: authManager, notificationAPIProvider: {
@@ -26,6 +23,8 @@ final class WatchRelayCoordinator: @unchecked Sendable {
     }
 
     func start() {
+        guard !started else { return }
+        started = true
         Task { await connect() }
     }
 
@@ -35,7 +34,7 @@ final class WatchRelayCoordinator: @unchecked Sendable {
 
     func suspend() {
         Task {
-            let client: MitzoWSClient? = lock.withLock { wsClient }
+            let client = wsClient
             if let client {
                 let sessions = await client.getSuspendSessions()
                 if !sessions.isEmpty {
@@ -46,19 +45,22 @@ final class WatchRelayCoordinator: @unchecked Sendable {
     }
 
     private func connect() async {
-        guard let token = try? await authManager.getToken() else { return }
-
-        var components = URLComponents(url: serverURL, resolvingAgainstBaseURL: false)!
-        components.scheme = components.scheme == "https" ? "wss" : "ws"
-        components.path = "/ws/chat"
-        components.queryItems = [URLQueryItem(name: "token", value: token)]
-
-        guard let wsURL = components.url else { return }
+        connectionGeneration &+= 1
+        let generation = connectionGeneration
+        let previous = wsClient
+        wsClient = nil
+        await previous?.disconnect()
+        let origin = UserDefaults.standard.string(forKey: "mitzo_notification_server_url")
+        let currentAuth = AuthManager()
+        guard let token = try? await currentAuth.getToken(),
+              generation == connectionGeneration,
+              let serverURL = notificationServerURL(origin),
+              let wsURL = nativeRelayWebSocketURL(origin: origin, token: token) else { return }
 
         let client = MitzoWSClient(url: wsURL)
-        lock.withLock { wsClient = client }
+        wsClient = client
 
-        let api = MitzoAPIClient(baseURL: serverURL, authManager: authManager)
+        let api = MitzoAPIClient(baseURL: serverURL, authManager: currentAuth)
         // Update relay with authenticated clients (WCSession already activated in init)
         watchRelay.activate(wsClient: client, apiClient: api)
 

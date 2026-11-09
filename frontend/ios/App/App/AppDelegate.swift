@@ -7,18 +7,18 @@ import MitzoShared
 class AppDelegate: UIResponder, UIApplicationDelegate {
 
     var window: UIWindow?
-    private let watchRelay = WatchRelayCoordinator()
+    private lazy var watchRelay = WatchRelayCoordinator()
     private let approvalDelegate = BackgroundApprovalDelegate()
 
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
         // Background action launches may never create a scene or webview.
         UNUserNotificationCenter.current().delegate = approvalDelegate
-        watchRelay.start()
         registerNotificationCategories()
         return true
     }
 
     func attachNotificationRouter(_ router: NotificationRouter) {
+        watchRelay.start()
         approvalDelegate.attach(router)
         // Capacitor installs its router during bridge creation. Restore the
         // same app-owned delegate, preserving any cold-launch responses.

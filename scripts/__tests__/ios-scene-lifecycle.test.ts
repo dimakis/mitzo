@@ -5,6 +5,26 @@ import { expect, it } from 'vitest';
 
 const app = fileURLToPath(new URL('../../frontend/ios/App/App/', import.meta.url));
 
+it('keeps a background approval launch independent of the foreground Watch socket', () => {
+  const source = readFileSync(`${app}AppDelegate.swift`, 'utf8');
+  const launch = source.match(/func application\([^]*?didFinishLaunchingWithOptions[^]*?return true/);
+  expect(launch).not.toBeNull();
+  expect(launch![0]).not.toContain('watchRelay.start()');
+  expect(source).toContain('private lazy var watchRelay = WatchRelayCoordinator()');
+  const attach = source.match(/func attachNotificationRouter\([^]*?\n    }/);
+  expect(attach?.[0]).toContain('watchRelay.start()');
+});
+
+it('uses the selected notification origin and retires replaced native relay clients', () => {
+  const source = readFileSync(`${app}WatchRelayCoordinator.swift`, 'utf8');
+  expect(source).toContain('mitzo_notification_server_url');
+  expect(source).not.toContain('mitzo_server_url');
+  expect(source).not.toContain('dimakis-mac.tail');
+  expect(source).toContain('nativeRelayWebSocketURL');
+  expect(source).toContain('await previous?.disconnect()');
+  expect(source).toContain('generation == connectionGeneration');
+});
+
 it('declares a launchable scene for the storyboard bridge on iOS 27', () => {
   const result = spawnSync(
     'python3',
