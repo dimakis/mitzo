@@ -2,9 +2,12 @@ import { afterEach, expect, it, vi } from 'vitest';
 import { createHash } from 'node:crypto';
 import { EventStore } from '../event-store.js';
 import { retainTelosWorkRoleContext } from '../telos-work-role-context.js';
+import { CodexStartupError } from '../codex-startup-error.js';
 const state = vi.hoisted(() => ({
   events: undefined as EventStore | undefined,
   packets: [] as Array<{ payload: { systemPrompt: string } }>,
+  failure: undefined as Error | undefined,
+  cleanupFailure: false,
 }));
 vi.mock('../chat.js', () => ({
   eventStore: new Proxy(
@@ -35,13 +38,16 @@ vi.mock('../symposium-custodian-mode.js', () => ({
 vi.mock('../ordinary-openshell-codex-entry-owner.js', () => ({
   createOrdinaryOpenShellCodexEntryOwner: () => ({
     driver: {
-      close: () => {},
+      close: () => {
+        if (state.cleanupFailure) throw Error('private cleanup cause');
+      },
       admitPreparedFirst: async (
         _id: string,
         _meta: unknown,
         packet: { payload: { systemPrompt: string } },
       ) => {
         state.packets.push(packet);
+        if (state.failure) throw state.failure;
         return { dispatched: false, sessionId: 'session' };
       },
     },
@@ -51,6 +57,8 @@ import { startOwnedOpenShellCodexCommand } from '../ordinary-openshell-codex-ent
 afterEach(() => {
   state.events?.close();
   state.packets = [];
+  state.failure = undefined;
+  state.cleanupFailure = false;
   vi.unstubAllEnvs();
 });
 it.each([
@@ -58,9 +66,12 @@ it.each([
   { malformed: true, ordinary: false },
   { malformed: false, ordinary: true },
   { malformed: true, ordinary: true },
+  { malformed: false, ordinary: false, failure: true },
+  { malformed: false, ordinary: true, failure: true },
+  { malformed: false, ordinary: true, failure: true, cleanup: true },
 ])(
   'includes retained host mandate in OpenShell packet and preserves workspace kind: %j',
-  async ({ malformed, ordinary }) => {
+  async ({ malformed, ordinary, failure, cleanup }) => {
     vi.stubEnv('MITZO_ORDINARY_OPENSHELL_CODEX_ENABLED', '1');
     const events = (state.events = new EventStore(':memory:'));
     const binding = {
@@ -99,6 +110,9 @@ it.each([
       acceptanceCriteria: ['Evidence'],
       modelPolicyRole: 'agent' as const,
     };
+    if (failure)
+      state.failure = new CodexStartupError('runtime_connection', Error('private provider cause'));
+    state.cleanupFailure = cleanup ?? false;
     const result = startOwnedOpenShellCodexCommand({} as never, 'client', {
       command: {
         clientMsgId: 'command',
@@ -138,6 +152,10 @@ it.each([
       signal: new AbortController().signal,
       preparationOperationId: 'preparation',
     });
+    if (failure) {
+      await expect(result).rejects.toBe(state.failure);
+      return;
+    }
     if (malformed) {
       await expect(result).rejects.toThrow();
       expect(state.packets).toHaveLength(0);
