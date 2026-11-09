@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.957-recovery-error-contract';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.958-collaboration-status';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -23,11 +23,17 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/hooks/__tests__/useConversationPresentation.test.tsx':
-    'baeff93ece3be5a10f4ae28e9a90b464af83668217ceb1f9f911696e1d6aaefe',
+    'd052e096fa203300d5a409c1c8a8944e39d10e48222082ab0478b93544d3a64d',
+  '../../frontend/src/components/__tests__/SharedConversationStatus.test.tsx':
+    '5744e6db4e4c8ee8d6811fe9d52206dc074e85538683c303ad0b3186abdcaa5b',
+  '../../tests/fixtures/ordinary-collaboration-status.tsx':
+    'fbfdc6f94adfd67fcf54f3f62bc1b547770aaec3195801d6037f107e39a4dfde',
+  '../../tests/offline/ordinary-collaboration-status.spec.ts':
+    '83a41d2530fd5cf0eee9940573e3348287c15bfec0e56868e796baf25a0b9ff1',
   '../../frontend/src/components/ConversationRepositoryPicker.tsx':
     'bad89b264d8bff41ed745fd33629e658ac947d6bc56b3945baae6fa0df2986cf',
   '../../frontend/src/components/SharedConversation.tsx':
-    'ddc6174cd2288e0fa372de17362d202576c74a8915cf3e7ce56e4ff9395dad89',
+    'cfcd04e04b3969a2981705377af21765304e85ec80014dc8168be628452271b1',
   '../../frontend/src/components/__tests__/SharedConversation.test.tsx':
     'aeea744f0b515216fb92232c4cfcfaf5fe9bce4c89ffd3e32624acb0df02f810',
   '../../frontend/src/hooks/__tests__/useConversationSending.test.tsx':
@@ -1734,7 +1740,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/components/CollaborationTranscript.css':
     'e617da58d37e75e41c4f165ff976675017d4bd650c8949a6b0f2f4fe1634c392',
   '../../frontend/src/hooks/useConversationPresentation.ts':
-    'e634cf5c9357e4738bb8bb5856a6b29346a71a87e7ea5a4b1aca0bb960740ccc',
+    '3d4e0ba6b7d5b9ed740a1ba05397074edaf711a387f410640185b5a000325b0a',
   '../../frontend/src/lib/conversation-presentation.ts':
     'cc15c8961398998acff1315699feb77cd614278d9109804b5f1495d796a5d9bd',
   '../openshell-cli-environment.ts':
