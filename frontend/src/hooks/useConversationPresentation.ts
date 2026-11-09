@@ -124,7 +124,9 @@ export function useConversationPresentation(options: ConversationPresentationOpt
     readId.current++;
     controller.current?.abort();
     pending.current = null;
-    publish({ ...empty(), error: 'Sign in to verify this conversation.' });
+    // The application's ProtectedRoute owns login recovery. Retire private
+    // collaboration state without inventing a second feature-specific login.
+    publish(empty());
   }, [owner, empty, publish]);
   const readDraft = useCallback(() => {
     if (!valid()) return;
@@ -427,7 +429,7 @@ export function useConversationPresentation(options: ConversationPresentationOpt
     projection,
     draft: visible.draft,
     loading: visible.loading,
-    error: authorized ? visible.error : 'Sign in to verify this conversation.',
+    error: visible.error,
     draftError: visible.draftError,
     policyError: visible.policyError,
     pendingPolicy: visible.pendingPolicy,
