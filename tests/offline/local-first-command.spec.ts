@@ -619,7 +619,7 @@ for (const theme of ['dark', 'light'] as const)
     await retry.focus();
     await expect(retry).toBeFocused();
     await page.screenshot({
-      path: info.outputPath(`ordinary-delivery-${theme}.png`),
+      path: info.outputPath(`local-ordinary-delivery-${theme}.png`),
       fullPage: true,
     });
     await retry.press('Enter');

@@ -199,7 +199,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/client/src/__tests__/local-first-command-store.test.ts':
     'e0a02fcb974d7e1d96b46041197cbe452a8628bad5ce56bb28947570ef848e2e',
   '../../tests/offline/local-first-command.spec.ts':
-    'd19383d37aeadb358eefd6c3063596cbd9309d869cd89ac9e44389da6bb186f1',
+    '2aa94810a6664b540177edc812bc8aac2e89b0f5bb57ceb5d3a0298e4458cf29',
   '../../tests/browser/composer-layout.spec.ts':
     'f1e4b8140d4aa12bdf04f2e142c1f2c171f9f526d1173bea9036561517300a87',
   '../../frontend/src/components/__tests__/ChatInputDirectInterrupt.test.tsx':
