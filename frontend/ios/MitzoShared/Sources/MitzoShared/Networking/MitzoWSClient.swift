@@ -63,7 +63,7 @@ public actor MitzoWSClient {
 
     private let maxPendingSends = 100
     private let heartbeatInterval: TimeInterval = 5.0
-    private let reconnectDelay: TimeInterval
+    private let reconnectWait: @Sendable () async throws -> Void
 
     public enum TransportError: Error {
         case pendingQueueFull
@@ -72,14 +72,15 @@ public actor MitzoWSClient {
 
     public init(url: URL) {
         self.url = url
-        self.reconnectDelay = 0.5
+        self.reconnectWait = { try await Task.sleep(nanoseconds: 500_000_000) }
         self.socketFactory = { URLSessionMitzoWebSocket(task: tailscaleURLSession.webSocketTask(with: $0)) }
     }
 
     init(url: URL, reconnectDelay: TimeInterval = 0.5,
+         reconnectWait: (@Sendable () async throws -> Void)? = nil,
          socketFactory: @escaping @Sendable (URL) async -> any MitzoWebSocket) {
         self.url = url
-        self.reconnectDelay = reconnectDelay
+        self.reconnectWait = reconnectWait ?? { try await Task.sleep(nanoseconds: UInt64(reconnectDelay * 1_000_000_000)) }
         self.socketFactory = socketFactory
     }
 
@@ -293,7 +294,7 @@ public actor MitzoWSClient {
     private func scheduleReconnect(generation: UInt64) {
         reconnectTimer?.cancel()
         reconnectTimer = Task {
-            do { try await Task.sleep(nanoseconds: UInt64(reconnectDelay * 1_000_000_000)) }
+            do { try await reconnectWait() }
             catch { return } // Explicit stop cancels this connection episode.
             guard !Task.isCancelled, generation == self.generation, state == .reconnecting else { return }
             await _connect()

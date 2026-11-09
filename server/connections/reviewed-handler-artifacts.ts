@@ -32,7 +32,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../scripts/__tests__/ios-scene-lifecycle.test.ts':
     '280bfd74dd505d886cbbe9fa855eb156617418a282a77bf04765c2f3f733b226',
   '../../frontend/ios/MitzoShared/Tests/MitzoSharedTests/MitzoWSLifecycleTests.swift':
-    'ee6778ab392769b151e561253c029b8fa1a71dccd69e9d669c3ff4efba514691',
+    '3a659cc9b07561be8c3c18772ab868abfa2bfdeb9fb006a14c10053ddd28684c',
   '../../frontend/ios/MitzoShared/Tests/MitzoSharedTests/NativeRelayConfigurationTests.swift':
     '83393640122164ae9aa3432afdc93e2733c294872382bb7aa38c2cae74cf09ca',
   '../../frontend/ios/MitzoShared/Tests/MitzoSharedTests/NativeApprovalExecutionTests.swift':
@@ -46,7 +46,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/ios/MitzoShared/Sources/MitzoShared/Networking/NativeRelayConfiguration.swift':
     'ee62c0e9b96a7c711038d08d76c1620cd6ae12381505f756aa3dcaec79e7629c',
   '../../frontend/ios/MitzoShared/Sources/MitzoShared/Networking/MitzoWSClient.swift':
-    'da5d375e780d5412b006251b364174da2def99bb79ed47c0b53101f882a10723',
+    '9f0c3669daa1a1cc7b61ed2829aed1f0989113d9dcaa3be629940ca01a3d8a74',
   '../../frontend/ios/App/App/WatchRelayCoordinator.swift':
     'e214ba689346071daff115c1b1221696c1db22d59b4a5c9ea4630860eefa8cd6',
   '../codex-preparation-failure.ts':

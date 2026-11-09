@@ -139,13 +139,15 @@ private func eventually(_ predicate: () async -> Bool) async throws {
 
 @Test func disconnectCancelsScheduledReconnectAndFencesLateSocketCallbacks() async throws {
     let first = TestSocket(), second = TestSocket()
+    let retryGate = FactoryGate()
     let factory = SocketFactory([first, second])
-    let client = MitzoWSClient(url: URL(string: "https://offline.invalid")!, reconnectDelay: 0.015, socketFactory: { _ in await factory.make() })
+    let client = MitzoWSClient(url: URL(string: "https://offline.invalid")!, reconnectWait: { await retryGate.wait() }, socketFactory: { _ in await factory.make() })
     await client.connect { _ in }
     try await eventually { await first.sent.count == 1 }
     await first.fail()
-    try await eventually { await first.cancelled }
+    try await eventually { await retryGate.waiting }
     await client.disconnect()
+    await retryGate.release()
     try await Task.sleep(nanoseconds: 40_000_000)
     #expect(await factory.count == 1)
 
