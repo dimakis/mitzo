@@ -10,8 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.974-desktop-layout-startup-diagnostics';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.975-portable-git-ref-index';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -1532,7 +1531,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../scripts/lib/mgmt-knowledge-policy.d.mts':
     'ec566e44c582f01eca4034047f6a1a706eafdeaa8461cb30c4ac03656cef42c7',
   '../../scripts/verify-openshell-production.mjs':
-    '9394524b1199fd00a4575115fac2591916a760a485bc64f6213169237c1feb00',
+    '2462507ebdfcc88787a7ab775ceebf4285ed8a816e01c306f63499f35ae23bcd',
   '../../docs/spikes/openshell-codex/prepare-mgmt-knowledge.sh':
     '05c92ba46277222e5f2735713d7ce7f521bfb189a8c8c775b78ec5b6ced7ac1a',
   '../../scripts/select-mgmt-knowledge.mjs':
