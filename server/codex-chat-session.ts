@@ -1,4 +1,4 @@
-import { copyCallbackOutcome } from './turn-callbacks.js';
+import { copyCallbackOutcome, retainCallbackOutcome } from './turn-callbacks.js';
 import { agentMessagePrompt } from '@mitzo/protocol';
 import { agentContextRuntimeError } from './agent-context-authority.js';
 import {
@@ -3814,21 +3814,25 @@ async function openCodexChatBound(
       if (apiResult) return apiResult;
       if (name === AGENT_COMMUNICATION_TOOL) {
         if (!communicationTools)
-          return {
-            content: 'Agent communication requires an enrolled ordinary Local Codex owner.',
-            isError: true,
-          };
+          return retainCallbackOutcome(
+            {
+              content: 'Agent communication requires an enrolled ordinary Local Codex owner.',
+              isError: true,
+            },
+            'settled',
+          );
         try {
           return {
             content: JSON.stringify(await communicationTools.execute(input, signal, callContext)),
             isError: false,
           };
-        } catch {
-          return {
+        } catch (error) {
+          const failure = {
             content:
               'Agent communication is unavailable under the current sender, recipient or exact-message approval. If delivery was uncertain, read the original message/request receipt before sending again.',
             isError: true,
           };
+          return error instanceof Error ? copyCallbackOutcome(error, failure) : failure;
         }
       }
       if (name === 'StartSession') {

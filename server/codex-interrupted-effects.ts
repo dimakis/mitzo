@@ -3,7 +3,7 @@ import { createHash } from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
 import { z } from 'zod';
 import type { CodexNativeTurnTarget } from './codex-conversation-store.js';
-import { SessionRuntimeError } from './session-runtime-error.js';
+import { SessionRuntimeError, findSessionRuntimeError } from './session-runtime-error.js';
 import { CodexNativeFileChange } from './codex-native-file-change.js';
 
 type HostCall = Readonly<{
@@ -52,8 +52,18 @@ export async function observeNativeRecoveryTurn(
   inspectInterruptedEffects: boolean,
   beforeAdditionalRead: () => Promise<void>,
 ) {
+  const read = async (method: string, params: Record<string, unknown>) => {
+    try {
+      return await request(method, params);
+    } catch (error) {
+      throw (
+        findSessionRuntimeError(error) ??
+        new SessionRuntimeError('recovery_history_unavailable', { cause: error })
+      );
+    }
+  };
   const page = Page.parse(
-    await request('thread/turns/list', {
+    await read('thread/turns/list', {
       threadId: target.threadId,
       limit: 1,
       sortDirection: 'desc',
@@ -80,7 +90,7 @@ export async function observeNativeRecoveryTurn(
   for (let count = 0; count < MAX_INTERRUPTED_ITEMS; count++) {
     await beforeAdditionalRead();
     const page = ItemPage.parse(
-      await request('thread/items/list', {
+      await read('thread/items/list', {
         threadId: target.threadId,
         turnId: target.turnId,
         limit: 1,
@@ -102,6 +112,7 @@ export async function observeNativeRecoveryTurn(
         case 'agentMessage':
         case 'reasoning':
         case 'plan':
+        case 'contextCompaction':
           break;
         case 'commandExecution':
           // A failed shell command with an observed exit code has a known
@@ -153,7 +164,7 @@ export async function observeNativeRecoveryTurn(
         default:
           // MCP/collaboration and future native item types need
           // their own settlement contract. Never infer success from terminal turn metadata.
-          throw Error('Interrupted native item effects are unsupported');
+          throw new SessionRuntimeError('recovery_effects_unverified');
       }
     }
     if (page.nextCursor === null) {
@@ -164,10 +175,10 @@ export async function observeNativeRecoveryTurn(
     cursors.add(page.nextCursor);
     cursor = page.nextCursor;
   }
-  if (!exhausted) throw Error('Interrupted native item inspection budget exceeded');
+  if (!exhausted) throw new SessionRuntimeError('recovery_history_limit');
   await beforeAdditionalRead();
   const final = Page.parse(
-    await request('thread/turns/list', {
+    await read('thread/turns/list', {
       threadId: target.threadId,
       limit: 1,
       sortDirection: 'desc',

@@ -559,13 +559,14 @@ export function createNativeToolExecutor(
       );
       return result(operation.content, operation.is_error);
     } catch (err: unknown) {
-      return refused(
+      const failure = refused(
         signal.aborted
           ? 'Tool execution cancelled'
           : err instanceof Error
             ? err.message
             : 'Native tool execution failed',
       );
+      return err instanceof Error && !signal.aborted ? copyCallbackOutcome(err, failure) : failure;
     }
   };
 }

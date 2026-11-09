@@ -200,7 +200,12 @@ it('pages interrupted results within frames and rejects incomplete or changing n
               : null,
       };
     });
-    await expect(observeNativeRecoveryTurn(invalid, 'app', target, true, guard)).rejects.toThrow();
+    const failure = observeNativeRecoveryTurn(invalid, 'app', target, true, guard);
+    if (variant === 'budget' || variant === 'oversized')
+      await expect(failure).rejects.toMatchObject({
+        code: variant === 'budget' ? 'recovery_history_limit' : 'recovery_history_unavailable',
+      });
+    else await expect(failure).rejects.toThrow();
     expect(pages).toBeLessThanOrEqual(128);
     expect(
       invalid.mock.calls.some(
@@ -239,7 +244,7 @@ it('settles observed terminal command failures and applied patches without repla
         ? metadata
         : { data: [{ turnId: 'turn', item }], nextCursor: null },
     );
-  for (const item of valid) {
+  for (const item of [...valid, { type: 'contextCompaction', id: 'compacted' }]) {
     const read = request(item);
     const result = await observeNativeRecoveryTurn(read, 'app', target, true, async () => {});
     expect(interruptedEffectCalls(result.settledEffects!, 'app', target)).toEqual([]);

@@ -1,3 +1,4 @@
+import { retainCallbackOutcome } from './turn-callbacks.js';
 import { githubReadProjection, githubReadSummary } from './github-read-summary.js';
 import {
   validateRepositoryTaskCheckout,
@@ -47,6 +48,7 @@ async function run(
     assertRuntimeCurrent?: () => void;
     assertRuntimeCurrentAsync?: () => Promise<void>;
     onStart?: () => void;
+    readOnly?: boolean;
   },
 ): Promise<string> {
   await options.assertRuntimeCurrentAsync?.();
@@ -66,8 +68,22 @@ async function run(
         encoding: 'utf8',
       },
       (error, stdout, stderr) => {
-        if (error) reject(new Error((stderr || stdout || error.message).trim()));
-        else resolveRun(stdout.trim());
+        if (error) {
+          const failure = new Error((stderr || stdout || error.message).trim());
+          // Only the original read adapter can attest to a normal process exit.
+          // Cancellation, timeouts and writes retain uncertainty.
+          if (
+            options.readOnly &&
+            !options.signal.aborted &&
+            !error.killed &&
+            !error.signal &&
+            typeof error.code === 'number' &&
+            error.code > 0 &&
+            error.code < 128
+          )
+            retainCallbackOutcome(failure, 'settled');
+          reject(failure);
+        } else resolveRun(stdout.trim());
       },
     );
     if (options.input) child.stdin?.end(options.input);
@@ -90,6 +106,7 @@ export async function executeTrustedGitHubRead(
     timeoutMs,
     maxOutputBytes,
     env: { HOME: home, GH_HOST: 'github.com' },
+    readOnly: true,
     assertRuntimeCurrent: assertCurrent,
   });
   signal.throwIfAborted();
