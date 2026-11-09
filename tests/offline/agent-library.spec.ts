@@ -757,7 +757,9 @@ async function exerciseLibraryJourney(
     await personalProvider.focus();
     await page.keyboard.press('Space');
     await expect(personalProvider).toBeChecked();
-    await page.getByRole('group', { name: 'Reusable review recipe', exact: true }).screenshot({
+    await personalProvider.scrollIntoViewIfNeeded();
+    await expect(personalProvider).toBeInViewport();
+    await page.screenshot({
       path: testInfo.outputPath(
         `agent-tools-personal-claude-recipe-${theme}-${accent}-${font}.png`,
       ),
