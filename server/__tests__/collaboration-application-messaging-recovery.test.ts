@@ -12,6 +12,13 @@ import {
 } from '../collaboration-ordinary-replies.js';
 
 vi.mock('../auth.js', () => ({ isAuthSessionCurrent: () => true }));
+const diagnostics = vi.hoisted(() => ({
+  debug: vi.fn(),
+  info: vi.fn(),
+  warn: vi.fn(),
+  error: vi.fn(),
+}));
+vi.mock('../logger.js', () => ({ createLogger: () => diagnostics }));
 
 let store: EventStore;
 let owner: ApplicationCollaborationMessaging;
@@ -49,6 +56,7 @@ function port(
 }
 
 beforeEach(() => {
+  diagnostics.warn.mockClear();
   store = new EventStore(':memory:');
   group = randomUUID();
   prompts = [];
@@ -99,6 +107,62 @@ function input(responder: string, text: string) {
   };
 }
 
+it('observes recipient readiness without commands and refuses missing ordinary capability', async () => {
+  const inspect = vi.fn(async () => {});
+  const delivery = vi.fn(async () => {});
+  const ordinary = port(delivery);
+  Object.assign(ordinary, { inspectCollaboration: inspect });
+  const messaging = new ApplicationCollaborationMessaging(store, ordinary);
+  const signal = new AbortController().signal;
+  const ready = await messaging.recipientReadiness(auth, group, 'one', signal);
+  expect(ready).toMatchObject({
+    collaborationId: group,
+    sessionId: 'one',
+    membershipRevision: 1,
+    ready: true,
+    reason: null,
+  });
+  expect(inspect).toHaveBeenCalledTimes(1);
+  expect(delivery).not.toHaveBeenCalled();
+  expect(store.collaborationConversation.view(group).messages).toEqual([]);
+  const missing = await owner.recipientReadiness(auth, group, 'one', signal);
+  expect(missing.ready).toBe(false);
+  inspect.mockRejectedValueOnce(
+    new Error('Open a fresh group participant for this delivery route.'),
+  );
+  expect((await messaging.recipientReadiness(auth, group, 'one', signal)).ready).toBe(false);
+  store.hideSession('one');
+  expect((await messaging.recipientReadiness(auth, group, 'one', signal)).ready).toBe(false);
+  expect(inspect).toHaveBeenCalledTimes(2);
+});
+
+it('retains a readiness failure diagnostic while refusing delivery without exposing its cause', async () => {
+  const cause = new Error('Private native inspection failure');
+  const delivery = vi.fn(async () => {});
+  const ordinary = port(delivery);
+  Object.assign(ordinary, { inspectCollaboration: vi.fn().mockRejectedValue(cause) });
+  const messaging = new ApplicationCollaborationMessaging(store, ordinary);
+  const result = await messaging.recipientReadiness(
+    auth,
+    group,
+    'one',
+    new AbortController().signal,
+  );
+  expect(result.ready).toBe(false);
+  expect(result.reason).not.toContain(cause.message);
+  expect(delivery).not.toHaveBeenCalled();
+  expect(diagnostics.warn).toHaveBeenCalledWith(
+    'Could not verify collaboration recipient readiness',
+    expect.objectContaining({
+      err: cause,
+      code: 'collaboration_recipient_readiness_failed',
+      stage: 'recipient_readiness',
+      collaborationId: group,
+      sessionId: 'one',
+    }),
+  );
+});
+
 it.each([false, true])(
   'preserves the first context ACK across overlapping commands (reverse=%s)',
   async (reverse) => {
@@ -144,6 +208,76 @@ it.each([false, true])(
           .deliveries.find((d) => d.sessionId === 'two'),
       ).toMatchObject({ status: 'delivered', commandId: prompts[index].commandId });
     }
+  },
+);
+
+it.each(
+  (
+    ['completed', 'failed', 'interrupted', 'stopped', 'server_restart', 'abandoned'] as const
+  ).flatMap((reason) =>
+    (['available', 'hidden', 'unlinked'] as const).map((availability) => ({
+      reason,
+      availability,
+    })),
+  ),
+)(
+  'observes the exact durable $reason outcome with a $availability recipient without a transcript or resend',
+  async ({ reason, availability }) => {
+    const request = input('one', 'A prompt with no visible answer');
+    await owner.send(auth, group, request, new AbortController().signal);
+    const prompt = prompts[0];
+    store.completeOrdinaryLocalCommand('initial-one');
+    store.admitOrdinaryLocalContinuation(
+      {
+        sessionId: 'one',
+        cwd: '/fixture',
+        mode: 'agent',
+        repositoryWorkspaceId: 'workspace',
+        accountBinding: { ...binding.account, accountLabel: 'Offline', model: selection.model },
+      },
+      binding,
+      {
+        clientMsgId: prompt.commandId,
+        requestFingerprint: 'terminal-fixture',
+        selection,
+        payload: { text: prompt.text },
+      },
+    );
+    store.claimOrdinaryLocalCommandDispatch(prompt.commandId);
+    store.append('one', 'user_message', { messageId: prompt.commandId, text: prompt.text });
+    prompt.turnLifecycle!.accepted(prompt.commandId, 'thread', 'turn');
+    const execution = store.beginExecution(
+      'one',
+      randomUUID(),
+      prompt.commandId,
+      'terminal-fixture',
+    );
+    expect(owner.observe(auth, group, request).terminal).toBe(false);
+    store.transitionExecution(execution.token, 'TERMINAL', reason);
+    if (reason === 'completed' || reason === 'failed' || reason === 'interrupted') {
+      store.recordOrdinaryProviderTurnTerminal('one', prompt.commandId, reason);
+      store.recordOrdinaryProviderTurnTerminal('one', prompt.commandId, reason);
+      expect(store.getEventsOfType('one', 'ordinary_provider_turn_terminal')).toHaveLength(1);
+      expect(() =>
+        store.recordOrdinaryProviderTurnTerminal('two', prompt.commandId, reason),
+      ).toThrow('identity');
+      expect(() =>
+        store.recordOrdinaryProviderTurnTerminal(
+          'one',
+          prompt.commandId,
+          reason === 'failed' ? 'completed' : 'failed',
+        ),
+      ).toThrow('Conflicting');
+    }
+    if (availability === 'hidden') store.hideSession('one');
+    if (availability === 'unlinked')
+      store.setSessionCollaboration(group, { expectedRevision: 1, participantSessionIds: ['two'] });
+    const transcript = vi.spyOn(store, 'getDurableSessionTranscript');
+    const observed = owner.observe(auth, group, request);
+    if (availability !== 'available') expect(transcript).not.toHaveBeenCalled();
+    expect(observed.terminal).toBe(['completed', 'failed', 'interrupted'].includes(reason));
+    expect(observed.message?.deliveries[0].status).toBe('delivered');
+    expect(prompts).toHaveLength(1);
   },
 );
 
@@ -226,6 +360,23 @@ it('returns the original receipt for concurrent exact fan-out retries during pre
   expect(retained!.messageId).toBe(original.messageId);
   expect(prompts).toHaveLength(2);
   expect(new Set(prompts.map((p) => p.commandId)).size).toBe(2);
+});
+
+it('keeps a just-admitted command readable before its first ordinary transcript event', () => {
+  const message = store.collaborationConversation.acceptMessage(group, input('two', 'Reply'));
+  const delivery = message.deliveries.find((d) => d.sessionId === 'two')!;
+  store.collaborationConversation.recordDelivery(group, message.messageId, delivery.deliveryId, {
+    requestId: randomUUID(),
+    expectedRevision: 0,
+    status: 'queued',
+    commandId: 'initial-two',
+    reason: null,
+  });
+  expect(store.getSessionPredecessorSeq('two', Number.MAX_SAFE_INTEGER)).toBe(0);
+  const transcript = vi.spyOn(store, 'getDurableSessionTranscript');
+  expect(() => owner.reconcile(auth, group)).not.toThrow();
+  expect(transcript).not.toHaveBeenCalled();
+  expect(store.collaborationConversation.view(group).messages).toHaveLength(1);
 });
 
 it('defers oversized ordinary history without failing group reads or hiding integrity failures', () => {

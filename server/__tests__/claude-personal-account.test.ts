@@ -52,7 +52,7 @@ it('reuses sign-in evidence in the existing account catalog and reports loss of 
   const cause = Error('Private cancellation');
   controller.abort(cause);
   await expect(profiles.checkSignIn(controller.signal)).rejects.toBe(cause);
-  expect(profiles.catalog()[0].signIn.explanation).toContain('cancelled');
+  expect(profiles.catalog()[0].signIn?.explanation).toContain('cancelled');
 });
 it('projects a subscription account through the existing Claude catalog without Vertex billing or secret paths', () => {
   const profiles = new AccountProfiles([personal]);

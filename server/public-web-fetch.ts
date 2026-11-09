@@ -1,3 +1,4 @@
+import { retainCallbackOutcome } from './turn-callbacks.js';
 import { lookup } from 'node:dns/promises';
 import { request } from 'node:https';
 import { isIP } from 'node:net';
@@ -116,8 +117,9 @@ export async function fetchPublicPage(
         continue;
       }
       if (response.status < 200 || response.status >= 300)
-        throw new WebAccessError(
-          `The website refused the approved read (HTTP ${response.status}).`,
+        throw retainCallbackOutcome(
+          new WebAccessError(`The website refused the approved read (HTTP ${response.status}).`),
+          'settled',
         );
       const type = response.headers['content-type'];
       const encoding = response.headers['content-encoding'];

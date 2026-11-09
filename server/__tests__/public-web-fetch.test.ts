@@ -1,3 +1,4 @@
+import { retainedCallbackOutcome } from '../turn-callbacks.js';
 import { describe, expect, it, vi } from 'vitest';
 import { fetchPublicPage } from '../public-web-fetch.js';
 
@@ -69,12 +70,12 @@ describe('approved credential-free public website reads', () => {
     { ...page, headers: { 'content-type': 'application/octet-stream' } },
     { ...page, status: 403 },
   ])('does not relay oversized, binary or failed responses', async (response) => {
-    await expect(
-      fetchPublicPage('https://example.com/', new AbortController().signal, {
-        resolve: publicDns,
-        send: async () => response,
-      }),
-    ).rejects.toThrow();
+    const failure = await fetchPublicPage('https://example.com/', new AbortController().signal, {
+      resolve: publicDns,
+      send: async () => response,
+    }).catch((error: unknown) => error);
+    expect(failure).toBeInstanceOf(Error);
+    if (response.status === 403) expect(retainedCallbackOutcome(failure as Error)).toBe('settled');
   });
   it('does not connect after cancellation during DNS resolution', async () => {
     const abort = new AbortController();

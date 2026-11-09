@@ -1,4 +1,5 @@
 import { composeOwnedLocalNativeExecutionPolicyForWorkspace } from '../owned-local-codex-native-policy.js';
+import { registerWorkspaceRuntimeAuthorityPaths } from '../workspace-runtime-private-paths.js';
 import { login, authenticateToken, revokeAuthSession } from '../auth.js';
 import { bindAgentLibraryTransport } from '../agent-library-transport.js';
 import { reconcilableLocalCodexCommand } from '../retained-local-codex-effects.js';
@@ -16,6 +17,12 @@ import {
   OrdinaryLocalCodexOwnedRuntime,
   type OrdinaryLocalCodexOwnedDispatch,
 } from '../ordinary-local-codex-owned-runtime.js';
+// Recovery fixtures use synthetic credentials only; do not inspect the host's
+// denied credential home while composing fresh native protection policies.
+vi.mock('node:os', async (original) => {
+  const actual = await original<typeof import('node:os')>();
+  return { ...actual, homedir: () => `${actual.tmpdir()}/mitzo-recovery-offline-home` };
+});
 vi.mock('../auth.js', async (original) => ({
   ...(await original<typeof import('../auth.js')>()),
   hasPersistentRevocationAuthority: () => true,
@@ -413,7 +420,10 @@ it.each([
   },
 );
 
-async function reconcileRetainedColdTurn(nativeStatus: 'interrupted' | 'completed') {
+async function reconcileRetainedColdTurn(
+  nativeStatus: 'interrupted' | 'completed',
+  policyDrift = false,
+) {
   const f = await ownedRuntimeFixture(cleanups);
   const first = f.create();
   await first.admit(f.request);
@@ -473,6 +483,23 @@ async function reconcileRetainedColdTurn(nativeStatus: 'interrupted' | 'complete
   );
   native.pauseForRecovery(id, binding, command.id, 'interrupted', 'resume', undefined, true, true);
   const custody = native.readHostCustody(id, binding)!;
+  const draft = join(original.workspace.directory!, 'unfinished-work.txt');
+  writeFileSync(draft, 'Preserve the interrupted task');
+  if (policyDrift) {
+    const newlySelectedRuntime = join(f.root, 'new-runtime-executable');
+    writeFileSync(newlySelectedRuntime, 'offline runtime fixture');
+    registerWorkspaceRuntimeAuthorityPaths([newlySelectedRuntime]);
+    const fresh = composeOwnedLocalNativeExecutionPolicyForWorkspace(
+      { binding, assertCurrentSync: () => original.admission.assertCurrentSync() },
+      () => ({
+        cwd: original.workspace.directory!,
+        mode: original.expected.selection.permission.mode,
+        workspaceRoots: [original.workspace.directory!],
+        authSessionId: executionLogin,
+      }),
+    );
+    expect(fresh.policyRevision).not.toBe(policy.policyRevision);
+  }
   const before = {
     send: f.events.getSendCommand(command.id),
     admission: f.events.getOrdinaryLocalCommandExecutionAdmission(command.id),
@@ -597,6 +624,7 @@ async function reconcileRetainedColdTurn(nativeStatus: 'interrupted' | 'complete
   expect(native.read(id, binding).recovery).toBe(0);
   expect(native.continuationBlocker(id, binding)).toBeUndefined();
   expect(native.readHostCustody(id, binding)).toEqual(custody);
+  expect(readFileSync(draft, 'utf8')).toBe('Preserve the interrupted task');
   expect(native.readNativeExecution(id, binding, command)?.policy.bindingRevision).toBe(
     policy.bindingRevision,
   );
@@ -626,5 +654,8 @@ async function reconcileRetainedColdTurn(nativeStatus: 'interrupted' | 'complete
 }
 it.each(['interrupted', 'completed'] as const)(
   'reconciles an already dispatched cold turn observed %s without replay',
-  reconcileRetainedColdTurn,
+  (status) => reconcileRetainedColdTurn(status),
 );
+
+it('reconciles settled interrupted work after a real policy change under fresh authority without replay', () =>
+  reconcileRetainedColdTurn('interrupted', true));

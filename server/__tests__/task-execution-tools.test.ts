@@ -13,11 +13,13 @@ import { sessionTaskExecutionTools } from '../task-execution-tools.js';
 import { revokeAuthSession } from '../auth.js';
 import { retainNativeHostToolOperator } from '../native-host-tool-operator.js';
 import { SessionCapabilityGrants } from '../session-capability-grants.js';
+import { callbackOutcome, retainCallbackOutcome } from '../turn-callbacks.js';
 
 const execution = vi.hoisted(() => ({
   waitForAbort: false,
   fail: false,
   failAuthentication: false,
+  returnedFailure: undefined as 'settled' | 'unknown' | undefined,
   calls: [] as Array<{ block: unknown; options: Record<string, unknown> }>,
 }));
 vi.mock('../native-tool-executor.js', () => ({
@@ -29,6 +31,16 @@ vi.mock('../native-tool-executor.js', () => ({
       if (execution.failAuthentication)
         throw new OperatorAuthorizationError('Operator authorization revoked');
       if (execution.fail) throw Error('Runner connection lost');
+      if (execution.returnedFailure)
+        return retainCallbackOutcome(
+          {
+            type: 'tool_result',
+            tool_use_id: 'call',
+            content: 'Test exited with code 1',
+            is_error: true,
+          },
+          execution.returnedFailure,
+        );
       if (execution.waitForAbort)
         await new Promise<void>((_resolve, reject) => {
           signal.addEventListener('abort', () => reject(signal.reason), { once: true });
@@ -102,6 +114,7 @@ afterEach(() => {
   execution.waitForAbort = false;
   execution.fail = false;
   execution.failAuthentication = false;
+  execution.returnedFailure = undefined;
   vi.useRealTimers();
 });
 function fixture(auth = { id: 'operator', expiresAt: Date.now() + 600_000 }) {
@@ -157,6 +170,74 @@ function fixture(auth = { id: 'operator', expiresAt: Date.now() + 600_000 }) {
   }
   return { root, store, registry, sent, tools, call, signal, request, authorize, auth };
 }
+it.each(['settled', 'unknown'] as const)(
+  'preserves a returned %s failure through task projection and identical retry',
+  async (outcome) => {
+    const f = fixture();
+    const grant = await f.authorize();
+    execution.returnedFailure = outcome;
+    const input = {
+      operation: 'run',
+      grantId: grant.id,
+      requestId: randomUUID(),
+      command: 'npm test',
+    };
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const result = await f.tools('worker').execute(input, f.signal, f.call);
+      expect(result.isError).toBe(true);
+      expect(callbackOutcome(result)).toBe(outcome);
+      if (outcome === 'settled') expect(result.content).toBe('Test exited with code 1');
+      expect(f.store.runStatus(grant.id, 'worker', input.requestId).state).toBe(
+        outcome === 'settled' ? 'completed' : 'uncertain',
+      );
+    }
+    expect(execution.calls).toHaveLength(1);
+  },
+);
+
+it('cancels worker execution when a separately held parent capability is revoked', async () => {
+  const f = fixture();
+  const grants = new SessionCapabilityGrants(f.registry);
+  const consents = ['parent', 'worker'].map((id) => {
+    f.registry.findBySessionId(id)!.session.accountBinding = {
+      accountId: 'a',
+      accountLabel: 'Offline',
+      provider: 'openai-codex',
+      model: 'm',
+      profileRevision: 'r',
+    };
+    return grants.create('operator', {
+      sessionIds: [id],
+      capability: { kind: 'development' },
+      durationMinutes: 60,
+    });
+  });
+  const approved = await f
+    .tools('parent')
+    .execute({ ...f.request, repositories: [] }, f.signal, f.call);
+  expect(approved.isError).toBe(false);
+  expect(f.sent).toHaveLength(0);
+  const grant = JSON.parse(approved.content).grant;
+  execution.waitForAbort = true;
+  const input = {
+    operation: 'run',
+    grantId: grant.id,
+    requestId: randomUUID(),
+    command: 'npm test',
+  };
+  const pending = f.tools('worker').execute(input, f.signal, f.call);
+  await vi.waitFor(() => expect(execution.calls).toHaveLength(1));
+  await grants.revoke('operator', 'parent', consents[0].id);
+  const status = await f.tools('worker').execute({ operation: 'status' }, f.signal);
+  expect(JSON.parse(status.content).grants).toEqual([]);
+  expect((await pending).isError).toBe(true);
+  expect(f.store.runStatus(grant.id, 'worker', input.requestId).state).toBe('uncertain');
+  expect(
+    (await f.tools('worker').execute({ ...input, requestId: randomUUID() }, f.signal, f.call))
+      .isError,
+  ).toBe(true);
+  expect(execution.calls).toHaveLength(1);
+});
 it('authorizes detached retained workers and executes their grant after viewer replacement', async () => {
   const f = fixture({ id: randomUUID(), expiresAt: Date.now() + 600000 });
   for (const id of ['parent', 'worker']) {

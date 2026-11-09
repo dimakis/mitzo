@@ -60,6 +60,23 @@ it('refuses absent policy without inferring a read grant or invoking the action'
   expect(action).not.toHaveBeenCalled();
 });
 
+it('keeps preparation adoption readable after redundant credential protection discovery', async () => {
+  const f = fixture();
+  let selected = f.policy;
+  f.owners.selectedPolicy = () => selected;
+  await withPreparedRepositoryBarrierReadScope(f.policy, 'original', f.owners, async (scope) => {
+    selected = codexNativeExecutionPolicy({
+      ...f.policy,
+      mode: 'agent',
+      writableRoots: f.policy.workspaceRoots,
+      deniedRoots: [...f.policy.deniedRoots, '/credentials/new-chat'],
+    });
+    expect(selected.policyRevision).not.toBe(f.policy.policyRevision);
+    await scope.revalidate();
+    expect(scope.policyRevision).toBe(f.policy.policyRevision);
+  });
+});
+
 it('checks old owner and selected policy across async revalidation', async () => {
   const f = fixture();
   f.owners.revalidate = vi.fn(async () => {

@@ -2,6 +2,7 @@ import { ConversationAgents, type ConversationAgent } from './ConversationAgents
 import { HomeDialog } from './HomeDialog';
 import { useMotionPresence } from '../hooks/useMotionPresence';
 import { RetainedConversationComposer } from './RetainedConversationComposer';
+import { SharedConversationBody } from './SharedConversation';
 import { createPortal } from 'react-dom';
 import { SymposiumAccessRequests } from './SymposiumAccessRequests';
 import {
@@ -785,7 +786,23 @@ export function SymposiumConversation({
     );
   if (status?.sessionId !== sessionId || !status?.config)
     return (
-      <>
+      <SharedConversationBody
+        sourceConversationId={sessionId ?? ''}
+        chat={chat}
+        ordinaryComposer={!ordinaryExcluded ? ordinaryComposer : undefined}
+        ordinaryHistory={
+          <ChatArea
+            {...chat}
+            afterMessages={
+              <>
+                {chat.afterMessages}
+                {ordinaryAfterMessages}
+                {profileDrafts}
+              </>
+            }
+          />
+        }
+      >
         {participantHeader}
         {chat && (
           <ChatArea
@@ -801,7 +818,7 @@ export function SymposiumConversation({
         )}
         {profileTools}
         {!ordinaryExcluded && ordinaryComposer}
-      </>
+      </SharedConversationBody>
     );
   const content = (
     <>

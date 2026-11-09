@@ -1,4 +1,4 @@
-import { copyCallbackOutcome } from './turn-callbacks.js';
+import { copyCallbackOutcome, retainCallbackOutcome } from './turn-callbacks.js';
 import { agentMessagePrompt } from '@mitzo/protocol';
 import { agentContextRuntimeError } from './agent-context-authority.js';
 import {
@@ -126,6 +126,8 @@ import {
 } from './codex-native-approvals.js';
 import {
   assertNativeExecutionRefresh,
+  assertNativeExecutionCurrent,
+  NativeExecutionPolicyChangedError,
   type CodexNativeExecutionPolicy,
 } from './codex-native-execution-policy.js';
 import { withPreparedRepositoryBarrierReadScope } from './prepared-repository-barrier-read.js';
@@ -2254,11 +2256,9 @@ async function openCodexChatBound(
   const originalNativePolicyCurrent = options.assertNativeExecutionCurrent;
   const assertNativePolicyCurrent = (policy: CodexNativeExecutionPolicy, commandId: string) => {
     assertHostCurrentSync();
-    if (
-      options.assertNativeExecutionCurrent !== originalNativePolicyCurrent ||
-      selectedNativePolicy().policyRevision !== policy.policyRevision
-    )
-      throw Error('Native execution policy changed during the active command');
+    if (options.assertNativeExecutionCurrent !== originalNativePolicyCurrent)
+      throw new NativeExecutionPolicyChangedError(['owner']);
+    assertNativeExecutionCurrent(policy, selectedNativePolicy());
     const checked: unknown = originalNativePolicyCurrent
       ? Reflect.apply(originalNativePolicyCurrent, options, [policy, commandId])
       : undefined;
@@ -3223,8 +3223,25 @@ async function openCodexChatBound(
           },
         }
       : {}),
-    onProviderTerminal: (messageId, turnId, status) =>
-      options.ordinaryTurnLifecycle?.terminal(messageId, turnId, status),
+    onProviderTerminal: (messageId, turnId, status) => {
+      try {
+        if (options.eventStore.getSendCommand(messageId)?.sessionId === options.conversationId)
+          options.eventStore.recordOrdinaryProviderTurnTerminal(
+            options.conversationId,
+            messageId,
+            status,
+          );
+      } catch (cause) {
+        log.warn('Exact ordinary provider terminal outcome could not be retained', {
+          err: cause,
+          code: 'ordinary_provider_terminal_retention_failed',
+          stage: 'provider_terminal',
+          conversationId: options.conversationId,
+          commandId: messageId,
+        });
+      }
+      options.ordinaryTurnLifecycle?.terminal(messageId, turnId, status);
+    },
     onProviderTerminalConflict: (messageId, _threadId, turnId) =>
       options.ordinaryTurnLifecycle?.terminalConflict?.(messageId, turnId),
     onProviderComplete: (messageId, status) => {
@@ -3551,10 +3568,8 @@ async function openCodexChatBound(
           throw Error('Tool unavailable for owned local Codex chat');
         assertHostCurrentSync();
         const currentPolicy = selectedNativePolicy();
-        if (
-          currentPolicy.policyRevision !== nativeExecution.policyRevision ||
-          ![...currentPolicy.readableRoots, ...currentPolicy.workspaceRoots].includes('/')
-        )
+        assertNativeExecutionCurrent(nativeExecution, currentPolicy);
+        if (![...currentPolicy.readableRoots, ...currentPolicy.workspaceRoots].includes('/'))
           throw Error('Original native repository preparation scope unavailable');
         return executeNativeLocalRepositoryPreparation(
           Object.freeze({
@@ -3816,21 +3831,25 @@ async function openCodexChatBound(
       if (apiResult) return apiResult;
       if (name === AGENT_COMMUNICATION_TOOL) {
         if (!communicationTools)
-          return {
-            content: 'Agent communication requires an enrolled ordinary Local Codex owner.',
-            isError: true,
-          };
+          return retainCallbackOutcome(
+            {
+              content: 'Agent communication requires an enrolled ordinary Local Codex owner.',
+              isError: true,
+            },
+            'settled',
+          );
         try {
           return {
             content: JSON.stringify(await communicationTools.execute(input, signal, callContext)),
             isError: false,
           };
-        } catch {
-          return {
+        } catch (error) {
+          const failure = {
             content:
               'Agent communication is unavailable under the current sender, recipient or exact-message approval. If delivery was uncertain, read the original message/request receipt before sending again.',
             isError: true,
           };
+          return error instanceof Error ? copyCallbackOutcome(error, failure) : failure;
         }
       }
       if (name === 'StartSession') {
