@@ -67,6 +67,10 @@ it.each(['setup', 'view'] as const)(
       cursor: 0,
     };
     let failed = false;
+    let confirmView!: (response: Response) => void;
+    const confirmation = new Promise<Response>((resolve) => {
+      confirmView = resolve;
+    });
     const fetch = vi.fn(async (url: string) => {
       if (
         !failed &&
@@ -89,7 +93,7 @@ it.each(['setup', 'view'] as const)(
             participantSessionIds: view.participantSessionIds,
           },
         });
-      if (url.endsWith('/conversation')) return Response.json(view);
+      if (url.endsWith('/conversation')) return confirmation;
       throw Error('Unexpected request: ' + url);
     });
     surface(fetch);
@@ -103,6 +107,14 @@ it.each(['setup', 'view'] as const)(
     );
     expect(screen.getAllByRole('alert')).toHaveLength(1);
     fireEvent.click(within(rail).getByRole('button', { name: 'Refresh collaboration' }));
+    // Setup clears its error before the conversation read starts. Observe the
+    // actual read, then deliver it; a transient Ready label is not completion.
+    await waitFor(() =>
+      expect(fetch.mock.calls.filter(([url]) => url.endsWith('/conversation'))).toHaveLength(
+        stage === 'view' ? 2 : 1,
+      ),
+    );
+    await act(async () => confirmView(Response.json(view)));
     await waitFor(() => expect(within(rail).getByRole('status').textContent).toBe('Ready'));
     expect(screen.getByRole('region', { name: 'Conversation status' })).toBe(rail);
     expect(screen.getByRole('textbox', { name: 'Ordinary draft' })).toBe(input);

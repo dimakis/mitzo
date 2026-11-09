@@ -25,7 +25,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/hooks/__tests__/useConversationPresentation.test.tsx':
     'b9547214d542a3077acbe4c3ea9b856a8f1d6f1ebe063c2c9b7498f50ef89218',
   '../../frontend/src/components/__tests__/SharedConversationStatus.test.tsx':
-    '5744e6db4e4c8ee8d6811fe9d52206dc074e85538683c303ad0b3186abdcaa5b',
+    '18e0840ca9b9b3928db0c418d419cf3c46005ed3ee60c620ae608a14afdddf35',
   '../../tests/fixtures/ordinary-collaboration-status.tsx':
     'fbfdc6f94adfd67fcf54f3f62bc1b547770aaec3195801d6037f107e39a4dfde',
   '../../tests/offline/ordinary-collaboration-status.spec.ts':
