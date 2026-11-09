@@ -2711,6 +2711,15 @@ export class EventStore {
     );
   }
 
+  /** Cold durable uncertainty and pre-registry startup ownership both block maintenance. */
+  deploymentStartupPending(): boolean {
+    return (
+      this.ordinaryStartups.size > 0 ||
+      !!this.db!.prepare(
+        "SELECT 1 FROM send_commands WHERE json_extract(ordinary_admission,'$.state') IN ('reserved','uncertain') OR (preparing=1 AND error IS NULL) LIMIT 1",
+      ).get()
+    );
+  }
   private ordinaryStartups = new Map<string, number>();
 
   /** Synchronous with initial Symposium conversion; held across ordinary startup awaits. */
@@ -2718,6 +2727,7 @@ export class EventStore {
     const ids = [...new Set(sessionIds)];
     for (const id of ids) {
       this.assertConversationIdentity(id);
+      if (!this.deployment.canDispatch(id)) throw Error('Deployment holds ordinary startup');
       if (this.getSession(id)?.symposiumConfig)
         throw new Error('Use Symposium directed prompts for this session');
     }

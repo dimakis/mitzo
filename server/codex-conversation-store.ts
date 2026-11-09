@@ -2975,6 +2975,28 @@ export class CodexConversationStore {
       .list(subagentScope(id, binding))
       .every((child) => ['completed', 'failed', 'stopped'].includes(child.state));
   }
+  /** Global negative observation includes cold owners; no effect fence is cleared. */
+  deploymentRecoveryPending(exceptIds: readonly string[] = []): boolean {
+    const excluded = new Set(exceptIds);
+    const ownership = this.db
+      .prepare(
+        `SELECT conversation_id FROM codex_pending_thread_dispatches
+      UNION SELECT conversation_id FROM codex_thread_acceptances WHERE ownership_pending=1 OR terminal_conflict=1`,
+      )
+      .all() as Array<{ conversation_id: string }>;
+    if (ownership.some((row) => !excluded.has(row.conversation_id))) return true;
+    const candidates = this.db
+      .prepare(
+        `SELECT DISTINCT conversation_id FROM codex_commands
+      WHERE completion_phases IS NOT NULL OR ambiguous=1
+      UNION SELECT conversation_id FROM codex_tools WHERE result_content IS NULL OR result_effect_outcome='unknown'`,
+      )
+      .all() as Array<{ conversation_id: string }>;
+    return candidates.some(
+      (row) =>
+        !excluded.has(row.conversation_id) && !!this.unsettledCommandEffects(row.conversation_id),
+    );
+  }
   runningConversationIds(): string[] {
     return (
       this.db

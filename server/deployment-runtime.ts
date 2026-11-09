@@ -13,6 +13,7 @@ import { createSessionPromptPort } from './session-prompt-dispatch.js';
 import {
   hasPersistentRevocationAuthority,
   isAuthSessionCurrent,
+  isAuthenticatedOperatorSessionId,
   type AuthSession,
 } from './auth.js';
 import { DeploymentCoordinator } from './deployment-coordinator.js';
@@ -42,7 +43,11 @@ export function createDeploymentRuntime(
   const prompts = createSessionPromptPort(ctx);
   type Entry = ReturnType<typeof events.deployment.get>['sessions'][number];
   function authorize(auth: AuthSession) {
-    if (!hasPersistentRevocationAuthority() || !isAuthSessionCurrent(auth))
+    if (
+      !hasPersistentRevocationAuthority() ||
+      !isAuthSessionCurrent(auth) ||
+      !isAuthenticatedOperatorSessionId(auth.id)
+    )
       throw Error('Current signed deployment operator required');
   }
   function snapshot(id: string, auth: AuthSession) {
@@ -103,6 +108,8 @@ export function createDeploymentRuntime(
     healthy: deps.healthy,
     authorize,
     capture(auth) {
+      if (events.deploymentStartupPending())
+        throw Error('Ordinary startup or admission uncertainty blocks deployment');
       if (!deps.backgroundIdle())
         throw Error('Background controller is active; deployment is blocked');
       const captured: Array<{ sessionId: string; snapshot: Record<string, unknown> }> = [];
@@ -129,6 +136,8 @@ export function createDeploymentRuntime(
       }
       // Unregistered/cold running native commands are uncertainty, not idle.
       const ids = new Set(captured.map((entry) => entry.sessionId));
+      if (getCodexConversationStore().deploymentRecoveryPending([...ids]))
+        throw Error('Retained parent effects or pending native ownership block deployment');
       if (
         getCodexConversationStore()
           .subagents.unsettledConversationIds()
@@ -187,6 +196,8 @@ export function createDeploymentRuntime(
     },
     quiescent: () =>
       deps.backgroundIdle() &&
+      !events.deploymentStartupPending() &&
+      !getCodexConversationStore().deploymentRecoveryPending() &&
       !getCodexConversationStore().hasRunningCommands() &&
       getCodexConversationStore().subagents.unsettledConversationIds().length === 0 &&
       registry.getActiveSessions().every(({ sessionId }) => {

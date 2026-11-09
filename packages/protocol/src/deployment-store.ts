@@ -18,6 +18,7 @@ export interface DeploymentSession {
   error: string | null;
   /** Recorded only after the original live turn and effects settle. */
   pauseSettled?: boolean;
+  deliveryAttempted?: boolean;
 }
 export interface DeploymentOperation {
   id: string;
@@ -26,6 +27,7 @@ export interface DeploymentOperation {
   auth: { id: string; expiresAt: number };
   phase: 'capturing' | 'pausing' | 'paused' | 'activating' | 'resuming' | 'completed' | 'cancelled';
   sessions: DeploymentSession[];
+  authHistory?: Array<{ id: string; expiresAt: number; replacedAt: number }>;
   activationHash?: string;
   resumeCommit?: string;
   createdAt: number;

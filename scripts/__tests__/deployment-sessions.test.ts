@@ -139,3 +139,22 @@ it('can reconcile the same captured operation after verified rollback health', a
   await f.run('rollback');
   expect(f.calls.filter((call) => call.path.endsWith('/resume'))).toHaveLength(1);
 });
+
+it('forwards explicit recovery with the retained capability without sending a continuation', async () => {
+  const f = fixture();
+  await f.run('prepare');
+  await f.run('activate');
+  const state = JSON.parse(readFileSync(f.statePath, 'utf8'));
+  await f.run('reauthorize');
+  await f.run('reconcile', { sessionId: 'captured-chat' });
+  expect(f.calls.find((call) => call.path.endsWith('/reauthorize'))!.body).toMatchObject({
+    id: state.id,
+    activationId: state.activationId,
+  });
+  expect(f.calls.find((call) => call.path.endsWith('/reconcile'))!.body).toMatchObject({
+    id: state.id,
+    activationId: state.activationId,
+    sessionId: 'captured-chat',
+  });
+  expect(f.calls.some((call) => call.path.endsWith('/resume'))).toBe(false);
+});

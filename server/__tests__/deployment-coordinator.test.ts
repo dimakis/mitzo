@@ -152,6 +152,9 @@ it('coalesces identical reconciliation while refusing competing actions', async 
   );
   const first = f.coordinator.pause('operation', f.auth);
   expect(f.coordinator.pause('operation', f.auth)).toBe(first);
+  await expect(
+    f.coordinator.pause('operation', { ...f.auth, id: 'another-actor' }),
+  ).rejects.toThrow(/already running/);
   await Promise.resolve();
   await expect(f.coordinator.resume('operation', f.auth)).rejects.toThrow(/already running/);
   expect(() => f.coordinator.cancel('operation', f.auth)).toThrow(/settle/);
@@ -220,4 +223,98 @@ it('claims activation before restart and refuses cancellation or stale source co
       })
     ).phase,
   ).toBe('completed');
+});
+
+it('reconciles only a repaired blocked continuation which never entered delivery', async () => {
+  const f = fixture();
+  f.begin();
+  f.settle();
+  await f.coordinator.pause('operation', f.auth);
+  f.coordinator.activate('operation', f.auth, 'activation-secret');
+  f.commit('b'.repeat(40));
+  f.port.validate = () => {
+    throw Error('Account temporarily unavailable');
+  };
+  expect(
+    (await f.coordinator.resume('operation', f.auth, { activationId: 'activation-secret' }))
+      .sessions[0]!.state,
+  ).toBe('blocked');
+  expect(f.port.resume).not.toHaveBeenCalled();
+  f.port.validate = () => {};
+  await f.coordinator.reconcileBlocked('operation', 'chat', f.auth, 'activation-secret');
+  expect(
+    (await f.coordinator.resume('operation', f.auth, { activationId: 'activation-secret' })).phase,
+  ).toBe('completed');
+  expect(f.port.resume).toHaveBeenCalledOnce();
+});
+it('never reopens a continuation after possible delivery, even if its receipt is absent', async () => {
+  const f = fixture();
+  f.begin();
+  f.settle();
+  await f.coordinator.pause('operation', f.auth);
+  f.coordinator.activate('operation', f.auth, 'activation-secret');
+  f.commit('b'.repeat(40));
+  f.port.resume = vi.fn(async () => {
+    throw Error('Lost acknowledgement');
+  });
+  await f.coordinator.resume('operation', f.auth, { activationId: 'activation-secret' });
+  await expect(
+    f.coordinator.reconcileBlocked('operation', 'chat', f.auth, 'activation-secret'),
+  ).rejects.toThrow(/never-dispatched/);
+  expect(f.port.resume).toHaveBeenCalledOnce();
+});
+it('reauthorizes recovery with the retained activation capability and current session custody', async () => {
+  const f = fixture();
+  f.begin();
+  f.settle();
+  await f.coordinator.pause('operation', f.auth);
+  f.coordinator.activate('operation', f.auth, 'activation-secret');
+  f.commit('b'.repeat(40));
+  const fresh = { id: 'fresh-signed-operator', expiresAt: Date.now() + 120_000 };
+  f.port.authorize = (auth) => {
+    if (auth.id === f.auth.id) throw Error('Original login revoked');
+  };
+  await expect(
+    f.coordinator.resume('operation', f.auth, { activationId: 'activation-secret' }),
+  ).rejects.toThrow(/revoked/);
+  await expect(
+    f.coordinator.resume('operation', fresh, { activationId: 'activation-secret' }),
+  ).rejects.toThrow(/Original deployment operator/);
+  expect(() => f.coordinator.reauthorize('operation', fresh, 'wrong-capability')).toThrow(
+    /capability/,
+  );
+  const validate = vi.fn();
+  f.port.validate = validate;
+  const recovered = f.coordinator.reauthorize('operation', fresh, 'activation-secret');
+  expect(validate).toHaveBeenCalledWith(expect.objectContaining({ sessionId: 'chat' }), fresh);
+  expect(recovered.authHistory?.[0]).toMatchObject(f.auth);
+  expect(recovered.auth).toEqual(fresh);
+  expect(
+    (await f.coordinator.resume('operation', fresh, { activationId: 'activation-secret' })).phase,
+  ).toBe('completed');
+});
+
+it('recovers an already accepted historical continuation without reacquiring task control', async () => {
+  const f = fixture();
+  f.begin();
+  f.settle();
+  await f.coordinator.pause('operation', f.auth);
+  f.coordinator.activate('operation', f.auth, 'activation-secret');
+  f.commit('b'.repeat(40));
+  f.events.deployment.update('operation', (operation) => {
+    operation.phase = 'resuming';
+    operation.resumeCommit = 'b'.repeat(40);
+    operation.sessions[0]!.state = 'resuming';
+    operation.sessions[0]!.deliveryAttempted = true;
+  });
+  f.receipt('accepted');
+  f.port.validate = () => {
+    throw Error('Historical task moved or closed');
+  };
+  const fresh = { id: 'fresh-operator', expiresAt: Date.now() + 120_000 };
+  f.coordinator.reauthorize('operation', fresh, 'activation-secret');
+  expect(
+    (await f.coordinator.resume('operation', fresh, { activationId: 'activation-secret' })).phase,
+  ).toBe('completed');
+  expect(f.port.resume).not.toHaveBeenCalled();
 });

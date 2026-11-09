@@ -8102,6 +8102,14 @@ it('refuses deployment settlement for an interrupted native command with unknown
   expect(f.requests.filter(({ method }) => method === 'turn/start')).toHaveLength(1);
   expect(f.store.read('app', f.getBinding()).recovery).toBe(1);
 });
+it('retains cold parent uncertainty in the global deployment inventory after transport retirement', async () => {
+  const f = await setup();
+  await f.c.send({ id: 'cold-deployment-effect', prompt: 'Original task' });
+  f.c.close();
+  expect(f.store.hasRunningCommands()).toBe(false);
+  expect(f.store.deploymentRecoveryPending()).toBe(true);
+  expect(f.store.deploymentRecoveryPending(['app'])).toBe(false);
+});
 it('refuses a retired target before pausing or cancelling the successor', async () => {
   const f = await setup();
   await f.c.send({ id: 'target-a', prompt: 'First' });

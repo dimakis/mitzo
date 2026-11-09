@@ -53,6 +53,26 @@ private state/capability, confirm no forward activation process remains, and
 reconcile the same operation. A pre-activation `... cancel` releases the hold but
 leaves paused sessions and all histories intact for explicit operator continuation.
 
+## Recovering an interrupted deployment
+
+The global inventory also checks durable ordinary admission/startup uncertainty,
+cold parent effect/completion fences and pending native thread ownership. Empty
+registry and terminal chat metadata do not prove that those owners have settled.
+
+If the deployment JWT expires or is revoked, obtain a fresh primary interactive
+login through the existing sign-in flow, update the private operator-token file,
+and run `node scripts/deployment-sessions.mjs reauthorize` with the original private
+state/capability. This explicit action revalidates current custody and settings for every continuation
+still needing session control and retains the earlier actor in the ledger. It never renews
+old tool consent or sends a continuation by itself.
+
+After repairing a session marked `blocked` before delivery, run
+`node scripts/deployment-sessions.mjs reconcile SESSION_ID`, then the appropriate
+`resume` or `rollback` command. Reconciliation requires current custody, original
+pause proof and definite absence of any delivery attempt/receipt. A session marked
+`uncertain`, or any possibly attempted delivery, cannot use this path. Inspect its
+original receipt; never resend it just because acknowledgement was lost.
+
 ## First installation
 
 An older daemon cannot enforce this protocol. The CLI refuses a missing protocol;

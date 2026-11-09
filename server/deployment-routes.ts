@@ -15,6 +15,7 @@ const Begin = z.strictObject({
 });
 const Identity = z.strictObject({ id: z.string().uuid() });
 const Activation = Identity.extend({ activationId: z.string().uuid() });
+const Reconcile = Activation.extend({ sessionId: z.string().min(1).max(200).regex(/^\S+$/) });
 const Resume = Identity.extend({
   activationId: z.string().uuid().optional(),
   rollback: z.boolean().optional(),
@@ -30,16 +31,26 @@ export function createDeploymentRouter(coordinator: DeploymentCoordinator) {
   router.get('/', (_req, res) => {
     res.json({ protocol: 1, active: coordinator.store.active() ?? null });
   });
-  for (const action of ['begin', 'pause', 'activate', 'resume', 'cancel'] as const) {
+  for (const action of [
+    'begin',
+    'pause',
+    'activate',
+    'resume',
+    'reauthorize',
+    'reconcile',
+    'cancel',
+  ] as const) {
     router.post(`/${action}`, requireSameOriginJson, async (req, res) => {
       const parsed = (
         action === 'begin'
           ? Begin
-          : action === 'activate'
+          : action === 'activate' || action === 'reauthorize'
             ? Activation
-            : action === 'resume'
-              ? Resume
-              : Identity
+            : action === 'reconcile'
+              ? Reconcile
+              : action === 'resume'
+                ? Resume
+                : Identity
       ).safeParse(req.body);
       if (!parsed.success) {
         res.status(400).json({ error: 'Exact deployment identity required' });
@@ -50,11 +61,28 @@ export function createDeploymentRouter(coordinator: DeploymentCoordinator) {
         const result =
           action === 'begin'
             ? coordinator.begin(parsed.data.id, Begin.parse(req.body).targetCommit, auth)
-            : action === 'activate'
-              ? coordinator.activate(parsed.data.id, auth, Activation.parse(req.body).activationId)
-              : action === 'resume'
-                ? await coordinator.resume(parsed.data.id, auth, Resume.parse(req.body))
-                : await coordinator[action](parsed.data.id, auth);
+            : action === 'reauthorize'
+              ? coordinator.reauthorize(
+                  parsed.data.id,
+                  auth,
+                  Activation.parse(req.body).activationId,
+                )
+              : action === 'reconcile'
+                ? await coordinator.reconcileBlocked(
+                    parsed.data.id,
+                    Reconcile.parse(req.body).sessionId,
+                    auth,
+                    Reconcile.parse(req.body).activationId,
+                  )
+                : action === 'activate'
+                  ? coordinator.activate(
+                      parsed.data.id,
+                      auth,
+                      Activation.parse(req.body).activationId,
+                    )
+                  : action === 'resume'
+                    ? await coordinator.resume(parsed.data.id, auth, Resume.parse(req.body))
+                    : await coordinator[action](parsed.data.id, auth);
         if (!hasPersistentRevocationAuthority() || !isAuthSessionCurrent(auth)) {
           res.status(403).json({ error: 'Deployment operator authorization expired or revoked' });
           return;

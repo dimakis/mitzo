@@ -30,13 +30,25 @@ export async function reconcileDeployment({
   targetCommit,
   statePath,
   tokenPath,
+  sessionId,
   base = 'http://127.0.0.1:3101',
   fetcher = globalThis.fetch,
   wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
   now = Date.now,
 }) {
   const origin = deploymentBase(base);
-  if (!['prepare', 'activate', 'health', 'resume', 'rollback', 'cancel'].includes(action))
+  if (
+    ![
+      'prepare',
+      'activate',
+      'health',
+      'resume',
+      'rollback',
+      'reauthorize',
+      'reconcile',
+      'cancel',
+    ].includes(action)
+  )
     throw Error('Unsupported deployment action');
   if (!statePath || !tokenPath)
     throw Error('Deployment state and signed operator token files are required');
@@ -123,6 +135,18 @@ export async function reconcileDeployment({
       await request('/api/deployment/activate', { id: state.id, activationId: state.activationId })
     ).operation;
   }
+  if (action === 'reauthorize' || action === 'reconcile') {
+    if (!state.activationId) throw Error('Retained private activation capability required');
+    if (action === 'reconcile' && (typeof sessionId !== 'string' || !/^\S{1,200}$/.test(sessionId)))
+      throw Error('Captured blocked session ID required');
+    return (
+      await request(`/api/deployment/${action}`, {
+        id: state.id,
+        activationId: state.activationId,
+        ...(action === 'reconcile' ? { sessionId } : {}),
+      })
+    ).operation;
+  }
   if (action === 'cancel')
     return (await request('/api/deployment/cancel', { id: state.id })).operation;
   const expected = action === 'rollback' ? state.sourceCommit : state.targetCommit;
@@ -171,6 +195,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     const operation = await reconcileDeployment({
       action,
       targetCommit,
+      sessionId: action === 'reconcile' ? targetCommit : undefined,
       statePath: process.env.MITZO_DEPLOY_STATE_PATH,
       tokenPath: process.env.MITZO_DEPLOY_OPERATOR_TOKEN_FILE,
     });
