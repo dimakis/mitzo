@@ -3326,7 +3326,9 @@ export class CodexConversationStore {
     policyRevision: string | undefined,
     effects: SettledInterruptedEffects,
   ) {
-    const calls = interruptedEffectCalls(effects, id, target);
+    const observed = interruptedEffectCalls(effects, id, target);
+    const calls = observed.filter((call) => call.threadId === target.threadId);
+    const childCalls = observed.filter((call) => call.threadId !== target.threadId);
     const receipts = this.db
       .prepare(
         `SELECT call_id,turn_id,tool_name,request_hash,
@@ -3344,15 +3346,12 @@ export class CodexConversationStore {
     const byId = new Map(receipts.map((receipt) => [receipt.call_id, receipt]));
     let ownedExecution = false;
     if (
-      calls.some(
-        (call) =>
-          call.toolName === 'TaskExecution' ||
-          (call.isError && call.readOnly && byId.get(call.callId)?.result_effect_outcome === null),
-      )
+      observed.some((call) => call.toolName === 'TaskExecution' || (call.isError && call.readOnly))
     ) {
       // Old owned-local sources disabled project hooks. Positive original
       // custody plus accepted policy qualify only this historical cohort.
-      // Other owners and explicit unknown outcomes gain no read inference.
+      // Returned failures of intrinsic reads have no mutation to reconcile.
+      // Preserve their original outcome; this never settles unknown writes.
       try {
         const originalNative = this.readNativeExecution(id, binding, {
           id: target.commandId,
@@ -3369,6 +3368,8 @@ export class CodexConversationStore {
         /* Unavailable original owned-local evidence retains the fence. */
       }
     }
+    if (childCalls.some((call) => !ownedExecution || !call.intrinsicRead))
+      throw Error('Interrupted child host effects require original owned read authority');
     if (
       calls.length !== receipts.length ||
       calls.some((call) => {
@@ -3382,8 +3383,10 @@ export class CodexConversationStore {
           receipt.result_is_error !== Number(call.isError) ||
           !(
             receipt.result_effect_outcome === 'settled' ||
-            (receipt.result_effect_outcome === null &&
-              (!call.isError || (call.readOnly && ownedExecution))) ||
+            (receipt.result_effect_outcome === null && !call.isError) ||
+            (call.readOnly &&
+              ownedExecution &&
+              (receipt.result_effect_outcome === null || call.intrinsicRead)) ||
             (call.toolName === 'TaskExecution' &&
               ownedExecution &&
               hasRetainedTaskExecutionResult(

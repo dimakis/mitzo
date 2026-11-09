@@ -1,5 +1,5 @@
 import { inspectNativeRecoveryTree } from './codex-recovery-tree.js';
-import { isReadOnlyBuiltinToolCall } from './builtin-tool-behavior.js';
+import { isReadOnlyBuiltinToolCall, isIntrinsicRecoveryRead } from './builtin-tool-behavior.js';
 import { createHash } from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
 import { z } from 'zod';
@@ -9,11 +9,14 @@ import { CodexNativeFileChange } from './codex-native-file-change.js';
 
 type HostCall = Readonly<{
   callId: string;
+  threadId: string;
+  turnId: string;
   toolName: string;
   requestHash: string;
   arguments: Record<string, unknown>;
   isError: boolean;
   readOnly: boolean;
+  intrinsicRead: boolean;
 }>;
 /** Process-local evidence from a fresh native RPC, never a JSON recovery grant. */
 export type SettledInterruptedEffects = Readonly<{ readonly nativeEffects: unique symbol }>;
@@ -169,8 +172,6 @@ export async function observeNativeRecoveryTurn(
             break;
           }
           case 'dynamicToolCall': {
-            if (threadId !== target.threadId)
-              throw new SessionRuntimeError('recovery_effects_unverified');
             if (
               item.namespace != null ||
               !(
@@ -181,13 +182,18 @@ export async function observeNativeRecoveryTurn(
               throw Error('Interrupted host tool effects remain unknown');
             const toolName = z.string().min(1).parse(item.tool);
             const args = z.record(z.string(), z.unknown()).parse(item.arguments);
+            if (threadId !== target.threadId && !isIntrinsicRecoveryRead(toolName))
+              throw new SessionRuntimeError('recovery_effects_unverified');
             calls.push({
+              threadId,
+              turnId,
               callId: item.id,
               toolName,
               requestHash: createHash('sha256').update(JSON.stringify(args)).digest('hex'),
               arguments: args,
               isError: !item.success,
               readOnly: isReadOnlyBuiltinToolCall(toolName, args),
+              intrinsicRead: isIntrinsicRecoveryRead(toolName),
             });
             break;
           }

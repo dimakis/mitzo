@@ -490,11 +490,13 @@ async function reconcileRetainedColdTurn(
         grantId: grant.id,
         requestId: randomUUID(),
       }
-    : {
-        operation: 'fetch',
-        url: 'http://localhost:16686/api/v3/traces',
-        reason: 'inspect',
-      };
+    : policyDrift
+      ? { endpoint: '/repos/owner/repo/pulls', access: 'public' }
+      : {
+          operation: 'fetch',
+          url: 'http://localhost:16686/api/v3/traces',
+          reason: 'inspect',
+        };
   const retainedResult = { content: 'Original operation failed.', isError: true };
   const runFingerprint = createHash('sha256')
     .update(JSON.stringify(['Bash', { command: 'exit 1' }, original.workspace.directory!, 60000]))
@@ -506,13 +508,14 @@ async function reconcileRetainedColdTurn(
   }
   const identity = {
     turnId: 'original-turn',
-    toolName: taskStore ? 'TaskExecution' : 'RequestWebAccess',
+    toolName: taskStore ? 'TaskExecution' : policyDrift ? 'GitHubRead' : 'RequestWebAccess',
     requestHash: createHash('sha256').update(JSON.stringify(arguments_)).digest('hex'),
   };
   native.claimTool(id, binding, command.id, 'failed-read', identity);
   native.recordToolResult(id, binding, command.id, 'failed-read', identity, retainedResult);
   const db = (native as unknown as { db: Database.Database }).db;
-  if (!taskStore) db.prepare('UPDATE codex_tools SET result_effect_outcome=NULL').run(); // original legacy receipt
+  if (!taskStore && !policyDrift)
+    db.prepare('UPDATE codex_tools SET result_effect_outcome=NULL').run(); // original legacy receipt
   if (completionPhase)
     native.observeEmptyCompletionPhase(
       id,
@@ -560,10 +563,62 @@ async function reconcileRetainedColdTurn(
   const baseRequest = probe.rpc.request.getMockImplementation()!;
   let afterItem = () => {};
   probe.rpc.request.mockImplementation(async (method, params) => {
+    if (method === 'thread/read')
+      return {
+        thread: {
+          id: params?.threadId,
+          parentThreadId: params?.threadId === 'original-thread' ? null : 'original-thread',
+          sessionId: 'original-tree',
+          cwd: original.workspace.directory!,
+          modelProvider: 'openai',
+          status: { type: 'notLoaded' },
+        },
+      };
     if (method === 'thread/turns/list')
-      return { data: [{ id: 'original-turn', status: nativeStatus, error: null }] };
+      return {
+        data: [
+          {
+            id: params?.threadId === 'child' ? 'child-turn' : 'original-turn',
+            status: params?.threadId === 'child' ? 'completed' : nativeStatus,
+            error: null,
+          },
+        ],
+        nextCursor: null,
+      };
     if (method === 'thread/items/list') {
       afterItem();
+      if (params?.threadId === 'child')
+        return {
+          data: [
+            {
+              turnId: 'child-turn',
+              item: {
+                id: 'child-read',
+                type: 'dynamicToolCall',
+                tool: 'DescribeIntegrationTool',
+                arguments: { name: 'GitHubRead' },
+                status: 'failed',
+                success: false,
+              },
+            },
+          ],
+          nextCursor: null,
+        };
+      if (params?.cursor === 'child-activity')
+        return {
+          data: [
+            {
+              turnId: 'original-turn',
+              item: {
+                id: 'child-start',
+                type: 'subAgentActivity',
+                kind: 'started',
+                agentThreadId: 'child',
+              },
+            },
+          ],
+          nextCursor: null,
+        };
       return {
         data: [
           {
@@ -578,7 +633,7 @@ async function reconcileRetainedColdTurn(
             },
           },
         ],
-        nextCursor: null,
+        nextCursor: policyDrift && !taskStore ? 'child-activity' : null,
       };
     }
     return baseRequest(method, params);
@@ -632,19 +687,21 @@ async function reconcileRetainedColdTurn(
   for (const [column, value] of nativeStatus === 'interrupted'
     ? ([
         [
-          taskStore ? 'result_content' : 'result_effect_outcome',
-          taskStore ? 'changed result' : 'unknown',
+          taskStore ? 'result_content' : policyDrift ? 'tool_name' : 'result_effect_outcome',
+          taskStore ? 'changed result' : policyDrift ? 'UnreviewedMutation' : 'unknown',
         ],
         ['result_content', null],
         ['request_hash', 'f'.repeat(64)],
       ] as const)
     : []) {
     db.prepare(`UPDATE codex_tools SET ${column}=?`).run(value);
+    if (column === 'tool_name') identity.toolName = String(value);
     await expect(driver.reconcileRetainedEffects()).rejects.toThrow();
     expect(native.read(id, binding).recovery).toBe(1);
     expect(native.commandStatus(id, binding, command.id)).toBe('interrupted');
     const originalTool = before.tools[0] as Record<string, unknown>;
     db.prepare(`UPDATE codex_tools SET ${column}=?`).run(originalTool[column]);
+    identity.toolName = String(originalTool.tool_name);
   }
   if (taskStore) {
     const taskDb = (taskStore as unknown as { db: Database.Database }).db;

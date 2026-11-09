@@ -344,6 +344,14 @@ it('verifies every terminal child turn and parent link before recovering a tree'
     'child-old': [
       activity('reply-to-parent', 'root'),
       { id: 'failed', type: 'commandExecution', status: 'failed', exitCode: 1 },
+      {
+        id: 'child-read',
+        type: 'dynamicToolCall',
+        tool: 'GitHubRead',
+        arguments: { endpoint: '/repos/owner/repo' },
+        status: 'failed',
+        success: false,
+      },
     ],
   };
   const guard = vi.fn(async () => {});
@@ -355,6 +363,7 @@ it('verifies every terminal child turn and parent link before recovering a tree'
     'cwd',
     'budget',
     'earlier-unknown',
+    'child-write',
     'changed',
     'empty',
     'revoked',
@@ -400,7 +409,9 @@ it('verifies every terminal child turn and parent link before recovering a tree'
       const item =
         variant === 'earlier-unknown' && turnId === 'child-old' && index === 1
           ? { id: 'pending', type: 'commandExecution', status: 'inProgress', exitCode: null }
-          : history[turnId][index];
+          : structuredClone(history[turnId][index]);
+      if (variant === 'child-write' && turnId === 'child-old' && index === 2)
+        Object.assign(item, { tool: 'GitCommit' });
       return {
         data: [{ turnId, item }],
         nextCursor: index + 1 < history[turnId].length ? String(index + 1) : null,
@@ -408,12 +419,19 @@ it('verifies every terminal child turn and parent link before recovering a tree'
     });
     const result = observeNativeRecoveryTurn(request, 'app', target, true, guard, '/task');
     if (variant === 'settled') {
-      expect(interruptedEffectCalls((await result).settledEffects!, 'app', target)).toEqual([]);
+      expect(interruptedEffectCalls((await result).settledEffects!, 'app', target)).toEqual([
+        expect.objectContaining({
+          threadId: 'child',
+          turnId: 'child-old',
+          toolName: 'GitHubRead',
+          intrinsicRead: true,
+        }),
+      ]);
       expect(
         request.mock.calls.filter(
           ([method, params]) => method === 'thread/items/list' && params.turnId === 'child-old',
         ),
-      ).toHaveLength(2);
+      ).toHaveLength(3);
     } else await expect(result).rejects.toThrow();
     expect(
       request.mock.calls.every(([method]) =>
