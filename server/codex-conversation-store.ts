@@ -1,3 +1,4 @@
+import { isIntrinsicRecoveryRead } from './builtin-tool-behavior.js';
 import { CodexEffectSettlements } from './codex-effect-settlements.js';
 import type {
   RetainedHostResultObserver,
@@ -3508,8 +3509,8 @@ export class CodexConversationStore {
     const receipts = this.interruptedHostReceipts(id, commandId);
     if (this.effectSettlements.matches(id, target, this.hostReceiptDigest(id, commandId, receipts)))
       return true;
-    // Only this built-in's returned history reads can qualify without new native
-    // inspection. Configured MCP tools have distinct encoded wire identities.
+    // Only the shared reviewed intrinsic-read identities can qualify without
+    // new native inspection. Configured MCP tools have distinct wire identities.
     // Missing results/ownership, ambiguous phases and children retain their
     // existing independent deployment fences. Today's policy grants nothing here.
     if (
@@ -3537,7 +3538,7 @@ export class CodexConversationStore {
         unknown.length > 0 &&
         unknown.every(
           (receipt) =>
-            receipt.tool_name === 'ReadPastSession' &&
+            isIntrinsicRecoveryRead(receipt.tool_name ?? '') &&
             receipt.turn_id === target.turnId &&
             !!receipt.call_id.trim() &&
             /^[a-f0-9]{64}$/.test(receipt.request_hash ?? '') &&

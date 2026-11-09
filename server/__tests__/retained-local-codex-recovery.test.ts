@@ -549,6 +549,14 @@ async function reconcileRetainedColdTurn(
       command.id,
     );
     expect(native.deploymentRecoveryPending()).toBe(false);
+    // Older completed intrinsic reads must use the same reviewed contract.
+    for (const tool of ['GitHubRead', 'Read', 'DescribeIntegrationTool']) {
+      db.prepare("UPDATE codex_tools SET tool_name=? WHERE call_id='failed-read'").run(tool);
+      expect(native.deploymentRecoveryPending()).toBe(false);
+    }
+    db.prepare("UPDATE codex_tools SET tool_name=? WHERE call_id='failed-read'").run(
+      identity.toolName,
+    );
     for (const [table, key, column, value, originalValue] of [
       ['codex_commands', command.id, 'status', 'interrupted', 'completed'],
       [

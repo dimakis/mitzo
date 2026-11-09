@@ -867,11 +867,11 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../single-flight-reconciliation.ts':
     '243227fbf5ff82d42687770551a3d3fa37ea11ea2d7c6d615e8b6bcb3d19def1',
   '../__tests__/session-history-native.test.ts':
-    '1b97c71466865e481b4186454e608c013900e2990cfa7890e68e1efcc7edcd2f',
+    '626cf236c0a400b4cc34ef98814bb4e2c060bf548688264fa9c31fb6ba87826f',
   '../__tests__/session-history-search-cost.test.ts':
     '35702a53d15810e3a9e89183e1544a41cf8df84a4d78c4c8bbb911210c88ebf6',
   '../__tests__/session-history-search-batch.test.ts':
-    'ff9ffa2c244880fdd6f0966652db7fcb66e6a9d68273064dd66a92e2bbc67bcc',
+    '7d63430f25d4093b209109ac371b32c65433909e8c637d77d7e27e2916c4836f',
   '../../tests/fixtures/chat-settings-surface.tsx':
     '2db96d2164acd3426af64c6a300391cfec41f0f6eb48007646dab19f71380ca2',
   '../../tests/support/chat-storage-bootstrap.ts':
@@ -1025,7 +1025,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/owned-local-codex-real-start.test.ts':
     '5d7e093bedaba3e2549ce8eecb9110214b71bb18323878c251aa1075959709cb',
   '../__tests__/retained-local-codex-recovery.test.ts':
-    'c531f85b994bb5726c56bf96d395a8762b7da84c840469fd5d8b058e1a21377c',
+    '4b56299d70f61885cefd83217cb66ff2083c4ad5010c8381aa9f5b8d840db19e',
   '../retained-local-codex-recovery.ts':
     '11f58e029b9d684d111ba998dfde52de9cd589796a0e5bdfe54274cb422b52e7',
   '../../tests/offline/queue-status.spec.ts':
@@ -2146,7 +2146,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../agent-context-sandbox.ts': '8b61edc17ccc94bc95eae3796e68a0beb9540534e3bfbb348a04154c41995416',
   '../codex-conversation.ts': '65b5bdd62cb162f6db0bd6c1e2217155cba46e4071d05f526a1b3af7c801bd9a',
   '../codex-conversation-store.ts':
-    '49de9925bb9aceead606c0f9c00e52cd67e9b4e6aafc35a620564f7f893ceaea',
+    'd096967b3815099120ec5b5fe1fac46b58223c58fd4a07ced79202c0f6c4bc0b',
   '../symposium-custodian-ipc.ts':
     '8dcbf6aefbf29742b2828b7e8ca657aa294e8ee9601f52422ada469fac1731cc',
   '../symposium-custodian-authority.ts':

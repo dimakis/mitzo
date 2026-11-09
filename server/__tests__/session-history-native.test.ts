@@ -174,19 +174,14 @@ it('runs history through the signed native owner without publication configurati
   // A bounded summary search must not fan out through thousands of full
   // native runtime/credential/workspace fences while blocking other chats.
   expect(runtimeChecks.mock.calls.length).toBeLessThan(1000);
-  const searched = await invoke('SearchPastSessions', { query: 'Prior project' });
+  const searched = await invoke('SearchPastSessions', { query: 'Public old', limit: 1 });
   expect(searched.response.success).toBe(true);
   expect(searched.value.sessions).toMatchObject([
     { conversationId: 'history-target', summary: 'Prior project' },
   ]);
-  const read = await invoke('ReadPastSession', { conversationId: 'history-target' });
-  expect(read.response.success).toBe(true);
-  expect(read.value.entries.map((entry: { text: string }) => entry.text)).toEqual([
-    'Public old request',
-    'Public old answer',
-  ]);
-  expect(read.text).not.toContain('private');
-  // Real owner checks must survive other chats selecting new publications.
+  expect(searched.value.sessions[0].snippet).toContain('Public old');
+  // Admission predates both publications. The real callback must still work
+  // after rotation; per-revision policy equality is covered by the config fixture.
   for (const revision of ['first', 'second']) {
     const seed = join(knowledge, revision, 'mgmt');
     mkdirSync(seed, { recursive: true });
@@ -194,10 +189,14 @@ it('runs history through the signed native owner without publication configurati
     if (revision === 'second') unlinkSync(current);
     symlinkSync(join(knowledge, revision), current);
     registerWorkspaceRuntimeAuthorityPaths([join(current, 'mgmt')]);
-    expect(
-      (await invoke('ReadPastSession', { conversationId: 'history-target' })).response.success,
-    ).toBe(true);
   }
+  const read = await invoke('ReadPastSession', { conversationId: 'history-target' });
+  expect(read.response.success).toBe(true);
+  expect(read.value.entries.map((entry: { text: string }) => entry.text)).toEqual([
+    'Public old request',
+    'Public old answer',
+  ]);
+  expect(read.text).not.toContain('private');
   const ownedSession = chat.registry.findBySessionId(f.reservation.conversationId)!.session;
   expect(
     native
@@ -214,26 +213,9 @@ it('runs history through the signed native owner without publication configurati
   expect(
     (await invoke('SearchPastSessions', { query: 'Public old', scope: 'all' })).response.success,
   ).toBe(false);
-  expect((await invoke('SearchPastSessions', { query: 'Prior project' })).response.success).toBe(
-    true,
-  );
   ownedSession.activeSkillPolicy = null;
-  expect(
-    (await invoke('ReadPastSession', { conversationId: 'hidden-target' })).response.success,
-  ).toBe(false);
-  expect(
-    (await invoke('ReadPastSession', { conversationId: 'unregistered-target' })).response.success,
-  ).toBe(false);
-  chat.eventStore.registerInternalSdkExecution({
-    sdkSessionId: 'internal-target',
-    parentSessionId: f.reservation.conversationId,
-    operationId: 'history-fixture-internal',
-    purpose: 'web_search',
-    cwd: setup.root,
-  });
-  expect(
-    (await invoke('ReadPastSession', { conversationId: 'internal-target' })).response.success,
-  ).toBe(false);
+  // Hidden/missing/internal target variants share the real authorization fixture
+  // in session-history-search-batch; retain native hide-during-read/logout here.
   const readEvents = chat.eventStore.getHistoryEventPage.bind(chat.eventStore);
   vi.spyOn(chat.eventStore, 'getHistoryEventPage').mockImplementationOnce((id, ...page) => {
     const result = readEvents(id, ...page);
