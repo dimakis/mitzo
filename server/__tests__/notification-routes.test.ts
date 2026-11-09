@@ -39,6 +39,137 @@ async function setup() {
   };
 }
 describe('notification API', () => {
+  it('retains the exact native session action and settled receipt without replaying it', async () => {
+    const s = await setup();
+    const resolver = vi.fn(() => ({ behavior: 'allow' }));
+    const permId = 'native-session-receipt';
+    const requestId = '46b3a339-3307-4b37-82d4-d2776d4c3c10';
+    registerPending(permId, 'Bash', resolver, { command: 'npm test' }, 'elevated', 's1', {
+      permId,
+      toolName: 'Bash',
+      toolInput: 'npm test',
+      sessionId: 's1',
+      approvalScope: 'request',
+      sessionGrantDescription: 'Workspace commands for this session',
+    });
+    const path = `/api/notifications/permission:${permId}`;
+    const body = {
+      sessionId: 's1',
+      decision: 'always',
+      requestId,
+      nativeAction: 'ALLOW_SESSION_ACTION',
+      reviewed: {
+        toolName: 'Bash',
+        toolInput: 'npm test',
+        sessionGrantDescription: 'Workspace commands for this session',
+      },
+    };
+    const auth = { Authorization: `Bearer ${s.token}` };
+    try {
+      const first = await request(s.app)
+        .post(path + '/respond')
+        .set(auth)
+        .send(body);
+      expect(first.status).toBe(200);
+      expect(first.body.receipt).toMatchObject({
+        requestId,
+        nativeAction: 'ALLOW_SESSION_ACTION',
+        decision: 'always',
+        sessionId: 's1',
+        status: 'settled',
+        resolution: 'allowed',
+      });
+      const retry = await request(s.app)
+        .post(path + '/respond')
+        .set(auth)
+        .send(body);
+      expect(retry.body).toEqual(first.body);
+      expect(resolver).toHaveBeenCalledOnce();
+      const recovered = await request(s.app)
+        .get(path + `/responses/${requestId}?sessionId=s1`)
+        .set(auth);
+      expect(recovered.body.receipt).toEqual(first.body.receipt);
+      expect(
+        (
+          await request(s.app)
+            .post(path + '/respond')
+            .set(auth)
+            .send({ ...body, decision: 'once' })
+        ).status,
+      ).toBe(409);
+      expect(
+        (
+          await request(s.app)
+            .get(path + `/responses/${requestId}?sessionId=other`)
+            .set(auth)
+        ).status,
+      ).toBe(404);
+      expect((await request(s.app).get(path + `/responses/${requestId}?sessionId=s1`)).status).toBe(
+        401,
+      );
+    } finally {
+      removePending(permId);
+      s.close();
+    }
+  });
+
+  it.each(['revoked', 'throw', 'expired', 'changed-scope'])(
+    'never confirms a native allow when %s',
+    async (failure) => {
+      const s = await setup();
+      const resolver = vi.fn(() => {
+        if (failure === 'throw') throw Error('private cause with credential');
+        return { behavior: 'deny' };
+      });
+      const permId = 'native-' + failure;
+      const requestId = '891d6bdd-88d6-4868-b83f-73e1215cf611';
+      registerPending(permId, 'Bash', resolver, { command: 'npm test' }, 'elevated', 's1', {
+        permId,
+        toolName: 'Bash',
+        toolInput: 'npm test',
+        sessionId: 's1',
+        allowSessionGrant: failure !== 'changed-scope',
+        expiresAt: Date.now() + (failure === 'expired' ? -1 : 60000),
+      });
+      const path = `/api/notifications/permission:${permId}`;
+      const body = {
+        sessionId: 's1',
+        decision: 'always',
+        requestId,
+        nativeAction: 'ALLOW_SESSION_ACTION',
+        reviewed: { toolName: 'Bash', toolInput: 'npm test' },
+      };
+      const auth = { Authorization: `Bearer ${s.token}` };
+      try {
+        const response = await request(s.app)
+          .post(path + '/respond')
+          .set(auth)
+          .send(body);
+        expect(response.body.ok).not.toBe(true);
+        expect(JSON.stringify(response.body)).not.toContain('private cause');
+        const receipt = await request(s.app)
+          .get(path + `/responses/${requestId}?sessionId=s1`)
+          .set(auth);
+        expect(receipt.status).toBe(200);
+        expect(receipt.body.receipt).toMatchObject({
+          requestId,
+          decision: 'always',
+          nativeAction: 'ALLOW_SESSION_ACTION',
+        });
+        expect(receipt.body.receipt.resolution).not.toBe('allowed');
+        await request(s.app)
+          .post(path + '/respond')
+          .set(auth)
+          .send(body);
+        expect(resolver).toHaveBeenCalledTimes(
+          failure === 'expired' || failure === 'changed-scope' ? 0 : 1,
+        );
+      } finally {
+        removePending(permId);
+        s.close();
+      }
+    },
+  );
   it.each(['/inbox:changed.md/archive', '/archive-resolved'])(
     'refreshes newly actionable inbox sources before %s',
     async (path) => {
