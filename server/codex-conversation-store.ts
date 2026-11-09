@@ -3332,7 +3332,7 @@ export class CodexConversationStore {
     const receipts = this.db
       .prepare(
         `SELECT call_id,turn_id,tool_name,request_hash,
-      result_content,result_is_error,result_effect_outcome FROM codex_tools WHERE conversation_id=? AND command_id=?`,
+      result_content,result_is_error,result_effect_outcome,result_content_items FROM codex_tools WHERE conversation_id=? AND command_id=?`,
       )
       .all(id, target.commandId) as Array<{
       call_id: string;
@@ -3342,9 +3342,12 @@ export class CodexConversationStore {
       result_content: string | null;
       result_is_error: number | null;
       result_effect_outcome: string | null;
+      result_content_items: string | null;
     }>;
     const byId = new Map(receipts.map((receipt) => [receipt.call_id, receipt]));
     let ownedExecution = false;
+    let originalExecution: ReturnType<CodexConversationStore['readNativeExecution']>;
+    let originalCustody: ReturnType<CodexConversationStore['readHostCustody']>;
     if (
       observed.some((call) => call.toolName === 'TaskExecution' || (call.isError && call.readOnly))
     ) {
@@ -3353,17 +3356,18 @@ export class CodexConversationStore {
       // Returned failures of intrinsic reads have no mutation to reconcile.
       // Preserve their original outcome; this never settles unknown writes.
       try {
-        const originalNative = this.readNativeExecution(id, binding, {
+        originalExecution = this.readNativeExecution(id, binding, {
           id: target.commandId,
           attempt: target.attempt,
         });
+        originalCustody = this.readHostCustody(id, binding);
         ownedExecution =
-          !!this.readHostCustody(id, binding) &&
-          originalNative?.phase === 'accepted' &&
-          originalNative.turnId === target.turnId &&
-          originalNative.threadId === target.threadId &&
-          originalNative.generation === target.generation &&
-          originalNative.policy.policyRevision === policyRevision;
+          !!originalCustody &&
+          originalExecution?.phase === 'accepted' &&
+          originalExecution.turnId === target.turnId &&
+          originalExecution.threadId === target.threadId &&
+          originalExecution.generation === target.generation &&
+          originalExecution.policy.policyRevision === policyRevision;
       } catch {
         /* Unavailable original owned-local evidence retains the fence. */
       }
@@ -3395,6 +3399,16 @@ export class CodexConversationStore {
                 this.read(id, binding).cwd,
                 call.arguments,
                 { content: receipt.result_content, isError: call.isError },
+                () => ({
+                  target,
+                  execution: originalExecution!,
+                  custody: originalCustody!,
+                  diagnostic: this.commandLifecycle(id, binding, target.commandId).diagnostic,
+                  callId: call.callId,
+                  requestHash: call.requestHash,
+                  effectOutcome: receipt.result_effect_outcome,
+                  contentItems: receipt.result_content_items,
+                }),
               ))
           )
         );

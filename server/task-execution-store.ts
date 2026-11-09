@@ -276,15 +276,14 @@ export class TaskExecutionStore {
   }
   /** Historical observation only. Revocation/expiry never authorizes another run,
    * but does not erase the original executor's immutable completed result. */
-  hasMatchingCompletedRun(input: {
+  observeRunForRecovery(input: {
     grantId: string;
     sessionId: string;
     requestId: string;
     fingerprint: string;
     cwd: string;
     binding: AccountBinding;
-    result: z.infer<typeof RunResult>;
-  }): boolean {
+  }) {
     const row = this.db
       .prepare(
         `SELECT r.fingerprint,r.result,g.data FROM task_execution_runs r
@@ -293,16 +292,31 @@ export class TaskExecutionStore {
       )
       .get(input.grantId, input.sessionId, input.requestId) as
       { fingerprint: string; result: string | null; data: string } | undefined;
-    if (!row || row.result === null || row.fingerprint !== input.fingerprint) return false;
-    const member = GrantSchema.parse(JSON.parse(row.data)).members.find(
-      (value) => value.sessionId === input.sessionId,
-    );
+    if (!row || row.fingerprint !== input.fingerprint) return undefined;
+    const grant = GrantSchema.parse(JSON.parse(row.data));
+    const member = grant.members.find((value) => value.sessionId === input.sessionId);
+    if (
+      !member?.account ||
+      codexStoredAccountKey(member.account as AccountBinding) !==
+        codexStoredAccountKey(input.binding) ||
+      !member.roots.some((root) => input.cwd === root || input.cwd.startsWith(root + '/'))
+    )
+      return undefined;
+    return {
+      grant,
+      member,
+      fingerprint: row.fingerprint,
+      result: row.result === null ? null : RunResult.parse(JSON.parse(row.result)),
+    };
+  }
+  hasMatchingCompletedRun(
+    input: Parameters<TaskExecutionStore['observeRunForRecovery']>[0] & {
+      result: z.infer<typeof RunResult>;
+    },
+  ): boolean {
+    const observed = this.observeRunForRecovery(input);
     return (
-      !!member?.account &&
-      codexStoredAccountKey(member.account as AccountBinding) ===
-        codexStoredAccountKey(input.binding) &&
-      member.roots.some((root) => input.cwd === root || input.cwd.startsWith(root + '/')) &&
-      isDeepStrictEqual(RunResult.parse(JSON.parse(row.result)), input.result)
+      !!observed && observed.result !== null && isDeepStrictEqual(observed.result, input.result)
     );
   }
   finish(grantId: string, sessionId: string, requestId: string, result: z.infer<typeof RunResult>) {

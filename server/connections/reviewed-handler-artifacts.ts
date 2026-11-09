@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.962-intrinsic-read-recovery';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.963-reviewed-task-failures';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -22,9 +22,15 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
+  '../__tests__/historical-task-failure-evidence.test.ts':
+    '01696f44c26c035cee508719ca0089b346c76063de2e83e9d840b2a74ff16e17',
+  '../historical-task-failure-evidence.ts':
+    '26683810431221e65977bce305d0ad88e08519980c1b63703f0bad641ad4d01a',
+  '../historical-task-failure-manifest.ts':
+    '969b1c73290ea58ba64bd5444cf9349b37b12f871116d1b4e1b529e95f00f2f0',
   '../codex-recovery-tree.ts': '39e05139a4e42a0b9e456b281c6f73b38cc581df805392cb889a91afe6f45b8b',
   '../retained-task-execution-result.ts':
-    '68b83aa87505d503ac397157c7e33a61b1b97b9691f5f26a14c50d444f489202',
+    'f60a4bb230576582ca67ddb98282ef91d54c6a27270876b8718ef5fe0270c21a',
   '../../frontend/src/hooks/__tests__/useConversationPresentation.test.tsx':
     'baeff93ece3be5a10f4ae28e9a90b464af83668217ceb1f9f911696e1d6aaefe',
   '../../frontend/src/components/ConversationRepositoryPicker.tsx':
@@ -282,7 +288,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../task-execution-scope.ts': 'f39ab4c377268ec4cbdac4b086a47f8a13cd77bd252b6cce93f11283dcb41358',
   '../task-execution-runtime.ts':
     '3d8027c88f7348490683c3fc500625cbe53c9d1e470e40a074f6d90df431351c',
-  '../task-execution-store.ts': '76149f4fd1df666b2cd82b3c520add53e357d2d2b72a08dd89fcaa8e67285f3f',
+  '../task-execution-store.ts': '8f5e8ebf802529e3af7332a919d7e2bc8709742141943e537215cbd6fe7e377a',
   '../task-execution-tools.ts': '22bb643cca4ac7cba04cee93f54903032546bef4cb3095ef918e3bfcdb3403ed',
   '../permission-audit.ts': '5ed5c6acb8b8f9c75ced2a0ded57c9945ec91d935c540b4b0c020ade94266835',
   '../../packages/harness/src/permission-audit.ts':
@@ -2099,7 +2105,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../agent-context-sandbox.ts': '8b61edc17ccc94bc95eae3796e68a0beb9540534e3bfbb348a04154c41995416',
   '../codex-conversation.ts': 'da1d3e9ed1816f5a9c6350cf23edb899d175dd93935a858406146d30a53e6bd1',
   '../codex-conversation-store.ts':
-    'fbf3c70311c8e90ef77c2422e462647f6996b9cd498fae2d1e468716b9ffeae2',
+    '562147d4a70fe9a24d56efcc72a9d72f278c7350f4d0032cee5f01b9b4368988',
   '../symposium-custodian-ipc.ts':
     '8dcbf6aefbf29742b2828b7e8ca657aa294e8ee9601f52422ada469fac1731cc',
   '../symposium-custodian-authority.ts':
