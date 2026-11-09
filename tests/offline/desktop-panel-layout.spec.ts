@@ -48,6 +48,14 @@ for (const theme of ['dark', 'light'])
     if (!mobile) {
       for (const name of ['navigation', 'conversations', 'resources']) {
         const divider = page.getByRole('separator', { name: `Resize ${name}`, exact: true });
+        const panel = page.locator(
+          name === 'navigation'
+            ? '.workspace-rail'
+            : name === 'conversations'
+              ? '.desktop-sidebar-left'
+              : '.desktop-sidebar-right',
+        );
+        const initialPanelWidth = (await panel.boundingBox())!.width;
         const initial = Number(await divider.getAttribute('aria-valuenow'));
         const bounds = (await divider.boundingBox())!;
         await page.mouse.move(bounds.x + bounds.width / 2, bounds.y + bounds.height / 2);
@@ -59,11 +67,18 @@ for (const theme of ['dark', 'light'])
         );
         await page.mouse.up();
         expect(Number(await divider.getAttribute('aria-valuenow'))).toBe(initial + 40);
+        expect(Math.abs((await panel.boundingBox())!.width - initialPanelWidth - 40)).toBeLessThan(
+          1,
+        );
         await expect(divider).toBeFocused();
         await divider.press(name === 'resources' ? 'ArrowLeft' : 'ArrowRight');
         expect(Number(await divider.getAttribute('aria-valuenow'))).toBe(initial + 50);
+        expect(Math.abs((await panel.boundingBox())!.width - initialPanelWidth - 50)).toBeLessThan(
+          1,
+        );
       }
       await expect(draft).toHaveValue('Preserve this unsent draft');
+      await page.screenshot({ path: info.outputPath(`responsiveness-panels-wide-${theme}.png`) });
       const saved = await page
         .getByRole('separator', { name: 'Resize conversations', exact: true })
         .getAttribute('aria-valuenow');
@@ -84,11 +99,35 @@ for (const theme of ['dark', 'light'])
       });
       expect(dimensions.content).toBeGreaterThan(1200);
       expect(dimensions.bubble).toBeGreaterThanOrEqual(dimensions.content - 1);
+      await page.screenshot({
+        path: info.outputPath(`responsiveness-panels-full-chat-${theme}.png`),
+      });
       await page.getByRole('button', { name: 'Toggle preview' }).click();
       const preview = page.getByRole('separator', { name: 'Resize conversation preview' });
       const previewWidth = Number(await preview.getAttribute('aria-valuenow'));
       await preview.press('ArrowLeft');
       await expect(preview).toHaveAttribute('aria-valuenow', String(previewWidth + 2));
+      const previewPane = page.locator('.session-inspector');
+      const initialPreviewWidth = (await previewPane.boundingBox())!.width;
+      const layoutWidth = (await page.locator('.session-library-body').boundingBox())!.width;
+      const previewBounds = (await preview.boundingBox())!;
+      await page.mouse.move(
+        previewBounds.x + previewBounds.width / 2,
+        previewBounds.y + previewBounds.height / 2,
+      );
+      await page.mouse.down();
+      await page.mouse.move(
+        previewBounds.x + previewBounds.width / 2 - layoutWidth * 0.04,
+        previewBounds.y + previewBounds.height / 2,
+        { steps: 6 },
+      );
+      await page.mouse.up();
+      await expect(preview).toHaveAttribute('aria-valuenow', String(previewWidth + 6));
+      expect(
+        Math.abs(
+          (await previewPane.boundingBox())!.width - initialPreviewWidth - layoutWidth * 0.04,
+        ),
+      ).toBeLessThan(2);
       await page.getByRole('button', { name: 'Toggle preview' }).click();
       await expect(draft).toHaveValue('Preserve this unsent draft');
       await page.setViewportSize({ width: 800, height: 1000 });
@@ -115,6 +154,6 @@ for (const theme of ['dark', 'light'])
     expect(
       await page.evaluate(() => document.documentElement.scrollWidth - innerWidth),
     ).toBeLessThanOrEqual(1);
-    await page.screenshot({ path: info.outputPath(`panels-${theme}.png`) });
+    await page.screenshot({ path: info.outputPath(`responsiveness-panels-${theme}.png`) });
     expect(errors).toEqual([]);
   });
