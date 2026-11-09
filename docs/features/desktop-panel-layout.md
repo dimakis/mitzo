@@ -51,3 +51,11 @@ Validation as of 9 November 2026:
 
 Implementation starts from current canonical main `33cfa0699413`, which also
 matched the inspected release. No staging or production activation is included.
+
+Landing preparation: two focused read-only reviews of `2dd7f1ec` found no
+blocking findings. Optional follow-ups are asserting actual panel dimensions in
+the drag fixture and retaining unrelated wide preferences when a user manually
+resizes another panel on a constrained window. Pure window resizing already
+preserves the saved layout. CI source preflight identified stale registered
+hashes for the changed design contract and chat CSS; the runtime source revision
+and those two hashes were refreshed without changing their verification.
