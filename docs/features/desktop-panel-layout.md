@@ -60,3 +60,8 @@ resizes another panel on a constrained window. Pure window resizing already
 preserves the saved layout. CI source preflight identified stale registered
 hashes for the changed design contract and chat CSS; the runtime source revision
 and those two hashes were refreshed without changing their verification.
+
+Final-base integration retains accepted main `3f594189` (PR #1272), which fixes
+native policy/history recovery without changing frontend layout or dependencies.
+The only conflict was the shared runtime revision stamp; it advances to
+`v1.0.972-desktop-panel-layout` while retaining both sets of source fingerprints.
