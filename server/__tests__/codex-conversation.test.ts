@@ -324,7 +324,19 @@ it.each([false, true])(
       }
       return original(method, params);
     });
-    f.callbacks.onNotification('thread/started', { thread: child });
+    if (owned)
+      f.callbacks.onNotification('item/completed', {
+        threadId: f.getProviderThread(),
+        turnId: 'turn-1',
+        item: {
+          type: 'subAgentActivity',
+          id: 'spawn',
+          kind: 'started',
+          agentThreadId: 'child',
+          agentPath: '/root/reviewer',
+        },
+      });
+    else f.callbacks.onNotification('thread/started', { thread: child });
     f.callbacks.onNotification('turn/started', { threadId: 'child', turn: { id: 'child-turn' } });
     await f.c.getSubagents()!.settled();
     if (wrapped) {

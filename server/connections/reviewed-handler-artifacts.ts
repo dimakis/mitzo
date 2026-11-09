@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.950-task-outcome-continuity';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.951-native-child-activity';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -456,10 +456,10 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/codex-subagent-store.test.ts':
     '17cb3848f026986ee4357e9bf527c6883085b515072ee59c4c490bdd7a0abe88',
   '../__tests__/codex-subagents.test.ts':
-    '8b84dee708163ed91ad31a4ac675aa966b02543044fdb3454f0ac826c51ef796',
+    'a06a654b04fe0970dd86d41448d09f78b2bf31180ed38ed2076da24097b3cbbd',
   '../codex-subagent-routes.ts': '626354e56b192b4c660f9a2187aae075c77ed93cee3569769df391556b761211',
   '../codex-subagent-store.ts': '58b511c0acc5dbb31cabc3fd03bb05c3c270bc5013e6cbbba349d6dced51848c',
-  '../codex-subagents.ts': 'c8c1e5381d11a0068fb79ab1c657e7999826d1f583feeb3d5efbbb497df02287',
+  '../codex-subagents.ts': 'b184fe4c7ce9ce7a75844d56d1b6116dcc2640bc4bece4e575d898e19242d065',
   '../__tests__/notification-routes.test.ts':
     'ec75e73c1c175493818ce14fe3ef7bdd09379cbc3427338b2ee4e9a5269b46f4',
   '../__tests__/symposium-review-app.test.ts':
@@ -1240,7 +1240,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/codex-chat-session.test.ts':
     'de441c32b1cb386e1eb80069dfa9570ec57f35afe4bbb983d13e5a1b3a66d7be',
   '../__tests__/codex-conversation.test.ts':
-    '1b59a3a06b5e25332934515c442a99a1799f16de3ec6fa65db4429068e3e0ca3',
+    '667144a8f8bf9b3496e285d64678136fca1d2ff293f1d4c5a986f2a9604f1f81',
   '../__tests__/codex-native-approvals.test.ts':
     '386645f67e0681776b66e25c35863ee694b5da3cd6a9aeda558e0e2e3ecc24f4',
   '../__tests__/codex-native-artifact-qualification.test.ts':

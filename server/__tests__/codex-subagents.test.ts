@@ -113,6 +113,38 @@ function fixture(extra: Partial<ConstructorParameters<typeof CodexSubagents>[0]>
     admit,
   };
 }
+it('qualifies native activity hints through the original parent and native child identity', async () => {
+  const f = fixture();
+  const activity = {
+    type: 'subAgentActivity',
+    id: 'spawn',
+    kind: 'started',
+    agentThreadId: 'child',
+    agentPath: '/root/reviewer',
+  };
+  for (const [threadId, item] of [
+    ['foreign', activity],
+    ['root', { ...activity, kind: 'future' }],
+    ['root', { ...activity, agentThreadId: '' }],
+  ] as const)
+    f.notify('item/completed', { threadId, item });
+  await f.owner.settled();
+  expect(f.request).not.toHaveBeenCalled();
+  f.thread.parentThreadId = 'foreign';
+  f.notify('item/completed', { threadId: 'root', item: activity });
+  await f.owner.settled();
+  expect(f.owner.list()).toEqual([]);
+  expect(f.request.mock.calls.some(([method]) => method === 'thread/resume')).toBe(false);
+  f.thread.parentThreadId = 'root';
+  f.notify('item/completed', { threadId: 'root', item: activity });
+  f.notify('turn/started', { threadId: 'child', turn: { id: 'child-turn' } });
+  await f.owner.settled();
+  expect(f.owner.list()).toEqual([
+    expect.objectContaining({ threadId: 'child', state: 'working' }),
+  ]);
+  expect(f.execute).not.toHaveBeenCalled();
+});
+
 it('hydrates nonempty paginated history entries in order without replaying tools', async () => {
   const f = fixture();
   const original = f.request.getMockImplementation()!;
