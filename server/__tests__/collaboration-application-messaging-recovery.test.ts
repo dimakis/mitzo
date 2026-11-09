@@ -447,13 +447,21 @@ it.each(['providerThreadId', 'providerTurnId', 'executionFingerprint', 'version'
   'refuses malformed retained %s with a valid finalized message identity',
   (field) => {
     retainedPrompt();
-    const source = finalizedAnswer();
     // Simulate malformed legacy/corrupt retained evidence, not the validated writer.
-    store
-      .db!.prepare(
-        "UPDATE events SET payload=json_set(payload,?,?) WHERE session_id='two' AND type='ordinary_reply_source' AND json_extract(payload,'$.messageId')=?",
-      )
-      .run(`$.${field}`, field === 'version' ? 'unknown' : 'x'.repeat(100001), source.messageId);
+    const append = store.append.bind(store);
+    const corrupt = vi
+      .spyOn(store, 'append')
+      .mockImplementation((session, type, payload) =>
+        append(
+          session,
+          type,
+          type === 'ordinary_reply_source'
+            ? { ...payload, [field]: field === 'version' ? 'unknown' : 'x'.repeat(100001) }
+            : payload,
+        ),
+      );
+    finalizedAnswer();
+    corrupt.mockRestore();
     expect(() => owner.reconcile(auth, group)).not.toThrow();
     expect(store.collaborationConversation.view(group).messages).toHaveLength(1);
     finalizedAnswer('Later eligible answer');

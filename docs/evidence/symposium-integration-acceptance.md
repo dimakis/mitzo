@@ -51,7 +51,8 @@ callback-consumer regression in #1257. That evidence is separate from this PR's
 current-head CI/review, which remain mandatory before merge.
 
 This qualifies bounded source/offline behavior only. The complete fresh-agent
-edited review/refreeze/join browser journey, independent visual acceptance,+physical iOS, other runtime/account routes and the broader milestone remain
+edited review/refreeze/join browser journey, independent visual acceptance,
+physical iOS, other runtime/account routes and the broader milestone remain
 separate acceptance work. No staging, deployment or live inference was performed.
 
 ## 7 November 2026 interrupted landing and review corrections

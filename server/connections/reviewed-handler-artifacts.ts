@@ -101,7 +101,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../tests/offline/symposium-composer.spec.ts':
     '8b77ba1c163f793e459eb7005e4f5c55c9f0b8d53dac863d862d58002ce47bbf',
   '../../docs/evidence/symposium-integration-acceptance.md':
-    '30340d219260ffac42be7a0e6c7b06b605052f91b7ae4f2fa826ba63c6f291a4',
+    '6f1acb43bc16cfb36c46d2fbf540cc7fc362a105d8ec607ec0fb6e3f0960165f',
   '../../docs/features/symposium.md':
     'a89c9774039a4d065eb1ad26356619981857a493efe8c35b496ead30463d5a14',
   '../repository-capability-identity.ts':
@@ -168,7 +168,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../tests/integration/telos-s9/integrated-candidate/joined-conversation-ready.test.ts':
     '6faad0a87ed0b5fe92d7b62abae7e379ee498fd934de04f879b289f30c60e9e0',
   '../__tests__/collaboration-application-messaging-recovery.test.ts':
-    '9468be2558deaad39160526ee83d34decb187dfd234f7de22dd3492944882005',
+    '75db3265702dd58167f019763f359f472aabe356664e3e8e98ed71c1b994828b',
   '../collaboration-application-messaging.ts':
     'a397c6946bfa77cf2c6cf4521d2fd7baf13939cd4e7412fb06f16cd7e7cda63e',
   '../__tests__/collaboration-application-messaging.test.ts':
