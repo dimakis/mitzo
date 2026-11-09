@@ -9358,18 +9358,21 @@ it('keeps interrupted effects fenced for incomplete snapshots and unmatched dura
     expect(f.requests.filter(({ method }) => method === 'turn/start')).toHaveLength(0);
   }
   db.prepare("UPDATE codex_tools SET result_is_error=0,result_effect_outcome='settled'").run();
+  const frameFailure = new CodexTransportError('protocol', {
+    reason: 'frame_too_large',
+    frameBytes: 4_194_305,
+    limitBytes: 4_194_304,
+  });
   f.rpc.request.mockImplementation(async (method, params) => {
-    if (method === 'thread/items/list')
-      throw new CodexTransportError('protocol', {
-        reason: 'frame_too_large',
-        frameBytes: 4_194_305,
-        limitBytes: 4_194_304,
-      });
+    if (method === 'thread/items/list') throw frameFailure;
     return method === 'thread/turns/list'
       ? recoveryPage(method, params, turn)
       : request(method, params);
   });
-  await expect(f.c.acknowledgeRecovery()).rejects.toThrow(CodexTransportError);
+  const recoveryError = await f.c.acknowledgeRecovery().catch((error: unknown) => error);
+  expect(recoveryError).toBeInstanceOf(SessionRuntimeError);
+  expect(recoveryError).toMatchObject({ code: 'recovery_history_unavailable' });
+  expect((recoveryError as SessionRuntimeError).cause).toBe(frameFailure);
   expect(f.store.read('app', f.getBinding()).recovery).toBe(1);
   expect(f.store.completionPhase('app', f.getBinding(), 'uncertain-native', 1)?.status).toBe(
     'unknown',
