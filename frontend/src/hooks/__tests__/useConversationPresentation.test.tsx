@@ -174,6 +174,22 @@ it('does not select another conversation’s retained recipient intent or overwr
     uuid(999),
   );
 });
+it('stays idle without a started collaboration and makes no reads or mutations', async () => {
+  const h = harness();
+  const { result } = renderHook(() =>
+    useConversationPresentation({ ...h.props, collaborationId: null }),
+  );
+  await act(async () => {
+    await result.current.refresh();
+    await result.current.setPolicy('architect', { reads: true, replies: true });
+  });
+  expect(result.current.error).toBeNull();
+  expect(result.current.projection).toBeNull();
+  expect(result.current.draft).toBeNull();
+  expect(result.current.policyDisabled).toBe(true);
+  expect(h.fetch).not.toHaveBeenCalled();
+});
+
 it('disables reads and mutations without current proof from the existing auth owner', async () => {
   const h = harness();
   h.verified = undefined;

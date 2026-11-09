@@ -427,7 +427,13 @@ export function useConversationPresentation(options: ConversationPresentationOpt
     projection,
     draft: visible.draft,
     loading: visible.loading,
-    error: authorized ? visible.error : 'Sign in to verify this conversation.',
+    // An ordinary chat has no collaboration until the operator starts one.
+    // Keep that idle state quiet while every read/mutation remains fenced by valid().
+    error: !collaborationId
+      ? null
+      : authorized
+        ? visible.error
+        : 'Sign in to verify this conversation.',
     draftError: visible.draftError,
     policyError: visible.policyError,
     pendingPolicy: visible.pendingPolicy,
