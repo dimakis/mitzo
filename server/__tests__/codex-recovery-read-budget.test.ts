@@ -357,6 +357,8 @@ it('verifies every terminal child turn and parent link before recovering a tree'
   const guard = vi.fn(async () => {});
   for (const variant of [
     'settled',
+    'interrupted-child',
+    'optional-child-error',
     'active',
     'foreign',
     'cycle',
@@ -391,7 +393,9 @@ it('verifies every terminal child turn and parent link before recovering a tree'
             {
               id: variant === 'changed' && childReads > 2 ? 'replacement' : turnId,
               status: threadId === 'root' ? 'interrupted' : 'completed',
-              error: null,
+              ...(threadId === 'child' && variant === 'optional-child-error'
+                ? {}
+                : { error: null }),
             },
           ],
           nextCursor: threadId === 'child' && !params.cursor ? 'older' : null,
@@ -410,6 +414,8 @@ it('verifies every terminal child turn and parent link before recovering a tree'
         variant === 'earlier-unknown' && turnId === 'child-old' && index === 1
           ? { id: 'pending', type: 'commandExecution', status: 'inProgress', exitCode: null }
           : structuredClone(history[turnId][index]);
+      if (variant === 'interrupted-child' && turnId === 'root-turn')
+        Object.assign(item, { kind: 'interrupted' });
       if (variant === 'child-write' && turnId === 'child-old' && index === 2)
         Object.assign(item, { tool: 'GitCommit' });
       return {
@@ -418,7 +424,7 @@ it('verifies every terminal child turn and parent link before recovering a tree'
       };
     });
     const result = observeNativeRecoveryTurn(request, 'app', target, true, guard, '/task');
-    if (variant === 'settled') {
+    if (['settled', 'interrupted-child', 'optional-child-error'].includes(variant)) {
       expect(interruptedEffectCalls((await result).settledEffects!, 'app', target)).toEqual([
         expect.objectContaining({
           threadId: 'child',

@@ -1,3 +1,7 @@
+import type {
+  RetainedHostResultObserver,
+  RetainedNativeEffectEvidence,
+} from './retained-native-effect-evidence.js';
 import { codexStoredAccountKey } from './codex-stored-account.js';
 import { hasRetainedTaskExecutionResult } from './retained-task-execution-result.js';
 import { ToolFailureSchema, type ToolFailure } from '@mitzo/protocol';
@@ -3225,6 +3229,7 @@ export class CodexConversationStore {
     assertCurrent: () => void,
     assertOriginal: () => void,
     afterNativeReconciliation?: () => void,
+    observeHostResult?: RetainedHostResultObserver,
   ): void {
     this.db
       .transaction(() => {
@@ -3268,6 +3273,7 @@ export class CodexConversationStore {
             target,
             execution.policy.policyRevision,
             effects,
+            observeHostResult,
           );
           this.db
             .prepare(
@@ -3302,6 +3308,7 @@ export class CodexConversationStore {
             policy,
             effects,
             current,
+            observeHostResult,
           );
         else
           this.reconcileCompletionPhase(
@@ -3312,6 +3319,7 @@ export class CodexConversationStore {
             policy.policyRevision,
             effects,
             current,
+            observeHostResult,
           );
         this.acknowledgeRecovery(id, binding, target);
       })
@@ -3325,6 +3333,7 @@ export class CodexConversationStore {
     target: CodexNativeTurnTarget,
     policyRevision: string | undefined,
     effects: SettledInterruptedEffects,
+    observeHostResult?: RetainedHostResultObserver,
   ) {
     const observed = interruptedEffectCalls(effects, id, target);
     const calls = observed.filter((call) => call.threadId === target.threadId);
@@ -3349,7 +3358,11 @@ export class CodexConversationStore {
     let originalExecution: ReturnType<CodexConversationStore['readNativeExecution']>;
     let originalCustody: ReturnType<CodexConversationStore['readHostCustody']>;
     if (
-      observed.some((call) => call.toolName === 'TaskExecution' || (call.isError && call.readOnly))
+      observed.some(
+        (call) =>
+          call.threadId !== target.threadId ||
+          byId.get(call.callId)?.result_effect_outcome !== 'settled',
+      )
     ) {
       // Old owned-local sources disabled project hooks. Positive original
       // custody plus accepted policy qualify only this historical cohort.
@@ -3378,6 +3391,16 @@ export class CodexConversationStore {
       calls.length !== receipts.length ||
       calls.some((call) => {
         const receipt = byId.get(call.callId);
+        const evidence = (): RetainedNativeEffectEvidence => ({
+          target,
+          execution: originalExecution!,
+          custody: originalCustody!,
+          diagnostic: this.commandLifecycle(id, binding, target.commandId).diagnostic,
+          callId: call.callId,
+          requestHash: call.requestHash,
+          effectOutcome: receipt!.result_effect_outcome,
+          contentItems: receipt!.result_content_items,
+        });
         return (
           !receipt ||
           receipt.turn_id !== target.turnId ||
@@ -3399,17 +3422,14 @@ export class CodexConversationStore {
                 this.read(id, binding).cwd,
                 call.arguments,
                 { content: receipt.result_content, isError: call.isError },
-                () => ({
-                  target,
-                  execution: originalExecution!,
-                  custody: originalCustody!,
-                  diagnostic: this.commandLifecycle(id, binding, target.commandId).diagnostic,
-                  callId: call.callId,
-                  requestHash: call.requestHash,
-                  effectOutcome: receipt.result_effect_outcome,
-                  contentItems: receipt.result_content_items,
-                }),
-              ))
+                evidence,
+              )) ||
+            (ownedExecution &&
+              observeHostResult?.(
+                call,
+                { content: receipt.result_content, isError: call.isError },
+                evidence,
+              ) === true)
           )
         );
       })
@@ -3427,6 +3447,7 @@ export class CodexConversationStore {
     policyRevision?: string,
     interruptedEffects?: SettledInterruptedEffects,
     assertCurrent?: () => void,
+    observeHostResult?: RetainedHostResultObserver,
   ) {
     this.db
       .transaction(() => {
@@ -3456,6 +3477,7 @@ export class CodexConversationStore {
             target,
             phase.policyRevision,
             interruptedEffects,
+            observeHostResult,
           );
         } else if (!['running', 'completed'].includes(row.status))
           throw Error('Completion phase requires the exact completed native outcome');
@@ -3490,6 +3512,7 @@ export class CodexConversationStore {
     currentPolicy: CodexNativeExecutionPolicy,
     interruptedEffects: SettledInterruptedEffects | undefined,
     assertCurrent: () => void,
+    observeHostResult?: RetainedHostResultObserver,
   ) {
     const current = () => {
       if (typeof assertCurrent !== 'function')
@@ -3540,6 +3563,7 @@ export class CodexConversationStore {
             )
               throw Error('Historical native execution receipt changed');
           },
+          observeHostResult,
         );
       })
       .immediate();

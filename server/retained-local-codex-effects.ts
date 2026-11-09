@@ -1,3 +1,4 @@
+import { retainedApplicationEffectObserver } from './retained-application-effects.js';
 import { assertPreparedRepositoryAdmissionFacts } from './prepared-repository-transition.js';
 import { freezePendingHostTaskData } from './pending-host-task.js';
 import { PreparedRepositoryWorkspaceOwner } from './prepared-repository-workspace-owner.js';
@@ -450,6 +451,7 @@ export async function reconcileRetainedLocalCodexEffects(options: {
             if (observed.status === 'completed')
               preparedWitness?.observeNativeCompletion(original.target);
           },
+          retainedApplicationEffectObserver(events, id, original.binding, current),
         );
         return true;
       },

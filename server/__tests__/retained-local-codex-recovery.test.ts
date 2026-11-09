@@ -513,6 +513,25 @@ async function reconcileRetainedColdTurn(
   };
   native.claimTool(id, binding, command.id, 'failed-read', identity);
   native.recordToolResult(id, binding, command.id, 'failed-read', identity, retainedResult);
+  const peerInput = {
+    operation: 'send',
+    requestId: randomUUID(),
+    recipientConversationId: 'other-chat',
+    text: 'Original requested message',
+  };
+  if (taskStore) {
+    const peerIdentity = {
+      turnId: 'original-turn',
+      toolName: 'AgentCommunication',
+      requestHash: createHash('sha256').update(JSON.stringify(peerInput)).digest('hex'),
+    };
+    native.claimTool(id, binding, command.id, 'failed-peer', peerIdentity);
+    native.recordToolResult(id, binding, command.id, 'failed-peer', peerIdentity, {
+      content: 'Original send refused',
+      isError: true,
+    });
+  }
+
   const db = (native as unknown as { db: Database.Database }).db;
   if (!taskStore && !policyDrift)
     db.prepare('UPDATE codex_tools SET result_effect_outcome=NULL').run(); // original legacy receipt
@@ -604,6 +623,23 @@ async function reconcileRetainedColdTurn(
           ],
           nextCursor: null,
         };
+      if (params?.cursor === 'peer-refusal')
+        return {
+          data: [
+            {
+              turnId: 'original-turn',
+              item: {
+                id: 'failed-peer',
+                type: 'dynamicToolCall',
+                tool: 'AgentCommunication',
+                arguments: peerInput,
+                status: 'failed',
+                success: false,
+              },
+            },
+          ],
+          nextCursor: null,
+        };
       if (params?.cursor === 'child-activity')
         return {
           data: [
@@ -633,7 +669,7 @@ async function reconcileRetainedColdTurn(
             },
           },
         ],
-        nextCursor: policyDrift && !taskStore ? 'child-activity' : null,
+        nextCursor: taskStore ? 'peer-refusal' : policyDrift ? 'child-activity' : null,
       };
     }
     return baseRequest(method, params);
@@ -694,16 +730,24 @@ async function reconcileRetainedColdTurn(
         ['request_hash', 'f'.repeat(64)],
       ] as const)
     : []) {
-    db.prepare(`UPDATE codex_tools SET ${column}=?`).run(value);
+    db.prepare(`UPDATE codex_tools SET ${column}=? WHERE call_id='failed-read'`).run(value);
     if (column === 'tool_name') identity.toolName = String(value);
     await expect(driver.reconcileRetainedEffects()).rejects.toThrow();
     expect(native.read(id, binding).recovery).toBe(1);
     expect(native.commandStatus(id, binding, command.id)).toBe('interrupted');
     const originalTool = before.tools[0] as Record<string, unknown>;
-    db.prepare(`UPDATE codex_tools SET ${column}=?`).run(originalTool[column]);
+    db.prepare(`UPDATE codex_tools SET ${column}=? WHERE call_id='failed-read'`).run(
+      originalTool[column],
+    );
     identity.toolName = String(originalTool.tool_name);
   }
   if (taskStore) {
+    const reserved = vi
+      .spyOn(f.events.agentCommunication, 'findRequest')
+      .mockReturnValue({} as never);
+    await expect(driver.reconcileRetainedEffects()).rejects.toThrow();
+    expect(native.read(id, binding).recovery).toBe(1);
+    reserved.mockRestore();
     const taskDb = (taskStore as unknown as { db: Database.Database }).db;
     const originalRun = taskDb.prepare('SELECT * FROM task_execution_runs').get() as Record<
       string,

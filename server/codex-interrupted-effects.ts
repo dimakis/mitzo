@@ -164,7 +164,7 @@ export async function observeNativeRecoveryTurn(
           case 'subAgentActivity': {
             const activity = z
               .object({
-                kind: z.enum(['started', 'interacted', 'completed']),
+                kind: z.enum(['started', 'interacted', 'completed', 'interrupted']),
                 agentThreadId: z.string().min(1).max(200),
               })
               .parse(item);

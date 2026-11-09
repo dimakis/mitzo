@@ -13,10 +13,13 @@ const Thread = z.object({
 const Turn = z.object({
   id: z.string().min(1),
   status: z.enum(['completed', 'interrupted', 'failed']),
-  error: z.null(),
+  error: z.null().optional(),
 });
+const TerminalTurn = Turn.refine(
+  (turn) => turn.status === 'completed' || turn.error === null,
+).transform((turn) => ({ ...turn, error: turn.error ?? null }));
 const Turns = z.object({
-  data: z.array(Turn).max(1),
+  data: z.array(TerminalTurn).max(1),
   nextCursor: z.string().min(1).max(4096).nullable(),
 });
 
