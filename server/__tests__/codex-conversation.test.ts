@@ -9379,7 +9379,7 @@ it('keeps interrupted effects fenced for incomplete snapshots and unmatched dura
   );
   expect(f.requests.filter(({ method }) => method === 'turn/start')).toHaveLength(0);
   const phase = f.store.completionPhase('app', f.getBinding(), 'uncertain-native', 1)!;
-  expect(() =>
+  const reconcile = (assertCurrent?: () => void) =>
     f.store.reconcileCompletionPhase(
       'app',
       f.getBinding(),
@@ -9387,8 +9387,17 @@ it('keeps interrupted effects fenced for incomplete snapshots and unmatched dura
       phase.workspaceDigest,
       phase.policyRevision,
       {} as never,
-    ),
-  ).toThrow(/observation/);
+      assertCurrent,
+    );
+  expect(() => reconcile()).toThrow('Interrupted effect recovery authority unavailable');
+  const assertCurrent = vi.fn();
+  expect(() => reconcile(assertCurrent)).toThrow(
+    'Fresh interrupted native effect observation unavailable',
+  );
+  expect(assertCurrent).toHaveBeenCalledOnce();
+  expect(f.store.completionPhase('app', f.getBinding(), 'uncertain-native', 1)).toEqual(phase);
+  expect(f.store.read('app', f.getBinding()).recovery).toBe(1);
+  expect(f.requests.filter(({ method }) => method === 'turn/start')).toHaveLength(0);
 });
 
 it.each(['stop', 'account', 'receipt', 'effect-outcome'] as const)(

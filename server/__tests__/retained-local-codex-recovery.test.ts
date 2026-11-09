@@ -1,3 +1,4 @@
+import { initializeTaskExecution, closeTaskExecution } from '../task-execution-runtime.js';
 import { composeOwnedLocalNativeExecutionPolicyForWorkspace } from '../owned-local-codex-native-policy.js';
 import { registerWorkspaceRuntimeAuthorityPaths } from '../workspace-runtime-private-paths.js';
 import { login, authenticateToken, revokeAuthSession } from '../auth.js';
@@ -426,6 +427,7 @@ it.each([
 async function reconcileRetainedColdTurn(
   nativeStatus: 'interrupted' | 'completed',
   policyDrift = false,
+  completionPhase = true,
 ) {
   const f = await ownedRuntimeFixture(cleanups);
   const first = f.create();
@@ -458,32 +460,91 @@ async function reconcileRetainedColdTurn(
   native.prepareNativeExecution(id, binding, command, 'original-thread', policy);
   native.recordNativeTurnAck(id, binding, command, 'original-thread', 'original-turn');
   native.acceptNativeExecution(id, binding, command, 'original-thread', 'original-turn');
-  const arguments_ = {
-    operation: 'fetch',
-    url: 'http://localhost:16686/api/v3/traces',
-    reason: 'inspect',
-  };
+  const taskStore = !completionPhase
+    ? initializeTaskExecution(join(f.root, 'events.db'))
+    : undefined;
+  if (taskStore) cleanups.push(closeTaskExecution);
+  const grant = taskStore?.approve(
+    native.readHostCustody(id, binding)!.authSessionId,
+    id,
+    randomUUID(),
+    {
+      title: 'Original task',
+      network: 'none',
+      repositories: [],
+      expiresAt: Date.now() + 60000,
+      members: [
+        {
+          sessionId: id,
+          fingerprint: 'original-task-scope',
+          roots: [original.workspace.directory!],
+          account: binding,
+        },
+      ],
+    },
+  );
+  const arguments_: Record<string, unknown> = grant
+    ? {
+        operation: 'run',
+        command: 'exit 1',
+        grantId: grant.id,
+        requestId: randomUUID(),
+      }
+    : policyDrift
+      ? { endpoint: '/repos/owner/repo/pulls', access: 'public' }
+      : {
+          operation: 'fetch',
+          url: 'http://localhost:16686/api/v3/traces',
+          reason: 'inspect',
+        };
+  const retainedResult = { content: 'Original operation failed.', isError: true };
+  const runFingerprint = createHash('sha256')
+    .update(JSON.stringify(['Bash', { command: 'exit 1' }, original.workspace.directory!, 60000]))
+    .digest('hex');
+  if (taskStore && grant) {
+    taskStore.begin(grant.id, id, String(arguments_.requestId), runFingerprint);
+    taskStore.finish(grant.id, id, String(arguments_.requestId), retainedResult);
+    taskStore.revoke(grant.id, grant.operatorId, id); // Past evidence is not renewed execution authority.
+  }
   const identity = {
     turnId: 'original-turn',
-    toolName: 'RequestWebAccess',
+    toolName: taskStore ? 'TaskExecution' : policyDrift ? 'GitHubRead' : 'RequestWebAccess',
     requestHash: createHash('sha256').update(JSON.stringify(arguments_)).digest('hex'),
   };
   native.claimTool(id, binding, command.id, 'failed-read', identity);
-  native.recordToolResult(id, binding, command.id, 'failed-read', identity, {
-    content: 'Approved read exceeded the 2 MB download safety limit.',
-    isError: true,
-  });
+  native.recordToolResult(id, binding, command.id, 'failed-read', identity, retainedResult);
+  const peerInput = {
+    operation: 'send',
+    requestId: randomUUID(),
+    recipientConversationId: 'other-chat',
+    text: 'Original requested message',
+  };
+  if (taskStore) {
+    const peerIdentity = {
+      turnId: 'original-turn',
+      toolName: 'AgentCommunication',
+      requestHash: createHash('sha256').update(JSON.stringify(peerInput)).digest('hex'),
+    };
+    native.claimTool(id, binding, command.id, 'failed-peer', peerIdentity);
+    native.recordToolResult(id, binding, command.id, 'failed-peer', peerIdentity, {
+      content: 'Original send refused',
+      isError: true,
+    });
+  }
+
   const db = (native as unknown as { db: Database.Database }).db;
-  db.prepare('UPDATE codex_tools SET result_effect_outcome=NULL').run(); // original legacy receipt
-  native.observeEmptyCompletionPhase(
-    id,
-    binding,
-    command,
-    'original-thread',
-    'original-turn',
-    createHash('sha256').update(original.workspace.directory!).digest('hex'),
-    policy.policyRevision,
-  );
+  if (!taskStore && !policyDrift)
+    db.prepare('UPDATE codex_tools SET result_effect_outcome=NULL').run(); // original legacy receipt
+  if (completionPhase)
+    native.observeEmptyCompletionPhase(
+      id,
+      binding,
+      command,
+      'original-thread',
+      'original-turn',
+      createHash('sha256').update(original.workspace.directory!).digest('hex'),
+      policy.policyRevision,
+    );
   native.pauseForRecovery(id, binding, command.id, 'interrupted', 'resume', undefined, true, true);
   native.enqueue(id, binding, { id: 'saved-follow-up', prompt: 'Preserve queued work' });
   const custody = native.readHostCustody(id, binding)!;
@@ -521,10 +582,79 @@ async function reconcileRetainedColdTurn(
   const baseRequest = probe.rpc.request.getMockImplementation()!;
   let afterItem = () => {};
   probe.rpc.request.mockImplementation(async (method, params) => {
+    if (method === 'thread/read')
+      return {
+        thread: {
+          id: params?.threadId,
+          parentThreadId: params?.threadId === 'original-thread' ? null : 'original-thread',
+          sessionId: 'original-tree',
+          cwd: original.workspace.directory!,
+          modelProvider: 'openai',
+          status: { type: 'notLoaded' },
+        },
+      };
     if (method === 'thread/turns/list')
-      return { data: [{ id: 'original-turn', status: nativeStatus, error: null }] };
+      return {
+        data: [
+          {
+            id: params?.threadId === 'child' ? 'child-turn' : 'original-turn',
+            status: params?.threadId === 'child' ? 'completed' : nativeStatus,
+            error: null,
+          },
+        ],
+        nextCursor: null,
+      };
     if (method === 'thread/items/list') {
       afterItem();
+      if (params?.threadId === 'child')
+        return {
+          data: [
+            {
+              turnId: 'child-turn',
+              item: {
+                id: 'child-read',
+                type: 'dynamicToolCall',
+                tool: 'DescribeIntegrationTool',
+                arguments: { name: 'GitHubRead' },
+                status: 'failed',
+                success: false,
+              },
+            },
+          ],
+          nextCursor: null,
+        };
+      if (params?.cursor === 'peer-refusal')
+        return {
+          data: [
+            {
+              turnId: 'original-turn',
+              item: {
+                id: 'failed-peer',
+                type: 'dynamicToolCall',
+                tool: 'AgentCommunication',
+                arguments: peerInput,
+                status: 'failed',
+                success: false,
+              },
+            },
+          ],
+          nextCursor: null,
+        };
+      if (params?.cursor === 'child-activity')
+        return {
+          data: [
+            {
+              turnId: 'original-turn',
+              item: {
+                id: 'child-start',
+                type: 'subAgentActivity',
+                kind: 'started',
+                agentThreadId: 'child',
+              },
+            },
+          ],
+          nextCursor: null,
+        };
       return {
         data: [
           {
@@ -532,14 +662,14 @@ async function reconcileRetainedColdTurn(
             item: {
               id: 'failed-read',
               type: 'dynamicToolCall',
-              tool: 'RequestWebAccess',
+              tool: identity.toolName,
               arguments: arguments_,
               status: 'failed',
               success: false,
             },
           },
         ],
-        nextCursor: null,
+        nextCursor: taskStore ? 'peer-refusal' : policyDrift ? 'child-activity' : null,
       };
     }
     return baseRequest(method, params);
@@ -592,17 +722,47 @@ async function reconcileRetainedColdTurn(
   // receipt observations. No extra repository, database or native journey.
   for (const [column, value] of nativeStatus === 'interrupted'
     ? ([
-        ['result_effect_outcome', 'unknown'],
+        [
+          taskStore ? 'result_content' : policyDrift ? 'tool_name' : 'result_effect_outcome',
+          taskStore ? 'changed result' : policyDrift ? 'UnreviewedMutation' : 'unknown',
+        ],
         ['result_content', null],
         ['request_hash', 'f'.repeat(64)],
       ] as const)
     : []) {
-    db.prepare(`UPDATE codex_tools SET ${column}=?`).run(value);
+    db.prepare(`UPDATE codex_tools SET ${column}=? WHERE call_id='failed-read'`).run(value);
+    if (column === 'tool_name') identity.toolName = String(value);
     await expect(driver.reconcileRetainedEffects()).rejects.toThrow();
     expect(native.read(id, binding).recovery).toBe(1);
     expect(native.commandStatus(id, binding, command.id)).toBe('interrupted');
     const originalTool = before.tools[0] as Record<string, unknown>;
-    db.prepare(`UPDATE codex_tools SET ${column}=?`).run(originalTool[column]);
+    db.prepare(`UPDATE codex_tools SET ${column}=? WHERE call_id='failed-read'`).run(
+      originalTool[column],
+    );
+    identity.toolName = String(originalTool.tool_name);
+  }
+  if (taskStore) {
+    const reserved = vi
+      .spyOn(f.events.agentCommunication, 'findRequest')
+      .mockReturnValue({} as never);
+    await expect(driver.reconcileRetainedEffects()).rejects.toThrow();
+    expect(native.read(id, binding).recovery).toBe(1);
+    reserved.mockRestore();
+    const taskDb = (taskStore as unknown as { db: Database.Database }).db;
+    const originalRun = taskDb.prepare('SELECT * FROM task_execution_runs').get() as Record<
+      string,
+      unknown
+    >;
+    for (const [column, value] of [
+      ['result', null],
+      ['fingerprint', 'changed'],
+      ['session_id', 'foreign'],
+    ] as const) {
+      taskDb.prepare(`UPDATE task_execution_runs SET ${column}=?`).run(value);
+      await expect(driver.reconcileRetainedEffects()).rejects.toThrow();
+      expect(native.read(id, binding).recovery).toBe(1);
+      taskDb.prepare(`UPDATE task_execution_runs SET ${column}=?`).run(originalRun[column]);
+    }
   }
   const originalEmail = f.configuration[0].email;
   let changedAccount = false;
@@ -639,6 +799,8 @@ async function reconcileRetainedColdTurn(
   metadata.mockRestore();
   expect(native.read(id, binding).recovery).toBe(0);
   expect(native.continuationBlocker(id, binding)).toBeUndefined();
+  if (!completionPhase)
+    expect(native.completionPhase(id, binding, command.id, command.attempt)).toBeUndefined();
   expect(native.readHostCustody(id, binding)).toEqual(custody);
   expect(readFileSync(draft, 'utf8')).toBe('Preserve the interrupted task');
   expect(native.readNativeExecution(id, binding, command)?.policy.bindingRevision).toBe(
@@ -675,3 +837,6 @@ it.each(['interrupted', 'completed'] as const)(
 
 it('reconciles settled interrupted work after a real policy change under fresh authority without replay', () =>
   reconcileRetainedColdTurn('interrupted', true));
+
+it('recovers an interrupted turn without a completion phase, retaining its original outcome and receipts', () =>
+  reconcileRetainedColdTurn('interrupted', true, false));

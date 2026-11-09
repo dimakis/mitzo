@@ -1,3 +1,4 @@
+import { retainedApplicationEffectObserver } from './retained-application-effects.js';
 import { assertPreparedRepositoryAdmissionFacts } from './prepared-repository-transition.js';
 import { freezePendingHostTaskData } from './pending-host-task.js';
 import { PreparedRepositoryWorkspaceOwner } from './prepared-repository-workspace-owner.js';
@@ -89,15 +90,15 @@ function capture(
       binding,
     );
   const custody = native.readHostCustody(id, binding);
-  const target = native.completionPhaseRecoveryTarget(id, binding);
+  const target =
+    native.completionPhaseRecoveryTarget(id, binding) ?? native.nativeRecoveryTarget(id, binding);
   const phase = target && native.completionPhase(id, binding, target.commandId, target.attempt);
   if (
     !custody ||
     !ordinaryOperatorOwnsConversation(custody.authSessionId, auth) ||
     !target ||
-    !phase ||
-    phase.observedOutcome !== 'completed' ||
-    phase.priorEffectsUnknown ||
+    native.continuationBlocker(id, binding)?.commandId !== target.commandId ||
+    (phase && (phase.observedOutcome !== 'completed' || phase.priorEffectsUnknown)) ||
     native.commandStatus(id, binding, target.commandId) !== 'interrupted' ||
     !isDeepStrictEqual(native.nativeRecoveryTarget(id, binding), target)
   )
@@ -112,7 +113,7 @@ function capture(
     execution.turnId !== target.turnId ||
     execution.generation !== target.generation ||
     execution.policy.cwd !== meta.cwd ||
-    execution.policy.policyRevision !== phase.policyRevision
+    (phase && execution.policy.policyRevision !== phase.policyRevision)
   )
     throw unavailable();
   const admission = events.getOrdinaryLocalCommandExecutionAdmission(target.commandId);
@@ -417,6 +418,7 @@ export async function reconcileRetainedLocalCodexEffects(options: {
                 await owner.revalidate();
                 current();
               },
+              original.execution.policy.cwd,
             );
             current();
           },
@@ -449,6 +451,7 @@ export async function reconcileRetainedLocalCodexEffects(options: {
             if (observed.status === 'completed')
               preparedWitness?.observeNativeCompletion(original.target);
           },
+          retainedApplicationEffectObserver(events, id, original.binding, current),
         );
         return true;
       },

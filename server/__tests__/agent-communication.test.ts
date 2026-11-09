@@ -1,3 +1,4 @@
+import { hasUnsentRetainedAgentMessage } from '../retained-application-effects.js';
 import { retainedCallbackOutcome } from '../turn-callbacks.js';
 import { sessionAgentCommunicationTools } from '../agent-communication-tools.js';
 import { afterEach, expect, it } from 'vitest';
@@ -29,9 +30,20 @@ it('retains exact attributed peer messages, request identity and uncertain deliv
     text: 'Can you review the result?',
   };
   const origin = { turnId: 'native-a-turn', callId: 'native-a-call' };
+  expect(
+    hasUnsentRetainedAgentMessage(events, 'a', { operation: 'send', ...input }, () => {}),
+  ).toBe(true);
+  expect(() =>
+    hasUnsentRetainedAgentMessage(events, 'a', { operation: 'send', ...input }, () => {
+      throw Error('revoked');
+    }),
+  ).toThrow('revoked');
   const first = events.agentCommunication.reserve('a', 'signed-operator', origin, input);
   expect(first.senderConversationId).toBe('a');
   expect(first.status).toBe('pending');
+  expect(
+    hasUnsentRetainedAgentMessage(events, 'a', { operation: 'send', ...input }, () => {}),
+  ).toBe(false);
   expect(events.agentCommunication.reserve('a', 'signed-operator', origin, input)).toEqual(first);
   expect(() =>
     events.agentCommunication.reserve('a', 'signed-operator', origin, {
