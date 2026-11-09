@@ -23,8 +23,12 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
+  '../../frontend/ios/MitzoShared/Tests/MitzoSharedTests/NativeApprovalHistoryTests.swift':
+    'b3fe14e15ba3b058507dc4eca6ed6f13e664f89c56f3eb8a1c905f7a9ecda7f9',
+  '../../frontend/ios/MitzoShared/Sources/MitzoShared/Protocol/NativeApprovalHistory.swift':
+    '65a3dc886fcd1b9aff861afea38e5e40ed26751d635924e442cc4212bdfbbe57',
   '../../docs/features/ios-notification-approval-recovery.md':
-    '50d75e6dfe5551ecfa56e623340932b36e0b66ff25f001be55738b84b4cfc404',
+    '3799b6708d1f4b05b117574cc26bf6af32da150f3880ce0b063786cac8f785fe',
   '../native-notification-action.ts':
     'a214a9f3a589025beb2e214a56773ddd6a032893f838d0e2ecd1554f3661ab2a',
   '../notification-response-receipts.ts':
@@ -152,7 +156,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../docs/features/watch-approval-types.md':
     '08cb59068407842170f497a038fa754524992fca67b55329bae2ffccd6be196c',
   '../../frontend/ios/App/App/AppDelegate.swift':
-    'a1e6811d25897491c7fae9ccf888b291e763157277e21d00c16d39e18ac5754b',
+    '7679fe6809d60df5017fdc1eef82d74f7af55827bd5c2f6c7ea2e10c5e2d832e',
   '../../frontend/ios/MitzoShared/Sources/MitzoShared/Networking/MitzoAPIClient.swift':
     'd28aba886b6285d109342b9981212a6a7ddfb073fb652048dcc4c6a50066d74b',
   '../../frontend/ios/MitzoShared/Sources/MitzoShared/Networking/WatchRelay.swift':

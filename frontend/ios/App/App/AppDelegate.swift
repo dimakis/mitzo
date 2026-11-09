@@ -142,12 +142,7 @@ class MitzoBridgeViewController: CAPBridgeViewController {
 
 private class BackgroundApprovalDelegate: NSObject, UNUserNotificationCenterDelegate {
     private static let log = Logger(subsystem: "com.mitzo.app", category: "notification-approval")
-    private struct Attempt: Codable {
-        let identity: NativeApprovalIdentity
-        let origin: String
-        let deliveredID: String
-        var code: String
-    }
+    private typealias Attempt = NativeApprovalAttempt
     private static let attemptsKey = "mitzo_notification_approval_attempts"
     // Accessed on the main actor along with UIKit background-task ownership.
     private var executions: [String: BackgroundApprovalExecution] = [:]
@@ -221,7 +216,7 @@ private class BackgroundApprovalDelegate: NSObject, UNUserNotificationCenterDele
                     }
                     switch result {
                     case .success:
-                        var confirmed = attempt; confirmed.code = "approval_confirmed"; self.save(confirmed)
+                        var confirmed = attempt; confirmed.markConfirmed(); self.save(confirmed)
                         center.removeDeliveredNotifications(withIdentifiers: [deliveredID, "\(deliveredID)-response-error"])
                         Self.log.info("approval_confirmed request=\(submission.requestId, privacy: .public) action=\(action, privacy: .public)")
                     case .failure(let error):
@@ -248,9 +243,8 @@ private class BackgroundApprovalDelegate: NSObject, UNUserNotificationCenterDele
         return attempts
     }
     @MainActor private func save(_ attempt: Attempt) {
-        var stored = attempts().filter { $0.identity.requestId != attempt.identity.requestId }
-        stored.append(attempt)
-        if let data = try? JSONEncoder().encode(Array(stored.suffix(50))) {
+        let stored = retainingNativeApprovalAttempt(attempt, in: attempts())
+        if let data = try? JSONEncoder().encode(stored) {
             UserDefaults.standard.set(data, forKey: Self.attemptsKey)
         } else { Self.log.error("approval_diagnostic_persistence_failed") }
     }
@@ -274,16 +268,16 @@ private class BackgroundApprovalDelegate: NSObject, UNUserNotificationCenterDele
             reconciling = true
             defer { reconciling = false }
             let origin = notificationServerURL(UserDefaults.standard.string(forKey: "mitzo_notification_server_url"))
-            for var attempt in attempts() where attempt.code != "approval_confirmed" {
+            for var attempt in attempts() where !attempt.isTerminal {
                 guard executions[attempt.identity.requestId] == nil,
                       let server = notificationServerURL(attempt.origin), server == origin else { continue }
                 // Fresh authentication, same origin and identity. Reconnect NEVER resubmits.
                 let api = MitzoAPIClient(baseURL: server, authManager: AuthManager())
                 do {
                     let receipt = try await api.approvalReceipt(attempt.identity)
-                    guard attempt.identity.matches(receipt) else { continue }
                     let previous = attempt.code
-                    attempt.code = receipt.outcomeCode; save(attempt)
+                    guard attempt.apply(receipt) else { continue }
+                    save(attempt)
                     if receipt.confirmsDecision {
                         UNUserNotificationCenter.current().removeDeliveredNotifications(withIdentifiers: [attempt.deliveredID, "\(attempt.deliveredID)-response-error"])
                         Self.log.info("approval_reconciled request=\(attempt.identity.requestId, privacy: .public)")

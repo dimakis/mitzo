@@ -25,7 +25,9 @@ validity. The existing permission owner still applies revocation and expiry.
 
 The phone retains only response/action/session/notification identity, origin and
 sanitized outcome for reconnect. It stores no command, credential or grant in
-that record. Reconnect uses fresh authentication and the same configured origin
+that record. Unconfirmed identities are retained; only terminal history is
+bounded. An exact terminal receipt stops further recovery reads. Reconnect uses
+fresh authentication and the same configured origin
 to read the exact response receipt. It never repeats a POST or infers success
 from an unrelated notification's allowed state. Rejected and expired receipts
 update the visible failure notice. Confirmed receipts remove the stale notice;
