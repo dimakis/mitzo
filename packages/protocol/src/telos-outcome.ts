@@ -1,8 +1,6 @@
 import { z } from 'zod';
 
-/** Existing canonical Telos creation contract, shared with reviewed capture.
- * Canonical persistence and milestone creation remain with the MGMT owner.
- */
+/** Canonical Mitzo Telos creation contract, shared with reviewed capture. */
 export const TelosOutcomeContextHintsSchema = z.object({
   repos: z.array(z.string()).optional().default([]),
   paths: z.array(z.string()).optional().default([]),

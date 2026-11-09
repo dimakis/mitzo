@@ -83,7 +83,7 @@ export class TelosSourceApproval {
       assertAuthorized?(): void;
       createOutcome(
         input: TelosOutcomeCreation,
-        assertCurrentSync?: () => void,
+        assertCurrentSync: () => void,
       ): Promise<{ itemId: string; receipt?: unknown }>;
     },
   ) {

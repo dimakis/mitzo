@@ -31,6 +31,7 @@ import {
   assertTelosWorkCommandAdmission,
 } from './telos-work-command-scope.js';
 import { TelosWorkStore } from './telos-work-store.js';
+import { telosDatabasePath } from './telos-database.js';
 import { isAvailableTelosWorkConversation } from './telos-work-conversation.js';
 import { assertAgentToolRoute, bindAgentToolSelection } from './agent-tool-selection.js';
 import {
@@ -262,8 +263,7 @@ export function resolveOwnedTelosWorkCommandScope(sessionId: string, forNewComma
         getCodexConversationStore().hasAcceptedProviderTurn(id, account),
       work: () => {
         if (work) return work;
-        const path =
-          process.env.TELOS_DB_PATH || join(BASE_REPO, 'command_center', 'data', 'smart_todo.db');
+        const path = telosDatabasePath(BASE_REPO);
         const policy = {
           ordinaryConversation: (id: string) =>
             isAvailableTelosWorkConversation(eventStore.getSession(id)),
@@ -827,6 +827,7 @@ function sdkChildEnvironmentBase(): Record<string, string> {
   // The approved publisher uses these on the controller; models must not inherit them.
   delete env.GH_TOKEN;
   delete env.GITHUB_TOKEN;
+  delete env.MITZO_TELOS_IMPORT_TOKEN;
   return env;
 }
 
