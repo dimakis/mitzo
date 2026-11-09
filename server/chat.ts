@@ -1719,11 +1719,8 @@ async function _startChatInner(
         throw Error('Personal Claude requires the selected Local Mac Claude SDK runtime');
     }
     if (options.adviserScope) {
-      if (
-        !accountBinding ||
-        !['anthropic-vertex', 'anthropic-claude'].includes(accountBinding.provider)
-      )
-        throw Error('Scoped SDK adviser requires the selected Claude account');
+      if (!accountBinding || accountBinding.provider !== 'anthropic-vertex')
+        throw Error('Scoped SDK adviser requires the selected Vertex account');
       options.adviserScope.assertSelection(accountBinding, options.reasoningEffort);
     }
     if (options.ordinaryTurnLifecycle && !codexProfile)
@@ -2869,6 +2866,7 @@ This is an independent checkout with its own Git storage, not a linked worktree.
                         options.ordinarySdkAuthority!.assertCurrentSync(signal);
                       },
                       writeRoots: options.ordinarySdkAuthority.writeRoots(),
+                      executable: options.ordinarySdkAuthority.executable(),
                     }
                   : {}),
               }),

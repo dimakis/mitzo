@@ -12,7 +12,13 @@ const initial: SymposiumProfileRecipe = {
   context: { include: ['task', 'diff', 'acceptance-criteria'], sources: ['workspace'] },
   skillRefs: [],
   toolDefaults: { mode: 'read-only', preferredTools: [] },
-  compatibleProviders: ['anthropic-vertex', 'google-vertex', 'openai-codex', 'openai'],
+  compatibleProviders: [
+    'anthropic-vertex',
+    'anthropic-claude',
+    'google-vertex',
+    'openai-codex',
+    'openai',
+  ],
   reviewerTemplate: 'general',
 };
 const toggle = <T,>(values: T[], value: T): T[] =>

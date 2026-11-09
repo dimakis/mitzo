@@ -20,6 +20,57 @@ afterAll(() => {
   rmSync(workspaceRoot, { recursive: true, force: true });
 });
 describe('selected-account native search adapters', () => {
+  it.each([true, false])(
+    'gates personal search input on the actual child account and retained executable; matches=%s',
+    async (matches) => {
+      let delivered = false;
+      const accountInfo = vi.fn(async () => ({
+        apiProvider: 'firstParty',
+        email: matches ? 'person@example.test' : 'other@example.test',
+        subscriptionType: 'max',
+      }));
+      const sdk = vi.fn((request: Parameters<typeof query>[0]) =>
+        Object.assign(
+          (async function* () {
+            if (typeof request.prompt === 'string') delivered = true;
+            else
+              for await (const input of request.prompt) {
+                expect(accountInfo).toHaveBeenCalledOnce();
+                expect(input.message.content).toBe('approved query');
+                delivered = true;
+              }
+            yield {
+              type: 'assistant',
+              message: { content: [{ type: 'tool_use', name: 'WebSearch', id: 'search' }] },
+            };
+            yield {
+              type: 'user',
+              message: { content: [{ type: 'tool_result', tool_use_id: 'search' }] },
+            };
+            yield { type: 'result', subtype: 'success', result: 'Answer https://example.com' };
+          })(),
+          { accountInfo },
+        ),
+      );
+      const route = {
+        ...owner,
+        env: {
+          CLAUDE_CONFIG_DIR: '/personal/config',
+          MITZO_CLAUDE_EXPECTED_EMAIL: 'person@example.test',
+          MITZO_CLAUDE_EXPECTED_PLAN: 'max',
+        },
+        model: 'selected-claude',
+        executable: '/selected/claude',
+        assertCurrent: vi.fn(async () => {}),
+      };
+      const result = searchSdk('approved query', new AbortController().signal, route, sdk);
+      if (matches) await expect(result).resolves.toContain('https://example.com');
+      else await expect(result).rejects.toThrow('selected route');
+      expect(delivered).toBe(matches);
+      expect(sdk.mock.calls[0][0].options?.pathToClaudeCodeExecutable).toBe(route.executable);
+      expect(route.assertCurrent).toHaveBeenCalled();
+    },
+  );
   it('uses the explicit Vertex project, region, token and model, with no function tools', async () => {
     const fetch = vi.fn().mockResolvedValue(
       new Response(

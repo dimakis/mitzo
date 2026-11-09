@@ -531,6 +531,20 @@ async function exerciseLibraryJourney(
   await expect(page.getByRole('alert')).toContainText('Selected context source is unavailable');
   await expect(page.locator('.agent-library-prompt')).toHaveCount(0);
   previewError = false;
+  await page.getByRole('tab', { name: 'Context', exact: true }).click();
+  const recipeToggle = page.getByRole('checkbox', { name: 'Include reusable recipe', exact: true });
+  await recipeToggle.check();
+  const personalProvider = page.getByRole('checkbox', { name: 'Claude subscription', exact: true });
+  await expect(personalProvider).toBeChecked();
+  await personalProvider.uncheck();
+  await personalProvider.focus();
+  await page.keyboard.press('Space');
+  await expect(personalProvider).toBeChecked();
+  await page.getByRole('group', { name: 'Reusable review recipe', exact: true }).screenshot({
+    path: testInfo.outputPath(`personal-claude-recipe-${theme}-${accent}-${font}.png`),
+    animations: 'disabled',
+  });
+  await recipeToggle.uncheck();
   await page.getByRole('tab', { name: 'Identity', exact: true }).click();
   await (await editableProfileName(page)).fill('Robert');
   await page.getByLabel('Descriptor').fill('The systems architect');

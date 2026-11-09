@@ -5,6 +5,8 @@ the existing Vertex account. Select the account in Chat settings and run it on
 Local Mac. Each conversation retains its selected account and native Claude
 history. Start a new conversation to change between work and personal billing.
 OpenShell and Symposium subscription execution are outside this feature.
+Scoped advisers also remain unavailable for personal Claude: adviser pickers omit
+these accounts and retained or forged selections refuse before allocation.
 
 ## Sign in once on the Mac
 
@@ -89,6 +91,8 @@ original cause internally and report a sanitized diagnostic reference; cancellat
 remains distinct from a failed account check.
 
 Cold continuation and history reads use the original account configuration.
+Approved web searches bind the same retained executable and withhold their query
+until their own initialized SDK child confirms the selected subscription identity.
 The SDK's filesystem history readers run in a separate process for personal
 accounts, so concurrent work/personal sessions never mutate the controller's
 global `CLAUDE_CONFIG_DIR`. Transcript parsing remains SDK-owned.
