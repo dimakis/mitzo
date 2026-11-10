@@ -1,6 +1,6 @@
 # Telos storage ownership and cutover
 
-Source contract, updated 2026-11-07: `server/telos-runtime-storage.ts`,
+Source contract, updated 2026-11-10: `server/telos-runtime-storage.ts`,
 `server/telos-runtime-store.ts`, `server/telos-runtime-routes.ts` and
 `scripts/migrate-telos.py`. Verified with synthetic storage, migration and HTTP
 tests. This documents the candidate implementation; it does not certify a live
@@ -83,6 +83,42 @@ verifies schema, every typed row (including BLOBs and unknown tables), integrity
 and foreign keys. It creates an exclusive destination and a private
 `<database>.migration.json` receipt. It never overwrites or removes the source.
 The receipt contains table counts and a content fingerprint, not record bodies.
+
+### Preserving legacy orphan evidence
+
+The default transfer still refuses foreign-key violations. When an operator has
+explicitly selected archival of existing orphan history/source evidence, add
+`--archive-orphans`. This mode accepts only `history.item_id` and
+`sources.item_id` references to missing `items.id` rows; other relationships and
+unknown tables remain refused. It never creates replacement parent items.
+
+The private `<database>.recovery.json` file preserves each selected row's original
+table definition, column order, SQLite rowid and typed values, including exact
+binary bytes. The original database remains untouched. Only those exact rows are
+detached from the runtime snapshot; all other schema and typed data must match
+the original retained-view fingerprint, and runtime integrity and foreign-key
+checks must pass. Original and retained inventories share one source scan. Archive-mode
+fingerprints also bind internal row identities for every rowid table, including
+tables with no orphans, so deletion triggers cannot silently move retained rows.
+WITHOUT ROWID tables retain their explicit primary-key values. An unobservable
+internal row identity refuses archival rather than weakening verification.
+After that partition is verified, the runtime snapshot receives one deliberate
+`mitzo_telos_recovery_archive` singleton binding the required archive hash. An
+existing table with that name is refused rather than overwritten. This recovery
+metadata is additional to the retained source inventory, not a source row change.
+
+The migration receipt binds the original and runtime fingerprints, archive hash
+and counts. Archive contents remain private recovery evidence, outside ordinary
+item APIs. Keep the archive with the database and its receipt in backups; an
+archive does not prove or authorize item reconstruction or historical execution.
+Archives are bounded to 64 MiB. Startup verifies private descriptor ownership,
+the completed migration receipt and its exact archive hash before upgrading or
+using a runtime database with archived evidence. The database marker also blocks
+a restore missing both sibling evidence files; incomplete receipts remain blocked.
+
+Existing archives block retries even when database/receipt publication was
+interrupted. Startup also refuses an empty replacement beside an orphan archive.
+Inspect retained output; never delete it to make a retry or startup pass.
 
 Existing destination files, sidecars or receipts block a retry. Inspect them and
 the receipt first; do not delete uncertain results to make a rerun succeed. An
