@@ -3,12 +3,13 @@
     .mobile-workspace-masthead,
     .workspace-controls,
     .workspace-page,
+    .conversation-library,
     .conversation-agents-entry,
     .conversation-participants,
     .home-dialog
   )
-  :is(button, a, summary).header-action,
-.workspace-heading-actions > :is(button, a),
+  :is(button, a, summary).header-action.header-action,
+.workspace-page .workspace-heading-actions > :is(button, a),
 .workspace-controls-heading > .chat-top-action {
   display: inline-flex;
   align-items: center;
