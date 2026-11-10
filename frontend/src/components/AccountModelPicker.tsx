@@ -15,6 +15,21 @@ import {
   QuickSettingsSupplement,
 } from './QuickChatSettings';
 import { ModelBrandMark } from './SettingsBrandMark';
+import { Link, useInRouterContext } from 'react-router-dom';
+
+function ConnectClaudeAction() {
+  const routed = useInRouterContext();
+  const title = 'Connect Claude subscription';
+  return routed ? (
+    <Link className="workspace-text-link" to="/connections?manage=claude">
+      {title}
+    </Link>
+  ) : (
+    <a className="workspace-text-link" href="/connections?manage=claude">
+      {title}
+    </a>
+  );
+}
 
 import type { AccountSelection } from '../types/account-selection';
 export type { AccountSelection } from '../types/account-selection';
@@ -600,6 +615,10 @@ function SessionAccountModelPicker({
         disabled={disabled}
         onAccountsChanged={() => setAttempt((value) => value + 1)}
       />
+    ) : scope === 'chat' && !sessionId && !requiredSelection && !lockAccountModel && !disabled ? (
+      <QuickSettingsSupplement page="account">
+        <ConnectClaudeAction />
+      </QuickSettingsSupplement>
     ) : null;
   if (error)
     return status(
@@ -1232,6 +1251,11 @@ function ControlledAccountModelPicker({
           <button disabled={disabled} onClick={onRefresh}>
             Refresh models
           </button>
+        </QuickSettingsSupplement>
+      )}
+      {canSaveDefault && !disabled && !lockAccount && !lockAccountModel && (
+        <QuickSettingsSupplement page="account">
+          <ConnectClaudeAction />
         </QuickSettingsSupplement>
       )}
       {!quick && defaultsControl !== undefined && onRefresh && (
