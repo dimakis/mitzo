@@ -51,6 +51,20 @@ for (const theme of ['dark', 'light'])
     await link.focus();
     await expect(link).toBeFocused();
     expect((await link.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+    const quote = page.locator('.chat-messages .chat-reply-link');
+    await expect(quote).toContainText('You');
+    await expect(quote.locator('time')).toBeVisible();
+    await quote.click();
+    const original = page.locator('[data-reply-source="original-question"]');
+    await expect(original).toBeFocused();
+    await expect(original).toHaveClass(/chat-reply-target/);
+    await page.getByRole('button', { name: 'Back to reply' }).click();
+    await expect(quote).toBeFocused();
+    const composerQuote = page.locator('.fixture-composer .chat-reply-link');
+    await composerQuote.click();
+    await expect(original).toBeFocused();
+    await page.getByRole('button', { name: 'Back to reply' }).click();
+    await expect(composerQuote).toBeFocused();
     expect(
       await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
     ).toBe(true);
