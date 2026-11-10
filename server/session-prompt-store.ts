@@ -369,6 +369,24 @@ export class SessionPromptStore {
     if (!row) throw new SessionPromptError('Message not found', 404);
     return JSON.parse(row.data) as SessionPromptDelivery;
   }
+  /** Queue presentation reads only the original excerpt and attribution. Never
+   * return the delivery envelope, which also contains private login custody. */
+  queuedCommandPreview(sessionId: string, commandId: string) {
+    if (!commandId.startsWith('session-prompt:')) return undefined;
+    return this.db
+      .prepare(
+        `
+      SELECT substr(json_extract(data, '$.text'), 1, 160) AS preview,
+        json_extract(data, '$.senderSessionId') AS senderSessionId,
+        json_extract(data, '$.kind') AS kind
+      FROM session_prompt_deliveries
+      WHERE id=? AND json_extract(data, '$.recipientSessionId')=?
+        AND json_extract(data, '$.commandId')=?
+    `,
+      )
+      .get(commandId.slice('session-prompt:'.length), sessionId, commandId) as
+      { preview: string; senderSessionId: string | null; kind: 'agent' | 'timer' } | undefined;
+  }
   message(
     raw: unknown,
     auth: AuthSession,

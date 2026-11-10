@@ -28,6 +28,99 @@ const queueStatus = (page: Page) =>
   );
 
 for (const theme of ['dark', 'light']) {
+  test(`saved peer queue stays readable and actionable inside status details (${theme})`, async ({
+    page,
+  }, info) => {
+    const files = (await output).outputFiles!;
+    const mutations: string[] = [];
+    const previews = Array.from({ length: 8 }, (_, index) => ({
+      id: `peer-${index}`,
+      sourceLabel: `From Queue investigation ${index + 1}`,
+      preview: `Message ${index + 1}: Please review the saved queue and report its delivery state. ${'long-reference-'.repeat(7)}`,
+    }));
+    let unavailable = false;
+    await page.route('**/*', (route) => {
+      const path = new URL(route.request().url()).pathname;
+      if (route.request().method() === 'POST') mutations.push(path);
+      if (path.endsWith('/meta'))
+        return route.fulfill({
+          json: {
+            codexQueue: {
+              paused: true,
+              connected: false,
+              canContinue: true,
+              queued: previews.length,
+              interrupted: 0,
+            },
+          },
+        });
+      if (path.endsWith('/codex-queue'))
+        return route.fulfill({
+          status: unavailable ? 503 : 200,
+          json: { queued: previews, cancelledIds: [] },
+        });
+      if (path.startsWith('/api/')) return route.fulfill({ json: [] });
+      const asset = files.find((file) =>
+        path.endsWith(file.path.endsWith('.css') ? '.css' : '.js'),
+      );
+      if (asset)
+        return route.fulfill({
+          contentType: asset.path.endsWith('.css') ? 'text/css' : 'text/javascript',
+          body: asset.text,
+        });
+      if (path !== '/') return route.abort();
+      return route.fulfill({
+        contentType: 'text/html',
+        body: `<!doctype html><html data-theme="${theme}" data-accent="${theme === 'light' ? 'teal' : 'mint'}" data-font="${theme === 'light' ? 'georgia' : 'system'}"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="/fixture.css"><div id="root"></div><script type="module" src="/fixture.js"></script></html>`,
+      });
+    });
+    await page.setViewportSize({
+      width: info.project.name.startsWith('mobile') ? 320 : 1280,
+      height: 844,
+    });
+    await page.goto('/?combined');
+    await page.addStyleTag({ content: ':root { font-size: 125%; }' });
+    const draft = page.getByRole('textbox', { name: 'Message Mitzo' });
+    await draft.fill('Keep this next request');
+    await page.getByRole('button', { name: '8 queued messages' }).click();
+    const dialog = page.getByRole('dialog', { name: 'Conversation status' });
+    await dialog.getByRole('button', { name: 'Review queue' }).click();
+    await expect(dialog.getByText('From Queue investigation 1', { exact: true })).toBeVisible();
+    await expect(dialog.getByText(previews[0].preview, { exact: true })).toBeVisible();
+    await expect(dialog.getByRole('button', { name: 'Cancel', exact: true })).toHaveCount(8);
+    expect(await dialog.evaluate((node) => node.scrollWidth <= node.clientWidth)).toBe(true);
+    const header = dialog.locator('.codex-queue-status-line');
+    const summary = await header.locator('strong').boundingBox();
+    const bounds = await dialog.boundingBox();
+    expect(summary!.width).toBeGreaterThan(bounds!.width / 2);
+    for (const button of await dialog.getByRole('button').all()) {
+      const box = await button.boundingBox();
+      expect(box!.height).toBeGreaterThanOrEqual(44);
+      expect(box!.x + box!.width).toBeLessThanOrEqual(bounds!.x + bounds!.width);
+    }
+    await dialog
+      .getByRole('button', { name: 'Cancel', exact: true })
+      .last()
+      .scrollIntoViewIfNeeded();
+    await expect(dialog.getByRole('button', { name: 'Continue chat' })).toBeVisible();
+    expect(mutations).toEqual([]);
+    await page.screenshot({ path: info.outputPath(`saved-peer-queue-${theme}.png`) });
+    unavailable = true;
+    await page.keyboard.press('Escape');
+    await page.getByRole('button', { name: 'Emit queue metadata change', exact: true }).click();
+    await page.getByRole('button', { name: '8 queued messages' }).click();
+    await expect(dialog.getByRole('alert')).toContainText('Saved messages could not be loaded');
+    unavailable = false;
+    await dialog.getByRole('button', { name: 'Retry queue' }).click();
+    await expect(dialog.getByText('From Queue investigation 1', { exact: true })).toBeVisible();
+    await page.keyboard.press('Escape');
+    await expect(dialog).toBeHidden();
+    await expect(draft).toHaveValue('Keep this next request');
+    expect(mutations).toEqual([]);
+  });
+}
+
+for (const theme of ['dark', 'light']) {
   test(`queue count follows metadata events despite stalled details (${theme})`, async ({
     page,
   }, info) => {

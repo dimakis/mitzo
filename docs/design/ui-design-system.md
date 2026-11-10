@@ -142,6 +142,15 @@ offline fixture and outstanding browser/visual verification.
 
 ## Combined composer status
 
+Queue details reuse the shared status dialog and quiet list rows. Keep status
+text on its own line and let the action group wrap below it. Bound the list's
+vertical scrolling so continuation controls remain reachable; long excerpts and
+chat names must wrap inside the dialog with touch-sized cancellation controls.
+Peer-message previews show the original message excerpt and readable source chat
+name, using recipient-scoped delivery records rather than internal prompt headers.
+An unavailable details read retains the saved count and exposes a read-only retry.
+See [queue detail recovery and verification](../features/queue-detail-recovery.md).
+
 Uncertain ordinary message rows use **Message delivery not confirmed**. The
 existing status/details surface explains bounded delivery failures and preserves
 the original Retry owner and command identity. See [delivery recovery and

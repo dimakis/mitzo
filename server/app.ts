@@ -4245,6 +4245,19 @@ mountObservedRouter(
             )
           ? readOwnedResponsesQueueOverview(eventStore, getNativeResponsesStore(), id, binding)
           : readCodexQueueOverview(id, binding),
+    preview: (id, commandId) => {
+      if (!commandId.startsWith('session-prompt:')) return undefined;
+      const original = getSessionPrompts().store.queuedCommandPreview(id, commandId);
+      if (!original) return undefined;
+      const title = original.senderSessionId
+        ? eventStore.getSession(original.senderSessionId)?.summary
+        : undefined;
+      return {
+        preview: original.preview,
+        sourceLabel:
+          original.kind === 'timer' ? 'Scheduled prompt' : `From ${title || 'another chat'}`,
+      };
+    },
     cancel: (id, binding, commandId, authorization) => {
       const result =
         eventStore.getSessionRuntimeBinding(id)?.harness.implementation === 'claude-sdk'
