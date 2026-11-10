@@ -97,7 +97,11 @@ table definition, column order, SQLite rowid and typed values, including exact
 binary bytes. The original database remains untouched. Only those exact rows are
 detached from the runtime snapshot; all other schema and typed data must match
 the original retained-view fingerprint, and runtime integrity and foreign-key
-checks must pass. Original and retained inventories share one source scan.
+checks must pass. Original and retained inventories share one source scan. Archive-mode
+fingerprints also bind internal row identities for every rowid table, including
+tables with no orphans, so deletion triggers cannot silently move retained rows.
+WITHOUT ROWID tables retain their explicit primary-key values. An unobservable
+internal row identity refuses archival rather than weakening verification.
 After that partition is verified, the runtime snapshot receives one deliberate
 `mitzo_telos_recovery_archive` singleton binding the required archive hash. An
 existing table with that name is refused rather than overwritten. This recovery

@@ -27,12 +27,26 @@ from lib.telos_migration_orphans import (
 
 
 def inventory_pair(
-    db: sqlite3.Connection, excluded: dict[str, set[int]] | None = None
+    db: sqlite3.Connection,
+    excluded: dict[str, set[int]] | None = None,
+    *,
+    rowids: bool = False,
 ) -> tuple[dict, dict]:
     """Hash original and retained views in one scan, including unknown/BLOB data."""
     schema = db.execute(
         "SELECT type,name,tbl_name,sql FROM sqlite_master ORDER BY type,name"
     ).fetchall()
+    rowid_tables = set()
+    if rowids:
+        metadata = db.execute("PRAGMA table_list").fetchall()
+        tables = {name for kind, name, _, _ in schema if kind == "table"}
+        if (
+            not metadata
+            or any(len(row) < 5 for row in metadata)
+            or not tables.issubset({row[1] for row in metadata if row[0] == "main"})
+        ):
+            raise ValueError("SQLite row identity metadata unavailable")
+        rowid_tables = {row[1] for row in metadata if row[0] == "main" and row[4] == 0}
     digest = hashlib.sha256(json.dumps(schema).encode())
     retained_digest = digest.copy()
     counts = {}
@@ -43,15 +57,16 @@ def inventory_pair(
         rows = []
         retained_rows = []
         omitted = (excluded or {}).get(name, set())
+        with_identity = bool(omitted) or name in rowid_tables
         query = (
             "SELECT "
-            + (internal_rowid(db, name) + ",*" if omitted else "*")
+            + (internal_rowid(db, name) + ",*" if with_identity else "*")
             + " FROM "
             + identifier(name)
         )
         for row in db.execute(query):
             keep = not omitted or row[0] not in omitted
-            if omitted:
+            if with_identity and not rowids:
                 row = row[1:]
             row_digest = hashlib.sha256()
             for value in row:
@@ -73,14 +88,15 @@ def inventory_pair(
             digest.update(row_hash)
         for row_hash in sorted(retained_rows):
             retained_digest.update(row_hash)
+    metadata = {"rowIdentity": "sqlite-rowid-v1"} if rowids else {}
     return (
-        {"sha256": digest.hexdigest(), "tables": counts},
-        {"sha256": retained_digest.hexdigest(), "tables": retained_counts},
+        {"sha256": digest.hexdigest(), "tables": counts, **metadata},
+        {"sha256": retained_digest.hexdigest(), "tables": retained_counts, **metadata},
     )
 
 
-def inventory(db: sqlite3.Connection) -> dict:
-    return inventory_pair(db)[0]
+def inventory(db: sqlite3.Connection, *, rowids: bool = False) -> dict:
+    return inventory_pair(db, rowids=rowids)[0]
 
 
 def migrate(source: Path, destination: Path, *, archive_orphans: bool = False) -> dict:
@@ -135,7 +151,7 @@ def migrate(source: Path, destination: Path, *, archive_orphans: bool = False) -
                 reader.execute("BEGIN")
                 archive = collect_orphans(reader) if archive_orphans else None
                 expected, expected_runtime = inventory_pair(
-                    reader, excluded_rows(archive)
+                    reader, excluded_rows(archive), rowids=bool(archive)
                 )
                 if archive:
                     archive["sourceSnapshot"] = expected
@@ -152,7 +168,7 @@ def migrate(source: Path, destination: Path, *, archive_orphans: bool = False) -
                         raise ValueError("Snapshot integrity verification failed")
                     if target.execute("PRAGMA foreign_key_check").fetchall():
                         raise ValueError("Snapshot contains broken foreign keys")
-                    if inventory(target) != expected_runtime:
+                    if inventory(target, rowids=bool(archive)) != expected_runtime:
                         raise ValueError("Runtime snapshot changed retained data")
                     if archive:
                         # Only this explicit metadata is added after proving the

@@ -85,6 +85,9 @@ it('copies every schema object and row, including artifacts, unknown extensions 
 it('requires explicit archival and retains exact orphan rows privately without inventing parents', () => {
   const { source, root, destination } = fixture();
   source.db.pragma('foreign_keys = OFF');
+  source.db.exec(
+    "CREATE TABLE retained_without_rowid(key TEXT PRIMARY KEY,bytes BLOB) WITHOUT ROWID; INSERT INTO retained_without_rowid VALUES('kept',X'0003');",
+  );
   // Extension columns can shadow SQLite's internal rowid. Valid and orphan
   // rows deliberately share this value; only the real orphan may be detached.
   source.db.exec('ALTER TABLE history ADD COLUMN rowid INTEGER DEFAULT 2');
@@ -101,6 +104,10 @@ it('requires explicit archival and retains exact orphan rows privately without i
      'original author','2026-11-10T00:00:00',?)`,
     )
     .run(Buffer.from([0, 255, 1]));
+  source.db
+    .exec(`INSERT INTO sources(id,item_id,type,source_id,url,title,author,timestamp,raw_snippet)
+    VALUES('retained-source','studio','manual','valid','','Retained source','','2026-11-10T00:00:00','');
+    UPDATE sources SET rowid=7 WHERE id='retained-source';`);
   const original = source.db.prepare('SELECT * FROM history ORDER BY id').all();
   const originalSources = source.db.prepare('SELECT * FROM sources ORDER BY id').all();
   const arguments_ = [
@@ -119,6 +126,15 @@ it('requires explicit archival and retains exact orphan rows privately without i
   expect(spawnSync('python3', [...arguments_, '--archive-orphans']).status).not.toBe(0);
   expect(existsSync(destination + '.recovery.json')).toBe(false);
   source.db.exec('DROP TABLE unsupported_orphan');
+  source.db.exec(`CREATE TRIGGER shift_retained_row AFTER DELETE ON history BEGIN
+    UPDATE sources SET rowid=rowid+100 WHERE id='retained-source'; END;`);
+  expect(spawnSync('python3', [...arguments_, '--archive-orphans']).status).not.toBe(0);
+  expect(existsSync(destination + '.recovery.json')).toBe(false);
+  expect(source.db.prepare("SELECT rowid FROM sources WHERE id='retained-source'").get()).toEqual({
+    rowid: 7,
+  });
+  source.db.exec('DROP TRIGGER shift_retained_row');
+
   const receipt = JSON.parse(
     execFileSync('python3', [...arguments_, '--archive-orphans'], { encoding: 'utf8' }),
   );
@@ -148,10 +164,16 @@ it('requires explicit archival and retains exact orphan rows privately without i
   const target = new Database(destination, { readonly: true });
   try {
     expect(target.pragma('foreign_key_check')).toEqual([]);
+    expect(target.prepare('SELECT * FROM retained_without_rowid').all()).toEqual([
+      { key: 'kept', bytes: Buffer.from([0, 3]) },
+    ]);
     expect(target.prepare('SELECT * FROM history ORDER BY id').all()).toEqual(
       original.slice(0, -1),
     );
-    expect(target.prepare('SELECT * FROM sources').all()).toEqual([]);
+    expect(target.prepare('SELECT * FROM sources').all()).toEqual(originalSources.slice(1));
+    expect(target.prepare("SELECT rowid FROM sources WHERE id='retained-source'").get()).toEqual({
+      rowid: 7,
+    });
     expect(target.prepare('SELECT id FROM items ORDER BY id').all()).toEqual([{ id: 'studio' }]);
   } finally {
     target.close();

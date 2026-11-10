@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.1012-telos-orphan-archive-integration';
+  'v1.0.1013-telos-retained-row-identity';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -124,9 +124,9 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/telos-runtime-routes.test.ts':
     '36ea503e1c026220b871b9ad281805aed7423988e58258d4dfdcd29b8d938405',
   '../__tests__/telos-runtime-migration.test.ts':
-    'e8ae722e5d6830f7a9fc2304c945fdd81cf2ceff5514b23c1bc405363cc5db63',
+    'c89604b4dd44f22af9842cb8ad7b2b0c5c76d63bf0ddf0405c6932ce05208b4f',
   '../../scripts/migrate-telos.py':
-    'eafe270535196332b573df3e020be17f539ed541912ec14e975e9236aa6baee0',
+    '2b3669d5fb6b8719ff9f5b59b1960b19eb9da1c539b188b8ea117633ff1c2126',
   '../telos-outcome-owner.ts': 'be610d091f1eef9c8fc73ba4461e5c33781091ab48f6ce60723e80374ff8cd59',
   '../telos-source-import.ts': '7949715a7ddaed638da41997e9ce6b59d5626e27da3be09dcefbeeabd4dd9092',
   '../__tests__/telos-source-import.test.ts':
