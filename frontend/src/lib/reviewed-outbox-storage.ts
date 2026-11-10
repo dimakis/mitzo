@@ -1,6 +1,10 @@
 import { CHAT_MAX_COMMAND_BYTES, RuntimeFailureSchema, type RuntimeFailure } from '@mitzo/protocol';
 import { V2SendMessage } from '@mitzo/protocol';
-import { parseLocalCommandDelivery } from '@mitzo/client';
+import {
+  parseLocalCommandDelivery,
+  CommandDeliveryDiagnosticSchema,
+  type CommandDeliveryDiagnostic,
+} from '@mitzo/client';
 import {
   acceptedComposerDraftKey,
   composerDraftProof,
@@ -20,6 +24,7 @@ type Entry = {
   composerDraft?: unknown;
   localReceipt?: { state?: unknown };
   runtimeFailure?: unknown;
+  deliveryDiagnostic?: unknown;
 };
 const MAX_ENTRY_BYTES = CHAT_MAX_COMMAND_BYTES + 64 * 1024;
 const MAX_TOTAL_BYTES = 2 * MAX_ENTRY_BYTES;
@@ -39,6 +44,20 @@ export function createReviewedOutboxStorage(
   // cannot be mistaken for a queued command by those consumers.
   const diagnosticKey = (id: string) =>
     `mitzo-command-diagnostic:${encodeURIComponent(backendSendUrl)}:${encodeURIComponent(id)}`;
+  const deliveryDiagnosticKey = (id: string) =>
+    `mitzo-command-delivery-diagnostic:${encodeURIComponent(backendSendUrl)}:${encodeURIComponent(id)}`;
+  function deliveryDiagnostic(id: string): CommandDeliveryDiagnostic | undefined {
+    if (route !== 'local') return undefined;
+    try {
+      const raw = disk.getItem(deliveryDiagnosticKey(id));
+      return raw && raw.length <= 512
+        ? CommandDeliveryDiagnosticSchema.safeParse(JSON.parse(raw)).data
+        : undefined;
+    } catch {
+      // An optional malformed display hint cannot block the original command.
+      return undefined;
+    }
+  }
   function diagnostic(id: string): RuntimeFailure | undefined {
     if (route !== 'local') return undefined;
     try {
@@ -118,7 +137,12 @@ export function createReviewedOutboxStorage(
         [...entries].map(([id, raw]) => {
           const entry = decode(raw);
           const hint = diagnostic(id);
-          return hint ? { ...entry, runtimeFailure: hint } : entry;
+          const deliveryHint = deliveryDiagnostic(id);
+          return {
+            ...entry,
+            ...(hint ? { runtimeFailure: hint } : {}),
+            ...(deliveryHint ? { deliveryDiagnostic: deliveryHint } : {}),
+          };
         }),
       );
     },
@@ -128,6 +152,7 @@ export function createReviewedOutboxStorage(
         throw new Error('Reviewed command queue capacity reached');
       const next = new Map<string, string>();
       const diagnostics = new Map<string, RuntimeFailure | undefined>();
+      const deliveryDiagnostics = new Map<string, CommandDeliveryDiagnostic | undefined>();
       for (const value of values) {
         const serialized = JSON.stringify(value);
         const entry = decode(serialized);
@@ -135,8 +160,13 @@ export function createReviewedOutboxStorage(
         if (next.has(id)) throw new Error('Duplicate reviewed command');
         if (route === 'local') {
           diagnostics.set(id, RuntimeFailureSchema.safeParse(entry.runtimeFailure).data);
+          deliveryDiagnostics.set(
+            id,
+            CommandDeliveryDiagnosticSchema.safeParse(entry.deliveryDiagnostic).data,
+          );
           const envelope = { ...entry };
           delete envelope.runtimeFailure;
+          delete envelope.deliveryDiagnostic;
           next.set(id, JSON.stringify(envelope));
         } else next.set(id, serialized);
       }
@@ -156,13 +186,24 @@ export function createReviewedOutboxStorage(
       // SendOutbox enqueues one command at a time. Write that new key last, so
       // quota failure cannot leave a silently accepted partial new launch.
       if (added.length > 1) throw new Error('Reviewed commands must be retained individually');
+      // Acceptance clears obsolete display hints. Release their quota before
+      // growing the authoritative envelope with its receipt; hints never own
+      // the space needed to finish recovery of the original command.
+      for (const [id, failure] of diagnostics)
+        if (!failure && disk.getItem(diagnosticKey(id)) !== null)
+          disk.removeItem(diagnosticKey(id));
+      for (const [id, failure] of deliveryDiagnostics)
+        if (!failure && disk.getItem(deliveryDiagnosticKey(id)) !== null)
+          disk.removeItem(deliveryDiagnosticKey(id));
       for (const [id, value] of next)
         if (existing.has(id) && existing.get(id) !== value) disk.setItem(key(id), value);
       // Save hints before adding a new command, preserving the existing rule
       // that a quota failure cannot leave a partially accepted new launch.
       for (const [id, failure] of diagnostics) {
         if (failure) disk.setItem(diagnosticKey(id), JSON.stringify(failure));
-        else if (disk.getItem(diagnosticKey(id)) !== null) disk.removeItem(diagnosticKey(id));
+      }
+      for (const [id, failure] of deliveryDiagnostics) {
+        if (failure) disk.setItem(deliveryDiagnosticKey(id), JSON.stringify(failure));
       }
       let acceptedDraft = false;
       for (const id of owned) {
@@ -188,6 +229,8 @@ export function createReviewedOutboxStorage(
         disk.removeItem(key(id));
         if (route === 'local' && disk.getItem(diagnosticKey(id)) !== null)
           disk.removeItem(diagnosticKey(id));
+        if (route === 'local' && disk.getItem(deliveryDiagnosticKey(id)) !== null)
+          disk.removeItem(deliveryDiagnosticKey(id));
       }
       for (const [id, value] of added) disk.setItem(key(id), value);
       owned = new Set(next.keys());
