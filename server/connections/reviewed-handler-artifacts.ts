@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.991-symposium-long-discussion-claude-integration';
+  'v1.0.992-symposium-long-discussion-ci-setup';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -153,7 +153,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/hooks/useConversationSending.ts':
     '8519cb2f28253571542226363aa9fd8167b6b28511bfb6d8cc6634957c7bdcb1',
   '../__tests__/collaboration-application-ui.test.tsx':
-    'b5d502ee2ba957027967717c29803f0a3b92cfa47fc3b7e46bdefece6fa8f11c',
+    'ba8ada43d6e90b4da95089b7f07bdbf5f268c3b8544d66b24a37269ab9123eef',
   '../__tests__/fixtures/symposium-recording-runtime.ts':
     'd806cc66aa3bbe72429a00e731792a323fb4590cb9f60105ba1dc0a81dc0ed42',
   '../../tests/fixtures/symposium-composer.tsx':

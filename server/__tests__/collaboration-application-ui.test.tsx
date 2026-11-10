@@ -1,5 +1,5 @@
 // @vitest-environment node-compatible-dom
-import { afterAll, expect, it, vi } from 'vitest';
+import { afterAll, beforeAll, expect, it, vi } from 'vitest';
 import React from 'react';
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
@@ -7,12 +7,22 @@ import { createApplicationJourney } from './fixtures/symposium-application-journ
 import { recordApplicationMessagingRuntime } from './fixtures/symposium-recording-runtime.js';
 
 const journey = createApplicationJourney();
+let h: Awaited<ReturnType<typeof journey.getApplicationUiJourney>>;
+let SharedConversationHost: typeof import('../../frontend/src/components/SharedConversation.js').SharedConversationHost;
+let SharedConversationBody: typeof import('../../frontend/src/components/SharedConversation.js').SharedConversationBody;
+// Cold application compilation and silent joining are setup, with their own
+// bounded deadline. Keep all 27 real ordinary turns inside the unchanged
+// interaction deadline, rather than charging setup twice on busy CI workers.
+beforeAll(async () => {
+  h = await journey.getApplicationUiJourney();
+  ({ SharedConversationHost, SharedConversationBody } =
+    await import('../../frontend/src/components/SharedConversation.js'));
+}, 30000);
 afterAll(() => journey.close());
 
 // Production client, auth, UI, application, storage, dispatch and reply owners.
 // Only external source/account/runtime declarations and native RPC are synthetic.
 it('sends first and later selected prompts from the production shared composer after remount', async () => {
-  const h = await journey.getApplicationUiJourney();
   // JSDOM supplies no scrolling implementation; browser geometry is checked separately.
   const originalScrollTo = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'scrollTo');
   Object.defineProperty(HTMLElement.prototype, 'scrollTo', { configurable: true, value: () => {} });
@@ -25,8 +35,6 @@ it('sends first and later selected prompts from the production shared composer a
   expect(await h.typedApi.collaborations.sourceSetup('existing-chat', h.clientId)).toMatchObject({
     state: 'selected',
   });
-  const { SharedConversationHost, SharedConversationBody } =
-    await import('../../frontend/src/components/SharedConversation.js');
   const initial = await h.api.view(h.group);
   const source = initial.policies.find((p) => p.sessionId === 'existing-chat')!;
   await h.api.setPolicy(h.group, {
@@ -121,25 +129,27 @@ it('sends first and later selected prompts from the production shared composer a
     // Grow real acknowledged prompt/reply history beyond the display page.
     // Keep the production composer mounted: its readiness must survive paging,
     // and its next explicit send must still reach the ordinary native owner.
-    for (let i = 0; i < 25; i++) {
-      const current = await h.api.view(h.group);
-      const accepted = await h.api.send(h.group, {
-        requestId: crypto.randomUUID(),
-        expectedMembershipRevision: current.membershipRevision,
-        expectedPolicySequence: current.policySequence,
-        text: `Long discussion question ${i}`,
-        responders: { kind: 'selected', sessionIds: [h.joinedSessionId] },
-        snapshot: null,
-      });
-      await vi.waitFor(() =>
-        expect(
-          h.events.getOrdinaryProviderTurnTerminal(
-            h.joinedSessionId,
-            accepted.deliveries[0].commandId!,
-          ),
-        ).toBe('completed'),
-      );
-    }
+    await act(async () => {
+      for (let i = 0; i < 25; i++) {
+        const current = await h.api.view(h.group);
+        const accepted = await h.api.send(h.group, {
+          requestId: crypto.randomUUID(),
+          expectedMembershipRevision: current.membershipRevision,
+          expectedPolicySequence: current.policySequence,
+          text: `Long discussion question ${i}`,
+          responders: { kind: 'selected', sessionIds: [h.joinedSessionId] },
+          snapshot: null,
+        });
+        await vi.waitFor(() =>
+          expect(
+            h.events.getOrdinaryProviderTurnTerminal(
+              h.joinedSessionId,
+              accepted.deliveries[0].commandId!,
+            ),
+          ).toBe('completed'),
+        );
+      }
+    });
     expect((await h.api.view(h.group)).hasEarlierMessages).toBe(true);
     fireEvent.change(screen.getByRole('textbox', { name: 'Message Mitzo' }), {
       target: { value: 'Review a second question explicitly.' },
