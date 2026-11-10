@@ -56,6 +56,27 @@ vi.mock('../PermissionBanner', () => ({
 
 afterEach(() => cleanup());
 
+it('describes uncertain ordinary delivery without claiming it was a correction', () => {
+  render(
+    <ChatArea
+      messages={[
+        {
+          messageId: 'follow-up-after-expired-approval',
+          role: 'user',
+          commandState: 'uncertain',
+          blocks: [{ blockId: 'text', blockType: 'text', content: 'Please try again' }],
+        },
+      ]}
+      current={null}
+      running={false}
+      permission={null}
+      onPermissionRespond={vi.fn()}
+    />,
+  );
+  expect(screen.getByText('Message delivery not confirmed')).toBeTruthy();
+  expect(screen.queryByText('Correction delivery not confirmed')).toBeNull();
+});
+
 describe('ChatArea', () => {
   it('shows an incoming peer message as an attributed card while the assistant is working', () => {
     const peer = {

@@ -193,7 +193,7 @@ export function ChatArea({
     cancelled: 'Cancelled',
     steering: 'Sending correction…',
     steered: 'Correction sent to current turn',
-    uncertain: 'Correction delivery not confirmed',
+    uncertain: 'Message delivery not confirmed',
   };
   function quote(reply: MessageReplyContext) {
     return (
