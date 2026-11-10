@@ -57,7 +57,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     'd62c9117de7255c4087d54fa5840f382f594ee7ef4b3f35b47fcaa20bebafa94',
   '../connections-access.ts': '46b54b46f8d38d739d4bea29fcfdd25b43d831fdb63e411571925451426329d1',
   '../../tests/offline/claude-account-connect.spec.ts':
-    '535ff583e2420c7aa54ec0ae52f6a8d9911a3576116eb55741d411b0213f8768',
+    'a136104c588494a5cdf005d5f283751f969034a3c469d3618113b585bc111a23',
 
   '../../docs/design/frontend-motion.md':
     '6225104dac711bd85ceccafe17ca1980a6aa19c1b2c11f004429c5d2b6872e55',
@@ -92,7 +92,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/styles/session-library.css':
     '8c2f966cff8bb09147f1cd6f3d162c38689e1b89739d566d3c0a63dfa11d4086',
   '../../frontend/src/styles/workspace.css':
-    '85d52c78f7c3ce937097360a8521374f1606b0133938a40d38e1d9588277518e',
+    'b2dd47445221bc9b08c740ef1186f6c82a7bb942c4f28a7c2f4eb0968a38fa1c',
   '../../tests/offline/ui-response-stability.spec.ts':
     '544027d3c03ca45032b8b4202800c3663bba2670baca31da5f43bfaf5b3733fb',
   '../deployment-maintenance-idle.ts':

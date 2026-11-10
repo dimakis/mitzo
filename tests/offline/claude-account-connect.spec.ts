@@ -15,6 +15,13 @@ for (const theme of ['dark', 'light'] as const) {
       localStorage.setItem('mitzo-font', theme === 'dark' ? 'system' : 'georgia');
     }, theme);
     await page.routeWebSocket('**/*', (socket) => socket.close());
+    const checkControls = async () => {
+      for (const control of await page
+        .locator('.connections-setup :is(button, input, select)')
+        .all())
+        if (await control.isVisible())
+          expect((await control.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+    };
     let state = 'idle',
       requestId = '',
       starts = 0,
@@ -95,6 +102,7 @@ for (const theme of ['dark', 'light'] as const) {
     const field = page.getByLabel('Sign-in code');
     await expect(field).toHaveValue('');
     await expect(field).toHaveAttribute('type', 'password');
+    await checkControls();
     expect(starts).toBe(1);
     await field.focus();
     await field.fill('synthetic-code#fixture-state');
@@ -115,9 +123,7 @@ for (const theme of ['dark', 'light'] as const) {
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
       true,
     );
-    for (const control of await page.locator('.connections-setup button').all())
-      if (await control.isVisible())
-        expect((await control.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+    await checkControls();
     await page.screenshot({ path: testInfo.outputPath('claude-connected.png'), fullPage: true });
   });
 }
