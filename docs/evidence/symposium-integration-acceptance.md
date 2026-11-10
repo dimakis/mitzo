@@ -56,11 +56,18 @@ The application adapter still refuses missing briefs before reading sources.
 runtime/repository picker, local Git preparation, initial review, edited refreeze,
 silent join, explicit stale-readiness refresh, shared composer and attributed
 native reply. It asserts no initial ordinary command or native turn at joining,
-and the exact edited brief in the sole requested turn. The fixture mounts the
+and the exact edited brief in the requested turn. A second independently joined
+agent on the same account then receives the prior prompt and attributed finalized
+answer before its own explicit composer turn. The two sessions use distinct native
+threads and distinct reply commands/deliveries; the pending context receipt belongs
+to the second command. Passive reading requests no turn. The fixture mounts the
 production listener transport composition; synthetic discovery implements only
 external metadata RPC. Native inference is synthetic. No inner owner is replaced.
 The combined UI/hook/application checks pass (120 cases including shared fixture
 prerequisites); protected design checks pass (109 cases, one existing skip).
+The final closure run passes 85 application, delivery, recovery and sending-hook
+cases, including durable partial provider outcomes, Stop/terminal observation,
+concurrent exact retries and retained uncertainty without replay.
 
 The schema-valid unknown-fingerprint regression also failed before repair and
 passes with a typed missing-execution-reference refusal. The ordinary execution

@@ -49,9 +49,12 @@ export async function recordApplicationMessagingRuntime(events: EventStore) {
     .spyOn(CodexAppServerClient, 'launchPreflight')
     .mockImplementation(discoveryClient);
   let revokeSourceOnQualification = false;
-  const launch = vi.spyOn(CodexAppServerClient, 'launchIsolated').mockImplementation(
-    (_home, _env, lifecycle) =>
-      ({
+  let nativeThreads = 0;
+  const launch = vi
+    .spyOn(CodexAppServerClient, 'launchIsolated')
+    .mockImplementation((_home, _env, lifecycle) => {
+      const threadId = `private-native-thread-${++nativeThreads}`;
+      return {
         initialize: async () => {},
         close: () => {},
         request: async (method: string, params: Record<string, unknown>) => {
@@ -76,7 +79,7 @@ export async function recordApplicationMessagingRuntime(events: EventStore) {
           }
           if (method === 'thread/start')
             return {
-              thread: { id: 'private-native-thread' },
+              thread: { id: threadId },
               model: 'fixture-model',
               modelProvider: 'openai',
             };
@@ -85,11 +88,11 @@ export async function recordApplicationMessagingRuntime(events: EventStore) {
             const turnId = `private-native-turn-${turnNumber}`;
             setTimeout(() => {
               lifecycle!.onNotification('turn/started', {
-                threadId: 'private-native-thread',
+                threadId,
                 turn: { id: turnId, status: 'inProgress' },
               });
               lifecycle!.onNotification('item/completed', {
-                threadId: 'private-native-thread',
+                threadId,
                 turnId,
                 item: {
                   id: `native-answer-${turnNumber}`,
@@ -98,7 +101,7 @@ export async function recordApplicationMessagingRuntime(events: EventStore) {
                 },
               });
               lifecycle!.onNotification('turn/completed', {
-                threadId: 'private-native-thread',
+                threadId,
                 turn: { id: turnId, status: 'completed' },
               });
             }, 10);
@@ -106,8 +109,8 @@ export async function recordApplicationMessagingRuntime(events: EventStore) {
           }
           throw Error(`Unexpected offline native method: ${method}`);
         },
-      }) as never,
-  );
+      } as never;
+    });
   return {
     requests,
     revokeSource: () => {

@@ -28,6 +28,9 @@ journey: a parent echo of the pending repository ID cancelled its own preparatio
 and initial context review omitted the required joining brief. The real Add-agent
 controls now prepare the repository, review/edit/refreeze context, join silently,
 refresh stale readiness and send a directed prompt yielding an attributed answer.
+The same application UI test then explicitly addresses a second joined agent on
+the same account. Its independent native turn receives the first prompt and reply
+with attribution, and acknowledges their retained context exactly once.
 That offline application test substitutes external native metadata and RPC only;
 it does not qualify a live account. Existing request cancellation, changed-model
 restoration and exact edited/retry bytes remain covered.

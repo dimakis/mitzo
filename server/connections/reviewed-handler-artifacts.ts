@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.979-symposium-finalized-recovery-telos';
+  'v1.0.980-symposium-finalized-recovery-telos';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -24,7 +24,7 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/collaboration-application-fresh-agent-ui.test.tsx':
-    '6c32daa3955a4ea1fe9ad5a27a6854d2b8d4b5d6858584d3c697f58ca59ddfeb',
+    '0004e3be3b42fed59ae5bf435d6e763832567df3fb78c925ba518aacaf037386',
   '../__tests__/fixtures/sdk-project-command.ts':
     '8a4d2bf65591bdc77b2c331fdb648ad88951b1a48a27552f02edd2f98cd76abc',
   '../telos-private-paths.ts': 'e2e1dcafa1241a77f9a8c49419b603243cece84eb713d0f8e8fd404a4f965ab3',
@@ -133,15 +133,15 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/collaboration-application-ui.test.tsx':
     '29c11f9d3da6d52e94963e3a58311c323cc7873238709a591d5231884a30419d',
   '../__tests__/fixtures/symposium-recording-runtime.ts':
-    'b64ced2ba230dfb796f85e1c882b52dfde0cf75d7788e8d6c351d3ad4251186d',
+    'd806cc66aa3bbe72429a00e731792a323fb4590cb9f60105ba1dc0a81dc0ed42',
   '../../tests/fixtures/symposium-composer.tsx':
     '3e821497de4f4088e1610134821046e992e81117e897cb1c30864ccc2ff6b8ad',
   '../../tests/offline/symposium-composer.spec.ts':
     '8b77ba1c163f793e459eb7005e4f5c55c9f0b8d53dac863d862d58002ce47bbf',
   '../../docs/evidence/symposium-integration-acceptance.md':
-    '027adfac3819fba03e0749edcedc3eb5d661688f4f6adbd0f1d3f73884294b0c',
+    '4fa774a08c1e604473bbc2288bbb5ff22a66a3555a98336919218e04d164dd1b',
   '../../docs/features/symposium.md':
-    'dd2ad51e210428e102a95e852d58c8e3731c558506f01adb0a725d9d45e82798',
+    '406796622355b4a18b50ab5f753a05baa9a48ed4d623ec9e9df4a9b2edf47ccd',
   '../repository-capability-identity.ts':
     '2e35f24342d36e21f6c559afa93758f9ef83a2e3e435eda6d46e1a6101d16392',
   '../task-capability-consent.ts':

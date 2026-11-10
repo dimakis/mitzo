@@ -144,7 +144,7 @@ it('adds an agent, edits and refreezes its brief, silently joins and sends an at
         expectedMembershipRevision: view.membershipRevision,
         expectedRevision: policy.revision,
         sessionId: policy.sessionId,
-        readsFutureDiscussion: false,
+        readsFutureDiscussion: policy.sessionId === h.joinedSessionId,
         repliesByDefault: false,
       });
     fireEvent.keyDown(before, { key: 'Escape' });
@@ -169,6 +169,59 @@ it('adds an agent, edits and refreezes its brief, silently joins and sends an at
     );
     const answer = (await h.api.view(h.group)).messages.find((m) => m.author !== 'operator')!;
     expect(answer.author).toEqual({ sessionId: joined.sessionId });
+    // The other silently joined session on the same account reads both this
+    // prompt and finalized answer before its own explicit requested turn.
+    const reader = view.joinedParticipants.find((p) => p.sessionId === h.joinedSessionId)!;
+    expect(h.events.getOrdinaryConversationSettings(reader.sessionId)!.binding.account).toEqual(
+      h.events.getOrdinaryConversationSettings(joined.sessionId)!.binding.account,
+    );
+    expect(h.events.getOrdinaryInitialCommandId(reader.sessionId)).toBeUndefined();
+    expect(answer.deliveries.find((d) => d.sessionId === reader.sessionId)).toMatchObject({
+      purpose: 'context',
+      status: 'pending',
+      commandId: null,
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Choose who replies' }));
+    fireEvent.click(screen.getByRole('checkbox', { name: 'FreshReviewer', exact: true }));
+    fireEvent.click(screen.getByRole('button', { name: 'Choose who replies' }));
+    fireEvent.click(screen.getByRole('checkbox', { name: reader.name, exact: true }));
+    fireEvent.change(screen.getByRole('textbox', { name: 'Message Mitzo' }), {
+      target: { value: 'Respond to the FreshReviewer answer explicitly.' },
+    });
+    await waitFor(() => expect((send as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(send);
+    await waitFor(
+      async () => {
+        const next = await h.api.view(h.group);
+        expect(next.messages.filter((m) => m.author !== 'operator')).toHaveLength(2);
+        const secondAnswer = next.messages.find(
+          (m) => m.author !== 'operator' && m.messageId !== answer.messageId,
+        )!;
+        expect(secondAnswer.author).toEqual({ sessionId: reader.sessionId });
+        expect(secondAnswer.source!.conversationId).toBe(reader.sessionId);
+        expect(secondAnswer.source!.commandId).not.toBe(answer.source!.commandId);
+        expect(secondAnswer.replyToDeliveryId).not.toBe(answer.replyToDeliveryId);
+        expect(
+          next.messages
+            .find((m) => m.messageId === answer.messageId)!
+            .deliveries.find((d) => d.sessionId === reader.sessionId),
+        ).toMatchObject({
+          purpose: 'context',
+          status: 'delivered',
+          commandId: secondAnswer.source!.commandId,
+        });
+      },
+      { timeout: 10000 },
+    );
+    const bothTurns = runtime.requests.filter((r) => r.method === 'turn/start');
+    expect(bothTurns).toHaveLength(2);
+    expect(bothTurns[1].params.threadId).not.toBe(bothTurns[0].params.threadId);
+    expect(JSON.stringify(bothTurns[1].params)).toContain('Review this explicitly.');
+    expect(JSON.stringify(bothTurns[1].params)).toContain(answer.text);
+    expect(JSON.stringify(bothTurns[1].params)).toContain(joined.sessionId);
+    expect(JSON.stringify(bothTurns[1].params)).toContain(
+      'Respond to the FreshReviewer answer explicitly.',
+    );
   } finally {
     cleanup();
     const { registry } = await import('../chat.js');
