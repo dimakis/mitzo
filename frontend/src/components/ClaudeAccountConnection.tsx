@@ -148,8 +148,10 @@ export function ClaudeAccountConnection({ accountId }: { accountId?: string }) {
     if (mutation.current || !authority) return;
     mutation.current = true;
     setBusy(true);
+    const generation = ++version.current;
     try {
       const runtimeSelection = await readClaudeChatIntent(id);
+      if (!mounted.current || generation !== version.current) return;
       const draft = createChatDraft(),
         account = runtimeSelection.account;
       draft.settings = {
@@ -160,9 +162,10 @@ export function ClaudeAccountConnection({ accountId }: { accountId?: string }) {
       };
       if (!saveChatDraft(draft)) throw Error('Draft storage unavailable');
       await chatStorage.flush();
-      if (mounted.current) navigate(`/chat?draft=${encodeURIComponent(draft.id)}`);
+      if (mounted.current && generation === version.current)
+        navigate(`/chat?draft=${encodeURIComponent(draft.id)}`);
     } catch {
-      if (mounted.current)
+      if (mounted.current && generation === version.current)
         setError(
           'Could not prepare the new Local Mac chat. Your Claude account is saved; try Start chat again.',
         );

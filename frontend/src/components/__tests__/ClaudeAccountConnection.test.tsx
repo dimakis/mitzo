@@ -166,74 +166,89 @@ it('adds another independently named account without reusing the previous accoun
   expect(body.label).toBe('Another Claude');
   expect(body.accountId).toBeUndefined();
 });
-it('refreshes the picker after completion and prepares an unsent Local Mac draft for the connected account', async () => {
-  const account = {
-    id: accountId,
-    label: 'Personal Claude',
-    email: 'person@example.test',
-    planType: 'max',
-    verifiedAt: Date.now(),
-  };
-  mocks.fetch.mockResolvedValue(
-    response(snapshot([{ ...pending, state: 'connected', url: undefined }], [account])),
-  );
-  const reference = { accountId, provider: 'anthropic-claude', profileRevision: 'personal-route' };
-  mocks.fetch.mockImplementation(async (url: string) =>
-    response(
-      url.includes('/runtime/capabilities')
-        ? {
-            version: 1,
-            authority: 'configuration-only',
-            defaultLocation: 'openshell',
-            capabilityRevision: 'current',
-            accounts: [
-              {
-                account: reference,
-                label: 'Personal Claude',
-                models: [{ id: 'sonnet', label: 'Claude Sonnet' }],
-                modelDiscovery: { source: 'configured', stale: false },
-              },
-            ],
-            targets: [
-              {
-                targetId: 'mac',
-                targetRevision: 'mac-v1',
-                label: 'Local Mac',
-                location: 'local',
-                harness: 'claude-sdk',
-              },
-            ],
-            routes: [
-              {
-                account: reference,
-                targetId: 'mac',
-                harness: 'claude-sdk',
-                modes: ['ask', 'agent', 'auto'],
-              },
-            ],
-            locations: [{ location: 'local', status: 'configured' }],
-            agentProfiles: [],
-          }
-        : snapshot([{ ...pending, state: 'connected', url: undefined }], [account]),
-    ),
-  );
-  show();
-  fireEvent.click(await screen.findByRole('button', { name: 'Start chat' }));
-  await waitFor(() =>
-    expect(mocks.save).toHaveBeenCalledWith(
-      expect.objectContaining({
-        settings: expect.objectContaining({
-          selection: { accountId, model: 'sonnet', reasoningEffort: null },
-          retainRuntimeIntent: true,
-          runtimeSelection: expect.objectContaining({
-            execution: { location: 'local', targetId: 'mac' },
-            accountReference: reference,
-            account: { accountId, model: 'sonnet', reasoningEffort: null },
+it.each([false, true])(
+  'prepares a connected Local Mac draft only while authorization remains current (revoked: %s)',
+  async (revoked) => {
+    const account = {
+      id: accountId,
+      label: 'Personal Claude',
+      email: 'person@example.test',
+      planType: 'max',
+      verifiedAt: Date.now(),
+    };
+    mocks.fetch.mockResolvedValue(
+      response(snapshot([{ ...pending, state: 'connected', url: undefined }], [account])),
+    );
+    const reference = {
+      accountId,
+      provider: 'anthropic-claude',
+      profileRevision: 'personal-route',
+    };
+    mocks.fetch.mockImplementation(async (url: string) => {
+      if (revoked && url.includes('/runtime/capabilities'))
+        fireEvent(window, new Event('mitzo:auth-lost'));
+      return response(
+        url.includes('/runtime/capabilities')
+          ? {
+              version: 1,
+              authority: 'configuration-only',
+              defaultLocation: 'openshell',
+              capabilityRevision: 'current',
+              accounts: [
+                {
+                  account: reference,
+                  label: 'Personal Claude',
+                  models: [{ id: 'sonnet', label: 'Claude Sonnet' }],
+                  modelDiscovery: { source: 'configured', stale: false },
+                },
+              ],
+              targets: [
+                {
+                  targetId: 'mac',
+                  targetRevision: 'mac-v1',
+                  label: 'Local Mac',
+                  location: 'local',
+                  harness: 'claude-sdk',
+                },
+              ],
+              routes: [
+                {
+                  account: reference,
+                  targetId: 'mac',
+                  harness: 'claude-sdk',
+                  modes: ['ask', 'agent', 'auto'],
+                },
+              ],
+              locations: [{ location: 'local', status: 'configured' }],
+              agentProfiles: [],
+            }
+          : snapshot([{ ...pending, state: 'connected', url: undefined }], [account]),
+      );
+    });
+    show();
+    fireEvent.click(await screen.findByRole('button', { name: 'Start chat' }));
+    if (revoked) {
+      await screen.findByText('Sign in to Mitzo again to continue.');
+      await waitFor(() => expect(screen.queryByRole('button', { name: 'Start chat' })).toBeNull());
+      expect(mocks.save).not.toHaveBeenCalled();
+      return;
+    }
+    await waitFor(() =>
+      expect(mocks.save).toHaveBeenCalledWith(
+        expect.objectContaining({
+          settings: expect.objectContaining({
+            selection: { accountId, model: 'sonnet', reasoningEffort: null },
+            retainRuntimeIntent: true,
+            runtimeSelection: expect.objectContaining({
+              execution: { location: 'local', targetId: 'mac' },
+              accountReference: reference,
+              account: { accountId, model: 'sonnet', reasoningEffort: null },
+            }),
           }),
         }),
-      }),
-    ),
-  );
-  expect(mocks.changed).toHaveBeenCalled();
-  expect(mocks.fetch.mock.calls.some(([url]) => /commands|send/.test(url))).toBe(false);
-});
+      ),
+    );
+    expect(mocks.changed).toHaveBeenCalled();
+    expect(mocks.fetch.mock.calls.some(([url]) => /commands|send/.test(url))).toBe(false);
+  },
+);
