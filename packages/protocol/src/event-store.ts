@@ -747,7 +747,11 @@ export class EventStore {
         meta,
         binding,
         input,
-        receipt.settings.binding.execution.location === 'local' ? 'local' : 'openshell',
+        receipt.settings.binding.harness.implementation === 'claude-sdk'
+          ? 'vertex'
+          : receipt.settings.binding.execution.location === 'local'
+            ? 'local'
+            : 'openshell',
         operationId,
       );
       this.db!.prepare(
