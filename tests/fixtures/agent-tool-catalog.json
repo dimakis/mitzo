@@ -69,7 +69,7 @@
     "id": "mitzo:GitHubRead",
     "version": 1,
     "name": "GitHubRead",
-    "description": "Read GitHub repository data through Mitzo. Use access: public for credential-free public reads without an ordinary approval card. Authenticated reads require repository consent; credentials remain private to Mitzo. Public failures never fall back to account credentials.",
+    "description": "Read GitHub repository data through Mitzo. Use access: public for credential-free public reads without an ordinary approval card. Each public request never silently retries with credentials. Separately authorized authenticated reads or native gh commands retain their own permissions; honor an explicit CLI choice. Authenticated integration reads require repository consent; credentials remain private to Mitzo.",
     "source": "Workspace",
     "required": false,
     "behavior": "read",

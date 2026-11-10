@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.977-telos-planning-retained-choices';
+  'v1.0.978-telos-planning-authorized-cli';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -1358,7 +1358,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../scripts/qualify-codex-native-permissions.mjs':
     '848148f0e305800ab30aa84899798c0b4034c9fe2f062045d8a5672cfc09ae59',
   '../__tests__/codex-chat-session.test.ts':
-    'a1ec1a3378b4240dd5858ce03b0c8fd2ac92f173ba04196e539d74165ff9a0f6',
+    '7bf9c93c29f95e93b483eaf925815cdcc7675b3de88b0247ab4a7f12e5992a7f',
   '../__tests__/codex-conversation.test.ts':
     'de0e6016f10d3025f03def260608bf9451a46a4b4e3bd78001242280795d661c',
   '../__tests__/codex-native-approvals.test.ts':
@@ -1396,7 +1396,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../codex-native-permission-protocol.ts':
     '9f0090fa908f306c95110e928dc64fd5a7324a7aa3cfed3c1572c8d23bedbf48',
   '../owned-local-codex-native-policy.ts':
-    'd45e728136b367f69ee707c5f937f0e9a7364fc6ef9f754b620b7ac52fade48b',
+    '9bb2b1836368c0e91b436c4afdd7732d8209ddf236211b2316485ffe4db11de7',
   '../__tests__/chat-provider-startup-admission.test.ts':
     'e61be37a4c42eb9acbd5a122ecdd9f2d7a40831e4c308e19d02a6a5a149cc543',
   '../__tests__/connections-credential-readiness.test.ts':
@@ -2330,7 +2330,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/native-hooks.test.ts':
     '22876bc95eeedbe9435997c0d23875a2422568fb156baedef7c1727ea5bde960',
   '../hook-bridge.ts': '8885c2b27079799d33958a17942bb7d8953d01540bf7cd4b3ade537ee39c2d12',
-  '../native-tool-executor.ts': 'a06e3f7170797e92836fa5cf42bea34d5dcfd2d0e1f0e9fdd38ca50230248746',
+  '../native-tool-executor.ts': '8ea27cea34a7229395ef5ff0fdec6017288c30add331d38db2cb06c071182817',
   '../repository-preparation-capacity.ts':
     'f042dee9fe5643e989bf229e06c532ee0f42764300583f4fc84a265730bb360b',
   '../repository-workspaces.ts': '1fba933eba4a2dad836c84ed64f3a754f7c7f64cb2e4edfc58eeacc780570afa',
@@ -3047,7 +3047,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/worktree-fetch-observation.test.ts':
     'e943335de38d924ad7ec1f9334f235bbddb0649914ed1604a27176869a9d8094',
   '../../tests/fixtures/agent-tool-catalog.json':
-    '9be353eccd2b132f92b93e14b03931a8772ba9447c544943872fe2eacb272c6d',
+    '7c3ea512fd1d449b7327609bb09a2b854728fa9f3f93df7849ea5542970b6939',
   '../../tests/integration/ordinary-local-vertex-chat.test.ts':
     '52cdc3efaf5d5fcdb4ea33691c6bc7743079266d130b6ef55b5fa9725b84764c',
   '../../packages/sqlite-file-owner/package.json':

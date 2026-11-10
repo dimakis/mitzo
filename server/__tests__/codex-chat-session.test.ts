@@ -3806,6 +3806,7 @@ it('qualifies owned native, MCP, profile and publishing tools and rejects other 
     expect(config.systemPrompt).toContain(
       'Use GitHubRead for routine repository, PR, review and CI reads',
     );
+    expect(config.systemPrompt).toContain('When the user selects gh, use it');
     expect(config.systemPrompt).toContain('Run offline tests with the existing workspace');
     expect((config.tools as Array<{ name: string }>).map((tool) => tool.name).sort()).toEqual(
       [
