@@ -46,6 +46,8 @@ export interface DeploymentOperation {
     proofSha256: string;
     retainedSessionIds: string[];
     quarantinedSessionIds: string[];
+    /** Separate zero-delivery host handoff; never a settled native outcome. */
+    idleSnapshotSha256?: string;
   };
   activationHash?: string;
   resumeCommit?: string;

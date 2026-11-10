@@ -384,6 +384,7 @@ it('atomically retains historical uncertainty under permanent quarantine and dis
     targetCommit: source.targetCommit,
     expectedRunningSessions: [],
     expectedCommands: [{ commandId: 'unknown-command', sha256: maintenanceFingerprint(command) }],
+    idleSnapshotSha256: 'c'.repeat(64),
   };
   let excluded = false,
     drained = true;
@@ -397,7 +398,12 @@ it('atomically retains historical uncertainty under permanent quarantine and dis
     },
     assertDrained: () => {
       if (!drained) throw Error('Current effects unsettled');
-      return { retainedSessionIds: ['current'], proofSha256: 'c'.repeat(64), sessions: [] };
+      return {
+        retainedSessionIds: ['current'],
+        proofSha256: 'c'.repeat(64),
+        idleSnapshotSha256: 'c'.repeat(64),
+        sessions: [],
+      };
     },
   };
   expect(f.events.deploymentStartupPending()).toBe(true);
@@ -413,6 +419,18 @@ it('atomically retains historical uncertainty under permanent quarantine and dis
       port,
     ),
   ).toThrow(/reviewed/);
+  expect(() =>
+    f.events.deployment.maintenance.adopt({ ...input, idleSnapshotSha256: 'd'.repeat(64) }, port),
+  ).toThrow(/idle/);
+  expect(() =>
+    f.events.deployment.maintenance.adopt(
+      {
+        ...input,
+        expectedRunningSessions: [{ sessionId: 'current', targetSha256: 'e'.repeat(64) }],
+      },
+      port,
+    ),
+  ).toThrow(/idle/);
   // The legacy active flag can remain set after ENDED. It is not proof of a
   // live owner, nor may maintenance rewrite that original metadata to proceed.
   db.prepare("UPDATE sessions SET state='ACTIVE',is_active=1 WHERE session_id='historical'").run();
@@ -456,6 +474,12 @@ it('atomically retains historical uncertainty under permanent quarantine and dis
   await expect(
     f.coordinator.resume(operation.id, f.auth, { activationId: input.authorityId, rollback: true }),
   ).rejects.toThrow(/rollback/);
+  f.port.quiescent = () => false; // Legacy history still blocks generic deployment.
+  f.port.idleHandoffReady = () => false;
+  await expect(
+    f.coordinator.resume(operation.id, f.auth, { activationId: input.authorityId }),
+  ).rejects.toThrow(/quiescent/);
+  f.port.idleHandoffReady = () => true;
   expect(
     (await f.coordinator.resume(operation.id, f.auth, { activationId: input.authorityId })).phase,
   ).toBe('completed');

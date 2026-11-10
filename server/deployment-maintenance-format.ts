@@ -33,6 +33,7 @@ export const MaintenancePlan = z.strictObject({
   sourceOperationSha256: Hash,
   sourceCommit: z.literal('279e6703dedebaeb130993fd6e2657b2aed73c0a'),
   targetCommit: z.string().regex(/^[a-f0-9]{40}$/),
+  idleSnapshotSha256: Hash.optional(),
   sourcePid: z.number().int().positive(),
   sourceGroup: z.number().int().positive(),
   sourceBirth: z.string().min(1),

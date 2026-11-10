@@ -335,7 +335,11 @@ it('the actual owned consumer recovers exact and saved inputs once, serializes r
     initialPrompt: 'Retained original historical task',
   });
   chat.eventStore.setSessionState('quarantined-history', 'ENDED', { force: true });
-  maintenanceNative.create('quarantined-history', f.reservation.binding, f.reservation.taskRoot);
+  maintenanceNative.create(
+    'quarantined-history',
+    f.reservation.binding,
+    chat.eventStore.getSession('quarantined-history')!.cwd!,
+  );
   maintenanceNative.enqueue('quarantined-history', f.reservation.binding, {
     id: 'quarantined-command',
     prompt: 'Original uncertain input',
@@ -491,6 +495,8 @@ it('the actual owned consumer recovers exact and saved inputs once, serializes r
       changed: vi.fn(),
       removal: {
         service: removal,
+        localPreview: () => ({ action: 'retain', reason: 'Retain the fixture workspace' }),
+        releaseLocal: vi.fn(async () => {}),
         authority: () => () => {
           if (!isAuthSessionCurrent(auth)) throw Error('Revoked fixture actor');
         },

@@ -1,4 +1,5 @@
 import { persistMaintenanceRequirement } from './deployment-maintenance-bootstrap.js';
+import { maintenanceIdleFingerprint } from './deployment-maintenance-idle.js';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { lstatSync } from 'node:fs';
@@ -96,12 +97,12 @@ function assertSourceExcluded(
 export async function maintenanceMain(args: string[]): Promise<void> {
   const [action, statePath, tokenPath, ...rest] = args;
   if (
-    !['capture', 'observe', 'seal', 'adopt'].includes(action) ||
+    !['capture', 'capture-idle', 'observe', 'seal', 'adopt'].includes(action) ||
     !statePath?.startsWith('/') ||
     !tokenPath?.startsWith('/')
   )
     throw Error(
-      'Usage: deployment-maintenance.mjs capture|observe|seal|adopt ABSOLUTE_PLAN ABSOLUTE_OPERATOR_TOKEN [EVENTS NATIVE SOURCE_PID SOURCE_OPERATION_ID REVIEWED_COMMANDS]',
+      'Usage: deployment-maintenance.mjs capture|capture-idle|observe|seal|adopt ABSOLUTE_PLAN ABSOLUTE_OPERATOR_TOKEN [EVENTS NATIVE SOURCE_PID SOURCE_OPERATION_ID REVIEWED_COMMANDS]',
     );
   const root = resolve(join(codexPrivateDirectory(), 'deployment'));
   for (const path of [statePath, tokenPath])
@@ -121,7 +122,7 @@ export async function maintenanceMain(args: string[]): Promise<void> {
     return response.json();
   }
   let plan: z.infer<typeof Plan>;
-  if (action === 'capture') {
+  if (action === 'capture' || action === 'capture-idle') {
     if (rest.length !== 5)
       throw Error('Exact original file, process and operation identities required');
     const [eventsPath, nativePath, pid, operationId, reviewedPath] = rest;
@@ -202,6 +203,20 @@ export async function maintenanceMain(args: string[]): Promise<void> {
       const historicalIds = new Set(
         readMaintenancePendingCommands(db).map((command) => command.session_id),
       );
+      if (action === 'capture-idle') {
+        if (plan.owners.some((owner) => owner.target))
+          throw Error('Idle capture cannot contain a running target');
+        plan = Plan.parse({
+          ...plan,
+          idleSnapshotSha256: maintenanceIdleFingerprint(
+            db,
+            native,
+            eventsPath,
+            [...historicalIds],
+            plan.owners.map((owner) => owner.sessionId),
+          ),
+        });
+      }
       if (
         plan.owners.some((owner) => historicalIds.has(owner.sessionId)) ||
         native
@@ -309,7 +324,7 @@ export async function maintenanceMain(args: string[]): Promise<void> {
       authorize();
       if (
         native.hasRunningCommands() ||
-        native.deploymentRecoveryPending(ids) ||
+        (!plan.idleSnapshotSha256 && native.deploymentRecoveryPending(ids)) ||
         native.subagents.unsettledConversationIds().some((id) => !ids.includes(id))
       )
         throw Error('Current native effects or ownership remain unsettled');
@@ -328,10 +343,23 @@ export async function maintenanceMain(args: string[]): Promise<void> {
         return completion;
       });
       const completionSha256 = maintenanceFingerprint(completions);
+      if (
+        plan.idleSnapshotSha256 &&
+        (plan.owners.some((owner) => owner.target) ||
+          maintenanceIdleFingerprint(
+            db,
+            native,
+            plan.events.path,
+            ids,
+            plan.owners.map((owner) => owner.sessionId),
+          ) !== plan.idleSnapshotSha256)
+      )
+        throw Error('Exact zero-delivery idle snapshot required');
       if (seal && seal.completionSha256 !== completionSha256)
         throw Error('Original sealed completion receipts changed');
       return {
         retainedSessionIds: plan.owners.map((owner) => owner.sessionId),
+        ...(plan.idleSnapshotSha256 ? { idleSnapshotSha256: plan.idleSnapshotSha256 } : {}),
         sessions: events
           ? plan.owners
               .filter((owner) => owner.target)

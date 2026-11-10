@@ -3003,8 +3003,9 @@ export class CodexConversationStore {
       .list(subagentScope(id, binding))
       .every((child) => ['completed', 'failed', 'stopped'].includes(child.state));
   }
-  /** Global negative observation includes cold owners; no effect fence is cleared. */
-  deploymentRecoveryPending(exceptIds: readonly string[] = []): boolean {
+  /** Yield the original negative observations lazily: the ordinary guard keeps
+   * its early refusal, while offline maintenance can fingerprint the full set. */
+  private *deploymentBlockers(exceptIds: readonly string[] = []): Generator<string> {
     const excluded = new Set(exceptIds);
     const ownership = this.db
       .prepare(
@@ -3012,7 +3013,7 @@ export class CodexConversationStore {
       UNION SELECT conversation_id FROM codex_thread_acceptances WHERE ownership_pending=1 OR terminal_conflict=1`,
       )
       .all() as Array<{ conversation_id: string }>;
-    if (ownership.some((row) => !excluded.has(row.conversation_id))) return true;
+    for (const row of ownership) if (!excluded.has(row.conversation_id)) yield row.conversation_id;
     const candidates = this.db
       .prepare(
         `SELECT DISTINCT conversation_id FROM codex_commands
@@ -3020,25 +3021,107 @@ export class CodexConversationStore {
       UNION SELECT conversation_id FROM codex_tools WHERE result_content IS NULL OR result_effect_outcome='unknown'`,
       )
       .all() as Array<{ conversation_id: string }>;
-    if (
-      candidates.some(
-        (row) =>
-          !excluded.has(row.conversation_id) && !!this.unsettledCommandEffects(row.conversation_id),
-      )
-    )
-      return true;
+    for (const row of candidates)
+      if (!excluded.has(row.conversation_id) && this.unsettledCommandEffects(row.conversation_id))
+        yield row.conversation_id;
     const unknown = this.db
       .prepare(
         "SELECT DISTINCT conversation_id,command_id FROM codex_tools WHERE result_content IS NOT NULL AND result_effect_outcome='unknown'",
       )
       .all() as Array<{ conversation_id: string; command_id: string }>;
-    return unknown.some(
-      (row) =>
+    for (const row of unknown)
+      if (
         !excluded.has(row.conversation_id) &&
         !this.db.transaction(() =>
           this.qualifiedDeploymentHostEffects(row.conversation_id, row.command_id),
-        )(),
-    );
+        )()
+      )
+        yield row.conversation_id;
+  }
+  /** Global negative observation includes cold owners; no effect fence is cleared. */
+  deploymentRecoveryPending(exceptIds: readonly string[] = []): boolean {
+    return this.deploymentBlockers(exceptIds).next().done === false;
+  }
+  /** A zero-delivery handoff may retain a frozen legacy barrier. This records
+   * no settlement, acknowledgement, available ownership or permission to replay.
+   * Every ordinary recovery/control path keeps its existing negative guard. */
+  maintenanceIdleFingerprint(
+    exceptIds: readonly string[],
+    currentOwners: readonly string[],
+  ): string {
+    return this.db.transaction(() => {
+      if (
+        this.hasRunningCommands() ||
+        this.db
+          .prepare('SELECT 1 FROM codex_conversations WHERE automatic_recovery=1 LIMIT 1')
+          .get() ||
+        this.subagents.unsettledConversationIds().some((id) => !exceptIds.includes(id))
+      )
+        throw Error('Exact idle native state without automatic recovery required');
+      const capacity = createHash('sha256');
+      for (const value of this.db
+        .prepare('SELECT * FROM codex_capacity_recoveries ORDER BY rowid')
+        .iterate()) {
+        const row = value as { data: string };
+        const recovery = CapacityRecoverySchema.parse(JSON.parse(row.data));
+        if (
+          ['waiting', 'queued', 'running'].includes(recovery.status) ||
+          recovery.supersedingCommandId !== undefined
+        )
+          throw Error('Exact idle native state without capacity recovery required');
+        capacity.update(JSON.stringify(row));
+      }
+      const pending = this.db
+        .prepare(
+          `SELECT conversation_id FROM codex_pending_thread_dispatches
+        UNION SELECT conversation_id FROM codex_thread_acceptances WHERE ownership_pending=1 OR terminal_conflict=1`,
+        )
+        .all() as Array<{ conversation_id: string }>;
+      if (pending.some((row) => currentOwners.includes(row.conversation_id)))
+        throw Error('Current idle owner has unresolved native ownership');
+      const ids = [...new Set(this.deploymentBlockers(exceptIds))].sort();
+      const digest = createHash('sha256').update(
+        JSON.stringify({
+          version: 1,
+          ids,
+          exceptIds: [...exceptIds].sort(),
+          currentOwners: [...currentOwners].sort(),
+          capacity: capacity.digest('hex'),
+        }),
+      );
+      const include = (name: string, query: string, values: string[] = []) => {
+        digest.update(name);
+        for (const row of this.db.prepare(query).iterate(...values))
+          digest.update(JSON.stringify(row));
+      };
+      // Queue intent is retained even when it does not itself block deployment.
+      include(
+        'queued',
+        "SELECT * FROM codex_commands WHERE status='queued' ORDER BY conversation_id,sequence",
+      );
+      if (ids.length) {
+        const marks = ids.map(() => '?').join(',');
+        include(
+          'owners',
+          `SELECT id,binding,cwd,thread_id,thread_generation,owner_kind,host_custody,automatic_recovery FROM codex_conversations WHERE id IN (${marks}) ORDER BY id`,
+          ids,
+        );
+        for (const name of [
+          'codex_commands',
+          'codex_tools',
+          'codex_pending_thread_dispatches',
+          'codex_thread_acceptances',
+          'codex_thread_generations',
+          'codex_effect_settlements',
+        ])
+          include(
+            name,
+            `SELECT * FROM ${name} WHERE conversation_id IN (${marks}) ORDER BY rowid`,
+            ids,
+          );
+      }
+      return digest.digest('hex');
+    })();
   }
   runningConversationIds(): string[] {
     return (

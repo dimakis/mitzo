@@ -87,6 +87,14 @@ it('boots with authentication, workspace and tracing settings supplied only by t
         },
       }),
     );
+    const fixtureEnv = {
+      PATH: process.env.PATH,
+      HOME: root,
+      TMPDIR: tmpdir(),
+      NODE_ENV: 'test',
+      NODE_OPTIONS: process.env.NODE_OPTIONS,
+      TSX_TSCONFIG_PATH: sourceConfig,
+    };
     const result = spawnSync(
       process.execPath,
       [
@@ -98,13 +106,7 @@ it('boots with authentication, workspace and tracing settings supplied only by t
       ],
       {
         cwd: root,
-        env: {
-          PATH: process.env.PATH,
-          HOME: root,
-          TMPDIR: tmpdir(),
-          NODE_ENV: 'test',
-          TSX_TSCONFIG_PATH: sourceConfig,
-        },
+        env: fixtureEnv,
         encoding: 'utf8',
         timeout: 20000,
       },
@@ -135,11 +137,7 @@ it('boots with authentication, workspace and tracing settings supplied only by t
       {
         cwd: root,
         env: {
-          PATH: process.env.PATH,
-          HOME: root,
-          TMPDIR: tmpdir(),
-          NODE_ENV: 'test',
-          TSX_TSCONFIG_PATH: sourceConfig,
+          ...fixtureEnv,
           REPO_PATH: refusedWorkspace,
         },
         encoding: 'utf8',

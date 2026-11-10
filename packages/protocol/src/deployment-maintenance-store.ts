@@ -30,6 +30,7 @@ export interface DrainedMaintenancePort {
   assertDrained(quarantinedIds: readonly string[]): {
     retainedSessionIds: string[];
     proofSha256: string;
+    idleSnapshotSha256?: string;
     sessions: Array<{
       sessionId: string;
       snapshot: Record<string, unknown>;
@@ -76,6 +77,7 @@ export class DeploymentMaintenanceStore {
       targetCommit: string;
       expectedRunningSessions: Array<{ sessionId: string; targetSha256: string }>;
       expectedCommands: Array<{ commandId: string; sha256: string }>;
+      idleSnapshotSha256?: string;
     },
     port: DrainedMaintenancePort,
   ): DeploymentOperation {
@@ -140,6 +142,14 @@ export class DeploymentMaintenanceStore {
         }
         const drained = port.assertDrained(ids);
         if (
+          input.idleSnapshotSha256 !== drained.idleSnapshotSha256 ||
+          (input.idleSnapshotSha256 !== undefined &&
+            (!/^[a-f0-9]{64}$/.test(input.idleSnapshotSha256) ||
+              input.expectedRunningSessions.length ||
+              drained.sessions.length))
+        )
+          throw Error('Exact idle snapshot and zero continuation entries required');
+        if (
           !/^[a-f0-9]{64}$/.test(drained.proofSha256) ||
           new Set(drained.retainedSessionIds).size !== drained.retainedSessionIds.length ||
           drained.retainedSessionIds.some((id) => ids.includes(id))
@@ -195,6 +205,7 @@ export class DeploymentMaintenanceStore {
             proofSha256: drained.proofSha256,
             retainedSessionIds: drained.retainedSessionIds,
             quarantinedSessionIds: ids,
+            ...(input.idleSnapshotSha256 ? { idleSnapshotSha256: input.idleSnapshotSha256 } : {}),
           },
         };
         for (const id of ids)

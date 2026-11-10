@@ -15,6 +15,9 @@ import {
   assertPrivateOperationDirectory,
 } from './private-operation-file.js';
 import { codexPrivateDirectory } from './codex-private-path.js';
+import { CodexConversationStore } from './codex-conversation-store.js';
+import { assertMaintenanceOwnerDrained } from './deployment-maintenance-observation.js';
+import { maintenanceIdleFingerprint } from './deployment-maintenance-idle.js';
 import { getLocalCommit } from './git-version.js';
 import type { z } from 'zod';
 import type { EventStore } from './event-store.js';
@@ -58,12 +61,14 @@ export function assertMaintenanceBootstrap(
       plan.expectedCommands.length ||
     proof.sourceOperationId !== plan.sourceOperationId ||
     proof.sourceOperationSha256 !== plan.sourceOperationSha256 ||
+    proof.idleSnapshotSha256 !== plan.idleSnapshotSha256 ||
     !['activating', 'resuming', 'completed'].includes(operation.phase) ||
     (operation.phase !== 'completed' && commit !== plan.targetCommit) ||
     row!.held !== (operation.phase === 'completed' ? 0 : 1)
   )
     deny();
   const running = plan.owners.filter((owner) => owner.target);
+  if (plan.idleSnapshotSha256 && (running.length || operation.sessions.length)) deny();
   if (
     operation.sessions.length !== running.length ||
     new Set(operation.sessions.map((entry) => entry.sessionId)).size !== running.length
@@ -183,7 +188,7 @@ export function persistMaintenanceRequirement(
 }
 
 /** Runs through index's first dependency before application or recovery imports. */
-export function validateMaintenanceBootstrap(): void {
+export function validateMaintenanceBootstrap(): z.infer<typeof MaintenancePlan> | undefined {
   const selected = process.env.MITZO_MAINTENANCE_PLAN_FILE;
   if (Object.hasOwn(process.env, 'MITZO_MAINTENANCE_PLAN_FILE') && !selected)
     throw Error('Explicit maintenance selector must name its protected plan');
@@ -244,7 +249,33 @@ export function validateMaintenanceBootstrap(): void {
   const db = new Database(plan.events.path, { readonly: true, fileMustExist: true });
   try {
     assertMaintenanceBootstrap(db, plan, seal, getLocalCommit());
+    const operation = JSON.parse(
+      (
+        db.prepare('SELECT data FROM deployment_operations WHERE id=?').get(plan.id) as {
+          data: string;
+        }
+      ).data,
+    ) as ReturnType<EventStore['deployment']['get']>;
+    if (plan.idleSnapshotSha256 && operation.phase !== 'completed') {
+      const native = new CodexConversationStore(plan.native.path, { observation: true });
+      try {
+        for (const owner of plan.owners) assertMaintenanceOwnerDrained(db, native, owner);
+        if (
+          maintenanceIdleFingerprint(
+            db,
+            native,
+            plan.events.path,
+            operation.maintenance!.quarantinedSessionIds,
+            plan.owners.map((owner) => owner.sessionId),
+          ) !== plan.idleSnapshotSha256
+        )
+          throw Error('Original idle snapshot changed before zero-delivery handoff');
+      } finally {
+        native.close();
+      }
+    }
   } finally {
     db.close();
   }
+  return plan;
 }

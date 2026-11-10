@@ -1,4 +1,8 @@
-import { drainedMaintenanceEntrySettled } from './deployment-maintenance-observation.js';
+import {
+  drainedMaintenanceEntrySettled,
+  assertMaintenanceAdmission,
+} from './deployment-maintenance-observation.js';
+import { validateMaintenanceBootstrap } from './deployment-maintenance-bootstrap.js';
 import { isAvailableTelosWorkConversation } from './telos-work-conversation.js';
 import { assertOrdinaryContributorControlAllowed } from './ordinary-contributor-execution.js';
 import { isDeepStrictEqual } from 'node:util';
@@ -224,6 +228,25 @@ export function createDeploymentRuntime(
       );
     },
     receipt,
+    idleHandoffReady(operation) {
+      if (
+        !deps.backgroundIdle() ||
+        registry.getActiveSessions().length ||
+        operation.sessions.length
+      )
+        return false;
+      const plan = validateMaintenanceBootstrap();
+      if (
+        !plan ||
+        plan.id !== operation.id ||
+        !plan.idleSnapshotSha256 ||
+        plan.idleSnapshotSha256 !== operation.maintenance?.idleSnapshotSha256 ||
+        plan.owners.some((owner) => owner.target)
+      )
+        return false;
+      for (const owner of plan.owners) assertMaintenanceAdmission(events, owner);
+      return true;
+    },
     resume(entry, auth, signal, assertCurrent) {
       const expected = validate(entry, auth);
       return prompts.deliverOrdinary(

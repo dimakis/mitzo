@@ -27,6 +27,7 @@ export interface DeploymentPort {
   pause(entry: Entry, auth: AuthSession): Promise<void>;
   settled(entry: Entry, auth: AuthSession): boolean | Promise<boolean>;
   quiescent(): boolean;
+  idleHandoffReady?(operation: Operation): boolean;
   healthy(): boolean;
   receipt(entry: Entry): 'absent' | 'accepted' | 'uncertain';
   resume(
@@ -175,7 +176,10 @@ export class DeploymentCoordinator {
           throw Error('Original activation owner required');
         if (
           operation.maintenance &&
-          (input.rollback || (operation.phase === 'activating' && !this.port.quiescent()))
+          (input.rollback ||
+            (operation.maintenance.idleSnapshotSha256
+              ? operation.sessions.length !== 0 || this.port.idleHandoffReady?.(operation) !== true
+              : operation.phase === 'activating' && !this.port.quiescent()))
         )
           throw Error('Drained maintenance requires quiescent target; rollback is not supported');
         const expected =
@@ -340,6 +344,9 @@ export class DeploymentCoordinator {
       operation.maintenance &&
       (operation.maintenance.kind !== 'drained-handoff-v1' ||
         operation.activationHash ||
+        (operation.maintenance.idleSnapshotSha256 !== undefined &&
+          (!/^[a-f0-9]{64}$/.test(operation.maintenance.idleSnapshotSha256) ||
+            operation.sessions.length !== 0)) ||
         !/^[a-f0-9]{64}$/.test(operation.maintenance.authorityHash))
     )
       throw Error('Complete separate maintenance authority required');

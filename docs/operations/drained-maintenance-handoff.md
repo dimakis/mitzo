@@ -2,8 +2,9 @@
 
 This is a separate, explicit maintenance transition for installed source
 `279e6703dedebaeb130993fd6e2657b2aed73c0a`. It does not claim that the installed
-pause/activate guard approved historical uncertainty. Use ordinary protocol 1
-pause/continuation for subsequent supported deployments. Staging remains stood down.
+pause/activate guard approved historical uncertainty. Ordinary protocol 1
+pause/continuation still requires its original settlement predicates; this bridge
+does not clear retained native uncertainty for later deployments. Staging remains stood down.
 
 The operator must explicitly choose permanent quarantine of the reviewed old
 commands. Their original send/native rows and the original capturing operation
@@ -203,3 +204,46 @@ representative Telos rows/artifacts and that no old writer restarted.
 The CLI supports only this retained local source. Unsupported owners, changed
 custody, new uncertainty or missing positive completion evidence fail closed.
 Its archived historical states remain unknown and permanently non-executable.
+
+## Explicit idle handoff with no continuation delivery
+
+When all current owners are idle, `capture-idle` selects a narrower host handoff.
+It retains the same original18 admission quarantine and adds no quarantine for
+other native command IDs or whole current chats. It records no settled outcome.
+
+The source must have no running native command, no current owner continuation
+blocker or pending ownership, no unsettled child outside the original quarantine,
+no automatic native recovery and no active capacity episode. Capture fingerprints
+the complete retained native barrier (including command, tool, lineage, settlement
+and pending-ownership rows) and saved queued inputs. A changed or newly observed
+barrier refuses the handoff; the ordinary global recovery guard is unchanged.
+
+Pending/dispatching session messages, nonterminal execution phases, pending
+capability operations and pending key synchronization refuse this mode. Existing
+uncertain messages remain unavailable for resend. Timer/uncertain-message intent
+is fingerprinted and checked again; the existing durable hold prevents dispatch
+throughout capture, startup and final verification.
+
+Use the same capture/seal, signed normal owner close, source/helper exclusion,
+private migration, original-actor checks and atomic adoption as above. The idle
+plan may contain **no running target or continuation entry**. Startup checks its
+exact retained snapshot before application imports; the coordinator checks it
+again on the exact healthy target with an empty registry and fresh retained-owner
+admission checks. `resume` then completes only this zero-entry host handoff and
+releases admission without calling the prompt-delivery port. It cannot be used
+for a running session, rollback or a generic unsettled-effect exception.
+
+Native startup recovery is qualified separately: without running commands or
+active capacity episodes it preserves saved command rows, retains pending claims
+and changes only recovery/lifecycle metadata. Generic event recovery excludes
+ordinary admission receipts and does not dispatch requests. Capability/key startup
+recovery has no pending operations to resume. Session prompt startup observes the
+hold; afterward normal future timer consent and existing recovery rules still
+apply. No provider is allocated or reattached by this handoff.
+
+A completed idle proof becomes historical host evidence, granting no later command
+or recovery authority. Later accepted user work may change the native history;
+completed startup does not reuse the idle snapshot to waive current controls.
+The original permanent admission quarantine and its retained evidence remain
+mandatory. This is a qualified bridge for the inspected installed source, not a
+claim that unknown native history has been reconciled.

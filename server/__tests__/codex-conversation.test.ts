@@ -6,7 +6,7 @@ import { webAccessDefinition } from '../request-web-access.js';
 import { summarizeToolInput } from '@mitzo/protocol';
 import { assembleSourceSnapshots } from '../source-snapshot-context.js';
 import Database from 'better-sqlite3';
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { EventStore } from '../event-store.js';
 import { reportRetainedRuntimeFailure } from '../retained-runtime-failure.js';
 import { SessionRuntimeError } from '../session-runtime-error.js';
@@ -8212,6 +8212,82 @@ it('holds new native FIFO claims without blocking the current terminal evidence'
     expect(observer.deploymentTurnSettled('app', f.getBinding(), second)).toBe(true);
     expect(observer.commands('app', f.getBinding()).at(-1)?.status).toBe('queued');
     expect(f.requests.filter((r) => r.method === 'turn/start')).toHaveLength(2);
+    const legacy = new Database(f.storePath!);
+    try {
+      legacy
+        .prepare(
+          `INSERT INTO codex_tools(conversation_id,command_id,call_id,tool_name,result_content,result_is_error,result_effect_outcome)
+        VALUES('app','before-deployment','legacy-idle-effect','TaskExecution','{"ok":true}',0,'unknown')`,
+        )
+        .run();
+      // This is a frozen historical barrier, never a settlement fact. Generic
+      // deployment/recovery continues refusing it; the idle proof sends nothing.
+      expect(observer.deploymentRecoveryPending()).toBe(true);
+      const idle = observer.maintenanceIdleFingerprint([], ['app']);
+      expect(idle).toMatch(/^[a-f0-9]{64}$/);
+      expect(observer.maintenanceIdleFingerprint([], ['app'])).toBe(idle);
+      const capacity = {
+        revision: 0,
+        id: randomUUID(),
+        sourceCommandId: 'before-deployment',
+        status: 'stopped',
+        attempts: 0,
+        maxAttempts: 5,
+        latestCommandId: 'before-deployment',
+        latestAttempt: 1,
+        latestTurnId: target.turnId,
+        threadId: target.threadId,
+        generation: 0,
+        model: 'fixture-model',
+        toolSurfaceRevision: null,
+        webSearchRevision: 0,
+        artifactIdentity: 'fixture',
+      };
+      const setCapacity = legacy.prepare(
+        "INSERT OR REPLACE INTO codex_capacity_recoveries(conversation_id,data) VALUES('app',?)",
+      );
+      setCapacity.run(JSON.stringify(capacity));
+      expect(observer.maintenanceIdleFingerprint([], ['app'])).not.toBe(idle);
+      for (const value of [
+        { ...capacity, status: 'waiting' },
+        { ...capacity, supersedingCommandId: 'retained-after-close' },
+        { status: 'stopped' },
+      ]) {
+        setCapacity.run(JSON.stringify(value));
+        expect(() => observer.maintenanceIdleFingerprint([], ['app'])).toThrow();
+      }
+      legacy.prepare("DELETE FROM codex_capacity_recoveries WHERE conversation_id='app'").run();
+      expect(observer.maintenanceIdleFingerprint([], ['app'])).toBe(idle);
+      legacy.prepare("UPDATE codex_conversations SET automatic_recovery=1 WHERE id='app'").run();
+      expect(() => observer.maintenanceIdleFingerprint([], ['app'])).toThrow(/idle/);
+      legacy.prepare("UPDATE codex_conversations SET automatic_recovery=0 WHERE id='app'").run();
+      legacy
+        .prepare(
+          "INSERT INTO codex_pending_thread_dispatches(conversation_id,parent_thread_id,thread_id,command_id,attempt,parent_generation) VALUES('app','parent','unproved','before-deployment',1,0)",
+        )
+        .run();
+      expect(() => observer.maintenanceIdleFingerprint([], ['app'])).toThrow(/ownership/);
+      legacy
+        .prepare("DELETE FROM codex_pending_thread_dispatches WHERE conversation_id='app'")
+        .run();
+      legacy
+        .prepare(
+          "UPDATE codex_tools SET result_content='changed' WHERE call_id='legacy-idle-effect'",
+        )
+        .run();
+      expect(observer.maintenanceIdleFingerprint([], ['app'])).not.toBe(idle);
+      legacy
+        .prepare("UPDATE codex_commands SET status='running' WHERE id='retained-after-close'")
+        .run();
+      expect(() => observer.maintenanceIdleFingerprint([], ['app'])).toThrow(/idle/);
+      legacy
+        .prepare("UPDATE codex_commands SET status='queued' WHERE id='retained-after-close'")
+        .run();
+      expect(observer.deploymentRecoveryPending()).toBe(true);
+      expect(f.requests.filter((r) => r.method === 'turn/start')).toHaveLength(2);
+    } finally {
+      legacy.close();
+    }
   } finally {
     observer.close();
   }
