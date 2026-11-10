@@ -224,7 +224,9 @@ it('delivers exact saved text bytes, not an opaque reference or note, on first a
   expect(prompts).toHaveLength(2);
   for (const prompt of prompts) {
     const material = JSON.parse(prompt.text.split('\n')[2]);
-    const shared = material.discussion.find((message) => message.sharedContext)?.sharedContext;
+    const shared = material.discussion.find(
+      (message: { sharedContext?: { artifacts: unknown[] } }) => message.sharedContext,
+    )?.sharedContext;
     expect(shared.artifacts[0]).toMatchObject({ ...pin, content });
     expect(shared.artifacts[0]).not.toHaveProperty('contentBase64');
   }

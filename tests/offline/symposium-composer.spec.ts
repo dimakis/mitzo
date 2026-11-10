@@ -236,6 +236,8 @@ for (const theme of ['dark', 'light'])
       await input.fill('Review this exact discussion.');
       await page.getByRole('button', { name: 'Choose who replies' }).click();
       await page.getByRole('checkbox', { name: 'Reviewer', exact: true }).click();
+      await page.getByRole('button', { name: 'Done choosing replies', exact: true }).click();
+      await expect(page.getByRole('button', { name: 'Choose who replies' })).toBeFocused();
       await expect(page.getByRole('button', { name: 'Choose who replies' })).toContainText(
         'Reviewer',
       );

@@ -156,10 +156,9 @@ it.each(['missing', 'unavailable'])(
       (within(dialog).getByRole('textbox', { name: 'Purpose' }) as HTMLInputElement).value,
     ).toBe('Keep my purpose');
     expect(
-      (within(dialog).getByRole('textbox', { name: 'Brief', exact: true }) as HTMLInputElement)
-        .value,
+      (within(dialog).getByRole('textbox', { name: /^Brief$/ }) as HTMLInputElement).value,
     ).toBe('Keep my brief');
-    fireEvent.click(within(dialog).getByRole('button', { name: 'Review context', exact: true }));
+    fireEvent.click(within(dialog).getByRole('button', { name: /^Review context$/ }));
     await waitFor(() =>
       expect(
         (

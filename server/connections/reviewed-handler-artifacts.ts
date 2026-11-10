@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.1005-symposium-forwarding-chat-integration';
+  'v1.0.1010-symposium-forwarding-typed-chat-integration';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -46,7 +46,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../collaboration-prompt-context.ts':
     '34e5b82306632c3aeddc6fef191a91610b0e6e2d7a8ef3186137246210e7e9fe',
   '../../frontend/src/hooks/__tests__/useConversationPromptContext.test.tsx':
-    '468b269f1294729165c6d10cd823c994a9abd5068467521ba7d27b2f7152544a',
+    '37694620bb7be14ce2de7d10a7dc4923c18249d9b6d43abf1cc827f07578ee59',
   '../../frontend/src/hooks/useConversationPromptContext.ts':
     '46c349cc7138ae96bfcfb68e511dd6eeb93320ee56375cf5c90b9e44306d6439',
   '../../frontend/src/components/ConversationPromptContext.tsx':
@@ -253,7 +253,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../tests/fixtures/symposium-composer.tsx':
     '3e821497de4f4088e1610134821046e992e81117e897cb1c30864ccc2ff6b8ad',
   '../../tests/offline/symposium-composer.spec.ts':
-    '7fa4d381ff9e7eb36ab372278aa59f08cbcda7b18a1de0c43cad0e69e1b542f4',
+    '4d04fbf6781bf2b9023ae05e266d02ecc622f9fa70078349948989fc2375c976',
   '../../docs/evidence/symposium-integration-acceptance.md':
     '9870b43749eaa4f22dd586e95c3317fa89cc7fd07daa68f0fdbbb47007175967',
   '../../docs/features/symposium.md':
@@ -322,7 +322,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../tests/integration/telos-s9/integrated-candidate/joined-conversation-ready.test.ts':
     '6faad0a87ed0b5fe92d7b62abae7e379ee498fd934de04f879b289f30c60e9e0',
   '../__tests__/collaboration-application-messaging-recovery.test.ts':
-    'bd67175a13c68d1a5fda9b0480839881bf40b222904fd3e839e26a27123d5d58',
+    '9b808afcc4a84663e391900305adf21cd7c1b281176ed549f75e5802fb7f8dce',
   '../collaboration-application-messaging.ts':
     'f843ad52ae5e4d6382f13835a75a7b8c048d995f2f84c0975ac52473d1d61cb8',
   '../__tests__/collaboration-application-messaging.test.ts':
