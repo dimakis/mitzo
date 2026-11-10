@@ -19,12 +19,13 @@ type HostCall = Readonly<{
   intrinsicRead: boolean;
 }>;
 /** Process-local evidence from a fresh native RPC, never a JSON recovery grant. */
-export type SettledInterruptedEffects = Readonly<{ readonly nativeEffects: unique symbol }>;
+export type SettledNativeEffects = Readonly<{ readonly nativeEffects: unique symbol }>;
 const observations = new WeakMap<
-  SettledInterruptedEffects,
+  SettledNativeEffects,
   {
     conversationId: string;
     target: CodexNativeTurnTarget;
+    status: 'failed' | 'interrupted';
     hostCalls: readonly HostCall[];
   }
 >();
@@ -51,6 +52,8 @@ const AppliedFileChanges = z.object({
 
 /** Completed recovery never hydrates items. Eligible interrupted recovery reads
  * one item per frame and rechecks terminal identity after the final page.
+ * Failed turns require the same complete effect evidence; failure alone never
+ * proves that earlier tools or applied edits are settled.
  * The caller must retain and revalidate its account, transport and control epoch
  * across this await; the store separately checks current durable custody. */
 export async function observeNativeRecoveryTurn(
@@ -60,6 +63,7 @@ export async function observeNativeRecoveryTurn(
   inspectInterruptedEffects: boolean,
   beforeAdditionalRead: () => Promise<void>,
   expectedCwd?: string,
+  inspectFailedEffects = false,
 ) {
   let rpcCount = 0;
   let inspectedBytes = 0;
@@ -95,9 +99,15 @@ export async function observeNativeRecoveryTurn(
     throw new SessionRuntimeError('provider_identity');
   const turn = page.data[0];
   const status = z.enum(['completed', 'failed', 'interrupted']).parse(turn.status);
-  if (!inspectInterruptedEffects || status !== 'interrupted') return { status };
-  if (turn.error !== null)
+  if (
+    status === 'completed' ||
+    (status === 'interrupted' && !inspectInterruptedEffects) ||
+    (status === 'failed' && !inspectFailedEffects)
+  )
+    return { status };
+  if (status === 'interrupted' && turn.error !== null)
     throw Error('Interrupted native effects require an error-free turn observation');
+  const terminalError = structuredClone(turn.error);
   const calls: HostCall[] = [];
   const references = new Set<string>();
   let itemReads = 0;
@@ -119,13 +129,13 @@ export async function observeNativeRecoveryTurn(
         }),
       );
       if (!page.data.length && page.nextCursor !== null)
-        throw Error('Interrupted native item page is incomplete');
+        throw Error('Native terminal item page is incomplete');
       const entry = page.data[0];
       if (entry && entry.turnId !== turnId)
-        throw Error('Interrupted native item belongs to another turn');
+        throw Error('Native terminal item belongs to another turn');
       if (entry) {
         const item = entry.item;
-        if (ids.has(item.id)) throw Error('Interrupted native item identity is duplicated');
+        if (ids.has(item.id)) throw Error('Native terminal item identity is duplicated');
         ids.add(item.id);
         switch (item.type) {
           case 'userMessage':
@@ -145,7 +155,7 @@ export async function observeNativeRecoveryTurn(
                 z.number().int().min(1).max(255).safeParse(item.exitCode).success
               )
             )
-              throw Error('Interrupted native command effects remain unknown');
+              throw Error('Native terminal command effects remain unknown');
             break;
           case 'fileChange':
             // Native completed patches are already applied. Failed/in-progress
@@ -179,7 +189,7 @@ export async function observeNativeRecoveryTurn(
                 (item.status === 'failed' && item.success === false)
               )
             )
-              throw Error('Interrupted host tool effects remain unknown');
+              throw Error('Native terminal host tool effects remain unknown');
             const toolName = z.string().min(1).parse(item.tool);
             const args = z.record(z.string(), z.unknown()).parse(item.arguments);
             if (threadId !== target.threadId && !isIntrinsicRecoveryRead(toolName))
@@ -207,7 +217,7 @@ export async function observeNativeRecoveryTurn(
         exhausted = true;
         break;
       }
-      if (cursors.has(page.nextCursor)) throw Error('Interrupted native item cursor is duplicated');
+      if (cursors.has(page.nextCursor)) throw Error('Native terminal item cursor is duplicated');
       cursors.add(page.nextCursor);
       cursor = page.nextCursor;
     }
@@ -236,26 +246,33 @@ export async function observeNativeRecoveryTurn(
   if (
     final.data.length !== 1 ||
     final.data[0].id !== target.turnId ||
-    final.data[0].status !== 'interrupted' ||
-    final.data[0].error !== null
+    final.data[0].status !== status ||
+    !isDeepStrictEqual(final.data[0].error, terminalError)
   )
-    throw Error('Interrupted native terminal identity changed during item inspection');
-  const proof = Object.freeze({}) as SettledInterruptedEffects;
-  observations.set(proof, { conversationId, target: structuredClone(target), hostCalls: calls });
+    throw Error('Native terminal identity changed during item inspection');
+  const proof = Object.freeze({}) as SettledNativeEffects;
+  observations.set(proof, {
+    conversationId,
+    target: structuredClone(target),
+    status,
+    hostCalls: calls,
+  });
   return { status, settledEffects: proof };
 }
 
-export function interruptedEffectCalls(
-  proof: SettledInterruptedEffects,
+export function settledNativeEffectCalls(
+  proof: SettledNativeEffects,
   conversationId: string,
   target: CodexNativeTurnTarget,
+  status: 'interrupted' | 'failed' = 'interrupted',
 ) {
   const observation = observations.get(proof);
   if (
     !observation ||
     observation.conversationId !== conversationId ||
+    observation.status !== status ||
     !isDeepStrictEqual(observation.target, target)
   )
-    throw Error('Fresh interrupted native effect observation unavailable');
+    throw Error(`Fresh ${status} native effect observation unavailable`);
   return observation.hostCalls;
 }
