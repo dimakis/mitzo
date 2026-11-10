@@ -3,7 +3,7 @@ import { reopenClaudeSdkCredentials } from './claude-sdk-credentials.js';
 import { registerWorkspaceRuntimeAuthorityPaths } from './workspace-runtime-private-paths.js';
 import { dirname, join } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
-import type { SessionTransport } from '@mitzo/harness';
+import type { SessionTransport, ManagedSession } from '@mitzo/harness';
 import { hasPersistentRevocationAuthority } from './auth.js';
 import { captureAgentLibraryAuthorization } from './agent-library-transport.js';
 import { retainNativeHostToolOperator } from './native-host-tool-operator.js';
@@ -100,6 +100,8 @@ export async function startOwnedLocalVertexCommand(
     resume?: boolean;
     signal?: AbortSignal;
     ordinaryTurnLifecycle?: OrdinaryTurnLifecycle;
+    preparationOperationId?: string;
+    onSessionPrepared?(session: ManagedSession): void;
   },
 ) {
   options.signal?.throwIfAborted();
@@ -254,6 +256,7 @@ export async function startOwnedLocalVertexCommand(
               turnLifecycles.clear();
             },
           };
+          options.onSessionPrepared?.(session);
           return queue;
         },
         onStartupAdmission: (error) => (error ? reject(error) : resolve()),
@@ -269,6 +272,9 @@ export async function startOwnedLocalVertexCommand(
     workspace: getRepositoryWorkspaces(true),
     reservation: options.reservation,
     commandId: command.clientMsgId,
+    ...(!options.resume && options.preparationOperationId
+      ? { preparationOperationId: options.preparationOperationId }
+      : {}),
     operatorConnectionId: options.operatorConnectionId,
     signal: controller.signal,
     dispatch,
