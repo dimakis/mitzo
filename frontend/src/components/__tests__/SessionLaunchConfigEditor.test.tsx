@@ -128,7 +128,16 @@ it.each(['mac', 'retired-host', null])(
     const previousObservation = observations.at(-1)!;
     fireEvent.click(screen.getByRole('button', { name: 'Local Mac' }));
     expect(observed.runtime.execution.targetId).toBe(initialTarget);
-    fireEvent.change(host, { target: { value: 'second-mac' } });
+    const reviewObservation = observations.at(-1)!;
+    act(() => {
+      // A capability-only observation can finish just before an explicit host edit.
+      reviewObservation.update({
+        ...reviewObservation.selection!,
+        capabilityRevision: inventory.capabilityRevision,
+      });
+      fireEvent.change(host, { target: { value: 'second-mac' } });
+    });
+    expect(observed.runtime.execution.targetId).toBe('second-mac');
     fireEvent.change(screen.getByLabelText('Context'), {
       target: { value: 'New explicit context' },
     });
