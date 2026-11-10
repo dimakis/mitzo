@@ -89,6 +89,31 @@ and broader milestone qualification remain open. Offline application tests use
 synthetic external transport; hosted CI, rendered evidence and trusted review
 remain required. Source publication does not establish deployment or live acceptance.
 
+## Exact forwarding application adapter — source candidate
+
+The authenticated application can prepare and confirm exact ordinary source
+messages, registered transcript artifacts, or independently retained Telos text
+versions for selected existing participants. Preparation and confirmation start
+no model turn. Confirmation records context for the recipients' next explicit
+ordinary turn; the existing dispatcher delivers the complete verified material,
+then records the original context receipt against that exact command. Unsupported
+formats and oversized packets refuse before acceptance rather than deliver a note
+without its selected content.
+
+Retained artifacts borrow the configured canonical store in read-only mode. Every
+read and effect fence renews its actual physical owner, current operator scope,
+item eligibility, exact version and bytes. Source-capture artifacts remain outside
+this generic path. Unexpected storage failures remain observable and return a
+visible failure; they never become an empty successful selection.
+
+Lost preparation responses have a read-only request-ID observation route. Exact
+confirmation and send retries retain their original identities. The offline
+application journey covers an older retained version, a newer saved successor,
+storage failure, complete application restart and actual ordinary native input
+with synthetic external transport. The forwarding sheet, user-controlled request
+for responses, broader qualification and current-head CI/review remain open. This
+adapter alone does not complete or deploy the feature.
+
 ## Accepted shared composer and reply recovery
 
 The next source increment removes the display-page limit from new sends. Pending

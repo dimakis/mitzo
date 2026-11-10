@@ -243,6 +243,8 @@ import { createOutputContributors } from './output-contributors.js';
 import { createOutputContributorRouter } from './output-contributor-routes.js';
 import { createSessionCollaborationRouter } from './session-collaboration-router.js';
 import { CollaborationApplicationReview } from './collaboration-application-review.js';
+import { CollaborationApplicationForwarding } from './collaboration-application-forwarding.js';
+import { createCollaborationRetainedArtifactPort } from './collaboration-retained-artifact-port.js';
 import { createApplicationCollaborationJoining } from './collaboration-application-joining.js';
 import { readAgentLibraryProfile } from './agent-library-transport.js';
 import { createSymposiumProfileRouter } from './symposium-profile-routes.js';
@@ -3523,6 +3525,10 @@ app.get(
   }),
 );
 
+const collaborationForwarding = new CollaborationApplicationForwarding(
+  eventStore,
+  createCollaborationRetainedArtifactPort(telosDatabasePath),
+);
 const collaborationMessaging = new ApplicationCollaborationMessaging(
   eventStore,
   createSessionPromptPort({
@@ -3533,6 +3539,7 @@ const collaborationMessaging = new ApplicationCollaborationMessaging(
       broadcast: (sessionId, event) => getConnectionRegistry()?.broadcast(sessionId, event),
     },
   }),
+  collaborationForwarding,
 );
 
 mountObservedRouter(
@@ -3542,6 +3549,7 @@ mountObservedRouter(
   createSessionCollaborationRouter({
     store: eventStore,
     messaging: collaborationMessaging,
+    forwarding: collaborationForwarding,
     joining: (auth) =>
       createApplicationCollaborationJoining(
         {

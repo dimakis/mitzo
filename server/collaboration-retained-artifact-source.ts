@@ -29,6 +29,19 @@ function changed(): never {
   throw new CollaborationContractError('snapshot_changed');
 }
 const maximumBytes = 512 * 1024;
+function refuseExpectedReadFailure(error: unknown): never {
+  if (
+    error instanceof Error &&
+    [
+      'Artifact not found',
+      'Telos item not found',
+      'Artifact byte custody unavailable',
+      'Artifact exceeds read bound',
+    ].includes(error.message)
+  )
+    changed();
+  throw error;
+}
 /** Borrow the existing retained owner. Origin session identity is provenance only;
  * it neither grants access nor requires the original transcript to remain available.
  * The host authorizer must check current artifact/item/operator scope on every call.
@@ -56,8 +69,8 @@ export function createRetainedCollaborationArtifactSource(deps: {
           )
             changed();
           return current;
-        } catch {
-          changed();
+        } catch (error) {
+          refuseExpectedReadFailure(error);
         }
       }
       const original = metadata();
@@ -72,8 +85,8 @@ export function createRetainedCollaborationArtifactSource(deps: {
         let artifact;
         try {
           artifact = deps.store.readBoundedRevision(pin.artifactId, pin.revision, maximumBytes);
-        } catch {
-          changed();
+        } catch (error) {
+          refuseExpectedReadFailure(error);
         }
         const { bytes, ...current } = artifact;
         if (

@@ -23,6 +23,13 @@ import {
   CollaborationPromptReviewRequestSchema,
   CollaborationPromptReviewResultSchema,
   CollaborationSourceArtifactsSchema,
+  CollaborationForwardPrepareRequestSchema,
+  CollaborationForwardConfirmRequestSchema,
+  CollaborationForwardReadQuerySchema,
+  CollaborationForwardReadSchema,
+  CollaborationForwardConfirmationSchema,
+  type CollaborationForwardPrepareInput,
+  type CollaborationForwardConfirmInput,
   type CollaborationPromptReviewInput,
   CollaborationSnapshotReferenceSchema,
   CollaborationSnapshotSelectionSchema,
@@ -250,6 +257,76 @@ export class CollaborationApiClient {
     return this.request(
       this.path(id, 'context-source-artifacts') + '?' + new URLSearchParams(query),
       CollaborationSourceArtifactsSchema,
+      signal,
+    );
+  }
+  prepareForward(
+    id: string,
+    clientId: string,
+    input: CollaborationForwardPrepareInput,
+    signal?: AbortSignal,
+  ) {
+    return this.request(
+      this.path(id, 'forwards/prepare'),
+      CollaborationForwardReadSchema.refine(
+        (r) =>
+          r.requestId === input.selection.requestId && r.selection.target.collaborationId === id,
+        'Forwarding preparation identity changed',
+      ),
+      signal,
+      {
+        method: 'POST',
+        body: CollaborationForwardPrepareRequestSchema.parse({ ...input, clientId }),
+      },
+    );
+  }
+  confirmForward(
+    id: string,
+    clientId: string,
+    input: CollaborationForwardConfirmInput,
+    signal?: AbortSignal,
+  ) {
+    return this.request(
+      this.path(id, 'forwards/confirm'),
+      CollaborationForwardConfirmationSchema.refine(
+        (r) =>
+          r.requestId === input.requestId &&
+          r.forward.forwardId === input.forward.forwardId &&
+          r.forward.packetSha256 === input.forward.packetSha256 &&
+          r.forward.selectionFingerprint === input.forward.selectionFingerprint,
+        'Forwarding confirmation identity changed',
+      ),
+      signal,
+      {
+        method: 'POST',
+        body: CollaborationForwardConfirmRequestSchema.parse({ ...input, clientId }),
+      },
+    );
+  }
+  forward(id: string, forwardId: string, clientId: string, signal?: AbortSignal) {
+    CollaborationForwardReadSchema.shape.forwardId.parse(forwardId);
+    return this.request(
+      this.path(id, 'forwards/' + forwardId) +
+        '?' +
+        new URLSearchParams(CollaborationForwardReadQuerySchema.parse({ clientId })),
+      CollaborationForwardReadSchema.refine(
+        (r) => r.forwardId === forwardId && r.selection.target.collaborationId === id,
+        'Forwarding observation identity changed',
+      ),
+      signal,
+    );
+  }
+  observeForwardPreparation(id: string, requestId: string, clientId: string, signal?: AbortSignal) {
+    CollaborationForwardReadSchema.shape.requestId.parse(requestId);
+    return this.request(
+      this.path(id, 'forward-preparations/' + requestId) +
+        '?' +
+        new URLSearchParams(CollaborationForwardReadQuerySchema.parse({ clientId })),
+      CollaborationForwardReadSchema.nullable().refine(
+        (r) =>
+          r === null || (r.requestId === requestId && r.selection.target.collaborationId === id),
+        'Forwarding preparation observation identity changed',
+      ),
       signal,
     );
   }

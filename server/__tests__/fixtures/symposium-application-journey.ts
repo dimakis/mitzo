@@ -49,9 +49,10 @@ class ApplicationJourneyState {
   reviewedSettings?: CollaborationSettings;
   joinedSessionId?: string;
   api!: CollaborationApiClient;
+  retainedArtifact?: { artifactId: string; revision: number; sha256: string };
 }
 
-export function createApplicationJourney() {
+export function createApplicationJourney(options: { retainedArtifactOwner?: boolean } = {}) {
   const state = new ApplicationJourneyState();
   async function loadApplication() {
     // Do not touch host credentials while the core-owned safe import seam is absent.
@@ -102,6 +103,40 @@ export function createApplicationJourney() {
       COOKIE_MAX_AGE_HOURS: '1',
     }))
       vi.stubEnv(key, value);
+    if (fresh && options.retainedArtifactOwner) {
+      const { restoreOwnedCollaborationArtifactFixture } =
+        await import('./collaboration-retained-artifacts.js');
+      const path = join(state.root, 'telos-private', 'telos.db');
+      const receipt = restoreOwnedCollaborationArtifactFixture({
+        canonical: path,
+        events: join(state.root, '.mitzo/events.db'),
+        tasks: join(state.root, '.mitzo/tasks.db'),
+      });
+      const { TelosArtifactStore } = await import('../../telos-artifact-store.js');
+      const owner = new TelosArtifactStore(path);
+      try {
+        const input = {
+          itemId: receipt.itemId,
+          filename: 'independent-design.md',
+          title: 'Independent saved design',
+          bytes: Buffer.from('Original independently retained design • 台灣\r\n'),
+          sessionId: 'removed-origin',
+          sourcePath: '/private/original-design.md',
+        };
+        const saved = owner.save(input);
+        owner.save({
+          ...input,
+          bytes: Buffer.from('NEWER VERSION MUST NOT REPLACE THE SELECTED VERSION'),
+        });
+        state.retainedArtifact = {
+          artifactId: saved.id,
+          revision: saved.revision,
+          sha256: saved.sha256,
+        };
+      } finally {
+        owner.close();
+      }
+    }
     vi.stubGlobal(
       'fetch',
       vi.fn(async () => {
@@ -179,6 +214,7 @@ export function createApplicationJourney() {
       events: state.events,
       group: state.group,
       joinedSessionId: state.joinedSessionId,
+      retainedArtifact: state.retainedArtifact,
     };
   }
   /** Real login/HTTP bridge for the production UI acceptance continuation. */
