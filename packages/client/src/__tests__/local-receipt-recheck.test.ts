@@ -56,6 +56,73 @@ function setup(restored = false) {
 }
 afterEach(() => vi.restoreAllMocks());
 
+it('keeps an unconfirmed receipt diagnostic across reconnect until the original acceptance is proved', async () => {
+  const { outbox, fetch, notify, retained } = setup(true);
+  fetch.mockImplementation(async () => pending());
+  outbox.start();
+  try {
+    await outbox.reconcileLocalCommand(command.clientMsgId);
+    expect(notify).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        state: 'uncertain',
+        deliveryDiagnostic: expect.objectContaining({
+          operation: 'receipt',
+          code: 'receipt_pending',
+          httpStatus: 409,
+        }),
+      }),
+    );
+    expect(retained()[0].deliveryDiagnostic.code).toBe('receipt_pending');
+    fetch.mockImplementation(async () => response());
+    await outbox.reconcileLocalCommand(command.clientMsgId);
+    expect(retained()).toEqual([]);
+    expect(notify).toHaveBeenLastCalledWith(expect.objectContaining({ state: 'consumed' }));
+    expect(notify.mock.lastCall![0].deliveryDiagnostic).toBeUndefined();
+    expect(fetch.mock.calls.every(([url]) => url.endsWith('/receipt'))).toBe(true);
+  } finally {
+    outbox.stop();
+  }
+});
+
+it('preserves a known retained reservation and its original failure when a receipt read loses transport', async () => {
+  const { outbox, fetch, notify, retained } = setup();
+  fetch.mockResolvedValue(
+    Response.json(
+      {
+        ok: false,
+        code: 'retained_command',
+        error: 'Local Codex entry unavailable',
+        clientMsgId: command.clientMsgId,
+        sessionId: command.sessionId,
+        state: 'reserved',
+      },
+      { status: 409 },
+    ),
+  );
+  outbox.start();
+  try {
+    outbox.enqueue(command, 1);
+    await vi.waitFor(() =>
+      expect(notify).toHaveBeenLastCalledWith(expect.objectContaining({ state: 'retained' })),
+    );
+    fetch.mockRejectedValue(new TypeError('receipt connection lost'));
+    await outbox.reconcileLocalCommand(command.clientMsgId);
+    expect(notify).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        state: 'retained',
+        deliveryDiagnostic: expect.objectContaining({
+          operation: 'submit',
+          code: 'runtime_failed',
+        }),
+      }),
+    );
+    expect(retained()[0].localReceipt).toEqual({ sessionId: command.sessionId, state: 'reserved' });
+    expect(fetch).toHaveBeenCalledTimes(2);
+  } finally {
+    outbox.stop();
+  }
+});
+
 it('rechecks a receipt hint received while the previous read was still pending', async () => {
   const { outbox, fetch, notify, retained } = setup(true);
   let finish!: (value: Response) => void;

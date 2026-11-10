@@ -10,6 +10,7 @@ import { createReviewedOutboxStorage } from './lib/reviewed-outbox-storage';
  */
 
 import { createMitzoStore } from '@mitzo/client';
+import { recordCommandDeliveryDiagnostic } from './lib/command-delivery-tracing';
 import type { SseConnectionConfig } from '@mitzo/client';
 import {
   apiFetch,
@@ -69,6 +70,7 @@ export const clientStore = createMitzoStore({
   ...(typeof window !== 'undefined'
     ? {
         localFirstCommandConfig: {
+          onDeliveryDiagnostic: recordCommandDeliveryDiagnostic,
           url: `${getApiBaseUrl()}/api/chat/local-codex/send`,
           storage: createReviewedOutboxStorage(
             chatStorage,
