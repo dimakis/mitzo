@@ -1,4 +1,5 @@
 import Database from 'better-sqlite3';
+import { NotificationResponseReceipts } from './notification-response-receipts.js';
 import { NotificationPreferences } from '@mitzo/protocol';
 import type {
   MitzoNotification,
@@ -35,6 +36,7 @@ function item(row: Row): MitzoNotification {
 /** Local-authoritative shared state; read receipts never grant or resolve permissions. */
 export class NotificationStore {
   private db: Database.Database;
+  readonly responses: NotificationResponseReceipts;
   private inboxPolicyFactory?: () => InboxReadPolicy;
   private inboxPolicy?: InboxReadPolicy;
   setInboxReadPolicy(factory: () => InboxReadPolicy) {
@@ -50,6 +52,7 @@ export class NotificationStore {
   constructor(path: string) {
     this.db = new Database(path);
     this.db.pragma('journal_mode = WAL');
+    this.responses = new NotificationResponseReceipts(this.db);
     this.db.exec(`CREATE TABLE IF NOT EXISTS notifications (
       id TEXT PRIMARY KEY, kind TEXT NOT NULL, perm_id TEXT, created_at INTEGER NOT NULL,
       expires_at INTEGER, data TEXT NOT NULL, read_at INTEGER, resolved_at INTEGER, resolution TEXT,
