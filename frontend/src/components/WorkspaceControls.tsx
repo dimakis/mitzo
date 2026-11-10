@@ -234,7 +234,7 @@ export function WorkspaceControls({
           <button
             ref={triggerRef}
             type="button"
-            className="workspace-controls-toggle"
+            className={`workspace-controls-toggle${hasSettings ? ' header-action' : ''}`}
             data-attention={attention || undefined}
             aria-label={[
               'Workspace controls',

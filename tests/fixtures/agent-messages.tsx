@@ -1,6 +1,9 @@
 import { createRoot } from 'react-dom/client';
 import { useState } from 'react';
 import { AgentMessageCard } from '../../frontend/src/components/AgentMessageCard';
+import { MemoryRouter } from 'react-router-dom';
+import { ChatArea } from '../../frontend/src/components/ChatArea';
+import { ReplyQuote } from '../../frontend/src/components/ReplyQuote';
 import type { AgentMessageProjection } from '../../packages/protocol/src/agent-communication';
 import '../../frontend/src/styles/tokens.css';
 import '../../frontend/src/styles/global.css';
@@ -51,7 +54,57 @@ function Fixture() {
           },
         }}
       />
+      <h2>Earlier reply context</h2>
+      <ChatArea
+        sessionId="reply-fixture"
+        messages={[
+          {
+            messageId: 'original-question',
+            role: 'user',
+            timestamp: 1793925200000,
+            blocks: [
+              {
+                blockId: 'question-text',
+                blockType: 'text',
+                content: 'Keep the recovery isolated until its checks pass.',
+              },
+            ],
+          },
+          {
+            messageId: 'answer',
+            role: 'assistant',
+            replyToMessageId: 'original-question',
+            timestamp: 1793925400000,
+            blocks: [
+              {
+                blockId: 'answer-text',
+                blockType: 'text',
+                content: 'The recovery is isolated and its checks are passing.',
+              },
+            ],
+          },
+        ]}
+        current={null}
+        running={false}
+        permission={null}
+        onPermissionRespond={() => {}}
+      />
+      <div className="fixture-composer">
+        <ReplyQuote
+          sessionId="reply-fixture"
+          reply={{
+            messageId: 'original-question',
+            role: 'user',
+            text: 'Composer selection',
+            timestamp: 1793925200000,
+          }}
+        />
+      </div>
     </main>
   );
 }
-createRoot(document.getElementById('root')!).render(<Fixture />);
+createRoot(document.getElementById('root')!).render(
+  <MemoryRouter>
+    <Fixture />
+  </MemoryRouter>,
+);

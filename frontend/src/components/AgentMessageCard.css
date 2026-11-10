@@ -2,12 +2,30 @@
   display: flex;
   flex-direction: column;
   gap: var(--space-3);
-  padding: var(--space-4);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-panel);
-  background: var(--surface);
+  padding: var(--space-3) var(--space-4);
+  border: 0;
+  border-inline-start: 1px solid var(--color-border);
+  border-radius: 0;
+  background: transparent;
   color: var(--text);
   overflow-wrap: anywhere;
+}
+.agent-message-heading {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--color-muted);
+  font-size: var(--text-sm);
+}
+.agent-message-heading time {
+  margin-inline-start: auto;
+}
+.agent-message-chat {
+  gap: var(--space-2);
+  color: var(--color-accent);
+}
+.agent-message-card .msg-bubble-content {
+  white-space: pre-wrap;
 }
 
 .agent-message-participants,

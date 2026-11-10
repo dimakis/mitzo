@@ -45,6 +45,7 @@ for (const theme of ['dark', 'light'])
         lastError: null,
       },
     ];
+    const template = timers[0];
     const mutations: Array<Record<string, unknown>> = [],
       errors: string[] = [];
     page.on('pageerror', (error) => errors.push(error.message));
@@ -69,7 +70,7 @@ for (const theme of ['dark', 'light'])
           mutations.push(body);
           if (path === '/api/session-timers') {
             const created = {
-              ...timers[0],
+              ...template,
               prompt: body.prompt,
               sessionId: body.sessionId,
               intervalMinutes: body.intervalMinutes,
@@ -96,6 +97,11 @@ for (const theme of ['dark', 'light'])
             nextRunAt:
               body.action === 'pause' || body.action === 'cancel' ? null : Date.now() + 600000,
           });
+          if (body.action === 'delete') {
+            timer.status = 'cancelled';
+            timer.nextRunAt = null;
+            timers.splice(timers.indexOf(timer), 1);
+          }
           return route.fulfill({ json: timer });
         }
         return route.fulfill({ json: timers });
@@ -137,6 +143,11 @@ for (const theme of ['dark', 'light'])
     await page.getByRole('button', { name: 'Resume timer', exact: true }).click();
     await page.getByRole('button', { name: 'Cancel timer', exact: true }).click();
     await expect(page.getByText('Cancelled · Every 10 minutes', { exact: true })).toBeVisible();
+    await expect(page.locator('.session-timer-full-prompt')).not.toHaveAttribute('open', '');
+    await expect(page.getByRole('button', { name: 'Delete timer', exact: true })).toBeInViewport();
+    await page.getByRole('button', { name: 'Delete timer', exact: true }).click();
+    await page.getByRole('button', { name: 'Confirm delete', exact: true }).click();
+    await expect(page.getByText('Timer deleted.', { exact: true })).toBeVisible();
     await page.getByRole('button', { name: 'Close', exact: true }).click();
     await expect(page.getByLabel('Conversation options', { exact: true })).toBeFocused();
     if (phone) await page.getByRole('link', { name: 'Open PR worker', exact: true }).click();

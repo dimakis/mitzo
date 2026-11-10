@@ -26,6 +26,23 @@ function setup(initial = [activity('working', 100)]) {
   });
 }
 const tick = (ms = 1000) => act(() => vi.advanceTimersByTime(ms));
+it('uses already observed message freshness on the first render without a delayed resort', () => {
+  const view = setup([activity('working', 900, { lastMessageAt: 800 })]);
+  expect(view.result.current.map((row) => row.id)).toEqual(['older', 'recent']);
+  tick(10000);
+  expect(view.result.current.map((row) => row.id)).toEqual(['older', 'recent']);
+});
+it('offers late initial hydration explicitly while keeping the painted order stable', () => {
+  const view = renderHook(({ observed }) => useSessionOrdering(sessions, observed, false), {
+    initialProps: { observed: [] as SessionActivity[] },
+  });
+  view.rerender({ observed: [activity('working', 900, { lastMessageAt: 800 })] });
+  tick(10000);
+  expect(view.result.current.sessions.map((row) => row.id)).toEqual(['recent', 'older']);
+  expect(view.result.current.pendingCount).toBe(1);
+  act(() => view.result.current.showLatest());
+  expect(view.result.current.sessions.map((row) => row.id)).toEqual(['older', 'recent']);
+});
 beforeEach(() => {
   vi.useFakeTimers();
   vi.setSystemTime(500);

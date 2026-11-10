@@ -33,8 +33,12 @@ SDK checks and the remaining physical-device/visual verification.
 
 ## Agent-created ordinary sessions
 
-An agent's session proposal appears as a compact quiet card in its originating
-chat. Review uses the shared `HomeDialog`, existing account/model, agent and
+An agent's pending session proposal uses a compact actionable transcript entry
+in its originating chat. After a confirmed start, retain a linked transcript event
+and a related-chat list entry; do not pin successful historical receipts above the
+composer. Pending or unresolved starts remain discoverable through one compact
+attention entry in the existing status owner. Review uses the shared `HomeDialog`,
+existing account/model, agent and
 execution pickers, semantic colors, type/spacing/radius scales and shared controls.
 Title, handoff and configuration are editable before **Approve & start**; saving
 the configuration as the persistent default is an explicit separate choice. The
@@ -64,13 +68,23 @@ availability.
 
 ## Reusable access grants
 
-The existing Access dialog contains a Reusable access disclosure using
-MotionPresence, grouped access cards and shared controls. Session checkboxes show
+Links & access uses the shared compact sheet: observed chat context, recent linked chats,
+New chat, Permissions, Connections and session details on request. The chosen
+Design A review starts a new linked chat without navigating the originating chat
+or retaining completed launch cards above its composer. An existing chat can be
+linked or unlinked without changing either chat’s permissions.
+
+Permissions opens pending approvals and reusable grants within the same sheet,
+with Back. Grant creation, scope, expiry and revocation remain explicit actions.
+Use quiet rows and progressive field editors rather than grouped access cards.
+Unknown observations remain unknown; stale or unavailable evidence retains the
+last observation while disabling access mutations until revalidation. Session
+checkboxes show
 the account, mode and workspace being approved. Capability and duration selectors
 use semantic tokens, the shared type/spacing/radius scales and control height.
 Active grants show their sessions, absolute expiry and a labelled revoke action.
-Reuse in adds repository and same-login/account scope choices inside the existing
-card. Google account/resource and Telos item fields use the shared labelled inputs
+Reuse in adds repository and same-login/account scope choices inside the grant
+editor. Google account/resource and Telos item fields use the shared labelled inputs
 and selects. The active grant identifies its exact resource and reuse scope. No
 new surface, palette, spacing scale or approved-settings layout is introduced.
 Authentication changes discard observations; unavailable, expired and uncertain
@@ -94,14 +108,20 @@ in the codex-subagents entry of the approved design ledger.
 
 ## Visible agent messages
 
-Peer messages use one shared `AgentMessageCard` in the mobile and desktop chat
-transcript. Both participants see the complete text, named conversation links,
+Peer messages use one shared lightweight transcript-event presentation in mobile
+and desktop chat; the existing `AgentMessageCard` component may retain its API.
+Show direction and a readable linked chat name. Longer messages use an explicit
+excerpt and expandable original text, without generated summaries. Replies keep
+an exact-source quote with author/time and navigation to the original message.
+If the source is unavailable, retain its reference and show that state explicitly;
+never infer a target from the nearest message. Both participants can access the
+complete original text, named conversation links,
 recorded time, copy action and delivery state. Message/reply IDs remain available
 in native details. Queued and uncertain explicitly differ from delivery to the
 agent; delivery does not claim that a requested action was applied.
 
-The card reuses the transcript surface, semantic colors, spacing/type scales,
-panel radius, shared controls and monospace identifier font. It adds no theme or
+The event reuses the transcript typography, semantic colors, shared spacing,
+controls and monospace identifier font. It adds no card shell, separate theme or
 composer controls. Receipt changes update the original row. Offline regressions
 cover both directions, failures, narrow/desktop layouts, light/dark appearance,
 larger text, focus, full text and touch-sized conversation links.
@@ -358,7 +378,7 @@ with retry, empty/saved/cleared states and retained composer focus. Captures sho
 These focused renders omit the application shell; full-app offline fixtures cover
 the corresponding routes and run in CI when host pressure prevents a broad build.
 
-Chats shows a counted Drafts destination when saved drafts exist, separate from active and recent conversations. The shortcut disappears when the last draft is removed. The dedicated collection uses `WorkspacePageHeading`, `MobileShell`/`DesktopShell`, shared iconography and token-based quiet records. Each record leads with the message, shows the saved account/model/thinking context, and exposes a labelled discard action through `HomeDialog`. Draft text wraps or clamps in the list and remains editable in the ordinary composer. Save failures stay visible. New chat always starts fresh; switching drafts must never copy one draft's content or settings into another.
+Chats shows Drafts as a counted collapsible list section alongside Pinned and Recent, using the same row hierarchy and separators. It has no standalone promotional card or generic explanatory subtitle. Expand to the latest drafts and retain an All drafts destination for the complete collection. The section disappears when the last draft is removed. The dedicated collection uses `WorkspacePageHeading`, `MobileShell`/`DesktopShell`, shared iconography and token-based quiet records. Each record leads with the message, shows the saved account/model/thinking context, and exposes a labelled discard action through `HomeDialog`. Draft text wraps or clamps in the list and remains editable in the ordinary composer. Save failures stay visible. New chat always starts fresh; switching drafts must never copy one draft's content or settings into another.
 
 Empty messages with a repository preparation retain their exact receipt. Legacy preparations keep their account/model binding. New server-qualified READY preparations keep account and environment locked while allowing a supported first-message model before reservation; original source and preparation model stay recorded and the first reservation freezes the effective command. Discard confirms and releases unused preparations before removing the local draft; unavailable or uncertain cleanup keeps the draft and reports the error. Pending attachment imports remain fenced to their originating composer. Clearing an ordinary draft leaves an editable blank composer whose URL can be reloaded.
 

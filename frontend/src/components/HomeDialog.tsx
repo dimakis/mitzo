@@ -2,6 +2,7 @@ import { useEffect, useRef, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { UiIcon } from './UiIcon';
 import '../styles/home.css';
+import '../styles/header-actions.css';
 
 const bodyScrollLocks = new WeakMap<HTMLElement, { owners: Set<symbol>; overflow: string }>();
 
@@ -102,22 +103,12 @@ export function HomeDialog({
       <div className="home-dialog-content">
         <header className={onBack ? 'home-dialog-header--back' : undefined}>
           {onBack && (
-            <button
-              type="button"
-              className="home-secondary"
-              aria-label={backLabel}
-              onClick={onBack}
-            >
+            <button type="button" className="header-action" aria-label={backLabel} onClick={onBack}>
               <UiIcon name="back" size={16} />
             </button>
           )}
           <h2>{title}</h2>
-          <button
-            type="button"
-            className="home-secondary"
-            aria-label={closeLabel}
-            onClick={onClose}
-          >
+          <button type="button" className="header-action" aria-label={closeLabel} onClick={onClose}>
             <UiIcon name="close" size={16} />
           </button>
         </header>

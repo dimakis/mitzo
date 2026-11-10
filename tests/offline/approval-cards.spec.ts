@@ -36,7 +36,7 @@ const inventory = {
     { id: 'google', state: 'unavailable', reason: 'Google could not be checked.' },
   ],
 };
-async function fixture(page: Page, existing = true, pending = true) {
+async function fixture(page: Page, existing = true, pending = true, native = false) {
   const errors: string[] = [];
   let reads = 0;
   page.on('pageerror', (error) => errors.push(error.message));
@@ -60,8 +60,21 @@ async function fixture(page: Page, existing = true, pending = true) {
             type: 'permission_request',
             sessionId,
             permId: 'pending',
-            toolName: 'Bash',
-            toolInput: 'fixture-command --input=' + 'long-request-path/'.repeat(50),
+            toolName: native ? 'CodexNativeCommand' : 'Bash',
+            toolInput: native
+              ? JSON.stringify({
+                  runtimeId: 'fixture-runtime',
+                  method: 'item/commandExecution/requestApproval',
+                  params: {
+                    command: 'gh pr view 42',
+                    cwd: '/workspace/mitzo',
+                    additionalPermissions: {
+                      network: { enabled: true },
+                      fileSystem: { read: ['/workspace/source'], write: ['/workspace/output'] },
+                    },
+                  },
+                })
+              : 'fixture-command --input=' + 'long-request-path/'.repeat(50),
             description: 'Run the requested workspace check.',
             sessionGrantDescription: 'Keep workspace shell checks allowed until this session ends.',
             approvalScope: 'request',
@@ -186,6 +199,38 @@ async function fixture(page: Page, existing = true, pending = true) {
   });
   return errors;
 }
+
+for (const theme of ['dark', 'light'])
+  test(`native approval leads with command and requested access (${theme})`, async ({
+    page,
+    isMobile,
+  }, info) => {
+    await page.setViewportSize({ width: isMobile ? 320 : 1280, height: 800 });
+    const errors = await fixture(page, true, true, true);
+    await page.goto(`/chat/${sessionId}`);
+    await page.evaluate((theme) => {
+      document.documentElement.dataset.theme = theme;
+      document.documentElement.dataset.accent = theme === 'dark' ? 'mint' : 'teal';
+      document.documentElement.dataset.font = 'georgia';
+    }, theme);
+    const card = page.getByRole('region', { name: 'Approval required' });
+    await expect(card.getByRole('heading', { name: 'Run gh with network access' })).toBeVisible();
+    await expect(card.getByText('gh pr view 42', { exact: true })).toBeVisible();
+    await expect(card.getByText('/workspace/mitzo', { exact: true })).toBeVisible();
+    await expect(card.getByText('Enabled for this request', { exact: true })).toBeVisible();
+    await expect(card.locator('.approval-request-details')).not.toHaveAttribute('open', '');
+    await expect(card.locator('pre')).toBeHidden();
+    for (const name of ['Allow Once', 'Deny']) {
+      const action = card.getByRole('button', { name, exact: true });
+      await expect(action).toBeInViewport();
+      expect((await action.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+    }
+    await page.screenshot({
+      path: info.outputPath(`native-approval-${theme}.png`),
+      animations: 'disabled',
+    });
+    expect(errors).toEqual([]);
+  });
 
 for (const theme of ['dark', 'light']) {
   test(`Approval cards: quiet actions and complete details ${theme}`, async ({

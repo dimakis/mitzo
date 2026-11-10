@@ -78,9 +78,24 @@ for (const theme of ['dark', 'light']) {
     await expect(dialog.getByLabel('Title', { exact: true })).toHaveValue(/Approval notifications/);
     expect(mutations).toHaveLength(0);
     await dialog.getByLabel('Title', { exact: true }).fill('Approval notifications');
+    await expect(dialog.locator('.session-launch-settings')).not.toHaveAttribute('open', '');
+    await expect(dialog.getByRole('button', { name: 'Approve & start' })).toBeInViewport();
+    await dialog.getByText('Session settings', { exact: true }).click();
+    await expect(dialog.getByRole('button', { name: 'Approve & start' })).toBeInViewport({
+      ratio: 1,
+    });
+    await expect(dialog.getByRole('button', { name: 'Cancel request' })).toBeInViewport({
+      ratio: 1,
+    });
     await expect(dialog.getByLabel('Execution host')).toHaveValue('mac');
     await dialog.getByLabel('Execution host').selectOption('build-mac');
     await dialog.getByLabel('Save configuration as default').check();
+    await expect(dialog.getByRole('button', { name: 'Approve & start' })).toBeInViewport({
+      ratio: 1,
+    });
+    await expect(dialog.getByRole('button', { name: 'Cancel request' })).toBeInViewport({
+      ratio: 1,
+    });
     await page.screenshot({ path: info.outputPath(`session-launch-${theme}-review.png`) });
     const bounds = await dialog.boundingBox();
     expect(bounds!.width).toBeLessThanOrEqual(isMobile ? 320 : 1280);
@@ -92,6 +107,7 @@ for (const theme of ['dark', 'light']) {
     await page.keyboard.press('Escape');
     await expect(trigger).toBeFocused();
     await trigger.click();
+    await dialog.getByText('Session settings', { exact: true }).click();
     await dialog.getByLabel('Execution host').selectOption('build-mac');
     await dialog.getByRole('combobox', { name: 'Thinking level', exact: true }).selectOption('low');
     await dialog.getByLabel('Permission mode').selectOption('ask');

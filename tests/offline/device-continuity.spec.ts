@@ -13,7 +13,7 @@ const bundle = build({
   outfile: '/tmp/mitzo-device-continuity.js',
   jsx: 'automatic',
   minify: true,
-  external: ['/mitzo-wordmark.png', '/openshell-mark.svg', '/github-mark.svg'],
+  external: ['/*.png', '/*.svg'],
   define: { 'process.env.NODE_ENV': '"production"', 'import.meta.env': '{}' },
   alias: {
     '@mitzo/client': resolve('packages/client/src/index.ts'),
@@ -73,7 +73,7 @@ for (const theme of ['dark', 'light']) {
       toolName: 'Bash',
       toolInput: '{"command":"git status"}',
     });
-    await expect(page.getByText('git status', { exact: false })).toBeVisible();
+    await expect(page.getByText('git status', { exact: true })).toBeVisible();
     await input.fill('Continue from this device');
     await input.focus();
     for (const extra of [{}, { seq: 42 }, { seq: 42, replayed: true }]) {
@@ -84,7 +84,7 @@ for (const theme of ['dark', 'light']) {
       await expect(
         page.getByRole('button', { name: 'Stop generation', exact: true }),
       ).toBeVisible();
-      await expect(page.getByText('git status', { exact: false })).toBeVisible();
+      await expect(page.getByText('git status', { exact: true })).toBeVisible();
       await expect(input).toHaveValue('Continue from this device');
       await expect(input).toBeFocused();
     }

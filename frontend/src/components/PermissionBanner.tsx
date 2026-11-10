@@ -1,6 +1,8 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { UiIcon } from './UiIcon';
+import { ApprovalRequestSummary } from './ApprovalRequestSummary';
+import { approvalPresentation } from '../lib/approval-presentation';
 import { useTelosSourceReview } from './TelosSourceReview';
 import { sessionApprovalServer, type QuestionAnswers, type UserQuestion } from '@mitzo/protocol';
 
@@ -135,7 +137,7 @@ export function PermissionBanner({
       ? recoveringSource
         ? 'Recover Telos save'
         : 'Save to Telos'
-      : title || displayName || toolName;
+      : approvalPresentation(toolInput, toolName).heading || title || displayName || toolName;
   let sessionSearch = false;
   if (toolName === 'RequestWebAccess' && approvalScope === 'session' && !questions) {
     try {
@@ -247,7 +249,14 @@ export function PermissionBanner({
           ))
         ) : (
           <>
-            {description && <p className="perm-banner-desc">{description}</p>}
+            {!reviewingSource && (
+              <ApprovalRequestSummary
+                key={permId}
+                input={toolInput}
+                toolName={toolName}
+                description={description}
+              />
+            )}
             <p className="perm-banner-scope">
               {recoveringSource
                 ? 'Retry only the same reviewed save. Dismiss keeps any saved item and its retained source.'
@@ -266,7 +275,7 @@ export function PermissionBanner({
                               ? `Session allowance covers all ${server} tools.`
                               : 'Session allowance covers this tool until the task ends.')}
             </p>
-            {(toolInput || reviewingSource) && (
+            {reviewingSource && (
               <details key={permId} className="perm-banner-details" open>
                 <summary>
                   <UiIcon name="forward" size={16} />
