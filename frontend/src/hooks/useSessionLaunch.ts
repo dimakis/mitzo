@@ -10,6 +10,7 @@ type LaunchList = { requests: SessionLaunchRecord[]; origin?: SessionLaunchOrigi
 export function useSessionLaunch(sessionId: string | null | undefined, enabled = true) {
   const [snapshot, setSnapshot] = useState<{ sessionId: string; data: LaunchList } | null>(null);
   const [revision, setRevision] = useState(0);
+  const [failure, setFailure] = useState<{ sessionId: string; cause: unknown } | null>(null);
   const refresh = useCallback(() => setRevision((current) => current + 1), []);
   const activeRequests =
     snapshot !== null &&
@@ -43,26 +44,41 @@ export function useSessionLaunch(sessionId: string | null | undefined, enabled =
     if (!sessionId || !enabled) return;
     let live = true;
     const controller = new AbortController();
+    const timer = window.setTimeout(() => controller.abort(), 15000);
     void apiFetch(`/api/session-launch/requests?sessionId=${encodeURIComponent(sessionId)}`, {
       signal: controller.signal,
     })
       .then(async (response) => {
-        if (!response.ok) return;
+        if (!response.ok) throw new Error(`session_launch_read_http_${response.status}`);
         const data: LaunchList = await response.json();
-        if (live && Array.isArray(data.requests)) setSnapshot({ sessionId, data });
+        if (!Array.isArray(data.requests)) throw new Error('session_launch_read_invalid');
+        if (live && !controller.signal.aborted) {
+          setSnapshot({ sessionId, data });
+          setFailure(null);
+        }
       })
-      .catch(() => {
-        // A read cannot start work. Retain the last receipt during a disconnect.
-      });
+      .catch((cause: unknown) => {
+        if (!live) return; // Unmount/session change explicitly cancels this read.
+        setFailure({ sessionId, cause });
+        console.warn('Session links could not be refreshed', {
+          code: 'session_launch_read_failed',
+          stage: 'read',
+          sessionId,
+          cause: cause instanceof Error ? cause.name : 'UnknownError',
+        });
+      })
+      .finally(() => window.clearTimeout(timer));
     const clear = () => {
       live = false;
       controller.abort();
       setSnapshot(null);
+      setFailure(null);
     };
     window.addEventListener(AUTH_LOST_EVENT, clear);
     return () => {
       live = false;
       controller.abort();
+      window.clearTimeout(timer);
       window.removeEventListener(AUTH_LOST_EVENT, clear);
     };
   }, [sessionId, enabled, revision, refresh]);
@@ -71,5 +87,9 @@ export function useSessionLaunch(sessionId: string | null | undefined, enabled =
       ? snapshot.data
       : { requests: [] }),
     refresh,
+    error:
+      enabled && failure?.sessionId === sessionId
+        ? 'Links could not be refreshed. Showing the last observation; check again before acting.'
+        : null,
   };
 }
