@@ -33,6 +33,9 @@ function fixture(events: StoredEvent[] = []) {
     getSessionDirs: vi.fn(async () => ['/private/workspace']),
     getSessionInfo: vi.fn(async () => ({ cwd: '/private/workspace' })),
     getLegacyMessages: vi.fn(async () => []),
+    getAccountMessages: vi.fn(async () => [
+      { type: 'user', message: { role: 'user', content: 'Personal history' } },
+    ]),
     onLegacyParseError: vi.fn(),
   };
   const reader = createSessionTranscriptReader(
@@ -68,6 +71,40 @@ it('reads an empty native event prefix once before the existing legacy fallback'
   expect(f.store.getSessionEvents).toHaveBeenCalledTimes(1);
   expect(f.getLegacyMessages).toHaveBeenCalledTimes(1);
 });
+
+it.each(['getMessages', 'getSessionTranscript'] as const)(
+  '%s reads personal history only from its retained account and propagates reader failures',
+  async (method) => {
+    const f = fixture();
+    f.store.getSession.mockReturnValue({
+      sessionId: 'private-session',
+      createdAt: 1,
+      cwd: '/personal/workspace',
+      accountBinding: { provider: 'anthropic-claude' },
+    });
+    f.store.getOrdinaryLocalVertexCustody.mockReturnValue({
+      sdkSessionId: 'personal-sdk',
+      credentialAuthority: { kind: 'claude-host-login', config: { path: '/personal/login' } },
+    } as never);
+    const result = await f.reader[method]('private-session');
+    expect(Array.isArray(result) ? result : result.messages).toHaveLength(1);
+    expect(f.getAccountMessages).toHaveBeenCalledExactlyOnceWith(
+      'personal-sdk',
+      '/personal/workspace',
+      '/personal/login',
+    );
+    expect(f.getSessionDirs).not.toHaveBeenCalled();
+    expect(f.getLegacyMessages).not.toHaveBeenCalled();
+    const failure = Error('personal reader failed');
+    f.getAccountMessages.mockRejectedValueOnce(failure);
+    await expect(f.reader[method]('private-session')).rejects.toBe(failure);
+    f.store.getOrdinaryLocalVertexCustody.mockReturnValue(null);
+    await expect(f.reader[method]('private-session')).rejects.toThrow(
+      'Claude account history unavailable',
+    );
+    expect(f.getSessionDirs).not.toHaveBeenCalled();
+  },
+);
 
 it('keeps reconnect reads synchronous and bounded, without metadata recovery or legacy discovery', () => {
   const f = fixture(history());

@@ -1,5 +1,9 @@
 # Account profiles
 
+Personal Claude subscriptions on Local Mac reuse the Claude Agent SDK runtime
+with a separate account and native sign-in directory. See
+[Personal Claude on Local Mac](personal-claude-local.md) for setup and verification limits.
+
 ## Shared Codex connection configuration
 
 Account identity, billing custody and endpoint configuration belong to the existing account profile, independently of the execution target. OpenAI API and subscription accounts use embedded Codex for supported new work. Claude/Vertex retains the Claude Agent SDK. The accepted architecture consolidation supersedes historical plans below that proposed separate API/adviser execution paths.

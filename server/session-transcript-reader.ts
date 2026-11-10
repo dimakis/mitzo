@@ -26,6 +26,11 @@ interface Dependencies {
   getSessionDirs(): Promise<string[]>;
   getSessionInfo(sessionId: string, dir: string): Promise<{ cwd?: string } | null | undefined>;
   getLegacyMessages(sessionId: string, dir: string): Promise<RawSdkMessage[]>;
+  getAccountMessages(
+    sessionId: string,
+    cwd: string,
+    configDirectory: string,
+  ): Promise<RawSdkMessage[]>;
   onLegacyParseError(sessionId: string, error: unknown): void;
 }
 
@@ -70,7 +75,10 @@ export function createSessionTranscriptReader(read: Dependencies) {
   };
   const projection = (sessionId: string, events: StoredEvent[]) => {
     const session = store.getSession(sessionId);
-    if (session?.accountBinding?.provider !== 'anthropic-vertex')
+    if (
+      !session?.accountBinding ||
+      !['anthropic-vertex', 'anthropic-claude'].includes(session.accountBinding.provider)
+    )
       return { events, initialPrompt: session?.initialPrompt ?? undefined };
     const custody = store.getOrdinaryLocalVertexCustody(sessionId);
     const command = custody ? store.getSendCommand(custody.initialCommandId) : undefined;
@@ -93,6 +101,18 @@ export function createSessionTranscriptReader(read: Dependencies) {
     });
   const legacyMessages = (sessionId: string) =>
     observeTranscriptAsync('legacy_read', async () => {
+      const session = store.getSession(sessionId);
+      if (session?.accountBinding?.provider === 'anthropic-claude') {
+        const custody = store.getOrdinaryLocalVertexCustody(sessionId);
+        if (!custody || !('kind' in custody.credentialAuthority) || !session.cwd)
+          throw Error('Claude account history unavailable');
+        const messages = await read.getAccountMessages(
+          custody.sdkSessionId,
+          session.cwd,
+          custody.credentialAuthority.config.path,
+        );
+        return observeTranscriptSync('projection', () => reconstructMessages(messages));
+      }
       let messages: RawSdkMessage[] = [];
       const directories = [
         ...new Set(

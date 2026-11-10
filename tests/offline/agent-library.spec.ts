@@ -743,6 +743,37 @@ async function exerciseLibraryJourney(
     await page.getByRole('tab', { name: 'Profiles', exact: true }).click();
     await editProfile(page);
     await page.getByRole('tab', { name: 'Context', exact: true }).click();
+    const recipeToggle = page.getByRole('checkbox', {
+      name: 'Include reusable recipe',
+      exact: true,
+    });
+    await recipeToggle.check();
+    const personalProvider = page.getByRole('checkbox', {
+      name: 'Claude subscription',
+      exact: true,
+    });
+    await expect(personalProvider).toBeChecked();
+    await personalProvider.uncheck();
+    await personalProvider.focus();
+    await page.keyboard.press('Space');
+    await expect(personalProvider).toBeChecked();
+    await personalProvider.scrollIntoViewIfNeeded();
+    await expect(personalProvider).toBeInViewport();
+    await page.screenshot({
+      path: testInfo.outputPath(
+        `agent-tools-personal-claude-recipe-${theme}-${accent}-${font}.png`,
+      ),
+      animations: 'disabled',
+    });
+    await recipeToggle.uncheck();
+    // Editing marks the working copy dirty even when the value is restored.
+    await page.getByRole('button', { name: 'Discard unsaved edits', exact: true }).click();
+    await editProfile(page);
+    await page.getByRole('tab', { name: 'Context', exact: true }).click();
+    await expect(recipeToggle).not.toBeChecked();
+    await expect(
+      page.getByRole('button', { name: 'Discard unsaved edits', exact: true }),
+    ).toHaveCount(0);
     const contextSource = page.getByRole('combobox', { name: 'Context source', exact: true });
     expect(
       await contextSource.evaluate((element) => element.getBoundingClientRect().height),
