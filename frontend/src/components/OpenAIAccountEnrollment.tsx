@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { createBrowserId } from '../lib/browser-crypto';
 import {
   discoverApiModels,
   enrollOpenAIAccount,
@@ -6,7 +7,6 @@ import {
   OpenAIAccountEnrollmentFailure,
 } from '../lib/connections-api';
 import type { EnrolledOpenAIAccount } from '../types/connections';
-import { createBrowserId } from '../lib/browser-crypto';
 
 const enmaasModels = ['rits/zai-org/glm-5-3', 'rits/deepseek-ai/DeepSeek-V4.1-Flash-1017'];
 

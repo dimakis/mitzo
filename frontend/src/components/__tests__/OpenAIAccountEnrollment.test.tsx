@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { webcrypto } from 'node:crypto';
 import { act } from 'react';
 import { render, screen, fireEvent, cleanup } from '@testing-library/react';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
@@ -21,37 +22,19 @@ afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
 });
-it.each(['responses', 'messages'] as const)(
-  'submits %s enrollment on HTTP without secure-context randomUUID',
-  async (protocol) => {
-    vi.stubGlobal('crypto', {
-      getRandomValues: globalThis.crypto.getRandomValues.bind(globalThis.crypto),
-    });
-    await mount();
-    fireEvent.change(screen.getByLabelText('Provider'), { target: { value: 'enmaas' } });
-    fireEvent.change(screen.getByLabelText('Model API'), { target: { value: protocol } });
-    fireEvent.change(screen.getByLabelText('Additional model IDs'), {
-      target: { value: 'vendor/model' },
-    });
-    fill();
-    fireEvent.click(screen.getByRole('checkbox'));
-    await act(async () =>
-      fireEvent.click(screen.getByRole('button', { name: 'Save API account' })),
+it.each(
+  (['responses', 'messages'] as const).flatMap((protocol) =>
+    (['secure', 'http'] as const).map((host) => ({ protocol, host })),
+  ),
+)(
+  'allows a fresh corrected $protocol request after confirmed pre-enrollment rejection on $host hosts',
+  async ({ protocol, host }) => {
+    vi.stubGlobal(
+      'crypto',
+      host === 'secure'
+        ? webcrypto
+        : { getRandomValues: webcrypto.getRandomValues.bind(webcrypto) },
     );
-    expect(api.enrollOpenAIAccount).toHaveBeenCalledWith(
-      expect.objectContaining({
-        requestId: expect.stringMatching(
-          /^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/,
-        ),
-        connection: expect.objectContaining({ protocol }),
-      }),
-    );
-    expect(screen.getByText('Work API is ready for new chats.')).toBeTruthy();
-  },
-);
-it.each(['responses', 'messages'] as const)(
-  'allows a fresh corrected %s request only after confirmed pre-enrollment rejection',
-  async (protocol) => {
     vi.mocked(api.enrollOpenAIAccount).mockRejectedValueOnce(
       new api.OpenAIAccountEnrollmentFailure(true),
     );
@@ -66,7 +49,11 @@ it.each(['responses', 'messages'] as const)(
     await act(async () =>
       fireEvent.click(screen.getByRole('button', { name: 'Save API account' })),
     );
+    expect(api.enrollOpenAIAccount).toHaveBeenCalledOnce();
     const rejectedId = vi.mocked(api.enrollOpenAIAccount).mock.calls[0][0].requestId;
+    expect(rejectedId).toMatch(
+      /^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/,
+    );
     expect(screen.getByRole('alert').textContent).toContain('rejected before enrollment');
     expect((screen.getByLabelText('API key') as HTMLInputElement).value).toBe('');
     expect(screen.queryByText('Review enrollment status')).toBeNull();
