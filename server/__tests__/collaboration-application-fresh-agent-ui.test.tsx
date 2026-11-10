@@ -165,12 +165,53 @@ it('adds an agent, edits and refreezes its brief, silently joins and sends an at
     );
     const send = () => screen.getByRole('button', { name: 'Send message' });
     await waitFor(() => expect((send() as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(screen.getByRole('button', { name: 'Review prompt context' }));
+    const context = await screen.findByRole('dialog', { name: 'Context for this prompt' });
+    await waitFor(() =>
+      expect(
+        (within(context).getByRole('textbox', { name: 'Purpose' }) as HTMLInputElement).disabled,
+      ).toBe(false),
+    );
+    fireEvent.change(within(context).getByRole('textbox', { name: 'Purpose' }), {
+      target: { value: 'Compare this exact source for the first prompt' },
+    });
+    const selectedSource = await within(context).findByRole('checkbox', {
+      name: /Synthetic design requirement/,
+    });
+    fireEvent.click(selectedSource);
+    fireEvent.change(within(context).getByRole('textbox', { name: 'Brief', exact: true }), {
+      target: { value: 'Initial per-prompt brief' },
+    });
+    fireEvent.click(within(context).getByRole('button', { name: 'Review context', exact: true }));
+    const attachContext = () =>
+      within(context).getByRole('button', { name: 'Attach reviewed context' }) as HTMLButtonElement;
+    await waitFor(() =>
+      expect(attachContext().disabled, context.textContent ?? undefined).toBe(false),
+    );
+    expect(runtime.requests).toEqual([]);
+    fireEvent.change(within(context).getByRole('textbox', { name: 'Brief', exact: true }), {
+      target: { value: 'Only this exact reviewed source is shared for prompt one.' },
+    });
+    expect(attachContext().disabled).toBe(true);
+    fireEvent.click(within(context).getByRole('button', { name: 'Review context', exact: true }));
+    await waitFor(() => expect(attachContext().disabled).toBe(false));
+    expect(runtime.requests).toEqual([]);
+    fireEvent.click(attachContext());
+    await waitFor(() => expect((send() as HTMLButtonElement).disabled).toBe(false));
     fireEvent.click(send());
     await screen.findByText('Reviewed the selected design.', {}, { timeout: 10000 });
     const turns = runtime.requests.filter((r) => r.method === 'turn/start');
     expect(turns).toHaveLength(1);
     expect(JSON.stringify(turns[0].params)).toContain(
       'Edited through the real UI and refrozen exactly.',
+    );
+    expect(JSON.stringify(turns[0].params)).toContain(
+      'Only this exact reviewed source is shared for prompt one.',
+    );
+    expect(JSON.stringify(turns[0].params)).not.toContain('Initial per-prompt brief');
+    expect(JSON.stringify(turns[0].params)).not.toContain('DO_NOT_LEAK');
+    await waitFor(() =>
+      expect(screen.queryByRole('button', { name: 'Remove prompt context' })).toBeNull(),
     );
     const answer = (await h.api.view(h.group)).messages.find((m) => m.author !== 'operator')!;
     expect(answer.author).toEqual({ sessionId: joined.sessionId });
@@ -221,6 +262,14 @@ it('adds an agent, edits and refreezes its brief, silently joins and sends an at
       { timeout: 10000 },
     );
     const bothTurns = runtime.requests.filter((r) => r.method === 'turn/start');
+    const sharedSends = h.fetch.mock.calls
+      .filter(([path, init]) => path.endsWith('/messages') && init?.method === 'POST')
+      .map(([, init]) => JSON.parse(String(init!.body)));
+    expect(sharedSends[0].snapshot).toBeTruthy();
+    expect(sharedSends[1].snapshot).toBeNull();
+    expect(JSON.stringify(bothTurns[1].params)).toContain(
+      'Only this exact reviewed source is shared for prompt one.',
+    );
     expect(bothTurns).toHaveLength(2);
     expect(bothTurns[1].params.threadId).not.toBe(bothTurns[0].params.threadId);
     expect(JSON.stringify(bothTurns[1].params)).toContain('Review this explicitly.');

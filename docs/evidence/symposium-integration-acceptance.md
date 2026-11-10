@@ -2,6 +2,55 @@
 
 Living map owner: workstream C, `01a14bdc-d152-7912-84d4-c0012e9d5206`.
 
+## 10 November 2026 one-prompt context source candidate
+
+This slice follows #1280 and composes the actual retained review/compiler,
+ordinary settings, shared composer, application messaging and native dispatch
+owners. The browser submits selectors; it cannot supply source bytes, settings,
+capacity authority or an execution binding. Review creates no session or command.
+Only an explicit send starts the selected ordinary turns. New prompt-audience
+metadata is additive; historical joining/snapshot capacity contracts remain intact.
+
+The actual Add-agent application journey selects source text, reviews and edits
+its brief, refreezes and attaches it before the first turn. No external native
+request occurs during these reviews. The first native packet contains the exact
+new brief and source, excludes the discarded brief and private fixture marker,
+and the later reader receives that first message's retained shared context before
+its own requested turn. The attachment disappears automatically after its exact
+accepted receipt; the next message sends snapshot null without manual removal.
+The seven-turn multi-responder, streaming, Stop and uncertain-recovery journey
+continues unchanged in the same real application composition.
+
+128 checks pass across application review (33), messaging recovery (68), send
+consumer (18), context hook (8) and actual application UI (1). Failure cases cover
+changed source/settings/audience/policy, source removal/rejoin, renewed verified
+primary login versus an unverified foreign realm, exact retries, queued reader
+delivery, packet overflow, eight distinct 100,000-character pending snapshots
+refused before source compilation, lost review/send responses, remount, ignored
+abort, newer auth loss winning queued restoration, response mismatch and failed
+browser persistence. A consumed attachment cannot erase a newer edit or alter
+the original send journal. If consumption persistence fails, automatic reuse blocks.
+An additional 23 router checks pass, including both review routes' operator and
+same-origin boundaries and refusal of caller-injected settings/capacity/identity.
+Protected design checks pass (109 passed, one existing skip); 14 offline browser
+cases are listed across the selected composer fixture and its safe prerequisites.
+
+Focused read-only reviews identified and verified fixes for aggregate source
+preparation, creating-login ACLs and one-shot attachment retirement. Protocol,
+harness and client builds pass. Local runs use one worker and a 1 GiB heap; full
+compilation is delegated to hosted CI after the retained local heap failure.
+The context dialog reuses HomeDialog, ConversationAgents controls/styles, shared
+motion and UiIcon. Offline browser fixtures retain approved references and add
+review/edit/refreeze, Escape focus restoration, narrow overflow/touch checks and
+light/dark captures. They are listed, not locally executed; hosted rendered
+evidence and independent approved-reference comparison remain required.
+
+Explicit saved-artifact version selection and exact forwarding remain open,
+alongside broader milestone qualification. Conversation-so-far review retains
+referenced artifact versions through the existing compiler. This candidate,
+#1280 and #1279 do not constitute deployment or live user acceptance. The earlier
+uncertain live Telos update remains preserved without replay or a completion claim.
+
 ## 10 November 2026 multiple-responder source candidate
 
 This separate candidate builds on the long-discussion slice in #1279. It reuses
