@@ -38,6 +38,15 @@ Policy direction: Dimitri, 6 November 2026, after a child completed without its
 approved activity UI. This makes failure reporting explicit; the native failure
 stage in that incident is still unverified.
 
+## Telos work planning
+
+For a multi-slice ask, first propose Telos using [the shared workflow](docs/features/telos-workflow.md).
+Simple one-session tasks stay in chat unless Telos was explicitly requested or an existing item applies.
+Use outcome → feature items → session-sized slices. The outcome orchestrator coordinates features,
+integration, merge order and CI; a feature lead coordinates its slices. A standalone feature needs no outcome wrapper.
+Runtime kinds do not redefine these levels or prove nested lead/session support.
+Use existing reviewed role/session setup. Creating an item alone does not establish session readiness.
+
 ## Symposium source selection
 
 Start Symposium work with [the current source guide](docs/features/symposium.md)

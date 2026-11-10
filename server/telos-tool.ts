@@ -25,7 +25,9 @@ export const telosOutcomeShape = {
     .array(z.string().trim().min(1).max(500))
     .min(1)
     .max(24)
-    .describe('Ordered milestones; the first unfinished entry is the next action'),
+    .describe(
+      'Ordered milestones; the first unfinished entry is the next action. Inspect saved children before adding feature items or session-sized slices. Milestone labels alone do not establish feature contracts or session assignments.',
+    ),
   profile: z
     .string()
     .trim()
@@ -65,7 +67,7 @@ export type TelosOutcomeInput = z.infer<typeof TelosOutcomeInput>;
 export const telosCreateOutcomeDefinition: ToolDefinition = {
   name: TELOS_CREATE_OUTCOME_TOOL,
   description:
-    'Create one durable outcome in live Telos with an explicit result, rationale, evidence criteria, and ordered milestones. Use this instead of running sandbox-local todo scripts. This mutates Telos and requires user approval. If the operator requests changes, revise the retained original outcome using their feedback and call this tool again for fresh review; feedback does not approve creation.',
+    'For shared work across features, first propose Telos, then create the approved outcome in live Telos with its result, rationale, criteria and ordered milestones. Use this instead of sandbox-local scripts. Work model: outcome → feature items → session-sized slices. A standalone feature needs no invented outcome wrapper; inspect supported creators and saved children. Simple tasks stay in chat unless Telos was requested or already applies. An outcome orchestrator coordinates features, integration, merge order and CI; feature leads coordinate slices. Creation does not assign roles, create working sessions or execute work. Use supported reviewed setup and report missing capability. Requires user approval; revise requested changes for fresh review, since feedback does not approve creation.',
   input_schema: z.toJSONSchema(TelosOutcomeInput),
 };
 
