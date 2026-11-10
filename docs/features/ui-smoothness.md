@@ -94,6 +94,13 @@ rendering, selection, collection layouts, Inbox, backups and shared motion.
 ESLint passed for every changed production TypeScript file. These are local
 results, not full CI, physical-device acceptance, a merge or deployment.
 
+CI run `42919225193` at `7b3d002a` passed full frontend source checking. Its
+source preflight correctly rejected stale registered fingerprints for the changed
+UI modules. Candidate runtime revision `v1.0.1015-ui-smoothness` registers the
+complete changed UI/source/test/document closure with updated fingerprints.
+This is candidate provenance for review; it changes no approved-design ledger
+reference, protected test fingerprint, merge gate or production activation.
+
 Each logical change starts with a failing regression, then implementation and
 an atomic commit. Run the design guard, focused consumer tests and intercepted
 browser fixtures on mobile WebKit/Chromium and desktop Chromium. Inspect light
