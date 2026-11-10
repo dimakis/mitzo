@@ -105,7 +105,7 @@ const descriptions = {
     'Ask structured questions in Mitzo and wait for the user’s answers. Questions do not authorize tool execution.',
   Bash: 'Run a command in the session workspace using an OS sandbox. Use for tests, Git and directory creation. Network and credentials are unavailable; use a dedicated trusted integration for external services. Writes outside session roots and unavailable sandboxes fail explicitly.',
   GitHubRead:
-    'Read GitHub repository data through Mitzo. Use access: public for credential-free public reads without an ordinary approval card. Authenticated reads require repository consent; credentials remain private to Mitzo. Public failures never fall back to account credentials.',
+    'Read GitHub repository data through Mitzo. Use access: public for credential-free public reads without an ordinary approval card. Each public request never silently retries with credentials. Separately authorized authenticated reads or native gh commands retain their own permissions; honor an explicit CLI choice. Authenticated integration reads require repository consent; credentials remain private to Mitzo.',
   GitCommit:
     'Stage up to 64 approved workspace files and create one local Git commit through Mitzo. Refuses an already-staged index and credential-like files. Use native Git in the admitted task checkout for larger commits and merges.',
   Read: 'Read a UTF-8 file. Paths are relative to the session cwd unless absolute.',
