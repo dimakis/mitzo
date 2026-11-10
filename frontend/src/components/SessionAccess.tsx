@@ -262,7 +262,7 @@ export function SessionAccess(props: Props) {
     <>
       <button
         type="button"
-        className="home-secondary session-access-trigger"
+        className="session-access-trigger header-action"
         aria-label="Access"
         title="Session and account access"
         onClick={(event) => {

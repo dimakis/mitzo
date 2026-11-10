@@ -14,7 +14,7 @@ import { SdkConversationImport } from '../components/SdkConversationImport';
 import { sessionNeedsYouReason } from '../lib/session-attention';
 import { mergeSessionActivities } from '../lib/session-activity';
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { useSavedChatDrafts } from '../hooks/useSavedChatDrafts';
 import '../styles/chat-drafts.css';
 import type { Session } from '../types/chat';
@@ -391,6 +391,16 @@ export function SessionList() {
     retry,
   } = useSessionList();
   const search = useSessionSearch();
+  const location = useLocation();
+  const focusSearch = useCallback(
+    (input: HTMLInputElement | null) => {
+      if (input && location.hash === '#conversation-search') {
+        input.focus();
+        input.scrollIntoView?.({ block: 'center' });
+      }
+    },
+    [location.hash],
+  );
   const [importOpen, setImportOpen] = useState(false);
   const conversationOptions = useRef<HTMLElement>(null);
   const scroller = useRef<HTMLDivElement>(null);
@@ -496,7 +506,7 @@ export function SessionList() {
         </div>
         <div className="conversation-header-actions">
           <button
-            className="hero-chat-btn workspace-primary"
+            className="hero-chat-btn header-action"
             aria-label="New chat"
             onClick={() => {
               selectionChanged();
@@ -510,7 +520,11 @@ export function SessionList() {
             className="conversation-options"
             onToggle={(event) => setOptionsOpen(event.currentTarget.open)}
           >
-            <summary ref={conversationOptions} aria-label="Conversation options">
+            <summary
+              ref={conversationOptions}
+              aria-label="Conversation options"
+              className="header-action"
+            >
               <UiIcon name="more" />
             </summary>
             <div className="conversation-options-menu">
@@ -576,6 +590,8 @@ export function SessionList() {
         <div className="session-list-scroll" ref={scroller}>
           <div className="conversation-search">
             <input
+              id="conversation-search"
+              ref={focusSearch}
               type="search"
               aria-label="Search conversations"
               placeholder="Search conversations…"
