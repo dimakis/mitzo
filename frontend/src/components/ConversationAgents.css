@@ -440,7 +440,7 @@
     gap: var(--space-1);
     padding-inline: 0;
   }
-  .conversation-participants-trigger > svg:first-child,
+  .conversation-participants-trigger:not(.header-action) > svg:first-child,
   .conversation-participants-trigger small {
     display: none;
   }

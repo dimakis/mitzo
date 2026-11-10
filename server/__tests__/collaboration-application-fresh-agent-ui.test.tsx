@@ -258,6 +258,16 @@ it('adds an agent, edits and refreezes its brief, silently joins and sends an at
       status: 'pending',
       commandId: null,
     });
+    // Background observers can display the answer before this device's original
+    // request has observed authoritative settlement. Keep that control fence.
+    await waitFor(
+      () =>
+        expect(
+          (screen.getByRole('button', { name: 'Choose who replies' }) as HTMLButtonElement)
+            .disabled,
+        ).toBe(false),
+      { timeout: 5000 },
+    );
     fireEvent.click(screen.getByRole('button', { name: 'Choose who replies' }));
     fireEvent.click(screen.getByRole('checkbox', { name: 'FreshReviewer', exact: true }));
     fireEvent.click(screen.getByRole('checkbox', { name: reader.name, exact: true }));

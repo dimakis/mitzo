@@ -13,7 +13,9 @@ import { useConversationProgress } from '../useConversationProgress';
 afterEach(() => {
   cleanup();
   vi.useRealTimers();
+  refreshTranscript.mockClear();
 });
+const refreshTranscript = vi.fn(async () => {});
 const fixture = () => {
   const view = sharedConversationView();
   const progress: CollaborationProgress = {
@@ -46,7 +48,13 @@ it('clears live private text on auth loss and ignores a late read response', asy
       }),
   );
   const hook = renderHook(() =>
-    useConversationProgress({ api, view, authScope: 'login', getVerifiedAuthScope: proof }),
+    useConversationProgress({
+      api,
+      view,
+      authScope: 'login',
+      getVerifiedAuthScope: proof,
+      refreshTranscript,
+    }),
   );
   expect(read).toHaveBeenCalledOnce();
   // Auth event can precede the scope owner's React publication. Sticky loss
@@ -61,7 +69,36 @@ it('clears live private text on auth loss and ignores a late read response', asy
   expect(read.mock.calls[0][1]?.aborted).toBe(true);
   expect(read).toHaveBeenCalledOnce();
   verified = undefined;
+  expect(refreshTranscript).not.toHaveBeenCalled();
 });
+
+it.each([true, false])(
+  'refreshes finalized discussion without a local send, including a turn entirely between samples (live=%s)',
+  async (live) => {
+    vi.useFakeTimers();
+    const { view, progress, api } = fixture();
+    const proof = () => 'login';
+    vi.spyOn(api, 'progress')
+      .mockResolvedValueOnce({ ...progress, replies: live ? progress.replies : [] })
+      .mockResolvedValue({ ...progress, replies: [] });
+    renderHook(() =>
+      useConversationProgress({
+        api,
+        view,
+        authScope: 'login',
+        getVerifiedAuthScope: proof,
+        refreshTranscript,
+      }),
+    );
+    await act(async () => {});
+    expect(refreshTranscript).toHaveBeenCalledOnce();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1500);
+    });
+    expect(refreshTranscript).toHaveBeenCalledTimes(2);
+    expect(api.progress).toHaveBeenCalledTimes(2);
+  },
+);
 
 it('renews reads after verified same-login restoration and rejects pre-loss responses', async () => {
   const { view, progress, api } = fixture();
@@ -80,7 +117,13 @@ it('renews reads after verified same-login restoration and rejects pre-loss resp
       replies: [{ ...progress.replies[0], text: 'Renewed live text' }],
     });
   const hook = renderHook(() =>
-    useConversationProgress({ api, view, authScope: 'login', getVerifiedAuthScope: proof }),
+    useConversationProgress({
+      api,
+      view,
+      authScope: 'login',
+      getVerifiedAuthScope: proof,
+      refreshTranscript,
+    }),
   );
   act(() => {
     window.dispatchEvent(new Event(AUTH_LOST_EVENT));
@@ -106,7 +149,13 @@ it('lets a newer auth loss win over an already queued restoration callback', asy
   const proof = () => 'login'; // The auth owner has not published its new scope yet.
   vi.spyOn(api, 'progress').mockResolvedValue(progress);
   const hook = renderHook(() =>
-    useConversationProgress({ api, view, authScope: 'login', getVerifiedAuthScope: proof }),
+    useConversationProgress({
+      api,
+      view,
+      authScope: 'login',
+      getVerifiedAuthScope: proof,
+      refreshTranscript,
+    }),
   );
   await act(async () => {});
   expect(hook.result.current.progress?.replies).toHaveLength(1);
@@ -151,6 +200,7 @@ it('cannot restore an old audience response after membership changes', async () 
         view: current,
         authScope: 'login',
         getVerifiedAuthScope: proof,
+        refreshTranscript,
       }),
     { initialProps: { current: view } },
   );
@@ -162,6 +212,35 @@ it('cannot restore an old audience response after membership changes', async () 
   expect(hook.result.current.progress?.replies).toEqual([]);
 });
 
+it('discards mismatched live material but renews the authorized view after remote membership drift', async () => {
+  const { view, progress, api } = fixture();
+  const next = { ...view, membershipRevision: view.membershipRevision + 1 };
+  const proof = () => 'login';
+  vi.spyOn(api, 'progress').mockResolvedValue({
+    ...progress,
+    membershipRevision: next.membershipRevision,
+  });
+  const hook = renderHook(
+    ({ current }) =>
+      useConversationProgress({
+        api,
+        view: current,
+        authScope: 'login',
+        getVerifiedAuthScope: proof,
+        refreshTranscript,
+      }),
+    { initialProps: { current: view } },
+  );
+  await waitFor(() => expect(refreshTranscript).toHaveBeenCalledOnce());
+  expect(hook.result.current.progress).toBeUndefined();
+  expect(hook.result.current.error).toContain('conversation changed');
+  hook.rerender({ current: next });
+  await waitFor(() =>
+    expect(hook.result.current.progress?.membershipRevision).toBe(next.membershipRevision),
+  );
+  expect(refreshTranscript).toHaveBeenCalledTimes(2);
+});
+
 it('removes stale live text after an unavailable refresh and exposes failure', async () => {
   vi.useFakeTimers();
   const { view, progress, api } = fixture();
@@ -170,7 +249,13 @@ it('removes stale live text after an unavailable refresh and exposes failure', a
     .mockResolvedValueOnce(progress)
     .mockRejectedValue(Error('Live source unavailable'));
   const hook = renderHook(() =>
-    useConversationProgress({ api, view, authScope: 'login', getVerifiedAuthScope: proof }),
+    useConversationProgress({
+      api,
+      view,
+      authScope: 'login',
+      getVerifiedAuthScope: proof,
+      refreshTranscript,
+    }),
   );
   await act(async () => {});
   expect(hook.result.current.progress?.replies[0].text).toBe('Authorized live text');

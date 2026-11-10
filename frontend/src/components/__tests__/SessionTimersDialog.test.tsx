@@ -97,6 +97,17 @@ it('makes agent-created timers inspectable and cancellable through the same cont
     ).toBe(true),
   );
 });
+it('keeps the full prompt collapsed and explicitly confirms a revision-fenced deletion', async () => {
+  render(<SessionTimersDialog onClose={() => {}} />);
+  fireEvent.click(await screen.findByRole('button', { name: 'Check PR #7' }));
+  expect(screen.getByText('Full prompt').closest('details')?.open).toBe(false);
+  fireEvent.click(screen.getByRole('button', { name: 'Delete timer' }));
+  expect(vi.mocked(apiFetch).mock.calls.some(([, init]) => init?.method === 'POST')).toBe(false);
+  fireEvent.click(screen.getByRole('button', { name: 'Confirm delete' }));
+  await screen.findByText('Timer deleted.');
+  const [, init] = vi.mocked(apiFetch).mock.calls.find(([, init]) => init?.method === 'POST')!;
+  expect(JSON.parse(String(init?.body))).toMatchObject({ action: 'delete', expectedRevision: 1 });
+});
 it('can save a timer when a supported browser omits secure-context randomUUID', async () => {
   vi.stubGlobal('crypto', { getRandomValues: (bytes: Uint8Array) => bytes.fill(1) });
   render(

@@ -632,6 +632,8 @@ test('drafts: Chats has a dedicated Drafts destination and New chat opens blank'
     'mitzo-font': 'georgia',
   });
   await page.goto('/sessions');
+  await expect(page.locator('.conversation-drafts-section > summary')).toBeVisible();
+  await page.locator('.conversation-drafts-section > summary').click();
   await expect(page.getByRole('link', { name: /Drafts/ })).toBeVisible();
   await expect(page.getByText(/Update available.*Deploy Mitzo/)).toBeHidden();
   await page.screenshot({
@@ -1314,6 +1316,7 @@ test('drafts: deferred voice replies stay with their owner while same-draft dict
   await page.getByRole('button', { name: 'Stop recording', exact: true }).click();
   await pendingVoice(page, 3);
   await page.getByRole('link', { name: isMobile ? 'Back to chats' : 'Chats', exact: true }).click();
+  await page.locator('.conversation-drafts-section > summary').click();
   await page.getByRole('link', { name: /Drafts/ }).click();
   await page.getByRole('link', { name: /Original saved draft A/ }).click();
   await expect(input).toHaveValue(first.text);
@@ -1423,6 +1426,7 @@ for (const theme of ['dark', 'light']) {
     await page
       .getByRole('link', { name: isMobile ? 'Back to chats' : 'Chats', exact: true })
       .click();
+    await page.locator('.conversation-drafts-section > summary').click();
     await page.getByRole('link', { name: /Drafts/ }).click();
     await page.getByRole('link', { name: /Explore this saved morning briefing/ }).click();
     await expect(page.getByRole('link', { name: 'Read briefing', exact: true })).toBeVisible();

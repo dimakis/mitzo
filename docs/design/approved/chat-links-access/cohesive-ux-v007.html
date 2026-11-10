@@ -1,0 +1,3354 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Mitzo · Links &amp; access</title>
+    <style>
+      /* Palette, radii and typography from Mitzo's current semantic theme tokens.
+   Mint + Georgia reproduce the supplied screenshot's user preferences. */
+      :root {
+        color-scheme: dark;
+        --bg: #131416;
+        --surface: #19191f;
+        --text: #f2f2f5;
+        --muted: #aaaab4;
+        --line: #33343d;
+        --accent: #b2dea1;
+        --on-accent: #171320;
+        --panel: color-mix(in srgb, var(--accent) 10%, var(--bg));
+        --warning: #fbbf24;
+        --danger: #ff8585;
+        --font: Georgia, 'Times New Roman', serif;
+        --ui: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      }
+      [data-theme='light'] {
+        color-scheme: light;
+        --bg: #faf9f6;
+        --surface: #fff;
+        --text: #202127;
+        --muted: #62636b;
+        --line: #dedee3;
+        --accent: #386629;
+        --on-accent: #fff;
+        --warning: #805600;
+        --danger: #b42332;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--text);
+        font: 14px/1.5 var(--ui);
+      }
+      button,
+      input,
+      textarea,
+      select {
+        font: inherit;
+        color: inherit;
+      }
+      button {
+        cursor: pointer;
+        touch-action: manipulation;
+      }
+      button {
+        background: transparent;
+        border: 0;
+        border-radius: 10px;
+        min-height: 44px;
+        padding: 9px 12px;
+      }
+      button:hover {
+        background: var(--panel);
+      }
+      :focus-visible {
+        outline: 2px solid var(--accent);
+        outline-offset: 3px;
+      }
+      button:disabled {
+        opacity: 0.45;
+        cursor: default;
+      }
+      input,
+      textarea,
+      select {
+        width: 100%;
+        background: var(--bg);
+        border: 1px solid var(--line);
+        border-radius: 10px;
+        padding: 11px 12px;
+        font-size: 16px;
+      }
+      textarea {
+        resize: vertical;
+        line-height: 1.5;
+      }
+      input[type='checkbox'] {
+        width: 18px;
+        height: 18px;
+        accent-color: var(--accent);
+      }
+      h1,
+      h2,
+      h3,
+      p {
+        margin: 0;
+      }
+      svg {
+        width: 20px;
+        height: 20px;
+        fill: none;
+        stroke: currentColor;
+        stroke-width: 1.7;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+        flex-shrink: 0;
+      }
+      small {
+        font-size: 12px;
+      }
+      .muted {
+        color: var(--muted);
+      }
+      .accent {
+        color: var(--accent);
+      }
+      .primary {
+        background: var(--accent);
+        color: var(--on-accent);
+        font-weight: 600;
+      }
+      .primary:hover {
+        background: color-mix(in srgb, var(--accent) 85%, var(--text));
+      }
+      .secondary {
+        border: 1px solid var(--line);
+      }
+      .icon {
+        padding: 10px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+      }
+      .row {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+      }
+      .spread {
+        justify-content: space-between;
+      }
+      .grow {
+        flex: 1;
+        min-width: 0;
+      }
+      .link {
+        color: var(--accent);
+      }
+      [hidden] {
+        display: none !important;
+      }
+      .lab {
+        max-width: 1440px;
+        margin: auto;
+        padding: 24px 32px;
+      }
+      .labhead {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 24px;
+      }
+      .labhead h1 {
+        font-size: 22px;
+        font-weight: 550;
+        letter-spacing: -0.5px;
+      }
+      .eyebrow {
+        font-size: 11px;
+        letter-spacing: 1.4px;
+        text-transform: uppercase;
+        color: var(--accent);
+        margin-bottom: 5px;
+      }
+      .labhead p {
+        color: var(--muted);
+        margin-top: 5px;
+        max-width: 680px;
+      }
+      .toolbar {
+        margin: 22px 0;
+        display: flex;
+        justify-content: space-between;
+        gap: 14px;
+        flex-wrap: wrap;
+      }
+      .seg {
+        display: flex;
+        border: 1px solid var(--line);
+        border-radius: 11px;
+        padding: 3px;
+        gap: 3px;
+      }
+      .seg button {
+        min-height: 36px;
+        padding: 7px 13px;
+        font-size: 13px;
+        border-radius: 7px;
+      }
+      .seg button[aria-pressed='true'] {
+        background: var(--panel);
+        color: var(--accent);
+      }
+      .stage {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) 270px;
+        gap: 42px;
+        align-items: start;
+      }
+      .preview {
+        display: flex;
+        justify-content: center;
+        min-width: 0;
+      }
+      .frame {
+        width: 390px;
+        height: 790px;
+        border: 1px solid var(--line);
+        border-radius: 24px;
+        overflow: hidden;
+        position: relative;
+        background: var(--bg);
+        display: flex;
+        flex-direction: column;
+        font: 16px/1.5 var(--font);
+      }
+      .frame.wide {
+        width: 100%;
+        height: 790px;
+        border-radius: 14px;
+      }
+      .frame button,
+      .frame input,
+      .frame select,
+      .frame textarea {
+        font-family: var(--font);
+      }
+      .appbar {
+        padding: 12px 15px 8px;
+        border-bottom: 1px solid var(--line);
+        min-height: 72px;
+        flex-shrink: 0;
+      }
+      .appbar h2 {
+        font-size: 18px;
+        font-weight: 600;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .appbar small {
+        color: var(--muted);
+      }
+      .navback {
+        margin-left: -9px;
+      }
+      .sidebar {
+        display: none;
+      }
+      .wide .sidebar {
+        display: block;
+        width: 176px;
+        border-right: 1px solid var(--line);
+        padding: 24px 14px;
+        flex-shrink: 0;
+      }
+      .sidebar strong {
+        font-size: 23px;
+        font-weight: 500;
+        display: block;
+        padding: 0 10px 24px;
+      }
+      .sidebar button {
+        display: flex;
+        width: 100%;
+        text-align: left;
+        align-items: center;
+        gap: 10px;
+        font-size: 14px;
+      }
+      .sidebar .active {
+        background: var(--panel);
+        color: var(--accent);
+      }
+      .appbody {
+        display: flex;
+        min-height: 0;
+        flex: 1;
+      }
+      .chat {
+        display: flex;
+        flex-direction: column;
+        min-width: 0;
+        flex: 1;
+        position: relative;
+      }
+      .transcript {
+        overflow: auto;
+        padding: 24px 20px;
+        flex: 1;
+        scroll-behavior: smooth;
+      }
+      .thread {
+        max-width: 680px;
+        margin: auto;
+      }
+      .stamp {
+        font-size: 12px;
+        color: var(--muted);
+        margin: 0 0 22px;
+        text-align: center;
+      }
+      .user {
+        background: var(--panel);
+        border-radius: 14px 14px 4px 14px;
+        padding: 13px 16px;
+        margin-left: 28px;
+      }
+      .assistant {
+        margin: 24px 0;
+      }
+      .assistant p + p {
+        margin-top: 12px;
+      }
+      .who {
+        display: block;
+        font-size: 13px;
+        color: var(--muted);
+        margin-bottom: 9px;
+      }
+      .request {
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        padding: 16px;
+        margin: 18px 0;
+      }
+      .request h3 {
+        font-size: 17px;
+        font-weight: 500;
+        line-height: 1.4;
+        margin: 7px 0;
+      }
+      .request .mini {
+        font-size: 13px;
+        color: var(--muted);
+        margin: 8px 0 15px;
+      }
+      .status {
+        display: flex;
+        align-items: center;
+        gap: 7px;
+        font-size: 12px;
+        color: var(--muted);
+      }
+      .dot {
+        width: 6px;
+        height: 6px;
+        background: var(--accent);
+        border-radius: 50%;
+        display: inline-block;
+      }
+      .request .primary {
+        width: 100%;
+      }
+      .receipt {
+        border-left: 2px solid var(--line);
+        padding: 4px 0 4px 14px;
+        margin: 20px 0;
+      }
+      .receipt button {
+        text-align: left;
+        padding: 6px 0;
+        color: var(--accent);
+        display: flex;
+        gap: 8px;
+        align-items: center;
+        line-height: 1.5;
+      }
+      .receipt small {
+        color: var(--muted);
+      }
+      .composer {
+        padding: 12px 16px 16px;
+        flex-shrink: 0;
+      }
+      .composer-inner {
+        max-width: 680px;
+        margin: auto;
+      }
+      .composebox {
+        border: 1px solid var(--line);
+        border-radius: 16px;
+        padding: 12px 12px 8px;
+        background: var(--surface);
+      }
+      .composebox textarea {
+        border: 0;
+        padding: 0;
+        background: transparent;
+        resize: none;
+        min-height: 45px;
+        outline: 0;
+        font-size: 16px;
+      }
+      .composebox .row {
+        color: var(--muted);
+        font-size: 13px;
+      }
+      .send {
+        background: var(--panel);
+        color: var(--accent);
+        min-height: 34px;
+        width: 34px;
+        padding: 7px;
+      }
+      .composer-meta {
+        font-size: 11px;
+        color: var(--muted);
+        margin-top: 7px;
+        display: flex;
+        justify-content: space-between;
+      }
+      .attention {
+        font-size: 14px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+        border: 1px solid var(--line);
+        border-radius: 10px;
+        padding: 3px 8px 3px 12px;
+        margin-bottom: 10px;
+        color: var(--warning);
+      }
+      .attention button {
+        color: var(--accent);
+      }
+      .overlay {
+        position: absolute;
+        inset: 0;
+        background: rgb(0 0 0 / 58%);
+        display: flex;
+        align-items: flex-end;
+        justify-content: center;
+        z-index: 5;
+      }
+      .dialog {
+        width: 100%;
+        max-height: 94%;
+        background: var(--bg);
+        border-top: 1px solid var(--line);
+        border-radius: 20px 20px 0 0;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+      }
+      .handle {
+        width: 34px;
+        height: 3px;
+        background: var(--line);
+        border-radius: 4px;
+        margin: 9px auto 0;
+        flex-shrink: 0;
+      }
+      .dialoghead {
+        padding: 12px 20px 4px;
+        flex-shrink: 0;
+      }
+      .dialoghead h2 {
+        font-size: 22px;
+        font-weight: 500;
+        letter-spacing: -0.4px;
+      }
+      .dialoghead .icon {
+        margin-right: -8px;
+      }
+      .dialoghead p {
+        font-size: 13px;
+        color: var(--muted);
+        margin-top: 1px;
+      }
+      .dialogcontent {
+        padding: 18px 20px 22px;
+        overflow: auto;
+        min-height: 0;
+      }
+      .field {
+        display: block;
+        margin-bottom: 18px;
+        font-size: 14px;
+      }
+      .field > input,
+      .field > textarea {
+        display: block;
+        margin-top: 7px;
+      }
+      .field > textarea {
+        min-height: 132px;
+      }
+      .dialogfooter {
+        padding: 12px 20px 18px;
+        border-top: 1px solid var(--line);
+        background: var(--bg);
+        flex-shrink: 0;
+      }
+      .dialogfooter .primary {
+        flex: 1;
+      }
+      .dialogfooter p {
+        font-size: 12px;
+        color: var(--muted);
+        margin-top: 7px;
+        text-align: center;
+      }
+      .settings {
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        padding: 0 14px;
+      }
+      .settings > summary {
+        list-style: none;
+        cursor: pointer;
+        padding: 13px 0;
+        font-size: 14px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+        min-height: 64px;
+      }
+      .settings > summary::-webkit-details-marker {
+        display: none;
+      }
+      .settings > summary small {
+        display: block;
+        color: var(--muted);
+        font-size: 12px;
+        margin-top: 2px;
+      }
+      .settings > summary::after {
+        content: '+';
+        font: 20px var(--ui);
+        color: var(--muted);
+      }
+      .settings[open] > summary::after {
+        content: '−';
+      }
+      .settings[open] > summary {
+        border-bottom: 1px solid var(--line);
+        margin-bottom: 15px;
+      }
+      .settings label {
+        display: block;
+        font-size: 13px;
+        margin-bottom: 14px;
+      }
+      .settings label > select,
+      .settings label > input,
+      .settings label > textarea {
+        margin-top: 6px;
+      }
+      .settings .twocol {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 12px;
+      }
+      .settings .check {
+        display: flex;
+        align-items: center;
+        gap: 9px;
+        min-height: 30px;
+      }
+      .settings .check > input {
+        margin: 0;
+      }
+      .default-note {
+        font-size: 12px;
+        color: var(--muted);
+        margin: 13px 0 0;
+      }
+      .wide .overlay {
+        align-items: center;
+        padding: 24px;
+      }
+      .wide .dialog {
+        max-width: 510px;
+        max-height: 95%;
+        border: 1px solid var(--line);
+        border-radius: 16px;
+      }
+      .wide .handle {
+        display: none;
+      }
+      .fullpage {
+        position: absolute;
+        inset: 0;
+        z-index: 6;
+        display: flex;
+        flex-direction: column;
+        background: var(--bg);
+      }
+      .fullpage .dialogcontent {
+        flex: 1;
+      }
+      .fullpage .dialoghead {
+        padding-top: 14px;
+        border-bottom: 1px solid var(--line);
+        padding-bottom: 13px;
+      }
+      .fullpage .dialoghead h2 {
+        font-size: 21px;
+      }
+      .fullpage .content-wrap,
+      .fullpage .footer-wrap {
+        max-width: 640px;
+        width: 100%;
+        margin: auto;
+      }
+      .fullpage .settings {
+        border: 0;
+        border-top: 1px solid var(--line);
+        border-radius: 0;
+        padding: 0;
+      }
+      .fullpage .dialogfooter .row {
+        justify-content: flex-end;
+      }
+      .fullpage .dialogfooter .primary {
+        flex: 1;
+      }
+      .wide .fullpage {
+        left: 176px;
+      }
+      .wide .fullpage .dialogcontent {
+        padding: 28px;
+      }
+      .wide .fullpage .dialoghead {
+        padding: 18px 28px;
+      }
+      .wide .fullpage .dialogfooter .primary {
+        flex: initial;
+        min-width: 170px;
+      }
+      .related {
+        max-height: 82%;
+      }
+      .related .dialogcontent {
+        padding-top: 8px;
+      }
+      .related-item {
+        padding: 16px 0;
+        border-bottom: 1px solid var(--line);
+      }
+      .related-item:last-child {
+        border-bottom: 0;
+      }
+      .related-item h3 {
+        font-size: 17px;
+        font-weight: 500;
+      }
+      .related-item .link {
+        padding-left: 0;
+      }
+      .related-item small {
+        color: var(--muted);
+        font-size: 12px;
+      }
+      .origin {
+        font-size: 12px;
+        color: var(--muted);
+        padding: 8px 18px;
+        border-bottom: 1px solid var(--line);
+      }
+      .origin button {
+        padding: 0;
+        min-height: 28px;
+        color: var(--accent);
+        font-size: 12px;
+      }
+      .notice {
+        font-size: 13px;
+        padding: 12px;
+        border: 1px solid var(--line);
+        border-radius: 10px;
+        margin: 12px 0;
+        color: var(--warning);
+      }
+      .danger {
+        color: var(--danger);
+      }
+      .notes {
+        padding-top: 22px;
+      }
+      .notes h2 {
+        font-size: 19px;
+        font-weight: 500;
+        margin: 8px 0 14px;
+      }
+      .notes p {
+        font-size: 14px;
+        color: var(--muted);
+        line-height: 1.7;
+        margin-bottom: 20px;
+      }
+      .notes ol {
+        padding-left: 20px;
+        color: var(--muted);
+      }
+      .notes li {
+        padding-left: 4px;
+        margin: 14px 0;
+      }
+      .notes li strong {
+        color: var(--text);
+        display: block;
+        font-weight: 500;
+      }
+      .notes .divider {
+        border-top: 1px solid var(--line);
+        padding-top: 22px;
+        margin-top: 24px;
+      }
+      .hint {
+        font-size: 12px !important;
+      }
+      .badge {
+        display: inline-block;
+        color: var(--accent);
+        font-size: 11px;
+        border: 1px solid var(--line);
+        padding: 3px 7px;
+        border-radius: 6px;
+      }
+      .labfoot {
+        margin-top: 20px;
+        font-size: 11px;
+        color: var(--muted);
+      }
+      @media (min-width: 1200px) {
+        .stage:has(.wide) {
+          grid-template-columns: minmax(0, 1fr) 240px;
+          gap: 28px;
+        }
+      }
+      @media (max-width: 900px) {
+        .lab {
+          padding: 18px;
+        }
+        .stage {
+          grid-template-columns: minmax(0, 1fr);
+          gap: 8px;
+        }
+        .notes {
+          max-width: 600px;
+          margin: auto;
+        }
+        .notes ol {
+          display: grid;
+          grid-template-columns: 1fr 1fr;
+          gap: 22px;
+        }
+        .notes li {
+          margin: 0;
+        }
+        .labhead h1 {
+          font-size: 20px;
+        }
+        .frame.wide .sidebar {
+          width: 145px;
+        }
+        .wide .fullpage {
+          left: 145px;
+        }
+      }
+      @media (max-width: 540px) {
+        .lab {
+          padding: 16px 10px;
+        }
+        .labhead {
+          padding: 0 5px;
+          gap: 4px;
+        }
+        .labhead p {
+          font-size: 12px;
+        }
+        .labhead .icon {
+          padding: 8px;
+        }
+        .toolbar {
+          gap: 8px;
+          margin: 18px 0 14px;
+        }
+        .seg {
+          width: 100%;
+        }
+        .seg button {
+          flex: 1;
+          font-size: 12px;
+          padding: 7px;
+        }
+        .viewport {
+          display: none;
+        }
+        .stage {
+          display: block;
+        }
+        .frame {
+          width: 100%;
+          border-radius: 14px;
+          height: 790px;
+          max-height: calc(100dvh - 24px);
+          min-height: 650px;
+        }
+        .notes {
+          padding: 22px 8px 0;
+        }
+        .notes ol {
+          display: block;
+        }
+        .notes li {
+          margin: 14px 0;
+        }
+        .labfoot {
+          padding: 0 8px;
+        }
+        .dialogcontent {
+          padding-top: 14px;
+        }
+        .dialoghead h2 {
+          font-size: 21px;
+        }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        * {
+          scroll-behavior: auto !important;
+        }
+      }
+      .appbar {
+        min-height: 80px;
+        padding: 12px 14px;
+      }
+      .appbar h2 {
+        font-size: 17px;
+        font-weight: 400;
+      }
+      .appbar .subline {
+        display: block;
+        max-width: 155px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        font-size: 12px;
+      }
+      .wide .appbar .subline {
+        max-width: none;
+      }
+      .appbar-actions {
+        display: flex;
+        align-items: center;
+        gap: 2px;
+      }
+      .appbar-actions .icon {
+        color: var(--accent);
+      }
+      .appbar-actions .outlined {
+        border: 1px solid var(--line);
+        border-radius: 10px;
+      }
+      .appbar-actions .agents {
+        font-size: 14px;
+        padding: 8px;
+        min-height: 44px;
+      }
+      .assistant {
+        background: var(--surface);
+        padding: 16px;
+        border-radius: 12px;
+        margin: 20px 0;
+      }
+      .assistant .who {
+        font-size: 12px;
+      }
+      .assistant .request {
+        background: var(--bg);
+        margin-bottom: 0;
+      }
+      .transcript {
+        padding: 20px 14px;
+      }
+      .user {
+        margin-left: 32px;
+        font-size: 16px;
+      }
+      .composer {
+        border-top: 1px solid var(--line);
+        padding: 10px 12px 8px;
+      }
+      .ready {
+        font-size: 12px;
+        color: var(--muted);
+        margin-bottom: 12px;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+      .ready .dot {
+        background: #4ade80;
+      }
+      .ready .info {
+        margin-left: auto;
+        font: 14px var(--ui);
+        border: 1px solid var(--muted);
+        border-radius: 50%;
+        width: 16px;
+        height: 16px;
+        text-align: center;
+        line-height: 14px;
+      }
+      .composebox {
+        background: var(--surface);
+      }
+      .composebox .tools {
+        display: flex;
+        align-items: center;
+        gap: 20px;
+        font: 16px var(--ui);
+        color: var(--muted);
+      }
+      .composebox .send {
+        border-radius: 10px;
+        width: 40px;
+        min-height: 40px;
+      }
+      .composer-meta {
+        font-size: 10px;
+      }
+      .bottomnav {
+        display: flex;
+        justify-content: space-around;
+        border-top: 1px solid var(--line);
+        padding: 6px 8px 14px;
+        flex-shrink: 0;
+        background: var(--bg);
+      }
+      .bottomnav span {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 3px;
+        color: var(--muted);
+        font-size: 11px;
+        min-width: 54px;
+        padding: 6px 8px;
+        border-radius: 12px;
+      }
+      .bottomnav span.active {
+        background: var(--panel);
+        color: var(--accent);
+      }
+      .bottomnav svg {
+        width: 21px;
+        height: 21px;
+      }
+      .wide .bottomnav {
+        display: none;
+      }
+      .event {
+        position: relative;
+        border-left: 1px solid var(--line);
+        padding: 0 0 0 16px;
+        margin: 25px 4px;
+        font-size: 15px;
+      }
+      .event::before {
+        content: '';
+        position: absolute;
+        left: -4px;
+        top: 7px;
+        width: 7px;
+        height: 7px;
+        border-radius: 50%;
+        background: var(--accent);
+      }
+      .event .eventlabel {
+        font: 11px var(--ui);
+        letter-spacing: 0.3px;
+        color: var(--muted);
+        display: flex;
+        align-items: center;
+        gap: 7px;
+        margin-bottom: 6px;
+      }
+      .event .eventlabel svg {
+        width: 14px;
+        height: 14px;
+      }
+      .event .chatlink {
+        font-size: 15px;
+        line-height: 1.4;
+        padding: 0;
+        min-height: 30px;
+        color: var(--accent);
+        text-align: left;
+        display: flex;
+        align-items: center;
+        gap: 7px;
+      }
+      .event p {
+        font-size: 15px;
+        line-height: 1.55;
+        margin: 8px 0 11px;
+      }
+      .event .eventfoot {
+        display: flex;
+        gap: 9px;
+        align-items: center;
+        font: 11px var(--ui);
+        color: var(--muted);
+        flex-wrap: wrap;
+      }
+      .event details {
+        margin: 10px 0;
+        font-size: 13px;
+      }
+      .event summary {
+        min-height: 36px;
+        display: flex;
+        align-items: center;
+        list-style: none;
+        color: var(--muted);
+        cursor: pointer;
+        font-size: 12px;
+      }
+      .event summary .disclosure-icon {
+        margin-left: 7px;
+      }
+      details[open] > summary > .disclosure-icon {
+        transform: rotate(180deg);
+      }
+      .event .full-message {
+        font-size: 14px;
+        line-height: 1.55;
+        overflow-wrap: anywhere;
+        margin: 2px 0 12px;
+      }
+      .event .metadata {
+        background: var(--surface);
+        padding: 12px;
+        border-radius: 8px;
+        font: 11px/1.8 var(--ui);
+        color: var(--muted);
+        overflow-wrap: anywhere;
+      }
+      .event .textaction {
+        min-height: 30px;
+        padding: 0;
+        color: var(--accent);
+        font-size: 12px;
+      }
+      .event.pending::before {
+        background: var(--warning);
+      }
+      .event .direction {
+        color: var(--text);
+      }
+      .event.failure::before {
+        background: var(--danger);
+      }
+      .event.failure .delivery {
+        color: var(--danger);
+      }
+      .toolbar .seg[aria-label='Flow state'] {
+        flex-wrap: wrap;
+      }
+      .transcript .request {
+        margin: 20px 0;
+      }
+      .related-item .small-config {
+        display: block;
+        margin-top: 6px;
+        color: var(--muted);
+        font-size: 12px;
+      }
+      .delivery-picker {
+        margin-top: 22px;
+        border-top: 1px solid var(--line);
+        padding-top: 16px;
+      }
+      .delivery-picker label {
+        font-size: 12px;
+        color: var(--muted);
+      }
+      .delivery-picker select {
+        margin-top: 7px;
+        font-size: 13px;
+        font-family: var(--ui);
+      }
+      @media (max-width: 540px) {
+        .appbar {
+          padding-left: 10px;
+          padding-right: 10px;
+        }
+        .appbar-actions .agents {
+          font-size: 13px;
+          padding: 6px;
+        }
+        .appbar-actions .icon {
+          padding: 8px;
+        }
+        .frame {
+          height: 820px;
+          min-height: 650px;
+        }
+        .toolbar .seg[aria-label='Flow state'] button {
+          font-size: 11px;
+          padding: 7px 6px;
+        }
+        .dialog {
+          max-height: 96%;
+        }
+      }
+      .reply-quote {
+        display: block;
+        width: 100%;
+        text-align: left;
+        border-left: 2px solid var(--accent);
+        border-radius: 0 8px 8px 0;
+        background: var(--panel);
+        padding: 9px 12px;
+        margin: 0 0 14px;
+        min-height: 64px;
+      }
+      .reply-quote:hover {
+        background: color-mix(in srgb, var(--accent) 15%, var(--bg));
+      }
+      .quote-meta {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        color: var(--muted);
+        font: 11px/1.5 var(--ui);
+        margin-bottom: 4px;
+      }
+      .quote-meta svg {
+        width: 14px;
+        height: 14px;
+      }
+      .quote-meta time {
+        margin-left: auto;
+        white-space: nowrap;
+      }
+      .quote-author {
+        color: var(--accent);
+        font-size: 12px;
+        display: block;
+        margin-bottom: 3px;
+      }
+      .quote-text {
+        font-size: 14px;
+        line-height: 1.45;
+        display: -webkit-box;
+        -webkit-line-clamp: 2;
+        -webkit-box-orient: vertical;
+        overflow: hidden;
+      }
+      .reply-unavailable {
+        border-left-color: var(--line);
+        background: var(--bg);
+        padding: 10px 12px;
+        margin-bottom: 14px;
+        border-left: 2px solid var(--line);
+        font-size: 13px;
+      }
+      .reply-unavailable small {
+        display: block;
+        color: var(--muted);
+        margin-top: 4px;
+      }
+      .reply-unavailable button {
+        font-size: 12px;
+        color: var(--accent);
+        padding: 5px 0;
+        min-height: 32px;
+      }
+      .source-message {
+        scroll-margin: 30px;
+        border: 2px solid transparent;
+        outline-offset: 3px;
+      }
+      .source-message.highlighted {
+        border-color: var(--accent);
+      }
+      .message-time {
+        display: block;
+        font: 11px var(--ui);
+        color: var(--muted);
+        text-align: right;
+        margin-top: 12px;
+      }
+      .reply-action {
+        font-size: 12px;
+        color: var(--accent);
+        padding: 3px 0;
+        min-height: 32px;
+      }
+      .intervening {
+        padding: 12px 0;
+        margin: 12px 0;
+        border-top: 1px solid var(--line);
+        border-bottom: 1px solid var(--line);
+        font-size: 12px;
+        color: var(--muted);
+      }
+      .intervening summary {
+        min-height: 30px;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+      }
+      .intervening p {
+        margin: 14px 0;
+        font-size: 14px;
+      }
+      .reply-return {
+        padding: 3px 14px;
+        border-bottom: 1px solid var(--line);
+        background: var(--bg);
+        flex-shrink: 0;
+      }
+      .reply-return button {
+        color: var(--accent);
+        width: 100%;
+        min-height: 36px;
+        font-size: 12px;
+        text-align: right;
+      }
+      .composer-reply {
+        position: relative;
+        padding-right: 30px;
+      }
+      .composer-reply .reply-quote {
+        min-height: 60px;
+        margin-bottom: 12px;
+      }
+      .composer-reply .remove-reply {
+        position: absolute;
+        right: -3px;
+        top: 4px;
+        min-height: 30px;
+        padding: 5px;
+        color: var(--muted);
+      }
+      .reply-block {
+        scroll-margin: 20px;
+      }
+      .reply-block p {
+        margin-top: 12px;
+      }
+      .reply-block .reply-quote {
+        margin-top: 0;
+      }
+      .reply-demo-select {
+        display: block;
+        font-size: 12px;
+        color: var(--muted);
+        margin: 18px 0;
+      }
+      .reply-demo-select select {
+        font-size: 13px;
+        font-family: var(--ui);
+        margin-top: 8px;
+      }
+      .library {
+        display: flex;
+        flex-direction: column;
+        flex: 1;
+        min-width: 0;
+        min-height: 0;
+      }
+      .library-scroll {
+        overflow: auto;
+        flex: 1;
+        padding: 24px 20px 28px;
+      }
+      .library-content {
+        max-width: 700px;
+        margin: auto;
+      }
+      .library-brand {
+        font: 750 30px/1 var(--ui);
+        letter-spacing: -1.6px;
+        padding: 3px 0 26px;
+      }
+      .library-heading {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: 24px;
+        gap: 12px;
+      }
+      .library-heading h2 {
+        font-size: 30px;
+        font-weight: 400;
+        letter-spacing: -0.8px;
+      }
+      .library-heading .primary {
+        min-width: 44px;
+        padding: 10px;
+      }
+      .library-group {
+        border-top: 1px solid var(--line);
+        margin: 0 0 20px;
+      }
+      .library-group > summary,
+      .library-section-heading {
+        min-height: 48px;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        color: var(--muted);
+        font-size: 13px;
+        cursor: pointer;
+        list-style: none;
+      }
+      .library-group > summary::-webkit-details-marker {
+        display: none;
+      }
+      .library-group > summary svg {
+        width: 17px;
+        height: 17px;
+      }
+      .library-group > summary .count {
+        margin-left: auto;
+        color: var(--muted);
+        font: 12px var(--ui);
+      }
+      .library-row {
+        padding: 12px 0;
+        border-bottom: 1px solid var(--line);
+        display: flex;
+        gap: 10px;
+        align-items: center;
+      }
+      .library-row .open-row {
+        display: block;
+        text-align: left;
+        width: 100%;
+        min-width: 0;
+        padding: 0;
+        border-radius: 0;
+        min-height: 44px;
+      }
+      .library-row .open-row:hover {
+        background: transparent;
+        color: var(--accent);
+      }
+      .library-row .row-title {
+        display: block;
+        font-size: 15px;
+        line-height: 1.45;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        font-weight: 400;
+      }
+      .library-row .row-meta {
+        display: block;
+        color: var(--muted);
+        font-size: 12px;
+        margin-top: 4px;
+        line-height: 1.4;
+      }
+      .library-row .draft-preview {
+        display: block;
+        color: var(--muted);
+        font-size: 13px;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        margin-top: 5px;
+      }
+      .library-row .row-tag {
+        color: var(--muted);
+        font: 11px var(--ui);
+        white-space: nowrap;
+      }
+      .library-view-all {
+        width: 100%;
+        text-align: left;
+        color: var(--accent);
+        font-size: 13px;
+        padding: 10px 0;
+        min-height: 44px;
+      }
+      .library-recent {
+        padding: 0 12px;
+        background: var(--panel);
+      }
+      .library-recent .row-meta .dot {
+        margin-right: 5px;
+      }
+      .library-recent .library-row:last-child {
+        border: 0;
+      }
+      .draft-list-head {
+        margin-bottom: 18px;
+      }
+      .draft-list-head .icon {
+        margin-left: -12px;
+        color: var(--accent);
+      }
+      .draft-editor-note {
+        font-size: 13px;
+        color: var(--muted);
+        margin: 24px 0;
+        padding: 0 6px;
+      }
+      @media (prefers-reduced-motion: reduce) {
+        .library-group > summary::before {
+          transition: none;
+        }
+      }
+      [data-accent='mint'] {
+        --accent: #b2dea1;
+      }
+      [data-accent='lavender'] {
+        --accent: #b5a1ff;
+      }
+      [data-accent='teal'] {
+        --accent: #78d9bf;
+      }
+      [data-accent='amber'] {
+        --accent: #eac080;
+      }
+      [data-theme='light'][data-accent='mint'] {
+        --accent: #386629;
+      }
+      [data-theme='light'][data-accent='lavender'] {
+        --accent: #5e42b8;
+      }
+      [data-theme='light'][data-accent='teal'] {
+        --accent: #166b58;
+      }
+      [data-theme='light'][data-accent='amber'] {
+        --accent: #805600;
+      }
+      [data-font='system'] {
+        --font: var(--ui);
+      }
+      [data-font='georgia'] {
+        --font: Georgia, 'Times New Roman', serif;
+      }
+      [data-font='palatino'] {
+        --font: Palatino, 'Palatino Linotype', 'Book Antiqua', Georgia, serif;
+      }
+      .preview-appearance {
+        margin: -8px 0 16px;
+        color: var(--muted);
+        font-size: 12px;
+      }
+      .preview-appearance > summary {
+        cursor: pointer;
+        min-height: 30px;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+      .appearance-fields {
+        display: flex;
+        gap: 12px;
+        flex-wrap: wrap;
+        border-bottom: 1px solid var(--line);
+        padding: 12px 0 16px;
+      }
+      .appearance-fields label {
+        flex: 1;
+        min-width: 100px;
+      }
+      .appearance-fields select {
+        margin-top: 6px;
+        font-size: 13px;
+        min-height: 40px;
+      }
+      .access-panel {
+        max-height: 88%;
+      }
+      .access-panel .dialoghead {
+        padding-bottom: 12px;
+        border-bottom: 1px solid var(--line);
+      }
+      .access-panel .dialoghead h2 {
+        font-size: 21px;
+      }
+      .access-panel .dialogcontent {
+        padding-top: 16px;
+      }
+      .access-context {
+        font-size: 12px;
+        color: var(--muted);
+        margin-bottom: 20px;
+      }
+      .access-section-title {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        margin: 6px 0 5px;
+      }
+      .access-section-title h3 {
+        font-size: 15px;
+        font-weight: 500;
+      }
+      .access-section-title .link {
+        font-size: 13px;
+        padding-right: 0;
+        min-height: 38px;
+      }
+      .access-chat-row.related-item {
+        padding: 9px 0;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin: 0;
+      }
+      .access-chat-row .open-child {
+        font-size: 14px;
+        font-weight: 400;
+        text-align: left;
+        padding: 4px 0;
+        line-height: 1.4;
+        min-height: 44px;
+        display: block;
+        width: 100%;
+      }
+      .access-chat-row small {
+        font-size: 11px;
+        display: block;
+        margin-top: 3px;
+        color: var(--muted);
+      }
+      .access-chat-row .icon {
+        min-height: 38px;
+        padding: 8px;
+        color: var(--muted);
+      }
+      .access-panel .section-break {
+        border-top: 1px solid var(--line);
+        margin: 19px 0 12px;
+      }
+      .access-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        min-height: 48px;
+        border-bottom: 1px solid var(--line);
+        font-size: 14px;
+        width: 100%;
+        padding: 9px 0;
+        text-align: left;
+        border-radius: 0;
+      }
+      .access-row span:last-child {
+        color: var(--muted);
+        text-align: right;
+        max-width: 58%;
+        font-size: 13px;
+      }
+      .access-row.button-row span:last-child {
+        color: var(--accent);
+      }
+      .access-footnote {
+        font-size: 11px;
+        color: var(--muted);
+        line-height: 1.5;
+        margin: 12px 0 3px;
+      }
+      .access-panel .minor-action {
+        color: var(--accent);
+        font-size: 13px;
+        padding-left: 0;
+        min-height: 44px;
+      }
+      .access-observation {
+        font-size: 12px;
+        color: var(--muted);
+        margin-top: 13px;
+      }
+      .access-observation summary {
+        min-height: 38px;
+        cursor: pointer;
+      }
+      .access-observation dl {
+        font-size: 12px;
+        line-height: 1.6;
+        display: grid;
+        grid-template-columns: 120px 1fr;
+        gap: 10px;
+        margin: 10px 0;
+      }
+      .access-observation dt {
+        color: var(--muted);
+      }
+      .access-observation dd {
+        margin: 0;
+        color: var(--text);
+      }
+      .access-error {
+        font-size: 12px;
+        line-height: 1.6;
+        color: var(--warning);
+        padding: 10px 0;
+      }
+      .access-notice {
+        font-size: 12px;
+        color: var(--accent);
+        margin-bottom: 10px;
+      }
+      .access-panel .settings {
+        border: 0;
+        border-top: 1px solid var(--line);
+        border-radius: 0;
+        padding: 0;
+      }
+      .access-panel .check-row {
+        display: flex;
+        align-items: flex-start;
+        gap: 10px;
+        padding: 10px 0;
+        border-bottom: 1px solid var(--line);
+        min-height: 44px;
+        font-size: 14px;
+      }
+      .access-panel .check-row input {
+        margin-top: 3px;
+        flex-shrink: 0;
+      }
+      .access-panel .check-row small {
+        display: block;
+        color: var(--muted);
+        font-size: 11px;
+      }
+      .access-grant {
+        padding: 12px 0;
+        border-bottom: 1px solid var(--line);
+      }
+      .access-grant h3 {
+        font-size: 15px;
+        font-weight: 400;
+      }
+      .access-grant small {
+        display: block;
+        color: var(--muted);
+        font-size: 12px;
+        margin: 5px 0;
+      }
+      .access-grant button {
+        padding-left: 0;
+        min-height: 38px;
+        font-size: 12px;
+        color: var(--danger);
+      }
+      .access-form .field {
+        margin-bottom: 14px;
+      }
+      .access-form .field select {
+        margin-top: 6px;
+        min-height: 44px;
+      }
+      .access-panel .dialogfooter .primary {
+        width: 100%;
+        min-height: 44px;
+      }
+      .access-panel .dialogfooter:empty {
+        display: none;
+      }
+      .access-panel .title-back {
+        margin-left: -10px;
+        padding: 8px;
+        color: var(--accent);
+      }
+      .link-check {
+        font-size: 12px;
+        color: var(--muted);
+      }
+      .minor-action,
+      .library-view-all,
+      .origin button,
+      .reply-return button {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+      }
+      .reply-return button {
+        justify-content: flex-end;
+      }
+      .access-row.button-row > span:last-child {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+      }
+      .access-panel svg,
+      .library-view-all svg,
+      .origin svg,
+      .reply-return svg {
+        width: 16px;
+        height: 16px;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="lab">
+      <header class="labhead">
+        <div>
+          <div class="eyebrow">Mitzo · Interaction study 07</div>
+          <h1>One conversation. A consistent thread.</h1>
+          <p>
+            Simpler setup, quiet session links, and messages that belong in the conversation. Links
+            &amp; access brings permissions and linked chats together.
+          </p>
+        </div>
+        <button type="button" class="icon" id="theme" aria-label="Switch to light theme"></button>
+      </header>
+      <div class="toolbar">
+        <div class="seg" aria-label="Design direction">
+          <button type="button" data-concept="sheet" aria-pressed="true">A · Review sheet</button>
+        </div>
+        <div class="seg viewport" aria-label="Preview width">
+          <button type="button" data-size="phone" aria-pressed="true">Phone</button
+          ><button type="button" data-size="wide" aria-pressed="false">Desktop</button>
+        </div>
+      </div>
+      <details class="preview-appearance">
+        <summary>Preview appearance · theme, accent & font</summary>
+        <div class="appearance-fields">
+          <label
+            >Theme<select id="preview-theme">
+              <option value="dark">Dark</option>
+              <option value="light">Light</option>
+            </select></label
+          ><label
+            >Accent<select id="preview-accent">
+              <option value="mint">Mint</option>
+              <option value="lavender">Lavender</option>
+              <option value="teal">Teal</option>
+              <option value="amber">Amber</option>
+            </select></label
+          ><label
+            >Font<select id="preview-font">
+              <option value="georgia">Georgia</option>
+              <option value="system">System</option>
+              <option value="palatino">Palatino</option>
+            </select></label
+          >
+        </div>
+      </details>
+      <div class="toolbar" style="margin-top: -9px">
+        <div class="seg" aria-label="Flow state">
+          <button type="button" data-scene="access" aria-pressed="true">Links &amp; access</button>
+          <button type="button" data-scene="library" aria-pressed="true">Chats & drafts</button>
+          <button type="button" data-scene="review" aria-pressed="true">Setup</button
+          ><button type="button" data-scene="started" aria-pressed="false">After starting</button
+          ><button type="button" data-scene="messages" aria-pressed="false">
+            Cross-chat messages</button
+          ><button type="button" data-scene="replies" aria-pressed="false">Reply context</button
+          ><button type="button" data-scene="attention" aria-pressed="false">
+            Needs attention
+          </button>
+        </div>
+      </div>
+      <div class="stage">
+        <div class="preview">
+          <main class="frame" id="app" aria-label="Interactive Mitzo mockup"></main>
+        </div>
+        <aside class="notes" id="notes"></aside>
+      </div>
+      <footer class="labfoot">
+        Interactive mock · Nothing starts a real session. Theme follows the supplied screenshot:
+        mint accent, Georgia, dark palette. Theme values read from the local Mitzo release source;
+        this is a design proposal.
+      </footer>
+    </div>
+    <div
+      id="announcer"
+      role="status"
+      aria-live="polite"
+      style="position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%)"
+    ></div>
+    <script>
+      const icons = {
+        back: '<path d="m14 5-7 7 7 7"/>',
+        close: '<path d="m6 6 12 12M18 6 6 18"/>',
+        arrow: '<path d="M7 17 17 7M7 7h10v10"/>',
+        chats: '<path d="M4 4h16v12H9l-5 4z"/>',
+        plus: '<path d="M12 5v14M5 12h14"/>',
+        send: '<path d="m12 3 8 17-8-4-8 4 8-17zm0 0v13"/>',
+        sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M2 12h2m16 0h2M5 5l1 1m12 12 1 1M5 19l1-1M18 6l1-1"/>',
+        moon: '<path d="M20 14A8 8 0 0 1 10 4a8 8 0 1 0 10 10z"/>',
+        dots: '<circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/>',
+        home: '<path d="m3 10 9-7 9 7v11h-6v-7H9v7H3z"/>',
+        inbox: '<path d="M4 4h16v16H4zM4 14h5l2 3h2l2-3h5"/>',
+        work: '<path d="m3 5 2 2 3-4m3 2h10M3 12l2 2 3-4m3 2h10M3 19l2 2 3-4m3 2h10"/>',
+        sliders: '<path d="M3 7h18M3 17h18M8 3v8m8 2v8"/>',
+        out: '<path d="M4 12h15m-5-5 5 5-5 5"/>',
+        incoming: '<path d="M20 12H5m5-5-5 5 5 5"/>',
+        folder: '<path d="M3 6h7l2 3h9v12H3z"/>',
+        mic: '<rect x="9" y="2" width="6" height="13" rx="3"/><path d="M6 10v2a6 6 0 0 0 12 0v-2m-6 8v4m-3 0h6"/>',
+        edit: '<path d="m4 16 12-12 4 4L8 20H4zm10-10 4 4"/>',
+      };
+      const icon = (n) =>
+        '<svg viewBox="0 0 24 24" data-icon="' +
+        n +
+        '" aria-hidden="true" focusable="false">' +
+        icons[n] +
+        '</svg>';
+      // Geometry from Mitzo's shared UiIcon, including navigational arrows.
+      icons.arrow = 'M7 7h10v10M7 17 17 7';
+      icons.back = 'm14 6-6 6 6 6';
+      icons.out = 'M4 12h16m-6-6 6 6-6 6';
+      icons.incoming = 'M20 12H4m6-6-6 6 6 6';
+      icons.forward = 'm9 6 6 6-6 6';
+      icons.down = 'm6 9 6 6 6-6';
+      icons.up = 'm6 15 6-6 6 6';
+      icons.arrowDown = 'M12 4v16m-6-6 6 6 6-6';
+      for (const name of ['arrow', 'back', 'out', 'incoming', 'forward', 'down', 'up', 'arrowDown'])
+        icons[name] = '<path d="' + icons[name] + '"/>';
+      icons.link =
+        '<path d="M10 13a5 5 0 0 0 7 0l3-3a5 5 0 0 0-7-7l-2 2M14 11a5 5 0 0 0-7 0l-3 3a5 5 0 0 0 7 7l2-2"/>';
+      icons.bot =
+        '<path d="M12 3v3m-2-3h2M6 6h12a2 2 0 0 1 2 2v10H4V8a2 2 0 0 1 2-2ZM1 10v4m22-4v4M8 10v3m8-3v3M8 18v3m8-3v3"/>';
+      const app = document.getElementById('app');
+      const initial = {
+        title: 'Finish message delivery recovery',
+        prompt:
+          'Continue the unfinished message delivery work in Mitzo #1271. Inspect the retained delivery receipt, recover the existing operation, and verify delivery before reporting success.',
+        account: 'Personal ChatGPT',
+        model: 'GPT-6.1-Sol',
+        thinking: 'High',
+        agent: 'Default Mitzo · r1',
+        location: 'Local Mac',
+        mode: 'Agent',
+        isolation: true,
+        context: 'Mitzo #1271 · message delivery recovery',
+        tools: '',
+        defaults: false,
+      };
+      let draft = { ...initial },
+        concept = 'sheet',
+        scene = 'replies',
+        size = 'phone',
+        modal = '',
+        child = false,
+        childIndex = 0,
+        started = true,
+        cancelled = false,
+        settingsOpen = false,
+        advancedOpen = false,
+        needsAttention = false,
+        returnFocus = null,
+        delivery = 'delivered',
+        replySource = 'you',
+        composerReply = null,
+        replyReturn = '',
+        allDrafts = false,
+        activeDraft = null,
+        draftGroupOpen = false,
+        accessPane = 'main',
+        accessState = 'current',
+        accessNotice = '',
+        accessReturn = null,
+        accessGrantKind = 'github-read',
+        grantScope = 'sessions',
+        grantMinutes = '60',
+        selectedGrantChats = ['this-chat'],
+        hiddenLinkedIds = [],
+        pendingApproval = true;
+      let extraLinkedChats = [],
+        unlinkedChats = [
+          { id: 'planning', title: 'UI planning', status: 'Ready' },
+          {
+            id: 'test-review',
+            title: 'Review offline test coverage',
+            status: 'Finished',
+          },
+        ];
+      let sampleGrants = [
+        {
+          id: 'sample-grant',
+          name: 'GitHub reads · dimakis/mitzo',
+          scope: 'This chat',
+          expiry: 'Until 00:23',
+          state: 'active',
+        },
+      ];
+      const grantFields = {
+        repository: 'dimakis/mitzo',
+        email: '',
+        resource: '',
+        googleKind: 'file',
+      };
+      let symposiumAdding = false;
+      const symposiumAgents = [
+        {
+          name: 'Default Mitzo',
+          model: 'GPT-6.1-Sol',
+          purpose: 'Main agent for this conversation',
+        },
+      ];
+      const linkedChats = () =>
+        [
+          ...extraLinkedChats,
+          ...titles().map((title, i) => ({
+            id: 'linked-' + i,
+            title,
+            status: i === 0 ? 'Running' : 'Finished',
+            child: i,
+          })),
+        ].filter((c) => !hiddenLinkedIds.includes(c.id));
+      const savedDrafts = [
+        [
+          'Review the session setup flow',
+          'Let’s simplify the new-session setup and check it on a narrow phone.',
+          '2m ago',
+        ],
+        [
+          'Finish message delivery recovery',
+          'Inspect the retained message delivery request before taking another action.',
+          '12m ago',
+        ],
+        [
+          'Check the iOS approval recovery',
+          'Verify the current recovery state and preserve the original work.',
+          '38m ago',
+        ],
+        [
+          'Review the pending Centaur findings',
+          'Check the current-head review and summarize unresolved findings.',
+          '1h ago',
+        ],
+        [
+          'Session reply references',
+          'Show which earlier message each response is answering.',
+          '2h ago',
+        ],
+        [
+          'Draft navigation on mobile',
+          'Keep draft content and focus when moving between chats.',
+          '3h ago',
+        ],
+        [
+          'Review the delivery receipt',
+          'Read the existing operation before considering a retry.',
+          'Yesterday',
+        ],
+        [
+          'Check the release notes',
+          'Review the changes against the accepted sources.',
+          'Yesterday',
+        ],
+        [
+          'Compare the setup options',
+          'Compare the compact sheet with the dedicated setup page.',
+          'Yesterday',
+        ],
+        [
+          'Review the chat list spacing',
+          'Check long titles and larger text in the chat library.',
+          'Yesterday',
+        ],
+        [
+          'Verify keyboard navigation',
+          'Check focus restoration after closing chat settings.',
+          'Monday',
+        ],
+        [
+          'Inspect the reconnect flow',
+          'Review retained status after reconnecting to a chat.',
+          'Monday',
+        ],
+        ['Check saved context', 'Verify the draft’s selected context before sending it.', 'Monday'],
+        [
+          'Review unconfirmed requests',
+          'Keep uncertain deliveries separate from successful starts.',
+          'Monday',
+        ],
+        [
+          'Plan the next UI pass',
+          'Review the shared patterns across messages, drafts and sessions.',
+          'Monday',
+        ],
+      ].map(([title, text, time], id) => ({ id, title, text, time }));
+      const replySources = {
+        you: {
+          id: 'original-question',
+          author: 'You',
+          time: '23:04',
+          text: 'Can Symposium proceed now, or does it still need to wait for #1242 and #1257 to merge?',
+          reference: 'msg-2304-8b71',
+        },
+        agent: {
+          id: 'original-agent-update',
+          author: 'Recover Mitzo #1242 / #1257',
+          time: '23:12',
+          text: '#1242 is already on main. #1257 still has CI and final Centaur review pending. Please pass that distinction to Symposium.',
+          reference: 'msg-2312-6c29',
+        },
+      };
+      let sent = [];
+      const composerTexts = {};
+      const composerKey = () =>
+        activeDraft ? 'draft-' + activeDraft.id : child ? 'linked-' + childIndex : 'origin';
+      const esc = (s) =>
+        String(s).replace(
+          /[&<>"']/g,
+          (c) =>
+            ({
+              '&': '&amp;',
+              '<': '&lt;',
+              '>': '&gt;',
+              '"': '&quot;',
+              "'": '&#39;',
+            })[c],
+        );
+      const titles = () => [
+        draft.title,
+        'Recover Mitzo #1242 / #1257',
+        'Fix iOS notification approval crash',
+      ];
+      function announce(s) {
+        document.getElementById('announcer').textContent = s;
+      }
+      function openModal(name, trigger) {
+        returnFocus = trigger || document.activeElement;
+        modal = name;
+        render();
+        requestAnimationFrame(() => app.querySelector('[role=dialog] button')?.focus());
+      }
+      function closeModal() {
+        modal = '';
+        render();
+        const id = returnFocus?.id;
+        requestAnimationFrame(() => {
+          if (id) document.getElementById(id)?.focus();
+          else app.querySelector('#review-request,#related-button')?.focus();
+        });
+      }
+      function selectField(key, label, values) {
+        return (
+          '<label>' +
+          label +
+          '<select data-field="' +
+          key +
+          '">' +
+          values
+            .map((v) => '<option' + (draft[key] === v ? ' selected' : '') + '>' + v + '</option>')
+            .join('') +
+          '</select></label>'
+        );
+      }
+      function config() {
+        return (
+          '<details class="settings" id="settings"' +
+          (settingsOpen ? ' open' : '') +
+          '><summary><span>Session settings<small id="settings-summary">' +
+          esc(draft.model) +
+          ' · ' +
+          esc(draft.location) +
+          ' · ' +
+          esc(draft.mode) +
+          '</small></span></summary>' +
+          selectField('account', 'Account', ['Personal ChatGPT', 'Work OpenAI']) +
+          '<div class="twocol">' +
+          selectField('model', 'Model', ['GPT-6.1-Sol', 'GPT-6.1-Terra']) +
+          selectField('thinking', 'Thinking', ['Low', 'Medium', 'High']) +
+          '</div>' +
+          selectField('agent', 'Agent', ['Default Mitzo · r1', 'Code reviewer · r2']) +
+          selectField('location', 'Run tools on', ['Local Mac', 'OpenShell']) +
+          selectField('mode', 'Permission mode', ['Ask', 'Agent', 'Auto']) +
+          '<label class="check"><input type="checkbox" data-field="isolation"' +
+          (draft.isolation ? ' checked' : '') +
+          '> Isolated checkout</label></details><details class="settings" id="advanced" style="margin-top:10px"' +
+          (advancedOpen ? ' open' : '') +
+          '><summary><span>Context & additional tools<small>Review what the new chat can use</small></span></summary><label>Context<textarea data-field="context" rows="3">' +
+          esc(draft.context) +
+          '</textarea></label><label>Additional tools<input data-field="tools" value="' +
+          esc(draft.tools) +
+          '" placeholder="Use default tools"></label></details><p class="default-note">' +
+          (draft.defaults
+            ? 'These settings will become your saved default.'
+            : 'Using your saved defaults. Changes apply to this chat.') +
+          '</p>'
+        );
+      }
+      function review() {
+        const page = concept === 'page';
+        return (
+          (page ? '' : '<div class="overlay" id="backdrop">') +
+          '<section class="' +
+          (page ? 'fullpage' : 'dialog') +
+          '" role="dialog" aria-modal="true" aria-labelledby="review-title">' +
+          (page ? '' : '<div class="handle"></div>') +
+          '<header class="dialoghead"><div class="row spread"><h2 id="review-title">New chat</h2><button type="button" class="icon" id="close-review" aria-label="Close setup">' +
+          icon('close') +
+          '</button></div><p>Continue from Message delivery recovery</p></header><div class="dialogcontent"><div class="content-wrap"><label class="field">Title<input id="draft-title" data-field="title" maxlength="160" value="' +
+          esc(draft.title) +
+          '"></label><label class="field">Handoff<textarea id="draft-prompt" data-field="prompt" maxlength="32000">' +
+          esc(draft.prompt) +
+          '</textarea></label>' +
+          config() +
+          '<label class="row muted" style="font-size:12px;margin-top:16px"><input type="checkbox" data-field="defaults"' +
+          (draft.defaults ? ' checked' : '') +
+          '> Save these settings as my default</label></div></div><footer class="dialogfooter"><div class="footer-wrap"><div class="row"><button type="button" id="cancel-request">Decline</button><button type="button" class="primary" id="start-chat"' +
+          (!draft.title.trim() || !draft.prompt.trim() ? ' disabled' : '') +
+          '>Start chat</button></div><p>You’ll stay here. Open the new chat when you’re ready.</p></div></footer></section>' +
+          (page ? '' : '</div>')
+        );
+      }
+      function related() {
+        return (
+          '<div class="overlay" id="backdrop"><section class="dialog related" role="dialog" aria-modal="true" aria-labelledby="related-title"><div class="handle"></div><header class="dialoghead"><div class="row spread"><h2 id="related-title">Related chats</h2><button type="button" id="close-related" class="icon" aria-label="Close related chats">' +
+          icon('close') +
+          '</button></div><p>Started from this conversation</p></header><div class="dialogcontent">' +
+          titles()
+            .map(
+              (t, i) =>
+                '<article class="related-item"><h3>' +
+                esc(t) +
+                '</h3><small>' +
+                (needsAttention && i === 0
+                  ? 'Start unconfirmed'
+                  : i === 0 && started
+                    ? 'Running · just now'
+                    : i === 1
+                      ? 'Finished · yesterday'
+                      : 'Finished · Monday') +
+                '</small><div class="row"><button type="button" class="link open-child" data-child="' +
+                i +
+                '">Open chat ' +
+                icon('arrow') +
+                '</button>' +
+                (needsAttention && i === 0
+                  ? '<button type="button" class="link check-request">Check request</button>'
+                  : '') +
+                '</div></article>',
+            )
+            .join('') +
+          '</div></section></div>'
+        );
+      }
+      function inspect() {
+        return (
+          '<div class="overlay" id="backdrop"><section class="dialog" role="dialog" aria-modal="true" aria-labelledby="inspect-title"><header class="dialoghead"><div class="row spread"><h2 id="inspect-title">Check session start</h2><button type="button" id="close-inspect" class="icon" aria-label="Close request">' +
+          icon('close') +
+          '</button></div></header><div class="dialogcontent"><h3 style="font-size:18px;font-weight:500">' +
+          esc(draft.title) +
+          '</h3><p class="notice">The chat was created, but its first message has not been confirmed.</p><p style="font-size:14px;color:var(--muted)">Check the existing request before taking another action.</p><p id="check-result" role="status" style="font-size:14px;margin-top:16px"></p><button type="button" class="secondary" id="check-status" style="width:100%;margin-top:18px">Check status</button><button type="button" class="link open-child" data-child="0" style="width:100%;margin-top:8px">Open existing chat</button></div></section></div>'
+        );
+      }
+      function requestCard() {
+        if (cancelled)
+          return '<div class="event"><div class="eventlabel">New chat request declined · 23:00</div></div>';
+        if (started || needsAttention)
+          return (
+            '<article class="event"><div class="eventlabel">' +
+            icon('chats') +
+            (needsAttention ? 'Start unconfirmed' : 'Started a chat') +
+            ' · 23:00</div><button type="button" class="chatlink open-child" data-child="0">' +
+            esc(draft.title) +
+            ' ' +
+            icon('arrow') +
+            '</button><button type="button" class="textaction" id="view-config">View configuration</button></article>'
+          );
+        return (
+          '<article class="request"><div class="status"><span class="dot"></span>New chat request</div><h3>' +
+          esc(draft.title) +
+          '</h3><p class="mini">Continue the recovery work in its own chat.</p><button type="button" class="primary" id="review-request">Review & start</button></article>'
+        );
+      }
+      function messageEvents() {
+        const states = {
+          delivered: 'Delivered to agent',
+          queued: 'Queued · not delivered',
+          uncertain: 'Delivery unconfirmed',
+          failed: 'Delivery failed',
+        };
+        return (
+          '<article class="event" aria-label="Message received from another chat"><div class="eventlabel">' +
+          icon('incoming') +
+          '<span class="direction">Received from</span><time style="margin-left:auto">23:07</time></div><button type="button" class="chatlink open-child" data-child="2">Fix iOS notification approval crash ' +
+          icon('arrow') +
+          '</button><p>Execution-start receipt — workId restart-ios-notification-approval. Recovered original public history through seq4544499; no native completion/PR receipt.</p><details><summary>Read full message</summary><div class="full-message">Fresh isolated clone completed at <code>/Users/example/.local/share/mitzo/ordinary-tasks/ordinary-3f76bfb2-13ba-5415-95b4-b0d85e64a00e/mitzo</code>, main HEAD <code>279e6703dedebaeb130993fd6e2657b2aed73c0a</code>. Native initial clone DNS failure reconciled; scoped network approval allowed successful named-directory clone. TaskExecution grant <code>c57c367b-0378-5ef4-a3d9-2150fa9aade4</code> active for this chat only. Live chat inventory shows no newer iOS owner; proceeding to locate and preserve original dirty native work without modifying it. Please flag an actual newer owner if one exists. Will request a merge turn only with exact head/base/gates.</div></details><div class="eventfoot"><span>Delivered to this agent</span><span>·</span><span>9 Nov</span></div></article>' +
+          '<article class="event ' +
+          (delivery === 'failed' ? 'failure' : delivery !== 'delivered' ? 'pending' : '') +
+          '" aria-label="Message sent to another chat"><div class="eventlabel">' +
+          icon('out') +
+          '<span class="direction">Sent to</span><time style="margin-left:auto">23:08</time></div><button type="button" class="chatlink open-child" data-child="2">Fix iOS notification approval crash ' +
+          icon('arrow') +
+          '</button><p>No newer owner identified here. Continue preserving the original work and report the recovery result in this chat.</p><div class="eventfoot"><span class="delivery" role="status">' +
+          states[delivery] +
+          '</span></div><details><summary>Delivery details</summary><div class="metadata">From: Message delivery recovery<br>To: Fix iOS notification approval crash<br>Message: msg-demo-2308<br>Sent: 9 Nov 2026, 23:08<br>Status: ' +
+          states[delivery] +
+          '<br>Delivery confirms receipt by the agent, not completion of the requested work.</div></details>' +
+          (delivery === 'failed' || delivery === 'uncertain'
+            ? '<button type="button" class="textaction" id="message-check">Check delivery</button><p id="delivery-result" role="status" style="font-size:12px"></p>'
+            : '') +
+          '</article>'
+        );
+      }
+      function configurationView() {
+        return (
+          '<div class="overlay" id="backdrop"><section class="dialog" role="dialog" aria-modal="true" aria-labelledby="configuration-title"><header class="dialoghead"><div class="row spread"><h2 id="configuration-title">Session configuration</h2><button type="button" id="close-config" class="icon" aria-label="Close configuration">' +
+          icon('close') +
+          '</button></div><p>' +
+          esc(draft.title) +
+          '</p></header><div class="dialogcontent"><p style="font-size:14px;color:var(--muted)">Configuration used to start this chat</p><dl style="font-size:14px;line-height:1.8"><dt class="muted">Account & model</dt><dd style="margin:0 0 16px">' +
+          esc(draft.account) +
+          '<br>' +
+          esc(draft.model) +
+          ' · ' +
+          esc(draft.thinking) +
+          '</dd><dt class="muted">Agent</dt><dd style="margin:0 0 16px">' +
+          esc(draft.agent) +
+          '</dd><dt class="muted">Tools & permissions</dt><dd style="margin:0">' +
+          esc(draft.location) +
+          ' · ' +
+          esc(draft.mode) +
+          '<br>' +
+          (draft.isolation ? 'Isolated checkout' : 'Shared checkout') +
+          '</dd></dl><details class="settings"><summary>Original handoff</summary><p style="font-size:14px;padding-bottom:14px">' +
+          esc(draft.prompt) +
+          '</p></details></div></section></div>'
+        );
+      }
+      function appHeader() {
+        return (
+          '<header class="appbar"><div class="row" style="gap:5px"><button type="button" class="icon navback" id="app-back" aria-label="' +
+          (child ? 'Back to original chat' : 'Show chats') +
+          '">' +
+          icon('back') +
+          '</button><div class="grow"><h2>Chat</h2><small class="subline">Default Mitzo · Host Mac · ' +
+          (activeDraft ? esc(activeDraft.title) : child ? esc(titles()[childIndex]) : 'Recovery') +
+          '</small></div><div class="appbar-actions"><button type="button" class="icon" id="header-settings" aria-label="View session configuration">' +
+          icon('sliders') +
+          '</button><button type="button" class="icon" id="agents-list" aria-label="Symposium agents" title="Symposium agents" aria-haspopup="dialog">' +
+          icon('bot') +
+          '</button><button type="button" class="icon outlined" id="related-button" aria-label="Links and access" title="Links &amp; access">' +
+          icon('link') +
+          '</button></div></div></header>'
+        );
+      }
+      function appComposer() {
+        return (
+          '<footer class="composer"><div class="composer-inner">' +
+          (needsAttention && !child
+            ? '<div class="attention"><span>1 session needs attention</span><button type="button" id="attention-review">Review</button></div>'
+            : '') +
+          '<div class="ready"><span class="dot"></span>Ready<span class="info">i</span></div><div class="composebox"><textarea aria-label="Message" id="message" rows="2" placeholder="Message Mitzo…"></textarea><div class="row spread"><span class="tools">' +
+          icon('dots') +
+          icon('folder') +
+          '</span><span class="row" style="gap:16px;color:var(--muted)">' +
+          icon('mic') +
+          '<button type="button" class="icon send" id="send" aria-label="Send simulated message">' +
+          icon('send') +
+          '</button></span></div></div></div></footer>'
+        );
+      }
+      function bottomnav() {
+        return (
+          '<nav class="bottomnav" aria-label="App navigation reference"><span>' +
+          icon('home') +
+          'Today</span><span class="active" aria-current="page">' +
+          icon('chats') +
+          'Chats</span><span>' +
+          icon('inbox') +
+          'Inbox</span><span>' +
+          icon('work') +
+          'Work</span><span>' +
+          icon('dots') +
+          'More</span></nav>'
+        );
+      }
+      function replyQuote(source, returnId = 'assistant-reply') {
+        if (!source)
+          return '<div class="reply-unavailable"><strong>Original message unavailable</strong><small>Reply reference · …8b71</small><details><summary>Reply reference</summary><code>msg-unknown-8b71</code></details><button type="button" class="load-original">Try loading original</button><small class="load-result" role="status"></small></div>';
+        return (
+          '<button type="button" class="reply-quote jump-reply-source" data-source="' +
+          esc(source.id) +
+          '" data-return="' +
+          esc(returnId) +
+          '" aria-label="Reply to ' +
+          esc(source.author) +
+          ' at ' +
+          esc(source.time) +
+          ': ' +
+          esc(source.text) +
+          '"><span class="quote-meta">' +
+          icon('incoming') +
+          'Replying to<time datetime="2026-11-09T' +
+          source.time +
+          ':00">' +
+          source.time +
+          '</time></span><span class="quote-author">' +
+          esc(source.author) +
+          '</span><span class="quote-text">' +
+          esc(source.text) +
+          '</span></button>'
+        );
+      }
+      function replyConversation() {
+        return (
+          '<article class="user source-message" id="original-question" tabindex="-1" aria-label="Original message from you at 23:04"><p>' +
+          esc(replySources.you.text) +
+          '</p><time class="message-time">You · 23:04</time><button type="button" class="reply-action" data-reply-source="you">Reply</button></article>' +
+          '<details class="intervening"><summary>3 messages since then</summary><p><strong>Mitzo · 23:06</strong><br>I’ll check the accepted dependency changes and the remaining review gates.</p><p><strong>You · 23:09</strong><br>Check the current heads before reporting back.</p><p><strong>Mitzo · 23:10</strong><br>I’m verifying the repository evidence.</p></details>' +
+          '<article class="event source-message" id="original-agent-update" tabindex="-1" aria-label="Original message from recovery chat at 23:12"><div class="eventlabel">' +
+          icon('incoming') +
+          'Received from · 23:12</div><button type="button" class="chatlink open-child" data-child="1">' +
+          esc(replySources.agent.author) +
+          ' ' +
+          icon('arrow') +
+          '</button><p>' +
+          esc(replySources.agent.text) +
+          '</p><div class="eventfoot">Delivered to this agent</div><button type="button" class="reply-action" data-reply-source="agent">Reply</button></article>' +
+          '<article class="assistant reply-block" id="assistant-reply" tabindex="-1" aria-label="Mitzo reply at 23:15"><span class="who">Mitzo · 23:15</span>' +
+          replyQuote(replySources[replySource]) +
+          '<p>#1242’s production fix is already on main, so Symposium can proceed without waiting for that PR to merge. I’ve passed the verified dependency evidence to its owner.</p><p>#1257’s remaining fixes are published; CI and final Centaur review are pending.</p></article>'
+        );
+      }
+      function accessNotes() {
+        if (scene === 'access') {
+          document.getElementById('notes').innerHTML =
+            '<span class="badge">Design A · retained</span><h2>Access, without the wall.</h2><p>One compact sheet for linked chats and the access that applies here. Open a row for details; Back returns within the same sheet.</p><ol><li><strong>Start or link a chat</strong>New chat opens the chosen review sheet. Its confirmed start adds a link here, without filling the composer.</li><li><strong>Keep authority explicit</strong>A link grants nothing. Grant access separately, choosing the capability, chats, reuse scope and expiry.</li><li><strong>Details when needed</strong>Connection observations and technical session facts stay available. Unknown is shown as unknown.</li><li><strong>Your appearance settings</strong>The Preview appearance controls above change theme, accent and font across every sheet, row and message.</li></ol><label class="reply-demo-select">Preview access evidence<select id="access-evidence"><option value="current">Current observation</option><option value="stale">Refresh failed · retain last observation</option><option value="unavailable">Unavailable · retain last observation</option></select></label><p class="divider hint">Try New chat, Link existing, Permissions, granting/revoking access, and stale evidence. Everything is a local simulation.</p>';
+          const evidence = document.getElementById('access-evidence');
+          evidence.value = accessState;
+          evidence.onchange = () => {
+            accessState = evidence.value;
+            accessPane = 'main';
+            modal = 'access';
+            render();
+            document.getElementById('access-evidence').focus();
+          };
+        }
+      }
+      function conversation() {
+        if (activeDraft)
+          return sent.length
+            ? ''
+            : '<p class="draft-editor-note">Unsent draft · edit below, then send when ready.</p>';
+        if (child)
+          return (
+            '<div class="user">' +
+            esc(
+              childIndex === 0 ? draft.prompt : 'Review the retained work and report the result.',
+            ) +
+            '</div><div class="assistant"><span class="who">Mitzo</span><p>' +
+            (needsAttention && childIndex === 0
+              ? 'The handoff is retained. Its delivery is still unconfirmed.'
+              : 'I’ll inspect the retained work and verify the result before reporting back.') +
+            '</p></div>'
+          );
+        if (scene === 'replies') return replyConversation();
+        if (scene === 'messages')
+          return (
+            '<div class="assistant"><span class="who">Mitzo</span><p>The recovery chats are underway. I’ll keep their updates in this conversation.</p></div>' +
+            requestCard() +
+            messageEvents()
+          );
+        return (
+          '<div class="user">Start a new chat to finish the message delivery recovery.</div><div class="assistant"><span class="who">Mitzo</span><p>I’ve prepared the handoff with the remaining work and verification steps.</p></div>' +
+          requestCard() +
+          (started || needsAttention
+            ? '<div class="user">Thanks. Let’s keep this chat for the broader UX discussion.</div><div class="assistant"><span class="who">Mitzo</span><p>We can continue here. The recovery chat is available from its link above or Related chats.</p></div>'
+            : '')
+        );
+      }
+      function draftRows(items) {
+        return items
+          .map(
+            (item) =>
+              '<div class="library-row"><button type="button" class="open-row resume-draft" data-draft="' +
+              item.id +
+              '" aria-label="Resume draft: ' +
+              esc(item.title) +
+              '"><span class="row-title">' +
+              esc(item.title) +
+              '</span><span class="draft-preview">' +
+              esc(item.text) +
+              '</span><span class="row-meta">Saved ' +
+              esc(item.time) +
+              '</span></button></div>',
+          )
+          .join('');
+      }
+      function libraryView() {
+        const pins = [
+          'Lets Look Telos Item Through Work',
+          'So we just merged, and deployed a new version of Mitzo',
+          'Hangs and optimisations',
+          'Do a triage of Mitzo sessions with unfinished work',
+        ];
+        const pinRows = pins
+          .map(
+            (p, i) =>
+              '<div class="library-row"><span class="grow"><span class="row-title">' +
+              esc(p) +
+              '</span><span class="row-meta">Updated ' +
+              ['19d', '5d', '5d', '4m'][i] +
+              ' ago</span></span><span class="muted" aria-hidden="true">···</span></div>',
+          )
+          .join('');
+        return (
+          '<section class="library" aria-label="Chat library"><div class="library-scroll"><div class="library-content">' +
+          (allDrafts
+            ? '<div class="draft-list-head"><button type="button" class="icon" id="all-drafts-back" aria-label="Back to Chats">' +
+              icon('back') +
+              '</button></div><div class="library-heading"><h2>Drafts</h2><span class="muted">' +
+              savedDrafts.length +
+              '</span></div>' +
+              draftRows(savedDrafts)
+            : '<div class="library-brand">mitzo</div><div class="library-heading"><h2>Chats</h2><button type="button" class="primary icon" id="library-new-chat" aria-label="New chat">' +
+              icon('edit') +
+              '</button></div><details class="library-group" open><summary>Pinned<span class="count">4</span></summary>' +
+              pinRows +
+              '</details><details class="library-group" id="draft-group"' +
+              (draftGroupOpen ? ' open' : '') +
+              '><summary>' +
+              icon('edit') +
+              'Drafts<span class="count">' +
+              savedDrafts.length +
+              '</span></summary>' +
+              draftRows(savedDrafts.slice(0, 3)) +
+              '<button type="button" class="library-view-all" id="view-all-drafts">All ' +
+              savedDrafts.length +
+              ' drafts ' +
+              icon('out') +
+              '</button></details><div class="library-section-heading">Recent conversations</div><div class="library-recent">' +
+              titles()
+                .map(
+                  (t, i) =>
+                    '<div class="library-row"><button type="button" class="open-row open-child" data-child="' +
+                    i +
+                    '"><span class="row-title">' +
+                    esc(t) +
+                    '</span><span class="row-meta"><span class="dot"></span>GPT-6.1-Sol · Host Mac</span><span class="row-meta">' +
+                    (i === 0 ? 'Writing a reply · 2m 14s' : 'Finished · earlier today') +
+                    '</span></button></div>',
+                )
+                .join('') +
+              '</div>') +
+          '</div></div>' +
+          bottomnav() +
+          '</section>'
+        );
+      }
+      function accessView() {
+        const names = {
+          main: 'Links & access',
+          chats: 'Linked chats',
+          link: 'Link a chat',
+          linked: 'Linked chat',
+          grants: 'Permissions',
+          grant: 'Grant access',
+          revoke: 'Revoke access?',
+          connections: 'Connections',
+          pending: 'Pending approval',
+        };
+        let body = '',
+          footer = '';
+        if (accessPane === 'main') {
+          body = `<p class="access-context">This chat · Local Mac · Agent<br>Personal ChatGPT · GPT-6.1-Sol</p>
+          ${accessState !== 'current' ? '<p class="access-error" role="status">' + (accessState === 'stale' ? 'Refresh failed. Showing the last observation from 23:23.' : 'Current access unavailable. Showing the last observation from 23:23.') + ' <button type="button" class="minor-action" id="refresh-access">Refresh</button></p>' : ''}
+          <div class="access-section-title"><h3>Linked chats <span class="muted">${linkedChats().length}</span></h3><button type="button" class="link" id="access-new-chat">+ New chat</button></div>
+          ${linkedChats()
+            .slice(0, 2)
+            .map(
+              (c) =>
+                `<article class="access-chat-row related-item"><button type="button" class="open-child grow" data-child="${c.child ?? 0}">${esc(c.title)}<small>${esc(c.status)}</small></button><button type="button" class="icon inspect-linked" data-linked="${esc(c.id)}" aria-label="Details for ${esc(c.title)}">${icon('dots')}</button></article>`,
+            )
+            .join('')}
+          <div class="row spread"><button type="button" class="minor-action" id="all-linked-chats">All ${linkedChats().length} chats ${icon('out')}</button><button type="button" class="minor-action" id="link-existing">Link existing</button></div>
+          <p class="access-footnote">Each linked chat keeps its own permissions.</p>
+          <div class="section-break"></div>
+          <button type="button" class="access-row button-row" id="access-grants"><span>Permissions</span><span>${sampleGrants.filter((g) => g.state === 'active').length} grant${pendingApproval ? ' · 1 pending' : ''} ${icon('forward')}</span></button>
+          <button type="button" class="access-row button-row" id="access-connections"><span>Connections</span><span>Attachments unknown ${icon('forward')}</span></button>
+          <details class="access-observation"><summary>Session details · observed 23:23</summary><dl><dt>Account</dt><dd>Host Mac · Personal ChatGPT</dd><dt>Model</dt><dd>GPT-6.1-Sol · High</dd><dt>Tool approvals</dt><dd>No session tool grants observed. Workspace, skill and exact-action restrictions still apply.</dd><dt>Service attachments</dt><dd>Not reported for this session</dd><dt>Available tools</dt><dd>Not inventoried for this route</dd><dt>Execution limits</dt><dd>Not reported</dd><dt>Skill restriction</dt><dd>No active skill ceiling observed</dd></dl></details>`;
+        } else if (accessPane === 'chats') {
+          body =
+            '<p class="access-context">Linked to this conversation. Permissions stay separate.</p>' +
+            linkedChats()
+              .map(
+                (c) =>
+                  `<article class="access-chat-row related-item"><button type="button" class="open-child grow" data-child="${c.child ?? 0}">${esc(c.title)}<small>${esc(c.status)}</small></button><button type="button" class="icon inspect-linked" data-linked="${esc(c.id)}" aria-label="Details for ${esc(c.title)}">${icon('dots')}</button></article>`,
+              )
+              .join('') +
+            '<div class="row spread"><button type="button" class="minor-action" id="link-existing">Link existing chat</button><button type="button" class="minor-action" id="access-new-chat">+ New chat</button></div>';
+        } else if (accessPane === 'link') {
+          body =
+            '<p class="access-context">Choose an existing chat. Linking grants no access.</p>' +
+            unlinkedChats
+              .map(
+                (c) =>
+                  `<button type="button" class="access-row button-row add-link" data-link="${c.id}"><span>${esc(c.title)}<small style="display:block" class="muted">${c.status}</small></span><span>Link</span></button>`,
+              )
+              .join('') +
+            (unlinkedChats.length
+              ? ''
+              : '<p class="muted" style="font-size:14px">All example chats are linked.</p>');
+        } else if (accessPane === 'linked') {
+          body =
+            '<h3 style="font-size:17px;font-weight:400">' +
+            esc(accessReturn?.title || 'Linked chat') +
+            '</h3><p class="access-context" style="margin-top:8px">' +
+            esc(accessReturn?.status || 'Unknown') +
+            '</p><button type="button" class="access-row button-row open-child" data-child="' +
+            (accessReturn?.child ?? 0) +
+            '"><span>Open chat</span><span>' +
+            icon('arrow') +
+            '</span></button><p class="access-footnote">This link does not share permissions or change either chat.</p><button type="button" class="minor-action danger" id="unlink-chat">Remove link</button>';
+        } else if (accessPane === 'connections') {
+          body =
+            '<p class="access-context">Configured services. Session attachment is not reported.</p><details class="settings"><summary>GitHub <small class="muted">Configured</small></summary><p style="font-size:14px;margin-bottom:12px">Repository reads require an applicable approval or grant. Configuration does not confirm attachment to this chat.</p></details><details class="settings"><summary>Google Workspace <small class="muted">Configured</small></summary><p style="font-size:14px;margin-bottom:12px">Account and resource access are selected when granting access. No current attachment is reported.</p></details>';
+        } else if (accessPane === 'grants') {
+          body =
+            '<button type="button" class="access-row button-row" id="access-pending"><span>Pending approvals</span><span>' +
+            (pendingApproval ? '1 to review ' : 'None observed ') +
+            icon('forward') +
+            '</span></button><p class="access-context" style="margin:18px 0 0">Reusable grants</p>' +
+            sampleGrants
+              .map(
+                (g) =>
+                  `<article class="access-grant"><h3>${esc(g.name)}</h3><small>${esc(g.scope)} · ${g.state === 'active' ? esc(g.expiry) : 'Revoked'}</small>${g.state === 'active' ? `<button type="button" class="revoke-grant" data-grant="${g.id}"${accessState !== 'current' ? ' disabled' : ''}>Revoke access</button>` : ''}</article>`,
+              )
+              .join('') +
+            (accessState !== 'current'
+              ? '<p class="access-error">Refresh current access before changing grants.</p>'
+              : '');
+          footer =
+            '<button type="button" class="primary" id="new-access-grant"' +
+            (accessState !== 'current' ? ' disabled' : '') +
+            '>Grant access</button>';
+        } else if (accessPane === 'grant') {
+          const kinds = [
+            ['github-read', 'GitHub repository reads'],
+            ['development', 'Project commands & networking'],
+            ['google-read', 'Google Workspace reads'],
+            ['telos-progress', 'Telos progress'],
+            ['public-web', 'Public website reads'],
+          ];
+          const resourceFields =
+            accessGrantKind === 'github-read'
+              ? '<label class="field">Repository<input id="grant-resource" value="dimakis/mitzo" placeholder="owner/repository"></label>'
+              : accessGrantKind === 'google-read'
+                ? '<label class="field">Google account<input type="email" id="grant-email" placeholder="name@example.com"></label><label class="field">Resource<select id="grant-google-kind"><option value="file">Specific file</option><option value="calendar">Calendar</option><option value="drive-list">Drive file listing</option></select></label><label class="field" id="grant-resource-field">Resource ID<input id="grant-resource" placeholder="File or calendar ID"></label>'
+                : accessGrantKind === 'telos-progress'
+                  ? '<label class="field">Telos item<input id="grant-resource" placeholder="Item ID"></label>'
+                  : '';
+          body = `<div class="access-form"><label class="field">Allow<select id="grant-kind">${kinds.map(([id, name]) => '<option value="' + id + '"' + (id === accessGrantKind ? ' selected' : '') + '>' + name + '</option>').join('')}</select></label>${resourceFields}<label class="field">Reuse in<select id="grant-scope"><option value="sessions"${grantScope === 'sessions' ? ' selected' : ''}>Selected chats</option><option value="repository"${grantScope === 'repository' ? ' selected' : ''}>This repository & AI account</option><option value="operator"${grantScope === 'operator' ? ' selected' : ''}>This login & AI account</option></select></label><p class="access-footnote">${grantScope === 'sessions' ? 'Only the chats you select below.' : grantScope === 'repository' ? 'Includes future chats for dimakis/mitzo using Personal ChatGPT.' : 'Includes future chats using this login and Personal ChatGPT. Broader scope is explicit.'}</p><div style="margin:10px 0 15px">${[{ id: 'this-chat', title: 'This chat' }, ...linkedChats()].map((c) => `<label class="check-row"><input type="checkbox" class="grant-chat" value="${c.id}"${selectedGrantChats.includes(c.id) ? ' checked' : ''}><span>${esc(c.title)}<small>Personal ChatGPT · Local Mac · Agent</small></span></label>`).join('')}</div><label class="field">Expires in<select id="grant-minutes">${['15', '60', '120'].map((m) => '<option value="' + m + '"' + (m === grantMinutes ? ' selected' : '') + '>' + m + ' minutes</option>').join('')}</select></label><p class="access-footnote">${accessGrantKind === 'development' ? 'Covers project commands, builds, tests, local commits and networking. Merge, deployment and host credentials require separate authority.' : 'Read/progress authority only; actions remain subject to their resource and session boundaries.'} All grants also end on server restart.</p><p class="access-error" id="grant-validation" role="status"></p></div>`;
+          footer =
+            '<button type="button" class="primary" id="confirm-access-grant"' +
+            (accessState !== 'current' ? ' disabled' : '') +
+            '>Grant access</button>';
+        } else if (accessPane === 'revoke') {
+          body =
+            '<p style="font-size:15px">Revoke this grant for every included chat?</p><p class="access-footnote">' +
+            esc(accessReturn?.name || 'Selected grant') +
+            ' · ' +
+            esc(accessReturn?.scope || '') +
+            '</p><p class="access-footnote">The chats stay linked. Their other grants remain in effect.</p>';
+          footer =
+            '<button type="button" class="secondary danger" id="confirm-revoke" style="width:100%">Revoke access</button>';
+        } else if (accessPane === 'pending') {
+          body = pendingApproval
+            ? '<p class="access-context">1 pending request · this chat</p><h3 style="font-size:17px;font-weight:500">Read dimakis/mitzo</h3><p style="font-size:14px;margin:14px 0">GitHub repository data, using the selected repository account.</p><p class="access-footnote">One request. This does not grant access to linked chats.</p><div class="row" style="margin-top:20px"><button type="button" class="secondary" id="deny-demo-approval"' +
+              (accessState !== 'current' ? ' disabled' : '') +
+              '>Deny</button><button type="button" class="primary grow" id="allow-demo-approval"' +
+              (accessState !== 'current' ? ' disabled' : '') +
+              '>Allow once</button></div>'
+            : '<p style="font-size:14px">No pending requests observed.</p>';
+        }
+        return `<div class="overlay" id="backdrop"><section class="dialog access-panel" role="dialog" aria-modal="true" aria-labelledby="access-title"><div class="handle"></div><header class="dialoghead"><div class="row">${accessPane !== 'main' ? '<button type="button" class="icon title-back" id="access-pane-back" aria-label="Back">' + icon('back') + '</button>' : ''}<h2 id="access-title" class="grow">${names[accessPane]}</h2><button type="button" class="icon" id="close-access" aria-label="Close Access">${icon('close')}</button></div></header><div class="dialogcontent">${accessNotice ? '<p class="access-notice" role="status">' + esc(accessNotice) + '</p>' : ''}${body}</div><footer class="dialogfooter">${footer}</footer></section></div>`;
+      }
+      function symposiumView() {
+        const body = symposiumAdding
+          ? '<label class="field">Name<input id="symposium-name" maxlength="24" placeholder="e.g. Reviewer"></label><label class="field">Purpose<textarea id="symposium-purpose" rows="3" placeholder="What should this agent contribute?"></textarea></label><label class="field">Model<select id="symposium-model"><option>GPT-6.1-Sol</option><option>GPT-6.1-Terra</option></select></label><p id="symposium-error" class="access-error" role="status"></p>'
+          : symposiumAgents
+              .map(
+                (a) =>
+                  '<details class="access-observation" style="margin-top:0;border-bottom:1px solid var(--line)"><summary class="row spread" style="min-height:52px;font-size:15px;color:var(--text)"><span>' +
+                  esc(a.name) +
+                  '</span><span class="muted" style="font-size:12px">' +
+                  esc(a.model) +
+                  '</span></summary><p style="font-size:14px;margin:8px 0 15px">' +
+                  esc(a.purpose) +
+                  '</p></details>',
+              )
+              .join('');
+        return (
+          '<div class="overlay" id="backdrop"><section class="dialog" role="dialog" aria-modal="true" aria-labelledby="symposium-title"><div class="handle"></div><header class="dialoghead"><div class="row">' +
+          (symposiumAdding
+            ? '<button type="button" class="icon" id="symposium-back" aria-label="Back to Symposium agents">' +
+              icon('back') +
+              '</button>'
+            : '') +
+          '<h2 id="symposium-title" class="grow">' +
+          (symposiumAdding ? 'Add agent' : 'Symposium agents') +
+          '</h2><button type="button" class="icon" id="close-symposium" aria-label="Close Symposium agents">' +
+          icon('close') +
+          '</button></div></header><div class="dialogcontent">' +
+          body +
+          '</div><footer class="dialogfooter"><button type="button" class="primary" style="width:100%" id="' +
+          (symposiumAdding ? 'confirm-symposium-agent' : 'add-symposium-agent') +
+          '">' +
+          (symposiumAdding ? 'Add agent' : 'Add agent') +
+          '</button></footer></section></div>'
+        );
+      }
+      function render() {
+        const previousInput = document.getElementById('message');
+        if (previousInput?.dataset.owner)
+          composerTexts[previousInput.dataset.owner] = previousInput.value;
+        app.className = 'frame' + (size === 'wide' ? ' wide' : '');
+        app.innerHTML =
+          '<div class="appbody"><nav class="sidebar" aria-label="Main navigation"><strong>mitzo</strong><button type="button" class="active" id="nav-chats">' +
+          icon('chats') +
+          ' Chats</button><div style="padding:24px 10px;color:var(--muted);font-size:12px">Today</div><div style="padding:0 10px;font-size:14px">Message delivery recovery</div></nav><section class="chat">' +
+          appHeader() +
+          (activeDraft
+            ? '<div class="origin"><button type="button" id="drafts-back">' +
+              icon('back') +
+              'Back to drafts</button></div>'
+            : '') +
+          (child
+            ? '<div class="origin">Started from <button type="button" id="origin-back">Message delivery recovery ' +
+              icon('arrow') +
+              '</button></div>'
+            : '') +
+          '<div class="reply-return" id="reply-return" hidden><button type="button" id="back-to-reply">Back to reply ' +
+          icon('arrowDown') +
+          '</button></div>' +
+          '<div class="transcript"><div class="thread"><p class="stamp">Today · 9 November</p>' +
+          conversation() +
+          sent
+            .filter((t) => typeof t === 'string' || !t.chatKey || t.chatKey === composerKey())
+            .map(
+              (t, i) =>
+                '<div class="user reply-block" id="sent-reply-' +
+                i +
+                '" tabindex="-1" style="margin-bottom:16px">' +
+                (typeof t === 'string' || !t.reply ? '' : replyQuote(t.reply, 'sent-reply-' + i)) +
+                esc(typeof t === 'string' ? t : t.text) +
+                '</div>',
+            )
+            .join('') +
+          '</div></div>' +
+          appComposer() +
+          bottomnav() +
+          '</section></div>' +
+          (modal === 'review'
+            ? review()
+            : modal === 'related'
+              ? related()
+              : modal === 'inspect'
+                ? inspect()
+                : modal === 'configuration'
+                  ? configurationView()
+                  : modal === 'access'
+                    ? accessView()
+                    : modal === 'symposium'
+                      ? symposiumView()
+                      : '');
+        if (scene === 'library' && !activeDraft) {
+          app.innerHTML =
+            '<div class="appbody"><nav class="sidebar" aria-label="Main navigation"><strong>mitzo</strong><span class="accent">Chats</span></nav>' +
+            libraryView() +
+            '</div>';
+        }
+        document
+          .querySelectorAll('[data-concept]')
+          .forEach((b) => b.setAttribute('aria-pressed', b.dataset.concept === concept));
+        document
+          .querySelectorAll('[data-scene]')
+          .forEach((b) => b.setAttribute('aria-pressed', b.dataset.scene === scene));
+        document
+          .querySelectorAll('[data-size]')
+          .forEach((b) => b.setAttribute('aria-pressed', b.dataset.size === size));
+        document.getElementById('notes').innerHTML =
+          '<span class="badge">' +
+          (concept === 'sheet' ? 'Recommended' : 'Alternative') +
+          '</span><h2>' +
+          (scene === 'messages'
+            ? 'Messages, with a clear source.'
+            : concept === 'sheet'
+              ? 'A small review, in place.'
+              : 'More room for the handoff.') +
+          '</h2><p>' +
+          (scene === 'messages'
+            ? 'Chat events share one quiet timeline treatment. A linked chat name establishes the source; direction and delivery remain explicit. Long receipts expand in place.'
+            : concept === 'sheet'
+              ? 'Title and handoff first, with settings one tap away. A sheet on your phone; a small dialog on desktop.'
+              : 'A dedicated page makes room for long handoffs. The same fields and actions, with no wizard or extra step.') +
+          '</p><ol><li><strong>A shared visual language</strong>Started chats, received messages and sent messages use the same small event marker.</li><li><strong>Readable identity</strong>Chat titles lead. IDs and delivery receipts live in disclosure details. When a title is unavailable, use “Chat” plus a short ID.</li><li><strong>No permanent stack</strong>Started chats scroll with the conversation. Related chats holds the full list.</li><li><strong>Attention only when needed</strong>Unconfirmed starts keep one compact reminder. Message delivery failures stay attached to the message.</li></ol>' +
+          (scene === 'messages'
+            ? '<div class="delivery-picker"><label>Preview outgoing delivery state<select id="delivery-state"><option value="delivered">Delivered</option><option value="queued">Queued</option><option value="uncertain">Unconfirmed</option><option value="failed">Failed</option></select></label></div>'
+            : '') +
+          '<p class="divider hint">Try Setup, Cross-chat messages, and Related chats in the header. Expand the full message and delivery details. Every action here is simulated.</p>';
+        const picker = document.getElementById('delivery-state');
+        if (picker) {
+          picker.value = delivery;
+          picker.onchange = () => {
+            delivery = picker.value;
+            render();
+            const t = app.querySelector('.transcript');
+            t.scrollTop = t.scrollHeight;
+            document.getElementById('delivery-state').focus();
+          };
+        }
+        if (scene === 'replies') {
+          document.getElementById('notes').innerHTML =
+            '<span class="badge">Reply context</span><h2>The reply carries its source.</h2><p>A small quote inside the reply names the author, includes the time, and shows the actual message text. It stays attached as the conversation grows.</p><ol><li><strong>Tap the quote</strong>Jump to the exact original and highlight it. “Back to reply” returns to where you were.</li><li><strong>One pattern everywhere</strong>Use the same quote for replies to you, to another chat’s message, and while composing.</li><li><strong>No guessing</strong>If the source cannot be loaded, retain its reference and show an explicit unavailable state. Never substitute the newest message.</li></ol><label class="reply-demo-select">Preview reply target<select id="reply-source"><option value="you">Your earlier message</option><option value="agent">Another chat’s message</option><option value="missing">Original unavailable</option></select></label><p class="divider hint">Tap the quote above Mitzo’s answer. Then return, or use Reply on an original message to try the composer. Sample conversation is illustrative.</p>';
+          const sourcePicker = document.getElementById('reply-source');
+          sourcePicker.value = replySource;
+          sourcePicker.onchange = () => {
+            replySource = sourcePicker.value;
+            render();
+            showReply();
+            document.getElementById('reply-source').focus();
+          };
+        }
+        if (composerReply) {
+          const bar = document.createElement('div');
+          bar.className = 'composer-reply';
+          bar.innerHTML =
+            replyQuote(composerReply, 'message') +
+            '<button type="button" class="remove-reply icon" id="remove-reply" aria-label="Cancel reply">' +
+            icon('close') +
+            '</button>';
+          app.querySelector('.composebox').prepend(bar);
+        }
+        if (scene === 'library')
+          document.getElementById('notes').innerHTML =
+            '<span class="badge">Chats & drafts</span><h2>A section, like the rest.</h2><p>Drafts sits beside Pinned and Recent as a counted, collapsible list. The rows use the same type, separators and alignment. No promotional panel or extra subtitle.</p><ol><li><strong>Quiet until you need it</strong>One row shows Drafts and its count. Expand it to see your three latest drafts.</li><li><strong>Resume in place</strong>Choose a draft to edit its unsent message. Returning keeps your changes.</li><li><strong>Keep the full collection</strong>“All drafts” opens the complete list. This preview contains 15 illustrative drafts.</li></ol><p class="divider hint">Expand Drafts, resume a message, edit it, and return. Also try Reply context: quotes jump to their original message and back.</p>';
+        if (activeDraft) document.getElementById('message').value = activeDraft.text;
+        if (scene === 'access') accessNotes();
+        const newInput = document.getElementById('message');
+        if (newInput) {
+          newInput.dataset.owner = composerKey();
+          if (!activeDraft) newInput.value = composerTexts[composerKey()] || '';
+        }
+        app
+          .querySelectorAll('.event details>summary,.intervening>summary,.library-group>summary')
+          .forEach((s) => {
+            const span = document.createElement('span');
+            span.innerHTML = icon('down');
+            const arrow = span.firstElementChild;
+            arrow.classList.add('disclosure-icon');
+            if (s.parentElement.classList.contains('library-group')) s.prepend(arrow);
+            else s.append(arrow);
+          });
+        bind();
+      }
+      function bind() {
+        const on = (id, fn) => {
+          const e = document.getElementById(id);
+          if (e) e.onclick = fn;
+        };
+        on('review-request', (e) => openModal('review', e.currentTarget));
+        on('close-review', closeModal);
+        on('close-related', closeModal);
+        on('close-inspect', closeModal);
+        on('close-config', closeModal);
+        on('view-config', (e) => openModal('configuration', e.currentTarget));
+        on('header-settings', (e) => openModal('configuration', e.currentTarget));
+        on('related-button', (e) => {
+          accessPane = 'main';
+          accessNotice = '';
+          openModal('access', e.currentTarget);
+        });
+        on('agents-list', (e) => {
+          symposiumAdding = false;
+          openModal('symposium', e.currentTarget);
+        });
+        on('close-symposium', closeModal);
+        on('add-symposium-agent', () => {
+          symposiumAdding = true;
+          render();
+          document.getElementById('symposium-name').focus();
+        });
+        on('symposium-back', () => {
+          symposiumAdding = false;
+          render();
+          document.getElementById('add-symposium-agent').focus();
+        });
+        on('confirm-symposium-agent', () => {
+          const name = document.getElementById('symposium-name').value.trim(),
+            purpose = document.getElementById('symposium-purpose').value.trim();
+          if (!name || !purpose) {
+            document.getElementById('symposium-error').textContent = 'Enter a name and purpose.';
+            return;
+          }
+          symposiumAgents.push({
+            name,
+            purpose,
+            model: document.getElementById('symposium-model').value,
+          });
+          symposiumAdding = false;
+          render();
+          announce('Example Symposium agent added. Linked chats and permissions unchanged.');
+        });
+        on('nav-chats', () => {
+          scene = 'library';
+          modal = '';
+          activeDraft = null;
+          child = false;
+          render();
+        });
+        on('app-back', () => {
+          if (activeDraft) {
+            activeDraft = null;
+            sent = [];
+            render();
+            return;
+          }
+          if (child) {
+            child = false;
+            modal = '';
+            render();
+          } else {
+            scene = 'library';
+            modal = '';
+            render();
+          }
+        });
+        on('origin-back', () => {
+          child = false;
+          modal = '';
+          render();
+        });
+        on('cancel-request', () => {
+          cancelled = true;
+          modal = '';
+          scene = 'review';
+          render();
+          announce('Request declined. No session started.');
+          document.getElementById('message').focus();
+        });
+        on('start-chat', () => {
+          if (!draft.title.trim() || !draft.prompt.trim()) return;
+          started = true;
+          extraLinkedChats.unshift({
+            id: 'created-' + extraLinkedChats.length,
+            title: draft.title,
+            status: 'Running',
+            child: 0,
+          });
+          needsAttention = false;
+          scene = 'started';
+          modal = '';
+          render();
+          announce('Chat started. You are still in the original conversation.');
+          document.getElementById('related-button').focus();
+        });
+        on('attention-review', (e) => openModal('inspect', e.currentTarget));
+        on('message-check', () => {
+          const result = document.getElementById('delivery-result');
+          result.textContent =
+            delivery === 'failed'
+              ? 'Delivery failed. Open the recipient chat to review the retained message before trying again.'
+              : 'Delivery is still unconfirmed. The existing request is retained; no duplicate was sent.';
+          document.getElementById('message-check').disabled = true;
+          announce(result.textContent);
+        });
+        on('check-status', () => {
+          document.getElementById('check-result').textContent =
+            'Handoff delivery confirmed. The chat is running.';
+          needsAttention = false;
+          started = true;
+          scene = 'started';
+          document.getElementById('check-status').disabled = true;
+          announce('Handoff delivery confirmed. The chat is running.');
+        });
+        on('send', () => {
+          const m = document.getElementById('message');
+          if (!m.value.trim()) return;
+          sent.push({
+            text: m.value.trim(),
+            ...(composerReply ? { reply: { ...composerReply } } : {}),
+            chatKey: composerKey(),
+          });
+          composerTexts[composerKey()] = '';
+          m.value = '';
+          composerReply = null;
+          if (activeDraft) activeDraft.text = '';
+          render();
+          const t = app.querySelector('.transcript');
+          t.scrollTop = t.scrollHeight;
+          document.getElementById('message').focus();
+        });
+        on('remove-reply', () => {
+          const text = document.getElementById('message').value;
+          composerReply = null;
+          render();
+          document.getElementById('message').value = text;
+          document.getElementById('message').focus();
+        });
+        app.querySelectorAll('[data-reply-source]').forEach(
+          (b) =>
+            (b.onclick = () => {
+              const text = document.getElementById('message').value;
+              composerReply = { ...replySources[b.dataset.replySource] };
+              render();
+              document.getElementById('message').value = text;
+              document.getElementById('message').focus();
+              announce('Replying to ' + composerReply.author + ' at ' + composerReply.time);
+            }),
+        );
+        app.querySelectorAll('.jump-reply-source').forEach(
+          (b) =>
+            (b.onclick = () => {
+              const target = document.getElementById(b.dataset.source);
+              if (!target) {
+                announce('The original message is not available in this view.');
+                return;
+              }
+              replyReturn = b.dataset.return;
+              app
+                .querySelectorAll('.highlighted')
+                .forEach((e) => e.classList.remove('highlighted'));
+              target.classList.add('highlighted');
+              document.getElementById('reply-return').hidden = false;
+              const t = app.querySelector('.transcript');
+              t.scrollTop +=
+                target.getBoundingClientRect().top - t.getBoundingClientRect().top - 20;
+              target.focus({ preventScroll: true });
+              announce('Original message highlighted. Use Back to reply to return.');
+            }),
+        );
+        on('back-to-reply', () => {
+          const target = document.getElementById(replyReturn);
+          document.getElementById('reply-return').hidden = true;
+          app.querySelectorAll('.highlighted').forEach((e) => e.classList.remove('highlighted'));
+          if (target) {
+            const t = app.querySelector('.transcript');
+            if (replyReturn !== 'message')
+              t.scrollTop +=
+                target.getBoundingClientRect().top - t.getBoundingClientRect().top - 20;
+            target.focus({ preventScroll: true });
+          }
+          announce('Returned to reply.');
+        });
+        app.querySelectorAll('.load-original').forEach(
+          (b) =>
+            (b.onclick = () => {
+              b.closest('.reply-unavailable').querySelector('.load-result').textContent =
+                'The original is still unavailable. This reply and its reference are retained.';
+              b.disabled = true;
+              announce('Original message unavailable. The reply is retained.');
+            }),
+        );
+        app.querySelectorAll('.open-child').forEach(
+          (b) =>
+            (b.onclick = () => {
+              child = true;
+              if (scene === 'library') scene = 'messages';
+              composerReply = null;
+              childIndex = Number(b.dataset.child);
+              modal = '';
+              render();
+              app.querySelector('#app-back').focus();
+            }),
+        );
+        app
+          .querySelectorAll('.check-request')
+          .forEach((b) => (b.onclick = (e) => openModal('inspect', e.currentTarget)));
+        on('backdrop', (e) => {
+          if (e.target === e.currentTarget) closeModal();
+        });
+        app.querySelectorAll('[data-field]').forEach((el) => {
+          el.addEventListener('input', () => {
+            draft[el.dataset.field] = el.type === 'checkbox' ? el.checked : el.value;
+            const start = document.getElementById('start-chat');
+            if (start) start.disabled = !draft.title.trim() || !draft.prompt.trim();
+            const summary = document.getElementById('settings-summary');
+            if (summary)
+              summary.textContent = draft.model + ' · ' + draft.location + ' · ' + draft.mode;
+            const note = app.querySelector('.default-note');
+            if (note)
+              note.textContent = draft.defaults
+                ? 'These settings will become your saved default.'
+                : 'Using your saved defaults. Changes apply to this chat.';
+          });
+        });
+        const pane = (next) => {
+          accessPane = next;
+          accessNotice = '';
+          render();
+          app.querySelector('[role=dialog] button')?.focus();
+        };
+        on('close-access', closeModal);
+        on('access-pane-back', () =>
+          pane(
+            ['grant', 'revoke', 'pending'].includes(accessPane)
+              ? 'grants'
+              : accessPane === 'linked'
+                ? 'chats'
+                : 'main',
+          ),
+        );
+        on('all-linked-chats', () => pane('chats'));
+        on('link-existing', () => pane('link'));
+        on('access-connections', () => pane('connections'));
+        on('access-grants', () => pane('grants'));
+        on('access-pending', () => pane('pending'));
+        on('access-new-chat', () => {
+          scene = 'review';
+          activeDraft = null;
+          child = false;
+          modal = 'review';
+          render();
+          document.getElementById('draft-title').focus();
+        });
+        app.querySelectorAll('.add-link').forEach(
+          (b) =>
+            (b.onclick = () => {
+              const c = unlinkedChats.find((c) => c.id === b.dataset.link);
+              if (!c) return;
+              extraLinkedChats.push({ ...c, child: 0 });
+              unlinkedChats = unlinkedChats.filter((x) => x.id !== c.id);
+              accessNotice = 'Chat linked. Permissions unchanged.';
+              accessPane = 'main';
+              render();
+              announce(accessNotice);
+            }),
+        );
+        app.querySelectorAll('.inspect-linked').forEach(
+          (b) =>
+            (b.onclick = () => {
+              accessReturn = linkedChats().find((c) => c.id === b.dataset.linked);
+              pane('linked');
+            }),
+        );
+        on('unlink-chat', () => {
+          hiddenLinkedIds.push(accessReturn.id);
+          accessNotice = 'Link removed. The chat and its permissions are retained.';
+          accessPane = 'main';
+          render();
+          announce(accessNotice);
+        });
+        on('refresh-access', () => {
+          accessState = 'current';
+          accessNotice = 'Observation refreshed in this simulation.';
+          render();
+        });
+        on('new-access-grant', () => {
+          selectedGrantChats = ['this-chat'];
+          pane('grant');
+        });
+        const kindSelect = document.getElementById('grant-kind');
+        if (kindSelect)
+          kindSelect.onchange = () => {
+            accessGrantKind = kindSelect.value;
+            render();
+          };
+        const scopeSelect = document.getElementById('grant-scope');
+        if (scopeSelect)
+          scopeSelect.onchange = () => {
+            grantScope = scopeSelect.value;
+            render();
+          };
+        const grantResource = document.getElementById('grant-resource');
+        if (grantResource) {
+          grantResource.value =
+            accessGrantKind === 'github-read' ? grantFields.repository : grantFields.resource;
+          grantResource.oninput = () => {
+            grantFields[accessGrantKind === 'github-read' ? 'repository' : 'resource'] =
+              grantResource.value;
+          };
+        }
+        const grantEmail = document.getElementById('grant-email');
+        if (grantEmail) {
+          grantEmail.value = grantFields.email;
+          grantEmail.oninput = () => {
+            grantFields.email = grantEmail.value;
+          };
+        }
+        const googleKind = document.getElementById('grant-google-kind');
+        if (googleKind) {
+          googleKind.value = grantFields.googleKind;
+          const applyGoogleKind = () => {
+            grantFields.googleKind = googleKind.value;
+            document.getElementById('grant-resource-field').hidden =
+              googleKind.value === 'drive-list';
+          };
+          googleKind.onchange = applyGoogleKind;
+          applyGoogleKind();
+        }
+        const duration = document.getElementById('grant-minutes');
+        if (duration) duration.onchange = () => (grantMinutes = duration.value);
+        app.querySelectorAll('.grant-chat').forEach(
+          (c) =>
+            (c.onchange = () => {
+              selectedGrantChats = [...app.querySelectorAll('.grant-chat:checked')].map(
+                (c) => c.value,
+              );
+            }),
+        );
+        on('confirm-access-grant', () => {
+          if (accessState !== 'current') return;
+          const error = document.getElementById('grant-validation');
+          if (!selectedGrantChats.length) {
+            error.textContent = 'Select at least one chat.';
+            return;
+          }
+          if (
+            accessGrantKind === 'github-read' &&
+            !/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(grantFields.repository)
+          ) {
+            error.textContent = 'Enter a repository as owner/name.';
+            return;
+          }
+          if (
+            accessGrantKind === 'google-read' &&
+            (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(grantFields.email) ||
+              (grantFields.googleKind !== 'drive-list' && !grantFields.resource.trim()))
+          ) {
+            error.textContent = 'Enter a Google account and the selected resource.';
+            return;
+          }
+          if (accessGrantKind === 'telos-progress' && !grantFields.resource.trim()) {
+            error.textContent = 'Enter the exact Telos item.';
+            return;
+          }
+          const label = document.querySelector('#grant-kind option:checked').textContent;
+          const resource =
+            accessGrantKind === 'github-read'
+              ? grantFields.repository
+              : accessGrantKind === 'google-read'
+                ? grantFields.email
+                : accessGrantKind === 'telos-progress'
+                  ? grantFields.resource
+                  : '';
+          sampleGrants.push({
+            id: 'grant-' + sampleGrants.length,
+            name: label + (resource ? ' · ' + resource : ''),
+            scope:
+              grantScope === 'sessions'
+                ? selectedGrantChats
+                    .map((id) =>
+                      id === 'this-chat'
+                        ? 'This chat'
+                        : linkedChats().find((c) => c.id === id)?.title || 'Unavailable chat',
+                    )
+                    .join(', ')
+                : grantScope === 'repository'
+                  ? 'dimakis/mitzo · Personal ChatGPT · includes future chats'
+                  : 'This login · Personal ChatGPT · includes future chats',
+            expiry:
+              'Until ' +
+              new Date(Date.now() + Number(grantMinutes) * 60000).toLocaleTimeString([], {
+                hour: '2-digit',
+                minute: '2-digit',
+              }),
+            state: 'active',
+          });
+          accessPane = 'grants';
+          accessNotice = 'Access granted in this simulation.';
+          render();
+          announce(accessNotice);
+        });
+        app.querySelectorAll('.revoke-grant').forEach(
+          (b) =>
+            (b.onclick = () => {
+              if (accessState !== 'current') return;
+              accessReturn = sampleGrants.find((g) => g.id === b.dataset.grant);
+              pane('revoke');
+            }),
+        );
+        on('confirm-revoke', () => {
+          if (accessState !== 'current') return;
+          accessReturn.state = 'revoked';
+          accessNotice = 'Grant revoked for every included chat.';
+          accessPane = 'grants';
+          render();
+          announce(accessNotice);
+        });
+        const answerPending = (allowed) => {
+          if (accessState !== 'current') return;
+          pendingApproval = false;
+          accessNotice = allowed
+            ? 'The example request was allowed once. Linked chats gained no access.'
+            : 'The example request was denied.';
+          accessPane = 'grants';
+          render();
+          announce(accessNotice);
+        };
+        on('allow-demo-approval', () => answerPending(true));
+        on('deny-demo-approval', () => answerPending(false));
+        const dg = document.getElementById('draft-group');
+        if (dg) dg.ontoggle = () => (draftGroupOpen = dg.open);
+        on('view-all-drafts', () => {
+          allDrafts = true;
+          render();
+          app.querySelector('.library-scroll').scrollTop = 0;
+          document.getElementById('all-drafts-back').focus();
+        });
+        on('all-drafts-back', () => {
+          allDrafts = false;
+          render();
+          document.getElementById('draft-group').querySelector('summary').focus();
+        });
+        on('drafts-back', () => {
+          activeDraft = null;
+          sent = [];
+          render();
+          app.querySelector('.resume-draft')?.focus();
+        });
+        on('library-new-chat', () => {
+          scene = 'review';
+          modal = 'review';
+          activeDraft = null;
+          render();
+        });
+        app.querySelectorAll('.resume-draft').forEach(
+          (b) =>
+            (b.onclick = () => {
+              activeDraft = savedDrafts.find((x) => x.id === Number(b.dataset.draft));
+              sent = [];
+              render();
+              document.getElementById('message').focus();
+              announce('Draft resumed. Nothing has been sent.');
+            }),
+        );
+        const messageInput = document.getElementById('message');
+        if (messageInput && activeDraft)
+          messageInput.addEventListener('input', () => {
+            activeDraft.text = messageInput.value;
+          });
+        const s = document.getElementById('settings');
+        if (s) s.ontoggle = () => (settingsOpen = s.open);
+        const a = document.getElementById('advanced');
+        if (a) a.ontoggle = () => (advancedOpen = a.open);
+      }
+      document.querySelectorAll('[data-concept]').forEach(
+        (b) =>
+          (b.onclick = () => {
+            concept = b.dataset.concept;
+            activeDraft = null;
+            scene = 'review';
+            modal = 'review';
+            child = false;
+            started = false;
+            needsAttention = false;
+            cancelled = false;
+            render();
+          }),
+      );
+      document.querySelectorAll('[data-size]').forEach(
+        (b) =>
+          (b.onclick = () => {
+            size = b.dataset.size;
+            render();
+          }),
+      );
+      document.querySelectorAll('[data-scene]').forEach(
+        (b) =>
+          (b.onclick = () => {
+            scene = b.dataset.scene;
+            activeDraft = null;
+            child = false;
+            cancelled = false;
+            started = scene === 'started' || scene === 'messages';
+            needsAttention = scene === 'attention';
+            accessPane = 'main';
+            accessNotice = '';
+            modal = scene === 'review' ? 'review' : scene === 'access' ? 'access' : '';
+            sent = [];
+            composerReply = null;
+            render();
+            if (scene === 'replies') showReply();
+          }),
+      );
+      function previewTheme(value) {
+        document.documentElement.dataset.theme = value;
+        document.getElementById('preview-theme').value = value;
+        document.getElementById('theme').innerHTML = icon(value === 'light' ? 'moon' : 'sun');
+        document
+          .getElementById('theme')
+          .setAttribute(
+            'aria-label',
+            'Switch to ' + (value === 'light' ? 'dark' : 'light') + ' theme',
+          );
+      }
+      document.getElementById('theme').onclick = () =>
+        previewTheme(document.documentElement.dataset.theme === 'light' ? 'dark' : 'light');
+      document.getElementById('preview-theme').onchange = (e) => previewTheme(e.target.value);
+      document.getElementById('preview-accent').onchange = (e) =>
+        (document.documentElement.dataset.accent = e.target.value);
+      document.getElementById('preview-font').onchange = (e) =>
+        (document.documentElement.dataset.font = e.target.value);
+      previewTheme('dark');
+      document.documentElement.dataset.accent = 'mint';
+      document.documentElement.dataset.font = 'georgia';
+      document.addEventListener('keydown', (e) => {
+        if (!modal) return;
+        if (e.key === 'Escape') {
+          e.preventDefault();
+          if (modal === 'symposium' && symposiumAdding) {
+            symposiumAdding = false;
+            render();
+            document.getElementById('add-symposium-agent').focus();
+            return;
+          }
+          if (modal === 'access' && accessPane !== 'main') {
+            accessPane = ['grant', 'revoke', 'pending'].includes(accessPane) ? 'grants' : 'main';
+            render();
+            return;
+          }
+          closeModal();
+          return;
+        }
+        if (e.key === 'Tab') {
+          const d = app.querySelector('[role=dialog]');
+          if (!d) return;
+          const focusable = [
+            ...d.querySelectorAll('button:not([disabled]),input,textarea,select,summary'),
+          ].filter((x) => x.getClientRects().length);
+          const first = focusable[0],
+            last = focusable.at(-1);
+          if (
+            e.shiftKey &&
+            (document.activeElement === first || !d.contains(document.activeElement))
+          ) {
+            e.preventDefault();
+            last.focus();
+          } else if (
+            !e.shiftKey &&
+            (document.activeElement === last || !d.contains(document.activeElement))
+          ) {
+            e.preventDefault();
+            first.focus();
+          }
+        }
+      });
+      function showReply() {
+        const t = app.querySelector('.transcript');
+        if (t) t.scrollTop = t.scrollHeight;
+      }
+      render();
+      showReply();
+    </script>
+  </body>
+</html>

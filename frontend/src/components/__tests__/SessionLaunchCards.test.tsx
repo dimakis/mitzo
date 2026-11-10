@@ -87,6 +87,8 @@ it('reviews without starting, then submits explicit edited approval and default 
   );
   fireEvent.click(screen.getByRole('button', { name: 'Review new session' }));
   expect(apiFetch).not.toHaveBeenCalled();
+  expect(screen.getByText('Session settings').closest('details')?.open).toBe(false);
+  expect(screen.getByRole('button', { name: 'Approve & start' }).closest('fieldset')).toBeNull();
   fireEvent.change(screen.getByLabelText('Title'), { target: { value: 'Notifications' } });
   fireEvent.change(screen.getByLabelText('Handoff prompt'), {
     target: { value: 'Reviewed handoff' },

@@ -249,6 +249,7 @@ function useSharedConversation({
     view: active ? view : undefined,
     authScope,
     getVerifiedAuthScope,
+    refreshTranscript: presentation.observeTranscript,
   });
   return {
     sourceConversationId,

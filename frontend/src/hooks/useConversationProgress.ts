@@ -10,8 +10,9 @@ export function useConversationProgress(options: {
   view?: CollaborationView;
   authScope?: string;
   getVerifiedAuthScope(): string | undefined;
+  refreshTranscript(): Promise<unknown>;
 }) {
-  const { api, view, authScope, getVerifiedAuthScope } = options;
+  const { api, view, authScope, getVerifiedAuthScope, refreshTranscript } = options;
   const group = view?.collaborationId;
   const membership = view?.membershipRevision;
   const audience = JSON.stringify([
@@ -19,8 +20,16 @@ export function useConversationProgress(options: {
     view?.unavailableParticipantSessionIds,
   ]);
   const owner = useMemo(
-    () => ({ api, group, membership, audience, authScope, getVerifiedAuthScope }),
-    [api, group, membership, audience, authScope, getVerifiedAuthScope],
+    () => ({
+      api,
+      group,
+      membership,
+      audience,
+      authScope,
+      getVerifiedAuthScope,
+      refreshTranscript,
+    }),
+    [api, group, membership, audience, authScope, getVerifiedAuthScope, refreshTranscript],
   );
   const [state, setState] = useState<{
     owner: object;
@@ -53,9 +62,24 @@ export function useConversationProgress(options: {
       try {
         const progress = await api.progress(group!, requestController.signal);
         if (!fresh()) return;
-        if (progress.membershipRevision !== membership)
+        if (progress.collaborationId !== group)
           throw Error('The conversation changed. Refresh before reading live replies.');
+        if (progress.membershipRevision !== membership) {
+          // Discard this audience's live material, then renew the independently
+          // authorized view. Otherwise a remote membership change would leave
+          // this observer rejecting every later sample against its stale view.
+          setState({
+            owner,
+            error: 'The conversation changed. Refresh before reading live replies.',
+          });
+          await refreshTranscript();
+          return;
+        }
         setState({ owner, progress });
+        // Every authorized sample also checks durable finalized replies. A fast
+        // turn can finish entirely between samples, so disappearance alone is
+        // insufficient. This read never depends on a local send journal.
+        await refreshTranscript();
       } catch (cause) {
         if (fresh())
           setState({
@@ -95,6 +119,6 @@ export function useConversationProgress(options: {
       window.removeEventListener(AUTH_LOST_EVENT, lost);
       window.removeEventListener(AUTH_RESTORED_EVENT, restored);
     };
-  }, [owner, api, group, membership, authScope, getVerifiedAuthScope]);
+  }, [owner, api, group, membership, authScope, getVerifiedAuthScope, refreshTranscript]);
   return state.owner === owner && getVerifiedAuthScope() === authScope ? state : { owner };
 }
