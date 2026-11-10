@@ -161,6 +161,28 @@ it('keeps definite preflight refusals editable without another request check', a
   expect((screen.getByLabelText('Model') as HTMLInputElement).value).toBe('corrected-model');
   expect(apiFetch).toHaveBeenCalledTimes(1);
 });
+it('explains unsupported context before approval while preserving the handover', () => {
+  render(
+    <SessionLaunchCards
+      requests={[
+        {
+          ...proposal,
+          configuration: { ...configuration, contextBlocks: ['named-context'] },
+        },
+      ]}
+      onUpdate={vi.fn()}
+    />,
+  );
+  fireEvent.click(screen.getByRole('button', { name: 'Review new session' }));
+  expect(screen.getByText(/Put the handover text in Handoff prompt/)).toBeTruthy();
+  expect(screen.getByRole('button', { name: 'Approve & start' }).hasAttribute('disabled')).toBe(
+    true,
+  );
+  expect((screen.getByLabelText('Handoff prompt') as HTMLTextAreaElement).value).toBe(
+    proposal.prompt,
+  );
+  expect(apiFetch).not.toHaveBeenCalled();
+});
 it('resumes an interrupted startup only after an explicit action using its retained revision', async () => {
   vi.mocked(apiFetch).mockResolvedValue(
     new Response(JSON.stringify({ ...proposal, state: 'created' })),

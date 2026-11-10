@@ -1,6 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
-import type { SessionLaunchConfig, SessionLaunchRecord } from '@mitzo/protocol';
+import {
+  sessionLaunchConfigurationReason,
+  type SessionLaunchConfig,
+  type SessionLaunchRecord,
+} from '@mitzo/protocol';
 import { apiFetch, AUTH_LOST_EVENT } from '../lib/api-fetch';
 import { HomeDialog } from './HomeDialog';
 import { UiIcon } from './UiIcon';
@@ -83,6 +87,7 @@ export function LaunchReview({
   }, []);
   const checking = checkFrom !== null;
   const pending = request.state === 'pending';
+  const configurationReason = sessionLaunchConfigurationReason(configuration) ?? invalid;
   useEffect(() => {
     if (!checkFrom || busy) return;
     const observed = create
@@ -249,7 +254,7 @@ export function LaunchReview({
             )}
           </fieldset>
         </div>
-        {invalid && pending && <p role="status">{invalid}</p>}
+        {configurationReason && pending && <p role="status">{configurationReason}</p>}
         {disabled && <p role="status">Confirming conversation settings before approval.</p>}
         {error && <p role="alert">{error}</p>}
         {pending && (
@@ -275,7 +280,7 @@ export function LaunchReview({
                     busy ||
                     disabled ||
                     authorityLost ||
-                    !!invalid ||
+                    !!configurationReason ||
                     !title.trim() ||
                     !prompt.trim()
                   }

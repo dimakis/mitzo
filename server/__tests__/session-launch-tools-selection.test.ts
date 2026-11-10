@@ -7,9 +7,9 @@ const explicit: SymposiumProfileDefinition = {
   ...defaultMitzoProfileDefinition,
   tools: [{ id: 'mitzo:AgentCommunication', version: 1 }],
 };
-it('accepts exposed tools without changing a pinned profile or tool version', () => {
+it('accepts exposed tools without changing a pinned profile or tool version', async () => {
   const before = structuredClone(explicit);
-  expect(() => assertSessionLaunchTools(['AgentCommunication'], explicit)).not.toThrow();
+  await expect(assertSessionLaunchTools(['AgentCommunication'], explicit)).resolves.toBeUndefined();
   expect(explicit).toEqual(before);
 });
 it.each([
@@ -24,9 +24,9 @@ it.each([
   ['PrepareRepositoryChat', defaultMitzoProfileDefinition, /unavailable/],
 ] as const)(
   'refuses incompatible tool %s without widening the profile',
-  (name, profile, reason) => {
-    expect(() => assertSessionLaunchTools([name], profile as SymposiumProfileDefinition)).toThrow(
-      reason,
-    );
+  async (name, profile, reason) => {
+    await expect(
+      assertSessionLaunchTools([name], profile as SymposiumProfileDefinition),
+    ).rejects.toThrow(reason);
   },
 );

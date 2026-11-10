@@ -1,14 +1,14 @@
 import type { SymposiumProfileDefinition } from '@mitzo/protocol';
-import { agentToolCatalog } from './agent-tool-catalog.js';
 import { SessionLaunchError } from './session-launch-store.js';
 
 /** Legacy additional-tool intent can require an exposed tool, never widen a
  * published profile. Actual calls still use their ordinary approval owners. */
-export function assertSessionLaunchTools(
+export async function assertSessionLaunchTools(
   names: readonly string[],
   definition: SymposiumProfileDefinition,
 ) {
   if (!names.length) return;
+  const { agentToolCatalog } = await import('./agent-tool-catalog.js');
   const catalog = agentToolCatalog();
   for (const name of names) {
     const tool = catalog.find((entry) => entry.name === name);
