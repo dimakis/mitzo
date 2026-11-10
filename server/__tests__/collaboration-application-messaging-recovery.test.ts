@@ -154,15 +154,21 @@ it('delivers every old pending reader item once across keyset pages and owner re
   shareWithReader();
   acknowledgeRecordedPrompts();
   const old = [];
-  for (let i = 0; i < 105; i++)
-    old.push(
-      await owner.send(
-        auth,
-        group,
-        input('one', `Ordered context ${i}`),
-        new AbortController().signal,
-      ),
+  for (let i = 0; i < 105; i++) {
+    const message = store.collaborationConversation.acceptMessage(
+      group,
+      input('one', `Ordered context ${i}`),
     );
+    const delivery = message.deliveries.find((d) => d.sessionId === 'one')!;
+    store.collaborationConversation.recordDelivery(group, message.messageId, delivery.deliveryId, {
+      requestId: randomUUID(),
+      expectedRevision: delivery.revision,
+      status: 'delivered',
+      commandId: `acknowledged-fixture-${i}`,
+      reason: null,
+    });
+    old.push(message);
+  }
   owner.close();
   acknowledgeRecordedPrompts();
   const request = input('two', 'Review all retained discussion');
@@ -179,7 +185,7 @@ it('delivers every old pending reader item once across keyset pages and owner re
         .deliveries.find((d) => d.sessionId === 'two'),
     ).toMatchObject({ status: 'delivered', commandId: accepted.deliveries[0].commandId });
   await owner.send(auth, group, request, new AbortController().signal);
-  expect(prompts).toHaveLength(106);
+  expect(prompts).toHaveLength(1);
   await owner.send(auth, group, input('two', 'Next explicit turn'), new AbortController().signal);
   expect(prompts.at(-1)!.text).not.toContain('Ordered context');
 });

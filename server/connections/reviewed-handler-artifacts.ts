@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.988-symposium-long-discussion-delivery';
+  'v1.0.989-symposium-long-discussion-ci-recovery';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -159,7 +159,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../tests/offline/symposium-composer.spec.ts':
     '8b77ba1c163f793e459eb7005e4f5c55c9f0b8d53dac863d862d58002ce47bbf',
   '../../docs/evidence/symposium-integration-acceptance.md':
-    '245dc2798cbfcc6735b0e3f201240e915a3bb1bd245a55624637c445186561fd',
+    'eccc7e11318df63cd1d0885c273253894b8efb413bddd7a42a48a6ce535ee804',
   '../../docs/features/symposium.md':
     'a9ea72b5128add53dd46413bdca9c3715fc5378c4cd933856cb5e6451d562e80',
   '../repository-capability-identity.ts':
@@ -226,7 +226,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../tests/integration/telos-s9/integrated-candidate/joined-conversation-ready.test.ts':
     '6faad0a87ed0b5fe92d7b62abae7e379ee498fd934de04f879b289f30c60e9e0',
   '../__tests__/collaboration-application-messaging-recovery.test.ts':
-    '76f72e83d39f2b7f64b13bb9250b3b3d46f53b5b7c94e6dd2ad5f8f1fa62dcd4',
+    '904050d94f297a43d901a03b6417797826be31f78d44694d6f5442bcd99e91bc',
   '../collaboration-application-messaging.ts':
     'c65044f36f6542755003a84cc4ce9006dd40587dccf71e7f89785533419bafb2',
   '../__tests__/collaboration-application-messaging.test.ts':
@@ -301,7 +301,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/components/SessionLaunchCards.tsx':
     '4314b8e6bf237dcc9758f525bc735542198f808419588a1ef89768591bf1e57f',
   '../../frontend/src/components/SessionLaunchConfigEditor.tsx':
-    '0a404dff73fbda3e47c27b0d45e33c5c891f824ad8cf925e34013f1c8d05e46b',
+    'da0eb1d4d4a2ccfd7947dedf1fccca714bae5c6822a2e53e152e209b84372665',
   '../../frontend/src/components/SessionLaunchDefaultsControl.tsx':
     '9a0cefd867659fc0c1c435483af276cf72a387d35df9568ad1bb1e267fa0d990',
   '../../frontend/src/components/__tests__/ChatInputSessionDefaults.test.tsx':
@@ -309,7 +309,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/components/__tests__/SessionLaunchCards.test.tsx':
     '2cf9b9bfa2079d8ef0888d67386820e06433c42f6ff112f640edb0ab7c7ae0ec',
   '../../frontend/src/components/__tests__/SessionLaunchConfigEditor.test.tsx':
-    'ef0fb010172183e4873862697af7ccdebf55fe46641b2e5c7cf0b620fcdfda88',
+    '0e8ecfddae61a242f1518c19797f8f965e66868f0ebf02b505847fad44cd5e07',
   '../../frontend/src/components/__tests__/SessionLaunchDefaultsControl.test.tsx':
     '156bfbfbd9cf9e5c1131271a4d31a7141b9e4762691cd0b6fc5668f8ac61d682',
   '../../frontend/src/hooks/__tests__/useNewChatDraft.defaults.test.tsx':
@@ -364,7 +364,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../tests/offline/session-launch-defaults.spec.ts':
     'ae3c090d73c638be6fbac36b79e6587416a2cd96837af2daf67dcb59b6434b35',
   '../../tests/offline/session-launch.spec.ts':
-    '0640f23bb893a38760cca46843e59f418d29164211b41123fb25dc8ddc83f0b5',
+    '37a7bbd962025a9fac97801340100a9ae53387848782c49f2c0ca10ae31ddd1f',
   '../host-codex-login-refresh-ledger.ts':
     'c85951c34922072589a206af17b55dfc57e400e440b9d1348e98b8a482e84bea',
   '../host-codex-login-recovery-command.ts':

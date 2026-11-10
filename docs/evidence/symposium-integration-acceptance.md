@@ -41,6 +41,19 @@ combined qualification. The live Telos evidence edit remains unavailable/uncerta
 under its retained original request; no replay or completion claim is made. Source
 landing, offline acceptance, deployment and live user acceptance stay separate.
 
+Initial hosted run `42773240655` failed two checks. The 105-item owner regression
+exceeded its unchanged five-second deadline while repeatedly dispatching setup
+turns; setup now seeds acknowledged history through the real durable store and
+keeps the pending-reader dispatch, page/order/ACK, restart and retry assertions.
+The separate real application journey still executes its 27 native turns.
+The desktop browser check caught an existing session-launch race: automatic
+capability review published a new configuration with identical runtime choices,
+making the next explicit host edit look stale before React rerendered. Three
+deterministic regression variants failed, then passed after semantic no-op reviews
+stopped rewriting configuration. Existing stale-callback checks remain. The browser
+now also checks that the selected host stays selected before approval. No deadline,
+coverage, design reference or assertion was weakened; fresh combined CI is required.
+
 ## 10 November 2026 finalized-reply recovery and complete joining controls
 
 Accepted main `279e6703dedebaeb130993fd6e2657b2aed73c0a` contains #1252's

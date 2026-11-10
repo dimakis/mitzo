@@ -31,9 +31,23 @@ export function SessionLaunchConfigEditor(props: {
         // Inventory observation/review may finish after an explicit field edit.
         // A callback from an older configuration cannot restore that snapshot.
         if (currentConfiguration.current !== configuration) return;
-        const updated = { ...configuration, runtime: sessionLaunchRuntime(next) };
-        currentConfiguration.current = updated;
+        const runtime = sessionLaunchRuntime(next);
         setCapabilityRevision(next.capabilityRevision);
+        // Capability observation does not edit launch intent. Publishing a new
+        // configuration for identical choices would reject the next explicit
+        // field event from these still-rendered controls as a stale callback.
+        if (
+          JSON.stringify(runtime) ===
+          JSON.stringify(
+            sessionLaunchRuntime({
+              ...configuration.runtime,
+              capabilityRevision: null,
+            }),
+          )
+        )
+          return;
+        const updated = { ...configuration, runtime };
+        currentConfiguration.current = updated;
         onChange(updated);
       },
     }),

@@ -80,6 +80,7 @@ for (const theme of ['dark', 'light']) {
     await dialog.getByLabel('Title', { exact: true }).fill('Approval notifications');
     await expect(dialog.getByLabel('Execution host')).toHaveValue('mac');
     await dialog.getByLabel('Execution host').selectOption('build-mac');
+    await expect(dialog.getByLabel('Execution host')).toHaveValue('build-mac');
     await dialog.getByLabel('Save configuration as default').check();
     await page.screenshot({ path: info.outputPath(`session-launch-${theme}-review.png`) });
     const bounds = await dialog.boundingBox();
@@ -93,6 +94,7 @@ for (const theme of ['dark', 'light']) {
     await expect(trigger).toBeFocused();
     await trigger.click();
     await dialog.getByLabel('Execution host').selectOption('build-mac');
+    await expect(dialog.getByLabel('Execution host')).toHaveValue('build-mac');
     await dialog.getByLabel('Save configuration as default').check();
     await dialog.getByRole('button', { name: 'Approve & start' }).click();
     await expect(dialog).toBeHidden();
