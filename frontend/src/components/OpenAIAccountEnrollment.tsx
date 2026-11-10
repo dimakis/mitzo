@@ -190,9 +190,9 @@ export function OpenAIAccountEnrollment({
   return (
     <section
       className="connections-card openai-account-enrollment"
-      aria-labelledby="openai-enrollment-heading"
+      aria-label="Add a new AI API account"
     >
-      <h2 id="openai-enrollment-heading">Add a new AI API account</h2>
+      <h2>Add a new AI API account</h2>
       <p>
         Existing tasks keep their current account. Select this new account when starting a new chat.
       </p>
