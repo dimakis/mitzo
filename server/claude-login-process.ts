@@ -1,6 +1,7 @@
 import { execFile, spawn } from 'node:child_process';
 import { lstatSync, realpathSync } from 'node:fs';
 import { promisify } from 'node:util';
+import { fileURLToPath } from 'node:url';
 import { z } from 'zod';
 import { claudeSdkExecutable, ClaudeSubscriptionCustody } from './claude-subscription-custody.js';
 import type { ClaudeIdentity } from './claude-account-store.js';
@@ -85,11 +86,15 @@ export async function createClaudeLoginProcess(
     )
       throw new ClaudeLoginProcessError(Error('Native login custody changed'));
   };
-  const child = spawn(executable, ['auth', 'login', '--claudeai'], {
-    cwd: config,
-    env: cleanEnvironment(config),
-    stdio: ['pipe', 'pipe', 'pipe'],
-  });
+  const child = spawn(
+    process.execPath,
+    [fileURLToPath(new URL('./claude-login-supervisor.cjs', import.meta.url)), executable],
+    {
+      cwd: config,
+      env: cleanEnvironment(config),
+      stdio: ['pipe', 'pipe', 'pipe'],
+    },
+  );
   let finish!: (result: Awaited<ClaudeNativeLogin['completion']>) => void;
   const completion = new Promise<Awaited<ClaudeNativeLogin['completion']>>((resolve) => {
     finish = resolve;

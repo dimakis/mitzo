@@ -40,4 +40,32 @@ it('adds verified Claude accounts without editing or replacing operator profiles
   expect(profiles.ordinaryLocalVertexInventory().map((row) => row.account.accountId)).toContain(
     attempt.accountId,
   );
+  // The forthcoming enMaaS key belongs to its own account route. Ambient key
+  // coordinates must not leak into either existing Claude billing route.
+  const ambient = {
+    HOME: root,
+    PATH: '/usr/bin:/bin',
+    ANTHROPIC_API_KEY: 'future-enmaas-key',
+    ANTHROPIC_BASE_URL: 'https://enmaas.example.test',
+    CLAUDE_CODE_USE_VERTEX: '1',
+    GOOGLE_APPLICATION_CREDENTIALS: '/work/adc.json',
+  };
+  const personal = profiles.sdkEnv(profiles.resolve(attempt.accountId, 'sonnet'), ambient);
+  expect(personal).toMatchObject({
+    CLAUDE_CONFIG_DIR: store.config(attempt.accountId),
+    MITZO_CLAUDE_EXPECTED_EMAIL: 'person@example.test',
+  });
+  expect(personal.ANTHROPIC_API_KEY).toBeUndefined();
+  expect(personal.ANTHROPIC_BASE_URL).toBeUndefined();
+  expect(personal.CLAUDE_CODE_USE_VERTEX).toBeUndefined();
+  expect(personal.GOOGLE_APPLICATION_CREDENTIALS).toBeUndefined();
+  const vertex = profiles.sdkEnv(profiles.resolve('work', 'work-model'), personal);
+  expect(vertex).toMatchObject({
+    CLAUDE_CODE_USE_VERTEX: '1',
+    GOOGLE_APPLICATION_CREDENTIALS: '/work/adc.json',
+    ANTHROPIC_VERTEX_PROJECT_ID: 'work-project',
+  });
+  expect(vertex.CLAUDE_CONFIG_DIR).toBeUndefined();
+  expect(vertex.MITZO_CLAUDE_EXPECTED_EMAIL).toBeUndefined();
+  expect(ambient.ANTHROPIC_API_KEY).toBe('future-enmaas-key');
 });
