@@ -1894,6 +1894,12 @@ export class CodexConversation {
     const nativeTarget = exactRecovery
       ? this.opts.store.nativeRecoveryTarget(this.opts.conversationId, this.binding!)
       : undefined;
+    const inspectFailedEffects =
+      !!nativeTarget &&
+      !completionTarget &&
+      !!this.opts.nativeExecution &&
+      this.opts.store.continuationBlocker(this.opts.conversationId, this.binding!)?.commandId ===
+        nativeTarget.commandId;
     observeStage?.('binding', nativeTarget);
     const assertRecoveryAuthority = async () => {
       const verified = await this.verifyCurrentBinding(this.binding);
@@ -1932,7 +1938,7 @@ export class CodexConversation {
             assertRecoveryContinuation();
           },
           this.opts.cwd,
-          !phase && !!this.opts.nativeExecution,
+          inspectFailedEffects,
         );
         nativeStatus = observed.status;
         interruptedEffects = observed.settledEffects;
@@ -2005,6 +2011,7 @@ export class CodexConversation {
     if (
       nativeTarget &&
       nativeStatus === 'failed' &&
+      inspectFailedEffects &&
       interruptedEffects &&
       !completionTarget &&
       this.opts.nativeExecution

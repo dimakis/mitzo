@@ -925,11 +925,16 @@ it.each([false, true])(
 
 it.each(
   (['warm', 'cold'] as const).flatMap((retirement) =>
-    [false, true].map((unknownWrite) => ({ retirement, unknownWrite })),
+    (['settled-capacity', 'unknown-write', 'context-limit'] as const).map((failure) => ({
+      retirement,
+      failure,
+    })),
   ),
 )(
-  'reconciles $retirement capacity recovery without releasing unknown writes ($unknownWrite)',
-  async ({ retirement, unknownWrite }) => {
+  'continues $retirement failed-turn recovery with $failure evidence',
+  async ({ retirement, failure }) => {
+    const unknownWrite = failure === 'unknown-write';
+    const contextLimit = failure === 'context-limit';
     const f = await ownedRuntimeFixture(cleanups);
     const first = f.create();
     await first.admit(f.request);
@@ -954,7 +959,9 @@ it.each(
     let authorized = true;
     let afterItem = () => {};
     const base = f.rpc.request.getMockImplementation()!;
-    const error = { message: 'The model is at capacity', codexErrorInfo: 'serverOverloaded' };
+    const error = contextLimit
+      ? { message: 'Context window exceeded', codexErrorInfo: 'contextWindowExceeded' }
+      : { message: 'The model is at capacity', codexErrorInfo: 'serverOverloaded' };
     let observedError = error;
     const toolName = unknownWrite ? 'Write' : 'Read';
     const settledItem = {
@@ -1021,17 +1028,18 @@ it.each(
     cleanups.push(() => runtime.close());
     await runtime.initialize();
     await runtime.send({ id: original.commandId, prompt: 'Original work' });
-    await callbacks.onRequest(
-      'item/tool/call',
-      {
-        threadId: 'capacity-thread',
-        turnId: 'capacity-turn-1',
-        callId: 'finished-read',
-        tool: toolName,
-        arguments: {},
-      },
-      new AbortController().signal,
-    );
+    if (!contextLimit)
+      await callbacks.onRequest(
+        'item/tool/call',
+        {
+          threadId: 'capacity-thread',
+          turnId: 'capacity-turn-1',
+          callId: 'finished-read',
+          tool: toolName,
+          arguments: {},
+        },
+        new AbortController().signal,
+      );
     await runtime.send({ id: 'saved-capacity-follow-up', prompt: 'Continue with the saved work' });
     callbacks.onNotification('turn/completed', {
       threadId: 'capacity-thread',
@@ -1041,6 +1049,19 @@ it.each(
       runtime.close();
       runtime = new CodexConversation(options);
       await runtime.initialize();
+    }
+    if (contextLimit) {
+      expect(store.continuationBlocker(id, binding)).toBeUndefined();
+      await runtime.resumeAfterExplicitSend();
+      expect(store.commandStatus(id, binding, original.commandId)).toBe('failed');
+      expect(store.commandStatus(id, binding, 'saved-capacity-follow-up')).toBe('running');
+      expect(store.read(id, binding).recovery).toBe(0);
+      expect(turns).toBe(2);
+      expect(execute).not.toHaveBeenCalled();
+      expect(f.rpc.request.mock.calls.some(([method]) => method === 'thread/items/list')).toBe(
+        false,
+      );
+      return;
     }
     if (unknownWrite) {
       await expect(runtime.resumeAfterExplicitSend()).rejects.toThrow('matching settled receipts');

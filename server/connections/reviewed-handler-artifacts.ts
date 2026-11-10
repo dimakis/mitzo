@@ -1153,7 +1153,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/owned-local-codex-real-start.test.ts':
     '5d7e093bedaba3e2549ce8eecb9110214b71bb18323878c251aa1075959709cb',
   '../__tests__/retained-local-codex-recovery.test.ts':
-    '533336e62f2aa04d39ee419516e2cb29f5710c49d90c859dbcc8d13a4c9b5707',
+    '9d0cb03859463bf02d19a890c676cba91c2b301914fdb8215a6136a60832ea36',
   '../retained-local-codex-recovery.ts':
     '11f58e029b9d684d111ba998dfde52de9cd589796a0e5bdfe54274cb422b52e7',
   '../../tests/offline/queue-status.spec.ts':
@@ -2271,7 +2271,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../scripts/attest-knowledge-runtime.py':
     '5737ec8e7fc19a17b6ef5a35c1898e834d2a5d2d2a9f7593b607eaaf1971cfeb',
   '../agent-context-sandbox.ts': '8b61edc17ccc94bc95eae3796e68a0beb9540534e3bfbb348a04154c41995416',
-  '../codex-conversation.ts': '930ecec87bc8872c10df1634c53eb25bf5abbfd4c6fdf98dd50e1979866c5e39',
+  '../codex-conversation.ts': '0c950c53c6dc8c00145b3a735be2c6f0a2ae528e3df19e079370722a55502e87',
   '../codex-conversation-store.ts':
     'ca47ead204359ac46b7e313f8df59ed587e1f09a396a688e41800a8d26d9068f',
   '../symposium-custodian-ipc.ts':
