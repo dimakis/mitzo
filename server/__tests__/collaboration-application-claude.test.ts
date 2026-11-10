@@ -4,8 +4,36 @@ import { join } from 'node:path';
 import { hostname } from 'node:os';
 import { createApplicationJourney } from './fixtures/symposium-application-journey.js';
 import { sdkQueryPeer } from './fixtures/sdk-query-peer.js';
+import { z } from 'zod';
 
-const observed = vi.hoisted(() => ({ inputs: [] as Array<{ sessionId: string; text: string }> }));
+function forwardedArtifacts(text: string) {
+  const packet = text
+    .split('\n')
+    .find((line) => line.startsWith('{"version":1,"collaborationId":'));
+  return z
+    .object({
+      discussion: z.array(
+        z.object({
+          forwardedContext: z
+            .object({
+              artifacts: z.array(
+                z.object({ content: z.string(), sha256: z.string(), revision: z.number() }),
+              ),
+            })
+            .optional(),
+        }),
+      ),
+    })
+    .parse(JSON.parse(packet!))
+    .discussion.flatMap((message) => message.forwardedContext?.artifacts ?? []);
+}
+
+const observed = vi.hoisted(() => ({
+  inputs: [] as Array<{ sessionId: string; text: string }>,
+  holdNext: false,
+  settle: undefined as (() => void) | undefined,
+  interrupts: 0,
+}));
 vi.mock('../claude-account-history.js', () => ({
   readClaudeAccountHistory: async (sessionId: string, cwd: string) => ({
     info: { sessionId, cwd },
@@ -42,6 +70,13 @@ vi.mock('@anthropic-ai/claude-agent-sdk', async (original) => ({
         observed.inputs.push({ sessionId, text });
         const uuid = `private-claude-input-${observed.inputs.length}`;
         yield { ...input, session_id: sessionId, uuid, parent_tool_use_id: null };
+        if (observed.holdNext) {
+          observed.holdNext = false;
+          await new Promise<void>((resolve) => {
+            observed.settle = resolve;
+          });
+          observed.settle = undefined;
+        }
         yield {
           type: 'stream_event',
           session_id: sessionId,
@@ -120,12 +155,15 @@ vi.mock('@anthropic-ai/claude-agent-sdk', async (original) => ({
       setModel: async () => {},
       setMaxThinkingTokens: async () => {},
       setPermissionMode: async () => {},
-      interrupt: async () => {},
+      interrupt: async () => {
+        observed.interrupts++;
+      },
     });
   }),
 }));
 
 const journey = createApplicationJourney({
+  retainedArtifactOwner: true,
   additionalAccountIds: ['offline-api'],
   participant: {
     accountId: 'offline-claude',
@@ -189,30 +227,9 @@ const journey = createApplicationJourney({
 });
 afterAll(async () => {
   try {
-    if (journey.state.root) {
-      await writeFile(
-        '../claude-application-native.log',
-        await readFile(join(journey.state.root, 'app.log'), 'utf8'),
-      );
-      if (journey.state.joinedSessionId)
-        await writeFile(
-          '../claude-application-state.json',
-          JSON.stringify(
-            {
-              inputs: observed.inputs,
-              events: journey.state.events.getSessionEvents(journey.state.joinedSessionId),
-            },
-            null,
-            2,
-          ),
-        );
-    }
+    await journey.close();
   } finally {
-    try {
-      await journey.close();
-    } finally {
-      vi.restoreAllMocks();
-    }
+    vi.restoreAllMocks();
   }
 });
 
@@ -236,7 +253,7 @@ it('silently joins personal Claude alongside a separate API-key participant and 
   expect(await api.recipientReadiness(group, joinedSessionId)).toMatchObject({ ready: true });
   const { recordApplicationMessagingRuntime } =
     await import('./fixtures/symposium-recording-runtime.js');
-  const native = await recordApplicationMessagingRuntime(events);
+  let native = await recordApplicationMessagingRuntime(events);
   const apiSessionId = await journey.joinReviewedParticipant({
     accountId: 'offline-api',
     harness: 'codex',
@@ -296,6 +313,118 @@ it('silently joins personal Claude alongside a separate API-key participant and 
     expect(native.requests.filter((request) => request.method === 'turn/start')).toHaveLength(2);
     expect(observed.inputs[0].text).toContain('Edited brief retained exactly');
     expect(observed.inputs[1].text).toContain('Review the follow-up');
+    const h = await journey.getApplicationUiJourney();
+    const beforeForward = await api.view(group);
+    const prepared = await h.typedApi.collaborations.prepareForward(group, h.clientId, {
+      selection: {
+        requestId: crypto.randomUUID(),
+        target: {
+          collaborationId: group,
+          expectedMembershipRevision: beforeForward.membershipRevision,
+          sessionIds: [joinedSessionId, apiSessionId],
+        },
+        sourceConversationId: null,
+        boundary: null,
+        messages: [],
+        artifacts: [{ kind: 'retained_artifact', ...h.retainedArtifact! }],
+      },
+      note: 'Exact saved design for both participants.',
+    });
+    await h.typedApi.collaborations.confirmForward(group, h.clientId, {
+      requestId: crypto.randomUUID(),
+      expectedMembershipRevision: beforeForward.membershipRevision,
+      forward: {
+        forwardId: prepared.forwardId,
+        packetSha256: prepared.packetSha256!,
+        selectionFingerprint: prepared.selectionFingerprint,
+      },
+      requestReply: false,
+    });
+    expect(observed.inputs).toHaveLength(2);
+    expect(native.requests.filter((request) => request.method === 'turn/start')).toHaveLength(2);
+    observed.holdNext = true;
+    native.holdTurn(3);
+    const beforeStop = await api.view(group);
+    const stoppable = {
+      requestId: crypto.randomUUID(),
+      expectedMembershipRevision: beforeStop.membershipRevision,
+      expectedPolicySequence: beforeStop.policySequence,
+      text: 'Review the exact saved design together.',
+      responders: { kind: 'selected' as const, sessionIds: [joinedSessionId, apiSessionId] },
+      snapshot: null,
+    };
+    await api.send(group, stoppable);
+    await vi.waitFor(() => {
+      expect(observed.settle).toBeTypeOf('function');
+      expect(native.requests.filter((request) => request.method === 'turn/start')).toHaveLength(3);
+    });
+    const stopped = await api.stopSend(group, stoppable);
+    expect(stopped.recipients.map((recipient) => recipient.status)).toEqual([
+      'requested',
+      'requested',
+    ]);
+    expect(await api.stopSend(group, stoppable)).toEqual({
+      ...stopped,
+      recipients: stopped.recipients.map((recipient) => ({ ...recipient, status: 'uncertain' })),
+    });
+    expect(observed.interrupts).toBe(1);
+    expect(native.requests.filter((request) => request.method === 'turn/interrupt')).toHaveLength(
+      1,
+    );
+    expect((await api.observeSend(group, stoppable)).terminal).toBe(false);
+    observed.settle!();
+    native.finishTurn(3, 'completed');
+    await vi.waitFor(async () =>
+      expect((await api.observeSend(group, stoppable)).terminal).toBe(true),
+    );
+    const exactArtifact = {
+      content: 'Original independently retained design • 台灣\r\n',
+      sha256: h.retainedArtifact!.sha256,
+      revision: h.retainedArtifact!.revision,
+    };
+    expect(forwardedArtifacts(observed.inputs[2].text)).toEqual([exactArtifact]);
+    expect(observed.inputs[2].text).not.toContain('NEWER VERSION');
+    const lastNative = native.requests.filter((request) => request.method === 'turn/start')[2];
+    const apiInput = z
+      .object({ input: z.array(z.object({ type: z.literal('text'), text: z.string() })) })
+      .parse(lastNative.params)
+      .input.map((input) => input.text)
+      .join('\n');
+    expect(forwardedArtifacts(apiInput)).toEqual([exactArtifact]);
+    expect(apiInput).not.toContain('NEWER VERSION');
+    const { registry } = await import('../chat.js');
+    for (const sessionId of [joinedSessionId, apiSessionId]) {
+      const live = registry.findBySessionId(sessionId);
+      if (live) registry.abort(live.clientId);
+    }
+    const { getRepositoryWorkspaces } = await import('../repository-workspace-runtime.js');
+    await vi.waitFor(() => getRepositoryWorkspaces(true).closeIdle());
+    native.restore();
+    await journey.restartApplication();
+    const restored = await journey.getApplicationUiJourney();
+    (await import('../auth.js')).setAuthRevocationStore(restored.events);
+    native = await recordApplicationMessagingRuntime(restored.events);
+    expect((await restored.api.observeSend(group, stoppable)).terminal).toBe(true);
+    expect(observed.inputs).toHaveLength(3);
+    expect(native.requests).toEqual([]);
+    const reopened = await restored.api.view(group);
+    expect(reopened.messages.filter((message) => message.author !== 'operator')).toHaveLength(6);
+    const cold = {
+      requestId: crypto.randomUUID(),
+      expectedMembershipRevision: reopened.membershipRevision,
+      expectedPolicySequence: reopened.policySequence,
+      text: 'Continue the original personal Claude session after restart.',
+      responders: { kind: 'selected' as const, sessionIds: [joinedSessionId] },
+      snapshot: null,
+    };
+    const continued = await restored.api.send(group, cold);
+    await vi.waitFor(async () =>
+      expect((await restored.api.observeSend(group, cold)).terminal).toBe(true),
+    );
+    expect(observed.inputs).toHaveLength(4);
+    expect(observed.inputs[3].sessionId).toBe(observed.inputs[0].sessionId);
+    expect((await restored.api.send(group, cold)).messageId).toBe(continued.messageId);
+    expect(observed.inputs).toHaveLength(4);
   } finally {
     const { registry } = await import('../chat.js');
     for (const sessionId of [joinedSessionId, apiSessionId]) {

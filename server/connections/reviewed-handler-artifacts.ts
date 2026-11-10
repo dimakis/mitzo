@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.1021-symposium-personal-claude-with-api-participant';
+  'v1.0.1023-symposium-personal-claude-participant-qualification';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -23,8 +23,14 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
+  '../../frontend/src/components/__tests__/ConversationRepositoryPicker.test.tsx':
+    '17cb573f7c93508e8b4fdcbea12b389c0ed0425b0f7ae0f51fd4a26cfcbe1ff9',
+  '../../tests/fixtures/symposium-joining-review.tsx':
+    '90efacc8370ff045b428535146c33285e75726ac65e5f2997a75eb3119366a7d',
+  '../../tests/offline/symposium-joining-review.spec.ts':
+    '4aaa09dcd904460807d96eb03f2c2f0cd0da6863c823f50cc796bc87aa240573',
   '../__tests__/collaboration-application-claude.test.ts':
-    '62d966724a6d6077b6c56d87c2cf0ba90787b656e38de7d452f340d6b1eb8b9d',
+    '8b6d9f5b45d3a9b3046a859823227863b63388aa6323be8286e5680e9a872105',
   '../../packages/protocol/__tests__/ordinary-prepared-session.test.ts':
     'b1bf505e86982c1cbe08cf944f7a4a7b37bb0a018edb2fce08bb639b92300649',
   '../__tests__/ordinary-local-vertex-command-owner.test.ts':
@@ -249,7 +255,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../tests/offline/ordinary-collaboration-status.spec.ts':
     '0e576f8662399a7e369f50c714d082ed85ceecc2c94788723fc0a4965b298583',
   '../../frontend/src/components/ConversationRepositoryPicker.tsx':
-    'bad89b264d8bff41ed745fd33629e658ac947d6bc56b3945baae6fa0df2986cf',
+    '7f291e2b57ccffb5f31da98b809f90d21a5cd2d71949b38c8fb1683a4b4100e4',
   '../../frontend/src/components/SharedConversation.tsx':
     '4e322528c15177de0d54eea1eb69d434dc815932cef069a987701702c76a4753',
   '../../frontend/src/components/__tests__/SharedConversation.test.tsx':
@@ -269,7 +275,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../docs/evidence/symposium-integration-acceptance.md':
     '9870b43749eaa4f22dd586e95c3317fa89cc7fd07daa68f0fdbbb47007175967',
   '../../docs/features/symposium.md':
-    '135ff4eee6eab1b634215ca9ae60cb6b20f8a004164ce484b1057ad748ab36d8',
+    '71e087d501b9d74061b07f317e366e1d01c21cfadbf823f04d49b6ae3759748c',
   '../repository-capability-identity.ts':
     '2e35f24342d36e21f6c559afa93758f9ef83a2e3e435eda6d46e1a6101d16392',
   '../task-capability-consent.ts':

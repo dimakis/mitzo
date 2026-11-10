@@ -12,6 +12,131 @@ const bundle = build({
   define: { 'process.env.NODE_ENV': '"production"', 'import.meta.env': '{}' },
   alias: { '@mitzo/protocol': resolve('packages/protocol/src/index.ts') },
 });
+for (const theme of ['dark', 'light'])
+  for (const participant of ['claude', 'api'])
+    test(`Symposium participant repository: ${participant} (${theme})`, async ({
+      page,
+      isMobile,
+    }, info) => {
+      const files = (await bundle).outputFiles!;
+      const account = {
+        accountId: participant === 'claude' ? 'offline-claude' : 'offline-api',
+        provider: participant === 'claude' ? 'anthropic-claude' : 'openai',
+        profileRevision: 'r1',
+      };
+      const harness = participant === 'claude' ? 'claude-sdk' : 'codex';
+      const models = [{ id: 'offline-fixture', label: 'Offline model' }];
+      const inventory = {
+        version: 1,
+        authority: 'configuration-only',
+        defaultLocation: 'openshell',
+        capabilityRevision: 'r1',
+        accounts: [
+          {
+            account,
+            label: 'Selected participant',
+            models,
+            modelDiscovery: { source: 'configured', stale: false },
+          },
+        ],
+        targets: [
+          {
+            targetId: 'local-mac',
+            targetRevision: 'r1',
+            label: 'Local Mac',
+            location: 'local',
+            harness,
+          },
+        ],
+        routes: [
+          { account, targetId: 'local-mac', location: 'local', harness, modes: ['agent'], models },
+        ],
+        locations: [{ location: 'local', status: 'configured' }],
+        agentProfiles: [],
+      };
+      let preparations = 0;
+      const errors: string[] = [];
+      page.on('pageerror', (error) => errors.push(error.message));
+      await page.route('**/*', (route) => {
+        const path = new URL(route.request().url()).pathname;
+        if (path === '/api/auth/check')
+          return route.fulfill({ json: { ok: true, authSessionId: 'offline-participant-login' } });
+        if (path === '/api/chat/runtime/capabilities') return route.fulfill({ json: inventory });
+        if (path === '/api/repository-workspaces/catalog')
+          return route.fulfill({
+            json: {
+              available: true,
+              location: 'local',
+              repositories: [
+                {
+                  connectionId: 'local',
+                  repositoryId: 'project',
+                  repository: 'local/project',
+                  label: 'Selected project',
+                },
+              ],
+            },
+          });
+        if (path === '/api/repository-workspaces/local') {
+          const body = route.request().postDataJSON();
+          expect(body.ordinaryRuntime).toEqual({
+            runOn: 'local',
+            runtime: { account, harness, targetId: 'local-mac' },
+          });
+          preparations++;
+          return route.fulfill({
+            json: {
+              id: body.requestId,
+              repository: 'local/project',
+              baseBranch: 'main',
+              baseOid: 'a'.repeat(40),
+              featureBranch: 'mitzo/offline-participant',
+              state: 'ready',
+              ordinaryRuntime: {
+                version: 2,
+                account,
+                harness: { implementation: harness },
+                execution: { location: 'local', targetId: 'local-mac', targetRevision: 'r1' },
+              },
+            },
+          });
+        }
+        const file = files.find((file) =>
+          path.endsWith(file.path.endsWith('.css') ? '.css' : '.js'),
+        );
+        if (file)
+          return route.fulfill({
+            body: file.text,
+            contentType: file.path.endsWith('.css') ? 'text/css' : 'text/javascript',
+          });
+        if (path !== '/') return route.abort();
+        return route.fulfill({
+          contentType: 'text/html',
+          body: `<!doctype html><html data-theme="${theme}" data-accent="${theme === 'dark' ? 'mint' : 'teal'}"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="/fixture.css"><div id="root"></div><script src="/fixture.js"></script></html>`,
+        });
+      });
+      await page.setViewportSize({ width: isMobile ? 320 : 1280, height: 844 });
+      await page.emulateMedia({ reducedMotion: 'reduce' });
+      await page.goto('/?state=repository&account=' + participant);
+      await page.getByRole('button', { name: 'Add repository' }).click();
+      await page.getByLabel('Local repository').selectOption('local:local/project');
+      const prepare = page.getByRole('button', { name: 'Use repository' });
+      if (isMobile) expect((await prepare.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+      await prepare.click();
+      await expect(page.getByText('Participant repository prepared')).toBeVisible();
+      await expect(page.getByText(/worktree starts from latest upstream main/)).toBeVisible();
+      expect(preparations).toBe(1);
+      expect(errors).toEqual([]);
+      expect(
+        await page
+          .locator('main')
+          .evaluate((element) => element.scrollWidth <= element.clientWidth),
+      ).toBe(true);
+      await page.screenshot({
+        path: info.outputPath(`participant-${participant}-${theme}.png`),
+        fullPage: true,
+      });
+    });
 for (const theme of ['dark', 'light']) {
   test(`Symposium joining review: approved frozen context and brief (${theme})`, async ({
     page,
