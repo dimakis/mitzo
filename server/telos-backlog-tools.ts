@@ -5,6 +5,7 @@ import {
   TelosListItemsInputSchema,
   TelosManageItemInputSchema,
   TelosCreateChildInputSchema,
+  TelosCreateFeatureInputSchema,
 } from '@mitzo/protocol';
 import type { PermissionResult } from '@anthropic-ai/claude-agent-sdk';
 import type { ToolDefinition } from '@mitzo/harness';
@@ -16,6 +17,7 @@ import {
   withTelosWorkflowInstructions,
 } from './telos-workflow-instructions.js';
 import { createLogger } from './logger.js';
+import { drainRejectedTelosAuthority } from './telos-authority-diagnostic.js';
 
 export const telosBacklogSchemas = {
   TelosListItems: TelosListItemsInputSchema,
@@ -24,6 +26,7 @@ export const telosBacklogSchemas = {
   }),
   TelosManageItem: TelosManageItemInputSchema,
   TelosCreateChild: TelosCreateChildInputSchema,
+  TelosCreateFeature: TelosCreateFeatureInputSchema,
 };
 export type TelosBacklogToolName = keyof typeof telosBacklogSchemas;
 export const isTelosBacklogTool = (name: string): name is TelosBacklogToolName =>
@@ -35,13 +38,17 @@ export const telosBacklogDefinitions: ToolDefinition[] = Object.entries(telosBac
     description:
       name === 'TelosManageItem'
         ? 'Inspect a Telos item and lifecycle (read); edit its title, intent, rationale or acceptance criteria (edit); record evidence and optionally change status to active, acknowledged or completed (update); archive, unarchive or restore. Read first: edit/update use item.revision; lifecycle changes use lifecycle.revision. Complete unfinished children before the parent. Large reads return json-fragment: follow nextOffset with unchanged snapshotHash and concatenate contentFragment. Mutations require exact approval and requestId; retry uncertain delivery with identical input. No lead assignment needed. No permanent deletion.'
-        : name === 'TelosCreateChild'
-          ? 'Create one child with a complete brief and criteria: a feature item under an outcome or a session-sized slice under a feature. Creation saves backlog work and originating-chat provenance only. Verify supported reviewed role/session setup separately; report missing capability. Read the parent and supply item.revision or the prior parentRevision as expectedParentRevision, a unique requestId and audit note. Requires exact approval; retry uncertainty with identical input and ID. Completed, archived or trashed parents refuse creation. No source attachment, dedicated conversation, role assignment or execution occurs here.'
-          : 'List or search canonical Telos items by title and brief text, status, parent and lifecycle view. Returns concise IDs/titles without loading every detail. Default view active excludes archived/trashed subtrees. Follow nextCursor even after an empty page; keep filters unchanged. Use TelosManageItem read for full content and fresh edit/lifecycle revisions. No lead assignment needed.',
+        : name === 'TelosCreateFeature'
+          ? 'Create one standalone feature item with a complete brief and observable acceptance criteria. Use this for a single feature without inventing an outcome wrapper or milestones. Search existing work first. Supply a unique requestId and audit note; requires exact approval. Retry uncertainty with identical input and ID. Saves canonical backlog work and originating-chat provenance only; source attachment, reviewed working-session setup, assignment and execution remain separate.'
+          : name === 'TelosCreateChild'
+            ? 'Create one child with a complete brief and criteria: a feature item under an outcome or a session-sized slice under a feature. Creation saves backlog work and originating-chat provenance only. Verify supported reviewed role/session setup separately; report missing capability. Read the parent and supply item.revision or the prior parentRevision as expectedParentRevision, a unique requestId and audit note. Requires exact approval; retry uncertainty with identical input and ID. Completed, archived or trashed parents refuse creation. No source attachment, dedicated conversation, role assignment or execution occurs here.'
+            : 'List or search canonical Telos items by title and brief text, status, parent and lifecycle view. Returns concise IDs/titles without loading every detail. Default view active excludes archived/trashed subtrees. Follow nextCursor even after an empty page; keep filters unchanged. Use TelosManageItem read for full content and fresh edit/lifecycle revisions. No lead assignment needed.',
   }),
 );
 const backlogOperations = `
 Use TelosListItems to browse live Telos and TelosSearchItems to find existing work before creating it.
+Use TelosCreateFeature for a standalone feature with a complete brief, criteria, audit note and
+unique requestId. No outcome wrapper or milestones are required. Session setup remains separate.
 Use TelosCreateChild for authorized work under an existing parent. Read the parent first with
 TelosManageItem and pass item.revision as expectedParentRevision. Supply a complete brief, criteria,
 audit note and unique requestId. Each successful creation returns the child and new parentRevision;
@@ -100,7 +107,10 @@ export async function executeTelosBacklogOperation(
       ctx.signal.throwIfAborted();
       const result: unknown = ctx.assertCurrentSync();
       if (result !== undefined) {
-        void Promise.resolve(result).catch(() => {});
+        drainRejectedTelosAuthority(result, 'backlog-authority', {
+          conversationId: ctx.conversationId,
+          requestHash: ctx.requestHash,
+        });
         throw Error('Synchronous Telos authority required');
       }
       if (
@@ -129,12 +139,18 @@ export async function executeTelosBacklogOperation(
         );
     };
     let value: unknown;
-    if (name === 'TelosCreateChild') {
-      const input = TelosCreateChildInputSchema.parse(structuredClone(raw));
+    if (name === 'TelosCreateChild' || name === 'TelosCreateFeature') {
+      const child =
+        name === 'TelosCreateChild'
+          ? TelosCreateChildInputSchema.parse(structuredClone(raw))
+          : undefined;
+      const input = child ?? TelosCreateFeatureInputSchema.parse(structuredClone(raw));
       await approve(input);
-      const receipt = owners.items.createChildGuarded(input, ctx.conversationId, current, () =>
-        owners.items.assertLifecycleActive(input.parentId),
-      );
+      const receipt = child
+        ? owners.items.createChildGuarded(child, ctx.conversationId, current, () =>
+            owners.items.assertLifecycleActive(child.parentId),
+          )
+        : owners.items.createFeatureGuarded(input, ctx.conversationId, current);
       value = {
         ...receipt,
         preparation: {
