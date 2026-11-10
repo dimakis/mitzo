@@ -209,8 +209,10 @@ it('refuses changed ADC bytes and stale future settings without new workspace or
   const { f, create, dispatch } = await fixture();
   const owner = create();
   await owner.admit(f.request);
+  const adcPath = f.configuration[0].credentialRef;
+  if (typeof adcPath !== 'string') throw Error('Expected the ADC fixture');
   await writeFile(
-    f.configuration[0].credentialRef,
+    adcPath,
     JSON.stringify({
       type: 'authorized_user',
       client_id: 'offline',

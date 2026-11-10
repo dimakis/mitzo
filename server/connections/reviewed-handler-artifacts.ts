@@ -4052,7 +4052,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/claude-personal-policy.test.ts':
     'f7fc1ccde245b17a92c50176e928450e39ef5367a5cc8f49956873f308cd32ce',
   '../__tests__/ordinary-local-vertex-owned-runtime.test.ts':
-    '3f78c8f033bc4d97f8d434b5f05ee8b2358329c40a2b33a58a1ab623553f9b51',
+    '53f74b8e2f51f01dab4c5d1da4e0c2add5eb5b09b4b56483c684a459150b5c6e',
   '../../docs/features/personal-claude-local.md':
     '7ab2e17a7dee26d2530055065691682ff444e074b117eb8688f44311de1127ab',
 });
