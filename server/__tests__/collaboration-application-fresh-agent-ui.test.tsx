@@ -1,12 +1,14 @@
 // @vitest-environment node-compatible-dom
 import { afterAll, expect, it, vi } from 'vitest';
 import React from 'react';
+import Database from 'better-sqlite3';
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import userEvent from '@testing-library/user-event';
 import { createApplicationJourney } from './fixtures/symposium-application-journey.js';
 import { recordApplicationMessagingRuntime } from './fixtures/symposium-recording-runtime.js';
 import { installDialogStub } from '../../frontend/src/components/__tests__/dialog-stub.js';
+import { registerSymposiumSourceOutput } from './fixtures/symposium-source-output.js';
 
 const journey = createApplicationJourney();
 afterAll(() => journey.close());
@@ -165,8 +167,30 @@ it('adds an agent, edits and refreezes its brief, silently joins and sends an at
     );
     const send = () => screen.getByRole('button', { name: 'Send message' });
     await waitFor(() => expect((send() as HTMLButtonElement).disabled).toBe(false));
+    const exactArtifact = 'Saved artifact version one: preserve the ordinary ownership boundary.';
+    registerSymposiumSourceOutput(h.events, 'existing-chat', exactArtifact);
+    const prepare = Database.prototype.prepare;
+    const fault = vi.spyOn(Database.prototype, 'prepare').mockImplementation(function (
+      this: Database.Database,
+      sql: string,
+    ) {
+      if (sql.includes("type IN ('message_start','user_message')"))
+        throw Error('Synthetic artifact source storage failure');
+      return prepare.call(this, sql);
+    });
     fireEvent.click(screen.getByRole('button', { name: 'Review prompt context' }));
-    const context = await screen.findByRole('dialog', { name: 'Context for this prompt' });
+    let context = await screen.findByRole('dialog', { name: 'Context for this prompt' });
+    try {
+      await within(context).findByText(
+        'Collaboration links could not be checked. Refresh before retrying.',
+      );
+      expect(runtime.requests).toEqual([]);
+    } finally {
+      fault.mockRestore();
+    }
+    fireEvent.click(within(context).getByRole('button', { name: 'Close prompt context' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Review prompt context' }));
+    context = await screen.findByRole('dialog', { name: 'Context for this prompt' });
     await waitFor(() =>
       expect(
         (within(context).getByRole('textbox', { name: 'Purpose' }) as HTMLInputElement).disabled,
@@ -179,6 +203,9 @@ it('adds an agent, edits and refreezes its brief, silently joins and sends an at
       name: /Synthetic design requirement/,
     });
     fireEvent.click(selectedSource);
+    fireEvent.click(
+      within(context).getByRole('checkbox', { name: /Selected saved design.*Saved version 1/ }),
+    );
     fireEvent.change(within(context).getByRole('textbox', { name: 'Brief', exact: true }), {
       target: { value: 'Initial per-prompt brief' },
     });
@@ -210,6 +237,10 @@ it('adds an agent, edits and refreezes its brief, silently joins and sends an at
     );
     expect(JSON.stringify(turns[0].params)).not.toContain('Initial per-prompt brief');
     expect(JSON.stringify(turns[0].params)).not.toContain('DO_NOT_LEAK');
+    expect(JSON.stringify(turns[0].params)).toContain(exactArtifact);
+    expect(JSON.stringify(turns[0].params)).not.toContain(
+      Buffer.from(exactArtifact).toString('base64'),
+    );
     await waitFor(() =>
       expect(screen.queryByRole('button', { name: 'Remove prompt context' })).toBeNull(),
     );
@@ -270,6 +301,7 @@ it('adds an agent, edits and refreezes its brief, silently joins and sends an at
     expect(JSON.stringify(bothTurns[1].params)).toContain(
       'Only this exact reviewed source is shared for prompt one.',
     );
+    expect(JSON.stringify(bothTurns[1].params)).toContain(exactArtifact);
     expect(bothTurns).toHaveLength(2);
     expect(bothTurns[1].params.threadId).not.toBe(bothTurns[0].params.threadId);
     expect(JSON.stringify(bothTurns[1].params)).toContain('Review this explicitly.');

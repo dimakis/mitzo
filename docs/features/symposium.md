@@ -68,6 +68,27 @@ forwarding and broader milestone qualification remain open. Conversation-so-far
 review can include referenced artifact versions through the existing compiler.
 No deployment, live inference or installed-runtime acceptance is established.
 
+## Saved artifact selection — source candidate
+
+Selected prompt context now lists the source conversation's registered saved
+versions through a bounded, authenticated metadata projection. Check an exact
+version, review its frozen pin with the selected messages, then attach that
+review to one prompt. Unavailable versions stay visible and disabled. The
+browser retains selectors and original request identity, without artifact bytes.
+
+The ordinary text adapter receives exact decoded UTF-8 content, including Unicode,
+BOM and line endings, instead of opaque base64. It verifies canonical encoding,
+size and hash first. Unsupported formats, missing content or malformed bytes
+refuse visibly before prompt acceptance or command claims. The complete encoded
+packet budget and renewed source/artifact witnesses still apply. A later reader
+receives the same accepted artifact material.
+
+This is artifact selection for reviewed prompt context. Explicit forwarding from
+other conversations or retained Telos artifacts, its public application controls,
+and broader milestone qualification remain open. Offline application tests use
+synthetic external transport; hosted CI, rendered evidence and trusted review
+remain required. Source publication does not establish deployment or live acceptance.
+
 ## Accepted shared composer and reply recovery
 
 The next source increment removes the display-page limit from new sends. Pending
