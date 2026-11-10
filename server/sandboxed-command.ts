@@ -1,5 +1,6 @@
 import { repositoryObservationProgram } from './native-repository-observation.js';
 import { createLogger } from './logger.js';
+import { joinRetainedFinalizers } from './retained-finalization.js';
 import { nativePreparationPublicationWriteRoots } from './native-preparation-publication.js';
 import {
   privateRepositoryCheckoutCommand,
@@ -739,6 +740,7 @@ async function runSandboxedCommand(
   );
   const workerArgs = sourceRuntime ? ['--import', require.resolve('tsx/esm'), worker] : [worker];
   const temporary = await realpath(await mkdtemp(join(tmpdir(), 'mitzo-shell-')));
+  let executionFailure: { cause: unknown } | undefined;
   try {
     const home = join(temporary, 'home');
     const scratch = join(temporary, 'tmp');
@@ -948,7 +950,14 @@ async function runSandboxedCommand(
         );
       });
     });
+  } catch (cause) {
+    executionFailure = { cause };
+    throw cause;
   } finally {
-    await rm(temporary, { recursive: true, force: true });
+    await joinRetainedFinalizers(
+      'sandbox_command',
+      [() => rm(temporary, { recursive: true, force: true })],
+      executionFailure,
+    );
   }
 }
