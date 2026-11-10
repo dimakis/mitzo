@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.993-cohesive-chat-ux';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.994-cohesive-chat-ux';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -296,7 +296,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/styles/session-access.css':
     'b3659830c6a5dae4012ca56e9347c0bf2fc6d9506929fc007d5d6b09e3b3470d',
   '../../tests/offline/session-access.spec.ts':
-    '6c226dcdbdda3928f599d48aa99ee4d0ecc6ae65c551c0cc98eab2d16e320109',
+    '806caa8b83e0d87cf8dd7198ca71d5af4cb8778fa7928c724704ad52e3d9327f',
   '../../packages/protocol/src/runtime-failure.ts':
     '1aefc355d511521bf66f71a513629caaebd2b6dd7514efa53e0f72c31b170c5b',
   '../../scripts/__tests__/reauthorize-host-codex-login.test.ts':

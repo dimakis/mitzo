@@ -235,8 +235,21 @@ test('Access: empty ordinary composer survives Connections and return', async ({
     });
     await dialog.getByRole('button', { name: 'Connections', exact: true }).click();
     await expect(dialog.getByText('Team Jira')).toBeVisible();
-    await dialog.locator('.session-access-connection > summary').focus();
-    await dialog.locator('.session-access-connection > summary').press('Enter');
+    const connection = dialog.locator('.session-access-connection');
+    const summary = connection.locator(':scope > summary');
+    if (theme === 'light') {
+      // Back preserves the expanded pane. Verify that retention, then exercise
+      // keyboard closing before opening it again for the next appearance.
+      await expect(connection).toHaveAttribute('open', '');
+      await expect(dialog.getByText('Configured Jira reads')).toBeVisible();
+      await summary.focus();
+      await summary.press('Enter');
+      await expect(dialog.getByText('Configured Jira reads')).toBeHidden();
+    }
+    await expect(connection).not.toHaveAttribute('open', '');
+    await summary.focus();
+    await summary.press('Enter');
+    await expect(connection).toHaveAttribute('open', '');
     await expect(dialog.getByText('Configured Jira reads')).toBeVisible();
     await dialog.getByText(/google: unavailable/).scrollIntoViewIfNeeded();
     await expect(dialog.getByText(/google: unavailable/)).toBeInViewport();
