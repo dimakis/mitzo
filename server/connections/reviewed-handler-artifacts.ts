@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.1023-symposium-personal-claude-participant-qualification';
+  'v1.0.1026-symposium-personal-claude-picker-types';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -24,7 +24,7 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/components/__tests__/ConversationRepositoryPicker.test.tsx':
-    '17cb573f7c93508e8b4fdcbea12b389c0ed0425b0f7ae0f51fd4a26cfcbe1ff9',
+    'a22e84b14cdad3990308743da9aa8c6861519e5e45b96caf39d94ddc5a8561ad',
   '../../tests/fixtures/symposium-joining-review.tsx':
     '90efacc8370ff045b428535146c33285e75726ac65e5f2997a75eb3119366a7d',
   '../../tests/offline/symposium-joining-review.spec.ts':

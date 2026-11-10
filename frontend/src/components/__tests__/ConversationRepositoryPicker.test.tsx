@@ -50,7 +50,7 @@ function fixture(harness: 'codex' | 'claude-sdk' | 'responses', location = 'loca
     locations: [{ location, status: 'configured' }],
     agentProfiles: [],
   };
-  const id = '00000000-0000-4000-8000-000000000001';
+  const id = '00000000-0000-4000-8000-000000000001' as const;
   api.fetch.mockImplementation(async (url: string, options?: RequestInit) => {
     if (url.includes('/runtime/capabilities')) return Response.json(inventory);
     if (url.includes('/catalog'))
