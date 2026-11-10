@@ -1,3 +1,9 @@
+export { DeploymentStore } from './deployment-store.js';
+export {
+  maintenanceFingerprint,
+  readMaintenancePendingCommands,
+  type DrainedMaintenancePort,
+} from './deployment-maintenance-store.js';
 import { DeploymentStore } from './deployment-store.js';
 import { MessageReplyContextSchema, type MessageReplyContext } from './message-reply.js';
 import { AsyncLocalStorage } from 'node:async_hooks';
@@ -2726,7 +2732,7 @@ export class EventStore {
     return (
       this.ordinaryStartups.size > 0 ||
       !!this.db!.prepare(
-        "SELECT 1 FROM send_commands WHERE json_extract(ordinary_admission,'$.state') IN ('reserved','uncertain') OR (preparing=1 AND error IS NULL) LIMIT 1",
+        "SELECT 1 FROM send_commands c WHERE (json_extract(ordinary_admission,'$.state') IN ('reserved','uncertain') OR (preparing=1 AND error IS NULL)) AND NOT EXISTS (SELECT 1 FROM deployment_quarantines q WHERE q.session_id=c.session_id) LIMIT 1",
       ).get()
     );
   }

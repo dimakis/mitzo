@@ -1,3 +1,4 @@
+import { drainedMaintenanceEntrySettled } from './deployment-maintenance-observation.js';
 import { isAvailableTelosWorkConversation } from './telos-work-conversation.js';
 import { assertOrdinaryContributorControlAllowed } from './ordinary-contributor-execution.js';
 import { isDeepStrictEqual } from 'node:util';
@@ -42,6 +43,7 @@ export function createDeploymentRuntime(
     registry = ctx.sessionRegistry;
   const prompts = createSessionPromptPort(ctx);
   type Entry = ReturnType<typeof events.deployment.get>['sessions'][number];
+  const quarantined = () => events.deployment.maintenance.sessionIds();
   function authorize(auth: AuthSession) {
     if (
       !hasPersistentRevocationAuthority() ||
@@ -136,12 +138,14 @@ export function createDeploymentRuntime(
       }
       // Unregistered/cold running native commands are uncertainty, not idle.
       const ids = new Set(captured.map((entry) => entry.sessionId));
-      if (getCodexConversationStore().deploymentRecoveryPending([...ids]))
+      const excluded = quarantined();
+      const exclusions = new Set(excluded);
+      if (getCodexConversationStore().deploymentRecoveryPending([...ids, ...excluded]))
         throw Error('Retained parent effects or pending native ownership block deployment');
       if (
         getCodexConversationStore()
           .subagents.unsettledConversationIds()
-          .some((id) => !ids.has(id))
+          .some((id) => !ids.has(id) && !exclusions.has(id))
       )
         throw Error('Uncaptured child activity blocks deployment');
       if (
@@ -183,6 +187,8 @@ export function createDeploymentRuntime(
       const expected = validate(entry, auth);
       const session = registry.findBySessionId(entry.sessionId)?.session;
       const owner = session && getCodexRuntime(session);
+      if (entry.drainedProof)
+        return drainedMaintenanceEntrySettled(events, getCodexConversationStore(), entry);
       return entry.pauseSettled
         ? getCodexConversationStore().deploymentTurnSettled(
             entry.sessionId,
@@ -194,22 +200,29 @@ export function createDeploymentRuntime(
               validate(entry, auth);
             });
     },
-    quiescent: () =>
-      deps.backgroundIdle() &&
-      !events.deploymentStartupPending() &&
-      !getCodexConversationStore().deploymentRecoveryPending() &&
-      !getCodexConversationStore().hasRunningCommands() &&
-      getCodexConversationStore().subagents.unsettledConversationIds().length === 0 &&
-      registry.getActiveSessions().every(({ sessionId }) => {
-        const session = sessionId && registry.findBySessionId(sessionId)?.session;
-        return !session || !getCodexRuntime(session)?.deploymentChildActivity();
-      }) &&
-      !events
-        .listSessions()
-        .some((session) => session.executionPhase && session.executionPhase !== 'TERMINAL') &&
-      registry
-        .getActiveSessions()
-        .every((session) => !session.hasSnapshot && !session.turnInProgress),
+    quiescent: () => {
+      const excluded = quarantined();
+      const exclusions = new Set(excluded);
+      return (
+        deps.backgroundIdle() &&
+        !events.deploymentStartupPending() &&
+        !getCodexConversationStore().deploymentRecoveryPending(excluded) &&
+        !getCodexConversationStore().hasRunningCommands() &&
+        getCodexConversationStore()
+          .subagents.unsettledConversationIds()
+          .every((id) => exclusions.has(id)) &&
+        registry.getActiveSessions().every(({ sessionId }) => {
+          const session = sessionId && registry.findBySessionId(sessionId)?.session;
+          return !session || !getCodexRuntime(session)?.deploymentChildActivity();
+        }) &&
+        !events
+          .listSessions()
+          .some((session) => session.executionPhase && session.executionPhase !== 'TERMINAL') &&
+        registry
+          .getActiveSessions()
+          .every((session) => !session.hasSnapshot && !session.turnInProgress)
+      );
+    },
     receipt,
     resume(entry, auth, signal, assertCurrent) {
       const expected = validate(entry, auth);

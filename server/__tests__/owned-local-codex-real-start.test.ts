@@ -1,3 +1,23 @@
+import { chmodSync, existsSync, lstatSync, mkdirSync, writeFileSync } from 'node:fs';
+import { getLocalCommit } from '../git-version.js';
+import { publishPrivateOperationFile } from '../private-operation-file.js';
+import { MaintenancePlan, MaintenanceSeal } from '../deployment-maintenance-format.js';
+import {
+  assertMaintenanceBootstrap,
+  persistMaintenanceRequirement,
+  validateMaintenanceBootstrap,
+} from '../deployment-maintenance-bootstrap.js';
+import Database from 'better-sqlite3';
+import { join } from 'node:path';
+import { maintenanceFingerprint } from '@mitzo/protocol/event-store';
+import { createDeploymentRuntime } from '../deployment-runtime.js';
+import {
+  captureMaintenanceOwner,
+  assertMaintenanceOwnerDrained,
+  drainedMaintenanceSession,
+} from '../deployment-maintenance-observation.js';
+import { CodexConversationStore } from '../codex-conversation-store.js';
+import { assertOwnedCodexQueueControl } from '../owned-codex-queue-control.js';
 import { afterAll, expect, it, vi } from 'vitest';
 import { randomUUID, createHash } from 'node:crypto';
 import { codexNativeExecutionPolicy } from '../codex-native-execution-policy.js';
@@ -11,11 +31,12 @@ const setup = await vi.hoisted(async () => {
   const fs = await import('node:fs');
   const os = await import('node:os');
   const path = await import('node:path');
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 's6-real-owned-start-'));
+  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 's6-real-owned-start-')));
   for (const [key, value] of Object.entries({
     REPO_PATH: root,
     MITZO_INTERNAL_TOKEN_PATH: path.join(root, 'internal-token'),
     MITZO_CODEX_PRIVATE_DIR: path.join(root, 'private'),
+    TELOS_DB_PATH: path.join(root, 'todo.db'),
   }))
     vi.stubEnv(key, value);
   vi.stubGlobal(
@@ -77,7 +98,7 @@ it('the actual owned consumer recovers exact and saved inputs once, serializes r
         chat.eventStore.getOrdinaryLocalCommandExecutionAdmission(currentCommandId)?.state,
       ).toBe('consumed');
       providerCalls++;
-      if (providerCalls === 4) {
+      {
         // This synthetic peer retains native policy before its ACK, as a
         // native-enabled runtime does. The consumer fixture otherwise uses
         // host tools, so it does not request native execution permissions.
@@ -118,9 +139,10 @@ it('the actual owned consumer recovers exact and saved inputs once, serializes r
       lifecycle = callbacks;
       return f.rpc as never;
     });
-  const clientId = `${f.dependencies.operatorConnectionId}:${f.reservation.conversationId}`;
+  let clientId = `${f.dependencies.operatorConnectionId}:${f.reservation.conversationId}`;
   cleanups.push(async () => {
-    chat.registry.abort(clientId);
+    const current = chat.registry.findBySessionId(f.reservation.conversationId);
+    if (current) chat.registry.abort(current.clientId);
     await vi.waitFor(() =>
       expect(chat.registry.findBySessionId(f.reservation.conversationId)).toBeFalsy(),
     );
@@ -272,6 +294,63 @@ it('the actual owned consumer recovers exact and saved inputs once, serializes r
         .nativeTurnTarget(f.reservation.conversationId, f.reservation.binding, currentCommandId, 1),
     ).toBeDefined(),
   );
+  // Reuse this real owned consumer for the maintenance boundary. Save one
+  // consumed queued input before installing the source's durable hold.
+  const maintenanceNative = native.getCodexConversationStore();
+  const maintenanceCommand = maintenanceNative
+    .commands(f.reservation.conversationId, f.reservation.binding)
+    .find((command) => command.id === currentCommandId)!;
+  maintenanceNative.acceptNativeExecution(
+    f.reservation.conversationId,
+    f.reservation.binding,
+    maintenanceCommand,
+    'real-host-thread',
+    'real-host-turn-3',
+  );
+  const savedDuringMaintenance = {
+    ...structuredClone(f.request),
+    clientMsgId: randomUUID(),
+    payload: { text: 'Retain this original queued input across deployment' },
+  };
+  await chat.registry
+    .findBySessionId(f.reservation.conversationId)!
+    .session.ordinaryRuntimeOwner!.admit(savedDuringMaintenance, new AbortController().signal);
+  const ledger = new Database(join(process.env.REPO_PATH!, '.mitzo/events.db'));
+  const observation = new CodexConversationStore(
+    join(process.env.MITZO_CODEX_PRIVATE_DIR!, 'conversations.db'),
+    { observation: true },
+  );
+  cleanups.push(() => {
+    observation.close();
+    ledger.close();
+  });
+  chat.eventStore.upsertSession({
+    sessionId: 'quarantined-history',
+    initialPrompt: 'Retained original historical task',
+  });
+  chat.eventStore.setSessionState('quarantined-history', 'ENDED', { force: true });
+  ledger
+    .prepare(
+      'INSERT INTO send_commands(client_msg_id,session_id,payload,ordinary_admission) VALUES(?,?,?,?)',
+    )
+    .run(
+      'quarantined-command',
+      'quarantined-history',
+      '{"text":"Original uncertain input"}',
+      '{"state":"uncertain"}',
+    );
+  const originalHold = chat.eventStore.deployment.begin({
+    id: randomUUID(),
+    sourceCommit: '279e6703dedebaeb130993fd6e2657b2aed73c0a',
+    targetCommit: getLocalCommit()!,
+    auth,
+  });
+  const capturedOwner = captureMaintenanceOwner(
+    ledger,
+    observation,
+    f.reservation.conversationId,
+    true,
+  );
   lifecycle!.onNotification('turn/completed', {
     threadId: 'real-host-thread',
     turn: { id: 'real-host-turn-3', status: 'completed' },
@@ -283,6 +362,208 @@ it('the actual owned consumer recovers exact and saved inputs once, serializes r
         .commandStatus(f.reservation.conversationId, f.reservation.binding, currentCommandId),
     ).toBe('completed'),
   );
+  expect(
+    assertMaintenanceOwnerDrained(ledger, observation, capturedOwner).completionSha256,
+  ).toHaveLength(64);
+  chat.registry.abort(clientId);
+  await vi.waitFor(() =>
+    expect(chat.registry.findBySessionId(f.reservation.conversationId)).toBeFalsy(),
+  );
+  const historical = ledger
+    .prepare('SELECT * FROM send_commands WHERE client_msg_id=?')
+    .get('quarantined-command');
+  const authorityId = randomUUID();
+  const selectedFile = (path: string) => {
+    const stat = lstatSync(path);
+    return { path, identity: { dev: stat.dev, ino: stat.ino } };
+  };
+  const plan = MaintenancePlan.parse({
+    version: 1,
+    id: randomUUID(),
+    authorityId,
+    sourceOperationId: originalHold.id,
+    sourceOperationSha256: maintenanceFingerprint(JSON.stringify(originalHold)),
+    sourceCommit: originalHold.sourceCommit,
+    targetCommit: originalHold.targetCommit,
+    sourcePid: process.pid,
+    sourceGroup: process.pid,
+    sourceBirth: 'offline-source',
+    events: selectedFile(join(process.env.REPO_PATH!, '.mitzo/events.db')),
+    native: selectedFile(join(process.env.MITZO_CODEX_PRIVATE_DIR!, 'conversations.db')),
+    helpers: [],
+    owners: [capturedOwner],
+    expectedCommands: [
+      { commandId: 'quarantined-command', sha256: maintenanceFingerprint(historical) },
+    ],
+  });
+  const seal = MaintenanceSeal.parse({
+    planSha256: maintenanceFingerprint(plan),
+    helpers: [],
+    completionSha256: maintenanceFingerprint([
+      assertMaintenanceOwnerDrained(ledger, observation, capturedOwner),
+    ]),
+  });
+  const protectedRoot = join(process.env.MITZO_CODEX_PRIVATE_DIR!, 'deployment');
+  mkdirSync(protectedRoot, { mode: 0o700 });
+  const planFile = join(protectedRoot, 'candidate.json');
+  publishPrivateOperationFile(planFile, JSON.stringify(plan) + '\n');
+  publishPrivateOperationFile(planFile + '.sealed.json', JSON.stringify(seal) + '\n');
+  vi.stubEnv('MITZO_MAINTENANCE_PLAN_FILE', planFile);
+  expect(() => validateMaintenanceBootstrap()).toThrow();
+  persistMaintenanceRequirement(planFile, plan, seal);
+  chmodSync(protectedRoot, 0o755);
+  expect(() => persistMaintenanceRequirement(planFile, plan, seal)).toThrow(/Private owned/);
+  expect(() => validateMaintenanceBootstrap()).toThrow(/Private owned/);
+  chmodSync(protectedRoot, 0o700);
+  vi.stubEnv('MITZO_MAINTENANCE_PLAN_FILE', undefined);
+  expect(() => validateMaintenanceBootstrap()).toThrow(/adoption/);
+  const proofSha256 = maintenanceFingerprint({
+    planSha256: maintenanceFingerprint(plan),
+    completionSha256: seal.completionSha256,
+    helpers: seal.helpers,
+  });
+  expect(() => assertMaintenanceBootstrap(ledger, plan, seal, originalHold.targetCommit)).toThrow(
+    /adoption/,
+  );
+  const operation = chat.eventStore.deployment.maintenance.adopt(
+    {
+      ...plan,
+      expectedRunningSessions: [
+        {
+          sessionId: capturedOwner.sessionId,
+          targetSha256: maintenanceFingerprint(capturedOwner.target),
+        },
+      ],
+    },
+    {
+      authorize: () => auth,
+      // This fixture replaces only native transport creation; actual launchd
+      // process exclusion is a separately required host qualification.
+      assertSourceExcluded: () => {
+        expect(chat.registry.findBySessionId(f.reservation.conversationId)).toBeFalsy();
+      },
+      assertDrained: () => {
+        assertMaintenanceOwnerDrained(ledger, observation, capturedOwner);
+        return {
+          retainedSessionIds: [capturedOwner.sessionId],
+          proofSha256,
+          sessions: [drainedMaintenanceSession(chat.eventStore, observation, capturedOwner)],
+        };
+      },
+    },
+  );
+  expect(() =>
+    assertMaintenanceBootstrap(ledger, plan, seal, originalHold.targetCommit),
+  ).not.toThrow();
+  expect(() =>
+    assertMaintenanceBootstrap(
+      ledger,
+      plan,
+      { ...seal, completionSha256: 'f'.repeat(64) },
+      originalHold.targetCommit,
+    ),
+  ).toThrow(/adoption/);
+  expect(() => validateMaintenanceBootstrap()).not.toThrow();
+  const originalRepo = process.env.REPO_PATH!;
+  const otherRepo = join(setup.root, 'wrong-runtime-repo');
+  mkdirSync(otherRepo);
+  vi.stubEnv('REPO_PATH', otherRepo);
+  expect(() => validateMaintenanceBootstrap()).toThrow();
+  expect(existsSync(join(otherRepo, '.mitzo/events.db'))).toBe(false);
+  vi.stubEnv('REPO_PATH', originalRepo);
+  writeFileSync(
+    planFile + '.sealed.json',
+    JSON.stringify({ ...seal, completionSha256: 'f'.repeat(64) }),
+  );
+  expect(() => validateMaintenanceBootstrap()).toThrow(/requirement/);
+  writeFileSync(planFile + '.sealed.json', JSON.stringify(seal) + '\n');
+  expect(operation.sessions[0].pauseSettled).toBeUndefined();
+  const deployment = createDeploymentRuntime(
+    { eventStore: chat.eventStore, sessionRegistry: chat.registry, connRegistry: connections },
+    {
+      commit: () => originalHold.targetCommit,
+      healthy: () => true,
+      backgroundIdle: () => true,
+      authorizeSession: (id, actor) => {
+        chat.eventStore.deployment.maintenance.assertControl(id);
+        assertOwnedCodexQueueControl(
+          {
+            runtimeBinding: (session) => chat.eventStore.getSessionRuntimeBinding(session),
+            accountBinding: (session) => chat.eventStore.getSession(session)?.accountBinding,
+            custody: (session, account) => maintenanceNative.readHostCustody(session, account),
+          },
+          id,
+          actor,
+        );
+      },
+    },
+  );
+  cleanups.push(deployment.close);
+  currentCommandId = savedDuringMaintenance.clientMsgId;
+  expect(
+    (await deployment.coordinator.resume(operation.id, auth, { activationId: authorityId })).phase,
+  ).toBe('completed');
+  const continuationId = operation.sessions[0].resumeId;
+  expect(chat.eventStore.getOrdinaryLocalCommandExecutionAdmission(continuationId)?.state).toBe(
+    'consumed',
+  );
+  await vi.waitFor(() => expect(providerCalls).toBe(4));
+  expect(
+    maintenanceNative.commandStatus(
+      f.reservation.conversationId,
+      f.reservation.binding,
+      savedDuringMaintenance.clientMsgId,
+    ),
+  ).toBe('running');
+  expect(
+    maintenanceNative.commandStatus(
+      f.reservation.conversationId,
+      f.reservation.binding,
+      continuationId,
+    ),
+  ).toBe('queued');
+  expect(chat.eventStore.deployment.canDispatch('quarantined-history')).toBe(false);
+  expect(() => chat.eventStore.reserveOrdinaryStartup(['quarantined-history'])).toThrow(
+    /Deployment/,
+  );
+  currentCommandId = continuationId;
+  lifecycle!.onNotification('turn/completed', {
+    threadId: 'real-host-thread',
+    turn: { id: 'real-host-turn-4', status: 'completed' },
+  });
+  await vi.waitFor(() => expect(providerCalls).toBe(5));
+  lifecycle!.onNotification('turn/completed', {
+    threadId: 'real-host-thread',
+    turn: { id: 'real-host-turn-5', status: 'completed' },
+  });
+  await vi.waitFor(() =>
+    expect(
+      maintenanceNative.commandStatus(
+        f.reservation.conversationId,
+        f.reservation.binding,
+        continuationId,
+      ),
+    ).toBe('completed'),
+  );
+  expect(
+    maintenanceNative.commandStatus(
+      f.reservation.conversationId,
+      f.reservation.binding,
+      maintenanceCommand.id,
+    ),
+  ).toBe('completed');
+  expect(
+    ledger.prepare('SELECT * FROM send_commands WHERE client_msg_id=?').get('quarantined-command'),
+  ).toEqual(historical);
+  await expect(
+    deployment.coordinator.resume(operation.id, auth, { activationId: authorityId }),
+  ).rejects.toThrow(/Original deployment hold/);
+  expect(providerCalls).toBe(5);
+  expect(() =>
+    assertMaintenanceBootstrap(ledger, plan, seal, originalHold.targetCommit),
+  ).not.toThrow();
+  expect(() => assertMaintenanceBootstrap(ledger, plan, seal, 'c'.repeat(40))).not.toThrow();
+  clientId = chat.registry.findBySessionId(f.reservation.conversationId)!.clientId;
   const legacyRequest = {
     ...structuredClone(f.request),
     clientMsgId: randomUUID(),
@@ -326,7 +607,7 @@ it('the actual owned consumer recovers exact and saved inputs once, serializes r
       resume: true,
     }),
   ).resolves.toMatchObject({ dispatched: true });
-  await vi.waitFor(() => expect(providerCalls).toBe(4));
+  await vi.waitFor(() => expect(providerCalls).toBe(6));
   expect(
     nativeStore.commandStatus(
       f.reservation.conversationId,
@@ -356,7 +637,7 @@ it('the actual owned consumer recovers exact and saved inputs once, serializes r
     f.reservation.binding,
     completedCommand,
     'real-host-thread',
-    'real-host-turn-4',
+    'real-host-turn-6',
   );
   const execution = nativeStore.readNativeExecution(
     f.reservation.conversationId,
@@ -368,7 +649,7 @@ it('the actual owned consumer recovers exact and saved inputs once, serializes r
     f.reservation.binding,
     completedCommand,
     'real-host-thread',
-    'real-host-turn-4',
+    'real-host-turn-6',
     createHash('sha256').update(execution.policy.cwd).digest('hex'),
     execution.policy.policyRevision,
   );
@@ -400,7 +681,7 @@ it('the actual owned consumer recovers exact and saved inputs once, serializes r
       resume: true,
     }),
   ).resolves.toMatchObject({ dispatched: true });
-  await vi.waitFor(() => expect(providerCalls).toBe(5));
+  await vi.waitFor(() => expect(providerCalls).toBe(7));
   expect(
     nativeStore.commandStatus(
       f.reservation.conversationId,
@@ -443,7 +724,7 @@ it('the actual owned consumer recovers exact and saved inputs once, serializes r
     ),
   ).rejects.toMatchObject({ code: 'unsettled_effects' });
   expect(launch).toHaveBeenCalledTimes(launchesBefore);
-  expect(providerCalls).toBe(5);
+  expect(providerCalls).toBe(7);
   expect(nativeStore.commands(f.reservation.conversationId, f.reservation.binding)).toEqual(
     queuedBefore,
   );

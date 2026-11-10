@@ -599,12 +599,13 @@ export class CodexConversationStore {
     path: string,
     private readonly ownership: {
       requireOwner?: boolean;
+      observation?: true;
       maintenance?: { assertOffline(): void };
     } = {},
   ) {
-    if (ownership.maintenance) {
-      ownership.maintenance.assertOffline();
-      this.db = new Database(path, { fileMustExist: true });
+    if (ownership.maintenance || ownership.observation) {
+      ownership.maintenance?.assertOffline();
+      this.db = new Database(path, { fileMustExist: true, readonly: !!ownership.observation });
       this.db.pragma('synchronous = FULL');
       this.db.pragma('foreign_keys = ON');
       this.subagents = new CodexSubagentStore(this.db, false);
@@ -4664,8 +4665,34 @@ export class CodexConversationStore {
     id: string,
     binding: AccountBinding,
   ): CodexNativeTurnTarget | undefined {
+    return this.latestCompletedNativeTurnTarget(id, binding, false);
+  }
+  /** Negative maintenance observation only; queued input stays held and no
+   * recovery/dispatch authority is created. Available only to offline/read-only owners. */
+  maintenanceRunningNativeTurnTarget(id: string, binding: AccountBinding) {
+    if (!this.ownership.observation && !this.ownership.maintenance)
+      throw Error('Maintenance observation owner required');
+    this.read(id, binding);
+    const rows = this.db
+      .prepare(
+        "SELECT id,attempt FROM codex_commands WHERE conversation_id=? AND status='running' LIMIT 2",
+      )
+      .all(id) as Array<{ id: string; attempt: number }>;
+    if (rows.length !== 1) return;
+    return this.nativeTurnTarget(id, binding, rows[0].id, rows[0].attempt);
+  }
+  maintenanceCompletedNativeTurnTarget(id: string, binding: AccountBinding) {
+    if (!this.ownership.observation && !this.ownership.maintenance)
+      throw Error('Maintenance observation owner required');
+    return this.latestCompletedNativeTurnTarget(id, binding, true);
+  }
+  private latestCompletedNativeTurnTarget(
+    id: string,
+    binding: AccountBinding,
+    queuedRecovery: boolean,
+  ) {
     const state = this.read(id, binding);
-    if (state.recovery || this.pendingThreadOwnership(id, binding)) return;
+    if ((!queuedRecovery && state.recovery) || this.pendingThreadOwnership(id, binding)) return;
     const row = this.db
       .prepare(
         `SELECT id,status,attempt,native_turns FROM codex_commands

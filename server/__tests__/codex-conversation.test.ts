@@ -23,7 +23,10 @@ import {
   type CodexConversationOptions,
   type NativeBaseReadScope,
 } from '../codex-conversation.js';
-import { CodexConversationStore } from '../codex-conversation-store.js';
+import {
+  CodexConversationStore,
+  CodexNativeTurnTargetSchema,
+} from '../codex-conversation-store.js';
 import {
   migrateRetainedRuntime,
   type RuntimeMigrationAdapters,
@@ -2079,6 +2082,7 @@ async function setup(
   return {
     c,
     store,
+    storePath: existingStore ? undefined : join(dir, 'private.db'),
     callbacks: {
       onNotification: (method: string, params: Record<string, unknown>) =>
         callbacks.onNotification(method, params),
@@ -8163,6 +8167,16 @@ it('claims an exact accepted target once and reconciles its original interruptio
 });
 it('holds new native FIFO claims without blocking the current terminal evidence', async () => {
   const f = await setup();
+  f.conversationOptions.nativeExecution = codexNativeExecutionPolicy({
+    bindingRevision: 'maintenance-owner',
+    mode: 'agent',
+    cwd: '/workspace',
+    readableRoots: ['/'],
+    writableRoots: ['/workspace'],
+    deniedRoots: ['/private/auth'],
+  });
+  f.conversationOptions.assertNativeExecutionCurrent = () => {};
+  f.conversationOptions.requestNativeApproval = async () => ({ decision: 'decline' });
   await f.c.send({ id: 'before-deployment', prompt: 'First' });
   const target = f.c.captureInterruptTarget()!;
   f.conversationOptions.canStartCommand = () => false;
@@ -8178,6 +8192,29 @@ it('holds new native FIFO claims without blocking the current terminal evidence'
   f.conversationOptions.canStartCommand = () => true;
   await f.c.startQueued();
   expect(f.requests.filter((r) => r.method === 'turn/start')).toHaveLength(2);
+  const second = CodexNativeTurnTargetSchema.parse(f.c.captureInterruptTarget());
+  const observer = new CodexConversationStore(f.storePath!, { observation: true });
+  try {
+    expect(observer.maintenanceRunningNativeTurnTarget('app', f.getBinding())).toEqual(second);
+    expect(() =>
+      observer.enqueue('app', f.getBinding(), { id: 'forbidden', prompt: 'No write' }),
+    ).toThrow(/readonly/);
+    f.conversationOptions.canStartCommand = () => false;
+    await f.c.enqueue({ id: 'retained-after-close', prompt: 'Keep queued' });
+    f.callbacks.onNotification('turn/completed', {
+      threadId: second.threadId,
+      turn: { id: second.turnId, status: 'completed' },
+    });
+    await vi.waitFor(() => expect(f.c.deploymentTurnSettled(second)).toBe(true));
+    f.c.close();
+    expect(observer.read('app', f.getBinding()).recovery).toBe(1);
+    expect(observer.maintenanceCompletedNativeTurnTarget('app', f.getBinding())).toEqual(second);
+    expect(observer.deploymentTurnSettled('app', f.getBinding(), second)).toBe(true);
+    expect(observer.commands('app', f.getBinding()).at(-1)?.status).toBe('queued');
+    expect(f.requests.filter((r) => r.method === 'turn/start')).toHaveLength(2);
+  } finally {
+    observer.close();
+  }
 });
 it('refuses deployment settlement for an interrupted native command with unknown effects', async () => {
   const f = await setup();
