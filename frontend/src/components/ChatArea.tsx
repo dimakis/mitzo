@@ -527,7 +527,7 @@ export function ChatArea({
   const launchRows = launchRequests.map((request) => ({
     before: orderedTurns.find(
       (turn) =>
-        turn.kind !== 'context' &&
+          turn.kind === 'finished' &&
         turn.value.timestamp != null &&
         turn.value.timestamp >= request.createdAt,
     ),

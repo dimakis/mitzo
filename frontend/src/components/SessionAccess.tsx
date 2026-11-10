@@ -112,7 +112,7 @@ function AccessContent({
         }
       });
     return () => controller.abort();
-  }, [connections]);
+  }, [connections, sessionId]);
   const stale = Boolean(evidence && (error || !connected || now - evidence.observedAt > 30000));
   const current = evidence?.state === 'current' && !stale && !loading;
   return (
