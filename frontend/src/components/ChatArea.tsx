@@ -173,6 +173,26 @@ export function ChatArea({
   const internalScrollRef = useRef<HTMLDivElement>(null);
   const scrollRef = externalScrollRef ?? internalScrollRef;
   const prevMessageCount = useRef(0);
+  const [replyReturn, setReplyReturn] = useState<{
+    source: HTMLElement;
+    reply: HTMLButtonElement;
+  } | null>(null);
+  const [replyNotice, setReplyNotice] = useState('');
+  useEffect(() => () => replyReturn?.source.classList.remove('chat-reply-target'), [replyReturn]);
+  const replySources = useMemo(
+    () =>
+      new Map(
+        messages
+          .filter((message) => !message.symposiumProvenance)
+          .flatMap((message) => [
+            [message.messageId, message] as const,
+            ...(message.agentMessage
+              ? [[message.agentMessage.message.commandId, message] as const]
+              : []),
+          ]),
+      ),
+    [messages],
+  );
   const requests = useMemo(
     () =>
       new Map(
@@ -195,21 +215,34 @@ export function ChatArea({
     steered: 'Correction sent to current turn',
     uncertain: 'Correction delivery not confirmed',
   };
-  function quote(reply: MessageReplyContext) {
+  function quote(reply: MessageReplyContext, author = reply.role === 'user' ? 'You' : 'Mitzo') {
     return (
       <button
         type="button"
         className="chat-reply-link"
         aria-label={`Replying to: ${reply.text.slice(0, 120)}`}
-        onClick={() => {
+        onClick={(event) => {
           const target = Array.from(
             scrollRef.current?.querySelectorAll<HTMLElement>('[data-reply-source]') ?? [],
           ).find((element) => element.dataset.replySource === reply.messageId);
-          target?.scrollIntoView({ block: 'center' });
-          target?.focus({ preventScroll: true });
+          if (!target) {
+            setReplyNotice('Original message is not loaded in this conversation.');
+            return;
+          }
+          setReplyNotice('');
+          replyReturn?.source.classList.remove('chat-reply-target');
+          target.classList.add('chat-reply-target');
+          setReplyReturn({ source: target, reply: event.currentTarget });
+          target.scrollIntoView({ block: 'center' });
+          target.focus({ preventScroll: true });
         }}
       >
-        <span className="chat-reply-author">{reply.role === 'user' ? 'You' : 'Mitzo'}</span>
+        <span className="chat-reply-author">{author}</span>
+        {reply.timestamp != null && (
+          <time dateTime={new Date(reply.timestamp).toISOString()}>
+            {new Date(reply.timestamp).toLocaleString()}
+          </time>
+        )}
         <span className="chat-reply-excerpt">{reply.text}</span>
       </button>
     );
@@ -247,26 +280,28 @@ export function ChatArea({
   }
   function replyLabel(message: FinishedMessage | StreamingMessage) {
     if (message.symposiumProvenance || !message.replyToMessageId) return null;
-    const original = requests.get(message.replyToMessageId);
-    const text = original?.blocks.find((block) => block.blockType === 'text')?.content;
-    if (!text) return <div className="chat-command-meta">Answering an earlier message</div>;
-    const label = `Replying to: ${text.length > 120 ? text.slice(0, 120) + '…' : text}`;
-    return (
-      <button
-        type="button"
-        className="chat-reply-link"
-        aria-label={label}
-        onClick={() => {
-          const target = Array.from(
-            scrollRef.current?.querySelectorAll<HTMLElement>('[data-command-request]') ?? [],
-          ).find((element) => element.dataset.commandRequest === message.replyToMessageId);
-          target?.scrollIntoView({ block: 'center' });
-          target?.focus({ preventScroll: true });
-        }}
-      >
-        <span className="chat-reply-author">You</span>
-        <span className="chat-reply-excerpt">{text}</span>
-      </button>
+    const original = replySources.get(message.replyToMessageId);
+    const text =
+      original?.agentMessage?.message.text ??
+      original?.blocks
+        .filter((block) => block.blockType === 'text')
+        .map((block) => block.content)
+        .join('\n\n');
+    if (!original || !text)
+      return (
+        <div className="chat-reply-unavailable">
+          <span>Original message unavailable</span>
+          <small>Reference: {message.replyToMessageId}</small>
+        </div>
+      );
+    return quote(
+      {
+        messageId: message.replyToMessageId,
+        role: original.role === 'user' ? 'user' : 'assistant',
+        text,
+        ...(original.timestamp != null ? { timestamp: original.timestamp } : {}),
+      },
+      original.agentMessage?.senderName ?? (original.role === 'user' ? 'You' : 'Mitzo'),
     );
   }
   const source = useTelosSourceNavigation();
@@ -803,6 +838,22 @@ export function ChatArea({
           ),
         )}
         {afterMessages}
+        {replyNotice && <p role="status">{replyNotice}</p>}
+        {replyReturn && (
+          <button
+            type="button"
+            className="chat-reply-return"
+            onClick={() => {
+              replyReturn.source.classList.remove('chat-reply-target');
+              replyReturn.reply.scrollIntoView({ block: 'center' });
+              replyReturn.reply.focus({ preventScroll: true });
+              setReplyReturn(null);
+            }}
+          >
+            <UiIcon name="undo" size={16} />
+            Back to reply
+          </button>
+        )}
       </div>
 
       {permission && (
