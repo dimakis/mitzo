@@ -31,6 +31,16 @@ export const SessionLaunchConfigSchema = z.strictObject({
 });
 export type SessionLaunchConfig = z.infer<typeof SessionLaunchConfigSchema>;
 
+export function sessionLaunchHandoverUrl(proposalId: string): string {
+  return `/api/session-launch/requests/${encodeURIComponent(proposalId)}/handover.md`;
+}
+/** Only the retained handover endpoint can bypass workspace file resolution. */
+export function isSessionLaunchHandoverUrl(url: string): boolean {
+  return /^\/api\/session-launch\/requests\/[a-f\d]{8}-[a-f\d]{4}-[a-f\d]{4}-[a-f\d]{4}-[a-f\d]{12}\/handover\.md$/i.test(
+    url,
+  );
+}
+
 /** Shared presentation of the startup route's static limits. Catalog, account
  * and tool availability still require current controller qualification. */
 export function sessionLaunchConfigurationReason(config: SessionLaunchConfig): string | null {

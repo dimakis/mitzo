@@ -6,6 +6,8 @@ import type { ReactNode } from 'react';
 import { SessionLaunchCards, SessionLaunchOrigin } from '../SessionLaunchCards';
 import { apiFetch } from '../../lib/api-fetch';
 import type { SessionLaunchConfig, SessionLaunchRecord } from '@mitzo/protocol';
+import { downloadFile } from '../../lib/share-file';
+vi.mock('../../lib/share-file', () => ({ downloadFile: vi.fn(), shareFile: vi.fn() }));
 
 const render = (children: ReactNode) => renderView(children, { wrapper: MemoryRouter });
 
@@ -125,11 +127,15 @@ it('shows compact linked receipt with shared svg icon and accurate startup state
   expect(screen.getByRole('status').textContent).toBe('Created · start not yet confirmed');
   expect(container.querySelector('[data-icon="arrowUpRight"]')).toBeTruthy();
 });
-it('offers retained Markdown directly from the request without a temporary local path', () => {
+it('saves retained Markdown through the shared authenticated file actions', async () => {
+  vi.mocked(downloadFile).mockResolvedValue(true);
   render(<SessionLaunchCards requests={[proposal]} onUpdate={vi.fn()} />);
-  const link = screen.getByRole('link', { name: 'Download handover' });
-  expect(link.getAttribute('href')).toBe('/api/session-launch/requests/proposal/handover.md');
-  expect(link.hasAttribute('download')).toBe(true);
+  expect(screen.getByRole('group', { name: 'Handover' }).textContent).toContain('Handover.md');
+  fireEvent.click(screen.getByRole('button', { name: 'File options' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Download file' }));
+  await waitFor(() =>
+    expect(downloadFile).toHaveBeenCalledWith('/api/session-launch/requests/proposal/handover.md'),
+  );
   expect(apiFetch).not.toHaveBeenCalled();
 });
 it('keeps definite preflight refusals editable without another request check', async () => {

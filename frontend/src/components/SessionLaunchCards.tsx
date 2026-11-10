@@ -2,12 +2,14 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import {
   sessionLaunchConfigurationReason,
+  sessionLaunchHandoverUrl,
   type SessionLaunchConfig,
   type SessionLaunchRecord,
 } from '@mitzo/protocol';
 import { apiFetch, AUTH_LOST_EVENT } from '../lib/api-fetch';
 import { HomeDialog } from './HomeDialog';
 import { UiIcon } from './UiIcon';
+import { ShareButton } from './ShareButton';
 import { SessionLaunchConfigEditor } from './SessionLaunchConfigEditor';
 import './SessionLaunchCards.css';
 import '../styles/chat-sheets.css';
@@ -372,12 +374,10 @@ export function SessionLaunchCards({
           <ConfigSummary configuration={request.configuration} />
           <div className="session-launch-actions">
             <span role="status">{states[request.state]}</span>
-            <a
-              href={`/api/session-launch/requests/${encodeURIComponent(request.proposalId)}/handover.md`}
-              download
-            >
-              Download handover
-            </a>
+            <span className="file-path-group" role="group" aria-label="Handover">
+              <span>Handover.md</span>
+              <ShareButton filePath={sessionLaunchHandoverUrl(request.proposalId)} />
+            </span>
             {request.childSessionId && (
               <Link to={`/chat/${encodeURIComponent(request.childSessionId)}`}>
                 Open chat <UiIcon name="arrowUpRight" size={16} />
