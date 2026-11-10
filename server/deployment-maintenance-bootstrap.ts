@@ -182,7 +182,7 @@ export function persistMaintenanceRequirement(
   }
 }
 
-/** Runs in start.sh before app imports, routes, timers or recovery owners exist. */
+/** Runs through index's first dependency before application or recovery imports. */
 export function validateMaintenanceBootstrap(): void {
   const selected = process.env.MITZO_MAINTENANCE_PLAN_FILE;
   if (Object.hasOwn(process.env, 'MITZO_MAINTENANCE_PLAN_FILE') && !selected)

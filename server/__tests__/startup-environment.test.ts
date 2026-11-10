@@ -1,5 +1,5 @@
 import { expect, it } from 'vitest';
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -113,6 +113,45 @@ it('boots with authentication, workspace and tracing settings supplied only by t
     expect(result.stdout).toContain('STARTUP_ENV_READY=true');
     expect(result.stdout).toContain('STARTUP_SERVER_LOGGER_READY');
     expect(result.stdout).toContain('STARTUP_HARNESS_LOGGER_READY');
+    // Reuse the isolated entry-point fixture. A mandatory maintenance refusal
+    // must happen before application imports can create another runtime store.
+    const refusedWorkspace = join(root, 'refused-workspace');
+    const deployment = join(root, '.mitzo/private/codex/deployment');
+    mkdirSync(deployment, { recursive: true, mode: 0o700 });
+    writeFileSync(
+      join(deployment, 'required-handoff.json'),
+      '{"planFile":"private-capability-canary',
+      { mode: 0o600 },
+    );
+    const refused = spawnSync(
+      process.execPath,
+      [
+        '--import',
+        gate,
+        '--import',
+        createRequire(import.meta.url).resolve('tsx'),
+        fileURLToPath(new URL('../index.ts', import.meta.url)),
+      ],
+      {
+        cwd: root,
+        env: {
+          PATH: process.env.PATH,
+          HOME: root,
+          TMPDIR: tmpdir(),
+          NODE_ENV: 'test',
+          TSX_TSCONFIG_PATH: sourceConfig,
+          REPO_PATH: refusedWorkspace,
+        },
+        encoding: 'utf8',
+        timeout: 20000,
+      },
+    );
+    expect(refused.status, refused.stdout + refused.stderr).toBe(1);
+    expect(refused.stderr).toContain('maintenance_unconfirmed');
+    expect(refused.stderr).toContain('malformed_private_evidence');
+    expect(refused.stderr).not.toContain('private-capability-canary');
+    expect(refused.stdout).not.toContain('STARTUP_ENV_READY');
+    expect(existsSync(join(refusedWorkspace, '.mitzo'))).toBe(false);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

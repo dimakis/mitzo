@@ -169,7 +169,7 @@ Before adopting, the CLI exclusively publishes the private permanent
 sealed evidence. Startup discovers this marker even without an environment
 selector. Keep the marker, plan, seal, continuation state and quarantine data in
 backups permanently. Restoring an old events file or omitting the selector must
-fail before app routes, timers or recovery start. An explicit
+fail through the HTTP server entry point before app imports, routes, timers or recovery start. An explicit
 `MITZO_MAINTENANCE_PLAN_FILE` must identify the same protected plan. Never remove
 the marker or evidence to make startup pass. A completed handoff remains valid
 historical evidence on later accepted releases; it grants no new delivery authority.

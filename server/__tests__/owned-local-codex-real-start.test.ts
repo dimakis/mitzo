@@ -17,6 +17,11 @@ import {
   drainedMaintenanceSession,
 } from '../deployment-maintenance-observation.js';
 import { CodexConversationStore } from '../codex-conversation-store.js';
+import express from 'express';
+import request from 'supertest';
+import { createSessionRemovalRuntime } from '../session-removal-runtime.js';
+import { SessionResourceRemovalService } from '../session-resource-removal.js';
+import { createSessionRemovalRouter } from '../session-removal.js';
 import { assertOwnedCodexQueueControl } from '../owned-codex-queue-control.js';
 import { afterAll, expect, it, vi } from 'vitest';
 import { randomUUID, createHash } from 'node:crypto';
@@ -56,7 +61,7 @@ vi.mock('@anthropic-ai/claude-agent-sdk', () => ({
 }));
 import { ownedRuntimeFixture } from './fixtures/owned-local-codex-runtime.js';
 import { CodexAppServerClient } from '../codex-app-server-client.js';
-import { login, authenticateToken, setAuthRevocationStore } from '../auth.js';
+import { login, authenticateToken, isAuthSessionCurrent, setAuthRevocationStore } from '../auth.js';
 import { bindAgentLibraryTransport } from '../agent-library-transport.js';
 import * as workspaces from '../repository-workspace-runtime.js';
 import * as library from '../agent-library-runtime.js';
@@ -325,10 +330,16 @@ it('the actual owned consumer recovers exact and saved inputs once, serializes r
     ledger.close();
   });
   chat.eventStore.upsertSession({
+    ...chat.eventStore.getSession(f.reservation.conversationId)!,
     sessionId: 'quarantined-history',
     initialPrompt: 'Retained original historical task',
   });
   chat.eventStore.setSessionState('quarantined-history', 'ENDED', { force: true });
+  maintenanceNative.create('quarantined-history', f.reservation.binding, f.reservation.taskRoot);
+  maintenanceNative.enqueue('quarantined-history', f.reservation.binding, {
+    id: 'quarantined-command',
+    prompt: 'Original uncertain input',
+  });
   ledger
     .prepare(
       'INSERT INTO send_commands(client_msg_id,session_id,payload,ordinary_admission) VALUES(?,?,?,?)',
@@ -452,6 +463,52 @@ it('the actual owned consumer recovers exact and saved inputs once, serializes r
       },
     },
   );
+  // Exercise the real removal HTTP consumer and native queue using this same
+  // owned fixture; quarantine must refuse before preparation or cancellation.
+  const cancelledPrompts = vi.fn(async () => {}),
+    stopped = vi.fn();
+  const removalRuntime = createSessionRemovalRuntime({
+    events: chat.eventStore,
+    registry: chat.registry,
+    tasks: { getTree: () => [], getTelosExecutionBinding: () => null },
+    native: () => maintenanceNative,
+    stop: stopped,
+  });
+  const removal = new SessionResourceRemovalService({
+    ...removalRuntime,
+    store: chat.eventStore.removals,
+    cancelPrompts: cancelledPrompts,
+  });
+  const removalApp = express();
+  removalApp.use(express.json());
+  removalApp.use(
+    '/api/sessions',
+    createSessionRemovalRouter({
+      authorize: (_req, _res, next) => next(),
+      lifecycle: () => null,
+      hasSandbox: () => false,
+      hide: vi.fn(),
+      changed: vi.fn(),
+      removal: {
+        service: removal,
+        authority: () => () => {
+          if (!isAuthSessionCurrent(auth)) throw Error('Revoked fixture actor');
+        },
+      },
+    }),
+  );
+  const retainedQueue = maintenanceNative.commands('quarantined-history', f.reservation.binding);
+  const refusedRemoval = await request(removalApp)
+    .post('/api/sessions/quarantined-history/prepare-deletion')
+    .send({})
+    .expect(409);
+  expect(refusedRemoval.body.error).toMatch(/quarantined/);
+  expect(maintenanceNative.commands('quarantined-history', f.reservation.binding)).toEqual(
+    retainedQueue,
+  );
+  expect(chat.eventStore.removals.read('quarantined-history')).toBeUndefined();
+  expect(cancelledPrompts).not.toHaveBeenCalled();
+  expect(stopped).not.toHaveBeenCalled();
   expect(() =>
     assertMaintenanceBootstrap(ledger, plan, seal, originalHold.targetCommit),
   ).not.toThrow();
