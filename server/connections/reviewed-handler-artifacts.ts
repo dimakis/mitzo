@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.985-symposium-subagent-inspection-integration';
+  'v1.0.986-symposium-visual-evidence';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -155,9 +155,9 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../tests/offline/symposium-composer.spec.ts':
     '8b77ba1c163f793e459eb7005e4f5c55c9f0b8d53dac863d862d58002ce47bbf',
   '../../docs/evidence/symposium-integration-acceptance.md':
-    '66f2984aa71babdcacfdeec50a5959c8f88ca57345d7a671aed37b3e2b7f885b',
+    '40f4703d6d17e2d2b093e1a4905437c370fdb263ad1f6fd0c3b627c02d073508',
   '../../docs/features/symposium.md':
-    '88e2ff778ec7e8350ce3c229ab5069561f2eafc08d3b1fb473fd72002520e9d0',
+    '2dc308ca272de08196d4ecb7ab0d4742ee18eacc67d1d3626531d1f8d6a5b6f9',
   '../repository-capability-identity.ts':
     '2e35f24342d36e21f6c559afa93758f9ef83a2e3e435eda6d46e1a6101d16392',
   '../task-capability-consent.ts':

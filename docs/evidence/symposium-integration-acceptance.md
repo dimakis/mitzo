@@ -53,8 +53,16 @@ keeps wrapping. A separate, additional `symposium-footer.spec.ts` checks the act
 production preview's note width, footer reachability and overflow at 320/390px and
 desktop in light/dark themes; the protected approval tests and ledger are intact.
 The design contract (109 passes, one existing skip), 13 protected component checks
-and browser discovery pass locally. Rendering the correction remains a hosted CI
-gate; no local browser pass is claimed.
+and browser discovery pass locally. Corrected renders at `9d3f0cae` passed root
+and independent visual comparison: 320/390px dark/light Add-agent footers remain
+readable, desktop Add-agent controls align, and Before-joining retains the approved
+hierarchy. The current candidate preserves those UI bytes. Retained artifacts:
+[mobile WebKit](https://github.com/dimakis/mitzo/actions/runs/42734183215/artifacts/13726154193)
+and [desktop Chromium](https://github.com/dimakis/mitzo/actions/runs/42734183215/artifacts/13726961053).
+The additional footer browser cases passed in hosted CI. No local browser pass is
+claimed; the superseded run's asynchronous Thinking-control assertion failed in
+the application unit test and was corrected by awaiting the loaded control.
+Current-head CI and trusted review remain separate landing gates.
 
 The complete production Add-agent UI journey exposed two further gaps: retaining
 the pending repository ID in the parent aborted the original preparation POST,
@@ -88,7 +96,8 @@ observation translates that specific error. Runtime identity/storage failures
 remain observable. CI exposed a private-database access in the corruption fixture;
 injection at the append boundary corrects its type safety without relaxing the
 validated source writer. Local browser attempts remain blocked by macOS process
-registration and the explicit host guard; no rendered pass is claimed.
+registration and the explicit host guard; rendered evidence comes from the
+hosted artifacts above.
 
 #1242 is not a remaining dependency: accepted #1266/#1272 supply its retained
 operator and callback settlement behavior. The active owner independently
@@ -96,10 +105,10 @@ verified those paths (176 checks, 11 existing skips) and retained the stronger
 callback-consumer regression in #1257. That evidence is separate from this PR's
 current-head CI/review, which remain mandatory before merge.
 
-This qualifies bounded source/offline application behavior only. The rendered
-fresh-agent browser journey, independent visual acceptance,
-physical iOS, other runtime/account routes and the broader milestone remain
-separate acceptance work. No staging, deployment or live inference was performed.
+This qualifies bounded source/offline application behavior and reviewed
+presentation only. Physical iOS, live runtime/account routes and the broader
+multi-recipient/Defaults milestone remain separate acceptance work. No staging,
+deployment or live inference was performed.
 
 ## 7 November 2026 interrupted landing and review corrections
 
