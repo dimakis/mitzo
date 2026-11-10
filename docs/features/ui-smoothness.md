@@ -101,6 +101,14 @@ complete changed UI/source/test/document closure with updated fingerprints.
 This is candidate provenance for review; it changes no approved-design ledger
 reference, protected test fingerprint, merge gate or production activation.
 
+Hosted run `42920214994` at `9f5f6c78` passed compile/source preflight, the frontend
+build, core checks and browser interactions. The response-stability journey passed
+mobile WebKit in both themes. Existing image-preview and Today pin-dialog target
+checks measured fractional translated WebKit bounds just below 44px during the
+new sheet entrance. Those checks now wait for actual ancestor motion to settle;
+they retain the exact 44px assertions and run with normal motion enabled.
+The complete successor CI result and Centaur review remain required for landing.
+
 Each logical change starts with a failing regression, then implementation and
 an atomic commit. Run the design guard, focused consumer tests and intercepted
 browser fixtures on mobile WebKit/Chromium and desktop Chromium. Inspect light

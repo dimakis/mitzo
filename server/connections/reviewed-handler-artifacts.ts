@@ -25,7 +25,13 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../docs/design/frontend-motion.md':
     '6225104dac711bd85ceccafe17ca1980a6aa19c1b2c11f004429c5d2b6872e55',
   '../../docs/features/ui-smoothness.md':
-    'eb930bf3f669948f2559e91e333d4bc0c2cb03f9692ac0fc83728dd82a66d896',
+    '0f36df9e2a40bd66fa12d937b48443d85c592ce8b927fc2dbd6c6f6fbabd25da',
+  '../../tests/offline/image-attachments.spec.ts':
+    'b6bf2d6d8e45ca48c5b3b85e0102666774317e823adf46ee766645b984edeccf',
+  '../../tests/offline/terminal.spec.ts':
+    '5ccdb84c7f2618e0a6f69df867bd5d1ec3aa99af44302187290b62c3e30c5b72',
+  '../../tests/support/motion-settled.ts':
+    '049393df9799c9d1221b74587d7e4fbbfae3648df5626857722cdac431c21ad0',
   '../../frontend/src/components/MotionDetails.tsx':
     '13e72ef48f6f7d75f3f56c98ac5ea2931952428155c76b9eb866d8a172612059',
   '../../frontend/src/components/MotionRoutes.tsx':
@@ -3629,7 +3635,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../tests/offline/pdf-import.spec.ts':
     'e4a6d8250cbaa9b328bda594153fad96afd3394a9c09f375f7540f3b14cee970',
   '../../tests/offline/unified-mobile.spec.ts':
-    'cd01f70e4166ceff6623c5ac673e428a90dd26ee5b86adaed0f9bb7c02141b61',
+    '308c59466a8846dba1323d53774d02c8e1941d123019307fa306c10840f1edd9',
   '../openshell-operator-transport.ts':
     '35d10b780021b5e29ec24c3834864978ddf4a17dbe807c07aa7327a7511a6939',
   '../openshell-secret-protocol.ts':
