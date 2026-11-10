@@ -643,6 +643,7 @@ export class CodexConversation {
     const generation = this.transportGeneration;
     const binding = this.binding;
     const scope = subagentScope(this.opts.conversationId, binding);
+    let anchorsReconciled = false;
     this.subagentOwner = new CodexSubagents({
       scope,
       store: this.opts.store.subagents,
@@ -736,8 +737,21 @@ export class CodexConversation {
       requestUserInput: this.opts.requestUserInput,
       validateModel: this.opts.validateModel,
       onChild: (child) => {
-        if (!this.mapper || this.subagentAnchors.has(child.commandId)) return;
-        this.subagentAnchors.add(child.commandId);
+        if (!this.mapper) return false;
+        if (this.subagentAnchors.has(child.commandId)) return true;
+        if (!anchorsReconciled) {
+          // Receipts belong to children, but one marker represents a command.
+          // Reconcile before emission, within the child's reporting boundary.
+          for (const retained of this.opts.store.subagents.list(scope))
+            if (
+              retained.rootThreadId === this.threadId &&
+              retained.policyRevision === this.opts.nativeExecution?.policyRevision &&
+              retained.activityAnchored !== false
+            )
+              this.subagentAnchors.add(retained.commandId);
+          anchorsReconciled = true;
+          if (this.subagentAnchors.has(child.commandId)) return true;
+        }
         const toolId = this.mapper.toolStart(child.threadId, 'Agent', {
           description: 'Subagents',
           subagent_type: 'Codex',
@@ -745,9 +759,11 @@ export class CodexConversation {
         });
         this.mapper.toolResult(
           toolId,
-          'Native subagent admitted. Open it to inspect output or give direction.',
+          'Native subagent activity observed. Open it to check inspection status and available output.',
           false,
         );
+        this.subagentAnchors.add(child.commandId);
+        return true;
       },
     });
     return this.subagentOwner;
@@ -4711,7 +4727,14 @@ export class CodexConversation {
       this.opts.assertSteeringCurrent();
       if (active.nativeExecution)
         this.opts.assertNativeExecutionCurrent?.(active.nativeExecution, active.command.id);
-    } catch {
+    } catch (error) {
+      log.warn('Correction refused before native submission', {
+        conversationId: this.opts.conversationId,
+        commandId: active.command.id,
+        requestId: input.requestId,
+        phase: 'admission',
+        ...(error instanceof Error ? codexRuntimeErrorTelemetry(error) : {}),
+      });
       return { status: 'rejected' };
     }
     if (!this.opts.store.claimSteering(this.opts.conversationId, this.binding, input, target)) {

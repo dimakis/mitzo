@@ -34,10 +34,10 @@ afterEach(() => {
 
 // Public validation DTO only, explicitly UNVERIFIED. No capacity or successful
 // application composition is inferred from these hook/journal substitution cases.
-function receipt() {
+function receipt(joiningBrief = 'Exact brief') {
   const result = joiningReviewFixture({
     capacity: { status: 'unverified', reason: 'No native capacity owner' },
-    joiningBrief: 'Exact brief',
+    joiningBrief,
   });
   result.settings.selection.permission.mode = 'ask';
   return result;
@@ -71,7 +71,9 @@ function owner(): ApplicationConversationJoiningOwner {
       },
       ...(input.previousSnapshot ? { previousSnapshot: input.previousSnapshot } : {}),
     })),
-    review: vi.fn(async () => structuredClone(result)),
+    review: vi.fn<ApplicationConversationJoiningOwner['review']>(async (input) =>
+      receipt(input.selection.joiningBrief),
+    ),
     confirm: vi.fn(),
     recover: vi.fn(),
   };
@@ -86,7 +88,9 @@ it.each(['snapshotId', 'sha256', 'source', 'settings', 'membership', 'removed'] 
     expect(hook.result.current.review?.snapshot.capacity.status).toBe('unverified');
     const storage = conversationJoiningRecovery('source-chat'),
       original = storage.read()!;
-    expect(original.acceptedReview).toEqual(joiningReviewFence(receipt()));
+    expect(original.acceptedReview).toEqual(
+      joiningReviewFence(receipt(vi.mocked(p.review).mock.calls[0][0].selection.joiningBrief)),
+    );
     const next = structuredClone(original);
     if (change === 'snapshotId')
       next.acceptedReview!.snapshot.snapshotId = '00000000-0000-4000-8000-000000000011';
@@ -113,7 +117,7 @@ it.each(['snapshot', 'source', 'settings'] as const)(
     const storage = conversationJoiningRecovery('source-chat'),
       original = storage.read()!;
     first.unmount();
-    const changed = receipt();
+    const changed = receipt(vi.mocked(p.review).mock.calls[0][0].selection.joiningBrief);
     if (change === 'snapshot') {
       changed.snapshot.snapshotId = '00000000-0000-4000-8000-000000000011';
       changed.snapshot.sha256 = 'b'.repeat(64);
@@ -173,7 +177,7 @@ it.each(['group', 'legacy', 'source'] as const)(
           };
     hook.rerender({ port: next });
     await act(async () => {
-      resolve(receipt());
+      resolve(receipt(vi.mocked(p.review).mock.calls[0][0].selection.joiningBrief));
       await running;
     });
     expect(storage.read()).toEqual(before);

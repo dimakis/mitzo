@@ -1,9 +1,52 @@
 # Symposium: current direction and source guide
 
-Updated 7 November 2026. Start here for Symposium product work.
+Updated 10 November 2026. Start here for Symposium product work.
 Existing Telos item: `c0851ba23fcc5d04`; reuse it rather than create another parent
 or a task for every document. Tracker closure and source landing do not prove
 runtime acceptance or authorize deployment.
+
+## Accepted shared composer and reply recovery
+
+PRs #1252 and #1261 are merged. Current source supports server-owned recipient
+readiness, silent joining, first and later explicit Local Codex prompts through
+the shared composer, attributed finalized replies, exact observational retries
+and retained uncertain sends. This is bounded source acceptance, not installed
+runtime or live user acceptance.
+
+The remaining unique recovery behavior from draft #1244 is ported into the
+accepted messaging owner: finalized answers recover independently of unrelated
+history size/interleaving and the recent shared-message page. Malformed or
+oversized sources refuse individually; later eligible answers remain readable.
+Full-prefix joining/snapshot qualification and ordinary provenance remain intact.
+See the dated [evidence map](../evidence/symposium-integration-acceptance.md).
+The old #1244 dispatch/UI paths are superseded; recommend retiring that draft
+after its unique recovery replacement lands. #1242's relevant production fixes
+are already accepted through #1266/#1272 and are not an outstanding prerequisite.
+
+The replacement also repairs two gaps exposed by the complete application UI
+journey: a parent echo of the pending repository ID cancelled its own preparation,
+and initial context review omitted the required joining brief. The real Add-agent
+controls now prepare the repository, review/edit/refreeze context, join silently,
+refresh stale readiness and send a directed prompt yielding an attributed answer.
+The same application UI test then explicitly addresses a second joined agent on
+the same account. Its independent native turn receives the first prompt and reply
+with attribution, and acknowledges their retained context exactly once.
+That offline application test substitutes external native metadata and RPC only;
+it does not qualify a live account. Existing request cancellation, changed-model
+restoration and exact edited/retry bytes remain covered.
+
+Hosted browser renders and independent visual comparison pass for the corrected
+mobile and desktop presentation. The approved design controls and references are
+unchanged. Hosted visual review found an
+Add-agent footer note shrinking below its approved 72px minimum at phone width;
+the component restores that readable track with shared spacing tokens and retains
+wrapping. A separate browser regression preserves the original protected checks.
+The dated evidence map links those rendered artifacts; keyboard/recovery behavior
+has separate offline interaction coverage. Screenshots do not establish live
+runtime, physical-device or complete milestone acceptance.
+No source merge establishes deployment,
+physical iOS or full runtime/account qualification. The dated candidate records
+below describe their original checkpoints.
 
 ## Shared composer — 7 November candidate
 

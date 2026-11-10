@@ -36,6 +36,7 @@ export function subagentSnapshot(child: RetainedSubagent, available = false) {
     blocks: child.blocks,
     usage: child.usage,
     outputTruncated: child.outputTruncated,
+    inspectionFailure: child.inspectionFailure,
     available,
     state:
       !available && ['starting', 'working', 'needs_permission', 'stopping'].includes(child.state)
@@ -49,6 +50,10 @@ const RetainedChild = NativeSubagentSnapshotSchema.extend({
   policyRevision: z.string().min(1),
   commandAttempt: z.number().int().positive().optional(),
   threadGeneration: z.number().int().nonnegative().optional(),
+  // Observation establishes visibility only. Native identity must still be verified.
+  admissionVerified: z.boolean().optional(),
+  /** Missing on legacy rows, whose already emitted activity must not be replayed. */
+  activityAnchored: z.boolean().optional(),
 });
 export type RetainedSubagent = z.infer<typeof RetainedChild>;
 export interface ChildToolIdentity {

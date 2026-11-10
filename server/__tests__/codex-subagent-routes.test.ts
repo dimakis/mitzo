@@ -7,6 +7,10 @@ import { createCodexSubagentRouter } from '../codex-subagent-routes.js';
 function fixture() {
   const owner = {
     list: vi.fn(() => []),
+    inspect: vi.fn(async (_threadId: string, authorize: () => void) => {
+      authorize();
+      return undefined;
+    }),
     control: vi.fn(
       async (
         _input: NativeSubagentControl,
@@ -33,6 +37,37 @@ function fixture() {
   );
   return { app, owner, authorize, retainedControl };
 }
+it('reinspects only an existing exact child under current operator authority', async () => {
+  const f = fixture();
+  await request(f.app)
+    .post('/sessions/chat/codex-subagents/inspect')
+    .send({ threadId: 'child' })
+    .expect(404);
+  expect(f.owner.inspect).toHaveBeenCalledWith('child', expect.any(Function));
+  expect(f.authorize).toHaveBeenCalledTimes(3);
+  expect(f.owner.control).not.toHaveBeenCalled();
+});
+it('refuses inspection overrides and revoked authority without returning output', async () => {
+  const f = fixture();
+  await request(f.app)
+    .post('/sessions/chat/codex-subagents/inspect')
+    .send({ threadId: 'child', model: 'override' })
+    .expect(400);
+  expect(f.owner.inspect).not.toHaveBeenCalled();
+  f.owner.inspect.mockImplementation(async (_id, authorize) => {
+    f.authorize.mockImplementation(() => {
+      throw Error('private revoked detail');
+    });
+    authorize();
+    return undefined;
+  });
+  const response = await request(f.app)
+    .post('/sessions/chat/codex-subagents/inspect')
+    .send({ threadId: 'child' })
+    .expect(409);
+  expect(JSON.stringify(response.body)).not.toContain('private revoked detail');
+  expect(f.owner.control).not.toHaveBeenCalled();
+});
 it('requires the original operator for child reads as well as mutations', async () => {
   const f = fixture();
   f.authorize.mockImplementation(() => {

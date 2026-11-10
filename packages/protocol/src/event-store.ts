@@ -84,6 +84,7 @@ import { CollaborationConversationStore } from './collaboration-conversation-sto
 import {
   captureCollaborationDurableTranscript,
   openCollaborationVisibleSource,
+  readCollaborationFinalizedReply,
 } from './collaboration-visible-source.js';
 import { CollaborationContractError } from './collaboration-conversation.js';
 import { SessionCollaborationError } from './session-collaboration.js';
@@ -453,6 +454,15 @@ const OrdinaryCommandWireScopeSchema = z.strictObject({
   historicalCapabilityRevision: z.string().min(1).max(200).regex(/^\S+$/).optional(),
 });
 type OrdinaryCommandWireScope = z.infer<typeof OrdinaryCommandWireScopeSchema>;
+
+/** A retained provenance reference cannot select one exact execution revision.
+ * Storage/identity failures use their original errors and remain observable. */
+export class OrdinaryExecutionEvidenceUnavailable extends Error {
+  constructor() {
+    super('Exact historical execution revision required');
+    this.name = 'OrdinaryExecutionEvidenceUnavailable';
+  }
+}
 
 export class EventStore {
   readonly removals: SessionRemovalStore;
@@ -1611,7 +1621,7 @@ export class EventStore {
       AND (? IS NULL OR json_extract(execution_admission,'$.requestFingerprint')=?) ORDER BY revision DESC LIMIT 2`,
     ).all(commandId, fingerprint ?? null, fingerprint ?? null) as Array<{ transition_id: string }>;
     if (fingerprint === undefined && revisions.length === 0) return original;
-    if (revisions.length !== 1) throw Error('Exact historical execution revision required');
+    if (revisions.length !== 1) throw new OrdinaryExecutionEvidenceUnavailable();
     const execution = this.readPreparedRepositoryCommandExecutionEvidence(
       commandId,
       revisions[0].transition_id,
@@ -4114,10 +4124,37 @@ export class EventStore {
    */
   getOrdinaryReplySourceEvents(sessionId: string, messageId: string): unknown[] {
     const rows = this.db!.prepare(
-      `SELECT payload FROM events WHERE session_id=? AND type='ordinary_reply_source'
+      `SELECT CASE WHEN length(CAST(payload AS BLOB))<=8192 THEN payload END AS payload
+       FROM events WHERE session_id=? AND type='ordinary_reply_source'
        AND json_extract(payload,'$.messageId')=? ORDER BY seq LIMIT 2`,
-    ).all(sessionId, messageId) as Array<{ payload: string }>;
-    return rows.map((row) => JSON.parse(row.payload));
+    ).all(sessionId, messageId) as Array<{ payload: string | null }>;
+    if (rows.some((row) => row.payload === null))
+      throw new CollaborationContractError('reply_conflict');
+    return rows.map((row) => JSON.parse(row.payload!));
+  }
+
+  /** Keyset inventory for one retained command. No transcript payloads are hydrated. */
+  getOrdinaryReplySourcePage(sessionId: string, commandId: string, after: number) {
+    return this.db!.prepare(
+      `SELECT seq AS sequence,
+         CASE WHEN json_type(payload,'$.messageId')='text'
+           AND length(CAST(json_extract(payload,'$.messageId') AS BLOB))<=800
+           AND length(json_extract(payload,'$.messageId')) BETWEEN 1 AND 200
+         THEN json_extract(payload,'$.messageId') END AS messageId
+       FROM events WHERE session_id=? AND type='ordinary_reply_source'
+         AND json_extract(payload,'$.commandId')=? AND seq>?
+       ORDER BY seq LIMIT 50`,
+    ).all(sessionId, commandId, after) as Array<{ sequence: number; messageId: string | null }>;
+  }
+
+  /** Host-only exact reply observation, with the ordinary identity/privacy fence. */
+  readOrdinaryFinalizedReply(sessionId: string, messageId: string) {
+    return this.db!.transaction(() => {
+      this.assertConversationIdentity(sessionId);
+      if (!this.isCollaborationParticipantAvailable(sessionId))
+        throw new SessionCollaborationError('not_found');
+      return readCollaborationFinalizedReply(this.db!, sessionId, messageId);
+    })();
   }
 
   /** Exact native provider terminal notification, distinct from display state,

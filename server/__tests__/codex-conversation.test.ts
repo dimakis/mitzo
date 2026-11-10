@@ -10,6 +10,7 @@ import { createHash } from 'node:crypto';
 import { EventStore } from '../event-store.js';
 import { reportRetainedRuntimeFailure } from '../retained-runtime-failure.js';
 import { SessionRuntimeError } from '../session-runtime-error.js';
+import * as runtimeDiagnostics from '../codex-runtime-diagnostics.js';
 import { codexRuntimeDiagnostic } from '../codex-runtime-diagnostics.js';
 import { codexRolloverHistory, codexRolloverSources } from '../codex-rollover-context.js';
 import { mkdtempSync, rmSync } from 'node:fs';
@@ -417,6 +418,111 @@ it.each([false, true])(
     await vi.waitFor(() => expect(f.c.queue()[0].status).toBe('completed'));
   },
 );
+
+function enableSubagentFixture(f: Awaited<ReturnType<typeof setup>>) {
+  Object.assign(f.conversationOptions, {
+    enableNativeSubagents: true,
+    nativeExecution: codexNativeExecutionPolicy({
+      bindingRevision: 'owner',
+      mode: 'agent',
+      cwd: '/workspace',
+      readableRoots: ['/'],
+      writableRoots: ['/workspace'],
+      deniedRoots: ['/private/auth'],
+    }),
+    assertNativeExecutionCurrent: () => {},
+    requestNativeApproval: async () => ({ decision: 'decline' }),
+  });
+}
+
+it('contains anchor reconciliation storage failures without closing the parent transport', async () => {
+  const f = await setup(undefined, undefined, undefined, undefined, async () => binding);
+  enableSubagentFixture(f);
+  await f.c.send({ id: 'anchor-failure-command', prompt: 'Review' });
+  vi.spyOn(f.store.subagents, 'list').mockImplementationOnce(() => {
+    throw Error('private reconciliation failure');
+  });
+  const requests = f.rpc.request.mock.calls.length;
+  expect(() =>
+    f.callbacks.onNotification('thread/started', {
+      thread: { id: 'unanchored-child', parentThreadId: f.getProviderThread() },
+    }),
+  ).not.toThrow();
+  await f.c.getSubagents()!.settled();
+  expect(f.c.queue()[0].status).toBe('running');
+  expect(f.c.getSubagents()!.list()[0]).toMatchObject({
+    available: false,
+    inspectionFailure: { stage: 'events' },
+  });
+  expect(f.rpc.request.mock.calls).toHaveLength(requests);
+  expect(f.onTransportClosed).not.toHaveBeenCalled();
+  expect(f.execute).not.toHaveBeenCalled();
+});
+
+it('emits a durable child activity marker before native inspection can fail', async () => {
+  const f = await setup(undefined, undefined, undefined, undefined, async () => binding);
+  enableSubagentFixture(f);
+  await f.c.send({ id: 'visible-child-command', prompt: 'Review' });
+  const original = f.rpc.request.getMockImplementation()!;
+  f.rpc.request.mockImplementation(async (method, params) => {
+    if (method === 'thread/read' && params.threadId === 'uninspectable-child')
+      throw Error('private upstream details');
+    return original(method, params);
+  });
+  f.callbacks.onNotification('thread/started', {
+    thread: { id: 'uninspectable-child', parentThreadId: f.getProviderThread() },
+  });
+  expect(f.events.some((event) => JSON.stringify(event).includes('nativeSubagentCommandId'))).toBe(
+    true,
+  );
+  await f.c.getSubagents()!.settled();
+  expect(f.c.getSubagents()!.list()[0]).toMatchObject({
+    threadId: 'uninspectable-child',
+    available: false,
+    state: 'unknown',
+    blocks: [],
+    inspectionFailure: { stage: 'inspect_child' },
+  });
+  expect(f.c.queue()[0].status).toBe('running');
+  expect(f.execute).not.toHaveBeenCalled();
+  const markerCount = () =>
+    f.events.filter(
+      (event) =>
+        event.type === 'assistant' && JSON.stringify(event).includes('nativeSubagentCommandId'),
+    ).length;
+  expect(markerCount()).toBe(1);
+  f.callbacks.onNotification('turn/completed', {
+    threadId: f.getProviderThread(),
+    turn: { id: 'turn-1', status: 'completed' },
+  });
+  await vi.waitFor(() => expect(f.c.queue()[0].status).toBe('completed'));
+  f.c.close();
+  const restored = new CodexConversation({
+    ...f.conversationOptions,
+    storedBinding: f.getBinding(),
+    verifyBinding: async () => f.getBinding(),
+  });
+  cleanup.push(() => restored.close());
+  await restored.initialize();
+  expect(markerCount()).toBe(1);
+  f.callbacks.onNotification('thread/started', {
+    thread: { id: 'new-descendant', parentThreadId: 'uninspectable-child' },
+  });
+  await restored.getSubagents()!.settled();
+  expect(
+    restored
+      .getSubagents()!
+      .list()
+      .find((child) => child.threadId === 'new-descendant'),
+  ).toMatchObject({ commandId: 'visible-child-command' });
+  expect(markerCount()).toBe(1);
+  await restored.send({ id: 'second-visible-command', prompt: 'Next task' });
+  f.callbacks.onNotification('thread/started', {
+    thread: { id: 'second-command-child', parentThreadId: f.getProviderThread() },
+  });
+  await restored.getSubagents()!.settled();
+  expect(markerCount()).toBe(2);
+});
 
 it('pauses and interrupts the original parent before waiting for slow child cancellation', async () => {
   const f = await setup();
@@ -10884,8 +10990,10 @@ it('rechecks the operator after publishing correction progress, before any steer
 it('requires the universal steering owner fence even without a native filesystem policy', async () => {
   const f = await setup();
   await f.c.send({ id: 'a', prompt: 'First' });
+  const failure = new SessionRuntimeError('native_policy_changed');
+  const diagnostic = vi.spyOn(runtimeDiagnostics, 'codexRuntimeErrorTelemetry');
   f.conversationOptions.assertSteeringCurrent = () => {
-    throw Error('Delegated work revoked');
+    throw failure;
   };
   expect(
     await f.c.steer(
@@ -10893,6 +11001,7 @@ it('requires the universal steering owner fence even without a native filesystem
       () => {},
     ),
   ).toEqual({ status: 'rejected' });
+  expect(diagnostic).toHaveBeenCalledWith(failure);
   expect(f.requests.filter((r) => r.method === 'turn/steer')).toHaveLength(0);
 });
 it('reserves a correction ID against later ordinary commands too', async () => {

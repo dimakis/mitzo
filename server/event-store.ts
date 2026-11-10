@@ -1,5 +1,6 @@
 export {
   EventStore,
+  OrdinaryExecutionEvidenceUnavailable,
   toClientState,
   artifactAdmissionDigest,
   artifactAdmissionReference,

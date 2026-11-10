@@ -1,3 +1,4 @@
+import { resetOfflineUserEnvironment } from './fixtures/offline-user-home.js';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
@@ -22,6 +23,8 @@ vi.mock('@anthropic-ai/sandbox-runtime', () => ({
   SandboxManager: { checkDependencies: mocked.dependencies },
 }));
 beforeEach(() => {
+  resetOfflineUserEnvironment();
+  vi.stubEnv('PATH', '/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin');
   mocked.spawn.mockReset();
   mocked.dependencies.mockReturnValue({ errors: [], warnings: [] });
   vi.stubEnv('MITZO_KEYCHAIN_CONNECTIONS_ENABLED', '1');

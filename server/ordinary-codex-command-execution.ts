@@ -1,5 +1,5 @@
 import { CollaborationContractError } from '@mitzo/protocol';
-import type { EventStore } from './event-store.js';
+import { OrdinaryExecutionEvidenceUnavailable, type EventStore } from './event-store.js';
 
 type Store = Pick<
   EventStore,
@@ -17,9 +17,16 @@ export function ordinaryCodexCommandExecution(
     | { historical?: false; requireClaimed?: boolean } = {},
 ) {
   const command = store.getSendCommand(commandId);
-  const admission = options.historical
-    ? store.readOrdinaryCommandExecutionEvidence(commandId, options.fingerprint)
-    : store.getOrdinaryCommandExecutionAdmission(commandId);
+  let admission;
+  try {
+    admission = options.historical
+      ? store.readOrdinaryCommandExecutionEvidence(commandId, options.fingerprint)
+      : store.getOrdinaryCommandExecutionAdmission(commandId);
+  } catch (error) {
+    if (options.historical && error instanceof OrdinaryExecutionEvidenceUnavailable)
+      throw new CollaborationContractError('reply_conflict');
+    throw error;
+  }
   if (
     !command ||
     command.sessionId !== sessionId ||
