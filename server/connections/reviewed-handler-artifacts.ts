@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.994-symposium-authorized-live-text';
+  'v1.0.995-symposium-live-ci-integration';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -157,7 +157,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/hooks/useConversationSending.ts':
     '17aad842d52f39fa6c2c96d64987900ce82d4c3a6db4aade807305b03a726320',
   '../__tests__/collaboration-application-ui.test.tsx':
-    '4c6b8abd5e39f4efb14af93e0090bd5571858317bd56b926840777646ceff902',
+    '222bd49671c68390d21df14b8c0619090fac0ce4bbe84b024e7edf1b4e36a767',
   '../__tests__/fixtures/symposium-recording-runtime.ts':
     '237c22ad940b03e1868ab29bd5ba4ff6fa209c7d53fdfa508243318a4d167fcc',
   '../../tests/fixtures/symposium-composer.tsx':
