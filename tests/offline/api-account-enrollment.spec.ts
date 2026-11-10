@@ -90,7 +90,7 @@ for (const theme of ['light', 'dark'] as const) {
     await page.getByLabel('Passphrase', { exact: true }).fill('synthetic-passphrase');
     await page.getByRole('button', { name: 'Reauthorize', exact: true }).click();
     const form = page.getByRole('region', { name: 'Add a new AI API account' });
-    await form.getByLabel('Provider', { exact: true }).selectOption('enmaas');
+    await form.getByRole('combobox', { name: 'Provider', exact: true }).selectOption('enmaas');
     await form.getByLabel('Account label', { exact: true }).fill('EnMaaS');
     await form.getByLabel('Intended work project name').fill('Work');
     await form.getByLabel('API key', { exact: true }).fill('synthetic-key');
