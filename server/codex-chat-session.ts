@@ -1,4 +1,5 @@
 import { copyCallbackOutcome, retainCallbackOutcome } from './turn-callbacks.js';
+import { retainedApplicationEffectObserver } from './retained-application-effects.js';
 import { agentMessagePrompt } from '@mitzo/protocol';
 import { agentContextRuntimeError } from './agent-context-authority.js';
 import {
@@ -2581,6 +2582,13 @@ async function openCodexChatBound(
     return copyCallbackOutcome(result, { ...result, content });
   };
   let acceptedReplyExecution: ReturnType<typeof captureOrdinaryReplyExecution> | undefined;
+  const assertRecoveryCurrent = ownedHost
+    ? () => {
+        ownedHost.assertCurrentSync();
+        options.assertAgentContextAuthorization?.();
+        options.assertWorkTurnAdmission?.();
+      }
+    : undefined;
   const runtimeOptions: CodexConversationOptions = {
     canStartCommand: () => options.eventStore.deployment.canDispatch(options.conversationId),
     assertSubagentControlAdmission: () => {
@@ -3088,13 +3096,19 @@ async function openCodexChatBound(
         }
       : {}),
     emit: (event) => events.push(event),
-    ...(ownedHost
+    ...(assertRecoveryCurrent
       ? {
-          assertRecoveryCurrent: () => {
-            ownedHost.assertCurrentSync();
-            options.assertAgentContextAuthorization?.();
-            options.assertWorkTurnAdmission?.();
-          },
+          assertRecoveryCurrent,
+        }
+      : {}),
+    ...(options.ownedLocal && assertRecoveryCurrent
+      ? {
+          observeRetainedHostResult: retainedApplicationEffectObserver(
+            options.eventStore,
+            options.conversationId,
+            options.binding!,
+            assertRecoveryCurrent,
+          ),
         }
       : {}),
     assertSteeringCurrent: () => {

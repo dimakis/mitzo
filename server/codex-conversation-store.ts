@@ -47,8 +47,8 @@ import type { AccountBinding } from '@mitzo/protocol';
 import { AgentSandboxContextScopeSchema } from '@mitzo/protocol';
 import { z } from 'zod';
 import {
-  interruptedEffectCalls,
-  type SettledInterruptedEffects,
+  settledNativeEffectCalls,
+  type SettledNativeEffects,
 } from './codex-interrupted-effects.js';
 const HostBundleUpgrade = z.strictObject({
   version: z.literal(1),
@@ -2943,7 +2943,7 @@ export class CodexConversationStore {
     binding: AccountBinding,
     target: CodexNativeTurnTarget,
     policyRevision: string | undefined,
-    effects: SettledInterruptedEffects,
+    effects: SettledNativeEffects,
     assertCurrent: () => void,
   ) {
     target = CodexNativeTurnTargetSchema.parse(target);
@@ -2958,7 +2958,7 @@ export class CodexConversationStore {
         this.assertNoPendingThreadDispatch(id, binding);
         this.assertNoPendingThreadOwnership(id, binding);
         this.assertCompletionPhaseTarget(id, binding, target, true);
-        const digest = this.assertSettledInterruptedHostEffects(
+        const digest = this.assertSettledNativeHostEffects(
           id,
           binding,
           target,
@@ -3346,8 +3346,8 @@ export class CodexConversationStore {
     target: CodexNativeTurnTarget,
     expectedPhase: CompletionPhaseReceipt | undefined,
     policy: CodexNativeExecutionPolicy,
-    status: 'completed' | 'interrupted',
-    effects: SettledInterruptedEffects | undefined,
+    status: 'completed' | 'interrupted' | 'failed',
+    effects: SettledNativeEffects | undefined,
     assertCurrent: () => void,
     assertOriginal: () => void,
     afterNativeReconciliation?: () => void,
@@ -3357,27 +3357,30 @@ export class CodexConversationStore {
       .transaction(() => {
         assertCurrent();
         assertOriginal();
+        const retainedStatus = this.commandStatus(id, binding, target.commandId);
         if (
           !isDeepStrictEqual(
             this.completionPhase(id, binding, target.commandId, target.attempt),
             expectedPhase,
           ) ||
           !isDeepStrictEqual(this.nativeRecoveryTarget(id, binding), target) ||
-          this.commandStatus(id, binding, target.commandId) !== 'interrupted' ||
+          (retainedStatus !== 'interrupted' &&
+            !(retainedStatus === 'failed' && status === 'failed' && !expectedPhase)) ||
           (expectedPhase &&
             (expectedPhase.observedOutcome !== 'completed' || expectedPhase.priorEffectsUnknown)) ||
-          (status !== 'completed' && (status !== 'interrupted' || !effects))
+          (status !== 'completed' && !effects) ||
+          (expectedPhase && status === 'failed')
         )
           throw Error('Retained reconciliation target changed');
         if (!expectedPhase) {
           // No downstream phase was admitted: do not manufacture hook success.
-          // Only the exact interrupted turn with fully proved effects can retire.
+          // Only the exact failed/interrupted turn with fully proved effects can retire.
           const execution = this.readNativeExecution(id, binding, {
             id: target.commandId,
             attempt: target.attempt,
           });
           if (
-            status !== 'interrupted' ||
+            status === 'completed' ||
             !effects ||
             !this.readHostCustody(id, binding) ||
             execution?.phase !== 'accepted' ||
@@ -3388,22 +3391,23 @@ export class CodexConversationStore {
             execution.policy.bindingRevision !== policy.bindingRevision ||
             this.continuationBlocker(id, binding)?.commandId !== target.commandId
           )
-            throw Error('Interrupted recovery lacks original owned execution evidence');
-          const digest = this.assertSettledInterruptedHostEffects(
+            throw Error('Terminal recovery lacks original owned execution evidence');
+          const digest = this.assertSettledNativeHostEffects(
             id,
             binding,
             target,
             execution.policy.policyRevision,
             effects,
             observeHostResult,
+            status,
           );
           this.effectSettlements.remember(id, target, digest, execution.policy.policyRevision);
           this.db
             .prepare(
-              `UPDATE codex_commands SET ambiguous=0,retryable=0
-            WHERE conversation_id=? AND id=? AND attempt=? AND status='interrupted'`,
+              `UPDATE codex_commands SET status=?,ambiguous=0,retryable=0
+            WHERE conversation_id=? AND id=? AND attempt=? AND status IN ('interrupted','failed')`,
             )
-            .run(id, target.commandId, target.attempt);
+            .run(status, id, target.commandId, target.attempt);
           this.acknowledgeRecovery(id, binding, target);
           return;
         }
@@ -3551,16 +3555,17 @@ export class CodexConversationStore {
     }
   }
   /** Compare one fresh native observation with the original durable host receipts.
-   * Used by both interrupted-only and completion-phase recovery; never changes results. */
-  private assertSettledInterruptedHostEffects(
+   * Used by terminal-effect and completion-phase recovery; never changes results. */
+  private assertSettledNativeHostEffects(
     id: string,
     binding: AccountBinding,
     target: CodexNativeTurnTarget,
     policyRevision: string | undefined,
-    effects: SettledInterruptedEffects,
+    effects: SettledNativeEffects,
     observeHostResult?: RetainedHostResultObserver,
+    status: 'interrupted' | 'failed' = 'interrupted',
   ) {
-    const observed = interruptedEffectCalls(effects, id, target);
+    const observed = settledNativeEffectCalls(effects, id, target, status);
     const calls = observed.filter((call) => call.threadId === target.threadId);
     const childCalls = observed.filter((call) => call.threadId !== target.threadId);
     const receipts = this.interruptedHostReceipts(id, target.commandId);
@@ -3597,7 +3602,7 @@ export class CodexConversationStore {
       }
     }
     if (childCalls.some((call) => !ownedExecution || !call.intrinsicRead))
-      throw Error('Interrupted child host effects require original owned read authority');
+      throw Error('Terminal child host effects require original owned read authority');
     if (
       calls.length !== receipts.length ||
       calls.some((call) => {
@@ -3645,7 +3650,7 @@ export class CodexConversationStore {
         );
       })
     )
-      throw Error('Interrupted native host effects lack matching settled receipts');
+      throw Error('Native terminal host effects lack matching settled receipts');
     return createHash('sha256').update(JSON.stringify(receipts)).digest('hex');
   }
 
@@ -3657,7 +3662,7 @@ export class CodexConversationStore {
     target: CodexNativeTurnTarget,
     workspaceDigest: string,
     policyRevision?: string,
-    interruptedEffects?: SettledInterruptedEffects,
+    interruptedEffects?: SettledNativeEffects,
     assertCurrent?: () => void,
     observeHostResult?: RetainedHostResultObserver,
   ) {
@@ -3683,7 +3688,7 @@ export class CodexConversationStore {
           .get(id, target.commandId) as { completion_phases: string | null; status: string };
         if (row.status === 'interrupted' && interruptedEffects && !phase.priorEffectsUnknown) {
           if (!assertCurrent) throw Error('Interrupted effect recovery authority unavailable');
-          const digest = this.assertSettledInterruptedHostEffects(
+          const digest = this.assertSettledNativeHostEffects(
             id,
             binding,
             target,
@@ -3723,7 +3728,7 @@ export class CodexConversationStore {
     target: CodexNativeTurnTarget,
     workspaceDigest: string,
     currentPolicy: CodexNativeExecutionPolicy,
-    interruptedEffects: SettledInterruptedEffects | undefined,
+    interruptedEffects: SettledNativeEffects | undefined,
     assertCurrent: () => void,
     observeHostResult?: RetainedHostResultObserver,
   ) {
