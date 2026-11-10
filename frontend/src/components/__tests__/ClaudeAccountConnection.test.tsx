@@ -136,6 +136,36 @@ it('retains a visible host-recovery failure and disables another login', async (
   ).toBe(true);
   expect(screen.getByText('Reference: safe-reference')).toBeTruthy();
 });
+it('adds another independently named account without reusing the previous account label', async () => {
+  const existing = {
+    id: accountId,
+    label: 'First Claude',
+    email: 'first@example.test',
+    planType: 'pro',
+    verifiedAt: Date.now(),
+  };
+  mocks.fetch.mockImplementation(async (url: string) =>
+    response(
+      url.endsWith('/start')
+        ? pending
+        : snapshot(
+            [{ ...pending, state: 'connected', url: undefined, label: 'First Claude' }],
+            [existing],
+          ),
+    ),
+  );
+  show();
+  fireEvent.change(await screen.findByLabelText('Account name'), {
+    target: { value: 'Another Claude' },
+  });
+  fireEvent.click(screen.getByRole('button', { name: 'Sign in with Claude' }));
+  await waitFor(() =>
+    expect(mocks.fetch.mock.calls.some(([url]) => url.endsWith('/start'))).toBe(true),
+  );
+  const body = JSON.parse(mocks.fetch.mock.calls.find(([url]) => url.endsWith('/start'))![1].body);
+  expect(body.label).toBe('Another Claude');
+  expect(body.accountId).toBeUndefined();
+});
 it('refreshes the picker after completion and prepares an unsent Local Mac draft for the connected account', async () => {
   const account = {
     id: accountId,

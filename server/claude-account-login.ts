@@ -43,7 +43,7 @@ export class ClaudeAccountLogin {
     this.observe = options.observe || registerAuthSession;
     this.createLogin = options.createLogin || createClaudeLoginProcess;
     this.verify = options.verify || verifyClaudeLoginIdentity;
-    for (const row of options.store.attempts())
+    for (const row of options.store.pendingAttempts())
       if (['preparing', 'pending', 'verifying'].includes(row.state))
         options.store.update({
           ...row,
@@ -82,25 +82,12 @@ export class ClaudeAccountLogin {
     return {
       enabled: true,
       accounts: this.options.store.accounts(),
-      attempts: this.options.store
-        .attempts()
-        .filter((row) => row.owner === auth.id)
-        .slice(-20)
-        .map((row) => this.public(row)),
+      attempts: this.options.store.recentAttempts(auth.id).map((row) => this.public(row)),
     };
   }
   async start(auth: AuthSession, input: z.input<typeof ClaudeLoginInput>) {
     this.requireAuth(auth);
-    if (
-      this.unresolved.size ||
-      this.options.store
-        .attempts()
-        .some(
-          (row) =>
-            row.errorCode === 'CLAUDE_LOGIN_CHILD_UNCONFIRMED' ||
-            row.errorCode === 'CLAUDE_LOGIN_CANCELLATION_UNCONFIRMED',
-        )
-    )
+    if (this.unresolved.size || this.options.store.hasUnconfirmedCleanup())
       throw Error('Claude sign-in needs host recovery before another attempt');
     const row = this.options.store.reserve(
       auth.id,
@@ -216,6 +203,8 @@ export class ClaudeAccountLogin {
     // Retain the cause internally; log only sanitized stage/code/operation correlation.
     const failure = new Error('Claude account sign-in failed', { cause });
     this.failures.set(row.requestId, failure);
+    // Bound process-local diagnostic causes independently of account/history retention.
+    while (this.failures.size > 256) this.failures.delete(this.failures.keys().next().value!);
     log.error(failure.message, {
       stage: 'claude_account_login',
       code: errorCode,

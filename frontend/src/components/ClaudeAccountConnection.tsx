@@ -140,7 +140,7 @@ export function ClaudeAccountConnection({ accountId }: { accountId?: string }) {
       requestId.current = crypto.randomUUID();
     return change('/start', {
       requestId: requestId.current,
-      label: currentAccount?.label ?? label,
+      label: accountId ? (currentAccount?.label ?? label) : label,
       ...(accountId ? { accountId } : {}),
     });
   };

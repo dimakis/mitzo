@@ -10,19 +10,34 @@ import {
 } from 'node:fs';
 import { dirname } from 'node:path';
 
+function privateFileStat(fd: number, limit = Infinity) {
+  const stat = fstatSync(fd);
+  if (
+    !stat.isFile() ||
+    stat.uid !== process.getuid?.() ||
+    stat.nlink !== 1 ||
+    (stat.mode & 0o777) !== 0o600 ||
+    stat.size > limit
+  )
+    throw Error('Private bounded recovery evidence required');
+  return stat;
+}
+
+/** Validate metadata without reading a potentially large SQLite database into memory. */
+export function assertPrivateOperationFile(path: string): void {
+  const fd = openSync(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+  try {
+    privateFileStat(fd);
+  } finally {
+    closeSync(fd);
+  }
+}
+
 /** Descriptor-bound and bounded: recovery evidence is never followed through a link. */
 export function readPrivateOperationFile(path: string, limit: number): Buffer {
   const fd = openSync(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
   try {
-    const stat = fstatSync(fd);
-    if (
-      !stat.isFile() ||
-      stat.uid !== process.getuid?.() ||
-      stat.nlink !== 1 ||
-      (stat.mode & 0o777) !== 0o600 ||
-      stat.size > limit
-    )
-      throw Error('Private bounded recovery evidence required');
+    const stat = privateFileStat(fd, limit);
     const bytes = Buffer.alloc(stat.size + 1);
     let length = 0;
     while (length < bytes.length) {

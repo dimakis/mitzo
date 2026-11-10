@@ -6,7 +6,7 @@ import { z } from 'zod';
 import {
   assertPrivateOperationDirectory,
   publishPrivateOperationFile,
-  readPrivateOperationFile,
+  assertPrivateOperationFile,
 } from './private-operation-file.js';
 
 export const ClaudeIdentity = z.strictObject({
@@ -55,8 +55,6 @@ export function claudeAccountsDirectory() {
   if (!isAbsolute(root)) throw Error('Claude account storage must be absolute');
   return root;
 }
-const pending = (attempt: ClaudeLoginAttempt) =>
-  ['preparing', 'pending', 'verifying'].includes(attempt.state);
 
 /** Native credentials/history remain in per-account directories. This journal contains metadata only. */
 export class ClaudeAccountStore {
@@ -72,7 +70,7 @@ export class ClaudeAccountStore {
       throw Error('Claude account storage must be a physical directory');
     const path = join(root, 'accounts.db');
     if (!readonlyMode && !existsSync(path)) publishPrivateOperationFile(path, '');
-    readPrivateOperationFile(path, 16 * 1024 * 1024);
+    assertPrivateOperationFile(path);
     for (const suffix of ['-wal', '-shm', '-journal']) {
       const sidecar = path + suffix;
       if (existsSync(sidecar)) {
@@ -106,7 +104,36 @@ export class ClaudeAccountStore {
     ).map((row) => Attempt.parse(JSON.parse(row.metadata)));
   }
   attempt(id: string) {
-    return this.attempts().find((row) => row.requestId === id);
+    const row = this.db.prepare('SELECT metadata FROM attempts WHERE id = ?').get(id) as
+      { metadata: string } | undefined;
+    return row ? Attempt.parse(JSON.parse(row.metadata)) : undefined;
+  }
+  pendingAttempts(): ClaudeLoginAttempt[] {
+    return (
+      this.db
+        .prepare(
+          "SELECT metadata FROM attempts WHERE json_extract(metadata,'$.state') IN ('preparing','pending','verifying')",
+        )
+        .all() as { metadata: string }[]
+    ).map((row) => Attempt.parse(JSON.parse(row.metadata)));
+  }
+  recentAttempts(owner: string): ClaudeLoginAttempt[] {
+    return (
+      this.db
+        .prepare(
+          "SELECT metadata FROM attempts WHERE json_extract(metadata,'$.owner') = ? ORDER BY rowid DESC LIMIT 20",
+        )
+        .all(owner) as { metadata: string }[]
+    )
+      .map((row) => Attempt.parse(JSON.parse(row.metadata)))
+      .reverse();
+  }
+  hasUnconfirmedCleanup() {
+    return !!this.db
+      .prepare(
+        "SELECT 1 FROM attempts WHERE json_extract(metadata,'$.errorCode') IN ('CLAUDE_LOGIN_CHILD_UNCONFIRMED','CLAUDE_LOGIN_CANCELLATION_UNCONFIRMED') LIMIT 1",
+      )
+      .get();
   }
   accounts(): ManagedClaudeAccount[] {
     return (
@@ -143,10 +170,8 @@ export class ClaudeAccountStore {
           throw Error('Login request changed');
         return existing;
       }
-      if (this.attempts().some(pending))
+      if (this.pendingAttempts().length)
         throw Error('Finish or cancel the pending Claude sign-in first');
-      if (this.attempts().length >= 500)
-        throw Error('Claude sign-in history requires host maintenance');
       const account = input.accountId
         ? this.accounts().find((row) => row.id === input.accountId)
         : undefined;
