@@ -10,7 +10,8 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.1001-coordinator-handover';
+export const reviewedConnectionsRuntimeImplementationRevision =
+  'v1.0.1002-coordinator-handover-catalog';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -3150,7 +3151,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/worktree-fetch-observation.test.ts':
     'e943335de38d924ad7ec1f9334f235bbddb0649914ed1604a27176869a9d8094',
   '../../tests/fixtures/agent-tool-catalog.json':
-    '7c3ea512fd1d449b7327609bb09a2b854728fa9f3f93df7849ea5542970b6939',
+    '66247136707fd2dc4aa51e36f47a83f3e2d3f41ddc59200e093e44d4dd5688e1',
   '../../tests/integration/ordinary-local-vertex-chat.test.ts':
     '9753c1e5bbe8e6cdf159c019655d12cafe24d69950676e475d70fbf918bf58ce',
   '../../packages/sqlite-file-owner/package.json':
