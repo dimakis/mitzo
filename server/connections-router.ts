@@ -361,15 +361,13 @@ export function createConnectionsRouter(options: {
           ),
         );
       } catch (cause) {
-        return res
-          .status(422)
-          .json({
-            error:
-              cause instanceof ApiAccountSetupError
-                ? cause.message
-                : 'Could not read the provider catalog. Check the endpoint and key, or enter explicit model IDs.',
-            code: cause instanceof ApiAccountSetupError ? cause.code : 'CATALOG_UNAVAILABLE',
-          });
+        return res.status(422).json({
+          error:
+            cause instanceof ApiAccountSetupError
+              ? cause.message
+              : 'Could not read the provider catalog. Check the endpoint and key, or enter explicit model IDs.',
+          code: cause instanceof ApiAccountSetupError ? cause.code : 'CATALOG_UNAVAILABLE',
+        });
       }
     },
   );
