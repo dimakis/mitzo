@@ -504,64 +504,91 @@ export class ApplicationCollaborationMessaging {
     this.current(auth);
     const replies = new OrdinaryCollaborationReplies(this.store);
     const view = this.store.collaborationConversation.view(group);
-    for (const message of view.messages) {
-      for (const delivery of message.deliveries) {
-        if (delivery.purpose !== 'reply' || !delivery.commandId) continue;
-        // Historical receipts survive unlinking and hiding. Reading a group
-        // must neither reopen a revoked source nor fail on its late answer.
-        if (
-          !view.participantSessionIds.includes(delivery.sessionId) ||
-          view.unavailableParticipantSessionIds.includes(delivery.sessionId)
-        )
-          continue;
-        const command = this.store.getSendCommand(delivery.commandId);
-        const execution =
-          command?.sessionId === delivery.sessionId &&
-          this.store.readOrdinaryCommandExecutionEvidence(delivery.commandId);
-        if (!execution || execution.state === 'reserved') continue;
-        // Admission can precede the first persisted user/assistant event.
-        // An empty stream has no finalized reply to inspect yet.
-        if (this.store.getSessionPredecessorSeq(delivery.sessionId, Number.MAX_SAFE_INTEGER) === 0)
-          continue;
-        let transcript: ReturnType<EventStore['getDurableSessionTranscript']>;
-        try {
-          transcript = this.store.getDurableSessionTranscript(delivery.sessionId);
-        } catch (error) {
-          // An oversized ordinary history defers this projection, without
-          // making the retained shared conversation unreadable or resending.
-          if (error instanceof CollaborationContractError && error.code === 'capacity_refused')
-            continue;
-          throw error;
-        }
-        for (const source of transcript.messages) {
-          if (source.author === 'operator' || !source.blocks.length) continue;
+    let after = 0;
+    for (;;) {
+      const page = this.store.collaborationConversation.messagesForReplyReconciliation(
+        group,
+        after,
+        view.cursor,
+      );
+      for (const message of page) {
+        after = message.sequence;
+        for (const delivery of message.deliveries) {
+          if (delivery.purpose !== 'reply' || !delivery.commandId) continue;
+          // Historical receipts survive unlinking and hiding; never reopen a revoked source.
           if (
-            ordinaryReplySourceCommand(this.store, delivery.sessionId, source.messageId) !==
-            delivery.commandId
+            !view.participantSessionIds.includes(delivery.sessionId) ||
+            view.unavailableParticipantSessionIds.includes(delivery.sessionId)
           )
             continue;
-          // Admission/FIFO consumption alone is not a provider ACK. A private
-          // source mapping proves the exact accepted native turn after restart.
-          if (['queued', 'uncertain'].includes(delivery.status))
-            this.receipt(group, message, delivery.deliveryId, 'delivered', delivery.commandId);
-          const key = createHash('sha256')
-            .update(`${group}:${delivery.deliveryId}:${source.messageId}`)
-            .digest('hex');
-          const requestId = `${key.slice(0, 8)}-${key.slice(8, 12)}-4${key.slice(13, 16)}-8${key.slice(17, 20)}-${key.slice(20, 32)}`;
-          replies.record(group, {
-            requestId,
-            messageId: message.messageId,
-            deliveryId: delivery.deliveryId,
-            source: {
-              conversationId: delivery.sessionId,
-              commandId: delivery.commandId,
-              messageId: source.messageId,
-              throughSequence: source.sequence,
-              blockIds: source.blocks.map((b) => b.blockId),
-            },
-          });
+          const command = this.store.getSendCommand(delivery.commandId);
+          if (command?.sessionId !== delivery.sessionId || command.error) continue;
+          for (const messageId of this.replySources(delivery.sessionId, delivery.commandId)) {
+            try {
+              const source = this.store.readOrdinaryFinalizedReply(delivery.sessionId, messageId);
+              if (!source || !source.blocks.length) continue;
+              if (
+                ordinaryReplySourceCommand(this.store, delivery.sessionId, source.messageId) !==
+                delivery.commandId
+              )
+                continue;
+              const key = createHash('sha256')
+                .update(`${group}:${delivery.deliveryId}:${source.messageId}`)
+                .digest('hex');
+              const requestId = `${key.slice(0, 8)}-${key.slice(8, 12)}-4${key.slice(13, 16)}-8${key.slice(17, 20)}-${key.slice(20, 32)}`;
+              replies.record(group, {
+                requestId,
+                messageId: message.messageId,
+                deliveryId: delivery.deliveryId,
+                source: {
+                  conversationId: delivery.sessionId,
+                  commandId: delivery.commandId,
+                  messageId: source.messageId,
+                  throughSequence: source.sequence,
+                  blockIds: source.blocks.map((b) => b.blockId),
+                },
+              });
+              // The reply owner verifies the mapping's pinned execution before
+              // promoting acceptance. Never consult ambiguous unpinned history.
+              if (['queued', 'uncertain'].includes(delivery.status))
+                this.receipt(group, message, delivery.deliveryId, 'delivered', delivery.commandId);
+            } catch (error) {
+              // Refuse just this retained source. Storage/programming failures remain observable.
+              if (
+                !(error instanceof CollaborationContractError) ||
+                ![
+                  'snapshot_changed',
+                  'capacity_refused',
+                  'reply_conflict',
+                  'reply_unavailable',
+                ].includes(error.code)
+              )
+                throw error;
+              log.warn('Could not project finalized collaboration reply', {
+                code: error.code,
+                stage: 'reply_projection',
+                collaborationId: group,
+                sessionId: delivery.sessionId,
+                commandId: delivery.commandId,
+                messageId,
+              });
+            }
+          }
         }
       }
+      if (page.length < 50) break;
+    }
+  }
+
+  private *replySources(sessionId: string, commandId: string) {
+    let after = 0;
+    for (;;) {
+      const page = this.store.getOrdinaryReplySourcePage(sessionId, commandId, after);
+      for (const row of page) {
+        after = row.sequence;
+        if (row.messageId) yield row.messageId;
+      }
+      if (page.length < 50) return;
     }
   }
 
