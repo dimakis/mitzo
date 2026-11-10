@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.1022-symposium-observer-survives-singleton';
+  'v1.0.1024-symposium-singleton-observation-consumers';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -203,11 +203,11 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/hooks/__tests__/useConversationPresentation.test.tsx':
     '43e606d21e542b3614985a229b1115585d2ccf54a198b3c79ce06cc317f8057d',
   '../../frontend/src/components/__tests__/SharedConversationStatus.test.tsx':
-    '18e0840ca9b9b3928db0c418d419cf3c46005ed3ee60c620ae608a14afdddf35',
+    '51fd8c6b5fdd91b1b2c06528912aa6ecc7aa8aae28bb7b41fb379c87a2ec1f64',
   '../../tests/fixtures/ordinary-collaboration-status.tsx':
     'fbfdc6f94adfd67fcf54f3f62bc1b547770aaec3195801d6037f107e39a4dfde',
   '../../tests/offline/ordinary-collaboration-status.spec.ts':
-    '0e576f8662399a7e369f50c714d082ed85ceecc2c94788723fc0a4965b298583',
+    '370b0240f2686fadf2ff6f6a122567f603053a66e74b8182a3f71f03c845cbc5',
   '../../frontend/src/components/ConversationRepositoryPicker.tsx':
     'bad89b264d8bff41ed745fd33629e658ac947d6bc56b3945baae6fa0df2986cf',
   '../../frontend/src/components/SharedConversation.tsx':
@@ -219,7 +219,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/hooks/useConversationSending.ts':
     '17aad842d52f39fa6c2c96d64987900ce82d4c3a6db4aade807305b03a726320',
   '../__tests__/collaboration-application-ui.test.tsx':
-    '222bd49671c68390d21df14b8c0619090fac0ce4bbe84b024e7edf1b4e36a767',
+    'f21a756e029ce9429561e5649838430b6df1a09c28b15f17544984afad219a9b',
   '../__tests__/fixtures/symposium-recording-runtime.ts':
     '237c22ad940b03e1868ab29bd5ba4ff6fa209c7d53fdfa508243318a4d167fcc',
   '../../tests/fixtures/symposium-composer.tsx':

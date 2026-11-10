@@ -30,7 +30,7 @@ for (const theme of ['dark', 'light'])
       const errors: string[] = [],
         mutations: string[] = [],
         unexpectedCollaborationReads: string[] = [];
-      const reads = { setup: 0, view: 0 };
+      const reads = { setup: 0, view: 0, progress: 0 };
       const base = sharedConversationView();
       const view = {
         ...base,
@@ -82,6 +82,17 @@ for (const theme of ['dark', 'light'])
           return route.fulfill({ json: view });
         }
         if (path.startsWith('/api/session-collaborations/')) {
+          if (path === `/api/session-collaborations/${view.collaborationId}/progress`) {
+            reads.progress++;
+            return route.fulfill({
+              json: {
+                collaborationId: view.collaborationId,
+                membershipRevision: view.membershipRevision,
+                replies: [],
+                refusals: [],
+              },
+            });
+          }
           unexpectedCollaborationReads.push(path);
           return route.fulfill({ status: 500, json: { error: 'Unexpected collaboration read' } });
         }
@@ -148,10 +159,15 @@ for (const theme of ['dark', 'light'])
         path: info.outputPath(`chat-status-ordinary-${stage}-${theme}-keyboard.png`),
         fullPage: true,
       });
-      expect(reads).toEqual({
-        setup: stage === 'setup' ? 2 : 1,
-        view: stage === 'fresh' ? 0 : stage === 'view' ? 2 : 1,
-      });
+      expect(reads.setup).toBe(stage === 'setup' ? 2 : 1);
+      // Existing singleton relationships now observe authorized remote joins.
+      // Preserve exact recovery reads and account separately for each successful
+      // progress sample's paired finalized-transcript refresh.
+      await expect
+        .poll(() => reads.view - reads.progress)
+        .toBe(stage === 'fresh' ? 0 : stage === 'view' ? 2 : 1);
+      if (stage === 'fresh') expect(reads.progress).toBe(0);
+      else expect(reads.progress).toBeGreaterThan(0);
       expect(mutations).toEqual([]);
       expect(unexpectedCollaborationReads).toEqual([]);
       expect(errors).toEqual([]);
