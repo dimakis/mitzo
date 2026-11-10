@@ -129,6 +129,13 @@ for (const theme of ['light', 'dark'] as const) {
       const submit = form.getByRole('button', { name: 'Save API account', exact: true });
       await expect(submit).toBeDisabled();
       await form.getByRole('checkbox').check();
+      const consentCopy = await form
+        .getByRole('checkbox')
+        .locator('..')
+        .locator('span')
+        .boundingBox();
+      expect(consentCopy!.width).toBeGreaterThan(100);
+      expect(consentCopy!.x + consentCopy!.width).toBeLessThanOrEqual(page.viewportSize()!.width);
       await submit.focus();
       await expect(submit).toBeFocused();
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(

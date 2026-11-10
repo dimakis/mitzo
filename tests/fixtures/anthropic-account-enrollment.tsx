@@ -3,6 +3,7 @@ import { OpenAIAccountEnrollment } from '../../frontend/src/components/OpenAIAcc
 import '../../frontend/src/styles/tokens.css';
 import '../../frontend/src/styles/global.css';
 import '../../frontend/src/styles/workspace.css';
+import '../../frontend/src/styles/connections-setup.css';
 
 createRoot(document.getElementById('root')!).render(
   <main className="workspace-page">
