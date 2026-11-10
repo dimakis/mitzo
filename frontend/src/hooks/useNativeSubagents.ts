@@ -2,6 +2,7 @@ import { useMemo, useSyncExternalStore } from 'react';
 import { z } from 'zod';
 import {
   NativeSubagentStreamEventSchema,
+  NativeSubagentSnapshotSchema,
   type NativeSubagentControl,
   type NativeSubagentControlStatus,
   type NativeSubagentSnapshot,
@@ -64,6 +65,8 @@ class NativeSubagentFeed {
   };
   private async connect() {
     this.stop();
+    // Reconnecting does not prove that any retained child still has live authority.
+    this.update({ ...this.state, available: false });
     const abort = new AbortController();
     this.abort = abort;
     let available = true;
@@ -78,7 +81,18 @@ class NativeSubagentFeed {
         const value = NativeSubagentStreamEventSchema.parse(raw);
         if (value.type === 'reset') {
           available = value.available;
-          this.update({ agents: [], available });
+          // Reset starts a snapshot, but a disconnect can interrupt it. Keep
+          // known output and attribution until each child is freshly observed.
+          this.update({
+            agents: this.state.agents.map((agent) => ({
+              ...agent,
+              available: false,
+              state: ['starting', 'working', 'needs_permission', 'stopping'].includes(agent.state)
+                ? 'unknown'
+                : agent.state,
+            })),
+            available,
+          });
         } else if (value.type === 'status') {
           available = value.available;
           this.update({ ...this.state, available });
@@ -106,6 +120,43 @@ class NativeSubagentFeed {
         this.retry = setTimeout(() => void this.connect(), available ? 1500 : 30000);
     }
   }
+  inspect = async (threadId: string): Promise<void> => {
+    const connection = this.abort;
+    if (!connection || connection.signal.aborted) return;
+    const current = () => this.abort === connection && !connection.signal.aborted;
+    try {
+      const response = await apiFetch(
+        `/api/sessions/${encodeURIComponent(this.sessionId)}/codex-subagents/inspect`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ threadId }),
+          signal: AbortSignal.timeout(30000),
+        },
+      );
+      if (!current()) return;
+      if (!response.ok) throw Error('Inspection unavailable');
+      const { agent } = z
+        .object({ agent: NativeSubagentSnapshotSchema })
+        .parse(await response.json());
+      if (!current()) return;
+      if (agent.threadId !== threadId) throw Error('Inspection identity changed');
+      this.update({
+        ...this.state,
+        error: undefined,
+        agents: this.state.agents.map((previous) =>
+          previous.threadId === threadId && previous.revision <= agent.revision ? agent : previous,
+        ),
+      });
+    } catch {
+      if (!current()) return;
+      this.update({
+        ...this.state,
+        error:
+          'Subagent inspection is unavailable. Reconnect the original chat runtime and try again.',
+      });
+    }
+  };
   control = async (input: NativeSubagentControl): Promise<NativeSubagentControlStatus> => {
     try {
       const response = await apiFetch(
@@ -140,5 +191,5 @@ export function useNativeSubagents(sessionId: string) {
     return value;
   }, [sessionId]);
   const state = useSyncExternalStore(feed.subscribe, feed.snapshot, feed.snapshot);
-  return { ...state, reconnect: feed.reconnect, control: feed.control };
+  return { ...state, reconnect: feed.reconnect, inspect: feed.inspect, control: feed.control };
 }

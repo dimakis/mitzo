@@ -19,6 +19,18 @@ const labels: Record<NativeSubagentSnapshot['state'], string> = {
   stopped: 'Stopped',
   unknown: 'Activity unknown',
 };
+const inspectionStages: Record<
+  NonNullable<NativeSubagentSnapshot['inspectionFailure']>['stage'],
+  string
+> = {
+  inspect_child: 'child inspection',
+  inspect_parent: 'parent inspection',
+  validate_identity: 'identity verification',
+  subscribe: 'activity subscription',
+  history: 'history loading',
+  events: 'activity recovery',
+  capacity: 'inspection capacity checks',
+};
 interface Delivery {
   input: NativeSubagentControl;
   status: 'sending' | 'accepted' | 'rejected' | 'uncertain';
@@ -36,13 +48,15 @@ export function NativeSubagents({
   const [selectedId, setSelectedId] = useState<string>();
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [deliveries, setDeliveries] = useState<Record<string, Delivery>>({});
+  const [inspecting, setInspecting] = useState<Record<string, boolean>>({});
   const listId = useId();
   const selected = agents.find((agent) => agent.threadId === selectedId);
   const delivery = selected ? deliveries[selected.threadId] : undefined;
   const busy = delivery?.status === 'sending' || delivery?.status === 'uncertain';
   const working = agents.filter((agent) => agent.state === 'working').length;
   const attention = agents.filter((agent) => agent.state === 'needs_permission').length;
-  const summary = `${agents.length || ''}${agents.length ? ' ' : ''}subagent${agents.length === 1 ? '' : 's'}${working ? ` · ${working} working` : ''}${attention ? ` · ${attention} need permission` : ''}`;
+  const unavailable = agents.filter((agent) => agent.inspectionFailure).length;
+  const summary = `${agents.length || ''}${agents.length ? ' ' : ''}subagent${agents.length === 1 ? '' : 's'}${working ? ` · ${working} working` : ''}${attention ? ` · ${attention} need permission` : ''}${unavailable ? ` · ${unavailable} unavailable` : ''}`;
   const canMessage =
     !!selected &&
     feed.available &&
@@ -94,18 +108,21 @@ export function NativeSubagents({
               type="button"
               key={agent.threadId}
               className="native-subagent-row"
-              onClick={() => setSelectedId(agent.threadId)}
+              onClick={(event) => {
+                event.currentTarget.focus({ preventScroll: true });
+                setSelectedId(agent.threadId);
+              }}
             >
               <span>{agent.name}</span>
               <span className="native-subagent-state">
-                {
-                  labels[
-                    !feed.available &&
-                    ['working', 'starting', 'needs_permission'].includes(agent.state)
-                      ? 'unknown'
-                      : agent.state
-                  ]
-                }
+                {agent.inspectionFailure
+                  ? 'Inspection unavailable'
+                  : labels[
+                      !feed.available &&
+                      ['working', 'starting', 'needs_permission'].includes(agent.state)
+                        ? 'unknown'
+                        : agent.state
+                    ]}
               </span>
               <UiIcon name="forward" size={16} />
             </button>
@@ -148,6 +165,30 @@ export function NativeSubagents({
                 ]
               }
             </p>
+            {selected.inspectionFailure && (
+              <p className="native-subagent-note" role="status">
+                Subagent inspection failed during{' '}
+                {inspectionStages[selected.inspectionFailure.stage]}. Execution status is uncertain;
+                controls are unavailable. Retry inspection to reload activity. Reference:{' '}
+                {selected.inspectionFailure.reference}.{' '}
+                <button
+                  type="button"
+                  className="home-secondary"
+                  disabled={inspecting[selected.threadId]}
+                  onClick={async () => {
+                    const threadId = selected.threadId;
+                    setInspecting((previous) => ({ ...previous, [threadId]: true }));
+                    try {
+                      await feed.inspect(threadId);
+                    } finally {
+                      setInspecting((previous) => ({ ...previous, [threadId]: false }));
+                    }
+                  }}
+                >
+                  {inspecting[selected.threadId] ? 'Inspecting…' : 'Retry inspection'}
+                </button>
+              </p>
+            )}
             {selected.blocks.map((block) =>
               block.type === 'tool' ? (
                 <ToolPill
