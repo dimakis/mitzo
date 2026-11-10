@@ -19,6 +19,16 @@ import { createCollaborationContextSource } from './collaboration-context-source
 import { createLogger } from './logger.js';
 
 const log = createLogger('collaboration-messaging');
+const promptByteLimit = 512 * 1024;
+type DiscussionMessage = Pick<CollaborationMessage, 'sequence' | 'author' | 'text' | 'source'>;
+function discussionMessage(message: DiscussionMessage) {
+  return {
+    sequence: message.sequence,
+    author: message.author,
+    text: message.text,
+    source: message.source,
+  };
+}
 
 /** Composes group intent with the existing ordinary dispatcher. The collaboration
  * owns recipient receipts; the ordinary command ledger alone proves execution.
@@ -58,8 +68,6 @@ export class ApplicationCollaborationMessaging {
         return result(
           'This participant is unavailable. Refresh Agents and choose a current participant.',
         );
-      if (view.hasEarlierMessages)
-        return result('Choose narrower context before sending this discussion.');
       if (!this.port.inspectCollaboration) return result('Ordinary group delivery is unavailable.');
       const settings = this.store.getOrdinaryConversationSettings(sessionId);
       if (
@@ -69,6 +77,8 @@ export class ApplicationCollaborationMessaging {
       )
         return result('Choose a repository-backed Local Codex participant.');
       const context = await this.joiningContext(auth, group, sessionId, settings, signal);
+      const history = this.pendingHistory(group, sessionId, view.cursor, context.snapshot, '');
+      this.assertHistoryCurrent(group, history, sessionId, settings);
       for (const reader of view.policies.filter(
         (p) => p.readsFutureDiscussion && p.sessionId !== sessionId,
       )) {
@@ -233,7 +243,6 @@ export class ApplicationCollaborationMessaging {
     // later slice. Never accept them and then dispatch only the optional text.
     if (input.snapshot) throw new CollaborationContractError('execution_unavailable');
     const view = this.store.collaborationConversation.view(group);
-    if (view.hasEarlierMessages) throw new CollaborationContractError('capacity_refused');
     const responders =
       input.responders.kind === 'all'
         ? view.participantSessionIds
@@ -297,13 +306,20 @@ export class ApplicationCollaborationMessaging {
     // Renew the pending discussion after compilation awaits, before any message
     // or command mutation. Refuse an overfull packet without retaining a send.
     const pending = this.store.collaborationConversation.view(group);
-    if (pending.hasEarlierMessages) throw new CollaborationContractError('capacity_refused');
     for (const sessionId of responders) {
+      const history = this.pendingHistory(
+        group,
+        sessionId,
+        pending.cursor,
+        contexts.get(sessionId)!.snapshot,
+        input.text,
+        { sequence: pending.cursor + 1, author: 'operator', text: input.text, source: null },
+      );
       // A prior fan-out may still be preparing another recipient. Never adopt
       // that recipient's explicit reply into this new command or leave a new
       // partially accepted message while the original intent is unclaimed.
       if (
-        pending.messages.some((m) =>
+        history.some((m) =>
           m.deliveries.some(
             (d) =>
               d.sessionId === sessionId &&
@@ -314,27 +330,7 @@ export class ApplicationCollaborationMessaging {
         )
       )
         throw new CollaborationContractError('execution_unavailable');
-      const history = pending.messages.filter((m) =>
-        m.deliveries.some(
-          (d) => d.sessionId === sessionId && d.commandId === null && d.status === 'pending',
-        ),
-      );
-      const text = this.prompt(
-        group,
-        [
-          ...history,
-          {
-            sequence: pending.cursor + 1,
-            author: 'operator',
-            text: input.text,
-            source: null,
-          },
-        ],
-        contexts.get(sessionId)!.snapshot,
-        input.text,
-      );
-      if (Buffer.byteLength(text, 'utf8') > 512 * 1024)
-        throw new CollaborationContractError('capacity_refused');
+      this.assertHistoryCurrent(group, history, sessionId, settings.get(sessionId)!);
     }
     const message = this.store.collaborationConversation.acceptMessage(group, input);
     for (const delivery of message.deliveries.filter((d) => d.purpose === 'reply')) {
@@ -346,58 +342,26 @@ export class ApplicationCollaborationMessaging {
       if (original.commandId !== null) continue;
       const commandId = `collaboration:${delivery.deliveryId}`;
       assertCurrent();
-      const history = this.store.collaborationConversation
-        .view(group)
-        .messages.filter(
-          (m) =>
-            m.sequence <= message.sequence &&
-            m.deliveries.some(
-              (d) =>
-                d.sessionId === delivery.sessionId &&
-                d.commandId === null &&
-                d.status === 'pending',
-            ),
-        );
+      const snapshot = contexts.get(delivery.sessionId)!.snapshot;
+      const history = this.pendingHistory(
+        group,
+        delivery.sessionId,
+        message.sequence,
+        snapshot,
+        input.text,
+      );
       const assertHistoryCurrent = (requireClaim = false) => {
         assertCurrent();
-        for (const shared of history) {
-          // Never substitute a forwarding note for its exact retained packet or
-          // silently omit a different reviewed per-message snapshot.
-          if (shared.forward || shared.snapshot)
-            throw new CollaborationContractError('execution_unavailable');
-          const ref = shared.deliveries.find((d) => d.sessionId === delivery.sessionId)!;
-          this.store.collaborationConversation.assertCurrentDeliveryRecipient(
-            group,
-            shared.messageId,
-            ref.deliveryId,
-            delivery.sessionId,
-          );
-          if (requireClaim) {
-            const observed = this.store.collaborationConversation
-              .getMessage(group, shared.messageId)!
-              .deliveries.find((d) => d.deliveryId === ref.deliveryId)!;
-            if (observed.commandId !== commandId)
-              throw new CollaborationContractError('reply_conflict');
-          }
-          if (
-            !isDeepStrictEqual(
-              shared.settings[delivery.sessionId],
-              settings.get(delivery.sessionId),
-            )
-          )
-            throw new CollaborationContractError('snapshot_changed');
-          if (
-            shared.source &&
-            this.store.getSession(shared.source.conversationId)?.isHidden !== false
-          )
-            throw new CollaborationContractError('snapshot_changed');
-        }
+        this.assertHistoryCurrent(
+          group,
+          history,
+          delivery.sessionId,
+          settings.get(delivery.sessionId)!,
+          requireClaim ? commandId : undefined,
+        );
       };
       assertHistoryCurrent();
-      const snapshot = contexts.get(delivery.sessionId)!.snapshot;
       const text = this.prompt(group, history, snapshot, input.text);
-      if (Buffer.byteLength(text, 'utf8') > 512 * 1024)
-        throw new CollaborationContractError('capacity_refused');
       // Claim the complete packet synchronously. Another queued prompt must not
       // capture context whose delivery already belongs to this command.
       for (const shared of history) {
@@ -463,9 +427,80 @@ export class ApplicationCollaborationMessaging {
     return this.store.collaborationConversation.getMessage(group, message.messageId)!;
   }
 
+  private assertHistoryCurrent(
+    group: string,
+    history: CollaborationMessage[],
+    sessionId: string,
+    settings: CollaborationSettings,
+    commandId?: string,
+  ) {
+    for (const shared of history) {
+      // A retained forwarding note cannot substitute for its exact packet, nor
+      // can ordinary discussion silently omit a reviewed per-message snapshot.
+      if (shared.forward || shared.snapshot)
+        throw new CollaborationContractError('execution_unavailable');
+      const ref = shared.deliveries.find((d) => d.sessionId === sessionId)!;
+      this.store.collaborationConversation.assertCurrentDeliveryRecipient(
+        group,
+        shared.messageId,
+        ref.deliveryId,
+        sessionId,
+      );
+      if (commandId) {
+        const observed = this.store.collaborationConversation
+          .getMessage(group, shared.messageId)!
+          .deliveries.find((d) => d.deliveryId === ref.deliveryId)!;
+        if (observed.commandId !== commandId)
+          throw new CollaborationContractError('reply_conflict');
+      }
+      if (!isDeepStrictEqual(shared.settings[sessionId], settings))
+        throw new CollaborationContractError('snapshot_changed');
+      if (shared.source && this.store.getSession(shared.source.conversationId)?.isHidden !== false)
+        throw new CollaborationContractError('snapshot_changed');
+    }
+  }
+
+  private pendingHistory(
+    group: string,
+    sessionId: string,
+    through: number,
+    snapshot: CollaborationSnapshot | null,
+    text: string,
+    additional?: DiscussionMessage,
+  ) {
+    const history: CollaborationMessage[] = [];
+    // Account for the wrapper, joining snapshot, requested text and prospective
+    // message before retaining any pages. Count encoded UTF-8, including escaping
+    // and separators, so both the inventory and final packet stay bounded.
+    let bytes = Buffer.byteLength(
+      this.prompt(group, additional ? [additional] : [], snapshot, text),
+      'utf8',
+    );
+    let count = additional ? 1 : 0;
+    if (bytes > promptByteLimit) throw new CollaborationContractError('capacity_refused');
+    let after = 0;
+    for (;;) {
+      const page = this.store.collaborationConversation.pendingDeliveryPage(
+        group,
+        sessionId,
+        after,
+        through,
+      );
+      for (const message of page) {
+        bytes +=
+          Buffer.byteLength(JSON.stringify(discussionMessage(message)), 'utf8') + (count ? 1 : 0);
+        if (bytes > promptByteLimit) throw new CollaborationContractError('capacity_refused');
+        history.push(message);
+        count++;
+        after = message.sequence;
+      }
+      if (page.length < 50) return history;
+    }
+  }
+
   private prompt(
     group: string,
-    history: Array<Pick<CollaborationMessage, 'sequence' | 'author' | 'text' | 'source'>>,
+    history: DiscussionMessage[],
     snapshot: CollaborationSnapshot | null,
     text: string,
   ) {
@@ -486,12 +521,7 @@ export class ApplicationCollaborationMessaging {
         version: 1,
         collaborationId: group,
         joiningContext: shared,
-        discussion: history.map((m) => ({
-          sequence: m.sequence,
-          author: m.author,
-          text: m.text,
-          source: m.source,
-        })),
+        discussion: history.map(discussionMessage),
       }) +
       '\n\n# Explicit requested reply\n' +
       text
