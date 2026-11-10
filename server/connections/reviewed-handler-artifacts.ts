@@ -40,9 +40,9 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../scripts/deployment-maintenance-bootstrap.mjs':
     'd84f7f2cc9f2030c66555cb52c0d7dc9c97fcc253128f68105b873d14e8a3128',
   '../../packages/protocol/src/deployment-maintenance-store.ts':
-    '22d58cac42ec6edb21c32d2738c2a8c080e88d237fca722a511dedcb215a6fcc',
+    '16118aedfbfc7fa55dc361d9d7887013877acf7b05b7ff814ef14ed374973e97',
   '../../docs/operations/drained-maintenance-handoff.md':
-    'c6535ec039e4d0f8941ce6380de8dcb069fd5c226cdaaf03807a71ce36ae0f36',
+    'f1e32bbfbd9932fd08acefc7d8c19a991c6ba9384e0b5286e7710bee0e25fe41',
   '../../scripts/start.sh': '4d56a1a290f1a8c90182260feebbdc59ff85e4727d1f81be940d1c50d4804c5f',
   '../../frontend/src/components/__tests__/SessionChatLinksRecovery.test.tsx':
     '3c440e45e0d17a8620d3ed01b57fa346d5a034636a4f3768ad17f6a0b5167ef2',
@@ -193,7 +193,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../scripts/deployment-sessions.mjs':
     '777ecfe987d9388ae64f715a73cc02a9fc22e3addd19bf007587efa78a961080',
   '../__tests__/deployment-coordinator.test.ts':
-    'b54e4974572bd17598436854fe48d340d4550f61377c0d6966e4ce74e13d574a',
+    '82333e536ef8f576bf480f7d71c63ce8053c93abebd0e67afb00e64bee5627d2',
   '../__tests__/deployment-routes.test.ts':
     '79dbf48ee5417eef21f994729c1fda92339aa255c2f67389000274d0753884fe',
   '../deployment-coordinator.ts':

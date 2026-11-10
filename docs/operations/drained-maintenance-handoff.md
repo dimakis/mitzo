@@ -11,6 +11,9 @@ remain unchanged. Quarantine blocks all future input, native FIFO dispatch,
 recovery and queue mutation for those historical conversation IDs; retained
 history remains readable. Missing custody never becomes proof of completion.
 There is no automatic expiry, retry, unquarantine or synthetic settlement.
+Historical sessions must be `ENDED` with no live execution phase and disjoint
+from the captured current owners. A stale legacy `is_active` flag is preserved;
+it neither proves a live owner nor replaces the required native/process checks.
 
 ## Prepare before installing a hold
 

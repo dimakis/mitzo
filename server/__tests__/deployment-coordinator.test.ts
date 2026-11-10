@@ -413,7 +413,22 @@ it('atomically retains historical uncertainty under permanent quarantine and dis
       port,
     ),
   ).toThrow(/reviewed/);
+  // The legacy active flag can remain set after ENDED. It is not proof of a
+  // live owner, nor may maintenance rewrite that original metadata to proceed.
+  db.prepare("UPDATE sessions SET state='ACTIVE',is_active=1 WHERE session_id='historical'").run();
+  expect(() => f.events.deployment.maintenance.adopt(input, port)).toThrow(/ended/);
+  db.prepare(
+    "UPDATE sessions SET state='ENDED',execution_phase='RUNNING' WHERE session_id='historical'",
+  ).run();
+  expect(() => f.events.deployment.maintenance.adopt(input, port)).toThrow(/ended/);
+  db.prepare("UPDATE sessions SET execution_phase=NULL WHERE session_id='historical'").run();
+  const historicalSession = db
+    .prepare("SELECT * FROM sessions WHERE session_id='historical'")
+    .get();
   const operation = f.events.deployment.maintenance.adopt(input, port);
+  expect(db.prepare("SELECT * FROM sessions WHERE session_id='historical'").get()).toEqual(
+    historicalSession,
+  );
   expect(operation.activationHash).toBeUndefined();
   expect(operation.maintenance).toMatchObject({
     kind: 'drained-handoff-v1',

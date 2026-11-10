@@ -125,13 +125,15 @@ export class DeploymentMaintenanceStore {
           throw Error('Exact reviewed historical uncertainty required');
         const ids = [...new Set(commands.map((command) => command.session_id))].sort();
         for (const id of ids) {
+          // Legacy is_active can disagree with ENDED. Preserve that row; actual
+          // current owner/native exclusion belongs to the required drained port.
           const session = this.db
-            .prepare('SELECT state,is_active FROM sessions WHERE session_id=?')
-            .get(id) as { state: string; is_active: number } | undefined;
+            .prepare('SELECT state,execution_phase FROM sessions WHERE session_id=?')
+            .get(id) as { state: string; execution_phase: string | null } | undefined;
           if (
             !session ||
             session.state !== 'ENDED' ||
-            session.is_active !== 0 ||
+            (session.execution_phase !== null && session.execution_phase !== 'TERMINAL') ||
             this.isQuarantined(id)
           )
             throw Error('Only ended historical sessions may be quarantined');
