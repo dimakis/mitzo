@@ -1,27 +1,7 @@
 import { afterEach, expect, it, vi } from 'vitest';
 import { SendOutbox } from '../send-outbox.js';
 import { runtimeFailureMessage } from '@mitzo/protocol';
-const command = {
-  runOn: 'local',
-  repositoryWorkspaceId: '11111111-1111-4111-8111-111111111111',
-  clientMsgId: 'local-first',
-  capabilityRevision: 'caps-r1',
-  runtime: {
-    account: { accountId: 'personal', provider: 'openai-codex', profileRevision: 'routing-r1' },
-    harness: 'codex',
-    targetId: 'mac',
-    mode: 'agent',
-  },
-  selection: {
-    version: 1,
-    agent: { profileId: 'agent', revision: 1 },
-    model: 'luna-fixture',
-    thinking: 'low',
-    context: { source: 'none', revision: null },
-    permission: { mode: 'agent', revision: 0 },
-  },
-  payload: { text: 'inspect' },
-};
+import { localFirstCommandFixture as command } from './fixtures/local-first-command.js';
 const disk = () => {
   let raw: string | null = null;
   return {
@@ -43,6 +23,144 @@ const receipt = (state = 'consumed') =>
     { status: 202 },
   );
 afterEach(() => vi.useRealTimers());
+
+it.each(['stop', 'rejectAll'] as const)(
+  'keeps a late storage callback inert after %s while still blocked',
+  (action) => {
+    let readable = false;
+    let changed!: () => void;
+    const getItem = vi.fn(() => {
+      if (!readable) throw Error('Storage unavailable');
+      return '[]';
+    });
+    const storage = {
+      getItem,
+      setItem: vi.fn(),
+      subscribe(listener: () => void) {
+        changed = listener;
+        return vi.fn();
+      },
+    };
+    const fetch = vi.fn();
+    const notify = vi.fn();
+    const outbox = new SendOutbox({
+      url: '/local/send',
+      storage,
+      fetch,
+      notify,
+      localFirstCommand: true,
+    });
+    outbox.start();
+    expect(notify).toHaveBeenLastCalledWith(expect.objectContaining({ state: 'blocked' }));
+    if (action === 'stop') outbox.stop();
+    else outbox.rejectAll('Authentication changed');
+    const reads = getItem.mock.calls.length;
+    const notifications = notify.mock.calls.length;
+    readable = true;
+    changed();
+    expect(getItem).toHaveBeenCalledTimes(reads);
+    expect(notify).toHaveBeenCalledTimes(notifications);
+    expect(fetch).not.toHaveBeenCalled();
+    outbox.start();
+    expect(notify).toHaveBeenLastCalledWith({ type: '_local_command_state', state: 'idle' });
+    expect(fetch).not.toHaveBeenCalled();
+    outbox.stop();
+  },
+);
+
+it.each(['start', 'wake', 'selection'] as const)(
+  'recovers a failed initial storage read on %s without replaying retained commands',
+  async (trigger) => {
+    const saved = disk();
+    saved.setItem(
+      '',
+      JSON.stringify([{ body: command, scope: 1, uncertain: true, localDraftId: 'original' }]),
+    );
+    let readable = false;
+    const storage = {
+      ...saved,
+      getItem() {
+        if (!readable) throw Error('Saved chat storage is loading');
+        return saved.getItem();
+      },
+    };
+    const fetch = vi
+      .fn()
+      .mockResolvedValue(Response.json({ code: 'receipt_pending' }, { status: 409 }));
+    const notify = vi.fn();
+    const outbox = new SendOutbox({
+      url: '/local/send',
+      storage,
+      fetch,
+      notify,
+      localFirstCommand: true,
+    });
+    outbox.start();
+    outbox.selectLocalDraft('original');
+    expect(notify).toHaveBeenLastCalledWith(expect.objectContaining({ state: 'blocked' }));
+    const original = saved.getItem();
+    readable = true;
+    if (trigger === 'start') outbox.start();
+    else if (trigger === 'wake') outbox.wake();
+    else outbox.selectLocalDraft('original');
+    expect(notify).toHaveBeenLastCalledWith(
+      expect.objectContaining({ state: 'uncertain', request: command, originDraftId: 'original' }),
+    );
+    await vi.waitFor(() =>
+      expect(notify).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          state: 'uncertain',
+          deliveryDiagnostic: expect.objectContaining({ code: 'receipt_pending' }),
+        }),
+      ),
+    );
+    expect(JSON.parse(saved.getItem()!)[0]).toMatchObject(JSON.parse(original!)[0]);
+    expect(fetch).toHaveBeenCalledExactlyOnceWith(
+      '/local/send/receipt',
+      expect.objectContaining({
+        method: 'POST',
+      }),
+    );
+    expect(JSON.parse(fetch.mock.calls[0][1].body)).toEqual(command);
+    outbox.stop();
+  },
+);
+
+it('clears a startup storage block for a fresh draft only after its retained queue can be read', async () => {
+  const saved = disk();
+  let readable = false;
+  const storage = {
+    ...saved,
+    getItem() {
+      if (!readable) throw Error('Storage unavailable');
+      return saved.getItem();
+    },
+  };
+  const fetch = vi.fn().mockResolvedValue(receipt());
+  const notify = vi.fn();
+  const outbox = new SendOutbox({
+    url: '/local/send',
+    storage,
+    fetch,
+    notify,
+    localFirstCommand: true,
+  });
+  outbox.start();
+  outbox.selectLocalDraft('new-draft');
+  expect(outbox.enqueue(command, 1, 'new-draft')).toBe(false);
+  expect(outbox.getEnqueueFailure()).toBe('blocked');
+  readable = true;
+  outbox.wake();
+  expect(notify).toHaveBeenLastCalledWith({ type: '_local_command_state', state: 'idle' });
+  expect(fetch).not.toHaveBeenCalled();
+  expect(outbox.enqueue(command, 1, 'new-draft')).toBe(true);
+  await vi.waitFor(() =>
+    expect(notify).toHaveBeenLastCalledWith(expect.objectContaining({ state: 'consumed' })),
+  );
+  expect(fetch).toHaveBeenCalledExactlyOnceWith('/local/send', expect.any(Object));
+  expect(JSON.parse(fetch.mock.calls[0][1].body)).toEqual(command);
+  outbox.stop();
+});
 
 it('retains a sanitized transport failure and retries the original follow-up after approval expiry', async () => {
   const saved = disk();
@@ -1149,14 +1267,22 @@ it('blocks corrupt persisted intent rather than forgetting it and admitting a re
     '',
     JSON.stringify([{ body: { ...command, systemPrompt: 'forged' }, scope: 1, uncertain: true }]),
   );
+  const fetch = vi.fn();
   const outbox = new SendOutbox({
     url: '/local',
-    fetch: vi.fn(),
+    fetch,
     notify: vi.fn(),
     storage,
     localFirstCommand: true,
   });
+  const original = storage.getItem();
+  outbox.start();
+  outbox.wake();
+  outbox.selectLocalDraft('new-draft');
   expect(outbox.enqueue(command, 1)).toBe(false);
+  expect(storage.getItem()).toBe(original);
+  expect(fetch).not.toHaveBeenCalled();
+  outbox.stop();
 });
 it.each(['retained_command', 'unknown_code'])(
   'keeps409 consumed observation (%s) without accepting, erasing or replaying the request',
