@@ -56,6 +56,9 @@ public actor MitzoWSClient {
     private let socketFactory: @Sendable (URL) async -> any MitzoWebSocket
     private var state: State = .disconnected
     private var seqBySession: [String: Int] = [:]
+    private var watchedSessions: Set<String> = []
+    private var hasWelcomed = false
+    private var retired = false
     private var pendingSends: [ClientMessage] = []
     private var reconnectTimer: Task<Void, Never>?
     private var heartbeatTimer: Task<Void, Never>?
@@ -106,13 +109,25 @@ public actor MitzoWSClient {
         await retired?.cancel()
     }
 
+    /// Authority changed. Stale callers must fail, never queue on an orphan.
+    public func retire() async {
+        retired = true
+        pendingSends.removeAll()
+        watchedSessions.removeAll()
+        seqBySession.removeAll()
+        await disconnect()
+    }
+
     public func send(_ message: ClientMessage) async throws {
+        guard !retired else { throw TransportError.connectionRetired }
         // If not connected, queue it
         guard case .connected = state else {
             guard pendingSends.count < maxPendingSends else { throw TransportError.pendingQueueFull }
+            rememberSubscription(message)
             pendingSends.append(message)
             return
         }
+        rememberSubscription(message)
         guard let socket else { throw TransportError.connectionRetired }
         let current = generation
         let data = try JSONEncoder().encode(message)
@@ -137,13 +152,26 @@ public actor MitzoWSClient {
     }
 
     public func getSuspendSessions() -> [SuspendSession] {
-        seqBySession.map { SuspendSession(sessionId: $0.key, lastSeq: $0.value) }
+        watchedSessions.sorted().map { SuspendSession(sessionId: $0, lastSeq: seqBySession[$0] ?? 0) }
+    }
+
+    private func rememberSubscription(_ message: ClientMessage) {
+        switch message {
+        case .watch(let sessionId): watchedSessions.insert(sessionId)
+        case .unwatch(let sessionId): watchedSessions.remove(sessionId)
+        case .reconnect(let sessions):
+            for session in sessions {
+                watchedSessions.insert(session.sessionId)
+                updateSeq(sessionId: session.sessionId, seq: session.lastSeq)
+            }
+        default: break
+        }
     }
 
     // MARK: - Internal Connection Logic
 
     private func _connect() async {
-        guard !Task.isCancelled, state == .disconnected || state == .reconnecting else { return }
+        guard !retired, !Task.isCancelled, state == .disconnected || state == .reconnecting else { return }
 
         generation &+= 1
         let current = generation
@@ -234,6 +262,7 @@ public actor MitzoWSClient {
         // Update seq if present
         switch message {
         case .sessionId(let sessionId, let seq, _, _):
+            watchedSessions.insert(sessionId)
             if let seq = seq {
                 updateSeq(sessionId: sessionId, seq: seq)
             }
@@ -254,6 +283,22 @@ public actor MitzoWSClient {
             updateSeq(sessionId: params.sessionId, seq: params.seq)
 
         case .welcome(_, let connectionId):
+            // Restore delivery intent only. Attempted commands and permission
+            // responses are never replayed. Keep ordinary sends queued until
+            // the owning server has received the subscription/cursor frame.
+            if hasWelcomed, !watchedSessions.isEmpty, let socket {
+                let sessions = watchedSessions.sorted().map {
+                    ReconnectSession(sessionId: $0, lastSeq: seqBySession[$0] ?? 0)
+                }
+                do {
+                    try await socket.send(.data(JSONEncoder().encode(ClientMessage.reconnect(sessions: sessions))))
+                } catch {
+                    await receiveFailed(error, generation: generation)
+                    return
+                }
+                guard generation == self.generation else { return }
+            }
+            hasWelcomed = true
             state = .connected(connectionId: connectionId)
             eventHandler?(.stateChanged(.connected(connectionId: connectionId)))
 

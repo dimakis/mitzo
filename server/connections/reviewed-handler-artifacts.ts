@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.977-ios-notification-receipts';
+  'v1.0.978-ios-notification-receipts';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -23,10 +23,14 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
+  '../../frontend/ios/MitzoShared/Sources/MitzoShared/Networking/NativeRelayConnection.swift':
+    '18127e9a08c9ab2669e9cf0878a1d53c013252a8289f8a1eb92b82e3847bb8bf',
+  '../../frontend/ios/MitzoShared/Sources/MitzoShared/Protocol/WSMessages.swift':
+    'a5f1606bf01b2648c8968c10866b2befcdccfcb274cda309d1bdf47dd5ae15e0',
   '../../frontend/ios/App/App/WatchRelayCoordinator.swift':
-    'e214ba689346071daff115c1b1221696c1db22d59b4a5c9ea4630860eefa8cd6',
+    '36425dfd7d0758ea184fed46d91385e6db4ff4e6bf59cabb4b83f4f3ab22a719',
   '../../frontend/ios/MitzoShared/Sources/MitzoShared/Networking/MitzoWSClient.swift':
-    '9f0c3669daa1a1cc7b61ed2829aed1f0989113d9dcaa3be629940ca01a3d8a74',
+    'fe6eec864f86eb0e8b3d1e767b06162d916499cce7c88bb36c9b78b946ce68f0',
   '../../frontend/ios/MitzoShared/Sources/MitzoShared/Networking/NativeRelayConfiguration.swift':
     'ee62c0e9b96a7c711038d08d76c1620cd6ae12381505f756aa3dcaec79e7629c',
   '../../frontend/ios/MitzoShared/Sources/MitzoShared/Networking/SceneForegroundReconnect.swift':
@@ -40,15 +44,15 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/ios/MitzoShared/Tests/MitzoSharedTests/NativeRelayConfigurationTests.swift':
     '83393640122164ae9aa3432afdc93e2733c294872382bb7aa38c2cae74cf09ca',
   '../../frontend/ios/MitzoShared/Tests/MitzoSharedTests/MitzoWSLifecycleTests.swift':
-    '3a659cc9b07561be8c3c18772ab868abfa2bfdeb9fb006a14c10053ddd28684c',
+    '5b1fe789a18dd7283521e5ae405cf61c27d53d158fd056d62787e8172619f535',
   '../../scripts/__tests__/ios-scene-lifecycle.test.ts':
-    '280bfd74dd505d886cbbe9fa855eb156617418a282a77bf04765c2f3f733b226',
+    '73d0338196926edd8142c01d5921b33b9e8d48f5569ea0d6bd180e753d60b40a',
   '../notification-response-receipts.ts':
     '7d2cbee00670b82e8ce0ec93d21ff5bf22b063eb35c44da7fa62193f6420959e',
   '../native-notification-action.ts':
     'a214a9f3a589025beb2e214a56773ddd6a032893f838d0e2ecd1554f3661ab2a',
   '../../docs/features/ios-notification-approval-recovery.md':
-    '3799b6708d1f4b05b117574cc26bf6af32da150f3880ce0b063786cac8f785fe',
+    '25c69af97177d864958bff98a953bd9cb0e12aa67f09bf45349b5e4f67757671',
   '../../frontend/ios/MitzoShared/Sources/MitzoShared/Protocol/NativeApprovalHistory.swift':
     '65a3dc886fcd1b9aff861afea38e5e40ed26751d635924e442cc4212bdfbbe57',
   '../../frontend/ios/MitzoShared/Tests/MitzoSharedTests/NativeApprovalHistoryTests.swift':
@@ -193,9 +197,9 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/ios/App/App/AppDelegate.swift':
     '7679fe6809d60df5017fdc1eef82d74f7af55827bd5c2f6c7ea2e10c5e2d832e',
   '../../frontend/ios/MitzoShared/Sources/MitzoShared/Networking/MitzoAPIClient.swift':
-    'd28aba886b6285d109342b9981212a6a7ddfb073fb652048dcc4c6a50066d74b',
+    '57de22a4d3066d7b85b4691c2784d6051199fb31cc48a3957089cfa98a811a89',
   '../../frontend/ios/MitzoShared/Sources/MitzoShared/Networking/WatchRelay.swift':
-    '3f2e00517fdd47f27ee21c0e0f7edf3ebefb21a6a21fbfb1b5ac99bdd370a637',
+    '3db0997676e332e7ebdae05d5f9033d754ca4a61abb443636a8702c90f288058',
   '../../frontend/ios/MitzoShared/Sources/MitzoShared/Protocol/BackgroundApproval.swift':
     '485b1e61a8c9edf4ef1751451c79221fc141fd44b22cec1642d517a976a7a178',
   '../../frontend/ios/MitzoShared/Sources/MitzoShared/Protocol/CoreTypes.swift':

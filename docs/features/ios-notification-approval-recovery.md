@@ -36,8 +36,17 @@ the Inbox continues to show the server's current request state.
 The native Watch relay now sends hello before waiting for welcome and retires
 old socket receive, heartbeat and reconnect tasks. Generation checks fence late
 callbacks; cancellation during hello retires the socket. The WatchConnectivity
-host remains available during background wakes, while its foreground WebSocket
-starts only after the scene attaches its notification router.
+host serves cold session/history reads with fresh REST authentication. Chat
+demand and foreground scenes share a native connection owner; notification
+approval launches alone do not open its WebSocket. The same authenticated actor
+retains watch membership (including zero-event sessions) and received cursors
+across socket replacement. Welcome restores subscriptions through the owning
+server's reconnect adapter before queued commands. Attempted commands and
+permission responses are never replayed. Changed origin, credentials or logout
+retire stale clients and their queues; acquisition revalidates authority across
+asynchronous setup and preserves a concurrent foreground reconnect request.
+These cursors record phone receipt, not Watch application: recovery from a
+subsequent unreachable Watch relay remains a separate limitation.
 
 ## Evidence and limits
 
@@ -72,6 +81,8 @@ Real-device acceptance remains separate: with reviewed server and native sources
 explicitly deployed to an authorized target, test background and cold-launch
 notification actions for each scope, expiry/revocation, locked-device auth,
 network loss before/after settlement, OS expiration and foreground reconnect.
+Include cold Watch chat wakes and a phone foreground transition with an already
+open Watch chat.
 Record the response ID, server receipt/audit, process/lifecycle logs and an iOS
 crash or jetsam report if the app terminates. Verify one resolver settlement and
 one callback completion. No production activation or device installation is part

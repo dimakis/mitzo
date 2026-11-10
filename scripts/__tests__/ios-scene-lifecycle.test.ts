@@ -14,21 +14,22 @@ it('keeps a background approval launch independent of the foreground Watch socke
   expect(launch![0]).not.toContain('watchRelay.start()');
   expect(source).toContain('private let watchRelay = WatchRelayCoordinator()');
   const relay = readFileSync(`${app}WatchRelayCoordinator.swift`, 'utf8');
-  const initialize = relay.match(/init\(\)[^]*?\n    }/);
-  expect(initialize?.[0]).toContain('watchRelay.activate(wsClient: nil, apiClient: nil)');
+  const initialize = relay.match(/init\(\)[^]*?\n {4}}/);
+  expect(initialize?.[0]).toContain('watchRelay.activate(wsClientProvider:');
   expect(initialize?.[0]).not.toContain('connect()');
-  const attach = source.match(/func attachNotificationRouter\([^]*?\n    }/);
+  const attach = source.match(/func attachNotificationRouter\([^]*?\n {4}}/);
   expect(attach?.[0]).toContain('watchRelay.start()');
 });
 
-it('uses the selected notification origin and retires replaced native relay clients', () => {
+it('uses the selected notification origin and the tested shared relay owner', () => {
   const source = readFileSync(`${app}WatchRelayCoordinator.swift`, 'utf8');
   expect(source).toContain('mitzo_notification_server_url');
   expect(source).not.toContain('mitzo_server_url');
   expect(source).not.toContain('dimakis-mac.tail');
   expect(source).toContain('nativeRelayWebSocketURL');
-  expect(source).toContain('await previous?.disconnect()');
-  expect(source).toContain('generation == connectionGeneration');
+  expect(source).toContain('NativeRelayConnection(configuration:');
+  expect(source).toContain('try await connection.acquire()');
+  expect(source).toContain('try? await connection.acquire(reconnect: true)');
 });
 
 it('declares a launchable scene for the storyboard bridge on iOS 27', () => {

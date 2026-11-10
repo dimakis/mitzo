@@ -7,68 +7,40 @@ import MitzoShared
 
 @MainActor
 final class WatchRelayCoordinator {
-    private let authManager = AuthManager()
     private let watchRelay: WatchRelayHost
-    private var wsClient: MitzoWSClient?
-    private var connectionGeneration: UInt64 = 0
+    private let connection: NativeRelayConnection
     private var started = false
 
     init() {
-        watchRelay = WatchRelayHost(authManager: authManager, notificationAPIProvider: {
+        let relay = WatchRelayHost(authManager: AuthManager(), notificationAPIProvider: {
             guard let url = notificationServerURL(UserDefaults.standard.string(forKey: "mitzo_notification_server_url")) else { return nil }
             return MitzoAPIClient(baseURL: url, authManager: AuthManager())
         })
-        // Activate WCSession immediately so watch can reach us even before login
-        watchRelay.activate(wsClient: nil, apiClient: nil)
+        watchRelay = relay
+        connection = NativeRelayConnection(configuration: {
+            let origin = UserDefaults.standard.string(forKey: "mitzo_notification_server_url")
+            guard let token = try? await AuthManager().getToken(),
+                  origin == UserDefaults.standard.string(forKey: "mitzo_notification_server_url") else { return nil }
+            return nativeRelayWebSocketURL(origin: origin, token: token)
+        }, onEvent: { [weak relay] event in
+            if case .message(let message) = event { relay?.forwardToWatch(message) }
+        })
+        // WCSession and fresh REST are available during a cold background wake.
+        // Only a foreground scene or actual Watch chat demand opens the socket.
+        watchRelay.activate(wsClientProvider: { [connection] in try await connection.acquire() })
     }
 
     func start() {
         guard !started else { return }
         started = true
-        Task { await connect() }
+        Task { _ = try? await connection.acquire() }
     }
 
     func reconnect() {
-        Task { await connect() }
+        Task { _ = try? await connection.acquire(reconnect: true) }
     }
 
     func suspend() {
-        Task {
-            let client = wsClient
-            if let client {
-                let sessions = await client.getSuspendSessions()
-                if !sessions.isEmpty {
-                    try? await client.suspend(sessions: sessions)
-                }
-            }
-        }
-    }
-
-    private func connect() async {
-        connectionGeneration &+= 1
-        let generation = connectionGeneration
-        let previous = wsClient
-        wsClient = nil
-        await previous?.disconnect()
-        let origin = UserDefaults.standard.string(forKey: "mitzo_notification_server_url")
-        let currentAuth = AuthManager()
-        guard let token = try? await currentAuth.getToken(),
-              generation == connectionGeneration,
-              let serverURL = notificationServerURL(origin),
-              let wsURL = nativeRelayWebSocketURL(origin: origin, token: token) else { return }
-
-        let client = MitzoWSClient(url: wsURL)
-        wsClient = client
-
-        let api = MitzoAPIClient(baseURL: serverURL, authManager: currentAuth)
-        // Update relay with authenticated clients (WCSession already activated in init)
-        watchRelay.activate(wsClient: client, apiClient: api)
-
-        let relay = watchRelay
-        await client.connect { event in
-            if case .message(let msg) = event {
-                relay.forwardToWatch(msg)
-            }
-        }
+        Task { await connection.suspend() }
     }
 }

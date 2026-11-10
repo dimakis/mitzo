@@ -169,3 +169,231 @@ private func eventually(_ predicate: () async -> Bool) async throws {
     await #expect(throws: (any Error).self) { try await client.reconnect(sessions: []) }
     await client.disconnect()
 }
+
+@Test func foregroundSocketReplacementRestoresMembershipAndCursorsBeforeQueuedCommands() async throws {
+    let first = TestSocket(), second = TestSocket()
+    let factory = SocketFactory([first, second])
+    let client = MitzoWSClient(url: URL(string: "https://offline.invalid")!, socketFactory: { _ in await factory.make() })
+    await client.connect { _ in }
+    await first.push("{\"type\":\"welcome\",\"protocolVersion\":2,\"connectionId\":\"first\"}")
+    try await client.send(.watch(sessionId: "active"))
+    try await client.send(.watch(sessionId: "zero-events"))
+    try await client.send(.watch(sessionId: "removed"))
+    try await client.send(.unwatch(sessionId: "removed"))
+    await client.updateSeq(sessionId: "active", seq: 7)
+    try await eventually { await first.sent.contains { $0.contains("unwatch") } }
+    try await client.send(.stop(sessionId: "already-attempted"))
+    await client.disconnect()
+    await client.connect { _ in }
+    try await client.send(.stop(sessionId: "new-command"))
+    await second.push("{\"type\":\"welcome\",\"protocolVersion\":2,\"connectionId\":\"second\"}")
+    try await eventually { await second.sent.count >= 3 }
+    let frames = try await second.sent.map { try JSONSerialization.jsonObject(with: Data($0.utf8)) as! [String: Any] }
+    #expect(frames.compactMap { $0["type"] as? String } == ["hello", "reconnect", "stop"])
+    let restored = frames.first { $0["type"] as? String == "reconnect" }?["sessions"] as? [[String: Any]] ?? []
+    #expect(Set(restored.compactMap { $0["sessionId"] as? String }) == ["active", "zero-events"])
+    #expect(restored.first { $0["sessionId"] as? String == "active" }?["lastSeq"] as? Int == 7)
+    #expect(restored.first { $0["sessionId"] as? String == "zero-events" }?["lastSeq"] as? Int == 0)
+    #expect(!frames.contains { $0["sessionId"] as? String == "already-attempted" })
+    await client.disconnect(); await first.fail(); await second.fail()
+}
+
+@Test func reconnectReplyAcceptsTheOwningServersActualWireShape() throws {
+    let message = try JSONDecoder().decode(ServerMessage.self, from: Data("{\"type\":\"reconnected\",\"sessions\":[{\"sessionId\":\"active\",\"replayed\":3}]}".utf8))
+    guard case .reconnected(let sessions) = message else { Issue.record("Expected reconnected"); return }
+    #expect(sessions.first?.sessionId == "active")
+    #expect(sessions.first?.replayed == 3)
+}
+
+private actor RelayConfigurationFixture {
+    var url: URL?
+    var gate: FactoryGate?
+    private var skippedGateReads = 0
+    private(set) var calls = 0
+    init(_ url: URL?, gate: FactoryGate? = nil) { self.url = url; self.gate = gate }
+    func read() async -> URL? {
+        calls += 1
+        if skippedGateReads > 0 { skippedGateReads -= 1; return url }
+        let waiting = gate; gate = nil; await waiting?.wait(); return url
+    }
+    func set(_ url: URL?) { self.url = url; gate = nil }
+    func stallNextRead(_ gate: FactoryGate) { self.gate = gate }
+    func stallEstablishmentRead(_ gate: FactoryGate) { self.gate = gate; skippedGateReads = 1 }
+}
+
+@Test func coldWatchDemandAndForegroundShareOneAuthenticatedConnection() async throws {
+    let socket = TestSocket(), gate = FactoryGate()
+    let configuration = RelayConfigurationFixture(URL(string: "wss://offline.invalid/ws/chat?token=fixture"), gate: gate)
+    let connection = NativeRelayConnection(configuration: { await configuration.read() }, makeClient: { url in
+        MitzoWSClient(url: url, socketFactory: { _ in socket })
+    })
+    let watch = Task { try await connection.acquire() }
+    try await eventually { await gate.waiting }
+    let foreground = Task { try await connection.acquire(reconnect: true) }
+    try await eventually { await connection.acquisitions == 2 }
+    await gate.release()
+    let first = try await watch.value, other = try await foreground.value
+    #expect(first === other)
+    #expect(await configuration.calls >= 2)
+    #expect(await socket.sent.count == 1)
+    await first.retire(); await socket.fail()
+}
+
+@Test func logoutDuringPendingHelloRejectsBothAcquisitionsAndRetiresTheCandidate() async throws {
+    let socket = TestSocket()
+    await socket.stallHello()
+    let configuration = RelayConfigurationFixture(URL(string: "wss://offline.invalid/ws/chat?token=old"))
+    let connection = NativeRelayConnection(configuration: { await configuration.read() }, makeClient: { url in
+        MitzoWSClient(url: url, socketFactory: { _ in socket })
+    })
+    let first = Task { try await connection.acquire() }
+    try await eventually { await socket.helloWaiting }
+    await configuration.set(nil)
+    let afterLogout = Task { try await connection.acquire() }
+    try await eventually { await connection.acquisitions == 2 }
+    // Releasing cancellation-resistant hello cannot restore old authority.
+    await socket.releaseHello()
+    let outcomes = [await first.result, await afterLogout.result]
+    for outcome in outcomes {
+        if case .success = outcome { Issue.record("Acquisition crossed logout") }
+    }
+    #expect(await socket.cancelled)
+    await socket.fail()
+}
+
+@Test func foregroundReconnectIntentSurvivesJoiningAPendingWatchAcquisition() async throws {
+    let first = TestSocket(), second = TestSocket(), gate = FactoryGate()
+    let sockets = SocketFactory([first, second])
+    let configuration = RelayConfigurationFixture(URL(string: "wss://offline.invalid/ws/chat?token=fixture"))
+    let connection = NativeRelayConnection(configuration: { await configuration.read() }, makeClient: { url in
+        MitzoWSClient(url: url, socketFactory: { _ in await sockets.make() })
+    })
+    let client = try await connection.acquire()
+    await first.push("{\"type\":\"welcome\",\"protocolVersion\":2,\"connectionId\":\"first\"}")
+    try await client.send(.watch(sessionId: "active"))
+    try await eventually { await first.sent.contains { $0.contains("watch") } }
+    await connection.suspend()
+    await configuration.stallEstablishmentRead(gate)
+    let watch = Task { try await connection.acquire() }
+    try await eventually { await gate.waiting }
+    let foreground = Task { try await connection.acquire(reconnect: true) }
+    try await eventually { await connection.acquisitions == 3 }
+    await gate.release()
+    _ = try await watch.value; _ = try await foreground.value
+    #expect(await sockets.count == 2)
+    #expect(await first.cancelled)
+    await second.push("{\"type\":\"welcome\",\"protocolVersion\":2,\"connectionId\":\"second\"}")
+    try await eventually { await second.sent.count == 2 }
+    #expect(await second.sent.last?.contains("reconnect") == true)
+    await client.retire(); await first.fail(); await second.fail()
+}
+
+@Test func logoutBetweenPreflightAndSetupRetiresAnExistingClientAndItsQueue() async throws {
+    let socket = TestSocket(), gate = FactoryGate()
+    let configuration = RelayConfigurationFixture(URL(string: "wss://offline.invalid/ws/chat?token=old"))
+    let connection = NativeRelayConnection(configuration: { await configuration.read() }, makeClient: { url in
+        MitzoWSClient(url: url, socketFactory: { _ in socket })
+    })
+    let client = try await connection.acquire()
+    try await client.send(.stop(sessionId: "unattempted-before-logout"))
+    await configuration.stallEstablishmentRead(gate)
+    let refresh = Task { try await connection.acquire() }
+    try await eventually { await gate.waiting }
+    await configuration.set(nil)
+    await gate.release()
+    if case .success = await refresh.result { Issue.record("Acquisition crossed logout") }
+    #expect(await socket.cancelled)
+    await #expect(throws: MitzoWSClient.TransportError.self) { try await client.send(.stop(sessionId: "stale")) }
+    await socket.push("{\"type\":\"welcome\",\"protocolVersion\":2,\"connectionId\":\"late\"}")
+    #expect(!(await socket.sent).joined().contains("unattempted-before-logout"))
+    await client.retire(); await socket.fail()
+}
+
+@Test func foregroundReusesClientAndChangedAuthorityRetiresItsQueue() async throws {
+    let one = URL(string: "wss://offline.invalid/ws/chat?token=first")!
+    let two = URL(string: "wss://offline.invalid/ws/chat?token=second")!
+    let configuration = RelayConfigurationFixture(one)
+    let first = TestSocket(), replacement = TestSocket(), changed = TestSocket()
+    let sockets = SocketFactory([first, replacement, changed])
+    let connection = NativeRelayConnection(configuration: { await configuration.read() }, makeClient: { url in
+        MitzoWSClient(url: url, socketFactory: { _ in await sockets.make() })
+    })
+    let original = try await connection.acquire()
+    await first.push("{\"type\":\"welcome\",\"protocolVersion\":2,\"connectionId\":\"first\"}")
+    try await original.send(.watch(sessionId: "active"))
+    try await eventually { await first.sent.contains { $0.contains("watch") } }
+    let resumed = try await connection.acquire(reconnect: true)
+    #expect(original === resumed)
+    #expect(await first.cancelled)
+    try await resumed.send(.stop(sessionId: "unattempted-old-authority"))
+    await configuration.set(two)
+    let next = try await connection.acquire()
+    #expect(next !== original)
+    #expect(await replacement.cancelled)
+    await #expect(throws: MitzoWSClient.TransportError.self) { try await original.send(.stop(sessionId: "stale")) }
+    await changed.push("{\"type\":\"welcome\",\"protocolVersion\":2,\"connectionId\":\"changed\"}")
+    try await next.send(.watch(sessionId: "new-authority"))
+    try await eventually { await changed.sent.count == 2 }
+    #expect(!((await changed.sent).joined().contains("old-authority")))
+    #expect(!((await changed.sent).joined().contains("active")))
+    await configuration.set(nil)
+    await #expect(throws: NativeRelayConnection.ConnectionError.self) { _ = try await connection.acquire() }
+    #expect(await changed.cancelled)
+    await #expect(throws: MitzoWSClient.TransportError.self) { try await next.send(.watch(sessionId: "logged-out")) }
+    await first.fail(); await replacement.fail(); await changed.fail()
+}
+
+@Test func networkReconnectRestoresSubscriptionsWithoutRepeatingAttemptedCommands() async throws {
+    let first = TestSocket(), second = TestSocket(), gate = FactoryGate()
+    let sockets = SocketFactory([first, second])
+    let client = MitzoWSClient(url: URL(string: "wss://offline.invalid")!, reconnectWait: { await gate.wait() }, socketFactory: { _ in await sockets.make() })
+    await client.connect { _ in }
+    await first.push("{\"type\":\"welcome\",\"protocolVersion\":2,\"connectionId\":\"first\"}")
+    try await client.send(.watch(sessionId: "active"))
+    try await eventually { await first.sent.contains { $0.contains("watch") } }
+    try await client.send(.stop(sessionId: "already-attempted"))
+    await first.fail()
+    try await eventually { await gate.waiting }
+    try await client.send(.stop(sessionId: "queued"))
+    await gate.release()
+    try await eventually { await second.sent.count == 1 }
+    await second.push("{\"type\":\"welcome\",\"protocolVersion\":2,\"connectionId\":\"second\"}")
+    try await eventually { await second.sent.count == 3 }
+    let frames = await second.sent
+    #expect(frames[1].contains("reconnect"))
+    #expect(frames[2].contains("queued"))
+    #expect(!frames.joined().contains("already-attempted"))
+    await client.retire(); await second.fail()
+}
+
+private final class RelayReadProvider: @unchecked Sendable {
+    private let lock = NSLock()
+    private var api: MitzoAPIClient?
+    init(_ api: MitzoAPIClient) { self.api = api }
+    func read() -> MitzoAPIClient? { lock.withLock { api } }
+    func logout() { lock.withLock { api = nil } }
+}
+private actor ColdRelayHTTP {
+    private(set) var requests: [URLRequest] = []
+    func send(_ request: URLRequest) throws -> (Data, URLResponse) {
+        requests.append(request)
+        let url = request.url!
+        let body = url.path.hasSuffix("/messages") ? "[]" : "{\"sessions\":[],\"hasMore\":false}"
+        return (Data(body.utf8), HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil)!)
+    }
+}
+
+@Test func coldWatchReadsUseFreshRESTWithoutAChatClientAndRespectLogout() async throws {
+    let http = ColdRelayHTTP()
+    let api = MitzoAPIClient(baseURL: URL(string: "https://offline.invalid")!, currentToken: { "offline-fixture" }, transport: { try await http.send($0) })
+    let provider = RelayReadProvider(api)
+    let reads = WatchRelayReads(apiProvider: { provider.read() })
+    let sessions = try JSONDecoder().decode(SessionsResponse.self, from: await reads.sessions())
+    let messages = try JSONDecoder().decode([FinishedMessage].self, from: await reads.messages(sessionId: "active"))
+    #expect(sessions.sessions.isEmpty && messages.isEmpty)
+    #expect(await http.requests.map { $0.url!.path } == ["/api/sessions", "/api/sessions/active/messages"])
+    #expect(await http.requests.allSatisfy { $0.value(forHTTPHeaderField: "Authorization") == "Bearer offline-fixture" })
+    provider.logout()
+    await #expect(throws: NativeRelayConnection.ConnectionError.self) { _ = try await reads.sessions() }
+    #expect(await http.requests.count == 2)
+}

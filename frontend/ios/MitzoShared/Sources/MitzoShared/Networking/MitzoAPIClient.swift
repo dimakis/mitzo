@@ -34,7 +34,7 @@ public actor MitzoAPIClient: BackgroundApprovalTransport {
         try await get(path: "/api/sessions", query: [
             URLQueryItem(name: "offset", value: "\(offset)"),
             URLQueryItem(name: "limit", value: "\(limit)")
-        ])
+        ], freshAuthentication: true)
     }
 
     public func getSessionMeta(id: String) async throws -> SessionMeta {
@@ -42,7 +42,7 @@ public actor MitzoAPIClient: BackgroundApprovalTransport {
     }
 
     public func getMessages(sessionId: String) async throws -> [FinishedMessage] {
-        try await get(path: "/api/sessions/\(sessionId)/messages")
+        try await get(path: "/api/sessions/\(sessionId)/messages", freshAuthentication: true)
     }
 
     // MARK: - Notifications
