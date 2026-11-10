@@ -8,6 +8,7 @@ import * as api from '../../lib/connections-api';
 vi.mock('../../lib/connections-api', () => ({
   getOpenAIAccounts: vi.fn(),
   enrollOpenAIAccount: vi.fn(),
+  discoverApiModels: vi.fn(),
 }));
 const account = { id: 'work-new', label: 'Work API', projectLabel: 'Research', state: 'ready' };
 beforeEach(() => {
@@ -16,6 +17,105 @@ beforeEach(() => {
   vi.mocked(api.enrollOpenAIAccount).mockResolvedValue(account);
 });
 afterEach(cleanup);
+it('shows a catalog failure and allows explicit model IDs without claiming validation', async () => {
+  vi.mocked(api.discoverApiModels).mockRejectedValue(Error('PRIVATE_KEY provider response'));
+  await mount();
+  fireEvent.change(screen.getByLabelText('Provider'), { target: { value: 'custom' } });
+  fireEvent.change(screen.getByLabelText('API base URL'), {
+    target: { value: 'https://gateway.example/v1' },
+  });
+  fill();
+  await act(async () => fireEvent.click(screen.getByRole('button', { name: 'Get models' })));
+  expect(screen.getByRole('alert').textContent).toContain('Could not read the provider catalog');
+  expect(document.body.textContent).not.toContain('PRIVATE_KEY');
+  fireEvent.change(screen.getByLabelText('Additional model IDs'), {
+    target: { value: 'vendor/model' },
+  });
+  fireEvent.click(screen.getByRole('checkbox'));
+  await act(async () => fireEvent.click(screen.getByRole('button', { name: 'Save API account' })));
+  expect(api.enrollOpenAIAccount).toHaveBeenCalledWith(
+    expect.objectContaining({ models: [{ id: 'vendor/model', label: 'vendor/model' }] }),
+  );
+});
+it('discards catalog responses after the endpoint or key changes', async () => {
+  let resolve!: (value: Awaited<ReturnType<typeof api.discoverApiModels>>) => void;
+  vi.mocked(api.discoverApiModels).mockReturnValue(
+    new Promise((done) => {
+      resolve = done;
+    }),
+  );
+  await mount();
+  fireEvent.change(screen.getByLabelText('Provider'), { target: { value: 'custom' } });
+  fireEvent.change(screen.getByLabelText('API base URL'), {
+    target: { value: 'https://old.example/v1' },
+  });
+  fill();
+  fireEvent.click(screen.getByRole('button', { name: 'Get models' }));
+  fireEvent.change(screen.getByLabelText('API base URL'), {
+    target: { value: 'https://new.example/v1' },
+  });
+  await act(async () => resolve({ models: [{ id: 'old/model', label: 'Stale' }], partial: false }));
+  expect(screen.queryByLabelText('Available models')).toBeNull();
+});
+it('discovers generic provider models and enrolls the selected models without OpenAI defaults', async () => {
+  vi.mocked(api.discoverApiModels).mockResolvedValue({
+    models: [{ id: 'vendor/model', label: 'Hosted model' }],
+    partial: false,
+  });
+  await mount();
+  fireEvent.change(screen.getByLabelText('Provider'), { target: { value: 'custom' } });
+  fireEvent.change(screen.getByLabelText('API base URL'), {
+    target: { value: 'https://gateway.example/v1' },
+  });
+  fill();
+  await act(async () => fireEvent.click(screen.getByRole('button', { name: 'Get models' })));
+  expect(api.discoverApiModels).toHaveBeenCalledWith({
+    csrf: 'csrf',
+    endpoint: 'https://gateway.example/v1',
+    apiKey: 'PRIVATE_KEY',
+  });
+  const select = screen.getByLabelText('Available models') as HTMLSelectElement;
+  select.options[0].selected = true;
+  fireEvent.change(select);
+  fireEvent.click(screen.getByRole('checkbox'));
+  await act(async () => fireEvent.click(screen.getByRole('button', { name: 'Save API account' })));
+  expect(api.enrollOpenAIAccount).toHaveBeenCalledWith(
+    expect.objectContaining({
+      connection: {
+        endpoint: 'https://gateway.example/v1',
+        protocol: 'responses',
+        qualification: {
+          source: 'operator',
+          streaming: true,
+          toolCalls: true,
+          continuation: true,
+          cancellation: true,
+        },
+      },
+      models: [{ id: 'vendor/model', label: 'Hosted model' }],
+    }),
+  );
+});
+it('pins the two hosted EnMaaS models even when discovery omits them', async () => {
+  vi.mocked(api.discoverApiModels).mockResolvedValue({
+    models: [{ id: 'paid-model', label: 'Paid model' }],
+    partial: true,
+  });
+  await mount();
+  fireEvent.change(screen.getByLabelText('Provider'), { target: { value: 'enmaas' } });
+  fill();
+  expect((screen.getByLabelText('API base URL') as HTMLInputElement).value).toBe(
+    'https://api.enmaas.devshift.net/v1',
+  );
+  await act(async () => fireEvent.click(screen.getByRole('button', { name: 'Get models' })));
+  expect(screen.getByText(/partial catalog/i)).toBeTruthy();
+  fireEvent.click(screen.getByRole('checkbox'));
+  await act(async () => fireEvent.click(screen.getByRole('button', { name: 'Save API account' })));
+  expect(vi.mocked(api.enrollOpenAIAccount).mock.calls[0][0].models?.map((m) => m.id)).toEqual([
+    'rits/zai-org/glm-5-3',
+    'rits/deepseek-ai/DeepSeek-V4.1-Flash-1017',
+  ]);
+});
 async function mount(authorized = true) {
   const onReauthorizationNeeded = vi.fn();
   const view = render(
@@ -90,7 +190,7 @@ it('keeps a failed attempt in review without automatically resubmitting or leaki
 it('shows unavailable enrollment for a stale route', async () => {
   vi.mocked(api.getOpenAIAccounts).mockResolvedValue({ enabled: false, accounts: [] });
   await mount();
-  expect(screen.getByText('Adding OpenAI API accounts is unavailable.')).toBeTruthy();
+  expect(screen.getByText('Adding AI API accounts is unavailable.')).toBeTruthy();
   expect(screen.queryByLabelText('API key')).toBeNull();
 });
 it('allows a new deliberate operation only after its failed validation is confirmed', async () => {

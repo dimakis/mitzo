@@ -56,11 +56,32 @@ export async function enrollOpenAIAccount(input: {
   projectLabel: string;
   apiKey: string;
   billingConfirmed: true;
+  connection?: {
+    endpoint: string;
+    protocol: 'responses';
+    qualification: {
+      source: 'operator';
+      streaming: true;
+      toolCalls: true;
+      continuation: true;
+      cancellation: true;
+    };
+  };
+  models?: { id: string; label: string }[];
 }): Promise<EnrolledOpenAIAccount> {
   const result = await bodyOrError<{ account: EnrolledOpenAIAccount }>(
     await apiFetch('/api/connections/openai-accounts', json('POST', input, input.csrf)),
   );
   return result.account;
+}
+export async function discoverApiModels(input: {
+  csrf: string;
+  endpoint: string;
+  apiKey: string;
+}): Promise<{ models: { id: string; label: string }[]; partial: boolean }> {
+  return bodyOrError(
+    await apiFetch('/api/connections/api-models', json('POST', input, input.csrf)),
+  );
 }
 export class OpenAIKeyFailure extends Error {
   constructor(readonly code: string) {

@@ -12,7 +12,14 @@ describe('new OpenAI account enrollment routes', () => {
       projectLabel: 'Active work project',
       state: 'ready',
     };
-    const enrollment = { list: vi.fn(() => [account]), enroll: vi.fn(async () => account) };
+    const enrollment = {
+      list: vi.fn(() => [account]),
+      enroll: vi.fn(async () => account),
+      discoverModels: vi.fn(async (_endpoint: string, _key: string, _signal: AbortSignal) => ({
+        models: [{ id: 'vendor/model', label: 'Hosted' }],
+        partial: true,
+      })),
+    };
     const app = express();
     app.use((req, res, next) => {
       if (req.header('x-browser') === 'yes')
@@ -50,6 +57,40 @@ describe('new OpenAI account enrollment routes', () => {
       .set('x-browser', 'yes')
       .send({ passphrase: 'correct' });
     const csrf = authorization.body.csrf;
+    const discover = (body: Record<string, unknown>) =>
+      request(app).post('/api/connections/api-models').set('x-browser', 'yes').send(body);
+    const catalogInput = { endpoint: 'https://gateway.example/v1', apiKey: 'PRIVATE' };
+    expect((await discover(catalogInput)).status).toBe(400);
+    expect((await discover({ ...catalogInput, csrf: 'wrong' })).status).toBe(403);
+    expect(
+      (await discover({ ...catalogInput, csrf, endpoint: 'https://localhost/v1' })).status,
+    ).toBe(400);
+    expect(
+      (
+        await request(app)
+          .post('/api/connections/api-models')
+          .set('x-browser', 'yes')
+          .set('origin', 'https://untrusted.example')
+          .send({ ...catalogInput, csrf })
+      ).status,
+    ).toBe(403);
+    expect(enrollment.discoverModels).not.toHaveBeenCalled();
+    const catalog = await discover({ ...catalogInput, csrf });
+    expect(catalog.status).toBe(200);
+    expect(catalog.body).toEqual({
+      models: [{ id: 'vendor/model', label: 'Hosted' }],
+      partial: true,
+    });
+    expect(enrollment.discoverModels).toHaveBeenCalledWith(
+      catalogInput.endpoint,
+      catalogInput.apiKey,
+      expect.any(AbortSignal),
+    );
+    enrollment.discoverModels.mockRejectedValueOnce(Error('PRIVATE_KEY private upstream response'));
+    const failedCatalog = await discover({ ...catalogInput, csrf });
+    expect(failedCatalog.status).toBe(422);
+    expect(failedCatalog.body.code).toBe('CATALOG_UNAVAILABLE');
+    expect(JSON.stringify(failedCatalog.body)).not.toContain('PRIVATE');
     expect((await post({ ...input, csrf, billingConfirmed: false })).status).toBe(400);
     expect((await post({ ...input, csrf, providerName: 'existing-provider' })).status).toBe(400);
     expect(
@@ -64,6 +105,32 @@ describe('new OpenAI account enrollment routes', () => {
     expect(enrollment.enroll).not.toHaveBeenCalled();
     expect((await post({ ...input, csrf })).status).toBe(201);
     expect(enrollment.enroll).toHaveBeenCalledWith(input, expect.any(AbortSignal));
+    const custom = {
+      ...input,
+      connection: {
+        endpoint: 'https://gateway.example/v1',
+        protocol: 'responses',
+        qualification: {
+          source: 'operator',
+          streaming: true,
+          toolCalls: true,
+          continuation: true,
+          cancellation: true,
+        },
+      },
+      models: [{ id: 'vendor/model', label: 'Hosted' }],
+    };
+    expect((await post({ ...custom, csrf })).status).toBe(201);
+    expect(enrollment.enroll).toHaveBeenLastCalledWith(custom, expect.any(AbortSignal));
+    expect(
+      (
+        await post({
+          ...custom,
+          csrf,
+          connection: { ...custom.connection, qualification: undefined },
+        })
+      ).status,
+    ).toBe(400);
     enrollment.enroll.mockRejectedValueOnce(new Error('PRIVATE_KEY from provider'));
     const failed = await post({ ...input, csrf });
     expect(failed.status).toBe(422);

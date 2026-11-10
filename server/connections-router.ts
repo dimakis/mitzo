@@ -2,9 +2,12 @@ import { custodianRequestAuthority } from './symposium-custodian-authority.js';
 import express from 'express';
 import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
 import { z } from 'zod';
+import { createLogger } from './logger.js';
+import { ApiProviderEndpointSchema, ApiAccountSetupError } from './api-account-setup.js';
 import type { GoogleWorkspaceManagement } from './google-workspace-management.js';
 import { OpenAIKeyRequestError, type OpenAIKeyManagement } from './openai-key-management.js';
 import {
+  OpenAIAccountEnrollmentInputSchema,
   OpenAIEnrollmentUnresolvedError,
   type OpenAIAccountEnrollment,
 } from './openai-account-enrollment.js';
@@ -28,6 +31,7 @@ import type { CapabilityService } from './connections/capabilities/service.js';
 const OWNER = 'operator',
   TTL = 5 * 60_000,
   MAX_CAPABILITIES = 256;
+const log = createLogger('connections-router');
 const capabilities = new Map<string, { csrf: string; expiresAt: number }>();
 type PublicConnection = Pick<
   Connection,
@@ -279,7 +283,13 @@ export function createConnectionsRouter(options: {
       return res.status(503).json({ error: 'OpenAI account setup is not configured' });
     try {
       return res.json({ enabled: true, accounts: options.openAIAccounts.list() });
-    } catch {
+    } catch (cause) {
+      // Status reads can fail on corrupt journals; do not log retained private metadata.
+      log.warn('API account status unavailable', {
+        stage: 'enrollment_status',
+        code: 'ENROLLMENT_STATUS_UNAVAILABLE',
+        errorType: cause instanceof Error ? cause.name : 'unknown',
+      });
       return res.status(503).json({ error: 'OpenAI account status is unavailable' });
     }
   });
@@ -289,29 +299,16 @@ export function createConnectionsRouter(options: {
     requireSameOriginJson,
     express.json({ limit: '20kb' }),
     async (req, res) => {
-      const parsed = z
-        .object({
-          csrf: z.string().min(1),
-          requestId: z.uuid(),
-          label: z.string().trim().min(1).max(120),
-          projectLabel: z.string().trim().min(1).max(120),
-          apiKey: z.string().min(1).max(16384),
-          billingConfirmed: z.literal(true),
-        })
-        .strict()
-        .safeParse(req.body);
+      const parsed = OpenAIAccountEnrollmentInputSchema.safeExtend({
+        csrf: z.string().min(1),
+      }).safeParse(req.body);
       if (!parsed.success) return res.status(400).json({ error: 'Invalid OpenAI account request' });
       if (!recentAuthorizationExpiry(res, parsed.data.csrf))
         return res.status(403).json({ error: 'Recent browser reauthorization required' });
       if (!options.openAIAccounts)
         return res.status(503).json({ error: 'OpenAI account setup is not configured' });
-      const input = {
-        requestId: parsed.data.requestId,
-        label: parsed.data.label,
-        projectLabel: parsed.data.projectLabel,
-        apiKey: parsed.data.apiKey,
-        billingConfirmed: parsed.data.billingConfirmed,
-      };
+      const input = { ...parsed.data };
+      Reflect.deleteProperty(input, 'csrf');
       // Do not retain credential input on the request while the provider check runs.
       req.body = undefined;
       try {
@@ -323,10 +320,56 @@ export function createConnectionsRouter(options: {
             error:
               'A previous enrollment needs attention. Reconcile its saved operation before adding another account.',
           });
+        log.warn('API account setup could not be confirmed', {
+          stage: 'enrollment',
+          code: 'ENROLLMENT_UNCONFIRMED',
+          requestId: input.requestId,
+        });
         return res.status(422).json({
           error:
             'OpenAI account setup could not be confirmed. Check the enrollment status before trying again.',
         });
+      }
+    },
+  );
+  router.post(
+    '/api-models',
+    mutate,
+    requireSameOriginJson,
+    express.json({ limit: '20kb' }),
+    async (req, res) => {
+      const parsed = z
+        .object({
+          csrf: z.string().min(1),
+          endpoint: ApiProviderEndpointSchema,
+          apiKey: z.string().min(1).max(16384),
+        })
+        .strict()
+        .safeParse(req.body);
+      req.body = undefined;
+      if (!parsed.success) return res.status(400).json({ error: 'Invalid API model request' });
+      if (!recentAuthorizationExpiry(res, parsed.data.csrf))
+        return res.status(403).json({ error: 'Recent browser reauthorization required' });
+      if (!options.openAIAccounts)
+        return res.status(503).json({ error: 'API account setup is not configured' });
+      try {
+        return res.json(
+          await options.openAIAccounts.discoverModels(
+            parsed.data.endpoint,
+            parsed.data.apiKey,
+            AbortSignal.timeout(15000),
+          ),
+        );
+      } catch (cause) {
+        return res
+          .status(422)
+          .json({
+            error:
+              cause instanceof ApiAccountSetupError
+                ? cause.message
+                : 'Could not read the provider catalog. Check the endpoint and key, or enter explicit model IDs.',
+            code: cause instanceof ApiAccountSetupError ? cause.code : 'CATALOG_UNAVAILABLE',
+          });
       }
     },
   );
