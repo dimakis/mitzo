@@ -4,7 +4,11 @@ import { SessionLaunchApprovalSchema, SessionLaunchDefaultSaveSchema } from '@mi
 import { isAuthSessionCurrent, registerAuthSession, type AuthSession } from './auth.js';
 import { requireSameOriginJson } from './connections-router.js';
 import { SessionLaunchDefaultsConflict, SESSION_LAUNCH_OWNER } from './session-launch-defaults.js';
-import { SessionLaunchError, publicSessionLaunchRecord } from './session-launch-store.js';
+import {
+  SessionLaunchError,
+  SessionLaunchPreflightError,
+  publicSessionLaunchRecord,
+} from './session-launch-store.js';
 import type { SessionLaunchController } from './session-launch-controller.js';
 import type { SessionLaunchAuthority } from './session-launch-service.js';
 
@@ -63,6 +67,9 @@ export function createSessionLaunchRouter(deps: {
               ? 400
               : 503;
       res.status(status).json({
+        ...(error instanceof SessionLaunchPreflightError
+          ? { code: error.code, effectStatus: error.effectStatus }
+          : {}),
         error:
           status === 503
             ? 'Session creation is temporarily unavailable. Check the retained request before retrying.'

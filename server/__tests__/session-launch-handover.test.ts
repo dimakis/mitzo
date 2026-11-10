@@ -1,7 +1,7 @@
 import { afterEach, expect, it, vi } from 'vitest';
 import express from 'express';
 import request from 'supertest';
-import { SessionLaunchStore } from '../session-launch-store.js';
+import { SessionLaunchError, SessionLaunchStore } from '../session-launch-store.js';
 import { SessionLaunchDefaultsStore } from '../session-launch-defaults.js';
 import { SessionLaunchService } from '../session-launch-service.js';
 import { createSessionLaunchRouter } from '../session-launch-routes.js';
@@ -51,6 +51,13 @@ function fixture() {
     createSessionLaunchRouter({
       controller: { defaults, launches: service, changed: vi.fn() },
       session: (id) => (id === 'source' && visible ? { title: 'Source' } : undefined),
+      withAuthority: async (_auth, signal, action) =>
+        action({
+          operatorConnectionId: 'offline',
+          authSessionId: 'current',
+          signal,
+          assertCurrent: () => signal.throwIfAborted(),
+        }),
     }),
   );
   return {
@@ -78,6 +85,32 @@ it('downloads exact retained Markdown before startup without filesystem access o
   expect(response.headers['cache-control']).toBe('private, no-store');
   expect(response.text).toBe(f.record.prompt);
   expect(f.store.get(f.record.proposalId, 'user').state).toBe('pending');
+  expect(f.start).not.toHaveBeenCalled();
+});
+it('labels a preflight refusal as not started and leaves the same proposal editable', async () => {
+  const f = fixture();
+  vi.mocked(f.service.port.validate).mockRejectedValue(
+    new SessionLaunchError('Choose a compatible profile.'),
+  );
+  const response = await request(f.app)
+    .post(`/api/session-launch/requests/${f.record.proposalId}/approve`)
+    .send({
+      expectedRevision: 1,
+      title: f.record.title,
+      prompt: f.record.prompt,
+      configuration: f.record.configuration,
+    });
+  expect(response.status).toBe(409);
+  expect(response.body).toMatchObject({
+    error: 'Choose a compatible profile.',
+    code: 'session_launch_preflight_refused',
+    effectStatus: 'not_started',
+  });
+  expect(f.store.get(f.record.proposalId, 'user')).toMatchObject({
+    state: 'pending',
+    allocationId: null,
+    commandId: null,
+  });
   expect(f.start).not.toHaveBeenCalled();
 });
 it.each([null, 'revoked'])('refuses handover downloads for login %s', async (login) => {

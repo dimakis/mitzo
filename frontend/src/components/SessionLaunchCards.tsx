@@ -138,7 +138,19 @@ export function LaunchReview({
         },
       );
       const result = await response.json();
-      if (!response.ok) throw new Error(result.error || 'The request could not be updated.');
+      if (!response.ok) {
+        if (
+          !create &&
+          action === 'approve' &&
+          result.code === 'session_launch_preflight_refused' &&
+          result.effectStatus === 'not_started'
+        ) {
+          // The server checked the same pending revision before any allocation.
+          // Lost responses and post-admission failures keep their retry fence.
+          setAttempted(false);
+        }
+        throw new Error(result.error || 'The request could not be updated.');
+      }
       onUpdate();
       onClose();
     } catch (cause) {
@@ -355,6 +367,12 @@ export function SessionLaunchCards({
           <ConfigSummary configuration={request.configuration} />
           <div className="session-launch-actions">
             <span role="status">{states[request.state]}</span>
+            <a
+              href={`/api/session-launch/requests/${encodeURIComponent(request.proposalId)}/handover.md`}
+              download
+            >
+              Download handover
+            </a>
             {request.childSessionId && (
               <Link to={`/chat/${encodeURIComponent(request.childSessionId)}`}>
                 Open chat <UiIcon name="arrowUpRight" size={16} />

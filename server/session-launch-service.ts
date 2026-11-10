@@ -2,10 +2,12 @@ import type { SessionLaunchConfig } from '@mitzo/protocol';
 import {
   SessionLaunchStore,
   SessionLaunchError,
+  SessionLaunchPreflightError,
   type RetainedSessionLaunch,
   type SessionLaunchEdits,
   type SessionLaunchApprovalEffect,
 } from './session-launch-store.js';
+import { recordSessionLaunchFailure } from './session-launch-diagnostics.js';
 
 /** Supplied only by authenticated controller composition. */
 export interface SessionLaunchAuthority {
@@ -78,7 +80,30 @@ export class SessionLaunchService {
     // Validation may discover unavailable configuration, but cannot allocate.
     const existing = this.store.get(id, owner);
     if (existing.state === 'pending') {
-      await this.port.validate(edits.configuration, authority);
+      try {
+        await this.port.validate(edits.configuration, authority);
+      } catch (cause) {
+        authority.assertCurrent();
+        authority.signal.throwIfAborted();
+        const current = this.store.get(id, owner);
+        if (
+          current.state !== 'pending' ||
+          current.revision !== expectedRevision ||
+          current.allocationId
+        )
+          throw new SessionLaunchError(
+            'Request changed. Check the retained request before editing.',
+          );
+        const known = cause instanceof SessionLaunchError;
+        if (!known) recordSessionLaunchFailure(current, 'preflight', cause);
+        throw new SessionLaunchPreflightError(
+          known
+            ? cause.message
+            : 'Session configuration could not be checked. Try again after checking the selected account and host.',
+          known ? cause.status : 503,
+          { cause },
+        );
+      }
       authority.assertCurrent();
       authority.signal.throwIfAborted();
     }
@@ -127,7 +152,8 @@ export class SessionLaunchService {
         this.store.markPrepared(id, childSessionId, preparationId);
       });
       authority.assertCurrent();
-    } catch {
+    } catch (cause) {
+      recordSessionLaunchFailure(this.store.get(id, owner), resume ? 'resume' : 'start', cause);
       // Startup can fail after workspace/provider effects. Never infer absence
       // from an exception or allocate a replacement on the next approval.
       return this.store.fail(

@@ -125,6 +125,42 @@ it('shows compact linked receipt with shared svg icon and accurate startup state
   expect(screen.getByRole('status').textContent).toBe('Created · start not yet confirmed');
   expect(container.querySelector('[data-icon="arrowUpRight"]')).toBeTruthy();
 });
+it('offers retained Markdown directly from the request without a temporary local path', () => {
+  render(<SessionLaunchCards requests={[proposal]} onUpdate={vi.fn()} />);
+  const link = screen.getByRole('link', { name: 'Download handover' });
+  expect(link.getAttribute('href')).toBe('/api/session-launch/requests/proposal/handover.md');
+  expect(link.hasAttribute('download')).toBe(true);
+  expect(apiFetch).not.toHaveBeenCalled();
+});
+it('keeps definite preflight refusals editable without another request check', async () => {
+  vi.mocked(apiFetch).mockResolvedValue(
+    new Response(
+      JSON.stringify({
+        error: 'Choose a compatible profile.',
+        code: 'session_launch_preflight_refused',
+        effectStatus: 'not_started',
+      }),
+      { status: 409 },
+    ),
+  );
+  render(<SessionLaunchCards requests={[proposal]} onUpdate={vi.fn()} />);
+  fireEvent.click(screen.getByRole('button', { name: 'Review new session' }));
+  fireEvent.change(screen.getByLabelText('Handoff prompt'), {
+    target: { value: 'Keep exact handover' },
+  });
+  fireEvent.click(screen.getByRole('button', { name: 'Approve & start' }));
+  await screen.findByRole('alert');
+  expect(screen.getByRole('button', { name: 'Approve & start' }).hasAttribute('disabled')).toBe(
+    false,
+  );
+  expect(screen.queryByRole('button', { name: 'Check request' })).toBeNull();
+  expect((screen.getByLabelText('Handoff prompt') as HTMLTextAreaElement).value).toBe(
+    'Keep exact handover',
+  );
+  fireEvent.change(screen.getByLabelText('Model'), { target: { value: 'corrected-model' } });
+  expect((screen.getByLabelText('Model') as HTMLInputElement).value).toBe('corrected-model');
+  expect(apiFetch).toHaveBeenCalledTimes(1);
+});
 it('resumes an interrupted startup only after an explicit action using its retained revision', async () => {
   vi.mocked(apiFetch).mockResolvedValue(
     new Response(JSON.stringify({ ...proposal, state: 'created' })),
