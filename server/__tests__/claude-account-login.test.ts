@@ -150,3 +150,24 @@ it('preserves failed verification as a visible correlated failure and recovers a
   expect(f.createLogin).toHaveBeenCalledTimes(2);
   await f.host.cancel(session, next.requestId);
 });
+
+it('keeps a journal write failure visible after native cleanup instead of reverting to a pending login', async () => {
+  const f = fixture(),
+    session = auth(),
+    request = input();
+  await f.host.start(session, request);
+  f.verify.mockRejectedValueOnce(Error('verification failed'));
+  const original = f.store.update.bind(f.store);
+  vi.spyOn(f.store, 'update').mockImplementation((row) => {
+    if (row.state === 'failed') throw Error('disk unavailable');
+    original(row);
+  });
+  f.complete();
+  await vi.waitFor(() =>
+    expect(f.host.status(session, request.requestId)).toMatchObject({
+      state: 'failed',
+      errorCode: 'CLAUDE_LOGIN_JOURNAL_FAILED',
+      diagnosticId: expect.any(String),
+    }),
+  );
+});

@@ -47,6 +47,13 @@ export function ClaudeAccountConnection({ accountId }: { accountId?: string }) {
   const currentAccount =
     accounts.find((row) => row.id === attempt?.accountId) ?? (accountId ? accounts[0] : undefined);
   const busyAttempt = snapshot?.attempts.some(pending) ?? false;
+  const recoveryRequired = !!snapshot?.attempts.some((row) =>
+    [
+      'CLAUDE_LOGIN_JOURNAL_FAILED',
+      'CLAUDE_LOGIN_CHILD_UNCONFIRMED',
+      'CLAUDE_LOGIN_CANCELLATION_UNCONFIRMED',
+    ].includes(row.errorCode ?? ''),
+  );
   const notify = useCallback((value: ClaudeAccountSnapshot) => {
     for (const row of value.attempts)
       if (row.state === 'connected' && !notified.current.has(row.requestId)) {
@@ -164,7 +171,7 @@ export function ClaudeAccountConnection({ accountId }: { accountId?: string }) {
       if (mounted.current) setBusy(false);
     }
   };
-  const controlsDisabled = busy || !authority || !!error;
+  const controlsDisabled = busy || !authority || !!error || recoveryRequired;
   return (
     <section className="connections-setup" aria-labelledby="claude-connect-heading">
       <h2 id="claude-connect-heading">Claude subscription</h2>
@@ -297,6 +304,12 @@ export function ClaudeAccountConnection({ accountId }: { accountId?: string }) {
         <p>Finish or cancel the pending Claude sign-in before connecting another account.</p>
       )}
       {error && <p role="alert">{error}</p>}
+      {recoveryRequired && (
+        <p role="alert">
+          Claude sign-in needs recovery on the Mac. Check status and use the diagnostic reference
+          before starting another sign-in.
+        </p>
+      )}
       <button type="button" disabled={busy} onClick={() => void refresh()}>
         Check sign-in status
       </button>

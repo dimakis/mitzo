@@ -1,10 +1,13 @@
-import { afterEach, expect, it } from 'vitest';
+import { afterEach, expect, it, vi } from 'vitest';
 import { mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createClaudeLoginProcess } from '../claude-login-process.js';
 const roots: string[] = [];
-afterEach(() => roots.splice(0).forEach((root) => rmSync(root, { recursive: true, force: true })));
+afterEach(() => {
+  vi.unstubAllEnvs();
+  roots.splice(0).forEach((root) => rmSync(root, { recursive: true, force: true }));
+});
 function fixture(body: string) {
   const root = realpathSync(mkdtempSync(join(tmpdir(), 'claude-native-')));
   roots.push(root);
@@ -15,6 +18,9 @@ function fixture(body: string) {
 const url =
   'https://claude.com/cai/oauth/authorize?redirect_uri=https%3A%2F%2Fplatform.claude.com%2Foauth%2Fcode%2Fcallback&state=state&code_challenge=challenge&code_challenge_method=S256';
 it('uses clean routing, receives chunked manual URL, and hands codes to the native process without logging them', async () => {
+  vi.stubEnv('ANTHROPIC_API_KEY', 'synthetic-enmaas-key');
+  vi.stubEnv('CLAUDE_CODE_USE_VERTEX', '1');
+  vi.stubEnv('GH_TOKEN', 'synthetic-publishing-key');
   const f = fixture(`
     if (process.env.ANTHROPIC_API_KEY || process.env.CLAUDE_CODE_USE_VERTEX || process.env.GH_TOKEN) process.exit(9);
     if (process.env.BROWSER !== '/usr/bin/false') process.exit(10);

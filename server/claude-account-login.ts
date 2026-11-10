@@ -33,6 +33,7 @@ type Options = {
 export class ClaudeAccountLogin {
   private active = new Map<string, Active>();
   private failures = new Map<string, Error>();
+  private unresolved = new Map<string, ClaudeLoginAttempt>();
   private current: typeof isAuthSessionCurrent;
   private observe: typeof registerAuthSession;
   private createLogin: typeof createClaudeLoginProcess;
@@ -60,6 +61,7 @@ export class ClaudeAccountLogin {
     return row;
   }
   private public(row: ClaudeLoginAttempt) {
+    row = this.unresolved.get(row.requestId) ?? row;
     const active = this.active.get(row.requestId);
     return {
       requestId: row.requestId,
@@ -89,6 +91,17 @@ export class ClaudeAccountLogin {
   }
   async start(auth: AuthSession, input: z.input<typeof ClaudeLoginInput>) {
     this.requireAuth(auth);
+    if (
+      this.unresolved.size ||
+      this.options.store
+        .attempts()
+        .some(
+          (row) =>
+            row.errorCode === 'CLAUDE_LOGIN_CHILD_UNCONFIRMED' ||
+            row.errorCode === 'CLAUDE_LOGIN_CANCELLATION_UNCONFIRMED',
+        )
+    )
+      throw Error('Claude sign-in needs host recovery before another attempt');
     const row = this.options.store.reserve(
       auth.id,
       Math.min(auth.expiresAt, Date.now() + 10 * 60_000),
@@ -212,6 +225,12 @@ export class ClaudeAccountLogin {
     try {
       this.options.store.update({ ...row, state: 'failed', errorCode, diagnosticId });
     } catch (journalCause) {
+      this.unresolved.set(row.requestId, {
+        ...row,
+        state: 'failed',
+        errorCode: 'CLAUDE_LOGIN_JOURNAL_FAILED',
+        diagnosticId,
+      });
       log.error('Claude sign-in journal update failed', {
         stage: 'claude_login_journal',
         code: 'CLAUDE_LOGIN_JOURNAL_FAILED',
@@ -225,6 +244,24 @@ export class ClaudeAccountLogin {
     try {
       await active?.native?.cancel();
     } catch (cleanupCause) {
+      const unresolved = {
+        ...row,
+        state: 'failed' as const,
+        errorCode: 'CLAUDE_LOGIN_CHILD_UNCONFIRMED',
+        diagnosticId,
+      };
+      this.unresolved.set(row.requestId, unresolved);
+      try {
+        this.options.store.update(unresolved);
+      } catch (journalCause) {
+        log.error('Claude login cleanup journal unavailable', {
+          stage: 'claude_login_journal',
+          code: 'CLAUDE_LOGIN_JOURNAL_FAILED',
+          requestId: row.requestId,
+          diagnosticId,
+          causeType: journalCause instanceof Error ? journalCause.name : 'unknown',
+        });
+      }
       log.error('Claude login child cleanup unconfirmed', {
         stage: 'claude_login_cleanup',
         code: 'CLAUDE_LOGIN_CHILD_UNCONFIRMED',

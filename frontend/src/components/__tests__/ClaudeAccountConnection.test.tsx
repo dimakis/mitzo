@@ -115,6 +115,27 @@ it('keeps uncertain code delivery visible and checks status without resubmitting
     expect(mocks.fetch.mock.calls.filter(([url]) => url.endsWith('/code'))).toHaveLength(1),
   );
 });
+it('retains a visible host-recovery failure and disables another login', async () => {
+  mocks.fetch.mockImplementation(async () =>
+    response(
+      snapshot([
+        {
+          ...pending,
+          state: 'failed',
+          url: undefined,
+          errorCode: 'CLAUDE_LOGIN_JOURNAL_FAILED',
+          diagnosticId: 'safe-reference',
+        },
+      ]),
+    ),
+  );
+  show();
+  await screen.findByText(/needs recovery on the Mac/);
+  expect(
+    (screen.getByRole('button', { name: 'Sign in with Claude' }) as HTMLButtonElement).disabled,
+  ).toBe(true);
+  expect(screen.getByText('Reference: safe-reference')).toBeTruthy();
+});
 it('refreshes the picker after completion and prepares an unsent Local Mac draft for the connected account', async () => {
   const account = {
     id: accountId,

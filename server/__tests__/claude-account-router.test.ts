@@ -2,7 +2,12 @@ import express from 'express';
 import request from 'supertest';
 import { afterEach, expect, it, vi } from 'vitest';
 import { createClaudeAccountRouter } from '../claude-account-router.js';
-import type { ClaudeAccountLogin } from '../claude-account-login.js';
+import { ClaudeAccountLogin } from '../claude-account-login.js';
+import { ClaudeAccountStore } from '../claude-account-store.js';
+import { createClaudeLoginProcess } from '../claude-login-process.js';
+import { mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
 afterEach(() => vi.unstubAllEnvs());
 function fixture() {
@@ -86,4 +91,45 @@ it('keeps codes on a bounded private POST and returns safe correlated failures',
     diagnosticId: expect.any(String),
   });
   expect(JSON.stringify(failed.body)).not.toContain('private-code');
+});
+it('delivers a native adapter failure through the authenticated API as retained sanitized state', async () => {
+  const root = realpathSync(mkdtempSync(join(tmpdir(), 'claude-route-failure-')));
+  const executable = join(root, 'fake-claude');
+  writeFileSync(
+    executable,
+    `#!${process.execPath}\nprocess.stderr.write('private-native-failure');process.exit(1);`,
+    { mode: 0o700 },
+  );
+  const host = new ClaudeAccountLogin({
+    store: new ClaudeAccountStore(join(root, 'accounts')),
+    createLogin: (config, signal) => createClaudeLoginProcess(config, signal, { executable }),
+    isCurrent: () => true,
+    observe: () => () => undefined,
+  });
+  const app = express();
+  app.use((_req, res, next) => {
+    res.locals.authSession = { id: 'browser', expiresAt: Date.now() + 60_000 };
+    next();
+  });
+  app.use(
+    '/api/claude-accounts',
+    createClaudeAccountRouter(() => host),
+  );
+  try {
+    const requestId = crypto.randomUUID();
+    const started = await request(app).post('/api/claude-accounts/start').send({ requestId });
+    expect(started.body).toMatchObject({
+      state: 'failed',
+      errorCode: 'CLAUDE_LOGIN_START_FAILED',
+      diagnosticId: expect.any(String),
+    });
+    const recovered = await request(app).get('/api/claude-accounts');
+    expect(recovered.body.attempts).toEqual([started.body]);
+    expect(JSON.stringify(recovered.body)).not.toMatch(
+      /private-native-failure|credentialRef|accounts.db/,
+    );
+  } finally {
+    await host.close();
+    rmSync(root, { recursive: true, force: true });
+  }
 });

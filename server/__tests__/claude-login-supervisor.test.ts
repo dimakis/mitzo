@@ -11,7 +11,7 @@ it('terminates the native login when the controlling process loses its input pip
     pidFile = join(root, 'pid');
   writeFileSync(
     executable,
-    `#!${process.execPath}\nrequire('fs').writeFileSync(${JSON.stringify(pidFile)},String(process.pid));console.log('ready');setInterval(()=>{},1000);`,
+    `#!${process.execPath}\nrequire('fs').writeFileSync(${JSON.stringify(pidFile)},String(process.pid));process.on('SIGTERM',()=>{});console.log('ready');setInterval(()=>{},1000);`,
     { mode: 0o700 },
   );
   const worker = spawn(
