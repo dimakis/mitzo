@@ -36,6 +36,13 @@ vi.mock('../prompt-compare.js', () => ({
   capturePromptComparison: vi.fn().mockResolvedValue(undefined),
 }));
 vi.mock('../mcp-config.js', () => ({ loadMcpServers: () => ({}) }));
+vi.mock('../protected-sdk-command.js', async (original) => {
+  const { sdkProjectCommandFixture } = await import('./fixtures/sdk-project-command.js');
+  return {
+    ...(await original<object>()),
+    createWorkspaceRuntimeCommandRunner: vi.fn(() => sdkProjectCommandFixture),
+  };
+});
 vi.mock('../responses-chat-session.js', () => ({
   openResponsesChat: vi.fn(),
   getNativeResponsesStore: () => ({ load: () => null }),

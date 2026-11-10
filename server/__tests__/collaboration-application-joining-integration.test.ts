@@ -1,7 +1,7 @@
 import { afterAll, expect, it, vi } from 'vitest';
 import { createHash } from 'node:crypto';
 import { z } from 'zod';
-import { mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Express } from 'express';
@@ -86,12 +86,13 @@ async function loadApplication() {
   const profiles = join(root, 'accounts.json');
   const limits = join(root, 'model-limits.json');
   if (fresh) {
+    mkdirSync(join(root, 'telos-private'), { mode: 0o700 });
     writeFileSync(profiles, '[]', { mode: 0o600 });
     writeFileSync(limits, '{}');
   }
   for (const [key, value] of Object.entries({
     REPO_PATH: root,
-    TELOS_DB_PATH: join(root, 'telos.db'),
+    TELOS_DB_PATH: join(root, 'telos-private', 'telos.db'),
     MITZO_INTERNAL_TOKEN_PATH: join(root, 'internal-token'),
     MITZO_CODEX_PRIVATE_DIR: join(root, 'private'),
     MITZO_ORDINARY_TASK_ROOT: join(root, 'tasks'),
