@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type { BackupOverview, BackupRunStatus } from '@mitzo/protocol';
 import { UiIcon } from '../components/UiIcon';
 import { WorkspacePageHeading } from '../components/WorkspacePageHeading';
+import { MotionDetails } from '../components/MotionDetails';
 import { backupAction, getBackups } from '../lib/backups-api';
 import './BackupsView.css';
 const labels: Record<BackupRunStatus, string> = {
@@ -170,14 +171,13 @@ export function BackupsView() {
                   </ul>
                 </div>
               ) : (
-                <details className="backup-details">
-                  <summary>Outstanding setup requirements</summary>
+                <MotionDetails className="backup-details" summary="Outstanding setup requirements">
                   <ul>
                     {view.setup.map((step) => (
                       <li key={step}>{step}</li>
                     ))}
                   </ul>
-                </details>
+                </MotionDetails>
               ))}
             {setupOpen && (
               <section id="backup-setup" className="backup-setup" aria-label="Backup setup guide">
@@ -355,13 +355,15 @@ export function BackupsView() {
               </ol>
             )}
           </section>
-          <details className="backup-details backup-panel">
-            <summary>Scheduling, retention and recovery</summary>
+          <MotionDetails
+            className="backup-details backup-panel"
+            summary="Scheduling, retention and recovery"
+          >
             <p>
               Backups are manual. Scheduling and retention are not enabled. Recovery still needs a
               rehearsal from an independently downloaded iCloud copy.
             </p>
-          </details>
+          </MotionDetails>
         </>
       )}
     </main>
