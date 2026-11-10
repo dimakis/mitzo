@@ -1422,7 +1422,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/codex-conversation.test.ts':
     'abcb58ba9d31f2df7d0e5497809b1b56c6a90e4a4569d0400825c3a456046417',
   '../__tests__/codex-native-approvals.test.ts':
-    '386645f67e0681776b66e25c35863ee694b5da3cd6a9aeda558e0e2e3ecc24f4',
+    '289e63cb3e656e841951829d9a63e0357c09b1a2298e947f18a3f90e77443857',
   '../__tests__/codex-native-artifact-qualification.test.ts':
     'bf39b31337d0714faac6d73f3b96aa99e8e960f39a54e81f1429699890d7cd05',
   '../__tests__/codex-native-execution-policy.test.ts':
@@ -1446,7 +1446,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/owned-local-codex-native-unqualified.test.ts':
     'a472401aa366f081b91fd99d4d52939375076a88365570a2413ad39354a7e762',
   '../codex-native-approvals.ts':
-    'caa8a92b2de40d8def873af7dacf3a723b2b44991a3d29c2590d4bbbae60c173',
+    '6eb6e1327c5a185735f759c0b83b80751c40837c363a35ebd8a0458b2420aab8',
   '../codex-native-artifact-qualification.ts':
     'cd4f2f9c4913c2e7002a31f8035b0b8c102831d9d380971582344ba46bf86679',
   '../codex-native-execution-policy.ts':
