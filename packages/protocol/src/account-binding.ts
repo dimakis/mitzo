@@ -2,6 +2,7 @@ import { z } from 'zod';
 
 export const AccountProviderSchema = z.enum([
   'anthropic-vertex',
+  'anthropic-claude',
   'google-vertex',
   'openai-codex',
   'openai',

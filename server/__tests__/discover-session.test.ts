@@ -74,6 +74,24 @@ beforeEach(async () => {
 });
 
 describe('importSdkConversation', () => {
+  it('renames a personal Claude conversation in controller metadata without scanning another account history', async () => {
+    mockGetSession.mockReturnValue({
+      sessionId: 'personal-title',
+      conversationSource: 'mitzo',
+      cwd: '/task',
+      accountBinding: { accountId: 'personal', provider: 'anthropic-claude' },
+    });
+    const { renameSessionById } = await import('../chat.js');
+    const sdk = await import('@anthropic-ai/claude-agent-sdk');
+    await renameSessionById('personal-title', 'Personal task');
+    expect(sdk.renameSession).not.toHaveBeenCalled();
+    expect(mockGetSessionInfo).not.toHaveBeenCalled();
+    expect(mockEventStore.markManuallyRenamed).toHaveBeenCalledWith('personal-title');
+    expect(mockUpsertSession).toHaveBeenCalledWith({
+      sessionId: 'personal-title',
+      summary: 'Personal task',
+    });
+  });
   it('preserves an already registered active conversation without consulting provider history', async () => {
     const active = {
       sessionId: 'active-mitzo',
