@@ -99,9 +99,11 @@ for (const theme of ['light', 'dark'] as const) {
       await page.getByLabel('Passphrase', { exact: true }).fill('synthetic-passphrase');
       await page.getByRole('button', { name: 'Reauthorize', exact: true }).click();
       const form = page.getByRole('region', { name: 'Add a new AI API account' });
-      await form.getByLabel('Provider', { exact: true }).selectOption('enmaas');
+      await form.getByRole('combobox', { name: 'Provider', exact: true }).selectOption('enmaas');
       if (protocol === 'messages')
-        await form.getByLabel('Model API', { exact: true }).selectOption('messages');
+        await form
+          .getByRole('combobox', { name: 'Model API', exact: true })
+          .selectOption('messages');
       await form.getByLabel('Account label', { exact: true }).fill('EnMaaS');
       await form.getByLabel('Intended work project name').fill('Work');
       await form.getByLabel('API key', { exact: true }).fill('synthetic-key');
@@ -110,9 +112,13 @@ for (const theme of ['light', 'dark'] as const) {
       await expect(form.getByRole('alert')).toContainText('Could not read the provider catalog');
       await form.getByRole('button', { name: 'Get models', exact: true }).click();
       await expect(form.getByText(/partial catalog/)).toBeVisible();
-      await expect(form.getByLabel('Available models')).toHaveValues([]);
+      await expect(
+        form.getByRole('listbox', { name: 'Available models', exact: true }),
+      ).toHaveValues([]);
       if (protocol === 'messages') {
-        await form.getByLabel('Available models').selectOption('paid/model');
+        await form
+          .getByRole('listbox', { name: 'Available models', exact: true })
+          .selectOption('paid/model');
         await form.getByLabel('Additional model IDs').fill('hosted/claude-omitted');
       }
       await expect(form.getByLabel('Additional model IDs')).toHaveValue(

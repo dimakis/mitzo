@@ -74,8 +74,8 @@ for (const theme of ['light', 'dark'] as const) {
       });
     });
     await page.goto('/');
-    await page.getByLabel('Provider', { exact: true }).selectOption('enmaas');
-    await page.getByLabel('Model API', { exact: true }).selectOption('messages');
+    await page.getByRole('combobox', { name: 'Provider', exact: true }).selectOption('enmaas');
+    await page.getByRole('combobox', { name: 'Model API', exact: true }).selectOption('messages');
     await expect(page.getByLabel('Additional model IDs')).toHaveValue('');
     await expect(page.getByText(/existing Claude Agent SDK/)).toBeVisible();
     await page.getByLabel('Account label', { exact: true }).fill('EnMaaS Claude');
@@ -84,7 +84,9 @@ for (const theme of ['light', 'dark'] as const) {
     await page.getByRole('button', { name: 'Get models', exact: true }).click();
     await expect(page.getByRole('alert')).toContainText('Could not read the provider catalog');
     await page.getByRole('button', { name: 'Get models', exact: true }).click();
-    await page.getByLabel('Available models').selectOption('hosted/sonnet');
+    await page
+      .getByRole('listbox', { name: 'Available models', exact: true })
+      .selectOption('hosted/sonnet');
     await page.getByLabel('Additional model IDs').fill('hosted/omitted');
     const submit = page.getByRole('button', { name: 'Save API account', exact: true });
     await expect(submit).toBeDisabled();
