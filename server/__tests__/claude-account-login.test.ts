@@ -39,7 +39,7 @@ function fixture() {
     verify,
     isCurrent: () => current,
     observe: (_auth, callback) => {
-      revoke = callback;
+      revoke = () => callback('revoked');
       return vi.fn();
     },
   });
