@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.995-symposium-live-ci-integration';
+  'v1.0.996-symposium-responder-focus';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -23,6 +23,8 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
+  '../../frontend/src/components/__tests__/ComposerResponders.test.tsx':
+    'aac09c0fbfb16a827f403e99a6832b1b1a3f0ae954e03afe39d3f44fd950f127',
   '../../frontend/src/hooks/__tests__/useConversationProgress.test.tsx':
     'ff0c98dc341c324204be28fb45051f5473aa6f6bd6b0905f34390c6d3a1275d6',
   '../../frontend/src/hooks/useConversationProgress.ts':
@@ -1827,7 +1829,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/components/ConversationAgents.css':
     '44d3f76cd93aa54be7f00ba95306d84f8a678a4269d617a9c355a43bc8872613',
   '../../frontend/src/components/ComposerResponders.tsx':
-    '1d9d03fc824c8903172bc7216dfcdd7bf0275092315b824f583d96410b900c76',
+    'b4bd7467859874c67e8bdac851ddc94cd71f9b4abfcf4ca7fd3437775c71be36',
   '../../frontend/src/components/ComposerResponders.css':
     '29b0c05f64bc8555d35a759c7054a950cc70f57a7b49510262ae3b3b1e51f97a',
   '../../frontend/src/components/RetainedConversationComposer.tsx':
