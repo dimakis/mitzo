@@ -1,8 +1,10 @@
 import { test, expect } from '@playwright/test';
 import { build } from 'esbuild';
 import { resolve } from 'node:path';
+import { readFile } from 'node:fs/promises';
 const compiled = build({
   entryPoints: [resolve('tests/fixtures/telos-selected-ancestor.tsx')],
+  external: ['/*.png', '/*.svg'],
   bundle: true,
   write: false,
   outfile: '/tmp/telos-selected-ancestor.js',
@@ -24,12 +26,17 @@ for (const theme of ['dark', 'light'] as const)
     const outside: string[] = [];
     page.on('pageerror', (error) => errors.push(error.message));
     await page.emulateMedia({ colorScheme: theme, reducedMotion: 'reduce' });
-    await page.route('**/*', (route) => {
+    await page.route('**/*', async (route) => {
       const url = new URL(route.request().url());
       if (url.origin !== 'http://mitzo-ui.test') {
         outside.push(url.href);
         return route.abort();
       }
+      if (['/openai-mark.svg', '/claude-mark.svg'].includes(url.pathname))
+        return route.fulfill({
+          contentType: 'image/svg+xml',
+          body: await readFile(resolve(`frontend/public${url.pathname}`)),
+        });
       if (url.pathname === '/fixture.js' || url.pathname === '/fixture.css') {
         const css = url.pathname.endsWith('.css');
         return route.fulfill({

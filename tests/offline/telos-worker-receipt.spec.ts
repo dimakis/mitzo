@@ -9,7 +9,7 @@ const bundle = build({
   outfile: '/tmp/mitzo-telos-worker-receipt.js',
   jsx: 'automatic',
   minify: true,
-  external: ['/mitzo-wordmark.png', '/openshell-mark.svg', '/github-mark.svg'],
+  external: ['/*.png', '/*.svg'],
   define: { 'process.env.NODE_ENV': '"production"', 'import.meta.env': '{}' },
   alias: {
     '@mitzo/protocol': resolve('packages/protocol/src/index.ts'),

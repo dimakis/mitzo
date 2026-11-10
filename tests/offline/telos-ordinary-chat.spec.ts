@@ -276,30 +276,13 @@ for (const theme of ['dark', 'light'] as const)
     await expect(page.getByRole('button', { name: 'Retry', exact: true })).toHaveCount(0);
     const agents = page.locator('.conversation-agents-entry .conversation-participants-trigger');
     await expect(agents).toHaveAccessibleName('Agents, People-work helper');
-    const geometry = await agents.evaluate((button) => {
-      const label = button.querySelector(':scope > span')!;
-      const chevron = button.querySelector(':scope > svg:last-of-type')!;
-      const text = document.createRange();
-      text.selectNodeContents(label);
-      let paintRight = text.getBoundingClientRect().right;
-      // Range geometry includes clipped text. Intersect its horizontal paint
-      // with actual clipping ancestors rather than assuming ellipsis is present.
-      for (let node: Element | null = label; node && node !== button; node = node.parentElement) {
-        if (['hidden', 'clip', 'scroll', 'auto'].includes(getComputedStyle(node).overflowX))
-          paintRight = Math.min(paintRight, node.getBoundingClientRect().right);
-      }
-      return {
-        labelRight: label.getBoundingClientRect().right,
-        paintRight,
-        chevronLeft: chevron.getBoundingClientRect().left,
-        chevronWidth: chevron.getBoundingClientRect().width,
-        height: button.getBoundingClientRect().height,
-      };
-    });
-    expect(geometry.labelRight).toBeLessThanOrEqual(geometry.chevronLeft);
-    expect(geometry.paintRight).toBeLessThanOrEqual(geometry.chevronLeft);
-    expect(geometry.chevronWidth).toBeGreaterThanOrEqual(16);
-    expect(geometry.height).toBeGreaterThanOrEqual(44);
+    await expect(agents.locator('[data-icon="bot"]')).toBeVisible();
+    await expect(agents).toHaveText('');
+    await expect(agents).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
+    await expect(agents).toHaveCSS('border-width', '0px');
+    const geometry = await agents.boundingBox();
+    expect(geometry!.width).toBeGreaterThanOrEqual(44);
+    expect(geometry!.height).toBeGreaterThanOrEqual(44);
     await agents.focus();
     await expect(agents).toBeFocused();
     await page.keyboard.press('Enter');

@@ -362,6 +362,29 @@
 }
 .conversation-library .session-item-meta {
   line-height: 1.5;
+  font-size: var(--text-xs);
+  min-height: 1.5em;
+  flex-wrap: nowrap;
+}
+.conversation-library .session-item-meta > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.conversation-library .session-item-navigation > .session-activity-status {
+  min-height: 1.5em;
+  flex-wrap: nowrap;
+}
+.conversation-library .session-activity-label {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+}
+.conversation-library .session-activity-status time {
+  flex-shrink: 0;
+}
+.conversation-library .conversation-list-caption {
+  min-height: var(--control-height);
 }
 .conversation-model,
 .conversation-account {

@@ -12,7 +12,7 @@ const bundle = build({
   outfile: '/tmp/mitzo-telos-readable-context.js',
   jsx: 'automatic',
   minify: true,
-  external: ['/mitzo-wordmark.png', '/openshell-mark.svg', '/github-mark.svg'],
+  external: ['/*.png', '/*.svg'],
   define: { 'process.env.NODE_ENV': '"production"', 'import.meta.env': '{}' },
   alias: {
     '@mitzo/client': resolve('packages/client/src/index.ts'),

@@ -1,30 +1,46 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { SessionAccessEvidence } from '../../../server/session-access';
 import type { AccountSelection } from '../types/account-selection';
 import type { ConnectionsAccessInventory } from '../types/connections-access';
-import { apiFetch } from '../lib/api-fetch';
+import { apiFetch, AUTH_LOST_EVENT } from '../lib/api-fetch';
 import { getConnectionsAccess } from '../lib/connections-access-api';
 import { connectionTitle, connectionStatus } from '../lib/connections-access-presentation';
 import { HomeDialog } from './HomeDialog';
 import { UiIcon } from './UiIcon';
 import { ReusableAccessGrants } from './ReusableAccessGrants';
+import { SessionChatLinks } from './SessionChatLinks';
+import type { SessionLinksData } from '../hooks/useSessionLaunch';
 import '../styles/session-access.css';
+import '../styles/chat-sheets.css';
 
 interface Props {
   sessionId?: string;
   selection?: Pick<AccountSelection, 'accountId' | 'model'> | null;
   connected?: boolean;
   onShowApproval?: () => void;
+  launches?: SessionLinksData;
+  disabled?: boolean;
 }
-function AccessContent({ sessionId, selection, connected = true, onShowApproval }: Props) {
+type AccessPage = 'links' | 'permissions' | 'connections';
+function AccessContent({
+  sessionId,
+  selection,
+  connected = true,
+  onShowApproval,
+  launches,
+  disabled,
+  page,
+  onNavigate,
+}: Props & { page: AccessPage; onNavigate(page: AccessPage, trigger: HTMLElement): void }) {
   const [evidence, setEvidence] = useState<SessionAccessEvidence | null>(null);
   const [error, setError] = useState(false);
   const [loading, setLoading] = useState(Boolean(sessionId));
   const [attempt, setAttempt] = useState(0);
   const [now, setNow] = useState(Date.now);
-  const [connections, setConnections] = useState(false);
+  const connections = page === 'connections';
   const [inventory, setInventory] = useState<ConnectionsAccessInventory | null>(null);
   const [inventoryError, setInventoryError] = useState(false);
+  const lastFailure = useRef<unknown>(null);
   useEffect(() => {
     if (!sessionId) return;
     const controller = new AbortController();
@@ -49,8 +65,17 @@ function AccessContent({ sessionId, selection, connected = true, onShowApproval 
           setError(false);
         }
       })
-      .catch(() => {
-        if (active) setError(true);
+      .catch((cause: unknown) => {
+        if (active) {
+          lastFailure.current = cause;
+          console.warn('Session access could not be checked', {
+            code: 'session_access_read_failed',
+            stage: 'read',
+            sessionId,
+            cause: cause instanceof Error ? cause.name : 'UnknownError',
+          });
+          setError(true);
+        }
       })
       .finally(() => {
         clearTimeout(timer);
@@ -74,20 +99,32 @@ function AccessContent({ sessionId, selection, connected = true, onShowApproval 
       .then((value) => {
         if (!controller.signal.aborted) setInventory(value);
       })
-      .catch(() => {
-        if (!controller.signal.aborted) setInventoryError(true);
+      .catch((cause: unknown) => {
+        if (!controller.signal.aborted) {
+          lastFailure.current = cause;
+          console.warn('Connections could not be checked', {
+            code: 'connections_read_failed',
+            stage: 'read',
+            sessionId,
+            cause: cause instanceof Error ? cause.name : 'UnknownError',
+          });
+          setInventoryError(true);
+        }
       });
     return () => controller.abort();
-  }, [connections]);
+  }, [connections, sessionId]);
   const stale = Boolean(evidence && (error || !connected || now - evidence.observedAt > 30000));
   const current = evidence?.state === 'current' && !stale && !loading;
-  if (connections)
-    return (
-      <div className="session-access">
-        <button className="home-secondary" onClick={() => setConnections(false)}>
-          Back to Access
-        </button>
-        <h3>Connections</h3>
+  return (
+    <div className="session-access">
+      {page !== 'links' && error && !loading && (
+        <p role="alert">
+          {evidence
+            ? 'Stale — refresh failed. Showing the earlier observation.'
+            : 'Could not check access. Refresh to try again.'}
+        </p>
+      )}
+      <div hidden={!connections}>
         <p className="workspace-muted">
           Configured account and service access. Current session attachments are unknown.
         </p>
@@ -129,155 +166,210 @@ function AccessContent({ sessionId, selection, connected = true, onShowApproval 
           </>
         )}
       </div>
-    );
-  return (
-    <div className="session-access">
-      <p className="workspace-muted">
-        Current access and reusable grants for this conversation. Account configuration does not
-        establish session availability.
-      </p>
-      {!sessionId && (
-        <p>No session has started. The selected account has not been used in this conversation.</p>
-      )}
-      {loading && <p role="status">Checking Access…</p>}
-      {sessionId && !loading && (
-        <p role="status">
-          {stale
-            ? error
-              ? 'Stale — refresh failed. Showing the earlier observation.'
-              : 'Stale — reconnect or refresh Access.'
-            : evidence?.state === 'current'
-              ? 'Current session observation'
-              : 'Unknown — live evidence is unavailable for this route.'}
-        </p>
-      )}
-      {evidence && (
-        <p className="workspace-muted">
-          Observed {new Date(evidence.observedAt).toLocaleTimeString()}
-        </p>
-      )}
-      {sessionId && !loading && evidence?.state === 'unknown' && (
-        <p className="workspace-muted">
-          This runtime has not supplied current session evidence. Configured accounts and services
-          do not establish live access; refreshing cannot supply missing measurements.
-        </p>
-      )}
-      <section className="access-detail-card">
-        <h3>{sessionId ? 'Session access' : 'Selected route'}</h3>
-        <dl className="access-resource-facts">
-          <div>
-            <dt>Account</dt>
-            <dd>
-              {evidence?.account?.accountLabel ??
-                (!sessionId ? selection?.accountId : null) ??
-                'Unknown'}
-            </dd>
-          </div>
-          <div>
-            <dt>Model</dt>
-            <dd>{evidence?.model ?? (!sessionId ? selection?.model : null) ?? 'Unknown'}</dd>
-          </div>
-          <div>
-            <dt>Effective mode</dt>
-            <dd>{evidence?.mode ?? 'Unknown'}</dd>
-          </div>
-          <div>
-            <dt>Service attachments</dt>
-            <dd>Unknown — configured services have not been observed in this session.</dd>
-          </div>
-          <div>
-            <dt>Tool approvals</dt>
-            <dd>
-              {evidence?.grants
-                ? evidence.grants.join(', ') || 'No session tool grants'
-                : 'Unknown'}
-              <p className="workspace-muted">
-                Skill, workspace and exact-action restrictions still apply.
-              </p>
-            </dd>
-          </div>
-          <div>
-            <dt>Skill restriction</dt>
-            <dd>
-              {evidence?.state === 'current'
-                ? (evidence.skillCeiling?.join(', ') ?? 'No active skill ceiling')
-                : 'Unknown'}
-            </dd>
-          </div>
-          <div>
-            <dt>Available tools</dt>
-            <dd>Unknown — callable tools have not been inventoried for this route.</dd>
-          </div>
-          <div>
-            <dt>Execution limits</dt>
-            <dd>Unknown — runtime limits have not been reported here.</dd>
-          </div>
-        </dl>
-      </section>
-      <section className="access-detail-card">
-        <h3>Pending approvals</h3>
-        {evidence?.pending ? (
-          evidence.pending.length ? (
-            evidence.pending.map((p) => (
-              <p key={p.permId}>
-                {p.toolName} · {p.scope}
-              </p>
-            ))
-          ) : (
-            <p>No pending requests observed.</p>
-          )
-        ) : (
-          <p>Unknown</p>
+      <div hidden={page !== 'links'}>
+        <SessionChatLinks
+          sessionId={sessionId}
+          data={launches}
+          disabled={Boolean(disabled || !connected || launches?.error)}
+        />
+        {!sessionId && (
+          <p>
+            No session has started. The selected account has not been used in this conversation.
+          </p>
         )}
-        {current && Boolean(evidence?.pending?.length) && onShowApproval && (
-          <button className="home-secondary" onClick={onShowApproval}>
-            View pending approvals
-          </button>
+        {loading && <p role="status">Checking Access…</p>}
+        {page === 'links' && sessionId && !loading && (
+          <p role="status">
+            {stale
+              ? error
+                ? 'Stale — refresh failed. Showing the earlier observation.'
+                : 'Stale — reconnect or refresh Access.'
+              : error
+                ? 'Could not check access. Refresh to try again.'
+                : evidence?.state === 'current'
+                  ? 'Current session observation'
+                  : 'Unknown — live evidence is unavailable for this route.'}
+          </p>
         )}
-      </section>
-      {sessionId && <ReusableAccessGrants sessionId={sessionId} connected={connected} />}
-      <div className="access-resource-actions">
-        {sessionId && (
-          <button
-            className="home-secondary"
-            disabled={loading}
-            onClick={() => {
-              setNow(Date.now());
-              setAttempt((value) => value + 1);
-            }}
-          >
-            Refresh Access
-          </button>
+        {evidence && (
+          <p className="workspace-muted">
+            Observed {new Date(evidence.observedAt).toLocaleTimeString()}
+          </p>
         )}
-        <button className="home-secondary" onClick={() => setConnections(true)}>
+        {sessionId && !loading && evidence?.state === 'unknown' && (
+          <p className="workspace-muted">
+            This runtime has not supplied current session evidence. Configured accounts and services
+            do not establish live access; refreshing cannot supply missing measurements.
+          </p>
+        )}
+        <details className="session-access-details">
+          <summary>
+            Session details<span className="workspace-muted">Account, model and runtime</span>
+          </summary>
+          <dl className="access-resource-facts">
+            <div>
+              <dt>Account</dt>
+              <dd>
+                {evidence?.account?.accountLabel ??
+                  (!sessionId ? selection?.accountId : null) ??
+                  'Unknown'}
+              </dd>
+            </div>
+            <div>
+              <dt>Model</dt>
+              <dd>{evidence?.model ?? (!sessionId ? selection?.model : null) ?? 'Unknown'}</dd>
+            </div>
+            <div>
+              <dt>Effective mode</dt>
+              <dd>{evidence?.mode ?? 'Unknown'}</dd>
+            </div>
+            <div>
+              <dt>Service attachments</dt>
+              <dd>Unknown — configured services have not been observed in this session.</dd>
+            </div>
+            <div>
+              <dt>Tool approvals</dt>
+              <dd>
+                {evidence?.grants
+                  ? evidence.grants.join(', ') || 'No session tool grants'
+                  : 'Unknown'}
+                <p className="workspace-muted">
+                  Skill, workspace and exact-action restrictions still apply.
+                </p>
+              </dd>
+            </div>
+            <div>
+              <dt>Skill restriction</dt>
+              <dd>
+                {evidence?.state === 'current'
+                  ? (evidence.skillCeiling?.join(', ') ?? 'No active skill ceiling')
+                  : 'Unknown'}
+              </dd>
+            </div>
+            <div>
+              <dt>Available tools</dt>
+              <dd>Unknown — callable tools have not been inventoried for this route.</dd>
+            </div>
+            <div>
+              <dt>Execution limits</dt>
+              <dd>Unknown — runtime limits have not been reported here.</dd>
+            </div>
+          </dl>
+        </details>
+        <button
+          type="button"
+          className="session-access-navigation"
+          onClick={(event) => onNavigate('permissions', event.currentTarget)}
+        >
+          Permissions
+          <span className="workspace-muted">
+            Grants, scope and expiry
+            {evidence?.pending?.length ? ` · ${evidence.pending.length} pending` : ''}
+          </span>
+          <UiIcon name="forward" size={16} />
+        </button>
+        <button
+          type="button"
+          className="session-access-navigation"
+          onClick={(event) => onNavigate('connections', event.currentTarget)}
+        >
           Connections
+          <UiIcon name="forward" size={16} />
         </button>
       </div>
+      <div hidden={page !== 'permissions'}>
+        <section className="access-detail-card">
+          <h3>Pending approvals</h3>
+          {evidence?.pending ? (
+            evidence.pending.length ? (
+              evidence.pending.map((p) => (
+                <p key={p.permId}>
+                  {p.toolName} · {p.scope}
+                </p>
+              ))
+            ) : (
+              <p>No pending requests observed.</p>
+            )
+          ) : (
+            <p>Unknown</p>
+          )}
+          {current && Boolean(evidence?.pending?.length) && onShowApproval && (
+            <button className="home-secondary" onClick={onShowApproval}>
+              View pending approvals
+            </button>
+          )}
+        </section>
+        {sessionId && <ReusableAccessGrants sessionId={sessionId} connected={connected} />}
+      </div>
+      {!connections && (
+        <div className="access-resource-actions">
+          {sessionId && (
+            <button
+              className="home-secondary"
+              disabled={loading}
+              onClick={() => {
+                setNow(Date.now());
+                setAttempt((value) => value + 1);
+              }}
+            >
+              Refresh Access
+            </button>
+          )}
+        </div>
+      )}
     </div>
   );
 }
 export function SessionAccess(props: Props) {
   const [open, setOpen] = useState(false);
+  const [page, setPage] = useState<AccessPage>('links');
+  const paneTrigger = useRef<HTMLElement | null>(null);
+  useEffect(() => {
+    if (page === 'links' && paneTrigger.current?.isConnected) paneTrigger.current.focus();
+  }, [page]);
+  useEffect(() => {
+    const lost = () => setOpen(false);
+    window.addEventListener(AUTH_LOST_EVENT, lost);
+    return () => window.removeEventListener(AUTH_LOST_EVENT, lost);
+  }, []);
   return (
     <>
       <button
         type="button"
-        className="home-secondary session-access-trigger"
-        aria-label="Access"
-        title="Session and account access"
+        className="session-access-trigger header-action"
+        aria-label="Links & access"
+        title="Links & access"
         onClick={(event) => {
           event.currentTarget.focus();
+          setPage('links');
           setOpen(true);
         }}
       >
         <UiIcon name="connections" />
-        <span className="session-access-label">Access</span>
+        <span className="session-access-label">Links &amp; access</span>
       </button>
       {open && (
-        <HomeDialog title="Access" className="chat-access-dialog" onClose={() => setOpen(false)}>
+        <HomeDialog
+          title={
+            page === 'links'
+              ? 'Links & access'
+              : page === 'permissions'
+                ? 'Permissions'
+                : 'Connections'
+          }
+          onBack={page === 'links' ? undefined : () => setPage('links')}
+          backLabel="Back to Links & access"
+          className="chat-access-dialog"
+          onClose={() => setOpen(false)}
+        >
           <AccessContent
             key={props.sessionId ?? 'empty'}
             {...props}
+            page={page}
+            onNavigate={(next, trigger) => {
+              paneTrigger.current = trigger;
+              setPage(next);
+            }}
             onShowApproval={() => {
               setOpen(false);
               if (props.onShowApproval) props.onShowApproval();

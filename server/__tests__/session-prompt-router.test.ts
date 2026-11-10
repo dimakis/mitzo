@@ -82,6 +82,32 @@ it('uses the signed actor and normal same-origin JSON protections for mutation',
     expect.objectContaining({ id: 'signed-user' }),
   );
 });
+it('requires a current login and same origin for revision-fenced timer deletion', async () => {
+  const body = {
+    requestId: '9fce2bfc-cffe-4b5a-99f7-e02670774e3a',
+    expectedRevision: 1,
+    action: 'delete',
+  };
+  const f = fixture();
+  expect(
+    (await request(fixture('revoked').app).post('/api/session-timers/timer').send(body)).status,
+  ).toBe(403);
+  expect(
+    (
+      await request(f.app)
+        .post('/api/session-timers/timer')
+        .set('Origin', 'https://hostile.example')
+        .send(body)
+    ).status,
+  ).toBe(403);
+  expect(f.service.change).not.toHaveBeenCalled();
+  expect((await request(f.app).post('/api/session-timers/timer').send(body)).status).toBe(200);
+  expect(f.service.change).toHaveBeenCalledWith(
+    'timer',
+    body,
+    expect.objectContaining({ id: 'signed-user' }),
+  );
+});
 it('exposes read-only sessions/list endpoints with no execution or private caching', async () => {
   const f = fixture();
   const response = await request(f.app).get('/api/session-timers?sessionId=worker');
