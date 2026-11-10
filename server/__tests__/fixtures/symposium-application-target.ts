@@ -91,6 +91,7 @@ export async function configureApplicationReviewTarget(root: string, fresh: bool
     await mkdir(source, { mode: 0o700 });
     git(source, 'init', '-q', '-b', 'main');
     await writeFile(join(source, 'design.txt'), 'Synthetic repository context\n');
+    await writeFile(join(root, '.mitzo.json'), JSON.stringify({ repos: { acceptance: source } }));
     git(source, 'add', 'design.txt');
     git(
       source,
@@ -102,6 +103,8 @@ export async function configureApplicationReviewTarget(root: string, fresh: bool
       '-qm',
       'Synthetic source',
     );
+    // A real offline upstream/default branch for the production local picker.
+    git(source, 'remote', 'add', 'origin', source);
   }
   baseOid = git(source, 'rev-parse', 'HEAD');
   // Reopening must consume the original files, not rewrite custody or profiles.

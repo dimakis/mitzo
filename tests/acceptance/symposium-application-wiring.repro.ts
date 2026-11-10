@@ -1,11 +1,14 @@
-import { expect, it, vi } from 'vitest';
-import { getApplicationJoiningJourney } from '../../server/__tests__/collaboration-application-joining-integration.test.js';
+import { afterAll, expect, it, vi } from 'vitest';
+import { createApplicationJourney } from '../../server/__tests__/fixtures/symposium-application-journey.js';
 
-// Importing the passing journey registers its actual-app review/join/restart tests.
-// This remaining required reproduction stays red until ordinary group delivery and
-// reply projection are wired. No hand-built router or fake capacity can satisfy it.
+const journey = createApplicationJourney();
+afterAll(() => journey.close());
+
+// Historical negative reproduction without a recording native transport.
+// Explicit setup registers no prerequisite tests. This cannot establish positive
+// reply acceptance without that external execution boundary and is not current acceptance.
 it('requires finalized reply owners after the ordinary join', async () => {
-  const { api, events, group, joinedSessionId } = getApplicationJoiningJourney();
+  const { api, events, group, joinedSessionId } = await journey.initializeReviewedJoin();
   expect(events.getOrdinaryInitialCommandId(joinedSessionId)).toBeUndefined();
   const afterJoin = await api.view(group);
   const prompt = await api.send(group, {

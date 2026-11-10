@@ -113,6 +113,31 @@ export function RepositoryChatPicker({
   const callback = useRef(onChange);
   callback.current = onChange;
   const operation = useRef<AbortController | null>(null);
+  const publicationScope = JSON.stringify([accountId, model, ordinaryRuntime ?? null]);
+  const publishedPreparation = useRef<{
+    id: string;
+    previous: string | undefined;
+    scope: string;
+  } | null>(null);
+  if (publishedPreparation.current?.scope !== publicationScope) publishedPreparation.current = null;
+  const observedPreparation = useRef(initialPreparationId);
+  const externalPreparationReset = useRef(0);
+  if (observedPreparation.current !== initialPreparationId) {
+    observedPreparation.current = initialPreparationId;
+    if (initialPreparationId !== publishedPreparation.current?.id) {
+      publishedPreparation.current = null;
+      externalPreparationReset.current += 1;
+    }
+  }
+  const preparationReset = externalPreparationReset.current;
+  // A parent retains our pending ID before the mutation completes. Its echo is
+  // not a restored request and must not cancel/re-read that same in-flight work.
+  const restoredPreparationId =
+    publishedPreparation.current &&
+    publishedPreparation.current.scope === publicationScope &&
+    initialPreparationId === publishedPreparation.current.id
+      ? publishedPreparation.current.previous
+      : initialPreparationId;
   const restoration = useRef<AbortController | null>(null);
   const storageKey = repositoryDraftKey(accountId, model);
   const [restorationAttempt, setRestorationAttempt] = useState(0);
@@ -175,9 +200,10 @@ export function RepositoryChatPicker({
       accountId,
       model,
       storageKey,
-      initialPreparationId,
+      restoredPreparationId,
       draftScoped,
       restorationAttempt,
+      preparationReset,
     ]);
     // An existing receipt owns its source. Inventory arriving or a Run on
     // change must not clear it or hide its recovery controls.
@@ -187,7 +213,7 @@ export function RepositoryChatPicker({
     restoration.current = controller;
     setCatalogLoading(true);
     const saved =
-      initialPreparationId ?? (draftScoped ? null : savedRepositoryDraft(accountId, model));
+      restoredPreparationId ?? (draftScoped ? null : savedRepositoryDraft(accountId, model));
     if (!preserveWorkspace) {
       setWorkspace(null);
       setCatalog(null);
@@ -210,7 +236,7 @@ export function RepositoryChatPicker({
         if (controller.signal.aborted) return;
         setCatalog(data);
         if (!saved || preserveWorkspace) return;
-        if (!data.available && !initialPreparationId)
+        if (!data.available && !restoredPreparationId)
           throw new Error('Repository onboarding unavailable');
         const restored = await apiFetch(
           `/api/repository-workspaces/${encodeURIComponent(saved)}?${query}`,
@@ -259,7 +285,16 @@ export function RepositoryChatPicker({
       controller.abort();
       operation.current?.abort();
     };
-  }, [accountId, model, storageKey, initialPreparationId, draftScoped, restorationAttempt, runOn]);
+  }, [
+    accountId,
+    model,
+    storageKey,
+    restoredPreparationId,
+    draftScoped,
+    restorationAttempt,
+    preparationReset,
+    runOn,
+  ]);
   const repositories = catalog?.available ? catalog.repositories : [];
   const repositoryLabel =
     workspace &&
@@ -289,6 +324,13 @@ export function RepositoryChatPicker({
     setError('');
     let responseReceived = false;
     const localId = localRepository ? createBrowserId() : undefined;
+    const retainedId = localId ?? (action === 'prepare' ? workspace?.id : undefined);
+    if (retainedId)
+      publishedPreparation.current = {
+        id: retainedId,
+        previous: restoredPreparationId,
+        scope: publicationScope,
+      };
     callback.current({
       blocked: true,
       ...(draftScoped && action === 'prepare' && workspace
