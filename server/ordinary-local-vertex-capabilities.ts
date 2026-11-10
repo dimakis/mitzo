@@ -89,23 +89,33 @@ export function localVertexCapabilities(
   retainedBinding?: unknown,
 ) {
   const accounts = profiles.ordinaryLocalVertexInventory();
-  const eligibility = ordinaryCodexAgentProfileRouteProjection(
-    ordinaryCodexAgentProfiles(published),
-    'anthropic-vertex',
-    'local',
-    undefined,
-    { contextRecipes: 'none' },
-  );
+  const eligibility = (provider: string) =>
+    ordinaryCodexAgentProfileRouteProjection(
+      ordinaryCodexAgentProfiles(published),
+      provider,
+      'local',
+      undefined,
+      { contextRecipes: 'none' },
+    );
   const targets = [target.descriptor()];
   const declaration = target.admissionDeclaration();
   const reviewedLegacy = reviewedLegacyLocalApiTargetRevisions('claude-sdk', declaration);
   const catalog: OrdinarySessionRuntimeCatalog = {
     deployment: 'ordinary',
     enabledHarnesses: ['claude-sdk'],
-    accounts: accounts.map(({ account }) => ({
-      ...account,
-      auth: { kind: 'vertex-adc' },
-    })),
+    accounts: accounts.map(({ account }) =>
+      account.provider === 'anthropic-claude'
+        ? {
+            ...account,
+            provider: 'anthropic-claude' as const,
+            auth: { kind: 'claude-host-login' as const },
+          }
+        : {
+            ...account,
+            provider: 'anthropic-vertex' as const,
+            auth: { kind: 'vertex-adc' as const },
+          },
+    ),
     targets: targets.map(({ targetId, targetRevision, location }) => ({
       targetId,
       targetRevision,
@@ -120,7 +130,7 @@ export function localVertexCapabilities(
       'ordinary-local-vertex-capabilities-v1',
       catalog,
       accounts,
-      eligibility,
+      accounts.map(({ account }) => eligibility(account.provider)),
     ]),
     accounts,
     targets,
@@ -128,7 +138,7 @@ export function localVertexCapabilities(
       account,
       targetId: targets[0].targetId,
       harness: 'claude-sdk' as const,
-      ...eligibility,
+      ...eligibility(account.provider),
       modes: ['ask', 'agent', 'auto'] as const,
       skillCeiling: 'unsupported' as const,
     })),

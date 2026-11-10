@@ -673,7 +673,9 @@ async function _runQueryLoopInner(
           // other runtimes still establish completed account use with no model.
           if (
             msg.renderer_only !== true &&
-            currentSession.accountBinding.provider === 'anthropic-vertex' &&
+            ['anthropic-vertex', 'anthropic-claude'].includes(
+              currentSession.accountBinding.provider,
+            ) &&
             message?.type === 'message_start' &&
             typeof message.message?.model === 'string' &&
             message.message.model

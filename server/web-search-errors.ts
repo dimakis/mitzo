@@ -3,9 +3,14 @@ import { WebAccessError } from './request-web-access.js';
 export type WebSearchProvider = 'OpenAI' | 'native Codex' | 'Gemini/Vertex' | 'Claude SDK';
 
 /** Callers supply fixed server-authored details, never provider bodies or exceptions. */
-export function webSearchFailure(provider: WebSearchProvider, detail: string) {
+export function webSearchFailure(
+  provider: WebSearchProvider,
+  detail: string,
+  options?: ErrorOptions,
+) {
   return new WebAccessError(
     `Approved web access failed: ${provider} search ${detail}. No other account was used.`,
+    options,
   );
 }
 

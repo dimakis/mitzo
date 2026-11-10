@@ -34,7 +34,13 @@ const accountCatalog = z
     z.object({
       id: z.string().regex(/^[A-Za-z0-9_-]+$/),
       label: z.string().min(1),
-      provider: z.enum(['openai', 'anthropic-vertex', 'google-vertex', 'openai-codex']),
+      provider: z.enum([
+        'openai',
+        'anthropic-vertex',
+        'anthropic-claude',
+        'google-vertex',
+        'openai-codex',
+      ]),
       billing: z.string(),
       personalConnection: z
         .object({

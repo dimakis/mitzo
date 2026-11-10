@@ -18,20 +18,45 @@ export const VertexAdcCustodySchema = z.strictObject({
     .strict(),
 });
 export type VertexAdcCustodySnapshot = z.infer<typeof VertexAdcCustodySchema>;
-export const OrdinaryLocalVertexCustodySchema = z.strictObject({
-  version: z.literal(1),
-  sessionId: z.string().min(1).max(200),
-  sdkSessionId: z.uuid(),
-  authSessionId: z.string().min(1).max(200),
-  initialCommandId: z.string().min(1).max(200),
-  repositoryWorkspaceId: z.string().min(1).max(200),
-  cwd: z.string().min(1).max(4096),
-  binding: SessionRuntimeBindingV2Schema.refine(
-    (binding) =>
-      binding.account.provider === 'anthropic-vertex' &&
-      binding.harness.implementation === 'claude-sdk' &&
-      binding.execution.location === 'local',
-  ),
-  credentialAuthority: VertexAdcCustodySchema,
+const hostIdentity = z.strictObject({
+  path: z.string().min(1).max(4096),
+  dev: z.string(),
+  ino: z.string(),
+  uid: z.string(),
+  mode: z.string(),
 });
+export const ClaudeSubscriptionCustodySchema = z.strictObject({
+  kind: z.literal('claude-host-login'),
+  version: z.literal(1),
+  email: z.email(),
+  planType: z.enum(['pro', 'max']),
+  config: hostIdentity,
+  executable: hostIdentity
+    .extend({ size: z.string(), mtimeNs: z.string(), ctimeNs: z.string() })
+    .strict(),
+});
+export type ClaudeSubscriptionCustodySnapshot = z.infer<typeof ClaudeSubscriptionCustodySchema>;
+export const OrdinaryLocalVertexCustodySchema = z
+  .strictObject({
+    version: z.literal(1),
+    sessionId: z.string().min(1).max(200),
+    sdkSessionId: z.uuid(),
+    authSessionId: z.string().min(1).max(200),
+    initialCommandId: z.string().min(1).max(200),
+    repositoryWorkspaceId: z.string().min(1).max(200),
+    cwd: z.string().min(1).max(4096),
+    binding: SessionRuntimeBindingV2Schema.refine(
+      (binding) =>
+        ['anthropic-vertex', 'anthropic-claude'].includes(binding.account.provider) &&
+        binding.harness.implementation === 'claude-sdk' &&
+        binding.execution.location === 'local',
+    ),
+    credentialAuthority: z.union([VertexAdcCustodySchema, ClaudeSubscriptionCustodySchema]),
+  })
+  .refine(
+    (custody) =>
+      (custody.binding.account.provider === 'anthropic-claude') ===
+      'kind' in custody.credentialAuthority,
+    'Claude authentication must match the selected account',
+  );
 export type OrdinaryLocalVertexCustody = z.infer<typeof OrdinaryLocalVertexCustodySchema>;
