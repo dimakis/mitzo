@@ -10,8 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.1000-verified-failed-turn-effects';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.1001-telos-recovery-archive';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -111,18 +110,22 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/telos-provider-isolation.test.ts':
     'c9771e095f1d20ae61880a479a4006f279e2b65868311481f1ab7edf27279727',
   '../telos-runtime-store.ts': '7d2983b1067fe39f798a0b4a6f1ea8b3b4170d8c1f2cdd33022d17c5d6d8c54f',
-  '../telos-runtime-storage.ts': '04e37bee043d99a0f00cae80dab9242bc154bc28fa67708587dbde4b67713579',
+  '../telos-recovery-archive.ts':
+    '2f0f8dc116d1e6de117e8220a8d9c7474ed4c44f05a77ff50a33a9dff78b4248',
+  '../../scripts/lib/telos_migration_orphans.py':
+    '08c58a08b8657a5c548d8f686ea82118f4267e1e2a88f0cdeddf8ebd2151c60a',
+  '../telos-runtime-storage.ts': 'c3a9e4064a96cd31a633434eab3cdaaf23f11f81ee21fd0e1bf852b7b64e77f1',
   '../telos-runtime-routes.ts': 'a524728251a6774ce198ddd814e7d0b6b575a198abcd13631263644595693d13',
   '../__tests__/telos-runtime-store.test.ts':
     '47b83028e8253eecd8808b907751c814750f0619ab7b07a1e0c8fcf75f684cfa',
   '../__tests__/telos-runtime-storage.test.ts':
-    '26affe63dc09d41d8eda09731b1b5f513b2ff15ae9f53a0a75dfd86b879d774c',
+    '5cf720f04e6bffcfbd4522dac055eca5972070b450fb27fd68248b5affaa0cb0',
   '../__tests__/telos-runtime-routes.test.ts':
     '36ea503e1c026220b871b9ad281805aed7423988e58258d4dfdcd29b8d938405',
   '../__tests__/telos-runtime-migration.test.ts':
-    '010114c187ebd8124f822b741160a1f72e3026d70c8a53161c0f48260bc0b7e1',
+    'e8ae722e5d6830f7a9fc2304c945fdd81cf2ceff5514b23c1bc405363cc5db63',
   '../../scripts/migrate-telos.py':
-    'c6e91d64c98118f8931de76fe27d9da346ac3a5edc4d708c4fbce800e2862b01',
+    'eafe270535196332b573df3e020be17f539ed541912ec14e975e9236aa6baee0',
   '../telos-outcome-owner.ts': 'be610d091f1eef9c8fc73ba4461e5c33781091ab48f6ce60723e80374ff8cd59',
   '../telos-source-import.ts': '7949715a7ddaed638da41997e9ce6b59d5626e27da3be09dcefbeeabd4dd9092',
   '../__tests__/telos-source-import.test.ts':
