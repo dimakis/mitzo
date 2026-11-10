@@ -10,6 +10,7 @@ import { useNotifications } from '../components/NotificationProvider';
 import { WorkspacePageHeading } from '../components/WorkspacePageHeading';
 import { UiIcon } from '../components/UiIcon';
 import { ApprovalRequestSummary } from '../components/ApprovalRequestSummary';
+import { NotificationApprovalActions } from '../components/NotificationApprovalActions';
 import { approvalPresentation } from '../lib/approval-presentation';
 import { apiFetch } from '../lib/api-fetch';
 import '../styles/notifications.css';
@@ -58,18 +59,6 @@ export function RequestDetail({
   const [selections, setSelections] = useState<QuestionAnswers>({});
   const [written, setWritten] = useState<Record<string, string>>({});
   const request = item.request;
-  let sessionSearch = false;
-  if (
-    request?.toolName === 'RequestWebAccess' &&
-    request.approvalScope === 'session' &&
-    !request.questions
-  ) {
-    try {
-      sessionSearch = JSON.parse(request.toolInput).operation === 'search';
-    } catch {
-      /* Keep the ordinary server-described approval scope. */
-    }
-  }
   const answers = Object.fromEntries(
     (request?.questions ?? []).map((q) => [
       q.id,
@@ -92,8 +81,12 @@ export function RequestDetail({
           ? approvalPresentation(request.toolInput, request.toolName).heading || item.title
           : item.title}
       </h2>
+      {request && !request.questions && <p className="workspace-muted">{item.body}</p>}
+      {live && request && !request.questions && (
+        <NotificationApprovalActions item={item} busy={busy} onRespond={onRespond} />
+      )}
       <div className="notification-request-body">
-        <p className="workspace-muted">{item.body}</p>
+        {(!request || request.questions) && <p className="workspace-muted">{item.body}</p>}
         {item.sessionId && (
           <Link to={`/chat/${encodeURIComponent(item.sessionId)}`}>Open session</Link>
         )}
@@ -147,27 +140,15 @@ export function RequestDetail({
           </fieldset>
         ))}
         {request && !request.questions && (
-          <>
-            <ApprovalRequestSummary
-              input={request.toolInput}
-              toolName={request.toolName}
-              description={request.description}
-            />
-            <p className="workspace-muted">
-              {(request.allowSessionGrant !== false && request.sessionGrantDescription) ||
-                (request.approvalScope === 'conversation'
-                  ? 'This request concerns conversation access. Review its scope in the session.'
-                  : request.allowSessionGrant === false
-                    ? 'Allow once covers this request.'
-                    : sessionSearch
-                      ? 'Allow once, or allow searches on this account and model until the session ends. Website access stays separate.'
-                      : 'Allow once covers this request. Allow for session keeps this approval until the session ends.')}
-            </p>
-          </>
+          <ApprovalRequestSummary
+            input={request.toolInput}
+            toolName={request.toolName}
+            description={request.description}
+          />
         )}
       </div>
       {item.permId &&
-        (live ? (
+        (live && (!request || request.questions) ? (
           <>
             <p className="workspace-muted">
               {item.expiresAt ? `Expires ${timestamp(item.expiresAt)}` : 'Waiting for a decision'}
@@ -182,15 +163,6 @@ export function RequestDetail({
                   {request?.questions ? 'Send answer' : 'Allow once'}
                 </button>
               )}
-              {request && !request.questions && request.allowSessionGrant !== false && (
-                <button
-                  className="notification-button"
-                  disabled={busy}
-                  onClick={() => onRespond('always')}
-                >
-                  {sessionSearch ? 'Allow searches for this session' : 'Allow for session'}
-                </button>
-              )}
               <button
                 className="notification-button"
                 disabled={busy}
@@ -200,7 +172,7 @@ export function RequestDetail({
               </button>
             </div>
           </>
-        ) : (
+        ) : !live ? (
           <p className="notification-result">
             <span>
               {item.resolution === 'expired' || !item.resolution
@@ -213,7 +185,7 @@ export function RequestDetail({
                 ? ' · denied'
                 : ''}
           </p>
-        ))}
+        ) : null)}
     </section>
   );
 }

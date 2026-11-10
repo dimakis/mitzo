@@ -85,6 +85,121 @@ function show(path = '/inbox') {
   );
 }
 describe('combined Inbox', () => {
+  it.each(['once', 'always', 'deny'])(
+    'responds %s directly from the Inbox entry',
+    async (decision) => {
+      show();
+      const button = await screen.findByRole('button', {
+        name:
+          decision === 'once' ? 'Allow once' : decision === 'always' ? 'Allow for session' : 'Deny',
+      });
+      fireEvent.click(button);
+      await waitFor(() =>
+        expect(mutate).toHaveBeenCalledWith('/permission%3Ap/respond', {
+          sessionId: 's',
+          decision,
+        }),
+      );
+      expect(apiFetch).not.toHaveBeenCalledWith(
+        expect.stringContaining('/records/'),
+        expect.anything(),
+      );
+    },
+  );
+
+  it('keeps detail decisions before long request details', async () => {
+    vi.mocked(apiFetch).mockImplementation(
+      async (path) =>
+        new Response(
+          JSON.stringify(
+            String(path).includes('/records/')
+              ? {
+                  ...request,
+                  request: { ...request.request, toolInput: 'Long scope\n'.repeat(100) },
+                }
+              : { items: [request], total: 1, needsYou: 1, sources: [] },
+          ),
+        ),
+    );
+    show('/inbox?notice=permission:p');
+    const allow = await screen.findByRole('button', { name: 'Allow once' });
+    const details = screen.getByText('Request details');
+    expect(allow.compareDocumentPosition(details) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(details.closest('details')).toHaveAttribute('open');
+  });
+
+  it.each([
+    { resolution: 'allowed', resolvedAt: 1 },
+    { archivedAt: 1 },
+    { expiresAt: Date.now() - 1000 },
+    { kind: 'question', request: { questions: [{ id: 'q', question: 'Which?', options: [] }] } },
+  ])('keeps unavailable and question decisions out of the list: %j', async (state) => {
+    vi.mocked(apiFetch).mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          items: [{ ...request, ...state }],
+          total: 1,
+          needsYou: 0,
+          sources: [],
+        }),
+      ),
+    );
+    show();
+    await screen.findByRole('button', { name: 'Read the repository?' });
+    expect(screen.queryByRole('button', { name: 'Allow once' })).not.toBeInTheDocument();
+  });
+
+  it('retains the entry and visible error when a direct decision fails', async () => {
+    mutate.mockRejectedValue(new Error('Approval expired. Refresh the request.'));
+    show();
+    fireEvent.click(await screen.findByRole('button', { name: 'Allow once' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Approval expired. Refresh the request.',
+    );
+    expect(screen.getByRole('button', { name: 'Read the repository?' })).toBeVisible();
+  });
+
+  it.each([
+    { allowSessionGrant: false, hidden: 'Allow for session', visible: 'Allow once' },
+    { approvalScope: 'conversation', hidden: 'Allow once', visible: 'Allow for session' },
+  ])(
+    'retains the server decision scope on the entry: %j',
+    async ({ hidden, visible, ...scope }) => {
+      vi.mocked(apiFetch).mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            items: [{ ...request, request: { ...request.request, ...scope } }],
+            total: 1,
+            needsYou: 1,
+            sources: [],
+          }),
+        ),
+      );
+      show();
+      expect(await screen.findByRole('button', { name: visible })).toBeVisible();
+      expect(screen.queryByRole('button', { name: hidden })).not.toBeInTheDocument();
+    },
+  );
+
+  it('disables direct decisions while the response is pending', async () => {
+    let settle!: () => void;
+    mutate.mockImplementation(
+      () =>
+        new Promise<void>((resolve) => {
+          settle = resolve;
+        }),
+    );
+    show();
+    const once = await screen.findByRole('button', { name: 'Allow once' });
+    fireEvent.click(once);
+    fireEvent.click(once);
+    expect(mutate).toHaveBeenCalledTimes(1);
+    expect(once).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Allow for session' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Deny' })).toBeDisabled();
+    await act(async () => settle());
+  });
+
   it('keeps legacy file paths in evidence instead of making them the list summary', async () => {
     vi.mocked(apiFetch).mockResolvedValue(
       new Response(

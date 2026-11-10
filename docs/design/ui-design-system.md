@@ -902,9 +902,15 @@ Structured questions retain their choices and written answer fields, Send answer
 and Cancel. They do not offer session authorization. Response progress disables
 duplicate decisions; errors retain the card and allow retry. Local expiry removes
 the card without submitting a user denial; the server owns timeout resolution.
-Inbox request details use the same quiet action labels and server-owned scope
-caption, with Allow for session available for each authorization and no retention
-for questions. Native notification actions revalidate displayed input and scope;
+Inbox entries expose Allow once, eligible Allow for session and Deny directly,
+alongside the existing optional review navigation. The full request view places
+these same controls before its independently scrolling evidence; opening details
+or scrolling is not required to decide. Use the shared notification decision
+controls, semantic primary action, scope caption, expiry and 44px touch targets.
+Questions retain their answer form. Resolved, expired and archived entries expose
+no direct decisions; pending submissions disable them and failures stay visible.
+This placement follows Dimitri's explicit 10 November 2026 direction: “It should
+be one click, no scroll.” Native notification actions revalidate displayed input and scope;
 the Watch rechecks the complete reviewed request through its authenticated phone
 relay before submitting a session decision. Ordinary Watch chat uses a quiet
 44px Review request entry into that same complete review surface; it never

@@ -73,3 +73,11 @@
   padding-top: var(--space-2);
   border-top: 1px solid var(--color-border);
 }
+.notification-approval-controls .notification-actions {
+  margin-top: 0;
+}
+.notification-approval-controls .notification-approval-scope {
+  font-size: var(--text-xs);
+  margin: var(--space-2) 0 0;
+  overflow-wrap: anywhere;
+}
