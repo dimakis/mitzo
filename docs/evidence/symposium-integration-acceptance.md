@@ -2,6 +2,82 @@
 
 Living map owner: workstream C, `01a14bdc-d152-7912-84d4-c0012e9d5206`.
 
+## 10 November 2026 long-discussion delivery candidate
+
+The published candidate is [PR #1279](https://github.com/dimakis/mitzo/pull/1279).
+It now integrates accepted Claude #1232/main `f7fd876a3dbb44ec252e90fc8ba37e27ea19d968`
+after a real conflict. The only conflict was the runtime source-registry revision;
+all accepted Claude source and incoming pins are retained. Its ordinary account,
+repository preparation, SDK custody and native history paths were checked against
+the combined tree. Symposium continues to require its explicit Local Codex adapter;
+accepting Personal Claude does not implicitly enroll another collaboration runtime.
+Fresh combined CI and trusted review remain required; earlier green jobs are not
+approval of this integrated head. The later multiple-responder/Stop commits and
+uncommitted streaming work are separately retained and excluded from this PR.
+The combined tree passes 66 focused checks across the 27-turn actual composer,
+all 52 recovery cases, Personal Claude account/policy/custody and ordinary SDK
+owned-runtime consumers. These tests substitute external account/native execution
+and make no live subscription/model calls. The source-artifact check passes;
+full hosted compilation and CI are still required for the published integration.
+
+Replacement owner `0906bac2-29eb-8ccf-a77c-29783118c415` continues the original
+16 milestone criteria on accepted #1276/main `8978f4a1061ef2073967d7691b880af867d85d5e`.
+This slice separates the latest-50 display projection from delivery inventory.
+`CollaborationConversationStore.pendingDeliveryPage` reads current revisions with
+an exact recipient's pending/unclaimed receipt, bounded to 50 records per page
+and a fixed upper sequence. `ApplicationCollaborationMessaging` compiles the
+complete authorized packet incrementally with a 512 KiB encoded UTF-8 limit.
+Ordinary admission, final lifecycle checks and provider ACK remain the owners of
+execution and delivery. No schema, runtime, scheduler or automatic turn is added.
+
+`NODE_OPTIONS=--max-old-space-size=1024 npx vitest run
+server/__tests__/collaboration-application-ui.test.tsx
+server/__tests__/collaboration-application-messaging-recovery.test.ts --maxWorkers=1`
+passes **53 tests** locally. Nine added owner cases cover continued sending after
+display overflow, 105 pending context records across three pages, owner restart,
+exact retry, an old unclaimed reply, plain/JSON-escaped byte overflow before any
+acceptance or claim, unlink/rejoin, an old attributed reply with renewed source
+visibility, and observable unexpected storage failure. Counts overlap existing
+recovery evidence and are not summed as feature acceptance totals.
+
+The existing real application UI journey now executes 26 acknowledged exchanges
+through authenticated routes, Git/SQLite, ordinary admission and the native driver,
+then sends a 27th turn from the production composer. It waits for that prompt's
+exact delivery/command and finalized reply `projectionId` in the actual UI. Its
+25-reply display bound cannot substitute for that identity assertion. Only external
+account/runtime metadata and native RPC are synthetic; no paid model calls occur.
+The original test deadline, approved UI/reference bytes and display limit remain.
+Read-only correctness and consumer reviews found no implementation blockers; the
+consumer review's final-reply identity fence was incorporated and verified.
+
+This is candidate evidence pending publication, combined CI and exact-head Centaur
+approval. The rest of the milestone remains active: Defaults/multiple responders,
+per-prompt reviewed context, exact forwarding, streaming, broader recovery and
+combined qualification. The live Telos evidence edit remains unavailable/uncertain
+under its retained original request; no replay or completion claim is made. Source
+landing, offline acceptance, deployment and live user acceptance stay separate.
+
+Initial hosted run `42773240655` failed two checks. The 105-item owner regression
+exceeded its unchanged five-second deadline while repeatedly dispatching setup
+turns; setup now seeds acknowledged history through the real durable store and
+keeps the pending-reader dispatch, page/order/ACK, restart and retry assertions.
+The separate real application journey still executes its 27 native turns.
+The desktop browser check caught an existing session-launch race: automatic
+capability review published a new configuration with identical runtime choices,
+making the next explicit host edit look stale before React rerendered. Three
+deterministic regression variants failed, then passed after semantic no-op reviews
+stopped rewriting configuration. Existing stale-callback checks remain. The browser
+now also checks that the selected host stays selected before approval. No deadline,
+coverage, design reference or assertion was weakened; fresh combined CI is required.
+
+Accepted main then advanced to #1256 `5886a67d754aa2fd0eba1e018115cb9f78046357`,
+which independently repaired the same launch-editor race. Integration adopts its
+accepted component and unit tests unchanged, preserves its stronger account/model/
+permission browser assertions and adds the two selected-host checks above. The
+shared source manifest retains incoming Telos workflow/CLI-policy pins alongside
+the unique Symposium history changes. Conflicts and this combined result require
+fresh CI and targeted trusted review; stale PR base metadata is not merge evidence.
+
 ## 10 November 2026 finalized-reply recovery and complete joining controls
 
 Accepted main `279e6703dedebaeb130993fd6e2657b2aed73c0a` contains #1252's
