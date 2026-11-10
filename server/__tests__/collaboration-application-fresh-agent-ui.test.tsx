@@ -286,6 +286,41 @@ it('adds an agent, edits and refreezes its brief, silently joins and sends an at
       .find((pending) => pending?.input.text === fanout.text)!;
     expect(original.input.responders).toEqual({ kind: 'default' });
     expect((await h.api.observeSend(h.group, original.input)).terminal).toBe(false);
+    await act(async () => runtime.streamTurn(4, 'This is the live reply before completion.'));
+    const live = await h.typedApi.collaborations.progress(h.group);
+    expect(live.replies).toHaveLength(1);
+    expect(live.replies[0].sessionId).toBe(
+      fanout.deliveries.find(
+        (d) =>
+          d.commandId &&
+          h.events.getOrdinaryProviderTurnTerminal(d.sessionId, d.commandId) === undefined,
+      )!.sessionId,
+    );
+    expect(JSON.stringify(live)).not.toMatch(/private-native|providerThread|providerTurn/);
+    await waitFor(
+      () => expect(screen.getByText('This is the live reply before completion.')).toBeTruthy(),
+      { timeout: 5000 },
+    );
+    const speaker = view.joinedParticipants.find(
+      (p) => p.sessionId === live.replies[0].sessionId,
+    )!.name;
+    const assertLiveAttribution = () => {
+      const bubble = screen
+        .getByText('This is the live reply before completion.')
+        .closest('.msg-turn--streaming')!;
+      expect(
+        within(bubble as HTMLElement).getByLabelText(`Message details for ${speaker}`).textContent,
+      ).toContain(speaker);
+    };
+    assertLiveAttribution();
+    ui.unmount();
+    ui = render(surface);
+    await waitFor(
+      () => expect(screen.getByText('This is the live reply before completion.')).toBeTruthy(),
+      { timeout: 5000 },
+    );
+    assertLiveAttribution();
+    expect(runtime.requests.filter((r) => r.method === 'turn/start')).toHaveLength(4);
     await h.api.send(h.group, original.input);
     expect(runtime.requests.filter((r) => r.method === 'turn/start')).toHaveLength(4);
     fireEvent.click(screen.getByRole('button', { name: 'Stop generation' }));
@@ -304,6 +339,7 @@ it('adds an agent, edits and refreezes its brief, silently joins and sends an at
     expect(runtime.requests.filter((r) => r.method === 'turn/interrupt')).toHaveLength(1);
     expect((await h.api.observeSend(h.group, original.input)).terminal).toBe(false);
     await act(async () => runtime.finishTurn(4, 'failed', 'context'));
+    expect((await h.typedApi.collaborations.progress(h.group)).replies).toHaveLength(0);
     fireEvent.click(screen.getByRole('button', { name: 'Check original request' }));
     await waitFor(
       async () => {
@@ -315,6 +351,9 @@ it('adds an agent, edits and refreezes its brief, silently joins and sends an at
           current.messages.filter((m) =>
             receipt.deliveries.some((d) => d.deliveryId === m.replyToDeliveryId),
           ),
+        ).toHaveLength(2);
+        expect(
+          current.messages.filter((m) => m.text === 'This is the live reply before completion.'),
         ).toHaveLength(1);
         expect(screen.getAllByText('Reply failed')).toHaveLength(1);
         expect(screen.getAllByText('Reviewed the selected design.')).toHaveLength(3);

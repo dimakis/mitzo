@@ -93,7 +93,9 @@ it('sends first and later selected prompts from the production shared composer a
       timeout: 10000,
     });
     expect(screen.getByText('Original discussion remains available.')).toBeTruthy();
-    expect(screen.getByRole('button', { name: 'Send message' })).toBeTruthy();
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Send message' })).toBeTruthy(), {
+      timeout: 5000,
+    });
     expect(
       (screen.getByRole('textbox', { name: 'Message Mitzo' }) as HTMLTextAreaElement).value,
     ).toBe('');

@@ -25,10 +25,16 @@ claim. Repeated requests never reissue a claimed interrupt or target a successor
 Stop intent survives reload; a cancellation ACK does not establish terminal outcome
 or release uncertain effects. Late control responses cannot affect another prompt.
 
+The candidate also displays attributed live text from each exact accepted ordinary
+command. A read-only, authenticated projection includes visible text and excludes
+private reasoning, tool data and provider identifiers. Partial text recovers after
+remount without inference; finalization replaces only that exact live source.
+Auth loss clears it immediately, and only verified restoration renews observation.
+
 Offline application evidence covers two independent same-account sessions,
 partial failure, an explicit selected retry and uncertainty after reload. Hosted
 CI, browser renders and trusted current-head review remain required before landing.
-Per-prompt reviewed context, forwarding, streaming and broader
+Per-prompt reviewed context, forwarding and broader
 milestone qualification remain open. No deployment or live inference is qualified.
 
 ## Accepted shared composer and reply recovery

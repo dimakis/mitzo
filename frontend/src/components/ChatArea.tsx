@@ -577,12 +577,11 @@ export function ChatArea({
           : turn.value.blocks;
       const ownerKey = `${sessionId ?? 'chat'}:${turnKey(msg.messageId, msg.symposiumProvenance)}`;
       const provenance = msg.symposiumProvenance;
-      const attribution =
-        !streaming && renderMessageAttribution ? (
-          renderMessageAttribution(msg.messageId)
-        ) : (
-          <SeatAttribution provenance={msg.symposiumProvenance} compact={compactAttribution} />
-        );
+      const attribution = renderMessageAttribution ? (
+        renderMessageAttribution(msg.messageId)
+      ) : (
+        <SeatAttribution provenance={msg.symposiumProvenance} compact={compactAttribution} />
+      );
       const scope = JSON.stringify([
         sessionId ?? null,
         provenance?.seatId,

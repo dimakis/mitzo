@@ -67,8 +67,40 @@ The permission and response-race findings from focused review were repaired.
 Browser cases now render the existing Stop control and retain its intent on reload;
 hosted execution and visual evidence remain pending.
 
+Live replies now use a separate authenticated progress projection, independent
+of finalized answer persistence. Every source requires the accepted version-2
+native mapping, exact command and pinned historical admission. The dedicated
+in-progress reader reuses the bounded ordinary visible-block decoder; frozen
+prefixes and finalized replies still require their original complete-message
+qualification. Reasoning, tool deltas and provider thread/turn identifiers never
+enter the public progress response. Current auth, continuous membership, source
+availability and exact settings are renewed before return. Per-source refusals
+do not prevent later eligible sources; unexpected storage errors still propagate.
+
+The actual application test emits a held external native turn's text delta, waits
+for that attributed streaming bubble, remounts and reads it again without another
+native turn. It then performs the exact Stop journey. Verified partial text from
+the failed turn persists once as a finalized answer beside its separate failure
+outcome. The seven-turn count and original failure/retry assertions remain.
+The expanded recovery suite passes 59 cases; 15 reply-source cases pass, including
+in-progress text, private reasoning exclusion, strict frozen/finalized readers,
+wrong command, hidden source, duplicate start, legacy mapping and oversized text.
+Five progress-hook cases cover auth-loss publication ordering, verified same-login
+restoration, late responses, stale audience and failed reads. Transcript checks
+verify attributed live text, visible refusal and exact-source finalization without
+hiding another live source for the same delivery. Focused read-only reviews found
+and verified fixes for auth epoch/restoration and live/final handoff races.
+
+Protocol/harness/client builds and scoped lint pass. Local full frontend checking
+remains limited by the previously retained 1 GiB heap failure. Browser fixtures
+include desktop/mobile light/dark captures with live text and Stop, but have only
+been listed locally under the host browser guard. Hosted renders and independent
+approved-reference comparison remain required. The accepted Claude integration
+was preserved when these later source changes were reapplied; none implicitly
+enrolls a Claude participant in the Local Codex adapter.
+
 This is unmerged candidate evidence, not full feature completion. Per-prompt
-reviewed context, forwarding, streaming and remaining combined
+reviewed context, forwarding and remaining combined
 qualification remain open. All original 16 criteria and the uncertain live Telos
 edit remain retained. No live models, deployment or runtime/device acceptance occur.
 

@@ -3,6 +3,7 @@ import { isDeepStrictEqual } from 'node:util';
 import {
   CollaborationContractError,
   CollaborationMessageInputSchema,
+  type CollaborationProgress,
   type CollaborationMessage,
   type CollaborationSnapshot,
   type CollaborationSettings,
@@ -567,6 +568,135 @@ export class ApplicationCollaborationMessaging {
       '\n\n# Explicit requested reply\n' +
       text
     );
+  }
+
+  /** Current authorized visible text from exact accepted ordinary commands.
+   * No private reasoning/tools/provider payload, inference or durable reply write. */
+  progress(auth: AuthSession, group: string): CollaborationProgress {
+    this.current(auth);
+    const view = this.store.collaborationConversation.view(group);
+    const replies = new OrdinaryCollaborationReplies(this.store);
+    const result: CollaborationProgress = {
+      collaborationId: group,
+      membershipRevision: view.membershipRevision,
+      replies: [],
+      refusals: [],
+    };
+    let after = 0;
+    let bytes = 0;
+    const renewals: Array<() => void> = [];
+    const refuse = (delivery: CollaborationMessage['deliveries'][number], error: unknown) => {
+      if (
+        !(error instanceof CollaborationContractError) ||
+        ![
+          'snapshot_changed',
+          'reply_conflict',
+          'reply_unavailable',
+          'capacity_refused',
+          'unavailable_recipient',
+        ].includes(error.code)
+      )
+        throw error;
+      const code = error.code === 'capacity_refused' ? 'capacity_refused' : 'reply_unavailable';
+      if (!result.refusals.some((r) => r.deliveryId === delivery.deliveryId)) {
+        if (result.refusals.length >= 16) throw new CollaborationContractError('capacity_refused');
+        result.refusals.push({
+          deliveryId: delivery.deliveryId,
+          sessionId: delivery.sessionId,
+          code,
+        });
+      }
+      log.warn('Could not project live collaboration text', {
+        code,
+        stage: 'reply_stream_projection',
+        collaborationId: group,
+        sessionId: delivery.sessionId,
+        commandId: delivery.commandId,
+      });
+    };
+    for (;;) {
+      const page = this.store.collaborationConversation.messagesForReplyReconciliation(
+        group,
+        after,
+        view.cursor,
+      );
+      for (const message of page) {
+        after = message.sequence;
+        for (const delivery of message.deliveries) {
+          if (
+            delivery.purpose !== 'reply' ||
+            !delivery.commandId ||
+            !view.participantSessionIds.includes(delivery.sessionId) ||
+            view.unavailableParticipantSessionIds.includes(delivery.sessionId) ||
+            this.store.getOrdinaryProviderTurnTerminal(delivery.sessionId, delivery.commandId)
+          )
+            continue;
+          try {
+            this.store.collaborationConversation.assertCurrentDeliveryRecipient(
+              group,
+              message.messageId,
+              delivery.deliveryId,
+              delivery.sessionId,
+            );
+            const settings = this.store.getOrdinaryConversationSettings(delivery.sessionId);
+            if (!settings || !isDeepStrictEqual(message.settings[delivery.sessionId], settings))
+              throw new CollaborationContractError('reply_conflict');
+            for (const messageId of this.replySources(delivery.sessionId, delivery.commandId)) {
+              try {
+                const source = replies.streaming(delivery.sessionId, delivery.commandId, messageId);
+                if (!source) continue;
+                if (!isDeepStrictEqual(source.settings, settings))
+                  throw new CollaborationContractError('reply_conflict');
+                const key = createHash('sha256')
+                  .update(`stream:${group}:${delivery.deliveryId}:${messageId}`)
+                  .digest('hex');
+                const item = {
+                  projectionId: `${key.slice(0, 8)}-${key.slice(8, 12)}-4${key.slice(13, 16)}-8${key.slice(17, 20)}-${key.slice(20, 32)}`,
+                  sourceMessageId: messageId,
+                  deliveryId: delivery.deliveryId,
+                  sessionId: delivery.sessionId,
+                  text: source.text,
+                };
+                const size = Buffer.byteLength(JSON.stringify(item), 'utf8');
+                if (result.replies.length >= 50 || bytes + size > promptByteLimit)
+                  throw new CollaborationContractError('capacity_refused');
+                result.replies.push(item);
+                bytes += size;
+                renewals.push(() => {
+                  this.store.collaborationConversation.assertCurrentDeliveryRecipient(
+                    group,
+                    message.messageId,
+                    delivery.deliveryId,
+                    delivery.sessionId,
+                  );
+                  if (
+                    currentView.unavailableParticipantSessionIds.includes(delivery.sessionId) ||
+                    !isDeepStrictEqual(
+                      this.store.getOrdinaryConversationSettings(delivery.sessionId),
+                      settings,
+                    )
+                  )
+                    throw new CollaborationContractError('reply_conflict');
+                });
+              } catch (error) {
+                refuse(delivery, error);
+              }
+            }
+          } catch (error) {
+            refuse(delivery, error);
+          }
+        }
+      }
+      if (page.length < 50) break;
+    }
+    this.current(auth);
+    const currentView = this.store.collaborationConversation.view(group);
+    if (currentView.membershipRevision !== view.membershipRevision)
+      throw new CollaborationContractError('conflict');
+    for (const renew of renewals) renew();
+    if (Buffer.byteLength(JSON.stringify(result), 'utf8') > promptByteLimit)
+      throw new CollaborationContractError('capacity_refused');
+    return result;
   }
 
   /** Read/restart reconciliation projects only finalized, privately mapped native

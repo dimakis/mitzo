@@ -17,6 +17,7 @@ import {
   CollaborationMessageSchema,
   CollaborationRecipientReadinessSchema,
   CollaborationStopResultSchema,
+  CollaborationProgressSchema,
   CollaborationSourceSetupQuerySchema,
   CollaborationSourceSetupSchema,
   COLLABORATION_EXECUTION_DISABLED,
@@ -128,6 +129,20 @@ export function createSessionCollaborationRouter({
     try {
       messaging?.reconcile(recentAuthorizationSession(res)!, id.data);
       return res.json(store.collaborationConversation.view(id.data));
+    } catch (error) {
+      return failure(res, error);
+    }
+  });
+  router.get('/:id/progress', (req, res) => {
+    const id = SessionCollaborationIdSchema.safeParse(req.params.id);
+    if (!id.success) return res.status(400).json({ error: 'Invalid collaboration ID' });
+    try {
+      if (!messaging) throw new CollaborationContractError('execution_unavailable');
+      return res.json(
+        CollaborationProgressSchema.parse(
+          messaging.progress(recentAuthorizationSession(res)!, id.data),
+        ),
+      );
     } catch (error) {
       return failure(res, error);
     }

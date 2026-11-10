@@ -746,6 +746,74 @@ function finalizedAnswer(text = 'Retained answer', beforeEnd?: (id: string) => v
   return source;
 }
 
+function streamingAnswer(text: string) {
+  const messageId = randomUUID();
+  const source = {
+    commandId: 'initial-two',
+    messageId,
+    providerThreadId: 'thread',
+    providerTurnId: 'turn',
+  };
+  recordOrdinaryReplySource(
+    store,
+    'two',
+    source,
+    captureOrdinaryReplyExecution(store, 'two', source),
+  );
+  store.append('two', 'message_start', { messageId });
+  store.append('two', 'block_start', { messageId, blockId: 'text', blockType: 'text' });
+  store.append('two', 'block_delta', { messageId, blockId: 'text', delta: text });
+  return messageId;
+}
+
+it('recovers live text independently after an oversized source without finalizing or dispatching', () => {
+  retainedPrompt();
+  streamingAnswer('x'.repeat(100001));
+  streamingAnswer('Later eligible live text');
+  const progress = owner.progress(auth, group);
+  expect(progress.replies.map((r) => r.text)).toEqual(['Later eligible live text']);
+  expect(progress.refusals).toHaveLength(1);
+  expect(JSON.stringify(progress)).not.toMatch(/providerThread|providerTurn|initial-two/);
+  expect(store.collaborationConversation.view(group).messages).toHaveLength(1);
+  expect(prompts).toHaveLength(0);
+  expect(
+    new ApplicationCollaborationMessaging(
+      store,
+      port(async () => {}),
+    ).progress(auth, group),
+  ).toEqual(progress);
+});
+
+it.each(['hidden', 'unlink_rejoin', 'settings_changed', 'storage_error'])(
+  'renews live reply access and preserves unexpected failures: %s',
+  (scenario) => {
+    retainedPrompt();
+    streamingAnswer('Exact private-session visible text');
+    if (scenario === 'hidden') store.hideSession('two');
+    if (scenario === 'unlink_rejoin') {
+      store.setSessionCollaboration(group, { expectedRevision: 1, participantSessionIds: ['one'] });
+      store.setSessionCollaboration(group, {
+        expectedRevision: 2,
+        participantSessionIds: ['one', 'two'],
+      });
+    }
+    if (scenario === 'settings_changed') {
+      const settings = store.getOrdinaryConversationSettings('two')!;
+      vi.spyOn(store, 'getOrdinaryConversationSettings').mockReturnValue({
+        ...settings,
+        selection: { ...settings.selection, model: 'changed-model' },
+      });
+    }
+    if (scenario === 'storage_error') {
+      vi.spyOn(store, 'readOrdinaryStreamingReply').mockImplementation(() => {
+        throw Error('Unexpected live storage read');
+      });
+      expect(() => owner.progress(auth, group)).toThrow('Unexpected live storage read');
+    } else expect(owner.progress(auth, group).replies).toHaveLength(0);
+    expect(prompts).toHaveLength(0);
+  },
+);
+
 it.each([
   'providerThreadId',
   'providerTurnId',

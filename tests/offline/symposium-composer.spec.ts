@@ -62,6 +62,15 @@ for (const theme of ['dark', 'light'])
             },
           });
         if (path.endsWith('/conversation')) return route.fulfill({ json: view });
+        if (path.endsWith('/progress'))
+          return route.fulfill({
+            json: {
+              collaborationId: view.collaborationId,
+              membershipRevision: view.membershipRevision,
+              replies: [],
+              refusals: [],
+            },
+          });
         if (path.includes('/recipients/')) {
           const sessionId = decodeURIComponent(path.split('/').at(-1)!);
           const allowed = ready && sessionId === 'reviewer';
@@ -205,6 +214,26 @@ for (const theme of ['dark', 'light'])
             },
           });
         if (path.endsWith('/conversation')) return route.fulfill({ json: view });
+        if (path.endsWith('/progress'))
+          return route.fulfill({
+            json: {
+              collaborationId: view.collaborationId,
+              membershipRevision: view.membershipRevision,
+              replies:
+                original && !settled
+                  ? [
+                      {
+                        projectionId: uuid(91),
+                        sourceMessageId: 'live-reviewer-source',
+                        deliveryId: uuid(5),
+                        sessionId: 'reviewer',
+                        text: 'Reviewer is answering this exact prompt.',
+                      },
+                    ]
+                  : [],
+              refusals: [],
+            },
+          });
         if (path.includes('/recipients/'))
           return route.fulfill({
             json: {
@@ -309,6 +338,12 @@ for (const theme of ['dark', 'light'])
       await send.click();
       await expect(page.getByText(sharedReply.text)).toBeVisible();
       await expect(page.getByRole('button', { name: 'Check original request' })).toBeVisible();
+      await expect(page.getByText('Reviewer is answering this exact prompt.')).toBeVisible();
+      await expect(page.getByLabel('Message details for Reviewer')).toBeVisible();
+      await page.screenshot({
+        path: info.outputPath('multiple-responders-live-' + theme + '.png'),
+        fullPage: true,
+      });
       const stop = page.getByRole('button', { name: 'Stop generation' });
       await expect(stop).toBeVisible();
       if (isMobile) expect((await stop.boundingBox())!.height).toBeGreaterThanOrEqual(44);
@@ -319,6 +354,7 @@ for (const theme of ['dark', 'light'])
       await expect(composer).toHaveValue('Keep the next draft while the other agent is uncertain.');
       await expect(picker).toBeDisabled();
       await expect(page.getByText(/Stop was requested/)).toBeVisible();
+      await expect(page.getByText('Reviewer is answering this exact prompt.')).toBeVisible();
       expect(stops).toBe(1);
       await page.getByRole('button', { name: 'Check original request' }).click();
       expect(sends).toBe(1);

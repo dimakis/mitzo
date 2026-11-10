@@ -538,6 +538,32 @@ export const CollaborationViewSchema = z.strictObject({
     .optional(),
   execution: CollaborationExecutionSchema,
 });
+/** Observational live text. It is not a durable shared answer or delivery receipt. */
+export const CollaborationProgressSchema = z.strictObject({
+  collaborationId: SessionCollaborationIdSchema,
+  membershipRevision: sequence,
+  replies: z
+    .array(
+      z.strictObject({
+        projectionId: z.uuid(),
+        sourceMessageId: id,
+        deliveryId: z.uuid(),
+        sessionId: id,
+        text: z.string().min(1).max(100_000),
+      }),
+    )
+    .max(50),
+  refusals: z
+    .array(
+      z.strictObject({
+        deliveryId: z.uuid(),
+        sessionId: id,
+        code: z.enum(['capacity_refused', 'reply_unavailable']),
+      }),
+    )
+    .max(16),
+});
+export type CollaborationProgress = z.infer<typeof CollaborationProgressSchema>;
 export const CollaborationCursorSchema = z.strictObject({
   after: z.coerce
     .number()

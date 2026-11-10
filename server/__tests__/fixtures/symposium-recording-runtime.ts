@@ -19,6 +19,7 @@ export async function recordApplicationMessagingRuntime(events: EventStore) {
     );
   const requests: Array<{ method: string; params: Record<string, unknown> }> = [];
   const heldTurns = new Set<number>();
+  const streamTurns = new Map<number, (text: string) => void>();
   const pendingTurns = new Map<
     number,
     (status: 'completed' | 'failed', failure?: 'context') => void
@@ -114,12 +115,21 @@ export async function recordApplicationMessagingRuntime(events: EventStore) {
             const turnNumber = requests.filter((r) => r.method === 'turn/start').length;
             const turnId = `private-native-turn-${turnNumber}`;
             retainedTurn = { id: turnId, status: 'inProgress' };
+            streamTurns.set(turnNumber, (text) =>
+              lifecycle!.onNotification('item/agentMessage/delta', {
+                threadId,
+                turnId,
+                itemId: `native-answer-${turnNumber}`,
+                delta: text,
+              }),
+            );
             setTimeout(() => {
               lifecycle!.onNotification('turn/started', {
                 threadId,
                 turn: { id: turnId, status: 'inProgress' },
               });
               const finish = (status: 'completed' | 'failed', failure?: 'context') => {
+                streamTurns.delete(turnNumber);
                 const error =
                   failure === 'context'
                     ? { codex_error_info: 'context_window_exceeded' }
@@ -152,6 +162,11 @@ export async function recordApplicationMessagingRuntime(events: EventStore) {
   return {
     requests,
     holdTurn: (turnNumber: number) => heldTurns.add(turnNumber),
+    streamTurn: (turnNumber: number, text: string) => {
+      const emit = streamTurns.get(turnNumber);
+      if (!emit || !pendingTurns.has(turnNumber)) throw Error('Synthetic turn is not waiting');
+      emit(text);
+    },
     finishTurn: (turnNumber: number, status: 'completed' | 'failed', failure?: 'context') => {
       const finish = pendingTurns.get(turnNumber);
       if (!finish) throw Error('Synthetic turn is not waiting');

@@ -92,6 +92,34 @@ export class OrdinaryCollaborationReplies {
       this.read(source),
     );
   }
+  /** Live projection requires the pinned accepted execution, never a legacy
+   * unpinned mapping or unrelated session-wide text. Finalization stays separate. */
+  streaming(sessionId: string, commandId: string, messageId: string) {
+    const rows = this.store.getOrdinaryReplySourceEvents(sessionId, messageId);
+    if (!rows.length) return;
+    if (rows.length !== 1) throw new CollaborationContractError('reply_conflict');
+    const mapping = retainedSource(rows[0]);
+    if (mapping.version !== 2 || mapping.commandId !== commandId || mapping.messageId !== messageId)
+      throw new CollaborationContractError('reply_conflict');
+    const admission = ordinaryCodexCommandExecution(this.store, sessionId, commandId, {
+      historical: true,
+      fingerprint: mapping.executionFingerprint,
+    });
+    const message = this.store.readOrdinaryStreamingReply(sessionId, messageId);
+    if (!message) return;
+    const text = message.blocks.map((b) => b.content).join('\n\n');
+    if (!text.length) return;
+    if (!CollaborationMessageSchema.shape.text.safeParse(text).success)
+      throw new CollaborationContractError('capacity_refused');
+    return {
+      text,
+      settings: CollaborationSettingsSchema.parse({
+        binding: admission.binding,
+        selection: admission.selection,
+        repositoryWorkspaceId: admission.workspace.workspaceId,
+      }),
+    };
+  }
 
   private read(source: CollaborationMessageSource) {
     const mappings = this.store.getOrdinaryReplySourceEvents(
