@@ -126,12 +126,18 @@ vi.mock('@anthropic-ai/claude-agent-sdk', async (original) => ({
 }));
 
 const journey = createApplicationJourney({
+  additionalAccountIds: ['offline-api'],
   participant: {
     accountId: 'offline-claude',
     harness: 'claude-sdk',
     targetId: 'offline-claude-target',
   },
   configureExternalTarget: async (root, fresh) => {
+    const { KeychainCredentialProvider } = await import('../credentials.js');
+    vi.spyOn(KeychainCredentialProvider.prototype, 'resolve').mockImplementation(async (ref) => {
+      expect(ref).toEqual({ provider: 'keychain', service: 'offline-test', account: 'api' });
+      return 'synthetic-api-key';
+    });
     const config = join(root, 'claude-subscription');
     const executable = join(root, 'inert-claude');
     const target = join(root, 'claude-target.json');
@@ -168,6 +174,13 @@ const journey = createApplicationJourney({
         planType: 'max',
         models: [{ id: 'fixture-model', label: 'Offline Claude', reasoningEfforts: ['low'] }],
       });
+      accounts.push({
+        id: 'offline-api',
+        label: 'Separate API-key participant',
+        provider: 'openai',
+        credentialRef: { provider: 'keychain', service: 'offline-test', account: 'api' },
+        models: [{ id: 'fixture-model', label: 'Offline API', reasoningEfforts: ['low'] }],
+      });
       await writeFile(path, JSON.stringify(accounts), { mode: 0o600 });
     }
     vi.stubEnv('MITZO_ORDINARY_LOCAL_VERTEX_ENABLED', '1');
@@ -175,29 +188,35 @@ const journey = createApplicationJourney({
   },
 });
 afterAll(async () => {
-  if (journey.state.root) {
-    await writeFile(
-      '../claude-application-native.log',
-      await readFile(join(journey.state.root, 'app.log'), 'utf8'),
-    );
-    if (journey.state.joinedSessionId)
+  try {
+    if (journey.state.root) {
       await writeFile(
-        '../claude-application-state.json',
-        JSON.stringify(
-          {
-            inputs: observed.inputs,
-            events: journey.state.events.getSessionEvents(journey.state.joinedSessionId),
-          },
-          null,
-          2,
-        ),
+        '../claude-application-native.log',
+        await readFile(join(journey.state.root, 'app.log'), 'utf8'),
       );
+      if (journey.state.joinedSessionId)
+        await writeFile(
+          '../claude-application-state.json',
+          JSON.stringify(
+            {
+              inputs: observed.inputs,
+              events: journey.state.events.getSessionEvents(journey.state.joinedSessionId),
+            },
+            null,
+            2,
+          ),
+        );
+    }
+  } finally {
+    try {
+      await journey.close();
+    } finally {
+      vi.restoreAllMocks();
+    }
   }
-  await journey.close();
-  vi.restoreAllMocks();
 });
 
-it('silently joins a personal Claude subscription through the real app, then attributes its first and later explicitly requested answers', async () => {
+it('silently joins personal Claude alongside a separate API-key participant and attributes both first and later requested answers', async () => {
   const { api, events, group, joinedSessionId } = await journey.initializeReviewedJoin();
   (await import('../auth.js')).setAuthRevocationStore(events);
   expect(events.getSessionRuntimeBinding(joinedSessionId)!.account.provider).toBe(
@@ -215,6 +234,20 @@ it('silently joins a personal Claude subscription through the real app, then att
     repliesByDefault: false,
   });
   expect(await api.recipientReadiness(group, joinedSessionId)).toMatchObject({ ready: true });
+  const { recordApplicationMessagingRuntime } =
+    await import('./fixtures/symposium-recording-runtime.js');
+  const native = await recordApplicationMessagingRuntime(events);
+  const apiSessionId = await journey.joinReviewedParticipant({
+    accountId: 'offline-api',
+    harness: 'codex',
+    targetId: 'offline-observation',
+  });
+  expect(events.getSessionRuntimeBinding(apiSessionId)!.account).toMatchObject({
+    provider: 'openai',
+    accountId: 'offline-api',
+  });
+  expect(native.requests.filter((request) => request.method === 'turn/start')).toEqual([]);
+  expect(await api.recipientReadiness(group, apiSessionId)).toMatchObject({ ready: true });
   try {
     for (const text of ['Review this as personal Claude', 'Review the follow-up']) {
       const current = await api.view(group);
@@ -223,19 +256,34 @@ it('silently joins a personal Claude subscription through the real app, then att
         expectedMembershipRevision: current.membershipRevision,
         expectedPolicySequence: current.policySequence,
         text,
-        responders: { kind: 'selected' as const, sessionIds: [joinedSessionId] },
+        responders: { kind: 'selected' as const, sessionIds: [joinedSessionId, apiSessionId] },
         snapshot: null,
       };
       const accepted = await api.send(group, input);
       await vi.waitFor(async () => {
         const projected = await api.view(group);
+        const claudeDelivery = accepted.deliveries.find(
+          (delivery) => delivery.sessionId === joinedSessionId,
+        )!;
+        const apiDelivery = accepted.deliveries.find(
+          (delivery) => delivery.sessionId === apiSessionId,
+        )!;
         const answer = projected.messages.find(
-          (message) => message.replyToDeliveryId === accepted.deliveries[0].deliveryId,
+          (message) => message.replyToDeliveryId === claudeDelivery.deliveryId,
         );
         expect(answer).toMatchObject({
           text: 'Personal Claude reviewed the selected design.',
           author: { sessionId: joinedSessionId },
-          source: { commandId: accepted.deliveries[0].commandId },
+          source: { commandId: claudeDelivery.commandId },
+        });
+        expect(
+          projected.messages.find(
+            (message) => message.replyToDeliveryId === apiDelivery.deliveryId,
+          ),
+        ).toMatchObject({
+          text: 'Reviewed the selected design.',
+          author: { sessionId: apiSessionId },
+          source: { commandId: apiDelivery.commandId },
         });
         expect(JSON.stringify(answer)).not.toContain('private-claude');
         expect((await api.observeSend(group, input)).terminal).toBe(true);
@@ -245,11 +293,17 @@ it('silently joins a personal Claude subscription through the real app, then att
       expect(observed.inputs).toHaveLength(count);
     }
     expect(observed.inputs).toHaveLength(2);
+    expect(native.requests.filter((request) => request.method === 'turn/start')).toHaveLength(2);
     expect(observed.inputs[0].text).toContain('Edited brief retained exactly');
     expect(observed.inputs[1].text).toContain('Review the follow-up');
   } finally {
     const { registry } = await import('../chat.js');
-    const live = registry.findBySessionId(joinedSessionId);
-    if (live) registry.abort(live.clientId);
+    for (const sessionId of [joinedSessionId, apiSessionId]) {
+      const live = registry.findBySessionId(sessionId);
+      if (live) registry.abort(live.clientId);
+    }
+    const { getRepositoryWorkspaces } = await import('../repository-workspace-runtime.js');
+    await vi.waitFor(() => getRepositoryWorkspaces(true).closeIdle());
+    native.restore();
   }
 }, 30000);

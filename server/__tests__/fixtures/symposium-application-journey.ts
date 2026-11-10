@@ -48,6 +48,7 @@ class ApplicationJourneyState {
   reviewedSnapshot?: CollaborationSnapshot;
   reviewedSettings?: CollaborationSettings;
   joinedSessionId?: string;
+  sourceBoundary?: number;
   api!: CollaborationApiClient;
   retainedArtifact?: { artifactId: string; revision: number; sha256: string };
 }
@@ -56,6 +57,7 @@ export function createApplicationJourney(
   options: {
     retainedArtifactOwner?: boolean;
     participant?: { accountId: string; harness: 'codex' | 'claude-sdk'; targetId: string };
+    additionalAccountIds?: string[];
     configureExternalTarget?(root: string, fresh: boolean): Promise<void>;
   } = {},
 ) {
@@ -164,6 +166,7 @@ export function createApplicationJourney(
         ...new Set([
           'offline-personal',
           ...(options.participant ? [options.participant.accountId] : []),
+          ...(options.additionalAccountIds ?? []),
         ]),
       ],
     );
@@ -301,6 +304,7 @@ export function createApplicationJourney(
       text: 'Synthetic design requirement',
       privateProviderIdentity: 'DO_NOT_LEAK',
     });
+    state.sourceBoundary = boundary;
     state.api = new CollaborationApiClient(async (url, init) => {
       const result = await state.http!.request(init?.method ?? 'GET', url, {
         headers: { cookie: state.cookie },
@@ -321,13 +325,22 @@ export function createApplicationJourney(
       readsFutureDiscussion: true,
       repliesByDefault: true,
     });
-    const { ordinaryRepositoryRuntimeInventory } =
-      await import('../../ordinary-local-codex-entry.js');
     const participant = options.participant ?? {
       accountId: 'offline-personal',
       harness: 'codex' as const,
       targetId: 'offline-observation',
     };
+    state.joinedSessionId = await joinReviewedParticipant(participant);
+    return getApplicationJoiningJourney();
+  }
+  async function joinReviewedParticipant(participant: {
+    accountId: string;
+    harness: 'codex' | 'claude-sdk';
+    targetId: string;
+  }) {
+    if (state.sourceBoundary === undefined) throw Error('Source selection is unavailable');
+    const { ordinaryRepositoryRuntimeInventory } =
+      await import('../../ordinary-local-codex-entry.js');
     const account = ordinaryRepositoryRuntimeInventory(
       'local',
       participant.harness,
@@ -357,11 +370,12 @@ export function createApplicationJourney(
     );
     expect(prepared.status, JSON.stringify(prepared.body)).toBe(200);
     const library = (await import('../../agent-library-runtime.js')).getAgentLibrary();
+    const profileId = `acceptance-reviewer-${participant.accountId}`;
     library.saveDraft('user', {
-      profileId: 'acceptance-reviewer',
+      profileId,
       expectedVersion: 0,
       expectedRevision: 0,
-      idempotencyKey: 'draft',
+      idempotencyKey: `draft-${profileId}`,
       definition: {
         name: 'Reviewer',
         descriptor: 'Assistant',
@@ -373,9 +387,9 @@ export function createApplicationJourney(
       },
     });
     const published = library.publish('user', {
-      profileId: 'acceptance-reviewer',
+      profileId,
       expectedVersion: 1,
-      idempotencyKey: 'publish',
+      idempotencyKey: `publish-${profileId}`,
     });
     const auth = await (
       await import('../../auth.js')
@@ -387,9 +401,11 @@ export function createApplicationJourney(
     const { bindAgentLibraryTransport } = await import('../../agent-library-transport.js');
     claimTransportConnection(clientId, auth.id);
     const unbind = bindAgentLibraryTransport(clientId, auth);
+    const previous = state.releaseTransport;
     state.releaseTransport = () => {
       unbind();
       releaseTransportConnection(clientId, auth.id);
+      previous?.();
     };
     const current = await state.api.view(state.group);
     const reviewed = await state.api.review(state.group, clientId, {
@@ -397,7 +413,7 @@ export function createApplicationJourney(
         requestId: crypto.randomUUID(),
         expectedMembershipRevision: current.membershipRevision,
         sourceConversationId: 'existing-chat',
-        boundary: { sequence: boundary, messageId: 'selected-source' },
+        boundary: { sequence: state.sourceBoundary, messageId: 'selected-source' },
         mode: 'selected',
         messageIds: ['selected-source'],
         artifacts: [],
@@ -424,9 +440,9 @@ export function createApplicationJourney(
       snapshot: { snapshotId: reviewed.snapshot.snapshotId, sha256: reviewed.snapshot.sha256 },
     });
     expect(joined.state).toBe('linked');
-    state.joinedSessionId = joined.sessionId ?? undefined;
-    expect(state.events.getOrdinaryInitialCommandId(state.joinedSessionId!)).toBeUndefined();
-    return getApplicationJoiningJourney();
+    expect(joined.sessionId).toBeTruthy();
+    expect(state.events.getOrdinaryInitialCommandId(joined.sessionId!)).toBeUndefined();
+    return joined.sessionId!;
   }
 
   return {
@@ -435,6 +451,7 @@ export function createApplicationJourney(
     restartApplication,
     close: closeJourney,
     initializeReviewedJoin,
+    joinReviewedParticipant,
     getApplicationJoiningJourney,
     getApplicationUiJourney,
   };

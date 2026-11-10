@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.1019-symposium-personal-claude-application';
+  'v1.0.1021-symposium-personal-claude-with-api-participant';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -24,7 +24,7 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/collaboration-application-claude.test.ts':
-    '49dbfc43659f8a935a774025c2f98f456486f204ac84298caacf342b137b12d6',
+    '62d966724a6d6077b6c56d87c2cf0ba90787b656e38de7d452f340d6b1eb8b9d',
   '../../packages/protocol/__tests__/ordinary-prepared-session.test.ts':
     'b1bf505e86982c1cbe08cf944f7a4a7b37bb0a018edb2fce08bb639b92300649',
   '../__tests__/ordinary-local-vertex-command-owner.test.ts':
@@ -132,7 +132,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../telos-workflow-instructions.ts':
     '59d645411cb6188f5bf30e1c1855b19dad46c2661314c9c54f66717f8ed13518',
   '../__tests__/fixtures/symposium-application-journey.ts':
-    '9ed7fece16f31305e4504473d64d88a888f16903b33cf63c4188e7ceb4d46c43',
+    '1c70c6d9563dad8c80e75b8f000cffc26e6b51fa8382ae8de2d65ebf04d7a5f7',
   '../../tests/acceptance/symposium-application-wiring.repro.ts':
     'afd78db0b4b669d8bbee322f1cb4ae03e3fd3bf1cab85fb9f969b37cf6401ce7',
   '../../tests/offline/symposium-footer.spec.ts':
@@ -261,7 +261,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/collaboration-application-ui.test.tsx':
     '222bd49671c68390d21df14b8c0619090fac0ce4bbe84b024e7edf1b4e36a767',
   '../__tests__/fixtures/symposium-recording-runtime.ts':
-    '237c22ad940b03e1868ab29bd5ba4ff6fa209c7d53fdfa508243318a4d167fcc',
+    'a4abaac2bb70cce41376bc1fe62d1bba1d6c98e6a9fdc9b93bbc265c7084390f',
   '../../tests/fixtures/symposium-composer.tsx':
     '3e821497de4f4088e1610134821046e992e81117e897cb1c30864ccc2ff6b8ad',
   '../../tests/offline/symposium-composer.spec.ts':
@@ -2620,7 +2620,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../ordinary-local-vertex-command-owner.ts':
     '5f2c6a3599ce7121ba5a300eb01ecedfd99d2385cc71d4f64d9889055240d604',
   '../ordinary-local-vertex-capabilities.ts':
-    '7dcefe25f67916052c4168f2aad3bdb9afbb10c7a1220ea0e8ebeb03dd8d7d55',
+    'd9cd623dfe805b6d1ca38ec88af090d3cc8fdba2f3c01faed1e6cce01bd14c69',
   '../ordinary-local-vertex-queue.ts':
     '88bb60d3aa850ed8a51088e0c428b4ad499e1465bfcf330c08789c4abe53b00f',
   '../ordinary-local-vertex-sdk-process.ts':
