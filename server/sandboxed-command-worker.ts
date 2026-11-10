@@ -44,14 +44,17 @@ interface WorkerDependencies {
   spawn: typeof spawn;
   platform?: NodeJS.Platform;
   wrapFilesystem?: (command: string, config: SandboxRuntimeConfig) => Promise<string>;
+  wrapPrivateFile?: (command: string, config: SandboxRuntimeConfig) => Promise<string>;
+}
+
+async function macOSWrapper() {
+  const require = createRequire(import.meta.url);
+  const directory = dirname(require.resolve('@anthropic-ai/sandbox-runtime'));
+  return import(pathToFileURL(join(directory, 'sandbox', 'macos-sandbox-utils.js')).href);
 }
 
 async function wrapFilesystemOnly(command: string, config: SandboxRuntimeConfig): Promise<string> {
-  const require = createRequire(import.meta.url);
-  const directory = dirname(require.resolve('@anthropic-ai/sandbox-runtime'));
-  const { wrapCommandWithSandboxMacOS } = await import(
-    pathToFileURL(join(directory, 'sandbox', 'macos-sandbox-utils.js')).href
-  );
+  const { wrapCommandWithSandboxMacOS } = await macOSWrapper();
   return wrapCommandWithSandboxMacOS({
     command,
     commandId: randomUUID(),
@@ -64,6 +67,34 @@ async function wrapFilesystemOnly(command: string, config: SandboxRuntimeConfig)
     allowAppleEvents: false,
     allowPty: true,
     allowGitConfig: true,
+    readConfig: {
+      denyOnly: config.filesystem.denyRead,
+      allowWithinDeny: config.filesystem.allowRead,
+    },
+    writeConfig: {
+      allowOnly: config.filesystem.allowWrite,
+      denyWithinAllow: config.filesystem.denyWrite,
+    },
+  });
+}
+
+/** Fixed file operations need no proxy, listener or general network capability.
+ * Use the same SRT macOS policy generator as the private repository reader,
+ * with all networking denied. The worker still owns byte/custody verification
+ * after wrapping, and the parent still joins and revalidates the original owner.
+ */
+async function wrapPrivateFile(command: string, config: SandboxRuntimeConfig): Promise<string> {
+  const { wrapCommandWithSandboxMacOS } = await macOSWrapper();
+  return wrapCommandWithSandboxMacOS({
+    command,
+    commandId: randomUUID(),
+    binShell: '/bin/sh',
+    needsNetworkRestriction: true,
+    allowAllUnixSockets: false,
+    allowLocalBinding: false,
+    allowAppleEvents: false,
+    allowPty: false,
+    enableWeakerNetworkIsolation: false,
     readConfig: {
       denyOnly: config.filesystem.denyRead,
       allowWithinDeny: config.filesystem.allowRead,
@@ -138,11 +169,31 @@ export async function runSandboxedWorker(
   }
 
   const config = SandboxRuntimeConfigSchema.parse(payload.config);
+  const directPrivateFile =
+    payload.privateNativeFileRequestJson !== undefined &&
+    (dependencies.platform ?? process.platform) === 'darwin';
+  if (
+    directPrivateFile &&
+    (payload.env !== undefined ||
+      config.network.allowedDomains.length > 0 ||
+      config.network.allowLocalBinding ||
+      config.network.allowAllUnixSockets ||
+      (config.network.allowUnixSockets?.length ?? 0) > 0 ||
+      config.network.httpProxyPort !== undefined ||
+      config.network.socksProxyPort !== undefined ||
+      config.credentials !== undefined ||
+      config.filesystem.disabled ||
+      config.enableWeakerNetworkIsolation ||
+      config.enableWeakerNestedSandbox ||
+      config.allowAppleEvents)
+  )
+    throw Error('Invalid private native file isolation');
+  const useManager = !payload.filesystemOnly && !directPrivateFile;
   const dependenciesCheck = manager.checkDependencies();
   if (dependenciesCheck.errors.length || dependenciesCheck.warnings.length)
     throw new Error('Complete OS sandbox dependencies are unavailable');
   try {
-    if (!payload.filesystemOnly) {
+    if (useManager) {
       if (payload.networkAccess === 'approved-command')
         // This is a general network command grant, not a hostname-only security
         // boundary. SRT retains its proxy, explicit deny rules and socket policy.
@@ -191,9 +242,11 @@ export async function runSandboxedWorker(
       : payload.command;
     const wrapped = payload.filesystemOnly
       ? await (dependencies.wrapFilesystem ?? wrapFilesystemOnly)(command, config)
-      : await manager.wrapWithSandbox(command, undefined, undefined, undefined, {
-          commandId: randomUUID(),
-        });
+      : directPrivateFile
+        ? await (dependencies.wrapPrivateFile ?? wrapPrivateFile)(command, config)
+        : await manager.wrapWithSandbox(command, undefined, undefined, undefined, {
+            commandId: randomUUID(),
+          });
     // Wrapping initializes network/mount policy asynchronously. Recheck only
     // after it completes, with no await before the actual sandboxed command spawn.
     authority.verify();
@@ -213,7 +266,7 @@ export async function runSandboxedWorker(
       child.once('close', (code, signal) => resolve(signal ? 255 : (code ?? 255)));
     });
   } finally {
-    if (!payload.filesystemOnly) await manager.reset();
+    if (useManager) await manager.reset();
   }
 }
 
