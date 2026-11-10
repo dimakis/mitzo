@@ -36,7 +36,7 @@ export function SessionChatLinks({
     };
   }, []);
   async function newChat() {
-    if (disabled || busy || !sessionId) return;
+    if (disabled || busy || !sessionId || !data) return;
     setBusy(true);
     setError('');
     const controller = new AbortController();
@@ -81,7 +81,7 @@ export function SessionChatLinks({
     }
   }
   async function changeLink(target: string, remove = false) {
-    if (disabled || busy || !sessionId) return;
+    if (disabled || busy || !sessionId || !data) return;
     setBusy(true);
     setError('');
     try {
@@ -115,6 +115,13 @@ export function SessionChatLinks({
   const requests = data?.requests ?? [];
   const links = data?.links ?? [];
   const observed = draft && requests.find((request) => request.requestId === draft.requestId);
+  if (!data)
+    return (
+      <section className="session-links">
+        <h3>Linked chats</h3>
+        <p className="workspace-muted">Linked chats are unavailable for this conversation.</p>
+      </section>
+    );
   return (
     <section className="session-links">
       <div className="session-links-heading">
@@ -151,7 +158,7 @@ export function SessionChatLinks({
           <button
             type="button"
             className="header-action"
-            disabled={disabled || busy}
+            disabled={disabled || busy || !sessionId}
             aria-label={`Unlink ${link.title || 'chat'}`}
             onClick={() => setUnlink(link.sessionId)}
           >
@@ -200,7 +207,7 @@ export function SessionChatLinks({
           <input
             value={search.query}
             onChange={(event) => search.setQuery(event.target.value)}
-            disabled={disabled || busy}
+            disabled={disabled || busy || !sessionId}
           />
         </label>
         {search.searching && <p role="status">Searching…</p>}
@@ -218,7 +225,7 @@ export function SessionChatLinks({
               key={result.sessionId}
               type="button"
               className="session-links-new"
-              disabled={busy || disabled}
+              disabled={busy || disabled || !sessionId}
               onClick={() => void changeLink(result.sessionId)}
             >
               {result.summary || 'Untitled chat'}

@@ -1613,7 +1613,7 @@ function DesktopChatViewContent() {
             />
           )}
           <SessionAccess
-            launches={sessionLaunch}
+            launches={isSymposium ? undefined : sessionLaunch}
             disabled={controlsBlocked || localRuntime.metadataPending}
             sessionId={repositoryHandoff.present ? undefined : (activeSessionId ?? undefined)}
             selection={accountSelection}
@@ -1883,7 +1883,7 @@ function DesktopChatViewContent() {
                 showHeader: isSymposium,
                 actions: (
                   <SessionAccess
-                    launches={sessionLaunch}
+                    launches={isSymposium ? undefined : sessionLaunch}
                     disabled={controlsBlocked || localRuntime.metadataPending}
                     sessionId={activeSessionId ?? undefined}
                     selection={accountSelection}

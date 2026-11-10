@@ -1641,7 +1641,7 @@ function ChatViewContent() {
             />
           )}
           <SessionAccess
-            launches={sessionLaunch}
+            launches={isSymposium ? undefined : sessionLaunch}
             disabled={controlsBlocked || localRuntime.metadataPending}
             sessionId={repositoryHandoff.present ? undefined : (activeSessionId ?? undefined)}
             selection={accountSelection}
@@ -1916,7 +1916,7 @@ function ChatViewContent() {
             actions: (
               <>
                 <SessionAccess
-                  launches={sessionLaunch}
+                  launches={isSymposium ? undefined : sessionLaunch}
                   disabled={controlsBlocked || localRuntime.metadataPending}
                   sessionId={activeSessionId ?? undefined}
                   selection={accountSelection}

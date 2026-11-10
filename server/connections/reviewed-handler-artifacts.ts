@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.992-cohesive-chat-ux';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.993-cohesive-chat-ux';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -27,11 +27,11 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/components/ReplyQuote.tsx':
     'd2728dd99f2dfcf0251957530f6532daece3739e565f2aff55dc3b748974c0f2',
   '../../frontend/src/components/SessionChatLinks.tsx':
-    '00626b536ca590ff4910cb333cc1ebaea8e2a11fba195c26a70762d1a1a5d5f5',
+    '104ba575dd9a650d64b37107fdfd39bcf876219e200aabd598ef5c0d2c7e9030',
   '../../frontend/src/components/ApprovalRequestSummary.tsx':
     'aa0a489ed12d7a4794433024b5cdc177c512499a4e5a238ff709734b4e27968f',
   '../../frontend/src/lib/approval-presentation.ts':
-    '430f75f2a7885feef1e64b640f2c7c56ca177a846a97e543128c6c2412e67c00',
+    '47e987448277c4b1ba4deebafcfcb785ca6a510a969ce5ffe42eb06052ff4a57',
   '../../frontend/src/styles/chat-sheets.css':
     '9a3be3111f15f5d790b2272b5fd4233171571e72795b954e5d8baa2a353a8f85',
   '../../frontend/src/styles/header-actions.css':
@@ -43,7 +43,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/components/__tests__/ApprovalRequestSummary.test.tsx':
     'de68b3c132924a24357c2dcffa1f3ea4c6bdb3dcab7216fc7548b952abea3e82',
   '../../frontend/src/components/__tests__/ApprovalUnknownScope.test.tsx':
-    'df41aa60927d47438972d387973013ed9199457ad21ef1610e669d4465cc92a3',
+    '9327c3e15751c4b320a637487a8d20b608e70eaffd501da58577c4a76f97b232',
   '../__tests__/session-chat-links.test.ts':
     'e99cd89830ae0aefc42fd42d23cbc5e1a216ad5a6b789a2e1491cfc8547f6b81',
   '../telos-workflow-instructions.ts':
@@ -2069,9 +2069,9 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/lib/reviewed-outbox-storage.ts':
     '02ce00775f32bd078ae0ffe379ca17f367d2b3d5e1a1c5c9b8274e9755d949f9',
   '../../frontend/src/pages/ChatView.tsx':
-    '2c7d4ed888d9ae43be6cbc53f4572ffda1e29480f5b19cee225d83f13ca17f5a',
+    'e393e632a02963e197566a139dd4c6c699a1c213575db739cc303120bc6988ab',
   '../../frontend/src/pages/DesktopChatView.tsx':
-    '9876fa8842e804253d959c293897b6fb97787e9f4842a96576e112d98228e71e',
+    '8aa38ddeb205544489399d74d10e9710369832ddaa55c6e07ae1793611b61e63',
   '../../frontend/src/types/workspace.ts':
     'c54ac596082365496ebf53ca12ce1602b792acfd09092a216285aa69dd38c162',
   '../../packages/client/src/send-outbox.ts':

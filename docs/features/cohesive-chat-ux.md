@@ -30,6 +30,9 @@ agent editor or its admission, account and lifecycle behavior.
   Permissions, Connections and technical session details. Permissions and
   Connections have Back navigation; grant edits remain mounted between panes.
   Links never grant access. Manual unlinking changes navigation only.
+  Symposium retains its agent controls and Permissions/Connections access, but
+  does not offer linked-chat mutations or ordinary-chat startup: those routes
+  support ordinary conversations only.
 - New chat loads saved defaults without starting anything. Explicit Approve &
   start creates the retained launch under the existing controller. The request ID,
   frozen input, runtime validation, default-save transaction and startup claim
@@ -51,6 +54,9 @@ agent editor or its admission, account and lifecycle behavior.
   request details. Unknown shapes keep open details rather than inventing a scope.
   This includes unknown top-level/tool fields, such as sandbox-disabling flags,
   and incomplete or conflicting permission fields.
+  Known native envelopes include the real callback identity and timestamp. Tool
+  identity and method must match before details collapse; unfamiliar MCP tools
+  retain the open original even when their fields resemble a shell command.
   Long commands retain their full text. Decision buttons are outside the scroll
   body in Inbox and the popup; question and Telos source review behavior is kept.
 - Timers show a bounded title and collapsed full prompt. Delete requires explicit

@@ -34,6 +34,7 @@ const nativeFields = [
   'threadId',
   'turnId',
   'itemId',
+  'startedAtMs',
   'approvalId',
   'environmentId',
   'kind',
@@ -78,7 +79,7 @@ function knownPermissionScope(value: unknown) {
 }
 
 /** Display only: never modifies an input, response, permission or authority decision. */
-export function approvalPresentation(input: string, _toolName?: string) {
+export function approvalPresentation(input: string, toolName?: string) {
   let data: Record<string, unknown> = {};
   try {
     data = object(JSON.parse(input));
@@ -149,11 +150,29 @@ export function approvalPresentation(input: string, _toolName?: string) {
       ? `Run ${executable && executable.length <= 30 ? executable : 'command'}${network.enabled === true ? ' with network access' : ''}`
       : undefined;
   const incompleteCommand = data.method === 'item/commandExecution/requestApproval' && !command;
+  const nativeTools: Record<string, string[]> = {
+    'item/commandExecution/requestApproval': ['NativeCommandApproval', 'CodexNativeCommand'],
+    'item/fileChange/requestApproval': ['NativeFileApproval'],
+    'item/permissions/requestApproval': ['NativePermissionsApproval'],
+  };
+  // Field names alone cannot identify an arbitrary MCP tool's permission schema.
+  const knownTool = native
+    ? toolName == null || (nativeTools[text(data.method)]?.includes(toolName) ?? false)
+    : toolName === 'Bash';
   const knownInput =
     knownFields(
       data,
       native
-        ? ['runtimeId', 'environmentId', 'requestId', 'id', 'method', 'params', 'fileChangePaths']
+        ? [
+            'runtimeId',
+            'environmentId',
+            'requestId',
+            'id',
+            'method',
+            'params',
+            'fileChangePaths',
+            'subagent',
+          ]
         : presentedFields,
     ) &&
     knownFields(params, native ? nativeFields : presentedFields) &&
@@ -180,6 +199,7 @@ export function approvalPresentation(input: string, _toolName?: string) {
     reason: text(params.reason),
     recognized:
       facts.length > 0 &&
+      knownTool &&
       knownInput &&
       (native || !!command) &&
       knownPermissionScope(rawPermissions) &&
