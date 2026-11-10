@@ -16,6 +16,8 @@ import { mergeSessionActivities } from '../lib/session-activity';
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { useSavedChatDrafts } from '../hooks/useSavedChatDrafts';
+import { chatDraftUrl } from '../lib/chat-drafts';
+import { formatRelativeTime } from '../lib/formatTime';
 import '../styles/chat-drafts.css';
 import type { Session } from '../types/chat';
 import { SessionActivityStatus } from '../components/SessionActivityStatus';
@@ -630,15 +632,28 @@ export function SessionList() {
             }}
           />
           {drafts.length > 0 && (
-            <Link to="/sessions/drafts" className="conversation-drafts-link">
-              <UiIcon name="edit" />
-              <span>
-                <strong>Drafts</strong>
-                <span className="workspace-muted">Pick up where you left off</span>
-              </span>
-              <span className="conversation-draft-count">{drafts.length}</span>
-              <UiIcon name="forward" size={16} />
-            </Link>
+            <details className="conversation-drafts-section">
+              <summary>
+                <UiIcon name="down" size={16} />
+                <UiIcon name="edit" size={16} />
+                <span>Drafts</span>
+                <span className="conversation-drafts-count">{drafts.length}</span>
+              </summary>
+              {drafts.slice(0, 3).map((draft) => (
+                <Link key={draft.id} to={chatDraftUrl(draft)} className="conversation-draft-row">
+                  <span>{draft.text.trim().split('\n')[0].slice(0, 90) || 'Untitled draft'}</span>
+                  <small>Saved {formatRelativeTime(draft.updatedAt)}</small>
+                </Link>
+              ))}
+              <Link
+                to="/sessions/drafts"
+                className="conversation-drafts-all"
+                aria-label={`All Drafts (${drafts.length})`}
+              >
+                All drafts
+                <UiIcon name="forward" size={16} />
+              </Link>
+            </details>
           )}
           {importOpen && (
             <SdkConversationImport
