@@ -1,18 +1,26 @@
 import { useLayoutEffect, useRef, type ReactNode } from 'react';
-import { useLocation } from 'react-router-dom';
+import { useLocation, useNavigationType } from 'react-router-dom';
 import { animateMotion } from '../lib/motion';
 import { useReducedMotion } from '../hooks/useReducedMotion';
 
 /** Stable boundary: never key routes or keep old pages/subscriptions mounted for motion. */
 export function MotionRoutes({ children }: { children: ReactNode }) {
-  const { pathname } = useLocation();
+  const { pathname, state } = useLocation();
+  const navigationType = useNavigationType();
   const previous = useRef(pathname);
   const ref = useRef<HTMLDivElement>(null);
   const reduced = useReducedMotion();
   useLayoutEffect(() => {
     const changed = previous.current !== pathname;
+    // First-command acknowledgement names the surface already on screen. It
+    // must not hide the submitted message behind another navigation fade.
+    const assignedChat =
+      navigationType === 'REPLACE' &&
+      previous.current === '/chat' &&
+      /^\/chat\/[^/]+$/.test(pathname) &&
+      state?.chatAssignment === true;
     previous.current = pathname;
-    if (!changed || reduced || !ref.current) return;
+    if (!changed || assignedChat || reduced || !ref.current) return;
     const root = ref.current;
     let animation: Animation | null = null;
     const start = () => {
@@ -33,7 +41,7 @@ export function MotionRoutes({ children }: { children: ReactNode }) {
       observer.disconnect();
       animation?.cancel();
     };
-  }, [pathname, reduced]);
+  }, [pathname, state, navigationType, reduced]);
   return (
     <div className="motion-routes" ref={ref}>
       {children}

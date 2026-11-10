@@ -19,6 +19,26 @@ Mint/System and Teal/Georgia, keyboard completion, 44px controls, narrow bounds,
 navigation recovery and lost acknowledgements. See
 [implementation evidence and remaining verification](../features/personal-claude-local.md#verification-status).
 
+## Heading, disclosure and icon roles
+
+Collection page titles use `--text-collection-title` on desktop and
+`--text-page-title` on phones. Focused pane headings retain the compact
+`--text-pane-title` role; Terminal, conversation headers and item navigation
+are intentionally more compact than collection pages. Section headings use
+`--text-section-title`; collection disclosure labels and list captions use
+`--text-section-label`. Keep font, theme and accent preferences effective.
+
+Buttons and native summaries that disclose equivalent collection groups use
+`collection-section-toggle`. Pinned and Drafts share label weight/line height,
+padding, count alignment, 16px inline icons and the shared control height.
+Header actions use the common 20px glyph box in `header-actions.css`, independently
+of legacy inline-size requests. Icon size does not determine touch-target size.
+Do not add a page-specific scale to repair one instance of a shared role.
+
+This consistency pass was requested and approved by Dimitri on 10 November 2026.
+The existing row/disclosure patterns and approved settings layout are preserved.
+See [scope, audit and verification](../features/ui-smoothness.md).
+
 ## Resizable desktop columns
 
 DesktopShell owns the navigation, conversations and resources column widths.
