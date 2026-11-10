@@ -5,6 +5,7 @@ import {
   selectedTelosDatabaseFiles,
 } from '@mitzo/protocol/telos-sqlite-owners';
 import { initializeTelosRuntimeSchema, TelosRuntimeStore } from './telos-runtime-store.js';
+import { verifyTelosRecoveryArchive } from './telos-recovery-archive.js';
 
 function entryExists(path: string): boolean {
   try {
@@ -19,7 +20,8 @@ function entryExists(path: string): boolean {
 function retainedRecoveryEvidence(path: string): boolean {
   if (
     entryExists(join(dirname(path), '.telos-file-owners')) ||
-    entryExists(path + '.migration.json')
+    entryExists(path + '.migration.json') ||
+    entryExists(path + '.recovery.json')
   )
     return true;
   try {
@@ -59,6 +61,7 @@ export function ensureTelosRuntimeStorage(legacyRepo: string) {
       throw Error('Private owned Telos runtime database required');
     const owner = openTelosOwnedDatabase('canonical', path, { fileMustExist: true });
     try {
+      verifyTelosRecoveryArchive(path, owner.database);
       const columns = new Set(
         (owner.database.pragma('table_info(items)') as Array<{ name: string }>).map(
           (column) => column.name,
