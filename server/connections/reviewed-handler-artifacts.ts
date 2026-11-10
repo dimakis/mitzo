@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.988-cohesive-chat-ux';
+  'v1.0.989-cohesive-chat-ux';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -30,7 +30,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/components/ApprovalRequestSummary.tsx':
     'aa0a489ed12d7a4794433024b5cdc177c512499a4e5a238ff709734b4e27968f',
   '../../frontend/src/lib/approval-presentation.ts':
-    '19a7d61c60a2da244b6b28cabd6a111f26143a1fcb6e577375fc861a14db80d6',
+    'e90bba64403b659a2b2a645d27ce12090e35b02a798e5ca91b698fe78359d88b',
   '../../frontend/src/styles/chat-sheets.css':
     '9a3be3111f15f5d790b2272b5fd4233171571e72795b954e5d8baa2a353a8f85',
   '../../frontend/src/styles/header-actions.css':
@@ -40,7 +40,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/components/__tests__/ChatReplyContext.test.tsx':
     'f1e48af400bd7406686eed96f860b47794509c083ea1a2cf86972cbbee7fe60d',
   '../../frontend/src/components/__tests__/ApprovalRequestSummary.test.tsx':
-    'de68b3c132924a24357c2dcffa1f3ea4c6bdb3dcab7216fc7548b952abea3e82',
+    'a834e3d0cbe8440ef22c29cf628cfff7ade76994e1d6d9dff4c19c2dc60b3f7a',
   '../__tests__/session-chat-links.test.ts':
     'e99cd89830ae0aefc42fd42d23cbc5e1a216ad5a6b789a2e1491cfc8547f6b81',
   '../__tests__/fixtures/symposium-application-journey.ts':

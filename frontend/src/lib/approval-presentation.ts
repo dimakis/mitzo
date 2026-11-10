@@ -8,6 +8,46 @@ const strings = (value: unknown) =>
   Array.isArray(value) && value.every((item) => typeof item === 'string')
     ? (value as string[])
     : [];
+const knownFields = (value: unknown, keys: string[]) =>
+  value == null ||
+  (typeof value === 'object' &&
+    !Array.isArray(value) &&
+    Object.keys(value).every((key) => keys.includes(key)));
+const pathList = (value: unknown) =>
+  value == null ||
+  (Array.isArray(value) && value.every((path) => typeof path === 'string' && path.length > 0));
+
+/** Unfamiliar nested scope must retain the open original, even with a known command. */
+function knownPermissionScope(value: unknown) {
+  const permissions = object(value),
+    network = object(permissions.network),
+    files = permissions.fileSystem ?? permissions.file_system,
+    fileSystem = object(files);
+  return (
+    knownFields(value, ['network', 'fileSystem', 'file_system']) &&
+    knownFields(permissions.network, ['enabled']) &&
+    (network.enabled == null || typeof network.enabled === 'boolean') &&
+    knownFields(files, ['read', 'write', 'entries']) &&
+    pathList(fileSystem.read) &&
+    pathList(fileSystem.write) &&
+    (fileSystem.entries === undefined ||
+      (Array.isArray(fileSystem.entries) &&
+        fileSystem.entries.every((raw) => {
+          const entry = object(raw),
+            path = object(entry.path);
+          return (
+            knownFields(raw, ['path', 'access']) &&
+            ['read', 'write', 'deny'].includes(text(entry.access)) &&
+            ((path.type === 'path' &&
+              knownFields(entry.path, ['type', 'path']) &&
+              !!text(path.path)) ||
+              (path.type === 'glob_pattern' &&
+                knownFields(entry.path, ['type', 'pattern']) &&
+                !!text(path.pattern)))
+          );
+        })))
+  );
+}
 
 /** Display only: never modifies an input, response, permission or authority decision. */
 export function approvalPresentation(input: string, _toolName?: string) {
@@ -27,9 +67,9 @@ export function approvalPresentation(input: string, _toolName?: string) {
   const params = native ? object(data.params) : data;
   const command = text(params.command) || text(params.cmd);
   const directory = text(params.cwd) || text(params.workdir);
-  const permissions = object(
-    params.additionalPermissions ?? params.additional_permissions ?? params.permissions,
-  );
+  const rawPermissions =
+    params.additionalPermissions ?? params.additional_permissions ?? params.permissions;
+  const permissions = object(rawPermissions);
   const network = object(permissions.network);
   const fileSystem = object(permissions.fileSystem ?? permissions.file_system);
   const context = object(params.networkApprovalContext);
@@ -80,14 +120,11 @@ export function approvalPresentation(input: string, _toolName?: string) {
     native && command
       ? `Run ${executable && executable.length <= 30 ? executable : 'command'}${network.enabled === true ? ' with network access' : ''}`
       : undefined;
-  const unknownPermissions = Object.keys(permissions).some(
-    (key) => !['network', 'fileSystem', 'file_system'].includes(key),
-  );
   const incompleteCommand = data.method === 'item/commandExecution/requestApproval' && !command;
   return {
     facts,
     heading,
     reason: text(params.reason),
-    recognized: facts.length > 0 && !unknownPermissions && !incompleteCommand,
+    recognized: facts.length > 0 && knownPermissionScope(rawPermissions) && !incompleteCommand,
   };
 }
