@@ -195,46 +195,48 @@ export function LaunchReview({
     >
       <div className="session-launch-form">
         <p>Review the handoff before starting.</p>
-        <fieldset disabled={busy || attempted || Boolean(frozen.current) || disabled || !pending}>
-          <label>
-            Title
-            <input
-              value={frozen.current?.title ?? title}
-              maxLength={160}
-              onChange={(event) => setTitle(event.target.value)}
-            />
-          </label>
-          <label>
-            Handoff prompt
-            <textarea
-              value={frozen.current?.prompt ?? prompt}
-              maxLength={32000}
-              onChange={(event) => setPrompt(event.target.value)}
-            />
-          </label>
-          <details className="session-launch-settings">
-            <summary>
-              <span>Session settings</span>
-              <ConfigSummary configuration={frozen.current?.configuration ?? configuration} />
-            </summary>
-            <SessionLaunchConfigEditor
-              configuration={frozen.current?.configuration ?? configuration}
-              onChange={updateConfiguration}
-              disabled={busy || attempted || Boolean(frozen.current) || disabled || !pending}
-              onValidityChange={setInvalid}
-            />
-          </details>
-          {pending && (
-            <label className="session-launch-check">
+        <div className="session-launch-fields">
+          <fieldset disabled={busy || attempted || Boolean(frozen.current) || disabled || !pending}>
+            <label>
+              Title
               <input
-                type="checkbox"
-                checked={frozen.current?.saveAsDefault ?? saveAsDefault}
-                onChange={(event) => setSaveAsDefault(event.target.checked)}
+                value={frozen.current?.title ?? title}
+                maxLength={160}
+                onChange={(event) => setTitle(event.target.value)}
               />
-              Save configuration as default
             </label>
-          )}
-        </fieldset>
+            <label>
+              Handoff prompt
+              <textarea
+                value={frozen.current?.prompt ?? prompt}
+                maxLength={32000}
+                onChange={(event) => setPrompt(event.target.value)}
+              />
+            </label>
+            <details className="session-launch-settings">
+              <summary>
+                <span>Session settings</span>
+                <ConfigSummary configuration={frozen.current?.configuration ?? configuration} />
+              </summary>
+              <SessionLaunchConfigEditor
+                configuration={frozen.current?.configuration ?? configuration}
+                onChange={updateConfiguration}
+                disabled={busy || attempted || Boolean(frozen.current) || disabled || !pending}
+                onValidityChange={setInvalid}
+              />
+            </details>
+            {pending && (
+              <label className="session-launch-check">
+                <input
+                  type="checkbox"
+                  checked={frozen.current?.saveAsDefault ?? saveAsDefault}
+                  onChange={(event) => setSaveAsDefault(event.target.checked)}
+                />
+                Save configuration as default
+              </label>
+            )}
+          </fieldset>
+        </div>
         {invalid && pending && <p role="status">{invalid}</p>}
         {disabled && <p role="status">Confirming conversation settings before approval.</p>}
         {error && <p role="alert">{error}</p>}

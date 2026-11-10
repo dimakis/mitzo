@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.994-cohesive-chat-ux';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.995-cohesive-chat-ux';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -322,9 +322,9 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../docs/features/agent-session-launch.md':
     '71b144750badf018e68914898f19d20119430da2b120d4921f8dbb35cc86fe37',
   '../../frontend/src/components/SessionLaunchCards.css':
-    '584ffca4868e57cc02ed915c93b028d7ed91b533c55cd18a2eceecb2dadad6bc',
+    '6aee8d4e7e2a40b1228e5e27523806cc854f78ecca2dbc7c27899b73e8dafc32',
   '../../frontend/src/components/SessionLaunchCards.tsx':
-    '5877eb0979b54f40c5132251cc4c52acb2a02e705826435873f0b763e24dddb8',
+    'aa629dc82dc6804706eca377ad350561c847b5ff5e7fae79efec86c5ce4c4748',
   '../../frontend/src/components/SessionLaunchConfigEditor.tsx':
     'adc918627df552780b413cddb35a2163611e68e0f03b7f1ca61da87026cc9044',
   '../../frontend/src/components/SessionLaunchDefaultsControl.tsx':
@@ -389,7 +389,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../tests/offline/session-launch-defaults.spec.ts':
     'ae3c090d73c638be6fbac36b79e6587416a2cd96837af2daf67dcb59b6434b35',
   '../../tests/offline/session-launch.spec.ts':
-    '5a226491c53e25796bf23542c5de81e38805ab9781e08606bf26b594d3f9150d',
+    'c26fcc73cd06cf96c500042452716c1dec9fb5e239efd104101d40c9823edd03',
   '../host-codex-login-refresh-ledger.ts':
     'c85951c34922072589a206af17b55dfc57e400e440b9d1348e98b8a482e84bea',
   '../host-codex-login-recovery-command.ts':

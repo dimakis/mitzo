@@ -86,6 +86,13 @@
 .session-launch-form p {
   margin: 0;
 }
+/* Keep fieldset sizing inside a regular flex scroll box so decisions stay visible. */
+.session-launch-fields {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
 .session-launch-form fieldset {
   display: grid;
   gap: var(--space-4);
@@ -93,10 +100,8 @@
   margin: 0;
   padding: 0;
   border: 0;
-  overflow-y: auto;
-  overscroll-behavior: contain;
 }
-.session-launch-form > :not(fieldset) {
+.session-launch-form > :not(.session-launch-fields) {
   flex-shrink: 0;
 }
 .session-launch-event-label {
