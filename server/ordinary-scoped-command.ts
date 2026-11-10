@@ -104,10 +104,14 @@ export async function dispatchOwnedOrdinaryCommand(input: OwnedOrdinaryDispatchI
       const ownerAuthSessionId = input.ownerAuthSessionId;
       if (!ownerAuthSessionId) throw Error('Exact ordinary operator identity required');
       return continuation && existing
-        ? sendOwnedLocalVertexCommand(common)
+        ? sendOwnedLocalVertexCommand({
+            ...common,
+            ordinaryTurnLifecycle: input.ordinaryTurnLifecycle,
+          })
         : startOwnedLocalVertexCommand(input.transport, input.clientId, {
             ...startup,
             ownerAuthSessionId,
+            ordinaryTurnLifecycle: input.ordinaryTurnLifecycle,
           });
     }
     case 'gemini':
