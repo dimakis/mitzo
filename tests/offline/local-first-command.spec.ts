@@ -495,7 +495,7 @@ async function assertWorkspaceHeadingFits(page: Page) {
     page.locator('.workspace-controls-context').boundingBox(),
     toggle.boundingBox(),
     toggle.locator('[data-icon="settings"]').boundingBox(),
-    page.getByRole('button', { name: 'Access', exact: true }).boundingBox(),
+    page.getByRole('button', { name: 'Links & access', exact: true }).boundingBox(),
   ]);
   expect(context).not.toBeNull();
   expect(settings).not.toBeNull();

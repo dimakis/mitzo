@@ -37,6 +37,8 @@ interface TimerEnvelope {
   timer: SessionTimer;
   auth: AuthSession;
   deliveryId: string | null;
+  /** Removal hides the timer; receipts and request deduplication retain their identity. */
+  deleted?: true;
 }
 type JsonRow = { data: string };
 
@@ -161,7 +163,9 @@ export class SessionPromptStore {
         .prepare('SELECT data FROM session_prompt_timers ORDER BY rowid DESC')
         .all() as JsonRow[]
     )
-      .map((row) => (JSON.parse(row.data) as TimerEnvelope).timer)
+      .map((row) => JSON.parse(row.data) as TimerEnvelope)
+      .filter((envelope) => !envelope.deleted)
+      .map((envelope) => envelope.timer)
       .filter((timer) => !sessionId || timer.sessionId === sessionId);
   }
   create(
@@ -208,7 +212,11 @@ export class SessionPromptStore {
         timer = envelope.timer;
       if (timer.revision !== input.expectedRevision)
         throw new SessionPromptError('Timer changed. Refresh before trying again.');
-      if (timer.status === 'cancelled' || timer.status === 'completed')
+      if (envelope.deleted) throw new SessionPromptError('Timer was deleted.', 404);
+      if (
+        input.action !== 'delete' &&
+        (timer.status === 'cancelled' || timer.status === 'completed')
+      )
         throw new SessionPromptError('This timer has ended. Create another timer.');
       if (input.action === 'resume' && timer.status === 'active')
         throw new SessionPromptError('This timer is already active.');
@@ -216,23 +224,24 @@ export class SessionPromptStore {
       if (
         previous &&
         ['dispatching', 'uncertain'].includes(previous.state) &&
-        !['pause', 'cancel'].includes(input.action)
+        !['pause', 'cancel', 'delete'].includes(input.action)
       )
         throw new SessionPromptError(
           'Delivery is uncertain. Check the original receipt before resuming.',
         );
       timer.revision++;
       timer.updatedAt = now;
-      if (input.action === 'cancel' || input.action === 'pause' || input.action === 'update') {
+      if (['cancel', 'pause', 'update', 'delete'].includes(input.action)) {
         if (previous?.state === 'pending') {
           previous.state = 'cancelled';
           this.saveDelivery(previous);
           envelope.deliveryId = null;
         }
       }
-      if (input.action === 'pause' || input.action === 'cancel') {
+      if (input.action === 'pause' || input.action === 'cancel' || input.action === 'delete') {
         timer.status = input.action === 'pause' ? 'paused' : 'cancelled';
         timer.nextRunAt = null;
+        if (input.action === 'delete') envelope.deleted = true;
       } else if (input.action === 'resume') {
         timer.status = 'active';
         timer.lastError = null;

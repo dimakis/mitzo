@@ -5,6 +5,7 @@ import { HomeDialog } from './HomeDialog';
 import { apiFetch } from '../lib/api-fetch';
 import { createBrowserId } from '../lib/browser-crypto';
 import '../styles/session-timers.css';
+import '../styles/chat-sheets.css';
 
 const Sessions = z.array(z.object({ sessionId: z.string(), title: z.string() }));
 type Form = {
@@ -26,7 +27,10 @@ const when = (value: number | null) =>
         hour: '2-digit',
         minute: '2-digit',
       });
-const title = (timer: SessionTimer) => timer.prompt.split('\n')[0];
+const title = (timer: SessionTimer) => {
+  const first = timer.prompt.trim().split('\n')[0];
+  return first.length > 90 ? `${first.slice(0, 90)}…` : first;
+};
 const status = (timer: SessionTimer) =>
   ({
     active:
@@ -73,6 +77,7 @@ export function SessionTimersDialog({
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [notice, setNotice] = useState('');
+  const [deleteTarget, setDeleteTarget] = useState<SessionTimer | null>(null);
   const [filter, setFilter] = useState('all');
   const [form, setForm] = useState<Form | null>(initiallyCreating ? newForm() : null);
   const retry = useRef<{ fingerprint: string; requestId: string } | null>(null);
@@ -146,10 +151,16 @@ export function SessionTimersDialog({
         }),
       );
       retry.current = null;
-      setTimers((previous) => [result, ...previous.filter((t) => t.id !== result.id)]);
-      setSelected(result.id);
+      const removing = 'action' in input && input.action === 'delete';
+      setTimers((previous) =>
+        removing
+          ? previous.filter((t) => t.id !== result.id)
+          : [result, ...previous.filter((t) => t.id !== result.id)],
+      );
+      setSelected(removing ? null : result.id);
+      setDeleteTarget(null);
       setForm(null);
-      setNotice('Timer saved.');
+      setNotice(removing ? 'Timer deleted.' : 'Timer saved.');
     } catch (failure) {
       if (
         failure instanceof TimerHttpError &&
@@ -206,19 +217,22 @@ export function SessionTimersDialog({
       });
   }
   function back() {
+    setDeleteTarget(null);
     setForm(null);
     setSelected(null);
     setError(null);
     retry.current = null;
     void load();
   }
-  const heading = form
-    ? form.editing
-      ? 'Edit timer'
-      : 'Schedule a prompt'
-    : timer
-      ? 'Timer details'
-      : 'Timers';
+  const heading = deleteTarget
+    ? 'Delete timer?'
+    : form
+      ? form.editing
+        ? 'Edit timer'
+        : 'Schedule a prompt'
+      : timer
+        ? 'Timer details'
+        : 'Timers';
   const patch = (values: Partial<Form>) =>
     setForm((current) => current && { ...current, ...values });
   return (
@@ -247,7 +261,12 @@ export function SessionTimersDialog({
             {notice}
           </p>
         )}
-        {form ? (
+        {deleteTarget ? (
+          <div className="session-timer-delete-confirm">
+            <p>{title(deleteTarget)}</p>
+            <p>Future checks stop. Prompts already sent remain in the chat.</p>
+          </div>
+        ) : form ? (
           <div className="session-timer-form">
             <label>
               Prompt
@@ -354,7 +373,11 @@ export function SessionTimersDialog({
             <p className="session-timer-status" data-status={timer.status}>
               {status(timer)} · Every {timer.intervalMinutes} minutes
             </p>
-            <p className="session-timer-prompt">{timer.prompt}</p>
+            <h3 className="session-timer-title">{title(timer)}</h3>
+            <details className="session-timer-full-prompt">
+              <summary>Full prompt</summary>
+              <p className="session-timer-prompt">{timer.prompt}</p>
+            </details>
             <dl className="session-timer-metadata">
               <div>
                 <dt>Session</dt>
@@ -469,7 +492,31 @@ export function SessionTimersDialog({
         )}
       </div>
       <footer>
-        {form ? (
+        {deleteTarget ? (
+          <>
+            <button
+              type="button"
+              className="home-secondary"
+              disabled={saving}
+              onClick={() => setDeleteTarget(null)}
+            >
+              Keep timer
+            </button>
+            <button
+              type="button"
+              className="home-primary home-danger"
+              disabled={saving}
+              onClick={() =>
+                void mutate(`/api/session-timers/${encodeURIComponent(deleteTarget.id)}`, {
+                  expectedRevision: deleteTarget.revision,
+                  action: 'delete',
+                })
+              }
+            >
+              {saving ? 'Deleting…' : 'Confirm delete'}
+            </button>
+          </>
+        ) : form ? (
           <button
             type="button"
             className="home-primary"
@@ -478,15 +525,27 @@ export function SessionTimersDialog({
           >
             {saving ? 'Saving…' : form.editing ? 'Save changes' : 'Create timer'}
           </button>
-        ) : timer && !['cancelled', 'completed'].includes(timer.status) ? (
-          <button
-            type="button"
-            className="home-secondary home-danger"
-            disabled={saving}
-            onClick={() => action('cancel')}
-          >
-            Cancel timer
-          </button>
+        ) : timer ? (
+          <>
+            {!['cancelled', 'completed'].includes(timer.status) && (
+              <button
+                type="button"
+                className="home-secondary home-danger"
+                disabled={saving}
+                onClick={() => action('cancel')}
+              >
+                Cancel timer
+              </button>
+            )}
+            <button
+              type="button"
+              className="home-secondary home-danger"
+              disabled={saving}
+              onClick={() => setDeleteTarget(timer)}
+            >
+              Delete timer
+            </button>
+          </>
         ) : (
           !timer && (
             <button

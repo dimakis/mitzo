@@ -1355,8 +1355,7 @@ test('Settings previews and persists every accent and font across navigation and
   await page.goto('/sessions');
   expect(
     await page
-      .locator('.workspace-primary')
-      .first()
+      .getByRole('button', { name: 'New chat', exact: true })
       .evaluate((element) => getComputedStyle(element).color),
   ).toBe(accent);
   expect(
@@ -2056,7 +2055,7 @@ test('combined conversation empty and failed status retain Access and drafts wit
   await page.goto('https://mitzo-ui.test/chat/offline-symposium');
   await expect(page.getByRole('textbox', { name: 'Message Mitzo', exact: true })).toBeDisabled();
   await expect(page.locator('.chat-input[aria-busy="true"]')).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Access', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Links & access', exact: true })).toBeVisible();
   await page.screenshot({
     path: testInfo.outputPath('symposium-loading.png'),
     animations: 'disabled',
@@ -2074,7 +2073,7 @@ test('combined conversation empty and failed status retain Access and drafts wit
   await page.reload();
   await expect(page.getByText('Offline status unavailable', { exact: true })).toBeVisible();
   await expect(page.getByRole('combobox', { name: 'Message recipient' })).toHaveCount(0);
-  await expect(page.getByRole('button', { name: 'Access', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Links & access', exact: true })).toBeVisible();
   await page.screenshot({
     path: testInfo.outputPath('symposium-error.png'),
     animations: 'disabled',

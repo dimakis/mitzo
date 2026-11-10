@@ -74,9 +74,45 @@ export class SessionLaunchStore {
       request_id TEXT NOT NULL, child_session_id TEXT, data TEXT NOT NULL,
       UNIQUE(owner,source_session_id,request_id));
       CREATE INDEX IF NOT EXISTS idx_session_launch_child ON session_launch_requests(child_session_id);`);
+    this.db.exec(`CREATE TABLE IF NOT EXISTS session_chat_links (
+      owner TEXT NOT NULL, first_id TEXT NOT NULL, second_id TEXT NOT NULL,
+      first_title TEXT NOT NULL, second_title TEXT NOT NULL,
+      PRIMARY KEY(owner,first_id,second_id));`);
   }
   close() {
     this.db.close();
+  }
+  /** Symmetric navigation only: never an authorization, launch or copied history. */
+  link(owner: string, first: string, second: string, firstTitle: string, secondTitle: string) {
+    if (first === second) throw new SessionLaunchError('Choose a different chat.', 400);
+    if (first > second)
+      [first, second, firstTitle, secondTitle] = [second, first, secondTitle, firstTitle];
+    this.db
+      .prepare('INSERT OR IGNORE INTO session_chat_links VALUES(?,?,?,?,?)')
+      .run(owner, first, second, firstTitle, secondTitle);
+  }
+  unlink(owner: string, first: string, second: string) {
+    if (first > second) [first, second] = [second, first];
+    this.db
+      .prepare('DELETE FROM session_chat_links WHERE owner=? AND first_id=? AND second_id=?')
+      .run(owner, first, second);
+  }
+  linked(sessionId: string, owner: string): Array<{ sessionId: string; title: string }> {
+    const rows = this.db
+      .prepare(
+        'SELECT first_id,second_id,first_title,second_title FROM session_chat_links WHERE owner=? AND (first_id=? OR second_id=?) ORDER BY rowid DESC',
+      )
+      .all(owner, sessionId, sessionId) as Array<{
+      first_id: string;
+      second_id: string;
+      first_title: string;
+      second_title: string;
+    }>;
+    return rows.map((row) =>
+      row.first_id === sessionId
+        ? { sessionId: row.second_id, title: row.second_title }
+        : { sessionId: row.first_id, title: row.first_title },
+    );
   }
   private read(id: string): Envelope {
     const row = this.db

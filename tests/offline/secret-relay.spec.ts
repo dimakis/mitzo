@@ -97,7 +97,7 @@ async function mount(page: Page, light: boolean, adapters = false) {
     jsx: 'automatic',
     outfile: 'relay.js',
     define: { 'import.meta.env': '{}' },
-    external: ['/mitzo-wordmark.png', '/openshell-mark.svg', '/github-mark.svg'],
+    external: ['/*.png', '/*.svg'],
   });
   const captures: Array<{ path: string; body: unknown }> = [];
   let current = {

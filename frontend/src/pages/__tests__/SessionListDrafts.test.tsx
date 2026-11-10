@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { afterEach, expect, it, vi } from 'vitest';
 import { SessionList } from '../SessionList';
@@ -55,6 +55,8 @@ it('shows a counted Drafts destination and removes update controls from Chats', 
       <SessionList />
     </MemoryRouter>,
   );
+  expect(screen.getByText('Drafts').closest('summary')).toBeTruthy();
+  fireEvent.click(screen.getByText('Drafts').closest('summary')!);
   expect(screen.getByRole('link', { name: /Drafts/ }).getAttribute('href')).toBe(
     '/sessions/drafts',
   );

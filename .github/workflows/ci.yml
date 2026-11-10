@@ -355,6 +355,13 @@ jobs:
             test-results/offline/**/shared-composer-*.png
             test-results/offline/**/sandbox-removal-*.png
             test-results/offline/**/reusable-access-*.png
+            test-results/offline/**/native-approval-*.png
+            test-results/offline/**/approval-*.png
+            test-results/offline/**/empty-access-*.png
+            test-results/offline/**/connections-*.png
+            test-results/offline/**/stale-access.png
+            test-results/offline/**/unknown-runtime-*.png
+            test-results/offline/**/references.png
           retention-days: 7
           if-no-files-found: warn
 

@@ -31,6 +31,14 @@ private reasoning, tool data and provider identifiers. Partial text recovers aft
 remount without inference; finalization replaces only that exact live source.
 Auth loss clears it immediately, and only verified restoration renews observation.
 
+An observer without a local send also renews the authorized finalized transcript
+on each live sample, including turns that finish entirely between samples. Remote
+membership drift discards mismatched live text and renews the view before observing
+its new audience. Background reads keep draft controls usable and yield synchronously
+to an explicit read; they grant no inference or command control. The application
+observer regression covers a live-to-final handoff, a remote membership change and
+a fast external reply with no local request journal or manual refresh.
+
 Offline application evidence covers two independent same-account sessions,
 partial failure, an explicit selected retry and uncertainty after reload. Hosted
 CI, browser renders and trusted current-head review remain required before landing.

@@ -15,6 +15,7 @@ import { UiIcon } from './UiIcon';
 import { AccountModelPicker } from './AccountModelPicker';
 import { ChatAgentProfilePicker } from './ChatAgentProfilePicker';
 import './ConversationAgents.css';
+import '../styles/header-actions.css';
 import { ConversationRepositoryPicker } from './ConversationRepositoryPicker';
 
 export interface ConversationAgent {
@@ -144,7 +145,7 @@ function ConversationAgentsBody({
           {leading}
           <button
             type="button"
-            className="conversation-participants-trigger"
+            className={`conversation-participants-trigger${compact ? ' header-action' : ''}`}
             aria-label={`Agents${names ? ', ' + names : ''}`}
             aria-expanded={open}
             onClick={(event) => {
@@ -153,7 +154,7 @@ function ConversationAgentsBody({
               setOpen(true);
             }}
           >
-            <UiIcon name={agents.length > 1 ? 'agents' : 'bot'} />
+            <UiIcon name={compact || agents.length <= 1 ? 'bot' : 'agents'} />
             {!compact && (
               <span>
                 <strong>
@@ -184,8 +185,7 @@ function ConversationAgentsBody({
                 <small>{agents.length > 1 ? 'Shared discussion' : 'Agent chat'}</small>
               </span>
             )}
-            {compact && <span>Agents</span>}
-            <UiIcon name="down" />
+            {!compact && <UiIcon name="down" />}
           </button>
           {actions}
         </div>
