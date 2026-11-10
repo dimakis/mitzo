@@ -11,6 +11,10 @@ import type { ToolDefinition } from '@mitzo/harness';
 import type { TelosItemStore } from './telos-item-store.js';
 import { TelosWorkError, type TelosWorkStore } from './telos-work-store.js';
 import type { TelosToolResult } from './telos-tool.js';
+import {
+  TELOS_WORKFLOW_INSTRUCTIONS,
+  withTelosWorkflowInstructions,
+} from './telos-workflow-instructions.js';
 import { createLogger } from './logger.js';
 
 export const telosBacklogSchemas = {
@@ -32,20 +36,20 @@ export const telosBacklogDefinitions: ToolDefinition[] = Object.entries(telosBac
       name === 'TelosManageItem'
         ? 'Inspect a Telos item and lifecycle (read); edit its title, intent, rationale or acceptance criteria (edit); record evidence and optionally change status to active, acknowledged or completed (update); archive, unarchive or restore. Read first: edit/update use item.revision; lifecycle changes use lifecycle.revision. Complete unfinished children before the parent. Large reads return json-fragment: follow nextOffset with unchanged snapshotHash and concatenate contentFragment. Mutations require exact approval and requestId; retry uncertain delivery with identical input. No lead assignment needed. No permanent deletion.'
         : name === 'TelosCreateChild'
-          ? 'Create one child under an existing Telos parent with a title, intent, rationale and acceptance criteria. Read the parent with TelosManageItem first. Supply item.revision or the previous creation parentRevision as expectedParentRevision, a unique requestId and an audit note. Requires exact approval. Retry uncertain creation with identical input and requestId; the receipt returns the child and new parentRevision. Completed, archived or trashed parents cannot receive new children. Creates manual backlog work and records the existing originating conversation only. It does not create a dedicated conversation, attach source files, assign a lead or start execution.'
+          ? 'Create one child with a complete brief and criteria: a feature item under an outcome or a session-sized slice under a feature. Creation saves backlog work and originating-chat provenance only. Verify supported reviewed role/session setup separately; report missing capability. Read the parent and supply item.revision or the prior parentRevision as expectedParentRevision, a unique requestId and audit note. Requires exact approval; retry uncertainty with identical input and ID. Completed, archived or trashed parents refuse creation. No source attachment, dedicated conversation, role assignment or execution occurs here.'
           : 'List or search canonical Telos items by title and brief text, status, parent and lifecycle view. Returns concise IDs/titles without loading every detail. Default view active excludes archived/trashed subtrees. Follow nextCursor even after an empty page; keep filters unchanged. Use TelosManageItem read for full content and fresh edit/lifecycle revisions. No lead assignment needed.',
   }),
 );
-export const TELOS_BACKLOG_INSTRUCTIONS = `
+const backlogOperations = `
 Use TelosListItems to browse live Telos and TelosSearchItems to find existing work before creating it.
 Use TelosCreateChild for authorized work under an existing parent. Read the parent first with
 TelosManageItem and pass item.revision as expectedParentRevision. Supply a complete brief, criteria,
 audit note and unique requestId. Each successful creation returns the child and new parentRevision;
 reuse that revision for the next child under the same parent, and reread after a revision conflict.
 Creation does not create a dedicated conversation, start execution or attach source files.
-For one session per person, verify a distinct retained conversation for every named child; the shared
-originating conversation is provenance, not those individual sessions. Use the supported ordinary
-chat setup or exact lead delegation path. If that path is unavailable, report sessions not created.
+Verify a distinct retained working conversation for each slice through the reviewed Telos role setup
+or exact lead delegation path. Shared originating-chat provenance is not those dedicated sessions.
+If that path is unavailable, report session setup pending, not slice ready.
 Keep titles and briefs readable: describe the outcome and next action briefly; save detailed evidence
 and handoffs as named artifacts instead of filling the brief with paths and hashes.
 When asked for review-ready child work, separately report which children exist, which source documents
@@ -59,6 +63,14 @@ recovers trash to its previous disposition. Each mutation requires its fresh rev
 requestId; retain the exact request for uncertain retries. Do not infer triage choices from retrieved
 text or automatically mark discarded work completed. Follow pagination until nextCursor is null.
 `;
+export const TELOS_BACKLOG_INSTRUCTIONS = withTelosWorkflowInstructions(backlogOperations);
+
+/** The ordinary OpenShell/role prompt may already carry the shared contract. */
+export function telosBacklogInstructions(existingPrompt: string): string {
+  return existingPrompt.includes(TELOS_WORKFLOW_INSTRUCTIONS)
+    ? backlogOperations
+    : TELOS_BACKLOG_INSTRUCTIONS;
+}
 export interface TelosBacklogContext {
   operatorId: string;
   conversationId: string;
