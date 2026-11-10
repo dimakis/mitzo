@@ -22,6 +22,29 @@ another parent/phase tree merely because an old document describes unfinished wo
 
 For any user-facing UI change, read [the UI design contract](docs/design/ui-design-system.md) and `frontend/AGENTS.md` before implementation. It applies to new features, existing pages, mobile and web in every session. Reuse shared tokens and components; keep palette/font definitions in `frontend/src/styles/tokens.css`, and use the shared spacing/type/radius scales. UI work is incomplete without the contract's validation and PR evidence. Evolve a missing shared pattern in the same PR rather than inventing a competing page theme.
 
+## Choose the UI pattern before the container
+
+Default to the simplest existing pattern: rows for collections/navigation, transcript
+entries for conversation events, and the shared sheet/dialog for focused review.
+Do not wrap every new feature in a rounded bordered or tinted card. A card must
+represent a distinct actionable unit whose grouping helps the user; matching theme
+tokens alone does not make a new container consistent with the app.
+
+Before implementing, name the existing pattern being reused. Show new relationships
+with readable chat names and, for replies, an exact-source quote with author/time and
+navigation back to that source. Keep technical identifiers in details. Successful
+historical actions belong in the transcript or a related list, not a permanent stack
+above the composer. Keep actionable failures and uncertainty visible.
+
+Read the relevant UI design contract and approved-design entry. If the requested
+redesign changes a prescribed pattern, update that rule in the same reviewed change;
+do not leave contradictory card-first instructions. Mock proposals are not approval
+of an implementation. Preserve existing actions, drafts, status ownership, appearance
+preferences and accessibility; extend shared components instead of creating a parallel
+visual system. Theme, accent and font come from the user’s current settings;
+reference screenshots do not lock those choices. Report actual visual verification
+and any unverified rendering.
+
 ## Staging stood down on this Mac
 
 As of 15 October 2026, canonical Mitzo staging and its pipeline are stood down.
