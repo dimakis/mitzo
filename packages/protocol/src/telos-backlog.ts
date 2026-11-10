@@ -71,6 +71,14 @@ export const TelosManageItemInputSchema = z.discriminatedUnion('operation', [
   }),
   TelosEditItemInputSchema.safeExtend({ operation: z.literal('edit') }),
   z.strictObject({
+    operation: z.literal('update'),
+    itemId: id,
+    requestId: id,
+    expectedRevision: revision,
+    status: z.enum(['active', 'acknowledged', 'completed']).optional(),
+    note: z.string().trim().min(1).max(4000),
+  }),
+  z.strictObject({
     operation: z.enum(['archive', 'unarchive', 'restore']),
     itemId: id,
     requestId: id,

@@ -13,7 +13,7 @@ const state = vi.hoisted(() => ({
 }));
 vi.mock('node:os', async (original) => {
   const os = await original<typeof import('node:os')>();
-  return { ...os, homedir: () => state.home ?? os.homedir() };
+  return { ...os, homedir: () => state.home ?? join(os.tmpdir(), 'mitzo-offline-user-home') };
 });
 vi.mock('../account-profiles.js', () => ({
   loadAccountProfiles: () => {
@@ -28,7 +28,9 @@ vi.mock('../knowledge-library-private-paths.js', () => ({
   },
 }));
 vi.mock('../workspace-runtime-private-paths.js', () => ({
+  registerWorkspaceRuntimeAuthorityPaths: vi.fn(),
   workspaceRuntimeAuthorityPaths: () => state.authority,
+  workspaceRuntimeNativeAuthorityPaths: () => [...state.authority, ...state.selectors],
   workspaceRuntimeSelectorEntries: () => state.selectors,
   workspaceRuntimePrivateFiles: () => [],
 }));

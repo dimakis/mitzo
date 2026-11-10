@@ -33,6 +33,7 @@ import {
   assertTelosWorkCommandAdmission,
 } from './telos-work-command-scope.js';
 import { TelosWorkStore } from './telos-work-store.js';
+import { telosDatabasePath } from './telos-database.js';
 import { isAvailableTelosWorkConversation } from './telos-work-conversation.js';
 import { assertAgentToolRoute, bindAgentToolSelection } from './agent-tool-selection.js';
 import {
@@ -109,6 +110,7 @@ import { SESSION_TOOL_INSTRUCTIONS } from './session-credential-tools.js';
 import { isRegisteredConversation } from '@mitzo/protocol';
 import { clearWebSearchGrant } from './web-search-grants.js';
 import { codexRuntimeDiagnostic, codexRuntimeErrorTelemetry } from './codex-runtime-diagnostics.js';
+import { retainCodexPreparationFailure } from './codex-preparation-failure.js';
 import {
   createGithubPublishingTool,
   GITHUB_PUBLISHING_INSTRUCTIONS,
@@ -263,8 +265,7 @@ export function resolveOwnedTelosWorkCommandScope(sessionId: string, forNewComma
         getCodexConversationStore().hasAcceptedProviderTurn(id, account),
       work: () => {
         if (work) return work;
-        const path =
-          process.env.TELOS_DB_PATH || join(BASE_REPO, 'command_center', 'data', 'smart_todo.db');
+        const path = telosDatabasePath(BASE_REPO);
         const policy = {
           ordinaryConversation: (id: string) =>
             isAvailableTelosWorkConversation(eventStore.getSession(id)),
@@ -828,6 +829,7 @@ function sdkChildEnvironmentBase(): Record<string, string> {
   // The approved publisher uses these on the controller; models must not inherit them.
   delete env.GH_TOKEN;
   delete env.GITHUB_TOKEN;
+  delete env.MITZO_TELOS_IMPORT_TOKEN;
   return env;
 }
 
@@ -1306,6 +1308,10 @@ export async function startChat(
   // repository, registry or transport effects. Keep one generated message ID so
   // the native path cannot later select an unchecked conversation identity.
   const initialMessageId = options.clientMsgId ?? randomUUID();
+  eventStore.deployment.assertAdmission(
+    options.resume ?? options.initialSessionId ?? clientId,
+    initialMessageId,
+  );
   const onStartupAdmission = options.onStartupAdmission;
   let startupAdmissionSettled = false;
   options = {
@@ -3993,7 +3999,7 @@ export async function prepareOwnedCodexChat(
         : { repositoryWorkspace: workspace }),
     });
   } catch (error) {
-    throw findSessionRuntimeError(error) ?? unavailable();
+    throw retainCodexPreparationFailure('runtime_admission', error);
   }
 
   const { expected, workspace, payload, profile } = selected;
@@ -4226,11 +4232,20 @@ export async function prepareOwnedCodexChat(
   } catch (error) {
     try {
       close();
-    } catch {
-      /* Retain uncertainty even if shutdown cannot finish. */
+    } catch (cleanupError) {
+      log.warn('Owned Codex preparation cleanup remains unconfirmed', {
+        sessionId,
+        clientMsgId: commandId,
+        cleanupFailureCode: 'owned_preparation_cleanup_failed',
+        ...codexRuntimeErrorTelemetry(retainCodexPreparationFailure('runtime_connection', error)),
+        cleanup: codexRuntimeErrorTelemetry(
+          retainCodexPreparationFailure('runtime_connection', cleanupError),
+        ),
+      });
     }
     throw (
-      findNativeMacExecutionUnavailable(error) ?? findSessionRuntimeError(error) ?? unavailable()
+      findNativeMacExecutionUnavailable(error) ??
+      retainCodexPreparationFailure('runtime_connection', error)
     );
   } finally {
     releaseStartup?.();
@@ -4633,6 +4648,7 @@ export async function sendToChat(
   return withSpanAsync('chat.send', { 'chat.clientId': clientId }, async () => {
     if (signal?.aborted) return false;
     const session = registry.get(clientId);
+    eventStore.deployment.assertAdmission(session?.sessionId ?? clientId, clientMsgId);
     if (session?.sessionId && eventStore.getSessionRuntimeBinding(session.sessionId))
       throw new Error('Runtime-bound commands require guarded admission');
     if (session?.sessionId)

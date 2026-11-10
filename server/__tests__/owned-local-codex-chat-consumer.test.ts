@@ -19,6 +19,7 @@ import * as operatorTransport from '../agent-library-transport.js';
 import { authenticateToken, login, setAuthRevocationStore } from '../auth.js';
 import { AdviserTaskScope } from '../adviser-task-scope.js';
 import { SessionRuntimeError } from '../session-runtime-error.js';
+import { CodexStartupError } from '../codex-startup-error.js';
 
 const nativeQueues = vi.hoisted(() => new WeakMap<object, { startQueued(): Promise<void> }>());
 vi.mock('../codex-chat-session.js', () => ({
@@ -606,15 +607,17 @@ it('supports existing detach/reattach and Stop while retaining the same claimed 
 
 it('retains uncertainty and tears down only the new session after native startup fails', async () => {
   const f = fixture();
-  vi.mocked(openCodexChat).mockRejectedValue(new Error('private provider contents'));
-  await expect(
-    chat.prepareOwnedLocalCodexChat(f.transport, f.id, f.input, f.serverOptions),
-  ).rejects.toThrow('Owned local Codex chat unavailable');
+  const original = new Error('private provider contents');
+  vi.mocked(openCodexChat).mockRejectedValue(original);
+  const pending = chat.prepareOwnedLocalCodexChat(f.transport, f.id, f.input, f.serverOptions);
+  await expect(pending).rejects.toBeInstanceOf(CodexStartupError);
+  await expect(pending).rejects.toMatchObject({ phase: 'runtime_connection', cause: original });
   expect(chat.registry.get(f.id)).toBeUndefined();
   expect(f.events.getOrdinaryLocalCommandAdmission(f.commandId)?.state).toBe('uncertain');
   expect(f.events.getSession(f.id)?.repositoryWorkspaceId).toBe(f.input.workspace.id);
   expect(f.events.getSession(f.id)?.state).toBe('ENDED');
   expect(f.lease.close).toHaveBeenCalledOnce();
+  expect(JSON.stringify(f.transport.send.mock.calls)).not.toContain(original.message);
 });
 
 it('bounds a native stream failure, closes ownership and preserves the consumed receipt', async () => {

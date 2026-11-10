@@ -1,5 +1,24 @@
 # Mitzo UI design contract
 
+## Resizable desktop columns
+
+DesktopShell owns the navigation, conversations and resources column widths.
+The shared ResizeDivider supports pointer capture, keyboard arrows, Home/End
+and double-click reset. Collapsed/absent panels have no divider. The conversation
+preview reuses it with its existing percentage limits. Widths persist as optional
+browser preferences; unavailable storage keeps changes in the current tab and
+shows one quiet status with a sanitized structured console diagnostic. Window
+resizing fits expanded panels around a usable center without overwriting their
+saved widths. Resizing never remounts the chat or composer.
+
+Desktop assistant responses fill the available pane inside the shared page
+gutter. Tables wrap long summaries on both desktop and phone, retaining their
+scroll wrapper for intrinsically wide content. The user explicitly requested
+these width changes on 9 November 2026; the existing settings, status, message
+actions and mobile navigation designs are preserved. Divider widths, panel
+bounds and center budget are structural geometry; surfaces, focus, spacing and
+type use the shared semantic tokens. See [scope and validation](../features/desktop-panel-layout.md).
+
 ## Native Watch approvals
 
 Watch approval details use native SwiftUI system typography, scrolling, labelled

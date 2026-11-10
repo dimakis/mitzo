@@ -1,5 +1,9 @@
 // Load runtime configuration before bootstrap dependencies validate or capture it.
 import 'dotenv/config';
+import { createDeploymentRuntime } from './deployment-runtime.js';
+import { createDeploymentRouter } from './deployment-routes.js';
+import { getLocalCommit } from './git-version.js';
+import { assertQueueOperator } from './app.js';
 import { setSessionActivityObserver } from './session-activity-events.js';
 import { closeTelosMainPublicationRuntime } from './telos-main-publication-runtime.js';
 import { startKnowledgePrewarming } from './knowledge-prewarming.js';
@@ -138,6 +142,8 @@ import { SignalProcessor } from './signal-processor.js';
 import { TaskOrchestrator } from './task-orchestrator.js';
 import { assertTelosWorkExecutionAuthority } from './telos-work-execution-authority.js';
 import { TelosWorkStore } from './telos-work-store.js';
+import { telosDatabasePath } from './telos-database.js';
+import { ensureTelosRuntimeStorage } from './telos-runtime-storage.js';
 import { isAvailableTelosWorkConversation } from './telos-work-conversation.js';
 import { SessionOverviewEmitter } from './session-overview.js';
 import { HealthMonitor } from './health-monitor.js';
@@ -171,6 +177,7 @@ import { initializeSymposiumNativeHost } from './symposium-native-host.js';
 import { singleFlightReconciliation } from './single-flight-reconciliation.js';
 
 const log = createLogger('server');
+ensureTelosRuntimeStorage(BASE_REPO);
 
 // Host-only state. No remote recovery runs at boot: unsettled claims remain
 // quarantined until the exact controller marker is obtained separately.
@@ -484,14 +491,10 @@ const orchestrator = new TaskOrchestrator({
           events: eventStore,
           tasks: taskStore,
           work: () =>
-            (work ??= new TelosWorkStore(
-              process.env.TELOS_DB_PATH ||
-                join(BASE_REPO, 'command_center', 'data', 'smart_todo.db'),
-              {
-                ordinaryConversation: (conversationId) =>
-                  isAvailableTelosWorkConversation(eventStore.getSession(conversationId)),
-              },
-            )),
+            (work ??= new TelosWorkStore(telosDatabasePath(BASE_REPO), {
+              ordinaryConversation: (conversationId) =>
+                isAvailableTelosWorkConversation(eventStore.getSession(conversationId)),
+            })),
         },
         id,
         eventStore.getSession(id)?.accountBinding ?? undefined,
@@ -695,6 +698,34 @@ const v2Ctx: V2HandlerContext = {
 
 mountApplicationChatTransport(app, chatSseRegistry, v2Ctx);
 const sessionPrompts = initializeSessionPrompts(join(BASE_REPO, '.mitzo', 'events.db'), v2Ctx);
+const deploymentCommit = getLocalCommit();
+const deploymentRuntime = createDeploymentRuntime(v2Ctx, {
+  commit: () => {
+    if (!deploymentCommit) throw Error('Release identity unavailable');
+    return deploymentCommit;
+  },
+  healthy: () => {
+    const snapshot = healthMonitor.getSnapshot();
+    return (
+      snapshot.checkedAt > Date.now() - 60_000 &&
+      snapshot.services.length === 2 &&
+      snapshot.services.every((service) => service.ok)
+    );
+  },
+  backgroundIdle: () =>
+    orchestrator.getStatus().state !== 'running' &&
+    !eventStore
+      .listSessions()
+      .some(
+        (session) =>
+          session.symposiumConfig &&
+          session.executionPhase &&
+          session.executionPhase !== 'TERMINAL',
+      ),
+  authorizeSession: assertQueueOperator,
+});
+app.use('/api/deployment', createDeploymentRouter(deploymentRuntime.coordinator));
+
 initializeTaskExecution(join(BASE_REPO, '.mitzo', 'events.db'));
 const releasePermissionAudit = persistPermissionAudit(eventStore);
 app.use('/api/session-timers', createSessionPromptRouter(sessionPrompts));
@@ -1350,6 +1381,7 @@ async function shutdown(signal: string) {
   shuttingDown = true;
   closeTelosMainPublicationRuntime();
   await closeSessionPrompts();
+  deploymentRuntime.close();
   closeTaskExecution();
   releasePermissionAudit();
   stopRuntimePerformanceMonitor?.();

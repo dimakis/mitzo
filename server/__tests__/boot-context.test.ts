@@ -66,6 +66,7 @@ const { fetchBootContext } = await import('../chat.js');
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mockExecFile.mockReset();
 });
 
 afterEach(() => {
@@ -289,7 +290,13 @@ describe('fetchBootContext', () => {
       stdout: JSON.stringify({ additionalContext: '# Local boot context\nFallback content.' }),
     });
 
-    const result = await fetchBootContext('mitzo-conversational', CONTEXGIN_URL, '/fake/repo');
+    const result = await fetchBootContext(
+      'mitzo-conversational',
+      CONTEXGIN_URL,
+      '/fake/repo',
+      true,
+      mockExecFile,
+    );
 
     expect(result.source).toBe('local-fallback');
     expect(result.sourceCount).toBe(5);
@@ -312,7 +319,13 @@ describe('fetchBootContext', () => {
       stdout: JSON.stringify({ additionalContext: 'fallback content' }),
     });
 
-    const result = await fetchBootContext('nonexistent-agent', CONTEXGIN_URL, '/fake/repo');
+    const result = await fetchBootContext(
+      'nonexistent-agent',
+      CONTEXGIN_URL,
+      '/fake/repo',
+      true,
+      mockExecFile,
+    );
 
     expect(result.source).toBe('local-fallback');
     expect(result.fullMarkdown).toBe('fallback content');
@@ -327,7 +340,13 @@ describe('fetchBootContext', () => {
       stdout: JSON.stringify({ additionalContext: 'fallback' }),
     });
 
-    const result = await fetchBootContext('mitzo-conversational', CONTEXGIN_URL, '/fake/repo');
+    const result = await fetchBootContext(
+      'mitzo-conversational',
+      CONTEXGIN_URL,
+      '/fake/repo',
+      true,
+      mockExecFile,
+    );
 
     expect(result.source).toBe('local-fallback');
     expect(result.fullMarkdown).toBe('fallback');
@@ -337,7 +356,13 @@ describe('fetchBootContext', () => {
     mockFetch.mockRejectedValueOnce(new Error('ECONNREFUSED'));
     mockExecFile.mockRejectedValueOnce(new Error('script not found'));
 
-    const result = await fetchBootContext('mitzo-conversational', CONTEXGIN_URL, '/fake/repo');
+    const result = await fetchBootContext(
+      'mitzo-conversational',
+      CONTEXGIN_URL,
+      '/fake/repo',
+      true,
+      mockExecFile,
+    );
 
     expect(result.source).toBe('local-fallback');
     expect(result.sourceCount).toBe(0);
@@ -419,7 +444,13 @@ describe('fetchBootContext', () => {
       stdout: JSON.stringify({ additionalContext: 'json fallback' }),
     });
 
-    const result = await fetchBootContext('mitzo-conversational', CONTEXGIN_URL, '/fake/repo');
+    const result = await fetchBootContext(
+      'mitzo-conversational',
+      CONTEXGIN_URL,
+      '/fake/repo',
+      true,
+      mockExecFile,
+    );
 
     expect(result.source).toBe('local-fallback');
     expect(result.fullMarkdown).toBe('json fallback');
