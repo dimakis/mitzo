@@ -1,9 +1,15 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
-import type { SessionLaunchConfig, SessionLaunchRecord } from '@mitzo/protocol';
+import {
+  sessionLaunchConfigurationReason,
+  sessionLaunchHandoverUrl,
+  type SessionLaunchConfig,
+  type SessionLaunchRecord,
+} from '@mitzo/protocol';
 import { apiFetch, AUTH_LOST_EVENT } from '../lib/api-fetch';
 import { HomeDialog } from './HomeDialog';
 import { UiIcon } from './UiIcon';
+import { ShareButton } from './ShareButton';
 import { SessionLaunchConfigEditor } from './SessionLaunchConfigEditor';
 import './SessionLaunchCards.css';
 import '../styles/chat-sheets.css';
@@ -83,6 +89,7 @@ export function LaunchReview({
   }, []);
   const checking = checkFrom !== null;
   const pending = request.state === 'pending';
+  const configurationReason = sessionLaunchConfigurationReason(configuration) ?? invalid;
   useEffect(() => {
     if (!checkFrom || busy) return;
     const observed = create
@@ -138,7 +145,19 @@ export function LaunchReview({
         },
       );
       const result = await response.json();
-      if (!response.ok) throw new Error(result.error || 'The request could not be updated.');
+      if (!response.ok) {
+        if (
+          !create &&
+          action === 'approve' &&
+          result.code === 'session_launch_preflight_refused' &&
+          result.effectStatus === 'not_started'
+        ) {
+          // The server checked the same pending revision before any allocation.
+          // Lost responses and post-admission failures keep their retry fence.
+          setAttempted(false);
+        }
+        throw new Error(result.error || 'The request could not be updated.');
+      }
       onUpdate();
       onClose();
     } catch (cause) {
@@ -237,7 +256,7 @@ export function LaunchReview({
             )}
           </fieldset>
         </div>
-        {invalid && pending && <p role="status">{invalid}</p>}
+        {configurationReason && pending && <p role="status">{configurationReason}</p>}
         {disabled && <p role="status">Confirming conversation settings before approval.</p>}
         {error && <p role="alert">{error}</p>}
         {pending && (
@@ -263,7 +282,7 @@ export function LaunchReview({
                     busy ||
                     disabled ||
                     authorityLost ||
-                    !!invalid ||
+                    !!configurationReason ||
                     !title.trim() ||
                     !prompt.trim()
                   }
@@ -355,6 +374,10 @@ export function SessionLaunchCards({
           <ConfigSummary configuration={request.configuration} />
           <div className="session-launch-actions">
             <span role="status">{states[request.state]}</span>
+            <span className="file-path-group" role="group" aria-label="Handover">
+              <span>Handover.md</span>
+              <ShareButton filePath={sessionLaunchHandoverUrl(request.proposalId)} />
+            </span>
             {request.childSessionId && (
               <Link to={`/chat/${encodeURIComponent(request.childSessionId)}`}>
                 Open chat <UiIcon name="arrowUpRight" size={16} />
