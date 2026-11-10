@@ -25,6 +25,7 @@ export async function ownedVertexRuntimeFixture(
     dual?: boolean;
     ordinaryPreparation?: boolean;
     personal?: boolean;
+    preparationFingerprint?: string;
   } = {},
 ) {
   const root = await realpath(await mkdtemp(join(tmpdir(), 'mitzo-owned-driver-')));
@@ -189,6 +190,9 @@ export async function ownedVertexRuntimeFixture(
       ? nativeStartupSessionId(`repository:${prepared.id}`)
       : randomUUID(),
     taskRoot,
+    ...(options.preparationFingerprint
+      ? { commandFingerprint: options.preparationFingerprint }
+      : {}),
   };
   const reserved = await workspace.reserveHostTask({ ...reservation, signal: signal.signal });
   const auth = { id: randomUUID(), expiresAt: Date.now() + 60000 },

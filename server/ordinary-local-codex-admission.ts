@@ -332,7 +332,10 @@ export class OrdinaryLocalCodexAdmissionCoordinator {
     input: unknown,
     effects: OrdinaryLocalCodexAdmissionEffects,
   ): Promise<{ dispatched: boolean }> {
-    if (this.dependencies.adapter || !this.dependencies.store.admitPreparedOrdinaryCommand)
+    if (
+      (this.dependencies.adapter && this.dependencies.adapter !== 'claude-sdk') ||
+      !this.dependencies.store.admitPreparedOrdinaryCommand
+    )
       fail('prepared_session_unavailable');
     return this.admitCommand(meta, input, effects, false, operationId);
   }

@@ -57,6 +57,7 @@ interface Owners {
   workspace: RepositoryWorkspaces;
   reservation: Omit<HostRepositoryReservationInput, 'signal'>;
   commandId: string;
+  preparationOperationId?: string;
   operatorConnectionId: string;
   signal: AbortSignal;
   env?: Readonly<NodeJS.ProcessEnv>;
@@ -369,6 +370,9 @@ export class OrdinaryLocalVertexOwnedRuntime {
       commandId: request.clientMsgId,
       continuation,
       vertex: true,
+      ...(!continuation && this.owners.preparationOperationId
+        ? { preparationOperationId: this.owners.preparationOperationId }
+        : {}),
     });
     const authority = {
       withAdmission: async <T>(
@@ -416,6 +420,12 @@ export class OrdinaryLocalVertexOwnedRuntime {
       declaration: catalog.declaration,
       authority,
       store: {
+        admitPreparedOrdinaryCommand: (
+          ...args: Parameters<typeof events.admitPreparedOrdinaryCommand>
+        ) => {
+          assertAdmissionCurrent();
+          return events.admitPreparedOrdinaryCommand(...args);
+        },
         admitOrdinaryLocalCommand: (
           ...args: Parameters<typeof events.admitOrdinaryLocalVertexCommand>
         ) => {
@@ -454,9 +464,11 @@ export class OrdinaryLocalVertexOwnedRuntime {
     };
     let workspace: RepositoryWorkspace | null | undefined;
     const result = await (
-      continuation
-        ? coordinator.admitContinuation.bind(coordinator)
-        : coordinator.admit.bind(coordinator)
+      !continuation && this.owners.preparationOperationId
+        ? coordinator.admitPreparedFirst.bind(coordinator, this.owners.preparationOperationId)
+        : continuation
+          ? coordinator.admitContinuation.bind(coordinator)
+          : coordinator.admit.bind(coordinator)
     )(meta, admittedRequest, {
       prepareWorkspace: async (expected) => {
         assertAdmissionCurrent();
