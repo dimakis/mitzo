@@ -118,6 +118,29 @@ it('sends first and later selected prompts from the production shared composer a
         h.events.getOrdinaryProviderTurnTerminal(h.joinedSessionId, reply.source!.commandId),
       ).toBe('completed'),
     );
+    // Grow real acknowledged prompt/reply history beyond the display page.
+    // Keep the production composer mounted: its readiness must survive paging,
+    // and its next explicit send must still reach the ordinary native owner.
+    for (let i = 0; i < 25; i++) {
+      const current = await h.api.view(h.group);
+      const accepted = await h.api.send(h.group, {
+        requestId: crypto.randomUUID(),
+        expectedMembershipRevision: current.membershipRevision,
+        expectedPolicySequence: current.policySequence,
+        text: `Long discussion question ${i}`,
+        responders: { kind: 'selected', sessionIds: [h.joinedSessionId] },
+        snapshot: null,
+      });
+      await vi.waitFor(() =>
+        expect(
+          h.events.getOrdinaryProviderTurnTerminal(
+            h.joinedSessionId,
+            accepted.deliveries[0].commandId!,
+          ),
+        ).toBe('completed'),
+      );
+    }
+    expect((await h.api.view(h.group)).hasEarlierMessages).toBe(true);
     fireEvent.change(screen.getByRole('textbox', { name: 'Message Mitzo' }), {
       target: { value: 'Review a second question explicitly.' },
     });
@@ -128,17 +151,34 @@ it('sends first and later selected prompts from the production shared composer a
     );
     fireEvent.click(screen.getByRole('button', { name: 'Send message' }));
     await waitFor(
-      () => expect(screen.getAllByText('Reviewed the selected design.')).toHaveLength(2),
+      async () => {
+        const view = await h.api.view(h.group);
+        const prompt = view.messages.find(
+          (m) => m.text === 'Review a second question explicitly.',
+        )!;
+        expect(prompt).toBeTruthy();
+        const delivery = prompt.deliveries.find((d) => d.purpose === 'reply')!;
+        const finalReply = view.messages.find((m) => m.replyToDeliveryId === delivery.deliveryId)!;
+        expect(finalReply).toMatchObject({
+          text: 'Reviewed the selected design.',
+          author: { sessionId: h.joinedSessionId },
+          source: { commandId: delivery.commandId },
+        });
+        expect(
+          document.querySelector(`[data-reply-source="${finalReply.projectionId}"]`)?.textContent,
+        ).toContain('Reviewed the selected design.');
+      },
       { timeout: 10000 },
     );
     const turns = runtime.requests.filter((r) => r.method === 'turn/start');
-    expect(turns).toHaveLength(2);
-    expect(JSON.stringify(turns[1].params)).toContain('Review a second question explicitly.');
+    expect(turns).toHaveLength(27);
+    expect(JSON.stringify(turns[26].params)).toContain('Review a second question explicitly.');
+    expect(JSON.stringify(turns[26].params)).not.toContain('Long discussion question 0');
     const after = await h.api.view(h.group);
     const answers = after.messages.filter((m) => m.author !== 'operator');
-    expect(answers).toHaveLength(2);
-    expect(new Set(answers.map((m) => m.source?.commandId)).size).toBe(2);
-    expect(new Set(answers.map((m) => m.replyToDeliveryId)).size).toBe(2);
+    expect(answers).toHaveLength(25);
+    expect(new Set(answers.map((m) => m.source?.commandId)).size).toBe(25);
+    expect(new Set(answers.map((m) => m.replyToDeliveryId)).size).toBe(25);
     expect(
       answers.every((m) => m.author !== 'operator' && m.author.sessionId === h.joinedSessionId),
     ).toBe(true);

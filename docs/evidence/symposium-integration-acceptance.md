@@ -2,6 +2,45 @@
 
 Living map owner: workstream C, `01a14bdc-d152-7912-84d4-c0012e9d5206`.
 
+## 10 November 2026 long-discussion delivery candidate
+
+Replacement owner `0906bac2-29eb-8ccf-a77c-29783118c415` continues the original
+16 milestone criteria on accepted #1276/main `8978f4a1061ef2073967d7691b880af867d85d5e`.
+This slice separates the latest-50 display projection from delivery inventory.
+`CollaborationConversationStore.pendingDeliveryPage` reads current revisions with
+an exact recipient's pending/unclaimed receipt, bounded to 50 records per page
+and a fixed upper sequence. `ApplicationCollaborationMessaging` compiles the
+complete authorized packet incrementally with a 512 KiB encoded UTF-8 limit.
+Ordinary admission, final lifecycle checks and provider ACK remain the owners of
+execution and delivery. No schema, runtime, scheduler or automatic turn is added.
+
+`NODE_OPTIONS=--max-old-space-size=1024 npx vitest run
+server/__tests__/collaboration-application-ui.test.tsx
+server/__tests__/collaboration-application-messaging-recovery.test.ts --maxWorkers=1`
+passes **53 tests** locally. Nine added owner cases cover continued sending after
+display overflow, 105 pending context records across three pages, owner restart,
+exact retry, an old unclaimed reply, plain/JSON-escaped byte overflow before any
+acceptance or claim, unlink/rejoin, an old attributed reply with renewed source
+visibility, and observable unexpected storage failure. Counts overlap existing
+recovery evidence and are not summed as feature acceptance totals.
+
+The existing real application UI journey now executes 26 acknowledged exchanges
+through authenticated routes, Git/SQLite, ordinary admission and the native driver,
+then sends a 27th turn from the production composer. It waits for that prompt's
+exact delivery/command and finalized reply `projectionId` in the actual UI. Its
+25-reply display bound cannot substitute for that identity assertion. Only external
+account/runtime metadata and native RPC are synthetic; no paid model calls occur.
+The original test deadline, approved UI/reference bytes and display limit remain.
+Read-only correctness and consumer reviews found no implementation blockers; the
+consumer review's final-reply identity fence was incorporated and verified.
+
+This is candidate evidence pending publication, combined CI and exact-head Centaur
+approval. The rest of the milestone remains active: Defaults/multiple responders,
+per-prompt reviewed context, exact forwarding, streaming, broader recovery and
+combined qualification. The live Telos evidence edit remains unavailable/uncertain
+under its retained original request; no replay or completion claim is made. Source
+landing, offline acceptance, deployment and live user acceptance stay separate.
+
 ## 10 November 2026 finalized-reply recovery and complete joining controls
 
 Accepted main `279e6703dedebaeb130993fd6e2657b2aed73c0a` contains #1252's

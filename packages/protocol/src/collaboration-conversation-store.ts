@@ -1522,6 +1522,29 @@ export class CollaborationConversationStore {
       .all(group, after, through) as Row[];
     return rows.map((row) => CollaborationMessageSchema.parse(JSON.parse(row.body)));
   }
+  /** Host-only pending discussion inventory; display pagination never defines delivery. */
+  pendingDeliveryPage(group: string, sessionId: string, after: number, through: number) {
+    this.group(group);
+    z.string().min(1).max(200).parse(sessionId);
+    z.number().int().nonnegative().parse(after);
+    z.number().int().nonnegative().parse(through);
+    const rows = this.db
+      .prepare(
+        `SELECT r.body FROM collaboration_records r
+      WHERE collaboration_id=? AND kind='message'
+      AND CAST(json_extract(body,'$.sequence') AS INTEGER)>?
+      AND CAST(json_extract(body,'$.sequence') AS INTEGER)<=?
+      AND NOT EXISTS (SELECT 1 FROM collaboration_records n WHERE n.collaboration_id=r.collaboration_id
+        AND n.kind=r.kind AND n.record_id=r.record_id AND n.revision>r.revision)
+      AND EXISTS (SELECT 1 FROM json_each(r.body,'$.deliveries') d
+        WHERE json_extract(d.value,'$.sessionId')=?
+        AND json_extract(d.value,'$.commandId') IS NULL
+        AND json_extract(d.value,'$.status')='pending')
+      ORDER BY CAST(json_extract(body,'$.sequence') AS INTEGER) LIMIT 50`,
+      )
+      .all(group, after, through, sessionId) as Row[];
+    return rows.map((row) => CollaborationMessageSchema.parse(JSON.parse(row.body)));
+  }
   view(group: string) {
     return this.db.transaction(() => {
       const membership = this.group(group);
