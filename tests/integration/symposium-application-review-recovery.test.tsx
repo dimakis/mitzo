@@ -239,9 +239,12 @@ it.each([false, true])(
     // Silent joining is allowed; this does not promote capacity or submit a turn.
     expect(reopened.result.current.canConfirm).toBe(true);
     expect(reopened.result.current.error).toBeNull();
-    expect(reopened.result.current.brief).toBe(
-      edited ? 'Exact edited brief.\nKeep ordering.' : 'Original brief',
-    );
+    expect(reopened.result.current.brief).toBe(original.selection.joiningBrief);
+    if (edited) expect(original.selection.joiningBrief).toBe('Exact edited brief.\nKeep ordering.');
+    else
+      expect(original.selection.joiningBrief).toContain(
+        'You are joining this conversation as Reviewer.',
+      );
     const posts = h.transport.mock.calls.filter(([url]) => url.endsWith('/reviews')).slice(-2);
     expect(posts[0][0]).toBe(posts[1][0]);
     const { clientId: originalClient, ...originalIntent } = JSON.parse(posts[0][1]!.body as string);

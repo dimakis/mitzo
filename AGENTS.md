@@ -8,6 +8,35 @@ Follow [the always-on Boy Scout rule](.cursor/rules/boy-scout.mdc). Leave touche
 code easier to maintain: prefer focused shared modules, remove duplicated work
 and needless calls, and consolidate repeated fixtures. Preserve authorization,
 revocation and cancellation boundaries when reducing redundant checks.
+Fix related silent error handling encountered in touched paths within the task's
+scope. Record larger or out-of-scope defects with evidence and a next action.
+
+## Error reporting is part of the feature
+
+Unexpected failures must not disappear into empty catches, discarded promise
+rejections, empty results, missing UI or apparent success. Preserve the cause
+internally and use the existing structured logger and trace correlation to record
+the failing stage, stable error code and relevant command/session/child identity.
+Sanitize diagnostics; exclude credentials, private reasoning and sensitive
+payloads. Cleanup failures must not replace the original failure.
+
+Keep affected operations visible with an honest failed, unavailable or uncertain
+state and a safe next action. Known subagents must remain discoverable when
+inspection, subscription or recovery fails; unavailable authority disables controls
+without erasing retained activity. Preserve all admission and permission checks;
+an observed unverified child must not gain transcript access or control authority.
+Expected cancellation, absence and optional fallback require an explicit bounded
+policy and appropriate reporting; avoid duplicate or noisy error logs.
+
+Cover failure delivery through the real adapter and user-facing consumer as well
+as component fixtures. Do not claim a root cause without evidence. When existing
+code discards the diagnostic, repair the relevant observability and report the
+remaining uncertainty. Follow this rule during feature work and nearby Boy Scout
+cleanup; it is not permission for unrelated refactors or production activation.
+
+Policy direction: Dimitri, 6 November 2026, after a child completed without its
+approved activity UI. This makes failure reporting explicit; the native failure
+stage in that incident is still unverified.
 
 ## Symposium source selection
 

@@ -2,6 +2,7 @@
 import { afterEach, expect, it, vi } from 'vitest';
 import { act, cleanup, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { useState } from 'react';
 import { RepositoryChatPicker } from '../RepositoryChatPicker';
 const api = vi.hoisted(() => ({ fetch: vi.fn() }));
 vi.mock('../../lib/api-fetch', () => ({ apiFetch: api.fetch }));
@@ -740,6 +741,129 @@ const runtimeChoice = (location: 'local' | 'openshell') => ({
     targetId: location === 'local' ? 'mac' : 'shell',
   },
 });
+
+it.each(['complete', 'clear', 'model'] as const)(
+  'fences a parent-echoed preparation through %s',
+  async (next) => {
+    const runtime = runtimeChoice('local');
+    const ordinaryRuntime = {
+      version: 2,
+      account: runtime.runtime.account,
+      harness: { implementation: 'responses' },
+      execution: { location: 'local', targetId: 'mac', targetRevision: 'r1' },
+    };
+    let finish!: (response: Response) => void;
+    let postedSignal: AbortSignal | undefined;
+    const pending = new Promise<Response>((resolve) => {
+      finish = resolve;
+    });
+    api.fetch.mockImplementation(async (url: string, options?: RequestInit) => {
+      if (url.includes('/catalog'))
+        return new Response(
+          JSON.stringify({
+            available: true,
+            location: 'local',
+            repositories: [
+              {
+                connectionId: 'local',
+                repositoryId: 'primary',
+                repository: 'local/primary',
+                label: 'Mitzo',
+              },
+            ],
+          }),
+        );
+      if (options?.method === 'POST') {
+        postedSignal = options.signal ?? undefined;
+        return pending;
+      }
+      return new Response('{}', { status: 404 });
+    });
+    const onChange = vi.fn();
+    function Parent() {
+      const [id, setId] = useState<string>();
+      const [model, setModel] = useState('model');
+      return (
+        <>
+          <button onClick={() => setId(undefined)}>Clear preparation</button>
+          <button onClick={() => setModel((value) => (value === 'model' ? 'model-B' : 'model'))}>
+            Change model
+          </button>
+          <RepositoryChatPicker
+            accountId="account"
+            model={model}
+            draftScoped
+            required
+            ordinaryRuntime={runtime}
+            initialPreparationId={id}
+            onChange={(value) => {
+              onChange(value);
+              if (value?.repositoryWorkspaceId) setId(value.repositoryWorkspaceId);
+            }}
+          />
+        </>
+      );
+    }
+    render(<Parent />);
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole('button', { name: 'Add repository' }));
+    await user.selectOptions(
+      screen.getByRole('combobox', { name: 'Local repository' }),
+      'local:local/primary',
+    );
+    await user.click(screen.getByRole('button', { name: 'Use repository' }));
+    const submitted = api.fetch.mock.calls.find(([, options]) => options?.method === 'POST')!;
+    const id = JSON.parse(submitted[1].body).requestId;
+    expect(postedSignal?.aborted).toBe(false);
+    expect(api.fetch.mock.calls.filter(([url]) => url.includes(`/${id}?`))).toHaveLength(0);
+    if (next === 'clear') {
+      await user.click(screen.getByRole('button', { name: 'Clear preparation' }));
+      expect(postedSignal?.aborted).toBe(true);
+    }
+    await act(async () =>
+      finish(
+        new Response(
+          JSON.stringify({
+            ...preview,
+            id,
+            repository: 'local/primary',
+            state: 'ready',
+            ordinaryRuntime,
+          }),
+        ),
+      ),
+    );
+    if (next === 'clear') {
+      expect(
+        screen.queryByText('Ready. The worktree starts from latest upstream main.'),
+      ).toBeNull();
+      expect(onChange).toHaveBeenLastCalledWith(null);
+      return;
+    }
+    await screen.findByText('Ready. The worktree starts from latest upstream main.');
+    expect(onChange).toHaveBeenLastCalledWith({
+      repositoryWorkspaceId: id,
+      blocked: false,
+      ordinaryRuntime,
+    });
+    expect(api.fetch.mock.calls.filter(([, options]) => options?.method === 'POST')).toHaveLength(
+      1,
+    );
+    if (next === 'model') {
+      await user.click(screen.getByRole('button', { name: 'Change model' }));
+      await screen.findByText(/Saved repository preparation is unavailable/);
+      expect(onChange).toHaveBeenLastCalledWith({ blocked: true, repositoryWorkspaceId: id });
+      expect(api.fetch.mock.calls.filter(([url]) => url.includes(`/${id}?`))).toHaveLength(1);
+      await user.click(screen.getByRole('button', { name: 'Change model' }));
+      await screen.findByText(/Saved repository preparation is unavailable/);
+      expect(onChange).toHaveBeenLastCalledWith({ blocked: true, repositoryWorkspaceId: id });
+      expect(api.fetch.mock.calls.filter(([url]) => url.includes(`/${id}?`))).toHaveLength(2);
+      expect(api.fetch.mock.calls.filter(([, options]) => options?.method === 'POST')).toHaveLength(
+        1,
+      );
+    }
+  },
+);
 function mockRepositoryFlow(losePrepare = false) {
   api.fetch.mockImplementation(async (url: string) => {
     if (url.includes('/catalog'))

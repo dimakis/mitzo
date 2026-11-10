@@ -2,6 +2,7 @@ import { isDeepStrictEqual } from 'node:util';
 import { z } from 'zod';
 import {
   CollaborationContractError,
+  CollaborationMessageSchema,
   CollaborationSettingsSchema,
   type CollaborationMessageSource,
 } from '@mitzo/protocol';
@@ -26,6 +27,11 @@ const RetainedSource = z.discriminatedUnion('version', [
     executionFingerprint: Execution.shape.executionFingerprint,
   }),
 ]);
+function retainedSource(raw: unknown) {
+  const parsed = RetainedSource.safeParse(raw);
+  if (!parsed.success) throw new CollaborationContractError('reply_conflict');
+  return parsed.data;
+}
 type SourceStore = Pick<
   EventStore,
   | 'getSendCommand'
@@ -94,7 +100,7 @@ export class OrdinaryCollaborationReplies {
     );
     if (!mappings.length) return undefined;
     if (mappings.length !== 1) throw new CollaborationContractError('reply_conflict');
-    const mapping = RetainedSource.parse(mappings[0]);
+    const mapping = retainedSource(mappings[0]);
     if (mapping.commandId !== source.commandId || mapping.messageId !== source.messageId)
       throw new CollaborationContractError('reply_conflict');
     const admission = ordinaryCodexCommandExecution(
@@ -106,14 +112,9 @@ export class OrdinaryCollaborationReplies {
         fingerprint: mapping.version === 2 ? mapping.executionFingerprint : undefined,
       },
     );
-    const visible = this.store.openCollaborationVisibleSource(source.conversationId, {
-      sequence: source.throughSequence,
-      messageId: source.messageId,
-    });
-    const messages = visible.readSelected([source.messageId]);
-    const message = messages[0];
+    const message = this.store.readOrdinaryFinalizedReply(source.conversationId, source.messageId);
     if (
-      messages.length !== 1 ||
+      !message ||
       message.conversationId !== source.conversationId ||
       message.messageId !== source.messageId ||
       message.sequence !== source.throughSequence ||
@@ -129,9 +130,12 @@ export class OrdinaryCollaborationReplies {
       )
     )
       throw new CollaborationContractError('reply_conflict');
-    visible.assertCurrent();
+    const text = selected.map((block) => block.content).join('\n\n');
+    if (!text.length) throw new CollaborationContractError('reply_unavailable');
+    if (!CollaborationMessageSchema.shape.text.safeParse(text).success)
+      throw new CollaborationContractError('capacity_refused');
     return {
-      text: selected.map((block) => block.content).join('\n\n'),
+      text,
       settings: CollaborationSettingsSchema.parse({
         binding: admission.binding,
         selection: admission.selection,
@@ -150,5 +154,5 @@ export function ordinaryReplySourceCommand(
   const mappings = store.getOrdinaryReplySourceEvents(sessionId, messageId);
   if (!mappings.length) return undefined;
   if (mappings.length !== 1) throw new CollaborationContractError('reply_conflict');
-  return RetainedSource.parse(mappings[0]).commandId;
+  return retainedSource(mappings[0]).commandId;
 }

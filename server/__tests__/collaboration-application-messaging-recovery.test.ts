@@ -379,7 +379,7 @@ it('keeps a just-admitted command readable before its first ordinary transcript 
   expect(store.collaborationConversation.view(group).messages).toHaveLength(1);
 });
 
-it('defers oversized ordinary history without failing group reads or hiding integrity failures', () => {
+it('does not read unrelated oversized history and preserves unexpected source failures', () => {
   const message = store.collaborationConversation.acceptMessage(group, input('two', 'Reply'));
   const delivery = message.deliveries.find((d) => d.sessionId === 'two')!;
   store.collaborationConversation.recordDelivery(group, message.messageId, delivery.deliveryId, {
@@ -401,10 +401,215 @@ it('defers oversized ordinary history without failing group reads or hiding inte
   expect(() => store.getDurableSessionTranscript('two')).toThrow();
   expect(() => owner.reconcile(auth, group)).not.toThrow();
   expect(store.collaborationConversation.view(group).messages).toHaveLength(1);
-  vi.spyOn(store, 'getDurableSessionTranscript').mockImplementation(() => {
+  vi.spyOn(store, 'getOrdinaryReplySourcePage').mockImplementation(() => {
     throw Error('Broken ledger');
   });
   expect(() => owner.reconcile(auth, group)).toThrow('Broken ledger');
+});
+
+function retainedPrompt() {
+  const message = store.collaborationConversation.acceptMessage(group, input('two', 'Reply'));
+  const delivery = message.deliveries[0];
+  store.collaborationConversation.recordDelivery(group, message.messageId, delivery.deliveryId, {
+    requestId: randomUUID(),
+    expectedRevision: 0,
+    status: 'queued',
+    commandId: 'initial-two',
+    reason: null,
+  });
+  return { message, delivery };
+}
+
+function finalizedAnswer(text = 'Retained answer', beforeEnd?: (id: string) => void) {
+  const messageId = randomUUID();
+  const source = {
+    commandId: 'initial-two',
+    messageId,
+    providerThreadId: 'thread',
+    providerTurnId: 'turn',
+  };
+  recordOrdinaryReplySource(
+    store,
+    'two',
+    source,
+    captureOrdinaryReplyExecution(store, 'two', source),
+  );
+  store.append('two', 'message_start', { messageId });
+  store.append('two', 'block_start', { messageId, blockId: 'text', blockType: 'text' });
+  store.append('two', 'block_delta', { messageId, blockId: 'text', delta: text });
+  store.append('two', 'block_end', { messageId, blockId: 'text' });
+  beforeEnd?.(messageId);
+  store.append('two', 'message_end', { messageId });
+  return source;
+}
+
+it.each([
+  'providerThreadId',
+  'providerTurnId',
+  'executionFingerprint',
+  'version',
+  'unknown fingerprint',
+] as const)('refuses malformed retained %s with a valid finalized message identity', (field) => {
+  retainedPrompt();
+  // Simulate malformed legacy/corrupt retained evidence, not the validated writer.
+  const append = store.append.bind(store);
+  const corrupt = vi.spyOn(store, 'append').mockImplementation((session, type, payload) =>
+    append(
+      session,
+      type,
+      type === 'ordinary_reply_source'
+        ? {
+            ...payload,
+            [field === 'unknown fingerprint' ? 'executionFingerprint' : field]:
+              field === 'version'
+                ? 'unknown'
+                : field === 'unknown fingerprint'
+                  ? 'forged'
+                  : 'x'.repeat(100001),
+          }
+        : payload,
+    ),
+  );
+  finalizedAnswer();
+  corrupt.mockRestore();
+  expect(() => owner.reconcile(auth, group)).not.toThrow();
+  expect(store.collaborationConversation.view(group).messages).toHaveLength(1);
+  finalizedAnswer('Later eligible answer');
+  owner.reconcile(auth, group);
+  expect(store.collaborationConversation.view(group).messages.at(-1)?.text).toBe(
+    'Later eligible answer',
+  );
+  expect(diagnostics.warn).toHaveBeenCalledWith(
+    'Could not project finalized collaboration reply',
+    expect.objectContaining({ code: 'reply_conflict' }),
+  );
+});
+
+it('refuses an empty finalized answer without poisoning subsequent reads', () => {
+  retainedPrompt();
+  finalizedAnswer('');
+  expect(() => owner.reconcile(auth, group)).not.toThrow();
+  expect(store.collaborationConversation.view(group).messages).toHaveLength(1);
+  finalizedAnswer('Later eligible answer');
+  owner.reconcile(auth, group);
+  expect(store.collaborationConversation.view(group).messages.at(-1)?.text).toBe(
+    'Later eligible answer',
+  );
+});
+
+it('uses only the retained source fingerprint when historical execution is ambiguous', () => {
+  retainedPrompt();
+  finalizedAnswer();
+  const read = store.readOrdinaryCommandExecutionEvidence.bind(store);
+  vi.spyOn(store, 'readOrdinaryCommandExecutionEvidence').mockImplementation(
+    (command, fingerprint) => {
+      if (!fingerprint) throw Error('Exact historical execution fingerprint required');
+      return read(command, fingerprint);
+    },
+  );
+  expect(() => owner.reconcile(auth, group)).not.toThrow();
+  expect(store.collaborationConversation.view(group).messages.at(-1)?.text).toBe('Retained answer');
+});
+
+it.each(['queued interleaving', '501 messages', '512 KiB'] as const)(
+  'recovers an independently finalized reply despite %s and never resends',
+  (history) => {
+    const { delivery } = retainedPrompt();
+    if (history === '501 messages')
+      for (let i = 0; i < 501; i++)
+        store.append('two', 'user_message', { messageId: `old-${i}`, text: 'Old prompt' });
+    if (history === '512 KiB')
+      for (let i = 0; i < 6; i++)
+        store.append('two', 'user_message', { messageId: `old-${i}`, text: 'x'.repeat(100000) });
+    finalizedAnswer(
+      'Retained answer',
+      history === 'queued interleaving'
+        ? () => {
+            store.append('two', 'user_message', { messageId: 'queued', text: 'Next prompt' });
+          }
+        : undefined,
+    );
+    expect(() => store.getDurableSessionTranscript('two')).toThrow();
+    owner.reconcile(auth, group);
+    const view = store.collaborationConversation.view(group);
+    expect(view.messages.find((m) => m.replyToDeliveryId === delivery.deliveryId)?.text).toBe(
+      'Retained answer',
+    );
+    owner.reconcile(auth, group);
+    expect(store.collaborationConversation.view(group)).toEqual(view);
+    expect(prompts).toEqual([]);
+  },
+);
+
+it.each([100001, 500001, 101])(
+  'refuses an oversized source (%i) while recovering later answers',
+  (size) => {
+    retainedPrompt();
+    finalizedAnswer(
+      size === 101 ? 'First block' : 'x'.repeat(size),
+      size === 101
+        ? (messageId) => {
+            for (let i = 0; i < 100; i++) {
+              const blockId = `extra-${i}`;
+              store.append('two', 'block_start', { messageId, blockId, blockType: 'text' });
+              store.append('two', 'block_delta', { messageId, blockId, delta: 'x' });
+              store.append('two', 'block_end', { messageId, blockId });
+            }
+          }
+        : undefined,
+    );
+    expect(() => owner.reconcile(auth, group)).not.toThrow();
+    expect(store.collaborationConversation.view(group).messages).toHaveLength(1);
+    finalizedAnswer('Later eligible answer');
+    owner.reconcile(auth, group);
+    expect(store.collaborationConversation.view(group).messages.at(-1)?.text).toBe(
+      'Later eligible answer',
+    );
+    expect(prompts).toEqual([]);
+  },
+);
+
+it('recovers an older prompt outside the visible page after owner restart', () => {
+  const { delivery } = retainedPrompt();
+  for (let i = 0; i < 60; i++)
+    store.collaborationConversation.acceptMessage(group, input('one', `Later ${i}`));
+  finalizedAnswer();
+  expect(
+    store.collaborationConversation
+      .view(group)
+      .messages.some((m) => m.deliveries.some((d) => d.deliveryId === delivery.deliveryId)),
+  ).toBe(false);
+  owner.close();
+  owner = new ApplicationCollaborationMessaging(
+    store,
+    port(async (p) => {
+      prompts.push(p);
+    }),
+  );
+  owner.reconcile(auth, group);
+  expect(
+    store.collaborationConversation
+      .view(group)
+      .messages.find((m) => m.replyToDeliveryId === delivery.deliveryId)?.text,
+  ).toBe('Retained answer');
+  expect(prompts).toEqual([]);
+});
+
+it('paginates malformed source identities without hiding later eligible answers', () => {
+  retainedPrompt();
+  for (let i = 0; i < 55; i++)
+    store.append('two', 'ordinary_reply_source', {
+      version: 2,
+      commandId: 'initial-two',
+      messageId: i % 2 ? ' ' : 'x'.repeat(100001),
+      providerThreadId: 'thread',
+      providerTurnId: 'turn',
+      executionFingerprint: 'fixture',
+    });
+  finalizedAnswer();
+  expect(() => owner.reconcile(auth, group)).not.toThrow();
+  expect(store.collaborationConversation.view(group).messages.at(-1)?.text).toBe('Retained answer');
+  expect(prompts).toEqual([]);
 });
 
 it.each(['hide', 'unlink'] as const)(

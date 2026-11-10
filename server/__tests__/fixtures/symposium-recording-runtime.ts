@@ -18,10 +18,43 @@ export async function recordApplicationMessagingRuntime(events: EventStore) {
       ),
     );
   const requests: Array<{ method: string; params: Record<string, unknown> }> = [];
+  // The account catalog uses a separate read-only native discovery process.
+  // Keep its real cache/qualification owner; substitute only the external RPC.
+  const discoveryClient = () =>
+    ({
+      initialize: async () => {},
+      close: () => {},
+      request: async (method: string) => {
+        if (method === 'account/read')
+          return {
+            account: { type: 'chatgpt', email: 'offline@example.invalid', planType: 'plus' },
+          };
+        if (method === 'model/list')
+          return {
+            data: [
+              {
+                id: 'fixture-model',
+                model: 'fixture-model',
+                displayName: 'Offline fixture',
+                supportedReasoningEfforts: [{ reasoningEffort: 'low' }],
+              },
+            ],
+            nextCursor: null,
+          };
+        throw Error(`Unexpected offline discovery method: ${method}`);
+      },
+    }) as never;
+  const discovery = vi.spyOn(CodexAppServerClient, 'launch').mockImplementation(discoveryClient);
+  const preflight = vi
+    .spyOn(CodexAppServerClient, 'launchPreflight')
+    .mockImplementation(discoveryClient);
   let revokeSourceOnQualification = false;
-  const launch = vi.spyOn(CodexAppServerClient, 'launchIsolated').mockImplementation(
-    (_home, _env, lifecycle) =>
-      ({
+  let nativeThreads = 0;
+  const launch = vi
+    .spyOn(CodexAppServerClient, 'launchIsolated')
+    .mockImplementation((_home, _env, lifecycle) => {
+      const threadId = `private-native-thread-${++nativeThreads}`;
+      return {
         initialize: async () => {},
         close: () => {},
         request: async (method: string, params: Record<string, unknown>) => {
@@ -46,32 +79,38 @@ export async function recordApplicationMessagingRuntime(events: EventStore) {
           }
           if (method === 'thread/start')
             return {
-              thread: { id: 'private-native-thread' },
+              thread: { id: threadId },
               model: 'fixture-model',
               modelProvider: 'openai',
             };
           if (method === 'turn/start') {
+            const turnNumber = requests.filter((r) => r.method === 'turn/start').length;
+            const turnId = `private-native-turn-${turnNumber}`;
             setTimeout(() => {
+              lifecycle!.onNotification('turn/started', {
+                threadId,
+                turn: { id: turnId, status: 'inProgress' },
+              });
               lifecycle!.onNotification('item/completed', {
-                threadId: 'private-native-thread',
-                turnId: 'private-native-turn',
+                threadId,
+                turnId,
                 item: {
-                  id: 'native-answer',
+                  id: `native-answer-${turnNumber}`,
                   type: 'agentMessage',
                   text: 'Reviewed the selected design.',
                 },
               });
               lifecycle!.onNotification('turn/completed', {
-                threadId: 'private-native-thread',
-                turn: { id: 'private-native-turn', status: 'completed' },
+                threadId,
+                turn: { id: turnId, status: 'completed' },
               });
             }, 10);
-            return { turn: { id: 'private-native-turn' } };
+            return { turn: { id: turnId } };
           }
           throw Error(`Unexpected offline native method: ${method}`);
         },
-      }) as never,
-  );
+      } as never;
+    });
   return {
     requests,
     revokeSource: () => {
@@ -79,6 +118,8 @@ export async function recordApplicationMessagingRuntime(events: EventStore) {
     },
     restore: () => {
       launch.mockRestore();
+      discovery.mockRestore();
+      preflight.mockRestore();
       artifact.mockRestore();
     },
   };
