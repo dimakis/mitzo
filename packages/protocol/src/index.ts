@@ -301,6 +301,7 @@ export {
   SessionRuntimeBindingV1Schema,
   SessionRuntimeBindingV2Schema,
   SessionRuntimeBindingSchema,
+  isOrdinaryRepositoryParticipantBinding,
 } from './session-runtime-binding.js';
 export type {
   SessionRuntimeBindingV1,
