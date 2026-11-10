@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { webcrypto } from 'node:crypto';
 import { act } from 'react';
 import { render, screen, fireEvent, cleanup } from '@testing-library/react';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
@@ -17,35 +18,55 @@ beforeEach(() => {
   vi.mocked(api.getOpenAIAccounts).mockResolvedValue({ enabled: true, accounts: [] });
   vi.mocked(api.enrollOpenAIAccount).mockResolvedValue(account);
 });
-afterEach(cleanup);
-it('allows a fresh corrected request only after confirmed pre-enrollment rejection', async () => {
-  vi.mocked(api.enrollOpenAIAccount).mockRejectedValueOnce(
-    new api.OpenAIAccountEnrollmentFailure(true),
-  );
-  await mount();
-  fireEvent.change(screen.getByLabelText('Provider'), { target: { value: 'enmaas' } });
-  fill();
-  fireEvent.click(screen.getByRole('checkbox'));
-  await act(async () => fireEvent.click(screen.getByRole('button', { name: 'Save API account' })));
-  const rejectedId = vi.mocked(api.enrollOpenAIAccount).mock.calls[0][0].requestId;
-  expect(screen.getByRole('alert').textContent).toContain('rejected before enrollment');
-  expect((screen.getByLabelText('API key') as HTMLInputElement).value).toBe('');
-  expect(screen.queryByText('Review enrollment status')).toBeNull();
-  fireEvent.change(screen.getByLabelText('API base URL'), {
-    target: { value: 'https://corrected.example/v1' },
-  });
-  fireEvent.change(screen.getByLabelText('Additional model IDs'), {
-    target: { value: 'vendor/model' },
-  });
-  fill();
-  fireEvent.click(screen.getByRole('checkbox'));
-  await act(async () => fireEvent.click(screen.getByRole('button', { name: 'Save API account' })));
-  expect(api.enrollOpenAIAccount).toHaveBeenCalledTimes(2);
-  const corrected = vi.mocked(api.enrollOpenAIAccount).mock.calls[1][0];
-  expect(corrected.requestId).not.toBe(rejectedId);
-  expect(corrected.connection?.endpoint).toBe('https://corrected.example/v1');
-  expect(screen.getByText('Work API is ready for new chats.')).toBeTruthy();
+afterEach(() => {
+  cleanup();
+  vi.unstubAllGlobals();
 });
+it.each(['secure', 'http'] as const)(
+  'allows a fresh corrected request only after confirmed pre-enrollment rejection on %s hosts',
+  async (host) => {
+    vi.stubGlobal(
+      'crypto',
+      host === 'secure'
+        ? webcrypto
+        : { getRandomValues: webcrypto.getRandomValues.bind(webcrypto) },
+    );
+    vi.mocked(api.enrollOpenAIAccount).mockRejectedValueOnce(
+      new api.OpenAIAccountEnrollmentFailure(true),
+    );
+    await mount();
+    fireEvent.change(screen.getByLabelText('Provider'), { target: { value: 'enmaas' } });
+    fill();
+    fireEvent.click(screen.getByRole('checkbox'));
+    await act(async () =>
+      fireEvent.click(screen.getByRole('button', { name: 'Save API account' })),
+    );
+    expect(api.enrollOpenAIAccount).toHaveBeenCalledOnce();
+    const rejectedId = vi.mocked(api.enrollOpenAIAccount).mock.calls[0][0].requestId;
+    expect(rejectedId).toMatch(
+      /^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/,
+    );
+    expect(screen.getByRole('alert').textContent).toContain('rejected before enrollment');
+    expect((screen.getByLabelText('API key') as HTMLInputElement).value).toBe('');
+    expect(screen.queryByText('Review enrollment status')).toBeNull();
+    fireEvent.change(screen.getByLabelText('API base URL'), {
+      target: { value: 'https://corrected.example/v1' },
+    });
+    fireEvent.change(screen.getByLabelText('Additional model IDs'), {
+      target: { value: 'vendor/model' },
+    });
+    fill();
+    fireEvent.click(screen.getByRole('checkbox'));
+    await act(async () =>
+      fireEvent.click(screen.getByRole('button', { name: 'Save API account' })),
+    );
+    expect(api.enrollOpenAIAccount).toHaveBeenCalledTimes(2);
+    const corrected = vi.mocked(api.enrollOpenAIAccount).mock.calls[1][0];
+    expect(corrected.requestId).not.toBe(rejectedId);
+    expect(corrected.connection?.endpoint).toBe('https://corrected.example/v1');
+    expect(screen.getByText('Work API is ready for new chats.')).toBeTruthy();
+  },
+);
 it.each([
   'http://gateway.example/v1',
   'https://localhost/v1',

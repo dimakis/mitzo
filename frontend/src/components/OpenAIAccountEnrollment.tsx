@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { createBrowserId } from '../lib/browser-crypto';
 import {
   discoverApiModels,
   enrollOpenAIAccount,
@@ -169,7 +170,7 @@ export function OpenAIAccountEnrollment({
     setApiKey('');
     setBillingConfirmed(false);
     try {
-      requestId.current ??= crypto.randomUUID();
+      requestId.current ??= createBrowserId();
       const account = await enrollOpenAIAccount({
         csrf,
         requestId: requestId.current,
