@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.1024-symposium-singleton-observation-consumers';
+  'v1.0.1025-symposium-journey-budget';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -219,7 +219,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/hooks/useConversationSending.ts':
     '17aad842d52f39fa6c2c96d64987900ce82d4c3a6db4aade807305b03a726320',
   '../__tests__/collaboration-application-ui.test.tsx':
-    'f21a756e029ce9429561e5649838430b6df1a09c28b15f17544984afad219a9b',
+    '3511cb87d6dba5d651188f12e91e1ff243b23fb8a989e2592fbf1f19ba5f1ce3',
   '../__tests__/fixtures/symposium-recording-runtime.ts':
     '237c22ad940b03e1868ab29bd5ba4ff6fa209c7d53fdfa508243318a4d167fcc',
   '../../tests/fixtures/symposium-composer.tsx':

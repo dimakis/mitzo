@@ -11,8 +11,8 @@ let h: Awaited<ReturnType<typeof journey.getApplicationUiJourney>>;
 let SharedConversationHost: typeof import('../../frontend/src/components/SharedConversation.js').SharedConversationHost;
 let SharedConversationBody: typeof import('../../frontend/src/components/SharedConversation.js').SharedConversationBody;
 // Cold application compilation and silent joining are setup, with their own
-// bounded deadline. Keep all 27 real ordinary turns inside the unchanged
-// interaction deadline, rather than charging setup twice on busy CI workers.
+// bounded deadline. Keep all 27 real ordinary turns inside the interaction
+// deadline, rather than charging setup twice on busy CI workers.
 beforeAll(async () => {
   h = await journey.getApplicationUiJourney();
   ({ SharedConversationHost, SharedConversationBody } =
@@ -245,4 +245,7 @@ it('sends first and later selected prompts from the production shared composer a
       Object.defineProperty(HTMLElement.prototype, 'scrollTo', originalScrollTo);
     else Reflect.deleteProperty(HTMLElement.prototype, 'scrollTo');
   }
-}, 30000);
+  // This journey performs 27 real application turns, including paged history.
+  // Allow their aggregate cost on shared CI workers; individual readiness/reply
+  // waits above retain their existing deadlines and assertions.
+}, 60000);
