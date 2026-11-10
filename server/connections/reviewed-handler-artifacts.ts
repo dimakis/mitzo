@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.997-cohesive-chat-claude-integration';
+  'v1.0.998-cohesive-chat-claude-integration';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -28,7 +28,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/components/ReplyQuote.tsx':
     'd2728dd99f2dfcf0251957530f6532daece3739e565f2aff55dc3b748974c0f2',
   '../../frontend/src/components/SessionChatLinks.tsx':
-    '104ba575dd9a650d64b37107fdfd39bcf876219e200aabd598ef5c0d2c7e9030',
+    'b982f31a076a3f10c744bb3d3f41ac2311c3317136c817a0711c6a247e519129',
   '../../frontend/src/components/ApprovalRequestSummary.tsx':
     'aa0a489ed12d7a4794433024b5cdc177c512499a4e5a238ff709734b4e27968f',
   '../../frontend/src/lib/approval-presentation.ts':

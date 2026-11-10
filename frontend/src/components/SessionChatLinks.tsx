@@ -241,7 +241,7 @@ export function SessionChatLinks({
         <button
           type="button"
           className="session-links-new"
-          disabled={busy}
+          disabled={busy || !sessionId}
           onClick={() => {
             setError('');
             data.refresh();
