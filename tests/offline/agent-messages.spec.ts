@@ -12,7 +12,7 @@ const output = build({
   outfile: '/tmp/mitzo-agent-messages.js',
   jsx: 'automatic',
   minify: true,
-  define: { 'process.env.NODE_ENV': '"production"' },
+  define: { 'process.env.NODE_ENV': '"production"', 'import.meta.env': '{}' },
 });
 for (const theme of ['dark', 'light'])
   test(`visible peer messages and delivery state (${theme})`, async ({ page }, info) => {

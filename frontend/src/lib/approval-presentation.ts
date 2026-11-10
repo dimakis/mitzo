@@ -16,6 +16,33 @@ const knownFields = (value: unknown, keys: string[]) =>
 const pathList = (value: unknown) =>
   value == null ||
   (Array.isArray(value) && value.every((path) => typeof path === 'string' && path.length > 0));
+const singleField = (value: Record<string, unknown>, keys: string[]) =>
+  keys.filter((key) => value[key] != null).length <= 1;
+const presentedFields = [
+  'command',
+  'cmd',
+  'cwd',
+  'workdir',
+  'reason',
+  'grantRoot',
+  'additionalPermissions',
+  'additional_permissions',
+  'permissions',
+];
+const nativeFields = [
+  ...presentedFields,
+  'threadId',
+  'turnId',
+  'itemId',
+  'approvalId',
+  'environmentId',
+  'kind',
+  'networkApprovalContext',
+  'commandActions',
+  'proposedExecpolicyAmendment',
+  'proposedNetworkPolicyAmendments',
+  'availableDecisions',
+];
 
 /** Unfamiliar nested scope must retain the open original, even with a known command. */
 function knownPermissionScope(value: unknown) {
@@ -25,6 +52,7 @@ function knownPermissionScope(value: unknown) {
     fileSystem = object(files);
   return (
     knownFields(value, ['network', 'fileSystem', 'file_system']) &&
+    singleField(permissions, ['fileSystem', 'file_system']) &&
     knownFields(permissions.network, ['enabled']) &&
     (network.enabled == null || typeof network.enabled === 'boolean') &&
     knownFields(files, ['read', 'write', 'entries']) &&
@@ -121,10 +149,40 @@ export function approvalPresentation(input: string, _toolName?: string) {
       ? `Run ${executable && executable.length <= 30 ? executable : 'command'}${network.enabled === true ? ' with network access' : ''}`
       : undefined;
   const incompleteCommand = data.method === 'item/commandExecution/requestApproval' && !command;
+  const knownInput =
+    knownFields(
+      data,
+      native
+        ? ['runtimeId', 'environmentId', 'requestId', 'id', 'method', 'params', 'fileChangePaths']
+        : presentedFields,
+    ) &&
+    knownFields(params, native ? nativeFields : presentedFields) &&
+    pathList(data.fileChangePaths) &&
+    singleField(params, ['command', 'cmd']) &&
+    singleField(params, ['cwd', 'workdir']) &&
+    singleField(params, ['additionalPermissions', 'additional_permissions', 'permissions']) &&
+    knownFields(params.networkApprovalContext, ['host', 'protocol']) &&
+    (params.networkApprovalContext == null || (!!text(context.host) && !!text(context.protocol))) &&
+    pathList(params.proposedExecpolicyAmendment) &&
+    (params.proposedNetworkPolicyAmendments == null ||
+      (Array.isArray(params.proposedNetworkPolicyAmendments) &&
+        params.proposedNetworkPolicyAmendments.every((raw) => {
+          const amendment = object(raw);
+          return (
+            knownFields(raw, ['host', 'action']) &&
+            !!text(amendment.host) &&
+            ['allow', 'deny'].includes(text(amendment.action))
+          );
+        })));
   return {
     facts,
     heading,
     reason: text(params.reason),
-    recognized: facts.length > 0 && knownPermissionScope(rawPermissions) && !incompleteCommand,
+    recognized:
+      facts.length > 0 &&
+      knownInput &&
+      (native || !!command) &&
+      knownPermissionScope(rawPermissions) &&
+      !incompleteCommand,
   };
 }

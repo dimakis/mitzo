@@ -247,6 +247,7 @@ export function SessionChatLinks({
         <LaunchReview
           request={observed || draft}
           create={!observed}
+          readRevision={data?.readRevision}
           disabled={disabled}
           onClose={() => setDraft(null)}
           onUpdate={() => data?.refresh()}

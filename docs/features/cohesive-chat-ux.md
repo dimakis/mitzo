@@ -34,6 +34,10 @@ agent editor or its admission, account and lifecycle behavior.
   start creates the retained launch under the existing controller. The request ID,
   frozen input, runtime validation, default-save transaction and startup claim
   retain their existing delivery fences. Unconfirmed startup requires inspection.
+  A failed start keeps its reviewed input frozen. A successful Check request can
+  expose an explicit retry with the same request identity and input when no
+  retained request exists; failed reads never rearm it. A retained running request
+  shows its existing chat without sending another start.
 - Peer messages use quiet directional events with named chat links, timestamps,
   exact text, copy and delivery details. Longer messages retain the complete
   original in a disclosure. Queued, failed and uncertain differ from delivery.
@@ -45,6 +49,8 @@ agent editor or its admission, account and lifecycle behavior.
   confirmations retain their owners.
 - Approval summaries display known concrete command/access fields before internal
   request details. Unknown shapes keep open details rather than inventing a scope.
+  This includes unknown top-level/tool fields, such as sandbox-disabling flags,
+  and incomplete or conflicting permission fields.
   Long commands retain their full text. Decision buttons are outside the scroll
   body in Inbox and the popup; question and Telos source review behavior is kept.
 - Timers show a bounded title and collapsed full prompt. Delete requires explicit

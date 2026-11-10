@@ -1355,8 +1355,7 @@ test('Settings previews and persists every accent and font across navigation and
   await page.goto('/sessions');
   expect(
     await page
-      .locator('.workspace-primary')
-      .first()
+      .getByRole('button', { name: 'New chat', exact: true })
       .evaluate((element) => getComputedStyle(element).color),
   ).toBe(accent);
   expect(

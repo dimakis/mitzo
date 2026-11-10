@@ -221,7 +221,7 @@ test('Access: empty ordinary composer survives Connections and return', async ({
   const dialog = page.locator('.chat-access-dialog');
   await expect(dialog).toHaveAccessibleName('Links & access');
   await expect(dialog.getByText(/No session has started/)).toBeVisible();
-  await dialog.getByText('Session details', { exact: true }).click();
+  await dialog.locator('.session-access-details > summary').click();
   await expect(dialog.getByText('fixture-model', { exact: true })).toBeVisible();
   for (const theme of ['dark', 'light']) {
     await page.evaluate((theme) => {
@@ -263,7 +263,7 @@ test('Access: pending request, unknown capability and stale refresh', async ({
   await page.goto(`/chat/${sessionId}`);
   await page.getByRole('button', { name: 'Links & access', exact: true }).click();
   const dialog = page.locator('.chat-access-dialog');
-  await dialog.getByText('Session details', { exact: true }).click();
+  await dialog.locator('.session-access-details > summary').click();
   await expect(dialog.getByText(/callable tools have not been inventoried/)).toBeVisible();
   await dialog.getByRole('button', { name: /^Permissions/ }).click();
   await expect(dialog.getByText('Bash · request')).toBeVisible();
@@ -386,7 +386,7 @@ test('Access: selected sessions, expiry, revocation and human-review availabilit
   await access.click();
   const dialog = page.locator('.chat-access-dialog');
   const manage = dialog.getByRole('button', { name: 'Manage reusable access' });
-  await dialog.getByText('Permissions', { exact: true }).click();
+  await dialog.getByRole('button', { name: /^Permissions/ }).click();
   await manage.scrollIntoViewIfNeeded();
   await manage.click();
   await expect(dialog.getByText(/Human review handles remaining requests/)).toBeVisible();

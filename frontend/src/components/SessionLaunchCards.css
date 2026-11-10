@@ -138,6 +138,11 @@
   display: grid;
   gap: var(--space-2);
 }
+.session-launch-form .home-primary {
+  background: var(--color-accent);
+  color: var(--color-on-accent);
+  border-color: var(--color-accent);
+}
 .session-launch-form :is(input:not([type='checkbox']), textarea, select) {
   box-sizing: border-box;
   width: 100%;

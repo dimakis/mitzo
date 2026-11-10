@@ -36,6 +36,8 @@ it.each([undefined, null])(
     const { result } = renderHook(() => useSessionLaunch(sessionId));
     expect(result.current.requests).toEqual([]);
     expect(result.current.origin).toBeUndefined();
+    expect(result.current.error).toBeNull();
+    expect(result.current.readRevision).toBe(0);
     expect(apiFetch).not.toHaveBeenCalled();
     expect(eventBus.on).not.toHaveBeenCalled();
   },

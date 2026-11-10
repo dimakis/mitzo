@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import type { SessionLaunchConfig, SessionLaunchRecord } from '@mitzo/protocol';
 import { apiFetch, AUTH_LOST_EVENT } from '../lib/api-fetch';
@@ -50,12 +50,14 @@ export function LaunchReview({
   onUpdate,
   disabled,
   create = false,
+  readRevision,
 }: {
   request: SessionLaunchRecord;
   onClose(): void;
   onUpdate(): void;
   disabled: boolean;
   create?: boolean;
+  readRevision?: number;
 }) {
   const [title, setTitle] = useState(request.title);
   const [prompt, setPrompt] = useState(request.prompt);
@@ -66,14 +68,30 @@ export function LaunchReview({
   const [invalid, setInvalid] = useState<string | null>(null);
   const [authorityLost, setAuthorityLost] = useState(false);
   const [attempted, setAttempted] = useState(false);
-  const [checkFrom, setCheckFrom] = useState<SessionLaunchRecord | null>(null);
+  const [checkFrom, setCheckFrom] = useState<{
+    request: SessionLaunchRecord;
+    readRevision?: number;
+  } | null>(null);
+  const frozen = useRef<{
+    title: string;
+    prompt: string;
+    configuration: SessionLaunchConfig;
+    saveAsDefault: boolean;
+  } | null>(null);
+  const updateConfiguration = useCallback((next: SessionLaunchConfig) => {
+    if (!frozen.current) setConfiguration(next);
+  }, []);
   const checking = checkFrom !== null;
   const pending = request.state === 'pending';
   useEffect(() => {
-    if (!checkFrom || request === checkFrom || busy || request.state !== 'pending') return;
+    if (!checkFrom || busy) return;
+    const observed = create
+      ? readRevision !== undefined && readRevision > (checkFrom.readRevision ?? 0)
+      : request !== checkFrom.request;
+    if (!observed) return;
     setAttempted(false);
     setCheckFrom(null);
-  }, [request, checkFrom, busy]);
+  }, [request, checkFrom, busy, create, readRevision]);
   useEffect(() => {
     const lost = () => {
       setAuthorityLost(true);
@@ -92,6 +110,14 @@ export function LaunchReview({
     setBusy(true);
     setError('');
     try {
+      if (create && action === 'approve' && !frozen.current)
+        frozen.current = {
+          title,
+          prompt,
+          configuration: structuredClone(configuration),
+          saveAsDefault,
+        };
+      const edits = frozen.current ?? { title, prompt, configuration, saveAsDefault };
       const response = await apiFetch(
         create
           ? '/api/session-launch/requests/start'
@@ -105,10 +131,7 @@ export function LaunchReview({
                   ...(create
                     ? { requestId: request.requestId, sourceSessionId: request.sourceSessionId }
                     : { expectedRevision: request.revision }),
-                  title,
-                  prompt,
-                  configuration,
-                  saveAsDefault,
+                  ...edits,
                 }
               : { expectedRevision: request.revision },
           ),
@@ -172,11 +195,11 @@ export function LaunchReview({
     >
       <div className="session-launch-form">
         <p>Review the handoff before starting.</p>
-        <fieldset disabled={busy || attempted || disabled || !pending}>
+        <fieldset disabled={busy || attempted || Boolean(frozen.current) || disabled || !pending}>
           <label>
             Title
             <input
-              value={title}
+              value={frozen.current?.title ?? title}
               maxLength={160}
               onChange={(event) => setTitle(event.target.value)}
             />
@@ -184,7 +207,7 @@ export function LaunchReview({
           <label>
             Handoff prompt
             <textarea
-              value={prompt}
+              value={frozen.current?.prompt ?? prompt}
               maxLength={32000}
               onChange={(event) => setPrompt(event.target.value)}
             />
@@ -192,12 +215,12 @@ export function LaunchReview({
           <details className="session-launch-settings">
             <summary>
               <span>Session settings</span>
-              <ConfigSummary configuration={configuration} />
+              <ConfigSummary configuration={frozen.current?.configuration ?? configuration} />
             </summary>
             <SessionLaunchConfigEditor
-              configuration={configuration}
-              onChange={setConfiguration}
-              disabled={busy || attempted || disabled || !pending}
+              configuration={frozen.current?.configuration ?? configuration}
+              onChange={updateConfiguration}
+              disabled={busy || attempted || Boolean(frozen.current) || disabled || !pending}
               onValidityChange={setInvalid}
             />
           </details>
@@ -205,7 +228,7 @@ export function LaunchReview({
             <label className="session-launch-check">
               <input
                 type="checkbox"
-                checked={saveAsDefault}
+                checked={frozen.current?.saveAsDefault ?? saveAsDefault}
                 onChange={(event) => setSaveAsDefault(event.target.checked)}
               />
               Save configuration as default
@@ -223,7 +246,7 @@ export function LaunchReview({
                 className="home-secondary"
                 disabled={busy || disabled || authorityLost}
                 onClick={() => {
-                  setCheckFrom(request);
+                  setCheckFrom({ request, readRevision });
                   onUpdate();
                 }}
               >
@@ -233,7 +256,7 @@ export function LaunchReview({
               <>
                 <button
                   type="button"
-                  className="home-primary"
+                  className="home-primary home-secondary"
                   disabled={
                     busy ||
                     disabled ||
@@ -244,7 +267,7 @@ export function LaunchReview({
                   }
                   onClick={() => void submit('approve')}
                 >
-                  Approve & start
+                  {frozen.current ? 'Retry start' : 'Approve & start'}
                 </button>
                 <button
                   type="button"

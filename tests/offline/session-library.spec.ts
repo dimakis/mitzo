@@ -192,8 +192,8 @@ for (const theme of ['dark', 'light'])
     await expect(newChat).toHaveCSS('border-top-width', '0px');
     if (isMobile) {
       await page.getByRole('link', { name: 'Search chats', exact: true }).click();
-      await expect(page.getByRole('textbox', { name: 'Search conversations' })).toBeFocused();
-      await page.getByRole('textbox', { name: 'Search conversations' }).blur();
+      await expect(page.getByRole('searchbox', { name: 'Search conversations' })).toBeFocused();
+      await page.getByRole('searchbox', { name: 'Search conversations' }).blur();
     }
     const pinned = page.getByRole('region', { name: 'Pinned conversations' });
     await expect(pinned.locator('.conversation-pin-row')).toHaveCount(6);

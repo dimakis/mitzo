@@ -23,3 +23,23 @@ it.each([
     expect(screen.getByText(input)).toBeTruthy();
   },
 );
+
+it.each([
+  { command: 'git status', dangerouslyDisableSandbox: true },
+  { command: 'git status', timeout: 600000 },
+  { command: 'git status', description: 'Extra operation details' },
+  {
+    method: 'item/commandExecution/requestApproval',
+    params: { command: 'git status', dangerouslyDisableSandbox: true },
+  },
+  {
+    method: 'item/commandExecution/requestApproval',
+    params: { command: 'git status' },
+    dangerouslyDisableSandbox: true,
+  },
+])('keeps unpresented top-level and tool fields visible: %j', (request) => {
+  const input = JSON.stringify(request);
+  render(<ApprovalRequestSummary input={input} toolName="Bash" />);
+  expect(document.querySelector('.approval-request-details')?.hasAttribute('open')).toBe(true);
+  expect(screen.getByText(input)).toBeTruthy();
+});

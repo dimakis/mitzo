@@ -14,12 +14,18 @@ export type SessionLinksData = {
   links?: SessionChatLink[];
   refresh(): void;
   error?: string | null;
+  /** Advances only after a successful authoritative list read, including an empty list. */
+  readRevision?: number;
 };
-type LaunchList = Omit<SessionLinksData, 'refresh' | 'error'>;
+type LaunchList = Omit<SessionLinksData, 'refresh' | 'error' | 'readRevision'>;
 
 /** One read owner for the transcript, launch receipts and Chat details. */
 export function useSessionLaunch(sessionId: string | null | undefined, enabled = true) {
-  const [snapshot, setSnapshot] = useState<{ sessionId: string; data: LaunchList } | null>(null);
+  const [snapshot, setSnapshot] = useState<{
+    sessionId: string;
+    data: LaunchList;
+    readRevision: number;
+  } | null>(null);
   const [revision, setRevision] = useState(0);
   const [failure, setFailure] = useState<{ sessionId: string; cause: unknown } | null>(null);
   const refresh = useCallback(() => setRevision((current) => current + 1), []);
@@ -65,7 +71,11 @@ export function useSessionLaunch(sessionId: string | null | undefined, enabled =
         if (!Array.isArray(data.requests)) throw new Error('session_launch_read_invalid');
         if (data.links) data.links = data.links.map((link) => SessionChatLinkSchema.parse(link));
         if (live && !controller.signal.aborted) {
-          setSnapshot({ sessionId, data });
+          setSnapshot((previous) => ({
+            sessionId,
+            data,
+            readRevision: previous?.sessionId === sessionId ? previous.readRevision + 1 : 1,
+          }));
           setFailure(null);
         }
       })
@@ -99,8 +109,10 @@ export function useSessionLaunch(sessionId: string | null | undefined, enabled =
       ? snapshot.data
       : { requests: [] }),
     refresh,
+    readRevision:
+      enabled && snapshot !== null && snapshot.sessionId === sessionId ? snapshot.readRevision : 0,
     error:
-      enabled && failure?.sessionId === sessionId
+      enabled && failure !== null && failure.sessionId === sessionId
         ? 'Links could not be refreshed. Showing the last observation; check again before acting.'
         : null,
   };
