@@ -4,13 +4,13 @@ import { AUTH_LOST_EVENT, AUTH_RESTORED_EVENT } from '../lib/api-fetch';
 import {
   changeClaudeLogin,
   readClaudeAccounts,
+  readClaudeChatIntent,
   type ClaudeAccountSnapshot,
   type ClaudeLoginAttempt,
 } from '../lib/claude-account-api';
 import { invalidateSymposiumAccountCatalog } from '../lib/symposium-account-catalog';
 import { createChatDraft, saveChatDraft } from '../lib/chat-drafts';
 import { chatStorage } from '../lib/large-chat-storage';
-import { createChatRuntimeSelection } from '../lib/chat-runtime-selection';
 
 const pending = (attempt?: ClaudeLoginAttempt) =>
   !!attempt && ['preparing', 'pending', 'verifying'].includes(attempt.state);
@@ -142,17 +142,14 @@ export function ClaudeAccountConnection({ accountId }: { accountId?: string }) {
     mutation.current = true;
     setBusy(true);
     try {
+      const runtimeSelection = await readClaudeChatIntent(id);
       const draft = createChatDraft(),
-        account = { accountId: id, model: 'sonnet', reasoningEffort: null };
+        account = runtimeSelection.account;
       draft.settings = {
         ...draft.settings,
         selection: account,
         retainRuntimeIntent: true,
-        runtimeSelection: {
-          ...createChatRuntimeSelection(),
-          account,
-          execution: { location: 'local', targetId: null },
-        },
+        runtimeSelection,
       };
       if (!saveChatDraft(draft)) throw Error('Draft storage unavailable');
       await chatStorage.flush();
@@ -160,7 +157,7 @@ export function ClaudeAccountConnection({ accountId }: { accountId?: string }) {
     } catch {
       if (mounted.current)
         setError(
-          'Could not save the new chat. Your Claude account is saved; try Start chat again.',
+          'Could not prepare the new Local Mac chat. Your Claude account is saved; try Start chat again.',
         );
     } finally {
       mutation.current = false;

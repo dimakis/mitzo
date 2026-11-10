@@ -1,5 +1,9 @@
 import { z } from 'zod';
 import { apiFetch } from './api-fetch';
+import { DEFAULT_MITZO_PROFILE_ID, DEFAULT_MITZO_PROFILE_REVISION } from '@mitzo/protocol';
+import { ExplicitLocalInventorySchema } from './explicit-local-chat';
+import { resolveRuntimeTarget } from './chat-runtime-route';
+import { createChatRuntimeSelection, type ChatRuntimeSelection } from './chat-runtime-selection';
 
 export const ClaudeLoginAttempt = z.object({
   requestId: z.uuid(),
@@ -59,4 +63,37 @@ export async function changeClaudeLogin(path: string, body: unknown) {
   if (!response.ok)
     throw Error('Claude sign-in could not be confirmed. Check status before continuing.');
   return ClaudeLoginAttempt.parse(await response.json());
+}
+
+/** Fresh public route identity for an unsent draft; this does not admit or execute a command. */
+export async function readClaudeChatIntent(accountId: string): Promise<ChatRuntimeSelection> {
+  const response = await apiFetch('/api/chat/runtime/capabilities?workspaceDefaults=1');
+  if (!response.ok) throw Error('Local Mac choices unavailable');
+  const inventory = ExplicitLocalInventorySchema.parse(await response.json());
+  const account = inventory.accounts.find(
+    (row) => row.account.accountId === accountId && row.account.provider === 'anthropic-claude',
+  );
+  if (
+    !account ||
+    !inventory.locations.some((row) => row.location === 'local' && row.status === 'configured')
+  )
+    throw Error('The connected Claude account has no Local Mac route');
+  const intent: ChatRuntimeSelection = {
+    ...createChatRuntimeSelection(),
+    account: {
+      accountId,
+      model: account.models.find((row) => row.id === 'sonnet')?.id ?? account.models[0].id,
+      reasoningEffort: null,
+    },
+    accountReference: account.account,
+    agentProfile: {
+      kind: 'builtin',
+      profileId: DEFAULT_MITZO_PROFILE_ID,
+      revision: DEFAULT_MITZO_PROFILE_REVISION,
+    },
+    execution: { location: 'local', targetId: null },
+    capabilityRevision: inventory.capabilityRevision,
+  };
+  intent.execution.targetId = resolveRuntimeTarget(intent, inventory);
+  return intent;
 }

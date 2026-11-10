@@ -126,6 +126,46 @@ it('refreshes the picker after completion and prepares an unsent Local Mac draft
   mocks.fetch.mockResolvedValue(
     response(snapshot([{ ...pending, state: 'connected', url: undefined }], [account])),
   );
+  const reference = { accountId, provider: 'anthropic-claude', profileRevision: 'personal-route' };
+  mocks.fetch.mockImplementation(async (url: string) =>
+    response(
+      url.includes('/runtime/capabilities')
+        ? {
+            version: 1,
+            authority: 'configuration-only',
+            defaultLocation: 'openshell',
+            capabilityRevision: 'current',
+            accounts: [
+              {
+                account: reference,
+                label: 'Personal Claude',
+                models: [{ id: 'sonnet', label: 'Claude Sonnet' }],
+                modelDiscovery: { source: 'configured', stale: false },
+              },
+            ],
+            targets: [
+              {
+                targetId: 'mac',
+                targetRevision: 'mac-v1',
+                label: 'Local Mac',
+                location: 'local',
+                harness: 'claude-sdk',
+              },
+            ],
+            routes: [
+              {
+                account: reference,
+                targetId: 'mac',
+                harness: 'claude-sdk',
+                modes: ['ask', 'agent', 'auto'],
+              },
+            ],
+            locations: [{ location: 'local', status: 'configured' }],
+            agentProfiles: [],
+          }
+        : snapshot([{ ...pending, state: 'connected', url: undefined }], [account]),
+    ),
+  );
   show();
   fireEvent.click(await screen.findByRole('button', { name: 'Start chat' }));
   await waitFor(() =>
@@ -135,7 +175,8 @@ it('refreshes the picker after completion and prepares an unsent Local Mac draft
           selection: { accountId, model: 'sonnet', reasoningEffort: null },
           retainRuntimeIntent: true,
           runtimeSelection: expect.objectContaining({
-            execution: { location: 'local', targetId: null },
+            execution: { location: 'local', targetId: 'mac' },
+            accountReference: reference,
             account: { accountId, model: 'sonnet', reasoningEffort: null },
           }),
         }),
