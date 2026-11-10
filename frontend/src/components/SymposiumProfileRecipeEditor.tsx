@@ -4,6 +4,7 @@ const providerLabels = {
   openai: 'OpenAI API',
   'openai-codex': 'ChatGPT subscription',
   'anthropic-vertex': 'Vertex Claude',
+  'anthropic-claude': 'Claude subscription',
   'google-vertex': 'Vertex Gemini',
 };
 const initial: SymposiumProfileRecipe = {
@@ -11,7 +12,13 @@ const initial: SymposiumProfileRecipe = {
   context: { include: ['task', 'diff', 'acceptance-criteria'], sources: ['workspace'] },
   skillRefs: [],
   toolDefaults: { mode: 'read-only', preferredTools: [] },
-  compatibleProviders: ['anthropic-vertex', 'google-vertex', 'openai-codex', 'openai'],
+  compatibleProviders: [
+    'anthropic-vertex',
+    'anthropic-claude',
+    'google-vertex',
+    'openai-codex',
+    'openai',
+  ],
   reviewerTemplate: 'general',
 };
 const toggle = <T,>(values: T[], value: T): T[] =>

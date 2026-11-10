@@ -1,5 +1,13 @@
 import { expect, it } from 'vitest';
 import { terminalAdviserCatalog } from '../terminal-adviser-catalog.js';
+it('omits personal Claude until the scoped adviser owns subscription credentials', () => {
+  expect(
+    terminalAdviserCatalog([
+      { provider: 'anthropic-claude', models: [{ id: 'claude-opus-4-8' }] },
+      { provider: 'anthropic-vertex', models: [{ id: 'claude-opus-4-8' }] },
+    ]).map((account) => account.provider),
+  ).toEqual(['anthropic-vertex']);
+});
 it('offers only Gemini thinking modes supported by the text-only adviser adapter', () => {
   const accounts = terminalAdviserCatalog([
     {

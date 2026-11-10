@@ -4,6 +4,11 @@ import {
   subscriptionHarnessConnection,
 } from './account-harness-connection.js';
 import { protectCodexProfileRoots } from './codex-private-path.js';
+import {
+  ClaudeSubscriptionCustody,
+  ClaudeSubscriptionSignInError,
+} from './claude-subscription-custody.js';
+import { createLogger } from './logger.js';
 import { readReadyOpenAIAccountProfiles } from './openai-account-enrollment.js';
 import { cachedModels, CatalogModel, refreshModels, readCodexModels } from './model-catalog.js';
 import { CredentialReferenceSchema, credentials } from './credentials.js';
@@ -70,6 +75,16 @@ const VertexProfile = z
   })
   .strict();
 
+const ClaudeProfile = z.strictObject({
+  id: VertexProfile.shape.id,
+  label: VertexProfile.shape.label,
+  provider: z.literal('anthropic-claude'),
+  credentialRef: z.string().refine(isAbsolute, 'Claude configuration directory must be absolute'),
+  email: z.email(),
+  planType: z.enum(['pro', 'max']),
+  models: VertexProfile.shape.models,
+  paidReasoningRates: PaidReasoningRates.optional(),
+});
 const CodexProfile = z
   .object({
     id: z.string().regex(/^[a-zA-Z0-9_-]+$/),
@@ -169,6 +184,7 @@ const GoogleProfile = z
   .strict();
 const Profile = z.discriminatedUnion('provider', [
   VertexProfile,
+  ClaudeProfile,
   GoogleProfile,
   CodexProfile,
   ApiProfile,
@@ -208,17 +224,27 @@ function routingRevision(profile: z.infer<typeof Profile>): string {
                   ? [['paidReasoningRates', profile.paidReasoningRates]]
                   : []),
               ]
-            : [
-                profile.provider,
-                profile.projectId,
-                profile.region,
-                profile.credentialRef,
-                profile.sandboxProvider,
-                profile.sandboxProviderId,
-                ...(profile.paidReasoningRates
-                  ? [['paidReasoningRates', profile.paidReasoningRates]]
-                  : []),
-              ],
+            : profile.provider === 'anthropic-claude'
+              ? [
+                  profile.provider,
+                  profile.credentialRef,
+                  profile.email,
+                  profile.planType,
+                  ...(profile.paidReasoningRates
+                    ? [['paidReasoningRates', profile.paidReasoningRates]]
+                    : []),
+                ]
+              : [
+                  profile.provider,
+                  profile.projectId,
+                  profile.region,
+                  profile.credentialRef,
+                  profile.sandboxProvider,
+                  profile.sandboxProviderId,
+                  ...(profile.paidReasoningRates
+                    ? [['paidReasoningRates', profile.paidReasoningRates]]
+                    : []),
+                ],
       ),
     )
     .digest('hex');
@@ -362,17 +388,18 @@ export class AccountProfiles {
   ordinaryLocalVertexInventory() {
     return this.profiles
       .filter(
-        (profile) =>
-          profile.provider === 'anthropic-vertex' &&
-          !profile.sandboxProvider &&
-          !profile.sandboxProviderId,
+        (profile): profile is z.infer<typeof ClaudeProfile> | z.infer<typeof VertexProfile> =>
+          profile.provider === 'anthropic-claude' ||
+          (profile.provider === 'anthropic-vertex' &&
+            !profile.sandboxProvider &&
+            !profile.sandboxProviderId),
       )
       .map((profile) => {
         const discovered = cachedModels(JSON.stringify(profile));
         return {
           account: {
             accountId: profile.id,
-            provider: 'anthropic-vertex' as const,
+            provider: profile.provider,
             profileRevision: routingRevision(profile),
           },
           label: profile.label,
@@ -558,16 +585,20 @@ export class AccountProfiles {
           ...(provider === 'openai-codex' && this.options.personalConnectionLinks?.has(id)
             ? { personalConnection: { ...this.options.personalConnectionLinks.get(id)! } }
             : {}),
-          ...(provider === 'openai-codex' ? { signIn: this.signIn(profile) } : {}),
+          ...(provider === 'openai-codex' || provider === 'anthropic-claude'
+            ? { signIn: this.signIn(profile) }
+            : {}),
           billing:
-            provider === 'openai-codex'
-              ? 'chatgpt-subscription'
-              : provider === 'openai'
-                ? 'openai-api'
-                : 'google-cloud',
+            provider === 'anthropic-claude'
+              ? 'claude-subscription'
+              : provider === 'openai-codex'
+                ? 'chatgpt-subscription'
+                : provider === 'openai'
+                  ? 'openai-api'
+                  : 'google-cloud',
           models: supportedModels(
             profile,
-            provider === 'anthropic-vertex'
+            provider === 'anthropic-vertex' || provider === 'anthropic-claude'
               ? profile.models
               : (discovered?.models ?? profile.models),
           ),
@@ -582,7 +613,10 @@ export class AccountProfiles {
           capabilities: {
             streaming: qualified && provider !== 'google-vertex',
             tools: qualified,
-            images: provider === 'anthropic-vertex' || provider === 'openai-codex',
+            images:
+              provider === 'anthropic-vertex' ||
+              provider === 'anthropic-claude' ||
+              provider === 'openai-codex',
           },
         };
       })
@@ -600,8 +634,9 @@ export class AccountProfiles {
   }
 
   private signIn(
-    profile: Extract<z.infer<typeof Profile>, { provider: 'openai-codex' }>,
+    profile: Extract<z.infer<typeof Profile>, { provider: 'openai-codex' | 'anthropic-claude' }>,
   ): AccountSignIn {
+    const nativeAuth = profile.provider === 'openai-codex' && profile.nativeAuth;
     const profileRevision = createHash('sha256').update(JSON.stringify(profile)).digest('hex');
     let evidence = signInEvidence.get(profileRevision);
     if (
@@ -627,8 +662,8 @@ export class AccountProfiles {
             : evidence.status,
       };
     return {
-      status: profile.nativeAuth ? 'unsupported' : 'not-checked',
-      source: profile.nativeAuth
+      status: nativeAuth ? 'unsupported' : 'not-checked',
+      source: nativeAuth
         ? 'isolated-native-auth'
         : profile.credentialRef
           ? 'host-account-read'
@@ -638,7 +673,7 @@ export class AccountProfiles {
       configuredIdentity: { email: profile.email, planType: profile.planType },
       observedIdentity: null,
       profileRevision,
-      explanation: profile.nativeAuth
+      explanation: nativeAuth
         ? 'Native ChatGPT sign-in must be checked by its isolated personal connection.'
         : profile.credentialRef
           ? 'Sign-in has not been checked. The identity is configured, not observed.'
@@ -648,6 +683,70 @@ export class AccountProfiles {
 
   /** Reads provider inventory and refresh status only. Never creates a sandbox or refreshes credentials. */
   async checkSignIn(signal: AbortSignal): Promise<void> {
+    await Promise.all(
+      this.profiles
+        .filter((profile) => profile.provider === 'anthropic-claude')
+        .map(async (profile) => {
+          const evidence = this.signIn(profile);
+          const generation = beginSignInCheck(evidence.profileRevision);
+          try {
+            signal.throwIfAborted();
+            const env = this.sdkEnv(
+              this.resolve(profile.id, profile.models[0].id),
+              Object.fromEntries(
+                ['HOME', 'PATH', 'TMPDIR'].flatMap((key) =>
+                  process.env[key] === undefined ? [] : [[key, process.env[key]!]],
+                ),
+              ),
+            );
+            await ClaudeSubscriptionCustody.capture(env).verify(env, signal);
+            signal.throwIfAborted();
+            this.recordSignIn(
+              evidence.profileRevision,
+              {
+                ...evidence,
+                status: 'verified',
+                checkedAt: Date.now(),
+                observedIdentity: { email: profile.email, planType: profile.planType },
+                explanation:
+                  'The native Claude sign-in matches this configured subscription account.',
+              },
+              generation,
+            );
+          } catch (cause) {
+            const failure =
+              cause instanceof ClaudeSubscriptionSignInError
+                ? cause
+                : new ClaudeSubscriptionSignInError(
+                    signal.aborted ? 'cancelled' : 'native_command_failed',
+                    { cause },
+                  );
+            const diagnostic = {
+              ...failure.telemetry(),
+              accountId: profile.id,
+              profileRevision: evidence.profileRevision,
+            };
+            const log = createLogger('account-profiles');
+            if (signal.aborted)
+              log.debug('Claude subscription sign-in verification cancelled', diagnostic);
+            else log.warn('Claude subscription sign-in verification failed', diagnostic);
+            this.recordSignIn(
+              evidence.profileRevision,
+              {
+                ...evidence,
+                status: 'failed',
+                checkedAt: Date.now(),
+                observedIdentity: null,
+                explanation: signal.aborted
+                  ? 'Claude sign-in check was cancelled. Check again when ready.'
+                  : `Claude sign-in could not be verified. Check the connection diagnostics and retry. Reference: ${failure.diagnosticId}`,
+              },
+              generation,
+            );
+            if (signal.aborted) signal.throwIfAborted();
+          }
+        }),
+    );
     await Promise.all(
       this.profiles
         .filter(
@@ -989,7 +1088,9 @@ export class AccountProfiles {
       throw new Error('Codex execution is not enabled; development acceptance is required');
     const selectableModels = supportedModels(
       profile,
-      configured || profile.provider === 'anthropic-vertex'
+      configured ||
+        profile.provider === 'anthropic-vertex' ||
+        profile.provider === 'anthropic-claude'
         ? profile.models
         : (cachedModels(JSON.stringify(profile))?.models ?? profile.models),
     );
@@ -1260,6 +1361,9 @@ export class AccountProfiles {
           'GITHUB_TOKEN',
           'CLOUD_ML_REGION',
           'CLAUDE_CODE_OAUTH_TOKEN',
+          'CLAUDE_CONFIG_DIR',
+          'MITZO_CLAUDE_EXPECTED_EMAIL',
+          'MITZO_CLAUDE_EXPECTED_PLAN',
           'GOOGLE_API_KEY',
           'GOOGLE_APPLICATION_CREDENTIALS',
           'GOOGLE_CLOUD_QUOTA_PROJECT',
@@ -1269,8 +1373,21 @@ export class AccountProfiles {
       )
         delete env[key];
     }
+    if (profile.provider === 'anthropic-claude')
+      return {
+        ...env,
+        CLAUDE_CONFIG_DIR: profile.credentialRef,
+        MITZO_CLAUDE_EXPECTED_EMAIL: profile.email,
+        MITZO_CLAUDE_EXPECTED_PLAN: profile.planType,
+      };
+    // Preserve the operator's existing Vertex history root, but never carry a
+    // personal account's selected directory into a work session.
+    const vertexConfigDirectory = base.MITZO_CLAUDE_EXPECTED_EMAIL
+      ? undefined
+      : base.CLAUDE_CONFIG_DIR;
     return {
       ...env,
+      ...(vertexConfigDirectory ? { CLAUDE_CONFIG_DIR: vertexConfigDirectory } : {}),
       CLAUDE_CODE_USE_VERTEX: '1',
       ANTHROPIC_VERTEX_PROJECT_ID: profile.projectId,
       CLOUD_ML_REGION: profile.region,

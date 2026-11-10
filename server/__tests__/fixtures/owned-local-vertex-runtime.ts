@@ -24,6 +24,7 @@ export async function ownedVertexRuntimeFixture(
     chatRoute?: boolean;
     dual?: boolean;
     ordinaryPreparation?: boolean;
+    personal?: boolean;
   } = {},
 ) {
   const root = await realpath(await mkdtemp(join(tmpdir(), 'mitzo-owned-driver-')));
@@ -47,6 +48,14 @@ export async function ownedVertexRuntimeFixture(
   };
   await writeFile(targetPath, JSON.stringify(target), { mode: 0o600 });
   const configPath = join(privateRoot, 'profiles.json');
+  const personalConfig = join(root, 'personal-claude');
+  const personalExecutable = join(root, 'claude-fixture');
+  if (options.personal) {
+    await mkdir(personalConfig, { mode: 0o700 });
+    // Only identity/stat checks use this file. Model processes and auth status
+    // are mocked independently; CI never needs the Mac-only production binary.
+    await writeFile(personalExecutable, '#!/bin/sh\nexit 1\n', { mode: 0o700 });
+  }
   await writeFile(
     join(privateRoot, 'adc.json'),
     JSON.stringify({
@@ -61,13 +70,25 @@ export async function ownedVertexRuntimeFixture(
     {
       id: 'personal',
       label: 'Personal',
-      provider: 'anthropic-vertex',
-      projectId: 'offline-project',
-      region: 'offline-region',
-      ...(options.dual
-        ? { sandboxProvider: 'same-api-provider', sandboxProviderId: 'offline-api-provider-id' }
-        : {}),
-      credentialRef: join(privateRoot, 'adc.json'),
+      ...(options.personal
+        ? {
+            provider: 'anthropic-claude',
+            email: 'person@example.test',
+            planType: 'max',
+            credentialRef: personalConfig,
+          }
+        : {
+            provider: 'anthropic-vertex',
+            projectId: 'offline-project',
+            region: 'offline-region',
+            ...(options.dual
+              ? {
+                  sandboxProvider: 'same-api-provider',
+                  sandboxProviderId: 'offline-api-provider-id',
+                }
+              : {}),
+            credentialRef: join(privateRoot, 'adc.json'),
+          }),
       models: [
         { id: 'fixture-model', label: 'Fixture model', reasoningEfforts: ['low'] },
         { id: 'next-model', label: 'Next model', reasoningEfforts: ['high'] },
@@ -216,6 +237,7 @@ export async function ownedVertexRuntimeFixture(
     agentProfile,
     root,
     targetPath,
+    personalExecutable,
     target,
     configuration,
     writeProfiles,
