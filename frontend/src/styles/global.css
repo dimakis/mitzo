@@ -52,6 +52,13 @@ body {
   margin-inline-start: auto;
   font-variant-numeric: tabular-nums;
 }
+.collection-section-toggle > .ui-icon:first-child {
+  rotate: -90deg;
+  transition: rotate var(--motion-duration-standard) var(--motion-ease);
+}
+.collection-section-toggle[aria-expanded='true'] > .ui-icon:first-child {
+  rotate: 0deg;
+}
 
 .ui-icon[data-icon='loading'] {
   animation: mic-spin var(--motion-duration-spin) linear infinite;

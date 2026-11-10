@@ -15,7 +15,7 @@
 .slash-picker,
 .context-picker,
 .token-bar-detail,
-details[open] > :not(summary) {
+details[open]:not(.motion-details) > :not(summary) {
   animation: motion-popover-in var(--motion-duration-fast) var(--motion-ease);
 }
 .knowledge-dialog,

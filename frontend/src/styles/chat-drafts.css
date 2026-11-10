@@ -14,12 +14,6 @@
 .conversation-drafts-section summary::-webkit-details-marker {
   display: none;
 }
-.conversation-drafts-section summary > svg:first-child {
-  transform: rotate(-90deg);
-}
-.conversation-drafts-section[open] summary > svg:first-child {
-  transform: none;
-}
 .conversation-drafts-section .conversation-draft-row {
   display: grid;
   gap: var(--space-1);

@@ -35,6 +35,21 @@ These are reproduced mechanisms, not a claim to have reproduced every physical
 iPhone flicker. Native keyboard/device acceptance remains separate from offline
 viewport simulation and unit coverage.
 
+A further failing-before-fix consumer test reproduced a response remount when
+streaming finalized: message-action wrappers and final footer fragments changed
+the text's ancestry. The shared renderer now retains that structure from the
+first text chunk, enabling actions only on completion. Regressions retain the
+same text DOM node with and without sharing controls. This applies to ordinary,
+queued, corrected and shared responses through ChatArea without changing dispatch.
+
+The shared HomeDialog has one interruptible sheet entrance without replaying on
+edits. Its dismissal/busy guards and focus/scroll-lock lifecycle remain immediate.
+MotionDetails adds a smooth close to Drafts, backup and provenance disclosures,
+with retained forms, Escape/focus recovery, immediate exit inertness, rapid
+reopen, Reduce Motion and missing-animation fallback. A reproduced animation
+rejection previously left an inert closing panel retained indefinitely; it now
+settles and reports a sanitized stage/code rather than silently failing.
+
 ## Validation and delivery
 
 The source inventory covers 30 page modules. Shared patterns carry the changes
@@ -63,6 +78,21 @@ launch. No host-check bypass or alternate browser retry was used. The browser
 fixture now checks actual Pinned/Drafts font/line-height, icon geometry, label/count
 insets and 44px targets in dark/light appearances. Its rendered assertions have
 not yet run and require an eligible host or CI.
+The focused workspace-package TypeScript build succeeded. The full frontend
+type check exhausted the required 1 GiB heap, so full type/build and rendered
+checks remain CI work; no larger local retry or production fallback was used.
+The separate `ui-response-stability` browser fixture retains the actual response
+and composer DOM across stream completion and late acknowledgement of a multiline
+send, preserving the next independent draft through constrained viewport changes.
+Protected approved-design suites and their fingerprints remain unchanged.
+
+Final focused validation on 10 November: 425 tests passed across 31 files, with
+one existing skipped test. This includes all design/approved-design guards,
+mobile/desktop chat consumers, Local/legacy send and correction receipts,
+attachments, input focus, keyboard classification, response/metadata/subagent
+rendering, selection, collection layouts, Inbox, backups and shared motion.
+ESLint passed for every changed production TypeScript file. These are local
+results, not full CI, physical-device acceptance, a merge or deployment.
 
 Each logical change starts with a failing regression, then implementation and
 an atomic commit. Run the design guard, focused consumer tests and intercepted

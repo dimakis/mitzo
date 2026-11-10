@@ -69,7 +69,7 @@ export function ConversationPins(props: Props) {
         aria-label={`${pins.collapsed ? 'Expand' : 'Collapse'} pinned conversations`}
         onClick={() => pins.setCollapsed(!pins.collapsed)}
       >
-        <UiIcon name={pins.collapsed ? 'forward' : 'down'} size={16} />
+        <UiIcon name="down" size={16} />
         <UiIcon name="pin" size={16} />
         <span>Pinned</span>
         <span className="conversation-pin-count">{pins.pins.length}</span>

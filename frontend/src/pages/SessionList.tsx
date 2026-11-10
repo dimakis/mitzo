@@ -33,6 +33,7 @@ import { useSessionSearch } from '../hooks/useSessionSearch';
 import { useSessionOverview, type SessionActivity } from '../hooks/useSessionOverview';
 import { SessionPreview } from '../components/SessionPreview';
 import { UiIcon } from '../components/UiIcon';
+import { MotionDetails } from '../components/MotionDetails';
 
 function SwipeableSession({
   session,
@@ -632,13 +633,18 @@ export function SessionList() {
             }}
           />
           {drafts.length > 0 && (
-            <details className="conversation-drafts-section">
-              <summary className="collection-section-toggle">
-                <UiIcon name="down" size={16} />
-                <UiIcon name="edit" size={16} />
-                <span>Drafts</span>
-                <span className="conversation-drafts-count">{drafts.length}</span>
-              </summary>
+            <MotionDetails
+              className="conversation-drafts-section"
+              summaryClassName="collection-section-toggle"
+              summary={
+                <>
+                  <UiIcon name="down" size={16} />
+                  <UiIcon name="edit" size={16} />
+                  <span>Drafts</span>
+                  <span className="conversation-drafts-count">{drafts.length}</span>
+                </>
+              }
+            >
               {drafts.slice(0, 3).map((draft) => (
                 <Link key={draft.id} to={chatDraftUrl(draft)} className="conversation-draft-row">
                   <span>{draft.text.trim().split('\n')[0].slice(0, 90) || 'Untitled draft'}</span>
@@ -653,7 +659,7 @@ export function SessionList() {
                 All drafts
                 <UiIcon name="forward" size={16} />
               </Link>
-            </details>
+            </MotionDetails>
           )}
           {importOpen && (
             <SdkConversationImport
