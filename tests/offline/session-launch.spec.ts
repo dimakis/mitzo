@@ -89,6 +89,7 @@ for (const theme of ['dark', 'light']) {
     });
     await expect(dialog.getByLabel('Execution host')).toHaveValue('mac');
     await dialog.getByLabel('Execution host').selectOption('build-mac');
+    await expect(dialog.getByLabel('Execution host')).toHaveValue('build-mac');
     await dialog.getByLabel('Save configuration as default').check();
     await expect(dialog.getByRole('button', { name: 'Approve & start' })).toBeInViewport({
       ratio: 1,
@@ -109,6 +110,7 @@ for (const theme of ['dark', 'light']) {
     await trigger.click();
     await dialog.getByText('Session settings', { exact: true }).click();
     await dialog.getByLabel('Execution host').selectOption('build-mac');
+    await expect(dialog.getByLabel('Execution host')).toHaveValue('build-mac');
     await dialog.getByRole('combobox', { name: 'Thinking level', exact: true }).selectOption('low');
     await dialog.getByLabel('Permission mode').selectOption('ask');
     await dialog.getByLabel('Save configuration as default').check();
