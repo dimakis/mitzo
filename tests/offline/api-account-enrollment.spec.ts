@@ -114,7 +114,7 @@ for (const theme of ['light', 'dark'] as const) {
     await submit.scrollIntoViewIfNeeded();
     expect((await submit.boundingBox())!.height).toBeGreaterThanOrEqual(44);
     await page.screenshot({
-      path: testInfo.outputPath('api-enrollment-models.png'),
+      path: testInfo.outputPath('connections-api-enrollment-models.png'),
       fullPage: true,
     });
     await submit.click();
