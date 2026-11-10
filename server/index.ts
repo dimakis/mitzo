@@ -1,5 +1,5 @@
-// Load runtime configuration before bootstrap dependencies validate or capture it.
-import 'dotenv/config';
+// Fail before application imports can create stores, routes or recovery owners.
+import './deployment-maintenance-entry.js';
 import { createDeploymentRuntime } from './deployment-runtime.js';
 import { createDeploymentRouter } from './deployment-routes.js';
 import { getLocalCommit } from './git-version.js';

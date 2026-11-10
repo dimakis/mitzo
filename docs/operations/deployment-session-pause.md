@@ -80,6 +80,14 @@ pause proof and definite absence of any delivery attempt/receipt. A session mark
 `uncertain`, or any possibly attempted delivery, cannot use this path. Inspect its
 original receipt; never resend it just because acknowledgement was lost.
 
+For the explicitly inspected historical uncertainty on installed source
+`279e6703dedebaeb130993fd6e2657b2aed73c0a`, an operator may separately select
+[the drained maintenance handoff](drained-maintenance-handoff.md). It keeps those
+old conversations permanently blocked, proves current turns naturally completed,
+and uses a new maintenance capability and distinct drained proof. It does not
+waive the installed guard, manufacture its activation acknowledgement or use the
+first-install procedure.
+
 ## First installation
 
 An older daemon cannot enforce this protocol. The CLI refuses a missing protocol;

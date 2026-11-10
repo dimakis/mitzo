@@ -4113,6 +4113,7 @@ async function reattachCodexQueue(
 }
 
 export function assertQueueOperator(id: string, authorization?: import('./auth.js').AuthSession) {
+  eventStore.deployment.maintenance.assertControl(id);
   assertOwnedCodexQueueControl(
     {
       runtimeBinding: (sessionId) => eventStore.getSessionRuntimeBinding(sessionId),

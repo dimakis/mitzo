@@ -1,38 +1,10 @@
 import { createHash } from 'node:crypto';
-import { closeSync, constants, fstatSync, openSync, readSync, lstatSync } from 'node:fs';
+import { lstatSync } from 'node:fs';
+import { readPrivateOperationFile } from './private-operation-file.js';
 import type Database from 'better-sqlite3';
 import { basename } from 'node:path';
 
 const archiveLimit = 64 * 1024 * 1024;
-
-/** Descriptor-bound and bounded: recovery evidence is never followed through a link. */
-function privateBytes(path: string, limit: number): Buffer {
-  const fd = openSync(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
-  try {
-    const stat = fstatSync(fd);
-    if (
-      !stat.isFile() ||
-      stat.uid !== process.getuid?.() ||
-      stat.nlink !== 1 ||
-      (stat.mode & 0o777) !== 0o600 ||
-      stat.size > limit
-    )
-      throw Error('Private bounded recovery evidence required');
-    const bytes = Buffer.alloc(stat.size + 1);
-    let length = 0;
-    while (length < bytes.length) {
-      const count = readSync(fd, bytes, length, bytes.length - length, null);
-      if (!count) break;
-      length += count;
-    }
-    const final = fstatSync(fd);
-    if (length !== stat.size || final.size !== stat.size || final.mtimeMs !== stat.mtimeMs)
-      throw Error('Recovery evidence changed during read');
-    return bytes.subarray(0, length);
-  } finally {
-    closeSync(fd);
-  }
-}
 
 /** A complete private migration receipt must bind every retained archive byte. */
 export function verifyTelosRecoveryArchive(database: string, db: Database.Database): void {
@@ -59,7 +31,7 @@ export function verifyTelosRecoveryArchive(database: string, db: Database.Databa
     const archivePresent = present(database + '.recovery.json');
     if (!markerExists && !archivePresent && !present(database + '.migration.json')) return;
     const receipt = JSON.parse(
-      privateBytes(database + '.migration.json', 1024 * 1024).toString('utf8'),
+      readPrivateOperationFile(database + '.migration.json', 1024 * 1024).toString('utf8'),
     );
     const proof = receipt.recoveryArchive;
     if (
@@ -96,7 +68,7 @@ export function verifyTelosRecoveryArchive(database: string, db: Database.Databa
         proof.rows
     )
       throw Error('Complete archive receipt required');
-    const bytes = privateBytes(database + '.recovery.json', archiveLimit);
+    const bytes = readPrivateOperationFile(database + '.recovery.json', archiveLimit);
     if (createHash('sha256').update(bytes).digest('hex') !== proof.sha256)
       throw Error('Recovery archive fingerprint changed');
   } catch (cause) {

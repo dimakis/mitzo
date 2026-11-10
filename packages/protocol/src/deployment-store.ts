@@ -1,3 +1,4 @@
+import { DeploymentMaintenanceStore } from './deployment-maintenance-store.js';
 import type Database from 'better-sqlite3';
 import { isDeepStrictEqual } from 'node:util';
 
@@ -18,6 +19,14 @@ export interface DeploymentSession {
   error: string | null;
   /** Recorded only after the original live turn and effects settle. */
   pauseSettled?: boolean;
+  /** New maintenance proof; never an installed-source pause acknowledgement. */
+  drainedProof?: {
+    kind: 'naturally-completed-v1';
+    targetSha256: string;
+    completionSha256: string;
+    custodySha256: string;
+    handoffSha256: string;
+  };
   deliveryAttempted?: boolean;
 }
 export interface DeploymentOperation {
@@ -28,6 +37,18 @@ export interface DeploymentOperation {
   phase: 'capturing' | 'pausing' | 'paused' | 'activating' | 'resuming' | 'completed' | 'cancelled';
   sessions: DeploymentSession[];
   authHistory?: Array<{ id: string; expiresAt: number; replacedAt: number }>;
+  /** Separate authority: never represents installed-source activation. */
+  maintenance?: {
+    kind: 'drained-handoff-v1';
+    sourceOperationId: string;
+    sourceOperationSha256: string;
+    authorityHash: string;
+    proofSha256: string;
+    retainedSessionIds: string[];
+    quarantinedSessionIds: string[];
+    /** Separate zero-delivery host handoff; never a settled native outcome. */
+    idleSnapshotSha256?: string;
+  };
   activationHash?: string;
   resumeCommit?: string;
   createdAt: number;
@@ -36,7 +57,9 @@ export interface DeploymentOperation {
 /** The hold shares admission's SQLite transaction, not a process-local flag.
  * Interrupted operations retain their hold until an explicit reconciliation. */
 export class DeploymentStore {
+  readonly maintenance: DeploymentMaintenanceStore;
   constructor(private readonly db: Database.Database) {
+    this.maintenance = new DeploymentMaintenanceStore(db);
     db.exec(`CREATE TABLE IF NOT EXISTS deployment_operations (
       id TEXT PRIMARY KEY, data TEXT NOT NULL,
       held INTEGER NOT NULL CHECK(held IN (0,1))
@@ -108,6 +131,7 @@ export class DeploymentStore {
   /** Only the captured continuation can enter during the explicit resume phase.
    * Native FIFO dispatch uses its separate predicate to retain saved ordering. */
   assertAdmission(sessionId: string, commandId?: string) {
+    this.maintenance.assertControl(sessionId);
     const operation = this.active();
     if (!operation) return;
     if (
@@ -123,6 +147,7 @@ export class DeploymentStore {
     throw Error('Server deployment has paused new commands; retry after maintenance');
   }
   canDispatch(sessionId: string) {
+    if (this.maintenance.isQuarantined(sessionId)) return false;
     const operation = this.active();
     return (
       !operation ||
