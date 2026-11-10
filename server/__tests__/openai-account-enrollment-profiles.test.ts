@@ -1,4 +1,5 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { resetOfflineUserEnvironment } from './fixtures/offline-user-home.js';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -24,6 +25,7 @@ const added = {
   sandboxProviderId: 'new-id',
 };
 const roots: string[] = [];
+beforeEach(resetOfflineUserEnvironment);
 afterEach(() => {
   vi.unstubAllEnvs();
   vi.resetAllMocks();

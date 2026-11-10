@@ -297,12 +297,19 @@ export function createConnectionsRouter(options: {
     '/openai-accounts',
     mutate,
     requireSameOriginJson,
-    express.json({ limit: '20kb' }),
+    // Up to 200 IDs and labels (256 code units each), including JSON escapes,
+    // plus a 16 KiB key and endpoint metadata fit within this bounded request.
+    express.json({ limit: '1mb' }),
     async (req, res) => {
       const parsed = OpenAIAccountEnrollmentInputSchema.safeExtend({
         csrf: z.string().min(1),
       }).safeParse(req.body);
-      if (!parsed.success) return res.status(400).json({ error: 'Invalid OpenAI account request' });
+      if (!parsed.success)
+        return res.status(400).json({
+          error: 'Invalid API account request',
+          code: 'ENROLLMENT_INPUT_INVALID',
+          effectStatus: 'not_started',
+        });
       if (!recentAuthorizationExpiry(res, parsed.data.csrf))
         return res.status(403).json({ error: 'Recent browser reauthorization required' });
       if (!options.openAIAccounts)
@@ -336,7 +343,8 @@ export function createConnectionsRouter(options: {
     '/api-models',
     mutate,
     requireSameOriginJson,
-    express.json({ limit: '20kb' }),
+    // Include the worst-case JSON escaping of a supported 16 KiB key and URL.
+    express.json({ limit: '128kb' }),
     async (req, res) => {
       const parsed = z
         .object({

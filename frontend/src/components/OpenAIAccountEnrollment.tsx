@@ -1,8 +1,37 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { discoverApiModels, enrollOpenAIAccount, getOpenAIAccounts } from '../lib/connections-api';
+import {
+  discoverApiModels,
+  enrollOpenAIAccount,
+  getOpenAIAccounts,
+  OpenAIAccountEnrollmentFailure,
+} from '../lib/connections-api';
 import type { EnrolledOpenAIAccount } from '../types/connections';
+import { createBrowserId } from '../lib/browser-crypto';
 
 const enmaasModels = ['rits/zai-org/glm-5-3', 'rits/deepseek-ai/DeepSeek-V4.1-Flash-1017'];
+
+function validProviderEndpoint(value: string) {
+  const endpoint = value.trim();
+  if (!endpoint || endpoint.length > 2048) return false;
+  try {
+    const url = new URL(endpoint);
+    const host = url.hostname.toLowerCase();
+    return (
+      url.protocol === 'https:' &&
+      !!host &&
+      host !== 'localhost' &&
+      !host.endsWith('.localhost') &&
+      !host.includes(':') &&
+      !/^\d+\.\d+\.\d+\.\d+$/.test(host) &&
+      !url.username &&
+      !url.password &&
+      !endpoint.includes('?') &&
+      !endpoint.includes('#')
+    );
+  } catch {
+    return false;
+  }
+}
 
 export function OpenAIAccountEnrollment({
   csrf,
@@ -34,6 +63,7 @@ export function OpenAIAccountEnrollment({
     discoveryGeneration.current++;
   }, []);
   const custom = provider !== 'openai';
+  const endpointValid = validProviderEndpoint(endpoint);
   const modelIds = [...new Set([...selected, ...explicitModels.split(/[\s,]+/).filter(Boolean)])];
   const modelsValid =
     modelIds.length > 0 && modelIds.length <= 200 && modelIds.every((id) => id.length <= 256);
@@ -91,7 +121,7 @@ export function OpenAIAccountEnrollment({
     setMessage('');
   };
   const discover = async () => {
-    if (discovering || busy || !endpoint.trim() || !apiKey.trim()) return;
+    if (discovering || busy || !endpointValid || !apiKey.trim()) return;
     if (!authorized || (expiresAt !== undefined && expiresAt <= Date.now())) {
       setApiKey('');
       onReauthorizationNeeded();
@@ -137,7 +167,7 @@ export function OpenAIAccountEnrollment({
       !projectLabel.trim() ||
       !apiKey.trim() ||
       !billingConfirmed ||
-      (custom && (!endpoint.trim() || !modelsValid))
+      (custom && (!endpointValid || !modelsValid))
     )
       return;
     pending.current = true;
@@ -147,7 +177,7 @@ export function OpenAIAccountEnrollment({
     setApiKey('');
     setBillingConfirmed(false);
     try {
-      requestId.current ??= crypto.randomUUID();
+      requestId.current ??= createBrowserId();
       const account = await enrollOpenAIAccount({
         csrf,
         requestId: requestId.current,
@@ -182,10 +212,15 @@ export function OpenAIAccountEnrollment({
         setReviewRequired(true);
         setMessage('Enrollment needs attention. Check account status before trying again.');
       }
-    } catch {
+    } catch (error) {
       if (mounted.current) {
-        setReviewRequired(true);
-        setMessage('Could not confirm enrollment. Review account status before trying again.');
+        if (error instanceof OpenAIAccountEnrollmentFailure && error.retrySetup) {
+          requestId.current = null;
+          setMessage(error.message);
+        } else {
+          setReviewRequired(true);
+          setMessage('Could not confirm enrollment. Review account status before trying again.');
+        }
       }
     } finally {
       if (mounted.current) {
@@ -198,9 +233,9 @@ export function OpenAIAccountEnrollment({
   return (
     <section
       className="connections-card openai-account-enrollment"
-      aria-labelledby="openai-enrollment-heading"
+      aria-label="Add a new AI API account"
     >
-      <h2 id="openai-enrollment-heading">Add a new AI API account</h2>
+      <h2>Add a new AI API account</h2>
       <p>
         Existing tasks keep their current account. Select this new account when starting a new chat.
       </p>
@@ -299,6 +334,8 @@ export function OpenAIAccountEnrollment({
                 required
                 value={endpoint}
                 maxLength={2048}
+                aria-invalid={endpoint.trim().length > 0 && !endpointValid}
+                aria-describedby="api-provider-endpoint-help"
                 disabled={busy}
                 onChange={(event) => {
                   resetDiscovery();
@@ -346,6 +383,9 @@ export function OpenAIAccountEnrollment({
           </label>
           {custom && (
             <>
+              <p className="workspace-muted" id="api-provider-endpoint-help">
+                Use a public HTTPS provider hostname without credentials, query or fragment.
+              </p>
               <p className="workspace-muted">
                 {protocol === 'messages'
                   ? 'Uses the existing Claude Agent SDK engine with the selected provider’s API key. Enter the provider base URL before /v1/messages; Google Vertex authentication is disabled.'
@@ -356,7 +396,7 @@ export function OpenAIAccountEnrollment({
               <button
                 type="button"
                 className="workspace-text-link"
-                disabled={busy || discovering || !endpoint.trim() || !apiKey.trim()}
+                disabled={busy || discovering || !endpointValid || !apiKey.trim()}
                 onClick={() => void discover()}
               >
                 {discovering ? 'Getting models…' : 'Get models'}
@@ -445,7 +485,7 @@ export function OpenAIAccountEnrollment({
               !projectLabel.trim() ||
               !apiKey.trim() ||
               !billingConfirmed ||
-              (custom && (!endpoint.trim() || !modelsValid))
+              (custom && (!endpointValid || !modelsValid))
             }
           >
             {busy
