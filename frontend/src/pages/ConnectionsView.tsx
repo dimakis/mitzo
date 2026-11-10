@@ -451,8 +451,6 @@ export function ConnectionsView({ mode = 'add', connectionId }: ConnectionsViewP
               </Link>
             </div>
           </section>
-        ) : mode === 'claude' ? (
-          <ClaudeAccountConnection accountId={connectionId} />
         ) : personalChosen ? (
           <>
             <button
@@ -665,6 +663,8 @@ export function ConnectionsView({ mode = 'add', connectionId }: ConnectionsViewP
             <button onClick={resetWizard}>Choose another connection</button>
           </div>
         )
+      ) : mode === 'claude' ? (
+        <ClaudeAccountConnection accountId={connectionId} />
       ) : mode === 'personal' ? (
         <SymposiumPersonalConnections mode="manage" connectionId={connectionId} />
       ) : mode === 'keychain' || mode === 'api' ? (
