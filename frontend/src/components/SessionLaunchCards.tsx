@@ -6,6 +6,7 @@ import { HomeDialog } from './HomeDialog';
 import { UiIcon } from './UiIcon';
 import { SessionLaunchConfigEditor } from './SessionLaunchConfigEditor';
 import './SessionLaunchCards.css';
+import '../styles/chat-sheets.css';
 import type { SessionLaunchOriginData } from '../hooks/useSessionLaunch';
 
 export function SessionLaunchOrigin({ origin }: { origin?: SessionLaunchOriginData }) {
@@ -43,7 +44,7 @@ function ConfigSummary({ configuration }: { configuration: SessionLaunchConfig }
   );
 }
 
-function LaunchReview({
+export function LaunchReview({
   request,
   onClose,
   onUpdate,
@@ -114,9 +115,7 @@ function LaunchReview({
       className="session-launch-dialog"
     >
       <div className="session-launch-form">
-        <p>
-          Your saved default is the baseline. Review the configuration and handoff before starting.
-        </p>
+        <p>Review the handoff before starting.</p>
         <fieldset disabled={busy || attempted || disabled || !pending}>
           <label>
             Title
@@ -134,12 +133,18 @@ function LaunchReview({
               onChange={(event) => setPrompt(event.target.value)}
             />
           </label>
-          <SessionLaunchConfigEditor
-            configuration={configuration}
-            onChange={setConfiguration}
-            disabled={busy || attempted || disabled || !pending}
-            onValidityChange={setInvalid}
-          />
+          <details className="session-launch-settings">
+            <summary>
+              <span>Session settings</span>
+              <ConfigSummary configuration={configuration} />
+            </summary>
+            <SessionLaunchConfigEditor
+              configuration={configuration}
+              onChange={setConfiguration}
+              disabled={busy || attempted || disabled || !pending}
+              onValidityChange={setInvalid}
+            />
+          </details>
           {pending && (
             <label className="session-launch-check">
               <input
@@ -251,7 +256,20 @@ export function SessionLaunchCards({
   return (
     <aside className="session-launch-cards" aria-label="Agent session requests">
       {requests.map((request) => (
-        <article className="session-launch-card" key={request.proposalId}>
+        <article
+          className={`session-launch-card session-launch-card--${request.state}`}
+          key={request.proposalId}
+        >
+          <div className="session-launch-event-label">
+            <UiIcon name="chats" size={16} />
+            <span>{request.state === 'running' ? 'Started a chat' : 'New chat request'}</span>
+            <time dateTime={new Date(request.createdAt).toISOString()}>
+              {new Date(request.createdAt).toLocaleTimeString([], {
+                hour: '2-digit',
+                minute: '2-digit',
+              })}
+            </time>
+          </div>
           <strong>{request.title}</strong>
           <ConfigSummary configuration={request.configuration} />
           <div className="session-launch-actions">

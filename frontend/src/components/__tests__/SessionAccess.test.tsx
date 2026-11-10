@@ -30,13 +30,13 @@ describe('ordinary Access', () => {
       </>,
     );
     const composer = screen.getByRole('textbox');
-    fireEvent.click(screen.getByRole('button', { name: 'Access' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Links & access' }));
     expect(screen.getByText('selected-model')).toBeTruthy();
     expect(screen.getByText(/No session has started/)).toBeTruthy();
     expect(apiFetch).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole('button', { name: 'Connections' }));
     await screen.findByText('No configured connections reported.');
-    fireEvent.click(screen.getByRole('button', { name: 'Back to Access' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Back to Links & access' }));
     fireEvent.click(screen.getByRole('button', { name: 'Close' }));
     expect(screen.getByRole('textbox')).toBe(composer);
     expect((composer as HTMLTextAreaElement).value).toBe('draft');
@@ -60,7 +60,7 @@ describe('ordinary Access', () => {
       .mockResolvedValueOnce({ ok: true, json: async () => evidence })
       .mockRejectedValueOnce(new Error('offline'));
     render(<SessionAccess sessionId="one" onShowApproval={vi.fn()} />);
-    fireEvent.click(screen.getByRole('button', { name: 'Access' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Links & access' }));
     await screen.findByText('Bash · request');
     expect(screen.getByRole('button', { name: 'View pending approvals' })).toBeTruthy();
     expect(screen.getByText('Unknown — runtime limits have not been reported here.')).toBeTruthy();
@@ -83,7 +83,7 @@ describe('ordinary Access', () => {
         json: async () => ({ sessionId: 'two', state: 'unknown', observedAt: Date.now() }),
       });
     const { rerender } = render(<SessionAccess sessionId="one" />);
-    fireEvent.click(screen.getByRole('button', { name: 'Access' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Links & access' }));
     rerender(<SessionAccess sessionId="two" />);
     release({
       ok: true,

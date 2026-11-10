@@ -11,9 +11,10 @@
   display: grid;
   gap: var(--space-2);
   padding: var(--space-4);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-panel);
-  background: var(--color-panel);
+  border: 0;
+  border-inline-start: 1px solid var(--color-border);
+  border-radius: 0;
+  background: transparent;
   overflow-wrap: anywhere;
 }
 .session-launch-summary,
@@ -51,11 +52,12 @@
   min-width: var(--control-height);
 }
 .session-launch-form {
-  display: grid;
+  display: flex;
+  flex-direction: column;
   gap: var(--space-4);
   min-height: 0;
   min-width: 0;
-  overflow-y: auto;
+  overflow: hidden;
   overscroll-behavior: contain;
   margin-top: var(--space-4);
   padding: var(--space-1);
@@ -70,6 +72,46 @@
   margin: 0;
   padding: 0;
   border: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.session-launch-form > :not(fieldset) {
+  flex-shrink: 0;
+}
+.session-launch-event-label {
+  display: flex;
+  gap: var(--space-2);
+  align-items: center;
+  color: var(--color-muted);
+  font-size: var(--text-sm);
+}
+.session-launch-event-label time {
+  margin-inline-start: auto;
+}
+.session-launch-card--pending {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-control);
+}
+.session-launch-card .home-secondary {
+  border: 0;
+  background: transparent;
+  color: var(--color-accent);
+  padding: var(--space-1);
+  font: inherit;
+}
+.session-launch-settings {
+  border-block: 1px solid var(--color-border);
+  padding-block: var(--space-2);
+}
+.session-launch-settings > summary {
+  cursor: pointer;
+  min-height: var(--control-height);
+}
+.session-launch-settings > summary > span {
+  display: block;
+}
+.session-launch-settings[open] .session-launch-configuration {
+  margin-top: var(--space-3);
 }
 .session-launch-form label {
   display: grid;

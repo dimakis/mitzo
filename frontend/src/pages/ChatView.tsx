@@ -8,7 +8,7 @@ import {
   unsupportedSessionExtraToolsReason,
   unsupportedSessionContextReason,
 } from '../lib/session-launch-defaults';
-import { SessionLaunchCards, SessionLaunchOrigin } from '../components/SessionLaunchCards';
+import { SessionLaunchOrigin } from '../components/SessionLaunchCards';
 import { useSessionLaunch } from '../hooks/useSessionLaunch';
 import { useTurnSteering } from '../hooks/useTurnSteering';
 import { chatStorage } from '../lib/large-chat-storage';
@@ -1641,6 +1641,8 @@ function ChatViewContent() {
             />
           )}
           <SessionAccess
+            launches={sessionLaunch}
+            disabled={controlsBlocked || localRuntime.metadataPending}
             sessionId={repositoryHandoff.present ? undefined : (activeSessionId ?? undefined)}
             selection={accountSelection}
             connected={connected}
@@ -1914,6 +1916,8 @@ function ChatViewContent() {
             actions: (
               <>
                 <SessionAccess
+                  launches={sessionLaunch}
+                  disabled={controlsBlocked || localRuntime.metadataPending}
                   sessionId={activeSessionId ?? undefined}
                   selection={accountSelection}
                   connected={connected}
@@ -1946,6 +1950,10 @@ function ChatViewContent() {
           readOnly={controlsBlocked || localBound}
           sessionId={sessionId ?? activeSessionId}
           chat={{
+            launchRequests: !isSymposium ? sessionLaunch.requests : undefined,
+            onLaunchUpdate: sessionLaunch.refresh,
+            launchDisabled:
+              controlsBlocked || localRuntime.metadataPending || Boolean(sessionLaunch.error),
             onReply:
               !isSymposium && activeSessionId && !controlsBlocked
                 ? (message) => setReplySelection({ session: activeSessionId, message })
@@ -1955,11 +1963,6 @@ function ChatViewContent() {
             ) : undefined,
             afterMessages: !isSymposium ? (
               <>
-                <SessionLaunchCards
-                  requests={sessionLaunch.requests}
-                  onUpdate={sessionLaunch.refresh}
-                  disabled={controlsBlocked || localRuntime.metadataPending}
-                />
                 <TelosAdvisorDraft conversationId={activeSessionId ?? undefined} />
                 <TelosWorkControls data={telosRoute.data} conversationId={activeSessionId} />
               </>

@@ -65,3 +65,56 @@ it('identifies an unavailable source without guessing a nearby message', () => {
   expect(screen.getByText('Original message unavailable')).toBeTruthy();
   expect(screen.queryByText('Answering an earlier message')).toBeNull();
 });
+
+it('places a launch receipt before later conversation instead of pinning it at the composer', () => {
+  const { container } = render(
+    <ChatArea
+      messages={[
+        {
+          messageId: 'later',
+          role: 'assistant',
+          timestamp: 2000,
+          blocks: [{ blockId: 'later-text', blockType: 'text', content: 'We can continue here.' }],
+        },
+      ]}
+      current={null}
+      running={false}
+      permission={null}
+      onPermissionRespond={vi.fn()}
+      launchRequests={[
+        {
+          proposalId: 'proposal',
+          requestId: 'request',
+          sourceSessionId: 'source',
+          title: 'Child chat',
+          prompt: 'Handoff',
+          revision: 1,
+          state: 'cancelled',
+          childSessionId: null,
+          createdAt: 1000,
+          updatedAt: 1000,
+          configuration: {
+            version: 1,
+            runtime: {
+              version: 1,
+              account: null,
+              agentProfile: null,
+              execution: { location: 'local', targetId: null },
+            },
+            mode: 'ask',
+            isolation: true,
+            repositoryWorkspaceId: null,
+            contextBlocks: [],
+            extraTools: [],
+          },
+        },
+      ]}
+    />,
+  );
+  const receipt = screen.getByText('Child chat');
+  expect(
+    receipt.compareDocumentPosition(screen.getByText('We can continue here.')) &
+      Node.DOCUMENT_POSITION_FOLLOWING,
+  ).toBeTruthy();
+  expect(container.querySelector('.chat-messages .session-launch-card')).toBeTruthy();
+});

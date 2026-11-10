@@ -1,4 +1,6 @@
 import { MessageActions } from './MessageActions';
+import { SessionLaunchCards } from './SessionLaunchCards';
+import type { SessionLaunchRecord } from '@mitzo/protocol';
 import type { MessageReplyContext } from '@mitzo/protocol';
 import './ChatCommandMetadata.css';
 import { useTelosCreatedItems } from '../hooks/useTelosCreatedItems';
@@ -46,6 +48,9 @@ export interface SymposiumContextItem {
 }
 
 export interface ChatAreaProps {
+  launchRequests?: SessionLaunchRecord[];
+  onLaunchUpdate?(): void;
+  launchDisabled?: boolean;
   onReply?: (message: MessageReplyContext) => void;
   compactions?: ContextCompaction[];
   sessionId?: string;
@@ -145,6 +150,9 @@ function turnKey(messageId: string, provenance?: SymposiumProvenance): string {
 }
 
 export function ChatArea({
+  launchRequests = [],
+  onLaunchUpdate,
+  launchDisabled,
   onReply,
   compactions = [],
   sessionId,
@@ -507,293 +515,315 @@ export function ChatArea({
     }
   }, []);
 
+  const launchRows = launchRequests.map((request) => ({
+    before: orderedTurns.find(
+      (turn) =>
+        turn.kind !== 'context' &&
+        turn.value.timestamp != null &&
+        turn.value.timestamp >= request.createdAt,
+    ),
+    key: `launch:${request.proposalId}`,
+    scope: 'launch',
+    value: (
+      <SessionLaunchCards
+        requests={[request]}
+        onUpdate={onLaunchUpdate ?? (() => {})}
+        disabled={launchDisabled}
+      />
+    ),
+  }));
   const transcriptRows: ActivityRow<ReactNode>[] = orderedTurns.flatMap(
     (turn): ActivityRow<ReactNode>[] => {
-      if (turn.kind === 'context') {
-        const item = turn.value;
-        return [
-          {
-            key: `context:${item.deliveryId}:${item.attemptId}`,
-            scope: 'context',
-            value: (
-              <article
-                key={`context:${item.deliveryId}:${item.attemptId}`}
-                className="msg-turn symposium-context-card"
-                style={{ borderLeft: `3px solid ${seatAccentColor(item.recipientSeatId)}` }}
-              >
-                <strong>
-                  {item.receipt === 'received'
-                    ? `Received context: ${item.sourceSeatId ?? 'you'} to ${item.recipientSeatId}`
-                    : `Dispatch uncertain for ${item.recipientSeatId}`}
-                </strong>
-                {item.sourceMessageId && (
-                  <small>Excerpt from {item.sourceSeatId ?? 'your message'}</small>
-                )}
-                <p>{item.content}</p>
-              </article>
-            ),
-          },
-        ];
-      }
-      if (turn.kind === 'finished') {
-        const msg = turn.value;
-        if (msg.agentMessage)
+      const renderRows = (): ActivityRow<ReactNode>[] => {
+        if (turn.kind === 'context') {
+          const item = turn.value;
           return [
             {
-              key: `agent:${msg.messageId}`,
+              key: `context:${item.deliveryId}:${item.attemptId}`,
               scope: 'context',
-              value: <AgentMessageCard projection={msg.agentMessage} />,
-            },
-          ];
-        if (msg.role === 'user') {
-          const textBlock = msg.blocks.find((b) => b.blockType === 'text');
-          return [
-            {
-              key: turnKey(msg.messageId, msg.symposiumProvenance),
-              scope: 'user',
-              endsTurn: true,
               value: (
-                <>
-                  {renderMessageAttribution?.(msg.messageId)}
-                  <div
-                    className="chat-user-request"
-                    data-command-request={msg.messageId}
-                    data-reply-source={msg.messageId}
-                    tabIndex={-1}
-                  >
-                    {msg.inReplyTo && quote(msg.inReplyTo)}
-                    {withActions(
-                      msg,
-                      <UserBubble
-                        key={turnKey(msg.messageId, msg.symposiumProvenance)}
-                        sourceAnchor={sourceAnchor(msg)}
-                        text={textBlock?.content}
-                        images={msg.images}
-                        contextBlocks={msg.contextBlocks}
-                        contextInjections={msg.contextInjections}
-                        timestamp={msg.timestamp}
-                        readAloud={
-                          voice?.ttsAvailable
-                            ? {
-                                active: speakingBlockId === msg.messageId,
-                                onSpeak: (text) => speakBlock(msg.messageId, text),
-                                onStop: stopBlock,
-                              }
-                            : undefined
-                        }
-                      />,
-                    )}
-                    {!msg.symposiumProvenance &&
-                      msg.commandState &&
-                      !['running', 'completed', 'ended', 'steered'].includes(msg.commandState) && (
-                        <div className="chat-command-meta chat-command-meta--user" role="status">
-                          {msg.steersMessageId && msg.commandState === 'failed'
-                            ? 'Correction not accepted'
-                            : commandLabels[msg.commandState]}
-                        </div>
-                      )}
-                  </div>
-                  {createdItemCards(msg)}
-                  {renderMessageOutcome?.(msg.messageId)}
-                </>
+                <article
+                  key={`context:${item.deliveryId}:${item.attemptId}`}
+                  className="msg-turn symposium-context-card"
+                  style={{ borderLeft: `3px solid ${seatAccentColor(item.recipientSeatId)}` }}
+                >
+                  <strong>
+                    {item.receipt === 'received'
+                      ? `Received context: ${item.sourceSeatId ?? 'you'} to ${item.recipientSeatId}`
+                      : `Dispatch uncertain for ${item.recipientSeatId}`}
+                  </strong>
+                  {item.sourceMessageId && (
+                    <small>Excerpt from {item.sourceSeatId ?? 'your message'}</small>
+                  )}
+                  <p>{item.content}</p>
+                </article>
               ),
             },
           ];
         }
-      }
-      const streaming = turn.kind === 'streaming';
-      const msg = turn.value;
-      const blocks: ChatBlock[] =
-        turn.kind === 'streaming'
-          ? turn.value.blockOrder.flatMap((id) => {
-              const block = turn.value.blocks.get(id);
-              return block ? [block] : [];
-            })
-          : turn.value.blocks;
-      const ownerKey = `${sessionId ?? 'chat'}:${turnKey(msg.messageId, msg.symposiumProvenance)}`;
-      const provenance = msg.symposiumProvenance;
-      const attribution =
-        !streaming && renderMessageAttribution ? (
-          renderMessageAttribution(msg.messageId)
-        ) : (
-          <SeatAttribution provenance={msg.symposiumProvenance} compact={compactAttribution} />
-        );
-      const scope = JSON.stringify([
-        sessionId ?? null,
-        provenance?.seatId,
-        provenance?.membershipGeneration,
-        provenance?.configRevision,
-        provenance && 'accountBinding' in provenance ? provenance.accountBinding : null,
-      ]);
-      // Filter non-visible text before assigning first/last-row controls so
-      // speaker attribution and sharing stay attached to retained content.
-      const firstVisibleText = blocks.find(
-        (block) => block.blockType === 'text' && block.content?.trim(),
-      );
-      const rows = blocks
-        .filter((block) => block.blockType !== 'text' || block.content?.trim())
-        .map((block, index): ActivityRow<ReactNode> => {
-          const progress = progressFor(msg.messageId, msg.symposiumProvenance, block.toolId);
-          const keepVisible =
-            Boolean(block.rawInput?.nativeSubagentCommandId) ||
-            Boolean(progress) ||
-            Boolean(telosWorkerReceipt(block, sessionId)) ||
-            (!completedWebsiteRead(block) &&
-              ['RequestWebAccess', 'mcp__mitzo-web-access__RequestWebAccess'].includes(
-                block.toolName ?? '',
-              ));
-          const bid = block.blockId || `text-${index}`;
-          let content: ReactNode;
-          if (block.blockType === 'thinking' || block.blockType === 'redacted_thinking') {
-            content = (
-              <ThinkingBlock
-                block={block}
-                streaming={streaming}
-                defaultExpanded={false}
-                autoCollapse={false}
-              />
-            );
-          } else if (block.blockType === 'tool_use') {
-            content = progress ? (
-              <ProgressWidget items={progress.items} />
-            ) : (
-              <ToolPill block={block} sessionId={sessionId} showSetupCard={keepVisible} />
-            );
-          } else {
-            content = (
-              <TextBubble
-                sourceAnchor={
-                  !streaming &&
-                  turn.kind === 'finished' &&
-                  block === firstVisibleText &&
-                  sourceAnchor(turn.value)
-                }
-                content={block.content ?? ''}
-                streaming={streaming}
-                timestamp={turn.kind === 'finished' ? turn.value.timestamp : undefined}
-                artifactSessionId={
-                  !streaming && messageSessionId ? messageSessionId(msg.messageId) : sessionId
-                }
-                readAloud={
-                  !streaming && voice?.ttsAvailable
-                    ? {
-                        active: speakingBlockId === bid,
-                        onSpeak: (text) => speakBlock(bid, text),
-                        onStop: stopBlock,
-                      }
-                    : undefined
-                }
-              />
-            );
+        if (turn.kind === 'finished') {
+          const msg = turn.value;
+          if (msg.agentMessage)
+            return [
+              {
+                key: `agent:${msg.messageId}`,
+                scope: 'context',
+                value: <AgentMessageCard projection={msg.agentMessage} />,
+              },
+            ];
+          if (msg.role === 'user') {
+            const textBlock = msg.blocks.find((b) => b.blockType === 'text');
+            return [
+              {
+                key: turnKey(msg.messageId, msg.symposiumProvenance),
+                scope: 'user',
+                endsTurn: true,
+                value: (
+                  <>
+                    {renderMessageAttribution?.(msg.messageId)}
+                    <div
+                      className="chat-user-request"
+                      data-command-request={msg.messageId}
+                      data-reply-source={msg.messageId}
+                      tabIndex={-1}
+                    >
+                      {msg.inReplyTo && quote(msg.inReplyTo)}
+                      {withActions(
+                        msg,
+                        <UserBubble
+                          key={turnKey(msg.messageId, msg.symposiumProvenance)}
+                          sourceAnchor={sourceAnchor(msg)}
+                          text={textBlock?.content}
+                          images={msg.images}
+                          contextBlocks={msg.contextBlocks}
+                          contextInjections={msg.contextInjections}
+                          timestamp={msg.timestamp}
+                          readAloud={
+                            voice?.ttsAvailable
+                              ? {
+                                  active: speakingBlockId === msg.messageId,
+                                  onSpeak: (text) => speakBlock(msg.messageId, text),
+                                  onStop: stopBlock,
+                                }
+                              : undefined
+                          }
+                        />,
+                      )}
+                      {!msg.symposiumProvenance &&
+                        msg.commandState &&
+                        !['running', 'completed', 'ended', 'steered'].includes(
+                          msg.commandState,
+                        ) && (
+                          <div className="chat-command-meta chat-command-meta--user" role="status">
+                            {msg.steersMessageId && msg.commandState === 'failed'
+                              ? 'Correction not accepted'
+                              : commandLabels[msg.commandState]}
+                          </div>
+                        )}
+                    </div>
+                    {createdItemCards(msg)}
+                    {renderMessageOutcome?.(msg.messageId)}
+                  </>
+                ),
+              },
+            ];
           }
-          return {
-            key: `${ownerKey}:${bid}`,
-            scope,
-            attribution,
-            requestStatus: msg.replyToMessageId
-              ? commandLabels[requests.get(msg.replyToMessageId)?.commandState ?? '']
-              : undefined,
-            block,
-            streaming,
-            keepVisible,
-            value: (
-              <div
-                data-reply-source={msg.messageId}
-                tabIndex={-1}
-                className={`msg-turn${streaming ? ' msg-turn--streaming' : ''}`}
-              >
-                {index === 0 && (keepVisible || block.blockType === 'text') && attribution}
-                {block === firstVisibleText && replyLabel(msg)}
-                {!streaming && turn.kind === 'finished' && block.blockType === 'text'
-                  ? withActions(turn.value, content)
-                  : content}
-              </div>
-            ),
-          };
-        });
-      if (!streaming && turn.kind === 'finished') {
-        const last = rows.at(-1);
-        if (last)
-          last.value = (
-            <>
-              {last.value}
-              {createdItemCards(turn.value)}
-              {renderMessageOutcome?.(msg.messageId)}
-            </>
+        }
+        const streaming = turn.kind === 'streaming';
+        const msg = turn.value;
+        const blocks: ChatBlock[] =
+          turn.kind === 'streaming'
+            ? turn.value.blockOrder.flatMap((id) => {
+                const block = turn.value.blocks.get(id);
+                return block ? [block] : [];
+              })
+            : turn.value.blocks;
+        const ownerKey = `${sessionId ?? 'chat'}:${turnKey(msg.messageId, msg.symposiumProvenance)}`;
+        const provenance = msg.symposiumProvenance;
+        const attribution =
+          !streaming && renderMessageAttribution ? (
+            renderMessageAttribution(msg.messageId)
+          ) : (
+            <SeatAttribution provenance={msg.symposiumProvenance} compact={compactAttribution} />
           );
-      }
-      if (
-        !streaming &&
-        'role' in msg &&
-        onShareMessage &&
-        (!canShareMessage || canShareMessage(msg))
-      ) {
-        const shareButton = (
-          <button
-            type="button"
-            className="symposium-share-action"
-            onClick={(event) => {
-              const disclosure = event.currentTarget.closest('details');
-              if (disclosure) {
-                disclosure.open = false;
-                disclosure.querySelector('summary')?.focus();
-              }
-              onShareMessage(msg.messageId, msg.symposiumProvenance);
-            }}
-          >
-            Share excerpt
-          </button>
+        const scope = JSON.stringify([
+          sessionId ?? null,
+          provenance?.seatId,
+          provenance?.membershipGeneration,
+          provenance?.configRevision,
+          provenance && 'accountBinding' in provenance ? provenance.accountBinding : null,
+        ]);
+        // Filter non-visible text before assigning first/last-row controls so
+        // speaker attribution and sharing stay attached to retained content.
+        const firstVisibleText = blocks.find(
+          (block) => block.blockType === 'text' && block.content?.trim(),
         );
-        const share = shareInActions ? (
-          <details
-            className="conversation-message-actions"
-            onKeyDown={(event) => {
-              if (event.key === 'Escape') {
-                event.preventDefault();
-                event.currentTarget.open = false;
-                event.currentTarget.querySelector('summary')?.focus();
-              }
-            }}
-          >
-            <summary aria-label="Message actions">
-              <UiIcon name="more" />
-            </summary>
-            {shareButton}
-          </details>
-        ) : (
-          shareButton
-        );
-        const last = rows.at(-1);
-        if (last)
-          last.value = (
-            <>
-              {last.value}
-              {share}
-            </>
-          );
-        else
-          rows.push({
-            key: `${ownerKey}:share`,
-            scope,
-            activityControl: true,
-            value: (
-              <div className="msg-turn">
-                <SeatAttribution
-                  provenance={msg.symposiumProvenance}
-                  compact={compactAttribution}
+        const rows = blocks
+          .filter((block) => block.blockType !== 'text' || block.content?.trim())
+          .map((block, index): ActivityRow<ReactNode> => {
+            const progress = progressFor(msg.messageId, msg.symposiumProvenance, block.toolId);
+            const keepVisible =
+              Boolean(block.rawInput?.nativeSubagentCommandId) ||
+              Boolean(progress) ||
+              Boolean(telosWorkerReceipt(block, sessionId)) ||
+              (!completedWebsiteRead(block) &&
+                ['RequestWebAccess', 'mcp__mitzo-web-access__RequestWebAccess'].includes(
+                  block.toolName ?? '',
+                ));
+            const bid = block.blockId || `text-${index}`;
+            let content: ReactNode;
+            if (block.blockType === 'thinking' || block.blockType === 'redacted_thinking') {
+              content = (
+                <ThinkingBlock
+                  block={block}
+                  streaming={streaming}
+                  defaultExpanded={false}
+                  autoCollapse={false}
                 />
-                {share}
-              </div>
-            ),
+              );
+            } else if (block.blockType === 'tool_use') {
+              content = progress ? (
+                <ProgressWidget items={progress.items} />
+              ) : (
+                <ToolPill block={block} sessionId={sessionId} showSetupCard={keepVisible} />
+              );
+            } else {
+              content = (
+                <TextBubble
+                  sourceAnchor={
+                    !streaming &&
+                    turn.kind === 'finished' &&
+                    block === firstVisibleText &&
+                    sourceAnchor(turn.value)
+                  }
+                  content={block.content ?? ''}
+                  streaming={streaming}
+                  timestamp={turn.kind === 'finished' ? turn.value.timestamp : undefined}
+                  artifactSessionId={
+                    !streaming && messageSessionId ? messageSessionId(msg.messageId) : sessionId
+                  }
+                  readAloud={
+                    !streaming && voice?.ttsAvailable
+                      ? {
+                          active: speakingBlockId === bid,
+                          onSpeak: (text) => speakBlock(bid, text),
+                          onStop: stopBlock,
+                        }
+                      : undefined
+                  }
+                />
+              );
+            }
+            return {
+              key: `${ownerKey}:${bid}`,
+              scope,
+              attribution,
+              requestStatus: msg.replyToMessageId
+                ? commandLabels[requests.get(msg.replyToMessageId)?.commandState ?? '']
+                : undefined,
+              block,
+              streaming,
+              keepVisible,
+              value: (
+                <div
+                  data-reply-source={msg.messageId}
+                  tabIndex={-1}
+                  className={`msg-turn${streaming ? ' msg-turn--streaming' : ''}`}
+                >
+                  {index === 0 && (keepVisible || block.blockType === 'text') && attribution}
+                  {block === firstVisibleText && replyLabel(msg)}
+                  {!streaming && turn.kind === 'finished' && block.blockType === 'text'
+                    ? withActions(turn.value, content)
+                    : content}
+                </div>
+              ),
+            };
           });
-      }
-      return rows;
+        if (!streaming && turn.kind === 'finished') {
+          const last = rows.at(-1);
+          if (last)
+            last.value = (
+              <>
+                {last.value}
+                {createdItemCards(turn.value)}
+                {renderMessageOutcome?.(msg.messageId)}
+              </>
+            );
+        }
+        if (
+          !streaming &&
+          'role' in msg &&
+          onShareMessage &&
+          (!canShareMessage || canShareMessage(msg))
+        ) {
+          const shareButton = (
+            <button
+              type="button"
+              className="symposium-share-action"
+              onClick={(event) => {
+                const disclosure = event.currentTarget.closest('details');
+                if (disclosure) {
+                  disclosure.open = false;
+                  disclosure.querySelector('summary')?.focus();
+                }
+                onShareMessage(msg.messageId, msg.symposiumProvenance);
+              }}
+            >
+              Share excerpt
+            </button>
+          );
+          const share = shareInActions ? (
+            <details
+              className="conversation-message-actions"
+              onKeyDown={(event) => {
+                if (event.key === 'Escape') {
+                  event.preventDefault();
+                  event.currentTarget.open = false;
+                  event.currentTarget.querySelector('summary')?.focus();
+                }
+              }}
+            >
+              <summary aria-label="Message actions">
+                <UiIcon name="more" />
+              </summary>
+              {shareButton}
+            </details>
+          ) : (
+            shareButton
+          );
+          const last = rows.at(-1);
+          if (last)
+            last.value = (
+              <>
+                {last.value}
+                {share}
+              </>
+            );
+          else
+            rows.push({
+              key: `${ownerKey}:share`,
+              scope,
+              activityControl: true,
+              value: (
+                <div className="msg-turn">
+                  <SeatAttribution
+                    provenance={msg.symposiumProvenance}
+                    compact={compactAttribution}
+                  />
+                  {share}
+                </div>
+              ),
+            });
+        }
+        return rows;
+      };
+      return [...launchRows.filter((row) => row.before === turn), ...renderRows()];
     },
   );
 
   // The lifecycle carries the last app message identity. Unknown positions stay
   // explicit at the end rather than being attributed to an invented message.
-  const rowsWithCompactions = [...transcriptRows];
+  const rowsWithCompactions = [...transcriptRows, ...launchRows.filter((row) => !row.before)];
   for (const record of [...compactions].reverse()) {
     let position = -1;
     if (record.afterMessageId)
