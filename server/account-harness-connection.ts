@@ -37,7 +37,10 @@ export const ApiHarnessConnectionSchema = z
           return false;
         }
       }, 'Endpoint must be an HTTPS URL without credentials, query or fragment')
-      .transform((value) => new URL(value).toString().replace(/\/+$/, '')),
+      .transform((value) => new URL(value).toString().replace(/\/+$/, ''))
+      // URL serialization expands Unicode. Accepted output must pass the same
+      // bound when parsed again by the service, journal or account profile.
+      .pipe(z.string().max(2048)),
     protocol: z.enum(['responses', 'chat-completions', 'messages']),
     qualification: Qualification.optional(),
   })
@@ -45,9 +48,12 @@ export const ApiHarnessConnectionSchema = z
 
 export type ApiHarnessConnection = z.infer<typeof ApiHarnessConnectionSchema>;
 export const PublicApiEndpointSchema = ApiHarnessConnectionSchema.shape.endpoint.refine((value) => {
-  const host = new URL(value).hostname.toLowerCase();
+  const host = new URL(value).hostname.toLowerCase().replace(/\.+$/, '');
   return (
-    !isIP(host.replace(/^\[|\]$/g, '')) && host !== 'localhost' && !host.endsWith('.localhost')
+    !!host &&
+    !isIP(host.replace(/^\[|\]$/g, '')) &&
+    host !== 'localhost' &&
+    !host.endsWith('.localhost')
   );
 }, 'Use a public HTTPS provider hostname');
 const officialCapabilities = {

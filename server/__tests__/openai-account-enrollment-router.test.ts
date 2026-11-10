@@ -1,10 +1,150 @@
 import { describe, expect, it, vi } from 'vitest';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import express from 'express';
 import request from 'supertest';
 import { createConnectionsRouter } from '../connections-router.js';
+import {
+  OpenAIAccountEnrollment,
+  OpenAIAccountEnrollmentStore,
+} from '../openai-account-enrollment.js';
+import { openAIEnrollmentCredentialReference } from '../openai-account-enrollment-keychain.js';
 vi.mock('../auth.js', () => ({ verifyPassphrase: (value: string) => value === 'correct' }));
 
 describe('new OpenAI account enrollment routes', () => {
+  it.each(
+    [
+      'https://gateway.example/' + '界'.repeat(500),
+      'https://localhost./v1',
+      'https://private.localhost./v1',
+      'https://./v1',
+    ].flatMap((endpoint) =>
+      (['responses', 'messages'] as const).map((protocol) => ({ endpoint, protocol })),
+    ),
+  )(
+    'rejects invalid $protocol endpoint before the real service reserves a journal row: $endpoint',
+    async ({ endpoint, protocol }) => {
+      const root = mkdtempSync(join(tmpdir(), 'api-endpoint-router-'));
+      const store = new OpenAIAccountEnrollmentStore(join(root, 'accounts.db'));
+      try {
+        const reserve = vi.spyOn(store, 'reserve');
+        let savedVersion = '';
+        const keychain = {
+          create: vi.fn(async (operationId: string) => {
+            savedVersion = operationId;
+            return openAIEnrollmentCredentialReference(operationId);
+          }),
+          read: vi.fn(async () => ({
+            value: 'synthetic-key',
+            version: savedVersion,
+            managed: true,
+          })),
+        };
+        const gateway = { create: vi.fn(), inspect: vi.fn() };
+        const discoverApiModels = vi.fn();
+        const gate = vi.fn(async <T>(work: () => Promise<T>) => work());
+        const enrollment = new OpenAIAccountEnrollment({
+          store,
+          keychain,
+          gateway,
+          discoverApiModels,
+          gate,
+          validateKey: vi.fn(),
+          existingAccountIds: () => [],
+          gatewayBinding: 'https://gateway.invalid',
+          workspace: 'default',
+        });
+        const app = express();
+        app.use((_req, res, next) => {
+          res.locals.authSession = { id: 'endpoint-router', expiresAt: Date.now() + 60000 };
+          next();
+        });
+        app.use(
+          '/api/connections',
+          createConnectionsRouter({
+            store: {} as never,
+            service: {} as never,
+            eligibleAccounts: () => [],
+            gateway: 'test',
+            workspace: 'default',
+            legacyProviders: async () => [],
+            openAIAccounts: enrollment,
+          }),
+        );
+        const authorization = await request(app)
+          .post('/api/connections/reauthorize')
+          .send({ passphrase: 'correct' });
+        const input = {
+          csrf: authorization.body.csrf,
+          requestId: 'de274e02-72eb-4a31-9ced-90dfe76d3c65',
+          label: 'Endpoint regression',
+          projectLabel: 'Offline verification',
+          apiKey: 'synthetic-key',
+          billingConfirmed: true,
+          connection: {
+            endpoint,
+            protocol,
+            ...(protocol === 'messages' ? { authentication: 'bearer' } : {}),
+            qualification: {
+              source: 'operator',
+              streaming: true,
+              toolCalls: true,
+              continuation: true,
+              cancellation: true,
+            },
+          },
+          models: [{ id: 'vendor/model', label: 'Hosted' }],
+        };
+        const rejected = await request(app).post('/api/connections/openai-accounts').send(input);
+        expect(rejected.status).toBe(400);
+        expect(rejected.body).toMatchObject({
+          code: 'ENROLLMENT_INPUT_INVALID',
+          effectStatus: 'not_started',
+        });
+        const catalog = await request(app)
+          .post('/api/connections/api-models')
+          .send({
+            csrf: input.csrf,
+            endpoint,
+            apiKey: input.apiKey,
+            ...(protocol === 'messages' ? { protocol, authentication: 'bearer' } : {}),
+          });
+        expect(catalog.status).toBe(400);
+        expect(gate).not.toHaveBeenCalled();
+        expect(reserve).not.toHaveBeenCalled();
+        expect(store.rows()).toEqual([]);
+        expect(keychain.create).not.toHaveBeenCalled();
+        expect(gateway.create).not.toHaveBeenCalled();
+        expect(discoverApiModels).not.toHaveBeenCalled();
+        const correctedEndpoint = 'https://gateway.example/' + '界'.repeat(224) + 'boundary///';
+        const corrected = await request(app)
+          .post('/api/connections/openai-accounts')
+          .send({
+            ...input,
+            connection: { ...input.connection, endpoint: correctedEndpoint },
+          });
+        expect(corrected.status).toBe(201);
+        expect(corrected.body.account.state).toBe('ready');
+        const normalized = new URL(correctedEndpoint).toString().replace(/\/+$/, '');
+        expect(normalized.length).toBe(2048);
+        const saved = store.readyProfiles()[0];
+        expect(saved.provider).toBe(protocol === 'messages' ? 'anthropic-api' : 'openai');
+        expect(saved.connection).toMatchObject({
+          endpoint: normalized,
+          protocol,
+          ...(protocol === 'messages' ? { authentication: 'bearer' } : {}),
+        });
+        expect(enrollment.list()).toHaveLength(1);
+        expect(reserve).toHaveBeenCalledOnce();
+        expect(discoverApiModels).not.toHaveBeenCalled();
+        expect(gateway.create).not.toHaveBeenCalled();
+      } finally {
+        store.close();
+        rmSync(root, { recursive: true, force: true });
+      }
+    },
+  );
   it('requires browser reauthorization, billing consent and fixed destinations; sanitizes failures', async () => {
     const account = {
       id: 'new-work',

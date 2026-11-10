@@ -15,10 +15,11 @@ function validProviderEndpoint(value: string) {
   if (!endpoint || endpoint.length > 2048) return false;
   try {
     const url = new URL(endpoint);
-    const host = url.hostname.toLowerCase();
+    const host = url.hostname.toLowerCase().replace(/\.+$/, '');
     return (
       url.protocol === 'https:' &&
       !!host &&
+      url.toString().replace(/\/+$/, '').length <= 2048 &&
       host !== 'localhost' &&
       !host.endsWith('.localhost') &&
       !host.includes(':') &&

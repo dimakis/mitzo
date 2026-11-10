@@ -53,19 +53,33 @@ it.each(['api-key', 'bearer'] as const)(
     );
   },
 );
-it.each([
-  'http://gateway.example/v1',
-  'https://user:secret@gateway.example/v1',
-  'https://127.0.0.1/v1',
-  'https://localhost/v1',
-  'https://gateway.example/v1?token=secret',
-])('rejects unsafe provider endpoints before sending a key: %s', async (endpoint) => {
-  const send = vi.fn();
-  await expect(
-    discoverApiAccountModels(endpoint, 'synthetic-key', AbortSignal.timeout(1000), send),
-  ).rejects.toThrow();
-  expect(send).not.toHaveBeenCalled();
-});
+it.each(
+  [
+    'http://gateway.example/v1',
+    'https://user:secret@gateway.example/v1',
+    'https://127.0.0.1/v1',
+    'https://localhost/v1',
+    'https://localhost./v1',
+    'https://private.localhost./v1',
+    'https://./v1',
+    'https://gateway.example/' + '界'.repeat(500),
+    'https://gateway.example/v1?token=secret',
+  ].flatMap((endpoint) =>
+    (['responses', 'messages'] as const).map((protocol) => ({ endpoint, protocol })),
+  ),
+)(
+  'rejects unsafe $protocol provider endpoint before sending a key: $endpoint',
+  async ({ endpoint, protocol }) => {
+    const send = vi.fn();
+    await expect(
+      discoverApiAccountModels(endpoint, 'synthetic-key', AbortSignal.timeout(1000), send, {
+        protocol,
+        authentication: 'bearer',
+      }),
+    ).rejects.toThrow();
+    expect(send).not.toHaveBeenCalled();
+  },
+);
 
 it.each([401, 403, 302, 500])(
   'retains a safe diagnostic for a failed catalog read (%s)',
