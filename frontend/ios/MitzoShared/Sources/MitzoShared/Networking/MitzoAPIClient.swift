@@ -2,7 +2,7 @@
 
 import Foundation
 
-public actor MitzoAPIClient {
+public actor MitzoAPIClient: BackgroundApprovalTransport {
     public enum APIError: Error {
         case invalidResponse
         case unauthorized
@@ -12,10 +12,20 @@ public actor MitzoAPIClient {
 
     private let baseURL: URL
     private let authManager: AuthManager
+    private let requestTransport: @Sendable (URLRequest) async throws -> (Data, URLResponse)
+    private let currentToken: @Sendable () async throws -> String
 
     public init(baseURL: URL, authManager: AuthManager) {
         self.baseURL = baseURL
         self.authManager = authManager
+        self.requestTransport = { try await tailscaleURLSession.data(for: $0) }
+        self.currentToken = { try await AuthManager().getToken() }
+    }
+
+    init(baseURL: URL, currentToken: @escaping @Sendable () async throws -> String,
+         transport: @escaping @Sendable (URLRequest) async throws -> (Data, URLResponse)) {
+        self.baseURL = baseURL; self.authManager = AuthManager()
+        self.currentToken = currentToken; self.requestTransport = transport
     }
 
     // MARK: - Sessions
@@ -24,7 +34,7 @@ public actor MitzoAPIClient {
         try await get(path: "/api/sessions", query: [
             URLQueryItem(name: "offset", value: "\(offset)"),
             URLQueryItem(name: "limit", value: "\(limit)")
-        ])
+        ], freshAuthentication: true)
     }
 
     public func getSessionMeta(id: String) async throws -> SessionMeta {
@@ -32,7 +42,7 @@ public actor MitzoAPIClient {
     }
 
     public func getMessages(sessionId: String) async throws -> [FinishedMessage] {
-        try await get(path: "/api/sessions/\(sessionId)/messages")
+        try await get(path: "/api/sessions/\(sessionId)/messages", freshAuthentication: true)
     }
 
     // MARK: - Notifications
@@ -66,6 +76,37 @@ public actor MitzoAPIClient {
     }
 
     private struct NotificationResponseResult: Decodable { let ok: Bool }
+
+    public func fetchNotification(id: String) async throws -> MitzoNotification {
+        try await get(path: try notificationPath(id), timeout: 4, freshAuthentication: true)
+    }
+
+    public func submitApproval(_ action: NativeApprovalAction, response: NotificationResponse) async throws -> NativeApprovalReceipt {
+        struct Reviewed: Encodable { let toolName: String; let toolInput: String; let sessionGrantDescription: String? }
+        struct Body: Encodable {
+            let sessionId: String; let decision: NotificationResponse.Decision
+            let requestId: String; let nativeAction: String; let reviewed: Reviewed
+        }
+        guard let name = action.reviewedToolName, let input = action.reviewedInput else { throw APIError.invalidResponse }
+        let result: ReceiptResult = try await get(path: try notificationPath(action.notificationId) + "/respond", method: "POST",
+            body: JSONEncoder().encode(Body(sessionId: response.sessionId, decision: response.decision,
+                requestId: action.requestId, nativeAction: action.actionID,
+                reviewed: Reviewed(toolName: name, toolInput: input, sessionGrantDescription: action.reviewedSessionGrantDescription))), timeout: 5, freshAuthentication: true)
+        return result.receipt
+    }
+
+    private struct ReceiptResult: Decodable { let receipt: NativeApprovalReceipt }
+    public func approvalReceipt(_ identity: NativeApprovalIdentity) async throws -> NativeApprovalReceipt {
+        guard UUID(uuidString: identity.requestId) != nil else { throw APIError.invalidResponse }
+        let result: ReceiptResult = try await get(path: try notificationPath(identity.notificationId) + "/responses/" + identity.requestId,
+            query: [URLQueryItem(name: "sessionId", value: identity.sessionId)], timeout: 3, freshAuthentication: true)
+        return result.receipt
+    }
+    private func notificationPath(_ id: String) throws -> String {
+        let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "-_:"))
+        guard !id.isEmpty, id.unicodeScalars.allSatisfy({ allowed.contains($0) }) else { throw APIError.invalidResponse }
+        return "/api/notifications/\(id)"
+    }
 
     private func sourcePermissionPath(_ permId: String) throws -> String {
         let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "-_:"))
@@ -109,7 +150,8 @@ public actor MitzoAPIClient {
 
     // MARK: - Generic Request
 
-    private func get<T: Decodable>(path: String, query: [URLQueryItem]? = nil, method: String = "GET", body: Data? = nil, timeout: TimeInterval = 60) async throws -> T {
+    private func get<T: Decodable>(path: String, query: [URLQueryItem]? = nil, method: String = "GET", body: Data? = nil, timeout: TimeInterval = 60, freshAuthentication: Bool = false) async throws -> T {
+        try Task.checkCancellation()
         var components = URLComponents(url: baseURL.appendingPathComponent(path), resolvingAgainstBaseURL: false)!
         components.queryItems = query
 
@@ -123,10 +165,11 @@ public actor MitzoAPIClient {
         request.httpBody = body
         if body != nil { request.setValue("application/json", forHTTPHeaderField: "Content-Type") }
 
-        let token = try await authManager.getToken()
+        let token = try await (freshAuthentication ? currentToken() : authManager.getToken())
+        try Task.checkCancellation()
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
 
-        let (data, response) = try await tailscaleURLSession.data(for: request)
+        let (data, response) = try await requestTransport(request)
 
         guard let httpResponse = response as? HTTPURLResponse else {
             throw APIError.invalidResponse

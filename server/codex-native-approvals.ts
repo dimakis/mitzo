@@ -87,6 +87,7 @@ export function createCodexNativeApprovalHandler(options: {
     let commandKind: 'command' | 'writeStdin' | undefined;
     let preExecutionCommand = false;
     let explicitDenial = false;
+    let expiryObserved = false;
     let grantResponse: Record<string, unknown> | undefined;
     const grant = (response: Record<string, unknown>) => {
       grantResponse = parseNativeApprovalResponse(method, response);
@@ -102,7 +103,7 @@ export function createCodexNativeApprovalHandler(options: {
                 ? 'cancelled'
                 : explicitDenial
                   ? 'permission_denied'
-                  : Date.now() >= Number(params.startedAtMs) + timeoutMs
+                  : expiryObserved || Date.now() >= Number(params.startedAtMs) + timeoutMs
                     ? 'approval_expired'
                     : 'permission_denied',
               'approval',
@@ -219,7 +220,11 @@ export function createCodexNativeApprovalHandler(options: {
         toolName,
         toolUseID,
         scopeHash: sessionGrantKey,
-        outcome: signal.aborted ? 'cancelled' : Date.now() >= expiresAt ? 'expired' : 'denied',
+        outcome: signal.aborted
+          ? 'cancelled'
+          : expiryObserved || Date.now() >= expiresAt
+            ? 'expired'
+            : 'denied',
       });
       log.warn('Native approval refused during validation or RPC delivery', {
         runtimeId,
@@ -228,7 +233,7 @@ export function createCodexNativeApprovalHandler(options: {
         requestId: identity.requestId,
         threadId: identity.threadId,
         cancelled: signal.aborted,
-        expired: Date.now() >= expiresAt,
+        expired: expiryObserved || Date.now() >= expiresAt,
         cause: error instanceof Error ? error.message : 'non-Error validation failure',
       });
     };
@@ -279,7 +284,15 @@ export function createCodexNativeApprovalHandler(options: {
         }
       };
       context.registerResponseFence?.(finalFence);
-      timer = setTimeout(() => expiry.abort(), Math.max(0, expiresAt - Date.now()));
+      timer = setTimeout(
+        () => {
+          // Timers and wall-clock reads can disagree at the deadline (or after a
+          // clock correction). Retain the observed timeout as the refusal cause.
+          expiryObserved = true;
+          expiry.abort();
+        },
+        Math.max(0, expiresAt - Date.now()),
+      );
       const developmentGrant = captureNativeDevelopmentGrant(session, request);
       if (developmentGrant) {
         assertConsentCurrent = developmentGrant;

@@ -14,23 +14,34 @@ struct UnsafeSendable<T>: @unchecked Sendable {
 #if os(iOS)
 import WatchConnectivity
 import Foundation
+import OSLog
 
 /// iPhone-side relay: bridges watch messages to the Mitzo WS connection.
 /// Add to AppDelegate or a long-lived coordinator.
 public final class WatchRelayHost: NSObject, WCSessionDelegate, Sendable {
-    private let state = WatchRelayHostState()
+    private static let log = Logger(subsystem: "com.mitzo.app", category: "watch-relay")
+    private let state: WatchRelayHostState
+    private let reads: WatchRelayReads
     private let authManager: AuthManager
     private let notificationAPIProvider: (@Sendable () -> MitzoAPIClient?)?
 
     public init(authManager: AuthManager, notificationAPIProvider: (@Sendable () -> MitzoAPIClient?)? = nil) {
+        let state = WatchRelayHostState()
+        self.state = state
+        self.reads = WatchRelayReads(apiProvider: {
+            if let notificationAPIProvider { return notificationAPIProvider() }
+            return state.getAPIClient()
+        })
         self.notificationAPIProvider = notificationAPIProvider
         self.authManager = authManager
         super.init()
     }
 
-    public func activate(wsClient: MitzoWSClient? = nil, apiClient: MitzoAPIClient? = nil) {
+    public func activate(wsClient: MitzoWSClient? = nil, apiClient: MitzoAPIClient? = nil,
+                         wsClientProvider: (@Sendable () async throws -> MitzoWSClient)? = nil) {
         if let wsClient { state.setWSClient(wsClient) }
         if let apiClient { state.setAPIClient(apiClient) }
+        if let wsClientProvider { state.setWSClientProvider(wsClientProvider) }
 
         guard WCSession.isSupported() else {
             print("[WatchRelay] WCSession not supported")
@@ -44,7 +55,8 @@ public final class WatchRelayHost: NSObject, WCSessionDelegate, Sendable {
     // MARK: - WCSessionDelegate
 
     public func session(_ session: WCSession, activationDidCompleteWith activationState: WCSessionActivationState, error: Error?) {
-        print("[WatchRelay] Activation complete: state=\(activationState.rawValue), error=\(String(describing: error))")
+        if let error { Self.log.error("relay_activation_failed cause=\(error as NSError, privacy: .private)") }
+        else { Self.log.info("relay_activation_complete state=\(activationState.rawValue)") }
     }
 
     public func sessionDidBecomeInactive(_ session: WCSession) {}
@@ -86,8 +98,9 @@ public final class WatchRelayHost: NSObject, WCSessionDelegate, Sendable {
         }
         let reply = UnsafeSendable(replyHandler)
         let capturedState = state
-        let capturedAuthManager = authManager
+        let capturedAuthManager = AuthManager()
         let notificationAPIProvider = self.notificationAPIProvider
+        let reads = self.reads
         let userText = message["userText"] as? String ?? ""
 
         Task { @Sendable in
@@ -120,42 +133,19 @@ public final class WatchRelayHost: NSObject, WCSessionDelegate, Sendable {
                         reply.value(["error": "invalid message"])
                         return
                     }
-                    try await capturedState.getWSClient()?.send(msg)
+                    let client = try await capturedState.clientForSend()
+                    try await client.send(msg)
                     reply.value(["ok": true])
 
                 case "get_messages":
-                    if let apiClient = capturedState.getAPIClient() {
-                        do {
-                            let messages: [FinishedMessage] = try await apiClient.getMessages(sessionId: sessionId)
-                            let data = try JSONEncoder().encode(messages)
-                            if let arr = try JSONSerialization.jsonObject(with: data) as? [[String: Any]] {
-                                reply.value(["_payload": arr])
-                            } else {
-                                reply.value(["error": "encoding_failed"])
-                            }
-                        } catch {
-                            reply.value(["error": error.localizedDescription])
-                        }
-                    } else {
-                        reply.value(["error": "no_api_client"])
-                    }
+                    let data = try await reads.messages(sessionId: sessionId)
+                    guard let arr = try JSONSerialization.jsonObject(with: data) as? [[String: Any]] else { throw MitzoAPIClient.APIError.invalidResponse }
+                    reply.value(["_payload": arr])
 
                 case "list_sessions":
-                    if let apiClient = capturedState.getAPIClient() {
-                        do {
-                            let response = try await apiClient.getSessions()
-                            let data = try JSONEncoder().encode(response)
-                            if let dict = try JSONSerialization.jsonObject(with: data) as? [String: Any] {
-                                reply.value(["_payload": dict])
-                            } else {
-                                reply.value(["error": "encoding_failed"])
-                            }
-                        } catch {
-                            reply.value(["error": error.localizedDescription])
-                        }
-                    } else {
-                        reply.value(["error": "no_api_client"])
-                    }
+                    let data = try await reads.sessions()
+                    guard let dict = try JSONSerialization.jsonObject(with: data) as? [String: Any] else { throw MitzoAPIClient.APIError.invalidResponse }
+                    reply.value(["_payload": dict])
 
                 case "list_notifications":
                     guard let api = notificationAPI else {
@@ -201,9 +191,12 @@ public final class WatchRelayHost: NSObject, WCSessionDelegate, Sendable {
                     reply.value(["ok": true])
 
                 case "auth_token":
-                    if let token = try? await capturedAuthManager.getToken() {
+                    do {
+                        let token = try await capturedAuthManager.getToken()
                         reply.value(["token": token])
-                    } else {
+                    } catch AuthManager.AuthError.noToken {
+                        // Expected before login; other Keychain failures retain
+                        // their cause through the sanitized outer error path.
                         reply.value(["error": "no_token"])
                     }
 
@@ -211,7 +204,9 @@ public final class WatchRelayHost: NSObject, WCSessionDelegate, Sendable {
                     reply.value(["error": "unknown relay type: \(type)"])
                 }
             } catch {
-                reply.value(["error": error.localizedDescription])
+                Self.log.error("relay_request_failed type=\(type, privacy: .public) session=\(sessionId, privacy: .public) cause=\(error as NSError, privacy: .private)")
+                let code = error is NativeRelayConnection.ConnectionError ? "relay_unavailable" : "relay_request_failed"
+                reply.value(["error": "Open Mitzo on your iPhone to check the connection. Reference: \(code)."])
             }
         }
     }
@@ -228,12 +223,14 @@ public final class WatchRelayHost: NSObject, WCSessionDelegate, Sendable {
                 WCSession.default.sendMessage(
                     ["_relay": "server_event", "_payload": dict],
                     replyHandler: nil,
-                    errorHandler: { @Sendable _ in } // Non-fatal: watch recovers via seq replay
+                    // Reachability can change after the check. Retain a private
+                    // transient diagnostic; phone receipt is not Watch delivery.
+                    errorHandler: { @Sendable error in
+                        Self.log.debug("relay_delivery_unconfirmed cause=\(error as NSError, privacy: .private)")
+                    }
                 )
             }
-        } catch {
-            // Encoding failure — drop the message
-        }
+        } catch { Self.log.error("relay_encoding_failed cause=\(error as NSError, privacy: .private)") }
     }
 
     // MARK: - Helpers
@@ -264,6 +261,18 @@ public final class WatchRelayHost: NSObject, WCSessionDelegate, Sendable {
                 throw RelayError.missingSessionId
             }
             return .watch(sessionId: sessionId)
+
+        case "unwatch":
+            guard let sessionId = dict["sessionId"] as? String else { throw RelayError.missingSessionId }
+            return .unwatch(sessionId: sessionId)
+
+        case "reconnect":
+            guard let entries = dict["sessions"] as? [[String: Any]] else { throw RelayError.missingSessionId }
+            let sessions = try entries.map { entry -> ReconnectSession in
+                guard let id = entry["sessionId"] as? String, let seq = entry["lastSeq"] as? Int else { throw RelayError.missingSessionId }
+                return ReconnectSession(sessionId: id, lastSeq: seq)
+            }
+            return .reconnect(sessions: sessions)
 
         case "stop":
             guard let sessionId = dict["sessionId"] as? String else {
@@ -311,6 +320,7 @@ public final class WatchRelayHost: NSObject, WCSessionDelegate, Sendable {
 private final class WatchRelayHostState: Sendable {
     private nonisolated(unsafe) var _wsClient: MitzoWSClient?
     private nonisolated(unsafe) var _apiClient: MitzoAPIClient?
+    private nonisolated(unsafe) var _wsClientProvider: (@Sendable () async throws -> MitzoWSClient)?
     private let lock = NSLock()
 
     func setWSClient(_ client: MitzoWSClient) {
@@ -323,6 +333,17 @@ private final class WatchRelayHostState: Sendable {
         lock.lock()
         defer { lock.unlock() }
         return _wsClient
+    }
+
+    func setWSClientProvider(_ provider: @escaping @Sendable () async throws -> MitzoWSClient) {
+        lock.withLock { _wsClientProvider = provider }
+    }
+
+    func clientForSend() async throws -> MitzoWSClient {
+        let (provider, client) = lock.withLock { (_wsClientProvider, _wsClient) }
+        if let provider { return try await provider() }
+        guard let client else { throw NativeRelayConnection.ConnectionError.unavailable }
+        return client
     }
 
     func setAPIClient(_ client: MitzoAPIClient?) {

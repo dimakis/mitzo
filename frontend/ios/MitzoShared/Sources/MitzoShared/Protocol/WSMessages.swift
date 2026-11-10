@@ -531,7 +531,8 @@ public struct SessionControlRejectedParams: Codable, Sendable {
 public struct ReconnectedSession: Codable, Sendable {
     public let sessionId: String
     public let replayed: Int
-    public let running: Bool
+    // Current server summaries omit this legacy field. Absence is unknown.
+    public let running: Bool?
 }
 
 public struct SessionSwitchedParams: Codable, Sendable {
