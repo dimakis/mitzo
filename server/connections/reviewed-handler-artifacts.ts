@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.981-symposium-finalized-recovery-delivery';
+  'v1.0.982-symposium-finalized-recovery-delivery';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -23,6 +23,10 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
+  '../../frontend/src/hooks/__tests__/useConversationJoiningReview.receipt.test.tsx':
+    'ba96331fa943087d8672a6afc29ee18a35db4c82df0fa8ad79f552e0abf03450',
+  '../../tests/integration/symposium-application-review-recovery.test.tsx':
+    '25489f287500e19ebaa054e00011fc030cba261820f65028e3f9a38e3b584985',
   '../__tests__/collaboration-application-fresh-agent-ui.test.tsx':
     '0004e3be3b42fed59ae5bf435d6e763832567df3fb78c925ba518aacaf037386',
   '../../packages/client/src/command-delivery-diagnostic.ts':
