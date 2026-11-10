@@ -39,13 +39,16 @@ describe('new OpenAI account enrollment routes', () => {
         };
         const gateway = { create: vi.fn(), inspect: vi.fn() };
         const discoverApiModels = vi.fn();
-        const gate = vi.fn(async <T>(work: () => Promise<T>) => work());
+        const gate = vi.fn();
         const enrollment = new OpenAIAccountEnrollment({
           store,
           keychain,
           gateway,
           discoverApiModels,
-          gate,
+          gate: async <T>(work: () => Promise<T>) => {
+            gate();
+            return work();
+          },
           validateKey: vi.fn(),
           existingAccountIds: () => [],
           gatewayBinding: 'https://gateway.invalid',
