@@ -199,10 +199,10 @@ export function OpenAIAccountEnrollment({
       {message && <p role="alert">{message}</p>}
       {enabled === null ? (
         <p role="status">Loading account setup…</p>
-      ) : !enabled ? (
-        <p>Adding AI API accounts is unavailable.</p>
       ) : created ? (
         <p role="status">{created.label} is ready for new chats.</p>
+      ) : !enabled ? (
+        <p>Adding AI API accounts is unavailable.</p>
       ) : unresolved ? (
         <p role="status">
           A previous enrollment must be reviewed before adding another account. Check its status and

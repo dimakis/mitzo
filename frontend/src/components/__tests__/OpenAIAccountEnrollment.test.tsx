@@ -17,6 +17,19 @@ beforeEach(() => {
   vi.mocked(api.enrollOpenAIAccount).mockResolvedValue(account);
 });
 afterEach(cleanup);
+it('retains a confirmed saved account when its follow-up status read fails', async () => {
+  vi.mocked(api.getOpenAIAccounts)
+    .mockResolvedValueOnce({ enabled: true, accounts: [] })
+    .mockRejectedValueOnce(Error('Status unavailable'));
+  await mount();
+  fireEvent.change(screen.getByLabelText('Provider'), { target: { value: 'enmaas' } });
+  fill();
+  fireEvent.click(screen.getByRole('checkbox'));
+  await act(async () => fireEvent.click(screen.getByRole('button', { name: 'Save API account' })));
+  expect(screen.getByText('Work API is ready for new chats.')).toBeTruthy();
+  expect(screen.getByRole('alert').textContent).toContain('Account status could not be loaded');
+  expect(api.enrollOpenAIAccount).toHaveBeenCalledOnce();
+});
 it('shows a catalog failure and allows explicit model IDs without claiming validation', async () => {
   vi.mocked(api.discoverApiModels).mockRejectedValue(Error('PRIVATE_KEY provider response'));
   await mount();
