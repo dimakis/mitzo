@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.1003-generic-responses-enrollment';
+  'v1.0.1005-generic-responses-enrollment';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -2371,7 +2371,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     'e36785249c67f6010bb394ab3856395d1bf341a73a84a88049a86c2ed83d6ed0',
   '../openai-account-enrollment.ts':
     'ce85bb2f29505ae898e012389bb29182551bb19bd22a702104a7cde84889b174',
-  '../api-account-setup.ts': 'eebd95d5f99ce2d48cd0885e0d20a2b1cf184c296197c2c74fe1b4c07d6ccf67',
+  '../api-account-setup.ts': '3ade4f751ee2c23ccff4a8e6b4c768ad8989546bd0f9edf7906ed5a431487a04',
   '../openai-account-enrollment-keychain.ts':
     '8bd52d66fc18bb9a573b3602f20eff4fdbdd9194ced1f30246d39584f4076cbe',
   '../openai-provider-enrollment-gateway.ts':
@@ -2870,7 +2870,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/session-create-runtime-selection.test.ts':
     'c5de4a6560ec62a86487d599dc7fbf981daa0455407933d2bcf3a7ece9250332',
   '../account-harness-connection.ts':
-    '81a0d896c70cd660a44f4e3ca7506d1fe52f501cde8d2776dbd6f50d77532316',
+    '90c3f688488bf262efb2dcb6ed7034a8684fcb2825c01f63c9cf1cd53bbef379',
   '../../frontend/src/lib/briefing-registration.ts':
     'fbeb3c766c9ca38ad9dcad04f245c0db6bca4d269775e1e32f9392ba3ab15c46',
   '../../frontend/src/lib/__tests__/chat-runtime-route.test.ts':

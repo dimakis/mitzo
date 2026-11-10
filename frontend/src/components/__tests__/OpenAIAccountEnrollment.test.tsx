@@ -71,6 +71,10 @@ it.each([
   'http://gateway.example/v1',
   'https://localhost/v1',
   'https://private.localhost/v1',
+  'https://localhost./v1',
+  'https://private.localhost./v1',
+  'https://./v1',
+  'https://gateway.example/' + '界'.repeat(500),
   'https://127.0.0.1/v1',
   'https://[::1]/v1',
   'https://user:password@gateway.example/v1',
@@ -95,6 +99,16 @@ it.each([
   expect(api.discoverApiModels).not.toHaveBeenCalled();
   expect((screen.getByLabelText('API key') as HTMLInputElement).value).toBe('PRIVATE_KEY');
   expect((screen.getByLabelText('API base URL') as HTMLInputElement).value).toBe(endpoint);
+  fireEvent.change(screen.getByLabelText('API base URL'), {
+    target: { value: 'https://gateway.example/v1' },
+  });
+  fireEvent.change(screen.getByLabelText('Additional model IDs'), {
+    target: { value: 'vendor/model' },
+  });
+  fireEvent.click(screen.getByRole('checkbox'));
+  await act(async () => fireEvent.click(submit));
+  expect(api.enrollOpenAIAccount).toHaveBeenCalledOnce();
+  expect(screen.getByText('Work API is ready for new chats.')).toBeTruthy();
 });
 it('retains a confirmed saved account when its follow-up status read fails', async () => {
   vi.mocked(api.getOpenAIAccounts)

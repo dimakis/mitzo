@@ -51,6 +51,8 @@ Invalid endpoint details remain editable before any key is sent. If the server
 explicitly rejects a request before enrollment starts, correct its details and
 re-enter the key to make a fresh attempt. A missing or uncertain save receipt
 still requires status review.
+The 2048-character endpoint limit applies to both entered and normalized URLs.
+Localhost aliases with a trailing DNS root dot are rejected as well.
 **Ready** here means configuration and credential custody were saved; account
 authentication and successful use remain separate evidence below.
 

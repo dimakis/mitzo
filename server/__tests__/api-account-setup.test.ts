@@ -31,6 +31,10 @@ it.each([
   'https://user:secret@gateway.example/v1',
   'https://127.0.0.1/v1',
   'https://localhost/v1',
+  'https://localhost./v1',
+  'https://private.localhost./v1',
+  'https://./v1',
+  'https://gateway.example/' + '界'.repeat(500),
   'https://gateway.example/v1?token=secret',
 ])('rejects unsafe provider endpoints before sending a key: %s', async (endpoint) => {
   const send = vi.fn();

@@ -10,9 +10,12 @@ import {
 
 export const ApiProviderEndpointSchema = ApiHarnessConnectionSchema.shape.endpoint.refine(
   (value) => {
-    const host = new URL(value).hostname.toLowerCase();
+    const host = new URL(value).hostname.toLowerCase().replace(/\.+$/, '');
     return (
-      !isIP(host.replace(/^\[|\]$/g, '')) && host !== 'localhost' && !host.endsWith('.localhost')
+      !!host &&
+      !isIP(host.replace(/^\[|\]$/g, '')) &&
+      host !== 'localhost' &&
+      !host.endsWith('.localhost')
     );
   },
   'Use a public HTTPS provider hostname',
