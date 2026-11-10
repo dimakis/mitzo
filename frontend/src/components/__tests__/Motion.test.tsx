@@ -88,6 +88,7 @@ describe('shared navigation motion', () => {
             Assign conversation
           </button>
           <Link to="/sessions">Chats</Link>
+          <Link to="/chat">New draft</Link>
           <button onClick={() => navigate(-1)}>Return</button>
         </main>
       );
@@ -113,6 +114,11 @@ describe('shared navigation motion', () => {
     fireEvent.click(screen.getByText('Return'));
     // The retained history state must not suppress real back navigation.
     expect(animate).toHaveBeenCalledTimes(2);
+    fireEvent.click(screen.getByText('New draft'));
+    expect(animate).toHaveBeenCalledTimes(3);
+    fireEvent.click(screen.getByText('Return'));
+    // Returning from another blank draft is navigation, not a new receipt.
+    expect(animate).toHaveBeenCalledTimes(4);
   });
 
   it('animates navigation without remounting drafts, replaying on renders, or moving fixed controls', () => {
