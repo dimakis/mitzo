@@ -142,6 +142,12 @@ offline fixture and outstanding browser/visual verification.
 
 ## Combined composer status
 
+Uncertain ordinary message rows use **Message delivery not confirmed**. The
+existing status/details surface explains bounded delivery failures and preserves
+the original Retry owner and command identity. See [delivery recovery and
+validation](../features/command-delivery-recovery.md); this changes no layout,
+tokens or approved controls.
+
 Ordinary chats use the approved status row above the existing composer. It has
 the shared control height, one-line overflow, semantic status colors and one
 details action. Routine autosaving is silent. Queue, recovery and error actions

@@ -324,7 +324,17 @@ it('keeps the newer composer draft and sends repeated prompts after exact screen
         await f.waitForReceipt(id);
       });
     }
-    await waitFor(() => expect(input).toHaveProperty('value', ''));
+    await waitFor(() =>
+      expect(
+        input,
+        JSON.stringify({
+          command: f.store.getState().localCommand,
+          error: f.store.getState().sendError,
+          saved: f.saved(),
+          revision: chatStorage.getItem(composerDraftRevisionKey('original-composer')),
+        }),
+      ).toHaveProperty('value', ''),
+    );
     expect(f.saved()).toEqual([]);
     expect(
       f.requests.filter(
