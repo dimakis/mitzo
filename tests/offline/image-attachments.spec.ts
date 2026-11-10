@@ -1,4 +1,5 @@
 import { disabledLocalCapabilities } from '../support/disabled-local-capabilities';
+import { expectMotionSettled } from '../support/motion-settled';
 import { expect, test, type Locator, type Page } from '@playwright/test';
 import { readFile } from 'node:fs/promises';
 import { extname, resolve } from 'node:path';
@@ -167,6 +168,9 @@ async function stroke(page: Page, surface: Locator, touch: boolean) {
 }
 
 async function expectTarget(control: Locator) {
+  // A translated ancestor can produce fractional WebKit bounds during entry.
+  // Measure the resting target without reducing the full 44px requirement.
+  await expectMotionSettled(control);
   const bounds = (await control.boundingBox())!;
   expect(bounds.width).toBeGreaterThanOrEqual(44);
   expect(bounds.height).toBeGreaterThanOrEqual(44);

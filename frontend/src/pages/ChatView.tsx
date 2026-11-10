@@ -120,18 +120,9 @@ function ChatViewContent() {
   const [profileToolsTarget, setProfileToolsTarget] = useState<HTMLDivElement | null>(null);
   const [keyboardOpen, setKeyboardOpen] = useState(false);
 
-  useEffect(
-    () =>
-      onKeyboardToggle((visible) => {
-        setKeyboardOpen(visible);
-        if (visible) {
-          requestAnimationFrame(() => {
-            scrollRef.current?.scrollTo({ top: scrollRef.current!.scrollHeight });
-          });
-        }
-      }),
-    [],
-  );
+  // ChatArea owns scroll intent during viewport/composer resizing. Opening the
+  // keyboard must not pull a reader away from an older message.
+  useEffect(() => onKeyboardToggle(setKeyboardOpen), []);
   const { sessionId } = useParams<{ sessionId?: string }>();
   const searchParams = useChatDraftSearch(!sessionId);
   const [agentProfile, setAgentProfile] = useState<AgentProfileSelection | null>(null);
@@ -865,7 +856,7 @@ function ChatViewContent() {
       (!repositoryHandoff.present || repositoryHandoff.assignedConversationId === activeSessionId)
     ) {
       awaitingNewSession.current = false;
-      navigate(`/chat/${activeSessionId}`, { replace: true });
+      navigate(`/chat/${activeSessionId}`, { replace: true, state: { chatAssignment: true } });
     }
   }, [
     activeSessionId,

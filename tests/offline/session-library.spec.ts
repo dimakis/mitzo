@@ -4,6 +4,7 @@ import { build } from 'esbuild';
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { waitForNewFixtureReads } from '../support/fixture-reads';
+import { chatStorageBootstrap } from '../support/chat-storage-bootstrap';
 const linkedWork = {
   ...createTelosWorkFixtures().homeStudio.items[0],
   itemId: 'work-one',
@@ -35,6 +36,7 @@ const sessions = Array.from({ length: 12 }, (_, index) => ({
   },
 }));
 const bundle = build({
+  plugins: [chatStorageBootstrap()],
   entryPoints: [resolve('tests/fixtures/session-library.tsx')],
   bundle: true,
   external: ['/*.png', '/*.svg'],
@@ -82,6 +84,24 @@ for (const theme of ['dark', 'light'])
         localStorage.setItem('mitzo-theme', theme);
         localStorage.setItem('mitzo-accent', accent);
         localStorage.setItem('mitzo-font', font);
+        localStorage.setItem(
+          'mitzo-chat-draft:visual-draft',
+          JSON.stringify({
+            version: 1,
+            id: 'visual-draft',
+            text: 'An unsent prompt',
+            images: [],
+            contextBlocks: [],
+            updatedAt: Date.now(),
+            settings: {
+              selection: null,
+              mode: 'agent',
+              isolation: true,
+              search: '',
+              summary: null,
+            },
+          }),
+        );
         if (!sessionStorage.getItem('pins-seeded')) {
           localStorage.setItem('mitzo-today-tokens', 'true');
           localStorage.setItem(
@@ -188,6 +208,40 @@ for (const theme of ['dark', 'light'])
     await page.goto('/sessions');
     await expect(page.getByRole('button', { name: 'New chat', exact: true })).toBeVisible();
     const newChat = page.getByRole('button', { name: 'New chat', exact: true });
+    const pinToggle = page.getByRole('button', { name: 'Collapse pinned conversations' });
+    const draftToggle = page.locator('.conversation-drafts-section > summary');
+    await expect(draftToggle).toBeVisible();
+    const labelGeometry = async (locator: typeof pinToggle) =>
+      locator.evaluate((element) => {
+        const style = getComputedStyle(element);
+        const label = element.querySelector('span')!.getBoundingClientRect();
+        const count = element.querySelector('span:last-child')!.getBoundingClientRect();
+        const row = element.getBoundingClientRect();
+        return {
+          font: style.fontSize,
+          weight: style.fontWeight,
+          lineHeight: style.lineHeight,
+          labelInset: label.left - row.left,
+          countInset: row.right - count.right,
+          height: row.height,
+          icons: [...element.querySelectorAll('svg')].map(
+            (icon) => icon.getBoundingClientRect().width,
+          ),
+        };
+      });
+    const pinGeometry = await labelGeometry(pinToggle);
+    const draftGeometry = await labelGeometry(draftToggle);
+    expect(draftGeometry.font).toBe(pinGeometry.font);
+    expect(draftGeometry.weight).toBe(pinGeometry.weight);
+    expect(draftGeometry.lineHeight).toBe(pinGeometry.lineHeight);
+    expect(draftGeometry.labelInset).toBeCloseTo(pinGeometry.labelInset, 0);
+    expect(draftGeometry.countInset).toBeCloseTo(pinGeometry.countInset, 0);
+    expect(draftGeometry.icons).toEqual(pinGeometry.icons);
+    for (const height of [pinGeometry.height, draftGeometry.height])
+      expect(height).toBeGreaterThanOrEqual(44);
+    for (const filter of await page.locator('.conversation-filters button').all())
+      expect((await filter.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+    expect(await newChat.locator('svg').getAttribute('width')).toBe('20');
     await expect(newChat).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
     await expect(newChat).toHaveCSS('border-top-width', '0px');
     if (isMobile) {
