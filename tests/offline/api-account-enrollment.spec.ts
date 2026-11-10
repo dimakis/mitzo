@@ -99,7 +99,7 @@ for (const theme of ['light', 'dark'] as const) {
     await expect(form.getByRole('alert')).toContainText('Could not read the provider catalog');
     await form.getByRole('button', { name: 'Get models', exact: true }).click();
     await expect(form.getByText(/partial catalog/)).toBeVisible();
-    await expect(form.getByLabel('Available models')).toHaveValue([]);
+    await expect(form.getByLabel('Available models')).toHaveValues([]);
     await expect(form.getByLabel('Additional model IDs')).toHaveValue(
       'rits/zai-org/glm-5-3\nrits/deepseek-ai/DeepSeek-V4.1-Flash-1017',
     );
