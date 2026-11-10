@@ -30,3 +30,8 @@
   outline: 2px solid var(--color-accent);
   outline-offset: var(--space-1);
 }
+/* Keep action glyphs consistent even when an older caller requests inline size. */
+.header-action > .ui-icon {
+  width: var(--icon-action-size);
+  height: var(--icon-action-size);
+}

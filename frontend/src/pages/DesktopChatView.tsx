@@ -853,7 +853,7 @@ function DesktopChatViewContent() {
       (!repositoryHandoff.present || repositoryHandoff.assignedConversationId === activeSessionId)
     ) {
       awaitingNewSession.current = false;
-      navigate(`/chat/${activeSessionId}`, { replace: true });
+      navigate(`/chat/${activeSessionId}`, { replace: true, state: { chatAssignment: true } });
     }
   }, [
     activeSessionId,

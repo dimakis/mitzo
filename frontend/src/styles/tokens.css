@@ -121,6 +121,13 @@
   --text-lg: 1.25rem;
   --text-xl: 1.5rem;
   --text-page-title: 1.75rem;
+  /* Semantic roles: collections, focused panes, sections and disclosure rows. */
+  --text-collection-title: clamp(var(--text-page-title), 3.2vw, 2rem);
+  --text-pane-title: var(--text-lg);
+  --text-section-title: 1.0625rem;
+  --text-section-label: var(--text-sm);
+  --icon-inline-size: 16px;
+  --icon-action-size: 20px;
 
   /* Spacing scale */
   --space-1: 0.25rem;

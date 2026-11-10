@@ -88,8 +88,20 @@ export function useMotionPresence(
         if (!open) setRetained(false);
         else release();
       })
-      .catch(() => {
-        /* Cancellation is expected when interrupted or unmounted. */
+      .catch((cause: unknown) => {
+        if (disposed) return; // Owned interruption/unmount already released it.
+        if (!(cause instanceof Error && cause.name === 'AbortError')) {
+          console.warn('UI motion could not complete', {
+            code: 'ui_motion_failed',
+            stage: 'presence',
+            kind,
+            elementId: root.id || undefined,
+            cause: cause instanceof Error ? cause.name : 'Unknown',
+          });
+        }
+        // An external cancellation/failure must not strand an inert exit.
+        if (!open) setRetained(false);
+        else release();
       });
     return () => {
       disposed = true;
