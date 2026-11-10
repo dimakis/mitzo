@@ -1,3 +1,4 @@
+import './fixtures/offline-user-home.js';
 import { afterEach, expect, it, vi } from 'vitest';
 import { writeFile, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
@@ -33,6 +34,12 @@ vi.mock('@anthropic-ai/claude-agent-sdk', async (original) => ({
   ]),
 }));
 const cleanups: Array<() => void | Promise<void>> = [];
+const apiKeychain = vi.hoisted(() => ({ read: vi.fn() }));
+vi.mock('../keychain-rotation-credentials.js', () => ({
+  KeychainRotationCredentials: class {
+    read = apiKeychain.read;
+  },
+}));
 afterEach(async () => {
   for (const cleanup of cleanups.splice(0).reverse()) await cleanup();
   vi.restoreAllMocks();
@@ -113,6 +120,37 @@ async function fixture(options: Parameters<typeof ownedVertexRuntimeFixture>[1] 
   };
   return { f, dispatch, create };
 }
+it('admits Messages accounts and blocks continuation after Keychain version drift', async () => {
+  const { f, create, dispatch } = await fixture({ anthropicApi: true });
+  apiKeychain.read.mockResolvedValue({
+    value: 'offline-api-key',
+    version: 'eec02914-ac1f-4369-ab86-8e4f130abc92',
+    managed: true,
+  });
+  const owner = create();
+  await expect(owner.admit(f.request)).resolves.toEqual({ dispatched: true });
+  const custody = f.events.getOrdinaryLocalVertexCustody(f.reservation.conversationId)!;
+  expect(custody.credentialAuthority).toMatchObject({
+    kind: 'anthropic-api-key',
+    credentialVersion: 'eec02914-ac1f-4369-ab86-8e4f130abc92',
+  });
+  expect(JSON.stringify(custody)).not.toContain('offline-api-key');
+  owner.commandTerminal(f.request.clientMsgId);
+  await expect(
+    owner.admitContinuation({ ...f.request, clientMsgId: 'messages-next' }),
+  ).resolves.toEqual({ dispatched: true });
+  owner.commandTerminal('messages-next');
+  apiKeychain.read.mockResolvedValue({
+    value: 'replacement',
+    version: 'eec02914-ac1f-4369-ab86-8e4f130abc93',
+    managed: true,
+  });
+  await expect(
+    owner.admitContinuation({ ...f.request, clientMsgId: 'messages-revoked' }),
+  ).rejects.toThrow();
+  expect(dispatch).toHaveBeenCalledTimes(2);
+  expect(f.events.getSendCommand('messages-revoked')).toBeUndefined();
+});
 it('freezes SDK skill input before first admission and retains it for later and cold dispatch', async () => {
   const { f, create, dispatch } = await fixture({ chatRoute: true });
   vi.spyOn(registries, 'buildSkillRegistry').mockReturnValue(

@@ -1,6 +1,10 @@
-import { isIP } from 'node:net';
 import { z } from 'zod';
-import { ApiHarnessConnectionSchema, apiHarnessConnection } from './account-harness-connection.js';
+import {
+  ApiHarnessConnectionSchema,
+  apiHarnessConnection,
+  PublicApiEndpointSchema,
+} from './account-harness-connection.js';
+import { AnthropicApiConnectionSchema } from './anthropic-api-connection.js';
 import { sendConnectionRequest } from './credential-http.js';
 import type { ConnectionSender } from './credential-connections.js';
 import {
@@ -8,18 +12,11 @@ import {
   verificationTransportError,
 } from './credential-verification-error.js';
 
-export const ApiProviderEndpointSchema = ApiHarnessConnectionSchema.shape.endpoint.refine(
-  (value) => {
-    const host = new URL(value).hostname.toLowerCase();
-    return (
-      !isIP(host.replace(/^\[|\]$/g, '')) && host !== 'localhost' && !host.endsWith('.localhost')
-    );
-  },
-  'Use a public HTTPS provider hostname',
-);
+export const ApiProviderEndpointSchema = PublicApiEndpointSchema;
 
-export const QualifiedApiConnectionSchema = ApiHarnessConnectionSchema.extend({
+const QualifiedResponsesConnectionSchema = ApiHarnessConnectionSchema.extend({
   endpoint: ApiProviderEndpointSchema,
+  protocol: z.literal('responses'),
 }).superRefine((connection, ctx) => {
   try {
     apiHarnessConnection(connection);
@@ -31,6 +28,15 @@ export const QualifiedApiConnectionSchema = ApiHarnessConnectionSchema.extend({
     });
   }
 });
+export const QualifiedApiConnectionSchema = z.union([
+  QualifiedResponsesConnectionSchema,
+  AnthropicApiConnectionSchema,
+]);
+export type QualifiedApiConnection = z.infer<typeof QualifiedApiConnectionSchema>;
+export interface ApiDiscoveryOptions {
+  protocol?: 'responses' | 'messages';
+  authentication?: 'api-key' | 'bearer';
+}
 export const ApiAccountModelsSchema = z
   .array(
     z
@@ -70,6 +76,7 @@ export async function discoverApiAccountModels(
   key: string,
   callerSignal: AbortSignal,
   send?: ConnectionSender,
+  options: ApiDiscoveryOptions = {},
 ): Promise<ApiModelDiscovery> {
   const selected = ApiProviderEndpointSchema.parse(endpoint);
   if (!key.trim() || key.length > 16384)
@@ -79,9 +86,15 @@ export async function discoverApiAccountModels(
   try {
     const result = await sendConnectionRequest(
       {
-        url: new URL(selected + '/models'),
+        url: new URL(selected + (options.protocol === 'messages' ? '/v1/models' : '/models')),
         method: 'GET',
-        headers: { Authorization: `Bearer ${key}` },
+        headers:
+          options.protocol === 'messages' && options.authentication !== 'bearer'
+            ? { 'x-api-key': key, 'anthropic-version': '2023-06-01' }
+            : {
+                Authorization: `Bearer ${key}`,
+                ...(options.protocol === 'messages' ? { 'anthropic-version': '2023-06-01' } : {}),
+              },
         allowPrivateNetwork: false,
       },
       signal,

@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { isIP } from 'node:net';
 
 export const OPENAI_RESPONSES_ENDPOINT = 'https://api.openai.com/v1';
 
@@ -43,12 +44,29 @@ export const ApiHarnessConnectionSchema = z
   .strict();
 
 export type ApiHarnessConnection = z.infer<typeof ApiHarnessConnectionSchema>;
+export const PublicApiEndpointSchema = ApiHarnessConnectionSchema.shape.endpoint.refine((value) => {
+  const host = new URL(value).hostname.toLowerCase();
+  return (
+    !isIP(host.replace(/^\[|\]$/g, '')) && host !== 'localhost' && !host.endsWith('.localhost')
+  );
+}, 'Use a public HTTPS provider hostname');
 const officialCapabilities = {
   streaming: true,
   toolCalls: true,
   continuation: true,
   cancellation: true,
 } as const;
+export function qualifiedApiCapabilities(connection: ApiHarnessConnection, protocol: string) {
+  if (!connection.qualification)
+    throw Error(`${protocol} endpoint requires explicit operator qualification`);
+  const { source, ...capabilities } = connection.qualification;
+  for (const capability of Object.keys(
+    officialCapabilities,
+  ) as (keyof typeof officialCapabilities)[])
+    if (capabilities[capability] !== true)
+      throw Error(`${protocol} endpoint lacks qualified ${capability} capability`);
+  return { qualification: source, capabilities: { ...officialCapabilities } };
+}
 
 /** Credential-free, target-independent supported Codex connection. */
 export function apiHarnessConnection(connection?: ApiHarnessConnection) {
@@ -63,22 +81,12 @@ export function apiHarnessConnection(connection?: ApiHarnessConnection) {
     };
   if (connection.protocol !== 'responses')
     throw Error('Codex requires the Responses protocol; no legacy fallback is supported');
-  if (!connection.qualification)
-    throw Error('Responses endpoint requires explicit operator qualification');
-  const { source, ...capabilities } = connection.qualification;
-  for (const capability of Object.keys(
-    officialCapabilities,
-  ) as (keyof typeof officialCapabilities)[]) {
-    if (capabilities[capability] !== true)
-      throw Error(`Responses endpoint lacks qualified ${capability} capability`);
-  }
   return {
     harness: 'codex' as const,
     authentication: 'api-key' as const,
     endpoint: connection.endpoint,
     protocol: 'responses' as const,
-    qualification: source,
-    capabilities: { ...officialCapabilities },
+    ...qualifiedApiCapabilities(connection, 'Responses'),
   };
 }
 

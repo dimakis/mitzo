@@ -109,6 +109,35 @@ it('discovers generic provider models and enrolls the selected models without Op
     }),
   );
 });
+it('discovers EnMaaS Messages models and saves a Claude SDK connection', async () => {
+  vi.mocked(api.discoverApiModels).mockResolvedValue({
+    models: [{ id: 'hosted/claude-sonnet', label: 'Hosted Sonnet' }],
+    partial: false,
+  });
+  await mount();
+  fireEvent.change(screen.getByLabelText('Provider'), { target: { value: 'enmaas' } });
+  fireEvent.change(screen.getByLabelText('Model API'), { target: { value: 'messages' } });
+  expect((screen.getByLabelText('API base URL') as HTMLInputElement).value).toBe(
+    'https://api.enmaas.devshift.net',
+  );
+  expect((screen.getByLabelText('Additional model IDs') as HTMLTextAreaElement).value).toBe('');
+  fill();
+  await act(async () => fireEvent.click(screen.getByRole('button', { name: 'Get models' })));
+  expect(api.discoverApiModels).toHaveBeenCalledWith(
+    expect.objectContaining({ protocol: 'messages', authentication: 'bearer' }),
+  );
+  const select = screen.getByLabelText('Available models') as HTMLSelectElement;
+  select.options[0].selected = true;
+  fireEvent.change(select);
+  fireEvent.click(screen.getByRole('checkbox'));
+  await act(async () => fireEvent.click(screen.getByRole('button', { name: 'Save API account' })));
+  expect(api.enrollOpenAIAccount).toHaveBeenCalledWith(
+    expect.objectContaining({
+      connection: expect.objectContaining({ protocol: 'messages', authentication: 'bearer' }),
+      models: [{ id: 'hosted/claude-sonnet', label: 'Hosted Sonnet' }],
+    }),
+  );
+});
 it('pins the two hosted EnMaaS models even when discovery omits them', async () => {
   vi.mocked(api.discoverApiModels).mockResolvedValue({
     models: [{ id: 'paid-model', label: 'Paid model' }],

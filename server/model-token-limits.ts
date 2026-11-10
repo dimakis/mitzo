@@ -52,7 +52,9 @@ export function providerTokenLimits(
 ): ModelTokenLimits | undefined {
   const data = object(value);
   if (typeof data.id === 'string' && data.id !== model) return;
-  const claude = ['anthropic', 'anthropic-vertex', 'anthropic-claude'].includes(provider);
+  const claude = ['anthropic', 'anthropic-vertex', 'anthropic-claude', 'anthropic-api'].includes(
+    provider,
+  );
   const gemini = provider === 'google' || provider === 'google-vertex';
   if (!claude && !gemini) return;
   const input = positive(claude ? data.max_input_tokens : data.inputTokenLimit);

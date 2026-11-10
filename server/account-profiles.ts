@@ -3,6 +3,7 @@ import {
   apiHarnessConnection,
   subscriptionHarnessConnection,
 } from './account-harness-connection.js';
+import { AnthropicApiConnectionSchema } from './anthropic-api-connection.js';
 import { protectCodexProfileRoots } from './codex-private-path.js';
 import {
   ClaudeSubscriptionCustody,
@@ -182,12 +183,23 @@ const GoogleProfile = z
       });
   })
   .strict();
+const AnthropicApiProfile = z.strictObject({
+  id: VertexProfile.shape.id,
+  label: VertexProfile.shape.label,
+  provider: z.literal('anthropic-api'),
+  connection: AnthropicApiConnectionSchema,
+  credentialRef: CredentialReferenceSchema.extend({ provider: z.literal('keychain') }),
+  credentialVersion: z.uuid(),
+  models: VertexProfile.shape.models,
+  paidReasoningRates: PaidReasoningRates.optional(),
+});
 const Profile = z.discriminatedUnion('provider', [
   VertexProfile,
   ClaudeProfile,
   GoogleProfile,
   CodexProfile,
   ApiProfile,
+  AnthropicApiProfile,
 ]);
 const MODEL_DISCOVERY_TIMEOUT_MS = 60_000;
 
@@ -213,38 +225,46 @@ function routingRevision(profile: z.infer<typeof Profile>): string {
                 ? [['paidReasoningRates', profile.paidReasoningRates]]
                 : []),
             ]
-          : profile.provider === 'openai'
+          : profile.provider === 'anthropic-api'
             ? [
                 profile.provider,
+                profile.connection,
                 profile.credentialRef,
-                profile.sandboxProvider,
-                profile.sandboxProviderId,
-                ...(profile.connection ? [profile.connection] : []),
-                ...(profile.paidReasoningRates
-                  ? [['paidReasoningRates', profile.paidReasoningRates]]
-                  : []),
+                profile.credentialVersion,
+                profile.paidReasoningRates,
               ]
-            : profile.provider === 'anthropic-claude'
+            : profile.provider === 'openai'
               ? [
                   profile.provider,
                   profile.credentialRef,
-                  profile.email,
-                  profile.planType,
+                  profile.sandboxProvider,
+                  profile.sandboxProviderId,
+                  ...(profile.connection ? [profile.connection] : []),
                   ...(profile.paidReasoningRates
                     ? [['paidReasoningRates', profile.paidReasoningRates]]
                     : []),
                 ]
-              : [
-                  profile.provider,
-                  profile.projectId,
-                  profile.region,
-                  profile.credentialRef,
-                  profile.sandboxProvider,
-                  profile.sandboxProviderId,
-                  ...(profile.paidReasoningRates
-                    ? [['paidReasoningRates', profile.paidReasoningRates]]
-                    : []),
-                ],
+              : profile.provider === 'anthropic-claude'
+                ? [
+                    profile.provider,
+                    profile.credentialRef,
+                    profile.email,
+                    profile.planType,
+                    ...(profile.paidReasoningRates
+                      ? [['paidReasoningRates', profile.paidReasoningRates]]
+                      : []),
+                  ]
+                : [
+                    profile.provider,
+                    profile.projectId,
+                    profile.region,
+                    profile.credentialRef,
+                    profile.sandboxProvider,
+                    profile.sandboxProviderId,
+                    ...(profile.paidReasoningRates
+                      ? [['paidReasoningRates', profile.paidReasoningRates]]
+                      : []),
+                  ],
       ),
     )
     .digest('hex');
@@ -381,15 +401,18 @@ export class AccountProfiles {
     );
   }
 
-  /** Configuration/cache metadata for the dormant local capability snapshot.
-   * Never refreshes discovery, checks sign-in or opens a provider connection.
-   */
-  /** Selected file-backed ADC profiles only; configuration/cache projection performs no credential I/O. */
+  /** Selected local Claude profiles; configuration/cache projection performs no credential I/O. */
   ordinaryLocalVertexInventory() {
     return this.profiles
       .filter(
-        (profile): profile is z.infer<typeof ClaudeProfile> | z.infer<typeof VertexProfile> =>
+        (
+          profile,
+        ): profile is
+          | z.infer<typeof ClaudeProfile>
+          | z.infer<typeof VertexProfile>
+          | z.infer<typeof AnthropicApiProfile> =>
           profile.provider === 'anthropic-claude' ||
+          profile.provider === 'anthropic-api' ||
           (profile.provider === 'anthropic-vertex' &&
             !profile.sandboxProvider &&
             !profile.sandboxProviderId),
@@ -589,16 +612,20 @@ export class AccountProfiles {
             ? { signIn: this.signIn(profile) }
             : {}),
           billing:
-            provider === 'anthropic-claude'
-              ? 'claude-subscription'
-              : provider === 'openai-codex'
-                ? 'chatgpt-subscription'
-                : provider === 'openai'
-                  ? 'openai-api'
-                  : 'google-cloud',
+            provider === 'anthropic-api'
+              ? 'anthropic-api'
+              : provider === 'anthropic-claude'
+                ? 'claude-subscription'
+                : provider === 'openai-codex'
+                  ? 'chatgpt-subscription'
+                  : provider === 'openai'
+                    ? 'openai-api'
+                    : 'google-cloud',
           models: supportedModels(
             profile,
-            provider === 'anthropic-vertex' || provider === 'anthropic-claude'
+            provider === 'anthropic-vertex' ||
+              provider === 'anthropic-claude' ||
+              provider === 'anthropic-api'
               ? profile.models
               : (discovered?.models ?? profile.models),
           ),
@@ -616,6 +643,7 @@ export class AccountProfiles {
             images:
               provider === 'anthropic-vertex' ||
               provider === 'anthropic-claude' ||
+              provider === 'anthropic-api' ||
               provider === 'openai-codex',
           },
         };
@@ -1090,7 +1118,8 @@ export class AccountProfiles {
       profile,
       configured ||
         profile.provider === 'anthropic-vertex' ||
-        profile.provider === 'anthropic-claude'
+        profile.provider === 'anthropic-claude' ||
+        profile.provider === 'anthropic-api'
         ? profile.models
         : (cachedModels(JSON.stringify(profile))?.models ?? profile.models),
     );
@@ -1364,6 +1393,7 @@ export class AccountProfiles {
           'CLAUDE_CONFIG_DIR',
           'MITZO_CLAUDE_EXPECTED_EMAIL',
           'MITZO_CLAUDE_EXPECTED_PLAN',
+          'MITZO_ANTHROPIC_API_CUSTODY',
           'GOOGLE_API_KEY',
           'GOOGLE_APPLICATION_CREDENTIALS',
           'GOOGLE_CLOUD_QUOTA_PROJECT',
@@ -1373,6 +1403,20 @@ export class AccountProfiles {
       )
         delete env[key];
     }
+    if (profile.provider === 'anthropic-api')
+      return {
+        ...env,
+        CLAUDE_CODE_USE_VERTEX: '0',
+        ANTHROPIC_BASE_URL: profile.connection.endpoint,
+        MITZO_ANTHROPIC_API_CUSTODY: JSON.stringify({
+          kind: 'anthropic-api-key',
+          version: 1,
+          endpoint: profile.connection.endpoint,
+          authentication: profile.connection.authentication,
+          credentialRef: profile.credentialRef,
+          credentialVersion: profile.credentialVersion,
+        }),
+      };
     if (profile.provider === 'anthropic-claude')
       return {
         ...env,

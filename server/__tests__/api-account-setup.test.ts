@@ -26,6 +26,33 @@ it('discovers gateway models at the exact selected endpoint without making an in
   });
 });
 
+it.each(['api-key', 'bearer'] as const)(
+  'uses Messages model discovery with %s authentication',
+  async (authentication) => {
+    const send = vi.fn<ConnectionSender>(async () => ({
+      status: 200,
+      body: JSON.stringify({
+        data: [{ id: 'hosted/sonnet', display_name: 'Sonnet' }],
+        has_more: false,
+      }),
+    }));
+    const result = await discoverApiAccountModels(
+      'https://gateway.example/anthropic',
+      'synthetic-key',
+      AbortSignal.timeout(1000),
+      send,
+      { protocol: 'messages', authentication },
+    );
+    expect(result).toEqual({ models: [{ id: 'hosted/sonnet', label: 'Sonnet' }], partial: false });
+    const request = send.mock.calls[0][0];
+    expect(request.url).toEqual(new URL('https://gateway.example/anthropic/v1/models'));
+    expect(request.headers).toEqual(
+      authentication === 'bearer'
+        ? { Authorization: 'Bearer synthetic-key', 'anthropic-version': '2023-06-01' }
+        : { 'x-api-key': 'synthetic-key', 'anthropic-version': '2023-06-01' },
+    );
+  },
+);
 it.each([
   'http://gateway.example/v1',
   'https://user:secret@gateway.example/v1',

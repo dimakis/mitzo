@@ -1,13 +1,19 @@
+import { resetOfflineUserEnvironment } from './fixtures/offline-user-home.js';
 import { EventStore } from '../event-store.js';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { AccountInfo, query } from '@anthropic-ai/claude-agent-sdk';
-import { afterAll, afterEach, describe, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { searchGemini, searchSdk } from '../web-search-adapters.js';
 const executionStore = new EventStore(':memory:');
 executionStore.upsertSession({ sessionId: 'parent' });
 const workspaceRoot = mkdtempSync(join(tmpdir(), 'sdk-search-test-'));
+beforeEach(() => {
+  resetOfflineUserEnvironment();
+  vi.stubEnv('PATH', '/usr/bin:/bin:/usr/sbin:/sbin');
+  vi.stubEnv('MITZO_TELOS_DATA_DIR', join(workspaceRoot, 'telos'));
+});
 const owner = {
   executionStore,
   parentSessionId: 'parent',

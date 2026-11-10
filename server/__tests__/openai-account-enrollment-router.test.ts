@@ -86,6 +86,16 @@ describe('new OpenAI account enrollment routes', () => {
       catalogInput.apiKey,
       expect.any(AbortSignal),
     );
+    expect(
+      (await discover({ ...catalogInput, csrf, protocol: 'messages', authentication: 'bearer' }))
+        .status,
+    ).toBe(200);
+    expect(enrollment.discoverModels).toHaveBeenLastCalledWith(
+      catalogInput.endpoint,
+      catalogInput.apiKey,
+      expect.any(AbortSignal),
+      { protocol: 'messages', authentication: 'bearer' },
+    );
     enrollment.discoverModels.mockRejectedValueOnce(Error('PRIVATE_KEY private upstream response'));
     const failedCatalog = await discover({ ...catalogInput, csrf });
     expect(failedCatalog.status).toBe(422);
@@ -122,6 +132,12 @@ describe('new OpenAI account enrollment routes', () => {
     };
     expect((await post({ ...custom, csrf })).status).toBe(201);
     expect(enrollment.enroll).toHaveBeenLastCalledWith(custom, expect.any(AbortSignal));
+    const messages = {
+      ...custom,
+      connection: { ...custom.connection, protocol: 'messages', authentication: 'bearer' },
+    };
+    expect((await post({ ...messages, csrf })).status).toBe(201);
+    expect(enrollment.enroll).toHaveBeenLastCalledWith(messages, expect.any(AbortSignal));
     expect(
       (
         await post({

@@ -44,6 +44,7 @@ import { LocalVertexClaudeFirstCommandSchema } from '@mitzo/protocol';
 import type { OrdinaryLocalVertexCommandOwner } from './ordinary-local-vertex-command-owner.js';
 import type { AccountBinding, OrdinaryLocalCommandAdmission } from '@mitzo/protocol';
 import { OrdinaryLocalVertexSdkAuthority } from './ordinary-local-vertex-sdk-authority.js';
+import { claudeSdkInferenceEnvironment } from './claude-sdk-credentials.js';
 import {
   OrdinaryLocalResponsesOwnedRuntime,
   type OrdinaryLocalResponsesOwnedDispatch,
@@ -1631,7 +1632,8 @@ async function _startChatInner(
         accountBinding.provider === 'openai' ||
         accountBinding.provider === 'google-vertex' ||
         accountBinding.provider === 'anthropic-vertex' ||
-        accountBinding.provider === 'anthropic-claude'
+        accountBinding.provider === 'anthropic-claude' ||
+        accountBinding.provider === 'anthropic-api'
       )
         profiles!.validateModelSelection(accountBinding, options.model!, options.reasoningEffort);
       if (accountBinding.provider === 'openai-codex') {
@@ -1719,10 +1721,14 @@ async function _startChatInner(
         accountEnv = openShellRequested ? restrictedChildEnv() : nativeExecutionEnv();
       } else accountEnv = profiles!.sdkEnv(accountBinding, sdkChildEnvironmentBase());
       if (
-        accountBinding.provider === 'anthropic-claude' &&
+        ['anthropic-claude', 'anthropic-api'].includes(accountBinding.provider) &&
         (!options.ordinarySdkAuthority || openShellRequested)
       )
-        throw Error('Personal Claude requires the selected Local Mac Claude SDK runtime');
+        throw Error(
+          accountBinding.provider === 'anthropic-api'
+            ? 'Anthropic API requires the selected Local Mac Claude SDK runtime'
+            : 'Personal Claude requires the selected Local Mac Claude SDK runtime',
+        );
     }
     if (options.adviserScope) {
       if (!accountBinding || accountBinding.provider !== 'anthropic-vertex')
@@ -2250,10 +2256,15 @@ async function _startChatInner(
     }
 
     // Build session env with worktree paths for the agent (all repos including primary)
-    const sessionEnv = accountEnv
-      ? accountBinding && ['anthropic-vertex', 'anthropic-claude'].includes(accountBinding.provider)
-        ? await resolveSdkChildSocket(accountEnv, session.abortController.signal)
-        : accountEnv
+    const selectedSdkEnv =
+      accountBinding?.provider === 'anthropic-api'
+        ? await claudeSdkInferenceEnvironment(accountEnv!, session.abortController.signal)
+        : accountEnv;
+    const sessionEnv = selectedSdkEnv
+      ? accountBinding &&
+        ['anthropic-vertex', 'anthropic-claude', 'anthropic-api'].includes(accountBinding.provider)
+        ? await resolveSdkChildSocket(selectedSdkEnv, session.abortController.signal)
+        : selectedSdkEnv
       : await buildSdkChildEnvironment(session.abortController.signal);
     assertStartupCurrent();
     sessionEnv.MITZO_SESSION_ID = wtId;
@@ -2271,7 +2282,13 @@ async function _startChatInner(
 
     const sdkCredentialBoundary =
       !codexProfile && !apiCredentialRef && !gemini
-        ? credentialSdkBoundary(process.platform, options.ordinarySdkAuthority?.writeRoots())
+        ? credentialSdkBoundary(
+            process.platform,
+            options.ordinarySdkAuthority?.writeRoots(),
+            accountBinding?.provider === 'anthropic-api'
+              ? sessionEnv.ANTHROPIC_BASE_URL
+              : undefined,
+          )
         : undefined;
     options.ordinarySdkAuthority?.assertEnvironment(sessionEnv);
 
@@ -5720,7 +5737,8 @@ export async function renameSessionById(
     provider === 'openai' ||
     provider === 'openai-codex' ||
     provider === 'google-vertex' ||
-    provider === 'anthropic-claude'
+    provider === 'anthropic-claude' ||
+    provider === 'anthropic-api'
   ) {
     if (manual) eventStore.markManuallyRenamed(sessionId);
     eventStore.upsertSession({ sessionId, summary: title });

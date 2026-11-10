@@ -343,6 +343,8 @@ export function createConnectionsRouter(options: {
           csrf: z.string().min(1),
           endpoint: ApiProviderEndpointSchema,
           apiKey: z.string().min(1).max(16384),
+          protocol: z.enum(['responses', 'messages']).optional(),
+          authentication: z.enum(['api-key', 'bearer']).optional(),
         })
         .strict()
         .safeParse(req.body);
@@ -358,6 +360,14 @@ export function createConnectionsRouter(options: {
             parsed.data.endpoint,
             parsed.data.apiKey,
             AbortSignal.timeout(15000),
+            ...(parsed.data.protocol === 'messages'
+              ? [
+                  {
+                    protocol: 'messages' as const,
+                    authentication: parsed.data.authentication ?? ('api-key' as const),
+                  },
+                ]
+              : []),
           ),
         );
       } catch (cause) {

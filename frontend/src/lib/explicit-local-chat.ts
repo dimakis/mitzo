@@ -28,6 +28,7 @@ const account = SessionRuntimeBindingV1Schema.shape.account
       'openai',
       'anthropic-vertex',
       'anthropic-claude',
+      'anthropic-api',
       'google-vertex',
     ]),
   })
