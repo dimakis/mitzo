@@ -1,219 +1,47 @@
 import { afterAll, expect, it, vi } from 'vitest';
 import { createHash } from 'node:crypto';
 import { z } from 'zod';
-import { mkdtempSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import type { Express } from 'express';
-import type { EventStore } from '../event-store.js';
-import { createApplicationHttpTransport } from './fixtures/symposium-application-http.js';
 import { CollaborationApiClient, MitzoApiClient } from '@mitzo/client';
-import {
-  CollaborationSnapshotSchema,
-  CollaborationSettingsSchema,
-  type CollaborationSettings,
-  type CollaborationSnapshot,
-} from '@mitzo/protocol';
-
-// External tool configuration only. Keep actual app/chat, stores, routing,
-// internal-token implementation and interactive login/cookie authentication.
-vi.mock('../mcp-config.js', () => ({
-  loadMcpServers: () => ({}),
-  getMcpConfigPaths: () => [],
-}));
-// Host location is external fixture metadata. Keep actual private-root guards
-// while preventing access to the developer's credential/configuration directories.
-vi.mock('node:os', async (original) => {
-  const os = await original<typeof import('node:os')>();
-  return { ...os, homedir: () => process.env.SYMPOSIUM_OFFLINE_HOME ?? os.homedir() };
-});
-
-// External GitHub source acquisition only; actual canonical selection, account,
-// connection authorization, ordinary capture and workspace owner remain real.
-vi.mock('../github-repository-source.js', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../github-repository-source.js')>();
-  const boundary = await import('./fixtures/symposium-application-target.js');
-  return {
-    ...actual,
-    inspectGithubRepositorySource: boundary.inspectSyntheticGithub,
-    prepareGithubRepositorySource: boundary.prepareSyntheticGithub,
-  };
-});
-
-let root: string | undefined;
-let app: Express;
-let events: EventStore;
-let close: (() => Promise<void>) | undefined;
-let cookie: string;
-let http: Awaited<ReturnType<typeof createApplicationHttpTransport>> | undefined;
-let connections:
-  | Awaited<
-      ReturnType<
-        typeof import('./fixtures/symposium-application-target.js').installApplicationReviewConnections
-      >
-    >
-  | undefined;
-let releaseTransport: (() => void) | undefined;
-const group = crypto.randomUUID();
-let reviewedSnapshot: CollaborationSnapshot | undefined;
-let reviewedSettings: CollaborationSettings | undefined;
-let joinedSessionId: string | undefined;
-let api: CollaborationApiClient;
-async function loadApplication() {
-  // Do not touch host credentials while the core-owned safe import seam is absent.
-  // This is a BLOCKED prerequisite, not application behavior acceptance.
-  const tokens = readFileSync(new URL('../internal-token.ts', import.meta.url), 'utf8');
-  const application = readFileSync(new URL('../app.ts', import.meta.url), 'utf8');
-  if (
-    !tokens.includes('MITZO_INTERNAL_TOKEN_PATH') ||
-    !application.includes('closeIdleApplicationResources') ||
-    !application.includes('closeIdleRepositoryWorkspaces')
-  )
-    throw Error(
-      'BLOCKED: core safe app/workspace idle teardown seam unavailable; actual app was not imported',
-    );
-  const fresh = root === undefined;
-  root ??= realpathSync(mkdtempSync(join(tmpdir(), 'symposium-actual-app-')));
-  vi.stubEnv('CODEX_HOME', undefined);
-  for (const key of Object.keys(process.env)) {
-    if (
-      /^(MITZO_|OPENAI_|ANTHROPIC_|GOOGLE_|VERTEX_|CLOUD_ML_|NTFY_|PUSHOVER_|APNS_|CONTEXT|CONTEXGIN|LOKI_|OTEL_|MCP_|GH_TOKEN$|GITHUB_TOKEN$)/.test(
-        key,
-      )
-    )
-      vi.stubEnv(key, undefined);
-  }
-  const profiles = join(root, 'accounts.json');
-  const limits = join(root, 'model-limits.json');
-  if (fresh) {
-    mkdirSync(join(root, 'telos-private'), { mode: 0o700 });
-    writeFileSync(profiles, '[]', { mode: 0o600 });
-    writeFileSync(limits, '{}');
-  }
-  for (const [key, value] of Object.entries({
-    REPO_PATH: root,
-    TELOS_DB_PATH: join(root, 'telos-private', 'telos.db'),
-    MITZO_INTERNAL_TOKEN_PATH: join(root, 'internal-token'),
-    MITZO_CODEX_PRIVATE_DIR: join(root, 'private'),
-    MITZO_ORDINARY_TASK_ROOT: join(root, 'tasks'),
-    SYMPOSIUM_OFFLINE_HOME: join(root, 'home'),
-    MITZO_ACCOUNT_PROFILES_FILE: profiles,
-    MITZO_MODEL_LIMITS_CATALOG_FILE: limits,
-    CLAUDE_CODE_USE_VERTEX: '0',
-    WORKTREE_ENABLED: 'false',
-    LOGGER_SYNC: '1',
-    LOG_FILE_PATH: join(root, 'app.log'),
-    AUTH_PASSPHRASE: 'offline-symposium-acceptance-passphrase',
-    AUTH_SECRET: 'offline-symposium-acceptance-secret-at-least-32-bytes',
-    COOKIE_MAX_AGE_HOURS: '1',
-  }))
-    vi.stubEnv(key, value);
-  vi.stubGlobal(
-    'fetch',
-    vi.fn(async () => {
-      throw Error('External network forbidden in application fixture');
-    }),
-  );
-  const targetFixture = await import('./fixtures/symposium-application-target.js');
-  await targetFixture.configureApplicationReviewTarget(root, fresh);
-  const loaded = await import('../app.js');
-  app = loaded.app;
-  close = Reflect.get(loaded, 'closeIdleApplicationResources');
-  if (typeof close !== 'function')
-    throw Error('Core idle application resource teardown unavailable');
-  connections = await targetFixture.installApplicationReviewConnections(
-    root,
-    loaded.setConnectionsRuntime,
-  );
-  const idleClose = close;
-  close = async () => {
-    releaseTransport?.();
-    releaseTransport = undefined;
-    await connections?.close();
-    connections = undefined;
-    await idleClose();
-  };
-  events = (await import('../chat.js')).eventStore;
-  http = await createApplicationHttpTransport(app);
-  if (!cookie) {
-    const login = await http.request('POST', '/api/auth/login', {
-      body: { passphrase: process.env.AUTH_PASSPHRASE },
-    });
-    expect(login.status).toBe(200);
-    const raw = login.headers['set-cookie'];
-    cookie = String(Array.isArray(raw) ? raw[0] : raw).split(';')[0];
-    expect(cookie).toMatch(/^cc_auth=.+/);
-  }
-}
-async function restartApplication() {
-  if (!close || !http || !root) throw Error('Application fixture is not initialized');
-  await close();
-  await http.close();
-  // Never let an interrupted fresh import reuse the prior owner's successful
-  // close receipt as permission to remove its possibly open new resources.
-  close = undefined;
-  http = undefined;
-  vi.resetModules();
-  await loadApplication();
-}
-afterAll(async () => {
-  let released = root === undefined;
-  try {
-    if (close) {
-      await close();
-      released = true;
-      if (http) {
-        const fenced = await http.request('GET', '/api/session-collaborations');
-        expect(fenced).toMatchObject({
-          status: 503,
-          body: { error: 'Application resources are unavailable' },
-        });
-      }
-    }
-  } finally {
-    await http?.close();
-    // A failed idle release remains fenced; retain its root/logs and synthetic
-    // environment rather than deleting files under possibly open resources or
-    // restoring host configuration to unfinished callbacks.
-    if (released) {
-      vi.unstubAllGlobals();
-      vi.unstubAllEnvs();
-      if (root) rmSync(root, { recursive: true, force: true });
-    }
-  }
-});
-
+import { CollaborationSnapshotSchema, CollaborationSettingsSchema } from '@mitzo/protocol';
+import { createApplicationJourney } from './fixtures/symposium-application-journey.js';
+const journey = createApplicationJourney();
+const { state, loadApplication, restartApplication } = journey;
+afterAll(() => journey.close());
 it('reviews an actual prepared unused Local workspace through real app auth and survives the same-session restart without capacity', async () => {
   await loadApplication();
-  events.upsertSession({ sessionId: 'existing-chat', conversationSource: 'mitzo' });
-  const sourceBoundary = events.append('existing-chat', 'user_message', {
+  state.events.upsertSession({ sessionId: 'existing-chat', conversationSource: 'mitzo' });
+  const sourceBoundary = state.events.append('existing-chat', 'user_message', {
     messageId: 'selected-source',
     text: 'Synthetic design requirement',
     privateProviderIdentity: 'DO_NOT_LEAK',
   });
-  const path = `/api/session-collaborations/${group}`;
-  expect((await http!.request('GET', path + '/conversation')).status).toBe(401);
+  const path = `/api/session-collaborations/${state.group}`;
+  expect((await state.http!.request('GET', path + '/conversation')).status).toBe(401);
   const beginInput = { requestId: crypto.randomUUID(), sessionId: 'existing-chat' };
-  expect((await http!.request('POST', path + '/begin', { body: beginInput })).status).toBe(401);
+  expect((await state.http!.request('POST', path + '/begin', { body: beginInput })).status).toBe(
+    401,
+  );
   expect(
     (
-      await http!.request('POST', path + '/begin', {
-        headers: { cookie, origin: 'https://untrusted.invalid' },
+      await state.http!.request('POST', path + '/begin', {
+        headers: { cookie: state.cookie, origin: 'https://untrusted.invalid' },
         body: beginInput,
       })
     ).status,
   ).toBe(403);
-  expect(events.getSessionCollaboration(group)).toBeNull();
-  const sessionsBeforeBegin = events
+  expect(state.events.getSessionCollaboration(state.group)).toBeNull();
+  const sessionsBeforeBegin = state.events
     .listSessions()
     .map((row) => row.sessionId)
     .sort();
   let lostBeginResponses = 0;
   const associationRequests: string[] = [];
-  api = new CollaborationApiClient(async (url, init) => {
+  state.api = new CollaborationApiClient(async (url, init) => {
     if (url.startsWith('/api/session-collaborations?')) associationRequests.push(url);
-    const result = await http!.request(init?.method ?? 'GET', url, {
-      headers: { cookie },
+    const result = await state.http!.request(init?.method ?? 'GET', url, {
+      headers: { cookie: state.cookie },
       body: init?.body ? JSON.parse(String(init.body)) : undefined,
     });
     // Lose only the first successful begin response after the actual server
@@ -226,53 +54,54 @@ it('reviews an actual prepared unused Local workspace through real app auth and 
   });
   // Keep compilation valid on accepted source without this new client method;
   // missing actual source/route/client dependencies remain required failures.
-  const beginMethod = Reflect.get(api, 'begin');
+  const beginMethod = Reflect.get(state.api, 'begin');
   expect(typeof beginMethod).toBe('function');
-  const begin = () => Reflect.apply(beginMethod, api, [group, beginInput]);
+  const begin = () => Reflect.apply(beginMethod, state.api, [state.group, beginInput]);
   await expect(begin()).rejects.toThrow('Simulated committed begin response loss');
   expect(lostBeginResponses).toBe(1);
   const [beginReceipt, concurrentRetry] = await Promise.all([begin(), begin()]);
   expect(beginReceipt).toEqual({
     version: 1,
-    collaborationId: group,
+    collaborationId: state.group,
     revision: 1,
     participantSessionIds: ['existing-chat'],
   });
   expect(concurrentRetry).toEqual(beginReceipt);
-  expect(events.getSessionCollaboration(group)).toEqual(beginReceipt);
+  expect(state.events.getSessionCollaboration(state.group)).toEqual(beginReceipt);
   expect(
-    events
+    state.events
       .listSessions()
       .map((row) => row.sessionId)
       .sort(),
   ).toEqual(sessionsBeforeBegin);
-  expect(events.getOrdinaryInitialCommandId('existing-chat')).toBeUndefined();
+  expect(state.events.getOrdinaryInitialCommandId('existing-chat')).toBeUndefined();
   // Read the existing association through the typed client and actual app mount;
   // this is metadata discovery, with no context read, allocation or command.
-  const listMethod = Reflect.get(api, 'listForSession');
+  const listMethod = Reflect.get(state.api, 'listForSession');
   expect(typeof listMethod).toBe('function');
   const listForSession = (after?: string) =>
-    Reflect.apply(listMethod, api, ['existing-chat', after]);
-  const sourceEventsBeforeList = events.getSessionEvents('existing-chat');
+    Reflect.apply(listMethod, state.api, ['existing-chat', after]);
+  const sourceEventsBeforeList = state.events.getSessionEvents('existing-chat');
   expect(
-    (await http!.request('GET', '/api/session-collaborations?sessionId=existing-chat')).status,
+    (await state.http!.request('GET', '/api/session-collaborations?sessionId=existing-chat'))
+      .status,
   ).toBe(401);
   const associations = { collaborations: [beginReceipt], nextCursor: null };
   expect(await listForSession()).toEqual(associations);
   expect(associationRequests).toEqual(['/api/session-collaborations?sessionId=existing-chat']);
-  expect(await listForSession(group)).toEqual({ collaborations: [], nextCursor: null });
+  expect(await listForSession(state.group)).toEqual({ collaborations: [], nextCursor: null });
   expect(associationRequests).toHaveLength(2);
   expect(associationRequests[1]).toBe(
-    `/api/session-collaborations?sessionId=existing-chat&after=${group}`,
+    `/api/session-collaborations?sessionId=existing-chat&after=${state.group}`,
   );
-  expect(events.getSessionEvents('existing-chat')).toEqual(sourceEventsBeforeList);
-  expect(events.getOrdinaryInitialCommandId('existing-chat')).toBeUndefined();
-  expect(events.listSessions()).toHaveLength(sessionsBeforeBegin.length);
-  const view = await api.view(group);
+  expect(state.events.getSessionEvents('existing-chat')).toEqual(sourceEventsBeforeList);
+  expect(state.events.getOrdinaryInitialCommandId('existing-chat')).toBeUndefined();
+  expect(state.events.listSessions()).toHaveLength(sessionsBeforeBegin.length);
+  const view = await state.api.view(state.group);
   expect(view.joins).toEqual([]);
   expect(view.messages).toEqual([]);
   expect(view.participantSessionIds).toEqual(['existing-chat']);
-  await api.setPolicy(group, {
+  await state.api.setPolicy(state.group, {
     requestId: crypto.randomUUID(),
     expectedMembershipRevision: view.membershipRevision,
     expectedRevision: view.policies.find((row) => row.sessionId === 'existing-chat')?.revision ?? 0,
@@ -280,24 +109,24 @@ it('reviews an actual prepared unused Local workspace through real app auth and 
     readsFutureDiscussion: true,
     repliesByDefault: true,
   });
-  const retained = await api.view(group);
-  const token = decodeURIComponent(cookie.slice(cookie.indexOf('=') + 1));
+  const retained = await state.api.view(state.group);
+  const token = decodeURIComponent(state.cookie.slice(state.cookie.indexOf('=') + 1));
   const identity = await (await import('../auth.js')).authenticateToken(token);
   expect(identity).toBeTruthy();
-  const internalToken = readFileSync(join(root!, 'internal-token'), 'utf8');
-  const commandBefore = events.getOrdinaryInitialCommandId('existing-chat');
-  const sessionsBefore = events.listSessions().length;
+  const internalToken = readFileSync(join(state.root!, 'internal-token'), 'utf8');
+  const commandBefore = state.events.getOrdinaryInitialCommandId('existing-chat');
+  const sessionsBefore = state.events.listSessions().length;
   await restartApplication();
   expect(await begin()).toEqual(beginReceipt);
   expect(await listForSession()).toEqual(associations);
   expect(associationRequests).toHaveLength(3);
-  expect(events.getSessionEvents('existing-chat')).toEqual(sourceEventsBeforeList);
+  expect(state.events.getSessionEvents('existing-chat')).toEqual(sourceEventsBeforeList);
   expect(lostBeginResponses).toBe(1);
-  expect(await api.view(group)).toEqual(retained);
+  expect(await state.api.view(state.group)).toEqual(retained);
   expect(await (await import('../auth.js')).authenticateToken(token)).toEqual(identity);
-  expect(readFileSync(join(root!, 'internal-token'), 'utf8')).toBe(internalToken);
-  expect(events.getOrdinaryInitialCommandId('existing-chat')).toBe(commandBefore);
-  expect(events.listSessions()).toHaveLength(sessionsBefore);
+  expect(readFileSync(join(state.root!, 'internal-token'), 'utf8')).toBe(internalToken);
+  expect(state.events.getOrdinaryInitialCommandId('existing-chat')).toBe(commandBefore);
+  expect(state.events.listSessions()).toHaveLength(sessionsBefore);
   // Source acquisition goes through the actual app HTTP mounts and workspace
   // singleton. The prepared target is unused and distinct from existing-chat.
   const { ordinaryRepositoryRuntimeInventory } = await import('../ordinary-local-codex-entry.js');
@@ -305,12 +134,12 @@ it('reviews an actual prepared unused Local workspace through real app auth and 
   const account = inventory.result.accounts.find(
     (row) => row.account.accountId === 'offline-personal',
   )!.account;
-  const preview = await http!.request('POST', '/api/repository-workspaces/preview', {
-    headers: { cookie },
+  const preview = await state.http!.request('POST', '/api/repository-workspaces/preview', {
+    headers: { cookie: state.cookie },
     body: {
       accountId: 'offline-personal',
       model: 'fixture-model',
-      connectionId: connections!.connectionId,
+      connectionId: state.connections!.connectionId,
       repository: 'example/acceptance',
       ordinaryRuntime: {
         runOn: 'local',
@@ -320,17 +149,20 @@ it('reviews an actual prepared unused Local workspace through real app auth and 
   });
   expect(preview.status, JSON.stringify(preview.body)).toBe(200);
   const previewId = z.object({ id: z.uuid() }).parse(preview.body).id;
-  const prepared = await http!.request('POST', `/api/repository-workspaces/${previewId}/prepare`, {
-    headers: { cookie },
-    body: { accountId: 'offline-personal', model: 'fixture-model' },
-  });
+  const prepared = await state.http!.request(
+    'POST',
+    `/api/repository-workspaces/${previewId}/prepare`,
+    {
+      headers: { cookie: state.cookie },
+      body: { accountId: 'offline-personal', model: 'fixture-model' },
+    },
+  );
   expect(prepared.status, JSON.stringify(prepared.body)).toBe(200);
   expect(prepared.body).toMatchObject({ id: previewId, state: 'ready' });
   const { getRepositoryWorkspaces } = await import('../repository-workspace-runtime.js');
   const targetBefore = getRepositoryWorkspaces(true).get(previewId);
   expect(targetBefore.conversationId).toBeUndefined();
   expect(targetBefore.ordinaryFirstReservation).toBeUndefined();
-
   const { getAgentLibrary } = await import('../agent-library-runtime.js');
   const library = getAgentLibrary();
   library.saveDraft('user', {
@@ -362,7 +194,7 @@ it('reviews an actual prepared unused Local workspace through real app auth and 
     const { bindAgentLibraryTransport } = await import('../agent-library-transport.js');
     claimTransportConnection(clientId, currentAuth!.id);
     const unbind = bindAgentLibraryTransport(clientId, currentAuth!);
-    releaseTransport = () => {
+    state.releaseTransport = () => {
       unbind();
       releaseTransportConnection(clientId, currentAuth!.id);
     };
@@ -391,45 +223,47 @@ it('reviews an actual prepared unused Local workspace through real app auth and 
       permissionMode: 'ask',
     },
   };
-  const legacy = await http!.request('POST', path + '/snapshots', {
-    headers: { cookie },
+  const legacy = await state.http!.request('POST', path + '/snapshots', {
+    headers: { cookie: state.cookie },
     body: input.selection,
   });
   expect(legacy.status).toBe(503);
   // This must fail if actual app wiring omits its review owner. A hand-wired
   // router, fixture settings or a source workspace cannot satisfy it.
-  const reviewed = await http!.request('POST', path + '/reviews', {
-    headers: { cookie },
+  const reviewed = await state.http!.request('POST', path + '/reviews', {
+    headers: { cookie: state.cookie },
     body: input,
   });
   expect(reviewed.status, JSON.stringify(reviewed.body)).toBe(200);
   const result = z
     .object({ snapshot: CollaborationSnapshotSchema, settings: CollaborationSettingsSchema })
     .parse(reviewed.body);
-  reviewedSnapshot = result.snapshot;
-  reviewedSettings = result.settings;
-  expect(reviewedSnapshot).toMatchObject({
+  state.reviewedSnapshot = result.snapshot;
+  state.reviewedSettings = result.settings;
+  expect(state.reviewedSnapshot).toMatchObject({
     capacity: { status: 'unverified' },
     joiningBrief: input.selection.joiningBrief,
   });
-  expect(reviewedSnapshot.messages[0]?.blocks[0]?.content).toBe('Synthetic design requirement');
+  expect(state.reviewedSnapshot.messages[0]?.blocks[0]?.content).toBe(
+    'Synthetic design requirement',
+  );
   expect(JSON.stringify(reviewed.body)).not.toContain('DO_NOT_LEAK');
-  expect(reviewedSettings).toMatchObject({
+  expect(state.reviewedSettings).toMatchObject({
     repositoryWorkspaceId: previewId,
     selection: { permission: { mode: 'ask', revision: 0 } },
     binding: { account: { accountId: 'offline-personal' }, execution: { location: 'local' } },
   });
   // Resolve the real typed method at runtime so this test still compiles on
   // accepted source without the new contract, where required evidence stays red.
-  const reviewMethod = Reflect.get(api, 'review');
+  const reviewMethod = Reflect.get(state.api, 'review');
   expect(typeof reviewMethod).toBe('function');
-  const replay = await Reflect.apply(reviewMethod, api, [
-    group,
+  const replay = await Reflect.apply(reviewMethod, state.api, [
+    state.group,
     clientId,
     { selection: input.selection, target: input.target },
   ]);
   expect(replay).toEqual(reviewed.body);
-  const projected = await api.view(group);
+  const projected = await state.api.view(state.group);
   expect(projected.joins).toEqual([]);
   expect(projected.messages).toEqual([]);
   // Reopen the same app/root/cookie after the first review response. Rebind
@@ -437,8 +271,8 @@ it('reviews an actual prepared unused Local workspace through real app auth and 
   // rewrite account/profile files or adopt a different operator.
   await restartApplication();
   await bindTransport();
-  const recovered = await Reflect.apply(reviewMethod, api, [
-    group,
+  const recovered = await Reflect.apply(reviewMethod, state.api, [
+    state.group,
     clientId,
     { selection: input.selection, target: input.target },
   ]);
@@ -447,34 +281,36 @@ it('reviews an actual prepared unused Local workspace through real app auth and 
     await import('../repository-workspace-runtime.js')
   ).getRepositoryWorkspaces(true);
   expect(reopenedWorkspaces.get(previewId)).toEqual(targetBefore);
-  expect(readFileSync(join(root!, 'internal-token'), 'utf8')).toBe(internalToken);
-  expect(events.listSessions()).toHaveLength(sessionsBefore);
-  expect(events.getOrdinaryInitialCommandId('existing-chat')).toBe(commandBefore);
+  expect(readFileSync(join(state.root!, 'internal-token'), 'utf8')).toBe(internalToken);
+  expect(state.events.listSessions()).toHaveLength(sessionsBefore);
+  expect(state.events.getOrdinaryInitialCommandId('existing-chat')).toBe(commandBefore);
 }, 20000);
-
 it('reads exact completed durable source through actual production injection and typed client without restore or allocation', async () => {
-  if (!http) throw Error('BLOCKED: actual app prerequisite failed');
+  if (!state.http) throw Error('BLOCKED: actual app prerequisite failed');
   const sessionId = 'retained-durable-source';
   const userText = '\uFEFF  Selected π\r\n\t';
   const answerText = '  Finalized answer π\r\n';
   const privateText = 'PRIVATE_DURABLE_PROVIDER';
-  events.upsertSession({ sessionId, conversationSource: 'mitzo' });
-  const question = events.append(sessionId, 'user_message', {
+  state.events.upsertSession({ sessionId, conversationSource: 'mitzo' });
+  const question = state.events.append(sessionId, 'user_message', {
     messageId: 'question',
     text: userText,
     credential: privateText,
   });
-  events.append(sessionId, 'message_start', { messageId: 'answer', providerTurnId: privateText });
+  state.events.append(sessionId, 'message_start', {
+    messageId: 'answer',
+    providerTurnId: privateText,
+  });
   for (const [blockId, blockType, delta] of [
     ['reasoning', 'thinking', privateText],
     ['tool', 'tool_use', privateText],
     ['visible', 'text', answerText],
   ]) {
-    events.append(sessionId, 'block_start', { messageId: 'answer', blockId, blockType });
-    events.append(sessionId, 'block_delta', { messageId: 'answer', blockId, delta });
-    events.append(sessionId, 'block_end', { messageId: 'answer', blockId });
+    state.events.append(sessionId, 'block_start', { messageId: 'answer', blockId, blockType });
+    state.events.append(sessionId, 'block_delta', { messageId: 'answer', blockId, delta });
+    state.events.append(sessionId, 'block_end', { messageId: 'answer', blockId });
   }
-  const completed = events.append(sessionId, 'message_end', {
+  const completed = state.events.append(sessionId, 'message_end', {
     messageId: 'answer',
     provider: privateText,
   });
@@ -520,19 +356,19 @@ it('reads exact completed durable source through actual production injection and
     expect(init?.credentials).toBe('include');
     init?.signal?.throwIfAborted();
     requests.push(url);
-    const result = await http!.request('GET', url, { headers: { cookie } });
+    const result = await state.http!.request('GET', url, { headers: { cookie: state.cookie } });
     return new Response(JSON.stringify(result.body), { status: result.status });
   });
   const method = Reflect.get(durableApi, 'getDurableSessionTranscript');
   expect(typeof method).toBe('function');
   const read = () => Reflect.apply(method, durableApi, [sessionId]);
-  const before = events.getSessionEvents(sessionId);
-  const sessionsBefore = events
+  const before = state.events.getSessionEvents(sessionId);
+  const sessionsBefore = state.events
     .listSessions()
     .map((row) => row.sessionId)
     .sort();
-  expect((await http.request('GET', path)).status).toBe(401);
-  const replay = vi.spyOn(events, 'getSessionEvents');
+  expect((await state.http.request('GET', path)).status).toBe(401);
+  const replay = vi.spyOn(state.events, 'getSessionEvents');
   try {
     await expect(read()).resolves.toEqual(expected);
     expect(replay).not.toHaveBeenCalled();
@@ -540,104 +376,62 @@ it('reads exact completed durable source through actual production injection and
     replay.mockRestore();
   }
   expect(requests).toEqual([path]);
-  expect(events.getSessionEvents(sessionId)).toEqual(before);
+  expect(state.events.getSessionEvents(sessionId)).toEqual(before);
   expect(
-    events
+    state.events
       .listSessions()
       .map((row) => row.sessionId)
       .sort(),
   ).toEqual(sessionsBefore);
-  expect(events.getOrdinaryInitialCommandId(sessionId)).toBeUndefined();
+  expect(state.events.getOrdinaryInitialCommandId(sessionId)).toBeUndefined();
   expect(JSON.stringify(expected)).not.toContain(privateText);
   await restartApplication();
   await expect(read()).resolves.toEqual(expected);
   expect(requests).toEqual([path, path]);
-  expect(events.getSessionEvents(sessionId)).toEqual(before);
+  expect(state.events.getSessionEvents(sessionId)).toEqual(before);
   expect(
-    events
+    state.events
       .listSessions()
       .map((row) => row.sessionId)
       .sort(),
   ).toEqual(sessionsBefore);
-  expect(events.getOrdinaryInitialCommandId(sessionId)).toBeUndefined();
-  events.hideSession(sessionId);
-  const hidden = await http!.request('GET', path, { headers: { cookie } });
+  expect(state.events.getOrdinaryInitialCommandId(sessionId)).toBeUndefined();
+  state.events.hideSession(sessionId);
+  const hidden = await state.http!.request('GET', path, { headers: { cookie: state.cookie } });
   expect(hidden).toMatchObject({ status: 500, body: { error: 'Session transcript unavailable' } });
   await expect(read()).rejects.toThrow('Session transcript unavailable');
   expect(requests).toEqual([path, path, path]);
 }, 20000);
-
 it('joins a reviewed fresh ordinary session without inference or native capacity and recovers the same allocation after restart', async () => {
-  if (!reviewedSnapshot || !reviewedSettings || !http)
+  if (!state.reviewedSnapshot || !state.reviewedSettings || !state.http)
     throw Error('BLOCKED: actual app review prerequisite failed');
-  const snapshot = reviewedSnapshot;
-  const before = events.listSessions().length;
+  const snapshot = state.reviewedSnapshot;
+  const before = state.events.listSessions().length;
   const input = {
     requestId: crypto.randomUUID(),
-    expectedMembershipRevision: (await api.view(group)).membershipRevision,
+    expectedMembershipRevision: (await state.api.view(state.group)).membershipRevision,
     name: 'Independent reviewer',
-    settings: reviewedSettings,
+    settings: state.reviewedSettings,
     snapshot: { snapshotId: snapshot.snapshotId, sha256: snapshot.sha256 },
   };
-  const path = `/api/session-collaborations/${group}/joins`;
-  expect((await http.request('POST', path, { body: input })).status).toBe(401);
-  const joined = await api.prepareJoin(group, input);
-  joinedSessionId = joined.sessionId ?? undefined;
+  const path = `/api/session-collaborations/${state.group}/joins`;
+  expect((await state.http.request('POST', path, { body: input })).status).toBe(401);
+  const joined = await state.api.prepareJoin(state.group, input);
+  state.joinedSessionId = joined.sessionId ?? undefined;
   expect(joined.state).toBe('linked');
   expect(joined.sessionId).toBeTruthy();
-  expect(events.listSessions()).toHaveLength(before + 1);
-  expect(events.getOrdinaryInitialCommandId(joined.sessionId!)).toBeUndefined();
-  expect(events.getSessionEvents(joined.sessionId!)).toEqual([]);
-  expect(events.getOrdinarySessionPreparation(joined.allocationOperationId)?.sessionId).toBe(
+  expect(state.events.listSessions()).toHaveLength(before + 1);
+  expect(state.events.getOrdinaryInitialCommandId(joined.sessionId!)).toBeUndefined();
+  expect(state.events.getSessionEvents(joined.sessionId!)).toEqual([]);
+  expect(state.events.getOrdinarySessionPreparation(joined.allocationOperationId)?.sessionId).toBe(
     joined.sessionId,
   );
-  expect(await api.prepareJoin(group, input)).toEqual(joined);
+  expect(await state.api.prepareJoin(state.group, input)).toEqual(joined);
   await restartApplication();
-  expect(await api.prepareJoin(group, input)).toEqual(joined);
-  expect(await api.recoverJoin(group, joined.joinId)).toEqual(joined);
-  expect((await api.view(group)).participantSessionIds).toContain(joined.sessionId);
-  expect(events.listSessions()).toHaveLength(before + 1);
-  expect(events.getOrdinaryInitialCommandId(joined.sessionId!)).toBeUndefined();
-  expect(events.getSessionEvents(joined.sessionId!)).toEqual([]);
+  expect(await state.api.prepareJoin(state.group, input)).toEqual(joined);
+  expect(await state.api.recoverJoin(state.group, joined.joinId)).toEqual(joined);
+  expect((await state.api.view(state.group)).participantSessionIds).toContain(joined.sessionId);
+  expect(state.events.listSessions()).toHaveLength(before + 1);
+  expect(state.events.getOrdinaryInitialCommandId(joined.sessionId!)).toBeUndefined();
+  expect(state.events.getSessionEvents(joined.sessionId!)).toEqual([]);
 });
-
-/** The retained acceptance continuation reuses this real application journey. */
-export function getApplicationJoiningJourney() {
-  if (!joinedSessionId) throw Error('BLOCKED: actual application joining prerequisite failed');
-  return { api, events, group, joinedSessionId };
-}
-
-/** Real login/HTTP bridge for the production UI acceptance continuation. */
-export async function getApplicationUiJourney() {
-  if (!http) throw Error('Actual application prerequisite failed');
-  const auth = await (
-    await import('../auth.js')
-  ).authenticateToken(cookie.slice('cc_auth='.length));
-  if (!auth) throw Error('Actual application login unavailable');
-  const clientId = crypto.randomUUID();
-  const { claimTransportConnection, releaseTransportConnection } =
-    await import('../transport-auth-ownership.js');
-  const { bindAgentLibraryTransport } = await import('../agent-library-transport.js');
-  claimTransportConnection(clientId, auth.id);
-  const unbind = bindAgentLibraryTransport(clientId, auth);
-  const previous = releaseTransport;
-  releaseTransport = () => {
-    unbind();
-    releaseTransportConnection(clientId, auth.id);
-    previous?.();
-  };
-  const fetch = vi.fn(async (url: string, init?: RequestInit) => {
-    const path = url.startsWith('/') ? url : new URL(url).pathname + new URL(url).search;
-    const response = await http!.request(init?.method ?? 'GET', path, {
-      headers: { cookie },
-      body: init?.body ? JSON.parse(String(init.body)) : undefined,
-    });
-    return new Response(JSON.stringify(response.body), { status: response.status });
-  });
-  return {
-    ...getApplicationJoiningJourney(),
-    typedApi: new MitzoApiClient(fetch),
-    fetch,
-    clientId,
-  };
-}

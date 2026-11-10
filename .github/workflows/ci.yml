@@ -383,6 +383,10 @@ jobs:
             test-results/offline/**/role-*.png
             test-results/offline/**/reviewed-context-*.png
             test-results/offline/**/linked-context-*.png
+            test-results/offline/**/before-joining-*.png
+            test-results/offline/**/fresh-setup-*.png
+            test-results/offline/**/agents-*.png
+            test-results/offline/**/responders-*.png
           retention-days: 7
           if-no-files-found: ignore
 

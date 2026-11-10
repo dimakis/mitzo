@@ -1504,6 +1504,24 @@ export class CollaborationConversationStore {
     z.uuid().parse(messageId);
     return this.current(group, 'message', messageId, CollaborationMessageSchema);
   }
+  /** Host reconciliation keyset, independent of the recent display window. */
+  messagesForReplyReconciliation(group: string, after: number, through: number) {
+    this.group(group);
+    const rows = this.db
+      .prepare(
+        `SELECT r.body FROM collaboration_records r
+      WHERE collaboration_id=? AND kind='message' AND json_extract(body,'$.author')='operator'
+      AND CAST(json_extract(body,'$.sequence') AS INTEGER)>?
+      AND CAST(json_extract(body,'$.sequence') AS INTEGER)<=?
+      AND EXISTS (SELECT 1 FROM json_each(r.body,'$.deliveries') d
+        WHERE json_extract(d.value,'$.purpose')='reply' AND json_extract(d.value,'$.commandId') IS NOT NULL)
+      AND NOT EXISTS (SELECT 1 FROM collaboration_records n WHERE n.collaboration_id=r.collaboration_id
+        AND n.kind=r.kind AND n.record_id=r.record_id AND n.revision>r.revision)
+      ORDER BY CAST(json_extract(body,'$.sequence') AS INTEGER) LIMIT 50`,
+      )
+      .all(group, after, through) as Row[];
+    return rows.map((row) => CollaborationMessageSchema.parse(JSON.parse(row.body)));
+  }
   view(group: string) {
     return this.db.transaction(() => {
       const membership = this.group(group);

@@ -1,11 +1,14 @@
-import { expect, it, vi } from 'vitest';
+import { afterAll, expect, it, vi } from 'vitest';
 import { recordApplicationMessagingRuntime } from './fixtures/symposium-recording-runtime.js';
-import { getApplicationJoiningJourney } from './collaboration-application-joining-integration.test.js';
+import { createApplicationJourney } from './fixtures/symposium-application-journey.js';
+
+const journey = createApplicationJourney();
+afterAll(() => journey.close());
 
 // Only the external native process is substituted. Auth, repository preparation,
 // ordinary admission/dispatch, driver, SQLite, source provenance and routes are real.
 it('delivers a reviewed fresh agent prompt through the actual app and projects its finalized ordinary reply once', async () => {
-  const { api, events, group, joinedSessionId } = getApplicationJoiningJourney();
+  const { api, events, group, joinedSessionId } = await journey.initializeReviewedJoin();
   // index.ts installs this real durable revocation owner in production; the
   // application fixture intentionally does not start index.ts or its services.
   (await import('../auth.js')).setAuthRevocationStore(events);
