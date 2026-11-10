@@ -40,7 +40,9 @@ export interface OrdinarySdkQueryControl {
   interruptIfCurrent(target: object): Promise<boolean>;
 }
 export function createSdkCallbackState(): SdkCallbackState {
-  const callbacks = new TurnCallbacks();
+  // SDK terminal evidence must retain uncertainty even when the callback
+  // finished before the native result arrived. Later text cannot settle effects.
+  const callbacks = new TurnCallbacks({ retainUnknownOutcomes: true });
   return {
     retired: false,
     completing: false,

@@ -1,6 +1,7 @@
 import { expect, it, vi } from 'vitest';
 import { query, type Options } from '@anthropic-ai/claude-agent-sdk';
 import { AsyncQueue } from '../async-queue.js';
+import { retainCallbackOutcome } from '../turn-callbacks.js';
 import {
   createOrdinaryLocalVertexSdkQuery,
   SdkHookLifetime,
@@ -10,6 +11,44 @@ vi.mock('@anthropic-ai/claude-agent-sdk', () => ({
   getSessionInfo: vi.fn(async () => ({ sessionId: 'original', cwd: '/task' })),
   getSessionMessages: vi.fn(async () => [{ uuid: 'input' }]),
 }));
+it.each(['settled', 'unknown'] as const)(
+  'retains an explicitly %s callback outcome that finishes before the native result',
+  async (outcome) => {
+    const events = new AsyncQueue<Record<string, unknown>>();
+    vi.mocked(query).mockImplementation(
+      () =>
+        ({ close: vi.fn(), [Symbol.asyncIterator]: () => events[Symbol.asyncIterator]() }) as never,
+    );
+    const controller = new AbortController();
+    let tool!: <T>(work: () => Promise<T>) => Promise<T>;
+    const owner = createOrdinaryLocalVertexSdkQuery<AsyncIterable<Record<string, unknown>>>({
+      options: { sessionId: 'original' },
+      input: new AsyncQueue(),
+      lifetime: new SdkHookLifetime(),
+      sdkSessionId: 'original',
+      cwd: '/task',
+      controller,
+      authorize: async () => {},
+      authorizeSync: () => {},
+      adapt: (native) => native as never,
+      settings: () => ({}),
+      inputChanged: () => {},
+      mcpServers: (state) => {
+        tool = state.runCallback;
+        return {};
+      },
+    });
+    await tool(async () => retainCallbackOutcome({ isError: true }, outcome));
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    events.push({ type: 'result', session_id: 'original' });
+    const next = owner.query[Symbol.asyncIterator]().next();
+    if (outcome === 'unknown')
+      await expect(next).rejects.toMatchObject({ code: 'callbacks_failed' });
+    else expect((await next).value).toMatchObject({ type: 'result' });
+    controller.abort();
+    events.close();
+  },
+);
 it.each(['completed', 'retired'])(
   'does not forward late parent input or message events from a %s query into its successor',
   async (phase) => {

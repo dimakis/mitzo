@@ -133,6 +133,75 @@ it('captures an immutable execution snapshot and refuses a forged control object
   expect(await f.queue.interruptIfCurrent('forged', structuredClone(target))).toBe('stale_target');
   expect(f.control.interruptIfCurrent).not.toHaveBeenCalled();
 });
+it.each(['acknowledged', 'uncertain'])(
+  'claims Stop once, retains the %s native outcome and never treats its ACK as terminal evidence',
+  async (outcome) => {
+    const f = fixture();
+    await f.queue.enqueue('original-command');
+    f.queue.inputObserved('private-sdk-input');
+    const target = f.queue.captureInterruptTarget()!;
+    if (outcome === 'uncertain')
+      f.control.interruptIfCurrent.mockRejectedValueOnce(
+        Error('Synthetic native interrupt failure'),
+      );
+    const request = f.queue.interruptIfCurrent('exact-stop', target);
+    if (outcome === 'uncertain') await expect(request).rejects.toThrow('native interrupt failure');
+    else expect(await request).toBe('requested');
+    expect(f.store.getSession('chat')!.executionPhase).toBe('STOPPING');
+    expect(observedOrdinarySdkOutcome(f.store, 'chat', 'original-command')).toBe('uncertain');
+    expect(f.lifecycle.terminal).not.toHaveBeenCalled();
+    expect(f.queue.captureInterruptTarget()).toBeUndefined();
+    expect(await f.queue.interruptIfCurrent('exact-stop', target)).toBe('uncertain');
+    expect(f.control.interruptIfCurrent).toHaveBeenCalledOnce();
+    const receipt = f.store.getOrdinarySdkInterruptReceipt('chat', 'exact-stop');
+    f.restart();
+    expect(f.store.getOrdinarySdkInterruptReceipt('chat', 'exact-stop')).toEqual(receipt);
+    expect(f.store.claimOrdinarySdkInterrupt('chat', 'exact-stop', target)?.fresh).toBe(false);
+    expect(observedOrdinarySdkOutcome(f.store, 'chat', 'original-command')).toBe('uncertain');
+  },
+);
+it('refuses Stop after authorization loss before a durable claim or native interruption', async () => {
+  const f = fixture();
+  await f.queue.enqueue('original-command');
+  f.queue.inputObserved('private-sdk-input');
+  const target = f.queue.captureInterruptTarget()!;
+  f.assertCurrentSync.mockImplementation(() => {
+    throw Error('Original account authority revoked');
+  });
+  await expect(f.queue.interruptIfCurrent('revoked-stop', target)).rejects.toThrow(
+    'authority revoked',
+  );
+  expect(f.store.getOrdinarySdkInterruptReceipt('chat', 'revoked-stop')).toBeUndefined();
+  expect(f.store.getSession('chat')!.executionPhase).toBe('RUNNING');
+  expect(f.control.interruptIfCurrent).not.toHaveBeenCalled();
+});
+it('keeps a delayed Stop capture from targeting a successor command', async () => {
+  const f = fixture();
+  await f.queue.enqueue('original-command');
+  f.queue.inputObserved('private-sdk-input');
+  const target = f.queue.captureInterruptTarget()!;
+  await f.queue.resultObserved('private-sdk-input');
+  const retained = f.store.getSession('chat')!;
+  const meta = {
+    sessionId: 'chat',
+    cwd: retained.cwd!,
+    repositoryWorkspaceId: retained.repositoryWorkspaceId!,
+    accountBinding: retained.accountBinding!,
+    mode: 'ask' as const,
+  };
+  f.store.admitOrdinaryLocalVertexContinuation(meta, f.binding, {
+    clientMsgId: 'successor-command',
+    requestFingerprint: 'successor-fp',
+    selection: f.selection,
+    payload: { text: 'A new explicit request' },
+  });
+  await f.queue.enqueue('successor-command');
+  f.queue.inputObserved('successor-input');
+  expect(await f.queue.interruptIfCurrent('late-stop', target)).toBe('stale_target');
+  expect(f.store.getSession('chat')!.executionPhase).toBe('RUNNING');
+  expect(f.store.getOrdinarySdkInterruptReceipt('chat', 'late-stop')).toBeUndefined();
+  expect(f.control.interruptIfCurrent).not.toHaveBeenCalled();
+});
 function renderReply(store: EventStore, messageId = 'parent-renderer') {
   store.append('chat', 'message_start', { messageId });
   store.append('chat', 'block_start', { messageId, blockId: 'text', blockType: 'text' });
