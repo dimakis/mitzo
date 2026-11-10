@@ -305,6 +305,7 @@ import { storedEventToClientMessage } from '@mitzo/protocol';
 import cookieParser from 'cookie-parser';
 import { createAppSecurityHeaders } from './security-headers.js';
 import { createHtmlPreviewRouter } from './html-preview-shell.js';
+import { MAX_FILE_PREVIEW_BYTES, FILE_PREVIEW_TOO_LARGE } from './file-preview-limits.js';
 import rateLimit from 'express-rate-limit';
 import {
   closeSync,
@@ -4461,7 +4462,7 @@ app.get('/api/worktrees', (_req, res) => {
 const privatePathSnapshot = createCodexPathProtection(() =>
   loadAccountProfiles().privateCodexRoots(),
 );
-const MAX_PREVIEW_BYTES = 5 * 1024 * 1024;
+const MAX_EDIT_BYTES = 5 * 1024 * 1024;
 
 function isRemoteSessionArtifact(sessionId: string) {
   const meta = eventStore.getSession(sessionId);
@@ -4646,18 +4647,18 @@ function readPreviewFile(filePath: string): {
   try {
     const stat = fstatSync(fd);
     if (!stat.isFile()) return { isFile: false, tooLarge: false };
-    if (stat.size > MAX_PREVIEW_BYTES) return { isFile: true, tooLarge: true };
+    if (stat.size > MAX_FILE_PREVIEW_BYTES) return { isFile: true, tooLarge: true };
 
     // Read at most one byte beyond the limit. Checking the descriptor while
     // reading closes the stat/read race when an artifact is still being written.
-    const buffer = Buffer.allocUnsafe(MAX_PREVIEW_BYTES + 1);
+    const buffer = Buffer.allocUnsafe(MAX_FILE_PREVIEW_BYTES + 1);
     let bytesRead = 0;
     while (bytesRead < buffer.length) {
       const chunk = readSync(fd, buffer, bytesRead, buffer.length - bytesRead, bytesRead);
       if (chunk === 0) break;
       bytesRead += chunk;
     }
-    if (bytesRead > MAX_PREVIEW_BYTES) return { isFile: true, tooLarge: true };
+    if (bytesRead > MAX_FILE_PREVIEW_BYTES) return { isFile: true, tooLarge: true };
     return {
       content: buffer.toString('utf-8', 0, bytesRead),
       isFile: true,
@@ -5050,7 +5051,7 @@ app.get('/api/files/read', async (req, res) => {
       return;
     }
     if (preview.tooLarge) {
-      res.status(413).json({ error: 'File is too large to preview (5 MB maximum)' });
+      res.status(413).json({ error: FILE_PREVIEW_TOO_LARGE });
       return;
     }
     const ext = extname(filePath).toLowerCase();
@@ -5151,8 +5152,8 @@ app.put('/api/files/write', async (req, res) => {
     return;
   }
   if (
-    Buffer.byteLength(content) > MAX_PREVIEW_BYTES ||
-    Buffer.byteLength(expectedContent) > MAX_PREVIEW_BYTES
+    Buffer.byteLength(content) > MAX_EDIT_BYTES ||
+    Buffer.byteLength(expectedContent) > MAX_EDIT_BYTES
   ) {
     res.status(413).json({ error: 'Document is too large to edit (5 MB maximum)' });
     return;

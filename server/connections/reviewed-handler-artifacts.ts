@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.1000-verified-failed-turn-effects';
+  'v1.0.1000-verified-failed-turn-effects-preview-10mib-job-local-npm';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -933,7 +933,9 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/local-repository-preparation-capacity.test.ts':
     '7ddf795c179405673d88e10e9dfb54f88aa482d050996dfd6dfb41c52de8fa07',
   '../../scripts/__tests__/ci-build-output.test.ts':
-    '7416d91c224789c03debcb8d61e746118d9bee63d263e351aff29ee9fae34f7f',
+    '9b06566b2c85b8a0eab3ff93b7f950b63786350ac40f652196fe36d1ab1797a8',
+  '../../scripts/__tests__/ci-node-bootstrap.test.ts':
+    '68853b75efc56ff42e544575db18c982a963f7a802fd76a09846a926ced47b85',
   '../../scripts/test-ci-build-output.py':
     '91bd853988bacdb168a2e59a0fb900acbc62d28936418e60fcc86e08162f1116',
   '../../scripts/ci-build-output.py':
@@ -2244,7 +2246,8 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../session-access.ts': 'feeeea5ffcf16bb1c4542191a74d5eebde2ea2dbcac7cf0e5315d05e2249b1dc',
   '../session-metadata-error.ts':
     '377bd861f0e48e022fb49fb8c021e14f2da8d921f9d61c9fa738f31080596eae',
-  '../app.ts': 'b3020d7cfd0a222f128d9a0b7340623cce414cebe2c92996cfbbf20cf5615726',
+  '../app.ts': 'dc5fefc8c685d72c04adcf8311c7db63a4f339b9e411b2f4b645a8a797fc93bb',
+  '../file-preview-limits.ts': 'e8b777c6550c382e50363d6b0bb078a81f5857791abf23877eb236dcbdd33e8c',
   '../auth-check-tracing.ts': '067dc344d8ee76ffe39739a99076f614711ca3d11f96682c842c596a7bbd112e',
   '../telemetry-relay.ts': '302bf6cec2b988ae71a123a5dd04d0f2266a82c3ee51873ec64d8be452c25427',
   '../symposium-review-route-composition.ts':
@@ -2802,7 +2805,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../symposium-publication-credentials.ts':
     'e1c578eec9297cf567c6ef31ac3443ad8a36a3fb40ccda2149ac18d18362346d',
   '../openshell-artifact-reader.ts':
-    '8fca47739ca0c207647dc825ee468aa86da4379b2004905669b7dd42f100ea13',
+    'f283d158ff9334e6f95647740148f85d73ae55e3ad8fd168aabfb3a0de47f894',
   '../native-telos-artifact-operations.ts':
     'ca72cbd2123701e0d7821a06f7363cc609fc4500ecdd726aac4572f50abecf36',
   '../github-main-merge-selection.ts':
@@ -3778,7 +3781,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../.github/workflows/ci-recovery.yml':
     '5d4e9a6560e549d2879ef776c2b4d321d420c25b22ec3a7741390e5bf617111a',
   '../../.github/workflows/ci.yml':
-    '5d5ada9a5be72e3dd073cf65c3418bbe89c88fd0d65caa257c5d78a3a287f81b',
+    '703d7059dca7a63680812c03d3b4004b0ac3fd9cad09c9c153eb134f412a5a43',
   '../../playwright.config.ts': '6c61752a4a2e9cab19d8217b46080c5898bc79c5a0fde1f2b703a254d278daa0',
   '../../playwright.offline.config.ts':
     'fb694df154a2cb402c7f46b417efb357b6d19a72210d269ad0b1580798392adc',
@@ -3985,7 +3988,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../.github/actions/ci-native-fixture/action.yml':
     'f8c24df3203636c7292fa1d0d8994ee5b9db53301c49fe43eab3e355907b6f05',
   '../../.github/actions/ci-node/action.yml':
-    '3bba8f0c494f15a3c2cacd7ddd9e8556a650352fd29761dfa65f7c4a7b5de887',
+    '59079b5f9f0bc4726a1f7097f71b62f6db97e021bf3342b4900d3d891efbff7a',
   '../../.github/actions/ci-workspace/action.yml':
     '93940a24d268678d0013aa02ec4f440ecc79298628275e7f77c48788a7d2d7c1',
   '../../tests/integration/telos-s9/integrated-candidate/portable-supplemental-boundary.mjs':

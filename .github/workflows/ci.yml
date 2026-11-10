@@ -405,6 +405,7 @@ jobs:
           path: |
             test-results/offline/**/artefact-sharing.png
             test-results/offline/**/file-options.png
+            test-results/offline/**/html-preview-limit-*.png
           retention-days: 7
           if-no-files-found: ignore
 

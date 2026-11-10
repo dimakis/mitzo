@@ -95,6 +95,47 @@ it('accepts an empty HTML document', async () => {
   expect(screen.queryByRole('alert')).toBeNull();
 });
 
+it('explains the preview size limit from the server response', async () => {
+  vi.mocked(apiFetch).mockResolvedValue(
+    new Response(
+      JSON.stringify({
+        error: 'File is too large to preview (10 MiB maximum)',
+      }),
+      { status: 413, statusText: 'Payload Too Large' },
+    ),
+  );
+  render(<HtmlPreviewCard filePath="/tmp/large.html" />);
+  expect((await screen.findByRole('alert')).textContent).toBe(
+    '413 File is too large to preview (10 MiB maximum)',
+  );
+  expect(screen.queryByTitle('large.html preview')).toBeNull();
+});
+
+it('retains the HTTP status alongside the server explanation for a missing revision', async () => {
+  vi.mocked(apiFetch).mockResolvedValue(
+    new Response(JSON.stringify({ error: 'Unavailable' }), {
+      status: 404,
+      statusText: 'Not Found',
+    }),
+  );
+  render(<HtmlPreviewCard filePath="/tmp/missing.html" />);
+  expect((await screen.findByRole('alert')).textContent).toBe('404 Unavailable');
+});
+
+it.each(['<html>Proxy unavailable</html>', JSON.stringify({ error: 42 }), '{}'])(
+  'keeps the HTTP error when the response has no usable explanation: %s',
+  async (body) => {
+    vi.mocked(apiFetch).mockResolvedValue(
+      new Response(body, {
+        status: 502,
+        statusText: 'Bad Gateway',
+      }),
+    );
+    render(<HtmlPreviewCard filePath="/tmp/mockup.html" />);
+    expect((await screen.findByRole('alert')).textContent).toBe('502 Bad Gateway');
+  },
+);
+
 it('does not show stale content or a late result after the artifact identity changes', async () => {
   let completeFirst!: (response: Response) => void;
   vi.mocked(apiFetch)

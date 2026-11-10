@@ -5,6 +5,7 @@ import { z } from 'zod';
 import { posix } from 'node:path';
 import { openShellSshArgvProcessSpec } from './codex-app-server-client.js';
 import type { OpenShellRuntime } from './openshell-runtime.js';
+import { MAX_FILE_PREVIEW_BYTES, FILE_PREVIEW_TOO_LARGE } from './file-preview-limits.js';
 
 const MAX_BYTES = 5 * 1024 * 1024;
 export class OpenShellArtifactReadError extends Error {
@@ -26,6 +27,8 @@ export type ArtifactCommandRunner = (
 export const OPEN_SHELL_ARTIFACT_HELPER = String.raw`
 import os, sys, stat, json, base64, errno, hashlib
 LIMIT = 5 * 1024 * 1024
+# Preview reads have a separate cap from saved-artifact witnesses and edits.
+if len(sys.argv) > 3 and sys.argv[3] == 'preview': LIMIT = ${MAX_FILE_PREVIEW_BYTES}
 class Refusal(Exception): pass
 def refuse(reason): raise Refusal(reason)
 def private(parts):
@@ -101,7 +104,7 @@ const command: ArtifactCommandRunner = (program, args, env, signal) =>
         env,
         signal,
         timeout: 15_000,
-        maxBuffer: Math.ceil((MAX_BYTES * 4) / 3) + 65536,
+        maxBuffer: Math.ceil((MAX_FILE_PREVIEW_BYTES * 4) / 3) + 65536,
         encoding: 'utf8',
       },
       (error, stdout) => {
@@ -218,6 +221,7 @@ export async function readOpenShellArtifact(
     OPEN_SHELL_ARTIFACT_HELPER,
     runtime.workdir,
     requestedPath,
+    'preview',
   ]);
   await verifyIdentity();
   let result: { path: string; bytes: Buffer };
@@ -226,6 +230,8 @@ export async function readOpenShellArtifact(
     if (!response || typeof response !== 'object') throw new Error('Invalid artifact response');
     const value = response as Record<string, unknown>;
     if (value.error) {
+      if (value.error === 'too_large')
+        throw new OpenShellArtifactReadError(413, FILE_PREVIEW_TOO_LARGE);
       const status = { forbidden: 403, not_found: 404, not_file: 400, too_large: 413 }[
         String(value.error)
       ];
@@ -238,12 +244,12 @@ export async function readOpenShellArtifact(
       typeof value.data !== 'string'
     )
       throw new Error('Invalid artifact response');
-    if (value.data.length > Math.ceil(MAX_BYTES / 3) * 4)
-      throw new OpenShellArtifactReadError(413, 'File is too large (5 MB maximum)');
+    if (value.data.length > Math.ceil(MAX_FILE_PREVIEW_BYTES / 3) * 4)
+      throw new OpenShellArtifactReadError(413, FILE_PREVIEW_TOO_LARGE);
     const bytes = Buffer.from(value.data, 'base64');
     if (bytes.toString('base64') !== value.data) throw new Error('Invalid artifact response');
-    if (bytes.length > MAX_BYTES)
-      throw new OpenShellArtifactReadError(413, 'File is too large (5 MB maximum)');
+    if (bytes.length > MAX_FILE_PREVIEW_BYTES)
+      throw new OpenShellArtifactReadError(413, FILE_PREVIEW_TOO_LARGE);
     result = { path: expected, bytes };
   } catch (error) {
     if (error instanceof OpenShellArtifactReadError) throw error;

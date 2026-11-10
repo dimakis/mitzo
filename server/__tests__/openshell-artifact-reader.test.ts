@@ -25,12 +25,16 @@ function workspace() {
   writeFileSync(join(root, 'outputs/report.md'), Buffer.from([0, 1, 128, 255]));
   return root;
 }
-function helper(root: string, path: string) {
+function helper(root: string, path: string, mode?: string) {
   return JSON.parse(
-    execFileSync('/usr/bin/python3', ['-I', '-c', OPEN_SHELL_ARTIFACT_HELPER, root, path], {
-      encoding: 'utf8',
-      maxBuffer: 8 * 1024 * 1024,
-    }),
+    execFileSync(
+      '/usr/bin/python3',
+      ['-I', '-c', OPEN_SHELL_ARTIFACT_HELPER, root, path, ...(mode ? [mode] : [])],
+      {
+        encoding: 'utf8',
+        maxBuffer: 15 * 1024 * 1024,
+      },
+    ),
   );
 }
 afterEach(() => roots.splice(0).forEach((root) => rmSync(root, { recursive: true, force: true })));
@@ -153,6 +157,15 @@ os.close(parent); os.close(fd)
     execFileSync('mkfifo', [join(root, 'pipe.md')]);
     expect(helper(root, 'pipe.md').error).toBe('not_file');
   });
+  it('accepts exactly 10 MiB for previews and rejects one byte more', () => {
+    const root = workspace();
+    writeFileSync(join(root, 'limit.html'), Buffer.alloc(10 * 1024 * 1024, 255));
+    expect(Buffer.from(helper(root, 'limit.html', 'preview').data, 'base64').length).toBe(
+      10 * 1024 * 1024,
+    );
+    writeFileSync(join(root, 'limit.html'), Buffer.alloc(10 * 1024 * 1024 + 1));
+    expect(helper(root, 'limit.html', 'preview').error).toBe('too_large');
+  });
   it('limits size, reports missing files, and rejects directories', () => {
     const root = workspace();
     writeFileSync(join(root, 'large.md'), Buffer.alloc(5 * 1024 * 1024 + 1));
@@ -191,7 +204,7 @@ describe('trusted artifact transport', () => {
     expect(run.mock.calls[0][1].join(' ')).toContain('conversation-1');
   });
   it('accepts the exact size boundary without recursive base64 validation', async () => {
-    const bytes = Buffer.alloc(5 * 1024 * 1024, 255);
+    const bytes = Buffer.alloc(10 * 1024 * 1024, 255);
     const run = vi.fn<ArtifactCommandRunner>().mockResolvedValue(
       JSON.stringify({
         path: '/sandbox/workspaces/mgmt/report.md',
@@ -204,6 +217,29 @@ describe('trusted artifact transport', () => {
       ).bytes.equals(bytes),
     ).toBe(true);
   });
+  it.each(['helper', 'encoded', 'decoded'] as const)(
+    'reports the preview size limit for an oversized %s response',
+    async (kind) => {
+      const bytes = Buffer.alloc(10 * 1024 * 1024 + (kind === 'encoded' ? 4 : 1), 255);
+      const run = vi.fn<ArtifactCommandRunner>().mockResolvedValue(
+        JSON.stringify(
+          kind === 'helper'
+            ? { error: 'too_large' }
+            : {
+                path: '/sandbox/workspaces/mgmt/report.md',
+                data: bytes.toString('base64'),
+              },
+        ),
+      );
+      await expect(
+        readOpenShellArtifact(runtime, 'report.md', async () => {}, undefined, run),
+      ).rejects.toMatchObject({
+        status: 413,
+        message: 'File is too large to preview (10 MiB maximum)',
+      });
+    },
+  );
+
   it('never dispatches an artifact read when persisted identity verification fails', async () => {
     const run = vi.fn<ArtifactCommandRunner>();
     const verify = vi.fn(async () => {

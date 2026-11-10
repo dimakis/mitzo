@@ -59,6 +59,9 @@ const mockup = `
   });
 </script>`;
 
+// Exercise an embedded bundle larger than the old 5 MiB cap without external assets.
+const largeMockup = mockup + '<!--' + 'x'.repeat(6 * 1024 * 1024) + '-->';
+
 for (const native of [false, true])
   for (const theme of ['dark', 'light']) {
     test(`HTML mockup: ${native ? 'cross-origin ' : ''}inline clicks, retained state, retry and isolation (${theme})`, async ({
@@ -118,10 +121,14 @@ for (const native of [false, true])
           expect(url.searchParams.get('sessionId')).toBe('mockup');
           if (path === '/workspace/task-board.html') {
             await pending;
-            return route.fulfill({ json: { content: mockup }, headers: cors });
+            return route.fulfill({ json: { content: largeMockup }, headers: cors });
           }
           if (path === '/workspace/retry.html' && retry++ === 0)
-            return route.fulfill({ status: 503, body: 'Unavailable', headers: cors });
+            return route.fulfill({
+              status: 413,
+              json: { error: 'File is too large to preview (10 MiB maximum)' },
+              headers: cors,
+            });
           if (path === '/workspace/retry.html')
             return route.fulfill({ json: { content: '<h1>Recovered</h1>' }, headers: cors });
           if (path === '/workspace/empty.html')
@@ -139,7 +146,7 @@ for (const native of [false, true])
           return route.fulfill({
             contentType: 'text/html',
             headers: parentHeaders,
-            body: `<!doctype html><html data-theme="${theme}" data-accent="mint" data-font="georgia"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="/fixture.css"><div id="root"></div><script src="/fixture.js"></script></html>`,
+            body: `<!doctype html><html data-theme="${theme}" data-accent="${theme === 'dark' ? 'mint' : 'teal'}" data-font="${theme === 'dark' ? 'georgia' : 'system'}"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="/fixture.css"><div id="root"></div><script src="/fixture.js"></script></html>`,
           });
         unexpected.push(url.pathname);
         return route.abort();
@@ -180,7 +187,13 @@ for (const native of [false, true])
       await expect(frame.getByRole('status')).toHaveText('1 tasks');
       await expect(frame.getByRole('combobox', { name: 'Design' })).toHaveValue('compact');
       expect(reads.filter((path) => path === '/workspace/task-board.html')).toHaveLength(1);
-      await expect(page.getByRole('alert')).toContainText('503');
+      await expect(page.getByRole('alert')).toHaveText(
+        '413 File is too large to preview (10 MiB maximum)',
+      );
+      await page.screenshot({
+        path: testInfo.outputPath(`html-preview-limit-${theme}.png`),
+        fullPage: true,
+      });
       const retryButton = page.getByRole('button', { name: 'Retry preview' });
       await retryButton.press('Enter');
       await expect(

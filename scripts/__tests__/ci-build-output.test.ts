@@ -153,8 +153,8 @@ it('pins one exact Node patch across compiled artifact producers and consumers',
     'node-version': '${{ inputs.node-version }}',
     cache: 'npm',
   });
-  expect(action.runs.steps.filter((step) => step.run).map((step) => step.run)).toEqual([
-    'npm install --global npm@11.18.0',
-    'npm install --no-audit',
-  ]);
+  const commands = action.runs.steps.filter((step) => step.run).map((step) => step.run!);
+  expect(commands).toHaveLength(2);
+  expect(commands[0]).toContain('npm@11.18.0');
+  expect(commands[1]).toBe('npm install --no-audit');
 });
