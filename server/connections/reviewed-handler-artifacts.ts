@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.1001-symposium-observer-handoff-chat-integration';
+  'v1.0.1007-symposium-responder-picker-journey';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -225,7 +225,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../tests/fixtures/symposium-composer.tsx':
     '3e821497de4f4088e1610134821046e992e81117e897cb1c30864ccc2ff6b8ad',
   '../../tests/offline/symposium-composer.spec.ts':
-    'bb1fe535624e273f3d679aa943598192cc6fd186c35a08a22e4a817008f05429',
+    'fb06b6641e9549349de6c2fe5063990ff645ebe1a516b20ff3b90bb8d84eef3a',
   '../../docs/evidence/symposium-integration-acceptance.md':
     '31d18e63a17b61b03b3f096a992a5cb089f57ad5cfda6e8ad518072834fde61a',
   '../../docs/features/symposium.md':
