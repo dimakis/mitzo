@@ -153,6 +153,44 @@ function SeatAttribution({
   );
 }
 
+function MessageShareAction({ inActions, onShare }: { inActions: boolean; onShare(): void }) {
+  const share = (
+    <button
+      type="button"
+      className="symposium-share-action"
+      onClick={(event) => {
+        const disclosure = event.currentTarget.closest('details');
+        if (disclosure) {
+          disclosure.open = false;
+          disclosure.querySelector('summary')?.focus();
+        }
+        onShare();
+      }}
+    >
+      Share excerpt
+    </button>
+  );
+  return inActions ? (
+    <details
+      className="conversation-message-actions"
+      onKeyDown={(event) => {
+        if (event.key === 'Escape') {
+          event.preventDefault();
+          event.currentTarget.open = false;
+          event.currentTarget.querySelector('summary')?.focus();
+        }
+      }}
+    >
+      <summary aria-label="Message actions">
+        <UiIcon name="more" />
+      </summary>
+      {share}
+    </details>
+  ) : (
+    share
+  );
+}
+
 function turnKey(messageId: string, provenance?: SymposiumProvenance): string {
   return provenance
     ? `symposium:${JSON.stringify([provenance.seatId, provenance.membershipGeneration ?? null, messageId])}`
@@ -271,7 +309,13 @@ export function ChatArea({
   function quote(reply: MessageReplyContext, author = reply.role === 'user' ? 'You' : 'Mitzo') {
     return <ReplyQuote reply={reply} author={author} onNavigate={navigateReply} />;
   }
-  function withActions(message: FinishedMessage, children: ReactNode) {
+  function withActions(
+    message: Pick<FinishedMessage, 'messageId' | 'role' | 'timestamp' | 'symposiumProvenance'> & {
+      blocks: ChatBlock[];
+    },
+    children: ReactNode,
+    complete = true,
+  ) {
     const text = message.blocks
       .filter((block) => block.blockType === 'text')
       .map((block) => block.content)
@@ -287,9 +331,9 @@ export function ChatArea({
           text,
           timestamp: message.timestamp,
         }}
-        onReply={onReply}
+        onReply={complete ? onReply : undefined}
         readAloud={
-          voice?.ttsAvailable
+          complete && voice?.ttsAvailable
             ? {
                 active: speakingBlockId === message.messageId,
                 onSpeak: (text) => speakBlock(message.messageId, text),
@@ -677,73 +721,96 @@ export function ChatArea({
         const firstVisibleText = blocks.find(
           (block) => block.blockType === 'text' && block.content?.trim(),
         );
-        const rows = blocks
-          .filter((block) => block.blockType !== 'text' || block.content?.trim())
-          .map((block, index): ActivityRow<ReactNode> => {
-            const progress = progressFor(msg.messageId, msg.symposiumProvenance, block.toolId);
-            const keepVisible =
-              Boolean(block.rawInput?.nativeSubagentCommandId) ||
-              Boolean(progress) ||
-              Boolean(telosWorkerReceipt(block, sessionId)) ||
-              (!completedWebsiteRead(block) &&
-                ['RequestWebAccess', 'mcp__mitzo-web-access__RequestWebAccess'].includes(
-                  block.toolName ?? '',
-                ));
-            const bid = block.blockId || `text-${index}`;
-            let content: ReactNode;
-            if (block.blockType === 'thinking' || block.blockType === 'redacted_thinking') {
-              content = (
-                <ThinkingBlock
-                  block={block}
-                  streaming={streaming}
-                  defaultExpanded={false}
-                  autoCollapse={false}
-                />
-              );
-            } else if (block.blockType === 'tool_use') {
-              content = progress ? (
-                <ProgressWidget items={progress.items} />
-              ) : (
-                <ToolPill block={block} sessionId={sessionId} showSetupCard={keepVisible} />
-              );
-            } else {
-              content = (
-                <TextBubble
-                  sourceAnchor={
-                    !streaming &&
-                    turn.kind === 'finished' &&
-                    block === firstVisibleText &&
-                    sourceAnchor(turn.value)
-                  }
-                  content={block.content ?? ''}
-                  streaming={streaming}
-                  timestamp={turn.kind === 'finished' ? turn.value.timestamp : undefined}
-                  artifactSessionId={
-                    !streaming && messageSessionId ? messageSessionId(msg.messageId) : sessionId
-                  }
-                  readAloud={
-                    !streaming && voice?.ttsAvailable
-                      ? {
-                          active: speakingBlockId === bid,
-                          onSpeak: (text) => speakBlock(bid, text),
-                          onStop: stopBlock,
-                        }
-                      : undefined
-                  }
-                />
-              );
-            }
-            return {
-              key: `${ownerKey}:${bid}`,
-              scope,
-              attribution,
-              requestStatus: msg.replyToMessageId
-                ? commandLabels[requests.get(msg.replyToMessageId)?.commandState ?? '']
-                : undefined,
-              block,
-              streaming,
-              keepVisible,
-              value: (
+        const finished = turn.kind === 'finished' ? turn.value : undefined;
+        const actionMessage = finished ?? {
+          messageId: msg.messageId,
+          role: 'assistant' as const,
+          symposiumProvenance: msg.symposiumProvenance,
+          blocks,
+        };
+        const share =
+          finished && onShareMessage && (!canShareMessage || canShareMessage(finished)) ? (
+            <MessageShareAction
+              inActions={shareInActions}
+              onShare={() => onShareMessage(finished.messageId, finished.symposiumProvenance)}
+            />
+          ) : null;
+        const footer = finished ? (
+          <>
+            {createdItemCards(finished)}
+            {renderMessageOutcome?.(msg.messageId)}
+            {share}
+          </>
+        ) : null;
+        const visibleBlocks = blocks.filter(
+          (block) => block.blockType !== 'text' || block.content?.trim(),
+        );
+        const rows = visibleBlocks.map((block, index): ActivityRow<ReactNode> => {
+          const progress = progressFor(msg.messageId, msg.symposiumProvenance, block.toolId);
+          const keepVisible =
+            Boolean(block.rawInput?.nativeSubagentCommandId) ||
+            Boolean(progress) ||
+            Boolean(telosWorkerReceipt(block, sessionId)) ||
+            (!completedWebsiteRead(block) &&
+              ['RequestWebAccess', 'mcp__mitzo-web-access__RequestWebAccess'].includes(
+                block.toolName ?? '',
+              ));
+          const bid = block.blockId || `text-${index}`;
+          let content: ReactNode;
+          if (block.blockType === 'thinking' || block.blockType === 'redacted_thinking') {
+            content = (
+              <ThinkingBlock
+                block={block}
+                streaming={streaming}
+                defaultExpanded={false}
+                autoCollapse={false}
+              />
+            );
+          } else if (block.blockType === 'tool_use') {
+            content = progress ? (
+              <ProgressWidget items={progress.items} />
+            ) : (
+              <ToolPill block={block} sessionId={sessionId} showSetupCard={keepVisible} />
+            );
+          } else {
+            content = (
+              <TextBubble
+                sourceAnchor={
+                  !streaming &&
+                  turn.kind === 'finished' &&
+                  block === firstVisibleText &&
+                  sourceAnchor(turn.value)
+                }
+                content={block.content ?? ''}
+                streaming={streaming}
+                timestamp={turn.kind === 'finished' ? turn.value.timestamp : undefined}
+                artifactSessionId={
+                  !streaming && messageSessionId ? messageSessionId(msg.messageId) : sessionId
+                }
+                readAloud={
+                  !streaming && voice?.ttsAvailable
+                    ? {
+                        active: speakingBlockId === bid,
+                        onSpeak: (text) => speakBlock(bid, text),
+                        onStop: stopBlock,
+                      }
+                    : undefined
+                }
+              />
+            );
+          }
+          return {
+            key: `${ownerKey}:${bid}`,
+            scope,
+            attribution,
+            requestStatus: msg.replyToMessageId
+              ? commandLabels[requests.get(msg.replyToMessageId)?.commandState ?? '']
+              : undefined,
+            block,
+            streaming,
+            keepVisible,
+            value: (
+              <>
                 <div
                   data-reply-source={msg.messageId}
                   tabIndex={-1}
@@ -751,89 +818,30 @@ export function ChatArea({
                 >
                   {index === 0 && (keepVisible || block.blockType === 'text') && attribution}
                   {block === firstVisibleText && replyLabel(msg)}
-                  {!streaming && turn.kind === 'finished' && block.blockType === 'text'
-                    ? withActions(turn.value, content)
+                  {block.blockType === 'text'
+                    ? withActions(actionMessage, content, !streaming)
                     : content}
                 </div>
-              ),
-            };
-          });
-        if (!streaming && turn.kind === 'finished') {
-          const last = rows.at(-1);
-          if (last)
-            last.value = (
-              <>
-                {last.value}
-                {createdItemCards(turn.value)}
-                {renderMessageOutcome?.(msg.messageId)}
+                {index === visibleBlocks.length - 1 && footer}
               </>
-            );
-        }
-        if (
-          !streaming &&
-          'role' in msg &&
-          onShareMessage &&
-          (!canShareMessage || canShareMessage(msg))
-        ) {
-          const shareButton = (
-            <button
-              type="button"
-              className="symposium-share-action"
-              onClick={(event) => {
-                const disclosure = event.currentTarget.closest('details');
-                if (disclosure) {
-                  disclosure.open = false;
-                  disclosure.querySelector('summary')?.focus();
-                }
-                onShareMessage(msg.messageId, msg.symposiumProvenance);
-              }}
-            >
-              Share excerpt
-            </button>
-          );
-          const share = shareInActions ? (
-            <details
-              className="conversation-message-actions"
-              onKeyDown={(event) => {
-                if (event.key === 'Escape') {
-                  event.preventDefault();
-                  event.currentTarget.open = false;
-                  event.currentTarget.querySelector('summary')?.focus();
-                }
-              }}
-            >
-              <summary aria-label="Message actions">
-                <UiIcon name="more" />
-              </summary>
-              {shareButton}
-            </details>
-          ) : (
-            shareButton
-          );
-          const last = rows.at(-1);
-          if (last)
-            last.value = (
-              <>
-                {last.value}
+            ),
+          };
+        });
+        if (!rows.length && share)
+          rows.push({
+            key: `${ownerKey}:share`,
+            scope,
+            activityControl: true,
+            value: (
+              <div className="msg-turn">
+                <SeatAttribution
+                  provenance={msg.symposiumProvenance}
+                  compact={compactAttribution}
+                />
                 {share}
-              </>
-            );
-          else
-            rows.push({
-              key: `${ownerKey}:share`,
-              scope,
-              activityControl: true,
-              value: (
-                <div className="msg-turn">
-                  <SeatAttribution
-                    provenance={msg.symposiumProvenance}
-                    compact={compactAttribution}
-                  />
-                  {share}
-                </div>
-              ),
-            });
-        }
+              </div>
+            ),
+          });
         return rows;
       };
       return [...launchRows.filter((row) => row.before === turn), ...renderRows()];

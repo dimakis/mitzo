@@ -241,6 +241,48 @@ describe('ChatArea', () => {
     expect(screen.queryByRole('menu')).toBeNull();
   });
 
+  it.each([false, true])(
+    'keeps response text mounted when streaming completes with sharing %s',
+    (sharing) => {
+      const onReply = vi.fn();
+      const sharingProps = sharing ? { onShareMessage: vi.fn(), shareInActions: true } : {};
+      const stream = {
+        messageId: 'stable-response',
+        blocks: new Map<string, StreamingBlock>([
+          [
+            'stable-text',
+            { blockId: 'stable-text', blockType: 'text', content: 'Response text', done: false },
+          ],
+        ]),
+        blockOrder: ['stable-text'],
+      };
+      const { rerender } = render(
+        <ChatArea {...defaultProps} {...sharingProps} current={stream} onReply={onReply} />,
+      );
+      const text = screen.getByText('Response text');
+      fireEvent.contextMenu(text);
+      expect(screen.queryByRole('menu')).toBeNull();
+      rerender(
+        <ChatArea
+          {...defaultProps}
+          {...sharingProps}
+          messages={[
+            {
+              messageId: stream.messageId,
+              role: 'assistant',
+              timestamp: 1,
+              blocks: [{ blockId: 'stable-text', blockType: 'text', content: 'Response text' }],
+            },
+          ]}
+          onReply={onReply}
+        />,
+      );
+      expect(screen.getByText('Response text')).toBe(text);
+      fireEvent.contextMenu(text);
+      expect(screen.getByRole('menu')).toBeTruthy();
+    },
+  );
+
   it('renders assistant text blocks', () => {
     const messages: FinishedMessage[] = [
       {
