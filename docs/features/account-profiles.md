@@ -3,6 +3,10 @@
 Personal Claude subscriptions on Local Mac reuse the Claude Agent SDK runtime
 with a separate account and native sign-in directory. See
 [Personal Claude on Local Mac](personal-claude-local.md) for setup and verification limits.
+Managed Claude onboarding adds profiles alongside the operator's configured
+accounts. Vertex, the forthcoming enMaaS Anthropic-key route, and personal Claude
+subscriptions remain distinct billing/authentication selections; see the
+[three-route compatibility contract](personal-claude-local.md#three-distinct-claude-account-routes).
 
 ## Shared Codex connection configuration
 
