@@ -124,12 +124,31 @@ async function loadApplication() {
     root,
     loaded.setConnectionsRuntime,
   );
+  // The listener bootstrap installs this exact production composition after
+  // importing app.ts. Reuse it without starting index.ts or external services.
+  const { mountApplicationChatTransport } = await import('../chat-rest-handler.js');
+  const { ConnectionRegistry } = await import('@mitzo/harness');
+  const { SessionSseRegistry } = await import('../session-sse-registry.js');
+  const { NativeCommandRegistry } = await import('../native-commands.js');
+  const chat = await import('../chat.js');
+  const transportConnections = new ConnectionRegistry();
+  const transportStreams = new SessionSseRegistry();
+  chat.setConnectionRegistry(transportConnections);
+  mountApplicationChatTransport(app, transportStreams, {
+    connRegistry: transportConnections,
+    sessionRegistry: chat.registry,
+    eventStore: chat.eventStore,
+    nativeCommands: new NativeCommandRegistry(),
+  });
   const idleClose = close;
   close = async () => {
     releaseTransport?.();
     releaseTransport = undefined;
     await connections?.close();
     connections = undefined;
+    transportStreams.destroy();
+    transportConnections.dispose();
+    chat.setConnectionRegistry(null);
     await idleClose();
   };
   events = (await import('../chat.js')).eventStore;

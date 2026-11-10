@@ -2,7 +2,7 @@
 
 Living map owner: workstream C, `01a14bdc-d152-7912-84d4-c0012e9d5206`.
 
-## 9 November 2026 independent finalized-reply recovery
+## 10 November 2026 finalized-reply recovery and complete joining controls
 
 Accepted main `279e6703dedebaeb130993fd6e2657b2aed73c0a` contains #1252's
 ordinary directed dispatch and #1261's shared composer, readiness and replies.
@@ -42,7 +42,25 @@ Offline checks on this replacement:
   `turn/started` event; its earlier incomplete stream explained a missing second
   answer in the fixture. No production transport relaxation was needed.
 - Protocol/harness/client builds, scoped lint, formatting, source fingerprints and
-  diff checks pass. No user-facing UI source or approved design reference changes.
+  diff checks pass. Approved design references and layout/styles are unchanged.
+
+The complete production Add-agent UI journey exposed two further gaps: retaining
+the pending repository ID in the parent aborted the original preparation POST,
+and the first application review omitted its required initial joining brief.
+The picker now distinguishes its own ID echo from restored requests, retaining
+normal external-clear cancellation and changed-model recovery. The joining hook
+captures the initial brief before journaling and preserves exact edited/retry bytes.
+The application adapter still refuses missing briefs before reading sources.
+
+`collaboration-application-fresh-agent-ui.test.tsx` crosses the real Agents,
+runtime/repository picker, local Git preparation, initial review, edited refreeze,
+silent join, explicit stale-readiness refresh, shared composer and attributed
+native reply. It asserts no initial ordinary command or native turn at joining,
+and the exact edited brief in the sole requested turn. The fixture mounts the
+production listener transport composition; synthetic discovery implements only
+external metadata RPC. Native inference is synthetic. No inner owner is replaced.
+The combined UI/hook/application checks pass (120 cases including shared fixture
+prerequisites); protected design checks pass (109 cases, one existing skip).
 
 The schema-valid unknown-fingerprint regression also failed before repair and
 passes with a typed missing-execution-reference refusal. The ordinary execution
@@ -59,8 +77,8 @@ verified those paths (176 checks, 11 existing skips) and retained the stronger
 callback-consumer regression in #1257. That evidence is separate from this PR's
 current-head CI/review, which remain mandatory before merge.
 
-This qualifies bounded source/offline behavior only. The complete fresh-agent
-edited review/refreeze/join browser journey, independent visual acceptance,
+This qualifies bounded source/offline application behavior only. The rendered
+fresh-agent browser journey, independent visual acceptance,
 physical iOS, other runtime/account routes and the broader milestone remain
 separate acceptance work. No staging, deployment or live inference was performed.
 

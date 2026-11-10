@@ -453,25 +453,23 @@ it.each([
   retainedPrompt();
   // Simulate malformed legacy/corrupt retained evidence, not the validated writer.
   const append = store.append.bind(store);
-  const corrupt = vi
-    .spyOn(store, 'append')
-    .mockImplementation((session, type, payload) =>
-      append(
-        session,
-        type,
-        type === 'ordinary_reply_source'
-          ? {
-              ...payload,
-              [field === 'unknown fingerprint' ? 'executionFingerprint' : field]:
-                field === 'version'
-                  ? 'unknown'
-                  : field === 'unknown fingerprint'
-                    ? 'forged'
-                    : 'x'.repeat(100001),
-            }
-          : payload,
-      ),
-    );
+  const corrupt = vi.spyOn(store, 'append').mockImplementation((session, type, payload) =>
+    append(
+      session,
+      type,
+      type === 'ordinary_reply_source'
+        ? {
+            ...payload,
+            [field === 'unknown fingerprint' ? 'executionFingerprint' : field]:
+              field === 'version'
+                ? 'unknown'
+                : field === 'unknown fingerprint'
+                  ? 'forged'
+                  : 'x'.repeat(100001),
+          }
+        : payload,
+    ),
+  );
   finalizedAnswer();
   corrupt.mockRestore();
   expect(() => owner.reconcile(auth, group)).not.toThrow();

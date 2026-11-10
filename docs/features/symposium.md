@@ -1,6 +1,6 @@
 # Symposium: current direction and source guide
 
-Updated 9 November 2026. Start here for Symposium product work.
+Updated 10 November 2026. Start here for Symposium product work.
 Existing Telos item: `c0851ba23fcc5d04`; reuse it rather than create another parent
 or a task for every document. Tracker closure and source landing do not prove
 runtime acceptance or authorize deployment.
@@ -23,8 +23,17 @@ The old #1244 dispatch/UI paths are superseded; recommend retiring that draft
 after its unique recovery replacement lands. #1242's relevant production fixes
 are already accepted through #1266/#1272 and are not an outstanding prerequisite.
 
-The complete edited fresh-agent review/refreeze/join browser journey and
-independent visual acceptance remain open. No source merge establishes deployment,
+The replacement also repairs two gaps exposed by the complete application UI
+journey: a parent echo of the pending repository ID cancelled its own preparation,
+and initial context review omitted the required joining brief. The real Add-agent
+controls now prepare the repository, review/edit/refreeze context, join silently,
+refresh stale readiness and send a directed prompt yielding an attributed answer.
+That offline application test substitutes external native metadata and RPC only;
+it does not qualify a live account. Existing request cancellation, changed-model
+restoration and exact edited/retry bytes remain covered.
+
+Rendered browser and independent visual acceptance remain open. The approved
+design controls and references are unchanged. No source merge establishes deployment,
 physical iOS or full runtime/account qualification. The dated candidate records
 below describe their original checkpoints.
 

@@ -144,6 +144,8 @@ it('sends first and later selected prompts from the production shared composer a
     const { registry } = await import('../chat.js');
     const live = registry.findBySessionId(h.joinedSessionId);
     if (live) await act(async () => registry.abort(live.clientId));
+    const { getRepositoryWorkspaces } = await import('../repository-workspace-runtime.js');
+    await vi.waitFor(() => getRepositoryWorkspaces(true).closeIdle());
     runtime.restore();
     if (originalScrollTo)
       Object.defineProperty(HTMLElement.prototype, 'scrollTo', originalScrollTo);
