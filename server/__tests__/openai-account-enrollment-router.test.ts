@@ -86,6 +86,13 @@ describe('new OpenAI account enrollment routes', () => {
       catalogInput.apiKey,
       expect.any(AbortSignal),
     );
+    const escapedKey = '\\'.repeat(16384);
+    expect((await discover({ ...catalogInput, csrf, apiKey: escapedKey })).status).toBe(200);
+    expect(enrollment.discoverModels).toHaveBeenLastCalledWith(
+      catalogInput.endpoint,
+      escapedKey,
+      expect.any(AbortSignal),
+    );
     enrollment.discoverModels.mockRejectedValueOnce(Error('PRIVATE_KEY private upstream response'));
     const failedCatalog = await discover({ ...catalogInput, csrf });
     expect(failedCatalog.status).toBe(422);
@@ -122,6 +129,29 @@ describe('new OpenAI account enrollment routes', () => {
     };
     expect((await post({ ...custom, csrf })).status).toBe(201);
     expect(enrollment.enroll).toHaveBeenLastCalledWith(custom, expect.any(AbortSignal));
+    const largeSelection = {
+      ...custom,
+      apiKey: 'k'.repeat(16384),
+      models: Array.from({ length: 200 }, (_, index) => {
+        const id = '界'.repeat(253) + String(index).padStart(3, '0');
+        return { id, label: id };
+      }),
+    };
+    expect(Buffer.byteLength(JSON.stringify(largeSelection))).toBeGreaterThan(300000);
+    expect((await post({ ...largeSelection, csrf })).status).toBe(201);
+    expect(enrollment.enroll).toHaveBeenLastCalledWith(largeSelection, expect.any(AbortSignal));
+    const callsBeforeInvalid = enrollment.enroll.mock.calls.length;
+    const invalidEndpoint = await post({
+      ...custom,
+      csrf,
+      connection: { ...custom.connection, endpoint: 'http://gateway.example/v1' },
+    });
+    expect(invalidEndpoint.status).toBe(400);
+    expect(invalidEndpoint.body).toMatchObject({
+      code: 'ENROLLMENT_INPUT_INVALID',
+      effectStatus: 'not_started',
+    });
+    expect(enrollment.enroll).toHaveBeenCalledTimes(callsBeforeInvalid);
     expect(
       (
         await post({
@@ -135,7 +165,8 @@ describe('new OpenAI account enrollment routes', () => {
     const failed = await post({ ...input, csrf });
     expect(failed.status).toBe(422);
     expect(JSON.stringify(failed.body)).not.toContain('PRIVATE');
-    expect((await post({ ...input, csrf, apiKey: 'x'.repeat(22000) })).status).toBe(413);
+    expect((await post({ ...input, csrf, apiKey: 'x'.repeat(22000) })).status).toBe(400);
+    expect((await post({ ...input, csrf, apiKey: 'x'.repeat(1024 * 1024) })).status).toBe(413);
   });
   it('keeps enrollment unavailable when not configured', async () => {
     const app = express();

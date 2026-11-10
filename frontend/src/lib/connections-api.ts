@@ -49,6 +49,20 @@ export async function getOpenAIAccounts(): Promise<{
 }> {
   return bodyOrError(await apiFetch('/api/connections/openai-accounts'));
 }
+export class OpenAIAccountEnrollmentFailure extends Error {
+  constructor(
+    readonly retrySetup: boolean,
+    cause?: unknown,
+  ) {
+    super(
+      retrySetup
+        ? 'The request was rejected before enrollment. Check the account details and re-enter the API key.'
+        : 'Could not confirm enrollment. Review account status before trying again.',
+      { cause },
+    );
+    this.name = 'OpenAIAccountEnrollmentFailure';
+  }
+}
 export async function enrollOpenAIAccount(input: {
   csrf: string;
   requestId: string;
@@ -69,10 +83,40 @@ export async function enrollOpenAIAccount(input: {
   };
   models?: { id: string; label: string }[];
 }): Promise<EnrolledOpenAIAccount> {
-  const result = await bodyOrError<{ account: EnrolledOpenAIAccount }>(
-    await apiFetch('/api/connections/openai-accounts', json('POST', input, input.csrf)),
+  const response = await apiFetch(
+    '/api/connections/openai-accounts',
+    json('POST', input, input.csrf),
   );
-  return result.account;
+  let decoded: unknown;
+  try {
+    decoded = await response.json();
+  } catch (cause) {
+    throw new OpenAIAccountEnrollmentFailure(false, cause);
+  }
+  const result =
+    decoded && typeof decoded === 'object' ? (decoded as Record<string, unknown>) : null;
+  if (!response.ok)
+    throw new OpenAIAccountEnrollmentFailure(
+      response.status === 400 &&
+        result?.code === 'ENROLLMENT_INPUT_INVALID' &&
+        result?.effectStatus === 'not_started',
+    );
+  const account = result?.account;
+  if (
+    !account ||
+    typeof account !== 'object' ||
+    !('id' in account) ||
+    typeof account.id !== 'string' ||
+    !account.id ||
+    !('label' in account) ||
+    typeof account.label !== 'string' ||
+    !('projectLabel' in account) ||
+    typeof account.projectLabel !== 'string' ||
+    !('state' in account) ||
+    typeof account.state !== 'string'
+  )
+    throw new OpenAIAccountEnrollmentFailure(false);
+  return account as EnrolledOpenAIAccount;
 }
 export async function discoverApiModels(input: {
   csrf: string;

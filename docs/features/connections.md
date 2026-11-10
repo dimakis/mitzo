@@ -47,6 +47,10 @@ Keys use the existing private Keychain enrollment store. Custom accounts create
 no OpenShell provider replica. The journal retains operation identity, endpoint,
 model selection and failure stage, with no key or key digest. Interrupted or
 uncertain saves require status review and are never automatically replayed.
+Invalid endpoint details remain editable before any key is sent. If the server
+explicitly rejects a request before enrollment starts, correct its details and
+re-enter the key to make a fresh attempt. A missing or uncertain save receipt
+still requires status review.
 **Ready** here means configuration and credential custody were saved; account
 authentication and successful use remain separate evidence below.
 
