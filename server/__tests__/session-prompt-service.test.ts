@@ -193,29 +193,32 @@ it('retains unreadable matching receipts but ignores unrelated uncertainty', asy
   expect(f.store.delivery(delivery.id).state).toBe('failed');
   expect(f.port.deliver).not.toHaveBeenCalled();
 });
-it('rechecks cancellation after asynchronous preparation and cannot overwrite a cancelled timer', async () => {
-  const f = fixture();
-  const timer = await f.service.create(f.input, f.auth, 'user', null);
-  let proceed!: () => void;
-  let entered!: () => void;
-  const ready = new Promise<void>((resolve) => (entered = resolve));
-  f.port.deliver.mockImplementation(async (_delivery, signal, current) => {
-    entered();
-    await new Promise<void>((resolve) => (proceed = resolve));
-    signal.throwIfAborted();
-    current();
-  });
-  const pending = f.service.tick();
-  await ready;
-  f.service.change(
-    timer.id,
-    { requestId: randomUUID(), expectedRevision: timer.revision, action: 'cancel' },
-    f.auth,
-  );
-  proceed();
-  await pending;
-  expect(f.store.get(timer.id)).toMatchObject({ status: 'cancelled', runCount: 0 });
-});
+it.each(['cancel', 'delete'] as const)(
+  'rechecks %s after asynchronous preparation and cannot overwrite a cancelled timer',
+  async (action) => {
+    const f = fixture();
+    const timer = await f.service.create(f.input, f.auth, 'user', null);
+    let proceed!: () => void;
+    let entered!: () => void;
+    const ready = new Promise<void>((resolve) => (entered = resolve));
+    f.port.deliver.mockImplementation(async (_delivery, signal, current) => {
+      entered();
+      await new Promise<void>((resolve) => (proceed = resolve));
+      signal.throwIfAborted();
+      current();
+    });
+    const pending = f.service.tick();
+    await ready;
+    f.service.change(
+      timer.id,
+      { requestId: randomUUID(), expectedRevision: timer.revision, action },
+      f.auth,
+    );
+    proceed();
+    await pending;
+    expect(f.store.get(timer.id)).toMatchObject({ status: 'cancelled', runCount: 0 });
+  },
+);
 it('blocks revoked consent before dispatch and never starts a model', async () => {
   const f = fixture();
   const timer = await f.service.create(f.input, f.auth, 'user', null);
