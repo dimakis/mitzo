@@ -4,6 +4,11 @@ import { projectTelosWorkRecord } from './telos-work-record.js';
 import type { TelosLifecycleVisibility } from './telos-lifecycle-tree.js';
 
 type Row = Record<string, unknown>;
+/** Native installations can create their first item without workspace profile YAML. */
+export function telosCollectionProfiles(profiles: Iterable<string>): string[] {
+  const selected = [...new Set(profiles)].filter(Boolean).sort();
+  return selected.length ? selected : ['manual'];
+}
 export interface TelosCollection {
   records: TelosWorkItem[];
   failures: Array<{ itemId: string; code: 'invalid_record' }>;
@@ -84,7 +89,7 @@ export function projectTelosCollection(
   const result: TelosCollection = {
     records: [],
     failures: [],
-    profiles: [...new Set(items.map((row) => String(row.profile ?? '')))].filter(Boolean).sort(),
+    profiles: telosCollectionProfiles(items.map((row) => String(row.profile ?? ''))),
   };
   for (const row of selected.values()) {
     try {

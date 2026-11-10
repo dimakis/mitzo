@@ -22,7 +22,7 @@ interface Boundary {
   spawnClaudeCodeProcess(options: SpawnOptions & { captureStderr?: boolean }): ProtectedSdkProcess;
 }
 
-/** Unenrolled controller callbacks retain their original executor. */
+/** Controller callbacks inherit runtime authority and Telos storage fences. */
 export function createWorkspaceRuntimeCommandRunner(
   platform: NodeJS.Platform = process.platform,
 ): ProtectedSdkCommandRunner | undefined {

@@ -1,3 +1,4 @@
+import './fixtures/offline-user-home.js';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import {
   existsSync,
@@ -78,6 +79,8 @@ beforeEach(async () => {
     { mode: 0o600 },
   );
   vi.stubEnv('MITZO_WORKSPACE_RUNTIME_CONFIG', enrollment);
+  vi.stubEnv('TELOS_DB_PATH', '');
+  vi.stubEnv('MITZO_TELOS_DATA_DIR', join(root, 'telos-private'));
   vi.stubEnv('MITZO_KEYCHAIN_CONNECTIONS_ENABLED', '0');
   vi.stubEnv('MITZO_KEYCHAIN_CONNECTIONS_DIR', join(root, 'missing-keychain'));
   vi.stubEnv('PATH', '/usr/bin:/bin:/opt/homebrew/bin');
