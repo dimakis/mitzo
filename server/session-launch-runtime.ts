@@ -3,6 +3,7 @@ import { createOrdinaryFreshPermission, type SessionLaunchConfig } from '@mitzo/
 import type { SessionLaunchAuthority, SessionLaunchPort } from './session-launch-service.js';
 import { SessionLaunchError, type RetainedSessionLaunch } from './session-launch-store.js';
 import type { EventStore } from './event-store.js';
+import { assertSessionLaunchTools } from './session-launch-tools-selection.js';
 
 function assertLaunchChildAdmissible(events: EventStore, id: string) {
   if (events.getSession(id)?.isHidden)
@@ -24,9 +25,9 @@ export function createSessionLaunchPort(): SessionLaunchPort {
       throw new SessionLaunchError(
         'Choose an independent ordinary workspace. Repository session launching is not available yet.',
       );
-    if (config.contextBlocks.length || config.extraTools.length)
+    if (config.contextBlocks.length)
       throw new SessionLaunchError(
-        'Selected context blocks or additional tools are not supported for agent-created sessions yet.',
+        'Selected context blocks are unavailable for this startup route. Put the handover text in Handoff prompt and clear Context before starting.',
       );
     const account = config.runtime.account;
     const agent = config.runtime.agentProfile;
@@ -102,6 +103,7 @@ export function createSessionLaunchPort(): SessionLaunchPort {
       throw new SessionLaunchError(
         'The selected agent revision or its context is unavailable for an ordinary Local Mac session.',
       );
+    assertSessionLaunchTools(config.extraTools, profile.definition);
     const selection = {
       version: 1 as const,
       agent,
