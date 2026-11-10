@@ -4,6 +4,22 @@ Living map owner: workstream C, `01a14bdc-d152-7912-84d4-c0012e9d5206`.
 
 ## 10 November 2026 long-discussion delivery candidate
 
+The published candidate is [PR #1279](https://github.com/dimakis/mitzo/pull/1279).
+It now integrates accepted Claude #1232/main `f7fd876a3dbb44ec252e90fc8ba37e27ea19d968`
+after a real conflict. The only conflict was the runtime source-registry revision;
+all accepted Claude source and incoming pins are retained. Its ordinary account,
+repository preparation, SDK custody and native history paths were checked against
+the combined tree. Symposium continues to require its explicit Local Codex adapter;
+accepting Personal Claude does not implicitly enroll another collaboration runtime.
+Fresh combined CI and trusted review remain required; earlier green jobs are not
+approval of this integrated head. The later multiple-responder/Stop commits and
+uncommitted streaming work are separately retained and excluded from this PR.
+The combined tree passes 66 focused checks across the 27-turn actual composer,
+all 52 recovery cases, Personal Claude account/policy/custody and ordinary SDK
+owned-runtime consumers. These tests substitute external account/native execution
+and make no live subscription/model calls. The source-artifact check passes;
+full hosted compilation and CI are still required for the published integration.
+
 Replacement owner `0906bac2-29eb-8ccf-a77c-29783118c415` continues the original
 16 milestone criteria on accepted #1276/main `8978f4a1061ef2073967d7691b880af867d85d5e`.
 This slice separates the latest-50 display projection from delivery inventory.

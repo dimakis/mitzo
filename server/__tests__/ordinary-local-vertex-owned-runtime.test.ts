@@ -5,6 +5,13 @@ import { SkillRegistry } from '../skills.js';
 import * as registries from '../skill-registry-runtime.js';
 import { assembleCommandPrompt } from '../message-reply-context.js';
 import { ownedVertexRuntimeFixture } from './fixtures/owned-local-vertex-runtime.js';
+import { ClaudeSubscriptionCustody } from '../claude-subscription-custody.js';
+vi.mock('../claude-account-history.js', () => ({
+  readClaudeAccountHistory: vi.fn(async (sessionId: string, cwd: string) => ({
+    info: { sessionId, cwd },
+    messages: [{ type: 'user', uuid: 'retained' }],
+  })),
+}));
 import {
   OrdinaryLocalVertexOwnedRuntime,
   type OrdinaryLocalVertexOwnedDispatch,
@@ -30,6 +37,57 @@ afterEach(async () => {
   for (const cleanup of cleanups.splice(0).reverse()) await cleanup();
   vi.restoreAllMocks();
   vi.unstubAllEnvs();
+});
+it('shares admission, follow-ups and cold SDK continuation with a personal subscription and blocks lost sign-in', async () => {
+  const f = await ownedVertexRuntimeFixture(cleanups, { personal: true });
+  const capture = ClaudeSubscriptionCustody.capture;
+  vi.spyOn(ClaudeSubscriptionCustody, 'capture').mockImplementation((env) =>
+    capture(env, f.personalExecutable),
+  );
+  const verify = vi.spyOn(ClaudeSubscriptionCustody.prototype, 'verify').mockResolvedValue();
+  const dispatch = vi.fn<(input: OrdinaryLocalVertexOwnedDispatch) => Promise<void>>(
+    async () => {},
+  );
+  const create = (commandId: string = f.request.clientMsgId) => {
+    const owner = new OrdinaryLocalVertexOwnedRuntime({
+      enabled: true,
+      eventStore: f.events,
+      library: f.library,
+      workspace: f.workspace,
+      reservation: f.reservation,
+      commandId,
+      operatorConnectionId: f.dependencies.operatorConnectionId,
+      signal: f.signal.signal,
+      env: f.dependencies.env,
+      dispatch,
+      dispatchContinuation: dispatch,
+    });
+    cleanups.push(() => owner.close());
+    return owner;
+  };
+  const owner = create();
+  await expect(owner.admit(f.request)).resolves.toEqual({ dispatched: true });
+  const custody = f.events.getOrdinaryLocalVertexCustody(f.reservation.conversationId)!;
+  expect(custody.binding.account.provider).toBe('anthropic-claude');
+  expect(custody.credentialAuthority).toMatchObject({
+    kind: 'claude-host-login',
+    email: 'person@example.test',
+  });
+  await expect(owner.admitContinuation({ ...f.request, clientMsgId: 'next' })).resolves.toEqual({
+    dispatched: true,
+  });
+  owner.commandTerminal('next');
+  owner.close();
+  await expect(create('cold').admitResume({ ...f.request, clientMsgId: 'cold' })).resolves.toEqual({
+    dispatched: true,
+  });
+  expect(f.events.getOrdinaryLocalVertexCustody(f.reservation.conversationId)).toEqual(custody);
+  verify.mockRejectedValue(new Error('Claude subscription sign-in unavailable'));
+  await expect(
+    create('revoked').admitResume({ ...f.request, clientMsgId: 'revoked' }),
+  ).rejects.toThrow();
+  expect(dispatch).toHaveBeenCalledTimes(3);
+  expect(f.events.getSendCommand('revoked')).toBeUndefined();
 });
 async function fixture(options: Parameters<typeof ownedVertexRuntimeFixture>[1] = {}) {
   const f = await ownedVertexRuntimeFixture(cleanups, options);

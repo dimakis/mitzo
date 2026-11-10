@@ -4,6 +4,7 @@ import type { AccountBinding } from '@mitzo/protocol';
 import type { AdviserRequest } from './terminal-adviser.js';
 import { AdviserTaskScope, type AdviserTaskSnapshot } from './adviser-task-scope.js';
 import { FEATURE_TEXT_PROFILE } from './builtin-agent-library-profile.js';
+import { supportsScopedAdviserProvider } from './terminal-adviser-catalog.js';
 export interface AdviserFeatureOwner {
   authSessionId: string;
   operatorConnectionId: string;
@@ -157,6 +158,8 @@ export async function createNativeAdviserSession(
   owner: AdviserFeatureOwner,
   binding: AccountBinding,
 ): Promise<ModelSession> {
+  if (!supportsScopedAdviserProvider(binding.provider))
+    throw Error('Personal Claude advisers are not supported; select a supported adviser account.');
   if (
     config.model !== request.model ||
     (config.reasoningEffort ?? null) !== (request.reasoningEffort ?? null)

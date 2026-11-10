@@ -8,7 +8,7 @@ export function sessionModelSettingsReason(
 ): string | undefined {
   // Bound runtimes publish their own continuation capability and native constraints.
   if (harness) return undefined;
-  if (provider === 'anthropic-vertex')
+  if (provider === 'anthropic-vertex' || provider === 'anthropic-claude')
     return 'This older Agent SDK chat keeps its original model and thinking. Start a new chat to choose different settings.';
   if (provider === 'openai' && !codexBacked)
     return 'This older API chat is read-only. Use Continue with Codex to review a continuation with new settings.';

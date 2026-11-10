@@ -223,10 +223,14 @@ export class OrdinaryWorkspaceCustody {
     input.signal.throwIfAborted();
     if (
       !(selected.runOn === 'local'
-        ? ['openai-codex', 'openai', 'anthropic-vertex'].includes(binding.provider)
+        ? ['openai-codex', 'openai', 'anthropic-vertex', 'anthropic-claude'].includes(
+            binding.provider,
+          )
         : ['openai', 'openai-codex'].includes(binding.provider)) ||
       selected.runtime.harness !==
-        (binding.provider === 'anthropic-vertex' ? 'claude-sdk' : 'codex')
+        (['anthropic-vertex', 'anthropic-claude'].includes(binding.provider)
+          ? 'claude-sdk'
+          : 'codex')
     )
       throw Error('Ordinary workspace isolation requires a supported native owner');
     if (
@@ -400,7 +404,9 @@ export class OrdinaryWorkspaceCustody {
     if (
       settings.workspace.preparationId !== selected.preparationId ||
       settings.binding.harness.implementation !==
-        (binding.provider === 'anthropic-vertex' ? 'claude-sdk' : 'codex') ||
+        (['anthropic-vertex', 'anthropic-claude'].includes(binding.provider)
+          ? 'claude-sdk'
+          : 'codex') ||
       settings.selection.context.source !== 'none' ||
       settings.selection.permission.revision !== 0 ||
       settings.selection.model !== binding.model ||

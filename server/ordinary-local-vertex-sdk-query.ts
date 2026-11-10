@@ -11,6 +11,7 @@ import { AsyncQueue } from './async-queue.js';
 import { TurnCallbacks, type TurnCallbackRunner } from './turn-callbacks.js';
 import type { OrdinaryLocalCommandAdmission } from '@mitzo/protocol';
 import { assertOrdinaryLocalVertexHistory } from './ordinary-local-vertex-native-history.js';
+import { assertClaudeSubscriptionAccount } from './claude-subscription-custody.js';
 /** Only the lifetime of an SDK query, not runtime/auth/history state. Retiring a
  * completed query cannot abort its successor; stale hooks always refuse effects. */
 export class SdkHookLifetime {
@@ -130,9 +131,18 @@ export function createOrdinaryLocalVertexSdkQuery<
     processClose?: ReturnType<typeof observeOrdinarySdkProcessClose>;
   };
   const states = new WeakMap<Query, State>();
-  const prompt = async function* (queue: AsyncQueue<SDKUserMessage>) {
+  const prompt = async function* (queue: AsyncQueue<SDKUserMessage>, current: () => Query) {
     for await (const message of queue) {
       await owners.authorize(owners.controller.signal);
+      if (owners.options.env?.MITZO_CLAUDE_EXPECTED_EMAIL) {
+        try {
+          assertClaudeSubscriptionAccount(await current().accountInfo(), owners.options.env);
+          await owners.authorize(owners.controller.signal);
+        } catch (error) {
+          owners.controller.abort(error);
+          throw error;
+        }
+      }
       yield message;
     }
   };
@@ -171,7 +181,7 @@ export function createOrdinaryLocalVertexSdkQuery<
         : {}),
     };
     if (selection) delete options.sessionId;
-    const native = query({ prompt: prompt(input), options });
+    const native = query({ prompt: prompt(input, () => native), options });
     states.set(native, state);
     return native;
   };
@@ -233,7 +243,11 @@ export function createOrdinaryLocalVertexSdkQuery<
         first = false;
         return;
       }
-      await assertOrdinaryLocalVertexHistory(owners.sdkSessionId, owners.cwd);
+      await assertOrdinaryLocalVertexHistory(
+        owners.sdkSessionId,
+        owners.cwd,
+        owners.options.env?.CLAUDE_CONFIG_DIR,
+      );
       await owners.authorize(owners.controller.signal);
       const state = states.get(native)!;
       state.retired = true;

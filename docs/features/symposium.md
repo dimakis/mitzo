@@ -12,7 +12,9 @@ discussion is enumerated per recipient in bounded keyset pages, including older
 attributed replies, and checked against the complete encoded 512 KiB packet limit
 before acceptance. Already claimed context stays with its original command; an
 older unclaimed reply request cannot be adopted by a later send. This candidate
-has focused offline/application evidence, pending publication, CI and review.
+is published as [PR #1279](https://github.com/dimakis/mitzo/pull/1279), with focused
+offline/application evidence and combined accepted Claude main `f7fd876a`.
+Current-head CI and trusted review remain required.
 Defaults/multiple responders, new reviewed per-prompt context, exact forwarding,
 streaming and the remaining milestone qualification are still open. See the
 [current evidence](../evidence/symposium-integration-acceptance.md).

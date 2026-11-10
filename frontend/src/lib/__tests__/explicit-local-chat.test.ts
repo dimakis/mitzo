@@ -17,6 +17,35 @@ import {
 import { createChatRuntimeSelection } from '../chat-runtime-selection';
 import { evaluateChatRuntimeSelection } from '../chat-runtime-selection';
 import { localInventoryFixture } from '../../test-utils/local-inventory-fixture';
+import { multiRuntimeInventoryFixture } from '../../test-utils/multi-runtime-inventory-fixture';
+
+it('keeps Vertex and personal Claude as separate account choices on the same local SDK route', () => {
+  const data = multiRuntimeInventoryFixture();
+  const work = data.accounts.find((entry) => entry.account.provider === 'anthropic-vertex')!;
+  const personal = {
+    ...work,
+    account: {
+      accountId: 'claude-personal',
+      provider: 'anthropic-claude',
+      profileRevision: 'personal-v1',
+    },
+    label: 'Personal Claude',
+  };
+  const route = data.routes.find((entry) => entry.account.accountId === work.account.accountId)!;
+  const inventory = ExplicitLocalInventorySchema.parse({
+    ...data,
+    accounts: [...data.accounts, personal],
+    routes: [...data.routes, { ...route, account: personal.account }],
+  });
+  expect(
+    inventory.accounts.find((entry) => entry.account.accountId === 'claude-personal')?.label,
+  ).toBe('Personal Claude');
+  expect(
+    inventory.routes
+      .filter((entry) => entry.harness === 'claude-sdk')
+      .map((entry) => entry.account.provider),
+  ).toEqual(['anthropic-vertex', 'anthropic-claude']);
+});
 
 it('keeps unsupported recipe intent visible and refuses a plain-only adapter without changing it to none', () => {
   const data = localInventoryFixture();
