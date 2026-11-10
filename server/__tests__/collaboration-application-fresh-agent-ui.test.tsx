@@ -84,7 +84,7 @@ it('adds an agent, edits and refreezes its brief, silently joins and sends an at
           .value,
       },
     });
-    fireEvent.change(within(dialog).getByRole('combobox', { name: 'Thinking level' }), {
+    fireEvent.change(await within(dialog).findByRole('combobox', { name: 'Thinking level' }), {
       target: { value: 'low' },
     });
     await userEvent

@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.983-symposium-finalized-recovery-delivery';
+  'v1.0.984-symposium-finalized-recovery-delivery';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -30,7 +30,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../tests/integration/symposium-application-review-recovery.test.tsx':
     '25489f287500e19ebaa054e00011fc030cba261820f65028e3f9a38e3b584985',
   '../__tests__/collaboration-application-fresh-agent-ui.test.tsx':
-    '0004e3be3b42fed59ae5bf435d6e763832567df3fb78c925ba518aacaf037386',
+    '66981502b14982e6b3365a855fec3b4d80bc47d42890badfc64b6384b1e3c371',
   '../../packages/client/src/command-delivery-diagnostic.ts':
     '6d1b83d7d723f34b7393c32865621ed387462583a3844e0c36cd54814004b909',
   '../../frontend/src/lib/command-delivery-tracing.ts':
