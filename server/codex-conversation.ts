@@ -26,8 +26,10 @@ import {
 import { SessionRuntimeError, findSessionRuntimeError } from './session-runtime-error.js';
 import {
   observeNativeRecoveryTurn,
-  type SettledInterruptedEffects,
+  type SettledNativeEffects,
 } from './codex-interrupted-effects.js';
+import type { RetainedHostResultObserver } from './retained-native-effect-evidence.js';
+import { beginOperationObservation } from './operation-observation.js';
 import { startCommandTimingSpan, finishCommandTimingSpan } from './command-timing-trace.js';
 import {
   codexApplicationContextFragments,
@@ -313,6 +315,8 @@ export interface CodexConversationOptions {
   /** Original non-native-policy recovery owner; fresh synchronous authority
    * after acquiring the reconciliation writer lock, never supplied by JSON. */
   assertRecoveryCurrent?: () => void;
+  /** Original application receipts can settle known historical host refusals. */
+  observeRetainedHostResult?: RetainedHostResultObserver;
   onQueueChange?: () => void;
   onActivity?: () => boolean | void;
   onThreadChanged?: (threadId: string) => void | Promise<void>;
@@ -1812,8 +1816,38 @@ export class CodexConversation {
   }
   async acknowledgeRecovery(automaticEpoch?: number) {
     if (this.recovery) return this.recovery;
-    const span = tracer.startSpan('codex.transport.recovery');
-    const operation = this.continueRecovery(automaticEpoch).finally(() => span.end());
+    const observation = beginOperationObservation('codex.transport.recovery');
+    let stage = 'transport';
+    let target: CodexNativeTurnTarget | undefined;
+    const operation = observation.run(() =>
+      this.continueRecovery(automaticEpoch, (next, observed) => {
+        stage = next;
+        target = observed ?? target;
+        observation.annotate({
+          'mitzo.recovery.stage': stage,
+          ...(target ? { 'mitzo.command.id': target.commandId } : {}),
+        });
+      }).then(
+        () => {
+          observation.end();
+        },
+        (error: unknown) => {
+          const code = findSessionRuntimeError(error)?.code ?? 'recovery_unavailable';
+          observation.annotate({ 'mitzo.recovery.code': code });
+          observation.end(true);
+          log.warn('Codex recovery failed', {
+            conversationId: this.opts.conversationId,
+            stage,
+            ...(target
+              ? { commandId: target.commandId, turnId: target.turnId, attempt: target.attempt }
+              : {}),
+            runtimeFailureCode: code,
+            ...(error instanceof Error ? codexRuntimeErrorTelemetry(error) : {}),
+          });
+          throw error;
+        },
+      ),
+    );
     const shared = operation.finally(() => {
       if (this.recovery === shared) {
         this.recovery = undefined;
@@ -1824,7 +1858,14 @@ export class CodexConversation {
     this.recovery = shared;
     return shared;
   }
-  private async continueRecovery(automaticEpoch?: number) {
+  private async continueRecovery(
+    automaticEpoch?: number,
+    observeStage?: (
+      stage: 'transport' | 'binding' | 'history' | 'effects' | 'acknowledgement' | 'dispatch',
+      target?: CodexNativeTurnTarget,
+    ) => void,
+  ) {
+    observeStage?.('transport');
     if (this.closed) throw new Error('Codex conversation unavailable');
     const recoveryControlEpoch = this.automaticRecoveryEpoch;
     this.opts.store.assertNoPendingThreadDispatch(this.opts.conversationId, this.binding!);
@@ -1853,6 +1894,13 @@ export class CodexConversation {
     const nativeTarget = exactRecovery
       ? this.opts.store.nativeRecoveryTarget(this.opts.conversationId, this.binding!)
       : undefined;
+    const inspectFailedEffects =
+      !!nativeTarget &&
+      !completionTarget &&
+      !!this.opts.nativeExecution &&
+      this.opts.store.continuationBlocker(this.opts.conversationId, this.binding!)?.commandId ===
+        nativeTarget.commandId;
+    observeStage?.('binding', nativeTarget);
     const assertRecoveryAuthority = async () => {
       const verified = await this.verifyCurrentBinding(this.binding);
       if (!isDeepStrictEqual(verified, this.binding))
@@ -1866,9 +1914,10 @@ export class CodexConversation {
     };
     await assertRecoveryAuthority();
     let nativeStatus: 'completed' | 'failed' | 'interrupted' | undefined;
-    let interruptedEffects: SettledInterruptedEffects | undefined;
+    let interruptedEffects: SettledNativeEffects | undefined;
     const recoveryThreadId = exactRecovery ? nativeTarget?.threadId : this.threadId;
     if ((automaticEpoch !== undefined || exactRecovery) && recoveryThreadId) {
+      observeStage?.('history');
       if (nativeTarget) {
         const phase =
           completionTarget &&
@@ -1889,6 +1938,7 @@ export class CodexConversation {
             assertRecoveryContinuation();
           },
           this.opts.cwd,
+          inspectFailedEffects,
         );
         nativeStatus = observed.status;
         interruptedEffects = observed.settledEffects;
@@ -1928,6 +1978,7 @@ export class CodexConversation {
     )
       throw new Error('Automatic recovery was cancelled');
     assertRecoveryContinuation();
+    observeStage?.('effects');
     if (nativeTarget && nativeStatus) {
       this.opts.store.reconcileNativeRecovery(
         this.opts.conversationId,
@@ -1957,9 +2008,59 @@ export class CodexConversation {
         );
       assertRecoveryContinuation();
     }
+    if (
+      nativeTarget &&
+      nativeStatus === 'failed' &&
+      inspectFailedEffects &&
+      interruptedEffects &&
+      !completionTarget &&
+      this.opts.nativeExecution
+    ) {
+      const policy = this.opts.nativeExecution;
+      const current = () => {
+        assertRecoveryContinuation();
+        this.assertNativeExecutionOwner();
+        if (!this.opts.assertRecoveryCurrent)
+          throw Error('Failed effects require a current recovery owner');
+        for (const check of [
+          () => this.opts.assertRecoveryCurrent!(),
+          () => this.opts.assertNativeExecutionCurrent!(policy, nativeTarget.commandId),
+        ]) {
+          const result: unknown = check();
+          if (result !== undefined) {
+            void Promise.resolve(result).catch((cause: unknown) => {
+              log.warn('Asynchronous recovery authority failed', {
+                conversationId: this.opts.conversationId,
+                commandId: nativeTarget.commandId,
+                stage: 'effects',
+                failureCode: 'async_recovery_authority',
+                ...(cause instanceof Error ? codexRuntimeErrorTelemetry(cause) : {}),
+              });
+            });
+            throw Error('Failed effect recovery authority must be synchronous');
+          }
+        }
+        assertRecoveryContinuation();
+      };
+      this.opts.store.reconcileRetainedNativeEffects(
+        this.opts.conversationId,
+        this.binding!,
+        nativeTarget,
+        undefined,
+        policy,
+        nativeStatus,
+        interruptedEffects,
+        current,
+        assertRecoveryContinuation,
+        undefined,
+        this.opts.observeRetainedHostResult,
+      );
+    }
     assertRecoveryContinuation();
+    observeStage?.('acknowledgement');
     this.opts.store.acknowledgeRecovery(this.opts.conversationId, this.binding!, nativeTarget);
     this.paused = false;
+    observeStage?.('dispatch');
     await this.pump();
   }
   private async reconnect() {
@@ -2253,7 +2354,7 @@ export class CodexConversation {
       )
         throw Error('Completion phase recovery owner changed before native lineage replacement');
     };
-    let interruptedEffects: SettledInterruptedEffects | undefined;
+    let interruptedEffects: SettledNativeEffects | undefined;
     const status = this.opts.store.commandStatus(
       this.opts.conversationId,
       binding,
@@ -3213,7 +3314,7 @@ export class CodexConversation {
     target: CodexNativeTurnTarget,
     binding: AccountBinding,
     policy?: CodexNativeExecutionPolicy,
-    interruptedEffects?: SettledInterruptedEffects,
+    interruptedEffects?: SettledNativeEffects,
     assertCurrent?: () => void,
   ) {
     const verified = await this.verifyCurrentBinding(binding);

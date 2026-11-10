@@ -9346,6 +9346,45 @@ function setupTerminalTransport(
   return setup(...args);
 }
 
+it('records the exact recovery stage and reviewed failure code without private payloads', async () => {
+  const setAttribute = vi.fn();
+  const span = {
+    setAttribute,
+    setAttributes: (values: Record<string, unknown>) =>
+      Object.entries(values).forEach(([key, value]) => setAttribute(key, value)),
+    setStatus: vi.fn(),
+    end: vi.fn(),
+    spanContext: () => ({
+      traceId: '12345678901234567890123456789012',
+      spanId: '1234567890123456',
+      traceFlags: 1,
+    }),
+  };
+  const start = tracer.startSpan.bind(tracer);
+  vi.spyOn(tracer, 'startSpan').mockImplementation((name, options, ctx) =>
+    name === 'codex.transport.recovery' ? (span as unknown as Span) : start(name, options, ctx),
+  );
+  const { restored: f, request } = await nativeRecoveryFixture();
+  f.rpc.request.mockImplementation(async (method, params) =>
+    method === 'thread/turns/list'
+      ? {
+          data: [
+            { id: 'foreign-turn', status: 'failed', error: { message: 'private provider error' } },
+          ],
+        }
+      : request(method, params),
+  );
+  await expect(f.c.acknowledgeRecovery()).rejects.toMatchObject({ code: 'provider_identity' });
+  expect(span.setStatus).toHaveBeenCalledWith({ code: 2 });
+  expect(span.setAttribute).toHaveBeenCalledWith('mitzo.recovery.stage', 'history');
+  expect(span.setAttribute).toHaveBeenCalledWith('mitzo.recovery.code', 'provider_identity');
+  expect(span.setAttribute).toHaveBeenCalledWith('mitzo.command.id', 'uncertain-native');
+  expect(JSON.stringify(span.setAttribute.mock.calls)).not.toMatch(
+    /private user prompt|private provider error/,
+  );
+  expect(span.end).toHaveBeenCalledOnce();
+});
+
 function recoveryPage(
   method: string,
   params: Record<string, unknown>,

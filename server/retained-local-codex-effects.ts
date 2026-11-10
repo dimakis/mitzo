@@ -93,13 +93,14 @@ function capture(
   const target =
     native.completionPhaseRecoveryTarget(id, binding) ?? native.nativeRecoveryTarget(id, binding);
   const phase = target && native.completionPhase(id, binding, target.commandId, target.attempt);
+  const retainedStatus = target && native.commandStatus(id, binding, target.commandId);
   if (
     !custody ||
     !ordinaryOperatorOwnsConversation(custody.authSessionId, auth) ||
     !target ||
     native.continuationBlocker(id, binding)?.commandId !== target.commandId ||
     (phase && (phase.observedOutcome !== 'completed' || phase.priorEffectsUnknown)) ||
-    native.commandStatus(id, binding, target.commandId) !== 'interrupted' ||
+    (retainedStatus !== 'interrupted' && !(retainedStatus === 'failed' && !phase)) ||
     !isDeepStrictEqual(native.nativeRecoveryTarget(id, binding), target)
   )
     throw unavailable();
@@ -142,6 +143,7 @@ function capture(
     custody,
     target,
     phase,
+    retainedStatus,
     execution,
     admission,
     send,
@@ -419,6 +421,7 @@ export async function reconcileRetainedLocalCodexEffects(options: {
                 current();
               },
               original.execution.policy.cwd,
+              !original.phase,
             );
             current();
           },
@@ -427,10 +430,7 @@ export async function reconcileRetainedLocalCodexEffects(options: {
         if (
           lease.withQualifiedWorkspaceReadOwner !== withReadOwner ||
           !observed ||
-          !(
-            observed.status === 'completed' ||
-            (observed.status === 'interrupted' && observed.settledEffects)
-          )
+          (observed.status !== 'completed' && !observed.settledEffects)
         )
           throw unavailable();
         current();
