@@ -24,6 +24,7 @@ function observe(env: Readonly<NodeJS.ProcessEnv>): Snapshot {
     );
     if (
       env.CLAUDE_CODE_USE_VERTEX !== '0' ||
+      env.CLAUDE_CODE_SUBPROCESS_ENV_SCRUB !== '1' ||
       env.ANTHROPIC_BASE_URL !== snapshot.endpoint ||
       Object.keys(env).some(
         (key) => /^(GOOGLE_|GCLOUD_|ANTHROPIC_VERTEX_|VERTEX_REGION_)/.test(key) && !!env[key],
@@ -111,6 +112,7 @@ export class AnthropicApiCustody {
     this.assertCurrent(env);
     return {
       ...env,
+      CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: '1',
       [this.retained.authentication === 'bearer' ? 'ANTHROPIC_AUTH_TOKEN' : 'ANTHROPIC_API_KEY']:
         value,
     };

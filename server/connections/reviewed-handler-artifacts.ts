@@ -10,8 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.1013-anthropic-api-symposium-integration';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.1014-anthropic-api-child-env';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -25,7 +24,11 @@ export function reviewedHandlerSourceFingerprint(source: string) {
 export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../anthropic-api-connection.ts':
     '0d28e1cccf86680c56196be272422a35be34ee809e83dcb57713dc41a14da731',
-  '../anthropic-api-custody.ts': 'b5ff2b72fd116ad1b321ad0a18533e644fcfd4344454221175ab912af17daeb7',
+  '../__tests__/anthropic-api-child-env.test.ts':
+    '09fcd76889551eb0dde741d12fcfff914001e5b22751d239ba03752e4a845451',
+  '../__tests__/fixtures/locked-claude-subprocess-env.ts':
+    '7b9f3ad61f3da1a8ea75cadc2abfb3b5418e1d8623c6fe36261926b0ed97cc48',
+  '../anthropic-api-custody.ts': '6a3cab1b144c88a54a63340e898074e1cdac2506dc97f4a2d943d0190591f468',
   '../__tests__/anthropic-api-account.test.ts':
     'bd157dabe293a7b45adf5ec6f69a3861d1b120b43d3ad87abfccc4ffad4bfe57',
   '../../frontend/src/components/__tests__/SessionChatLinksRecovery.test.tsx':
@@ -2209,7 +2212,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../legacy-chat-delivery.ts': '30e041a7b8d1279cefae9198639444fa8e3dd4f76386598ec50ce66741f09f5c',
   '../chat-rest-handler.ts': '90ebbfbf3788386e7f3325b6d0b796823c13da73e8a3f14393e598b3173239b3',
   '../query-loop.ts': '801d8a1dea3ccf23509f694d2a2f9137400eb9f3795958d9bbd6d743369c5706',
-  '../account-profiles.ts': 'd5aaadef863df67e26ca92f422eb620a7e32544282803ec7b5d1dc85e72b5eb6',
+  '../account-profiles.ts': '673924b1fd980c8dbb9c03e9672fd95de8f53202d8418a0404c4c2a33d2bdbc0',
   '../ordinary-turn-lifecycle.ts':
     'a138e83ba1a2ec8ceaef967858fb926d5de83658d21f555f32c98174afd4064b',
   '../ordinary-contributor-guidance.ts':

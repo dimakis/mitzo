@@ -1407,6 +1407,9 @@ export class AccountProfiles {
       return {
         ...env,
         CLAUDE_CODE_USE_VERTEX: '0',
+        // The locked SDK removes billing credentials from native tool children
+        // only when its subprocess scrub mechanism is explicitly enabled.
+        CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: '1',
         ANTHROPIC_BASE_URL: profile.connection.endpoint,
         MITZO_ANTHROPIC_API_CUSTODY: JSON.stringify({
           kind: 'anthropic-api-key',
