@@ -241,12 +241,25 @@ export function createOrdinaryLocalVertexSdkQuery<
     get(_target, property) {
       if (property === Symbol.asyncIterator) return events;
       if (property === 'close') return close;
-      if (property === 'setPermissionMode' && restoreApiPermissionMode)
-        return async (mode: typeof permissionMode) => {
-          await owners.authorize(owners.controller.signal);
-          await native.setPermissionMode(mode);
-          permissionMode = mode;
-        };
+      if (property === 'setPermissionMode' && restoreApiPermissionMode) {
+        // Observe below the adapter: the public query accepts Mitzo modes,
+        // while continuation must retain the acknowledged native SDK mode.
+        const observed = new Proxy(native, {
+          get(target, key) {
+            if (key === 'setPermissionMode')
+              return async (mode: typeof permissionMode) => {
+                await owners.authorize(owners.controller.signal);
+                await target.setPermissionMode(mode);
+                permissionMode = mode;
+              };
+            const value: unknown = Reflect.get(target, key, target);
+            return typeof value === 'function' ? value.bind(target) : value;
+          },
+        });
+        const adapted = owners.adapt(observed);
+        const control: unknown = Reflect.get(adapted, property, adapted);
+        return typeof control === 'function' ? control.bind(adapted) : control;
+      }
       const current = owners.adapt(native),
         value: unknown = Reflect.get(current, property, current);
       return typeof value === 'function' ? value.bind(current) : value;

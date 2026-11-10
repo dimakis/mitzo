@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.1016-anthropic-api-permission-continuity';
+  'v1.0.1017-anthropic-api-mode-adapter';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -24,7 +24,7 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/anthropic-api-sdk-permissions.test.ts':
-    'cd7baafdd315a575d92dd2b6800be10ee2424f5d08abe2ef134e2251e314fbad',
+    '1f1016a034a07e79b4c5b0c2b353887c3ee9a6057501b9a1f0d84f18ac518d96',
   '../__tests__/model-spec.test.ts':
     'c6990b6483e9acdffcb63fb63efa5551c74960b481d4e21c623978555c92e3b8',
   '../__tests__/anthropic-api-sdk-model.test.ts':
@@ -2584,7 +2584,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../ordinary-local-vertex-replay.ts':
     'd7ecdd21c89be167a1b627b024687df00ead20df98c349f51b114d98a8800a75',
   '../ordinary-local-vertex-sdk-query.ts':
-    '903f2ddf52fd3d9b967d622b779461d8d40cfb63fbafb07c60bc5fca9951dc37',
+    '1c82f92952fd83f27ce3e15b1aa46772d4b14d36d69966bd65cc6653f11f9921',
   '../ordinary-local-vertex-command-owner.ts':
     '3ba03228950c19849098c8ed490c44e405b0590d15dad0ceb5469a6cd59b3b56',
   '../ordinary-local-vertex-capabilities.ts':

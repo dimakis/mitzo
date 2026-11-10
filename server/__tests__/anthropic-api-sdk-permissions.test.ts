@@ -2,6 +2,7 @@ import './fixtures/offline-user-home.js';
 import { expect, it, vi } from 'vitest';
 import { query, type SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
 import { AsyncQueue } from '../async-queue.js';
+import { adaptSdkQuery } from '../chat.js';
 import {
   createOrdinaryLocalVertexSdkQuery,
   SdkHookLifetime,
@@ -17,9 +18,14 @@ vi.mock('@anthropic-ai/claude-agent-sdk', () => ({
   getSessionMessages: vi.fn(async () => [{ uuid: 'input' }]),
 }));
 
-it.each(['plan', 'default'] as const)(
-  'restores selected %s before input and retains mode changes on continuation',
-  async (mode) => {
+it.each([
+  ['ask', 'plan'],
+  ['agent', 'default'],
+  ['auto', 'default'],
+] as const)(
+  'uses the actual adapter for %s → %s and retains its SDK mode on continuation',
+  async (mode, sdkMode) => {
+    const initial = sdkMode === 'plan' ? 'default' : 'plan';
     const env = {
       MITZO_ANTHROPIC_API_CUSTODY: 'synthetic-custody',
       CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: '1',
@@ -29,10 +35,13 @@ it.each(['plan', 'default'] as const)(
     vi.mocked(query).mockImplementation((request) => {
       prompts.push(request.prompt as AsyncIterable<SDKUserMessage>);
       const state = {
-        mode: lockedClaudeStartupMode(env, request.options!.permissionMode as typeof mode),
+        mode: lockedClaudeStartupMode(env, request.options!.permissionMode as typeof sdkMode),
         set: vi.fn(),
       };
-      state.set.mockImplementation(async (value: typeof mode) => {
+      state.set.mockImplementation(async (value: typeof sdkMode) => {
+        // This peer qualifies only plan/default. Reject a wrong projection
+        // before invoking unrelated native auto-mode eligibility dependencies.
+        expect(['plan', 'default']).toContain(value);
         const accepted = lockedClaudeControlMode(value, state.mode);
         expect(accepted.responses).toMatchObject([
           { response: { subtype: 'success', response: { mode: value } } },
@@ -48,7 +57,7 @@ it.each(['plan', 'default'] as const)(
     });
     const controller = new AbortController();
     const owner = createOrdinaryLocalVertexSdkQuery({
-      options: { env, permissionMode: mode },
+      options: { env, permissionMode: initial },
       input: new AsyncQueue(),
       lifetime: new SdkHookLifetime(),
       sdkSessionId: 'original',
@@ -56,7 +65,7 @@ it.each(['plan', 'default'] as const)(
       controller,
       authorize: async () => {},
       authorizeSync: () => {},
-      adapt: (native) => native as never,
+      adapt: adaptSdkQuery,
       settings: () => ({}),
       inputChanged: () => {},
     });
@@ -71,19 +80,18 @@ it.each(['plan', 'default'] as const)(
       owner.push(message);
       const first = prompts[0][Symbol.asyncIterator]();
       expect((await first.next()).value).toEqual(message);
-      expect(states[0].set).toHaveBeenCalledWith(mode);
-      expect(states[0].mode).toBe(mode);
+      expect(states[0].set).toHaveBeenCalledWith(initial);
+      expect(states[0].mode).toBe(initial);
       await first.return?.();
-      const next = mode === 'plan' ? 'default' : 'plan';
-      await (
-        owner.query as { setPermissionMode(mode: typeof next): Promise<void> }
-      ).setPermissionMode(next);
+      await owner.query.setPermissionMode!(mode);
+      expect(states[0].set).toHaveBeenLastCalledWith(sdkMode);
+      expect(states[0].mode).toBe(sdkMode);
       await owner.apply({ model: 'gateway/claude:max' } as never);
       owner.push(message);
       const resumed = prompts[1][Symbol.asyncIterator]();
       expect((await resumed.next()).value).toEqual(message);
-      expect(states[1].set).toHaveBeenCalledWith(next);
-      expect(states[1].mode).toBe(next);
+      expect(states[1].set).toHaveBeenCalledWith(sdkMode);
+      expect(states[1].mode).toBe(sdkMode);
       await resumed.return?.();
     } finally {
       controller.abort();
