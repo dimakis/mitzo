@@ -52,7 +52,13 @@ class ApplicationJourneyState {
   retainedArtifact?: { artifactId: string; revision: number; sha256: string };
 }
 
-export function createApplicationJourney(options: { retainedArtifactOwner?: boolean } = {}) {
+export function createApplicationJourney(
+  options: {
+    retainedArtifactOwner?: boolean;
+    participant?: { accountId: string; harness: 'codex' | 'claude-sdk'; targetId: string };
+    configureExternalTarget?(root: string, fresh: boolean): Promise<void>;
+  } = {},
+) {
   const state = new ApplicationJourneyState();
   async function loadApplication() {
     // Do not touch host credentials while the core-owned safe import seam is absent.
@@ -145,6 +151,7 @@ export function createApplicationJourney(options: { retainedArtifactOwner?: bool
     );
     const targetFixture = await import('./symposium-application-target.js');
     await targetFixture.configureApplicationReviewTarget(state.root, fresh);
+    await options.configureExternalTarget?.(state.root, fresh);
     const loaded = await import('../../app.js');
     state.app = loaded.app;
     state.close = Reflect.get(loaded, 'closeIdleApplicationResources');
@@ -153,6 +160,12 @@ export function createApplicationJourney(options: { retainedArtifactOwner?: bool
     state.connections = await targetFixture.installApplicationReviewConnections(
       state.root,
       loaded.setConnectionsRuntime,
+      [
+        ...new Set([
+          'offline-personal',
+          ...(options.participant ? [options.participant.accountId] : []),
+        ]),
+      ],
     );
     // The listener bootstrap installs this exact production composition after
     // importing app.ts. Reuse it without starting index.ts or external services.
@@ -310,19 +323,25 @@ export function createApplicationJourney(options: { retainedArtifactOwner?: bool
     });
     const { ordinaryRepositoryRuntimeInventory } =
       await import('../../ordinary-local-codex-entry.js');
-    const account = ordinaryRepositoryRuntimeInventory('local', 'codex').result.accounts.find(
-      (row) => row.account.accountId === 'offline-personal',
-    )!.account;
+    const participant = options.participant ?? {
+      accountId: 'offline-personal',
+      harness: 'codex' as const,
+      targetId: 'offline-observation',
+    };
+    const account = ordinaryRepositoryRuntimeInventory(
+      'local',
+      participant.harness,
+    ).result.accounts.find((row) => row.account.accountId === participant.accountId)!.account;
     const preview = await state.http!.request('POST', '/api/repository-workspaces/preview', {
       headers: { cookie: state.cookie },
       body: {
-        accountId: 'offline-personal',
+        accountId: participant.accountId,
         model: 'fixture-model',
         connectionId: state.connections!.connectionId,
         repository: 'example/acceptance',
         ordinaryRuntime: {
           runOn: 'local',
-          runtime: { account, harness: 'codex', targetId: 'offline-observation' },
+          runtime: { account, harness: participant.harness, targetId: participant.targetId },
         },
       },
     });
@@ -333,7 +352,7 @@ export function createApplicationJourney(options: { retainedArtifactOwner?: bool
       `/api/repository-workspaces/${previewId}/prepare`,
       {
         headers: { cookie: state.cookie },
-        body: { accountId: 'offline-personal', model: 'fixture-model' },
+        body: { accountId: participant.accountId, model: 'fixture-model' },
       },
     );
     expect(prepared.status, JSON.stringify(prepared.body)).toBe(200);
@@ -387,7 +406,7 @@ export function createApplicationJourney(options: { retainedArtifactOwner?: bool
       },
       target: {
         runOn: 'local',
-        accountId: 'offline-personal',
+        accountId: participant.accountId,
         model: 'fixture-model',
         reasoningEffort: 'low',
         agent: { profileId: published.profileId, revision: published.revision },
