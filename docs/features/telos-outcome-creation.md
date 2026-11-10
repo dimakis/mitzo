@@ -1,5 +1,12 @@
 # Outcome creation from chat
 
+Agents first propose Telos for multi-slice work, as described in the
+[shared planning workflow](telos-workflow.md): outcome → feature items → session-sized
+slices. The outcome orchestrator coordinates features and integration; feature leads
+coordinate their slices. Ordered milestone strings do not establish feature contracts
+or session assignments. Inspect saved children before adding work. Ordinary one-session
+work stays in chat unless the user explicitly requests Telos or an existing item applies.
+
 On 5 November 2026, Dimitri reported that outcome creation and its button did not
 work and that manually adding source messages was unusable. Source inspection
 against main `79c334fa1e640372c1f5c54cf60b24bee50a1970` confirmed that saving

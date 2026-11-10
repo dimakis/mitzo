@@ -1,5 +1,9 @@
 # Telos backlog tools
 
+For a multi-slice ask, first propose Telos using the [shared planning workflow](telos-workflow.md).
+An outcome coordinates feature items; each feature lead coordinates session-sized slices.
+Creating backlog items does not finish role/session setup or establish nested delegation support.
+
 Ordinary OpenShell and native Mac Codex chats can browse and maintain Telos without
 an assigned lead role. Explicit agent profiles must select the new tools; existing
 profile revisions retain their selected tool set. Host registration, operator

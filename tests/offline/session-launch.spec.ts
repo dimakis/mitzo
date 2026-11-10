@@ -95,6 +95,8 @@ for (const theme of ['dark', 'light']) {
     await trigger.click();
     await dialog.getByLabel('Execution host').selectOption('build-mac');
     await expect(dialog.getByLabel('Execution host')).toHaveValue('build-mac');
+    await dialog.getByRole('combobox', { name: 'Thinking level', exact: true }).selectOption('low');
+    await dialog.getByLabel('Permission mode').selectOption('ask');
     await dialog.getByLabel('Save configuration as default').check();
     await dialog.getByRole('button', { name: 'Approve & start' }).click();
     await expect(dialog).toBeHidden();
@@ -107,7 +109,16 @@ for (const theme of ['dark', 'light']) {
     expect(mutations).toHaveLength(1);
     expect(mutations[0].body.saveAsDefault).toBe(true);
     expect(mutations[0].body.configuration).toMatchObject({
-      runtime: { execution: { location: 'local', targetId: 'build-mac' } },
+      runtime: {
+        account: { accountId: 'personal', model: 'luna-fixture', reasoningEffort: 'low' },
+        accountReference: hostInventory().accounts[0].account,
+        agentProfile: { profileId: 'agent', revision: 1 },
+        execution: { location: 'local', targetId: 'build-mac' },
+      },
+      mode: 'ask',
+      isolation: true,
+      repositoryWorkspaceId: null,
+      contextBlocks: [],
     });
     await page.screenshot({ path: info.outputPath(`session-launch-${theme}-receipt.png`) });
     expect(errors).toEqual([]);

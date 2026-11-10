@@ -54,6 +54,14 @@ stopped rewriting configuration. Existing stale-callback checks remain. The brow
 now also checks that the selected host stays selected before approval. No deadline,
 coverage, design reference or assertion was weakened; fresh combined CI is required.
 
+Accepted main then advanced to #1256 `5886a67d754aa2fd0eba1e018115cb9f78046357`,
+which independently repaired the same launch-editor race. Integration adopts its
+accepted component and unit tests unchanged, preserves its stronger account/model/
+permission browser assertions and adds the two selected-host checks above. The
+shared source manifest retains incoming Telos workflow/CLI-policy pins alongside
+the unique Symposium history changes. Conflicts and this combined result require
+fresh CI and targeted trusted review; stale PR base metadata is not merge evidence.
+
 ## 10 November 2026 finalized-reply recovery and complete joining controls
 
 Accepted main `279e6703dedebaeb130993fd6e2657b2aed73c0a` contains #1252's
