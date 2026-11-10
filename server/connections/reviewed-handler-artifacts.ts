@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.977-subagent-inspection-visibility-telos-integration';
+  'v1.0.978-subagent-inspection-connection-fence';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -566,7 +566,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/lib/event-stream.ts':
     '6e2ce6a3dd77a80341c80ec9c17f0664aa7e783599e982b29809ca4468d6b322',
   '../../frontend/src/hooks/useNativeSubagents.ts':
-    '5eba4ee9901fabed5868382ec655eca017e0c5f37d72e0b75f57bc109268700b',
+    '148cde4c33c3767611270dabe583e9a672a60f12b5b8f912300c09820b4bdc63',
   '../../frontend/src/components/NativeSubagents.css':
     'fceacf54627970c06dd541178199f29be706f93b777d46160d8bf999c1e19bb0',
   '../../frontend/src/components/NativeSubagents.tsx':

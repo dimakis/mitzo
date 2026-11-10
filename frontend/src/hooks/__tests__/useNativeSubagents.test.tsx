@@ -12,31 +12,40 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-it.each(['disconnect', 'invalid frame'])(
-  'retains the inspected child and drafts across reset then %s, restoring only fresh authority',
-  async (failure) => {
+it.each([
+  { failure: 'disconnect', inspectionStatus: 200 },
+  { failure: 'disconnect', inspectionStatus: 409 },
+  { failure: 'invalid frame', inspectionStatus: 200 },
+  { failure: 'invalid frame', inspectionStatus: 409 },
+])(
+  'retains child/drafts across $failure and ignores stale inspection $inspectionStatus after reconnect',
+  async ({ failure, inspectionStatus }) => {
     const streams: ReadableStreamDefaultController<Uint8Array>[] = [];
-    const fetch = vi.fn(
-      async (_input: unknown, init?: RequestInit) =>
-        new Response(
-          new ReadableStream<Uint8Array>({
-            start(controller) {
-              streams.push(controller);
-              init?.signal?.addEventListener(
-                'abort',
-                () => {
-                  try {
-                    controller.close();
-                  } catch {
-                    /* The test or decoder already closed this stream. */
-                  }
-                },
-                { once: true },
-              );
-            },
-          }),
-        ),
-    );
+    let releaseInspection!: (response: Response) => void;
+    const inspection = new Promise<Response>((resolve) => {
+      releaseInspection = resolve;
+    });
+    const fetch = vi.fn(async (input: unknown, init?: RequestInit) => {
+      if (String(input).endsWith('/inspect')) return inspection;
+      return new Response(
+        new ReadableStream<Uint8Array>({
+          start(controller) {
+            streams.push(controller);
+            init?.signal?.addEventListener(
+              'abort',
+              () => {
+                try {
+                  controller.close();
+                } catch {
+                  /* The test or decoder already closed this stream. */
+                }
+              },
+              { once: true },
+            );
+          },
+        }),
+      );
+    });
     vi.stubGlobal('fetch', fetch);
     window.HTMLDialogElement.prototype.showModal = vi.fn(function (this: HTMLDialogElement) {
       this.setAttribute('open', '');
@@ -63,7 +72,10 @@ it.each(['disconnect', 'invalid frame'])(
     const reconnect = async () => act(async () => window.dispatchEvent(new Event('online')));
     render(
       <MemoryRouter>
-        <NativeSubagents sessionId={`reconnect-${failure}`} commandId="command" />
+        <NativeSubagents
+          sessionId={`reconnect-${failure}-${inspectionStatus}`}
+          commandId="command"
+        />
       </MemoryRouter>,
     );
     await waitFor(() => expect(streams).toHaveLength(1));
@@ -74,9 +86,41 @@ it.each(['disconnect', 'invalid frame'])(
     const dialog = within(screen.getByRole('dialog', { name: 'Reviewer' }));
     const draft = dialog.getByRole('textbox', { name: 'Message Reviewer' });
     fireEvent.change(draft, { target: { value: 'Retain my child draft' } });
+    await send({
+      type: 'agent',
+      agent: {
+        ...child,
+        state: 'unknown',
+        available: false,
+        revision: 2,
+        inspectionFailure: {
+          code: 'native_subagent_inspection_failed',
+          stage: 'history',
+          reference: 'fixture-reference',
+        },
+      },
+    });
+    fireEvent.click(dialog.getByRole('button', { name: 'Retry inspection' }));
     await reconnect();
     await waitFor(() => expect(streams).toHaveLength(2));
     await send({ type: 'reset', available: true });
+    await act(async () =>
+      releaseInspection(
+        new Response(
+          JSON.stringify({
+            agent: {
+              ...child,
+              state: 'completed',
+              revision: 3,
+              blocks: [{ id: 'stale', type: 'text', content: 'Stale inspection result' }],
+            },
+          }),
+          { status: inspectionStatus },
+        ),
+      ),
+    );
+    expect(dialog.queryByText('Stale inspection result')).toBeNull();
+    expect(screen.queryByText(/Subagent inspection is unavailable/)).toBeNull();
     if (failure === 'disconnect') await act(async () => streams.at(-1)!.close());
     else await send({ type: 'invalid' });
     await waitFor(() =>
@@ -99,21 +143,21 @@ it.each(['disconnect', 'invalid frame'])(
     );
     await send({
       type: 'agent',
-      agent: { ...child, available: false, state: 'completed', revision: 2 },
+      agent: { ...child, available: false, state: 'completed', revision: 4 },
     });
     await send({ type: 'status', available: true });
     expect(dialog.getByRole('button', { name: 'Send to Reviewer' })).toHaveProperty(
       'disabled',
       true,
     );
-    await send({ type: 'agent', agent: { ...child, state: 'completed', revision: 3 } });
+    await send({ type: 'agent', agent: { ...child, state: 'completed', revision: 5 } });
     expect(dialog.getByRole('button', { name: 'Send to Reviewer' })).toHaveProperty(
       'disabled',
       false,
     );
     expect(dialog.getByText('Result returned')).toBeTruthy();
     expect(draft).toHaveProperty('value', 'Retain my child draft');
-    expect(fetch).toHaveBeenCalledTimes(3);
+    expect(fetch).toHaveBeenCalledTimes(4);
     await act(async () => window.dispatchEvent(new Event(AUTH_LOST_EVENT)));
     expect(screen.queryByText('Saved public output')).toBeNull();
     expect(screen.getByText('Sign in again to inspect subagents.')).toBeTruthy();

@@ -121,6 +121,9 @@ class NativeSubagentFeed {
     }
   }
   inspect = async (threadId: string): Promise<void> => {
+    const connection = this.abort;
+    if (!connection || connection.signal.aborted) return;
+    const current = () => this.abort === connection && !connection.signal.aborted;
     try {
       const response = await apiFetch(
         `/api/sessions/${encodeURIComponent(this.sessionId)}/codex-subagents/inspect`,
@@ -131,10 +134,12 @@ class NativeSubagentFeed {
           signal: AbortSignal.timeout(30000),
         },
       );
+      if (!current()) return;
       if (!response.ok) throw Error('Inspection unavailable');
       const { agent } = z
         .object({ agent: NativeSubagentSnapshotSchema })
         .parse(await response.json());
+      if (!current()) return;
       if (agent.threadId !== threadId) throw Error('Inspection identity changed');
       this.update({
         ...this.state,
@@ -144,6 +149,7 @@ class NativeSubagentFeed {
         ),
       });
     } catch {
+      if (!current()) return;
       this.update({
         ...this.state,
         error:
