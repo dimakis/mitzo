@@ -22,6 +22,8 @@ import { createConversationJoiningApplicationOwner } from '../lib/conversation-j
 import { useConversationPresentation } from '../hooks/useConversationPresentation';
 import { useConversationSending } from '../hooks/useConversationSending';
 import { useConversationProgress } from '../hooks/useConversationProgress';
+import { useConversationPromptContext } from '../hooks/useConversationPromptContext';
+import { ConversationPromptContext } from './ConversationPromptContext';
 import { ConversationAgents } from './ConversationAgents';
 import { CollaborationTranscript } from './CollaborationTranscript';
 import { ChatInput } from './ChatInput';
@@ -219,6 +221,16 @@ function useSharedConversation({
       ]),
     [sourceConversationId, view?.joinedParticipants],
   );
+  const promptContext = useConversationPromptContext({
+    api,
+    sourceConversationId,
+    clientId,
+    view,
+    responders: presentation.responderIntent,
+    draftId,
+    authScope,
+    getVerifiedAuthScope,
+  });
   const sending = useConversationSending({
     api: api.collaborations,
     view,
@@ -227,6 +239,9 @@ function useSharedConversation({
     authScope,
     getVerifiedAuthScope,
     refresh: presentation.refresh,
+    snapshot: promptContext.snapshot,
+    contextDisabledReason: promptContext.disabledReason,
+    onAccepted: promptContext.consume,
   });
   const active = !!view?.participantSessionIds.some((id) => id !== sourceConversationId);
   const progress = useConversationProgress({
@@ -241,6 +256,7 @@ function useSharedConversation({
     presentation,
     sending,
     progress,
+    promptContext,
     joiningOwner,
     names,
     active,
@@ -324,7 +340,7 @@ export function SharedConversationBody({
         />
       </>
     );
-  const { presentation, sending, progress, names } = host;
+  const { presentation, sending, progress, promptContext, names } = host;
   const { draft, projection, composerResponders } = presentation;
   return (
     <>
@@ -350,6 +366,18 @@ export function SharedConversationBody({
         ? ordinaryComposer
         : draft && (
             <div className="conversation-composer">
+              {promptContext.attached && (
+                <div className="conversation-joining-context" role="status">
+                  <small>Reviewed context attached: {promptContext.form.purpose}</small>
+                  <button
+                    type="button"
+                    disabled={!!sending.pending || promptContext.busy}
+                    onClick={promptContext.remove}
+                  >
+                    Remove prompt context
+                  </button>
+                </div>
+              )}
               <ChatInput
                 savedChatDraft={draft}
                 sessionId={draft.id}
@@ -358,7 +386,13 @@ export function SharedConversationBody({
                 externalContextBlocks={EMPTY_CONTEXT}
                 running={!!sending.pending}
                 onStop={() => void sending.stop()}
-                collaboration={<></>}
+                collaboration={
+                  <ConversationPromptContext
+                    flow={promptContext}
+                    names={names}
+                    disabled={!!sending.pending}
+                  />
+                }
                 responders={
                   composerResponders
                     ? {

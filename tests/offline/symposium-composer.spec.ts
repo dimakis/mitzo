@@ -1,10 +1,14 @@
 import { expect, test } from '@playwright/test';
 import { build } from 'esbuild';
 import { resolve } from 'node:path';
+import { createHash } from 'node:crypto';
 import { chatStorageBootstrap } from '../support/chat-storage-bootstrap';
 import {
   CollaborationMessageInputSchema,
   CollaborationMessageSchema,
+  CollaborationPromptReviewRequestSchema,
+  CollaborationPromptReviewResultSchema,
+  CollaborationDurableTranscriptSchema,
 } from '../../packages/protocol/src/index';
 import {
   sharedConversationView,
@@ -44,6 +48,29 @@ for (const theme of ['dark', 'light'])
       let ready = false;
       let sends = 0;
       let original: unknown;
+      let reviewCount = 0;
+      let attachedSnapshot: { snapshotId: string; sha256: string };
+      const sourceText = 'Exact saved design context for this prompt.';
+      const source = CollaborationDurableTranscriptSchema.parse({
+        sourceConversationId: 'architect',
+        boundary: { sequence: 1, messageId: 'selected-source' },
+        messages: [
+          {
+            conversationId: 'architect',
+            sequence: 1,
+            messageId: 'selected-source',
+            author: 'operator',
+            source: null,
+            blocks: [
+              {
+                blockId: 'text',
+                content: sourceText,
+                sha256: createHash('sha256').update(sourceText).digest('hex'),
+              },
+            ],
+          },
+        ],
+      });
       await page.route('**/*', async (route) => {
         const path = new URL(route.request().url()).pathname;
         if (path === '/api/auth/check')
@@ -62,6 +89,40 @@ for (const theme of ['dark', 'light'])
             },
           });
         if (path.endsWith('/conversation')) return route.fulfill({ json: view });
+        if (path === '/api/sessions/architect/messages' && route.request().method() === 'GET')
+          return route.fulfill({ json: source });
+        if (path.endsWith('/prompt-reviews')) {
+          const input = CollaborationPromptReviewRequestSchema.parse(
+            route.request().postDataJSON(),
+          );
+          reviewCount++;
+          const snapshot = {
+            version: 1,
+            snapshotId: uuid(100 + reviewCount),
+            sha256: createHash('sha256').update(JSON.stringify(input)).digest('hex'),
+            sourceConversationId: 'architect',
+            boundary: source.boundary,
+            mode: input.selection.mode,
+            purpose: input.selection.purpose,
+            joiningBrief: input.selection.joiningBrief,
+            messages: source.messages,
+            artifacts: [],
+            summary: null,
+            capacity: { status: 'unverified', reason: 'Offline capacity is unverified' },
+          };
+          attachedSnapshot = { snapshotId: snapshot.snapshotId, sha256: snapshot.sha256 };
+          return route.fulfill({
+            json: CollaborationPromptReviewResultSchema.parse({
+              snapshot,
+              recipientSessionIds: input.recipientSessionIds,
+              settings: { reviewer: settings, reader: settings },
+              expectedMembershipRevision: input.selection.expectedMembershipRevision,
+              expectedPolicySequence: input.expectedPolicySequence,
+              requiresReview: false,
+              artifactLabels: [],
+            }),
+          });
+        }
         if (path.endsWith('/progress'))
           return route.fulfill({
             json: {
@@ -91,8 +152,10 @@ for (const theme of ['dark', 'light'])
           const input = CollaborationMessageInputSchema.parse(route.request().postDataJSON());
           sends++;
           expect(input.responders).toEqual({ kind: 'selected', sessionIds: ['reviewer'] });
+          expect(input.snapshot).toEqual(attachedSnapshot);
           original = CollaborationMessageSchema.parse({
             ...sharedPrompt,
+            snapshot: input.snapshot,
             text: input.text,
             responders: ['reviewer'],
             readers: ['reviewer'],
@@ -157,11 +220,49 @@ for (const theme of ['dark', 'light'])
       await page.getByRole('button', { name: 'Refresh conversation', exact: true }).click();
       const send = page.getByRole('button', { name: 'Send message' });
       await expect(send).toBeEnabled();
+      const contextTrigger = page.getByRole('button', { name: 'Review prompt context' });
+      await contextTrigger.click();
+      const context = page.getByRole('dialog', { name: 'Context for this prompt' });
+      await expect(context.getByRole('textbox', { name: 'Purpose' })).toBeEnabled();
+      await context.getByRole('textbox', { name: 'Purpose' }).fill('Review this exact source');
+      await context.getByRole('checkbox', { name: /Exact saved design context/ }).check();
+      await context
+        .getByRole('textbox', { name: 'Brief', exact: true })
+        .fill('Initial one-prompt brief');
+      await context.getByRole('button', { name: 'Review context', exact: true }).click();
+      const attach = context.getByRole('button', { name: 'Attach reviewed context' });
+      await expect(attach).toBeEnabled();
+      await context
+        .getByRole('textbox', { name: 'Brief', exact: true })
+        .fill('Edited exact one-prompt brief');
+      await expect(attach).toBeDisabled();
+      await context.getByRole('button', { name: 'Review context', exact: true }).click();
+      await expect(attach).toBeEnabled();
+      await context.getByText('Review included context', { exact: false }).click();
+      expect(sends).toBe(0);
+      expect(reviewCount).toBe(2);
+      expect(await context.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
+      if (isMobile) expect((await attach.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+      await page.screenshot({
+        path: info.outputPath('prompt-context-review-' + theme + '.png'),
+        fullPage: true,
+      });
+      await page.keyboard.press('Escape');
+      await expect(contextTrigger).toBeFocused();
+      await contextTrigger.click();
+      await expect(attach).toBeEnabled();
+      await attach.click();
+      await expect(context).not.toBeVisible();
+      await expect(
+        page.getByText('Reviewed context attached: Review this exact source'),
+      ).toBeVisible();
+      await expect(send).toBeEnabled();
       if (isMobile) expect((await send.boundingBox())!.height).toBeGreaterThanOrEqual(44);
       await send.click();
       await expect(page.getByText('Reviewer answer from the retained command.')).toBeVisible();
       await expect(input).toHaveValue('');
       expect(sends).toBe(1);
+      await expect(page.getByRole('button', { name: 'Remove prompt context' })).toHaveCount(0);
       await input.fill('Keep this draft while checking another recipient.');
       await page.getByRole('button', { name: 'Choose who replies' }).click();
       await page.getByRole('checkbox', { name: /reader/i }).click();
