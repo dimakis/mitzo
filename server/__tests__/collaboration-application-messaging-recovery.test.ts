@@ -12,6 +12,8 @@ import {
 } from '../collaboration-ordinary-replies.js';
 import { OrdinaryCollaborationReview } from '../collaboration-review-owner.js';
 import { createCollaborationContextSource } from '../collaboration-context-source.js';
+import type { CollaborationSnapshotSelection } from '@mitzo/protocol';
+import { registerSymposiumSourceOutput } from './fixtures/symposium-source-output.js';
 
 vi.mock('../auth.js', () => ({
   isAuthSessionCurrent: () => true,
@@ -139,6 +141,7 @@ function acknowledgeRecordedPrompts() {
 async function reviewedPromptContext(
   recipients = ['one', 'two'],
   text = 'Exact selected source context',
+  artifacts: CollaborationSnapshotSelection['artifacts'] = [],
 ) {
   const messageId = randomUUID();
   const boundary = store.append('one', 'user_message', { messageId, text });
@@ -160,7 +163,7 @@ async function reviewedPromptContext(
         boundary: { sequence: boundary, messageId },
         mode: 'selected',
         messageIds: [messageId],
-        artifacts: [],
+        artifacts,
         purpose: 'Review this prompt context',
         joiningBrief: 'Reviewed context, independent of boot and tools',
       },
@@ -193,6 +196,52 @@ it('delivers exact per-prompt context and retains it for a reader before its lat
   });
   await owner.send(auth, group, first, new AbortController().signal);
   expect(prompts).toHaveLength(2);
+});
+
+it('delivers exact saved text bytes, not an opaque reference or note, on first and later reader turns', async () => {
+  shareWithReader();
+  acknowledgeRecordedPrompts();
+  const content = '\uFEFFExact saved text\nUnicode: café • 台灣\r\n';
+  const artifact = registerSymposiumSourceOutput(store, 'one', content);
+  const pin = {
+    artifactId: artifact.outputId,
+    revision: artifact.revision,
+    sha256: artifact.source.sha256,
+  };
+  const snapshot = await reviewedPromptContext(undefined, 'Only this source message', [pin]);
+  await owner.send(
+    auth,
+    group,
+    { ...input('one', 'Use this exact saved version'), snapshot },
+    new AbortController().signal,
+  );
+  await owner.send(
+    auth,
+    group,
+    input('two', 'Respond after the exact shared version'),
+    new AbortController().signal,
+  );
+  expect(prompts).toHaveLength(2);
+  for (const prompt of prompts) {
+    const material = JSON.parse(prompt.text.split('\n')[2]);
+    const shared = material.discussion.find((message) => message.sharedContext)?.sharedContext;
+    expect(shared.artifacts[0]).toMatchObject({ ...pin, content });
+    expect(shared.artifacts[0]).not.toHaveProperty('contentBase64');
+  }
+});
+
+it('refuses an ineligible saved text format before accepting or claiming a prompt', async () => {
+  acknowledgeRecordedPrompts();
+  const artifact = registerSymposiumSourceOutput(store, 'one', 'Opaque\u0000artifact');
+  const snapshot = await reviewedPromptContext(undefined, 'Do not substitute a note', [
+    { artifactId: artifact.outputId, revision: artifact.revision, sha256: artifact.source.sha256 },
+  ]);
+  const request = { ...input('two', 'No reference-only delivery'), snapshot };
+  await expect(
+    owner.send(auth, group, request, new AbortController().signal),
+  ).rejects.toMatchObject({ code: 'execution_unavailable' });
+  expect(store.collaborationConversation.getMessageForRequest(group, request)).toBeNull();
+  expect(prompts).toHaveLength(0);
 });
 
 it.each(['hidden', 'outside_audience', 'settings_changed', 'source_rejoined', 'policy_changed'])(

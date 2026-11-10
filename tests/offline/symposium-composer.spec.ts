@@ -51,6 +51,12 @@ for (const theme of ['dark', 'light'])
       let reviewCount = 0;
       let attachedSnapshot: { snapshotId: string; sha256: string };
       const sourceText = 'Exact saved design context for this prompt.';
+      const artifactText = 'Saved artifact content for the exact selected version.';
+      const artifactPin = {
+        artifactId: 'saved-design',
+        revision: 2,
+        sha256: createHash('sha256').update(artifactText).digest('hex'),
+      };
       const source = CollaborationDurableTranscriptSchema.parse({
         sourceConversationId: 'architect',
         boundary: { sequence: 1, messageId: 'selected-source' },
@@ -89,6 +95,22 @@ for (const theme of ['dark', 'light'])
             },
           });
         if (path.endsWith('/conversation')) return route.fulfill({ json: view });
+        if (path.endsWith('/context-source-artifacts'))
+          return route.fulfill({
+            json: {
+              sourceConversationId: 'architect',
+              artifacts: [
+                { ...artifactPin, title: 'Saved review design', available: true },
+                {
+                  artifactId: 'unavailable-design',
+                  revision: 1,
+                  sha256: 'f'.repeat(64),
+                  title: 'Unavailable design',
+                  available: false,
+                },
+              ],
+            },
+          });
         if (path === '/api/sessions/architect/messages' && route.request().method() === 'GET')
           return route.fulfill({ json: source });
         if (path.endsWith('/prompt-reviews')) {
@@ -96,6 +118,7 @@ for (const theme of ['dark', 'light'])
             route.request().postDataJSON(),
           );
           reviewCount++;
+          expect(input.selection.artifacts).toEqual([artifactPin]);
           const snapshot = {
             version: 1,
             snapshotId: uuid(100 + reviewCount),
@@ -106,7 +129,15 @@ for (const theme of ['dark', 'light'])
             purpose: input.selection.purpose,
             joiningBrief: input.selection.joiningBrief,
             messages: source.messages,
-            artifacts: [],
+            artifacts: [
+              {
+                ...artifactPin,
+                sourceConversationId: 'architect',
+                mediaType: 'text/plain; charset=utf-8',
+                sizeBytes: Buffer.byteLength(artifactText),
+                contentBase64: Buffer.from(artifactText).toString('base64'),
+              },
+            ],
             summary: null,
             capacity: { status: 'unverified', reason: 'Offline capacity is unverified' },
           };
@@ -119,7 +150,7 @@ for (const theme of ['dark', 'light'])
               expectedMembershipRevision: input.selection.expectedMembershipRevision,
               expectedPolicySequence: input.expectedPolicySequence,
               requiresReview: false,
-              artifactLabels: [],
+              artifactLabels: [{ ...artifactPin, title: 'Saved review design' }],
             }),
           });
         }
@@ -224,6 +255,8 @@ for (const theme of ['dark', 'light'])
       await expect(context.getByRole('textbox', { name: 'Purpose' })).toBeEnabled();
       await context.getByRole('textbox', { name: 'Purpose' }).fill('Review this exact source');
       await context.getByRole('checkbox', { name: /Exact saved design context/ }).check();
+      await expect(context.getByRole('checkbox', { name: /Unavailable design/ })).toBeDisabled();
+      await context.getByRole('checkbox', { name: /Saved review design/ }).check();
       await context
         .getByRole('textbox', { name: 'Brief', exact: true })
         .fill('Initial one-prompt brief');
