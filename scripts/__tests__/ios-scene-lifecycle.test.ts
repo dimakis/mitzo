@@ -29,7 +29,7 @@ it('uses the selected notification origin and the tested shared relay owner', ()
   expect(source).toContain('nativeRelayWebSocketURL');
   expect(source).toContain('NativeRelayConnection(configuration:');
   expect(source).toContain('try await connection.acquire()');
-  expect(source).toContain('try? await connection.acquire(reconnect: true)');
+  expect(source).toContain('connect(reconnect: true)');
 });
 
 it('declares a launchable scene for the storyboard bridge on iOS 27', () => {

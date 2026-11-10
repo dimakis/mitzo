@@ -14,10 +14,12 @@ struct UnsafeSendable<T>: @unchecked Sendable {
 #if os(iOS)
 import WatchConnectivity
 import Foundation
+import OSLog
 
 /// iPhone-side relay: bridges watch messages to the Mitzo WS connection.
 /// Add to AppDelegate or a long-lived coordinator.
 public final class WatchRelayHost: NSObject, WCSessionDelegate, Sendable {
+    private static let log = Logger(subsystem: "com.mitzo.app", category: "watch-relay")
     private let state: WatchRelayHostState
     private let reads: WatchRelayReads
     private let authManager: AuthManager
@@ -53,7 +55,8 @@ public final class WatchRelayHost: NSObject, WCSessionDelegate, Sendable {
     // MARK: - WCSessionDelegate
 
     public func session(_ session: WCSession, activationDidCompleteWith activationState: WCSessionActivationState, error: Error?) {
-        print("[WatchRelay] Activation complete: state=\(activationState.rawValue), error=\(String(describing: error))")
+        if let error { Self.log.error("relay_activation_failed cause=\(error as NSError, privacy: .private)") }
+        else { Self.log.info("relay_activation_complete state=\(activationState.rawValue)") }
     }
 
     public func sessionDidBecomeInactive(_ session: WCSession) {}
@@ -188,9 +191,12 @@ public final class WatchRelayHost: NSObject, WCSessionDelegate, Sendable {
                     reply.value(["ok": true])
 
                 case "auth_token":
-                    if let token = try? await capturedAuthManager.getToken() {
+                    do {
+                        let token = try await capturedAuthManager.getToken()
                         reply.value(["token": token])
-                    } else {
+                    } catch AuthManager.AuthError.noToken {
+                        // Expected before login; other Keychain failures retain
+                        // their cause through the sanitized outer error path.
                         reply.value(["error": "no_token"])
                     }
 
@@ -198,7 +204,9 @@ public final class WatchRelayHost: NSObject, WCSessionDelegate, Sendable {
                     reply.value(["error": "unknown relay type: \(type)"])
                 }
             } catch {
-                reply.value(["error": error.localizedDescription])
+                Self.log.error("relay_request_failed type=\(type, privacy: .public) session=\(sessionId, privacy: .public) cause=\(error as NSError, privacy: .private)")
+                let code = error is NativeRelayConnection.ConnectionError ? "relay_unavailable" : "relay_request_failed"
+                reply.value(["error": "Open Mitzo on your iPhone to check the connection. Reference: \(code)."])
             }
         }
     }
@@ -215,12 +223,14 @@ public final class WatchRelayHost: NSObject, WCSessionDelegate, Sendable {
                 WCSession.default.sendMessage(
                     ["_relay": "server_event", "_payload": dict],
                     replyHandler: nil,
-                    errorHandler: { @Sendable _ in } // Non-fatal: watch recovers via seq replay
+                    // Reachability can change after the check. Retain a private
+                    // transient diagnostic; phone receipt is not Watch delivery.
+                    errorHandler: { @Sendable error in
+                        Self.log.debug("relay_delivery_unconfirmed cause=\(error as NSError, privacy: .private)")
+                    }
                 )
             }
-        } catch {
-            // Encoding failure — drop the message
-        }
+        } catch { Self.log.error("relay_encoding_failed cause=\(error as NSError, privacy: .private)") }
     }
 
     // MARK: - Helpers

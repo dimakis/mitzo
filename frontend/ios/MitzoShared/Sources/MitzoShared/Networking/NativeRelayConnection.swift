@@ -55,10 +55,11 @@ public actor NativeRelayConnection {
         return candidate
     }
 
-    public func suspend() async {
+    public func suspend() async throws {
+        // No native connection means no subscriptions to suspend.
         guard let client else { return }
         let sessions = await client.getSuspendSessions()
-        if !sessions.isEmpty { try? await client.suspend(sessions: sessions) }
+        if !sessions.isEmpty { try await client.suspend(sessions: sessions) }
     }
 
     private func establish(expectedURL: URL, reconnect: Bool) async throws -> MitzoWSClient {

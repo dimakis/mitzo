@@ -65,6 +65,46 @@ deployed feature behavior.
 
 ## Runtime and delivery
 
+### Observable inspection failures (7 November 2026)
+
+The owning transport now records an observed child's identity and emits its
+transcript activity marker before inspecting, subscribing to or hydrating the
+child. Observation alone grants no native metadata, transcript, host-tool or
+control authority. Native parentage/session/workspace/provider/model checks and
+the original command-attempt/generation fences still precede executable admission.
+
+Inspection failures retain the row, safe stage and correlation reference, with
+controls disabled and execution status left uncertain. Diagnostics use the existing
+structured logger; native error payloads and private reasoning are excluded. Later
+native events cannot repeatedly retry a failed admission. An explicit **Retry
+inspection** request rechecks the original operator and owner at every native
+read/subscription boundary; it reloads activity without starting or steering a
+model turn. Parent command-attempt and generation restrictions are retained before
+the first native read, even while child admission remains unverified. A recreated
+owner can also revalidate the saved observation. Verified
+public output survives later failures. Saved activity receipts suppress repeat
+transcript anchors on owner recreation, including new children under the same
+retained command, and repair explicitly unanchored new
+observations; legacy records without such receipts are not blindly replayed.
+Emission and receipt persistence are not an atomic cross-store transaction.
+Event-projection and diagnostic-retention failures use the same reporting boundary
+and preserve the primary failure reference.
+
+This corrects the silent-error mechanism identified in the
+[6 November incident handoff](../diagnostics/native-subagent-visibility-handoff-2026-11-06.md).
+The historical failing RPC remains unknown: its cause was discarded, and no
+retained diagnostic establishes which step failed. Offline owner, conversation,
+authenticated-feed/real-renderer and negative-permission regressions verify the
+new failure delivery. They do not establish a live upstream reproduction. The new
+offline browser fixture covers phone/desktop failure states alongside the original
+protected design fixture; local browser execution is blocked by the Seatbelt guard,
+so hosted CI supplies rendered screenshots and combined-source validation. Phone
+and desktop failure/recovery screenshots were inspected in both themes; the PR
+records their source revision and each candidate's validation.
+No live model, production or staging runtime was invoked.
+
+### Executable child admission
+
 `CodexSubagents` admits children only after reading native parentage, session,
 workspace, provider and model metadata through the original app-server owner.
 Early child events are buffered during admission. Child turns have independent

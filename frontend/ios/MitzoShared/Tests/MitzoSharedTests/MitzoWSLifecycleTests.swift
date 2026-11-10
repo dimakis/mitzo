@@ -11,10 +11,12 @@ private actor TestSocket: MitzoWebSocket {
     private var pauseHello = false
     private var helloContinuation: CheckedContinuation<Void, Never>?
     private(set) var helloWaiting = false
+    private var sendFailure = false
 
     func resume() async {}
     func isRunning() async -> Bool { !cancelled }
     func send(_ message: URLSessionWebSocketTask.Message) async throws {
+        if sendFailure { sendFailure = false; throw URLError(.networkConnectionLost) }
         if cancelled { throw CancellationError() }
         if pauseHello { helloWaiting = true; await withCheckedContinuation { helloContinuation = $0 } }
         switch message {
@@ -42,6 +44,7 @@ private actor TestSocket: MitzoWebSocket {
     }
     func cancel() async { cancelled = true }
     func stallHello() { pauseHello = true }
+    func failNextSend() { sendFailure = true }
     func releaseHello() { pauseHello = false; helloContinuation?.resume(); helloContinuation = nil }
 }
 
@@ -272,7 +275,7 @@ private actor RelayConfigurationFixture {
     await first.push("{\"type\":\"welcome\",\"protocolVersion\":2,\"connectionId\":\"first\"}")
     try await client.send(.watch(sessionId: "active"))
     try await eventually { await first.sent.contains { $0.contains("watch") } }
-    await connection.suspend()
+    try await connection.suspend()
     await configuration.stallEstablishmentRead(gate)
     let watch = Task { try await connection.acquire() }
     try await eventually { await gate.waiting }
@@ -396,4 +399,18 @@ private actor ColdRelayHTTP {
     provider.logout()
     await #expect(throws: NativeRelayConnection.ConnectionError.self) { _ = try await reads.sessions() }
     #expect(await http.requests.count == 2)
+}
+
+@Test func suspensionReportsTheOriginalTransportFailure() async throws {
+    let socket = TestSocket()
+    let connection = NativeRelayConnection(configuration: { URL(string: "wss://offline.invalid") }, makeClient: { url in
+        MitzoWSClient(url: url, socketFactory: { _ in socket })
+    })
+    let client = try await connection.acquire()
+    await socket.push("{\"type\":\"welcome\",\"protocolVersion\":2,\"connectionId\":\"first\"}")
+    try await client.send(.watch(sessionId: "active"))
+    try await eventually { await socket.sent.count == 2 }
+    await socket.failNextSend()
+    await #expect(throws: URLError.self) { try await connection.suspend() }
+    await client.retire(); await socket.fail()
 }

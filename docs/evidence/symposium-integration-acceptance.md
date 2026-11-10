@@ -2,6 +2,114 @@
 
 Living map owner: workstream C, `01a14bdc-d152-7912-84d4-c0012e9d5206`.
 
+## 10 November 2026 finalized-reply recovery and complete joining controls
+
+Accepted main `279e6703dedebaeb130993fd6e2657b2aed73c0a` contains #1252's
+ordinary directed dispatch and #1261's shared composer, readiness and replies.
+The dispatch/UI implementation in draft #1244 (`f8bd8ae`) is superseded by those
+accepted owners. Its independent finalized-reply recovery remains unique and is
+ported here through `ApplicationCollaborationMessaging`; the obsolete dispatcher,
+application routes and UI are not reinstated. Retire #1244 after this replacement
+lands, preserving its review and source history rather than merging duplicate code.
+
+The current-main regressions produced eight assertion failures: queued
+interleaving, 501 prior messages, over 512 KiB of history, oversized reply text,
+over 100 text blocks and a prompt outside the recent shared view. Recovery now
+enumerates retained prompts and exact ordinary source mappings in bounded keyset
+pages, checks finalized visible text independently, and uses the existing reply
+owner to verify pinned native execution and attribution. Ordinary full-prefix
+snapshot qualification is unchanged. No read requests inference or redispatch.
+
+Malformed mapping fields, oversized mapping payloads and empty answers have typed
+per-source refusals; structured diagnostics omit source text. Later eligible
+answers still project. Unexpected storage/programming failures propagate.
+Local read-only review identified these additional cases and an unpinned
+historical-execution lookup; all were repaired with failing-then-passing tests.
+The mapping reader bounds payload bytes before hydration, and reply projection
+uses its retained execution fingerprint before promoting a delivery receipt.
+
+Offline checks on this replacement:
+
+- 84 recovery, ordinary-reply and visible-source tests pass, including source
+  pagination across malformed/oversized IDs and exact repeated reads.
+- 81 application/UI/provenance/transcript checks pass through real authentication,
+  HTTP, Git/SQLite, preparation, admission and the native driver. External runtime,
+  account declarations and native RPC alone are synthetic. Counts include shared
+  fixture tests and are not unique feature-acceptance totals.
+- The production composer journey additionally sends a later explicit prompt after
+  remount, proving distinct command/delivery attribution and exactly two native
+  turns. The recording transport now emits unique turn/item IDs and the ordinary
+  `turn/started` event; its earlier incomplete stream explained a missing second
+  answer in the fixture. No production transport relaxation was needed.
+- Protocol/harness/client builds, scoped lint, formatting, source fingerprints and
+  diff checks pass. Approved references and protected checks are unchanged.
+
+Hosted mobile WebKit screenshots at `93ccabec` exposed a remaining Add-agent
+footer defect at 390px in the light theme: the explanatory note collapsed into
+one-word lines beside the buttons. Independent visual review confirmed the
+approved HTML specifies a 72px minimum note track, while component CSS used zero.
+The footer now restores that minimum through three shared spacing tokens and
+keeps wrapping. A separate, additional `symposium-footer.spec.ts` checks the actual
+production preview's note width, footer reachability and overflow at 320/390px and
+desktop in light/dark themes; the protected approval tests and ledger are intact.
+The design contract (109 passes, one existing skip), 13 protected component checks
+and browser discovery pass locally. Corrected renders at `9d3f0cae` passed root
+and independent visual comparison: 320/390px dark/light Add-agent footers remain
+readable, desktop Add-agent controls align, and Before-joining retains the approved
+hierarchy. The current candidate preserves those UI bytes. Retained artifacts:
+[mobile WebKit](https://github.com/dimakis/mitzo/actions/runs/42734183215/artifacts/13726154193)
+and [desktop Chromium](https://github.com/dimakis/mitzo/actions/runs/42734183215/artifacts/13726961053).
+The additional footer browser cases passed in hosted CI. No local browser pass is
+claimed; the superseded run's asynchronous Thinking-control assertion failed in
+the application unit test and was corrected by awaiting the loaded control.
+Current-head CI and trusted review remain separate landing gates.
+
+The complete production Add-agent UI journey exposed two further gaps: retaining
+the pending repository ID in the parent aborted the original preparation POST,
+and the first application review omitted its required initial joining brief.
+The picker now distinguishes its own ID echo from restored requests, retaining
+normal external-clear cancellation and changed-model recovery. The joining hook
+captures the initial brief before journaling and preserves exact edited/retry bytes.
+The application adapter still refuses missing briefs before reading sources.
+
+`collaboration-application-fresh-agent-ui.test.tsx` crosses the real Agents,
+runtime/repository picker, local Git preparation, initial review, edited refreeze,
+silent join, explicit stale-readiness refresh, shared composer and attributed
+native reply. It asserts no initial ordinary command or native turn at joining,
+and the exact edited brief in the requested turn. A second independently joined
+agent on the same account then receives the prior prompt and attributed finalized
+answer before its own explicit composer turn. The two sessions use distinct native
+threads and distinct reply commands/deliveries; the pending context receipt belongs
+to the second command. Passive reading requests no turn. The fixture mounts the
+production listener transport composition; synthetic discovery implements only
+external metadata RPC. Native inference is synthetic. No inner owner is replaced.
+The combined UI/hook/application checks pass (120 cases including shared fixture
+prerequisites); protected design checks pass (109 cases, one existing skip).
+The final closure run passes 85 application, delivery, recovery and sending-hook
+cases, including durable partial provider outcomes, Stop/terminal observation,
+concurrent exact retries and retained uncertainty without replay.
+
+The schema-valid unknown-fingerprint regression also failed before repair and
+passes with a typed missing-execution-reference refusal. The ordinary execution
+owner retains its original error text/class ancestry; only historical reply
+observation translates that specific error. Runtime identity/storage failures
+remain observable. CI exposed a private-database access in the corruption fixture;
+injection at the append boundary corrects its type safety without relaxing the
+validated source writer. Local browser attempts remain blocked by macOS process
+registration and the explicit host guard; rendered evidence comes from the
+hosted artifacts above.
+
+#1242 is not a remaining dependency: accepted #1266/#1272 supply its retained
+operator and callback settlement behavior. The active owner independently
+verified those paths (176 checks, 11 existing skips) and retained the stronger
+callback-consumer regression in #1257. That evidence is separate from this PR's
+current-head CI/review, which remain mandatory before merge.
+
+This qualifies bounded source/offline application behavior and reviewed
+presentation only. Physical iOS, live runtime/account routes and the broader
+multi-recipient/Defaults milestone remain separate acceptance work. No staging,
+deployment or live inference was performed.
+
 ## 7 November 2026 interrupted landing and review corrections
 
 PR #1261 was recovered after an interrupted main integration. Accepted base

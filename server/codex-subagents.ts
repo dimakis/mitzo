@@ -6,7 +6,6 @@ import type { CodexNativeTurnTarget } from './codex-conversation-store.js';
 import type { ToolDefinition } from '@mitzo/harness';
 import {
   NativeSubagentControlSchema,
-  NativeSubagentSnapshotSchema,
   type NativeSubagentBlock,
   type NativeSubagentControl,
   type NativeSubagentControlStatus,
@@ -15,6 +14,7 @@ import {
 import type { CodexServerRequestContext } from './codex-app-server-client.js';
 import { CodexRequestError, CodexHostToolRequestError } from './codex-app-server-client.js';
 import { CodexNativeFileChange } from './codex-native-file-change.js';
+import { createLogger } from './logger.js';
 import {
   codexNativeExecutionParams,
   type CodexNativeExecutionPolicy,
@@ -34,7 +34,21 @@ import {
 type ObjectValue = Record<string, unknown>;
 const object = (value: unknown): ObjectValue =>
   value && typeof value === 'object' && !Array.isArray(value) ? (value as ObjectValue) : {};
-const id = z.string().min(1).max(200);
+const id = z.string().min(1).max(200).regex(/^\S+$/);
+const ObservedThread = z.object({ id, parentThreadId: id.nullable() });
+class ChildIdentityError extends Error {
+  constructor(
+    readonly reason:
+      | 'child_identity_mismatch'
+      | 'session_mismatch'
+      | 'model_unavailable'
+      | 'retained_identity_mismatch'
+      | 'command_origin_changed'
+      | 'binding_changed',
+  ) {
+    super(reason);
+  }
+}
 const Thread = z.object({
   id,
   parentThreadId: id.nullable(),
@@ -103,7 +117,7 @@ interface Options {
   ): Promise<ObjectValue>;
   requestUserInput?(params: ObjectValue, signal: AbortSignal): Promise<ObjectValue>;
   validateModel?(model: string): void;
-  onChild(child: NativeSubagentSnapshot): void;
+  onChild(child: NativeSubagentSnapshot): boolean | void;
 }
 interface LiveChild {
   child: RetainedSubagent;
@@ -128,6 +142,8 @@ export class CodexSubagents {
   private buffered = new Map<string, { method: string; params: ObjectValue }[]>();
   private overflowed = new Set<string>();
   private assignedTasks = new Map<string, string>();
+  // One failed inspection per owner; native event traffic must not create a retry loop.
+  private failedAdmissions = new Set<string>();
   private parentStopping = false;
   private parentCancellationEpoch = 0;
   private parentStops = new Set<Promise<unknown>>();
@@ -146,8 +162,14 @@ export class CodexSubagents {
   private parentStopAuthorization?: () => void;
   constructor(private readonly opts: Options) {}
   private snapshot(child: RetainedSubagent): NativeSubagentSnapshot {
-    let available = this.live.has(child.threadId);
-    if (!available && !this.closed && ['completed', 'stopped', 'failed'].includes(child.state)) {
+    let available = this.live.has(child.threadId) && !child.inspectionFailure;
+    if (
+      !available &&
+      !this.closed &&
+      child.admissionVerified !== false &&
+      !child.inspectionFailure &&
+      ['completed', 'stopped', 'failed'].includes(child.state)
+    ) {
       try {
         if (this.retained(child.threadId)) {
           this.opts.assertCurrent(child, this.parentStopping);
@@ -215,7 +237,84 @@ export class CodexSubagents {
   private publish(live: LiveChild): void {
     live.child.revision++;
     this.opts.store.save(this.opts.scope, live.child);
-    for (const listener of this.listeners) listener(this.snapshot(live.child));
+    this.deliver(live.child);
+  }
+  private deliver(child: RetainedSubagent): void {
+    for (const listener of this.listeners) {
+      try {
+        listener(this.snapshot(child));
+      } catch {
+        createLogger('codex-subagents').warn('Subagent activity listener failed', {
+          code: 'native_subagent_delivery_failed',
+          reference: child.inspectionFailure?.reference ?? randomUUID(),
+          conversationId: this.opts.scope.conversationId,
+          commandId: child.commandId,
+          threadId: child.threadId,
+        });
+      }
+    }
+  }
+  private inspectionFailed(
+    child: RetainedSubagent,
+    stage: NonNullable<NativeSubagentSnapshot['inspectionFailure']>['stage'],
+    error: unknown,
+  ): void {
+    const { threadId, parentThreadId } = child;
+    this.failedAdmissions.add(threadId);
+    const failure = {
+      code: 'native_subagent_inspection_failed' as const,
+      stage,
+      reference: randomUUID(),
+    };
+    child.inspectionFailure = failure;
+    if (['starting', 'working', 'needs_permission', 'stopping'].includes(child.state))
+      child.state = 'unknown';
+    child.revision++;
+    const live = this.live.get(threadId);
+    if (live) {
+      live.abort.abort();
+      this.live.delete(threadId);
+    }
+    // Exclude native error text/data, task input and transcript payloads. Retain
+    // the safe cause category and the same reference exposed to the operator.
+    const log = createLogger('codex-subagents');
+    log.warn('Native subagent inspection failed', {
+      ...failure,
+      conversationId: this.opts.scope.conversationId,
+      commandId: child.commandId,
+      threadId,
+      parentThreadId,
+      cause:
+        error instanceof CodexRequestError
+          ? error.category
+          : error instanceof z.ZodError
+            ? 'protocol'
+            : error instanceof ChildIdentityError
+              ? error.reason
+              : 'internal',
+      ...(error instanceof z.ZodError
+        ? {
+            invalidFields: [
+              ...new Set(
+                error.issues.flatMap((issue) =>
+                  typeof issue.path[0] === 'string' && Object.hasOwn(Thread.shape, issue.path[0])
+                    ? [issue.path[0]]
+                    : [],
+                ),
+              ),
+            ],
+          }
+        : {}),
+    });
+    try {
+      this.opts.store.save(this.opts.scope, child);
+    } catch {
+      log.warn('Subagent inspection diagnostic could not be retained', {
+        reference: failure.reference,
+        threadId,
+      });
+    }
+    this.deliver(child);
   }
   private current(live: LiveChild, turnId?: string): void {
     const root = this.opts.root();
@@ -241,12 +340,13 @@ export class CodexSubagents {
   notification(method: string, params: ObjectValue): boolean {
     if (this.closed) return false;
     const root = this.opts.root();
-    const started = method === 'thread/started' ? Thread.safeParse(params.thread) : undefined;
+    const started =
+      method === 'thread/started' ? ObservedThread.safeParse(params.thread) : undefined;
     if (root && started?.success) {
       const thread = started.data;
       if (
         thread.parentThreadId === root.threadId ||
-        (thread.parentThreadId && this.live.has(thread.parentThreadId))
+        (thread.parentThreadId && this.owns(thread.parentThreadId))
       ) {
         this.admit(thread.id, thread.parentThreadId!, root);
         return true;
@@ -309,180 +409,318 @@ export class CodexSubagents {
     if (!live) return false;
     try {
       this.current(live);
-      this.apply(live, method, params);
     } catch {
+      // Expected loss of the original owner fences execution, retaining output.
       this.invalidate(live);
+      return true;
+    }
+    try {
+      this.apply(live, method, params);
+    } catch (error) {
+      this.inspectionFailed(live.child, 'events', error);
     }
     return true;
   }
-  private admit(threadId: string, parentThreadId: string, root: SubagentRoot, task?: string): void {
-    if (task) {
-      this.assignedTasks.set(threadId, task.slice(0, 8192));
-      const live = this.live.get(threadId);
-      if (live) {
-        live.child.task = task.slice(0, 8192);
-        this.publish(live);
-        this.assignedTasks.delete(threadId);
+  private admit(
+    threadId: string,
+    parentThreadId: string,
+    root: SubagentRoot,
+    task?: string,
+    authorize: () => void = () => {},
+  ): void {
+    let observation: RetainedSubagent | undefined;
+    let markerAttempted = false;
+    try {
+      if (task) {
+        this.assignedTasks.set(threadId, task.slice(0, 8192));
+        const live = this.live.get(threadId);
+        if (live) {
+          live.child.task = task.slice(0, 8192);
+          this.publish(live);
+          this.assignedTasks.delete(threadId);
+        }
       }
-    }
-    if (!this.live.has(threadId) && !this.pending.has(threadId)) {
-      for (const live of this.live.values()) {
-        if (this.live.size + this.pending.size < 32) break;
-        if (
-          !this.pending.has(live.child.threadId) &&
-          ['completed', 'stopped', 'failed'].includes(live.child.state)
-        )
-          this.invalidate(live);
+      if (!this.live.has(threadId) && !this.pending.has(threadId)) {
+        for (const live of this.live.values()) {
+          if (this.live.size + this.pending.size < 32) break;
+          if (
+            !this.pending.has(live.child.threadId) &&
+            ['completed', 'stopped', 'failed'].includes(live.child.state)
+          )
+            this.invalidate(live);
+        }
       }
-    }
-    if (
-      this.live.has(threadId) ||
-      this.pending.has(threadId) ||
-      this.live.size + this.pending.size >= 32 ||
-      threadId === root.threadId
-    )
-      return;
-    this.buffered.set(threadId, []);
-    const admissionEpoch = this.parentCancellationEpoch;
-    const admittedDuringStop = this.parentStopping;
-    // Start after registering the pending identity, before any awaited native I/O.
-    const operation = Promise.resolve()
-      .then(async () => {
-        const checked = Thread.parse(
-          object(await this.opts.request('thread/read', { threadId, includeTurns: false })).thread,
-        );
+      if (
+        this.live.has(threadId) ||
+        this.pending.has(threadId) ||
+        this.failedAdmissions.has(threadId) ||
+        threadId === root.threadId
+      )
+        return;
+      const previous = this.opts.store.get(this.opts.scope, threadId);
+      // The owning transport observed parentage. Persist only that observation;
+      // no native metadata, output, host tools or control authority is trusted yet.
+      const observed: RetainedSubagent = previous ?? {
+        threadId,
+        parentThreadId,
+        rootThreadId: root.threadId,
+        commandId:
+          this.live.get(parentThreadId)?.child.commandId ??
+          this.opts.store.get(this.opts.scope, parentThreadId)?.commandId ??
+          root.commandId,
+        policyRevision: root.policy.policyRevision,
+        name: 'Subagent',
+        task: this.assignedTasks.get(threadId) ?? '',
+        model: '',
+        state: 'starting',
+        revision: 1,
+        blocks: [],
+        admissionVerified: false,
+        activityAnchored: false,
+      };
+      observation = observed;
+      if (
+        observed.rootThreadId !== root.threadId ||
+        observed.parentThreadId !== parentThreadId ||
+        observed.policyRevision !== root.policy.policyRevision
+      )
+        return;
+      this.opts.store.save(this.opts.scope, observed);
+      if (observed.activityAnchored === false) {
+        markerAttempted = true;
+        if (this.opts.onChild(this.snapshot(observed)) !== false) {
+          observed.activityAnchored = true;
+          observed.revision++;
+          this.opts.store.save(this.opts.scope, observed);
+        }
+      }
+      this.deliver(observed);
+      let stage: NonNullable<NativeSubagentSnapshot['inspectionFailure']>['stage'] =
+        'inspect_child';
+      const failed = (error: unknown) =>
+        this.inspectionFailed(this.live.get(threadId)?.child ?? observed, stage, error);
+      if (this.live.size + this.pending.size >= 32) {
+        stage = 'capacity';
+        failed(Error('Child inspection capacity reached'));
+        return;
+      }
+      this.buffered.set(threadId, []);
+      const admissionEpoch = this.parentCancellationEpoch;
+      const admittedDuringStop = this.parentStopping;
+      const checkAdmission = () => {
+        authorize();
+        const current = this.opts.root();
         if (
-          checked.id !== threadId ||
-          checked.parentThreadId !== parentThreadId ||
-          checked.cwd !== root.policy.cwd ||
-          checked.modelProvider !== root.modelProvider ||
-          !checked.model
+          this.closed ||
+          !current ||
+          current.threadId !== root.threadId ||
+          current.policy.policyRevision !== root.policy.policyRevision
         )
-          throw Error('Native child identity mismatch');
-        const rootMetadata = object(
-          await this.opts.request('thread/read', { threadId: root.threadId, includeTurns: false }),
-        );
-        if (
-          object(rootMetadata.thread).id !== root.threadId ||
-          object(rootMetadata.thread).sessionId !== checked.sessionId
-        )
-          throw Error('Native child session mismatch');
-        this.opts.validateModel?.(checked.model);
-        const previous = this.opts.store.get(this.opts.scope, threadId);
-        const child: RetainedSubagent = previous ?? {
+          throw Error('Original child inspection owner changed');
+        const cancelling =
+          admittedDuringStop ||
+          admissionEpoch !== this.parentCancellationEpoch ||
+          this.parentStopping;
+        const origin = this.opts.nativeOrigin?.(observed, cancelling);
+        if (origin) {
+          if (
+            origin.commandId !== observed.commandId ||
+            (observed.commandAttempt !== undefined && observed.commandAttempt !== origin.attempt) ||
+            (observed.threadGeneration !== undefined &&
+              observed.threadGeneration !== origin.generation)
+          )
+            throw new ChildIdentityError('command_origin_changed');
+          if (observed.commandAttempt === undefined || observed.threadGeneration === undefined) {
+            // Parent acceptance identities restrict future retries; they confer no
+            // child metadata or execution authority while admission is unverified.
+            observed.commandAttempt ??= origin.attempt;
+            observed.threadGeneration ??= origin.generation;
+            observed.revision++;
+            this.opts.store.save(this.opts.scope, observed);
+          }
+        }
+        this.opts.assertCurrent(observed, cancelling);
+      };
+      // Start after registering the pending identity, before any awaited native I/O.
+      const operation = Promise.resolve()
+        .then(async () => {
+          checkAdmission();
+          const checked = Thread.parse(
+            object(
+              await this.opts.request(
+                'thread/read',
+                { threadId, includeTurns: false },
+                checkAdmission,
+              ),
+            ).thread,
+          );
+          checkAdmission();
+          stage = 'validate_identity';
+          if (
+            checked.id !== threadId ||
+            checked.parentThreadId !== parentThreadId ||
+            checked.cwd !== root.policy.cwd ||
+            checked.modelProvider !== root.modelProvider ||
+            !checked.model
+          )
+            throw new ChildIdentityError('child_identity_mismatch');
+          stage = 'inspect_parent';
+          const rootMetadata = object(
+            await this.opts.request(
+              'thread/read',
+              { threadId: root.threadId, includeTurns: false },
+              checkAdmission,
+            ),
+          );
+          checkAdmission();
+          stage = 'validate_identity';
+          if (
+            object(rootMetadata.thread).id !== root.threadId ||
+            object(rootMetadata.thread).sessionId !== checked.sessionId
+          )
+            throw new ChildIdentityError('session_mismatch');
+          try {
+            this.opts.validateModel?.(checked.model);
+          } catch {
+            throw new ChildIdentityError('model_unavailable');
+          }
+          const child = observed;
+          if (
+            child.rootThreadId !== root.threadId ||
+            child.parentThreadId !== parentThreadId ||
+            child.policyRevision !== root.policy.policyRevision
+          )
+            throw new ChildIdentityError('retained_identity_mismatch');
+          child.name = (checked.agentNickname || child.name).slice(0, 200);
+          child.model = checked.model;
+          child.task = (
+            this.assignedTasks.get(threadId) ??
+            (child.task || checked.preview) ??
+            ''
+          ).slice(0, 8192);
+          child.admissionVerified = true;
+          child.revision++;
+          if (
+            previous &&
+            ['working', 'starting', 'needs_permission', 'stopping'].includes(previous.state)
+          ) {
+            child.state = 'unknown';
+            child.revision++;
+          }
+          const live: LiveChild = {
+            child,
+            policy: root.policy,
+            abort: new AbortController(),
+            turnAbort: new AbortController(),
+            terminal: new Set(),
+            files: new Map(),
+            fileRevisions: new Map(),
+            lifecycleRevision: 0,
+            controlRevision: 0,
+            cancelBeforeRun:
+              admittedDuringStop ||
+              admissionEpoch !== this.parentCancellationEpoch ||
+              this.parentStopping,
+          };
+          // Recovery forbids execution, but an exact native child still needs
+          // identity-checked cancellation admission after its parent was stopped.
+          const origin = this.opts.nativeOrigin?.(
+            child,
+            live.cancelBeforeRun || this.parentStopping,
+          );
+          if (origin) {
+            if (
+              previous &&
+              (child.commandAttempt === undefined || child.threadGeneration === undefined)
+            )
+              child.revision++;
+            child.commandAttempt ??= origin.attempt;
+            child.threadGeneration ??= origin.generation;
+          }
+          this.live.set(threadId, live);
+          this.current(live);
+          this.opts.store.save(this.opts.scope, child);
+          stage = 'subscribe';
+          const resumed = object(
+            await this.opts.request(
+              'thread/resume',
+              {
+                threadId,
+                excludeTurns: true,
+                ...codexNativeExecutionParams(root.policy),
+              },
+              () => {
+                checkAdmission();
+                this.current(live);
+              },
+            ),
+          );
+          checkAdmission();
+          this.current(live);
+          if (
+            object(resumed.thread).id !== threadId ||
+            resumed.model !== child.model ||
+            resumed.modelProvider !== root.modelProvider
+          )
+            throw new ChildIdentityError('binding_changed');
+          // New subscriptions can start after a child has produced output. Hydrate
+          // paginated public items only; never replay tool calls from native history.
+          stage = 'history';
+          await this.hydrate(live, checkAdmission);
+          checkAdmission();
+          this.current(live);
+          stage = 'events';
+          if (this.assignedTasks.has(threadId)) child.task = this.assignedTasks.get(threadId)!;
+          if (this.overflowed.has(threadId)) child.outputTruncated = true;
+          for (const event of this.buffered.get(threadId) ?? [])
+            this.apply(live, event.method, event.params);
+          delete child.inspectionFailure;
+          this.publish(live);
+          if (live.cancelBeforeRun || this.parentStopping) this.cancelForParent(live);
+        })
+        .catch(failed)
+        .finally(() => {
+          this.pending.delete(threadId);
+          this.buffered.delete(threadId);
+          this.overflowed.delete(threadId);
+          this.assignedTasks.delete(threadId);
+        });
+      this.pending.set(threadId, operation);
+    } catch (error) {
+      const failedChild = observation ??
+        this.live.get(threadId)?.child ?? {
           threadId,
           parentThreadId,
           rootThreadId: root.threadId,
-          commandId:
-            this.live.get(parentThreadId)?.child.commandId ??
-            this.opts.store.get(this.opts.scope, parentThreadId)?.commandId ??
-            root.commandId,
+          commandId: root.commandId,
           policyRevision: root.policy.policyRevision,
-          name: (checked.agentNickname || 'Subagent').slice(0, 200),
-          task: (this.assignedTasks.get(threadId) ?? checked.preview ?? '').slice(0, 8192),
-          model: checked.model,
-          state: 'starting',
+          name: 'Subagent',
+          task: task?.slice(0, 8192) ?? '',
+          model: '',
+          state: 'unknown',
           revision: 1,
           blocks: [],
+          admissionVerified: false,
+          activityAnchored: false,
         };
-        if (
-          child.rootThreadId !== root.threadId ||
-          child.parentThreadId !== parentThreadId ||
-          child.policyRevision !== root.policy.policyRevision
-        )
-          throw Error('Retained child identity mismatch');
-        if (
-          previous &&
-          ['working', 'starting', 'needs_permission', 'stopping'].includes(previous.state)
-        ) {
-          child.state = 'unknown';
-          child.revision++;
+      this.inspectionFailed(failedChild, 'events', error);
+      // A first-save failure must not suppress the marker that mounts the feed.
+      // Attempt it once independently, preserving the primary diagnostic.
+      if (!markerAttempted && failedChild.activityAnchored === false) {
+        try {
+          if (this.opts.onChild(this.snapshot(failedChild)) !== false) {
+            failedChild.activityAnchored = true;
+            failedChild.revision++;
+            this.opts.store.save(this.opts.scope, failedChild);
+          }
+        } catch {
+          createLogger('codex-subagents').warn('Subagent failure activity could not be anchored', {
+            reference: failedChild.inspectionFailure?.reference,
+            threadId,
+          });
         }
-        const live: LiveChild = {
-          child,
-          policy: root.policy,
-          abort: new AbortController(),
-          turnAbort: new AbortController(),
-          terminal: new Set(),
-          files: new Map(),
-          fileRevisions: new Map(),
-          lifecycleRevision: 0,
-          controlRevision: 0,
-          cancelBeforeRun:
-            admittedDuringStop ||
-            admissionEpoch !== this.parentCancellationEpoch ||
-            this.parentStopping,
-        };
-        // Recovery forbids execution, but an exact native child still needs
-        // identity-checked cancellation admission after its parent was stopped.
-        const origin = this.opts.nativeOrigin?.(child, live.cancelBeforeRun || this.parentStopping);
-        if (origin) {
-          if (
-            previous &&
-            (child.commandAttempt === undefined || child.threadGeneration === undefined)
-          )
-            child.revision++;
-          child.commandAttempt ??= origin.attempt;
-          child.threadGeneration ??= origin.generation;
-        }
-        this.live.set(threadId, live);
-        this.current(live);
-        this.opts.store.save(this.opts.scope, child);
-        const resumed = object(
-          await this.opts.request(
-            'thread/resume',
-            {
-              threadId,
-              excludeTurns: true,
-              ...codexNativeExecutionParams(root.policy),
-            },
-            () => this.current(live),
-          ),
-        );
-        this.current(live);
-        if (
-          object(resumed.thread).id !== threadId ||
-          resumed.model !== child.model ||
-          resumed.modelProvider !== root.modelProvider
-        )
-          throw Error('Resumed child binding changed');
-        // New subscriptions can start after a child has produced output. Hydrate
-        // paginated public items only; never replay tool calls from native history.
-        await this.hydrate(live);
-        this.current(live);
-        if (this.assignedTasks.has(threadId)) child.task = this.assignedTasks.get(threadId)!;
-        if (this.overflowed.has(threadId)) child.outputTruncated = true;
-        for (const event of this.buffered.get(threadId) ?? [])
-          this.apply(live, event.method, event.params);
-        if (!previous)
-          this.opts.onChild(
-            NativeSubagentSnapshotSchema.parse({
-              commandId: child.commandId,
-              threadId: child.threadId,
-              parentThreadId: child.parentThreadId,
-              name: child.name,
-              task: child.task,
-              model: child.model,
-              state: child.state,
-              revision: child.revision,
-              blocks: child.blocks,
-              turnId: child.turnId,
-            }),
-          );
-        this.publish(live);
-        if (live.cancelBeforeRun || this.parentStopping) this.cancelForParent(live);
-      })
-      .catch(() => {
-        const live = this.live.get(threadId);
-        if (live) this.invalidate(live);
-      })
-      .finally(() => {
-        this.pending.delete(threadId);
-        this.buffered.delete(threadId);
-        this.overflowed.delete(threadId);
-        this.assignedTasks.delete(threadId);
-      });
-    this.pending.set(threadId, operation);
+      }
+    }
   }
   async restore(): Promise<void> {
     const root = this.opts.root();
@@ -495,15 +733,41 @@ export class CodexSubagents {
         this.admit(child.threadId, child.parentThreadId, root);
     await this.settled();
   }
-  private async hydrate(live: LiveChild): Promise<void> {
+  /** Explicit operator inspection can retry observation, never start or steer a turn. */
+  async inspect(
+    threadId: string,
+    authorize: () => void,
+  ): Promise<NativeSubagentSnapshot | undefined> {
+    authorize();
+    const child = this.retained(threadId),
+      root = this.opts.root();
+    if (!child || !root || this.closed || this.parentStopping) return undefined;
+    if (!this.pending.has(threadId) && (!this.live.has(threadId) || child.inspectionFailure)) {
+      this.failedAdmissions.delete(threadId);
+      this.admit(threadId, child.parentThreadId, root, undefined, authorize);
+    }
+    await this.pending.get(threadId);
+    authorize();
+    const current = this.retained(threadId);
+    return current ? this.snapshot(current) : undefined;
+  }
+  private async hydrate(live: LiveChild, authorize: () => void = () => {}): Promise<void> {
     const page = object(
-      await this.opts.request('thread/turns/list', {
-        threadId: live.child.threadId,
-        limit: 32,
-        sortDirection: 'desc',
-        itemsView: 'notLoaded',
-      }),
+      await this.opts.request(
+        'thread/turns/list',
+        {
+          threadId: live.child.threadId,
+          limit: 32,
+          sortDirection: 'desc',
+          itemsView: 'notLoaded',
+        },
+        () => {
+          authorize();
+          this.current(live);
+        },
+      ),
     );
+    authorize();
     this.current(live);
     if (!Array.isArray(page.data)) throw Error('Child turn history unavailable');
     // Retained older public blocks remain intact. Hydrate the latest bounded
@@ -515,14 +779,22 @@ export class CodexSubagents {
     let cursor: string | undefined;
     for (;;) {
       const items = object(
-        await this.opts.request('thread/items/list', {
-          threadId: live.child.threadId,
-          turnId: turn.id,
-          limit: 64,
-          sortDirection: 'asc',
-          ...(cursor ? { cursor } : {}),
-        }),
+        await this.opts.request(
+          'thread/items/list',
+          {
+            threadId: live.child.threadId,
+            turnId: turn.id,
+            limit: 64,
+            sortDirection: 'asc',
+            ...(cursor ? { cursor } : {}),
+          },
+          () => {
+            authorize();
+            this.current(live);
+          },
+        ),
       );
+      authorize();
       this.current(live);
       if (!Array.isArray(items.data)) throw Error('Child items unavailable');
       for (const raw of items.data) {
