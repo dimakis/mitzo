@@ -357,7 +357,6 @@ export function SharedConversationBody({
                           ...member,
                           name: names[member.id] ?? member.name,
                         })),
-                        maximum: 1,
                         disabled: !!sending.pending,
                       }
                     : undefined

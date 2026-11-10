@@ -8,6 +8,7 @@ import {
 import { getChatDraft, saveChatDraft, type ChatDraft } from '../lib/chat-drafts';
 import { createBrowserId } from '../lib/browser-crypto';
 import { AUTH_LOST_EVENT } from '../lib/api-fetch';
+import { resolveConversationResponders } from '../lib/conversation-presentation';
 
 type Pending = NonNullable<ChatDraft['collaborationSend']>;
 export function useConversationSending(options: {
@@ -20,22 +21,33 @@ export function useConversationSending(options: {
   refresh(): Promise<CollaborationView | void>;
 }) {
   const { api, view, draftId, authScope, getVerifiedAuthScope, refresh, responders } = options;
-  const recipient =
-    responders?.kind === 'selected' && responders.sessionIds.length === 1
-      ? responders.sessionIds[0]
-      : undefined;
+  const recipientKey = JSON.stringify(
+    view && responders ? resolveConversationResponders(view, responders) : [],
+  );
+  const recipients = useMemo(() => JSON.parse(recipientKey) as string[], [recipientKey]);
+  const intentKey = JSON.stringify(responders);
   const group = view?.collaborationId;
   const owner = useMemo(
     () => ({
       api,
       group,
-      recipient,
+      recipients,
+      intentKey,
       draftId,
       authScope,
       membershipRevision: view?.membershipRevision,
       policySequence: view?.policySequence,
     }),
-    [api, group, recipient, draftId, authScope, view?.membershipRevision, view?.policySequence],
+    [
+      api,
+      group,
+      recipients,
+      intentKey,
+      draftId,
+      authScope,
+      view?.membershipRevision,
+      view?.policySequence,
+    ],
   );
   const current = useRef(owner);
   current.current = owner;
@@ -82,32 +94,34 @@ export function useConversationSending(options: {
       if (original) {
         if (original.authScope !== authScope || original.collaborationId !== group)
           throw Error('The original request belongs to another login or conversation.');
-        const { message, terminal } = await api.observeSend(group, original.input);
+        const { terminal } = await api.observeSend(group, original.input);
         if (!valid()) return;
-        const latest = await refresh();
+        await refresh();
         if (!valid()) return;
-        // The original message stays retained until a terminal outcome is visible.
-        const settled =
-          terminal ||
-          (message &&
-            (message.deliveries.every((d) => ['failed', 'unavailable'].includes(d.status)) ||
-              latest?.messages.some(
-                (m) =>
-                  m.replyToDeliveryId &&
-                  message.deliveries.some((d) => d.deliveryId === m.replyToDeliveryId),
-              )));
-        if (!settled) return;
+        // Visible text is not proof that native effects have settled. Renew the
+        // exact request after the refresh await before retiring its journal.
+        if (!terminal) return;
+        const confirmed = await api.observeSend(group, original.input);
+        if (!valid() || !confirmed.terminal) return;
         retain();
       }
-      if (!recipient) return;
-      const result = await api.recipientReadiness(group, recipient);
+      if (!recipients.length) return;
+      const results = await Promise.all(
+        recipients.map((recipient) => api.recipientReadiness(group, recipient)),
+      );
       if (!valid()) return;
       if (
-        result.membershipRevision !== view?.membershipRevision ||
-        result.policySequence !== view?.policySequence
+        results.some(
+          (result, index) =>
+            result.sessionId !== recipients[index] ||
+            result.collaborationId !== group ||
+            result.membershipRevision !== view?.membershipRevision ||
+            result.policySequence !== view?.policySequence,
+        )
       )
         throw Error('The conversation changed. Refresh before sending.');
-      publish({ ready: result.ready, reason: result.reason ?? undefined, error: undefined });
+      const refused = results.find((result) => !result.ready);
+      publish({ ready: !refused, reason: refused?.reason ?? undefined, error: undefined });
     } catch (cause) {
       if (valid())
         publish({
@@ -121,7 +135,7 @@ export function useConversationSending(options: {
     valid,
     owner,
     group,
-    recipient,
+    recipients,
     api,
     authScope,
     refresh,
@@ -155,9 +169,9 @@ export function useConversationSending(options: {
     ? 'Conversation unavailable.'
     : visible.pending
       ? 'Check the original request. Queued or uncertain work will not be resent.'
-      : !recipient
-        ? 'Use @ to choose one agent for this prompt.'
-        : !view || view.unavailableParticipantSessionIds.includes(recipient)
+      : !recipients.length
+        ? 'Choose who replies with @ or enable replies by default in Agents.'
+        : !view || recipients.some((id) => view.unavailableParticipantSessionIds.includes(id))
           ? 'Refresh Agents and choose an available participant.'
           : (visible.error ??
             (visible.ready ? undefined : (visible.reason ?? 'Checking recipient readiness…')));
@@ -169,7 +183,8 @@ export function useConversationSending(options: {
         busy.current === owner ||
         pending.current ||
         !view ||
-        !recipient ||
+        !recipients.length ||
+        !responders ||
         !group ||
         !authScope
       )
@@ -184,7 +199,7 @@ export function useConversationSending(options: {
             expectedMembershipRevision: view.membershipRevision,
             expectedPolicySequence: view.policySequence,
             text,
-            responders: { kind: 'selected', sessionIds: [recipient] },
+            responders,
             snapshot: null,
           }),
         };
@@ -193,14 +208,22 @@ export function useConversationSending(options: {
         if (!valid()) return false;
         if (
           receipt.text !== text ||
-          receipt.responders.length !== 1 ||
-          receipt.responders[0] !== recipient ||
-          receipt.membershipRevision !== original.input.expectedMembershipRevision
+          receipt.responders.length !== recipients.length ||
+          !recipients.every((id) => receipt.responders.includes(id)) ||
+          receipt.deliveries.filter((d) => d.purpose === 'reply').length !== recipients.length ||
+          !recipients.every((id) =>
+            receipt.deliveries.some((d) => d.purpose === 'reply' && d.sessionId === id),
+          ) ||
+          receipt.membershipRevision !== original.input.expectedMembershipRevision ||
+          receipt.policySequence !== original.input.expectedPolicySequence
         )
           throw Error('The receipt does not match the original request. Check its outcome.');
         await refresh();
         return (
-          valid() && receipt.deliveries.some((d) => ['queued', 'delivered'].includes(d.status))
+          valid() &&
+          receipt.deliveries.some(
+            (d) => d.purpose === 'reply' && ['queued', 'delivered'].includes(d.status),
+          )
         );
       } catch (cause) {
         if (valid()) {
@@ -222,7 +245,8 @@ export function useConversationSending(options: {
       valid,
       owner,
       view,
-      recipient,
+      recipients,
+      responders,
       group,
       authScope,
       api,

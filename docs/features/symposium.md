@@ -5,6 +5,26 @@ Existing Telos item: `c0851ba23fcc5d04`; reuse it rather than create another par
 or a task for every document. Tracker closure and source landing do not prove
 runtime acceptance or authorize deployment.
 
+## Multiple-responder source candidate
+
+The next source candidate enables the approved Defaults, All and multiple `@`
+selections through the existing shared composer. Every selected recipient must
+pass ordinary readiness before a new request is accepted. The original intent
+and receipt keep their identity across selection changes, partial results,
+reload and exact retries.
+
+Per-recipient completion, failure, interruption and uncertainty are observed from
+the exact ordinary command and native effects owner. Visible answer text alone
+does not retire an outstanding request. Failed recipients remain visible beside
+successful answers; a later explicit selection can ask only the failed agent.
+Unknown native outcomes retain the original request and never automatically resend.
+
+Offline application evidence covers two independent same-account sessions,
+partial failure, an explicit selected retry and uncertainty after reload. Hosted
+CI, browser renders and trusted current-head review remain required before landing.
+Per-prompt reviewed context, forwarding, streaming, shared Stop and broader
+milestone qualification remain open. No deployment or live inference is qualified.
+
 ## Accepted shared composer and reply recovery
 
 The next source increment removes the display-page limit from new sends. Pending

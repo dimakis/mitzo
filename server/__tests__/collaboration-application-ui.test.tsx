@@ -71,6 +71,7 @@ it('sends first and later selected prompts from the production shared composer a
     expect(runtime.requests).toEqual([]);
     fireEvent.click(screen.getByRole('button', { name: 'Choose who replies' }));
     fireEvent.click(screen.getByRole('checkbox', { name: 'Independent reviewer' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Done choosing replies' }));
     const input = screen.getByRole('textbox', { name: 'Message Mitzo' });
     fireEvent.change(input, {
       target: { value: 'Review the selected design from the shared composer.' },

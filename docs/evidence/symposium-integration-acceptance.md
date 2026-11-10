@@ -2,6 +2,56 @@
 
 Living map owner: workstream C, `01a14bdc-d152-7912-84d4-c0012e9d5206`.
 
+## 10 November 2026 multiple-responder source candidate
+
+This separate candidate builds on the long-discussion slice in #1279. It reuses
+the approved Defaults, All and multi-selection composer controls. The sending
+owner resolves every recipient, verifies every readiness receipt, and retains the
+original default/all/selected intent, membership/policy and request identity.
+Changing the picker or policy cannot retarget an outstanding request.
+
+The ordinary prompt adapter observes the exact command's durable provider terminal
+and native store settlement. Missing custody, pending thread dispatch, ownership
+conflicts or unsettled effects yield uncertainty. Observation cannot dispatch,
+acknowledge recovery or release a queue. Settlement is renewed on every observation;
+loss of previously completed proof becomes uncertain and can later settle again.
+Unexpected storage/programming errors remain observable. Shared answer text and
+provider context ACK are independent of this outcome observation.
+
+The actual Add-agent/application journey now uses two independent same-account
+native threads through seven external-only synthetic native turns: Defaults partial
+success, a definitive context-capacity failure, explicit selected retry of only the
+failed agent, and an ambiguous later failure. Successful answers remain visible.
+The exact ambiguous request remains retained through unmount/remount, observation
+and retry with no eighth turn. Conservative conversation-wide effects qualification
+may also mark earlier receipts uncertain; it never deletes their accepted answers.
+
+Local evidence uses one worker and a 1 GiB Node heap:
+
+- 67 cases pass across sending-hook, recovery owner and actual fresh-agent UI.
+  New regressions forbid clearing the original request because finalized text is
+  visible or because settlement proof is lost during the refresh await.
+- 21 integration/consumer cases pass, including the separate 27-turn real composer
+  journey, ordinary prompt dispatch and transcript presentation.
+- Six selected native-store settlement cases pass; the other 72 cases in that
+  file were filtered, not executed. Earlier adapter checks passed 56 cases.
+- Protocol, harness and client builds passed. Full frontend compilation exceeded
+  the local 1 GiB heap; its uncertain run/log are preserved and hosted compilation
+  remains required. No full local compile success is claimed.
+- Two focused read-only reviews verified the repaired journal/settlement defects
+  and current permission/effects fences without remaining concrete blockers.
+
+Offline browser cases cover partial results, uncertainty, reload, selection,
+keyboard focus, minimum touch controls and mobile overflow in light/dark themes.
+They are listed but not locally executed: the host sandbox blocks browser launch.
+Hosted execution, actual rendered artifacts and approved-reference comparison are
+required. No protected reference, design token or check is changed.
+
+This is unmerged candidate evidence, not full feature completion. Per-prompt
+reviewed context, forwarding, streaming, shared Stop and remaining combined
+qualification remain open. All original 16 criteria and the uncertain live Telos
+edit remain retained. No live models, deployment or runtime/device acceptance occur.
+
 ## 10 November 2026 long-discussion delivery candidate
 
 The published candidate is [PR #1279](https://github.com/dimakis/mitzo/pull/1279).

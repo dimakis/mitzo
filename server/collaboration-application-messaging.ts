@@ -139,13 +139,15 @@ export class ApplicationCollaborationMessaging {
     const terminal =
       replies.length > 0 &&
       replies.every((delivery) => {
+        if (['failed', 'unavailable'].includes(delivery.status)) return true;
         // The retained receipt owns this observation after a participant leaves.
         // Its exact command may be terminal without allowing transcript reads
         // or a new dispatch to that now-unavailable recipient.
         if (!delivery.commandId) return false;
         const command = this.store.getSendCommand(delivery.commandId);
         if (command?.sessionId !== delivery.sessionId) return false;
-        return !!this.store.getOrdinaryProviderTurnTerminal(delivery.sessionId, delivery.commandId);
+        const outcome = this.port.observedOutcome?.(auth, delivery.sessionId, delivery.commandId);
+        return !!outcome && outcome !== 'uncertain';
       });
     return { message, terminal };
   }
@@ -545,6 +547,12 @@ export class ApplicationCollaborationMessaging {
         after = message.sequence;
         for (const delivery of message.deliveries) {
           if (delivery.purpose !== 'reply' || !delivery.commandId) continue;
+          this.store.collaborationConversation.recordReplyOutcome(
+            group,
+            message.messageId,
+            delivery.deliveryId,
+            (sessionId, commandId) => this.port.observedOutcome?.(auth, sessionId, commandId),
+          );
           // Historical receipts survive unlinking and hiding; never reopen a revoked source.
           if (
             !view.participantSessionIds.includes(delivery.sessionId) ||

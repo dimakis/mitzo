@@ -44,6 +44,8 @@ function port(
   deliverOrdinary: OrdinarySessionPromptPort['deliverOrdinary'],
 ): OrdinarySessionPromptPort {
   return {
+    observedOutcome: (_auth, sessionId, commandId) =>
+      store.getOrdinaryProviderTurnTerminal(sessionId, commandId),
     deliverOrdinary,
     authorized: () => true,
     inspect: async () => ({ busy: false }),
@@ -329,6 +331,46 @@ it('keeps unexpected pending-inventory failures observable without accepting a r
   const request = input('one', 'Do not hide the storage failure');
   await expect(owner.send(auth, group, request, new AbortController().signal)).rejects.toBe(cause);
   expect(store.collaborationConversation.getMessageForRequest(group, request)).toBeNull();
+  expect(prompts).toEqual([]);
+});
+
+it('renews retained outcomes after native uncertainty without changing delivery or replaying', () => {
+  const { message, delivery } = retainedPrompt();
+  const record = (outcome: 'completed' | 'uncertain' | undefined) =>
+    store.collaborationConversation.recordReplyOutcome(
+      group,
+      message.messageId,
+      delivery.deliveryId,
+      () => outcome,
+    );
+  record('completed');
+  record(undefined);
+  expect(
+    store.collaborationConversation
+      .getMessage(group, message.messageId)!
+      .deliveries.find((d) => d.deliveryId === delivery.deliveryId),
+  ).toMatchObject({
+    outcome: 'uncertain',
+    revision: 3,
+    status: 'queued',
+    commandId: 'initial-two',
+  });
+  record('completed');
+  const confirmed = store.collaborationConversation.getMessage(group, message.messageId)!;
+  record('completed');
+  expect(store.collaborationConversation.getMessage(group, message.messageId)).toEqual(confirmed);
+  const cause = Error('Synthetic native outcome read failed');
+  expect(() =>
+    store.collaborationConversation.recordReplyOutcome(
+      group,
+      message.messageId,
+      delivery.deliveryId,
+      () => {
+        throw cause;
+      },
+    ),
+  ).toThrow(cause);
+  expect(store.collaborationConversation.getMessage(group, message.messageId)).toEqual(confirmed);
   expect(prompts).toEqual([]);
 });
 

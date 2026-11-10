@@ -11,6 +11,7 @@ import {
   sharedPrompt,
   sharedReply,
   settings,
+  uuid,
 } from '../fixtures/symposium-shared-conversation-data';
 
 // Intercepted presentation only; actual authenticated application acceptance is separate.
@@ -164,6 +165,162 @@ for (const theme of ['dark', 'light'])
       expect(errors).toEqual([]);
       await page.screenshot({
         path: info.outputPath('shared-composer-' + theme + '.png'),
+        fullPage: true,
+      });
+    },
+  );
+
+for (const theme of ['dark', 'light'])
+  test(
+    'shared composer: Defaults preserves independent recipient recovery (' + theme + ')',
+    async ({ page, isMobile }, info) => {
+      const files = (await bundle).outputFiles!;
+      const view = sharedConversationView();
+      view.messages = [];
+      view.policies.find((policy) => policy.sessionId === 'reviewer')!.repliesByDefault = true;
+      view.joinedParticipants = [{ sessionId: 'reviewer', name: 'Reviewer' }];
+      let original: typeof sharedPrompt | undefined;
+      let input: ReturnType<typeof CollaborationMessageInputSchema.parse> | undefined;
+      let sends = 0;
+      let settled = false;
+      const observations: unknown[] = [];
+      const errors: string[] = [];
+      page.on('pageerror', (error) => errors.push(error.message));
+      await page.route('**/*', async (route) => {
+        const path = new URL(route.request().url()).pathname;
+        if (path === '/api/auth/check')
+          return route.fulfill({ json: { ok: true, authSessionId: 'offline-multi-login' } });
+        if (path.endsWith('/source-setup'))
+          return route.fulfill({
+            json: {
+              state: 'selected',
+              sourceConversationId: 'architect',
+              collaboration: {
+                version: 1,
+                collaborationId: view.collaborationId,
+                revision: view.membershipRevision,
+                participantSessionIds: view.participantSessionIds,
+              },
+            },
+          });
+        if (path.endsWith('/conversation')) return route.fulfill({ json: view });
+        if (path.includes('/recipients/'))
+          return route.fulfill({
+            json: {
+              collaborationId: view.collaborationId,
+              sessionId: decodeURIComponent(path.split('/').at(-1)!),
+              membershipRevision: view.membershipRevision,
+              policySequence: view.policySequence,
+              ready: true,
+              reason: null,
+            },
+          });
+        if (path.endsWith('/messages/observe')) {
+          observations.push(route.request().postDataJSON());
+          if (original && settled) {
+            original = CollaborationMessageSchema.parse({
+              ...original,
+              deliveries: original.deliveries.map((delivery) =>
+                delivery.sessionId === 'reviewer'
+                  ? { ...delivery, outcome: 'failed', revision: 3 }
+                  : delivery,
+              ),
+            });
+            view.messages[0] = original;
+            view.cursor = 3;
+          }
+          return route.fulfill({ json: { message: original ?? null, terminal: settled } });
+        }
+        if (path.endsWith('/messages')) {
+          input = CollaborationMessageInputSchema.parse(route.request().postDataJSON());
+          expect(input.responders).toEqual({ kind: 'default' });
+          sends++;
+          original = CollaborationMessageSchema.parse({
+            ...sharedPrompt,
+            text: input.text,
+            deliveries: sharedPrompt.deliveries.map((delivery) =>
+              delivery.purpose === 'reply'
+                ? {
+                    ...delivery,
+                    status: 'delivered',
+                    outcome: delivery.sessionId === 'architect' ? 'completed' : 'uncertain',
+                  }
+                : delivery,
+            ),
+          });
+          view.messages = [original, { ...sharedReply, projectionId: uuid(88) }];
+          return route.fulfill({ json: original });
+        }
+        const file = files.find((file) =>
+          path.endsWith(file.path.endsWith('.css') ? '.css' : '.js'),
+        );
+        if (file)
+          return route.fulfill({
+            body: file.text,
+            contentType: file.path.endsWith('.css') ? 'text/css' : 'text/javascript',
+          });
+        if (path !== '/') return route.abort();
+        return route.fulfill({
+          contentType: 'text/html',
+          body:
+            '<!doctype html><html data-theme="' +
+            theme +
+            '" data-accent="' +
+            (theme === 'dark' ? 'mint' : 'teal') +
+            '" data-font="' +
+            (theme === 'dark' ? 'system' : 'georgia') +
+            '"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="/fixture.css"><style>html,body,#root{margin:0;height:100%;overflow:hidden}</style><div id="root"></div><script src="/fixture.js"></script></html>',
+        });
+      });
+      await page.setViewportSize({ width: isMobile ? 320 : 1280, height: 844 });
+      await page.emulateMedia({ reducedMotion: 'reduce' });
+      await page.goto('/');
+      const picker = page.getByRole('button', { name: 'Choose who replies' });
+      await picker.focus();
+      await picker.press('Enter');
+      await page.getByRole('button', { name: 'Defaults', exact: true }).click();
+      await expect(
+        page.getByRole('checkbox', { name: 'Current agent', exact: true }),
+      ).toBeChecked();
+      await expect(page.getByRole('checkbox', { name: 'Reviewer', exact: true })).toBeChecked();
+      await page.getByRole('button', { name: 'Done choosing replies' }).click();
+      await expect(picker).toBeFocused();
+      const composer = page.getByRole('textbox', { name: 'Message Mitzo' });
+      await composer.fill('Both agents: review independently.');
+      const send = page.getByRole('button', { name: 'Send message' });
+      await expect(send).toBeEnabled();
+      await send.click();
+      await expect(page.getByText(sharedReply.text)).toBeVisible();
+      await expect(page.getByRole('button', { name: 'Check original request' })).toBeVisible();
+      await composer.fill('Keep the next draft while the other agent is uncertain.');
+      await page.reload();
+      await expect(composer).toHaveValue('Keep the next draft while the other agent is uncertain.');
+      await expect(picker).toBeDisabled();
+      await page.getByRole('button', { name: 'Check original request' }).click();
+      expect(sends).toBe(1);
+      expect(observations).not.toHaveLength(0);
+      for (const observation of observations) expect(observation).toEqual(input);
+      settled = true;
+      await page.getByRole('button', { name: 'Check original request' }).click();
+      await expect(picker).toBeEnabled();
+      const receipt = page.getByText(/1 recipient needs attention/);
+      await expect(receipt).toBeVisible();
+      await receipt.click();
+      await expect(page.getByText('Reply failed', { exact: true })).toBeVisible();
+      await expect(page.getByText('Reply completed', { exact: true })).toBeVisible();
+      await expect(page.getByText('Context pending · no response requested')).toBeVisible();
+      await expect(page.getByText(sharedReply.text)).toBeVisible();
+      await expect(composer).toHaveValue('Keep the next draft while the other agent is uncertain.');
+      expect(sends).toBe(1);
+      if (isMobile) expect((await send.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+      expect(
+        await page
+          .locator('main')
+          .evaluate((element) => element.scrollWidth <= element.clientWidth),
+      ).toBe(true);
+      expect(errors).toEqual([]);
+      await page.screenshot({
+        path: info.outputPath('shared-composer-multi-' + theme + '.png'),
         fullPage: true,
       });
     },

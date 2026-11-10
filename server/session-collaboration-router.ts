@@ -30,6 +30,9 @@ import type { CollaborationApplicationReview } from './collaboration-application
 import type { EventStore } from './event-store.js';
 import type { ApplicationCollaborationMessaging } from './collaboration-application-messaging.js';
 import { recentAuthorizationSession, requireSameOriginJson } from './connections-router.js';
+import { createLogger } from './logger.js';
+
+const log = createLogger('collaboration-router');
 
 function failure(res: Response, error: unknown, dispatchNotStarted = false) {
   if (error instanceof CollaborationContractError) {
@@ -51,6 +54,12 @@ function failure(res: Response, error: unknown, dispatchNotStarted = false) {
     return res
       .status(error.code === 'not_found' ? 404 : error.code === 'conflict' ? 409 : 400)
       .json({ error: error.message });
+  log.error('Collaboration request could not be completed', {
+    err: error,
+    code: 'collaboration_request_failed',
+    stage: 'collaboration_request',
+    route: res.req.route?.path,
+  });
   return res
     .status(503)
     .json({ error: 'Collaboration links could not be checked. Refresh before retrying.' });

@@ -14,6 +14,7 @@ import type { OwnedOrdinaryDispatchInput } from './ordinary-scoped-command.js';
 import type { OrdinaryTurnLifecycle } from './ordinary-turn-lifecycle.js';
 import type { SessionPromptPort } from './session-prompt-service.js';
 import type { V2HandlerContext } from './ws-handler-v2.js';
+import type { CodexConversationStore } from './codex-conversation-store.js';
 
 export function sessionPromptText(delivery: SessionPromptDelivery) {
   const source =
@@ -36,6 +37,12 @@ export interface OrdinarySessionPrompt {
   turnLifecycle?: OrdinaryTurnLifecycle;
 }
 export interface OrdinarySessionPromptPort extends SessionPromptPort {
+  /** Sanitized observation only; uncertain effects never become a settled reply. */
+  observedOutcome?(
+    auth: AuthSession,
+    sessionId: string,
+    commandId: string,
+  ): 'completed' | 'failed' | 'interrupted' | 'uncertain' | undefined;
   /** Read-only ordinary owner/capability check; no allocation, binding or turn. */
   inspectCollaboration?(prompt: OrdinarySessionPrompt): Promise<void>;
   deliverOrdinary(
@@ -50,6 +57,7 @@ export interface OrdinarySessionPromptPort extends SessionPromptPort {
 export function createSessionPromptPort(
   ctx: Pick<V2HandlerContext, 'eventStore' | 'sessionRegistry'> & {
     connRegistry: Pick<V2HandlerContext['connRegistry'], 'broadcast'>;
+    ordinaryCommands?: () => Pick<CodexConversationStore, 'settledCommandOutcome'>;
   },
 ): OrdinarySessionPromptPort {
   const bindings = new Map<string, () => void>();
@@ -311,6 +319,19 @@ export function createSessionPromptPort(
     }
   }
   return {
+    observedOutcome(auth, sessionId, commandId) {
+      if (!authorized(auth))
+        throw new SessionPromptError('Session authorization expired or was revoked.', 403);
+      if (ctx.eventStore.getSendCommand(commandId)?.sessionId !== sessionId) return;
+      const terminal = ctx.eventStore.getOrdinaryProviderTurnTerminal(sessionId, commandId);
+      if (!terminal) return;
+      const binding = ctx.eventStore.getSession(sessionId)?.accountBinding;
+      if (!binding || !ctx.ordinaryCommands) return 'uncertain';
+      return ctx.ordinaryCommands().settledCommandOutcome(sessionId, binding, commandId) ===
+        terminal
+        ? terminal
+        : 'uncertain';
+    },
     maintenanceHeld: () => !!ctx.eventStore.deployment.active(),
     authorized,
     async inspectCollaboration(prompt) {

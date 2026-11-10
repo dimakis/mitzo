@@ -121,7 +121,9 @@ it('projects replayed recipient failures without deleting another recipient repl
       <CollaborationTranscript projection={projection} names={names} />
     </MemoryRouter>,
   );
-  fireEvent.click(screen.getByText('To Architect, Reviewer · Context for Reader'));
+  fireEvent.click(
+    screen.getByText('To Architect, Reviewer · Context for Reader · 1 recipient needs attention'),
+  );
   expect(screen.getByText('Prompt failed')).toBeTruthy();
   expect(screen.getByText('Definite refusal')).toBeTruthy();
   expect(screen.getByText(sharedReply.text)).toBeTruthy();

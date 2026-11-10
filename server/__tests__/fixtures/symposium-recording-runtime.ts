@@ -18,6 +18,11 @@ export async function recordApplicationMessagingRuntime(events: EventStore) {
       ),
     );
   const requests: Array<{ method: string; params: Record<string, unknown> }> = [];
+  const heldTurns = new Set<number>();
+  const pendingTurns = new Map<
+    number,
+    (status: 'completed' | 'failed', failure?: 'context') => void
+  >();
   // The account catalog uses a separate read-only native discovery process.
   // Keep its real cache/qualification owner; substitute only the external RPC.
   const discoveryClient = () =>
@@ -54,6 +59,13 @@ export async function recordApplicationMessagingRuntime(events: EventStore) {
     .spyOn(CodexAppServerClient, 'launchIsolated')
     .mockImplementation((_home, _env, lifecycle) => {
       const threadId = `private-native-thread-${++nativeThreads}`;
+      let retainedTurn:
+        | {
+            id: string;
+            status: 'inProgress' | 'completed' | 'failed';
+            error?: { codex_error_info: string };
+          }
+        | undefined;
       return {
         initialize: async () => {},
         close: () => {},
@@ -83,27 +95,46 @@ export async function recordApplicationMessagingRuntime(events: EventStore) {
               model: 'fixture-model',
               modelProvider: 'openai',
             };
+          if (method === 'thread/turns/list') {
+            if (params.threadId !== threadId || !retainedTurn)
+              throw Error('Unknown synthetic native recovery thread');
+            return {
+              data: [{ ...retainedTurn, error: retainedTurn.error ?? null }],
+              nextCursor: null,
+            };
+          }
           if (method === 'turn/start') {
             const turnNumber = requests.filter((r) => r.method === 'turn/start').length;
             const turnId = `private-native-turn-${turnNumber}`;
+            retainedTurn = { id: turnId, status: 'inProgress' };
             setTimeout(() => {
               lifecycle!.onNotification('turn/started', {
                 threadId,
                 turn: { id: turnId, status: 'inProgress' },
               });
-              lifecycle!.onNotification('item/completed', {
-                threadId,
-                turnId,
-                item: {
-                  id: `native-answer-${turnNumber}`,
-                  type: 'agentMessage',
-                  text: 'Reviewed the selected design.',
-                },
-              });
-              lifecycle!.onNotification('turn/completed', {
-                threadId,
-                turn: { id: turnId, status: 'completed' },
-              });
+              const finish = (status: 'completed' | 'failed', failure?: 'context') => {
+                const error =
+                  failure === 'context'
+                    ? { codex_error_info: 'context_window_exceeded' }
+                    : undefined;
+                retainedTurn = { id: turnId, status, error };
+                if (status === 'completed')
+                  lifecycle!.onNotification('item/completed', {
+                    threadId,
+                    turnId,
+                    item: {
+                      id: `native-answer-${turnNumber}`,
+                      type: 'agentMessage',
+                      text: 'Reviewed the selected design.',
+                    },
+                  });
+                lifecycle!.onNotification('turn/completed', {
+                  threadId,
+                  turn: { id: turnId, status, ...(error ? { error } : {}) },
+                });
+              };
+              if (heldTurns.has(turnNumber)) pendingTurns.set(turnNumber, finish);
+              else finish('completed');
             }, 10);
             return { turn: { id: turnId } };
           }
@@ -113,6 +144,13 @@ export async function recordApplicationMessagingRuntime(events: EventStore) {
     });
   return {
     requests,
+    holdTurn: (turnNumber: number) => heldTurns.add(turnNumber),
+    finishTurn: (turnNumber: number, status: 'completed' | 'failed', failure?: 'context') => {
+      const finish = pendingTurns.get(turnNumber);
+      if (!finish) throw Error('Synthetic turn is not waiting');
+      pendingTurns.delete(turnNumber);
+      finish(status, failure);
+    },
     revokeSource: () => {
       revokeSourceOnQualification = true;
     },

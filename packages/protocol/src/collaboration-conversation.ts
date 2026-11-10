@@ -175,6 +175,8 @@ export const CollaborationDeliverySchema = z.strictObject({
   status: CollaborationDeliveryReceiptInputSchema.shape.status,
   commandId: id.nullable(),
   reason: z.string().max(1000).nullable(),
+  /** Current ordinary termination/effects observation, independent of prompt acknowledgement. */
+  outcome: z.enum(['completed', 'failed', 'interrupted', 'uncertain']).optional(),
 });
 /** Reference only. Exact retained forwarding bytes stay with the host storage owner. */
 export const CollaborationForwardReferenceSchema = z.strictObject({

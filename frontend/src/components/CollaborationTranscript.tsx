@@ -24,6 +24,13 @@ type Props = Omit<
 } & Partial<Pick<ChatAreaProps, 'current' | 'running' | 'permission' | 'onPermissionRespond'>>;
 
 function receiptLabel(delivery: CollaborationDelivery) {
+  if (delivery.purpose === 'reply' && delivery.outcome)
+    return {
+      completed: 'Reply completed',
+      failed: 'Reply failed',
+      interrupted: 'Reply stopped',
+      uncertain: 'Outcome uncertain · do not resend',
+    }[delivery.outcome];
   if (delivery.status === 'uncertain') return 'Outcome uncertain · do not resend';
   if (delivery.purpose === 'context') {
     if (delivery.status === 'pending') return 'Context pending · no response requested';
@@ -115,12 +122,23 @@ export function CollaborationTranscript({
         const message = messages.get(id);
         if (!message?.deliveries.length) return null;
         const readers = message.readers.filter((reader) => !message.responders.includes(reader));
+        const failed = message.deliveries.filter(
+          (delivery) =>
+            delivery.purpose === 'reply' &&
+            (delivery.outcome === 'failed' || ['failed', 'unavailable'].includes(delivery.status)),
+        ).length;
         return (
-          <details className="conversation-delivery-details">
+          <details
+            className="conversation-delivery-details"
+            data-message-deliveries={message.projectionId}
+          >
             <summary>
               {[
                 message.responders.length ? `To ${message.responders.map(name).join(', ')}` : '',
                 readers.length ? `Context for ${readers.map(name).join(', ')}` : '',
+                failed
+                  ? `${failed} ${failed === 1 ? 'recipient needs' : 'recipients need'} attention`
+                  : '',
               ]
                 .filter(Boolean)
                 .join(' · ')}

@@ -6,6 +6,7 @@ import { createChatDraft, getChatDraft, saveChatDraft } from '../../lib/chat-dra
 import {
   sharedConversationView,
   sharedPrompt,
+  sharedReply,
   uuid,
 } from '../../../../tests/fixtures/symposium-shared-conversation-data';
 import { useConversationSending } from '../useConversationSending';
@@ -237,7 +238,16 @@ it.each([false, true])(
     expect(getChatDraft(draft.id)?.collaborationSend).toBeDefined();
     const fetch = vi.fn(async (url: string) => {
       if (url.endsWith('/messages/observe'))
-        return Response.json({ message: sharedPrompt, terminal: empty });
+        return Response.json({
+          message: {
+            ...sharedPrompt,
+            responders: ['architect'],
+            readers: ['architect'],
+            settings: { architect: sharedPrompt.settings.architect },
+            deliveries: sharedPrompt.deliveries.filter((d) => d.sessionId === 'architect'),
+          },
+          terminal: true,
+        });
       if (url.includes('/recipients/'))
         return Response.json({
           collaborationId: view.collaborationId,
@@ -265,6 +275,276 @@ it.each([false, true])(
     );
     await waitFor(() => expect(getChatDraft(draft.id)?.collaborationSend).toBeUndefined());
     await waitFor(() => expect(hook.result.current.disabledReason).toBeUndefined());
-    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(fetch).toHaveBeenCalledTimes(3);
+  },
+);
+
+it.each(['default', 'all', 'selected'] as const)(
+  'retains %s intent and verifies readiness and receipts for every responder',
+  async (kind) => {
+    const view = sharedConversationView();
+    view.policies.find((p) => p.sessionId === 'reviewer')!.repliesByDefault = true;
+    const ids = kind === 'all' ? view.participantSessionIds : ['architect', 'reviewer'];
+    const responders = kind === 'selected' ? { kind, sessionIds: ids } : { kind };
+    const draft = createChatDraft();
+    saveChatDraft({ ...draft, text: 'Answer independently' });
+    const submissions: unknown[] = [];
+    const readiness: string[] = [];
+    const fetch = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url.includes('/recipients/')) {
+        const sessionId = url.split('/').at(-1)!;
+        readiness.push(sessionId);
+        return Response.json({
+          collaborationId: view.collaborationId,
+          sessionId,
+          membershipRevision: view.membershipRevision,
+          policySequence: view.policySequence,
+          ready: true,
+          reason: null,
+        });
+      }
+      if (url.endsWith('/messages')) {
+        const input = JSON.parse(String(init?.body));
+        submissions.push(input);
+        return Response.json({
+          ...sharedPrompt,
+          text: input.text,
+          responders: ids,
+          deliveries: sharedPrompt.deliveries.map((d) => ({
+            ...d,
+            purpose: ids.includes(d.sessionId) ? 'reply' : 'context',
+            status: 'queued',
+          })),
+        });
+      }
+      throw Error('Unexpected request');
+    });
+    const api = new CollaborationApiClient(fetch);
+    const proof = () => 'login';
+    const refresh = vi.fn(async () => view);
+    const hook = renderHook(() =>
+      useConversationSending({
+        api,
+        view,
+        draftId: draft.id,
+        authScope: 'login',
+        getVerifiedAuthScope: proof,
+        responders,
+        refresh,
+      }),
+    );
+    await waitFor(() => expect(hook.result.current.disabledReason).toBeUndefined());
+    expect(readiness).toEqual(ids);
+    await act(async () =>
+      expect(await hook.result.current.send('Answer independently')).toBe(true),
+    );
+    expect(submissions).toHaveLength(1);
+    expect(submissions[0]).toMatchObject({ responders });
+    expect(getChatDraft(draft.id)?.collaborationSend?.input.responders).toEqual(responders);
+    expect(hook.result.current.pending).toBeDefined();
+  },
+);
+
+it('keeps partial replies and original Defaults recovery until all reply recipients settle', async () => {
+  const view = sharedConversationView();
+  view.policySequence = 1;
+  for (const policy of view.policies) policy.repliesByDefault = policy.sessionId === 'reader';
+  const draft = createChatDraft();
+  const original = {
+    requestId: uuid(91),
+    expectedMembershipRevision: 1,
+    expectedPolicySequence: 0,
+    text: sharedPrompt.text,
+    responders: { kind: 'default' as const },
+    snapshot: null,
+  };
+  saveChatDraft({
+    ...draft,
+    collaborationSend: {
+      collaborationId: view.collaborationId,
+      authScope: 'login',
+      input: original,
+    },
+  });
+  let completed = false;
+  const observations: unknown[] = [];
+  const readiness: string[] = [];
+  const fetch = vi.fn(async (url: string, init?: RequestInit) => {
+    if (url.endsWith('/messages/observe')) {
+      observations.push(JSON.parse(String(init?.body)));
+      return Response.json({
+        message: {
+          ...sharedPrompt,
+          deliveries: sharedPrompt.deliveries.map((d) =>
+            completed && d.sessionId === 'reviewer' ? { ...d, status: 'failed' } : d,
+          ),
+        },
+        terminal: completed,
+      });
+    }
+    if (url.includes('/recipients/')) {
+      const sessionId = url.split('/').at(-1)!;
+      readiness.push(sessionId);
+      return Response.json({
+        collaborationId: view.collaborationId,
+        sessionId,
+        membershipRevision: 1,
+        policySequence: 1,
+        ready: true,
+        reason: null,
+      });
+    }
+    throw Error('Recovery must never submit or replay a command');
+  });
+  const api = new CollaborationApiClient(fetch);
+  const proof = () => 'login';
+  const refresh = vi.fn(async () => view);
+  const props = {
+    api,
+    view,
+    draftId: draft.id,
+    authScope: 'login',
+    getVerifiedAuthScope: proof,
+    responders: { kind: 'default' as const },
+    refresh,
+  };
+  const first = renderHook(() => useConversationSending(props));
+  await waitFor(() => expect(refresh).toHaveBeenCalledOnce());
+  expect(getChatDraft(draft.id)?.collaborationSend?.input).toEqual(original);
+  expect(first.result.current.disabledReason).toMatch(/original request/);
+  expect(view.messages).toContainEqual(sharedReply);
+  expect(readiness).toEqual([]);
+  first.unmount();
+  const recovered = renderHook(() => useConversationSending(props));
+  await waitFor(() => expect(refresh).toHaveBeenCalledTimes(2));
+  expect(getChatDraft(draft.id)?.collaborationSend).toBeDefined();
+  completed = true;
+  await act(async () => recovered.result.current.check());
+  expect(getChatDraft(draft.id)?.collaborationSend).toBeUndefined();
+  expect(recovered.result.current.disabledReason).toBeUndefined();
+  expect(readiness).toEqual(['reader']);
+  expect(observations).toEqual([original, original, original, original]);
+});
+
+it('requires every resolved recipient to be ready before accepting Defaults', async () => {
+  const view = sharedConversationView();
+  view.policies.find((p) => p.sessionId === 'reviewer')!.repliesByDefault = true;
+  const draft = createChatDraft();
+  saveChatDraft(draft);
+  const fetch = vi.fn(async (url: string) => {
+    if (!url.includes('/recipients/')) throw Error('No send is authorized by partial readiness');
+    const sessionId = url.split('/').at(-1)!;
+    return Response.json({
+      collaborationId: view.collaborationId,
+      sessionId,
+      membershipRevision: 1,
+      policySequence: 0,
+      ready: sessionId === 'architect',
+      reason: sessionId === 'architect' ? null : 'Reviewer needs attention.',
+    });
+  });
+  const api = new CollaborationApiClient(fetch);
+  const proof = () => 'login';
+  const refresh = vi.fn(async () => view);
+  const hook = renderHook(() =>
+    useConversationSending({
+      api,
+      view,
+      draftId: draft.id,
+      authScope: 'login',
+      getVerifiedAuthScope: proof,
+      responders: { kind: 'default' },
+      refresh,
+    }),
+  );
+  await waitFor(() => expect(hook.result.current.disabledReason).toBe('Reviewer needs attention.'));
+  await act(async () => expect(await hook.result.current.send('Do not send')).toBe(false));
+  expect(fetch).toHaveBeenCalledTimes(2);
+  expect(getChatDraft(draft.id)?.collaborationSend).toBeUndefined();
+});
+
+it.each(['visible_text', 'revoked_during_refresh'] as const)(
+  'retains the original until renewed authoritative settlement (%s)',
+  async (scenario) => {
+    const view = sharedConversationView();
+    const message = structuredClone(sharedPrompt);
+    view.messages = [
+      message,
+      sharedReply,
+      {
+        ...sharedReply,
+        messageId: uuid(92),
+        projectionId: uuid(93),
+        author: { sessionId: 'reviewer' },
+        source: {
+          ...sharedReply.source!,
+          conversationId: 'reviewer',
+          commandId: 'ordinary-reviewer',
+        },
+        replyToDeliveryId: message.deliveries[1].deliveryId,
+      },
+    ];
+    const draft = createChatDraft();
+    const input = {
+      requestId: uuid(94),
+      expectedMembershipRevision: 1,
+      expectedPolicySequence: 0,
+      text: message.text,
+      responders: { kind: 'selected' as const, sessionIds: message.responders },
+      snapshot: null,
+    };
+    saveChatDraft({
+      ...draft,
+      text: 'Next draft',
+      collaborationSend: { collaborationId: view.collaborationId, authScope: 'login', input },
+    });
+    let terminal = scenario === 'revoked_during_refresh';
+    let revoke = scenario === 'revoked_during_refresh';
+    const observations: unknown[] = [];
+    const fetch = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url.endsWith('/messages/observe')) {
+        observations.push(JSON.parse(String(init?.body)));
+        return Response.json({ message, terminal });
+      }
+      if (url.includes('/recipients/'))
+        return Response.json({
+          collaborationId: view.collaborationId,
+          sessionId: url.split('/').at(-1),
+          membershipRevision: 1,
+          policySequence: 0,
+          ready: true,
+          reason: null,
+        });
+      throw Error('Settlement cannot submit or replay a command');
+    });
+    const api = new CollaborationApiClient(fetch);
+    const proof = () => 'login';
+    const refresh = vi.fn(async () => {
+      if (revoke) {
+        revoke = false;
+        terminal = false;
+        message.deliveries[0].outcome = 'uncertain';
+      }
+      return view;
+    });
+    const hook = renderHook(() =>
+      useConversationSending({
+        api,
+        view,
+        draftId: draft.id,
+        authScope: 'login',
+        getVerifiedAuthScope: proof,
+        responders: input.responders,
+        refresh,
+      }),
+    );
+    await waitFor(() => expect(observations).toHaveLength(scenario === 'visible_text' ? 1 : 2));
+    expect(getChatDraft(draft.id)?.collaborationSend?.input).toEqual(input);
+    expect(hook.result.current.disabledReason).toMatch(/original request/);
+    terminal = true;
+    await act(async () => hook.result.current.check());
+    expect(getChatDraft(draft.id)?.collaborationSend).toBeUndefined();
+    expect(hook.result.current.disabledReason).toBeUndefined();
+    for (const observed of observations) expect(observed).toEqual(input);
   },
 );
