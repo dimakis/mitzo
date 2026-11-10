@@ -187,6 +187,14 @@ for (const theme of ['dark', 'light'])
     await page.emulateMedia({ reducedMotion: 'reduce' });
     await page.goto('/sessions');
     await expect(page.getByRole('button', { name: 'New chat', exact: true })).toBeVisible();
+    const newChat = page.getByRole('button', { name: 'New chat', exact: true });
+    await expect(newChat).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
+    await expect(newChat).toHaveCSS('border-top-width', '0px');
+    if (isMobile) {
+      await page.getByRole('link', { name: 'Search chats', exact: true }).click();
+      await expect(page.getByRole('textbox', { name: 'Search conversations' })).toBeFocused();
+      await page.getByRole('textbox', { name: 'Search conversations' }).blur();
+    }
     const pinned = page.getByRole('region', { name: 'Pinned conversations' });
     await expect(pinned.locator('.conversation-pin-row')).toHaveCount(6);
     expect(await pinned.evaluate((el) => el.scrollHeight > el.clientHeight)).toBe(true);
@@ -226,6 +234,7 @@ for (const theme of ['dark', 'light'])
         ],
       );
     };
+    const lastRowBefore = await page.locator('.session-list .session-item').last().boundingBox();
     await emit('working', {
       phase: 'reading',
       turnStartedAt: Date.now() - 60_000,
@@ -233,6 +242,12 @@ for (const theme of ['dark', 'light'])
     });
     await expect(page.locator('.session-list .session-item').last()).toContainText('Reading files');
     await expect(page.locator('.session-list .session-item').last()).toContainText('elapsed 1m');
+    expect(
+      Math.abs(
+        (await page.locator('.session-list .session-item').last().boundingBox())!.height -
+          lastRowBefore!.height,
+      ),
+    ).toBeLessThanOrEqual(1);
     const bars = page.locator('.session-list .session-activity-bars');
     await expect(bars).toBeVisible();
     await expect(rows).toHaveText(initialOrder);

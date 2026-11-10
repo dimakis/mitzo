@@ -2,12 +2,50 @@
 import { afterEach, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { ChatArea } from '../ChatArea';
+import { ReplyQuote } from '../ReplyQuote';
 vi.mock('../MessageBubble', () => ({
   UserBubble: ({ text }: { text?: string }) => <p>{text}</p>,
   TextBubble: ({ content }: { content: string }) => <p>{content}</p>,
 }));
 
 afterEach(cleanup);
+it('uses the composer quote to navigate only its own conversation and return focus', () => {
+  HTMLElement.prototype.scrollIntoView = vi.fn();
+  render(
+    <>
+      <ChatArea
+        sessionId="current"
+        messages={[
+          {
+            messageId: 'old',
+            role: 'assistant',
+            blocks: [{ blockId: 'old-text', blockType: 'text', content: 'Original' }],
+          },
+        ]}
+        current={null}
+        running={false}
+        permission={null}
+        onPermissionRespond={vi.fn()}
+      />
+      <ReplyQuote
+        sessionId="other"
+        reply={{ messageId: 'old', role: 'assistant', text: 'Other chat selection' }}
+      />
+      <ReplyQuote
+        sessionId="current"
+        reply={{ messageId: 'old', role: 'assistant', text: 'Current selection' }}
+      />
+    </>,
+  );
+  fireEvent.click(screen.getByRole('button', { name: 'Replying to: Other chat selection' }));
+  expect(screen.queryByRole('button', { name: 'Back to reply' })).toBeNull();
+  const opener = screen.getByRole('button', { name: 'Replying to: Current selection' });
+  fireEvent.click(opener);
+  expect(document.activeElement?.getAttribute('data-reply-source')).toBe('old');
+  expect(document.activeElement?.classList.contains('chat-reply-target')).toBe(true);
+  fireEvent.click(screen.getByRole('button', { name: 'Back to reply' }));
+  expect(document.activeElement).toBe(opener);
+});
 it('quotes an exact earlier assistant message and returns from its source', () => {
   HTMLElement.prototype.scrollIntoView = vi.fn();
   const messages = [

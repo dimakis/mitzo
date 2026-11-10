@@ -15,8 +15,7 @@ export function approvalPresentation(input: string, _toolName?: string) {
   try {
     data = object(JSON.parse(input));
   } catch {
-    // Plain shell requests are supported; unknown non-JSON tools retain open details.
-    // A non-JSON input keeps its complete original display under open details.
+    // Unknown/non-JSON inputs retain their complete original display under open details.
   }
   const native =
     typeof data.method === 'string' &&
@@ -74,12 +73,21 @@ export function approvalPresentation(input: string, _toolName?: string) {
       value: strings(params.proposedExecpolicyAmendment).join(' '),
     });
   if (text(params.grantRoot)) facts.push({ label: 'Grant root', value: text(params.grantRoot) });
-  if (Array.isArray(data.fileChangePaths))
+  if (strings(data.fileChangePaths).length)
     facts.push({ label: 'Changed files', value: strings(data.fileChangePaths).join('\n') });
   const executable = command.match(/^(?:\/[\w.-]+\/)*([\w.-]+)(?:\s|$)/)?.[1];
   const heading =
     native && command
       ? `Run ${executable && executable.length <= 30 ? executable : 'command'}${network.enabled === true ? ' with network access' : ''}`
       : undefined;
-  return { facts, heading, reason: text(params.reason), recognized: facts.length > 0 };
+  const unknownPermissions = Object.keys(permissions).some(
+    (key) => !['network', 'fileSystem', 'file_system'].includes(key),
+  );
+  const incompleteCommand = data.method === 'item/commandExecution/requestApproval' && !command;
+  return {
+    facts,
+    heading,
+    reason: text(params.reason),
+    recognized: facts.length > 0 && !unknownPermissions && !incompleteCommand,
+  };
 }

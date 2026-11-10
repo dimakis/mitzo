@@ -1,4 +1,5 @@
 import { MessageActions } from './MessageActions';
+import { ReplyQuote, REPLY_NAVIGATION_EVENT } from './ReplyQuote';
 import { SessionLaunchCards } from './SessionLaunchCards';
 import type { SessionLaunchRecord } from '@mitzo/protocol';
 import type { MessageReplyContext } from '@mitzo/protocol';
@@ -184,9 +185,44 @@ export function ChatArea({
   const [replyReturn, setReplyReturn] = useState<{
     source: HTMLElement;
     reply: HTMLButtonElement;
+    sessionId?: string;
   } | null>(null);
   const [replyNotice, setReplyNotice] = useState('');
-  useEffect(() => () => replyReturn?.source.classList.remove('chat-reply-target'), [replyReturn]);
+  useEffect(() => {
+    replyReturn?.source.classList.add('chat-reply-target');
+    return () => replyReturn?.source.classList.remove('chat-reply-target');
+  }, [replyReturn]);
+  const navigateReply = useCallback(
+    (messageId: string, opener: HTMLButtonElement) => {
+      const target = Array.from(
+        scrollRef.current?.querySelectorAll<HTMLElement>('[data-reply-source]') ?? [],
+      ).find((element) => element.dataset.replySource === messageId);
+      if (!target) {
+        setReplyNotice('Original message is not loaded in this conversation.');
+        return;
+      }
+      setReplyNotice('');
+      setReplyReturn({ source: target, reply: opener, sessionId });
+      target.scrollIntoView({ block: 'center' });
+      target.focus({ preventScroll: true });
+    },
+    [scrollRef, sessionId],
+  );
+  useEffect(() => {
+    if (!sessionId) return;
+    const navigate = (event: Event) => {
+      if (
+        !(event instanceof CustomEvent) ||
+        event.detail?.sessionId !== sessionId ||
+        !(event.detail.opener instanceof HTMLButtonElement) ||
+        typeof event.detail.messageId !== 'string'
+      )
+        return;
+      navigateReply(event.detail.messageId, event.detail.opener);
+    };
+    window.addEventListener(REPLY_NAVIGATION_EVENT, navigate);
+    return () => window.removeEventListener(REPLY_NAVIGATION_EVENT, navigate);
+  }, [sessionId, navigateReply]);
   const replySources = useMemo(
     () =>
       new Map(
@@ -224,36 +260,7 @@ export function ChatArea({
     uncertain: 'Correction delivery not confirmed',
   };
   function quote(reply: MessageReplyContext, author = reply.role === 'user' ? 'You' : 'Mitzo') {
-    return (
-      <button
-        type="button"
-        className="chat-reply-link"
-        aria-label={`Replying to: ${reply.text.slice(0, 120)}`}
-        onClick={(event) => {
-          const target = Array.from(
-            scrollRef.current?.querySelectorAll<HTMLElement>('[data-reply-source]') ?? [],
-          ).find((element) => element.dataset.replySource === reply.messageId);
-          if (!target) {
-            setReplyNotice('Original message is not loaded in this conversation.');
-            return;
-          }
-          setReplyNotice('');
-          replyReturn?.source.classList.remove('chat-reply-target');
-          target.classList.add('chat-reply-target');
-          setReplyReturn({ source: target, reply: event.currentTarget });
-          target.scrollIntoView({ block: 'center' });
-          target.focus({ preventScroll: true });
-        }}
-      >
-        <span className="chat-reply-author">{author}</span>
-        {reply.timestamp != null && (
-          <time dateTime={new Date(reply.timestamp).toISOString()}>
-            {new Date(reply.timestamp).toLocaleString()}
-          </time>
-        )}
-        <span className="chat-reply-excerpt">{reply.text}</span>
-      </button>
-    );
+    return <ReplyQuote reply={reply} author={author} onNavigate={navigateReply} />;
   }
   function withActions(message: FinishedMessage, children: ReactNode) {
     const text = message.blocks
@@ -304,10 +311,12 @@ export function ChatArea({
       );
     return quote(
       {
-        messageId: message.replyToMessageId,
+        messageId: original.agentMessage?.message.commandId ?? original.messageId,
         role: original.role === 'user' ? 'user' : 'assistant',
         text,
-        ...(original.timestamp != null ? { timestamp: original.timestamp } : {}),
+        ...((original.agentMessage?.timestamp ?? original.timestamp) != null
+          ? { timestamp: original.agentMessage?.timestamp ?? original.timestamp }
+          : {}),
       },
       original.agentMessage?.senderName ?? (original.role === 'user' ? 'You' : 'Mitzo'),
     );
@@ -869,14 +878,15 @@ export function ChatArea({
         )}
         {afterMessages}
         {replyNotice && <p role="status">{replyNotice}</p>}
-        {replyReturn && (
+        {replyReturn && replyReturn.sessionId === sessionId && (
           <button
             type="button"
             className="chat-reply-return"
             onClick={() => {
-              replyReturn.source.classList.remove('chat-reply-target');
-              replyReturn.reply.scrollIntoView({ block: 'center' });
-              replyReturn.reply.focus({ preventScroll: true });
+              if (replyReturn.reply.isConnected) {
+                replyReturn.reply.scrollIntoView({ block: 'center' });
+                replyReturn.reply.focus({ preventScroll: true });
+              } else setReplyNotice('The reply is no longer loaded in this conversation.');
               setReplyReturn(null);
             }}
           >

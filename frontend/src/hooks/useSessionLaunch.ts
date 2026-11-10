@@ -1,10 +1,21 @@
 import { useCallback, useEffect, useState } from 'react';
-import type { SessionLaunchRecord } from '@mitzo/protocol';
+import {
+  SessionChatLinkSchema,
+  type SessionLaunchRecord,
+  type SessionChatLink,
+} from '@mitzo/protocol';
 import { apiFetch, AUTH_LOST_EVENT } from '../lib/api-fetch';
 import { eventBus } from '../lib/event-bus-singleton';
 
 export type SessionLaunchOriginData = { sessionId: string; title: string };
-type LaunchList = { requests: SessionLaunchRecord[]; origin?: SessionLaunchOriginData };
+export type SessionLinksData = {
+  requests: SessionLaunchRecord[];
+  origin?: SessionLaunchOriginData;
+  links?: SessionChatLink[];
+  refresh(): void;
+  error?: string | null;
+};
+type LaunchList = Omit<SessionLinksData, 'refresh' | 'error'>;
 
 /** One read owner for the transcript, launch receipts and Chat details. */
 export function useSessionLaunch(sessionId: string | null | undefined, enabled = true) {
@@ -52,6 +63,7 @@ export function useSessionLaunch(sessionId: string | null | undefined, enabled =
         if (!response.ok) throw new Error(`session_launch_read_http_${response.status}`);
         const data: LaunchList = await response.json();
         if (!Array.isArray(data.requests)) throw new Error('session_launch_read_invalid');
+        if (data.links) data.links = data.links.map((link) => SessionChatLinkSchema.parse(link));
         if (live && !controller.signal.aborted) {
           setSnapshot({ sessionId, data });
           setFailure(null);

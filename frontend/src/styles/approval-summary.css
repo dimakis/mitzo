@@ -40,6 +40,24 @@
   border-radius: 0;
   background: transparent;
   padding: 0;
+  margin: 0;
+}
+.unified-inbox .collection-inspector.collection-inspector:has(> .notification-detail--request) {
+  border: 0;
+  border-radius: 0;
+  padding: 0;
+  background: transparent;
+}
+.notification-detail--request h2 {
+  font-size: var(--text-lg);
+  margin: var(--space-2) 0;
+}
+@media (max-width: 767px) {
+  .mobile-workspace-body .notification-detail--request {
+    max-height: calc(
+      100dvh - var(--mobile-masthead-height) - var(--mobile-tabs-height) - 4 * var(--control-height)
+    );
+  }
 }
 .notification-detail--request > :not(.notification-request-body) {
   flex-shrink: 0;

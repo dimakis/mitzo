@@ -6,7 +6,11 @@ const { apiFetch, getConnectionsAccess } = vi.hoisted(() => ({
   apiFetch: vi.fn(),
   getConnectionsAccess: vi.fn(),
 }));
-vi.mock('../../lib/api-fetch', () => ({ apiFetch }));
+vi.mock('../../lib/api-fetch', () => ({
+  apiFetch,
+  AUTH_LOST_EVENT: 'mitzo:auth-lost',
+  AUTH_RESTORED_EVENT: 'mitzo:auth-restored',
+}));
 vi.mock('../../lib/connections-access-api', () => ({ getConnectionsAccess }));
 beforeAll(() => {
   HTMLDialogElement.prototype.showModal = function () {
@@ -18,7 +22,7 @@ beforeAll(() => {
 });
 afterEach(() => {
   cleanup();
-  vi.clearAllMocks();
+  vi.resetAllMocks();
 });
 describe('ordinary Access', () => {
   it('opens before session/output exists and returns from Connections without replacing the composer', async () => {
@@ -62,6 +66,7 @@ describe('ordinary Access', () => {
     render(<SessionAccess sessionId="one" onShowApproval={vi.fn()} />);
     fireEvent.click(screen.getByRole('button', { name: 'Links & access' }));
     await screen.findByText('Bash · request');
+    fireEvent.click(screen.getByRole('button', { name: /^Permissions/ }));
     expect(screen.getByRole('button', { name: 'View pending approvals' })).toBeTruthy();
     expect(screen.getByText('Unknown — runtime limits have not been reported here.')).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: 'Refresh Access' }));

@@ -78,6 +78,9 @@ for (const theme of ['dark', 'light']) {
     await expect(dialog.getByLabel('Title', { exact: true })).toHaveValue(/Approval notifications/);
     expect(mutations).toHaveLength(0);
     await dialog.getByLabel('Title', { exact: true }).fill('Approval notifications');
+    await expect(dialog.locator('.session-launch-settings')).not.toHaveAttribute('open', '');
+    await expect(dialog.getByRole('button', { name: 'Approve & start' })).toBeInViewport();
+    await dialog.getByText('Session settings', { exact: true }).click();
     await expect(dialog.getByLabel('Execution host')).toHaveValue('mac');
     await dialog.getByLabel('Execution host').selectOption('build-mac');
     await dialog.getByLabel('Save configuration as default').check();

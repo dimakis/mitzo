@@ -49,11 +49,13 @@ export function LaunchReview({
   onClose,
   onUpdate,
   disabled,
+  create = false,
 }: {
   request: SessionLaunchRecord;
   onClose(): void;
   onUpdate(): void;
   disabled: boolean;
+  create?: boolean;
 }) {
   const [title, setTitle] = useState(request.title);
   const [prompt, setPrompt] = useState(request.prompt);
@@ -82,18 +84,32 @@ export function LaunchReview({
   }, [onClose]);
   const submit = async (action: 'approve' | 'cancel') => {
     if (disabled || busy || authorityLost || attempted || !pending) return;
+    if (create && action === 'cancel') {
+      onClose();
+      return;
+    }
     setAttempted(true);
     setBusy(true);
     setError('');
     try {
       const response = await apiFetch(
-        `/api/session-launch/requests/${encodeURIComponent(request.proposalId)}/${action}`,
+        create
+          ? '/api/session-launch/requests/start'
+          : `/api/session-launch/requests/${encodeURIComponent(request.proposalId)}/${action}`,
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(
             action === 'approve'
-              ? { expectedRevision: request.revision, title, prompt, configuration, saveAsDefault }
+              ? {
+                  ...(create
+                    ? { requestId: request.requestId, sourceSessionId: request.sourceSessionId }
+                    : { expectedRevision: request.revision }),
+                  title,
+                  prompt,
+                  configuration,
+                  saveAsDefault,
+                }
               : { expectedRevision: request.revision },
           ),
         },
@@ -108,6 +124,46 @@ export function LaunchReview({
       setBusy(false);
     }
   };
+  if (!pending)
+    return (
+      <HomeDialog title="Session configuration" onClose={onClose} className="session-launch-dialog">
+        <div className="session-launch-readonly">
+          <h3>{request.title}</h3>
+          <p>{states[request.state]}</p>
+          <ConfigSummary configuration={request.configuration} />
+          <dl>
+            <dt>Account</dt>
+            <dd>{configuration.runtime.account?.accountId ?? 'Unavailable'}</dd>
+            <dt>Agent</dt>
+            <dd>
+              {configuration.runtime.agentProfile
+                ? `${configuration.runtime.agentProfile.profileId} · r${configuration.runtime.agentProfile.revision}`
+                : 'Default agent'}
+            </dd>
+            <dt>Permissions</dt>
+            <dd>
+              {configuration.mode} ·{' '}
+              {configuration.isolation ? 'Isolated checkout' : 'Shared checkout'}
+            </dd>
+          </dl>
+          <details>
+            <summary>Original handoff</summary>
+            <p className="session-launch-handoff">{request.prompt}</p>
+          </details>
+          <details>
+            <summary>Context &amp; tools</summary>
+            <p>{configuration.extraTools.join(', ') || 'Default tools'}</p>
+            <p className="session-launch-handoff">
+              {configuration.contextBlocks.join('\n\n') || 'No additional context'}
+            </p>
+            {configuration.repositoryWorkspaceId && (
+              <p>Repository: {configuration.repositoryWorkspaceId}</p>
+            )}
+          </details>
+          {request.error && <p role="alert">{request.error}</p>}
+        </div>
+      </HomeDialog>
+    );
   return (
     <HomeDialog
       title={pending ? 'Review new session' : 'Session configuration'}

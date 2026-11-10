@@ -1,4 +1,5 @@
 import { apiFetch } from '../lib/api-fetch';
+import { ReplyQuote } from './ReplyQuote';
 import type { QueuedMessage } from '../hooks/useQueuedMessages';
 import { QueuedDraftTray } from './QueuedDraftTray';
 import type { MessageReplyContext } from '@mitzo/protocol';
@@ -1554,10 +1555,7 @@ function ChatInputContent({
       <div className="chat-input-row">
         {replyTarget && (
           <div className="chat-reply-draft">
-            <div>
-              <strong>Replying to {replyTarget.role === 'user' ? 'you' : 'Mitzo'}</strong>
-              <span>{replyTarget.text}</span>
-            </div>
+            <ReplyQuote reply={replyTarget} sessionId={sessionId} />
             <button
               type="button"
               className="chat-input-btn"

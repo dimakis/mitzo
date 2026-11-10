@@ -1918,6 +1918,18 @@ function DesktopChatViewContent() {
                 ) : undefined,
                 afterMessages: !isSymposium ? (
                   <>
+                    {sessionLaunch.error && (
+                      <p role="alert">
+                        {sessionLaunch.error}
+                        <button
+                          type="button"
+                          className="session-links-new"
+                          onClick={sessionLaunch.refresh}
+                        >
+                          Refresh links
+                        </button>
+                      </p>
+                    )}
                     <TelosAdvisorDraft conversationId={activeSessionId ?? undefined} />
                     <TelosWorkControls data={telosRoute.data} conversationId={activeSessionId} />
                   </>

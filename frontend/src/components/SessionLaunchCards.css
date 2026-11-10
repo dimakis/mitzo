@@ -2,6 +2,27 @@
   display: grid;
   gap: var(--space-3);
 }
+.session-launch-readonly {
+  overflow-y: auto;
+  min-height: 0;
+  overflow-wrap: anywhere;
+}
+.session-launch-readonly dt {
+  color: var(--color-muted);
+  font-size: var(--text-sm);
+  margin-top: var(--space-3);
+}
+.session-launch-readonly dd {
+  margin: var(--space-1) 0;
+}
+.session-launch-readonly summary {
+  min-height: var(--control-height);
+  color: var(--color-accent);
+  cursor: pointer;
+}
+.session-launch-handoff {
+  white-space: pre-wrap;
+}
 .session-launch-configuration {
   display: grid;
   gap: var(--space-4);

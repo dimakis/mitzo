@@ -18,7 +18,16 @@ export function ApprovalRequestSummary({
           {presentation.facts.map((fact, index) => (
             <div key={`${fact.label}:${index}`}>
               <dt>{fact.label}</dt>
-              <dd>{fact.value}</dd>
+              <dd>
+                {fact.label === 'Command' && fact.value.length > 320 ? (
+                  <details>
+                    <summary>Full command · {fact.value.split('\n')[0].slice(0, 160)}…</summary>
+                    <pre className="perm-banner-input">{fact.value}</pre>
+                  </details>
+                ) : (
+                  fact.value
+                )}
+              </dd>
             </div>
           ))}
         </dl>

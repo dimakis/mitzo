@@ -77,6 +77,12 @@ export const SessionLaunchRecordSchema = z.strictObject({
   error: z.string().max(1000).optional(),
 });
 export type SessionLaunchRecord = z.infer<typeof SessionLaunchRecordSchema>;
+export const SessionChatLinkSchema = z.strictObject({
+  sessionId: reference,
+  title: z.string(),
+  available: z.boolean(),
+});
+export type SessionChatLink = z.infer<typeof SessionChatLinkSchema>;
 export const SessionLaunchDefaultsSchema = z.strictObject({
   revision: z.number().int().nonnegative(),
   configuration: SessionLaunchConfigSchema.nullable(),
