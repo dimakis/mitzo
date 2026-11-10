@@ -24,7 +24,10 @@ export function ConversationPromptContext({
         aria-label="Review prompt context"
         title={flow.attached ? 'Reviewed context attached' : 'Review context for this prompt'}
         disabled={disabled || flow.unavailable}
-        onClick={flow.show}
+        onClick={(event) => {
+          event.currentTarget.focus();
+          flow.show();
+        }}
       >
         <UiIcon name="layers" />
       </button>

@@ -10,8 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.1008-symposium-context-picker-integration';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.1014-symposium-prompt-focus';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -30,11 +29,11 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../collaboration-prompt-context.ts':
     'b3803df0df9b28f8c90464ff7e27842860cb64915f75f06c1944415b949dc970',
   '../../frontend/src/hooks/__tests__/useConversationPromptContext.test.tsx':
-    '52c3cfc8d7242ce4be59ccdd6a5ac71b00a653a578d2bbd1547c293ca01e0b2a',
+    '28663aa9138fc19ffca0a385c6857c7003795d66cde7026f1ef7b532955afcbf',
   '../../frontend/src/hooks/useConversationPromptContext.ts':
     '4caefb6b8ee8487fcf07924777e87fe75ad63f704079ad9dcf806c50040518c3',
   '../../frontend/src/components/ConversationPromptContext.tsx':
-    'f2e9a284be65876f15ac8dbaeb85663ec87e78467b8145c5bb050b05c4df758b',
+    '23f23be9407c761b7933d3323a0beef2fdf734b22cd8a7de3bfa300c4adf804d',
   '../__tests__/collaboration-application-observer-ui.test.tsx':
     '14a06ae03bfa0e778c848bbb266c83a6d4ecdce5751a548ef02a47647164c655',
   '../../frontend/src/components/__tests__/ComposerResponders.test.tsx':

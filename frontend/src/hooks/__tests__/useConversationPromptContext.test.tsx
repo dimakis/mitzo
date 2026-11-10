@@ -1,5 +1,13 @@
 // @vitest-environment jsdom
-import { act, cleanup, renderHook, waitFor } from '@testing-library/react';
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render,
+  renderHook,
+  screen,
+  waitFor,
+} from '@testing-library/react';
 import { afterEach, expect, it, vi } from 'vitest';
 import { MitzoApiClient } from '@mitzo/client';
 import {
@@ -14,6 +22,8 @@ import {
 import { AUTH_LOST_EVENT, AUTH_RESTORED_EVENT } from '../../lib/api-fetch';
 import * as drafts from '../../lib/chat-drafts';
 import { useConversationPromptContext } from '../useConversationPromptContext';
+import { ConversationPromptContext } from '../../components/ConversationPromptContext';
+import { installDialogStub } from '../../components/__tests__/dialog-stub';
 
 afterEach(() => {
   cleanup();
@@ -97,6 +107,31 @@ function fixture() {
     );
   return { api, view, source, result, draft, options, mount, edit };
 }
+it('restores focus to the context trigger after a composer pointer action and native dismissal', async () => {
+  installDialogStub();
+  const f = fixture();
+  function Controls() {
+    const flow = useConversationPromptContext(f.options);
+    return (
+      <>
+        <textarea aria-label="Original composer" defaultValue="Keep this draft" />
+        <div onPointerDown={(event) => event.preventDefault()}>
+          <ConversationPromptContext flow={flow} names={{}} disabled={false} />
+        </div>
+      </>
+    );
+  }
+  render(<Controls />);
+  const composer = screen.getByRole('textbox', { name: 'Original composer' });
+  const trigger = screen.getByRole('button', { name: 'Review prompt context' });
+  composer.focus();
+  fireEvent.pointerDown(trigger);
+  fireEvent.click(trigger);
+  const dialog = await screen.findByRole('dialog', { name: 'Context for this prompt' });
+  fireEvent(dialog, new Event('cancel', { cancelable: true }));
+  await waitFor(() => expect(document.activeElement).toBe(trigger));
+  expect((composer as HTMLTextAreaElement).value).toBe('Keep this draft');
+});
 
 it('recovers a lost review response by exact retained selectors after remount without inference or private persistence', async () => {
   const f = fixture();
