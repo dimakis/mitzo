@@ -1,10 +1,12 @@
 import { expect, test } from '@playwright/test';
 import { build } from 'esbuild';
 import { resolve } from 'node:path';
+import { readFile } from 'node:fs/promises';
 
 const output = build({
   entryPoints: [resolve('tests/fixtures/agent-messages.tsx')],
   bundle: true,
+  external: ['/*.png', '/*.svg'],
   format: 'esm',
   write: false,
   outfile: '/tmp/mitzo-agent-messages.js',
@@ -17,8 +19,13 @@ for (const theme of ['dark', 'light'])
     const files = (await output).outputFiles!;
     const errors: string[] = [];
     page.on('pageerror', (error) => errors.push(error.message));
-    await page.route('**/*', (route) => {
+    await page.route('**/*', async (route) => {
       const path = new URL(route.request().url()).pathname;
+      if (/^\/(openai|claude|openshell|github)-mark.svg$/.test(path))
+        return route.fulfill({
+          contentType: 'image/svg+xml',
+          body: await readFile(resolve('frontend/public' + path)),
+        });
       if (path === '/fixture.js')
         return route.fulfill({
           contentType: 'text/javascript',
