@@ -4,68 +4,72 @@
 
 import UIKit
 import MitzoShared
+import OSLog
 
-final class WatchRelayCoordinator: @unchecked Sendable {
-    private let authManager = AuthManager()
+@MainActor
+final class WatchRelayCoordinator {
+    nonisolated private static let log = Logger(subsystem: "com.mitzo.app", category: "watch-relay")
     private let watchRelay: WatchRelayHost
-    private var wsClient: MitzoWSClient?
-    private let lock = NSLock()
-
-    private var serverURL: URL {
-        let stored = UserDefaults.standard.string(forKey: "mitzo_server_url")
-        return URL(string: stored ?? "https://dimakis-mac.tail:3100")!
-    }
+    private let connection: NativeRelayConnection
+    private var started = false
 
     init() {
-        watchRelay = WatchRelayHost(authManager: authManager, notificationAPIProvider: {
+        let relay = WatchRelayHost(authManager: AuthManager(), notificationAPIProvider: {
             guard let url = notificationServerURL(UserDefaults.standard.string(forKey: "mitzo_notification_server_url")) else { return nil }
             return MitzoAPIClient(baseURL: url, authManager: AuthManager())
         })
-        // Activate WCSession immediately so watch can reach us even before login
-        watchRelay.activate(wsClient: nil, apiClient: nil)
+        watchRelay = relay
+        connection = NativeRelayConnection(configuration: {
+            let origin = UserDefaults.standard.string(forKey: "mitzo_notification_server_url")
+            let token: String
+            do { token = try await AuthManager().getToken() }
+            catch AuthManager.AuthError.noToken { return nil } // Login may not exist yet.
+            catch is CancellationError { return nil }
+            catch {
+                Self.log.error("relay_auth_unavailable cause=\(error as NSError, privacy: .private)")
+                return nil
+            }
+            guard origin == UserDefaults.standard.string(forKey: "mitzo_notification_server_url") else { return nil }
+            return nativeRelayWebSocketURL(origin: origin, token: token)
+        }, onEvent: { [weak relay] event in
+            if case .message(let message) = event { relay?.forwardToWatch(message) }
+            if case .error(let error) = event {
+                Self.log.error("relay_transport_unconfirmed cause=\(error as NSError, privacy: .private)")
+            }
+        })
+        // WCSession and fresh REST are available during a cold background wake.
+        // Only a foreground scene or actual Watch chat demand opens the socket.
+        watchRelay.activate(wsClientProvider: { [connection] in try await connection.acquire() })
     }
 
     func start() {
-        Task { await connect() }
+        guard !started else { return }
+        started = true
+        connect(reconnect: false)
     }
 
     func reconnect() {
-        Task { await connect() }
+        connect(reconnect: true)
     }
 
     func suspend() {
         Task {
-            let client: MitzoWSClient? = lock.withLock { wsClient }
-            if let client {
-                let sessions = await client.getSuspendSessions()
-                if !sessions.isEmpty {
-                    try? await client.suspend(sessions: sessions)
-                }
-            }
+            do { try await connection.suspend() }
+            catch is CancellationError { return } // Retired scene work is expected.
+            catch { Self.log.error("relay_suspend_unconfirmed cause=\(error as NSError, privacy: .private)") }
         }
     }
 
-    private func connect() async {
-        guard let token = try? await authManager.getToken() else { return }
-
-        var components = URLComponents(url: serverURL, resolvingAgainstBaseURL: false)!
-        components.scheme = components.scheme == "https" ? "wss" : "ws"
-        components.path = "/ws/chat"
-        components.queryItems = [URLQueryItem(name: "token", value: token)]
-
-        guard let wsURL = components.url else { return }
-
-        let client = MitzoWSClient(url: wsURL)
-        lock.withLock { wsClient = client }
-
-        let api = MitzoAPIClient(baseURL: serverURL, authManager: authManager)
-        // Update relay with authenticated clients (WCSession already activated in init)
-        watchRelay.activate(wsClient: client, apiClient: api)
-
-        let relay = watchRelay
-        await client.connect { event in
-            if case .message(let msg) = event {
-                relay.forwardToWatch(msg)
+    private func connect(reconnect: Bool) {
+        let request = UUID().uuidString
+        Task {
+            do { _ = try await connection.acquire(reconnect: reconnect) }
+            catch is CancellationError { return } // Cancelled setup creates no command.
+            catch NativeRelayConnection.ConnectionError.unavailable {
+                Self.log.notice("relay_unavailable request=\(request, privacy: .public)")
+            }
+            catch {
+                Self.log.error("relay_connect_failed request=\(request, privacy: .public) cause=\(error as NSError, privacy: .private)")
             }
         }
     }

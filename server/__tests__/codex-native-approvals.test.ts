@@ -172,6 +172,32 @@ it('preserves explicit denial when the handler resumes after the approval deadli
   );
   for (const fence of f.fences) expect(() => fence()).not.toThrow();
 });
+it('retains observed expiry when the wall clock remains before the deadline', async () => {
+  vi.useFakeTimers();
+  const started = Date.now();
+  const clock = vi.spyOn(Date, 'now').mockReturnValue(started);
+  try {
+    const f = setup('agent', 20);
+    const observeFailure = vi.fn();
+    const pending = f.handler(
+      'item/commandExecution/requestApproval',
+      { ...commandParams(), startedAtMs: started, approvalId: 'subcommand' },
+      f.controller.signal,
+      { ...f.context, observeFailure },
+    );
+    await vi.advanceTimersByTimeAsync(20);
+    expect(await pending).toEqual({ decision: 'cancel' });
+    expect(observeFailure).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({
+        code: 'approval_expired',
+        effectStatus: 'unknown',
+        recovery: 'inspect_operation',
+      }),
+    );
+  } finally {
+    clock.mockRestore();
+  }
+});
 async function request(f: ReturnType<typeof fixture>) {
   await vi.waitFor(() => expect(f.sent[0]?.permId).toBeDefined());
   return f.sent[0].permId as string;

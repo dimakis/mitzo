@@ -1,4 +1,4 @@
-/// Process launch already starts the relay. Only a foreground transition after
+/// The first scene starts the relay. Only a foreground transition after
 /// background suspension needs another connection attempt.
 public struct SceneForegroundReconnect {
     private var suspended = false
