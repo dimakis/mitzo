@@ -19,6 +19,12 @@ Do not introduce component-specific durations or `transition: all`.
 and future route inherits a fade on pathname changes, including history back and
 forward. Query changes, initial launch, streaming, and ordinary renders do not
 replay it. Desktop navigation and mobile tabs stay outside the animated surface.
+The first-command replacement from `/chat` to its assigned conversation URL
+sets `state.chatAssignment`. MotionRoutes suppresses the fade only for that
+exact transition; revisiting the same history entry from another page still
+animates normally. Keyboard changes preserve the reader's scroll intent, and
+streaming following is settled before paint by ChatArea. See
+[the interaction scope and evidence](../features/ui-smoothness.md).
 The boundary uses `display: contents`, preserving the existing flex/grid layout.
 
 Do not add pathname keys to page components or retain outgoing routes for motion.

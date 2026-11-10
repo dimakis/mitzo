@@ -4,6 +4,7 @@ import { render, screen, cleanup, act, fireEvent } from '@testing-library/react'
 import { ChatArea } from '../ChatArea';
 import type { FinishedMessage, StreamingBlock } from '../../types/chat';
 import { progressToolLookupKey } from '@mitzo/client';
+import { useLayoutEffect } from 'react';
 
 // Mock child components to isolate ChatArea tests
 vi.mock('../MessageBubble', () => ({
@@ -625,6 +626,35 @@ describe('ChatArea', () => {
     });
 
     expect(scrollTo).toHaveBeenCalledWith({ top: expect.any(Number) });
+  });
+
+  it('settles following scroll before the updated response can paint', () => {
+    const scrollRef = { current: null as HTMLDivElement | null };
+    const paintedPositions: number[] = [];
+    const stream = (content: string) => ({
+      messageId: 'stream-before-paint',
+      blocks: new Map<string, StreamingBlock>([
+        ['text', { blockId: 'text', blockType: 'text', content, done: false }],
+      ]),
+      blockOrder: ['text'],
+    });
+    function Parent({ content }: { content: string }) {
+      useLayoutEffect(() => {
+        paintedPositions.push(scrollRef.current!.scrollTop);
+      }, [content]);
+      return <ChatArea {...defaultProps} current={stream(content)} scrollRef={scrollRef} />;
+    }
+    const { rerender } = render(<Parent content="First line" />);
+    const el = scrollRef.current!;
+    Object.defineProperties(el, {
+      scrollHeight: { configurable: true, value: 2_000 },
+      clientHeight: { configurable: true, value: 500 },
+    });
+    el.scrollTop = 1_500;
+    fireEvent.scroll(el);
+    Object.defineProperty(el, 'scrollHeight', { configurable: true, value: 2_100 });
+    rerender(<Parent content="First line and more text" />);
+    expect(paintedPositions.at(-1)).toBe(2_100);
   });
 
   it('does not pull a reader back to the bottom as a streaming response grows', () => {

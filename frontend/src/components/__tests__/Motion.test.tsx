@@ -74,6 +74,47 @@ function navigation() {
 }
 
 describe('shared navigation motion', () => {
+  it('keeps the submitted chat visible when its first receipt assigns a URL', () => {
+    function AssignableChat() {
+      const navigate = useNavigate();
+      return (
+        <main>
+          <input aria-label="Next prompt" defaultValue="keep my next draft" />
+          <button
+            onClick={() =>
+              navigate('/chat/assigned', { replace: true, state: { chatAssignment: true } })
+            }
+          >
+            Assign conversation
+          </button>
+          <Link to="/sessions">Chats</Link>
+          <button onClick={() => navigate(-1)}>Return</button>
+        </main>
+      );
+    }
+    render(
+      <MemoryRouter initialEntries={['/chat']}>
+        <MotionRoutes>
+          <Routes>
+            <Route path="/chat/:id?" element={<AssignableChat />} />
+            <Route path="/sessions" element={<AssignableChat />} />
+          </Routes>
+        </MotionRoutes>
+      </MemoryRouter>,
+    );
+    const input = screen.getByLabelText('Next prompt');
+    input.focus();
+    fireEvent.click(screen.getByText('Assign conversation'));
+    expect(animate).not.toHaveBeenCalled();
+    expect(screen.getByLabelText('Next prompt')).toBe(input);
+    expect(document.activeElement).toBe(input);
+    fireEvent.click(screen.getByText('Chats'));
+    expect(animate).toHaveBeenCalledTimes(1);
+    fireEvent.click(screen.getByText('Return'));
+    // The retained history state must not suppress real back navigation.
+    expect(animate).toHaveBeenCalledTimes(2);
+  });
+
   it('animates navigation without remounting drafts, replaying on renders, or moving fixed controls', () => {
     navigation();
     expect(animate).not.toHaveBeenCalled();

@@ -13,7 +13,16 @@ import { UiIcon } from './UiIcon';
 import { CompactionMarker } from './CompactionMarker';
 import type { ContextCompaction } from '@mitzo/protocol';
 import { seatAccentColor } from '../lib/seat-color';
-import { useCallback, useEffect, useMemo, useRef, useState, Fragment, type ReactNode } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  Fragment,
+  type ReactNode,
+} from 'react';
 import { UserBubble, TextBubble } from './MessageBubble';
 import { AgentMessageCard } from './AgentMessageCard';
 import { ThinkingBlock } from './ThinkingBlock';
@@ -461,8 +470,9 @@ export function ChatArea({
     }
   }, [messages, scrollRef, sourceKey]);
 
-  // Auto-scroll during streaming only while the reader has chosen to follow it.
-  useEffect(() => {
+  // Settle the new content before paint, avoiding a visible old-position frame.
+  // Keyboard and composer resizing use the same retained follow intent above.
+  useLayoutEffect(() => {
     const el = scrollRef.current;
     if (el && (!sourceKey || jumpedSource.current === sourceKey) && shouldFollowStreamRef.current) {
       el.scrollTop = el.scrollHeight;
