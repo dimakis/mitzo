@@ -152,6 +152,45 @@ export class ApplicationCollaborationMessaging {
     return { message, terminal };
   }
 
+  async stop(auth: AuthSession, group: string, raw: unknown) {
+    this.current(auth);
+    const input = CollaborationMessageInputSchema.parse(raw);
+    const message = this.store.collaborationConversation.getMessageForRequest(group, input);
+    if (!message) throw new CollaborationContractError('not_found');
+    const recipients = [];
+    for (const delivery of message.deliveries) {
+      if (delivery.purpose !== 'reply') continue;
+      this.current(auth);
+      let status: 'requested' | 'settled' | 'uncertain' | 'unavailable' = 'unavailable';
+      if (['failed', 'unavailable'].includes(delivery.status)) status = 'settled';
+      else if (delivery.commandId && this.port.stopOrdinary) {
+        try {
+          status = await this.port.stopOrdinary(
+            auth,
+            delivery.sessionId,
+            delivery.commandId,
+            `collaboration-stop:${delivery.deliveryId}`,
+            () => this.current(auth),
+          );
+        } catch (cause) {
+          this.current(auth);
+          log.warn('Could not confirm the original collaboration Stop', {
+            err: cause,
+            code: 'collaboration_stop_uncertain',
+            stage: 'ordinary_stop',
+            collaborationId: group,
+            sessionId: delivery.sessionId,
+            commandId: delivery.commandId,
+          });
+          status = 'uncertain';
+        }
+      }
+      recipients.push({ sessionId: delivery.sessionId, deliveryId: delivery.deliveryId, status });
+    }
+    this.current(auth);
+    return { requestId: input.requestId, recipients };
+  }
+
   private async joiningContext(
     auth: AuthSession,
     group: string,

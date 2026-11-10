@@ -47,8 +47,28 @@ They are listed but not locally executed: the host sandbox blocks browser launch
 Hosted execution, actual rendered artifacts and approved-reference comparison are
 required. No protected reference, design token or check is changed.
 
+The shared Stop control now uses the exact retained reply command and a deterministic
+delivery-scoped interruption ID through `OrdinarySessionPromptPort.stopOrdinary`.
+Current auth, contributor control, account/runtime binding and registry custody
+are renewed after an asynchronous import and immediately before the native owner's
+atomic compare/claim/interrupt. A claimed native request never reissues an RPC;
+requested cancellation remains separate from provider terminal/effects evidence.
+An old control response cannot label or block Stop on a new same-owner request.
+
+The actual seven-turn application journey requests Stop while the fourth native
+turn is held. Exactly one `turn/interrupt` targets that original thread/turn;
+repeating Stop emits none, and cancellation ACK does not make the original terminal.
+A concurrent definite provider failure then settles normally, and the explicit
+selected retry retains the same native thread. The hook's 17 cases include lost
+Stop response/remount and same-owner completed/late-success/late-failure control
+races. The prompt port's 23 cases include successor, durable claim, settled,
+foreign and revoked owner, plus contributor/account custody changing during a yield.
+The permission and response-race findings from focused review were repaired.
+Browser cases now render the existing Stop control and retain its intent on reload;
+hosted execution and visual evidence remain pending.
+
 This is unmerged candidate evidence, not full feature completion. Per-prompt
-reviewed context, forwarding, streaming, shared Stop and remaining combined
+reviewed context, forwarding, streaming and remaining combined
 qualification remain open. All original 16 criteria and the uncertain live Telos
 edit remain retained. No live models, deployment or runtime/device acceptance occur.
 

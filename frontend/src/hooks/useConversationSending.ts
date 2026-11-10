@@ -53,6 +53,7 @@ export function useConversationSending(options: {
   current.current = owner;
   const mounted = useRef(true);
   const busy = useRef<object | undefined>(undefined);
+  const stopping = useRef<{ owner: object; requestId: string } | undefined>(undefined);
   const pending = useRef<Pending | undefined>(undefined);
   const [state, setState] = useState<{
     owner: object;
@@ -60,6 +61,7 @@ export function useConversationSending(options: {
     reason?: string;
     pending?: Pending;
     error?: string;
+    stopStatus?: string;
   }>({ owner });
   const valid = useCallback(
     () =>
@@ -82,7 +84,7 @@ export function useConversationSending(options: {
       if (!draft || !saveChatDraft({ ...draft, collaborationSend: value }))
         throw Error('Could not retain the original request. Your draft stays here.');
       pending.current = value;
-      publish({ pending: value });
+      publish({ pending: value, stopStatus: undefined });
     },
     [draftId, publish],
   );
@@ -148,7 +150,13 @@ export function useConversationSending(options: {
     mounted.current = true;
     const original = draftId ? getChatDraft(draftId)?.collaborationSend : undefined;
     pending.current = original;
-    publish({ ready: undefined, reason: undefined, pending: original, error: undefined });
+    publish({
+      ready: undefined,
+      reason: undefined,
+      pending: original,
+      error: undefined,
+      stopStatus: undefined,
+    });
     void check();
     const lost = () => {
       publish({ ready: false });
@@ -255,5 +263,49 @@ export function useConversationSending(options: {
       publish,
     ],
   );
-  return { disabledReason, error: visible.error, pending: visible.pending, check, send };
+  const stop = useCallback(async () => {
+    if (!valid() || !group) return;
+    const original = pending.current;
+    if (!original || original.authScope !== authScope || original.collaborationId !== group) return;
+    if (
+      stopping.current?.owner === owner &&
+      stopping.current.requestId === original.input.requestId
+    )
+      return;
+    const ownsRequest = () =>
+      valid() && pending.current?.input.requestId === original.input.requestId;
+    const operation = { owner, requestId: original.input.requestId };
+    stopping.current = operation;
+    try {
+      // Persist control intent before any request; reloading never starts a new
+      // send or automatically reissues a Stop with a different command identity.
+      retain({ ...original, stopRequested: true });
+      publish({ stopStatus: 'Requesting Stop for the original prompt…' });
+      const result = await api.stopSend(group, original.input);
+      if (!ownsRequest()) return;
+      publish({
+        stopStatus: result.recipients.some((r) => ['uncertain', 'unavailable'].includes(r.status))
+          ? 'Stop could not be confirmed for every recipient. Check the original request; do not resend.'
+          : 'Stop requested. Waiting for the original commands to settle.',
+      });
+      await refresh();
+    } catch (cause) {
+      if (ownsRequest())
+        publish({
+          stopStatus: 'Stop is uncertain. Check the original request; do not resend.',
+          error: cause instanceof Error ? cause.message : 'Could not confirm Stop.',
+        });
+    } finally {
+      if (stopping.current === operation) stopping.current = undefined;
+    }
+  }, [valid, group, owner, authScope, retain, publish, api, refresh]);
+  return {
+    disabledReason,
+    error: visible.error,
+    pending: visible.pending,
+    stopStatus: visible.stopStatus,
+    stop,
+    check,
+    send,
+  };
 }

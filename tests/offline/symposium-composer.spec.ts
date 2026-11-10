@@ -77,7 +77,7 @@ for (const theme of ['dark', 'light'])
           });
         }
         if (path.endsWith('/messages/observe'))
-          return route.fulfill({ json: { message: original ?? null } });
+          return route.fulfill({ json: { message: original ?? null, terminal: !!original } });
         if (path.endsWith('/messages')) {
           const input = CollaborationMessageInputSchema.parse(route.request().postDataJSON());
           sends++;
@@ -183,6 +183,7 @@ for (const theme of ['dark', 'light'])
       let input: ReturnType<typeof CollaborationMessageInputSchema.parse> | undefined;
       let sends = 0;
       let settled = false;
+      let stops = 0;
       const observations: unknown[] = [];
       const errors: string[] = [];
       page.on('pageerror', (error) => errors.push(error.message));
@@ -215,6 +216,22 @@ for (const theme of ['dark', 'light'])
               reason: null,
             },
           });
+        if (path.endsWith('/messages/stop')) {
+          expect(route.request().postDataJSON()).toEqual(input);
+          stops++;
+          return route.fulfill({
+            json: {
+              requestId: input!.requestId,
+              recipients: original!.deliveries
+                .filter((d) => d.purpose === 'reply')
+                .map((d) => ({
+                  sessionId: d.sessionId,
+                  deliveryId: d.deliveryId,
+                  status: d.sessionId === 'architect' ? 'settled' : 'uncertain',
+                })),
+            },
+          });
+        }
         if (path.endsWith('/messages/observe')) {
           observations.push(route.request().postDataJSON());
           if (original && settled) {
@@ -292,10 +309,17 @@ for (const theme of ['dark', 'light'])
       await send.click();
       await expect(page.getByText(sharedReply.text)).toBeVisible();
       await expect(page.getByRole('button', { name: 'Check original request' })).toBeVisible();
+      const stop = page.getByRole('button', { name: 'Stop generation' });
+      await expect(stop).toBeVisible();
+      if (isMobile) expect((await stop.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+      await stop.click();
+      await expect(page.getByText(/Stop could not be confirmed for every recipient/)).toBeVisible();
       await composer.fill('Keep the next draft while the other agent is uncertain.');
       await page.reload();
       await expect(composer).toHaveValue('Keep the next draft while the other agent is uncertain.');
       await expect(picker).toBeDisabled();
+      await expect(page.getByText(/Stop was requested/)).toBeVisible();
+      expect(stops).toBe(1);
       await page.getByRole('button', { name: 'Check original request' }).click();
       expect(sends).toBe(1);
       expect(observations).not.toHaveLength(0);

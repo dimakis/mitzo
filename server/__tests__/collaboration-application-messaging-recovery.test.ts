@@ -131,6 +131,42 @@ function acknowledgeRecordedPrompts() {
   );
 }
 
+it('stops retained reply commands independently with stable control identities and no new send', async () => {
+  const stop = vi.fn(async (_auth, sessionId: string, _commandId, _requestId, current) => {
+    current();
+    if (sessionId === 'one') throw Error('Unexpected storage failure');
+    return 'requested' as const;
+  });
+  const ordinary = port(async (prompt) => {
+    prompts.push(prompt);
+  });
+  ordinary.stopOrdinary = stop;
+  owner = new ApplicationCollaborationMessaging(store, ordinary);
+  const request = {
+    ...input('one', 'Stop both original commands'),
+    responders: { kind: 'all' as const },
+  };
+  const message = await owner.send(auth, group, request, new AbortController().signal);
+  const first = await owner.stop(auth, group, request);
+  const again = await owner.stop(auth, group, request);
+  expect(first).toEqual(again);
+  expect(first.recipients.map((r) => r.status)).toEqual(['uncertain', 'requested']);
+  expect(prompts).toHaveLength(2);
+  expect(stop.mock.calls.map((c) => c.slice(1, 4))).toEqual(
+    [0, 1, 0, 1].map((i) => [
+      message.deliveries[i].sessionId,
+      `collaboration:${message.deliveries[i].deliveryId}`,
+      `collaboration-stop:${message.deliveries[i].deliveryId}`,
+    ]),
+  );
+  expect(diagnostics.warn).toHaveBeenCalledWith(
+    'Could not confirm the original collaboration Stop',
+    expect.objectContaining({ err: expect.any(Error), code: 'collaboration_stop_uncertain' }),
+  );
+  await expect(owner.stop(auth, group, { ...request, text: 'Changed original' })).rejects.toThrow();
+  expect(prompts).toHaveLength(2);
+});
+
 it('keeps readiness and new explicit sends available after the display page overflows', async () => {
   acknowledgeRecordedPrompts();
   const ordinary = port(async () => {});

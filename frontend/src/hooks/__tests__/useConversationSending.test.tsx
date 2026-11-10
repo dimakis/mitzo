@@ -17,6 +17,185 @@ afterEach(() => {
   localStorage.clear();
   sessionStorage.clear();
 });
+it.each(['settled_status', 'late_success', 'late_failure'])(
+  'never transfers old Stop state to a new same-owner request: %s',
+  async (scenario) => {
+    const view = sharedConversationView();
+    const draft = createChatDraft();
+    const original = {
+      collaborationId: view.collaborationId,
+      authScope: 'login',
+      input: {
+        requestId: uuid(96),
+        expectedMembershipRevision: view.membershipRevision,
+        expectedPolicySequence: view.policySequence,
+        text: sharedPrompt.text,
+        responders: { kind: 'selected' as const, sessionIds: ['architect'] },
+        snapshot: null,
+      },
+    };
+    saveChatDraft({ ...draft, text: 'Next draft stays editable', collaborationSend: original });
+    let terminal = false;
+    let release!: () => void;
+    const api = new CollaborationApiClient(vi.fn());
+    vi.spyOn(api, 'observeSend').mockImplementation(async () => ({
+      message: sharedPrompt,
+      terminal,
+    }));
+    vi.spyOn(api, 'recipientReadiness').mockResolvedValue({
+      collaborationId: view.collaborationId,
+      sessionId: 'architect',
+      membershipRevision: view.membershipRevision,
+      policySequence: view.policySequence,
+      ready: true,
+      reason: null,
+    });
+    vi.spyOn(api, 'stopSend').mockImplementation(async (_group, input) => {
+      const old = input.requestId === original.input.requestId;
+      if (old && scenario !== 'settled_status')
+        await new Promise<void>((r) => {
+          release = r;
+        });
+      if (old && scenario === 'late_failure') throw Error('Old Stop response lost');
+      return {
+        requestId: input.requestId,
+        recipients: [
+          {
+            sessionId: 'architect',
+            deliveryId: sharedPrompt.deliveries[0].deliveryId,
+            status: 'requested',
+          },
+        ],
+      };
+    });
+    vi.spyOn(api, 'send').mockImplementation(async (_group, input) => ({
+      ...sharedPrompt,
+      text: input.text,
+      responders: ['architect'],
+      deliveries: [sharedPrompt.deliveries[0]],
+    }));
+    const proof = () => 'login';
+    const refresh = vi.fn(async () => view);
+    const hook = renderHook(() =>
+      useConversationSending({
+        api,
+        view,
+        draftId: draft.id,
+        authScope: 'login',
+        getVerifiedAuthScope: proof,
+        responders: original.input.responders,
+        refresh,
+      }),
+    );
+    await act(async () => {}); // Finish the initial observational read before the control race.
+    let stopped!: Promise<void>;
+    act(() => {
+      stopped = hook.result.current.stop();
+    });
+    if (scenario === 'settled_status')
+      await act(async () => {
+        await stopped;
+      });
+    terminal = true;
+    await act(async () => {
+      await hook.result.current.check();
+    });
+    await waitFor(() => expect(hook.result.current.disabledReason).toBeUndefined());
+    await act(async () => {
+      expect(await hook.result.current.send('A separate new prompt')).toBe(true);
+    });
+    const next = getChatDraft(draft.id)!.collaborationSend!;
+    expect(next.input.requestId).not.toBe(original.input.requestId);
+    expect(next.stopRequested).toBeUndefined();
+    expect(hook.result.current.stopStatus).toBeUndefined();
+    if (scenario !== 'settled_status') {
+      await act(async () => {
+        await hook.result.current.stop();
+      });
+      expect(api.stopSend).toHaveBeenNthCalledWith(2, view.collaborationId, next.input);
+      expect(hook.result.current.stopStatus).toContain('Stop requested');
+      await act(async () => {
+        release();
+        await stopped;
+      });
+      expect(hook.result.current.stopStatus).toContain('Stop requested');
+    } else expect(hook.result.current.stopStatus).toBeUndefined();
+    expect(hook.result.current.error).toBeUndefined();
+    expect(getChatDraft(draft.id)!.collaborationSend).toEqual(
+      scenario === 'settled_status' ? next : { ...next, stopRequested: true },
+    );
+  },
+);
+
+it('retains uncertain Stop intent across remount without replaying send or control', async () => {
+  const view = sharedConversationView();
+  const original = {
+    collaborationId: view.collaborationId,
+    authScope: 'login',
+    input: {
+      requestId: uuid(97),
+      expectedMembershipRevision: view.membershipRevision,
+      expectedPolicySequence: view.policySequence,
+      text: sharedPrompt.text,
+      responders: { kind: 'selected' as const, sessionIds: ['architect'] },
+      snapshot: null,
+    },
+  };
+  const draft = createChatDraft();
+  saveChatDraft({ ...draft, text: 'Next draft stays editable', collaborationSend: original });
+  let controls = 0;
+  const fetch = vi.fn(async (url: string, init?: RequestInit) => {
+    expect(url).not.toMatch(/\/messages$/);
+    expect(JSON.parse(init!.body as string)).toEqual(original.input);
+    if (url.endsWith('/messages/stop')) {
+      controls++;
+      expect(getChatDraft(draft.id)?.collaborationSend?.stopRequested).toBe(true);
+      if (controls === 1) throw Error('Lost Stop response');
+      return Response.json({
+        requestId: original.input.requestId,
+        recipients: [
+          {
+            sessionId: 'architect',
+            deliveryId: sharedPrompt.deliveries[0].deliveryId,
+            status: 'uncertain',
+          },
+        ],
+      });
+    }
+    expect(url).toMatch(/\/messages\/observe$/);
+    return Response.json({ message: sharedPrompt, terminal: false });
+  });
+  const options = {
+    api: new CollaborationApiClient(fetch),
+    view,
+    draftId: draft.id,
+    authScope: 'login',
+    getVerifiedAuthScope: () => 'login',
+    responders: { kind: 'selected' as const, sessionIds: ['architect'] },
+    refresh: vi.fn(async () => view),
+  };
+  const first = renderHook(() => useConversationSending(options));
+  await act(async () => {
+    await first.result.current.stop();
+  });
+  expect(first.result.current.stopStatus).toContain('uncertain');
+  const retained = { ...original, stopRequested: true };
+  expect(getChatDraft(draft.id)?.collaborationSend).toEqual(retained);
+  first.unmount();
+  const next = renderHook(() => useConversationSending(options));
+  await act(async () => {
+    await next.result.current.check();
+  });
+  expect(controls).toBe(1);
+  expect(next.result.current.pending).toEqual(retained);
+  await act(async () => {
+    await next.result.current.stop();
+  });
+  expect(controls).toBe(2);
+  expect(getChatDraft(draft.id)?.text).toBe('Next draft stays editable');
+  expect(getChatDraft(draft.id)?.collaborationSend).toEqual(retained);
+});
+
 it('defers login recovery to the application while refusing sends and readiness reads without its proof', async () => {
   const view = sharedConversationView();
   const draft = { ...createChatDraft(), text: 'Retain my ordinary draft' };

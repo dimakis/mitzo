@@ -163,9 +163,9 @@ it('adds an agent, edits and refreezes its brief, silently joins and sends an at
     fireEvent.click(
       await screen.findByRole('button', { name: 'Refresh conversation', exact: true }),
     );
-    const send = screen.getByRole('button', { name: 'Send message' });
-    await waitFor(() => expect((send as HTMLButtonElement).disabled).toBe(false));
-    fireEvent.click(send);
+    const send = () => screen.getByRole('button', { name: 'Send message' });
+    await waitFor(() => expect((send() as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(send());
     await screen.findByText('Reviewed the selected design.', {}, { timeout: 10000 });
     const turns = runtime.requests.filter((r) => r.method === 'turn/start');
     expect(turns).toHaveLength(1);
@@ -195,8 +195,8 @@ it('adds an agent, edits and refreezes its brief, silently joins and sends an at
     fireEvent.change(screen.getByRole('textbox', { name: 'Message Mitzo' }), {
       target: { value: 'Respond to the FreshReviewer answer explicitly.' },
     });
-    await waitFor(() => expect((send as HTMLButtonElement).disabled).toBe(false));
-    fireEvent.click(send);
+    await waitFor(() => expect((send() as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(send());
     await waitFor(
       async () => {
         const next = await h.api.view(h.group);
@@ -257,8 +257,8 @@ it('adds an agent, edits and refreezes its brief, silently joins and sends an at
       target: { value: 'Both reviewers: answer independently using Defaults.' },
     });
     fireEvent.click(screen.getByRole('button', { name: 'Refresh conversation', exact: true }));
-    await waitFor(() => expect((send as HTMLButtonElement).disabled).toBe(false));
-    fireEvent.click(send);
+    await waitFor(() => expect((send() as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(send());
     let fanout!: Awaited<ReturnType<typeof h.api.view>>['messages'][number];
     await waitFor(
       async () => {
@@ -288,6 +288,21 @@ it('adds an agent, edits and refreezes its brief, silently joins and sends an at
     expect((await h.api.observeSend(h.group, original.input)).terminal).toBe(false);
     await h.api.send(h.group, original.input);
     expect(runtime.requests.filter((r) => r.method === 'turn/start')).toHaveLength(4);
+    fireEvent.click(screen.getByRole('button', { name: 'Stop generation' }));
+    await waitFor(() =>
+      expect(runtime.requests.filter((r) => r.method === 'turn/interrupt')).toHaveLength(1),
+    );
+    expect(runtime.requests.find((r) => r.method === 'turn/interrupt')!.params).toEqual({
+      threadId: runtime.requests.filter((r) => r.method === 'turn/start')[3].params.threadId,
+      turnId: 'private-native-turn-4',
+    });
+    expect(
+      (await h.api.stopSend(h.group, original.input)).recipients.some(
+        (r) => r.status === 'uncertain',
+      ),
+    ).toBe(true);
+    expect(runtime.requests.filter((r) => r.method === 'turn/interrupt')).toHaveLength(1);
+    expect((await h.api.observeSend(h.group, original.input)).terminal).toBe(false);
     await act(async () => runtime.finishTurn(4, 'failed', 'context'));
     fireEvent.click(screen.getByRole('button', { name: 'Check original request' }));
     await waitFor(
@@ -324,8 +339,8 @@ it('adds an agent, edits and refreezes its brief, silently joins and sends an at
     fireEvent.change(screen.getByRole('textbox', { name: 'Message Mitzo' }), {
       target: { value: 'Retry only the failed reviewer with this new explicit prompt.' },
     });
-    await waitFor(() => expect((send as HTMLButtonElement).disabled).toBe(false));
-    fireEvent.click(send);
+    await waitFor(() => expect((send() as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(send());
     await waitFor(
       async () => {
         const current = await h.api.view(h.group);
@@ -382,8 +397,8 @@ it('adds an agent, edits and refreezes its brief, silently joins and sends an at
     fireEvent.change(screen.getByRole('textbox', { name: 'Message Mitzo' }), {
       target: { value: 'Keep this original request through an uncertain recipient failure.' },
     });
-    await waitFor(() => expect((send as HTMLButtonElement).disabled).toBe(false));
-    fireEvent.click(send);
+    await waitFor(() => expect((send() as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(send());
     let uncertainRequest!: typeof original;
     await waitFor(
       () => {
@@ -421,9 +436,8 @@ it('adds an agent, edits and refreezes its brief, silently joins and sends an at
         within(deliveries as HTMLElement).getAllByText('Outcome uncertain · do not resend'),
       ).toHaveLength(1);
       expect(screen.getAllByText('Reviewed the selected design.')).toHaveLength(5);
-      expect(
-        (screen.getByRole('button', { name: 'Send message' }) as HTMLButtonElement).disabled,
-      ).toBe(true);
+      expect(screen.getByRole('button', { name: 'Stop generation' })).toBeTruthy();
+      expect(screen.queryByRole('button', { name: 'Send message' })).toBeNull();
     });
     await h.api.send(h.group, uncertainRequest.input);
     expect(runtime.requests.filter((r) => r.method === 'turn/start')).toHaveLength(7);

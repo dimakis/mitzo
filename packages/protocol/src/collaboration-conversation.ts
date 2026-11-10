@@ -148,6 +148,19 @@ export const CollaborationMessageInputSchema = z.strictObject({
   ]),
   snapshot: CollaborationSnapshotReferenceSchema.nullable(),
 });
+/** Sanitized control observations; requested never means terminal or safe to replay. */
+export const CollaborationStopResultSchema = z.strictObject({
+  requestId: z.uuid(),
+  recipients: z
+    .array(
+      z.strictObject({
+        sessionId: id,
+        deliveryId: z.uuid(),
+        status: z.enum(['requested', 'settled', 'uncertain', 'unavailable']),
+      }),
+    )
+    .max(16),
+});
 /** Trusted ordinary driver/source owner input. Text is read from finalized source events. */
 export const CollaborationReplyInputSchema = z.strictObject({
   requestId: z.uuid(),

@@ -16,6 +16,7 @@ import {
   CollaborationMessageInputSchema,
   CollaborationMessageSchema,
   CollaborationRecipientReadinessSchema,
+  CollaborationStopResultSchema,
   CollaborationSourceSetupQuerySchema,
   CollaborationSourceSetupSchema,
   COLLABORATION_EXECUTION_DISABLED,
@@ -166,6 +167,22 @@ export function createSessionCollaborationRouter({
               message: store.collaborationConversation.getMessageForRequest(id.data, input.data),
               terminal: false,
             },
+      );
+    } catch (error) {
+      return failure(res, error);
+    }
+  });
+  router.post('/:id/messages/stop', requireSameOriginJson, async (req, res) => {
+    const id = SessionCollaborationIdSchema.safeParse(req.params.id);
+    const input = CollaborationMessageInputSchema.safeParse(req.body);
+    if (!id.success || !input.success)
+      return res.status(400).json({ error: 'Invalid original message control' });
+    try {
+      if (!messaging) throw new CollaborationContractError('execution_unavailable');
+      return res.json(
+        CollaborationStopResultSchema.parse(
+          await messaging.stop(recentAuthorizationSession(res)!, id.data, input.data),
+        ),
       );
     } catch (error) {
       return failure(res, error);

@@ -19,10 +19,16 @@ does not retire an outstanding request. Failed recipients remain visible beside
 successful answers; a later explicit selection can ask only the failed agent.
 Unknown native outcomes retain the original request and never automatically resend.
 
+The existing Stop control now requests interruption of each retained reply command.
+It uses the ordinary native owner's exact turn comparison and durable interruption
+claim. Repeated requests never reissue a claimed interrupt or target a successor.
+Stop intent survives reload; a cancellation ACK does not establish terminal outcome
+or release uncertain effects. Late control responses cannot affect another prompt.
+
 Offline application evidence covers two independent same-account sessions,
 partial failure, an explicit selected retry and uncertainty after reload. Hosted
 CI, browser renders and trusted current-head review remain required before landing.
-Per-prompt reviewed context, forwarding, streaming, shared Stop and broader
+Per-prompt reviewed context, forwarding, streaming and broader
 milestone qualification remain open. No deployment or live inference is qualified.
 
 ## Accepted shared composer and reply recovery

@@ -103,6 +103,13 @@ export async function recordApplicationMessagingRuntime(events: EventStore) {
               nextCursor: null,
             };
           }
+          if (method === 'turn/interrupt') {
+            if (params.threadId !== threadId || params.turnId !== retainedTurn?.id)
+              throw Error('Wrong synthetic native Stop target');
+            // External cancellation ACK is not terminal proof; the held provider
+            // turn may complete/fail concurrently and is settled separately.
+            return {};
+          }
           if (method === 'turn/start') {
             const turnNumber = requests.filter((r) => r.method === 'turn/start').length;
             const turnId = `private-native-turn-${turnNumber}`;

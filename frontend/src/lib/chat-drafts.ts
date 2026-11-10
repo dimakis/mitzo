@@ -48,6 +48,7 @@ export const ChatDraftSchema = z.object({
       collaborationId: SessionCollaborationIdSchema,
       authScope: z.string().min(1),
       input: CollaborationMessageInputSchema,
+      stopRequested: z.boolean().optional(),
     })
     .optional(),
   settings: z.object({

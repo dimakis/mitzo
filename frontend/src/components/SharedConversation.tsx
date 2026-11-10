@@ -346,8 +346,8 @@ export function SharedConversationBody({
                 textOnly
                 boundedFirstCommand
                 externalContextBlocks={EMPTY_CONTEXT}
-                running={false}
-                onStop={() => {}}
+                running={!!sending.pending}
+                onStop={() => void sending.stop()}
                 collaboration={<></>}
                 responders={
                   composerResponders
@@ -389,6 +389,11 @@ export function SharedConversationBody({
             </div>
           )}
       {sending.error && <p role="alert">{sending.error}</p>}
+      {sending.pending && (sending.stopStatus || sending.pending.stopRequested) && (
+        <p role="status">
+          {sending.stopStatus ?? 'Stop was requested. Check the original request; do not resend.'}
+        </p>
+      )}
       {sendFailure && <p role="alert">{sendFailure}</p>}
     </>
   );

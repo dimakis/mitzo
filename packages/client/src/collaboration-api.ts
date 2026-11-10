@@ -17,6 +17,7 @@ import {
   CollaborationMessageInputSchema,
   CollaborationMessageSchema,
   CollaborationRecipientReadinessSchema,
+  CollaborationStopResultSchema,
   CollaborationSnapshotReferenceSchema,
   CollaborationSnapshotSelectionSchema,
   CollaborationApplicationReviewInputSchema,
@@ -124,6 +125,18 @@ export class CollaborationApiClient {
         message: CollaborationMessageSchema.nullable(),
         terminal: z.boolean().default(false),
       }),
+      signal,
+      { method: 'POST', body: CollaborationMessageInputSchema.parse(input) },
+    );
+  }
+  /** Exact original command control only. A requested Stop is not terminal proof. */
+  stopSend(id: string, input: CollaborationMessageInput, signal?: AbortSignal) {
+    return this.request(
+      this.path(id, 'messages/stop'),
+      CollaborationStopResultSchema.refine(
+        (r) => r.requestId === input.requestId,
+        'Original Stop identity changed',
+      ),
       signal,
       { method: 'POST', body: CollaborationMessageInputSchema.parse(input) },
     );
