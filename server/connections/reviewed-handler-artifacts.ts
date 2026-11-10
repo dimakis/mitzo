@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.982-symposium-finalized-recovery-delivery';
+  'v1.0.983-symposium-finalized-recovery-delivery';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -23,6 +23,8 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
+  '../../tests/offline/symposium-footer.spec.ts':
+    '773e8d0a2c20132a2acd46e30345614f057bdf07b242cedc4eb8b14d79d89983',
   '../../frontend/src/hooks/__tests__/useConversationJoiningReview.receipt.test.tsx':
     'ba96331fa943087d8672a6afc29ee18a35db4c82df0fa8ad79f552e0abf03450',
   '../../tests/integration/symposium-application-review-recovery.test.tsx':
@@ -153,9 +155,9 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../tests/offline/symposium-composer.spec.ts':
     '8b77ba1c163f793e459eb7005e4f5c55c9f0b8d53dac863d862d58002ce47bbf',
   '../../docs/evidence/symposium-integration-acceptance.md':
-    '4fa774a08c1e604473bbc2288bbb5ff22a66a3555a98336919218e04d164dd1b',
+    '66f2984aa71babdcacfdeec50a5959c8f88ca57345d7a671aed37b3e2b7f885b',
   '../../docs/features/symposium.md':
-    '406796622355b4a18b50ab5f753a05baa9a48ed4d623ec9e9df4a9b2edf47ccd',
+    '88e2ff778ec7e8350ce3c229ab5069561f2eafc08d3b1fb473fd72002520e9d0',
   '../repository-capability-identity.ts':
     '2e35f24342d36e21f6c559afa93758f9ef83a2e3e435eda6d46e1a6101d16392',
   '../task-capability-consent.ts':
@@ -1811,7 +1813,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/components/ConversationAgents.tsx':
     'e7603e88177ff74e650212b48ace67948a71beefa5926f499f4b9691ab33d244',
   '../../frontend/src/components/ConversationAgents.css':
-    '780ed8c88c4f1f45a2f5488387a436e7634a3816e0d72a3f5cdd8cd02e111be9',
+    '44d3f76cd93aa54be7f00ba95306d84f8a678a4269d617a9c355a43bc8872613',
   '../../frontend/src/components/ComposerResponders.tsx':
     '1d9d03fc824c8903172bc7216dfcdd7bf0275092315b824f583d96410b900c76',
   '../../frontend/src/components/ComposerResponders.css':

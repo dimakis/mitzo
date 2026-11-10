@@ -36,7 +36,11 @@ it does not qualify a live account. Existing request cancellation, changed-model
 restoration and exact edited/retry bytes remain covered.
 
 Rendered browser and independent visual acceptance remain open. The approved
-design controls and references are unchanged. No source merge establishes deployment,
+design controls and references are unchanged. Hosted visual review found an
+Add-agent footer note shrinking below its approved 72px minimum at phone width;
+the component restores that readable track with shared spacing tokens and retains
+wrapping. A separate browser regression preserves the original protected checks.
+No source merge establishes deployment,
 physical iOS or full runtime/account qualification. The dated candidate records
 below describe their original checkpoints.
 

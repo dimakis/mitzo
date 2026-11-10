@@ -42,7 +42,19 @@ Offline checks on this replacement:
   `turn/started` event; its earlier incomplete stream explained a missing second
   answer in the fixture. No production transport relaxation was needed.
 - Protocol/harness/client builds, scoped lint, formatting, source fingerprints and
-  diff checks pass. Approved design references and layout/styles are unchanged.
+  diff checks pass. Approved references and protected checks are unchanged.
+
+Hosted mobile WebKit screenshots at `93ccabec` exposed a remaining Add-agent
+footer defect at 390px in the light theme: the explanatory note collapsed into
+one-word lines beside the buttons. Independent visual review confirmed the
+approved HTML specifies a 72px minimum note track, while component CSS used zero.
+The footer now restores that minimum through three shared spacing tokens and
+keeps wrapping. A separate, additional `symposium-footer.spec.ts` checks the actual
+production preview's note width, footer reachability and overflow at 320/390px and
+desktop in light/dark themes; the protected approval tests and ledger are intact.
+The design contract (109 passes, one existing skip), 13 protected component checks
+and browser discovery pass locally. Rendering the correction remains a hosted CI
+gate; no local browser pass is claimed.
 
 The complete production Add-agent UI journey exposed two further gaps: retaining
 the pending repository ID in the parent aborted the original preparation POST,
