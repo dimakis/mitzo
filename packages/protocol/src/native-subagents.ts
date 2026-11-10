@@ -30,6 +30,21 @@ export const NativeSubagentSnapshotSchema = z.strictObject({
   revision: z.number().int().positive(),
   available: z.boolean().optional(),
   outputTruncated: z.boolean().optional(),
+  inspectionFailure: z
+    .strictObject({
+      code: z.literal('native_subagent_inspection_failed'),
+      stage: z.enum([
+        'inspect_child',
+        'inspect_parent',
+        'validate_identity',
+        'subscribe',
+        'history',
+        'events',
+        'capacity',
+      ]),
+      reference: identity,
+    })
+    .optional(),
   blocks: z.array(NativeSubagentBlockSchema).max(2000),
   usage: z
     .strictObject({
@@ -52,6 +67,7 @@ export const NativeSubagentControlSchema = z.discriminatedUnion('action', [
   z.strictObject({ requestId: identity, threadId: identity, action: z.literal('stop') }),
 ]);
 export type NativeSubagentSnapshot = z.infer<typeof NativeSubagentSnapshotSchema>;
+export const NativeSubagentInspectionSchema = z.strictObject({ threadId: identity });
 export const NativeSubagentStreamEventSchema = z.discriminatedUnion('type', [
   z.strictObject({ type: z.literal('reset'), available: z.boolean() }),
   z.strictObject({ type: z.literal('status'), available: z.boolean() }),
