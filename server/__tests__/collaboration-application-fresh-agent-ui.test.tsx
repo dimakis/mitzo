@@ -1,17 +1,20 @@
 // @vitest-environment node-compatible-dom
-import { expect, it, vi } from 'vitest';
+import { afterAll, expect, it, vi } from 'vitest';
 import React from 'react';
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import userEvent from '@testing-library/user-event';
-import { getApplicationUiJourney } from './collaboration-application-joining-integration.test.js';
+import { createApplicationJourney } from './fixtures/symposium-application-journey.js';
 import { recordApplicationMessagingRuntime } from './fixtures/symposium-recording-runtime.js';
 import { installDialogStub } from '../../frontend/src/components/__tests__/dialog-stub.js';
+
+const journey = createApplicationJourney();
+afterAll(() => journey.close());
 
 // Complete production UI/application composition. Only external execution,
 // account/runtime declarations and repository acquisition are synthetic.
 it('adds an agent, edits and refreezes its brief, silently joins and sends an attributed reply', async () => {
-  const h = await getApplicationUiJourney();
+  const h = await journey.getApplicationUiJourney();
   vi.stubGlobal('HTMLDialogElement', window.HTMLDialogElement);
   installDialogStub();
   const originalScrollTo = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'scrollTo');

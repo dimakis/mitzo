@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.986-symposium-visual-evidence';
+  'v1.0.987-symposium-isolated-application-fixture';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -23,6 +23,10 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
+  '../__tests__/fixtures/symposium-application-journey.ts':
+    'b988f71e228af1bae7dd10663ff67868023e6fc976527702162634117d450163',
+  '../../tests/acceptance/symposium-application-wiring.repro.ts':
+    'afd78db0b4b669d8bbee322f1cb4ae03e3fd3bf1cab85fb9f969b37cf6401ce7',
   '../../tests/offline/symposium-footer.spec.ts':
     '773e8d0a2c20132a2acd46e30345614f057bdf07b242cedc4eb8b14d79d89983',
   '../../frontend/src/hooks/__tests__/useConversationJoiningReview.receipt.test.tsx':
@@ -30,7 +34,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../tests/integration/symposium-application-review-recovery.test.tsx':
     '25489f287500e19ebaa054e00011fc030cba261820f65028e3f9a38e3b584985',
   '../__tests__/collaboration-application-fresh-agent-ui.test.tsx':
-    '66981502b14982e6b3365a855fec3b4d80bc47d42890badfc64b6384b1e3c371',
+    '3567849c155ba9e1a6dd3dda4c392b03b1f1a0a28daa8fab79b647db29e1b501',
   '../../packages/client/src/command-delivery-diagnostic.ts':
     '6d1b83d7d723f34b7393c32865621ed387462583a3844e0c36cd54814004b909',
   '../../frontend/src/lib/command-delivery-tracing.ts':
@@ -147,7 +151,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/hooks/useConversationSending.ts':
     '8519cb2f28253571542226363aa9fd8167b6b28511bfb6d8cc6634957c7bdcb1',
   '../__tests__/collaboration-application-ui.test.tsx':
-    '29c11f9d3da6d52e94963e3a58311c323cc7873238709a591d5231884a30419d',
+    '9a972ba5c5fc04d830841c099f329643d01459cb1db7e59e2b9327be779fdc51',
   '../__tests__/fixtures/symposium-recording-runtime.ts':
     'd806cc66aa3bbe72429a00e731792a323fb4590cb9f60105ba1dc0a81dc0ed42',
   '../../tests/fixtures/symposium-composer.tsx':
@@ -226,7 +230,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../collaboration-application-messaging.ts':
     'a397c6946bfa77cf2c6cf4521d2fd7baf13939cd4e7412fb06f16cd7e7cda63e',
   '../__tests__/collaboration-application-messaging.test.ts':
-    '7d674b0f7318c4e897d140a0f4a7666bdf821fce0f3676bef13d43d946fee77c',
+    '3b593fd6c34b335edce1786be3e26b3ba37ceca9345eebb694d7a3b3b4b77031',
   '../__tests__/fixtures/symposium-application-target.ts':
     '48070cafa4624e1e6037e2023a7eed10e4e5f49285341b9fe568cf847bfeb8ec',
 
@@ -420,7 +424,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/collaboration-application-joining.test.ts':
     'be1743f10345640210afd63893f6a33f0dce081bc328333ab6ed9cd36aba8587',
   '../__tests__/collaboration-application-joining-integration.test.ts':
-    'a7c8e43d0c3aeeb932f31b0709cc0a63d78d639a5cb9b3f1924f04a6c54fa8c3',
+    'cdf21ae5c84a54c4692ec9a852deff5961622e0b2a411ef76b61cff6e375254e',
   '../../frontend/src/lib/message-actions-context.ts':
     '8717c09b9483d6b929416c978822334cd03b29a03094090b08269ecb9642764b',
   '../../frontend/src/components/__tests__/MessageActions.selection.test.tsx':
