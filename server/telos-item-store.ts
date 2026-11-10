@@ -10,11 +10,14 @@ import { mkdirSync, existsSync, chmodSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { initializeTelosSchema } from './telos-schema.js';
 import { assertTelosItemActive } from './telos-lifecycle-facts.js';
+import { drainRejectedTelosAuthority } from './telos-authority-diagnostic.js';
 import {
   TelosEditItemInputSchema,
   type TelosEditItemInput,
   TelosCreateChildInputSchema,
   type TelosCreateChildInput,
+  TelosCreateFeatureInputSchema,
+  type TelosCreateFeatureInput,
 } from '@mitzo/protocol';
 
 export interface TelosItemUpdateInput {
@@ -46,7 +49,7 @@ function assertCurrent(assertion?: () => void): void {
   if (!assertion) return;
   const result: unknown = assertion();
   if (result === undefined) return;
-  void Promise.resolve(result).catch(() => {});
+  drainRejectedTelosAuthority(result, 'item-authority');
   throw Error('Synchronous Telos item authority required');
 }
 
@@ -250,26 +253,59 @@ export class TelosItemStore {
     assertion: () => void,
     beforeApply: () => void,
   ): TelosChildCreationReceipt {
-    if (typeof assertion !== 'function' || typeof beforeApply !== 'function' || !sessionId.trim())
-      throw Error('Synchronous Telos child authority and session required');
+    return this.createBacklogGuarded(
+      TelosCreateChildInputSchema.parse(raw),
+      sessionId,
+      assertion,
+      beforeApply,
+    ) as TelosChildCreationReceipt;
+  }
+
+  createFeatureGuarded(
+    raw: TelosCreateFeatureInput,
+    sessionId: string,
+    assertion: () => void,
+  ): TelosItemUpdateReceipt {
+    return this.createBacklogGuarded(
+      TelosCreateFeatureInputSchema.parse(raw),
+      sessionId,
+      assertion,
+    );
+  }
+
+  /** Both creators share the original canonical writer, atomic audit and replay ledger. */
+  private createBacklogGuarded(
+    input: TelosCreateFeatureInput | TelosCreateChildInput,
+    sessionId: string,
+    assertion: () => void,
+    beforeApply?: () => void,
+  ): TelosItemUpdateReceipt & { parentRevision?: string } {
+    const child = 'parentId' in input ? input : undefined;
+    if (
+      typeof assertion !== 'function' ||
+      (child && typeof beforeApply !== 'function') ||
+      !sessionId.trim()
+    )
+      throw Error('Synchronous Telos creation authority and session required');
     if (this.db.inTransaction) throw Error('Original Telos item writer required');
-    const input = TelosCreateChildInputSchema.parse(raw);
     return this.writeWithReceipt(
       sessionId,
       input.requestId,
-      { operation: 'create-child', input },
+      { operation: child ? 'create-child' : 'create-feature', input },
       assertion,
       (inputHash, updatesExist) => {
-        const parent = this.snapshot(input.parentId, updatesExist);
-        if (parent.revision !== input.expectedParentRevision)
+        const parent = child ? this.snapshot(child.parentId, updatesExist) : undefined;
+        if (child && parent?.revision !== child.expectedParentRevision)
           throw Error('Telos item changed; read the parent again before creating a child');
-        if (parent.status === 'completed')
+        if (parent?.status === 'completed')
           throw Error('Telos item is completed; reopen the parent before adding work');
         assertCurrent(assertion);
         // Eligibility checks apply to new effects, not recovery of committed receipts.
         assertCurrent(beforeApply);
         const itemId = createHash('sha256')
-          .update(JSON.stringify(['telos-child', sessionId, input.requestId]))
+          .update(
+            JSON.stringify([child ? 'telos-child' : 'telos-feature', sessionId, input.requestId]),
+          )
           .digest('hex')
           .slice(0, 16);
         const now = new Date().toISOString();
@@ -281,7 +317,7 @@ export class TelosItemStore {
           )
           .run(
             itemId,
-            input.parentId,
+            child?.parentId ?? null,
             input.summary,
             input.intent,
             input.rationale,
@@ -297,7 +333,8 @@ export class TelosItemStore {
             "INSERT INTO history(item_id,old_status,new_status,changed_at) VALUES(?,NULL,'active',?)",
           )
           .run(itemId, now);
-        this.db.prepare('UPDATE items SET updated_at=? WHERE id=?').run(now, input.parentId);
+        if (child)
+          this.db.prepare('UPDATE items SET updated_at=? WHERE id=?').run(now, child.parentId);
         this.db
           .prepare(
             `INSERT INTO telos_item_updates
@@ -309,7 +346,7 @@ export class TelosItemStore {
         return {
           item,
           update: item.updates[0],
-          parentRevision: this.snapshot(input.parentId, true).revision,
+          ...(child ? { parentRevision: this.snapshot(child.parentId, true).revision } : {}),
         };
       },
     );

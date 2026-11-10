@@ -8,16 +8,18 @@ import {
   type TelosBacklogToolName,
 } from '../telos-backlog-tools.js';
 import { createIntegrationToolDiscovery } from '../integration-tool-discovery.js';
+import * as logging from '../logger.js';
 
 const cleanup: Array<() => void> = [];
-afterEach(() =>
+afterEach(() => {
+  vi.restoreAllMocks();
   cleanup
     .splice(0)
     .reverse()
-    .forEach((fn) => fn()),
-);
-function fixture() {
-  const f = createTelosCanonicalData();
+    .forEach((fn) => fn());
+});
+function fixture(variant: 'fresh' | 'upgraded' = 'fresh') {
+  const f = createTelosCanonicalData(variant);
   cleanup.push(() => f.close());
   const items = new TelosItemStore(f.dbPath);
   cleanup.push(() => items.close());
@@ -29,7 +31,11 @@ function fixture() {
     behavior: 'allow' as const,
     updatedInput: input,
   }));
-  const run = (name: TelosBacklogToolName, raw: Record<string, unknown>) =>
+  const run = (
+    name: TelosBacklogToolName,
+    raw: Record<string, unknown>,
+    guard = assertCurrentSync,
+  ) =>
     executeTelosBacklogOperation(
       {
         items,
@@ -41,7 +47,7 @@ function fixture() {
           toolName: name,
           requestHash: createHash('sha256').update(JSON.stringify(raw)).digest('hex'),
           signal: new AbortController().signal,
-          assertCurrentSync,
+          assertCurrentSync: guard,
           async assertCurrent() {
             assertCurrentSync();
           },
@@ -84,6 +90,7 @@ it('discovers list, search and maintenance contracts by their exact callable ide
     'TelosSearchItems',
     'TelosManageItem',
     'TelosCreateChild',
+    'TelosCreateFeature',
   ]);
   for (const { toolId } of list.tools) {
     const described = await discovery.execute(
@@ -98,6 +105,174 @@ it('discovers list, search and maintenance contracts by their exact callable ide
       inputSchema: { type: 'object' },
     });
   }
+});
+const featureBrief = {
+  requestId: 'standalone-feature',
+  summary: 'Create standalone Telos features',
+  intent: 'Save a complete feature contract without an outcome wrapper.',
+  rationale: 'A single feature can have its own slices.',
+  acceptanceCriteria: ['An ordinary chat can create, inspect and decompose the feature.'],
+  note: 'User authorized this standalone feature.',
+};
+it('reports rejected asynchronous backlog authority and preserves the failed operation without saving a feature', async () => {
+  const f = fixture();
+  const warn = vi.fn();
+  vi.spyOn(logging, 'createLogger').mockReturnValue({
+    debug: vi.fn(),
+    info: vi.fn(),
+    warn,
+    error: vi.fn(),
+  });
+  const result = await f.run('TelosCreateFeature', featureBrief, async () => {
+    throw Error('private upstream payload');
+  });
+  expect(result.isError).toBe(true);
+  expect(result.content).toContain('mutation not confirmed');
+  await vi.waitFor(() =>
+    expect(warn).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({
+        stage: 'backlog-authority',
+        code: 'ASYNC_AUTHORITY_REJECTED',
+        conversationId: 'ordinary-chat',
+        diagnosticId: expect.any(String),
+        requestHash: expect.stringMatching(/^[a-f0-9]{64}$/),
+      }),
+    ),
+  );
+  expect(JSON.stringify(warn.mock.calls)).not.toContain('private upstream payload');
+  expect(f.approve).not.toHaveBeenCalled();
+  expect(f.db.prepare('SELECT COUNT(*) AS n FROM items').get()).toEqual({ n: 1 });
+});
+it('reports a rejected asynchronous item guard without leaking its private error or saving a feature', async () => {
+  const f = fixture();
+  const warn = vi.fn();
+  vi.spyOn(logging, 'createLogger').mockReturnValue({
+    debug: vi.fn(),
+    info: vi.fn(),
+    warn,
+    error: vi.fn(),
+  });
+  expect(() =>
+    f.items.createFeatureGuarded(featureBrief, 'ordinary-chat', async () => {
+      throw Error('private upstream payload');
+    }),
+  ).toThrow('Synchronous Telos item authority required');
+  await vi.waitFor(() =>
+    expect(warn).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({
+        stage: 'item-authority',
+        code: 'ASYNC_AUTHORITY_REJECTED',
+        diagnosticId: expect.any(String),
+      }),
+    ),
+  );
+  expect(JSON.stringify(warn.mock.calls)).not.toContain('private upstream payload');
+  expect(f.db.prepare('SELECT COUNT(*) AS n FROM items').get()).toEqual({ n: 1 });
+});
+it.each(['fresh', 'upgraded'] as const)(
+  'creates one standalone feature with canonical provenance, a replayable receipt and no implied session setup (%s)',
+  async (variant) => {
+    const f = fixture(variant);
+    const result = await f.run('TelosCreateFeature', featureBrief);
+    expect(result.isError).toBe(false);
+    const receipt = JSON.parse(result.content);
+    expect(receipt).toMatchObject({
+      ok: true,
+      item: { summary: featureBrief.summary, parentId: null, status: 'active' },
+      preparation: {
+        dedicatedConversationCreated: false,
+        sourceFilesSaved: false,
+        originatingConversationId: 'ordinary-chat',
+      },
+    });
+    expect(f.approve).toHaveBeenCalledWith(
+      'TelosCreateFeature',
+      featureBrief,
+      expect.any(AbortSignal),
+    );
+    expect(f.items.read(receipt.item.id)).toMatchObject({
+      intent: featureBrief.intent,
+      rationale: featureBrief.rationale,
+      acceptanceCriteria: featureBrief.acceptanceCriteria,
+      updates: [{ note: featureBrief.note, sessionId: 'ordinary-chat' }],
+    });
+    expect(await f.run('TelosCreateFeature', featureBrief)).toEqual(result);
+    expect(
+      (await f.run('TelosCreateFeature', { ...featureBrief, summary: 'Different' })).isError,
+    ).toBe(true);
+    const child = await f.run('TelosCreateChild', {
+      ...featureBrief,
+      requestId: 'feature-slice',
+      parentId: receipt.item.id,
+      expectedParentRevision: receipt.item.revision,
+      summary: 'Implement the creator',
+    });
+    expect(child.isError).toBe(false);
+    expect(JSON.parse(child.content).item.parentId).toBe(receipt.item.id);
+    expect(f.db.prepare('SELECT COUNT(*) AS n FROM items WHERE parent_id IS NULL').get()).toEqual({
+      n: 2,
+    });
+  },
+);
+it('recovers the original feature receipt after owner restart and archive without creating a duplicate', async () => {
+  const f = fixture();
+  const created = await f.run('TelosCreateFeature', featureBrief);
+  const saved = JSON.parse(created.content);
+  expect(
+    (
+      await f.run('TelosManageItem', {
+        operation: 'archive',
+        itemId: saved.item.id,
+        requestId: 'archive-feature',
+        expectedRevision: f.work.readLifecycle(saved.item.id, f.actor).revision,
+      })
+    ).isError,
+  ).toBe(false);
+  f.restartOwners();
+  const reloaded = new TelosItemStore(f.dbPath);
+  cleanup.push(() => reloaded.close());
+  expect(reloaded.createFeatureGuarded(featureBrief, 'ordinary-chat', () => {})).toEqual({
+    item: saved.item,
+    update: saved.update,
+  });
+  expect(await f.run('TelosCreateFeature', featureBrief)).toEqual(created);
+  expect(f.db.prepare('SELECT COUNT(*) AS n FROM items').get()).toEqual({ n: 2 });
+});
+it('rolls back feature, history and receipt together when the canonical writer fails', async () => {
+  const f = fixture();
+  f.db.exec(`CREATE TRIGGER refuse_feature_history BEFORE INSERT ON history
+    WHEN NEW.item_id != 'studio' BEGIN SELECT RAISE(ABORT, 'fixture history failure'); END;`);
+  const failed = await f.run('TelosCreateFeature', featureBrief);
+  expect(failed.isError).toBe(true);
+  expect(failed.content).toContain('mutation not confirmed');
+  expect(f.db.prepare('SELECT COUNT(*) AS n FROM items').get()).toEqual({ n: 1 });
+  f.db.exec('DROP TRIGGER refuse_feature_history');
+  expect((await f.run('TelosCreateFeature', featureBrief)).isError).toBe(false);
+});
+it('refuses invalid, denied, modified and retired feature creation before any canonical effects', async () => {
+  const f = fixture();
+  for (const extra of [
+    { parentId: 'studio' },
+    { milestones: ['Invented wrapper'] },
+    { acceptanceCriteria: [] },
+  ])
+    expect((await f.run('TelosCreateFeature', { ...featureBrief, ...extra })).isError).toBe(true);
+  expect(f.approve).not.toHaveBeenCalled();
+  f.approve.mockImplementationOnce(async () => ({ behavior: 'deny' }) as never);
+  expect((await f.run('TelosCreateFeature', featureBrief)).content).toContain('approval');
+  f.approve.mockImplementationOnce(async (_name, input) => ({
+    behavior: 'allow',
+    updatedInput: { ...input, summary: 'Substituted' },
+  }));
+  expect((await f.run('TelosCreateFeature', featureBrief)).isError).toBe(true);
+  f.approve.mockImplementationOnce(async (_name, input) => {
+    f.retire();
+    return { behavior: 'allow', updatedInput: input };
+  });
+  expect((await f.run('TelosCreateFeature', featureBrief)).isError).toBe(true);
+  expect(f.db.prepare('SELECT COUNT(*) AS n FROM items').get()).toEqual({ n: 1 });
 });
 it('lets an ordinary authenticated chat find and inspect an item without assigning a lead role', async () => {
   const f = fixture();

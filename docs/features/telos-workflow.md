@@ -1,5 +1,11 @@
 # Telos work planning
 
+Telos is the durable work contract and handoff between sessions. Each brief should
+let a fresh agent understand the intended result, why it matters, scope, ownership,
+dependencies, sources, next action and evidence of delivery. Use a concise title,
+intent (what to achieve), rationale (why) and observable acceptance criteria (how to
+verify it). Reference named artifacts for detailed plans and evidence.
+
 Reach for Telos when the ask needs multiple independently deliverable slices or
 handoffs between sessions. First propose the feature, session-sized slices and
 session ownership. Several steps in a single implementation are not several slices.
@@ -18,7 +24,10 @@ Outcome: a shared result across features
 
 Propose Telos, reuse existing work, save approved contracts using supported creators,
 then verify reviewed session setup separately. A standalone feature needs no outcome
-wrapper. `TelosCreateChild` can describe a feature under an outcome or a slice under a
+wrapper. `TelosCreateFeature` saves a standalone feature's complete brief, acceptance
+criteria and audit note using the canonical item writer and an exact approved request.
+It creates no milestone children. Retry uncertain delivery with the identical request
+and request ID. `TelosCreateChild` can describe a feature under an outcome or a slice under a
 feature. `TelosCreateOutcome` saves ordered milestones; inspect its saved children
 before adding work. Milestone strings alone do not establish feature contracts.
 
