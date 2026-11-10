@@ -7,6 +7,18 @@ runtime acceptance or authorize deployment.
 
 ## Accepted shared composer and reply recovery
 
+The next source increment removes the display-page limit from new sends. Pending
+discussion is enumerated per recipient in bounded keyset pages, including older
+attributed replies, and checked against the complete encoded 512 KiB packet limit
+before acceptance. Already claimed context stays with its original command; an
+older unclaimed reply request cannot be adopted by a later send. This candidate
+is published as [PR #1279](https://github.com/dimakis/mitzo/pull/1279), with focused
+offline/application evidence and combined accepted Claude main `f7fd876a`.
+Current-head CI and trusted review remain required.
+Defaults/multiple responders, new reviewed per-prompt context, exact forwarding,
+streaming and the remaining milestone qualification are still open. See the
+[current evidence](../evidence/symposium-integration-acceptance.md).
+
 PRs #1252 and #1261 are merged. Current source supports server-owned recipient
 readiness, silent joining, first and later explicit Local Codex prompts through
 the shared composer, attributed finalized replies, exact observational retries
