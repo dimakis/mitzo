@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.1020-symposium-responders-accepted-base';
+  'v1.0.1022-symposium-observer-survives-singleton';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -211,9 +211,9 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/components/ConversationRepositoryPicker.tsx':
     'bad89b264d8bff41ed745fd33629e658ac947d6bc56b3945baae6fa0df2986cf',
   '../../frontend/src/components/SharedConversation.tsx':
-    '7fade9a3a484a7e0a5cf6d39b472ee2fdc9a59d1956ba9c759472446a924fb04',
+    'd9db8063f7a496d973136e7d65bf2fb1f3c6d4c95fc560133b69e630ae2f92f1',
   '../../frontend/src/components/__tests__/SharedConversation.test.tsx':
-    'aeea744f0b515216fb92232c4cfcfaf5fe9bce4c89ffd3e32624acb0df02f810',
+    'eb4b3a1a1375ca77aed0be6521ab354b048361f1ce5f2d331b5ac5c695daff16',
   '../../frontend/src/hooks/__tests__/useConversationSending.test.tsx':
     'ac991c4f502ad53209e917c149eae4e82a14baa3c8aaea2410a73a435a4b5b53',
   '../../frontend/src/hooks/useConversationSending.ts':
@@ -225,9 +225,9 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../tests/fixtures/symposium-composer.tsx':
     '3e821497de4f4088e1610134821046e992e81117e897cb1c30864ccc2ff6b8ad',
   '../../tests/offline/symposium-composer.spec.ts':
-    'fb06b6641e9549349de6c2fe5063990ff645ebe1a516b20ff3b90bb8d84eef3a',
+    '5406881183a0f0b12df01bf7548325cf77316ada2544ecc203319fad8f1b5864',
   '../../docs/evidence/symposium-integration-acceptance.md':
-    '31d18e63a17b61b03b3f096a992a5cb089f57ad5cfda6e8ad518072834fde61a',
+    'da5a9dc1c1abae5256cb84b27db95a38a4abcca937f4417125f7c7bb40eef871',
   '../../docs/features/symposium.md':
     '83b24ac412c39b00038d851300844c1ac6973e77ec131e1c5eb70de21100545c',
   '../repository-capability-identity.ts':

@@ -33,6 +33,99 @@ const bundle = build({
 });
 for (const theme of ['dark', 'light'])
   test(
+    'shared observer survives singleton membership (' + theme + ')',
+    async ({ page, isMobile }, info) => {
+      const files = (await bundle).outputFiles!;
+      const view = sharedConversationView();
+      view.messages = [];
+      const policies = structuredClone(view.policies);
+      let writes = 0;
+      const errors: string[] = [];
+      page.on('pageerror', (error) => errors.push(error.message));
+      await page.route('**/*', async (route) => {
+        const path = new URL(route.request().url()).pathname;
+        if (path.startsWith('/api/') && route.request().method() !== 'GET') writes++;
+        if (path === '/api/auth/check')
+          return route.fulfill({ json: { ok: true, authSessionId: 'offline-observer-login' } });
+        if (path.endsWith('/source-setup'))
+          return route.fulfill({
+            json: {
+              state: 'selected',
+              sourceConversationId: 'architect',
+              collaboration: {
+                version: 1,
+                collaborationId: view.collaborationId,
+                revision: view.membershipRevision,
+                participantSessionIds: view.participantSessionIds,
+              },
+            },
+          });
+        if (path.endsWith('/conversation')) return route.fulfill({ json: view });
+        if (path.endsWith('/progress'))
+          return route.fulfill({
+            json: {
+              collaborationId: view.collaborationId,
+              membershipRevision: view.membershipRevision,
+              replies: [],
+              refusals: [],
+            },
+          });
+        if (path.includes('/recipients/'))
+          return route.fulfill({
+            json: {
+              collaborationId: view.collaborationId,
+              sessionId: decodeURIComponent(path.split('/').at(-1)!),
+              membershipRevision: view.membershipRevision,
+              policySequence: view.policySequence,
+              ready: true,
+              reason: null,
+            },
+          });
+        const file = files.find((file) =>
+          path.endsWith(file.path.endsWith('.css') ? '.css' : '.js'),
+        );
+        if (file)
+          return route.fulfill({
+            body: file.text,
+            contentType: file.path.endsWith('.css') ? 'text/css' : 'text/javascript',
+          });
+        if (path !== '/') return route.abort();
+        return route.fulfill({
+          contentType: 'text/html',
+          body: `<!doctype html><html data-theme="${theme}"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="/fixture.css"><style>html,body,#root{margin:0;height:100%;overflow:hidden}</style><div id="root"></div><script src="/fixture.js"></script></html>`,
+        });
+      });
+      await page.setViewportSize({ width: isMobile ? 320 : 1280, height: 844 });
+      await page.emulateMedia({ reducedMotion: 'reduce' });
+      await page.goto('/');
+      const picker = page.getByRole('button', { name: 'Choose who replies' });
+      await expect(picker).toBeVisible();
+      await page.getByRole('textbox', { name: 'Message Mitzo' }).fill('Keep this unsent draft.');
+      view.participantSessionIds = ['architect'];
+      view.membershipRevision++;
+      view.policies = policies.filter((policy) => policy.sessionId === 'architect');
+      await expect(picker).toBeHidden({ timeout: 7000 });
+      view.participantSessionIds = ['architect', 'reviewer'];
+      view.membershipRevision++;
+      view.policies = policies.filter((policy) =>
+        view.participantSessionIds.includes(policy.sessionId),
+      );
+      view.messages = [{ ...sharedReply, text: 'Remote reply after rejoining.' }];
+      view.cursor = 3;
+      await expect(page.getByText('Remote reply after rejoining.')).toBeVisible({ timeout: 7000 });
+      await expect(page.getByRole('textbox', { name: 'Message Mitzo' })).toHaveValue(
+        'Keep this unsent draft.',
+      );
+      expect(writes).toBe(0);
+      expect(errors).toEqual([]);
+      await page.screenshot({
+        path: info.outputPath('singleton-rejoin-' + theme + '.png'),
+        fullPage: true,
+      });
+    },
+  );
+for (const theme of ['dark', 'light'])
+  test(
     'shared composer: readiness, finalized reply and retained refusal (' + theme + ')',
     async ({ page, isMobile }, info) => {
       const files = (await bundle).outputFiles!;

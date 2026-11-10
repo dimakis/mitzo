@@ -4,6 +4,19 @@ Living map owner: workstream C, `01a14bdc-d152-7912-84d4-c0012e9d5206`.
 
 ## 10 November 2026 multiple-responder source candidate
 
+The replacement owner integrated accepted recovery main `048b3e05` after #1279
+landed, preserving the original full/source reviews and all responder additions.
+The combined head passed 661 offline application/native recovery checks. A later
+trusted-ledger reconciliation identified the remaining singleton observer defect:
+removing the last other participant disabled polling, hiding a subsequent remote
+join and answer. A component regression reproduced that exact missed answer.
+Observation now retains the existing authorized collaboration view independently
+of whether the shared composer is active. Auth epochs, audience renewal, abort and
+owner checks remain unchanged. The repair and existing real HTTP observer journey
+pass with 122 focused/design checks (one existing skip); hosted singleton rejoin
+browser cases retain an unsent draft in light/dark desktop/mobile layouts. Current
+hosted evidence and trusted verification of both historical findings remain gates.
+
 This separate candidate builds on the long-discussion slice in #1279. It reuses
 the approved Defaults, All and multi-selection composer controls. The sending
 owner resolves every recipient, verifies every readiness receipt, and retains the
