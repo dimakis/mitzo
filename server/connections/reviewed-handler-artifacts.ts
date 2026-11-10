@@ -10,8 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.1014-drained-maintenance-quarantine';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.1015-inbox-direct-approval';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -727,7 +726,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/owned-local-auth-feedback.test.ts':
     'fa4b4dca12a655e4075c03e6c95701ac9c8c1a6607f867e27668c914e988da21',
   '../../docs/design/ui-design-system.md':
-    '45e1fac29f866587909d2555e82e7f5d2b660cca92893646c422e804fb9f0b2d',
+    'f60dc709e4c32529e38b18f658ba6f169736a92823c52d18fd481f9ffbac6246',
   '../../packages/protocol/src/session-prompts.ts':
     '5a3c7a567c7b4d7b5699b7405282b11c11a07e0fb7e14d73e11529a3882cbc09',
   '../__tests__/session-prompt-service.test.ts':
@@ -2857,7 +2856,13 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../telos-main-publication-runtime.ts':
     'e2d2abec3931f433991ef510fa64f1a4b3b5d05ac2c8a7e51f5f13e1859a261b',
   '../../frontend/src/pages/NotificationsView.tsx':
-    'c4fc2a4c2ad1273d0ff817c02092222ae57a58832a7d12b6f701869b8ca06f5a',
+    '34d496bdfbd97a6759b5163416348f62ddb4a8f9cee6a3dd0713013b5d6eb0af',
+  '../../frontend/src/pages/UnifiedInboxView.tsx':
+    '516e126de61cfff4b8d92891cfa75720f07d34d68d1a59b5aa772855d88c828b',
+  '../../frontend/src/components/NotificationApprovalActions.tsx':
+    'bca845d88ffc946556778f5b0002b3ea5800b5ca9e4d469190e56b03e9e027bb',
+  '../../frontend/src/pages/__tests__/UnifiedInboxView.test.tsx':
+    '200181de8e6f2d91ee5377e8390554ca80798385850f2929c6604cc1261bcf83',
   '../../frontend/vite.config.ts':
     '5ffb5a59e93371979fbcdb78ca42bbdaa98c180f9bacd5852891645126195da2',
   '../../frontend/production-bundle-evidence.ts':
