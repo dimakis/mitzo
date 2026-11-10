@@ -1,24 +1,31 @@
 import { expect, test } from '@playwright/test';
 import { build } from 'esbuild';
 import { resolve } from 'node:path';
+import { readFile } from 'node:fs/promises';
 
 const output = build({
   entryPoints: [resolve('tests/fixtures/agent-messages.tsx')],
   bundle: true,
+  external: ['/*.png', '/*.svg'],
   format: 'esm',
   write: false,
   outfile: '/tmp/mitzo-agent-messages.js',
   jsx: 'automatic',
   minify: true,
-  define: { 'process.env.NODE_ENV': '"production"' },
+  define: { 'process.env.NODE_ENV': '"production"', 'import.meta.env': '{}' },
 });
 for (const theme of ['dark', 'light'])
   test(`visible peer messages and delivery state (${theme})`, async ({ page }, info) => {
     const files = (await output).outputFiles!;
     const errors: string[] = [];
     page.on('pageerror', (error) => errors.push(error.message));
-    await page.route('**/*', (route) => {
+    await page.route('**/*', async (route) => {
       const path = new URL(route.request().url()).pathname;
+      if (/^\/(openai|claude|openshell|github)-mark.svg$/.test(path))
+        return route.fulfill({
+          contentType: 'image/svg+xml',
+          body: await readFile(resolve('frontend/public' + path)),
+        });
       if (path === '/fixture.js')
         return route.fulfill({
           contentType: 'text/javascript',
@@ -51,6 +58,20 @@ for (const theme of ['dark', 'light'])
     await link.focus();
     await expect(link).toBeFocused();
     expect((await link.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+    const quote = page.locator('.chat-messages .chat-reply-link');
+    await expect(quote).toContainText('You');
+    await expect(quote.locator('time')).toBeVisible();
+    await quote.click();
+    const original = page.locator('[data-reply-source="original-question"]');
+    await expect(original).toBeFocused();
+    await expect(original).toHaveClass(/chat-reply-target/);
+    await page.getByRole('button', { name: 'Back to reply' }).click();
+    await expect(quote).toBeFocused();
+    const composerQuote = page.locator('.fixture-composer .chat-reply-link');
+    await composerQuote.click();
+    await expect(original).toBeFocused();
+    await page.getByRole('button', { name: 'Back to reply' }).click();
+    await expect(composerQuote).toBeFocused();
     expect(
       await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
     ).toBe(true);

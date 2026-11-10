@@ -8,7 +8,7 @@ import {
   unsupportedSessionExtraToolsReason,
   unsupportedSessionContextReason,
 } from '../lib/session-launch-defaults';
-import { SessionLaunchCards, SessionLaunchOrigin } from '../components/SessionLaunchCards';
+import { SessionLaunchOrigin } from '../components/SessionLaunchCards';
 import { useSessionLaunch } from '../hooks/useSessionLaunch';
 import { useTurnSteering } from '../hooks/useTurnSteering';
 import { chatStorage } from '../lib/large-chat-storage';
@@ -1613,6 +1613,8 @@ function DesktopChatViewContent() {
             />
           )}
           <SessionAccess
+            launches={isSymposium ? undefined : sessionLaunch}
+            disabled={controlsBlocked || localRuntime.metadataPending}
             sessionId={repositoryHandoff.present ? undefined : (activeSessionId ?? undefined)}
             selection={accountSelection}
             connected={connected}
@@ -1881,6 +1883,8 @@ function DesktopChatViewContent() {
                 showHeader: isSymposium,
                 actions: (
                   <SessionAccess
+                    launches={isSymposium ? undefined : sessionLaunch}
+                    disabled={controlsBlocked || localRuntime.metadataPending}
                     sessionId={activeSessionId ?? undefined}
                     selection={accountSelection}
                     connected={connected}
@@ -1901,6 +1905,10 @@ function DesktopChatViewContent() {
               readOnly={controlsBlocked || localBound}
               sessionId={sessionId ?? activeSessionId}
               chat={{
+                launchRequests: !isSymposium ? sessionLaunch.requests : undefined,
+                onLaunchUpdate: sessionLaunch.refresh,
+                launchDisabled:
+                  controlsBlocked || localRuntime.metadataPending || Boolean(sessionLaunch.error),
                 onReply:
                   !isSymposium && activeSessionId && !controlsBlocked
                     ? (message) => setReplySelection({ session: activeSessionId, message })
@@ -1910,11 +1918,18 @@ function DesktopChatViewContent() {
                 ) : undefined,
                 afterMessages: !isSymposium ? (
                   <>
-                    <SessionLaunchCards
-                      requests={sessionLaunch.requests}
-                      onUpdate={sessionLaunch.refresh}
-                      disabled={controlsBlocked || localRuntime.metadataPending}
-                    />
+                    {sessionLaunch.error && (
+                      <p role="alert">
+                        {sessionLaunch.error}
+                        <button
+                          type="button"
+                          className="session-links-new"
+                          onClick={sessionLaunch.refresh}
+                        >
+                          Refresh links
+                        </button>
+                      </p>
+                    )}
                     <TelosAdvisorDraft conversationId={activeSessionId ?? undefined} />
                     <TelosWorkControls data={telosRoute.data} conversationId={activeSessionId} />
                   </>

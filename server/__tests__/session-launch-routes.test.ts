@@ -46,6 +46,10 @@ function fixture(login: string | null = 'current') {
       forSession: vi.fn(() => [record]),
       get: vi.fn(() => record),
       cancel: vi.fn(() => ({ ...record, state: 'cancelled', revision: 2 })),
+      propose: vi.fn(() => record),
+      linked: vi.fn(() => []),
+      link: vi.fn(),
+      unlink: vi.fn(),
     },
     port: { validate: vi.fn(async () => {}) },
     approve: vi.fn(async (_id, _owner, _edits, _revision, _authority, effect) => {
@@ -65,7 +69,12 @@ function fixture(login: string | null = 'current') {
     '/api/session-launch',
     createSessionLaunchRouter({
       controller: controller as never,
-      session: (id) => (id === 'source' ? { title: 'Origin chat' } : undefined),
+      session: (id) =>
+        id === 'source'
+          ? { title: 'Origin chat' }
+          : id === 'target'
+            ? { title: 'Target chat' }
+            : undefined,
       withAuthority: async (_auth, signal, action) =>
         action({
           operatorConnectionId: 'host-owned',
@@ -78,6 +87,88 @@ function fixture(login: string | null = 'current') {
   return { app, defaults, launches };
 }
 describe('reviewed session launch routes', () => {
+  it('keeps link mutations authenticated, same origin and separate from launches and grants', async () => {
+    const f = fixture();
+    expect(
+      (await request(f.app).put('/api/session-launch/links/source/missing').send({})).status,
+    ).toBe(404);
+    expect(
+      (
+        await request(f.app)
+          .put('/api/session-launch/links/source/target')
+          .set('Origin', 'https://hostile.example')
+          .send({})
+      ).status,
+    ).toBe(403);
+    expect(
+      (
+        await request(fixture('revoked').app)
+          .delete('/api/session-launch/links/source/target')
+          .send({})
+      ).status,
+    ).toBe(403);
+    expect(f.launches.store.link).not.toHaveBeenCalled();
+    expect(
+      (await request(f.app).put('/api/session-launch/links/source/target').send({})).status,
+    ).toBe(200);
+    expect(f.launches.store.link).toHaveBeenCalledWith(
+      'user',
+      'source',
+      'target',
+      'Origin chat',
+      'Target chat',
+    );
+    expect(f.launches.approve).not.toHaveBeenCalled();
+    expect(
+      (await request(f.app).delete('/api/session-launch/links/source/target').send({})).status,
+    ).toBe(200);
+    expect(f.launches.store.unlink).toHaveBeenCalledWith('user', 'source', 'target');
+  });
+  it('starts from Links only through explicit authenticated approval using the retained request identity', async () => {
+    const f = fixture();
+    const body = {
+      requestId: record.requestId,
+      sourceSessionId: 'source',
+      title: record.title,
+      prompt: record.prompt,
+      configuration,
+      saveAsDefault: false,
+    };
+    expect((await request(f.app).get('/api/session-launch/requests?sessionId=source')).status).toBe(
+      200,
+    );
+    expect(f.launches.approve).not.toHaveBeenCalled();
+    expect(
+      (await request(fixture('revoked').app).post('/api/session-launch/requests/start').send(body))
+        .status,
+    ).toBe(403);
+    expect(
+      (
+        await request(f.app)
+          .post('/api/session-launch/requests/start')
+          .set('Origin', 'https://hostile.example')
+          .send(body)
+      ).status,
+    ).toBe(403);
+    expect(
+      (await request(f.app).post('/api/session-launch/requests/start').send(body)).status,
+    ).toBe(200);
+    expect(f.launches.store.propose).toHaveBeenCalledWith(
+      expect.objectContaining({
+        operatorId: 'user',
+        sourceSessionId: 'source',
+        requestId: record.requestId,
+      }),
+    );
+    expect(f.launches.approve).toHaveBeenCalledWith(
+      record.proposalId,
+      'user',
+      expect.objectContaining({ configuration }),
+      1,
+      expect.anything(),
+      undefined,
+    );
+  });
   it('requires explicit authenticated revision-fenced startup recovery', async () => {
     const f = fixture();
     await request(f.app).get('/api/session-launch/requests?sessionId=source');

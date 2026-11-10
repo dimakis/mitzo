@@ -1,7 +1,7 @@
 import { createChatDraft, saveChatDraft } from '../../lib/chat-drafts';
 // @vitest-environment jsdom
 import { afterEach, expect, it, vi } from 'vitest';
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter, Routes, Route, useNavigate } from 'react-router-dom';
 import { MitzoStoreProvider } from '@mitzo/client/hooks';
 import { createTestStore } from '../../test-utils/createTestStore';
@@ -733,6 +733,17 @@ for (const [name, Screen] of [
     expect((await screen.findByText('Symposium')).closest('.workspace-controls')).toBeTruthy();
     expect(screen.queryByRole('button', { name: 'Test send' })).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: 'Close Agents' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Links & access' }));
+    const access = screen.getByRole('dialog', { name: 'Links & access' });
+    expect(within(access).queryByRole('button', { name: 'New chat' })).toBeNull();
+    expect(within(access).queryByText('Link existing chat')).toBeNull();
+    expect(
+      within(access).getByText('Linked chats are unavailable for this conversation.'),
+    ).toBeTruthy();
+    expect(within(access).getByRole('button', { name: /^Permissions/ })).toBeEnabled();
+    expect(within(access).getByRole('button', { name: /^Connections/ })).toBeEnabled();
+    fireEvent.click(within(access).getByRole('button', { name: 'Close' }));
+    expect(screen.getByRole('button', { name: 'Agents' })).toBeEnabled();
     act(() => store.setState({ switchSession: async () => {} }));
     fireEvent.click(screen.getByRole('button', { name: 'Navigate before assignment' }));
     expect(store.getState().sessions.active).toBe('symposium-session');

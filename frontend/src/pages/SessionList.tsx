@@ -14,8 +14,10 @@ import { SdkConversationImport } from '../components/SdkConversationImport';
 import { sessionNeedsYouReason } from '../lib/session-attention';
 import { mergeSessionActivities } from '../lib/session-activity';
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { useSavedChatDrafts } from '../hooks/useSavedChatDrafts';
+import { chatDraftUrl } from '../lib/chat-drafts';
+import { formatRelativeTime } from '../lib/formatTime';
 import '../styles/chat-drafts.css';
 import type { Session } from '../types/chat';
 import { SessionActivityStatus } from '../components/SessionActivityStatus';
@@ -391,6 +393,16 @@ export function SessionList() {
     retry,
   } = useSessionList();
   const search = useSessionSearch();
+  const location = useLocation();
+  const focusSearch = useCallback(
+    (input: HTMLInputElement | null) => {
+      if (input && location.hash === '#conversation-search') {
+        input.focus();
+        input.scrollIntoView?.({ block: 'center' });
+      }
+    },
+    [location.hash],
+  );
   const [importOpen, setImportOpen] = useState(false);
   const conversationOptions = useRef<HTMLElement>(null);
   const scroller = useRef<HTMLDivElement>(null);
@@ -496,7 +508,7 @@ export function SessionList() {
         </div>
         <div className="conversation-header-actions">
           <button
-            className="hero-chat-btn workspace-primary"
+            className="hero-chat-btn header-action"
             aria-label="New chat"
             onClick={() => {
               selectionChanged();
@@ -510,7 +522,11 @@ export function SessionList() {
             className="conversation-options"
             onToggle={(event) => setOptionsOpen(event.currentTarget.open)}
           >
-            <summary ref={conversationOptions} aria-label="Conversation options">
+            <summary
+              ref={conversationOptions}
+              aria-label="Conversation options"
+              className="header-action"
+            >
               <UiIcon name="more" />
             </summary>
             <div className="conversation-options-menu">
@@ -576,6 +592,8 @@ export function SessionList() {
         <div className="session-list-scroll" ref={scroller}>
           <div className="conversation-search">
             <input
+              id="conversation-search"
+              ref={focusSearch}
               type="search"
               aria-label="Search conversations"
               placeholder="Search conversations…"
@@ -614,15 +632,28 @@ export function SessionList() {
             }}
           />
           {drafts.length > 0 && (
-            <Link to="/sessions/drafts" className="conversation-drafts-link">
-              <UiIcon name="edit" />
-              <span>
-                <strong>Drafts</strong>
-                <span className="workspace-muted">Pick up where you left off</span>
-              </span>
-              <span className="conversation-draft-count">{drafts.length}</span>
-              <UiIcon name="forward" size={16} />
-            </Link>
+            <details className="conversation-drafts-section">
+              <summary>
+                <UiIcon name="down" size={16} />
+                <UiIcon name="edit" size={16} />
+                <span>Drafts</span>
+                <span className="conversation-drafts-count">{drafts.length}</span>
+              </summary>
+              {drafts.slice(0, 3).map((draft) => (
+                <Link key={draft.id} to={chatDraftUrl(draft)} className="conversation-draft-row">
+                  <span>{draft.text.trim().split('\n')[0].slice(0, 90) || 'Untitled draft'}</span>
+                  <small>Saved {formatRelativeTime(draft.updatedAt)}</small>
+                </Link>
+              ))}
+              <Link
+                to="/sessions/drafts"
+                className="conversation-drafts-all"
+                aria-label={`All Drafts (${drafts.length})`}
+              >
+                All drafts
+                <UiIcon name="forward" size={16} />
+              </Link>
+            </details>
           )}
           {importOpen && (
             <SdkConversationImport

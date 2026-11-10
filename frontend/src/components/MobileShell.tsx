@@ -5,6 +5,7 @@ import { TabBar } from './TabBar';
 import { MitzoBrand } from './MitzoBrand';
 import { UiIcon } from './UiIcon';
 import { Link } from 'react-router-dom';
+import '../styles/header-actions.css';
 
 const HIDE_TAB_BAR = ['/login'];
 // Collection pages and Telos items share the safe-area masthead.
@@ -62,7 +63,26 @@ function MobileShellLayout({ children }: { children: React.ReactNode }) {
         <header className="mobile-workspace-masthead">
           <MitzoBrand />
           {location.pathname !== '/' && (
-            <Link to="/sessions" aria-label="Search chats" className="mobile-workspace-search">
+            <Link
+              to="/sessions#conversation-search"
+              aria-label="Search chats"
+              className="mobile-workspace-search header-action"
+              onClick={(event) => {
+                if (
+                  event.button ||
+                  event.metaKey ||
+                  event.ctrlKey ||
+                  event.shiftKey ||
+                  event.altKey
+                )
+                  return;
+                const input = document.getElementById('conversation-search');
+                if (input instanceof HTMLInputElement) {
+                  input.focus();
+                  input.scrollIntoView?.({ block: 'center' });
+                }
+              }}
+            >
               <UiIcon name="search" />
             </Link>
           )}

@@ -9,6 +9,8 @@ import type {
 import { useNotifications } from '../components/NotificationProvider';
 import { WorkspacePageHeading } from '../components/WorkspacePageHeading';
 import { UiIcon } from '../components/UiIcon';
+import { ApprovalRequestSummary } from '../components/ApprovalRequestSummary';
+import { approvalPresentation } from '../lib/approval-presentation';
 import { apiFetch } from '../lib/api-fetch';
 import '../styles/notifications.css';
 const filters: [NotificationFilter, string][] = [
@@ -77,81 +79,93 @@ export function RequestDetail({
   const complete = request?.questions?.every((q) => answers[q.id].length > 0);
   const live = actionable(item);
   return (
-    <section className="notification-detail" aria-label="Notification details">
+    <section
+      className={`notification-detail${request ? ' notification-detail--request' : ''}`}
+      aria-label="Notification details"
+    >
       <div className="notification-meta">
         <span>{labels[item.kind]}</span>
         <span>{timestamp(item.createdAt)}</span>
       </div>
-      <h2>{item.title}</h2>
-      <p className="workspace-muted">{item.body}</p>
-      {item.sessionId && (
-        <Link to={`/chat/${encodeURIComponent(item.sessionId)}`}>Open session</Link>
-      )}
-      {item.inboxFilename && (
-        <Link to={`/inbox?item=${encodeURIComponent(item.inboxFilename)}`}>Open in Inbox</Link>
-      )}
-      {request?.questions?.map((q) => (
-        <fieldset key={q.id} className="notification-question">
-          <legend>{q.question}</legend>
-          {q.options.map((option) => (
-            <label key={option.label}>
-              <input
-                type={q.multiSelect ? 'checkbox' : 'radio'}
-                name={q.id}
-                checked={(selections[q.id] ?? []).includes(option.label)}
-                disabled={!live || busy}
-                onChange={(e) => {
-                  setWritten((old) => ({ ...old, [q.id]: '' }));
-                  setSelections((old) => ({
-                    ...old,
-                    [q.id]: q.multiSelect
-                      ? e.target.checked
-                        ? [...(old[q.id] ?? []), option.label]
-                        : (old[q.id] ?? []).filter((v) => v !== option.label)
-                      : [option.label],
-                  }));
-                }}
-              />
-              <span>
-                {option.label}
-                {option.description && <small>{option.description}</small>}
-              </span>
-            </label>
-          ))}
-          {q.allowFreeform !== false && (
-            <label>
-              Your answer
-              <input
-                type={q.isSecret ? 'password' : 'text'}
-                autoComplete="off"
-                maxLength={4000}
-                value={written[q.id] ?? ''}
-                disabled={!live || busy}
-                onChange={(e) => {
-                  setWritten((old) => ({ ...old, [q.id]: e.target.value }));
-                  if (!q.multiSelect) setSelections((old) => ({ ...old, [q.id]: [] }));
-                }}
-              />
-            </label>
-          )}
-        </fieldset>
-      ))}
-      {request && !request.questions && (
-        <>
-          <p>{request.description}</p>
-          <pre className="notification-command">{request.toolInput}</pre>
-          <p className="workspace-muted">
-            {(request.allowSessionGrant !== false && request.sessionGrantDescription) ||
-              (request.approvalScope === 'conversation'
-                ? 'This request concerns conversation access. Review its scope in the session.'
-                : request.allowSessionGrant === false
-                  ? 'Allow once covers this request.'
-                  : sessionSearch
-                    ? 'Allow once, or allow searches on this account and model until the session ends. Website access stays separate.'
-                    : 'Allow once covers this request. Allow for session keeps this approval until the session ends.')}
-          </p>
-        </>
-      )}
+      <h2>
+        {request && !request.questions
+          ? approvalPresentation(request.toolInput, request.toolName).heading || item.title
+          : item.title}
+      </h2>
+      <div className="notification-request-body">
+        <p className="workspace-muted">{item.body}</p>
+        {item.sessionId && (
+          <Link to={`/chat/${encodeURIComponent(item.sessionId)}`}>Open session</Link>
+        )}
+        {item.inboxFilename && (
+          <Link to={`/inbox?item=${encodeURIComponent(item.inboxFilename)}`}>Open in Inbox</Link>
+        )}
+        {request?.questions?.map((q) => (
+          <fieldset key={q.id} className="notification-question">
+            <legend>{q.question}</legend>
+            {q.options.map((option) => (
+              <label key={option.label}>
+                <input
+                  type={q.multiSelect ? 'checkbox' : 'radio'}
+                  name={q.id}
+                  checked={(selections[q.id] ?? []).includes(option.label)}
+                  disabled={!live || busy}
+                  onChange={(e) => {
+                    setWritten((old) => ({ ...old, [q.id]: '' }));
+                    setSelections((old) => ({
+                      ...old,
+                      [q.id]: q.multiSelect
+                        ? e.target.checked
+                          ? [...(old[q.id] ?? []), option.label]
+                          : (old[q.id] ?? []).filter((v) => v !== option.label)
+                        : [option.label],
+                    }));
+                  }}
+                />
+                <span>
+                  {option.label}
+                  {option.description && <small>{option.description}</small>}
+                </span>
+              </label>
+            ))}
+            {q.allowFreeform !== false && (
+              <label>
+                Your answer
+                <input
+                  type={q.isSecret ? 'password' : 'text'}
+                  autoComplete="off"
+                  maxLength={4000}
+                  value={written[q.id] ?? ''}
+                  disabled={!live || busy}
+                  onChange={(e) => {
+                    setWritten((old) => ({ ...old, [q.id]: e.target.value }));
+                    if (!q.multiSelect) setSelections((old) => ({ ...old, [q.id]: [] }));
+                  }}
+                />
+              </label>
+            )}
+          </fieldset>
+        ))}
+        {request && !request.questions && (
+          <>
+            <ApprovalRequestSummary
+              input={request.toolInput}
+              toolName={request.toolName}
+              description={request.description}
+            />
+            <p className="workspace-muted">
+              {(request.allowSessionGrant !== false && request.sessionGrantDescription) ||
+                (request.approvalScope === 'conversation'
+                  ? 'This request concerns conversation access. Review its scope in the session.'
+                  : request.allowSessionGrant === false
+                    ? 'Allow once covers this request.'
+                    : sessionSearch
+                      ? 'Allow once, or allow searches on this account and model until the session ends. Website access stays separate.'
+                      : 'Allow once covers this request. Allow for session keeps this approval until the session ends.')}
+            </p>
+          </>
+        )}
+      </div>
       {item.permId &&
         (live ? (
           <>

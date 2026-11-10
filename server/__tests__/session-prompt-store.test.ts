@@ -13,6 +13,27 @@ afterEach(() =>
     .forEach((close) => close()),
 );
 const auth = { id: 'signed-login', expiresAt: 10_000_000 };
+it('deletes a timer with a fenced idempotent receipt and prevents future checks while retaining admitted delivery evidence', () => {
+  const { store, input, path } = fixture();
+  const timer = store.create({ ...input, startImmediately: true }, auth, 'agent', 'source', 1000);
+  const delivery = store.due(1000)[0];
+  store.claim(delivery.id);
+  const removal = { requestId: randomUUID(), expectedRevision: timer.revision, action: 'delete' };
+  const result = store.change(timer.id, removal, auth, 2000);
+  expect(store.list()).toEqual([]);
+  expect(store.due(900000)).toEqual([]);
+  expect(store.delivery(delivery.id).id).toBe(delivery.id);
+  expect(store.change(timer.id, removal, auth, 3000)).toEqual(result);
+  expect(() =>
+    store.change(timer.id, { ...removal, requestId: randomUUID(), action: 'resume' }, auth),
+  ).toThrow();
+  const reopened = new SessionPromptStore(path);
+  try {
+    expect(reopened.list()).toEqual([]);
+  } finally {
+    reopened.close();
+  }
+});
 function fixture() {
   const root = mkdtempSync(join(tmpdir(), 'session-prompts-'));
   cleanup.push(() => rmSync(root, { recursive: true, force: true }));

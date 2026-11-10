@@ -15,7 +15,7 @@ export const SessionTimerCreateSchema = z.strictObject({
 export const SessionTimerChangeSchema = z.strictObject({
   requestId: z.uuid(),
   expectedRevision: z.number().int().positive(),
-  action: z.enum(['pause', 'resume', 'cancel', 'run', 'update']),
+  action: z.enum(['pause', 'resume', 'cancel', 'run', 'update', 'delete']),
   prompt: prompt.optional(),
   intervalMinutes: interval.optional(),
   maxRuns: maxRuns.optional(),

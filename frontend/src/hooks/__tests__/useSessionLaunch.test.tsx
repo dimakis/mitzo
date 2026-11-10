@@ -15,12 +15,29 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
+it('retains observed links and exposes refresh failure instead of reporting an empty successful read', async () => {
+  vi.mocked(apiFetch)
+    .mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({ requests: [], origin: { sessionId: 'source', title: 'Source' } }),
+      ),
+    )
+    .mockResolvedValueOnce(new Response('', { status: 503 }));
+  const view = renderHook(() => useSessionLaunch('child'));
+  await waitFor(() => expect(view.result.current.origin?.title).toBe('Source'));
+  act(() => view.result.current.refresh());
+  await waitFor(() => expect(view.result.current.error).toBeTruthy());
+  expect(view.result.current.origin?.title).toBe('Source');
+});
+
 it.each([undefined, null])(
   'keeps an absent session (%s) quiet without dereferencing a missing snapshot',
   (sessionId) => {
     const { result } = renderHook(() => useSessionLaunch(sessionId));
     expect(result.current.requests).toEqual([]);
     expect(result.current.origin).toBeUndefined();
+    expect(result.current.error).toBeNull();
+    expect(result.current.readRevision).toBe(0);
     expect(apiFetch).not.toHaveBeenCalled();
     expect(eventBus.on).not.toHaveBeenCalled();
   },
