@@ -84,7 +84,7 @@ it('the actual owned consumer recovers exact and saved inputs once, serializes r
   cleanups.push(bindAgentLibraryTransport(f.dependencies.operatorConnectionId, auth));
   const first = f.rpc.request.getMockImplementation()!;
   let providerCalls = 0;
-  let currentCommandId = f.request.clientMsgId;
+  let currentCommandId: string = f.request.clientMsgId;
   let lifecycle: CodexLifecycleTransport | undefined;
   f.rpc.request.mockImplementation(async (method) => {
     if (method === 'thread/start' || method === 'thread/resume')
