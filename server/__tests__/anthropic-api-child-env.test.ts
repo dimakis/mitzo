@@ -55,17 +55,20 @@ it.each(['api-key', 'bearer'] as const)(
     const custody = AnthropicApiCustody.capture(base);
     const env = await custody.inferenceEnvironment(base, new AbortController().signal);
     let received: NodeJS.ProcessEnv | undefined;
+    let args: string[] = [];
     const capture = async () => {
       const native = query({
         prompt: 'Offline boundary qualification',
         options: {
           env,
+          model: 'gateway/claude:latest',
           pathToClaudeCodeExecutable: lockedClaudeExecutable,
           persistSession: false,
           settingSources: [],
           mcpServers: {},
           spawnClaudeCodeProcess: (input) => {
             received = input.env;
+            args = input.args;
             throw Error('OFFLINE_STOP_BEFORE_CLAUDE_START');
           },
         },
@@ -77,6 +80,7 @@ it.each(['api-key', 'bearer'] as const)(
     const selected = authentication === 'bearer' ? 'ANTHROPIC_AUTH_TOKEN' : 'ANTHROPIC_API_KEY';
     expect(received?.[selected] === synthetic).toBe(true);
     expect(received?.ANTHROPIC_BASE_URL).toBe('https://models.example.com');
+    expect(args[args.indexOf('--model') + 1]).toBe('gateway/claude:latest');
     const childEnv = lockedClaudeSubprocessEnvironment(received!);
     const observed = execFileSync(
       '/bin/bash',

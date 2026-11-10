@@ -26,6 +26,7 @@ export async function ownedVertexRuntimeFixture(
     ordinaryPreparation?: boolean;
     personal?: boolean;
     anthropicApi?: boolean;
+    modelIds?: readonly [string, string];
   } = {},
 ) {
   const root = await realpath(await mkdtemp(join(tmpdir(), 'mitzo-owned-driver-')));
@@ -112,8 +113,16 @@ export async function ownedVertexRuntimeFixture(
               credentialRef: join(privateRoot, 'adc.json'),
             }),
       models: [
-        { id: 'fixture-model', label: 'Fixture model', reasoningEfforts: ['low'] },
-        { id: 'next-model', label: 'Next model', reasoningEfforts: ['high'] },
+        {
+          id: options.modelIds?.[0] ?? 'fixture-model',
+          label: 'Fixture model',
+          reasoningEfforts: ['low'],
+        },
+        {
+          id: options.modelIds?.[1] ?? 'next-model',
+          label: 'Next model',
+          reasoningEfforts: ['high'],
+        },
       ],
     },
   ];
@@ -123,7 +132,10 @@ export async function ownedVertexRuntimeFixture(
   vi.stubEnv('MITZO_ACCOUNT_PROFILES_FILE', configPath);
   vi.stubEnv('MITZO_OPENAI_ACCOUNT_ENROLLMENT_DB', '');
   vi.stubEnv('MITZO_CODEX_ENABLED', '1');
-  const binding = loadAccountProfiles().resolve('personal', 'fixture-model');
+  const binding = loadAccountProfiles().resolve(
+    'personal',
+    options.modelIds?.[0] ?? 'fixture-model',
+  );
   const eventPath = options.chatRoute ? join(root, '.mitzo', 'events.db') : join(root, 'events.db');
   const events = new EventStore(eventPath);
   const library = new AgentLibraryStore(eventPath);
@@ -244,7 +256,7 @@ export async function ownedVertexRuntimeFixture(
       agent: { profileId: 'developer', revision: 1 },
       context: { source: 'none' as const, revision: null },
       permission: { mode: 'agent' as const, revision: 0 },
-      model: 'fixture-model',
+      model: options.modelIds?.[0] ?? 'fixture-model',
       thinking: 'low',
     },
     payload: { text: 'Implement the task', intent: 'Original user intent' },

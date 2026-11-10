@@ -64,11 +64,15 @@ base URL is `https://api.enmaas.devshift.net` and the existing SDK appends
 `/v1/messages`. For another gateway, enter its documented Messages base URL
 before that suffix. Choose permitted models from discovery or enter exact IDs;
 no Claude model IDs or pricing are inferred from the Responses preset.
+Selected Messages model IDs, including colon-containing gateway tags, are passed
+unchanged to chat, continuation and search; thinking remains a separate setting.
 
 This connection reuses the existing Local Mac Claude SDK admission, repository,
 permission, queue, continuation and history owners. It sets the selected endpoint
 and API-key or bearer authentication while explicitly disabling Vertex and
 removing inherited Google, subscription and alternate-provider credentials.
+The locked SDK's subprocess scrub is required so native tool children do not
+inherit the selected billing key or bearer token.
 The private custody receipt pins the endpoint, authentication mode, Keychain
 reference and managed credential version. It stores no key or key digest.
 Enrolled accounts must retain their original enrollment controller; a missing

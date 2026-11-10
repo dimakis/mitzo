@@ -787,9 +787,13 @@ export function getRepoConfig() {
 
 export const AVAILABLE_MODELS = LEGACY_MODELS;
 
-/** Split "claude-opus-4-8:max" → { model: "claude-opus-4-8", effort: "max" } */
-export function parseModelSpec(spec?: string): { model: string; effort: string | undefined } {
+/** Legacy shorthand carries effort after a colon. Selected API model IDs are opaque. */
+export function parseModelSpec(
+  spec?: string,
+  exactModelId = false,
+): { model: string; effort: string | undefined } {
   if (!spec) return { model: '', effort: undefined };
+  if (exactModelId) return { model: spec, effort: undefined };
   const idx = spec.indexOf(':');
   if (idx === -1) return { model: spec, effort: undefined };
   return { model: spec.slice(0, idx), effort: spec.slice(idx + 1) };
@@ -866,11 +870,12 @@ export function nativeExecutionEnv(): Record<string, string> {
 
 export function resolveThinking(
   spec?: string,
+  exactModelId = false,
 ):
   | { type: 'adaptive'; display: 'summarized' }
   | { type: 'enabled'; budgetTokens: number; display: 'summarized' }
   | undefined {
-  const { model, effort } = parseModelSpec(spec);
+  const { model, effort } = parseModelSpec(spec, exactModelId);
   // Opus 4.7+ rejects fixed budgets and omits thinking text unless opted in.
   const adaptiveOnlyOpus = /^claude-opus-(?:4-[7-9]|[5-9])(?:[.@-]|$)/.test(model);
   if (model.includes('opus') && effort === 'max' && !adaptiveOnlyOpus)
@@ -884,9 +889,10 @@ export function resolveThinking(
 export function resolveClaudeEffort(
   spec?: string,
   reasoningEffort?: string | null,
+  exactModelId = false,
 ): 'low' | 'medium' | 'high' | 'xhigh' | 'max' | undefined {
   if (reasoningEffort === null) return undefined;
-  const effort = reasoningEffort ?? parseModelSpec(spec).effort;
+  const effort = reasoningEffort ?? parseModelSpec(spec, exactModelId).effort;
   if (
     effort === 'low' ||
     effort === 'medium' ||
@@ -2858,6 +2864,7 @@ This is an independent checkout with its own Git storage, not a linked worktree.
       abortController.signal.addEventListener('abort', () => githubPublishing.close(), {
         once: true,
       });
+      const exactSdkModelId = accountBinding?.provider === 'anthropic-api';
       const createSdkWebAccess = (state?: {
         retired: boolean;
         completing: boolean;
@@ -2879,7 +2886,8 @@ This is an independent checkout with its own Git storage, not a linked worktree.
                 ...owner,
                 executionStore: eventStore,
                 env: sessionEnv,
-                model: parseModelSpec(session.model ?? accountBinding?.model ?? '').model,
+                model: parseModelSpec(session.model ?? accountBinding?.model ?? '', exactSdkModelId)
+                  .model,
                 ...(options.ordinarySdkAuthority
                   ? {
                       assertCurrent: assertWebCurrent,
@@ -2954,9 +2962,9 @@ This is an independent checkout with its own Git storage, not a linked worktree.
           'WebFetch',
           ...(options.ordinarySdkAuthority ? [GITHUB_PUBLISH_SDK_TOOL] : []),
         ],
-        thinking: resolveThinking(options.model),
-        effort: resolveClaudeEffort(options.model, options.reasoningEffort),
-        ...(options.model ? { model: parseModelSpec(options.model).model } : {}),
+        thinking: resolveThinking(options.model, exactSdkModelId),
+        effort: resolveClaudeEffort(options.model, options.reasoningEffort, exactSdkModelId),
+        ...(options.model ? { model: parseModelSpec(options.model, exactSdkModelId).model } : {}),
         ...(resolvedResume ? { resume: resolvedResume } : {}),
         ...(newSdkSessionId ? { sessionId: newSdkSessionId } : {}),
         mcpServers: options.ordinarySdkAuthority
@@ -2990,9 +2998,9 @@ This is an independent checkout with its own Git storage, not a linked worktree.
           authorizeSync: (signal) => options.ordinarySdkAuthority!.assertCurrentSync(signal),
           adapt: adaptSdkQuery,
           settings: (selection) => ({
-            model: parseModelSpec(selection.model).model,
-            thinking: resolveThinking(selection.model),
-            effort: resolveClaudeEffort(selection.model, selection.thinking),
+            model: parseModelSpec(selection.model, exactSdkModelId).model,
+            thinking: resolveThinking(selection.model, exactSdkModelId),
+            effort: resolveClaudeEffort(selection.model, selection.thinking, exactSdkModelId),
           }),
           inputChanged: (queue) => {
             session.inputQueue = queue as { push(message: unknown): void; close(): void };

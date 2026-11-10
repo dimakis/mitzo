@@ -10,7 +10,8 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.1014-anthropic-api-child-env';
+export const reviewedConnectionsRuntimeImplementationRevision =
+  'v1.0.1015-anthropic-api-model-identity';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -22,10 +23,14 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
+  '../__tests__/model-spec.test.ts':
+    'c6990b6483e9acdffcb63fb63efa5551c74960b481d4e21c623978555c92e3b8',
+  '../__tests__/anthropic-api-sdk-model.test.ts':
+    '01780c17e1e8ba9807629b814be42a70e07ba64217bf165a85199f0e87d5a524',
   '../anthropic-api-connection.ts':
     '0d28e1cccf86680c56196be272422a35be34ee809e83dcb57713dc41a14da731',
   '../__tests__/anthropic-api-child-env.test.ts':
-    '09fcd76889551eb0dde741d12fcfff914001e5b22751d239ba03752e4a845451',
+    'dbe46d828cfa2af720076865c9e2bb00dbd3fc60af688caead4021a86c172d7c',
   '../__tests__/fixtures/locked-claude-subprocess-env.ts':
     '7b9f3ad61f3da1a8ea75cadc2abfb3b5418e1d8623c6fe36261926b0ed97cc48',
   '../anthropic-api-custody.ts': '6a3cab1b144c88a54a63340e898074e1cdac2506dc97f4a2d943d0190591f468',
@@ -2240,7 +2245,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     'c103af10de4adc81cdc474b3e69ef2b3de5e447d4dcf15da4fc1894c422b913b',
   '../../packages/protocol/src/session-output-reference-store.ts':
     'de139a8dae52cc0294f50e13fdb96d0666c81e376e282e84c640a0b187dc3014',
-  '../chat.ts': '3fd3fc1a7e824eaa516284a7230ab06c3aaba237f13fcb3253aef3dbfc6514b2',
+  '../chat.ts': 'b8874aa074bb07e9b4ba80f0345ea120acc17cac7be6a32e52d7c1044b20bf8f',
   '../../packages/harness/src/session-registry.ts':
     '82b128c64ed7f73f28d42318789187c4c730e33e4a0662dfbf9cd6d68f6e56fd',
   '../agent-context-binding.ts': '4917ff83899105b7ac2c537c8db18111eeb97386d1ca0a2d2b576d872e1db360',
@@ -4034,7 +4039,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/protocol/src/account-binding.ts':
     'd8dffcafa6d25beb3dc2a32631300d5ba412f02b8e8ed0e86d2ab9f8b731712b',
   '../__tests__/fixtures/owned-local-vertex-runtime.ts':
-    '1c39efb301f196fb33fde9c9be9eb4bdca97c641b34b80253a7236e2b1a8a5dd',
+    'b7c95b6abcc6e6ca61095a94b4a41a2f62c3370eb7db273f6b15879f6fe03bf0',
   '../connections-access-custodian.ts':
     'd764beec4c1ad4260b763d0eb741a5eac06ead1f7dec4effd44526c1b738e8ff',
   '../model-token-limits.ts': '19ab59f66a2a3436427f405e415ff016a78a81049174dba6b6122c2e028a581a',
