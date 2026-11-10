@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.1015-anthropic-api-model-identity';
+  'v1.0.1016-anthropic-api-permission-continuity';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -23,6 +23,8 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
+  '../__tests__/anthropic-api-sdk-permissions.test.ts':
+    'cd7baafdd315a575d92dd2b6800be10ee2424f5d08abe2ef134e2251e314fbad',
   '../__tests__/model-spec.test.ts':
     'c6990b6483e9acdffcb63fb63efa5551c74960b481d4e21c623978555c92e3b8',
   '../__tests__/anthropic-api-sdk-model.test.ts':
@@ -30,9 +32,9 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../anthropic-api-connection.ts':
     '0d28e1cccf86680c56196be272422a35be34ee809e83dcb57713dc41a14da731',
   '../__tests__/anthropic-api-child-env.test.ts':
-    'dbe46d828cfa2af720076865c9e2bb00dbd3fc60af688caead4021a86c172d7c',
+    'b981ab46871efcc9341f239c491497aa169b31a61195447cd6821360181642cb',
   '../__tests__/fixtures/locked-claude-subprocess-env.ts':
-    '7b9f3ad61f3da1a8ea75cadc2abfb3b5418e1d8623c6fe36261926b0ed97cc48',
+    '718bd349b398b3bee4816c1da3ce12bf91bb4757ffa224645e2b53e9d7fc73cc',
   '../anthropic-api-custody.ts': '6a3cab1b144c88a54a63340e898074e1cdac2506dc97f4a2d943d0190591f468',
   '../__tests__/anthropic-api-account.test.ts':
     'bd157dabe293a7b45adf5ec6f69a3861d1b120b43d3ad87abfccc4ffad4bfe57',
@@ -2582,7 +2584,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../ordinary-local-vertex-replay.ts':
     'd7ecdd21c89be167a1b627b024687df00ead20df98c349f51b114d98a8800a75',
   '../ordinary-local-vertex-sdk-query.ts':
-    '5a1ae118ba41b0922a403c4300d86eb3e838ea2968223064b13379dadef51786',
+    '903f2ddf52fd3d9b967d622b779461d8d40cfb63fbafb07c60bc5fca9951dc37',
   '../ordinary-local-vertex-command-owner.ts':
     '3ba03228950c19849098c8ed490c44e405b0590d15dad0ceb5469a6cd59b3b56',
   '../ordinary-local-vertex-capabilities.ts':

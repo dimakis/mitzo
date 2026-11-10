@@ -1,12 +1,16 @@
 import './fixtures/offline-user-home.js';
 import { expect, it, vi } from 'vitest';
 import { execFileSync } from 'node:child_process';
+import { EventEmitter } from 'node:events';
+import { PassThrough } from 'node:stream';
 import { query } from '@anthropic-ai/claude-agent-sdk';
 import { AccountProfiles } from '../account-profiles.js';
 import { AnthropicApiCustody } from '../anthropic-api-custody.js';
 import {
   lockedClaudeExecutable,
   lockedClaudeSubprocessEnvironment,
+  lockedClaudeStartupMode,
+  lockedClaudeControlMode,
 } from './fixtures/locked-claude-subprocess-env.js';
 
 const keychain = vi.hoisted(() => ({ read: vi.fn() }));
@@ -80,6 +84,7 @@ it.each(['api-key', 'bearer'] as const)(
     const selected = authentication === 'bearer' ? 'ANTHROPIC_AUTH_TOKEN' : 'ANTHROPIC_API_KEY';
     expect(received?.[selected] === synthetic).toBe(true);
     expect(received?.ANTHROPIC_BASE_URL).toBe('https://models.example.com');
+    expect(received?.CLAUDE_CODE_ENTRYPOINT).toBe('sdk-ts');
     expect(args[args.indexOf('--model') + 1]).toBe('gateway/claude:latest');
     const childEnv = lockedClaudeSubprocessEnvironment(received!);
     const observed = execFileSync(
@@ -99,3 +104,78 @@ it.each(['api-key', 'bearer'] as const)(
     ).toThrow();
   },
 );
+
+it('the installed SDK control API restores plan after scrub startup without sending model input', async () => {
+  const env = { PATH: '/usr/bin:/bin', CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: '1' };
+  let mode = lockedClaudeStartupMode(env, 'plan');
+  expect(mode).toBe('default');
+  const stdin = new PassThrough(),
+    stdout = new PassThrough(),
+    stderr = new PassThrough();
+  let buffer = '';
+  const subtypes: string[] = [];
+  let userInputs = 0;
+  stdin.on('data', (chunk) => {
+    buffer += String(chunk);
+    let end: number;
+    while ((end = buffer.indexOf('\n')) >= 0) {
+      const message = JSON.parse(buffer.slice(0, end));
+      buffer = buffer.slice(end + 1);
+      if (message.type === 'user') userInputs++;
+      if (message.type !== 'control_request') continue;
+      subtypes.push(message.request.subtype);
+      let response = {};
+      if (message.request.subtype === 'set_permission_mode') {
+        const accepted = lockedClaudeControlMode(message.request.mode, mode);
+        mode = accepted.mode;
+        response = { mode };
+      }
+      stdout.write(
+        JSON.stringify({
+          type: 'control_response',
+          response: {
+            subtype: 'success',
+            request_id: message.request_id,
+            response,
+          },
+        }) + '\n',
+      );
+    }
+  });
+  const process = Object.assign(new EventEmitter(), {
+    stdin,
+    stdout,
+    stderr,
+    killed: false,
+    exitCode: null,
+    kill: () => {
+      stdout.end();
+      stderr.end();
+      process.emit('close', 0, null);
+      return true;
+    },
+  });
+  const prompt = new (await import('../async-queue.js')).AsyncQueue<
+    import('@anthropic-ai/claude-agent-sdk').SDKUserMessage
+  >();
+  const native = query({
+    prompt,
+    options: {
+      env,
+      permissionMode: 'plan',
+      pathToClaudeCodeExecutable: lockedClaudeExecutable,
+      settingSources: [],
+      mcpServers: {},
+      spawnClaudeCodeProcess: () => process,
+    },
+  });
+  try {
+    await native.setPermissionMode('plan');
+    expect(subtypes).toEqual(['initialize', 'set_permission_mode']);
+    expect(mode).toBe('plan');
+    expect(userInputs).toBe(0);
+  } finally {
+    prompt.close();
+    native.close();
+  }
+});

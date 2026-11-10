@@ -39,3 +39,26 @@ export function lockedClaudeSubprocessEnvironment(env: NodeJS.ProcessEnv): NodeJ
     },
   });
 }
+
+// Qualify the scrub flag's startup-mode override and the normal control API's
+// plan/default acknowledgement. The supplied merge only models unchanged
+// permission-context fields; the actual handler determines the accepted mode.
+export function lockedClaudeStartupMode(env: NodeJS.ProcessEnv, mode: 'plan' | 'default') {
+  return runInNewContext(
+    `${['CH', 'c2', 'lS8'].map(actualFunction).join('\n')}\nlS8({permissionModeCli: mode}).mode`,
+    { process: { env, stderr: { write: () => {} } }, ut_: undefined, mode },
+  ) as string;
+}
+export function lockedClaudeControlMode(mode: 'plan' | 'default', current: string) {
+  const responses: unknown[] = [];
+  const next = runInNewContext(
+    `${actualFunction('X9O')}\nX9O({mode}, 'offline-mode', {mode: current}, transport)`,
+    {
+      mode,
+      current,
+      transport: { enqueue: (value: unknown) => responses.push(value) },
+      $_H: (_before: string, _after: string, context: object) => context,
+    },
+  );
+  return { mode: next.mode as string, responses };
+}

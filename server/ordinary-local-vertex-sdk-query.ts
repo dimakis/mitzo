@@ -131,9 +131,25 @@ export function createOrdinaryLocalVertexSdkQuery<
     processClose?: ReturnType<typeof observeOrdinarySdkProcessClose>;
   };
   const states = new WeakMap<Query, State>();
+  const restoreApiPermissionMode = !!owners.options.env?.MITZO_ANTHROPIC_API_CUSTODY;
+  let permissionMode = owners.options.permissionMode ?? 'default';
   const prompt = async function* (queue: AsyncQueue<SDKUserMessage>, current: () => Query) {
+    let permissionRestored = false;
     for await (const message of queue) {
       await owners.authorize(owners.controller.signal);
+      if (restoreApiPermissionMode && !permissionRestored) {
+        try {
+          // SDK 0.2.141's credential scrub forces startup to default. Its normal
+          // control API restores plan/default without disabling the scrub. Wait
+          // for acknowledgement before the native process can see user input.
+          await current().setPermissionMode(permissionMode);
+          await owners.authorize(owners.controller.signal);
+          permissionRestored = true;
+        } catch (error) {
+          owners.controller.abort(error);
+          throw error;
+        }
+      }
       if (owners.options.env?.MITZO_CLAUDE_EXPECTED_EMAIL) {
         try {
           assertClaudeSubscriptionAccount(await current().accountInfo(), owners.options.env);
@@ -225,6 +241,12 @@ export function createOrdinaryLocalVertexSdkQuery<
     get(_target, property) {
       if (property === Symbol.asyncIterator) return events;
       if (property === 'close') return close;
+      if (property === 'setPermissionMode' && restoreApiPermissionMode)
+        return async (mode: typeof permissionMode) => {
+          await owners.authorize(owners.controller.signal);
+          await native.setPermissionMode(mode);
+          permissionMode = mode;
+        };
       const current = owners.adapt(native),
         value: unknown = Reflect.get(current, property, current);
       return typeof value === 'function' ? value.bind(current) : value;
