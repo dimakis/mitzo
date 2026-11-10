@@ -25,6 +25,34 @@ body {
   vertical-align: middle;
 }
 
+/* Buttons and native summaries share one collection disclosure presentation. */
+.collection-section-toggle {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  min-height: var(--control-height);
+  padding: var(--space-2);
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--color-muted);
+  font-size: var(--text-section-label);
+  font-weight: 500;
+  line-height: 1.4;
+  text-align: left;
+  list-style: none;
+  cursor: pointer;
+}
+.collection-section-toggle > .ui-icon {
+  width: var(--icon-inline-size);
+  height: var(--icon-inline-size);
+}
+.collection-section-toggle > span:last-child {
+  margin-inline-start: auto;
+  font-variant-numeric: tabular-nums;
+}
+
 .ui-icon[data-icon='loading'] {
   animation: mic-spin var(--motion-duration-spin) linear infinite;
 }
@@ -270,7 +298,7 @@ textarea:focus {
 
 .page-header h1 {
   flex: 1;
-  font-size: 20px;
+  font-size: var(--text-pane-title);
   line-height: 1.2;
   font-weight: 600;
   letter-spacing: -0.02em;

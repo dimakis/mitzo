@@ -515,7 +515,7 @@ export function SessionList() {
               navigate('/chat');
             }}
           >
-            <UiIcon name="edit" size={16} />
+            <UiIcon name="edit" />
             <span className="conversation-new-label">New chat</span>
           </button>
           <details
@@ -633,7 +633,7 @@ export function SessionList() {
           />
           {drafts.length > 0 && (
             <details className="conversation-drafts-section">
-              <summary>
+              <summary className="collection-section-toggle">
                 <UiIcon name="down" size={16} />
                 <UiIcon name="edit" size={16} />
                 <span>Drafts</span>

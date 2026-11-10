@@ -63,7 +63,7 @@ export function ConversationPins(props: Props) {
     <section className="conversation-pins" aria-label="Pinned">
       <button
         type="button"
-        className="conversation-pins-toggle"
+        className="conversation-pins-toggle collection-section-toggle"
         aria-expanded={!pins.collapsed}
         aria-controls={id}
         aria-label={`${pins.collapsed ? 'Expand' : 'Collapse'} pinned conversations`}
