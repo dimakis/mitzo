@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.1044-claude-labels-approval-expiry';
+  'v1.0.1047-claude-labels-browser-custody';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -3926,7 +3926,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../.github/workflows/ci-recovery.yml':
     '5d4e9a6560e549d2879ef776c2b4d321d420c25b22ec3a7741390e5bf617111a',
   '../../.github/workflows/ci.yml':
-    '5d5ada9a5be72e3dd073cf65c3418bbe89c88fd0d65caa257c5d78a3a287f81b',
+    'd5040b42aba9f91c6ac2b1a95e74980a291d8940aae6918999d7003fad1d78ca',
   '../../playwright.config.ts': '6c61752a4a2e9cab19d8217b46080c5898bc79c5a0fde1f2b703a254d278daa0',
   '../../playwright.offline.config.ts':
     'fb694df154a2cb402c7f46b417efb357b6d19a72210d269ad0b1580798392adc',
@@ -4129,7 +4129,13 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/components/ChatCommandMetadata.css':
     '6121f3dad00a885eee829f643209e5f0f4c9c3c1b8c3e31505f149bb449c4419',
   '../../.github/actions/ci-canonical-browser/action.yml':
-    '4c49037da7aa76f65744528309b3304df2ff78435b5c6d2db421882661945292',
+    '9d8078c37f814b4a1b6d00768f33c8c5a114c962afb31156735f6ece4d477a99',
+  '../../.github/actions/ci-playwright/action.yml':
+    '1c6e7a91b5e7363c00c224ab10739bfc73e0a027c9e7b9508af620d96321b6d1',
+  '../../scripts/ci-browser-container.sh':
+    '7e1607396f3df512ef7c58c161f499d2be22d0d9b90ddaec01d8f818e4aadfa0',
+  '../../scripts/__tests__/ci-browser-container.test.ts':
+    '9c858438e528dede65f0e6f747846eb7faa61d4f5930eadcbb3bf3f353e2da80',
   '../../.github/actions/ci-native-fixture/action.yml':
     'f8c24df3203636c7292fa1d0d8994ee5b9db53301c49fe43eab3e355907b6f05',
   '../../.github/actions/ci-node/action.yml':
