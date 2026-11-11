@@ -968,6 +968,12 @@ export class OwnedLocalCodexChatAdmission {
     this.owner.eventStore.assertOrdinaryContextCommand(this.owner.sessionId, commandId);
     return consumed;
   }
+  withQueueMutation<T>(operation: () => T): T {
+    return this.owner.eventStore.contextTransitions.withAdmissionLock(operation);
+  }
+  assertQueueCommandCurrent(commandId: string): void {
+    this.owner.eventStore.assertOrdinaryContextCommand(this.owner.sessionId, commandId);
+  }
   assertBeforeDispatch(commandId: string): void {
     if (this.#primary) return this.#primary.assertBeforeDispatch(commandId);
     this.assertCurrentSync();

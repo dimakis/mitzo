@@ -1473,6 +1473,75 @@ it('passes the exact claimed command identity to knowledge preparation before di
   expect(f.requests.filter(({ method }) => method === 'turn/start')).toHaveLength(1);
 });
 
+it('holds the owning mutation fence across enqueue and exact FIFO claim, outside notifications', async () => {
+  const f = await setup();
+  const eventsPath = join(dirname(f.storePath!), 'events.db');
+  const events = new EventStore(eventsPath);
+  const concurrentWriter = new Database(eventsPath, { timeout: 0 });
+  try {
+    let locked = false;
+    let claims = 0;
+    f.conversationOptions.withQueueMutation = (operation) => {
+      expect(locked).toBe(false);
+      locked = true;
+      try {
+        return events.contextTransitions.withAdmissionLock(operation);
+      } finally {
+        locked = false;
+      }
+    };
+    f.conversationOptions.assertQueueCommandCurrent = (id) => {
+      expect(locked).toBe(true);
+      expect(id).toBe('guarded');
+    };
+    const enqueue = f.store.enqueue.bind(f.store);
+    vi.spyOn(f.store, 'enqueue').mockImplementation((...args) => {
+      expect(locked).toBe(true);
+      expect(() => concurrentWriter.exec('BEGIN IMMEDIATE')).toThrow(/locked/i);
+      return enqueue(...args);
+    });
+    const claim = f.store.claimNext.bind(f.store);
+    vi.spyOn(f.store, 'claimNext').mockImplementation((...args) => {
+      expect(locked).toBe(true);
+      expect(() => concurrentWriter.exec('BEGIN IMMEDIATE')).toThrow(/locked/i);
+      claims++;
+      return claim(...args);
+    });
+    f.conversationOptions.onCommandQueued = () => {
+      expect(locked).toBe(false);
+      concurrentWriter.exec('BEGIN IMMEDIATE; ROLLBACK');
+    };
+    f.conversationOptions.onQueueChange = () => {
+      expect(locked).toBe(false);
+    };
+    await f.c.send({ id: 'guarded', prompt: 'Frozen command' });
+    expect(claims).toBe(1);
+    expect(f.requests.filter(({ method }) => method === 'turn/start')).toHaveLength(1);
+  } finally {
+    f.conversationOptions.onCommandQueued = undefined;
+    f.conversationOptions.onQueueChange = undefined;
+    f.conversationOptions.withQueueMutation = undefined;
+    concurrentWriter.close();
+    events.close();
+  }
+});
+
+it('refuses a context change during enqueue validation before persisting native input', async () => {
+  const f = await setup();
+  let held = false;
+  f.conversationOptions.beforeEnqueue = () => {
+    expect(held).toBe(false);
+  };
+  f.conversationOptions.validateModel = () => {
+    held = true;
+  };
+  f.conversationOptions.assertQueueCommandCurrent = () => {
+    if (held) throw Error('Context held');
+  };
+  expect(() => f.c.enqueue({ id: 'stale', prompt: 'Do not queue' })).toThrow('Context held');
+  expect(f.c.queue()).toEqual([]);
+});
+
 it('runs the owning enqueue fence before direct or serialized command persistence', async () => {
   const f = await setup();
   const beforeRequests = f.requests.length;

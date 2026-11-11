@@ -2742,6 +2742,10 @@ async function openCodexChatBound(
             return true;
           },
           canClaimCommand: (commandId: string) => options.ownedLocal!.canClaimCommand(commandId),
+          withQueueMutation: <T>(operation: () => T) =>
+            options.ownedLocal!.withQueueMutation(operation),
+          assertQueueCommandCurrent: (commandId: string) =>
+            options.ownedLocal!.assertQueueCommandCurrent(commandId),
           beforeThreadInitialization: (store: CodexConversationStore) =>
             options.ownedLocal!.persistCustody(store),
           beforeEnqueue: (input: Parameters<CodexConversation['enqueue']>[0]) => {

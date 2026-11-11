@@ -73,6 +73,13 @@ export class OrdinaryContextTransitionStore {
     const current = this.latest(sessionId);
     return { epoch: current?.epoch ?? 0, held: current?.phase === 'held' };
   }
+  /** Host-only synchronous serialization against a concurrent transition.
+   * Acquire before the native writer; this is not a cross-database transaction.
+   * Callers still check the exact command immediately before its native write.
+   * Keep notifications, RPCs, awaits and post-commit callbacks outside this lock. */
+  withAdmissionLock<T>(operation: () => T): T {
+    return this.db.transaction(operation).immediate();
+  }
   capture(sessionId: string): number {
     const current = this.observe(sessionId);
     if (current.held) throw Error('Conversation context transition requires reconciliation');

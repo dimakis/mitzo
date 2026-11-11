@@ -2118,6 +2118,7 @@ export class CodexConversationStore {
     b: AccountBinding,
     input: CodexCommandInput,
     supersedeCapacity = false,
+    assertCurrent?: (commandId: string) => void,
   ): boolean {
     return this.db.transaction(() => {
       this.read(id, b);
@@ -2140,6 +2141,7 @@ export class CodexConversationStore {
           throw new Error('Codex message ID reused with different input');
         return false;
       }
+      assertCurrent?.(data.id);
       this.db
         .prepare(
           "INSERT INTO codex_commands(conversation_id,id,input,status) VALUES (?,?,?,'queued')",
@@ -5382,7 +5384,11 @@ export class CodexConversationStore {
       .enum(['queued', 'running', 'completed', 'interrupted', 'failed', 'cancelled'])
       .parse(row.status);
   }
-  claimNext(id: string, b: AccountBinding): CodexCommand | undefined {
+  claimNext(
+    id: string,
+    b: AccountBinding,
+    canClaim?: (commandId: string) => boolean,
+  ): CodexCommand | undefined {
     return this.db.transaction(() => {
       const state = this.read(id, b);
       if (this.unsettledCommandEffects(id)) throw new SessionRuntimeError('unsettled_effects');
@@ -5412,6 +5418,7 @@ export class CodexConversationStore {
           ? commands.find((c) => c.id === recovery.childCommandId && c.status === 'queued')
           : commands.find((c) => c.status === 'queued');
       if (!next) return;
+      if (canClaim?.(next.id) === false) return;
       if (next.toolFailureContinuation)
         this.assertToolFailureContinuation(id, b, CommandInput.strip().parse(next));
       if (next.environmentContinuation) {
@@ -5433,11 +5440,12 @@ export class CodexConversationStore {
           return;
         }
       }
-      this.db
+      const changed = this.db
         .prepare(
-          "UPDATE codex_commands SET status='running',pre_dispatch_failure=0 WHERE conversation_id=? AND id=?",
+          "UPDATE codex_commands SET status='running',pre_dispatch_failure=0 WHERE conversation_id=? AND id=? AND status='queued'",
         )
-        .run(id, next.id);
+        .run(id, next.id).changes;
+      if (changed !== 1) throw Error('Native command changed before claim');
       if (recovery?.status === 'queued') {
         recovery.status = 'running';
         this.writeCapacityRecovery(id, recovery);

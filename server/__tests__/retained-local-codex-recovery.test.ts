@@ -335,6 +335,7 @@ it.each([
   'completed',
   'prior-attempt',
   'missing-primary',
+  'context-transition-before-requeue',
 ] as const)(
   'refuses %s drift or possible effects without rewriting retained evidence',
   async (change) => {
@@ -372,6 +373,48 @@ it.each([
     cleanups.push(() => failed.close());
     await expect(failed.admitResume(request)).rejects.toThrow();
     failed.close();
+    if (change === 'context-transition-before-requeue') {
+      const command = native.claimNext(original.sessionId, original.lease.binding)!;
+      expect(command.id).toBe(request.clientMsgId);
+      expect(
+        native.recordPreDispatchFailure(original.sessionId, original.lease.binding, command),
+      ).toBe(true);
+      native.finish(original.sessionId, original.lease.binding, command.id, 'failed');
+      const proof = RetainedLocalCodexRecovery.capture(
+        f.events,
+        native,
+        original.sessionId,
+        f.auth.id,
+        request,
+      );
+      const queue = native.commands(original.sessionId, original.lease.binding);
+      expect(queue).toMatchObject([{ id: command.id, status: 'failed', attempt: 1 }]);
+      const receipt = f.events.getSendCommand(command.id);
+      const admission = f.events.getOrdinaryLocalCommandExecutionAdmission(command.id);
+      const recoveredEvents = () =>
+        f.events
+          .getSessionEvents(original.sessionId)
+          .filter((event) => event.type === 'command_preparation_recovered');
+      expect(recoveredEvents()).toEqual([]);
+      const transition = {
+        sessionId: original.sessionId,
+        operationId: randomUUID(),
+        fingerprint: 'd'.repeat(64),
+        expectedEpoch: f.events.contextTransitions.capture(original.sessionId),
+      };
+      const held = f.events.contextTransitions.begin(transition);
+      for (const released of [false, true]) {
+        if (released) f.events.contextTransitions.release(transition, 'aborted', () => undefined);
+        expect(() => proof.prepareQueue()).toThrow(/context/i);
+        expect(native.commands(original.sessionId, original.lease.binding)).toEqual(queue);
+        expect(f.events.getSendCommand(command.id)).toEqual(receipt);
+        expect(f.events.getOrdinaryLocalCommandExecutionAdmission(command.id)).toEqual(admission);
+        expect(recoveredEvents()).toEqual([]);
+        if (!released)
+          expect(f.events.contextTransitions.read(transition.operationId)).toEqual(held);
+      }
+      return;
+    }
     if (change === 'missing-primary') {
       const corrupt = new Database(join(f.root, 'events.db'));
       corrupt

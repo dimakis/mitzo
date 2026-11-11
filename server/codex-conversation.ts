@@ -176,6 +176,10 @@ export interface CodexConversationOptions {
   /** An enrolled route's existing command owner rejects unadmitted sends before
    * private queue mutation. No default gate is imposed on legacy conversations. */
   beforeEnqueue?: (input: CodexCommandInput) => void;
+  /** Host-only synchronous event-writer lock, acquired before the native writer. */
+  withQueueMutation?: <T>(operation: () => T) => T;
+  /** Final read-only command check after mutable validation callbacks. */
+  assertQueueCommandCurrent?: (commandId: string) => void;
   /** A guarded enqueue may retain uncertainty until its outer receipt commits. */
   canClaimCommand?: (commandId: string) => boolean;
   /** Maintenance fences new FIFO claims; active tool and terminal receipts still settle. */
@@ -1543,6 +1547,22 @@ export class CodexConversation {
     else if (model !== this.opts.profile.model) throw new Error('Model unavailable');
   }
   enqueue(input: CodexCommandInput) {
+    const persist = () => this.persistQueuedInput(input);
+    const { saved, model, reasoningEffort } = this.opts.withQueueMutation
+      ? this.opts.withQueueMutation(persist)
+      : persist();
+    if (saved) {
+      this.clearCapacityTimer();
+      this.commandContexts.set(input.id, context.active());
+      // The durable enqueue has returned; time waiting for this exact command's claim.
+      const timing = startCommandTimingSpan('codex.command.queue_wait', input.id, context.active());
+      if (timing) this.queueTimingSpans.set(input.id, timing);
+      this.opts.onCommandQueued?.(input.id);
+    }
+    this.opts.onQueueChange?.();
+    return { model, reasoningEffort };
+  }
+  private persistQueuedInput(input: CodexCommandInput) {
     this.opts.beforeEnqueue?.(input);
     // A transport loss keeps the durable binding. Accept an explicit new user
     // message before reconnecting so it cannot be lost between recovery and send.
@@ -1573,17 +1593,9 @@ export class CodexConversation {
         reasoningEffort,
       },
       true,
+      this.opts.assertQueueCommandCurrent,
     );
-    if (saved) {
-      this.clearCapacityTimer();
-      this.commandContexts.set(input.id, context.active());
-      // The durable enqueue has returned; time waiting for this exact command's claim.
-      const timing = startCommandTimingSpan('codex.command.queue_wait', input.id, context.active());
-      if (timing) this.queueTimingSpans.set(input.id, timing);
-      this.opts.onCommandQueued?.(input.id);
-    }
-    this.opts.onQueueChange?.();
-    return { model, reasoningEffort };
+    return { saved, model, reasoningEffort };
   }
   async admitExplicitSend(
     input: CodexCommandInput,
@@ -2828,15 +2840,14 @@ export class CodexConversation {
       (this.pendingToolSurface || this.threadId !== recovery.threadId)
     )
       throw new Error('Capacity recovery thread changed');
-    if (this.opts.canClaimCommand) {
-      const nextQueued = this.opts.store.nextQueuedCommandId(
-        this.opts.conversationId,
-        this.binding!,
-      );
-      if (nextQueued && this.opts.canClaimCommand(nextQueued) === false) return;
-    }
-    if (this.opts.canStartCommand?.() === false) return;
-    const command = this.opts.store.claimNext(this.opts.conversationId, this.binding!);
+    const claim = () =>
+      this.opts.store.claimNext(this.opts.conversationId, this.binding!, (id) => {
+        if (this.opts.canStartCommand?.() === false) return false;
+        if (this.opts.canClaimCommand?.(id) === false) return false;
+        this.opts.assertQueueCommandCurrent?.(id);
+        return true;
+      });
+    const command = this.opts.withQueueMutation ? this.opts.withQueueMutation(claim) : claim();
     if (!command) return;
     finishCommandTimingSpan(this.queueTimingSpans.get(command.id), 'claimed');
     this.queueTimingSpans.delete(command.id);

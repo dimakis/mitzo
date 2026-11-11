@@ -24,6 +24,23 @@ const intent = {
 };
 const settled = () => undefined;
 
+it('holds the context writer across synchronous native mutations and releases it after failure', () => {
+  const root = mkdtempSync(join(tmpdir(), 'context-queue-'));
+  roots.push(root);
+  const path = join(root, 'events.db');
+  const owner = fixture(path);
+  const other = fixture(path);
+  databases.at(-1)!.pragma('busy_timeout = 0');
+  expect(() =>
+    owner.withAdmissionLock(() => {
+      expect(() => other.begin(intent)).toThrow(/locked/i);
+      throw Error('Native mutation failed');
+    }),
+  ).toThrow('Native mutation failed');
+  expect(owner.read(intent.operationId)).toBeUndefined();
+  expect(other.begin(intent).phase).toBe('held');
+});
+
 it('retains the exact deny fence across connections and restart without affecting other chats', () => {
   const root = mkdtempSync(join(tmpdir(), 'context-transition-'));
   roots.push(root);

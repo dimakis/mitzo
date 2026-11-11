@@ -27,6 +27,39 @@ function setup() {
   return { path: join(root, 'private.db'), root };
 }
 
+it('checks the actual FIFO selection inside the native claim transaction', () => {
+  const { path } = setup();
+  const store = new CodexConversationStore(path);
+  try {
+    store.create('chat', binding, '/task');
+    store.enqueue('chat', binding, { id: 'first', prompt: 'First' });
+    store.enqueue('chat', binding, { id: 'second', prompt: 'Second' });
+    const guard = vi.fn((id: string) => {
+      expect(id).toBe('first');
+      return false;
+    });
+    expect(store.claimNext('chat', binding, guard)).toBeUndefined();
+    expect(guard).toHaveBeenCalledExactlyOnceWith('first');
+    expect(store.commands('chat', binding).map((c) => c.status)).toEqual(['queued', 'queued']);
+    expect(() =>
+      store.claimNext('chat', binding, () => {
+        throw Error('Context held');
+      }),
+    ).toThrow('Context held');
+    expect(() =>
+      store.claimNext('chat', binding, (id) => {
+        expect(store.cancelQueued('chat', binding, id)).toBe('cancelled');
+        return true;
+      }),
+    ).toThrow('Native command changed before claim');
+    // The failed transaction cannot resurrect cancelled input or advance FIFO.
+    expect(store.commands('chat', binding).map((c) => c.status)).toEqual(['queued', 'queued']);
+    expect(store.claimNext('chat', binding, () => true)?.id).toBe('first');
+  } finally {
+    store.close();
+  }
+});
+
 it.each([
   'completed',
   'failed',
