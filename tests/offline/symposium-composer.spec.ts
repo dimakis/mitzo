@@ -277,7 +277,9 @@ for (const theme of ['dark', 'light'])
             summary: null,
             capacity: { status: 'unverified', reason: 'Offline capacity is unverified' },
           };
-          attachedSnapshot = { snapshotId: snapshot.snapshotId, sha256: snapshot.sha256 };
+          // Original-forward reinspection must not replace this prompt's attachment.
+          if (!forward)
+            attachedSnapshot = { snapshotId: snapshot.snapshotId, sha256: snapshot.sha256 };
           return route.fulfill({
             json: CollaborationPromptReviewResultSchema.parse({
               snapshot,
@@ -418,6 +420,14 @@ for (const theme of ['dark', 'light'])
       await prepareForward.click();
       const confirmForward = context.getByRole('button', { name: 'Confirm context forward' });
       await expect(confirmForward).toBeEnabled();
+      await context.getByRole('button', { name: 'Inspect original context' }).click();
+      const originalContext = context.getByRole('region', { name: 'Original forward context' });
+      await expect(originalContext.getByText('Reviewer', { exact: true })).toBeVisible();
+      expect(await originalContext.getByLabel('Saved contents, version 2').textContent()).toBe(
+        artifactText,
+      );
+      await expect(confirmForward).toBeEnabled();
+      expect(reviewCount).toBe(3);
       if (isMobile) expect((await confirmForward.boundingBox())!.height).toBeGreaterThanOrEqual(44);
       await page.screenshot({
         path: info.outputPath('forward-context-review-' + theme + '.png'),

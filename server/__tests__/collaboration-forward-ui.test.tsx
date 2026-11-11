@@ -93,6 +93,20 @@ it('forwards inspected context through the production UI and recovers a lost con
     const confirm = () =>
       within(dialog).getByRole('button', { name: 'Confirm context forward' }) as HTMLButtonElement;
     await waitFor(() => expect(confirm().disabled).toBe(false));
+    fireEvent.change(within(dialog).getByRole('textbox', { name: 'Purpose' }), {
+      target: { value: 'Keep this newer context edit' },
+    });
+    expect(confirm().disabled).toBe(true);
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Inspect original context' }));
+    const original = await within(dialog).findByRole('region', {
+      name: 'Original forward context',
+    });
+    expect(within(original).getByText('Independent reviewer')).toBeTruthy();
+    expect(within(original).getByLabelText('Saved contents, version 1').textContent).toBe(exact);
+    await waitFor(() => expect(confirm().disabled).toBe(false));
+    expect(
+      (within(dialog).getByRole('textbox', { name: 'Purpose' }) as HTMLInputElement).value,
+    ).toBe('Keep this newer context edit');
     const realConfirm = h.typedApi.collaborations.confirmForward.bind(h.typedApi.collaborations);
     const confirmation = vi
       .spyOn(h.typedApi.collaborations, 'confirmForward')
@@ -107,6 +121,9 @@ it('forwards inspected context through the production UI and recovers a lost con
     ui = render(surface());
     fireEvent.click(await screen.findByRole('button', { name: 'Review prompt context' }));
     dialog = await screen.findByRole('dialog', { name: 'Context for this prompt' });
+    expect(
+      (within(dialog).getByRole('textbox', { name: 'Purpose' }) as HTMLInputElement).value,
+    ).toBe('Keep this newer context edit');
     fireEvent.click(within(dialog).getByRole('button', { name: 'Check original forward' }));
     await within(dialog).findByText(
       'Forward recorded. Delivery remains visible in the conversation.',
