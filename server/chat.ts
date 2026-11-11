@@ -2994,6 +2994,17 @@ This is an independent checkout with its own Git storage, not a linked worktree.
           sdkSessionId: options.ordinarySdkAuthority.sdkSessionId(),
           cwd,
           controller: abortController,
+          onUnsent: (message, error) =>
+            reportRetainedRuntimeFailure({
+              store: eventStore,
+              sessionId: options.ordinarySdkAuthority!.sdkSessionId(),
+              session,
+              onlyIfSaved: true,
+              commandId: (message as SDKUserMessage & { mitzoMessageId?: string }).mitzoMessageId,
+              error,
+              deliver: (event) =>
+                deliverRetainedSessionEvent(event, clientId, registry, _connRegistry ?? undefined),
+            }),
           authorize: authorizeSdkContext,
           authorizeSync: (signal) => options.ordinarySdkAuthority!.assertCurrentSync(signal),
           adapt: adaptSdkQuery,

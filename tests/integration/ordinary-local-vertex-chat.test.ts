@@ -111,6 +111,17 @@ vi.mock('@anthropic-ai/claude-agent-sdk', async (original) => ({
 vi.mock('../../server/account-use-store.js', () => ({
   getAccountUseStore: () => ({ record() {} }),
 }));
+vi.mock('../../server/keychain-rotation-credentials.js', () => ({
+  KeychainRotationCredentials: class {
+    async read() {
+      return {
+        value: 'synthetic-key',
+        version: 'eec02914-ac1f-4369-ab86-8e4f130abc92',
+        managed: true,
+      };
+    }
+  },
+}));
 const cleanups: Array<() => void | Promise<void>> = [];
 afterEach(async () => {
   for (const cleanup of cleanups.splice(0).reverse()) await cleanup();
@@ -121,12 +132,13 @@ afterEach(async () => {
   services.query.mockReset();
 });
 it.each([
-  { personal: false, managed: false },
-  { personal: true, managed: false },
-  { personal: true, managed: true },
+  { personal: false, managed: false, refuseMode: false },
+  { personal: true, managed: false, refuseMode: false },
+  { personal: true, managed: true, refuseMode: false },
+  { personal: false, managed: false, refuseMode: true },
 ])(
-  'routes first, queued future and cold commands through the actual SDK owner with original thread; personal=$personal managed=$managed',
-  async ({ personal, managed }) => {
+  'routes first, queued future and cold commands through the actual SDK owner with original thread; personal=$personal managed=$managed refuseMode=$refuseMode',
+  async ({ personal, managed, refuseMode }) => {
     const nextModel = managed ? 'opus' : 'next-model';
     const nextThinking = managed ? null : 'high';
     // Each account scenario gets its own controller/event-store singletons.
@@ -135,7 +147,12 @@ it.each([
       await import('../../server/claude-subscription-custody.js');
     const { ownedVertexRuntimeFixture } =
       await import('../../server/__tests__/fixtures/owned-local-vertex-runtime.js');
-    const f = await ownedVertexRuntimeFixture(cleanups, { chatRoute: true, personal, managed });
+    const f = await ownedVertexRuntimeFixture(cleanups, {
+      chatRoute: true,
+      personal,
+      managed,
+      anthropicApi: refuseMode,
+    });
     if (personal) {
       const capture = ClaudeSubscriptionCustody.capture;
       vi.spyOn(ClaudeSubscriptionCustody, 'capture').mockImplementation((env) =>
@@ -225,7 +242,9 @@ it.each([
         interrupt: vi.fn(async () => {}),
         setModel: vi.fn(async () => {}),
         setMaxThinkingTokens: vi.fn(async () => {}),
-        setPermissionMode: vi.fn(async () => {}),
+        setPermissionMode: vi.fn(async () => {
+          if (refuseMode) throw Error('OFFLINE_MODE_REFUSED synthetic-secret');
+        }),
         stopTask: vi.fn(async () => {}),
       };
       return instance;
@@ -347,6 +366,35 @@ it.each([
     );
     expect(persisted).toBe('[]');
     outbox.stop();
+    if (refuseMode) {
+      const sessionId = f.reservation.conversationId;
+      await vi.waitFor(() => expect(chat.registry.findBySessionId(sessionId)).toBeNull());
+      expect(providerInputs).toEqual([]);
+      expect(chat.eventStore.hasUserMessage(sessionId, wire.clientMsgId)).toBe(true);
+      const events = chat.eventStore.getSessionEvents(sessionId);
+      const failures = events.filter((event) => event.type === 'error');
+      expect(failures).toHaveLength(1);
+      expect(failures[0].payload).toMatchObject({
+        clientMsgId: wire.clientMsgId,
+        retainedCommandFailure: true,
+        runtimeFailure: { runtimeFailureCode: 'input_not_dispatched' },
+      });
+      expect(transport.send).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: 'error',
+          sessionId,
+          clientMsgId: wire.clientMsgId,
+          error: expect.stringContaining('Message saved.'),
+        }),
+      );
+      expect(events.findIndex((event) => event.type === 'error')).toBeLessThan(
+        events.findIndex((event) => event.type === 'session_end'),
+      );
+      expect(JSON.stringify(events)).not.toContain('synthetic-secret');
+      expect(JSON.stringify(transport.send.mock.calls)).not.toContain('synthetic-secret');
+      expect(services.requests).toHaveLength(1);
+      return;
+    }
     // HTTP preparation has finished. A late deadline callback cannot abort the
     // admitted conversation or its subsequent frozen followup.
     const deadline = preparationTimers.mock.calls.find(([, delay]) => delay === 120000)?.[0];

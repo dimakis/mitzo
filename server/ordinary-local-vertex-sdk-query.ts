@@ -12,6 +12,9 @@ import { TurnCallbacks, type TurnCallbackRunner } from './turn-callbacks.js';
 import type { OrdinaryLocalCommandAdmission } from '@mitzo/protocol';
 import { assertOrdinaryLocalVertexHistory } from './ordinary-local-vertex-native-history.js';
 import { assertClaudeSubscriptionAccount } from './claude-subscription-custody.js';
+import { SessionRuntimeError } from './session-runtime-error.js';
+import { createLogger } from './logger.js';
+const log = createLogger('ordinary-sdk-input');
 /** Only the lifetime of an SDK query, not runtime/auth/history state. Retiring a
  * completed query cannot abort its successor; stale hooks always refuse effects. */
 export class SdkHookLifetime {
@@ -119,6 +122,8 @@ export function createOrdinaryLocalVertexSdkQuery<
     selection: OrdinaryLocalCommandAdmission['selection'],
   ): Pick<Options, 'model' | 'thinking' | 'effort'>;
   inputChanged(queue: AsyncQueue<SDKUserMessage>): void;
+  /** Retain and deliver a refused input before abort retires its live viewer. */
+  onUnsent(message: SDKUserMessage, error: SessionRuntimeError): void;
   mcpServers?(state: {
     retired: boolean;
     completing: boolean;
@@ -146,8 +151,26 @@ export function createOrdinaryLocalVertexSdkQuery<
           await owners.authorize(owners.controller.signal);
           permissionRestored = true;
         } catch (error) {
-          owners.controller.abort(error);
-          throw error;
+          // An explicit stop is cancellation, not a provider refusal. Otherwise
+          // report while the original session still owns its live delivery path:
+          // query-loop deliberately suppresses errors after an abort.
+          if (owners.controller.signal.aborted) throw error;
+          const failure = new SessionRuntimeError('input_not_dispatched', { cause: error });
+          try {
+            owners.onUnsent(message, failure);
+          } catch (reportingError) {
+            failure.cause = new AggregateError(
+              [error, reportingError],
+              'SDK permission refusal and diagnostic delivery failure',
+            );
+            log.warn('Could not report refused SDK input', {
+              stage: 'permission_mode_acknowledgement',
+              code: 'sdk_input_failure_reporting_failed',
+              ...failure.telemetry(),
+            });
+          }
+          owners.controller.abort(failure);
+          throw failure;
         }
       }
       if (owners.options.env?.MITZO_CLAUDE_EXPECTED_EMAIL) {

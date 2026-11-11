@@ -14,20 +14,17 @@ const bundle = build({
 });
 test.use({ baseURL: 'https://mitzo-ui.test' });
 for (const theme of ['light', 'dark'] as const) {
-  test(`EnMaaS Claude uses shared account setup: ${theme}`, async ({ page, isMobile }, info) => {
+  // The real Connections route owns discovery/retry/save coverage in
+  // api-account-enrollment.spec.ts. This isolated form only qualifies the
+  // narrower 320px viewport and alternate font/accent combination.
+  test(`isolated Messages form retains narrow consent and keyboard focus: ${theme}`, async ({
+    page,
+  }, info) => {
     const compiled = await bundle;
     const errors: string[] = [];
     page.on('pageerror', (error) => errors.push(error.message));
-    await page.setViewportSize({ width: isMobile ? 320 : 1280, height: 900 });
+    await page.setViewportSize({ width: 320, height: 900 });
     await page.emulateMedia({ colorScheme: theme, reducedMotion: 'reduce' });
-    let attempts = 0,
-      saved = false;
-    const account = {
-      id: 'fixture-anthropic',
-      label: 'EnMaaS Claude',
-      projectLabel: 'Work',
-      state: 'ready',
-    };
     await page.route('**/*', async (route) => {
       const url = new URL(route.request().url());
       if (url.origin !== 'https://mitzo-ui.test') return route.abort();
@@ -38,33 +35,8 @@ for (const theme of ['light', 'dark'] as const) {
           )!.text,
           contentType: url.pathname.endsWith('.js') ? 'application/javascript' : 'text/css',
         });
-      if (url.pathname === '/api/connections/api-models') {
-        expect(route.request().postDataJSON()).toMatchObject({
-          endpoint: 'https://api.enmaas.devshift.net',
-          protocol: 'messages',
-          authentication: 'bearer',
-          apiKey: 'synthetic-key',
-        });
-        if (++attempts === 1)
-          return route.fulfill({ status: 422, json: { error: 'Catalog unavailable' } });
-        return route.fulfill({
-          json: { models: [{ id: 'hosted/sonnet', label: 'Hosted Sonnet' }], partial: true },
-        });
-      }
-      if (url.pathname === '/api/connections/openai-accounts') {
-        if (route.request().method() === 'POST') {
-          expect(route.request().postDataJSON()).toMatchObject({
-            connection: { protocol: 'messages', authentication: 'bearer' },
-            models: [
-              { id: 'hosted/sonnet', label: 'Hosted Sonnet' },
-              { id: 'hosted/omitted', label: 'hosted/omitted' },
-            ],
-          });
-          saved = true;
-          return route.fulfill({ status: 201, json: { account } });
-        }
-        return route.fulfill({ json: { enabled: true, accounts: saved ? [account] : [] } });
-      }
+      if (url.pathname === '/api/connections/openai-accounts' && route.request().method() === 'GET')
+        return route.fulfill({ json: { enabled: true, accounts: [] } });
       if (url.pathname.startsWith('/api/'))
         return route.fulfill({ status: 404, json: { error: 'Unexpected fixture request' } });
       return route.fulfill({
@@ -81,12 +53,6 @@ for (const theme of ['light', 'dark'] as const) {
     await page.getByLabel('Account label', { exact: true }).fill('EnMaaS Claude');
     await page.getByLabel('Intended work project name').fill('Work');
     await page.getByLabel('API key', { exact: true }).fill('synthetic-key');
-    await page.getByRole('button', { name: 'Get models', exact: true }).click();
-    await expect(page.getByRole('alert')).toContainText('Could not read the provider catalog');
-    await page.getByRole('button', { name: 'Get models', exact: true }).click();
-    await page
-      .getByRole('listbox', { name: 'Available models', exact: true })
-      .selectOption('hosted/sonnet');
     await page.getByLabel('Additional model IDs').fill('hosted/omitted');
     const submit = page.getByRole('button', { name: 'Save API account', exact: true });
     await expect(submit).toBeDisabled();
@@ -109,9 +75,6 @@ for (const theme of ['light', 'dark'] as const) {
       path: info.outputPath('connections-anthropic-account-enrollment.png'),
       fullPage: true,
     });
-    await submit.click();
-    await expect(page.getByText('EnMaaS Claude is ready for new chats.')).toBeVisible();
-    expect(await page.evaluate(() => JSON.stringify(localStorage))).not.toContain('synthetic-key');
     expect(errors).toEqual([]);
   });
 }

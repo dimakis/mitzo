@@ -68,6 +68,7 @@ it.each([
       adapt: adaptSdkQuery,
       settings: () => ({}),
       inputChanged: () => {},
+      onUnsent: vi.fn(),
     });
     const message: SDKUserMessage = {
       type: 'user',
@@ -99,52 +100,73 @@ it.each([
   },
 );
 
-it('does not yield input before a mode acknowledgement and aborts visibly on refusal', async () => {
-  let prompt!: AsyncIterable<SDKUserMessage>;
-  let refuse!: (error: Error) => void;
-  const setPermissionMode = vi.fn(
-    () =>
-      new Promise<void>((_resolve, reject) => {
-        refuse = reject;
-      }),
-  );
-  vi.mocked(query).mockImplementation((request) => {
-    prompt = request.prompt as AsyncIterable<SDKUserMessage>;
-    return { setPermissionMode, close: vi.fn(), async *[Symbol.asyncIterator]() {} } as never;
-  });
-  const controller = new AbortController();
-  const owner = createOrdinaryLocalVertexSdkQuery({
-    options: { env: { MITZO_ANTHROPIC_API_CUSTODY: 'synthetic-custody' }, permissionMode: 'plan' },
-    input: new AsyncQueue(),
-    lifetime: new SdkHookLifetime(),
-    sdkSessionId: 'original',
-    cwd: '/task',
-    controller,
-    authorize: async () => {},
-    authorizeSync: () => {},
-    adapt: (native) => native as never,
-    settings: () => ({}),
-    inputChanged: () => {},
-  });
-  owner.push({
-    type: 'user',
-    session_id: 'original',
-    parent_tool_use_id: null,
-    message: { role: 'user', content: 'Offline' },
-  });
-  const result = prompt[Symbol.asyncIterator]().next();
-  let yielded = false;
-  void result.then(
-    () => {
-      yielded = true;
-    },
-    () => {},
-  );
-  await vi.waitFor(() => expect(setPermissionMode).toHaveBeenCalledWith('plan'));
-  expect(yielded).toBe(false);
-  const failure = new Error('OFFLINE_MODE_REFUSED');
-  refuse(failure);
-  await expect(result).rejects.toThrow('OFFLINE_MODE_REFUSED');
-  expect(controller.signal.aborted).toBe(true);
-  expect(controller.signal.reason).toBe(failure);
-});
+it.each(['refusal', 'reporting failure', 'user stop'] as const)(
+  'withholds input and preserves %s during mode acknowledgement',
+  async (scenario) => {
+    let prompt!: AsyncIterable<SDKUserMessage>;
+    let refuse!: (error: Error) => void;
+    const setPermissionMode = vi.fn(
+      () =>
+        new Promise<void>((_resolve, reject) => {
+          refuse = reject;
+        }),
+    );
+    vi.mocked(query).mockImplementation((request) => {
+      prompt = request.prompt as AsyncIterable<SDKUserMessage>;
+      return { setPermissionMode, close: vi.fn(), async *[Symbol.asyncIterator]() {} } as never;
+    });
+    const controller = new AbortController();
+    const reportingError = new Error('OFFLINE_REPORTING_FAILED');
+    const onUnsent = vi.fn(() => {
+      expect(controller.signal.aborted).toBe(false);
+      if (scenario === 'reporting failure') throw reportingError;
+    });
+    const owner = createOrdinaryLocalVertexSdkQuery({
+      options: {
+        env: { MITZO_ANTHROPIC_API_CUSTODY: 'synthetic-custody' },
+        permissionMode: 'plan',
+      },
+      input: new AsyncQueue(),
+      lifetime: new SdkHookLifetime(),
+      sdkSessionId: 'original',
+      cwd: '/task',
+      controller,
+      authorize: async () => {},
+      authorizeSync: () => {},
+      adapt: (native) => native as never,
+      settings: () => ({}),
+      inputChanged: () => {},
+      onUnsent,
+    });
+    owner.push({
+      type: 'user',
+      session_id: 'original',
+      parent_tool_use_id: null,
+      message: { role: 'user', content: 'Offline' },
+    });
+    const result = prompt[Symbol.asyncIterator]().next();
+    let yielded = false;
+    void result.then(
+      () => {
+        yielded = true;
+      },
+      () => {},
+    );
+    await vi.waitFor(() => expect(setPermissionMode).toHaveBeenCalledWith('plan'));
+    expect(yielded).toBe(false);
+    const failure = new Error('OFFLINE_MODE_REFUSED');
+    if (scenario === 'user stop') controller.abort();
+    refuse(failure);
+    if (scenario === 'user stop') {
+      await expect(result).rejects.toBe(failure);
+      expect(onUnsent).not.toHaveBeenCalled();
+    } else {
+      await expect(result).rejects.toMatchObject({ code: 'input_not_dispatched' });
+      expect(onUnsent).toHaveBeenCalledOnce();
+      if (scenario === 'reporting failure')
+        expect(controller.signal.reason.cause.errors).toEqual([failure, reportingError]);
+      else expect(controller.signal.reason.cause).toBe(failure);
+    }
+    expect(controller.signal.aborted).toBe(true);
+  },
+);

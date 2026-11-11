@@ -47,6 +47,7 @@ it.each(['person@example.test', 'other@example.test'])(
       adapt: (native) => native as never,
       settings: () => ({}),
       inputChanged: () => {},
+      onUnsent: vi.fn(),
     });
     input.push({
       type: 'user',
