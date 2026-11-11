@@ -3,6 +3,7 @@ import { isDeepStrictEqual } from 'node:util';
 import {
   buildPermissionHandler,
   checkSkillPolicy,
+  effectivePermissionMode,
   type ManagedSession,
   type SessionRegistry,
 } from '@mitzo/harness';
@@ -12,6 +13,7 @@ import {
   GoogleWorkspaceReadSchema,
   googleWorkspaceReadDefinition,
   googleReadCapability,
+  googleReadSessionApproval,
 } from './google-workspace-read.js';
 import { captureSessionCapability } from './session-capability-grants.js';
 
@@ -71,27 +73,45 @@ export function sessionGoogleWorkspaceTools(options: {
           options.session,
           googleReadCapability(request, prepared.email),
         );
+        const approval = googleReadSessionApproval(options.session, prepared.email);
+        // Auto reads freely; a lowered mode must not deliver an Auto-admitted read.
+        const autoRead = !consent && effectivePermissionMode(options.session) === 'auto';
+        let sessionGranted = false;
         const readCurrent = () => {
           current();
           consent?.();
+          if (autoRead && effectivePermissionMode(options.session) !== 'auto')
+            throw Error('Google read mode changed');
+          if (
+            sessionGranted &&
+            (!options.session.sessionAllowList.has(approval.sessionGrantKey) ||
+              googleReadSessionApproval(options.session, prepared.email).sessionGrantKey !==
+                approval.sessionGrantKey)
+          )
+            throw Error('Google read session grant changed');
         };
         const readGuard = async () => {
           await guard();
           readCurrent();
         };
         readCurrent();
-        const permission = consent
-          ? { behavior: 'allow' as const, updatedInput: review }
-          : await buildPermissionHandler(owner.clientId, options.registry)(name, review, {
-              signal: combined,
-              toolUseID: randomUUID(),
-              forcePrompt: true,
-              rememberSessionGrant: false,
-              allowSessionGrant: false,
-              approvalScope: 'request',
-              title: 'Read Google Workspace?',
-              description: `Read using ${prepared.email}. Review the exact operation and resource. Credentials remain private to Mitzo.`,
-            });
+        const permission =
+          consent || autoRead
+            ? { behavior: 'allow' as const, updatedInput: review }
+            : await buildPermissionHandler(owner.clientId, options.registry)(name, review, {
+                signal: combined,
+                toolUseID: randomUUID(),
+                // Reads are never tier auto-allowed outside Auto; a retained
+                // account-scoped session grant still satisfies the prompt.
+                forcePrompt: true,
+                allowSessionGrant: true,
+                approvalScope: 'session',
+                ...approval,
+                description: `Read using ${prepared.email}. Allow for session covers further reads by this account in this chat. Credentials remain private to Mitzo.`,
+              });
+        sessionGranted =
+          'decisionClassification' in permission &&
+          permission.decisionClassification === 'user_permanent';
         await readGuard();
         combined.throwIfAborted();
         if (permission.behavior !== 'allow') return { content: permission.message, isError: true };

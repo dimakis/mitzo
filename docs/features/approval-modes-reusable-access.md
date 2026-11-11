@@ -45,6 +45,11 @@ existing private credential/provider owner and validates consent at reads,
 retained-page access and native response delivery. Google reads currently use
 the admitted Local Codex route.
 
+Separately from Access grants, `GoogleWorkspaceRead` follows the chat mode as of
+11 November 2026: Auto reads without a prompt, while Agent and Ask offer **Allow
+for session** scoped to the chat and Google email. Writes keep per-request
+approval. See `docs/google-workspace-cli-contract.md`.
+
 Telos progress is a distinct capability for one item: evidence notes and existing
 active/acknowledged/completed status transitions through `TelosUpdateItem`.
 It does not grant general brief edits, archive/delete, source adoption, child
