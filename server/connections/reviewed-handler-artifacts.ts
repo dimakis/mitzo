@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.1053-forwarding-recipients';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.1055-forwarding-label';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -59,7 +59,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/hooks/useConversationPromptContext.ts':
     '46c349cc7138ae96bfcfb68e511dd6eeb93320ee56375cf5c90b9e44306d6439',
   '../../frontend/src/components/ConversationPromptContext.tsx':
-    '8bb40bc20740fc7bdc726aafd97641da32eff0c1109e90449607bb97cdd1175f',
+    '4a165a6a7f56ba8866a3e7b9c32015a5b20d44b9cc41b6f080ca736744c21ac8',
   '../__tests__/collaboration-application-observer-ui.test.tsx':
     '14a06ae03bfa0e778c848bbb266c83a6d4ecdce5751a548ef02a47647164c655',
   '../../frontend/src/components/__tests__/ComposerResponders.test.tsx':
