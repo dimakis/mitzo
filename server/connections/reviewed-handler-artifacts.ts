@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.1049-task-commit-routing';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.1050-approval-ci-integration';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -22,6 +22,14 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
+  '../../.github/actions/ci-playwright/action.yml':
+    '1c6e7a91b5e7363c00c224ab10739bfc73e0a027c9e7b9508af620d96321b6d1',
+  '../../scripts/ci-browser-container.sh':
+    'a7f55378f5b2b8f60f1c9e46eeaac6ced02733bc3a4a693e8de9a94474939c66',
+  '../../scripts/__tests__/ci-browser-container.test.ts':
+    '20a46f5c88be16d39dbd859b3059eab7d8d405306d601c8c92642559ddc46a0d',
+  '../__tests__/task-execution-log-consumer.test.ts':
+    'd892c0db3505f5de7f16473f89462f2c5fc92ada2c6f4952c9fbcdba3d36f13a',
   '../github-log-read.ts': '7f6ec3cff9629e55c95442b38baacd3606b6dbba272dfeb159a1ae22b01c551a',
   '../__tests__/github-log-read.test.ts':
     '32d99f2715973e37bebd36b06854756daf935fe847b24bff484ae040076999a7',
@@ -1314,7 +1322,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/owned-local-codex-real-start.test.ts':
     '3798cda359a44ad001b3700f6bf4ebe988b13992112619310df02278b6ce5620',
   '../__tests__/retained-local-codex-recovery.test.ts':
-    '9d0cb03859463bf02d19a890c676cba91c2b301914fdb8215a6136a60832ea36',
+    '3e59e9216a9e1552654a4721b45a58c9d87a1a14cd60cc3ad598bc0e478c2fce',
   '../retained-local-codex-recovery.ts':
     '11f58e029b9d684d111ba998dfde52de9cd589796a0e5bdfe54274cb422b52e7',
   '../../tests/offline/queue-status.spec.ts':
@@ -3944,12 +3952,12 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../.github/workflows/ci-recovery.yml':
     '5d4e9a6560e549d2879ef776c2b4d321d420c25b22ec3a7741390e5bf617111a',
   '../../.github/workflows/ci.yml':
-    '5d5ada9a5be72e3dd073cf65c3418bbe89c88fd0d65caa257c5d78a3a287f81b',
+    '69191f1a966bc0eeb88b3e9e89e33af8cf43a5897e8825c8bf0c01baa180b3f7',
   '../../playwright.config.ts': '6c61752a4a2e9cab19d8217b46080c5898bc79c5a0fde1f2b703a254d278daa0',
   '../../playwright.offline.config.ts':
     'fb694df154a2cb402c7f46b417efb357b6d19a72210d269ad0b1580798392adc',
   '../../scripts/__tests__/browser-failure-evidence.test.ts':
-    '34ee7420169c6ea629b12a8a312fd3204a01f943ebeb8f24e2a020572c31334e',
+    'ef26c2c00f317546828abca53c51492cd55b50c6f9d70a6f3143691065081cc1',
   '../../scripts/__tests__/ci-browser-failure-reporter.test.ts':
     '730da0151f559054652bcf9e34db39da29153044d53ee35ecef927088ecee544',
   '../../scripts/__tests__/ci-browser-run.test.ts':
@@ -4147,7 +4155,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/components/ChatCommandMetadata.css':
     '6121f3dad00a885eee829f643209e5f0f4c9c3c1b8c3e31505f149bb449c4419',
   '../../.github/actions/ci-canonical-browser/action.yml':
-    '4c49037da7aa76f65744528309b3304df2ff78435b5c6d2db421882661945292',
+    '9d8078c37f814b4a1b6d00768f33c8c5a114c962afb31156735f6ece4d477a99',
   '../../.github/actions/ci-native-fixture/action.yml':
     'f8c24df3203636c7292fa1d0d8994ee5b9db53301c49fe43eab3e355907b6f05',
   '../../.github/actions/ci-node/action.yml':
