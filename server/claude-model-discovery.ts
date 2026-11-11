@@ -119,16 +119,18 @@ export async function discoverClaudeModels(
     controller.abort();
     try {
       client?.close();
-    } catch {
+    } catch (cause) {
       createLogger('claude-model-discovery').warn('Claude discovery query cleanup failed', {
         code: 'claude_model_discovery_close_failed',
         stage: 'metadata_cleanup',
+        errorType: cause instanceof Error ? cause.name : 'unknown',
       });
     } finally {
-      await rm(cwd, { recursive: true, force: true }).catch(() => {
+      await rm(cwd, { recursive: true, force: true }).catch((cause: unknown) => {
         createLogger('claude-model-discovery').warn('Claude discovery workspace cleanup failed', {
           code: 'claude_model_discovery_cleanup_failed',
           stage: 'metadata_cleanup',
+          errorType: cause instanceof Error ? cause.name : 'unknown',
         });
       });
     }

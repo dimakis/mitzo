@@ -147,7 +147,7 @@ export function useExplicitLocalChat(
   }, [saved, sessionId, draftId, seed, inventory]);
   const [enrollment, setEnrollment] = useState<'loading' | 'off' | 'on' | 'unknown'>('loading');
   const [attempt, setAttempt] = useState(0);
-  const [modelRefresh, setModelRefresh] = useState<{
+  const modelRefresh = useRef<{
     accountId: string;
     attempt: number;
     draftId: string;
@@ -177,7 +177,9 @@ export function useExplicitLocalChat(
     agentContext?: AgentContextSnapshot;
     nativeConstraint?: NativeContinuationConstraint;
   } | null>(null);
-  const modelReference = sessionId ? meta?.binding?.account : intent.accountReference;
+  const currentMeta =
+    meta?.sessionId === sessionId && meta.workspaceRevision === workspaceRevision ? meta : null;
+  const modelReference = sessionId ? currentMeta?.binding?.account : intent.accountReference;
   const modelAccountRef = useRef(modelReference?.accountId);
   modelAccountRef.current = modelReference?.accountId;
   const claudeModelAccount =
@@ -202,13 +204,17 @@ export function useExplicitLocalChat(
     setError('');
     void Promise.resolve()
       .then(async () => {
+        controller.signal.throwIfAborted();
+        const requestedRefresh = modelRefresh.current;
+        // Retire dispatched or abandoned actions without aborting this request.
+        if (requestedRefresh && requestedRefresh.attempt <= attempt) modelRefresh.current = null;
         const forcedAccount =
-          modelRefresh?.attempt === attempt &&
-          modelRefresh.draftId === draftId &&
-          modelRefresh.sessionId === sessionId &&
-          modelRefresh.accountId ===
+          requestedRefresh?.attempt === attempt &&
+          requestedRefresh.draftId === draftId &&
+          requestedRefresh.sessionId === sessionId &&
+          requestedRefresh.accountId ===
             (sessionId ? modelAccountRef.current : latestIntent.current.account?.accountId)
-            ? modelRefresh.accountId
+            ? requestedRefresh.accountId
             : null;
         const capabilityUrl =
           '/api/chat/runtime/capabilities?workspaceDefaults=1' +
@@ -284,7 +290,7 @@ export function useExplicitLocalChat(
       clearTimeout(timeout);
       controller.abort();
     };
-  }, [draftId, enabled, sessionId, attempt, modelRefresh, claudeModelAccount]);
+  }, [draftId, enabled, sessionId, attempt, claudeModelAccount]);
   useEffect(() => {
     if (!sessionId) return;
     const shareMount = !metadataReadStarted.current;
@@ -429,8 +435,6 @@ export function useExplicitLocalChat(
       controller.abort();
     };
   }, [sessionId, attempt, workspaceRevision]);
-  const currentMeta =
-    meta?.sessionId === sessionId && meta.workspaceRevision === workspaceRevision ? meta : null;
   const metadataError = metaFailure?.sessionId === sessionId ? metaFailure.message : undefined;
   const metadataUnavailable = !!sessionId && !!metadataError;
   const metadataPending =
@@ -629,7 +633,7 @@ export function useExplicitLocalChat(
     refresh,
     refreshModels: () => {
       const accountId = selectedIntent.account?.accountId;
-      if (accountId) setModelRefresh({ accountId, attempt: attempt + 1, draftId, sessionId });
+      if (accountId) modelRefresh.current = { accountId, attempt: attempt + 1, draftId, sessionId };
       refresh();
     },
     update,

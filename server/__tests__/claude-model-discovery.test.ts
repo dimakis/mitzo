@@ -2,7 +2,10 @@ import './fixtures/offline-user-home.js';
 import { afterEach, expect, it, vi } from 'vitest';
 import { existsSync } from 'node:fs';
 import { query } from '@anthropic-ai/claude-agent-sdk';
-import { ClaudeSubscriptionCustody } from '../claude-subscription-custody.js';
+import {
+  ClaudeSubscriptionCustody,
+  ClaudeSubscriptionSignInError,
+} from '../claude-subscription-custody.js';
 import { discoverClaudeModels, claudeModelLabel } from '../claude-model-discovery.js';
 import { AccountProfiles } from '../account-profiles.js';
 const warn = vi.hoisted(() => vi.fn());
@@ -117,9 +120,22 @@ it('publishes discovered choices consistently, scopes refresh, and retains stale
   expect(profiles.catalog()[0].models[0]).toEqual(model);
   expect(warn).toHaveBeenCalledWith(
     'Claude model discovery failed',
-    expect.objectContaining({ accountId: profile.id, code: 'claude_model_discovery_failed' }),
+    expect.objectContaining({
+      accountId: profile.id,
+      code: 'claude_model_discovery_failed',
+      errorType: 'Error',
+    }),
   );
   expect(JSON.stringify(warn.mock.calls)).not.toContain('private provider response');
+  const failure = new ClaudeSubscriptionSignInError('identity_mismatch');
+  f.verify.mockRejectedValueOnce(failure);
+  await profiles.refresh(true, { accountId: profile.id });
+  expect(profiles.catalog()[0].models[0]).toEqual(model);
+  expect(profiles.catalog()[0].modelDiscovery.stale).toBe(true);
+  expect(warn).toHaveBeenLastCalledWith(
+    'Claude model discovery failed',
+    expect.objectContaining({ signIn: failure.telemetry() }),
+  );
 });
 
 it('bounds a stalled native model read and retains an explicit stale fallback', async () => {

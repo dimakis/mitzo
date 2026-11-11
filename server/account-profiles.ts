@@ -1,4 +1,3 @@
-import { discoverClaudeModels } from './claude-model-discovery.js';
 import {
   ApiHarnessConnectionSchema,
   apiHarnessConnection,
@@ -908,6 +907,8 @@ export class AccountProfiles {
           ),
         ),
       );
+      // Keep native SDK and credential-boundary initialization out of other accounts.
+      const { discoverClaudeModels } = await import('./claude-model-discovery.js');
       const models = await discoverClaudeModels(env, deadline.signal);
       // Configured ordering remains the account default when native discovery includes it.
       const configured = new Map(
@@ -934,6 +935,9 @@ export class AccountProfiles {
         code: 'claude_model_discovery_failed',
         stage: 'claude_model_discovery',
         reason: deadline.signal.aborted ? 'timeout' : 'native_metadata_unavailable',
+        ...(cause instanceof ClaudeSubscriptionSignInError
+          ? { signIn: cause.telemetry() }
+          : { errorType: cause instanceof Error ? cause.name : 'unknown' }),
       });
       throw cause;
     } finally {
