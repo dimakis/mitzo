@@ -57,7 +57,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     'd62c9117de7255c4087d54fa5840f382f594ee7ef4b3f35b47fcaa20bebafa94',
   '../connections-access.ts': '46b54b46f8d38d739d4bea29fcfdd25b43d831fdb63e411571925451426329d1',
   '../../tests/offline/claude-account-connect.spec.ts':
-    'a136104c588494a5cdf005d5f283751f969034a3c469d3618113b585bc111a23',
+    '134c83a0e2a8fddc494efcdd739bcfc44127af80e06bd2059095e2dfd6ca03b0',
 
   '../../docs/design/frontend-motion.md':
     '6225104dac711bd85ceccafe17ca1980a6aa19c1b2c11f004429c5d2b6872e55',

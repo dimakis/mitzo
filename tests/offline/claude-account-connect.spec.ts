@@ -108,7 +108,10 @@ for (const theme of ['dark', 'light'] as const) {
     await field.fill('synthetic-code#fixture-state');
     await page.keyboard.press('Tab');
     await expect(page.getByRole('button', { name: 'Complete sign-in' })).toBeFocused();
-    await page.screenshot({ path: testInfo.outputPath('claude-private-code.png'), fullPage: true });
+    await page.screenshot({
+      path: testInfo.outputPath('connections-claude-private-code.png'),
+      fullPage: true,
+    });
     await page.keyboard.press('Enter');
     await expect(page.getByRole('alert')).toContainText('could not be confirmed');
     await expect(field).toHaveValue('');
@@ -124,6 +127,9 @@ for (const theme of ['dark', 'light'] as const) {
       true,
     );
     await checkControls();
-    await page.screenshot({ path: testInfo.outputPath('claude-connected.png'), fullPage: true });
+    await page.screenshot({
+      path: testInfo.outputPath('connections-claude-connected.png'),
+      fullPage: true,
+    });
   });
 }
