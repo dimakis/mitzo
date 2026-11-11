@@ -1564,6 +1564,122 @@ it('holds the owning mutation fence across enqueue and exact FIFO claim, outside
   }
 });
 
+it('refuses a context change in the last provider callback before turn submission', async () => {
+  const f = await setup();
+  let held = false;
+  f.conversationOptions.assertQueueCommandCurrent = () => {
+    if (held) throw Error('Context held');
+  };
+  f.conversationOptions.onProviderDispatch = () => {
+    held = true;
+  };
+  await expect(f.c.send({ id: 'stale-dispatch', prompt: 'Do not dispatch' })).rejects.toThrow(
+    'Context held',
+  );
+  expect(f.requests.filter(({ method }) => method === 'turn/start')).toHaveLength(0);
+});
+
+it.each(['ack', 'sync-failure', 'falsy-failure', 'sync-close'] as const)(
+  'serializes provider submission and commits its marker before awaiting %s',
+  async (outcome) => {
+    const f = await setup();
+    const eventsPath = join(dirname(f.storePath!), 'dispatch-events.db');
+    const events = new EventStore(eventsPath);
+    const concurrentWriter = new Database(eventsPath, { timeout: 0 });
+    let pending!: () => void;
+    const ack = new Promise<void>((resolve) => {
+      pending = resolve;
+    });
+    const rpc = f.rpc.request.getMockImplementation()!;
+    f.conversationOptions.withQueueMutation = (operation) =>
+      events.contextTransitions.withAdmissionLock(operation);
+    f.conversationOptions.onProviderDispatch = () => {
+      expect(() => concurrentWriter.exec('BEGIN IMMEDIATE')).toThrow(/locked/i);
+      events.append('app', 'ordinary_provider_dispatch_started', { messageId: 'dispatch' });
+    };
+    f.rpc.request.mockImplementation((method, params) => {
+      if (method !== 'turn/start') return rpc(method, params);
+      expect(() => concurrentWriter.exec('BEGIN IMMEDIATE')).toThrow(/locked/i);
+      if (outcome === 'sync-failure') throw Error('Synchronous transport close');
+      if (outcome === 'falsy-failure') throw null;
+      if (outcome === 'sync-close') f.c.close();
+      return ack.then(() => rpc(method, params));
+    });
+    try {
+      const sending = f.c.send({ id: 'dispatch', prompt: 'Original request' }).then(
+        () => ({ error: undefined }),
+        (error: unknown) => ({ error }),
+      );
+      await vi.waitFor(() =>
+        expect(f.rpc.request.mock.calls.some(([method]) => method === 'turn/start')).toBe(true),
+      );
+      // No writer is held across provider acknowledgement, including a failed invocation.
+      concurrentWriter.exec('BEGIN IMMEDIATE; ROLLBACK');
+      expect(
+        concurrentWriter
+          .prepare(
+            "SELECT count(*) AS count FROM events WHERE session_id='app' AND type='ordinary_provider_dispatch_started'",
+          )
+          .get(),
+      ).toEqual({ count: 1 });
+      pending();
+      const result = await sending;
+      if (outcome === 'sync-failure')
+        expect(result.error).toEqual(Error('Synchronous transport close'));
+      else if (outcome === 'falsy-failure') expect(result.error).toBeNull();
+      else expect(result.error).toBeUndefined();
+    } finally {
+      pending();
+      f.conversationOptions.withQueueMutation = undefined;
+      concurrentWriter.close();
+      events.close();
+    }
+  },
+);
+
+it.each(['dispatch', 'steering'] as const)(
+  'does not submit %s when its final native-policy callback closes the original owner',
+  async (kind) => {
+    const f = await setup(undefined, undefined, undefined, undefined, async () => binding);
+    let closeOnCheck = false;
+    Object.assign(f.conversationOptions, {
+      nativeExecution: codexNativeExecutionPolicy({
+        bindingRevision: 'owner',
+        mode: 'agent',
+        cwd: '/workspace',
+        readableRoots: ['/'],
+        writableRoots: ['/workspace'],
+        deniedRoots: ['/private/auth'],
+      }),
+      assertNativeExecutionCurrent: () => {
+        if (closeOnCheck) f.c.close();
+      },
+      requestNativeApproval: async () => ({ decision: 'decline' }),
+    });
+    if (kind === 'dispatch')
+      f.conversationOptions.onProviderDispatch = () => {
+        closeOnCheck = true;
+      };
+    await f.c.send({ id: 'a', prompt: 'Original' });
+    if (kind === 'steering') {
+      f.conversationOptions.onSteeringUpdate = (_input, status) => {
+        if (status === 'steering') closeOnCheck = true;
+      };
+      expect(
+        await f.c.steer(
+          { requestId: 'closed-correction', targetCommandId: 'a', text: 'Correction' },
+          () => {},
+        ),
+      ).toEqual({ status: 'rejected' });
+    }
+    expect(
+      f.requests.filter(
+        ({ method }) => method === (kind === 'dispatch' ? 'turn/start' : 'turn/steer'),
+      ),
+    ).toHaveLength(0);
+  },
+);
+
 it('refuses a context change during enqueue validation before persisting native input', async () => {
   const f = await setup();
   let held = false;
@@ -11124,6 +11240,124 @@ it('observes each native base-read claim once per fence and refreshes after the 
     f.callbacks.onRequest('item/tool/call', call, new AbortController().signal),
   ).resolves.toMatchObject({ success: true });
 });
+
+it.each(['before-claim', 'after-claim'] as const)(
+  'rejects a held source context %s without sending a correction',
+  async (phase) => {
+    const f = await setup();
+    await f.c.send({ id: 'a', prompt: 'First' });
+    let held = phase === 'before-claim';
+    f.conversationOptions.assertQueueCommandCurrent = (id) => {
+      expect(id).toBe('a');
+      if (held) throw Error('Context held');
+    };
+    f.conversationOptions.onSteeringUpdate = (_input, status) => {
+      if (status === 'steering') held = true;
+    };
+    const input = { requestId: 'context-correction', targetCommandId: 'a', text: 'Correction' };
+    expect(await f.c.steer(input, () => {})).toEqual({ status: 'rejected' });
+    expect(f.requests.filter(({ method }) => method === 'turn/steer')).toHaveLength(0);
+    const receipt = f.store.steeringReceipt('app', f.getBinding(), input);
+    expect(receipt?.status).toBe(phase === 'before-claim' ? undefined : 'rejected');
+    if (phase === 'after-claim') {
+      // Reading the retained result must remain possible while admission is held.
+      f.conversationOptions.assertQueueCommandCurrent = () => {
+        throw Error('Do not readmit');
+      };
+      expect(await f.c.steer(input, () => {})).toEqual({ status: 'rejected' });
+    }
+  },
+);
+
+it.each(['ack', 'sync-failure'] as const)(
+  'serializes correction claim and submission but releases the writer before %s',
+  async (outcome) => {
+    const f = await setup();
+    await f.c.send({ id: 'a', prompt: 'First' });
+    const eventsPath = join(dirname(f.storePath!), 'steering-events.db');
+    const events = new EventStore(eventsPath);
+    const writer = new Database(eventsPath, { timeout: 0 });
+    const rpc = f.rpc.request.getMockImplementation()!;
+    let release!: () => void;
+    const pending = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const input = { requestId: 'serialized-correction', targetCommandId: 'a', text: 'Correction' };
+    f.conversationOptions.withQueueMutation = (operation) =>
+      events.contextTransitions.withAdmissionLock(operation);
+    const claim = f.store.claimSteering.bind(f.store);
+    vi.spyOn(f.store, 'claimSteering').mockImplementation((...args) => {
+      expect(() => writer.exec('BEGIN IMMEDIATE')).toThrow(/locked/i);
+      return claim(...args);
+    });
+    f.rpc.request.mockImplementation((method, params) => {
+      if (method !== 'turn/steer') return rpc(method, params);
+      expect(() => writer.exec('BEGIN IMMEDIATE')).toThrow(/locked/i);
+      expect(f.store.steeringReceipt('app', f.getBinding(), input)?.status).toBe('claimed');
+      if (outcome === 'sync-failure') throw Error('Lost correction ACK');
+      return pending.then(() => ({ turnId: params.expectedTurnId }));
+    });
+    try {
+      const steering = f.c.steer(input, () => {});
+      await vi.waitFor(() =>
+        expect(f.rpc.request.mock.calls.some(([method]) => method === 'turn/steer')).toBe(true),
+      );
+      writer.exec('BEGIN IMMEDIATE; ROLLBACK');
+      release();
+      expect(await steering).toEqual({ status: outcome === 'ack' ? 'accepted' : 'uncertain' });
+      expect(await f.c.steer(input, () => {})).toEqual({
+        status: outcome === 'ack' ? 'accepted' : 'uncertain',
+      });
+      expect(f.rpc.request.mock.calls.filter(([method]) => method === 'turn/steer')).toHaveLength(
+        1,
+      );
+    } finally {
+      release();
+      f.conversationOptions.withQueueMutation = undefined;
+      writer.close();
+      events.close();
+    }
+  },
+);
+
+it.each(['admission', 'submission'] as const)(
+  'preserves a correction outcome when %s diagnostics also fail',
+  async (phase) => {
+    const f = await setup();
+    await f.c.send({ id: 'a', prompt: 'First' });
+    const diagnostic = vi
+      .spyOn(runtimeDiagnostics, 'codexRuntimeErrorTelemetry')
+      .mockImplementation(() => {
+        throw Error('Diagnostic extraction failed');
+      });
+    const input = { requestId: 'diagnostic-correction', targetCommandId: 'a', text: 'Correction' };
+    const failure = Error('Original failure');
+    const rpc = f.rpc.request.getMockImplementation()!;
+    if (phase === 'admission')
+      f.conversationOptions.assertSteeringCurrent = () => {
+        throw failure;
+      };
+    else
+      f.rpc.request.mockImplementation((method, params) => {
+        if (method === 'turn/steer') throw failure;
+        return rpc(method, params);
+      });
+    try {
+      const expected = { status: phase === 'admission' ? 'rejected' : 'uncertain' };
+      expect(await f.c.steer(input, () => {})).toEqual(expected);
+      expect(diagnostic).toHaveBeenCalledWith(failure);
+      expect(await f.c.steer(input, () => {})).toEqual(expected);
+      expect(f.rpc.request.mock.calls.filter(([method]) => method === 'turn/steer')).toHaveLength(
+        phase === 'admission' ? 0 : 1,
+      );
+      expect(f.store.steeringReceipt('app', f.getBinding(), input)?.status).toBe(
+        phase === 'admission' ? undefined : 'uncertain',
+      );
+    } finally {
+      diagnostic.mockRestore();
+    }
+  },
+);
 
 it('steers screenshot bytes only to the selected active turn with an immutable receipt', async () => {
   const f = await setup();

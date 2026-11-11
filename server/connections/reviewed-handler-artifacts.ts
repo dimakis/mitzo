@@ -10,7 +10,8 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.1053-derived-command-context';
+export const reviewedConnectionsRuntimeImplementationRevision =
+  'v1.0.1054-provider-context-submission';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -669,7 +670,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/protocol/src/session-removal-store.ts':
     'df2ac3cc7f3ac4b8d3b6483b88abcd8f126f15e8b21d6b52ce3bac8b98eba685',
   '../../packages/protocol/src/ordinary-context-transition-store.ts':
-    '8b8783f7ba8645d843e0fc820a4d9504096bafd5700cc9389e3e0ffb2f99bf92',
+    'f1c10abe8c23d961a0b64ee7ca4bd0f436f010dc06289382e702ceca93f28d07',
   '../../packages/protocol/__tests__/ordinary-context-transition-store.test.ts':
     'f3845317c575cff208ba42a4949b130146660d00fd71ff6874d817d5553f09b0',
   '../__tests__/session-resource-removal.test.ts':
@@ -1617,7 +1618,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/codex-chat-session.test.ts':
     '0cc72f911b11ac2defec7d6efa238f7c9eea60a5549bedfd40920cdbd0f97a2d',
   '../__tests__/codex-conversation.test.ts':
-    'e0908105fb6e15770add884ca8a88b6cdd18af2fa0a07516d81db9ba345896f2',
+    '134e46e40009e53bde42de25058c05c33bc571fa7a4c63710e23498a75b5fb9b',
   '../__tests__/codex-native-approvals.test.ts':
     '289e63cb3e656e841951829d9a63e0357c09b1a2298e947f18a3f90e77443857',
   '../__tests__/codex-native-artifact-qualification.test.ts':
@@ -2450,7 +2451,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../scripts/attest-knowledge-runtime.py':
     '5737ec8e7fc19a17b6ef5a35c1898e834d2a5d2d2a9f7593b607eaaf1971cfeb',
   '../agent-context-sandbox.ts': '8b61edc17ccc94bc95eae3796e68a0beb9540534e3bfbb348a04154c41995416',
-  '../codex-conversation.ts': '4bec9f448e2745ae86ecee889a0cfacc921c1b835a7c5535606f1eba444ceede',
+  '../codex-conversation.ts': '0542393f971f5a41748d558435b6e7c9ad44df9b5e6352fb8fd71789d5d41e5b',
   '../codex-conversation-store.ts':
     '275bf9d6caaa71b2ba3db742e7dbeb92db14f94b4eaae6b232b32b8d3a3192f1',
   '../symposium-custodian-ipc.ts':

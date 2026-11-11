@@ -76,7 +76,9 @@ export class OrdinaryContextTransitionStore {
   /** Host-only synchronous serialization against a concurrent transition.
    * Acquire before the native writer; this is not a cross-database transaction.
    * Callers still check the exact command immediately before its native write.
-   * Keep notifications, RPCs, awaits and post-commit callbacks outside this lock. */
+   * Keep awaits and post-submission observers outside this lock. A synchronous
+   * provider submission must retain its marker even on a synchronous throw;
+   * return the ACK promise as data and await it only after commit. */
   withAdmissionLock<T>(operation: () => T): T {
     return this.db.transaction(operation).immediate();
   }

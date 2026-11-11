@@ -96,18 +96,24 @@ import { tracer } from './tracing.js';
 import { createLogger } from './logger.js';
 import { codexRuntimeErrorTelemetry } from './codex-runtime-diagnostics.js';
 const log = createLogger('codex-conversation');
-function reportToolRecoveryFailure(
+function reportCommandFailure(
   conversationId: string,
   commandId: string,
-  stage: 'tool_recovery_admission' | 'tool_recovery_cleanup',
+  stage:
+    | 'tool_recovery_admission'
+    | 'tool_recovery_cleanup'
+    | 'steering_admission'
+    | 'steering_submission',
   cause: unknown,
+  requestId?: string,
 ): void {
   try {
-    log.warn('Tool recovery requires attention', {
+    log.warn('Native command requires attention', {
       conversationId,
       commandId,
       stage,
       code: `${stage}_failed`,
+      ...(requestId ? { requestId } : {}),
       ...(cause instanceof Error ? codexRuntimeErrorTelemetry(cause) : {}),
     });
   } catch {
@@ -842,9 +848,13 @@ export class CodexConversation {
       });
     } catch {
       // Closing and fencing unknown work must survive diagnostic storage failure.
-      log.warn('Native transport diagnostic could not be retained', {
-        conversationId: this.opts.conversationId,
-      });
+      try {
+        log.warn('Native transport diagnostic could not be retained', {
+          conversationId: this.opts.conversationId,
+        });
+      } catch {
+        // A broken diagnostic sink cannot replace the original transport failure.
+      }
     }
   }
   private transportClosed(generation: number, error: Error, requireRecoveryPersistence = false) {
@@ -2983,9 +2993,6 @@ export class CodexConversation {
           this.binding!,
           command,
         );
-      this.opts.onProviderDispatch?.(command.id);
-      if (active.nativeExecution)
-        this.opts.assertNativeExecutionCurrent?.(active.nativeExecution, command.id);
       active.span = tracer.startSpan('codex.turn', {}, active.traceContext);
       active.span.setAttribute('mitzo.route', this.opts.route ?? 'chatgpt-subscription');
       active.span.setAttribute('gen_ai.request.model', model);
@@ -2998,19 +3005,6 @@ export class CodexConversation {
           value: rolloverContext,
         };
       const pending = this.pendingToolSurface;
-      if (pending)
-        this.opts.store.beginThreadReplacementDispatch(
-          this.opts.conversationId,
-          this.binding!,
-          pending.parent,
-          pending.thread,
-          command,
-        );
-      if (continuation) {
-        assertCapacityAdmissionDeadline(this.capacityAdmissionDeadlines.get(command.id));
-        this.opts.store.beginCapacityDispatch(this.opts.conversationId, this.binding!, command.id);
-        this.capacityAdmissionDeadlines.delete(command.id);
-      }
       active.abort.signal.throwIfAborted();
       this.turnDispatchCount += 1;
       const turnContext = trace.setSpan(active.traceContext, active.span);
@@ -3020,14 +3014,6 @@ export class CodexConversation {
       let response: unknown;
       let dispatched = false;
       try {
-        if (active.nativeExecution)
-          this.opts.store.prepareNativeExecution(
-            this.opts.conversationId,
-            this.binding!,
-            command,
-            this.threadId!,
-            active.nativeExecution,
-          );
         finishCommandTimingSpan(active.preparationSpan, 'submitted');
         active.preparationSpan = undefined;
         const params = codexTurnStartParams({
@@ -3044,17 +3030,69 @@ export class CodexConversation {
           reasoningEffort: command.reasoningEffort,
           additionalContext,
         });
-        // A synchronous transport close can reenter close() from request().
-        // Once invocation is attempted, missing ACK/history is uncertainty.
         active.preparationStage = 'provider_request';
-        if (command.toolFailureContinuation)
-          this.opts.store.assertClaimedToolFailureContinuation(
-            this.opts.conversationId,
-            this.binding!,
-            command,
-          );
-        active.providerSubmitted = true;
-        const pendingAck = this.client.request('turn/start', params);
+        const dispatchClient = this.client;
+        const dispatchBinding = this.binding!;
+        const dispatchThread = this.threadId!;
+        const current = () => {
+          active.abort.signal.throwIfAborted();
+          if (
+            this.closed ||
+            this.active !== active ||
+            this.client !== dispatchClient ||
+            this.binding !== dispatchBinding ||
+            this.threadId !== dispatchThread ||
+            this.transportGeneration !== transportGeneration
+          )
+            throw Error('Original provider submission owner changed');
+          this.opts.assertQueueCommandCurrent?.(command.id);
+        };
+        const pendingAck = this.withProviderSubmission(
+          () => {
+            current();
+            this.opts.onProviderDispatch?.(command.id);
+            if (active.nativeExecution)
+              this.opts.assertNativeExecutionCurrent?.(active.nativeExecution, command.id);
+            current();
+            if (pending)
+              this.opts.store.beginThreadReplacementDispatch(
+                this.opts.conversationId,
+                dispatchBinding,
+                pending.parent,
+                pending.thread,
+                command,
+              );
+            if (continuation) {
+              assertCapacityAdmissionDeadline(this.capacityAdmissionDeadlines.get(command.id));
+              this.opts.store.beginCapacityDispatch(
+                this.opts.conversationId,
+                dispatchBinding,
+                command.id,
+              );
+              this.capacityAdmissionDeadlines.delete(command.id);
+            }
+            if (active.nativeExecution)
+              this.opts.store.prepareNativeExecution(
+                this.opts.conversationId,
+                dispatchBinding,
+                command,
+                dispatchThread,
+                active.nativeExecution,
+              );
+            if (command.toolFailureContinuation)
+              this.opts.store.assertClaimedToolFailureContinuation(
+                this.opts.conversationId,
+                dispatchBinding,
+                command,
+              );
+            current();
+          },
+          () => {
+            // Invocation can synchronously close the transport. Retain uncertainty.
+            active.providerSubmitted = true;
+            return dispatchClient.request('turn/start', params);
+          },
+        );
         dispatchSpan.end();
         dispatched = true;
         response = await pendingAck;
@@ -3924,7 +3962,7 @@ export class CodexConversation {
             });
           }
         } catch (cause) {
-          reportToolRecoveryFailure(
+          reportCommandFailure(
             this.opts.conversationId,
             failedToolSource.commandId,
             'tool_recovery_admission',
@@ -3934,7 +3972,7 @@ export class CodexConversation {
             try {
               this.opts.store.cancelQueued(this.opts.conversationId, this.binding!, child.id);
             } catch (cleanupCause) {
-              reportToolRecoveryFailure(
+              reportCommandFailure(
                 this.opts.conversationId,
                 child.id,
                 'tool_recovery_cleanup',
@@ -4838,6 +4876,29 @@ export class CodexConversation {
       this.opts.store.deploymentTurnSettled(this.opts.conversationId, this.binding, target)
     );
   }
+  /** Commit submission evidence even if request synchronously throws/reenters.
+   * Only invocation is serialized; no lock survives an await or ACK observer.
+   * This does not make the event/native databases and provider crash-atomic. */
+  private withProviderSubmission(
+    prepare: () => void,
+    submit: () => Promise<unknown>,
+  ): Promise<unknown> {
+    const invoke = () => {
+      prepare();
+      try {
+        const pending = submit();
+        // Observe only to bound a rejection if the subsequent database commit fails.
+        // The original promise/cause still reaches the normal awaited dispatch path.
+        void pending.catch(() => undefined);
+        return { submitted: true as const, pending };
+      } catch (error) {
+        return { submitted: false as const, error };
+      }
+    };
+    const result = this.opts.withQueueMutation ? this.opts.withQueueMutation(invoke) : invoke();
+    if (!result.submitted) throw result.error;
+    return result.pending;
+  }
   /** A correction uses the accepted turn's unchanged settings. It never starts,
    * interrupts, retries or reorders a command. A durable claim fences lost ACKs. */
   async steer(raw: CodexSteerInput, authorize: () => void): Promise<CodexSteerResult> {
@@ -4857,38 +4918,62 @@ export class CodexConversation {
     )
       return { status: 'stale_target' };
     const client = this.client,
-      generation = this.transportGeneration;
-    await this.verifyCurrentBinding(this.binding);
+      generation = this.transportGeneration,
+      steeringBinding = this.binding;
+    await this.verifyCurrentBinding(steeringBinding);
     authorize();
     if (
       this.closed ||
       this.paused ||
       this.active !== active ||
       this.client !== client ||
+      this.binding !== steeringBinding ||
       this.transportGeneration !== generation ||
       active.interruptRequested ||
       active.turnId !== target.turnId
     )
       return { status: 'stale_target' };
+    let claimed: boolean;
     try {
       if (!this.opts.assertSteeringCurrent) return { status: 'rejected' };
       this.opts.assertSteeringCurrent();
       if (active.nativeExecution)
         this.opts.assertNativeExecutionCurrent?.(active.nativeExecution, active.command.id);
+      const claim = () => {
+        if (
+          this.closed ||
+          this.paused ||
+          this.active !== active ||
+          this.client !== client ||
+          this.binding !== steeringBinding ||
+          this.transportGeneration !== generation ||
+          active.interruptRequested ||
+          active.turnId !== target.turnId
+        )
+          throw Error('Original turn unavailable');
+        this.opts.assertQueueCommandCurrent?.(target.commandId);
+        return this.opts.store.claimSteering(
+          this.opts.conversationId,
+          steeringBinding,
+          input,
+          target,
+        );
+      };
+      claimed = this.opts.withQueueMutation ? this.opts.withQueueMutation(claim) : claim();
     } catch (error) {
-      log.warn('Correction refused before native submission', {
-        conversationId: this.opts.conversationId,
-        commandId: active.command.id,
-        requestId: input.requestId,
-        phase: 'admission',
-        ...(error instanceof Error ? codexRuntimeErrorTelemetry(error) : {}),
-      });
+      reportCommandFailure(
+        this.opts.conversationId,
+        target.commandId,
+        'steering_admission',
+        error,
+        input.requestId,
+      );
       return { status: 'rejected' };
     }
-    if (!this.opts.store.claimSteering(this.opts.conversationId, this.binding, input, target)) {
+    if (!claimed) {
       const retained = this.opts.store.steeringReceipt(
         this.opts.conversationId,
-        this.binding,
+        steeringBinding,
         input,
       );
       return {
@@ -4923,12 +5008,7 @@ export class CodexConversation {
               throw Error('Reply context unavailable');
             })()
           : input.text);
-      this.opts.assertSteeringCurrent!();
-      if (active.nativeExecution)
-        this.opts.assertNativeExecutionCurrent?.(active.nativeExecution, active.command.id);
-      // Exact target, no turn-level overrides; a successor can never accept it.
-      attempted = true;
-      const ack = await client.request('turn/steer', {
+      const params = {
         threadId: target.threadId,
         expectedTurnId: target.turnId,
         input: [
@@ -4938,13 +5018,44 @@ export class CodexConversation {
             url: `data:${image.mediaType};base64,${image.data}`,
           })),
         ],
-      });
+      };
+      const ack = await this.withProviderSubmission(
+        () => {
+          this.opts.assertSteeringCurrent!();
+          if (active.nativeExecution)
+            this.opts.assertNativeExecutionCurrent?.(active.nativeExecution, active.command.id);
+          if (
+            this.closed ||
+            this.paused ||
+            this.active !== active ||
+            this.client !== client ||
+            this.binding !== steeringBinding ||
+            this.transportGeneration !== generation ||
+            active.interruptRequested ||
+            active.turnId !== target.turnId
+          )
+            throw Error('Original turn unavailable');
+          this.opts.assertQueueCommandCurrent?.(target.commandId);
+        },
+        () => {
+          // Exact target, no overrides; only actual invocation creates uncertainty.
+          attempted = true;
+          return client.request('turn/steer', params);
+        },
+      );
       if (z.object({ turnId: z.literal(target.turnId) }).safeParse(ack).success)
         status = 'accepted';
     } catch (error) {
       if (!attempted || error instanceof CodexRequestError) status = 'rejected';
+      reportCommandFailure(
+        this.opts.conversationId,
+        target.commandId,
+        'steering_submission',
+        error,
+        input.requestId,
+      );
     } finally {
-      this.opts.store.settleSteering(this.opts.conversationId, this.binding, input, status);
+      this.opts.store.settleSteering(this.opts.conversationId, steeringBinding, input, status);
       this.opts.onSteeringUpdate?.(input, status);
       span.setAttribute('mitzo.steering.status', status);
       span.end();
