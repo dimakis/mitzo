@@ -1,3 +1,4 @@
+import { closeMcpAfterFailure } from './codex-mcp-tools.js';
 import { admitApiTools } from './api-tool-execution.js';
 import { getApiToolCatalog } from './api-tool-runtime.js';
 import { getToolBuilderStore } from './tool-builder-runtime.js';
@@ -393,8 +394,7 @@ export async function openResponsesChat(options: Options) {
       ]);
   } catch (error) {
     dispose();
-    await mcp.close();
-    throw error;
+    await closeMcpAfterFailure(mcp, error);
   }
   initializing = false;
   const githubPublishing = createGithubPublishingTool(
@@ -473,8 +473,7 @@ The selected account supplies model inference; Local host describes where the to
     } catch (error) {
       githubPublishing.close();
       dispose();
-      await mcp.close();
-      throw error;
+      await closeMcpAfterFailure(mcp, error);
     }
   }
   const admittedNames = new Set(definitions.map((tool) => tool.name));
@@ -611,7 +610,13 @@ The selected account supplies model inference; Local host describes where the to
         .finally(dispose);
       runner.interrupt();
       options.input.close();
-      void mcp.close();
+      void mcp.close().catch(() => {
+        log.warn('Session MCP cleanup failed', {
+          code: 'mcp_cleanup_failed',
+          stage: 'session_close',
+          conversationId: options.conversationId,
+        });
+      });
     }
   }
   signal.addEventListener('abort', close, { once: true });

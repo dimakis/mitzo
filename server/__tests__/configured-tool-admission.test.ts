@@ -228,6 +228,7 @@ it.each(['codex', 'google-vertex'] as const)(
       );
       expect(options.connect).toHaveBeenCalledTimes(discoveries);
       let runtime = await open(false);
+      expect(options.connect).toHaveBeenCalledTimes(discoveries);
       expect(runtime.tools).toHaveLength(2);
       expect(runtime.tools.some((tool: { name: string }) => tool.name === 'AskUserQuestion')).toBe(
         true,
@@ -328,6 +329,14 @@ it.each(['codex', 'google-vertex'] as const)(
       expect(peers['fake-one']).toHaveBeenCalledOnce();
       revoked = false;
       schema = { type: 'object', properties: { changed: { type: 'string' } } };
+      // A cold chat exposes the pinned contract; first invocation must verify
+      // the live schema and deliver a visible error through the real adapter.
+      const changed = await runtime.executeTool(
+        { id: 'live-schema-changed', name: wire, input: {} },
+        options.signal,
+      );
+      expect(changed).toMatchObject({ is_error: true });
+      expect(peers['fake-one']).toHaveBeenCalledOnce();
       await catalog.refresh(options);
       await expect(open(true)).rejects.toThrow(/changed|unavailable/);
       expect(

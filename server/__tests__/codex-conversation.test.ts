@@ -1710,6 +1710,96 @@ it('ends dispatch, acknowledgment and first-output spans and labels the selected
   ).not.toContain('private prompt');
 });
 
+it('distinguishes tool activity, reasoning and assistant text without closing completion early', async () => {
+  const spans = new Map<
+    string,
+    {
+      setAttribute: ReturnType<typeof vi.fn>;
+      setStatus: ReturnType<typeof vi.fn>;
+      end: ReturnType<typeof vi.fn>;
+    }
+  >();
+  const original = tracer.startSpan.bind(tracer);
+  vi.spyOn(tracer, 'startSpan').mockImplementation((name, options, ctx) => {
+    const span = original(name, options, ctx);
+    const tracked = { setAttribute: vi.fn(), setStatus: vi.fn(), end: vi.fn() };
+    spans.set(name, tracked);
+    return { ...tracked, spanContext: () => span.spanContext() } as unknown as Span;
+  });
+  const f = await setup();
+  await f.c.send({ id: 'session-prompt:timing', prompt: 'private prompt' });
+  expect(spans.has('codex.turn.first_activity')).toBe(true);
+  expect(spans.has('codex.turn.first_text')).toBe(true);
+  f.callbacks.onNotification('item/started', {
+    threadId: 'provider-thread',
+    turnId: 'stale-turn',
+    item: { id: 'old', type: 'commandExecution', command: 'pwd' },
+  });
+  expect(spans.get('codex.turn.first_activity')!.end).not.toHaveBeenCalled();
+  f.callbacks.onNotification('item/started', {
+    threadId: 'provider-thread',
+    turnId: 'turn-1',
+    item: { id: 'cmd', type: 'commandExecution', command: 'pwd' },
+  });
+  expect(spans.get('codex.turn.first_activity')!.end).toHaveBeenCalledOnce();
+  expect(spans.get('codex.turn.first_text')!.end).not.toHaveBeenCalled();
+  f.callbacks.onNotification('item/reasoning/textDelta', {
+    threadId: 'provider-thread',
+    turnId: 'turn-1',
+    itemId: 'reason',
+    delta: 'private reasoning',
+  });
+  expect(spans.get('codex.turn.first_output')!.end).toHaveBeenCalledOnce();
+  expect(spans.get('codex.turn.first_text')!.end).not.toHaveBeenCalled();
+  f.callbacks.onNotification('item/agentMessage/delta', {
+    threadId: 'provider-thread',
+    turnId: 'turn-1',
+    itemId: 'answer',
+    delta: 'hello',
+  });
+  expect(spans.get('codex.turn.first_text')!.end).toHaveBeenCalledOnce();
+  expect(spans.get('codex.turn')!.end).not.toHaveBeenCalled();
+  f.c.close();
+  expect(spans.get('codex.turn.first_activity')!.end).toHaveBeenCalledOnce();
+  expect(spans.get('codex.turn.first_text')!.end).toHaveBeenCalledOnce();
+  expect(JSON.stringify([...spans.values()].map((s) => s.setAttribute.mock.calls))).not.toContain(
+    'private',
+  );
+});
+
+it('records queue gates without changing FIFO dispatch', async () => {
+  const reasons: string[] = [];
+  const original = tracer.startSpan.bind(tracer);
+  vi.spyOn(tracer, 'startSpan').mockImplementation((name, options, ctx) => {
+    const span = original(name, options, ctx);
+    if (name !== 'codex.command.queue_wait') return span;
+    return {
+      ...span,
+      addEvent: vi.fn(),
+      setAttribute: (key: string, value: string) => {
+        if (key === 'mitzo.queue.reason') reasons.push(value);
+        return span;
+      },
+      end: vi.fn(),
+    } as unknown as Span;
+  });
+  const f = await setup();
+  f.conversationOptions.canStartCommand = () => false;
+  f.c.enqueue({ id: 'queued-gates', prompt: 'hello' });
+  await f.c.startQueued();
+  expect(reasons).toContain('deployment');
+  f.conversationOptions.canStartCommand = () => true;
+  f.conversationOptions.canClaimCommand = () => false;
+  await f.c.startQueued();
+  expect(reasons).toContain('admission');
+  f.conversationOptions.canClaimCommand = () => true;
+  await f.c.startQueued();
+  f.c.enqueue({ id: 'second-gates', prompt: 'next' });
+  expect(reasons).toContain('active_turn');
+  expect(f.rpc.request.mock.calls.filter(([method]) => method === 'turn/start')).toHaveLength(1);
+  f.c.close();
+});
+
 it('records matching first output before the turn/start acknowledgment', async () => {
   const firstOutput = { setAttribute: vi.fn(), end: vi.fn() };
   const original = tracer.startSpan.bind(tracer);

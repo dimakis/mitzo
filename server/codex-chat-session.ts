@@ -1,3 +1,4 @@
+import { closeMcpAfterFailure } from './codex-mcp-tools.js';
 import { copyCallbackOutcome, retainCallbackOutcome } from './turn-callbacks.js';
 import { retainedApplicationEffectObserver } from './retained-application-effects.js';
 import { steerNativeAgentMessage } from './agent-message-runtime.js';
@@ -1862,10 +1863,9 @@ async function openCodexChatBound(
         ...(apiTools?.admitted ?? []),
       ]);
   } catch (error) {
-    await mcp.close();
     dispose();
     startupReservation?.();
-    throw error;
+    await closeMcpAfterFailure(mcp, error);
   }
   const localTaskTools = options.ownedLocal
     ? sessionAgentTaskTools(
@@ -2220,7 +2220,13 @@ async function openCodexChatBound(
     else dispose();
     signal.removeEventListener('abort', close);
     events.close();
-    void mcp.close();
+    void mcp.close().catch(() => {
+      log.warn('Session MCP cleanup failed', {
+        code: 'mcp_cleanup_failed',
+        stage: 'session_close',
+        conversationId: options.conversationId,
+      });
+    });
     runtimes.delete(options.session);
     const livePublishingOwner = getLiveCapabilityConversationBinding(
       options.conversationId,
@@ -3407,14 +3413,24 @@ async function openCodexChatBound(
             }),
             isError: true,
           };
-        assertAgentToolSelected(options.session, output.toolName);
-        const owner = options.registry.findBySessionId(options.conversationId);
-        if (!owner || owner.session !== options.session) throw new CodexToolFailure('stale_owner');
-        if (
-          checkSkillPolicy(options.registry, owner.clientId, mcp.displayName(output.toolName)) ===
-          'deny'
-        )
-          throw new CodexToolFailure('permission_denied');
+        const assertRetainedToolAuthorized = () => {
+          signal.throwIfAborted();
+          assertAgentToolSelected(options.session, output.toolName);
+          const owner = options.registry.findBySessionId(options.conversationId);
+          if (!owner || owner.session !== options.session)
+            throw new CodexToolFailure('stale_owner');
+          if (
+            checkSkillPolicy(options.registry, owner.clientId, mcp.displayName(output.toolName)) ===
+            'deny'
+          )
+            throw new CodexToolFailure('permission_denied');
+        };
+        const assertRetainedToolCurrent = () => {
+          callContext.assertCurrentSync?.();
+          assertRetainedToolAuthorized();
+        };
+        assertRetainedToolCurrent();
+        callContext.registerResponseFence?.(assertRetainedToolAuthorized);
         if (options.ownedOpenShell) {
           const original = openShellRetainedReads.get(request.data.outputId);
           if (
@@ -3502,12 +3518,14 @@ async function openCodexChatBound(
           return { content: JSON.stringify(result), isError: false };
         } else {
           if (!mcp.assertToolCurrent) throw new CodexToolFailure('stale_owner');
+          await mcp.ensureToolCurrent?.(output.toolName, signal);
+          assertRetainedToolCurrent();
           mcp.assertToolCurrent(output.toolName);
           if (!mcp.outputScope || mcp.outputScope(output.toolName) !== output.sourceScope)
             throw new CodexToolFailure('stale_owner');
         }
         const result = readToolOutputPage(output.content, request.data);
-        callContext.assertCurrentSync?.();
+        assertRetainedToolCurrent();
         return { content: JSON.stringify(result), isError: false };
       }
       if (integrationDiscovery?.handles(name)) {
