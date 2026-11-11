@@ -1,4 +1,5 @@
 import type { useConversationPromptContext } from '../hooks/useConversationPromptContext';
+import type { useConversationForwarding } from '../hooks/useConversationForwarding';
 import { useMotionPresence } from '../hooks/useMotionPresence';
 import { HomeDialog } from './HomeDialog';
 import { UiIcon } from './UiIcon';
@@ -9,10 +10,12 @@ export function ConversationPromptContext({
   flow,
   names,
   disabled,
+  forwarding,
 }: {
   flow: ReturnType<typeof useConversationPromptContext>;
   names: Readonly<Record<string, string>>;
   disabled: boolean;
+  forwarding?: ReturnType<typeof useConversationForwarding>;
 }) {
   const { ref, present } = useMotionPresence(flow.open, 'fade');
   const reviewed = flow.review;
@@ -241,6 +244,67 @@ export function ConversationPromptContext({
               </>
             )}
             {flow.error && <p role="alert">{flow.error}</p>}
+            {forwarding && (
+              <section
+                className="conversation-joining-context"
+                aria-label="Forward reviewed context"
+              >
+                <strong>Forward context only</strong>
+                <p>
+                  Share the exact reviewed messages and saved versions with the recipients above.
+                  The brief accompanies them. No reply starts; recipients receive this context
+                  before their next requested turn. Your prompt draft stays here.
+                </p>
+                {forwarding.observation?.state === 'confirmed' ? (
+                  <p role="status">
+                    Forward recorded. Delivery remains visible in the conversation.
+                  </p>
+                ) : forwarding.uncertain ? (
+                  <p role="status">
+                    Forwarding is not confirmed. Check the original request before taking another
+                    action.
+                  </p>
+                ) : forwarding.retained ? (
+                  <p role="status">
+                    Inspect the original reviewed context, then confirm this forward.
+                  </p>
+                ) : null}
+                {forwarding.error && <p role="alert">{forwarding.error}</p>}
+                {!forwarding.retained ? (
+                  <button
+                    type="button"
+                    disabled={disabled || forwarding.busy || !forwarding.canPrepare}
+                    onClick={forwarding.prepare}
+                  >
+                    Prepare context forward
+                  </button>
+                ) : (
+                  <>
+                    <button type="button" disabled={forwarding.busy} onClick={forwarding.check}>
+                      Check original forward
+                    </button>
+                    {forwarding.observation?.state !== 'confirmed' && (
+                      <button
+                        type="button"
+                        disabled={disabled || !forwarding.canConfirm}
+                        onClick={forwarding.confirm}
+                      >
+                        Confirm context forward
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      disabled={!forwarding.canClear}
+                      onClick={forwarding.clear}
+                    >
+                      {forwarding.observation?.state === 'confirmed'
+                        ? 'Dismiss forwarding receipt'
+                        : 'Discard preparation'}
+                    </button>
+                  </>
+                )}
+              </section>
+            )}
           </div>
           <footer className="conversation-agents-footer">
             <button type="button" onClick={flow.close}>
