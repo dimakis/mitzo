@@ -3,7 +3,7 @@ import { act, cleanup, renderHook, waitFor } from '@testing-library/react';
 import { afterEach, expect, it, vi } from 'vitest';
 import { useNewChatDraft } from '../useNewChatDraft';
 import { apiFetch } from '../../lib/api-fetch';
-import { createChatDraft, saveChatDraft } from '../../lib/chat-drafts';
+import { createChatDraft, getChatDraft, saveChatDraft } from '../../lib/chat-drafts';
 vi.mock('../../lib/api-fetch', () => ({ apiFetch: vi.fn() }));
 afterEach(() => {
   cleanup();
@@ -59,7 +59,12 @@ it('never replaces a restored draft or an explicit edit while defaults load', as
 it('loads, retries and saves defaults for a restored draft without hydrating its settings', async () => {
   const draft = createChatDraft();
   draft.text = 'Keep this handoff';
-  saveChatDraft(draft);
+  // Persistence refreshes this timestamp; compare against the saved draft below.
+  draft.updatedAt = 0;
+  expect(saveChatDraft(draft)).toBe(true);
+  const savedDraft = getChatDraft(draft.id);
+  expect(savedDraft).toEqual({ ...draft, updatedAt: expect.any(Number) });
+  expect(savedDraft?.updatedAt).toBeGreaterThan(draft.updatedAt);
   vi.mocked(apiFetch).mockRejectedValueOnce(Error('Offline'));
   const { result } = renderHook(() => useNewChatDraft(draft.id, 0, true));
   await waitFor(() => expect(result.current.defaults.error).toBe('Offline'));
@@ -67,11 +72,11 @@ it('loads, retries and saves defaults for a restored draft without hydrating its
   act(() => result.current.defaults.refresh());
   await waitFor(() => expect(result.current.defaults.revision).toBe(2));
   expect(result.current.defaultsHydrating).toBe(false);
-  expect(result.current.draft).toEqual(draft);
+  expect(result.current.draft).toEqual(savedDraft);
   vi.mocked(apiFetch).mockResolvedValueOnce(Response.json({ revision: 3, configuration: null }));
   await act(async () => expect(await result.current.defaults.save(null)).toBe(true));
   expect(result.current.defaults.revision).toBe(3);
-  expect(result.current.draft).toEqual(draft);
+  expect(result.current.draft).toEqual(savedDraft);
   expect(apiFetch).toHaveBeenLastCalledWith(
     '/api/session-launch/defaults',
     expect.objectContaining({

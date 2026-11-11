@@ -27,6 +27,25 @@ describe('isConfigured', () => {
 });
 
 describe('sendPushoverNotification', () => {
+  it.each([1024, 1025])(
+    'bounds a %i-character message without truncating request details',
+    async (length) => {
+      const message = 'x'.repeat(length);
+      await expect(sendPushoverNotification('Title', message)).resolves.toBe(true);
+      const body = JSON.parse(mockFetch.mock.calls[0][1].body);
+      expect(body.message).toBe(
+        length === 1024 ? message : 'Open Mitzo to review this notification.',
+      );
+    },
+  );
+
+  it.each([250, 251])('bounds a %i-character title', async (length) => {
+    const title = 'x'.repeat(length);
+    await sendPushoverNotification(title, 'Message');
+    const body = JSON.parse(mockFetch.mock.calls[0][1].body);
+    expect(body.title).toBe(length === 250 ? title : 'Mitzo');
+  });
+
   it('posts to Pushover API with correct payload', async () => {
     await sendPushoverNotification('Test title', 'Test message');
 

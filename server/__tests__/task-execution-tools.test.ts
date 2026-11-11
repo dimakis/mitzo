@@ -170,6 +170,70 @@ function fixture(auth = { id: 'operator', expiresAt: Date.now() + 600_000 }) {
   }
   return { root, store, registry, sent, tools, call, signal, request, authorize, auth };
 }
+
+it('reuses one task grant for different CI job logs and literal filters', async () => {
+  const f = fixture();
+  const grant = await f.authorize();
+  f.sent.length = 0;
+  for (const job of [123, 456]) {
+    const result = await f.tools('worker').execute(
+      {
+        operation: 'github_read',
+        grantId: grant.id,
+        requestId: randomUUID(),
+        endpoint: `/repos/owner/repo/actions/jobs/${job}/logs`,
+        log: { query: 'FAIL', offset: 0 },
+      },
+      f.signal,
+      f.call,
+    );
+    expect(result.isError, result.content).toBe(false);
+  }
+  expect(f.sent.filter((event) => event.type === 'permission_request')).toHaveLength(0);
+  expect(execution.calls).toHaveLength(2);
+  expect(execution.calls[1].block).toMatchObject({
+    name: 'GitHubRead',
+    input: { log: { query: 'FAIL', offset: 0 } },
+  });
+  const outside = await f.tools('worker').execute(
+    {
+      operation: 'github_read',
+      grantId: grant.id,
+      requestId: randomUUID(),
+      endpoint: '/repos/other/repo/actions/jobs/456/logs',
+      log: {},
+    },
+    f.signal,
+    f.call,
+  );
+  expect(outside.isError).toBe(true);
+  expect(execution.calls).toHaveLength(2);
+});
+
+it.each(['', 'mcp__mitzo-connections__'])(
+  'returns current bounded execution routing for %s tools and removes it after revocation',
+  async (prefix) => {
+    const f = fixture();
+    const grant = await f.authorize();
+    const read = async () =>
+      JSON.parse(
+        (await f.tools('worker', prefix).execute({ operation: 'status' }, f.signal)).content,
+      );
+    const current = await read();
+    expect(current.executionRoute).toEqual({
+      tool: prefix + 'TaskExecution',
+      grantIds: [grant.id],
+      operations: ['run', 'github_read', 'commit'],
+      executionLocation: 'host',
+      nativeToolsCovered: false,
+    });
+    f.registry.findBySessionId('worker')!.session.mode = 'ask';
+    expect((await read()).executionRoute).toBeNull();
+    f.registry.findBySessionId('worker')!.session.mode = 'agent';
+    f.store.revoke(grant.id, f.auth.id, 'parent');
+    expect(await read()).toMatchObject({ grants: [], executionRoute: null });
+  },
+);
 it.each(['settled', 'unknown'] as const)(
   'preserves a returned %s failure through task projection and identical retry',
   async (outcome) => {
