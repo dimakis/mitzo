@@ -37,7 +37,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/components/__tests__/approval-action-helper.ts':
     'ad127d7aab167abf5edfa6e9b57c79b06c48090ea2aa1f662273a5c05f339e8e',
   '../../frontend/src/styles/operation-card.css':
-    '67b254d88755c24d8c68105af152d67dd15e3c7b93a6e10185d18bc73765cfbd',
+    '078dce34e7ae3208b08a3877a4856390a6bac57e0d0ed1d22ba65fc01d59a27f',
   '../../tests/fixtures/shared-tool-operations.tsx':
     'b730f103548cedf1e560efa1b304bf9f319c7c603641864e2a68ef92637783b1',
   '../../tests/offline/shared-tool-operations.spec.ts':

@@ -118,12 +118,14 @@ for (const theme of ['dark', 'light'] as const) {
               top: node.scrollTop,
               inputBottom: input.getBoundingClientRect().bottom,
               infoBottom: node.getBoundingClientRect().bottom,
+              cardBottom: node.closest('.operation-card')!.getBoundingClientRect().bottom,
               inputText: input.textContent,
             };
           });
           expect(scroll.top).toBeGreaterThan(0);
           expect(scroll.inputText).toContain('END OF REVIEWED REQUEST');
           expect(scroll.inputBottom).toBeLessThanOrEqual(scroll.infoBottom + 1);
+          expect(scroll.inputBottom).toBeLessThanOrEqual(scroll.cardBottom + 1);
           await expect(approve).toBeInViewport({ ratio: 1 });
           await page.screenshot({
             path: info.outputPath('once-only-banner-scrolled.png'),
@@ -184,6 +186,17 @@ for (const theme of ['dark', 'light'] as const) {
             : [['once', answers]],
         );
     }
+    await page.goto('/?view=notification&kind=unavailable');
+    const review = page.getByRole('link', { name: 'Review', exact: true });
+    await expect(review).toBeInViewport({ ratio: 1 });
+    await expect(review).toHaveAttribute('href', '/chat/component-session');
+    expect(
+      await review.evaluate((el) => ({
+        margin: getComputedStyle(el).margin,
+        display: getComputedStyle(el).display,
+      })),
+    ).toEqual({ margin: '0px', display: 'inline-flex' });
+    expect((await review.boundingBox())!.height).toBeGreaterThanOrEqual(44);
     await page.goto('/?view=banner&kind=source&allow=true');
     await expect(page.getByRole('heading', { name: 'Save to Telos', exact: true })).toBeVisible();
     await expect(page.getByRole('alert')).toBeVisible();

@@ -1020,7 +1020,7 @@
             },
             {
               "path": "tests/offline/permission-once-only.spec.ts",
-              "sha256": "2a4793d3b2ee37dd71d6cf3f6841ade1aa52dc4332cc5141b97b294f62b88ee5"
+              "sha256": "b2101d253e973463149e2fc95ba897bf30d8076a2747df17c920730d8ed5c44b"
             }
           ],
           "validation": "docs/design/approved/tool-operations/VALIDATION.md"
