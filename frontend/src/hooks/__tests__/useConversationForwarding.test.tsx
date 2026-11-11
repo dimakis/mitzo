@@ -194,6 +194,80 @@ it('requires inspection again after remount before confirming a recovered prepar
   await waitFor(() => expect(recovered.result.current.observation?.state).toBe('prepared'));
   expect(recovered.result.current.canConfirm).toBe(false);
   expect(f.confirm).not.toHaveBeenCalled();
+  const inspect = vi
+    .spyOn(f.api.collaborations, 'reviewPrompt')
+    .mockResolvedValue(f.options.review);
+  const original = drafts.getChatDraft(f.draft.id)!.collaborationForward!;
+  act(() => recovered.result.current.inspect());
+  await waitFor(() => expect(recovered.result.current.canConfirm).toBe(true));
+  expect(inspect.mock.calls[0][2]).toEqual(original.reviewInput);
+  act(() => recovered.result.current.confirm());
+  await waitFor(() => expect(recovered.result.current.observation?.state).toBe('confirmed'));
+  expect(f.confirm.mock.calls[0][2]).toEqual(original.confirmation);
+  expect(f.prepare).toHaveBeenCalledTimes(1);
+  expect(f.send).not.toHaveBeenCalled();
+});
+
+it('retains the original confirmation identity after pre-commit response loss and newer context edits', async () => {
+  const f = fixture();
+  const h = f.mount();
+  await f.ready(h);
+  f.confirm.mockRejectedValueOnce(Error('Connection lost before acceptance'));
+  act(() => h.result.current.confirm());
+  await waitFor(() => expect(h.result.current.error).toContain('Connection lost'));
+  const saved = drafts.getChatDraft(f.draft.id)!;
+  const newerContext = {
+    collaborationId: f.options.view.collaborationId,
+    authScope: 'login',
+    form: { mode: 'selected' as const, purpose: 'A newer purpose', brief: '', messageIds: [] },
+    attached: false,
+  };
+  drafts.saveChatDraft({ ...saved, collaborationContext: newerContext });
+  h.unmount();
+  const recovered = renderHook(() =>
+    useConversationForwarding({ ...f.options, review: undefined, reviewCurrent: false }),
+  );
+  vi.spyOn(f.api.collaborations, 'reviewPrompt').mockResolvedValue(f.options.review);
+  act(() => recovered.result.current.check());
+  await waitFor(() => expect(recovered.result.current.observation?.state).toBe('prepared'));
+  expect(recovered.result.current.canClear).toBe(false);
+  act(() => recovered.result.current.inspect());
+  await waitFor(() => expect(recovered.result.current.canConfirm).toBe(true));
+  act(() => recovered.result.current.confirm());
+  await waitFor(() => expect(recovered.result.current.observation?.state).toBe('confirmed'));
+  expect(f.confirm.mock.calls[1][2]).toEqual(f.confirm.mock.calls[0][2]);
+  expect(drafts.getChatDraft(f.draft.id)?.collaborationContext).toEqual(newerContext);
+  expect(drafts.getChatDraft(f.draft.id)?.text).toBe(saved.text);
+  expect(f.prepare).toHaveBeenCalledTimes(1);
+  expect(f.send).not.toHaveBeenCalled();
+});
+
+it('rejects original reinspection with changed selectors or stale policy', async () => {
+  const f = fixture();
+  const h = f.mount();
+  await f.ready(h);
+  h.rerender({ ...f.options, reviewCurrent: false });
+  const inspect = vi.spyOn(f.api.collaborations, 'reviewPrompt').mockResolvedValue({
+    ...f.options.review,
+    recipientSessionIds: ['architect'],
+  });
+  act(() => h.result.current.inspect());
+  await waitFor(() => expect(h.result.current.error).toContain('does not match'));
+  expect(h.result.current.canConfirm).toBe(false);
+  inspect.mockResolvedValue({ ...f.options.review, requiresReview: true });
+  act(() => h.result.current.inspect());
+  await waitFor(() => expect(h.result.current.busy).toBe(false));
+  expect(h.result.current.canConfirm).toBe(false);
+  inspect.mockResolvedValue(f.options.review);
+  act(() => h.result.current.inspect());
+  await waitFor(() => expect(h.result.current.canConfirm).toBe(true));
+  h.rerender({
+    ...f.options,
+    reviewCurrent: false,
+    view: { ...f.options.view, policySequence: f.options.view.policySequence + 1 },
+  });
+  expect(h.result.current.canConfirm).toBe(false);
+  expect(f.confirm).not.toHaveBeenCalled();
 });
 
 it('rejects changed recipients, exact source bytes and membership before confirmation', async () => {

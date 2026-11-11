@@ -16,6 +16,17 @@ recipients and membership; the existing server renews authority and settings.
 Clearing accepted composer text and collection discard preserve the recovery
 receipt until the forwarding surface explicitly dismisses it.
 
+A retained forward has its own explicit original-context inspection. Its saved
+selectors recover the exact messages, artifact versions, note and recipients
+without replacing newer prompt-context edits. The preview stays in memory.
+Reinspection rejects different selectors and stale policy; a lost confirmation
+can resume with the same confirmation identity after the server reports prepared.
+Nine focused hook and production-UI tests cover this recovery, including both
+response loss before acceptance and loss after durable acceptance. The final
+focused recovery, context, frozen-artifact and design run passed 137 tests with
+one existing design skip. All 20 offline composer cases list successfully;
+listing is not browser execution or visual acceptance.
+
 The real application journey covers the production React surface, authenticated
 application owner, exact Unicode/whitespace artifact bytes, response loss after
 durable confirmation, remount/read recovery, no duplicate forward and a later

@@ -59,6 +59,7 @@ export const ChatDraftSchema = z.object({
       collaborationId: SessionCollaborationIdSchema,
       authScope: z.string().min(1),
       input: CollaborationForwardPrepareInputSchema,
+      reviewInput: CollaborationPromptReviewInputSchema.optional(),
       confirmation: CollaborationForwardConfirmInputSchema.optional(),
       confirmationAttempted: z.boolean(),
     })

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import type { MitzoApiClient } from '@mitzo/client';
 import {
   CollaborationForwardPrepareInputSchema,
+  CollaborationPromptReviewInputSchema,
   type CollaborationForwardRead,
   type CollaborationPromptReviewResult,
   type CollaborationView,
@@ -40,6 +41,7 @@ export function useConversationForwarding(options: {
     owner: object;
     journal?: Journal;
     observation?: CollaborationForwardRead;
+    originalReview?: CollaborationPromptReviewResult;
     busy?: boolean;
     error?: string;
   }>({ owner });
@@ -88,7 +90,7 @@ export function useConversationForwarding(options: {
   }, [owner, authScope, draftId, getVerifiedAuthScope]);
   const visible = state.owner === owner && valid() ? state : { owner };
   const journal = visible.journal;
-  const scoped = journal?.authScope === authScope && journal?.collaborationId === group;
+  const scoped = !!journal && journal.authScope === authScope && journal.collaborationId === group;
   const persist = (next?: Journal) => {
     const draft = draftId ? getChatDraft(draftId) : undefined;
     if (!valid() || !draft || !saveChatDraft({ ...draft, collaborationForward: next }))
@@ -191,6 +193,25 @@ export function useConversationForwarding(options: {
         collaborationId: group,
         authScope,
         input,
+        reviewInput: CollaborationPromptReviewInputSchema.parse({
+          selection: {
+            requestId: createBrowserId(),
+            sourceConversationId: snapshot.sourceConversationId,
+            boundary: snapshot.boundary,
+            expectedMembershipRevision: review.expectedMembershipRevision,
+            mode: 'selected',
+            messageIds: snapshot.messages.map((message) => message.messageId),
+            artifacts: snapshot.artifacts.map(({ artifactId, revision, sha256 }) => ({
+              artifactId,
+              revision,
+              sha256,
+            })),
+            purpose: snapshot.purpose,
+            joiningBrief: snapshot.joiningBrief,
+          },
+          recipientSessionIds: review.recipientSessionIds,
+          expectedPolicySequence: review.expectedPolicySequence,
+        }),
         confirmationAttempted: false,
       };
       persist(record);
@@ -215,32 +236,61 @@ export function useConversationForwarding(options: {
       observe(journal, result);
       if (result.state === 'confirmed') await refresh();
     });
+  const matchesOriginal = (candidate: CollaborationPromptReviewResult | undefined) => {
+    const review = candidate;
+    return (
+      !!review &&
+      scoped &&
+      review.expectedMembershipRevision ===
+        journal.input.selection.target.expectedMembershipRevision &&
+      JSON.stringify(review.recipientSessionIds) ===
+        JSON.stringify(journal.input.selection.target.sessionIds) &&
+      review.snapshot.sourceConversationId === journal.input.selection.sourceConversationId &&
+      JSON.stringify(review.snapshot.boundary) ===
+        JSON.stringify(journal.input.selection.boundary) &&
+      JSON.stringify(
+        review.snapshot.messages.map(({ messageId, sequence, blocks }) => ({
+          messageId,
+          sequence,
+          blocks: blocks.map(({ blockId, sha256 }) => ({ blockId, sha256 })),
+        })),
+      ) === JSON.stringify(journal.input.selection.messages) &&
+      JSON.stringify(
+        review.snapshot.artifacts.map(({ artifactId, revision, sha256 }) => ({
+          artifactId,
+          revision,
+          sha256,
+          kind: 'transcript_reference',
+        })),
+      ) === JSON.stringify(journal.input.selection.artifacts) &&
+      (review.snapshot.joiningBrief || review.snapshot.purpose) === journal.input.note
+    );
+  };
+  const inspect = () =>
+    perform(async (signal, fresh) => {
+      if (!group || !clientId || !scoped || !journal?.reviewInput)
+        throw Error(
+          'The original review is unavailable. Inspect the exact source selection again.',
+        );
+      publish({ originalReview: undefined });
+      const result = await api.collaborations.reviewPrompt(
+        group,
+        clientId,
+        journal.reviewInput,
+        signal,
+      );
+      if (!fresh()) return;
+      if (!matchesOriginal(result))
+        throw Error('The inspected context does not match the original forward.');
+      publish({ originalReview: result });
+    });
+  const originalReviewCurrent =
+    matchesOriginal(visible.originalReview) &&
+    !visible.originalReview?.requiresReview &&
+    visible.originalReview?.expectedPolicySequence === view?.policySequence &&
+    ['ready', 'unverified'].includes(visible.originalReview?.snapshot.capacity.status ?? '');
   const reviewedSelectionCurrent =
-    !!review &&
-    options.reviewCurrent &&
-    scoped &&
-    review.expectedMembershipRevision ===
-      journal.input.selection.target.expectedMembershipRevision &&
-    JSON.stringify(review.recipientSessionIds) ===
-      JSON.stringify(journal.input.selection.target.sessionIds) &&
-    review.snapshot.sourceConversationId === journal.input.selection.sourceConversationId &&
-    JSON.stringify(review.snapshot.boundary) === JSON.stringify(journal.input.selection.boundary) &&
-    JSON.stringify(
-      review.snapshot.messages.map(({ messageId, sequence, blocks }) => ({
-        messageId,
-        sequence,
-        blocks: blocks.map(({ blockId, sha256 }) => ({ blockId, sha256 })),
-      })),
-    ) === JSON.stringify(journal.input.selection.messages) &&
-    JSON.stringify(
-      review.snapshot.artifacts.map(({ artifactId, revision, sha256 }) => ({
-        artifactId,
-        revision,
-        sha256,
-        kind: 'transcript_reference',
-      })),
-    ) === JSON.stringify(journal.input.selection.artifacts) &&
-    (review.snapshot.joiningBrief || review.snapshot.purpose) === journal.input.note;
+    (options.reviewCurrent && matchesOriginal(review)) || originalReviewCurrent;
   const canConfirm =
     !!journal?.confirmation &&
     reviewedSelectionCurrent &&
@@ -274,7 +324,7 @@ export function useConversationForwarding(options: {
       return;
     try {
       persist();
-      publish({ observation: undefined, error: undefined });
+      publish({ observation: undefined, originalReview: undefined, error: undefined });
     } catch (cause) {
       publish({
         error: cause instanceof Error ? cause.message : 'Could not clear the forwarding receipt.',
@@ -285,6 +335,9 @@ export function useConversationForwarding(options: {
     busy: !!visible.busy,
     retained: !!journal,
     observation: visible.observation,
+    originalReview: visible.originalReview,
+    originalRecipients: scoped ? journal.input.selection.target.sessionIds : [],
+    canInspect: valid() && scoped && !!journal?.reviewInput && !visible.busy,
     error: visible.error,
     uncertain: !!journal?.confirmationAttempted && visible.observation?.state !== 'confirmed',
     canPrepare:
@@ -302,6 +355,7 @@ export function useConversationForwarding(options: {
     prepare,
     confirm,
     check,
+    inspect,
     clear,
   };
 }
