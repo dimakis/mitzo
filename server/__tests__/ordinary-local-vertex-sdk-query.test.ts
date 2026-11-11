@@ -112,9 +112,11 @@ it.each(['hook', 'permission', 'tool'] as const)(
       settings: () => ({}),
       inputChanged: () => {},
       mcpServers: (state) => {
+        // The fixture never refuses input, but keeps the required reporter.
         tool = state.runCallback;
         return {};
       },
+      onUnsent: vi.fn(),
     });
     const callback =
       kind === 'tool'
@@ -183,6 +185,7 @@ it.each(['hook', 'tool'] as const)(
         tool = state.runCallback;
         return {};
       },
+      onUnsent: vi.fn(),
     });
     const callback =
       kind === 'tool'
@@ -231,6 +234,7 @@ it('retires old native hooks and permissions without executing or aborting the s
     adapt: (q) => q as never,
     settings: (selection) => ({ model: selection.model, effort: selection.thinking as never }),
     inputChanged: () => {},
+    onUnsent: vi.fn(),
   });
   expect(requests[0].options.extraArgs).toEqual({
     'offline-existing-flag': null,
@@ -310,6 +314,7 @@ it('refuses old native approval completions after retirement even when the SDK r
     adapt: (q) => q as never,
     settings: (selection) => ({ model: selection.model }),
     inputChanged: () => {},
+    onUnsent: vi.fn(),
   });
   await owner.apply({ model: 'first' } as never);
   const sharedSignal = new AbortController().signal;
@@ -359,6 +364,7 @@ it('does not replace a native query until its exact spawned process closes and f
     adapt: (q) => q as never,
     settings: (selection) => ({ model: selection.model }),
     inputChanged: () => {},
+    onUnsent: vi.fn(),
   });
   await owner.apply({ model: 'first' } as never);
   const replacement = owner.apply({ model: 'second' } as never);
@@ -400,6 +406,7 @@ it('preserves segmented SDK system prompts when appending local CLI guidance', (
     adapt: (q) => q as never,
     settings: (selection) => ({ model: selection.model }),
     inputChanged: () => {},
+    onUnsent: vi.fn(),
   });
   expect(requests[0].options.systemPrompt).toEqual([
     'Original profile.',
