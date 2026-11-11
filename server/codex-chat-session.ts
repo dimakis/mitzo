@@ -1,6 +1,6 @@
 import { copyCallbackOutcome, retainCallbackOutcome } from './turn-callbacks.js';
 import { retainedApplicationEffectObserver } from './retained-application-effects.js';
-import { agentMessagePrompt } from '@mitzo/protocol';
+import { steerNativeAgentMessage } from './agent-message-runtime.js';
 import { agentContextRuntimeError } from './agent-context-authority.js';
 import {
   RepositoryMaterializationSchema,
@@ -1908,21 +1908,9 @@ async function openCodexChatBound(
           if (!runtime) throw Error('Recipient native queue unavailable');
           await runtime.startQueued();
         },
-        steer: async (session, message, assertCurrent) => {
-          const runtime = runtimes.get(session);
-          if (!runtime) throw Error('Recipient native queue unavailable');
-          const target = runtime.captureInterruptTarget();
-          if (!target) return 'inactive';
-          const result = await runtime.steer(
-            {
-              requestId: message.commandId,
-              targetCommandId: target.commandId,
-              text: agentMessagePrompt(message),
-            },
-            assertCurrent,
-          );
-          return result.status === 'stale_target' ? 'inactive' : result.status;
-        },
+        steer: (session, message, assertCurrent) =>
+          steerNativeAgentMessage(runtimes.get(session), message, assertCurrent),
+        nativeState: (session) => runtimes.get(session)?.peerMessageState() ?? 'unavailable',
       })
     : undefined;
   const launchTools = options.ownedLocal

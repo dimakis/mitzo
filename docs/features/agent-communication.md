@@ -52,12 +52,37 @@ case. Actual policy checks remain authoritative; this feature cannot bypass a
 genuine policy failure. Operational identifiers and private message text are
 intentionally excluded from this portable feature record.
 
-Local validation exercised real native admission/permission/FIFO/steering owners
-with synthetic provider RPCs, durable transcript/live/replay and upgrade
-regressions, and component/design checks. Intercepted phone/desktop browser
-fixtures are included, but rendering requires CI: the local Playwright host
-guard refused this sandbox. The full application regression also requires CI;
-its ordinary-workspace setup hit the host's denied private-path boundary before
-message dispatch. Shared package type checks passed; full server/frontend
-compilers exceeded the prescribed 1 GiB local heap. No live model or production
-mutation was used. These gaps remain validation requirements before acceptance.
+The supported ordinary-chat matrix is:
+
+| Sender                 | Recipient              | Busy delivery                       |
+| ---------------------- | ---------------------- | ----------------------------------- |
+| Owned Local Codex      | Owned Local Codex      | Existing native `turn/steer`        |
+| Owned Local Codex      | Owned Local Claude SDK | Existing SDK query, `priority: now` |
+| Owned Local Claude SDK | Owned Local Codex      | Same guarded native `turn/steer`    |
+| Owned Local Claude SDK | Owned Local Claude SDK | Same guarded SDK query              |
+
+Claude exposes `mcp__mitzo-connections__AgentCommunication` in its existing
+in-process MCP server. Explicit `claude-sdk` profiles may select this catalog
+tool; other tools require their own qualified routes. Restricted skills use the
+exposed SDK name consistently through the tool and approval boundaries. This
+does not qualify private Symposium contributors. An ordinary chat implementing
+Symposium is eligible only through the same verified ordinary runtime owner.
+
+Offline validation exercises all four shared routing combinations, the real MCP
+sender protocol with explicit profile and restricted skill, actual native
+admission/permission/steering owners, and the full Claude application query and
+command-owner path with synthetic providers. The application regression covers
+Vertex and personal-Claude configurations, a busy correction ACK leaving the
+original command running, and successor query recreation after its result.
+Idle admission rechecks the sender through asynchronous preparation and stdin;
+its ACK must match the assigned input UUID and actual submitted text. Wrong,
+foreign and replayed ACKs cannot claim delivery or contaminate result correlation.
+SQLite reopen cannot reconstruct a lost live sender permission. A native turn
+becoming stale never falls back to a queued command.
+
+These composed offline checks do not establish live provider timing or that a
+model applied an instruction. `queued` means ordinary admission; `delivered`
+means provider acknowledgement. Applied behavior requires separate evidence.
+Live model calls, deployment, private contributor runtime support and production
+adoption remain separate qualifications. Browser rendering and broad combined
+build/type checks remain required CI gates.

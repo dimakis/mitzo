@@ -178,6 +178,8 @@ export const agentCommunicationDefinitions = [
 ];
 
 interface Owners {
+  /** Installed wire name, never selected by tool input. */
+  toolName?: 'AgentCommunication' | 'mcp__mitzo-connections__AgentCommunication';
   events: EventStore;
   native?: CodexConversationStore;
   registry: SessionRegistry;
@@ -197,6 +199,7 @@ interface Owners {
   /** The installed native owner starts its existing queue; never acknowledges
    * recovery or turns a Stop into an implicit resume. */
   startQueued(session: ManagedSession): Promise<void>;
+  nativeState?(session: ManagedSession): 'busy' | 'idle' | 'stopped' | 'preparing' | 'unavailable';
   steer?(
     session: ManagedSession,
     message: AgentMessage,
@@ -254,8 +257,12 @@ export function sessionAgentCommunicationTools(owners: Owners) {
           now.session.ordinaryRuntimeOwner !== sourceOwner ||
           sessionToolOperatorConnection(now.session, now.clientId) !== connectionId ||
           sourceOwner?.authSessionId !== captured.auth.id ||
-          !agentToolAllowed(owners.session, AGENT_COMMUNICATION_TOOL) ||
-          checkSkillPolicy(owners.registry, source.clientId, AGENT_COMMUNICATION_TOOL) === 'deny' ||
+          !agentToolAllowed(owners.session, owners.toolName ?? AGENT_COMMUNICATION_TOOL) ||
+          checkSkillPolicy(
+            owners.registry,
+            source.clientId,
+            owners.toolName ?? AGENT_COMMUNICATION_TOOL,
+          ) === 'deny' ||
           owners.registry.isClosingOut(source.clientId) ||
           owners.registry.isUserClose(source.clientId)
         )
@@ -315,7 +322,13 @@ export function sessionAgentCommunicationTools(owners: Owners) {
             adapter?.enqueue || (native && target?.session.ordinaryRuntimeOwner?.admitAgentMessage)
               ? 'queue'
               : 'unsupported',
-          state: adapter?.state() ?? (target ? 'unknown' : 'unavailable'),
+          state:
+            adapter?.state() ??
+            (native && target
+              ? (owners.nativeState?.(target.session) ?? 'unknown')
+              : target
+                ? 'unknown'
+                : 'unavailable'),
           reason:
             adapter ||
             (native && (owners.steer || target?.session.ordinaryRuntimeOwner?.admitAgentMessage))
@@ -624,7 +637,6 @@ export function sessionAgentCommunicationTools(owners: Owners) {
             return reconcile(message);
           }
           const steering = await owners.steer?.(target.session, message, assertAdmissionCurrent);
-          assertAdmissionCurrent();
           if (steering && steering !== 'inactive') {
             if (steering === 'rejected')
               owners.events.agentCommunication.recordForHost(
@@ -632,8 +644,10 @@ export function sessionAgentCommunicationTools(owners: Owners) {
                 'failed',
                 'steering_rejected',
               );
+            assertAdmissionCurrent();
             return reconcile(message);
           }
+          assertAdmissionCurrent();
           if (!driver.admitAgentMessage)
             throw new AgentCommunicationError(
               'runtime_unsupported',

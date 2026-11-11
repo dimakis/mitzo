@@ -8,6 +8,12 @@ import { setAuthRevocationStore } from '../auth.js';
 import { sessionAgentCommunicationTools } from '../agent-communication-tools.js';
 import type { CodexConversationStore } from '../codex-conversation-store.js';
 import { registerAgentMessageRuntime, type AgentMessageRuntime } from '../agent-message-runtime.js';
+import { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
+import { createCredentialSdkServer, credentialSdkPermission } from '../credential-sdk-tools.js';
+import { assertAgentToolRoute, bindAgentToolSelection } from '../agent-tool-selection.js';
+import { SdkAgentMessageRuntime } from '../sdk-agent-message-runtime.js';
+import type { SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
 
 const cleanups: Array<() => void> = [];
 const revocations = new EventStore(':memory:');
@@ -86,6 +92,10 @@ function fixture(sourceRuntime: 'codex' | 'claude-sdk' = 'codex') {
     updatedInput: input,
   }));
   const tools = sessionAgentCommunicationTools({
+    toolName:
+      sourceRuntime === 'claude-sdk'
+        ? 'mcp__mitzo-connections__AgentCommunication'
+        : 'AgentCommunication',
     events,
     native,
     registry,
@@ -124,6 +134,7 @@ function fixture(sourceRuntime: 'codex' | 'claude-sdk' = 'codex') {
     auth,
     approve,
     execute,
+    tools,
     install,
     installClaude: (state: 'busy' | 'idle' | 'stopped' = 'busy') =>
       install('claude-worker', 'claude-sdk', state),
@@ -143,6 +154,134 @@ it('shows an owned live Claude worker with an explicit delivery capability inste
   });
   expect(f.approve).not.toHaveBeenCalled();
 });
+
+it.each(['claude-worker', 'codex-worker'] as const)(
+  'routes an explicit SDK profile and restricted skill through the registered MCP handler to %s',
+  async (recipient) => {
+    const f = fixture('claude-sdk');
+    const source = f.registry.get('operator:orchestrator')!;
+    const name = 'mcp__mitzo-connections__AgentCommunication';
+    const definition = {
+      name: 'Steering owner',
+      role: 'agent',
+      instructions: 'Coordinate owned peers.',
+      expectedOutput: 'Receipts',
+      acceptanceCriteria: ['Exact authority'],
+      modelPolicyRole: 'agent',
+      tools: [{ id: 'mitzo:AgentCommunication', version: 1 }],
+    } as const;
+    expect(() => assertAgentToolRoute(definition as never, 'claude-sdk')).not.toThrow();
+    bindAgentToolSelection(source, definition as never, 'claude-sdk');
+    source.activeSkillPolicy = new Set([name]);
+    source.sessionAllowList.add(`agent-communication:adapters-v1:${f.auth.id}:orchestrator`);
+    f.approve.mockImplementation(
+      createAgentMessageApprover({
+        events: f.events,
+        registry: f.registry,
+        conversationId: 'orchestrator',
+        toolName: name,
+        assertCurrent() {},
+      }),
+    );
+    let sdkInput: SDKUserMessage | undefined;
+    const recipientSession = f.registry.get(`operator:${recipient}`)!;
+    const sdkAdapter =
+      recipient === 'claude-worker'
+        ? new SdkAgentMessageRuntime({
+            events: f.events,
+            session: recipientSession,
+            identity: recipientSession.ordinaryRuntimeOwner!.identity,
+            operatorAuthSessionId: f.auth.id,
+            assertCurrent() {},
+            activeCommandId: () => 'original-recipient-command',
+            stopped: () => false,
+            push: (input) => {
+              sdkInput = input;
+            },
+            enqueue: async () => {
+              throw Error('Busy SDK steering cannot queue');
+            },
+          })
+        : undefined;
+    const target = sdkAdapter
+      ? { steer: vi.spyOn(sdkAdapter, 'steer') }
+      : f.install(recipient, 'codex');
+    if (sdkAdapter) cleanups.push(registerAgentMessageRuntime(recipientSession, sdkAdapter));
+    const server = createCredentialSdkServer(() => 'orchestrator', source, f.registry, {
+      profilesOnly: true,
+      assertCurrent: async () => {},
+      assertCurrentSync() {},
+      agentCommunication: () => f.tools,
+    });
+    const client = new Client({ name: 'ordinary-sdk-peer-test', version: '1' });
+    const [a, b] = InMemoryTransport.createLinkedPair();
+    await server.instance.connect(a);
+    await client.connect(b);
+    try {
+      expect((await client.listTools()).tools.map((tool) => tool.name)).toEqual([
+        'AgentCommunication',
+      ]);
+      expect(
+        credentialSdkPermission(
+          name,
+          { operation: 'list' },
+          'operator:orchestrator',
+          f.registry,
+          source,
+        ),
+      ).toMatchObject({ behavior: 'allow' });
+      const listed = await client.callTool({
+        name: 'AgentCommunication',
+        arguments: { operation: 'list', offset: 0 },
+      });
+      expect(listed.isError).not.toBe(true);
+      const result = await client.callTool({
+        name: 'AgentCommunication',
+        arguments: {
+          operation: 'send',
+          requestId: randomUUID(),
+          recipientConversationId: recipient,
+          text: 'Retain your original command.',
+        },
+      });
+      expect(result.isError).not.toBe(true);
+      expect(target.steer).toHaveBeenCalledOnce();
+      if (sdkAdapter) {
+        const receipt = JSON.parse((result.content as Array<{ text: string }>)[0].text);
+        expect(receipt.status).toBe('uncertain');
+        expect(sdkInput).toMatchObject({ priority: 'now', uuid: receipt.messageId });
+        expect(sdkAdapter.beforeInput(sdkInput!)).toBe(true);
+        expect(
+          sdkAdapter.observe({ type: 'user', uuid: sdkInput!.uuid, message: sdkInput!.message }),
+        ).toBe(true);
+        expect(f.events.agentCommunication.read('orchestrator', receipt.messageId).status).toBe(
+          'delivered',
+        );
+      }
+      source.activeSkillPolicy = new Set(['AgentCommunication']);
+      expect(
+        credentialSdkPermission(
+          name,
+          { operation: 'list' },
+          'operator:orchestrator',
+          f.registry,
+          source,
+        ),
+      ).toMatchObject({ behavior: 'deny' });
+      expect(
+        (
+          await client.callTool({
+            name: 'AgentCommunication',
+            arguments: { operation: 'list', offset: 0 },
+          })
+        ).isError,
+      ).toBe(true);
+    } finally {
+      await client.close();
+      await server.instance.close();
+    }
+  },
+);
 
 it('refuses an unsupported runtime explicitly before approval without queueing or a false receipt', async () => {
   const f = fixture();

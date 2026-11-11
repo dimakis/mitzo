@@ -277,6 +277,13 @@ export function createSessionPromptPort(
         turnLifecycles.set(prompt.commandId, prompt.turnLifecycle);
       }
       await dispatcher.dispatchOwnedOrdinaryCommand({
+        // Admission changes the latest receipt from consumed to reserved. The
+        // owned dispatcher fences the recipient while this guard keeps the
+        // originating sender and cancellation authority live across its awaits.
+        assertCurrent: () => {
+          signal.throwIfAborted();
+          assertCurrent();
+        },
         transport,
         clientId: live?.clientId ?? `session-prompt:${randomUUID()}:${meta.sessionId}`,
         sessionId: meta.sessionId,

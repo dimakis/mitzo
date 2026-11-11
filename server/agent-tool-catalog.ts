@@ -73,44 +73,45 @@ export function agentToolCatalog(): AgentToolCatalogEntry[] {
       required: tool.name === 'AskUserQuestion',
       behavior: builtinToolBehavior(tool.name),
       routes:
-        source === 'Session automation'
-          ? ['local-api', 'codex', 'codex-owned-local']
-          : source === 'Google Workspace' ||
-              source === 'Agent communication' ||
-              source === 'Session creation' ||
-              source === 'History' ||
-              source === 'Local repositories'
-            ? ['codex-owned-local']
-            : source === 'Telos'
-              ? [
-                  githubMainPublicationTool.name,
-                  'TelosStartSlice',
-                  'TelosWorkControl',
-                  'TelosCreateOutcome',
-                  'TelosAdoptSource',
-                  'TelosSaveArtifact',
-                  'TelosReadArtifact',
-                  'TelosGetItem',
-                  'TelosUpdateItem',
-                  ...telosBacklogDefinitions.map((tool) => tool.name),
-                ].includes(tool.name)
-                ? ['codex-owned-local']
-                : []
-              : source === 'Agent Library' || source === 'Knowledge'
-                ? ['local-api', 'codex-owned-local']
-                : source === 'GitHub publishing'
-                  ? ['local-api', 'codex', 'codex-owned-local']
-                  : source === 'Workspace'
+        source === 'Agent communication'
+          ? ['codex-owned-local', 'claude-sdk']
+          : source === 'Session automation'
+            ? ['local-api', 'codex', 'codex-owned-local']
+            : source === 'Google Workspace' ||
+                source === 'Session creation' ||
+                source === 'History' ||
+                source === 'Local repositories'
+              ? ['codex-owned-local']
+              : source === 'Telos'
+                ? [
+                    githubMainPublicationTool.name,
+                    'TelosStartSlice',
+                    'TelosWorkControl',
+                    'TelosCreateOutcome',
+                    'TelosAdoptSource',
+                    'TelosSaveArtifact',
+                    'TelosReadArtifact',
+                    'TelosGetItem',
+                    'TelosUpdateItem',
+                    ...telosBacklogDefinitions.map((tool) => tool.name),
+                  ].includes(tool.name)
+                  ? ['codex-owned-local']
+                  : []
+                : source === 'Agent Library' || source === 'Knowledge'
+                  ? ['local-api', 'codex-owned-local']
+                  : source === 'GitHub publishing'
                     ? ['local-api', 'codex', 'codex-owned-local']
-                    : source === 'Connections' || source === 'Web'
-                      ? [
-                          'local-api',
-                          'codex',
-                          ...(source === 'Web' || nativeConnectionToolNames.has(tool.name)
-                            ? ['codex-owned-local']
-                            : []),
-                        ]
-                      : ['local-api'],
+                    : source === 'Workspace'
+                      ? ['local-api', 'codex', 'codex-owned-local']
+                      : source === 'Connections' || source === 'Web'
+                        ? [
+                            'local-api',
+                            'codex',
+                            ...(source === 'Web' || nativeConnectionToolNames.has(tool.name)
+                              ? ['codex-owned-local']
+                              : []),
+                          ]
+                        : ['local-api'],
       requirement:
         tool.name === 'GoogleWorkspaceRead'
           ? 'Requires the configured controller Google sign-in, current Local Mac owner and exact one-use read approval. Credentials remain private; selection grants no service access.'

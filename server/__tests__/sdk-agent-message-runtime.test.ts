@@ -107,6 +107,81 @@ function fixture(prepareWorker?: (events: EventStore) => void) {
 const originalInputId = '00000000-0000-4000-8000-000000000001';
 const successorInputId = '00000000-0000-4000-8000-000000000002';
 
+it('retains idle admission authority until real SDK stdin and refuses lost live guards after reopen', async () => {
+  const f = fixture();
+  f.setActive(undefined);
+  const runtime = f.create();
+  let allowed = true;
+  const current = () => {
+    if (!allowed) throw Error('Peer grant revoked');
+  };
+  await runtime.enqueue(f.message, current, new AbortController().signal, {
+    id: 'operator',
+    expiresAt: Date.now() + 60000,
+  });
+  const ordinaryInput = {
+    type: 'user' as const,
+    parent_tool_use_id: null,
+    mitzoMessageId: f.message.commandId,
+    message: { role: 'user' as const, content: agentMessagePrompt(f.message) },
+  };
+  allowed = false;
+  expect(() => runtime.beforeInput(ordinaryInput)).toThrow();
+  expect(f.events.agentCommunication.read('sender', f.message.messageId)).toMatchObject({
+    status: 'failed',
+    reason: 'before_provider_submission',
+  });
+  f.reopen();
+  expect(() => f.create().beforeInput(ordinaryInput)).toThrow();
+});
+
+it('requires exact submitted idle input acknowledgement and rejects replay after SQLite reopen', async () => {
+  const f = fixture();
+  f.setActive(undefined);
+  const runtime = f.create();
+  await runtime.enqueue(f.message, () => {}, new AbortController().signal, {
+    id: 'operator',
+    expiresAt: Date.now() + 60000,
+  });
+  f.setActive(f.message.commandId);
+  const input: SDKUserMessage & { mitzoMessageId: string } = {
+    type: 'user',
+    parent_tool_use_id: null,
+    mitzoMessageId: f.message.commandId,
+    message: { role: 'user', content: `Context\n${agentMessagePrompt(f.message)}` },
+  };
+  expect(runtime.beforeInput(input)).toBe(true);
+  const ack = { type: 'user', uuid: input.uuid, message: input.message };
+  expect(runtime.observe({ ...ack, uuid: randomUUID() })).toBe(true);
+  expect(runtime.observe({ ...ack, message: { content: 'Wrong text' } })).toBe(true);
+  expect(f.events.agentCommunication.read('sender', f.message.messageId).status).not.toBe(
+    'delivered',
+  );
+  expect(runtime.observe(ack)).toBe(false);
+  expect(f.events.agentCommunication.read('sender', f.message.messageId).status).toBe('delivered');
+  expect(runtime.observe(ack)).toBe(true);
+  const correction = f.events.agentCommunication.reserve(
+    'sender',
+    'operator',
+    { turnId: 'second-turn', callId: 'second-call' },
+    {
+      requestId: randomUUID(),
+      recipientConversationId: 'worker',
+      text: 'Correct the now active peer command.',
+    },
+  );
+  f.events.agentCommunication.claim(correction.messageId);
+  await runtime.steer(correction, () => {}, new AbortController().signal);
+  const correctionInput = f.push.mock.calls.at(-1)![0];
+  expect(runtime.beforeInput(correctionInput)).toBe(true);
+  expect(
+    runtime.observe({ type: 'user', uuid: correctionInput.uuid, message: correctionInput.message }),
+  ).toBe(true);
+  expect(f.events.agentCommunication.read('sender', correction.messageId).status).toBe('delivered');
+  f.reopen();
+  expect(f.create().observe(ack)).toBe(true);
+});
+
 async function composedFixture() {
   const binding = {
     version: 2 as const,

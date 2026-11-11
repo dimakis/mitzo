@@ -158,6 +158,29 @@ function fixture(harness = 'codex', location = 'local') {
     }),
   };
 }
+it('forwards the exact idle SDK sender fence into ordinary admission', async () => {
+  const h = fixture('claude-sdk');
+  f.live = {
+    clientId: 'sdk',
+    session: {
+      ordinaryRuntimeOwner: { authSessionId: 'login' },
+      transport: { send() {}, isOpen: () => true },
+    },
+  };
+  let allowed = true;
+  await h.port.deliverOrdinary(
+    { sessionId: 'worker', commandId: 'peer', auth: h.delivery.auth, text: 'Exact peer' },
+    new AbortController().signal,
+    () => {
+      if (!allowed) throw Error('Sender revoked');
+    },
+  );
+  const dispatch = f.dispatch.mock.calls[0]?.[0] as unknown as { assertCurrent?: () => void };
+  expect(dispatch.assertCurrent).toBeTypeOf('function');
+  allowed = false;
+  expect(dispatch.assertCurrent).toThrow('Sender revoked');
+});
+
 it.each([
   'current',
   'successor',

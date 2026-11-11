@@ -414,7 +414,7 @@
     "source": "Agent communication",
     "required": false,
     "behavior": "mixed",
-    "routes": ["codex-owned-local"],
+    "routes": ["codex-owned-local", "claude-sdk"],
     "requirement": "Existing session permissions, cancellation and runtime admission apply."
   },
   {

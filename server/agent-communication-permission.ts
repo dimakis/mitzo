@@ -18,6 +18,7 @@ export function createAgentMessageApprover(options: {
   events: EventStore;
   registry: SessionRegistry;
   conversationId: string;
+  toolName?: 'AgentCommunication' | 'mcp__mitzo-connections__AgentCommunication';
   assertCurrent(): void;
   permissionOptions?: Parameters<typeof buildPermissionHandler>[2];
 }) {
@@ -75,7 +76,7 @@ export function createAgentMessageApprover(options: {
       owner.clientId,
       options.registry,
       options.permissionOptions,
-    )('AgentCommunication', input, {
+    )(options.toolName ?? 'AgentCommunication', input, {
       signal,
       toolUseID: randomUUID(),
       forcePrompt: true,

@@ -1,6 +1,32 @@
 import type { ManagedSession } from '@mitzo/harness';
-import type { AgentMessage } from '@mitzo/protocol';
+import { agentMessagePrompt, type AgentMessage } from '@mitzo/protocol';
 import type { AuthSession } from './auth.js';
+import type { CodexConversation } from './codex-conversation.js';
+
+/** Only an initially idle owner may use ordinary admission. A captured active
+ * turn becoming stale must never turn a correction into a future command. */
+export async function steerNativeAgentMessage(
+  runtime: CodexConversation | undefined,
+  message: AgentMessage,
+  assertCurrent: () => void,
+): Promise<'accepted' | 'rejected' | 'uncertain' | 'inactive'> {
+  assertCurrent();
+  if (!runtime) return 'rejected';
+  const state = runtime.peerMessageState();
+  if (state === 'idle') return 'inactive';
+  if (state !== 'busy') return 'rejected';
+  const target = runtime.captureInterruptTarget();
+  if (!target) return 'rejected';
+  const result = await runtime.steer(
+    {
+      requestId: message.commandId,
+      targetCommandId: target.commandId,
+      text: agentMessagePrompt(message),
+    },
+    assertCurrent,
+  );
+  return result.status === 'stale_target' ? 'rejected' : result.status;
+}
 
 export type AgentMessageDelivery = 'accepted' | 'queued' | 'rejected' | 'uncertain' | 'inactive';
 export interface AgentMessageRuntime {

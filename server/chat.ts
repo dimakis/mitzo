@@ -35,7 +35,11 @@ import {
 import { TelosWorkStore } from './telos-work-store.js';
 import { telosDatabasePath } from './telos-database.js';
 import { isAvailableTelosWorkConversation } from './telos-work-conversation.js';
-import { assertAgentToolRoute, bindAgentToolSelection } from './agent-tool-selection.js';
+import {
+  agentToolAllowed,
+  assertAgentToolRoute,
+  bindAgentToolSelection,
+} from './agent-tool-selection.js';
 import {
   createOrdinaryLocalVertexSdkQuery,
   SdkHookLifetime,
@@ -43,7 +47,7 @@ import {
 import { LocalVertexClaudeFirstCommandSchema } from '@mitzo/protocol';
 import type { OrdinaryLocalVertexCommandOwner } from './ordinary-local-vertex-command-owner.js';
 import { SdkAgentMessageRuntime } from './sdk-agent-message-runtime.js';
-import { registerAgentMessageRuntime } from './agent-message-runtime.js';
+import { registerAgentMessageRuntime, steerNativeAgentMessage } from './agent-message-runtime.js';
 import { PEER_MESSAGE_INSTRUCTIONS } from './peer-message-instructions.js';
 import { sessionAgentCommunicationTools } from './agent-communication-tools.js';
 import { createAgentMessageApprover } from './agent-communication-permission.js';
@@ -1597,6 +1601,14 @@ async function _startChatInner(
         lookup: (selection) => readAgentLibraryProfile(selection, options.operatorConnectionId),
       });
     assertAgentToolRoute(agentProfile?.definition, toolRoute);
+    if (
+      toolRoute === 'claude-sdk' &&
+      agentProfile?.definition.tools !== undefined &&
+      !options.ordinarySdkAuthority
+    )
+      throw Error(
+        'Explicit SDK tool profiles require an owned ordinary Local Claude conversation.',
+      );
     // Reject unsupported context before credential preflight, workspace creation,
     // or snapshot persistence. Host Responses and SDK routes retain pack support.
     if (
@@ -2713,6 +2725,7 @@ This is an independent checkout with its own Git storage, not a linked worktree.
       const sdkAgentCommunication = options.ordinarySdkAuthority
         ? () =>
             sessionAgentCommunicationTools({
+              toolName: 'mcp__mitzo-connections__AgentCommunication',
               events: eventStore,
               native: existingCodexConversationStore(),
               registry,
@@ -2723,6 +2736,7 @@ This is an independent checkout with its own Git storage, not a linked worktree.
               assertRuntimeCurrentSync: () =>
                 options.ordinarySdkAuthority!.assertCurrentSync(abortController.signal),
               approve: createAgentMessageApprover({
+                toolName: 'mcp__mitzo-connections__AgentCommunication',
                 events: eventStore,
                 registry,
                 conversationId: session.sessionId!,
@@ -2734,20 +2748,10 @@ This is an independent checkout with its own Git storage, not a linked worktree.
                 if (!runtime) throw Error('Recipient native queue unavailable');
                 await runtime.startQueued();
               },
-              steer: async (recipient, message, assertCurrent) => {
-                const runtime = getCodexRuntime(recipient);
-                const target = runtime?.captureInterruptTarget();
-                if (!runtime || !target) return 'inactive';
-                const result = await runtime.steer(
-                  {
-                    requestId: message.commandId,
-                    targetCommandId: target.commandId,
-                    text: agentMessagePrompt(message),
-                  },
-                  assertCurrent,
-                );
-                return result.status === 'stale_target' ? 'inactive' : result.status;
-              },
+              steer: (recipient, message, assertCurrent) =>
+                steerNativeAgentMessage(getCodexRuntime(recipient), message, assertCurrent),
+              nativeState: (recipient) =>
+                getCodexRuntime(recipient)?.peerMessageState() ?? 'unavailable',
             })
         : undefined;
       const connectionServer = createCredentialSdkServer(
@@ -2785,6 +2789,11 @@ This is an independent checkout with its own Git storage, not a linked worktree.
       };
       const decide: ReturnType<typeof buildPermissionHandler> = async (name, input, opts) => {
         if (packBoundSdk) await authorizeSdkContext(opts.signal);
+        if (!agentToolAllowed(session, name))
+          return {
+            behavior: 'deny',
+            message: 'Tool is not selected by this session’s published agent profile.',
+          };
         const personalConfig = options.ordinarySdkAuthority?.configDirectory();
         if (personalConfig) {
           const refusal = claudePersonalToolPermission(name, input, cwd, personalConfig);
@@ -3108,6 +3117,7 @@ This is an independent checkout with its own Git storage, not a linked worktree.
           assertCurrent: () =>
             options.ordinarySdkAuthority!.assertCurrentSync(abortController.signal),
           activeCommandId: () => liveOrdinarySdkOwner?.peerTurnTarget(),
+          ordinaryCommandId: () => liveOrdinarySdkOwner?.activeCommandId(),
           preparing: () =>
             !!liveOrdinarySdkOwner?.activeCommandId() && !liveOrdinarySdkOwner.peerTurnTarget(),
           stopped: () => !liveOrdinarySdkOwner?.acceptsPeerMessages(),
@@ -3306,7 +3316,6 @@ This is an independent checkout with its own Git storage, not a linked worktree.
           const active = registry.get(cId);
           if (active) markFallbackCloseoutInputObserved(active, inputUuid);
           liveOrdinarySdkOwner?.inputObserved(inputUuid);
-          sdkPeerMessages?.observeOrdinaryInput();
         },
         onResult: (cId, result, inputUuid) => {
           const active = registry.get(cId);

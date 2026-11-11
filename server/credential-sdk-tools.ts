@@ -26,6 +26,7 @@ import {
   credentialConnectionToolDefinitions,
 } from './credential-connection-tools.js';
 import { sessionCredentialTools } from './session-credential-tools.js';
+import { agentToolAllowed, filterAgentTools } from './agent-tool-selection.js';
 
 const prefix = 'mcp__mitzo-connections__';
 const schemas = {
@@ -56,6 +57,7 @@ export function credentialSdkPermission(
   if (
     !Object.hasOwn(schemas, short) ||
     !schemas[short].safeParse(input).success ||
+    !agentToolAllowed(session, name) ||
     registry.get(clientId) !== session ||
     session.abortController.signal.aborted ||
     checkSkillPolicy(registry, clientId, name) === 'deny'
@@ -97,12 +99,12 @@ export function createCredentialSdkServer(
   return createSdkMcpServer({
     name: 'mitzo-connections',
     version: '1.0.0',
-    tools: [
+    tools: filterAgentTools(session, [
       ...(boundary?.profilesOnly
         ? [...profileToolDefinitions, ...sessionPromptDefinitions]
         : definitions),
       ...(boundary?.agentCommunication ? agentCommunicationDefinitions : []),
-    ].map((definition) =>
+    ]).map((definition) =>
       tool(
         definition.name,
         definition.description,
