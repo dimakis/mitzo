@@ -61,3 +61,34 @@ browser results, screenshots, the full application build and final source review
 remain CI/review acceptance; no local visual inspection or live cleanup is claimed.
 No model calls, staging operation, production activation or actual resource
 deletion were performed while implementing these fixtures.
+
+## Failed-stop recovery — 11 November 2026
+
+The deletion dialog previously cleared its review after a failed stop, hiding
+Keep chat even though the durable removal fence still paused the conversation.
+It now reads the original removal after a failed or unconfirmed preparation,
+keeps known actions visible, and disables mutations until that read succeeds.
+The read never repeats the stop. Keep chat uses the original operation ID;
+failed deletion still requires an explicit fresh review before another attempt.
+Review failures retain the last known details with disabled controls. Persisted
+removal errors also remain visible after reopening the dialog.
+
+Native deletion checks distinguish workspace mismatch, pending commands,
+unfinished workspace transfer, missing tool result and recovery review. These
+checks remain read-only and retain every existing deletion fence. Structured
+diagnostics record the stage, stable blocker code, chat and removal operation;
+failure-recording errors do not replace the primary shutdown or release failure.
+This fixes recovery visibility and diagnostics; it does not establish which
+native condition blocked the original screenshot or reconcile live chat data.
+
+The change reuses HomeDialog, home-inline-actions and the existing semantic
+controls, with no new styling or motion. Focused offline regressions cover the
+native store through the runtime/service/HTTP adapter, persisted failure review,
+exact Keep chat identity, disabled stale controls and explicit retry. The browser
+fixture adds failed-stop recovery before successful preparation on its existing
+phone/desktop and appearance variants. The 66 focused regressions and 109 design
+checks passed locally, with one existing design skip; touched-file lint passed.
+Local browser startup through task execution failed on macOS process registration;
+an explicitly escalated native attempt still hit the repository's Seatbelt guard.
+No rendered result is claimed. Review, full builds, browser CI and production
+activation remain separate.

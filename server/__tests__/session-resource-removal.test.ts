@@ -47,6 +47,16 @@ it('keeps failed shutdown visible and fenced; an explicit keep action releases o
   f.service.keep('chat', record.operationId, f.current);
   expect(() => f.store.assertAdmissible('chat')).not.toThrow();
 });
+it('preserves the shutdown failure if recording that failure also fails', async () => {
+  const f = fixture();
+  const primary = Error('native shutdown remains unverified');
+  f.deps.closeRuntime.mockRejectedValueOnce(primary);
+  vi.spyOn(f.store, 'transition').mockImplementationOnce(() => {
+    throw Error('failure record unavailable');
+  });
+  await expect(f.service.prepare('chat', f.current)).rejects.toBe(primary);
+  expect(() => f.store.assertAdmissible('chat')).toThrow(/remov/);
+});
 it('rechecks authority and resources before release and never clears uncertainty after release starts', async () => {
   const f = fixture();
   const record = await f.service.prepare('chat', f.current);

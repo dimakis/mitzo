@@ -8,7 +8,7 @@ interface Review {
   sandbox: SandboxCleanupPreview | null;
   blockedReason?: string | null;
   needsPreparation?: boolean;
-  removal?: { operationId: string; phase: string; canKeep: boolean } | null;
+  removal?: { operationId: string; phase: string; canKeep: boolean; error?: string | null } | null;
   localWorkspace?: { action: 'retire' | 'retain'; reason: string } | null;
 }
 
@@ -25,6 +25,7 @@ export function SessionRemovalDialog({
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const [revision, setRevision] = useState(0);
+  const [reviewCurrent, setReviewCurrent] = useState(false);
   const inFlight = useRef(false);
   const scope = useRef(new AbortController());
   const closeRef = useRef(onClose);
@@ -34,6 +35,9 @@ export function SessionRemovalDialog({
     scope.current = controller;
     inFlight.current = false;
     setBusy(false);
+    setReview(null);
+    setError('');
+    setReviewCurrent(false);
     const changed = () => {
       controller.abort();
       closeRef.current();
@@ -48,8 +52,7 @@ export function SessionRemovalDialog({
   }, [sessionId]);
   useEffect(() => {
     const controller = new AbortController();
-    setReview(null);
-    setError('');
+    setReviewCurrent(false);
     void readApiJson<Review>(
       '/api/sessions/' + encodeURIComponent(sessionId) + '/deletion-preview',
       controller.signal,
@@ -57,7 +60,10 @@ export function SessionRemovalDialog({
       .then((next) => {
         if (!next || !Object.prototype.hasOwnProperty.call(next, 'sandbox'))
           throw Error('Deletion review unavailable.');
-        if (!controller.signal.aborted) setReview(next);
+        if (!controller.signal.aborted) {
+          setReview(next);
+          setReviewCurrent(true);
+        }
       })
       .catch(() => {
         if (!controller.signal.aborted)
@@ -75,12 +81,12 @@ export function SessionRemovalDialog({
       if (signal.aborted) return;
       if (removed) onClose();
       else {
-        setReview(null);
+        setReviewCurrent(false);
         setError('Removal could not be confirmed. Review again before retrying.');
       }
     } catch {
       if (!signal.aborted) {
-        setReview(null);
+        setReviewCurrent(false);
         setError('Removal could not be confirmed. Review again before retrying.');
       }
     } finally {
@@ -91,7 +97,7 @@ export function SessionRemovalDialog({
     }
   };
   const action = async (kind: 'prepare-deletion' | 'keep-chat') => {
-    if (inFlight.current) return;
+    if (inFlight.current || !reviewCurrent) return;
     const signal = scope.current.signal;
     inFlight.current = true;
     setBusy(true);
@@ -104,16 +110,21 @@ export function SessionRemovalDialog({
       );
       if (signal.aborted) return;
       if (kind === 'keep-chat') onClose();
-      else if (next && Object.prototype.hasOwnProperty.call(next, 'sandbox')) setReview(next);
-      else throw Error('Removal review is unconfirmed. Review again.');
+      else if (next && Object.prototype.hasOwnProperty.call(next, 'sandbox')) {
+        setReview(next);
+        setReviewCurrent(true);
+      } else throw Error('Removal review is unconfirmed. Review again.');
     } catch (error) {
       if (!signal.aborted) {
-        setReview(null);
+        setReviewCurrent(false);
         setError(
           error instanceof Error
             ? error.message + ' Use Review again to check this removal.'
             : 'Removal is unconfirmed. Review again.',
         );
+        // Read the original operation after failure or lost acknowledgement.
+        // Never replay a stop, keep or delete automatically.
+        setRevision((r) => r + 1);
       }
     } finally {
       if (!signal.aborted) {
@@ -123,6 +134,7 @@ export function SessionRemovalDialog({
     }
   };
   const blocked =
+    !reviewCurrent ||
     !review ||
     !!review.needsPreparation ||
     !!review.blockedReason ||
@@ -168,7 +180,7 @@ export function SessionRemovalDialog({
         </p>
       )}
       {review?.blockedReason && <p role="status">{review.blockedReason}</p>}
-      {error && <p role="alert">{error}</p>}
+      {(error || review?.removal?.error) && <p role="alert">{error || review?.removal?.error}</p>}
       <div className="home-inline-actions">
         <button
           className="home-secondary"
@@ -180,14 +192,17 @@ export function SessionRemovalDialog({
         <button
           className="home-secondary"
           disabled={busy}
-          onClick={() => setRevision((r) => r + 1)}
+          onClick={() => {
+            setError('');
+            setRevision((r) => r + 1);
+          }}
         >
           Review again
         </button>
         {review?.removal?.canKeep && (
           <button
             className="home-secondary"
-            disabled={busy}
+            disabled={busy || !reviewCurrent}
             onClick={() => void action('keep-chat')}
           >
             Keep chat
@@ -196,7 +211,7 @@ export function SessionRemovalDialog({
         {review?.needsPreparation && (
           <button
             className="home-secondary"
-            disabled={busy}
+            disabled={busy || !reviewCurrent}
             onClick={() => void action('prepare-deletion')}
           >
             Stop and review deletion
