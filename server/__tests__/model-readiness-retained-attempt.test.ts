@@ -3,7 +3,7 @@ import { EventStore } from '@mitzo/protocol/event-store';
 import {
   expectRetainedAttemptUnchanged,
   type ObservedTransportRefresh,
-} from '../../tests/integration/telos-s9/model-readiness/retained-attempt';
+} from './fixtures/retained-attempt.js';
 
 const stores: EventStore[] = [];
 afterEach(() => {

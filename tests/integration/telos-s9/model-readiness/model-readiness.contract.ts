@@ -12,7 +12,10 @@ import {
 } from '@mitzo/protocol';
 import { createJoinedOrdinaryApplication } from '../integrated-candidate/joined-ordinary-application';
 import { initializeReadinessData, selectedModel, createExternalInventory } from './synthetic-data';
-import { expectRetainedAttemptUnchanged, type ObservedTransportRefresh } from './retained-attempt';
+import {
+  expectRetainedAttemptUnchanged,
+  type ObservedTransportRefresh,
+} from '../../../../server/__tests__/fixtures/retained-attempt.js';
 
 const clone = <T>(value: T): T => structuredClone(value);
 const inventorySchema = z
