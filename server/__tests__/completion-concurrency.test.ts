@@ -289,4 +289,7 @@ it.each(measure ? Array.from({ length: 11 }, (_, i) => i) : [0])(
       await Promise.resolve();
     }
   },
+  // This checks persisted concurrency behavior, not a wall-clock performance budget.
+  // Shared CI runners can spend more than the default 5s on the SQLite fixture.
+  30_000,
 );

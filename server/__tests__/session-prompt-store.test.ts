@@ -13,6 +13,22 @@ afterEach(() =>
     .forEach((close) => close()),
 );
 const auth = { id: 'signed-login', expiresAt: 10_000_000 };
+it('projects the original queued message only for its recipient without login material', () => {
+  const { store } = fixture();
+  const delivery = store.message(
+    { requestId: randomUUID(), sessionId: 'worker', text: 'Actual message '.repeat(30) },
+    auth,
+    'coordinator',
+  );
+  expect(store.queuedCommandPreview('worker', delivery.commandId)).toEqual({
+    preview: 'Actual message '.repeat(30).slice(0, 160),
+    senderSessionId: 'coordinator',
+    kind: 'agent',
+  });
+  expect(store.queuedCommandPreview('other', delivery.commandId)).toBeUndefined();
+  expect(store.queuedCommandPreview('worker', 'ordinary-command')).toBeUndefined();
+  expect(store.queuedCommandPreview('worker', 'session-prompt:missing')).toBeUndefined();
+});
 it('deletes a timer with a fenced idempotent receipt and prevents future checks while retaining admitted delivery evidence', () => {
   const { store, input, path } = fixture();
   const timer = store.create({ ...input, startImmediately: true }, auth, 'agent', 'source', 1000);

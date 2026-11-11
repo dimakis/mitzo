@@ -8,6 +8,9 @@ import type { AuthSession } from './auth.js';
 import { z } from 'zod';
 import type { AccountBinding } from '@mitzo/protocol';
 import type { CodexConversationStore } from './codex-conversation-store.js';
+import { createLogger } from './logger.js';
+
+const log = createLogger('codex-queue');
 
 interface Dependencies {
   steer?(
@@ -23,6 +26,10 @@ interface Dependencies {
     sessionId: string,
     binding: AccountBinding,
   ): ReturnType<CodexConversationStore['queueOverview']>;
+  preview?(
+    sessionId: string,
+    commandId: string,
+  ): { preview: string; sourceLabel: string } | undefined;
   cancel(
     sessionId: string,
     binding: AccountBinding,
@@ -77,8 +84,21 @@ export function createCodexQueueRouter(deps: Dependencies) {
       return;
     }
     try {
-      res.json(deps.overview(req.params.id, binding));
-    } catch {
+      const overview = deps.overview(req.params.id, binding);
+      res.json({
+        ...overview,
+        queued: overview.queued.map((command) => ({
+          ...command,
+          ...deps.preview?.(req.params.id, command.id),
+        })),
+      });
+    } catch (error) {
+      log.warn('Queue details unavailable', {
+        code: 'QUEUE_DETAILS_UNAVAILABLE',
+        stage: 'queue_details',
+        sessionId: req.params.id,
+        err: error,
+      });
       res.status(409).json({ error: 'Cannot read this queue. Check the conversation account.' });
     }
   });

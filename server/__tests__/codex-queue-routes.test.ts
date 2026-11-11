@@ -64,6 +64,41 @@ it('lists only waiting summaries and cancelled tombstone IDs', async () => {
     hasMore: false,
   });
 });
+it('shows original peer-message previews while preserving command identities and queue order', async () => {
+  const app = express();
+  const preview = vi.fn((sessionId: string, commandId: string) =>
+    commandId === 'session-prompt:waiting'
+      ? { preview: 'Please review the queue fix.', sourceLabel: 'From Queue investigation' }
+      : undefined,
+  );
+  app.use(
+    createCodexQueueRouter({
+      binding: () => binding,
+      overview: () => ({
+        queued: [
+          { id: 'session-prompt:waiting', preview: 'Agent message from session opaque-id' },
+          { id: 'ordinary', preview: 'My own next request' },
+        ],
+        cancelledIds: [],
+        hasMore: false,
+      }),
+      preview,
+      cancel: vi.fn(),
+      retry: vi.fn(),
+      reattach: vi.fn(),
+    }),
+  );
+  const response = await request(app).get('/recipient/codex-queue').expect(200);
+  expect(response.body.queued).toEqual([
+    {
+      id: 'session-prompt:waiting',
+      preview: 'Please review the queue fix.',
+      sourceLabel: 'From Queue investigation',
+    },
+    { id: 'ordinary', preview: 'My own next request' },
+  ]);
+  expect(preview).toHaveBeenCalledWith('recipient', 'session-prompt:waiting');
+});
 it.each([
   ['cancelled', 200],
   ['not_queued', 409],

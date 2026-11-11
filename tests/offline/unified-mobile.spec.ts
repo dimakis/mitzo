@@ -24,6 +24,8 @@ import {
   symposiumStatus,
 } from '../../frontend/src/preview/symposium-fixtures';
 
+// Fractional transforms can report a 44px target a few millionths below 44.
+const minMeasuredTouchTarget = 44 - 0.001;
 const canonicalOutcomeTemplate = createTelosWorkFixtures().homeStudio.items[0];
 const outcomes = Array.from({ length: 12 }, (_, index) => ({
   id: `outcome-${index}`,
@@ -1068,11 +1070,11 @@ test('Today details and nickname controls inherit appearance and remain usable w
       await expect(
         control.locator(`svg[data-icon="${direction}"][aria-hidden="true"]`),
       ).toBeVisible();
-      expect((await control.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+      expect((await control.boundingBox())!.height).toBeGreaterThanOrEqual(minMeasuredTouchTarget);
     }
     const close = pinPopup.getByRole('button', { name: 'Close', exact: true });
     await expect(close.locator('svg[data-icon="close"][aria-hidden="true"]')).toBeVisible();
-    expect((await close.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+    expect((await close.boundingBox())!.height).toBeGreaterThanOrEqual(minMeasuredTouchTarget);
     await page.screenshot({
       path: testInfo.outputPath(`pins-${variant.theme}-${variant.font}-${variant.accent}.png`),
       animations: 'disabled',
@@ -1412,7 +1414,7 @@ test('desktop Work keeps legacy collection actions visible with one compact head
     expect((await heading.boundingBox())!.height).toBeLessThanOrEqual(80);
     for (const button of await heading.getByRole('button').all()) {
       const box = (await button.boundingBox())!;
-      expect(box.height).toBeGreaterThanOrEqual(44);
+      expect(box.height).toBeGreaterThanOrEqual(minMeasuredTouchTarget);
       expect(box.x).toBeGreaterThanOrEqual(0);
       expect(box.x + box.width).toBeLessThanOrEqual(width);
     }
@@ -1449,7 +1451,7 @@ test('desktop Work starts an unsent planning draft from the canonical collection
     expect(headerBox.x + headerBox.width).toBeLessThanOrEqual(width);
     for (const button of await heading.getByRole('button').all()) {
       const box = (await button.boundingBox())!;
-      expect(box.height).toBeGreaterThanOrEqual(44);
+      expect(box.height).toBeGreaterThanOrEqual(minMeasuredTouchTarget);
       expect(box.x).toBeGreaterThanOrEqual(0);
       expect(box.x + box.width).toBeLessThanOrEqual(width);
     }
@@ -2016,7 +2018,8 @@ test('combined conversation uses the approved Agents header and ordinary compose
       expect(await draft.evaluate((el) => getComputedStyle(el).fontFamily)).toContain('Georgia');
       const queue = page.getByRole('button', { name: 'Queue for approval', exact: true });
       await expect(queue).toBeInViewport();
-      if (isMobile) expect((await queue.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+      if (isMobile)
+        expect((await queue.boundingBox())!.height).toBeGreaterThanOrEqual(minMeasuredTouchTarget);
       expect(
         await page
           .locator('.symposium-perspective-panel')
@@ -2889,7 +2892,7 @@ test('failed briefing registration survives a completed turn and reload without 
         : readBounds.y - labelBounds.y - labelBounds.height;
     expect(rowGap).toBeGreaterThanOrEqual(layout.gap);
     for (const control of [read, change])
-      expect((await control.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+      expect((await control.boundingBox())!.height).toBeGreaterThanOrEqual(minMeasuredTouchTarget);
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(
       page.viewportSize()!.width,
     );
@@ -2926,7 +2929,7 @@ test('failed briefing registration survives a completed turn and reload without 
   });
   expect(geometry.left).toBeGreaterThanOrEqual(geometry.gutter);
   expect(geometry.right).toBeGreaterThanOrEqual(geometry.gutter);
-  expect((await retry.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+  expect((await retry.boundingBox())!.height).toBeGreaterThanOrEqual(minMeasuredTouchTarget);
   for (const appearance of [
     { theme: 'dark', accent: 'lavender', font: 'system' },
     { theme: 'light', accent: 'teal', font: 'georgia' },
@@ -3098,7 +3101,7 @@ test('saved chat identity failures lock model controls until an explicit success
       await expect(
         page.getByRole('button', { name: 'Change account or model', exact: true }),
       ).toHaveCount(0);
-      expect((await retry.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+      expect((await retry.boundingBox())!.height).toBeGreaterThanOrEqual(minMeasuredTouchTarget);
       const alert = page.getByRole('alert').filter({ has: retry });
       const alignment = await alert.evaluate((element) => {
         const bounds = element.getBoundingClientRect();
@@ -3293,7 +3296,7 @@ test('profile draft cards appear in conversation and save without opening Worksp
       const save = panel.getByRole('button', { name: 'Save reusable profile' });
       await save.scrollIntoViewIfNeeded();
       await expect(save).toBeEnabled();
-      expect((await save.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+      expect((await save.boundingBox())!.height).toBeGreaterThanOrEqual(minMeasuredTouchTarget);
       await save.focus();
       await expect(save).toBeFocused();
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
@@ -3415,8 +3418,8 @@ for (const appearance of [
     });
     if (testInfo.project.name.startsWith('mobile')) {
       const size = await spawning.boundingBox();
-      expect(size?.height).toBeGreaterThanOrEqual(44);
-      expect(size?.width).toBeGreaterThanOrEqual(44);
+      expect(size?.height).toBeGreaterThanOrEqual(minMeasuredTouchTarget);
+      expect(size?.width).toBeGreaterThanOrEqual(minMeasuredTouchTarget);
       const review = page.locator('.task-node--status-pending_review .task-node-body').first();
       expect((await review.boundingBox())!.width).toBeGreaterThanOrEqual(140);
       await expect(
@@ -3522,7 +3525,7 @@ test('daily quote setting preserves saved truth and suppresses delivery until en
           document.querySelector('.workspace-page')!.clientWidth,
       };
     });
-    expect(geometry.height).toBeGreaterThanOrEqual(44);
+    expect(geometry.height).toBeGreaterThanOrEqual(minMeasuredTouchTarget);
     expect(geometry.inherited).toBe(true);
     expect(geometry.accent).toBe(true);
     expect(geometry.overflow).toBe(false);
@@ -3538,7 +3541,7 @@ test('daily quote setting preserves saved truth and suppresses delivery until en
   await expect(toggle).not.toBeChecked();
   await expect(toggle).toBeDisabled();
   const review = page.getByRole('button', { name: 'Review current setting', exact: true });
-  expect((await review.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+  expect((await review.boundingBox())!.height).toBeGreaterThanOrEqual(minMeasuredTouchTarget);
   await review.click();
   await expect(toggle).toBeEnabled();
   expect(writes).toHaveLength(1);
@@ -3711,7 +3714,7 @@ for (const appearance of [
       return Math.abs(user.getBoundingClientRect().right - contentRight);
     });
     expect(alignment).toBeLessThan(2);
-    expect((await toggle.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+    expect((await toggle.boundingBox())!.height).toBeGreaterThanOrEqual(minMeasuredTouchTarget);
     await page.screenshot({
       path: testInfo.outputPath(`activity-collapsed-${appearance.theme}.png`),
       animations: 'disabled',
@@ -4333,7 +4336,7 @@ test('rejected idle ordinary Send keeps attachments and an explicit retry withou
   expect(await retainedQueue()).not.toContain('data:image');
   const retry = page.getByRole('button', { name: 'Send queued prompt 1', exact: true });
   await expect(retry).toBeVisible();
-  expect((await retry.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+  expect((await retry.boundingBox())!.height).toBeGreaterThanOrEqual(minMeasuredTouchTarget);
   for (const theme of ['dark', 'light']) {
     await page.evaluate((theme) => {
       document.documentElement.dataset.theme = theme;

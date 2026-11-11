@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { afterEach, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { apiFetch } from '../../lib/api-fetch';
@@ -25,15 +25,106 @@ const meta = (queue: Record<string, unknown>) =>
 const commands = (queued: Array<{ id: string; preview: string }>) =>
   ({ ok: true, json: async () => ({ queued, cancelledIds: [] }) }) as Response;
 
+beforeEach(() => {
+  HTMLDialogElement.prototype.showModal = function () {
+    this.setAttribute('open', '');
+  };
+  HTMLDialogElement.prototype.close = function () {
+    this.removeAttribute('open');
+  };
+});
+
 afterEach(() => {
   cleanup();
   vi.resetAllMocks();
+  vi.restoreAllMocks();
   vi.useRealTimers();
   sessionStorage.clear();
   queueSignal.revision = 0;
 });
 
 const idleQueue = { paused: false, connected: true, queued: 0, interrupted: 0 };
+
+it('explains a failed details read immediately when the shared status dialog opens', async () => {
+  vi.spyOn(console, 'warn').mockImplementation(() => {});
+  vi.mocked(apiFetch).mockImplementation(async (path) =>
+    String(path).endsWith('/meta')
+      ? meta({ ...idleQueue, queued: 1 })
+      : new Response('', { status: 503 }),
+  );
+  render(
+    <ComposerStatusProvider>
+      <CodexQueueStatus sessionId="failed-dialog" />
+      <ComposerStatusRail />
+    </ComposerStatusProvider>,
+  );
+  await act(async () => {});
+  fireEvent.click(screen.getByRole('button', { name: 'Conversation status details' }));
+  const dialog = screen.getByRole('dialog', { name: 'Conversation status' });
+  expect(within(dialog).getByRole('alert').textContent).toContain(
+    'Saved messages could not be loaded',
+  );
+  expect(within(dialog).getByRole('button', { name: 'Retry queue' })).toBeTruthy();
+});
+
+it('keeps a queue details failure visible with a read-only retry and retained count', async () => {
+  const diagnostic = vi.spyOn(console, 'warn').mockImplementation(() => {});
+  let available = false;
+  vi.mocked(apiFetch).mockImplementation(async (path) =>
+    String(path).endsWith('/meta')
+      ? meta({ ...idleQueue, queued: 1 })
+      : available
+        ? commands([{ id: 'saved', preview: 'Actual saved request' }])
+        : new Response('', { status: 503 }),
+  );
+  render(<CodexQueueStatus sessionId="details-failure" />);
+  await act(async () => {});
+  fireEvent.click(screen.getByRole('button', { name: 'Review queue' }));
+  expect(
+    screen.getByText('Saved messages could not be loaded. Retry to review the queue.'),
+  ).toBeTruthy();
+  expect(screen.getByText('1 message queued')).toBeTruthy();
+  expect(diagnostic).toHaveBeenCalledWith(
+    '[mitzo] Queue details unavailable',
+    expect.objectContaining({
+      code: 'QUEUE_DETAILS_UNAVAILABLE',
+      stage: 'queue_details',
+      sessionId: 'details-failure',
+    }),
+  );
+  available = true;
+  fireEvent.click(screen.getByRole('button', { name: 'Retry queue' }));
+  await screen.findByText('Actual saved request');
+  expect(
+    screen.queryByText('Saved messages could not be loaded. Retry to review the queue.'),
+  ).toBeNull();
+  expect(vi.mocked(apiFetch).mock.calls.every(([, options]) => !options?.method)).toBe(true);
+  diagnostic.mockRestore();
+});
+
+it('distinguishes a saved queue waiting to resume from an interrupted turn', async () => {
+  vi.mocked(apiFetch).mockImplementation(async (path) =>
+    String(path).endsWith('/meta')
+      ? meta({ ...idleQueue, paused: true, connected: false, canContinue: true, queued: 1 })
+      : ({
+          ok: true,
+          json: async () => ({
+            queued: [
+              { id: 'peer', preview: 'Review the fix', sourceLabel: 'From Queue investigation' },
+            ],
+            cancelledIds: [],
+          }),
+        } as Response),
+  );
+  render(<CodexQueueStatus sessionId="saved-queue" />);
+  await screen.findByText('Saved messages are waiting. Continue chat to resume the queue.');
+  const actions = screen.getByRole('group', { name: 'Queue actions' });
+  expect(within(actions).getByRole('button', { name: 'Continue chat' })).toBeTruthy();
+  expect(screen.queryByText('Chat interrupted. Your work is saved.')).toBeNull();
+  fireEvent.click(screen.getByRole('button', { name: 'Review queue' }));
+  expect(screen.getByText('From Queue investigation')).toBeTruthy();
+  expect(screen.getByText('Review the fix')).toBeTruthy();
+});
 
 it.each(['success', 'failure'] as const)(
   'puts Continue chat in the status row and preserves the next draft on %s',
@@ -129,12 +220,6 @@ it('keeps uncertain tool outcomes behind review before offering continuation', a
 });
 
 it('combines recovery feedback above the composer and keeps queue controls in its details', async () => {
-  HTMLDialogElement.prototype.showModal = function () {
-    this.setAttribute('open', '');
-  };
-  HTMLDialogElement.prototype.close = function () {
-    this.removeAttribute('open');
-  };
   vi.mocked(apiFetch).mockImplementation(async (path) =>
     String(path).endsWith('/meta')
       ? meta({ ...idleQueue, queued: 1, recovering: true })
