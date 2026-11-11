@@ -1165,21 +1165,21 @@ for (const [name, Screen] of [
       target: { value: 'vertex' },
     });
     expect(screen.getByText('Runs with Claude')).toBeInTheDocument();
-    expect(screen.getByRole('combobox', { name: 'Model' })).toHaveValue('shell-model');
-    expect(screen.getByRole('combobox', { name: 'Thinking level' })).toHaveValue('high');
+    expect(screen.getByRole('combobox', { name: 'Model' })).toHaveValue('claude-model');
+    expect(screen.getByRole('combobox', { name: 'Thinking level' })).toHaveValue('');
     expect(screen.getByRole('option', { name: 'Claude model' })).toBeInTheDocument();
     expect(screen.queryByRole('option', { name: 'Local model' })).toBeNull();
     expect(screen.getByRole('button', { name: 'Test send' })).toBeDisabled();
     fireEvent.click(screen.getByRole('button', { name: 'OpenShell' }));
     expect(screen.getByRole('combobox', { name: 'Account' })).toHaveValue('vertex');
-    expect(screen.getByRole('combobox', { name: 'Model' })).toHaveValue('shell-model');
-    expect(screen.getByRole('combobox', { name: 'Thinking level' })).toHaveValue('high');
+    expect(screen.getByRole('combobox', { name: 'Model' })).toHaveValue('claude-model');
+    expect(screen.getByRole('combobox', { name: 'Thinking level' })).toHaveValue('');
     expect(screen.queryByRole('option', { name: 'Shell model' })).toBeNull();
     expect(screen.queryByText('Runs with Codex')).toBeNull();
     expect(screen.getByTestId('draft')).toHaveTextContent('hello');
     expect(screen.getByRole('button', { name: 'Test send' })).toBeDisabled();
     expect(getChatDraft(draft.id)?.settings.runtimeSelection).toMatchObject({
-      account: { accountId: 'vertex', model: 'shell-model', reasoningEffort: 'high' },
+      account: { accountId: 'vertex', model: 'claude-model' },
       accountReference: {
         accountId: 'vertex',
         provider: 'anthropic-vertex',

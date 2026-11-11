@@ -1,3 +1,15 @@
+## Account-scoped model and thinking choices
+
+Account switching and model refresh reuse `AccountModelPicker`, the approved
+`QuickSettingsField`/`QuickSettingsChoices` editors and their existing notice
+style. Each account restores its own model/thinking preference; the global
+new-chat default stays explicit. Native Claude metadata supplies supported
+thinking levels, and failed discovery stays visible with Refresh models as the
+retry action. No layout, palette, type, motion or approved-design revision changes.
+The existing intercepted `chat-model-settings` fixture covers these interactions
+on phone/desktop, both themes and alternate appearance; see
+[verification and captures](../features/personal-claude-local.md#model-controls-11-november-2026).
+
 # Mitzo UI design contract
 
 ## Claude subscription onboarding

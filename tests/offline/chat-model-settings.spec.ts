@@ -100,6 +100,30 @@ for (const theme of ['dark', 'light']) {
       await page.locator('body').evaluate((e) => e.clientWidth),
     );
     await expect(page.getByRole('textbox', { name: 'Message draft' })).toHaveValue('Keep my draft');
+    // Reuse this intercepted settings journey for cross-provider choices and refreshed capabilities.
+    await page.goto('/?accounts');
+    await page.getByRole('button', { name: /^Workspace controls/ }).click();
+    await page.getByRole('button', { name: /^Account,/ }).click();
+    await page.getByRole('button', { name: 'Personal Claude', exact: true }).click();
+    await page.getByRole('button', { name: 'Back to chat settings' }).click();
+    await expect(page.getByRole('button', { name: /^Model,/ })).toContainText('Claude Sonnet 4.6');
+    await page.getByRole('button', { name: /^Model,/ }).click();
+    await expect(page.getByRole('button', { name: 'Luna', exact: true })).toHaveCount(0);
+    await page.getByRole('button', { name: 'Refresh models', exact: true }).click();
+    await page.getByRole('button', { name: 'Claude Opus 4.8', exact: true }).click();
+    await page.getByRole('button', { name: 'Back to chat settings' }).click();
+    await page.getByRole('button', { name: /^Thinking,/ }).click();
+    await page.getByRole('button', { name: 'max', exact: true }).click();
+    await page.getByRole('button', { name: 'Back to chat settings' }).click();
+    await page.getByRole('button', { name: /^Account,/ }).click();
+    await page.getByRole('button', { name: 'Work', exact: true }).click();
+    await expect(page.getByLabel('Next message settings')).toContainText('luna / low');
+    await page.getByRole('button', { name: 'Personal Claude', exact: true }).click();
+    await expect(page.getByLabel('Next message settings')).toContainText('opus / max');
+    await page.getByRole('button', { name: 'Back to chat settings' }).click();
+    await page.screenshot({ path: info.outputPath(`account-model-settings-${theme}.png`) });
+    await page.keyboard.press('Escape');
+    await expect(page.getByRole('textbox', { name: 'Message draft' })).toHaveValue('Keep my draft');
     expect(errors).toEqual([]);
   });
 }

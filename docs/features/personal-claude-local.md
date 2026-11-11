@@ -45,6 +45,29 @@ number of saved accounts. Catalog responses retain the existing 1 MiB byte budge
 the earlier 64-account/128-route count limits are removed. A larger transport would
 require pagination rather than silently dropping accounts or weakening that budget.
 
+## Models and thinking
+
+Switching accounts in an unsent chat restores that account's model and thinking
+choices on this browser. With no saved account choice, its configured first model
+and supported default thinking level seed the picker. Explicit new-chat defaults
+remain a separate action. Bound conversations retain their original account;
+loading or refreshing metadata never rewrites retained conversation intent. If the
+selected execution environment cannot run the chosen account, its own settings
+remain visible and sending stays blocked until a compatible **Run on** is selected.
+
+Selecting personal Claude reads its native SDK model metadata under that account's
+isolated sign-in. **Refresh models** bypasses the selected account's metadata cache.
+Versioned names (for example, Claude Opus 4.8) come from the native model's
+label, leading description or exact versioned model ID; aliases are never mapped
+to an assumed release. Context-window variants retain their label qualifiers.
+Only the native model's supported thinking levels are offered. Changing models
+retains a supported thinking choice and otherwise uses the new model's default.
+Discovery initializes a tool-free SDK control connection, without a user prompt,
+project settings, hooks, MCP servers or persisted conversation. Account identity
+and custody are checked before publishing the catalog; ordinary send admission
+still checks current authority. Failed discovery retains the last catalog (or the
+configured aliases before the first success) with a visible retry notice.
+
 ## Three distinct Claude account routes
 
 Dimitri's explicit requirement on 10 November 2026 is to preserve **Vertex,
@@ -158,6 +181,28 @@ accounts, so concurrent work/personal sessions never mutate the controller's
 global `CLAUDE_CONFIG_DIR`. Transcript parsing remains SDK-owned.
 
 ## Verification status
+
+### Model controls, 11 November 2026
+
+The account picker, account preferences and native metadata tests reuse existing
+fixtures. Native metadata tests mock only the SDK process/custody boundary, exercise
+the real catalog validation/projection, and submit no model prompt. Existing HTTP
+entry tests cover selected-account refresh and login revocation before delivery.
+The focused regression/design run passed 275 tests (one existing skip) in 10.87s;
+the HTTP entry file passed 66 tests in 3.57s outside the socket-restricted sandbox.
+Later focused additions are recorded in the PR validation. No full-suite runtime
+or CI cost delta has been measured locally.
+
+The existing intercepted `chat-model-settings` journey now switches between
+OpenAI and Claude, refreshes choices, selects thinking, switches back, and verifies
+retained settings and composer text. It adds no backend or full-app journey. All
+six theme/browser variants plus two browser-startup checks passed in 11.8s, one
+worker with a 2 GiB command-local Node heap. The final version-label rerun passed
+the same eight checks in 12.2s. Inspected [mobile dark](../design/assets/account-model-settings-mobile-dark.png)
+and [desktop light](../design/assets/account-model-settings-desktop-light.png)
+captures preserve the approved settings sheet, Mint/System and Teal/Georgia.
+Full builds and the broader browser matrix remain CI gates. No live subscription,
+model call, staging operation or deployment was performed.
 
 Onboarding implementation and offline verification were added on 10 November 2026
 following Dimitri's request in the originating implementation conversation. The

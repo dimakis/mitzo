@@ -108,6 +108,7 @@ export function runtimeModelAccounts(
     return {
       ...account,
       id: account.account.accountId,
+      configuredModels: account.models,
       models: route && profileEligible ? (route.models ?? account.models) : [],
       modelDiscovery: route
         ? (route.modelDiscovery ?? account.modelDiscovery)
