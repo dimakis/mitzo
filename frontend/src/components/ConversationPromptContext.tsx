@@ -284,7 +284,7 @@ export function ConversationPromptContext({
                 ) : null}
                 {forwarding.originalReview && (
                   <section aria-label="Original forward context">
-                    <small>Original forward recipients</small>
+                    <small>Original forward recipients: </small>
                     <strong>
                       {forwarding.originalRecipients.map((id) => names[id] ?? id).join(', ')}
                     </strong>

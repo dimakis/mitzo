@@ -9,7 +9,8 @@ import {
 } from '@mitzo/protocol';
 import { AUTH_LOST_EVENT, AUTH_RESTORED_EVENT } from '../lib/api-fetch';
 import { createBrowserId } from '../lib/browser-crypto';
-import { getChatDraft, saveChatDraft, type ChatDraft } from '../lib/chat-drafts';
+import { getChatDraft, type ChatDraft } from '../lib/chat-drafts';
+import { retainConversationJournal } from '../lib/conversation-journal';
 
 type Journal = NonNullable<ChatDraft['collaborationForward']>;
 
@@ -29,6 +30,9 @@ export function useConversationForwarding(options: {
   const { api, clientId, draftId, authScope, getVerifiedAuthScope, view, review, refresh } =
     options;
   const group = view?.collaborationId;
+  const latest = useRef(options);
+  latest.current = options;
+  const confirmationCurrent = useRef(false);
   const owner = useMemo(
     () => ({ api, clientId, draftId, authScope, group }),
     [api, clientId, draftId, authScope, group],
@@ -91,11 +95,9 @@ export function useConversationForwarding(options: {
   const visible = state.owner === owner && valid() ? state : { owner };
   const journal = visible.journal;
   const scoped = !!journal && journal.authScope === authScope && journal.collaborationId === group;
-  const persist = (next?: Journal) => {
-    const draft = draftId ? getChatDraft(draftId) : undefined;
-    if (!valid() || !draft || !saveChatDraft({ ...draft, collaborationForward: next }))
-      throw Error('Could not retain forwarding recovery. No new request was sent.');
-    publish({ journal: next });
+  const persist = async (next: Journal | undefined, fresh: () => boolean) => {
+    const retained = await retainConversationJournal(draftId, 'collaborationForward', next, fresh);
+    if (retained && fresh()) publish({ journal: retained.value });
   };
   const perform = (action: (signal: AbortSignal, fresh: () => boolean) => Promise<void>) => {
     if (!valid() || operation.current) return;
@@ -120,7 +122,11 @@ export function useConversationForwarding(options: {
         }
       });
   };
-  const observe = (record: Journal, result: CollaborationForwardRead) => {
+  const observe = async (
+    record: Journal,
+    result: CollaborationForwardRead,
+    fresh: () => boolean,
+  ) => {
     if (
       result.requestId !== record.input.selection.requestId ||
       JSON.stringify(result.selection) !== JSON.stringify(record.input.selection) ||
@@ -147,9 +153,9 @@ export function useConversationForwarding(options: {
           requestReply: false,
         },
       };
-      persist(next);
+      await persist(next, fresh);
     }
-    publish({ observation: result });
+    if (fresh()) publish({ observation: result });
     return next;
   };
   const prepare = () =>
@@ -214,9 +220,19 @@ export function useConversationForwarding(options: {
         }),
         confirmationAttempted: false,
       };
-      persist(record);
+      await persist(record, fresh);
+      if (!fresh()) return;
+      if (
+        !latest.current.reviewCurrent ||
+        latest.current.review !== review ||
+        latest.current.view?.membershipRevision !== review.expectedMembershipRevision ||
+        latest.current.view?.policySequence !== review.expectedPolicySequence
+      )
+        throw Error(
+          'The reviewed context or audience changed. Inspect it again before forwarding.',
+        );
       const result = await api.collaborations.prepareForward(group, clientId, input, signal);
-      if (fresh()) observe(record, result);
+      if (fresh()) await observe(record, result, fresh);
     });
   const check = () =>
     perform(async (signal, fresh) => {
@@ -233,8 +249,8 @@ export function useConversationForwarding(options: {
         throw Error(
           'The original preparation is not yet recorded. Check again; nothing was forwarded.',
         );
-      observe(journal, result);
-      if (result.state === 'confirmed') await refresh();
+      await observe(journal, result, fresh);
+      if (fresh() && result.state === 'confirmed') await refresh();
     });
   const matchesOriginal = (candidate: CollaborationPromptReviewResult | undefined) => {
     const review = candidate;
@@ -296,11 +312,23 @@ export function useConversationForwarding(options: {
     reviewedSelectionCurrent &&
     visible.observation?.state === 'prepared' &&
     view?.membershipRevision === journal.input.selection.target.expectedMembershipRevision;
+  confirmationCurrent.current = canConfirm;
   const confirm = () =>
     perform(async (signal, fresh) => {
       if (!canConfirm || !group || !clientId || !journal?.confirmation)
         throw Error('Check the original request and inspect its exact context before forwarding.');
-      persist({ ...journal, confirmationAttempted: true });
+      await persist({ ...journal, confirmationAttempted: true }, fresh);
+      if (!fresh()) return;
+      if (
+        !confirmationCurrent.current ||
+        latest.current.view?.policySequence !== view?.policySequence
+      ) {
+        // No POST occurred. Retain uncertainty only for an earlier ambiguous attempt.
+        if (!journal.confirmationAttempted) await persist(journal, fresh);
+        throw Error(
+          'The reviewed context or audience changed. Inspect it again before forwarding.',
+        );
+      }
       publish({ observation: undefined });
       await api.collaborations.confirmForward(group, clientId, journal.confirmation, signal);
       if (!fresh()) return;
@@ -311,8 +339,8 @@ export function useConversationForwarding(options: {
         signal,
       );
       if (!fresh()) return;
-      observe({ ...journal, confirmationAttempted: true }, result);
-      await refresh();
+      await observe({ ...journal, confirmationAttempted: true }, result, fresh);
+      if (fresh()) await refresh();
     });
   const clear = () => {
     if (
@@ -322,14 +350,10 @@ export function useConversationForwarding(options: {
       (journal?.confirmationAttempted && visible.observation?.state !== 'confirmed')
     )
       return;
-    try {
-      persist();
-      publish({ observation: undefined, originalReview: undefined, error: undefined });
-    } catch (cause) {
-      publish({
-        error: cause instanceof Error ? cause.message : 'Could not clear the forwarding receipt.',
-      });
-    }
+    perform(async (_signal, fresh) => {
+      await persist(undefined, fresh);
+      if (fresh()) publish({ observation: undefined, originalReview: undefined, error: undefined });
+    });
   };
   return {
     busy: !!visible.busy,

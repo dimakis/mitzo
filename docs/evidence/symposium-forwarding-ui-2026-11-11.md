@@ -27,6 +27,21 @@ focused recovery, context, frozen-artifact and design run passed 137 tests with
 one existing design skip. All 20 offline composer cases list successfully;
 listing is not browser execution or visual acceptance.
 
+The final durability correction uses one shared journal owner for forwarding,
+prompt delivery and Stop. It waits for the queued IndexedDB transaction and exact
+journal readback before issuing effects. Failed writes stay visible; authentication
+loss permanently cancels the pending operation even if the same login returns.
+Owner/context changes and Stop during persistence retire only the exact request
+proven not to have been sent. Forward confirmation rejected before POST remains
+discardable unless an earlier attempt was already uncertain.
+
+Real queued-disk regression cases failed before the correction. The final focused
+run passed 160 tests with one existing design skip: 50 hook cases, the production
+forwarding UI/application journey, and 109 design checks. Six selected TypeScript
+roots had zero diagnostics. Two independent read-only delta reviews found no
+remaining blockers. Full compilation, current-head hosted browser evidence and
+Centaur's final gate remain required; these local checks do not substitute for them.
+
 The real application journey covers the production React surface, authenticated
 application owner, exact Unicode/whitespace artifact bytes, response loss after
 durable confirmation, remount/read recovery, no duplicate forward and a later
