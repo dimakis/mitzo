@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.1039-apple-owner-sign-in';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.1040-apple-auth-recovery';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -40,7 +40,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/pages/Login.tsx':
     '70767bab7f59a813bce5f6f9bbd55ddd0fd8ea1ed274537e3408c88ce75dec44',
   '../../frontend/src/pages/__tests__/Login.apple.test.tsx':
-    '12bf82eab4dd2f04524836ea0629ae1fad729524596a6a20f3f9610253c3ff83',
+    '32600e75f35541104f52fa774cce89cde031dfd0b25c782208870201470efc21',
   '../../frontend/src/lib/__tests__/apple-sign-in.test.ts':
     '67f84ced3015602e23240413a7090f04b676d986422a6a6725565f43b25d48aa',
   '../../frontend/ios/App/App/AppleSignInBridge.swift':
