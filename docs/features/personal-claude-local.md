@@ -51,7 +51,9 @@ Switching accounts in an unsent chat restores that account's model and thinking
 choices on this browser. With no saved account choice, its configured first model
 and supported default thinking level seed the picker. Explicit new-chat defaults
 remain a separate action. Bound conversations retain their original account;
-loading or refreshing metadata never rewrites retained conversation intent.
+loading or refreshing metadata never rewrites retained conversation intent. If the
+selected execution environment cannot run the chosen account, its own settings
+remain visible and sending stays blocked until a compatible **Run on** is selected.
 
 Selecting personal Claude reads its native SDK model metadata under that account's
 isolated sign-in. **Refresh models** bypasses the selected account's metadata cache.

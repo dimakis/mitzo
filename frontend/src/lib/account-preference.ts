@@ -103,6 +103,7 @@ export function withAccountThinking(
 
 /** A user-selected account starts with its own settings, never another account's model. */
 export function accountModelPreference(account: Account): AccountSelection {
+  const models = account.models.length ? account.models : (account.configuredModels ?? []);
   let saved: AccountSelection | null = null;
   try {
     const value = JSON.parse(localStorage.getItem(ACCOUNT_SETTINGS_KEY) || '{}')?.[account.id];
@@ -118,9 +119,9 @@ export function accountModelPreference(account: Account): AccountSelection {
   const globalDefault = getDefaultAccountModel();
   saved ??= globalDefault?.accountId === account.id ? globalDefault : null;
   return withAccountThinking(
-    saved && account.models.some((model) => model.id === saved!.model)
+    saved && models.some((model) => model.id === saved!.model)
       ? saved
-      : { accountId: account.id, model: account.models[0]?.id ?? '' },
-    account,
+      : { accountId: account.id, model: models[0]?.id ?? '' },
+    { ...account, models },
   );
 }

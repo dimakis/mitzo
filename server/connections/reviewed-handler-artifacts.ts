@@ -2160,13 +2160,13 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/client-store.ts':
     '9353d2adffa430e30aca1910ba4c580efe40b8c8b8741c8a252558674330af24',
   '../../frontend/src/components/AccountModelPicker.tsx':
-    '316071135e32a23fe6b206bdb572c4bb79e72fafe6620e608e27301ab8a83729',
+    '91a21e3f55b04eda35fd1032927ce234c923a2b75752ddcdbcf7b61da4a2fb3a',
   '../../frontend/src/components/ChatAgentProfilePicker.tsx':
     '7efa0466b67598cf458c3e91b12042f56189747914a85d1040146b2bf6ae7155',
   '../../frontend/src/components/ChatExecutionPicker.tsx':
     '6efb121831e74a40fe2181409b8dde78524a06d7fb222d007fe212530bca30e4',
   '../../frontend/src/lib/account-preference.ts':
-    'dfc17ced3214dbf9c4dcf4fe21e0b6beda766c4eee964c7bd0dcf0f80f483721',
+    '977cb36f9753a7b4064e18566b30d07d176c7bb881a4e035ed6eb31437c83fdc',
   '../../frontend/src/lib/keyboard.ts':
     '1e4c48c258c5e1c73be9f9df03a0491499210b9c24baf2fc6d134de41a9c3008',
   '../../frontend/src/components/ChatInput.tsx':
@@ -2698,7 +2698,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/protocol/src/local-vertex-command.ts':
     '68c894b50473dff78d3c82ebab11d27b5f937a76a9b972248d1327b9e6b54d97',
   '../../frontend/src/lib/chat-runtime-route.ts':
-    '67200a639105f220125f90c9704360a272d09c01af6731ff4e8a29b929c03361',
+    '61256f36a2d2f6238b2552be86fbe352b32ee8252eb99ce840f7ef05ea92a1ce',
   '../../frontend/src/components/ShareButton.tsx':
     '3f43fa3098cd0fd83b80bab6c42877ccfddeeef80b9ab0a8ec4e058240a94411',
   '../../frontend/src/components/CodexQueueStatus.tsx':
@@ -2987,7 +2987,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/lib/briefing-registration.ts':
     'fbeb3c766c9ca38ad9dcad04f245c0db6bca4d269775e1e32f9392ba3ab15c46',
   '../../frontend/src/lib/__tests__/chat-runtime-route.test.ts':
-    '7b60a8b59f573a248d21dcca15275335746829a3a46791b152266c2d40b594b5',
+    'f4ec70e69f7173907a5a51cfe940c50a719008754d2d1490d36196a35ad6c439',
   '../__tests__/ordinary-local-responses-chat.test.ts':
     '32b92d84f17784cc7b6364e159f7f49c91acf21fb83a6f626f100cda765fcf3e',
   '../__tests__/ordinary-local-responses-dual-capabilities.test.ts':
@@ -3013,7 +3013,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../tests/offline/builtin-agent-picker.spec.ts':
     '613616b1e3917605d3b16f92eca6ba6250858a55649d879313c2387a7bacbd00',
   '../../tests/offline/multi-runtime-picker.spec.ts':
-    'eccf35d7add6c0552ed5428ed0d8436848eaac4fe7b00efb8cbf2427b1c042ae',
+    '39bea15bf865bac295d20167f9e351d7dae0f1fc93fe63be276d0885364be2b4',
   '../../tests/offline/repository-preparation-recovery.spec.ts':
     '971e477cbefc2d3a3ce30e42140c157123ae1d7912a8a864e9daee4519843c2a',
   '../__tests__/ordinary-repository-preparation-api.test.ts':
@@ -4162,5 +4162,5 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/ordinary-local-vertex-owned-runtime.test.ts':
     'd5e0376f33260603d398375be9c78c9a4597d5c96284677e6940d1f06836c3be',
   '../../docs/features/personal-claude-local.md':
-    'ba6b2d10ca8434257d7d96c91c5e2f12019f72105398520c4fe2f117f54725ef',
+    '566ce4b1eac8e00a28cde4d92fd8bb47ac02093bf7f17a82be30dabb82063f1a',
 });

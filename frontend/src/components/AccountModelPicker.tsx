@@ -43,6 +43,8 @@ export interface Account {
   id: string;
   label: string;
   modelDiscovery?: { stale: boolean };
+  /** Account defaults remain visible intent even when this environment has no route. */
+  configuredModels?: Account['models'];
   models: {
     id: string;
     label: string;
