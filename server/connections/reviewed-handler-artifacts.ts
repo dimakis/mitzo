@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.1025-telos-reviewed-level-normalization';
+  'v1.0.1026-telos-normalized-recovery-fixtures';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -1148,7 +1148,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../tests/offline/telos-source-navigation.spec.ts':
     'f30b0593aaf02e30ecac251d6951999727a367e3ef9cf461e1e9732602313441',
   '../../tests/offline/telos-source-approval.spec.ts':
-    'a6413e3b8c03d75602f734321e8382c6c177344a97370bb27146fe5e552dff58',
+    '42bfde2bb5a3a16f60a3eb239df25be384e813e6ccfb110047916c9a6eed9a80',
   '../../tests/offline/telos-role-setup.spec.ts':
     '59af9a6924da322463936e065f4807157eb3310cac58af4f613f190e941fb3c7',
   '../../tests/offline/telos-role-recovery.spec.ts':
@@ -1581,7 +1581,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../scripts/qualify-codex-native-permissions.mjs':
     '848148f0e305800ab30aa84899798c0b4034c9fe2f062045d8a5672cfc09ae59',
   '../__tests__/codex-chat-session.test.ts':
-    '480e2f2fd064c910bfbdf00d8dec5e405bb500987d590fb9d0c3aa95ab7d4dde',
+    '0cc72f911b11ac2defec7d6efa238f7c9eea60a5549bedfd40920cdbd0f97a2d',
   '../__tests__/codex-conversation.test.ts':
     'e099c15fdfac002a5a5f163ac9f4d95c89c995cf6bd88699fb38632bc5d6e536',
   '../__tests__/codex-native-approvals.test.ts':
