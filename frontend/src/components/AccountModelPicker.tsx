@@ -1,5 +1,11 @@
 import type { SessionRuntimeBindingV1 } from '@mitzo/protocol';
-import { getDefaultAccountModel, setDefaultAccountModel } from '../lib/account-preference';
+import {
+  getDefaultAccountModel,
+  setDefaultAccountModel,
+  accountModelPreference,
+  rememberAccountModel,
+  withAccountThinking as withThinking,
+} from '../lib/account-preference';
 import { SymposiumPersonalConnections } from './SymposiumPersonalConnections';
 import { AdviserSubscriptions } from './AdviserSubscriptions';
 import { UiIcon } from './UiIcon';
@@ -62,19 +68,6 @@ const catalogSchema = z.array(
     models: modelsSchema,
   }),
 );
-
-function withThinking(selection: AccountSelection, account: Account): AccountSelection {
-  const model = account.models.find((m) => m.id === selection.model);
-  if (selection.reasoningEffort === null) return selection;
-  const effort = model?.reasoningEfforts?.includes(selection.reasoningEffort ?? '')
-    ? selection.reasoningEffort
-    : model?.defaultReasoningEffort;
-  return {
-    accountId: selection.accountId,
-    model: selection.model,
-    ...(effort && model?.reasoningEfforts?.includes(effort) ? { reasoningEffort: effort } : {}),
-  };
-}
 
 /** Visible form labels belong to staged dialogs; inline chat controls keep their geometry. */
 function PickerField({
@@ -692,10 +685,11 @@ function SessionAccountModelPicker({
     const nextAccount = accounts.find((a) => a.id === id);
     if (!nextAccount || disabled || requiredSelection || lockAccountModel) return;
     setEditingAlias(false);
-    const next = withThinking(
-      { accountId: nextAccount.id, model: nextAccount.models[0].id },
-      nextAccount,
-    );
+    if (scope === 'chat' && !draftOnly) rememberAccountModel(selection, account);
+    const next =
+      scope === 'chat' && !draftOnly
+        ? accountModelPreference(nextAccount)
+        : withThinking({ accountId: nextAccount.id, model: nextAccount.models[0].id }, nextAccount);
     setDraftUnavailable(false);
     setNeedsConfirmation(false);
     setSelection(next);
@@ -704,6 +698,7 @@ function SessionAccountModelPicker({
   const changeModel = (id: string) => {
     if (disabled || requiredSelection || lockAccountModel) return;
     const next = withThinking({ accountId: selection.accountId, model: id }, account);
+    if (scope === 'chat' && !draftOnly) rememberAccountModel(next, account);
     setDraftUnavailable(false);
     setSelection(next);
     onChange(explicitSelection || needsConfirmation ? null : next);
@@ -711,6 +706,7 @@ function SessionAccountModelPicker({
   const changeThinking = (value: string) => {
     if (disabled) return;
     const next = { ...selection, reasoningEffort: value || null };
+    if (scope === 'chat' && !draftOnly) rememberAccountModel(next, account);
     setSelection(next);
     onChange(explicitSelection || needsConfirmation ? null : next);
   };
@@ -1177,24 +1173,32 @@ function ControlledAccountModelPicker({
             return;
           }
           const chosen = accounts.find((a) => a.id === id);
-          if (chosen)
-            (onAccountChange ?? onChange)({
-              accountId: id,
-              model: selection?.model ?? chosen.models[0]?.id ?? '',
-              reasoningEffort: selection?.reasoningEffort ?? null,
-            });
+          if (chosen) {
+            if (canSaveDefault && account && selection) rememberAccountModel(selection, account);
+            (onAccountChange ?? onChange)(
+              selection?.accountId === chosen.id ? selection : accountModelPreference(chosen),
+            );
+          }
         },
         pendingAccount ? `Confirm account: ${account!.label}` : undefined,
       )}
       {field('Model', selection?.model ?? '', account?.models ?? [], (id) => {
-        if (selection && id) onChange({ ...selection, model: id });
+        if (selection && id && account) {
+          const next = withThinking({ ...selection, model: id }, account);
+          if (canSaveDefault) rememberAccountModel(next, account);
+          onChange(next);
+        }
       })}
       {field(
         'Thinking',
         selection?.reasoningEffort ?? '',
         model?.reasoningEfforts?.map((id) => ({ id, label: id })) ?? [],
         (effort) => {
-          if (selection) onChange({ ...selection, reasoningEffort: effort || null });
+          if (selection) {
+            const next = { ...selection, reasoningEffort: effort || null };
+            if (canSaveDefault && account) rememberAccountModel(next, account);
+            onChange(next);
+          }
         },
       )}
       {defaultsControl !== undefined

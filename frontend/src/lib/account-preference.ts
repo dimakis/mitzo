@@ -1,6 +1,6 @@
 import { SessionRuntimeBindingV1Schema } from '@mitzo/protocol';
 import type { SessionRuntimeBindingV1 } from '@mitzo/protocol';
-import type { AccountSelection } from '../components/AccountModelPicker';
+import type { Account, AccountSelection } from '../components/AccountModelPicker';
 
 const KEY = 'mitzo-default-account-model';
 export function getDefaultAccountModel(): AccountSelection | null {
@@ -55,4 +55,72 @@ export function setDefaultAccountModel(
   } catch {
     /* Browser preferences are optional. */
   }
+}
+
+const ACCOUNT_SETTINGS_KEY = 'mitzo-account-model-settings';
+
+/** Only explicit edits update these hints; restored/locked intent stays authoritative. */
+export function rememberAccountModel(selection: AccountSelection, account: Account): void {
+  const model = account.models.find((entry) => entry.id === selection.model);
+  if (
+    selection.accountId !== account.id ||
+    !model ||
+    (selection.reasoningEffort && !model.reasoningEfforts?.includes(selection.reasoningEffort))
+  )
+    return;
+  try {
+    const saved = JSON.parse(localStorage.getItem(ACCOUNT_SETTINGS_KEY) || '{}');
+    localStorage.setItem(
+      ACCOUNT_SETTINGS_KEY,
+      JSON.stringify({ ...saved, [account.id]: selection }),
+    );
+  } catch {
+    // Optional browser preference: the current draft still owns the selected settings.
+  }
+}
+
+export function withAccountThinking(
+  selection: AccountSelection,
+  account: Account,
+): AccountSelection {
+  const model = account.models.find((entry) => entry.id === selection.model);
+  const effort =
+    selection.reasoningEffort === null
+      ? null
+      : model?.reasoningEfforts?.includes(selection.reasoningEffort ?? '')
+        ? selection.reasoningEffort
+        : model?.defaultReasoningEffort;
+  return {
+    accountId: selection.accountId,
+    model: selection.model,
+    ...(effort === null
+      ? { reasoningEffort: null }
+      : effort && model?.reasoningEfforts?.includes(effort)
+        ? { reasoningEffort: effort }
+        : {}),
+  };
+}
+
+/** A user-selected account starts with its own settings, never another account's model. */
+export function accountModelPreference(account: Account): AccountSelection {
+  let saved: AccountSelection | null = null;
+  try {
+    const value = JSON.parse(localStorage.getItem(ACCOUNT_SETTINGS_KEY) || '{}')?.[account.id];
+    if (
+      value?.accountId === account.id &&
+      typeof value.model === 'string' &&
+      (value.reasoningEffort == null || typeof value.reasoningEffort === 'string')
+    )
+      saved = value;
+  } catch {
+    // Missing/corrupt optional preferences fall back to this account's catalog.
+  }
+  const globalDefault = getDefaultAccountModel();
+  saved ??= globalDefault?.accountId === account.id ? globalDefault : null;
+  return withAccountThinking(
+    saved && account.models.some((model) => model.id === saved!.model)
+      ? saved
+      : { accountId: account.id, model: account.models[0]?.id ?? '' },
+    account,
+  );
 }
