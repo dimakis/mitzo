@@ -23,9 +23,12 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
-  '../../frontend/src/components/SessionActions.tsx': 'a3fa9b97cef33db35f9715eb85cd733760d022e03e087543bed127708cc1c54b',
-  '../../frontend/src/hooks/__tests__/conversation-ordering.test.tsx': '93f2b9be5c7136a697183f87939f8e3f00ce170bb84ace8b6cdb39c126b83ad7',
-  '../../frontend/src/pages/__tests__/SessionList.test.tsx': '2ca71eda210a16d69236e4a42b3f7c02a3fb55f39ce5fc25cb450a8dc117bb09',
+  '../../frontend/src/components/SessionActions.tsx':
+    'a3fa9b97cef33db35f9715eb85cd733760d022e03e087543bed127708cc1c54b',
+  '../../frontend/src/hooks/__tests__/conversation-ordering.test.tsx':
+    '93f2b9be5c7136a697183f87939f8e3f00ce170bb84ace8b6cdb39c126b83ad7',
+  '../../frontend/src/pages/__tests__/SessionList.test.tsx':
+    '2ca71eda210a16d69236e4a42b3f7c02a3fb55f39ce5fc25cb450a8dc117bb09',
   '../../frontend/src/components/ConversationUnreadDot.tsx':
     '76ac9cb44fedf5805948f3c4a032134fd32e33f7bc1f2a6e829bd3f3f552a47c',
   '../../frontend/src/hooks/__tests__/conversation-read-state.test.tsx':
@@ -1302,7 +1305,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/codex-borrowed-search.test.ts':
     '967cb447fd787e24f4308b125d21e8d9ba8f77c66abd7060fbddde6c7171e34f',
   '../__tests__/session-meta-visibility.test.ts':
-    '8c8fe56505ba95c169b47d9ac2870118415463f3b21a7388948fdcdbf3e25a80',
+    'ac6a7545a3e3a62fab9488dfdd0d910ccb2d4bdcc46e29407e8a4116ee2a0c46',
   '../session-overview.ts': '31c17661b41e6017a1e1fe3536688c202d71970eb93bee4233a36100f016464b',
   '../__tests__/credential-sdk-runtime-authority.test.ts':
     'fcb41461d1b95801d571f9228873628899e9f6a2fd648079f275c9d8d3a0362c',
