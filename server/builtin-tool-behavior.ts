@@ -66,7 +66,11 @@ export function isReadOnlyBuiltinToolCall(name: string, input: Record<string, un
  * Generic web/connection requests may target side-effecting endpoints. These
  * reviewed built-ins only inspect repository metadata, files, tool definitions
  * or bounded public conversation history. Search remains outside this contract. */
-export function isIntrinsicRecoveryRead(name: string): boolean {
+export function isIntrinsicRecoveryRead(name: string, input?: Record<string, unknown>): boolean {
+  // TaskExecution preserves the underlying GitHubRead contract. Require the
+  // exact operation from fresh native history; a wrapper name/hash alone does
+  // not qualify run, commit, or an unavailable historical request.
+  if (name === 'TaskExecution') return input?.operation === 'github_read';
   return [
     'GitHubRead',
     'DiscoverLocalRepository',

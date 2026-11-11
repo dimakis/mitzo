@@ -429,6 +429,7 @@ async function reconcileRetainedColdTurn(
   nativeStatus: 'interrupted' | 'completed' | 'failed',
   policyDrift = false,
   completionPhase = true,
+  uncertainGithubRead = false,
 ) {
   const f = await ownedRuntimeFixture(cleanups);
   const first = f.create();
@@ -485,12 +486,19 @@ async function reconcileRetainedColdTurn(
     },
   );
   const arguments_: Record<string, unknown> = grant
-    ? {
-        operation: 'run',
-        command: 'exit 1',
-        grantId: grant.id,
-        requestId: randomUUID(),
-      }
+    ? uncertainGithubRead
+      ? {
+          operation: 'github_read',
+          endpoint: '/repos/example/project/pulls/1',
+          grantId: grant.id,
+          requestId: randomUUID(),
+        }
+      : {
+          operation: 'run',
+          command: 'exit 1',
+          grantId: grant.id,
+          requestId: randomUUID(),
+        }
     : policyDrift
       ? { conversationId: 'registered-past-session' }
       : {
@@ -500,11 +508,21 @@ async function reconcileRetainedColdTurn(
         };
   const retainedResult = { content: 'Original operation failed.', isError: true };
   const runFingerprint = createHash('sha256')
-    .update(JSON.stringify(['Bash', { command: 'exit 1' }, original.workspace.directory!, 60000]))
+    .update(
+      JSON.stringify([
+        uncertainGithubRead ? 'GitHubRead' : 'Bash',
+        uncertainGithubRead
+          ? { endpoint: arguments_.endpoint, access: 'authenticated' }
+          : { command: 'exit 1' },
+        original.workspace.directory!,
+        60000,
+      ]),
+    )
     .digest('hex');
   if (taskStore && grant) {
     taskStore.begin(grant.id, id, String(arguments_.requestId), runFingerprint);
-    taskStore.finish(grant.id, id, String(arguments_.requestId), retainedResult);
+    if (!uncertainGithubRead)
+      taskStore.finish(grant.id, id, String(arguments_.requestId), retainedResult);
     taskStore.revoke(grant.id, grant.operatorId, id); // Past evidence is not renewed execution authority.
   }
   const identity = {
@@ -803,8 +821,20 @@ async function reconcileRetainedColdTurn(
   for (const [column, value] of nativeStatus !== 'completed'
     ? ([
         [
-          taskStore ? 'result_content' : policyDrift ? 'tool_name' : 'result_effect_outcome',
-          taskStore ? 'changed result' : policyDrift ? 'UnreviewedMutation' : 'unknown',
+          uncertainGithubRead
+            ? 'tool_name'
+            : taskStore
+              ? 'result_content'
+              : policyDrift
+                ? 'tool_name'
+                : 'result_effect_outcome',
+          uncertainGithubRead
+            ? 'UnreviewedMutation'
+            : taskStore
+              ? 'changed result'
+              : policyDrift
+                ? 'UnreviewedMutation'
+                : 'unknown',
         ],
         ['result_content', null],
         ['request_hash', 'f'.repeat(64)],
@@ -833,11 +863,13 @@ async function reconcileRetainedColdTurn(
       string,
       unknown
     >;
-    for (const [column, value] of [
-      ['result', null],
-      ['fingerprint', 'changed'],
-      ['session_id', 'foreign'],
-    ] as const) {
+    for (const [column, value] of uncertainGithubRead
+      ? []
+      : ([
+          ['result', null],
+          ['fingerprint', 'changed'],
+          ['session_id', 'foreign'],
+        ] as const)) {
       taskDb.prepare(`UPDATE task_execution_runs SET ${column}=?`).run(value);
       await expect(driver.reconcileRetainedEffects()).rejects.toThrow();
       expect(native.read(id, binding).recovery).toBe(1);
@@ -898,6 +930,10 @@ async function reconcileRetainedColdTurn(
   expect(f.events.getSendCommand(command.id)).toEqual(before.send);
   expect(f.events.getOrdinaryLocalCommandExecutionAdmission(command.id)).toEqual(before.admission);
   expect(db.prepare('SELECT * FROM codex_tools').all()).toEqual(before.tools);
+  if (uncertainGithubRead)
+    expect(taskStore!.runStatus(grant!.id, id, String(arguments_.requestId)).state).toBe(
+      'uncertain',
+    );
   expect(probe.dispatch).not.toHaveBeenCalled();
   expect(claims).not.toHaveBeenCalled();
   expect(
@@ -922,6 +958,9 @@ it.each([false, true])(
   'reconciles a failed capacity turn with settled receipts without replay (policy drift: %s)',
   (policyDrift) => reconcileRetainedColdTurn('failed', policyDrift, false),
 );
+
+it('recovers an interrupted TaskExecution GitHub read with an uncertain receipt without replay', () =>
+  reconcileRetainedColdTurn('interrupted', false, false, true));
 
 it.each(
   (['warm', 'cold'] as const).flatMap((retirement) =>
