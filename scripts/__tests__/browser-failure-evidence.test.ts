@@ -38,7 +38,7 @@ const workflow = load(
 };
 
 describe('browser failure evidence', () => {
-  it('installs each offline project engine while retaining both interaction engines', () => {
+  it('prepares each offline project engine while retaining both interaction engines', () => {
     const projects = offline.projects!.filter((p) => !p.name!.startsWith('browser-startup-'));
     const installs = workflow.jobs.offline.strategy?.matrix.include ?? [];
     expect([...new Set(installs.map((entry) => entry.project))]).toEqual(
@@ -51,13 +51,13 @@ describe('browser failure evidence', () => {
       );
     }
     expect(
-      workflow.jobs.offline.steps.find((step) => step.run?.startsWith('npx playwright install'))
-        ?.run,
-    ).toBe('npx playwright install --with-deps ${{ matrix.browser }}');
+      workflow.jobs.offline.steps.find((step) => step.uses === './.github/actions/ci-playwright')
+        ?.with?.browsers,
+    ).toBe('${{ matrix.browser }}');
     expect(
-      workflow.jobs.browser.steps.find((step) => step.run?.startsWith('npx playwright install'))
-        ?.run,
-    ).toBe('npx playwright install --with-deps webkit chromium');
+      workflow.jobs.browser.steps.find((step) => step.uses === './.github/actions/ci-playwright')
+        ?.with?.browsers,
+    ).toBe('webkit chromium');
   });
 
   it('isolates suite output and HTML reports so a later run cannot erase earlier failure evidence', () => {
@@ -79,11 +79,15 @@ describe('browser failure evidence', () => {
   });
 
   it.each([
-    ['browser', 'browser-tests', 'node scripts/ci-browser-run.mjs test:browser'],
+    [
+      'browser',
+      'browser-tests',
+      'bash scripts/ci-browser-container.sh node scripts/ci-browser-run.mjs test:browser',
+    ],
     [
       'offline',
       'offline-tests',
-      'node scripts/ci-browser-run.mjs test:ui:ci:prebuilt --project=${{ matrix.project }} --shard=${{ matrix.shard }}/${{ matrix.shards }}',
+      'bash scripts/ci-browser-container.sh node scripts/ci-browser-run.mjs test:ui:ci:prebuilt --project=${{ matrix.project }} --shard=${{ matrix.shard }}/${{ matrix.shards }}',
     ],
   ])(
     'uploads %s failure evidence immediately after its suite and keeps rerun attempts separate',
