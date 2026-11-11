@@ -20,6 +20,7 @@ esac
 browser_temp="$RUNNER_TEMP/ci-browser"
 mkdir -p "$browser_temp/home" "$browser_temp/tmp"
 name="mitzo-browser-${GITHUB_RUN_ID}-$$"
+docker_client_pid=''
 args=(run --rm --init --pull=never --ipc=host --name "$name"
   --user "$(id -u):$(id -g)"
   --volume "$GITHUB_WORKSPACE:$GITHUB_WORKSPACE"
@@ -43,10 +44,31 @@ for variable in CI GITHUB_ACTIONS GITHUB_SHA GITHUB_RUN_ID GITHUB_RUN_ATTEMPT GI
   args+=(--env "$variable")
 done
 cancel() {
-  trap - INT TERM
+  trap '' INT TERM
   local diagnostic="$RUNNER_TEMP/$name-cleanup.log"
+  # Retire the client before reconciling the owned name: an unfinished `run`
+  # could otherwise create/start the container after stop reports it absent.
+  # jobs covers cancellation between background launch and PID assignment.
+  local client_pid=${docker_client_pid:-$(jobs -pr)}
+  if [[ -n $client_pid ]]; then
+    if kill -0 "$client_pid" 2>/dev/null && ! kill -KILL "$client_pid" 2>"$diagnostic"; then
+      echo "CI_BROWSER_CLIENT_CLEANUP: failed to retire Docker client $client_pid" >&2
+      cat "$diagnostic" >&2
+    fi
+    local client_exit=0
+    wait "$client_pid" 2>"$diagnostic" || client_exit=$?
+    if [[ $client_exit == 127 ]]; then
+      echo "CI_BROWSER_CLIENT_CLEANUP: Docker client $client_pid could not be joined" >&2
+      cat "$diagnostic" >&2
+    fi
+  fi
   if ! docker stop --time 10 "$name" 2>"$diagnostic" && ! grep -Fq 'No such container' "$diagnostic"; then
     echo "CI_BROWSER_CONTAINER_CLEANUP: failed to stop $name after cancellation" >&2
+    cat "$diagnostic" >&2
+  fi
+  # Stop alone leaves a created, unstarted container available to a pending start.
+  if ! docker rm --force "$name" 2>"$diagnostic" && ! grep -Fq 'No such container' "$diagnostic"; then
+    echo "CI_BROWSER_CONTAINER_CLEANUP: failed to remove $name after cancellation" >&2
     cat "$diagnostic" >&2
   fi
   exit "$1"
@@ -56,7 +78,9 @@ trap 'cancel 143' TERM
 run_container() {
   # Waiting on a background CLI lets the shell handle cancellation immediately.
   docker "${args[@]}" "$image" "$@" &
-  wait "$!"
+  docker_client_pid=$!
+  wait "$docker_client_pid"
+  docker_client_pid=''
 }
 if [[ ${1:-} == --prepare ]]; then
   shift

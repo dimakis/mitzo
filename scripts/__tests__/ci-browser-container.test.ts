@@ -5,8 +5,18 @@ import { join, resolve } from 'node:path';
 import { afterEach, expect, it } from 'vitest';
 
 const roots: string[] = [];
+const clients: number[] = [];
 const script = resolve('scripts/ci-browser-container.sh');
 afterEach(() => roots.splice(0).forEach((root) => rmSync(root, { recursive: true, force: true })));
+afterEach(() => {
+  for (const pid of clients.splice(0)) {
+    try {
+      process.kill(pid, 'SIGKILL');
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ESRCH') throw error;
+    }
+  }
+});
 function fixture(docker: string) {
   const root = mkdtempSync(join(tmpdir(), 'ci-browser-container-'));
   roots.push(root);
@@ -57,7 +67,8 @@ it('stops its container promptly on cancellation and retains the signal exit', a
   const { env } = fixture(`
 case "$1" in
   run) echo $$ > "$TRACE.pid"; echo ready; exec sleep 60 ;;
-  stop) echo stopped > "$TRACE"; kill -TERM "$(cat "$TRACE.pid")" ;;
+  stop) echo stopped > "$TRACE" ;;
+  rm) echo removed >> "$TRACE" ;;
 esac
 `);
   const child = spawn('bash', [script, 'node', 'test.js'], { env });
@@ -68,5 +79,27 @@ esac
   });
   child.kill('SIGTERM');
   expect(await finished).toBe(143);
-  expect(readFileSync(env.TRACE, 'utf8').trim()).toBe('stopped');
+  expect(readFileSync(env.TRACE, 'utf8').trim()).toBe('stopped\nremoved');
+});
+
+it('retires the Docker client when cancelled before container creation', async () => {
+  const { env } = fixture(`
+case "$1" in
+  run) echo $$ > "$TRACE.pid"; echo creating; exec sleep 60 ;;
+  stop) echo stopped > "$TRACE"; echo 'No such container' >&2; exit 1 ;;
+  rm) echo removed >> "$TRACE"; echo 'No such container' >&2; exit 1 ;;
+esac
+`);
+  const child = spawn('bash', [script, 'node', 'test.js'], { env });
+  const finished = new Promise<number | null>((resolve) => child.once('exit', resolve));
+  await new Promise<void>((resolve, reject) => {
+    child.once('error', reject);
+    child.stdout.once('data', () => resolve());
+  });
+  const clientPid = Number(readFileSync(`${env.TRACE}.pid`, 'utf8').trim());
+  clients.push(clientPid);
+  child.kill('SIGTERM');
+  expect(await finished).toBe(143);
+  expect(() => process.kill(clientPid, 0)).toThrowError(expect.objectContaining({ code: 'ESRCH' }));
+  expect(readFileSync(env.TRACE, 'utf8').trim()).toBe('stopped\nremoved');
 });

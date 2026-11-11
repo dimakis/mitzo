@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.1047-claude-labels-browser-custody';
+  'v1.0.1048-claude-browser-cancellation';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -4133,9 +4133,9 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../.github/actions/ci-playwright/action.yml':
     '1c6e7a91b5e7363c00c224ab10739bfc73e0a027c9e7b9508af620d96321b6d1',
   '../../scripts/ci-browser-container.sh':
-    '7e1607396f3df512ef7c58c161f499d2be22d0d9b90ddaec01d8f818e4aadfa0',
+    'a7f55378f5b2b8f60f1c9e46eeaac6ced02733bc3a4a693e8de9a94474939c66',
   '../../scripts/__tests__/ci-browser-container.test.ts':
-    '9c858438e528dede65f0e6f747846eb7faa61d4f5930eadcbb3bf3f353e2da80',
+    '20a46f5c88be16d39dbd859b3059eab7d8d405306d601c8c92642559ddc46a0d',
   '../../.github/actions/ci-native-fixture/action.yml':
     'f8c24df3203636c7292fa1d0d8994ee5b9db53301c49fe43eab3e355907b6f05',
   '../../.github/actions/ci-node/action.yml':
