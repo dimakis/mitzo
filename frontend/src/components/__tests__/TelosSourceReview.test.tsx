@@ -12,6 +12,8 @@ import { MemoryRouter } from 'react-router-dom';
 import type { ReactElement } from 'react';
 import { approvalAction, queryApprovalAction, findApprovalAction } from './approval-action-helper';
 import { PermissionBanner } from '../PermissionBanner';
+import { NotificationApprovalActions } from '../NotificationApprovalActions';
+import { RequestDetail } from '../../pages/NotificationsView';
 import { subscribeTelosSourceSaves } from '../../lib/telos-source-updates';
 
 const render = (ui: ReactElement) => baseRender(ui, { wrapper: MemoryRouter });
@@ -121,6 +123,40 @@ beforeEach(() => {
   });
 });
 afterEach(cleanup);
+
+it('keeps source review at one owner when its Inbox entry and inspector coexist', async () => {
+  const item = {
+    id: 'permission:review-permission',
+    kind: 'approval' as const,
+    title: 'Save Home studio',
+    body: 'Planning conversation',
+    permId: props.permId,
+    sessionId: props.sessionId,
+    createdAt: Date.now(),
+    readAt: null,
+    resolution: null,
+    resolvedAt: null,
+    request: props,
+  };
+  const onRespond = vi.fn();
+  const view = render(
+    <NotificationApprovalActions item={item} busy={false} onRespond={onRespond} />,
+  );
+  const link = screen.getByRole('link', { name: 'Review source' });
+  expect(link.closest('.operation-header')).toBeTruthy();
+  expect(link.getAttribute('href')).toBe('/inbox?notice=permission%3Areview-permission');
+  expect(api.getSourcePermission).not.toHaveBeenCalled();
+  view.rerender(
+    <>
+      <NotificationApprovalActions item={item} busy={false} onRespond={onRespond} />
+      <RequestDetail item={item} busy={false} onRespond={onRespond} />
+    </>,
+  );
+  await screen.findByText('The agreed studio brief.');
+  expect(api.getSourcePermission).toHaveBeenCalledTimes(1);
+  expect(screen.getAllByRole('button', { name: 'Approve once' })).toHaveLength(1);
+  expect(onRespond).not.toHaveBeenCalled();
+});
 
 it('requests a revision with feedback while preserving the draft and requiring a fresh proposal to save', async () => {
   api.getSourcePermission.mockResolvedValueOnce({

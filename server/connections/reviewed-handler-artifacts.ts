@@ -2916,7 +2916,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/pages/NotificationsView.tsx':
     '5c0051d25ffc84b1e2121bb5962acdf268bc7c031f60c1077cb0f6c381fd6463',
   '../../frontend/src/components/NotificationApprovalActions.tsx':
-    'fb1891f1670c6bb3b31e4266ba4cf00eea4c3b14a0dee95a96fb0592681cfa10',
+    '9b5a426a893741ec936da2eeb5c8ce4ac3774a132211801263b720d76831554c',
   '../../frontend/src/pages/__tests__/UnifiedInboxView.test.tsx':
     '3d7e1c63e1d57e95dfd838e33dde01b81e33c8bab74018d83ed11da6e9e6f5a8',
   '../../frontend/vite.config.ts':
@@ -3543,7 +3543,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/native-host-operator-lifetime.test.ts':
     'f7f336335995900d993b79386661f1e89b9bfd98c93c6a4eea9c20ed28d2ff0b',
   '../../frontend/src/components/__tests__/TelosSourceReview.test.tsx':
-    '1c77b3093fd88503f8dba2c2ed231592fe6b35275dcfb1d5455a83bbca87afa0',
+    '5d6163aead415c62da454a241c894484f98e166f4f9ff114022c13e1734ec358',
   '../../frontend/src/hooks/__tests__/useDraft.test.ts':
     '41139a8559934b719a7ca08ae285c16baac451655a499e7d43be9f4203a0887c',
   '../../frontend/src/hooks/__tests__/useNewChatDraft.test.tsx':

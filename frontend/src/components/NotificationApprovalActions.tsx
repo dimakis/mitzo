@@ -38,6 +38,23 @@ export function NotificationApprovalActions({
         <p>The live request is unavailable here. Review its current scope in the session.</p>
       </OperationCard>
     );
+  if (presentation === 'entry' && item.request.reviewKind === 'telos_source')
+    return (
+      <OperationCard
+        title={item.title}
+        kind="Source review"
+        icon="work"
+        scope={item.body}
+        pending
+        actions={
+          <Link className="operation-primary" to={`/inbox?notice=${encodeURIComponent(item.id)}`}>
+            Review source
+          </Link>
+        }
+      >
+        <p>Review the exact source selection before saving.</p>
+      </OperationCard>
+    );
   return (
     <div
       className="notification-approval-controls"

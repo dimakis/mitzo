@@ -36,6 +36,11 @@ expired records expose no approval actions. Historical question prompts remain
 readable. Existing nested native-child inspection and native Watch review keep
 their separate approved contracts.
 
+Source-review entries keep Review source in the top header and open the exact
+Inbox inspector. Only that inspector mounts the source-selection controller, so
+the entry and inspector cannot hold competing previews of the same pending save.
+The coexistence regression verifies one owner read and one save control.
+
 ## Validation as of 11 November 2026
 
 Focused checks cover top actions, all generic tool families, exact response
