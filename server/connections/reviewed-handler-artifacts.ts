@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.1056-symposium-guide';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.1057-symposium-durability';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -22,10 +22,18 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
+  '../../frontend/src/lib/conversation-journal.ts':
+    'ae4df54cc6b330cd85e2d7d09262705b3ab10921178d06d83e39399e6c890b59',
+  '../../frontend/src/hooks/__tests__/durable-chat-storage.ts':
+    '25f5533cf35bb98d2bc24e7dec170924d52123323d0bce9c23a11f5542aea104',
+  '../../frontend/src/hooks/__tests__/useConversationSending.durability.test.tsx':
+    'f0c70761820bc7757e29333a5b69016bb162c0a8d24c6a7541bc50b73978181b',
+  '../../docs/evidence/symposium-forwarding-ui-2026-11-11.md':
+    '160b7f429e0a507f6dd29acb5600541b098b1705d0aed781372c939f56977945',
   '../../frontend/src/hooks/useConversationForwarding.ts':
-    '31939452a2b26e1090077d45414ea1b38c86fc8d928e7902665632b4259cb0d8',
+    '3a54c5e7d44fd7b48d64a78c99b96c9395feccea82830d9eb14761a1f60d86e3',
   '../../frontend/src/hooks/__tests__/useConversationForwarding.test.tsx':
-    '806c0ca374e941af924f54acc19ab747e4dc651b1d92f570f976180f28fc40bf',
+    '227999a51661c6f8f0cd1615d47a3be77cd8f0b9f166bef89122dd344bfee735',
   '../__tests__/collaboration-forward-ui.test.tsx':
     '697c23e6bc71c68f58fe5367b85096317c4eea4d97c8b8ee3b0a43787aedf823',
   '../__tests__/collaboration-application-forwarding.test.ts':
@@ -373,7 +381,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/hooks/__tests__/useConversationSending.test.tsx':
     '2d8a00374b236ad7526f74ed0e376972e5adc67cec3a2832f1e095642f0d7262',
   '../../frontend/src/hooks/useConversationSending.ts':
-    '1533106c523ad57ff389036fc55f5ead7e37fdf0da8aa6159e6a516657277396',
+    'a3f30cfa83299782d008f86348e7f30bd1793f8345ba2ce57485d957ab7719c9',
   '../__tests__/collaboration-application-ui.test.tsx':
     '3511cb87d6dba5d651188f12e91e1ff243b23fb8a989e2592fbf1f19ba5f1ce3',
   '../__tests__/fixtures/symposium-recording-runtime.ts':
@@ -385,7 +393,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../docs/evidence/symposium-integration-acceptance.md':
     '576918c0c6d980938e2468a459740bfb814f14275326ebac732ab8d361b5cee0',
   '../../docs/features/symposium.md':
-    '5ac1ecdc6f323343d4dc35742765814783d8d5ddc596bae51462e16582273fa4',
+    'ed9933ac37737e66d1cc72c32b49d89071848121aa741354552f0552dd294654',
   '../repository-capability-identity.ts':
     '2e35f24342d36e21f6c559afa93758f9ef83a2e3e435eda6d46e1a6101d16392',
   '../task-capability-consent.ts':

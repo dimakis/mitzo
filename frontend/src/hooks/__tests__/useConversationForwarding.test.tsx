@@ -14,6 +14,8 @@ import { AUTH_LOST_EVENT, AUTH_RESTORED_EVENT } from '../../lib/api-fetch';
 import * as drafts from '../../lib/chat-drafts';
 import { useConversationForwarding } from '../useConversationForwarding';
 import { useDraft } from '../useDraft';
+import { chatStorage } from '../../lib/large-chat-storage';
+import { durableChatStorage as durableStorage } from './durable-chat-storage';
 
 afterEach(() => {
   cleanup();
@@ -129,6 +131,91 @@ function fixture() {
   };
   return { api, options, mount, ready, draft, prepare, observe, read, confirm, send };
 }
+
+for (const phase of ['prepare', 'confirm'] as const)
+  it.each(['commit', 'reject', 'auth loss', 'unmount', 'policy change'] as const)(
+    `waits for durable ${phase} recovery before POST, including %s`,
+    async (outcome) => {
+      const storage = await durableStorage();
+      const f = fixture();
+      await chatStorage.flush();
+      const h = f.mount();
+      if (phase === 'confirm') await f.ready(h);
+      let release!: () => void;
+      let reject!: (error: Error) => void;
+      const gate = new Promise<void>((resolve, fail) => {
+        release = resolve;
+        reject = fail;
+      });
+      let pending = false;
+      storage.gate(async (record) => {
+        const saved = JSON.parse(record.value ?? 'null')?.collaborationForward;
+        if (!pending && saved && (phase === 'prepare' || saved.confirmationAttempted)) {
+          pending = true;
+          await gate;
+        }
+      });
+      const post = phase === 'prepare' ? f.prepare : f.confirm;
+      act(() => h.result.current[phase]());
+      await waitFor(() => expect(pending).toBe(true));
+      try {
+        expect(post).not.toHaveBeenCalled();
+        if (outcome === 'auth loss') act(() => window.dispatchEvent(new Event(AUTH_LOST_EVENT)));
+        if (outcome === 'unmount') h.unmount();
+        if (outcome === 'policy change')
+          h.rerender({
+            ...f.options,
+            view: { ...f.options.view, policySequence: f.options.view.policySequence + 1 },
+          });
+        await act(async () => {
+          if (outcome === 'reject') reject(Error('IndexedDB transaction aborted'));
+          else release();
+        });
+        if (outcome === 'commit') {
+          await waitFor(() => expect(post).toHaveBeenCalledTimes(1));
+          await waitFor(() => expect(h.result.current.busy).toBe(false));
+          const original = drafts.getChatDraft(f.draft.id)!.collaborationForward!;
+          expect(original.confirmation).toBeDefined();
+          expect(h.result.current.error).toBeUndefined();
+          h.unmount();
+          await storage.reopen();
+          expect(drafts.getChatDraft(f.draft.id)!.collaborationForward).toEqual(original);
+          const restored = f.mount();
+          act(() => restored.result.current.check());
+          await waitFor(() => expect(f.observe).toHaveBeenCalled());
+          await waitFor(() =>
+            expect(restored.result.current.observation?.state).toBe(
+              phase === 'prepare' ? 'prepared' : 'confirmed',
+            ),
+          );
+          expect(f.observe.mock.calls.at(-1)![1]).toBe(original.input.selection.requestId);
+          expect(post).toHaveBeenCalledTimes(1);
+        } else {
+          if (outcome === 'reject')
+            await waitFor(() => expect(h.result.current.error).toContain('Could not retain'));
+          else if (outcome === 'policy change') {
+            await waitFor(() => expect(h.result.current.error).toContain('changed'));
+            expect(h.result.current.canClear).toBe(true);
+            expect(
+              drafts.getChatDraft(f.draft.id)?.collaborationForward?.confirmationAttempted,
+            ).toBe(false);
+          } else
+            await act(async () => {
+              await chatStorage.flush();
+            });
+          expect(post).not.toHaveBeenCalled();
+          if (outcome !== 'unmount') h.unmount();
+          await storage.reopen();
+          const saved = drafts.getChatDraft(f.draft.id)!;
+          expect(saved.text).toBe('Unsent prompt remains intact');
+          if (outcome === 'reject')
+            expect(saved.collaborationForward?.confirmationAttempted).not.toBe(true);
+        }
+      } finally {
+        release();
+      }
+    },
+  );
 
 it('forwards only inspected selectors and versions, preserving the draft without requesting a reply', async () => {
   const f = fixture();

@@ -48,8 +48,9 @@ a fast external reply with no local request journal or manual refresh.
 Offline application evidence covers two independent same-account sessions,
 partial failure, an explicit selected retry and uncertainty after reload. Retained
 desktop/mobile light/dark responder renders were inspected. Per-prompt reviewed
-context, saved-artifact selection, forwarding and personal Claude remain in the
-dependent landing sequence #1281, #1282, #1284 and #1289. Each successor must be
+context #1281 is accepted at main `0b8b94f1dd6519f7fcfb5b9eafdb352f03dc475e`.
+Saved-artifact selection, forwarding and personal Claude remain in the
+dependent landing sequence #1282, #1284 and #1289. Each successor must be
 integrated and qualified against actual accepted main. Broader milestone
 qualification remains open. No deployment or live inference is qualified.
 
