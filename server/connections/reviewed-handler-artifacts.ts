@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.1048-telos-delegation-diagnostics';
+  'v1.0.1049-ordinary-context-transition-fence';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -669,6 +669,10 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../local-session-removal.ts': '6ac2695a89153024b6898601d62a45731ff49993a2d0b604e1f58962388a1d16',
   '../../packages/protocol/src/session-removal-store.ts':
     'df2ac3cc7f3ac4b8d3b6483b88abcd8f126f15e8b21d6b52ce3bac8b98eba685',
+  '../../packages/protocol/src/ordinary-context-transition-store.ts':
+    '5e2a53f864fae19c9a06de3321518fd79d28cb2f234b1ecf57ff1b77ac720ab3',
+  '../../packages/protocol/__tests__/ordinary-context-transition-store.test.ts':
+    'c9d0b690d2655937d129c5c56120e88060a98b2faf07818184d234de76bb6561',
   '../__tests__/session-resource-removal.test.ts':
     '6d158e1c3b8a82ed54ed8512cc849fd2916d48bcf6c84e72f7ec7000985611a1',
   '../__tests__/session-removal-runtime.test.ts':
