@@ -111,6 +111,76 @@ it('bounds a stalled database open and closes its late handle without replacing 
   }
 });
 
+it.each(['index', 'legacy payload'] as const)(
+  'retires a stalled %s read after opening and ignores its late completion on retry',
+  async (stage) => {
+    vi.useFakeTimers();
+    let stalled = true;
+    let legacyValue = 'Retained draft';
+    const pending: { oncomplete?: () => void; abort: ReturnType<typeof vi.fn> }[] = [];
+    const storage = fixture();
+    if (stage === 'legacy payload') storage.disk.set('draft', 'mitzo-large-chat:v1:payload');
+    const transaction = vi.fn(() => {
+      const tx: {
+        oncomplete?: () => void;
+        abort: ReturnType<typeof vi.fn>;
+        objectStore?: () => object;
+      } = {
+        abort: vi.fn(),
+      };
+      const read = (kind: string, result: unknown) => {
+        if (stalled && kind === stage) pending.push(tx);
+        else queueMicrotask(() => tx.oncomplete?.());
+        return { result };
+      };
+      tx.objectStore = () => ({
+        getAll: () => read('index', []),
+        get: () => read('legacy payload', legacyValue),
+      });
+      return tx;
+    });
+    vi.stubGlobal('window', new EventTarget());
+    vi.stubGlobal('localStorage', storage.storage);
+    vi.stubGlobal('indexedDB', {
+      open: () => {
+        const request: { result: object; onsuccess?: () => void } = { result: { transaction } };
+        queueMicrotask(() => request.onsuccess?.());
+        return request;
+      },
+    });
+    vi.stubGlobal('IDBKeyRange', { bound: () => ({}) });
+    vi.stubGlobal('BroadcastChannel', undefined);
+    vi.resetModules();
+    try {
+      const { initializeChatStorage, chatStorage } = await import('../large-chat-storage');
+      const result = vi.fn();
+      const first = initializeChatStorage().then(() => result('success'), result);
+      await vi.advanceTimersByTimeAsync(15_000);
+      expect(result).toHaveBeenCalledWith(
+        expect.objectContaining({ message: expect.stringMatching(/timed out/) }),
+      );
+      await first;
+      expect(pending[0].abort).toHaveBeenCalledOnce();
+      const lateComplete = pending[0].oncomplete!;
+      stalled = false;
+      legacyValue = 'Fresh recovered draft';
+      const retry = chatStorage.recover();
+      await vi.advanceTimersByTimeAsync(0);
+      await retry;
+      lateComplete();
+      await vi.advanceTimersByTimeAsync(0);
+      expect(result).toHaveBeenCalledOnce();
+      if (stage === 'legacy payload') {
+        expect(chatStorage.getItem('draft')).toBe('Fresh recovered draft');
+        expect(storage.disk.get('draft')).toBe('mitzo-large-chat:v1:payload');
+      }
+    } finally {
+      vi.unstubAllGlobals();
+      vi.useRealTimers();
+    }
+  },
+);
+
 function fixture() {
   const disk = new Map<string, string>();
   const blobs = new Map<string, string>();

@@ -1,4 +1,5 @@
 import { createBrowserId } from './browser-crypto';
+import { readChatStorage } from './chat-storage-read';
 import { createIndexedChatDisk } from './indexed-chat-disk';
 import { APP_FOREGROUND_EVENT } from './app-lifecycle-events';
 
@@ -308,6 +309,7 @@ async function operation<T>(
   run: (store: IDBObjectStore) => IDBRequest<T>,
 ): Promise<T> {
   const db = await openDatabase();
+  if (mode === 'readonly') return readChatStorage(db, run);
   return new Promise((resolve, reject) => {
     const transaction = db.transaction('payloads', mode);
     const request = run(transaction.objectStore('payloads'));

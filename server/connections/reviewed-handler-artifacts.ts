@@ -1160,8 +1160,10 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     '3182f33a70edf28862c55c5dc5462ecf3618351f179cfed4f7b7cf85ddd07d82',
   '../../frontend/src/lib/__tests__/indexed-chat-disk.test.ts':
     '951db9581ed658fc261266880eca5bc35626249749896c7ff20a06fa59c46208',
+  '../../frontend/src/lib/chat-storage-read.ts':
+    '141ec4cf9ccf6d0fad61542ff34ef9cc04d1a7b93d6fa3a860f4299b77ccc206',
   '../../frontend/src/lib/indexed-chat-disk.ts':
-    '0d2fa4d41964218696e06f3879f93166e4452890aa3c676310b35509f5716ec1',
+    '8033c3340ecce06f0fea6b5efb045f75bcb3bb97c2e12e281d68744d14dd1bf8',
   '../../tests/integration/telos-s9/integrated-candidate/joined-role-setup-ready.test.ts':
     'a6eadeddc0900a46aa634afe41f51d78bef31b997583cc798f18b23a969e320c',
   '../../scripts/ci-prepared-consumers.mjs':
@@ -1235,9 +1237,9 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/chat-command-json.test.ts':
     'f5069c01f2b93cbaf32b4a720e948c3eb96a6b7c47ac74a89843383c09476a3e',
   '../../frontend/src/lib/large-chat-storage.ts':
-    '7da7e4394d6e667ed5b252092fe97b96668b50fb0e3075c5178696cae1cc85ab',
+    '1e36c2869568903abaa5b1694e7a20e69147fbcda3a41de55f1155e5710de943',
   '../../frontend/src/lib/__tests__/large-chat-storage.test.ts':
-    'c8d30ee2d885d85a7adfdd6c20ff24046aed73123ca97a9eb893954935ab58c5',
+    '199eb6d9f3b11c7ce57c6bf8ea354849831941e6cb6d9d43d8bd139ae13df7cb',
   '../../frontend/src/render-app.tsx':
     'ee2bdd5da0ff5e7fe15d8e32f9ebc9c21fab60c5d7c2d6a9189336dd9a0d81aa',
   '../../tests/fixtures/large-chat-storage.ts':

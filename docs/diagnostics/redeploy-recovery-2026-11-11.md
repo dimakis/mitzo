@@ -23,6 +23,7 @@ remote `server.url`). Redeploying the Mac server does not update that bundle.
 | State/boundary                                         | Behavior and recovery                                                                                   | Evidence/action                                                                                                          |
 | ------------------------------------------------------ | ------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
 | Database opening                                       | Must settle before app initialization; a failed attempt must permit another open                        | Fixed missing 15-second open deadline, synchronous-failure cache invalidation and ownership of late successful opens     |
+| Database read stalls after opening                     | Read-only hydration must settle and release its cached attempt; late results cannot overwrite a retry   | Added shared 15-second read deadline for index and legacy payload reads, best-effort abort and late completion fence     |
 | Database connection closed/version changed             | A closed handle cannot remain the shared connection                                                     | Fixed cache retirement; close a superseded version before reopening                                                      |
 | Saved queue unreadable (`blocked`)                     | Keep original bytes; local Retry rehydrates and validates before any command can be sent                | Fixed disabled mobile/desktop Retry, missing async hydration hook and offline store gate                                 |
 | Invalid persisted command                              | No replacement command, clearing or automatic resend                                                    | Preserved fail-closed behavior; fixed sign-out persisting an empty in-memory queue over unreadable storage               |
@@ -46,7 +47,10 @@ remote `server.url`). Redeploying the Mac server does not update that bundle.
   execution. Follow-up transport/auth/startup/design pass: 321 passed, one existing
   CI-base-only design check skipped, 12.32 s total; 8.05 s test execution. These
   selections overlap and must not be added as unique coverage.
-- Final database tests: 21 passed, 0.963 s total, 0.399 s test execution.
+- Local review identified a separate stalled transaction after a successful open.
+  Two parameterized consumer regressions failed before the fix; the final shared
+  read helper and existing storage fixtures passed 55 tests in 1.72 s total,
+  0.951 s test execution. Read-only recovery leaves write/CAS behavior unchanged.
 - Workspace package typecheck, frontend typecheck/build, touched-source lint and
   reviewed-source fingerprint check passed.
 - Reused the existing short-viewport reviewed-launch browser journey for the
