@@ -1389,7 +1389,9 @@ it('switches to account-specific settings, restores them, and normalizes thinkin
       <AccountModelPicker
         sessionId={null}
         preferredModel="luna"
-        onChange={onChange}
+        onChange={(next) => {
+          if (next) onChange(next);
+        }}
         controlled={{ accounts, selection, onChange }}
       />
     );
