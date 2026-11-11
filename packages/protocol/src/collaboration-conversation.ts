@@ -134,6 +134,16 @@ export const CollaborationApplicationReviewInputSchema = z.strictObject({
 export type CollaborationApplicationReviewInput = z.infer<
   typeof CollaborationApplicationReviewInputSchema
 >;
+/** Existing participant selectors only; settings and source bytes remain host-owned. */
+export const CollaborationPromptReviewInputSchema = z.strictObject({
+  selection: CollaborationSnapshotSelectionSchema,
+  recipientSessionIds: ids.refine((value) => value.length > 0),
+  expectedPolicySequence: sequence,
+});
+export const CollaborationPromptReviewRequestSchema = CollaborationPromptReviewInputSchema.extend({
+  clientId: id,
+});
+export type CollaborationPromptReviewInput = z.infer<typeof CollaborationPromptReviewInputSchema>;
 /** Transport correlation only; the server checks its existing live login binding. */
 export const CollaborationApplicationReviewRequestSchema =
   CollaborationApplicationReviewInputSchema.extend({ clientId: id });
@@ -455,6 +465,16 @@ export const CollaborationApplicationReviewResultSchema = z.strictObject({
 export type CollaborationApplicationReviewResult = z.infer<
   typeof CollaborationApplicationReviewResultSchema
 >;
+export const CollaborationPromptReviewResultSchema = z.strictObject({
+  snapshot: CollaborationSnapshotSchema,
+  recipientSessionIds: ids,
+  settings: z.record(id, CollaborationSettingsSchema),
+  expectedMembershipRevision: sequence,
+  expectedPolicySequence: sequence,
+  requiresReview: z.boolean(),
+  artifactLabels: CollaborationApplicationReviewResultSchema.shape.artifactLabels,
+});
+export type CollaborationPromptReviewResult = z.infer<typeof CollaborationPromptReviewResultSchema>;
 export const CollaborationJoinInputSchema = z.strictObject({
   ...request,
   name: z.string().trim().min(1).max(100),

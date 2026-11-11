@@ -17,6 +17,67 @@ afterEach(() => {
   localStorage.clear();
   sessionStorage.clear();
 });
+
+it('consumes an exact prompt attachment after observing a lost accepted receipt without repeating delivery', async () => {
+  const view = sharedConversationView();
+  const draft = createChatDraft();
+  saveChatDraft({ ...draft, text: 'Reviewed prompt' });
+  const snapshot = { snapshotId: uuid(94), sha256: 'a'.repeat(64) };
+  const api = new CollaborationApiClient(vi.fn());
+  vi.spyOn(api, 'recipientReadiness').mockImplementation(async (_group, sessionId) => ({
+    collaborationId: view.collaborationId,
+    sessionId,
+    membershipRevision: view.membershipRevision,
+    policySequence: view.policySequence,
+    ready: true,
+    reason: null,
+  }));
+  vi.spyOn(api, 'send').mockRejectedValue(Error('Accepted response lost'));
+  const observed = vi.spyOn(api, 'observeSend').mockImplementation(async (_group, input) => ({
+    message: {
+      ...sharedPrompt,
+      text: input.text,
+      snapshot,
+      responders: ['architect'],
+      deliveries: [sharedPrompt.deliveries[0]],
+    },
+    terminal: true,
+  }));
+  const accepted = vi.fn((input) =>
+    expect(getChatDraft(draft.id)!.collaborationSend!.input).toEqual(input),
+  );
+  const proof = () => 'login';
+  const refresh = async () => view;
+  const hook = renderHook(() =>
+    useConversationSending({
+      api,
+      view,
+      draftId: draft.id,
+      authScope: 'login',
+      getVerifiedAuthScope: proof,
+      responders: { kind: 'selected', sessionIds: ['architect'] },
+      refresh,
+      snapshot,
+      onAccepted: accepted,
+    }),
+  );
+  await waitFor(() => expect(hook.result.current.disabledReason).toBeUndefined());
+  await act(async () => {
+    expect(await hook.result.current.send('Reviewed prompt')).toBe(false);
+  });
+  const original = getChatDraft(draft.id)!.collaborationSend!.input;
+  expect(original.snapshot).toEqual(snapshot);
+  expect(accepted).not.toHaveBeenCalled();
+  await act(async () => {
+    await hook.result.current.check();
+  });
+  expect(accepted).toHaveBeenCalledExactlyOnceWith(original);
+  expect(api.send).toHaveBeenCalledOnce();
+  expect(observed.mock.calls.every(([, input]) => input.requestId === original.requestId)).toBe(
+    true,
+  );
+  expect(getChatDraft(draft.id)!.collaborationSend).toBeUndefined();
+});
 it.each(['settled_status', 'late_success', 'late_failure'])(
   'never transfers old Stop state to a new same-owner request: %s',
   async (scenario) => {
