@@ -9,6 +9,7 @@ const f = vi.hoisted(() => ({
   binding: {} as Record<string, unknown>,
   selection: {} as Record<string, unknown>,
   authorized: true,
+  native: { captureInterruptTarget: vi.fn(), interruptIfCurrent: vi.fn() },
   current: vi.fn(),
   release: vi.fn(),
   live: undefined as unknown,
@@ -28,7 +29,9 @@ const f = vi.hoisted(() => ({
 vi.mock('../auth.js', () => ({
   isAuthSessionCurrent: () => f.authorized,
   hasPersistentRevocationAuthority: () => true,
+  isAuthenticatedOperatorSessionId: () => false,
 }));
+vi.mock('../codex-chat-session.js', () => ({ getCodexRuntime: () => f.native }));
 vi.mock('../agent-library-transport.js', () => ({ bindAgentLibraryTransport: () => f.release }));
 vi.mock('../ordinary-scoped-command.js', () => ({ dispatchOwnedOrdinaryCommand: f.dispatch }));
 vi.mock('../ordinary-local-codex-entry.js', () => ({
@@ -104,6 +107,7 @@ function fixture(harness = 'codex', location = 'local') {
     }),
     removals: { assertAdmissible: vi.fn() },
     getSessionRuntimeBinding: () => f.binding,
+    getSessionEvents: () => [],
     getLatestOrdinaryCommandAdmission: () => ({
       binding: f.binding,
       selection: f.selection,
@@ -154,6 +158,97 @@ function fixture(harness = 'codex', location = 'local') {
     }),
   };
 }
+it.each([
+  'current',
+  'successor',
+  'claimed',
+  'settled',
+  'foreign',
+  'revoked',
+  'contributor_changed',
+  'binding_changed',
+])('controls only the original ordinary turn and never replays a Stop: %s', async (scenario) => {
+  const h = fixture();
+  vi.spyOn(h.events, 'getSendCommand').mockReturnValue({ sessionId: 'worker' } as never);
+  const current = vi.fn(() => {
+    if (current.mock.calls.length !== 1) return;
+    if (scenario === 'contributor_changed')
+      queueMicrotask(() => {
+        vi.spyOn(h.events, 'getSessionEvents').mockReturnValue([
+          {
+            type: 'contributor_execution',
+            payload: {
+              childSessionId: 'worker',
+              coordinatorSessionId: 'coordinator',
+              deliveryId: 'delivery',
+              seatId: 'seat',
+              claimToken: 'claim',
+              idempotencyKey: 'key',
+            },
+          },
+        ] as never);
+        Object.assign(h.events, {
+          getUnsettledSymposiumSeatExecutions: () => [{ claimToken: 'claim' }],
+        });
+      });
+    if (scenario === 'binding_changed')
+      queueMicrotask(() => {
+        vi.spyOn(h.events, 'getSession').mockReturnValue({
+          accountBinding: { accountId: 'changed' },
+        } as never);
+      });
+  });
+  const receipt = vi.fn(() => (scenario === 'claimed' ? { retained: true } : undefined));
+  const settled = vi.fn(() => (scenario === 'settled' ? ('completed' as const) : undefined));
+  const port = createSessionPromptPort({
+    eventStore: h.events,
+    sessionRegistry: h.registry,
+    connRegistry: h.connections,
+    ordinaryCommands: () =>
+      ({ targetedInterruptReceipt: receipt, settledCommandOutcome: settled }) as never,
+  });
+  f.live = { session: { ownedLocalAuthSessionId: scenario === 'foreign' ? 'other' : 'login' } };
+  const captured = { commandId: scenario === 'successor' ? 'later-command' : 'original' };
+  f.native.captureInterruptTarget.mockReset().mockReturnValue(captured);
+  f.native.interruptIfCurrent.mockReset().mockResolvedValue({ status: 'claimed' });
+  f.authorized = scenario !== 'revoked';
+  try {
+    const result = port.stopOrdinary!(
+      h.delivery.auth,
+      'worker',
+      'original',
+      'stop-original',
+      current,
+    );
+    if (scenario === 'revoked') await expect(result).rejects.toThrow('authorization');
+    else if (scenario === 'contributor_changed')
+      await expect(result).rejects.toThrow('contributor panel');
+    else if (scenario === 'binding_changed')
+      await expect(result).rejects.toThrow('custody changed');
+    else
+      await expect(result).resolves.toBe(
+        {
+          current: 'requested',
+          successor: 'uncertain',
+          claimed: 'uncertain',
+          settled: 'settled',
+          foreign: 'unavailable',
+        }[scenario],
+      );
+    if (scenario === 'current')
+      expect(f.native.interruptIfCurrent).toHaveBeenCalledExactlyOnceWith(
+        'stop-original',
+        captured,
+      );
+    else expect(f.native.interruptIfCurrent).not.toHaveBeenCalled();
+    expect(f.dispatch).not.toHaveBeenCalled();
+  } finally {
+    port.close();
+    h.port.close();
+    f.authorized = true;
+  }
+});
+
 it('observes ordinary collaboration capability without binding or dispatching and refuses foreign live owners', async () => {
   const fxt = fixture();
   const prompt = {

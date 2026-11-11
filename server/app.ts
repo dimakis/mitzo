@@ -3545,6 +3545,7 @@ const collaborationMessaging = new ApplicationCollaborationMessaging(
   eventStore,
   createSessionPromptPort({
     eventStore,
+    ordinaryCommands: getCodexConversationStore,
     sessionRegistry: registry,
     connRegistry: {
       broadcast: (sessionId, event) => getConnectionRegistry()?.broadcast(sessionId, event),

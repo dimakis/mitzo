@@ -50,3 +50,21 @@ motion, scrolling, reduced motion, preview and keyboard scenarios. Browser start
 is currently blocked by macOS sandbox process-registration permission; actual
 rendered checks and capture inspection remain pending. No live model call,
 deployment or merge was performed.
+
+## Current-main integration, 11 November 2026
+
+Integrated accepted main `14fb28b0d03a0d780b663f1ef0697699ec546b88` once after
+the coordinator released preparation. The only text conflict was in the source
+artifact manifest. Retained both new source inventories, advanced its runtime
+revision, and regenerated fingerprints against the combined ChatArea, EventStore
+and application code. The upstream live Symposium attribution remains intact;
+read receipts still use the completed visible reply and its durable sequence.
+
+The combined candidate passed 75 focused tests across ten files, using one local
+worker and a 1 GiB Node heap. Coverage includes upstream responder progress and
+the composed application observer journey, as well as read receipts, ordering,
+durable storage and the actual HTTP metadata routes. Source-artifact validation
+also passed. The PR's merge conflict prevented ordinary pull-request CI from
+running; publishing this resolved candidate is intended to restore that workflow.
+Browser assertions and the sandbox guard remain intact. Final CI, browser
+captures and exact-head Centaur approval remain outstanding.
