@@ -76,6 +76,41 @@ function fixture(path = ':memory:') {
   store.completeOrdinaryLocalCommand('original');
   return store;
 }
+it.each([false, true])(
+  'does not reuse pre-transition prompt context for a prepared repository child (reserved: %s)',
+  (reservedBeforeHold) => {
+    const store = fixture();
+    const child = reservedBeforeHold
+      ? store.reservePreparedRepositoryContinuation('session', transition)
+      : undefined;
+    if (child)
+      store.suspendUntransferredPreparedRepositoryContinuation(
+        'session',
+        transition.source,
+        transition.oldWorkspace,
+        transition.preparationId,
+      );
+    const originalReceipt = store.getOrdinaryLocalCommandAdmission('original');
+    const childReceipt = child && store.getSendCommand(child.childCommandId);
+    const handover = {
+      sessionId: 'session',
+      operationId: 'role-handover',
+      fingerprint: 'a'.repeat(64),
+      expectedEpoch: 0,
+    };
+    store.contextTransitions.begin(handover);
+    expect(() => store.reservePreparedRepositoryContinuation('session', transition)).toThrow(
+      /transition/i,
+    );
+    store.contextTransitions.release(handover, 'aborted', () => undefined);
+    expect(() => store.reservePreparedRepositoryContinuation('session', transition)).toThrow(
+      /stale/i,
+    );
+    expect(store.getOrdinaryLocalCommandAdmission('original')).toEqual(originalReceipt);
+    if (child) expect(store.getSendCommand(child.childCommandId)).toEqual(childReceipt);
+    expect(store.getSession('session')?.cwd).toBe('/old');
+  },
+);
 it('reserves one deterministic uncertain child before mutation and atomically commits only its exact old→new primary', () => {
   const store = fixture();
   const before = store.getOrdinaryLocalCommandAdmission('original');

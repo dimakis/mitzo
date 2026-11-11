@@ -43,6 +43,106 @@ afterEach(() => {
   for (const s of stores.splice(0)) s.close();
 });
 describe('ordinary local durable command admission', () => {
+  const transition = {
+    sessionId: 's1',
+    operationId: 'handover',
+    fingerprint: 'a'.repeat(64),
+    expectedEpoch: 0,
+  };
+  it('fences fresh command, startup and execution admission without changing unrelated chats', () => {
+    const store = open();
+    store.contextTransitions.begin(transition);
+    expect(() => store.admitOrdinaryLocalCommand(meta, binding, input)).toThrow(/transition/i);
+    expect(store.getSession('s1')).toBeNull();
+    expect(store.getSendCommand('c1')).toBeUndefined();
+    expect(() => store.reserveOrdinaryStartup(['s1'])).toThrow(/transition/i);
+    store.upsertSession({ sessionId: 's1' });
+    expect(() => store.beginExecution('s1')).toThrow(/transition/i);
+    expect(() =>
+      store.admitOrdinaryLocalCommand(
+        { ...meta, sessionId: 'other', repositoryWorkspaceId: 'other-workspace' },
+        binding,
+        { ...input, clientMsgId: 'other', requestFingerprint: 'other' },
+      ),
+    ).not.toThrow();
+  });
+  it('rejects preparation captured before a hold even after release and admits newly captured context', async () => {
+    const store = open();
+    store.admitOrdinaryLocalCommand(meta, binding, input);
+    store.claimOrdinaryLocalCommandDispatch('c1');
+    store.completeOrdinaryLocalCommand('c1');
+    const original = store.getOrdinaryLocalCommandAdmission('c1');
+    const captured = store.contextTransitions.capture('s1');
+    let continuePreparation!: () => void;
+    const paused = new Promise<void>((resolve) => {
+      continuePreparation = resolve;
+    });
+    const next = { ...input, clientMsgId: 'next', requestFingerprint: 'next' };
+    const pending = store.withOrdinaryContextAdmission('s1', captured, async () => {
+      await paused;
+      return store.admitOrdinaryLocalContinuation(meta, binding, next);
+    });
+    store.contextTransitions.begin(transition);
+    store.contextTransitions.release(transition, 'aborted', () => undefined);
+    continuePreparation();
+    await expect(pending).rejects.toThrow(/stale/i);
+    expect(store.getSendCommand('next')).toBeUndefined();
+    const current = store.contextTransitions.capture('s1');
+    store.withOrdinaryContextAdmission('s1', current, () =>
+      store.admitOrdinaryLocalContinuation(meta, binding, next),
+    );
+    expect(store.contextTransitions.readCommand('next')?.epoch).toBe(1);
+    expect(store.claimOrdinaryLocalCommandDispatch('next')).toBe(true);
+    expect(() => store.beginExecution('s1', 'next-execution', 'next', 'next')).toThrow(/stale/i);
+    expect(() =>
+      store.withOrdinaryContextAdmission('s1', current, () =>
+        store.beginExecution('s1', 'old-execution', 'c1', 'fp1'),
+      ),
+    ).toThrow(/stale/i);
+    const execution = store.withOrdinaryContextAdmission('s1', current, () =>
+      store.beginExecution('s1', 'next-execution', 'next', 'next'),
+    );
+    expect(() => store.transitionExecution(execution.token, 'TERMINAL', 'completed')).not.toThrow();
+    expect(store.getOrdinaryLocalCommandAdmission('c1')).toEqual(original);
+  });
+  it('refuses stale reserved dispatch and preserves its receipt after a transition', () => {
+    const store = open();
+    store.admitOrdinaryLocalCommand(meta, binding, input);
+    const original = store.getOrdinaryLocalCommandAdmission('c1');
+    store.contextTransitions.begin(transition);
+    expect(() => store.claimOrdinaryLocalCommandDispatch('c1')).toThrow(/transition/i);
+    store.contextTransitions.release(transition, 'committed', () => undefined);
+    expect(() => store.claimOrdinaryLocalCommandDispatch('c1')).toThrow(/stale/i);
+    expect(store.getOrdinaryLocalCommandAdmission('c1')).toEqual(original);
+    expect(store.contextTransitions.readCommand('c1')?.epoch).toBe(0);
+  });
+  it('keeps already-running terminal receipts writable while new context admission is fenced', () => {
+    const store = open();
+    store.admitOrdinaryLocalCommand(meta, binding, input);
+    store.claimOrdinaryLocalCommandDispatch('c1');
+    const execution = store.beginExecution('s1', 'running', 'c1', 'fp1');
+    store.contextTransitions.begin(transition);
+    expect(() => store.completeOrdinaryLocalCommand('c1')).not.toThrow();
+    expect(() => store.transitionExecution(execution.token, 'TERMINAL', 'completed')).not.toThrow();
+    expect(store.getExecutionTerminalReason(execution.token)).toBe('completed');
+    expect(() => store.insertSendCommand('blocked', 's1', { prompt: 'new input' })).toThrow(
+      /transition/i,
+    );
+  });
+  it('rolls back command and epoch together when outer admission fails', () => {
+    const store = open();
+    const retain = store.contextTransitions.retainCommand.bind(store.contextTransitions);
+    vi.spyOn(store.contextTransitions, 'retainCommand').mockImplementation((...args) => {
+      retain(...args);
+      throw Error('Retained stamp rollback');
+    });
+    expect(() => store.admitOrdinaryLocalCommand(meta, binding, input)).toThrow(
+      'Retained stamp rollback',
+    );
+    expect(store.contextTransitions.readCommand('c1')).toBeUndefined();
+    expect(store.getSendCommand('c1')).toBeUndefined();
+    expect(store.getSession('s1')).toBeNull();
+  });
   it('atomically freezes settings and exact retries without allocating execution', () => {
     const store = open();
     expect(store.admitOrdinaryLocalCommand(meta, binding, input).duplicate).toBe(false);
