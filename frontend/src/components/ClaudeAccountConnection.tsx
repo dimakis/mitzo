@@ -11,6 +11,7 @@ import {
 import { invalidateSymposiumAccountCatalog } from '../lib/symposium-account-catalog';
 import { createChatDraft, saveChatDraft } from '../lib/chat-drafts';
 import { chatStorage } from '../lib/large-chat-storage';
+import { createBrowserId } from '../lib/browser-crypto';
 
 const pending = (attempt?: ClaudeLoginAttempt) =>
   !!attempt && ['preparing', 'pending', 'verifying'].includes(attempt.state);
@@ -137,7 +138,7 @@ export function ClaudeAccountConnection({ accountId }: { accountId?: string }) {
       !requestId.current ||
       snapshot?.attempts.some((row) => row.requestId === requestId.current && !pending(row))
     )
-      requestId.current = crypto.randomUUID();
+      requestId.current = createBrowserId();
     return change('/start', {
       requestId: requestId.current,
       label: accountId ? (currentAccount?.label ?? label) : label,

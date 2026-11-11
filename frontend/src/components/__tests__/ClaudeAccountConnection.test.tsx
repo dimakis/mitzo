@@ -2,6 +2,7 @@
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
+import { webcrypto } from 'node:crypto';
 import { ClaudeAccountConnection } from '../ClaudeAccountConnection';
 const mocks = vi.hoisted(() => ({
   fetch: vi.fn(),
@@ -52,7 +53,10 @@ beforeEach(() => {
   mocks.save.mockClear();
   localStorage.clear();
 });
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  vi.unstubAllGlobals();
+});
 function show() {
   return render(
     <MemoryRouter>
@@ -60,34 +64,46 @@ function show() {
     </MemoryRouter>,
   );
 }
-it('starts explicitly, hands off to Anthropic, and sends the code only through the private POST', async () => {
-  let started = false;
-  mocks.fetch.mockImplementation(async (url: string) => {
-    if (url.endsWith('/start')) {
-      started = true;
-      return response(pending);
-    }
-    if (url.endsWith('/code')) return response({ ...pending, state: 'verifying', url: undefined });
-    return response(snapshot(started ? [pending] : []));
-  });
-  show();
-  fireEvent.click(await screen.findByRole('button', { name: 'Sign in with Claude' }));
-  expect(
-    (await screen.findByRole('link', { name: 'Open Claude sign-in' })).getAttribute('href'),
-  ).toBe(pending.url);
-  const field = screen.getByLabelText('Sign-in code') as HTMLInputElement;
-  expect(field.type).toBe('password');
-  fireEvent.change(field, { target: { value: 'private-code#state' } });
-  fireEvent.click(screen.getByRole('button', { name: 'Complete sign-in' }));
-  await waitFor(() =>
-    expect(mocks.fetch.mock.calls.some(([url]) => url.endsWith('/code'))).toBe(true),
-  );
-  const [url, options] = mocks.fetch.mock.calls.find(([url]) => url.endsWith('/code'))!;
-  expect(url).not.toContain('private-code');
-  expect(JSON.parse(options.body)).toEqual({ code: 'private-code#state' });
-  expect(localStorage.length).toBe(0);
-  expect(field.value).toBe('');
-});
+it.each(['secure', 'http'] as const)(
+  'starts explicitly on %s hosts and sends the code only through the private POST',
+  async (host) => {
+    if (host === 'http')
+      vi.stubGlobal('crypto', { getRandomValues: webcrypto.getRandomValues.bind(webcrypto) });
+    let started = false;
+    mocks.fetch.mockImplementation(async (url: string) => {
+      if (url.endsWith('/start')) {
+        started = true;
+        return response(pending);
+      }
+      if (url.endsWith('/code'))
+        return response({ ...pending, state: 'verifying', url: undefined });
+      return response(snapshot(started ? [pending] : []));
+    });
+    show();
+    fireEvent.click(await screen.findByRole('button', { name: 'Sign in with Claude' }));
+    expect(
+      (await screen.findByRole('link', { name: 'Open Claude sign-in' })).getAttribute('href'),
+    ).toBe(pending.url);
+    const startBody = JSON.parse(
+      mocks.fetch.mock.calls.find(([url]) => url.endsWith('/start'))![1].body,
+    );
+    expect(startBody.requestId).toMatch(
+      /^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/,
+    );
+    const field = screen.getByLabelText('Sign-in code') as HTMLInputElement;
+    expect(field.type).toBe('password');
+    fireEvent.change(field, { target: { value: 'private-code#state' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Complete sign-in' }));
+    await waitFor(() =>
+      expect(mocks.fetch.mock.calls.some(([url]) => url.endsWith('/code'))).toBe(true),
+    );
+    const [url, options] = mocks.fetch.mock.calls.find(([url]) => url.endsWith('/code'))!;
+    expect(url).not.toContain('private-code');
+    expect(JSON.parse(options.body)).toEqual({ code: 'private-code#state' });
+    expect(localStorage.length).toBe(0);
+    expect(field.value).toBe('');
+  },
+);
 it('recovers an existing attempt after navigation without launching another login and clears private input on logout', async () => {
   mocks.fetch.mockResolvedValue(response(snapshot([pending])));
   show();

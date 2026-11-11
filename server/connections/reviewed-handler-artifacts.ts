@@ -10,8 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.1016-claude-onboarding-ui-integration';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.1017-claude-http-correlation';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -24,9 +23,9 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/components/ClaudeAccountConnection.tsx':
-    '90abdce690898d41d74ed8e1abb496f6973de48a3935a3e3a5fa39d306fb55ba',
+    '141d503894f37d9c71888caff0d2ef7361825b07d0a89e84eee5141bf1614b98',
   '../../frontend/src/components/__tests__/ClaudeAccountConnection.test.tsx':
-    '250ee9caf90b84b360a96470d7f14744b3cf88e4fb03acdb7c1163b8fdb50868',
+    'f66cd7535ff30640d91537b14642e46d3e33d11eb0aae1a74801d48b617e4a4c',
   '../../frontend/src/lib/claude-account-api.ts':
     'a32b19eb80b3d3c2a20b27d862290daf6a55991975dacb1b5ca32287f6c8f750',
   '../../frontend/src/pages/ConnectionsRoute.tsx':
