@@ -323,6 +323,7 @@ import { promisify } from 'util';
 import { createHash, randomUUID } from 'crypto';
 import { fileURLToPath } from 'url';
 import { createVoiceProxy } from './voice-proxy.js';
+import { configuredAppleSignInRouter } from './apple-sign-in-runtime.js';
 import {
   login,
   authenticateToken,
@@ -549,6 +550,7 @@ mountObservedRouter(app, '/api/yapper', yapperHttpProxy);
 mountObservedRouter(app, '/api/yapper-ws', yapperWsProxy.http);
 
 app.use(cookieParser());
+mountObservedRouter(app, '/api/auth/apple', configuredAppleSignInRouter());
 mountObservedRouter(
   app,
   '/api/claude-accounts',

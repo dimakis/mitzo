@@ -28,6 +28,8 @@ for (const theme of ['dark', 'light']) {
       if (url.hostname !== 'mitzo-ui.test') return route.abort();
       if (url.pathname === '/api/auth/login')
         return route.fulfill({ json: { token: 'offline-fixture-token' } });
+      if (url.pathname === '/api/auth/apple/status')
+        return route.fulfill({ json: { enabled: false } });
       if (url.pathname.startsWith('/api/')) return route.abort();
       if (url.pathname === '/mitzo-wordmark.png')
         return route.fulfill({

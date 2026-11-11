@@ -39,6 +39,7 @@ const interactive = createInteractiveAuth({
 });
 export const {
   login,
+  issueOperatorSession,
   verifyPassphrase,
   authenticateToken,
   verifyLogoutToken,

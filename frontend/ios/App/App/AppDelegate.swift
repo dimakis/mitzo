@@ -134,6 +134,7 @@ class MitzoBridgeViewController: CAPBridgeViewController {
         // App-local plugins are absent from Capacitor's generated package list.
         // Export the header before the web app creates its registerPlugin proxy.
         bridge?.registerPluginInstance(WatchAuthBridge())
+        bridge?.registerPluginInstance(AppleSignInBridge())
         bridge?.registerPluginInstance(FileShareBridge())
         guard let router = bridge?.notificationRouter else { return }
         (UIApplication.shared.delegate as? AppDelegate)?.attachNotificationRouter(router)
