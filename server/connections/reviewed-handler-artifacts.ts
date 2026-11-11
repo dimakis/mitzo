@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.1033-agent-delivery-receipt-fixture';
+  'v1.0.1034-retained-attempt-and-motion-fixtures';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -3549,7 +3549,11 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../tests/integration/telos-s5b/vitest.native-role-composition.config.ts':
     'c374e77ec8ab38eae6f3c1942f2afa350bc50c994660bc13516d98dfcaf9c830',
   '../../tests/integration/telos-s9/model-readiness/model-readiness.contract.ts':
-    'fb0c9fea6c5edf56e7fd2afed5476697f0b8a981ea7f4f3aa2ec788ae25f66b9',
+    'daed0d8fd346b959b1f3c16a2b0b1acf334f8f9bb37b37acdbf6c46ba82cb913',
+  '../../tests/integration/telos-s9/model-readiness/retained-attempt.ts':
+    'd1abe7e2d928b30796b196e811801c4ccb4208fcdbdf13b3e476e5c03553bcc9',
+  '../__tests__/model-readiness-retained-attempt.test.ts':
+    'ed7443efbe43d021d8ffb967b368d02726e20a59b3ad96cdaffd99ef3cb4293c',
   '../../tests/integration/telos-s9/model-readiness/synthetic-data.ts':
     'a7f74d8d23198178d064ec0c9b80107b1a5e8a8442e3e4ea662263d78c132b43',
   '../../tests/integration/telos-s9/model-readiness/vitest.config.ts':
@@ -3647,7 +3651,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../tests/offline/pdf-import.spec.ts':
     'e4a6d8250cbaa9b328bda594153fad96afd3394a9c09f375f7540f3b14cee970',
   '../../tests/offline/unified-mobile.spec.ts':
-    '308c59466a8846dba1323d53774d02c8e1941d123019307fa306c10840f1edd9',
+    '55613a479230664a8297948d59d47f4a1fd8cf1cf93f673d20e7236ca2e1df6c',
   '../openshell-operator-transport.ts':
     '35d10b780021b5e29ec24c3834864978ddf4a17dbe807c07aa7327a7511a6939',
   '../openshell-secret-protocol.ts':
