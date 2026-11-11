@@ -54,6 +54,33 @@ it('exposes the same discovery, session approval and request tools to SDK sessio
   expect(JSON.stringify(result)).toContain('connections');
 });
 
+it('delivers SDK callback failures as actionable tool results and permits the next call', async () => {
+  const registry = new SessionRegistry();
+  registry.register('client', {
+    sessionId: 'chat',
+    mode: 'agent',
+    abortController: new AbortController(),
+  } as never);
+  const assertCurrent = vi
+    .fn()
+    .mockRejectedValueOnce(Object.assign(Error('private payload'), { code: 'ENOMEM' }))
+    .mockResolvedValue(undefined);
+  createCredentialSdkServer(() => 'chat', registry.get('client')!, registry, {
+    assertCurrent,
+    assertCurrentSync: () => {},
+  });
+  try {
+    const handler = mocked.tools.find((tool) => tool.name === 'ListConnections')!.handler;
+    const failed = await handler({});
+    expect(failed).toMatchObject({ isError: true });
+    expect(JSON.stringify(failed)).toContain('memory_exhausted');
+    expect(JSON.stringify(failed)).not.toContain('private payload');
+    expect(await handler({})).toMatchObject({ isError: false });
+  } finally {
+    registry.dispose();
+  }
+});
+
 function callbackSdkFixture(toolGuardPolicy?: Readonly<ToolGuardPolicy>) {
   const effect = vi.fn(async () => '{"ok":true}');
   const send = async (...args: unknown[]) => {

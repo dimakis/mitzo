@@ -1,4 +1,7 @@
 import { randomUUID } from 'node:crypto';
+import { qualifyToolResult, reportToolFailure } from './tool-failure-reporting.js';
+import { copyCallbackOutcome } from './turn-callbacks.js';
+import { findSessionRuntimeError } from './session-runtime-error.js';
 import { sessionPromptSchemas, sessionPromptDefinitions } from './session-prompt-definitions.js';
 import type { TurnCallbackRunner } from './turn-callbacks.js';
 import type { ConnectionBoundary } from './session-connection-tools.js';
@@ -150,21 +153,45 @@ export function createCredentialSdkServer(
                     ),
                   };
                 await boundary?.assertCurrent(signal);
-                const result = await current.tools.execute(definition.name, input, signal, {
+                const rawResult = await current.tools.execute(definition.name, input, signal, {
                   turnId: runtimeId,
                   callId: String(
                     (extra as { requestId?: unknown } | undefined)?.requestId ?? randomUUID(),
                   ),
                 });
                 await boundary?.assertCurrent(signal);
-                return {
+                const result =
+                  rawResult && qualifyToolResult(definition.name, input, signal, rawResult);
+                const delivered = {
                   content: [
-                    { type: 'text', text: result?.content ?? 'Connection tool unavailable' },
+                    {
+                      type: 'text' as const,
+                      text: result?.content ?? 'Connection tool unavailable',
+                    },
                   ],
                   isError: result?.isError ?? true,
                 };
+                return result ? copyCallbackOutcome(result, delivered) : delivered;
               },
-            ),
+            ).catch((error: unknown) => {
+              const failure = reportToolFailure(error, {
+                sessionId: sessionId() ?? runtimeId,
+                tool: definition.name,
+                signal,
+              });
+              // Explicit cancellation and timeout retirement retain their owner
+              // fences. Report before propagating, so they are never silent.
+              if (
+                signal.aborted ||
+                error instanceof ToolGuardTimeoutError ||
+                findSessionRuntimeError(error)
+              )
+                throw error;
+              return copyCallbackOutcome(failure, {
+                content: [{ type: 'text' as const, text: failure.content }],
+                isError: true,
+              });
+            }),
           );
         },
       ),

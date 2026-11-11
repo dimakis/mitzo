@@ -70,13 +70,9 @@ export function isIntrinsicRecoveryRead(name: string, input?: Record<string, unk
   // TaskExecution preserves the underlying GitHubRead contract. Require the
   // exact operation from fresh native history; a wrapper name/hash alone does
   // not qualify run, commit, or an unavailable historical request.
-  if (name === 'TaskExecution') return input?.operation === 'github_read';
-  return [
-    'GitHubRead',
-    'DiscoverLocalRepository',
-    'InspectLocalRepository',
-    'DescribeIntegrationTool',
-    'Read',
-    'ReadPastSession',
-  ].includes(name);
+  // Generic HTTP reads can target side-effecting endpoints. Configured MCP
+  // annotations are not authority either. All reviewed built-in reads share
+  // the same default; mixed tools require their actual operation arguments.
+  if (name === 'ConnectionRequest' || name === 'RequestWebAccess') return false;
+  return isReadOnlyBuiltinToolCall(name, input ?? {});
 }

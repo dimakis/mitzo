@@ -1,4 +1,8 @@
-import { copyCallbackOutcome, retainCallbackOutcome } from './turn-callbacks.js';
+import {
+  copyCallbackOutcome,
+  retainCallbackOutcome,
+  retainedCallbackOutcome,
+} from './turn-callbacks.js';
 import {
   getRepositoryWorkspaces,
   readRepositoryWorkspaceForConversation,
@@ -215,6 +219,7 @@ export function createNativeToolExecutor(
     // any executor (including lazy workspace creation) starts, errors stay
     // uncertain unless that executor supplies its own settlement evidence.
     let executionStarted = false;
+    let readOnlyExecution = false;
     const canUseTool = buildPermissionHandler(clientId, registry, {
       onDemandCreate: onDemandCreate
         ? async (path) => {
@@ -300,6 +305,7 @@ export function createNativeToolExecutor(
         const executeRead =
           input.access === 'public' ? executePublicGitHubRead : executeTrustedGitHubRead;
         executionStarted = true;
+        readOnlyExecution = true;
         const content = await executeRead(
           input.endpoint,
           signal,
@@ -545,6 +551,7 @@ export function createNativeToolExecutor(
       await options.assertRuntimeCurrentAsync?.();
       assertCurrent();
       executionStarted = true;
+      readOnlyExecution = block.name === 'Read';
       const operation = await executeNativeFileOperation(
         {
           ...input,
@@ -566,6 +573,12 @@ export function createNativeToolExecutor(
             ? err.message
             : 'Native tool execution failed',
       );
+      if (
+        readOnlyExecution &&
+        !signal.aborted &&
+        !(err instanceof Error && retainedCallbackOutcome(err) === 'unknown')
+      )
+        return retainCallbackOutcome(failure, 'settled');
       return err instanceof Error && !signal.aborted ? copyCallbackOutcome(err, failure) : failure;
     }
   };

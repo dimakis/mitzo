@@ -1,4 +1,6 @@
 import { isDeepStrictEqual } from 'node:util';
+import { reportToolFailure } from './tool-failure-reporting.js';
+import { copyCallbackOutcome } from './turn-callbacks.js';
 import { GeminiSession, type GeminiOptions } from './gemini-session.js';
 import type { AccountBinding } from '@mitzo/protocol';
 import { buildClientCapabilitiesPrompt } from '@mitzo/protocol';
@@ -272,16 +274,19 @@ export class NativeResponsesRunner {
           try {
             if (opts.commandAuthority) await opts.commandAuthority.assertEffect(messageId!);
             return await opts.executeTool(block, toolSignal);
-          } catch {
-            // Redact native failures here; the generic loop catch remains for other callers.
-            return {
-              type: 'tool_result',
+          } catch (error) {
+            const failure = reportToolFailure(error, {
+              sessionId: opts.conversationId,
+              tool: block.name,
+              callId: block.id,
+              signal: toolSignal,
+            });
+            return copyCallbackOutcome(failure, {
+              type: 'tool_result' as const,
               tool_use_id: block.id,
-              content: abort.signal.aborted
-                ? 'Execution interrupted. Outcome unknown; inspect current state before retrying.'
-                : 'Native tool execution failed; inspect current state before retrying.',
+              content: failure.content,
               is_error: true,
-            };
+            });
           }
         },
         onHistory: (history) => {
