@@ -262,20 +262,47 @@ export class LargeChatStorage {
 
 let database: Promise<IDBDatabase> | undefined;
 function openDatabase(): Promise<IDBDatabase> {
-  return (database ??= new Promise((resolve, reject) => {
+  if (database) return database;
+  const opened = new Promise<IDBDatabase>((resolve, reject) => {
     const request = indexedDB.open('mitzo-chat-payloads', 1);
+    const retire = () => {
+      if (database === opened) database = undefined;
+    };
+    const fail = (cause: unknown) => {
+      clearTimeout(timer);
+      retire();
+      reject(cause);
+    };
+    const timer = setTimeout(() => fail(Error('Chat storage open timed out')), 15_000);
     request.onupgradeneeded = () => request.result.createObjectStore('payloads');
-    request.onsuccess = () => resolve(request.result);
-    request.onerror = () => {
-      database = undefined;
-      reject(request.error);
+    request.onsuccess = () => {
+      clearTimeout(timer);
+      const db = request.result;
+      // An abandoned open can still finish after its retry acquired a new owner.
+      if (database !== opened) {
+        db.close();
+        return;
+      }
+      // WebKit can close the connection while the app is suspended. A resolved
+      // promise for that closed handle must not poison every subsequent read.
+      db.onclose = retire;
+      db.onversionchange = () => {
+        retire();
+        db.close();
+      };
+      resolve(db);
     };
-    request.onblocked = () => {
-      database = undefined;
-      reject(Error('Chat storage is blocked by another tab'));
-    };
-  }));
+    request.onerror = () => fail(request.error);
+    request.onblocked = () => fail(Error('Chat storage is blocked by another tab'));
+  }).catch((cause: unknown) => {
+    // A synchronous open failure also invalidates the cached attempt.
+    if (database === opened) database = undefined;
+    throw cause;
+  });
+  database = opened;
+  return opened;
 }
+
 async function operation<T>(
   mode: IDBTransactionMode,
   run: (store: IDBObjectStore) => IDBRequest<T>,
@@ -320,6 +347,7 @@ function current() {
 }
 // Environments without IndexedDB retain the established small Web Storage behavior.
 export const chatStorage = {
+  recover: () => initializeChatStorage(),
   subscribe(listener: () => void) {
     window.addEventListener(CHAT_STORAGE_CHANGED, listener);
     return () => window.removeEventListener(CHAT_STORAGE_CHANGED, listener);

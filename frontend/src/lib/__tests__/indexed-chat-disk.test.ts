@@ -6,70 +6,79 @@ import { SendOutbox } from '../../../../packages/client/src/send-outbox';
 import { createReviewedOutboxStorage } from '../reviewed-outbox-storage';
 import { localFirstCommandFixture as command } from '../../../../packages/client/src/__tests__/fixtures/local-first-command';
 
-it('recovers retained IndexedDB intent when hydration settles after the foreground wake', async () => {
-  const url = '/local/send';
-  const key = `mitzo-local-first-command-outbox:${encodeURIComponent(url)}:${command.clientMsgId}`;
-  const retained = JSON.stringify({
-    body: command,
-    scope: 1,
-    uncertain: true,
-    localDraftId: 'original',
-  });
-  let release!: (records: ChatDiskRecord[]) => void;
-  const pending = new Promise<ChatDiskRecord[]>((resolve) => {
-    release = resolve;
-  });
-  const backend = {
-    read: vi.fn().mockRejectedValueOnce(Error('Storage unavailable')).mockReturnValue(pending),
-    write: vi.fn().mockResolvedValue(undefined),
-  };
-  const disk = new IndexedChatDisk({ length: 0, key: () => null, getItem: () => null }, backend);
-  await expect(disk.ready()).rejects.toThrow('Storage unavailable');
-  const target = new EventTarget();
-  const callbacks: (() => void)[] = [];
-  const storage = Object.assign(disk, {
-    subscribe(listener: () => void) {
-      callbacks.push(listener);
-      target.addEventListener('changed', listener);
-      return () => target.removeEventListener('changed', listener);
-    },
-  });
-  const fetch = vi
-    .fn()
-    .mockResolvedValue(Response.json({ code: 'receipt_pending' }, { status: 409 }));
-  const notify = vi.fn();
-  const outbox = new SendOutbox({
-    url,
-    fetch,
-    notify,
-    localFirstCommand: true,
-    storage: createReviewedOutboxStorage(storage, url, 'local'),
-  });
-  outbox.start();
-  outbox.selectLocalDraft('original');
-  const hydration = disk.ready();
-  outbox.wake();
-  expect(notify).toHaveBeenLastCalledWith(expect.objectContaining({ state: 'blocked' }));
-  expect(fetch).not.toHaveBeenCalled();
-  release([{ key, value: retained, revision: 'original-revision', legacy: null }]);
-  await hydration;
-  target.dispatchEvent(new Event('changed'));
-  await vi.waitFor(() =>
-    expect(notify).toHaveBeenLastCalledWith(
-      expect.objectContaining({ state: 'uncertain', request: command, originDraftId: 'original' }),
-    ),
-  );
-  expect(fetch).toHaveBeenCalledExactlyOnceWith('/local/send/receipt', expect.any(Object));
-  expect(JSON.parse(fetch.mock.calls[0][1].body)).toEqual(command);
-  target.dispatchEvent(new Event('changed'));
-  expect(fetch).toHaveBeenCalledTimes(1);
-  outbox.stop();
-  const reads = backend.read.mock.calls.length;
-  target.dispatchEvent(new Event('changed'));
-  for (const callback of callbacks) callback();
-  expect(backend.read).toHaveBeenCalledTimes(reads);
-  expect(fetch).toHaveBeenCalledTimes(1);
-});
+it.each(['notification', 'manual retry'] as const)(
+  'recovers retained IndexedDB intent through %s after the foreground wake',
+  async (trigger) => {
+    const url = '/local/send';
+    const key = `mitzo-local-first-command-outbox:${encodeURIComponent(url)}:${command.clientMsgId}`;
+    const retained = JSON.stringify({
+      body: command,
+      scope: 1,
+      uncertain: true,
+      localDraftId: 'original',
+    });
+    let release!: (records: ChatDiskRecord[]) => void;
+    const pending = new Promise<ChatDiskRecord[]>((resolve) => {
+      release = resolve;
+    });
+    const backend = {
+      read: vi.fn().mockRejectedValueOnce(Error('Storage unavailable')).mockReturnValue(pending),
+      write: vi.fn().mockResolvedValue(undefined),
+    };
+    const disk = new IndexedChatDisk({ length: 0, key: () => null, getItem: () => null }, backend);
+    await expect(disk.ready()).rejects.toThrow('Storage unavailable');
+    const target = new EventTarget();
+    const callbacks: (() => void)[] = [];
+    const storage = Object.assign(disk, {
+      recover: () => disk.ready(),
+      subscribe(listener: () => void) {
+        callbacks.push(listener);
+        target.addEventListener('changed', listener);
+        return () => target.removeEventListener('changed', listener);
+      },
+    });
+    const fetch = vi
+      .fn()
+      .mockResolvedValue(Response.json({ code: 'receipt_pending' }, { status: 409 }));
+    const notify = vi.fn();
+    const outbox = new SendOutbox({
+      url,
+      fetch,
+      notify,
+      localFirstCommand: true,
+      storage: createReviewedOutboxStorage(storage, url, 'local'),
+    });
+    outbox.start();
+    outbox.selectLocalDraft('original');
+    const hydration = disk.ready();
+    outbox.wake();
+    expect(notify).toHaveBeenLastCalledWith(expect.objectContaining({ state: 'blocked' }));
+    expect(fetch).not.toHaveBeenCalled();
+    if (trigger === 'manual retry') expect(outbox.retryLocalCommand()).toBe(true);
+    release([{ key, value: retained, revision: 'original-revision', legacy: null }]);
+    await hydration;
+    if (trigger === 'notification') target.dispatchEvent(new Event('changed'));
+    await vi.waitFor(() =>
+      expect(notify).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          state: 'uncertain',
+          request: command,
+          originDraftId: 'original',
+        }),
+      ),
+    );
+    expect(fetch).toHaveBeenCalledExactlyOnceWith('/local/send/receipt', expect.any(Object));
+    expect(JSON.parse(fetch.mock.calls[0][1].body)).toEqual(command);
+    target.dispatchEvent(new Event('changed'));
+    expect(fetch).toHaveBeenCalledTimes(1);
+    outbox.stop();
+    const reads = backend.read.mock.calls.length;
+    target.dispatchEvent(new Event('changed'));
+    for (const callback of callbacks) callback();
+    expect(backend.read).toHaveBeenCalledTimes(reads);
+    expect(fetch).toHaveBeenCalledTimes(1);
+  },
+);
 
 function fixture() {
   const legacy = new Map([['old-draft', 'Preserve this draft']]);

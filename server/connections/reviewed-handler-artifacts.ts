@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.1020-direct-deployment';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.1021-device-storage-recovery';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -200,7 +200,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/collaboration-application-fresh-agent-ui.test.tsx':
     '3567849c155ba9e1a6dd3dda4c392b03b1f1a0a28daa8fab79b647db29e1b501',
   '../../packages/client/src/command-delivery-diagnostic.ts':
-    '6d1b83d7d723f34b7393c32865621ed387462583a3844e0c36cd54814004b909',
+    'bcb1a95ef2ca11091c423cf6316a085e1260a6eaa61c0ed6a947497d71f2ca1b',
   '../../frontend/src/lib/command-delivery-tracing.ts':
     '4f7a5fb2b5a4f4a0d39244121022efd1e3e90f52280dc367561924b9f4ca49d4',
   '../../frontend/src/lib/__tests__/command-delivery-tracing.test.ts':
@@ -444,9 +444,9 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../scripts/__tests__/reauthorize-host-codex-login.test.ts':
     '777976c0b8f2a1283af2695aca3ebc615710cd37d09466051180bd2c8399d73e',
   '../../packages/client/src/__tests__/local-first-command-outbox.test.ts':
-    'd231fd774ad165dabe6c01ec848ae0b28c0e318c7579fbeabf93e8732c3b0589',
+    '5bf1d386fbce9e9b08a3aa365385c6928714dc4ba9bed79a718be9ea6c1cdcaf',
   '../../packages/client/src/__tests__/local-first-command-store.test.ts':
-    '6bfd40f3b0603dc736df2d8a3c8ee0d32a15d1211db5c273b68b76557cc25716',
+    '5d6a122217b0a9c940962ed8055002a7969ae26c768c415a93cc3daff2058194',
   '../../tests/offline/local-first-command.spec.ts':
     'c7995e899075bfc1d6d36d5c61860a43be2c4bcbb7937bbe6da80761f5c0bebe',
   '../../tests/browser/composer-layout.spec.ts':
@@ -1159,7 +1159,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../tests/fixtures/agent-library-builder.tsx':
     '3182f33a70edf28862c55c5dc5462ecf3618351f179cfed4f7b7cf85ddd07d82',
   '../../frontend/src/lib/__tests__/indexed-chat-disk.test.ts':
-    '49cca26137f39157c22efff51ec8a747c4a3133946b84fed8c046e1a6fa49cbb',
+    '951db9581ed658fc261266880eca5bc35626249749896c7ff20a06fa59c46208',
   '../../frontend/src/lib/indexed-chat-disk.ts':
     '0d2fa4d41964218696e06f3879f93166e4452890aa3c676310b35509f5716ec1',
   '../../tests/integration/telos-s9/integrated-candidate/joined-role-setup-ready.test.ts':
@@ -1235,9 +1235,9 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/chat-command-json.test.ts':
     'f5069c01f2b93cbaf32b4a720e948c3eb96a6b7c47ac74a89843383c09476a3e',
   '../../frontend/src/lib/large-chat-storage.ts':
-    'f8062b063b2b5d6e12c32e7fdabfa33682a7a3e690ddf75071957f090d290a21',
+    '7da7e4394d6e667ed5b252092fe97b96668b50fb0e3075c5178696cae1cc85ab',
   '../../frontend/src/lib/__tests__/large-chat-storage.test.ts':
-    'c14abc4fba780e2c4d8c91323dcaca0360ac8dc8b70c4a26f594c58f1d1b9652',
+    'c8d30ee2d885d85a7adfdd6c20ff24046aed73123ca97a9eb893954935ab58c5',
   '../../frontend/src/render-app.tsx':
     'ee2bdd5da0ff5e7fe15d8e32f9ebc9c21fab60c5d7c2d6a9189336dd9a0d81aa',
   '../../tests/fixtures/large-chat-storage.ts':
@@ -2013,7 +2013,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/client/src/collaboration-projection.ts':
     '21d7a01d964476e9b188dbfdf65228e06a0e8762eb6953a6d076d182f4caf1e7',
   '../../packages/client/src/index.ts':
-    'd05dd435a2ca8b193e74598d19fff1fda75388f6ba1ff73eae79929bf149e1a1',
+    '393564c9323d6e3091c2c858be71cc18816d84f97603de510fa017bcf3188131',
   '../../frontend/src/components/CollaborationTranscript.tsx':
     '8ee161094085371f18635afe511b37c9020bc6a87d76cf1103e77280bea941ab',
   '../../frontend/src/components/CollaborationTranscript.css':
@@ -2208,15 +2208,15 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/lib/explicit-local-chat.ts':
     '61c65e4fc5595ae1283e11771417d384bb7aeacabac534b7b52177e368bff9ab',
   '../../frontend/src/lib/reviewed-outbox-storage.ts':
-    '0021a0951849f28a9e84fdd220e300a2cbba4aee1d9e7a416a27de20e98ace8f',
+    '03e8dcc4efada2d2b4f2806bdca28a9ad22f3d46cac9843fa42192e405b64d7e',
   '../../frontend/src/pages/ChatView.tsx':
-    '4a9fe83ffaf2fcb0349875428b77d4f4ab2ec03f601950c6b6b28826518d67d0',
+    '2a10cc71cadd0cc5755c8a9377feddcbd199c0971cb47067fda74d42de515a37',
   '../../frontend/src/pages/DesktopChatView.tsx':
-    '2f48f127d8ba307eedcbdba548d9fbaefcb978aa2663ab994f62574ac6728011',
+    '1cede29b6be57ff51473ac4f9ef44e427ba9ed847ef9cf427c109baaeb268d2e',
   '../../frontend/src/types/workspace.ts':
     'c54ac596082365496ebf53ca12ce1602b792acfd09092a216285aa69dd38c162',
   '../../packages/client/src/send-outbox.ts':
-    'd9e02a7f492358845b5f1cefc7868b80974a014e719c84d2045d1b90b5564e8c',
+    'a59842d48fd814f9803fcb4a0a77db5e6bf1a83cc83785b0c063c76f85b0ce34',
   '../../packages/protocol/src/local-codex-first-command.ts':
     'ea563f4e054a78a47fcba9df25da64a6d29c4aa6d16b65df0e18cfd9873a2ad9',
   '../ordinary-local-codex-entry.ts':
@@ -2277,7 +2277,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/client/src/sse-connection.ts':
     '0f7f07c617285c102503d1b98e8a8c331fea2a2879cd1f25a965e27f77b5b5fa',
   '../../packages/client/src/store.ts':
-    '3ed8db613e28b234b1b37e92bea205ab125f6b90636f777e5f8fc4b53e042e9f',
+    'cc79b091161db6d4c150353b822f5035143606c609d769ca632aa6a79b484207',
   '../../packages/harness/src/permission-handler.ts':
     '590489b260fb6e01da99d1e765791f07832d281b7430e76cc2e387ffdd28f28f',
   '../../packages/harness/src/permissions.ts':
@@ -3675,7 +3675,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../tests/offline/pdf-import.spec.ts':
     'e4a6d8250cbaa9b328bda594153fad96afd3394a9c09f375f7540f3b14cee970',
   '../../tests/offline/unified-mobile.spec.ts':
-    '0f5ad7219851f653c5f61db6f51db8da5f69caaebc7d7f4536c43cf6a2a4595f',
+    'b45a1ba7c83944e6c76d5da4ab74550478f14c0e6b331a7031dfa3114fa89713',
   '../openshell-operator-transport.ts':
     '35d10b780021b5e29ec24c3834864978ddf4a17dbe807c07aa7327a7511a6939',
   '../openshell-secret-protocol.ts':

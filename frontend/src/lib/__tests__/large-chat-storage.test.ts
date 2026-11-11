@@ -19,12 +19,15 @@ it('coalesces native and window resume reads and notifies subscribers after hydr
     });
     return tx;
   });
+  const databases: { onclose?: () => void; transaction: typeof transaction }[] = [];
   const indexedDB = {
-    open() {
-      const request: { result: object; onsuccess?: () => void } = { result: { transaction } };
+    open: vi.fn(() => {
+      const db = { transaction };
+      databases.push(db);
+      const request: { result: object; onsuccess?: () => void } = { result: db };
       queueMicrotask(() => request.onsuccess?.());
       return request;
-    },
+    }),
   };
   vi.stubGlobal('window', target);
   vi.stubGlobal('localStorage', fixture().storage);
@@ -49,8 +52,62 @@ it('coalesces native and window resume reads and notifies subscribers after hydr
     unsubscribe();
     target.dispatchEvent(new Event('mitzo-chat-storage-changed'));
     expect(changed).toHaveBeenCalledTimes(1);
+    hold = false;
+    databases[0].onclose?.();
+    await initializeChatStorage();
+    expect(indexedDB.open).toHaveBeenCalledTimes(2);
   } finally {
     vi.unstubAllGlobals();
+  }
+});
+
+it('bounds a stalled database open and closes its late handle without replacing the retry owner', async () => {
+  vi.useFakeTimers();
+  const requests: {
+    result: { close: ReturnType<typeof vi.fn>; transaction: ReturnType<typeof vi.fn> };
+    onsuccess?: () => void;
+  }[] = [];
+  const open = vi.fn(() => {
+    const request = {
+      result: {
+        close: vi.fn(),
+        transaction: vi.fn(() => {
+          const tx: { oncomplete?: () => void; objectStore?: () => object } = {};
+          tx.objectStore = () => ({
+            getAll: () => {
+              queueMicrotask(() => tx.oncomplete?.());
+              return { result: [] };
+            },
+          });
+          return tx;
+        }),
+      },
+    };
+    requests.push(request);
+    return request;
+  });
+  vi.stubGlobal('window', new EventTarget());
+  vi.stubGlobal('localStorage', fixture().storage);
+  vi.stubGlobal('indexedDB', { open });
+  vi.stubGlobal('IDBKeyRange', { bound: () => ({}) });
+  vi.stubGlobal('BroadcastChannel', undefined);
+  vi.resetModules();
+  try {
+    const { initializeChatStorage, chatStorage } = await import('../large-chat-storage');
+    const first = expect(initializeChatStorage()).rejects.toThrow(/timed out/);
+    await vi.advanceTimersByTimeAsync(15_000);
+    await first;
+    const retry = chatStorage.recover();
+    requests[0].onsuccess!();
+    expect(requests[0].result.close).toHaveBeenCalledOnce();
+    requests[1].onsuccess!();
+    await vi.advanceTimersByTimeAsync(0);
+    await retry;
+    expect(open).toHaveBeenCalledTimes(2);
+    expect(requests[1].result.close).not.toHaveBeenCalled();
+  } finally {
+    vi.unstubAllGlobals();
+    vi.useRealTimers();
   }
 });
 

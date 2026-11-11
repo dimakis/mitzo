@@ -15,6 +15,7 @@ import {
 
 type Disk = Pick<Storage, 'length' | 'key' | 'getItem' | 'setItem' | 'removeItem'> & {
   flush?: () => Promise<void>;
+  recover?: () => Promise<void>;
   subscribe?: (listener: () => void) => () => void;
 };
 type Entry = {
@@ -38,6 +39,7 @@ export function createReviewedOutboxStorage(
   route: 'launch' | 'local' = 'launch',
 ): Pick<Storage, 'getItem' | 'setItem'> & {
   flush?: () => Promise<void>;
+  recover?: () => Promise<void>;
   subscribe?: (listener: () => void) => () => void;
 } {
   const prefix = `mitzo-${route === 'local' ? 'local-first-command' : 'reviewed-send'}-outbox:${encodeURIComponent(backendSendUrl)}:`;
@@ -134,6 +136,7 @@ export function createReviewedOutboxStorage(
   }
   return {
     ...(disk.flush ? { flush: () => disk.flush!() } : {}),
+    ...(disk.recover ? { recover: () => disk.recover!() } : {}),
     ...(disk.subscribe ? { subscribe: (listener: () => void) => disk.subscribe!(listener) } : {}),
     getItem() {
       const entries = all();
