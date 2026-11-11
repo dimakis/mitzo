@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.1040-approval-notification-consent';
+  'v1.0.1041-approval-notification-consent';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -34,7 +34,9 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/harness/src/notify.ts':
     '139145f6b5eb3abd7ce547d9a27f9bf9aad8ea351474801069db4523f3fe0dbf',
   '../../packages/harness/src/pushover.ts':
-    '4ffba4b113918efe6b2a4c6ad642accd2586d42702dab0306351a73841b4c3f8',
+    'bce3938bf6afc0a1bfdba23a423119c274555f7a3c4f345a20c40d5553a6e1e3',
+  '../__tests__/pushover.test.ts':
+    '5624db8d0ded8694c3888ad56703c8df8260d48a43be92f543ffcf8a3ed1a88d',
   '../__tests__/session-permission-policy.test.ts':
     '293faeb827e822b45162c310a132cddd1efb81ea7bf4255a7352010e073fd675',
   '../__tests__/collaboration-application-observer-ui.test.tsx':
@@ -806,7 +808,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/symposium-review-app.test.ts':
     '7648dfe9d079c2e6ac22f4131eb47a93133dd9eee4f7ca40205b26c030278160',
   '../__tests__/notification-center.test.ts':
-    '8c97b2643413f06ec9ddbb2a4a55bf8364e20464c079d24e7d20174c6ecfcb03',
+    '450e51de6a8bff958a59133efa44417f2a917ecaeaf3d8bd2e5213712c9bc63e',
   '../../docs/operations/runtime-performance.md':
     '1ce453628c3e0fbef6850e53193a3b9981978832f79555661a5eacbdce5f503e',
   '../../packages/protocol/src/session-search-index.ts':

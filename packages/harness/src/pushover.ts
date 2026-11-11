@@ -27,8 +27,10 @@ export async function sendPushoverNotification(
   const payload: Record<string, string> = {
     token,
     user,
-    title,
-    message,
+    // Pushover's limits are independent of the native push envelope. Use a
+    // generic preview rather than present a truncated approval as complete.
+    title: title.length <= 250 ? title : 'Mitzo',
+    message: message.length <= 1024 ? message : 'Open Mitzo to review this notification.',
   };
 
   if (url) payload.url = url;

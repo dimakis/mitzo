@@ -4,6 +4,8 @@ import {
   SessionRegistry,
   permissionDisplayInput,
   ntfy,
+  pushover as pushoverTransport,
+  githubCommandConsentDescription,
 } from '@mitzo/harness';
 import { registerPending, resolvePending, removePending } from '../permissions.js';
 import { NotificationStore } from '../notification-store.js';
@@ -35,6 +37,7 @@ const request: PermissionRequest = {
 function setup(
   devices = () => 1,
   badge?: (count: number) => Promise<'accepted' | 'failed' | 'unavailable'>,
+  title = 'Fix notifications',
 ) {
   const store = new NotificationStore(':memory:');
   const push = vi.fn().mockResolvedValue({ status: 'accepted', acceptedDevices: [] });
@@ -45,11 +48,68 @@ function setup(
     configured: () => true,
     devices,
     badge,
-    sessionTitle: () => 'Fix notifications',
+    sessionTitle: () => title,
   });
   return { store, center, push, changed };
 }
 describe('central notification delivery', () => {
+  it('delivers an oversized Pushover preview through the real transport as a review-only alert', async () => {
+    const { center, store, push } = setup(() => 0, undefined, 't'.repeat(80));
+    const permId = 'pushover-preview-limit';
+    vi.stubEnv('PUSHOVER_API_TOKEN', 'fixture-token');
+    vi.stubEnv('PUSHOVER_USER_KEY', 'fixture-user');
+    vi.stubEnv('BASE_URL', 'https://mitzo.example');
+    const fetch = vi.fn(async (_url: unknown, options: { body: string }) => {
+      const body = JSON.parse(options.body);
+      const ok = body.message.length <= 1024 && body.title.length <= 250;
+      return { ok, status: ok ? 200 : 400 };
+    });
+    vi.stubGlobal('fetch', fetch);
+    vi.mocked(legacyConfigured).mockReturnValue(true);
+    vi.mocked(legacySend).mockImplementation(pushoverTransport.sendPermissionNotification);
+    store.setPreferences({ sensitivePreviews: true });
+    try {
+      registerPending(
+        permId,
+        'Bash',
+        vi.fn(),
+        { command: 'x'.repeat(765) },
+        'elevated',
+        request.sessionId,
+        {
+          ...request,
+          permId,
+          toolInput: 'x'.repeat(765),
+          sessionGrantDescription: githubCommandConsentDescription('dimakis/mitzo'),
+        },
+      );
+      await center.flush();
+      expect(legacySend).toHaveBeenLastCalledWith(
+        expect.any(String),
+        expect.any(String),
+        permId,
+        request.sessionId,
+        { reviewOnly: true },
+      );
+      expect(vi.mocked(legacySend).mock.lastCall![1].length).toBeGreaterThan(1024);
+      expect(fetch).toHaveBeenCalledOnce();
+      const body = JSON.parse(fetch.mock.calls[0][1].body);
+      expect(body.message).toBe('Open Mitzo to review this notification.');
+      expect(body.url).toBe(`https://mitzo.example/chat/${request.sessionId}`);
+      expect(body.url_title).toBe('Open Mitzo');
+      expect(store.deliveredDevices(`permission:${permId}`)).toEqual(['legacy:pushover']);
+      expect(push).not.toHaveBeenCalled();
+    } finally {
+      removePending(permId);
+      center.close();
+      store.close();
+      vi.mocked(legacyConfigured).mockReturnValue(false);
+      vi.mocked(legacySend).mockReset().mockResolvedValue(true);
+      vi.unstubAllEnvs();
+      vi.unstubAllGlobals();
+    }
+  });
+
   it('does not let a full deferred batch starve another chat or question', async () => {
     const { center, store, push } = setup();
     const ids = Array.from({ length: 28 }, (_, index) => `deferred-${index}`);
