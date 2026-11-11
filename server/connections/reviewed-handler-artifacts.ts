@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.1017-queue-visual-evidence';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.1018-queue-test-timing';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -1225,7 +1225,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../retained-local-codex-recovery.ts':
     '11f58e029b9d684d111ba998dfde52de9cd589796a0e5bdfe54274cb422b52e7',
   '../../tests/offline/queue-status.spec.ts':
-    '8a050b0680f33776274dfbff8ba3d64bf0fee6056dc2b3120a7ced5bdaa80a76',
+    '82fe6a2a68b5a7c6e1f95efec339e887b6f5c44ef20ccdf3b14dc3b92d5d8f2d',
   '../codex-borrowed-search.ts': '67dd1d8dc6165ca13cc3a41fc9708328bd0c5bf23ef329315499365699d7b144',
   '../__tests__/codex-borrowed-search.test.ts':
     '967cb447fd787e24f4308b125d21e8d9ba8f77c66abd7060fbddde6c7171e34f',
@@ -3908,7 +3908,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/codex-tool-failure-diagnostics.test.ts':
     '32802ed695123d487b97f9f32b85ad4d9509ea02275bec33007220c2bef4b2aa',
   '../__tests__/completion-concurrency.test.ts':
-    'c79b766ae23712787307c910ea7ce3199118c2ebcd93d768b990629939e9a3c8',
+    'b64d578dd1f13c24ff4e6a057626c655d00353eba2b7ff0d63ace2ee01e15f97',
   '../__tests__/conversation-transcript.test.ts':
     'e2ded8289d3a7b890fe865cc7e084c52f27f2f42e6ec425fc77c1743f54315b5',
   '../__tests__/local-repository-preparation-continuation.test.ts':

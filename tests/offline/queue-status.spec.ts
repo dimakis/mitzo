@@ -95,7 +95,8 @@ for (const theme of ['dark', 'light']) {
     expect(summary!.width).toBeGreaterThan(bounds!.width / 2);
     for (const button of await dialog.getByRole('button').all()) {
       const box = await button.boundingBox();
-      expect(box!.height).toBeGreaterThanOrEqual(44);
+      // Chromium can report a 44px target just below 44 after fractional layout.
+      expect(box!.height + 0.001).toBeGreaterThanOrEqual(44);
       expect(box!.x + box!.width).toBeLessThanOrEqual(bounds!.x + bounds!.width);
     }
     await dialog

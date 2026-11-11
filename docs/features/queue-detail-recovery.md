@@ -52,3 +52,12 @@ updated shared dialog/motion behavior. Hosted server/frontend type checks and
 builds also passed. Queue captures use the `chat-status-saved-peer-queue-` prefix
 so CI retains successful images in its existing responsiveness artifacts; they
 must be inspected for the final candidate before claiming visual verification.
+
+Hosted CI for `d49fd8b3` retained passing iPhone dark/light captures, inspected on
+11 November: excerpts and cancellation actions remain inside the narrow dialog,
+with Continue reachable after scrolling. Desktop dark also passed. Desktop light
+reported a 44px target as 43.999992px; the assertion now permits 0.001px of layout
+rounding. The existing persisted concurrency test exceeded Vitest's default 5s
+on a shared runner; its functional deadline is now 30s. All 11 synthetic samples
+passed locally after this change (maximum measured workload 235ms, no model
+calls). These test corrections require fresh hosted CI and review before merge.
