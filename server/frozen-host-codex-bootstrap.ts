@@ -74,7 +74,7 @@ export interface FrozenHostCodexBootstrapLease extends FrozenHostCodexLoginLease
   };
 }
 type Expected = OrdinaryLocalCodexAdmissionExpectation & { bootstrapId?: string };
-const unavailable = () => new Error('Host Codex bootstrap unavailable');
+const unavailable = (cause?: unknown) => new Error('Host Codex bootstrap unavailable', { cause });
 function strictVoid(result: unknown): void {
   if (result === undefined) return;
   void Promise.resolve(result).catch(() => {});
@@ -571,7 +571,7 @@ export class FrozenHostCodexBootstrapAuthority implements OrdinaryLocalCodexBoot
             }
           }
           closeLease();
-          throw failure ?? unavailable();
+          throw failure ?? unavailable(error);
         }
       };
       let qualifiedModels: Array<{ id: string; reasoningEfforts?: string[] }> = [];
@@ -631,7 +631,7 @@ export class FrozenHostCodexBootstrapAuthority implements OrdinaryLocalCodexBoot
             }
           }
           closeLease();
-          throw failure ?? unavailable();
+          throw failure ?? unavailable(error);
         }
       };
       const qualifyModels = async (
@@ -692,9 +692,9 @@ export class FrozenHostCodexBootstrapAuthority implements OrdinaryLocalCodexBoot
               throw unavailable();
           }
           qualifiedModels = models;
-        } catch {
+        } catch (error) {
           closeLease();
-          throw unavailable();
+          throw unavailable(error);
         }
       };
       const bootstrapOwners = this.owners;
@@ -811,9 +811,9 @@ export class FrozenHostCodexBootstrapAuthority implements OrdinaryLocalCodexBoot
           current();
           await revalidate();
           current();
-        } catch {
+        } catch (error) {
           closeLease();
-          throw unavailable();
+          throw unavailable(error);
         } finally {
           live = false;
           lifetime.abort(unavailable());
@@ -877,7 +877,7 @@ export class FrozenHostCodexBootstrapAuthority implements OrdinaryLocalCodexBoot
       if (failure) throw failure;
       const capabilityError = findNativeMacExecutionUnavailable(error);
       if (capabilityError) throw capabilityError;
-      throw unavailable();
+      throw unavailable(error);
     }
   }
 }

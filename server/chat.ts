@@ -3890,7 +3890,9 @@ export async function startOwnedLocalCodexCommand(
       /* No automatic retry or custody cleanup. */
     }
     throw (
-      findNativeMacExecutionUnavailable(error) ?? findSessionRuntimeError(error) ?? unavailable()
+      findNativeMacExecutionUnavailable(error) ??
+      findSessionRuntimeError(error) ??
+      retainCodexPreparationFailure('runtime_admission', error)
     );
   }
 }
