@@ -209,6 +209,31 @@ it('reuses one task grant for different CI job logs and literal filters', async 
   expect(outside.isError).toBe(true);
   expect(execution.calls).toHaveLength(2);
 });
+
+it.each(['', 'mcp__mitzo-connections__'])(
+  'returns current bounded execution routing for %s tools and removes it after revocation',
+  async (prefix) => {
+    const f = fixture();
+    const grant = await f.authorize();
+    const read = async () =>
+      JSON.parse(
+        (await f.tools('worker', prefix).execute({ operation: 'status' }, f.signal)).content,
+      );
+    const current = await read();
+    expect(current.executionRoute).toEqual({
+      tool: prefix + 'TaskExecution',
+      grantIds: [grant.id],
+      operations: ['run', 'github_read', 'commit'],
+      executionLocation: 'host',
+      nativeToolsCovered: false,
+    });
+    f.registry.findBySessionId('worker')!.session.mode = 'ask';
+    expect((await read()).executionRoute).toBeNull();
+    f.registry.findBySessionId('worker')!.session.mode = 'agent';
+    f.store.revoke(grant.id, f.auth.id, 'parent');
+    expect(await read()).toMatchObject({ grants: [], executionRoute: null });
+  },
+);
 it.each(['settled', 'unknown'] as const)(
   'preserves a returned %s failure through task projection and identical retry',
   async (outcome) => {

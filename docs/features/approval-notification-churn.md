@@ -80,6 +80,20 @@ The same repository/task consent covers different job IDs and filters. Public
 reads do not silently switch to credentials. This route avoids a shell redirect
 or pipeline for ordinary failure inspection; it does not save a local log file.
 
+Task status and authorization responses include an `executionRoute` containing
+the selected tool name and current eligible grant IDs. Shared Codex/SDK/Vertex
+guidance prefers that bounded executor for routine commands instead of asking
+again through a separate native tool. Native guidance no longer overrides this
+with a blanket preference for native Git. These are routing hints, not durable
+authority: every task invocation still rechecks its operator, runtime, workspace,
+mode, expiry, cancellation and revocation. Ask mode receives no execution route.
+
+The native approval RPC can return only a decision; it cannot replace the command
+or its execution result. Task commands have different credential/scratch boundaries
+and in-flight cancellation from native commands. Converting an existing task grant
+to native network consent would widen its scope. Transparent native delegation
+therefore remains a platform requirement, not a behavior established by this PR.
+
 This repository read grammar does not cover `gh pr view/checks`, log reads with
 redirection or pipelines, Git fetch/push, or arbitrary Bash. TaskExecution can
 cover selected routine commands and networking, but native tools retain their
