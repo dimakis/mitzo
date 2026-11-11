@@ -429,6 +429,7 @@ async function reconcileRetainedColdTurn(
   nativeStatus: 'interrupted' | 'completed' | 'failed',
   policyDrift = false,
   completionPhase = true,
+  heldContext = false,
 ) {
   const f = await ownedRuntimeFixture(cleanups);
   const first = f.create();
@@ -754,6 +755,13 @@ async function reconcileRetainedColdTurn(
     }
     return baseRequest(method, params);
   });
+  const contextTransition = {
+    sessionId: id,
+    operationId: randomUUID(),
+    fingerprint: 'c'.repeat(64),
+    expectedEpoch: f.events.contextTransitions.capture(id),
+  };
+  const heldReceipt = heldContext && f.events.contextTransitions.begin(contextTransition);
   const driver = new OrdinaryLocalCodexOwnedRuntime({
     ...probe.dependencies,
     operatorConnectionId: connectionId,
@@ -879,6 +887,38 @@ async function reconcileRetainedColdTurn(
   metadata.mockRestore();
   expect(native.read(id, binding).recovery).toBe(0);
   expect(native.continuationBlocker(id, binding)).toBeUndefined();
+  if (heldReceipt) {
+    // Inspection settles the original effects without releasing the context fence
+    // or turning this cold owner into an admission owner after a later release.
+    expect(f.events.contextTransitions.read(contextTransition.operationId)).toEqual(heldReceipt);
+    const settledNative = native.read(id, binding);
+    const settledCommands = native.commands(id, binding);
+    const requestsBeforeAdmission = probe.rpc.request.mock.calls.length;
+    const admissionScopes = vi.spyOn(f.events, 'withOrdinaryContextAdmission');
+    const captureRecovery = vi.spyOn(RetainedLocalCodexRecovery, 'capture');
+    const captureSavedRecovery = vi.spyOn(RetainedLocalCodexRecovery, 'captureSaved');
+    for (const released of [false, true]) {
+      if (released) {
+        f.events.contextTransitions.release(contextTransition, 'aborted', () => undefined);
+        expect(f.events.contextTransitions.capture(id)).toBe(heldReceipt.epoch);
+      }
+      await expect(driver.admit(f.request)).rejects.toThrow();
+      await expect(driver.admitResume(f.request)).rejects.toThrow();
+      await expect(driver.admitContinuation(f.request)).rejects.toThrow();
+      await expect(driver.recoverResume(f.request)).rejects.toThrow();
+      await expect(driver.recoverSavedResume()).rejects.toThrow();
+      expect(admissionScopes).not.toHaveBeenCalled();
+      expect(captureRecovery).not.toHaveBeenCalled();
+      expect(captureSavedRecovery).not.toHaveBeenCalled();
+      expect(native.read(id, binding)).toEqual(settledNative);
+      expect(native.commands(id, binding)).toEqual(settledCommands);
+      expect(probe.rpc.request).toHaveBeenCalledTimes(requestsBeforeAdmission);
+      if (!released)
+        expect(f.events.contextTransitions.read(contextTransition.operationId)).toEqual(
+          heldReceipt,
+        );
+    }
+  }
   if (!completionPhase)
     expect(native.completionPhase(id, binding, command.id, command.attempt)).toBeUndefined();
   expect(native.readHostCustody(id, binding)).toEqual(custody);
@@ -914,6 +954,9 @@ it.each(['interrupted', 'completed'] as const)(
   'reconciles an already dispatched cold turn observed %s without replay',
   (status) => reconcileRetainedColdTurn(status),
 );
+
+it('reconciles cold effects while context is held without acquiring admission after release', () =>
+  reconcileRetainedColdTurn('interrupted', false, true, true));
 
 it('reconciles settled interrupted work after a real policy change under fresh authority without replay', () =>
   reconcileRetainedColdTurn('interrupted', true));

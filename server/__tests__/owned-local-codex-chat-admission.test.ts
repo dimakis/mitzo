@@ -136,6 +136,139 @@ function fixture() {
   return { store, input, options, lease, runtime, binding, selection, agentProfile };
 }
 
+it.each(['enqueue', 'claim', 'dispatch'] as const)(
+  'keeps old command context fenced at native %s after release',
+  (stage) => {
+    const f = fixture();
+    try {
+      f.store.claimOrdinaryLocalCommandDispatch('command');
+      const owner = OwnedLocalCodexChatAdmission.capture(f.input);
+      owner.assertOptions(f.options);
+      const input = {
+        id: 'command',
+        prompt: f.options.prompt,
+        intent: f.options.intent,
+        images: f.options.images,
+        model: f.options.model,
+        reasoningEffort: null,
+      };
+      if (stage !== 'enqueue') owner.assertBeforeEnqueue(input);
+      if (stage !== 'enqueue') f.store.completeOrdinaryLocalCommand('command');
+      const original = f.store.getSendCommand('command');
+      const handover = {
+        sessionId: 'session',
+        operationId: 'handover',
+        fingerprint: 'a'.repeat(64),
+        expectedEpoch: 0,
+      };
+      const boundary = () =>
+        stage === 'enqueue'
+          ? owner.assertBeforeEnqueue(input)
+          : stage === 'claim'
+            ? owner.canClaimCommand('command')
+            : owner.assertBeforeDispatch('command');
+      f.store.contextTransitions.begin(handover);
+      expect(boundary).toThrow(/context/i);
+      f.store.contextTransitions.release(handover, 'aborted', () => undefined);
+      expect(boundary).toThrow(/context/i);
+      // Receipt settlement/lifetime inspection is not new execution admission.
+      expect(() => owner.assertCurrentSync()).not.toThrow();
+      expect(f.store.getSendCommand('command')).toEqual(original);
+    } finally {
+      f.store.close();
+    }
+  },
+);
+
+it('refuses capture when its lease callback acquires a context hold', () => {
+  const f = fixture();
+  try {
+    f.store.claimOrdinaryLocalCommandDispatch('command');
+    f.lease.assertCurrentSync = () => {
+      f.store.contextTransitions.begin({
+        sessionId: 'session',
+        operationId: 'handover',
+        fingerprint: 'a'.repeat(64),
+        expectedEpoch: 0,
+      });
+    };
+    expect(() => OwnedLocalCodexChatAdmission.capture(f.input)).toThrow();
+    expect(f.store.contextTransitions.observe('session').held).toBe(true);
+  } finally {
+    f.store.close();
+  }
+});
+
+it('refuses dispatch when its final native authorization callback acquires a context hold', () => {
+  const f = fixture();
+  try {
+    f.store.claimOrdinaryLocalCommandDispatch('command');
+    const owner = OwnedLocalCodexChatAdmission.capture({
+      ...f.input,
+      authorizeNativeThreadDispatch: () => {
+        f.store.contextTransitions.begin({
+          sessionId: 'session',
+          operationId: 'handover',
+          fingerprint: 'a'.repeat(64),
+          expectedEpoch: 0,
+        });
+      },
+    });
+    owner.assertOptions(f.options);
+    owner.assertBeforeEnqueue({
+      id: 'command',
+      prompt: f.options.prompt,
+      intent: f.options.intent,
+      images: f.options.images,
+      model: f.options.model,
+      reasoningEffort: null,
+    });
+    f.store.completeOrdinaryLocalCommand('command');
+    expect(() => owner.assertBeforeDispatch('command')).toThrow(/context/i);
+  } finally {
+    f.store.close();
+  }
+});
+
+it.each(['enqueue', 'dispatch'] as const)(
+  'rechecks context after mutable model validation before native %s',
+  (stage) => {
+    const f = fixture();
+    try {
+      f.store.claimOrdinaryLocalCommandDispatch('command');
+      const owner = OwnedLocalCodexChatAdmission.capture(f.input);
+      owner.assertOptions(f.options);
+      const input = {
+        id: 'command',
+        prompt: f.options.prompt,
+        intent: f.options.intent,
+        images: f.options.images,
+        model: f.options.model,
+        reasoningEffort: null,
+      };
+      if (stage === 'dispatch') {
+        owner.assertBeforeEnqueue(input);
+        f.store.completeOrdinaryLocalCommand('command');
+      }
+      f.lease.assertModelSelectionCurrentSync = () => {
+        f.store.contextTransitions.begin({
+          sessionId: 'session',
+          operationId: 'handover',
+          fingerprint: 'a'.repeat(64),
+          expectedEpoch: 0,
+        });
+      };
+      expect(() =>
+        stage === 'enqueue'
+          ? owner.assertBeforeEnqueue(input)
+          : owner.assertBeforeDispatch('command'),
+      ).toThrow(/context/i);
+    } finally {
+      f.store.close();
+    }
+  },
+);
+
 it('admits a settled failure continuation through the existing owned command receipts', () => {
   const f = fixture();
   const root = mkdtempSync(join(tmpdir(), 'tool-recovery-owner-'));

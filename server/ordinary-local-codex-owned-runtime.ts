@@ -152,6 +152,7 @@ interface Owners<K extends LocalWorkspaceKind = 'repository'> {
  */
 export class OrdinaryLocalCodexOwnedRuntime<K extends LocalWorkspaceKind = 'repository'> {
   readonly #reservation: Owners<K>['reservation'];
+  readonly #contextEpoch: number | undefined;
   readonly #runtime: OrdinaryLocalCodexHostRuntime;
   readonly #controller = new AbortController();
   readonly #signal: AbortSignal;
@@ -190,6 +191,12 @@ export class OrdinaryLocalCodexOwnedRuntime<K extends LocalWorkspaceKind = 'repo
       captured.assertCurrent();
       this.#authSessionId = captured.auth.id;
       this.#reservation = structuredClone(owners.reservation);
+      const context = owners.eventStore.contextTransitions.observe(
+        this.#reservation.conversationId,
+      );
+      // A held owner may inspect retained effects, but can never become a new
+      // command owner merely because another operation later releases the hold.
+      this.#contextEpoch = context.held ? undefined : context.epoch;
       this.#workspaceOwner = new OrdinaryLocalWorkspaceOwner(
         owners.workspace,
         owners.workspaceKind ?? ('repository' as K),
@@ -235,6 +242,7 @@ export class OrdinaryLocalCodexOwnedRuntime<K extends LocalWorkspaceKind = 'repo
     return this.admitCommand(raw, false, operationId);
   }
   async admitResume(raw: unknown): Promise<{ dispatched: boolean }> {
+    this.assertCommandContext();
     this.assertCurrent();
     const native = this.owners.nativeStore;
     if (native) {
@@ -258,6 +266,7 @@ export class OrdinaryLocalCodexOwnedRuntime<K extends LocalWorkspaceKind = 'repo
   }
   /** Explicit recovery of an exact, positively undispatched retained command. */
   async recoverResume(raw: unknown): Promise<{ dispatched: boolean }> {
+    this.assertCommandContext();
     this.assertCurrent();
     if (this.#admission) return { dispatched: false };
     if (!this.owners.nativeStore || !this.#authSessionId) throw unavailable();
@@ -273,6 +282,7 @@ export class OrdinaryLocalCodexOwnedRuntime<K extends LocalWorkspaceKind = 'repo
     return this.admitCommand(raw, true, undefined, recovery);
   }
   async recoverSavedResume(): Promise<{ dispatched: boolean }> {
+    this.assertCommandContext();
     this.assertCurrent();
     if (this.#admission) return { dispatched: false };
     if (!this.owners.nativeStore || !this.#authSessionId) throw unavailable();
@@ -306,7 +316,27 @@ export class OrdinaryLocalCodexOwnedRuntime<K extends LocalWorkspaceKind = 'repo
       assertCurrent: () => this.assertCurrent(),
     });
   }
+  private assertCommandContext(): number {
+    if (this.#contextEpoch === undefined) throw unavailable();
+    this.owners.eventStore.contextTransitions.assertAdmission(
+      this.#reservation.conversationId,
+      this.#contextEpoch,
+    );
+    return this.#contextEpoch;
+  }
   private async admitCommand(
+    raw: unknown,
+    resume: boolean,
+    preparationOperationId?: string,
+    recovery?: RetainedLocalCodexRecovery,
+  ): Promise<{ dispatched: boolean }> {
+    return this.owners.eventStore.withOrdinaryContextAdmission(
+      this.#reservation.conversationId,
+      this.assertCommandContext(),
+      () => this.admitCommandNow(raw, resume, preparationOperationId, recovery),
+    );
+  }
+  private async admitCommandNow(
     raw: unknown,
     resume: boolean,
     preparationOperationId?: string,
@@ -1265,6 +1295,7 @@ export class OrdinaryLocalCodexOwnedRuntime<K extends LocalWorkspaceKind = 'repo
     peer?: { messageId: string; assertCurrent(): void; assertPermissionCurrent?: () => void },
     assertCredentialSetupCurrent?: () => void,
   ): Promise<{ dispatched: boolean }> {
+    const contextEpoch = this.assertCommandContext();
     raw = structuredClone(raw);
     // Preserve arrival order even when model qualification crosses awaits.
     // A transition drains preceding admissions, then later requests wait for
@@ -1274,11 +1305,11 @@ export class OrdinaryLocalCodexOwnedRuntime<K extends LocalWorkspaceKind = 'repo
     const operation = this.#continuationAdmissionTail
       .then(async () => {
         if (barrier) await barrier.ready;
-        return this.admitContinuationNow(
-          raw,
-          preparationSignal,
-          peer,
-          assertCredentialSetupCurrent,
+        return this.owners.eventStore.withOrdinaryContextAdmission(
+          this.#reservation.conversationId,
+          contextEpoch,
+          () =>
+            this.admitContinuationNow(raw, preparationSignal, peer, assertCredentialSetupCurrent),
         );
       })
       .finally(() => {

@@ -40,6 +40,8 @@ it('retains the exact deny fence across connections and restart without affectin
   const held = first.begin(intent);
   expect(held).toMatchObject({ ...intent, epoch: 1, phase: 'held' });
   const second = fixture(path);
+  expect(second.observe('discussion')).toEqual({ epoch: 1, held: true });
+  expect(second.observe('unrelated')).toEqual({ epoch: 0, held: false });
   expect(second.begin(intent)).toEqual(held);
   expect(() => second.capture('discussion')).toThrow(/transition/i);
   expect(second.capture('unrelated')).toBe(0);

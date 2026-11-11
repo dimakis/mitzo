@@ -68,11 +68,15 @@ export class OrdinaryContextTransitionStore {
       .get(reference.parse(sessionId));
     return row === undefined ? undefined : Receipt.parse(row);
   }
-  capture(sessionId: string): number {
+  /** Observation permits recovery/settlement, never admission. */
+  observe(sessionId: string): { epoch: number; held: boolean } {
     const current = this.latest(sessionId);
-    if (current?.phase === 'held')
-      throw Error('Conversation context transition requires reconciliation');
-    return current?.epoch ?? 0;
+    return { epoch: current?.epoch ?? 0, held: current?.phase === 'held' };
+  }
+  capture(sessionId: string): number {
+    const current = this.observe(sessionId);
+    if (current.held) throw Error('Conversation context transition requires reconciliation');
+    return current.epoch;
   }
   assertAdmission(sessionId: string, expectedEpoch: number): void {
     if (this.capture(sessionId) !== epoch.parse(expectedEpoch))

@@ -144,6 +144,7 @@ export class OwnedLocalCodexChatAdmission {
       const admission = new OwnedLocalCodexChatAdmission(owner);
       admission.assertReceipt(true);
       owner.lease.assertCurrentSync();
+      owner.eventStore.assertOrdinaryContextCommand(owner.sessionId, owner.commandId);
       return admission;
     } catch {
       throw unavailable();
@@ -215,15 +216,22 @@ export class OwnedLocalCodexChatAdmission {
           child.#expected.selection.model,
           child.#expected.selection.thinking,
         );
+        owner.eventStore.assertOrdinaryContextCommand(owner.sessionId, queued.id);
         child.#enqueued = true;
         admission.#continuations.set(queued.id, child);
       }
+      owner.eventStore.assertOrdinaryContextCommand(owner.sessionId, owner.commandId);
       return admission;
     } catch {
       throw unavailable();
     }
   }
   private assertReceipt(initial = false) {
+    if (initial)
+      this.owner.eventStore.assertOrdinaryContextCommand(
+        this.owner.sessionId,
+        this.owner.commandId,
+      );
     if (initial) this.owner.recovery?.assertCurrentSync();
     const observation = this.owner.eventStore.observeOrdinaryLocalCommandAuthority(
       this.owner.sessionId,
@@ -933,6 +941,7 @@ export class OwnedLocalCodexChatAdmission {
       this.#expected.selection.model,
       this.#expected.selection.thinking,
     );
+    this.owner.eventStore.assertOrdinaryContextCommand(this.owner.sessionId, input.id);
     this.#enqueued = true;
   }
   /** Command-frozen existing admission workspace, never inferred from mutable
@@ -950,18 +959,14 @@ export class OwnedLocalCodexChatAdmission {
   canClaimCommand(commandId: string): boolean {
     if (this.#primary) return this.#primary.canClaimCommand(commandId);
     this.assertCurrentSync();
-    if (commandId === this.owner.commandId)
-      return (
-        this.owner.eventStore.getOrdinaryLocalCommandExecutionAdmission(commandId)?.state ===
-        'consumed'
-      );
-    const continuation = this.#continuations.get(commandId);
-    if (!continuation) return false;
-    continuation.assertCurrentSync();
-    return (
+    const command = commandId === this.owner.commandId ? this : this.#continuations.get(commandId);
+    if (!command) return false;
+    command.assertCurrentSync();
+    const consumed =
       this.owner.eventStore.getOrdinaryLocalCommandExecutionAdmission(commandId)?.state ===
-      'consumed'
-    );
+      'consumed';
+    this.owner.eventStore.assertOrdinaryContextCommand(this.owner.sessionId, commandId);
+    return consumed;
   }
   assertBeforeDispatch(commandId: string): void {
     if (this.#primary) return this.#primary.assertBeforeDispatch(commandId);
@@ -989,8 +994,10 @@ export class OwnedLocalCodexChatAdmission {
       if (!this.owner.assertAgentMessagePermissionCurrent) throw unavailable();
       this.owner.assertAgentMessagePermissionCurrent();
     }
+    this.owner.eventStore.assertOrdinaryContextCommand(this.owner.sessionId, commandId);
     this.#dispatched = true;
     this.owner.authorizeNativeThreadDispatch?.(commandId);
+    this.owner.eventStore.assertOrdinaryContextCommand(this.owner.sessionId, commandId);
   }
   assertModelSelection(model: string, thinking?: string | null): void {
     if (this.#primary) return this.#primary.assertModelSelection(model, thinking);
@@ -1013,10 +1020,11 @@ export class OwnedLocalCodexChatAdmission {
   }
   persistCustody(store: CodexConversationStore): void {
     this.assertCurrentSync();
+    this.owner.eventStore.assertOrdinaryContextCommand(this.owner.sessionId, this.owner.commandId);
     if (!this.owner.lease.custodySnapshot) return; // Offline compatibility fixtures.
     if (!this.owner.authSessionId || !this.#expected.bootstrapId) throw unavailable();
-    store.setHostCustody(this.owner.sessionId, this.#binding, {
-      version: 1,
+    const custody = {
+      version: 1 as const,
       authSessionId: this.owner.custody?.authSessionId ?? this.owner.authSessionId,
       bootstrapId: this.owner.custody?.bootstrapId ?? this.#expected.bootstrapId,
       ...this.owner.lease.custodySnapshot(),
@@ -1030,7 +1038,9 @@ export class OwnedLocalCodexChatAdmission {
               : {}),
           }
         : ordinaryCodexSnapshotCustody(this.#expected.agentProfile, this.#expected.agentContext)),
-    });
+    };
+    this.owner.eventStore.assertOrdinaryContextCommand(this.owner.sessionId, this.owner.commandId);
+    store.setHostCustody(this.owner.sessionId, this.#binding, custody);
     this.assertCurrentSync();
   }
   close(): void {
