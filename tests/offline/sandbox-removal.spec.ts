@@ -33,6 +33,7 @@ for (const theme of ['dark', 'light'] as const)
     const compiled = await bundle;
     const writes: Array<{ url: string; body: unknown }> = [];
     let prepared = false;
+    let failedStop = false;
     const errors: string[] = [];
     page.on('pageerror', (error) => errors.push(error.message));
     await page.routeWebSocket('**/*', (socket) => socket.close());
@@ -48,13 +49,32 @@ for (const theme of ['dark', 'light'] as const)
               blockers: prepared ? [] : ['active_session'],
             },
             needsPreparation: !prepared,
-            removal: prepared
-              ? { operationId: 'original-removal', phase: 'closing', canKeep: true }
-              : null,
+            removal: failedStop
+              ? {
+                  operationId: 'original-removal',
+                  phase: 'failed',
+                  canKeep: true,
+                  error:
+                    'A tool call has no verified result. Keep the chat and review its unfinished work before deleting.',
+                }
+              : prepared
+                ? { operationId: 'original-removal', phase: 'closing', canKeep: true }
+                : null,
           },
         });
       if (url.pathname.endsWith('/prepare-deletion')) {
         writes.push({ url: url.pathname, body: route.request().postDataJSON() });
+        if (!failedStop) {
+          failedStop = true;
+          return route.fulfill({
+            status: 409,
+            json: {
+              error:
+                'A tool call has no verified result. Keep the chat and review its unfinished work before deleting.',
+            },
+          });
+        }
+        failedStop = false;
         prepared = true;
         return route.fulfill({
           json: {
@@ -106,20 +126,28 @@ for (const theme of ['dark', 'light'] as const)
     await expect(archive).toBeFocused();
     await page.screenshot({ path: info.outputPath(`sandbox-removal-${theme}.png`) });
     await prepare.click();
-    await expect(dialog.getByRole('button', { name: 'Delete chat and sandbox' })).toBeEnabled();
+    await expect(dialog.getByRole('alert')).toContainText('tool call has no verified result');
+    await expect(dialog.getByRole('button', { name: 'Keep chat' })).toBeEnabled();
+    await expect(dialog.getByRole('button', { name: 'Delete chat and sandbox' })).toBeDisabled();
     expect(writes).toHaveLength(1);
+    expect(await dialog.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
+    await page.screenshot({ path: info.outputPath(`sandbox-removal-failed-stop-${theme}.png`) });
+    // A second stop is explicit; the failed action only triggers a read.
+    await prepare.click();
+    await expect(dialog.getByRole('button', { name: 'Delete chat and sandbox' })).toBeEnabled();
+    expect(writes).toHaveLength(2);
     expect(writes[0].url).toContain('/prepare-deletion');
     await expect(dialog.getByRole('button', { name: 'Keep chat' })).toBeVisible();
     await page.screenshot({ path: info.outputPath(`sandbox-removal-prepared-${theme}.png`) });
     await dialog.getByRole('button', { name: 'Delete chat and sandbox' }).click();
     await expect(dialog.getByRole('alert')).toBeVisible();
-    expect(writes[1].body).toEqual({
+    expect(writes[2].body).toEqual({
       cleanupToken: 'reviewed-token',
       removalOperationId: 'original-removal',
     });
     await archive.click();
     await expect(dialog).not.toBeVisible();
-    expect(writes[2].url).toContain('?archive=1');
+    expect(writes[3].url).toContain('?archive=1');
     await expect(page.getByRole('button', { name: 'Review chat removal' })).toBeFocused();
     expect(errors).toEqual([]);
   });

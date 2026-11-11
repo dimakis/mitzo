@@ -1,5 +1,8 @@
 import { randomUUID } from 'node:crypto';
 import type { EventStore } from './event-store.js';
+import { createLogger } from './logger.js';
+import { SessionRemovalBlocker } from './session-removal-blocker.js';
+const log = createLogger('session-resource-removal');
 type SessionRemovalStore = EventStore['removals'];
 type SessionRemovalRecord = NonNullable<ReturnType<SessionRemovalStore['read']>>;
 
@@ -43,6 +46,35 @@ export class SessionResourceRemovalService {
     if (this.deps.fingerprint(id) !== record.fingerprint)
       throw Error('Chat resources changed. Review the original removal.');
   }
+  private recordFailure(
+    id: string,
+    record: SessionRemovalRecord,
+    stage: 'prepare' | 'release',
+    error: unknown,
+  ) {
+    const diagnostic = { stage, sessionId: id, operationId: record.operationId };
+    log.warn('Chat removal failed; chat and runtime evidence retained', {
+      ...diagnostic,
+      code: error instanceof SessionRemovalBlocker ? error.code : `removal_${stage}_failed`,
+    });
+    try {
+      this.deps.store.transition(
+        id,
+        record.operationId,
+        stage === 'prepare' ? 'closing' : 'releasing',
+        'failed',
+        error instanceof Error ? error.message : 'Chat removal could not be verified.',
+      );
+    } catch (recordingError) {
+      // Keep the original failure and admission fence if its durable diagnostic
+      // cannot be saved; report the secondary failure separately.
+      log.error('Could not record the chat removal failure', {
+        ...diagnostic,
+        code: 'removal_failure_record_unavailable',
+        err: recordingError,
+      });
+    }
+  }
   async prepare(id: string, assertCurrent: () => void): Promise<SessionRemovalRecord> {
     assertCurrent();
     let task = this.preparing.get(id);
@@ -74,13 +106,7 @@ export class SessionResourceRemovalService {
       this.deps.assertSettled(id);
       return this.deps.store.markPrepared(id, record.operationId);
     } catch (error) {
-      this.deps.store.transition(
-        id,
-        record.operationId,
-        'closing',
-        'failed',
-        error instanceof Error ? error.message : 'Runtime shutdown could not be verified.',
-      );
+      this.recordFailure(id, record, 'prepare', error);
       throw error;
     }
   }
@@ -127,13 +153,7 @@ export class SessionResourceRemovalService {
       this.current(id, record, assertCurrent);
       return this.deps.store.transition(id, operationId, 'releasing', 'completed');
     } catch (error) {
-      this.deps.store.transition(
-        id,
-        operationId,
-        'releasing',
-        'failed',
-        error instanceof Error ? error.message : 'Resource release is unverified.',
-      );
+      this.recordFailure(id, record, 'release', error);
       throw error;
     }
   }

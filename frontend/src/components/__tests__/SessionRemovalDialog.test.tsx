@@ -51,8 +51,16 @@ it('retains the dialog on a refused deletion and requires a fresh review', async
   fireEvent.click(await screen.findByRole('button', { name: 'Delete chat and sandbox' }));
   await screen.findByRole('alert');
   expect(close).not.toHaveBeenCalled();
-  expect((screen.getByRole('button', { name: 'Delete chat' }) as HTMLButtonElement).disabled).toBe(
-    true,
+  expect(
+    (screen.getByRole('button', { name: 'Delete chat and sandbox' }) as HTMLButtonElement).disabled,
+  ).toBe(true);
+  expect(readApiJson).toHaveBeenCalledTimes(1);
+  fireEvent.click(screen.getByRole('button', { name: 'Review again' }));
+  await waitFor(() =>
+    expect(
+      (screen.getByRole('button', { name: 'Delete chat and sandbox' }) as HTMLButtonElement)
+        .disabled,
+    ).toBe(false),
   );
 });
 it('stops and reviews the runtime before offering explicit deletion', async () => {
@@ -105,4 +113,72 @@ it('shows retained local disk use and keeps a failed preparation recoverable', a
     ),
   );
   expect(close).toHaveBeenCalled();
+});
+
+it('refreshes a failed stop without losing its original Keep chat action or replaying the stop', async () => {
+  vi.mocked(readApiJson)
+    .mockResolvedValueOnce({ sandbox: null, needsPreparation: true, removal: null })
+    .mockResolvedValueOnce({
+      sandbox: null,
+      needsPreparation: true,
+      removal: {
+        operationId: 'failed-stop',
+        phase: 'failed',
+        canKeep: true,
+        error: 'A tool call has no verified result. Open the chat to review unfinished work.',
+      },
+    });
+  vi.mocked(sessionRemovalAction).mockRejectedValueOnce(
+    Error('A tool call has no verified result.'),
+  );
+  const remove = vi.fn(async () => true);
+  const close = vi.fn();
+  render(<SessionRemovalDialog sessionId="c" onRemove={remove} onClose={close} />);
+  fireEvent.click(await screen.findByRole('button', { name: 'Stop and review deletion' }));
+  const keep = await screen.findByRole('button', { name: 'Keep chat' });
+  expect(screen.getByRole('alert').textContent).toContain('tool call');
+  expect((screen.getByRole('button', { name: 'Delete chat' }) as HTMLButtonElement).disabled).toBe(
+    true,
+  );
+  expect(sessionRemovalAction).toHaveBeenCalledTimes(1);
+  expect(remove).not.toHaveBeenCalled();
+  vi.mocked(sessionRemovalAction).mockResolvedValueOnce({ ok: true });
+  fireEvent.click(keep);
+  await waitFor(() => expect(close).toHaveBeenCalled());
+  expect(sessionRemovalAction).toHaveBeenLastCalledWith(
+    '/api/sessions/c/keep-chat',
+    { removalOperationId: 'failed-stop' },
+    expect.any(AbortSignal),
+  );
+});
+
+it('retains failed-removal details across an unavailable review and disables stale mutation controls', async () => {
+  vi.mocked(readApiJson)
+    .mockResolvedValueOnce({
+      sandbox: null,
+      needsPreparation: true,
+      removal: {
+        operationId: 'original',
+        phase: 'failed',
+        canKeep: true,
+        error: 'Recovery needs review.',
+      },
+    })
+    .mockRejectedValueOnce(Error('offline'));
+  render(<SessionRemovalDialog sessionId="c" onRemove={async () => true} onClose={() => {}} />);
+  await screen.findByRole('button', { name: 'Keep chat' });
+  expect(screen.getByRole('alert').textContent).toContain('Recovery needs review');
+  fireEvent.click(screen.getByRole('button', { name: 'Review again' }));
+  await waitFor(() => expect(screen.getByRole('alert').textContent).toContain('Couldn’t review'));
+  expect((screen.getByRole('button', { name: 'Keep chat' }) as HTMLButtonElement).disabled).toBe(
+    true,
+  );
+  expect(
+    (screen.getByRole('button', { name: 'Stop and review deletion' }) as HTMLButtonElement)
+      .disabled,
+  ).toBe(true);
+  expect((screen.getByRole('button', { name: 'Archive chat' }) as HTMLButtonElement).disabled).toBe(
+    false,
+  );
+  expect(sessionRemovalAction).not.toHaveBeenCalled();
 });

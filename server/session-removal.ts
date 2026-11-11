@@ -96,6 +96,7 @@ export function createSessionRemovalRouter(deps: {
                   operationId: removal.operationId,
                   phase: removal.phase,
                   canKeep: !removal.releaseStarted,
+                  error: removal.error,
                 }
               : null,
             needsPreparation: !deps.removal.service.isPrepared(id),

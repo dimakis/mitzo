@@ -462,6 +462,43 @@ it('verifies a stopped repository task without acknowledging recovery or releasi
   expect(f.store.commandStatus('conversation', binding, 'pending')).toBe('queued');
 });
 
+it.each([
+  'workspace_changed',
+  'commands_pending',
+  'transition_pending',
+  'tool_result_pending',
+  'recovery_required',
+] as const)('identifies the %s deletion blocker without changing native state', (code) => {
+  const f = fixture({ result: code !== 'tool_result_pending' });
+  f.store.finish(
+    'conversation',
+    binding,
+    'original',
+    'completed',
+    'turn',
+    code === 'recovery_required',
+  );
+  const record = {
+    conversationId: 'conversation',
+    binding,
+    directory: code === 'workspace_changed' ? '/other' : '/original',
+  };
+  if (code === 'commands_pending')
+    f.store.enqueue('conversation', binding, { id: 'queued', prompt: 'Continue' });
+  if (code === 'transition_pending')
+    f.store.holdPreparedRepositoryTransition('conversation', binding, source);
+  const before = f.store.read('conversation', binding);
+  let failure: unknown;
+  try {
+    f.store.assertRepositoryTaskStopped(record as never);
+  } catch (error) {
+    failure = error;
+  }
+  expect(failure).toMatchObject({ code });
+  expect((failure as Error).message).not.toMatch(/active or uncertain/);
+  expect(f.store.read('conversation', binding)).toEqual(before);
+});
+
 it.each([false, true])(
   'selects a completed preparation source only for a successful durable tool result (error=%s)',
   (error) => {

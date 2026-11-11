@@ -1,4 +1,5 @@
 import { isIntrinsicRecoveryRead } from './builtin-tool-behavior.js';
+import { SessionRemovalBlocker } from './session-removal-blocker.js';
 import { CodexEffectSettlements } from './codex-effect-settlements.js';
 import type {
   RetainedHostResultObserver,
@@ -5616,20 +5617,24 @@ export class CodexConversationStore {
     this.db.transaction(() => {
       const id = record.conversationId!;
       const state = this.read(id, record.binding);
+      if (state.cwd !== record.directory) throw new SessionRemovalBlocker('workspace_changed');
       if (
-        state.cwd !== record.directory ||
-        state.recovery ||
         this.commands(id, record.binding).some(
           (command) => command.status === 'queued' || command.status === 'running',
-        ) ||
-        this.hasPreparedRepositoryTransitionHold(id, record.binding) ||
+        )
+      )
+        throw new SessionRemovalBlocker('commands_pending');
+      if (this.hasPreparedRepositoryTransitionHold(id, record.binding))
+        throw new SessionRemovalBlocker('transition_pending');
+      if (
         this.db
           .prepare(
             'SELECT 1 FROM codex_tools WHERE conversation_id=? AND result_content IS NULL LIMIT 1',
           )
           .get(id)
       )
-        throw Error('Repository task native work remains active or uncertain');
+        throw new SessionRemovalBlocker('tool_result_pending');
+      if (state.recovery) throw new SessionRemovalBlocker('recovery_required');
       this.assertNoPendingThreadDispatch(id, record.binding);
       this.assertNoPendingThreadOwnership(id, record.binding);
     })();
