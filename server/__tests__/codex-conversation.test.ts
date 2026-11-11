@@ -476,6 +476,185 @@ function enableSubagentFixture(f: Awaited<ReturnType<typeof setup>>) {
   });
 }
 
+async function admittedContextChild() {
+  const f = await setup(undefined, undefined, undefined, undefined, async () => binding);
+  enableSubagentFixture(f);
+  await f.c.send({ id: 'root-command', prompt: 'Review' });
+  const rpc = f.rpc.request.getMockImplementation()!;
+  const child = {
+    id: 'child',
+    parentThreadId: f.getProviderThread(),
+    sessionId: 'native-tree',
+    cwd: '/workspace',
+    model: 'test-model',
+    modelProvider: 'openai',
+  };
+  f.rpc.request.mockImplementation(async (method, params) => {
+    if (method === 'thread/read') return { thread: { ...child, id: params.threadId } };
+    if (params.threadId === child.id) {
+      if (method === 'thread/resume')
+        return { thread: child, model: child.model, modelProvider: child.modelProvider };
+      if (method === 'thread/turns/list') return { data: [], nextCursor: null };
+      if (method === 'turn/steer') return { turnId: params.expectedTurnId };
+      if (method === 'turn/start') return { turn: { id: 'child-next' } };
+      if (method === 'turn/interrupt') return {};
+    }
+    return rpc(method, params);
+  });
+  f.callbacks.onNotification('thread/started', { thread: child });
+  f.callbacks.onNotification('turn/started', { threadId: 'child', turn: { id: 'child-turn' } });
+  const owner = f.c.getSubagents()!;
+  await owner.settled();
+  return { ...f, owner };
+}
+
+it.each(
+  ['before-claim', 'during-preparation', 'final-callback', 'new-parent'].flatMap((phase) =>
+    ['working', 'completed'].map((state) => ({ phase, state })),
+  ),
+)(
+  'refuses child messages against their original source context at $phase with $state child, preserving observation and stop',
+  async ({ phase, state }) => {
+    const f = await admittedContextChild();
+    const owner = f.owner;
+    if (state === 'completed')
+      f.callbacks.onNotification('turn/completed', {
+        threadId: 'child',
+        turn: { id: 'child-turn', status: 'completed' },
+      });
+    if (phase === 'new-parent') {
+      f.callbacks.onNotification('turn/completed', {
+        threadId: f.getProviderThread(),
+        turn: { id: 'turn-1', status: 'completed' },
+      });
+      await vi.waitFor(() => expect(f.c.queue()[0].status).toBe('completed'));
+      await f.c.send({ id: 'new-parent', prompt: 'Next parent turn' });
+    }
+    let held = phase === 'before-claim' || phase === 'new-parent';
+    const checked: string[] = [];
+    f.conversationOptions.assertQueueCommandCurrent = (id) => {
+      checked.push(id);
+      if (held && id === 'root-command') throw Error('Original source context held');
+    };
+    if (phase === 'during-preparation')
+      f.conversationOptions.prepareAgentContext = async () => {
+        held = true;
+      };
+    const input = {
+      requestId: 'held-child',
+      threadId: 'child',
+      action: 'message' as const,
+      text: 'Do not run',
+    };
+    let checks = 0;
+    const result = await owner.control(input, () => {
+      checks++;
+      if (phase === 'final-callback' && checks >= 3) held = true;
+    });
+    expect(result).toBe('rejected');
+    expect(checked).toContain('root-command');
+    expect(
+      f.rpc.request.mock.calls.filter(
+        ([method, params]) =>
+          params.threadId === 'child' && ['turn/start', 'turn/steer'].includes(method),
+      ),
+    ).toHaveLength(0);
+    expect(owner.list()[0]).toMatchObject({ threadId: 'child', state, available: true });
+    expect(await owner.inspect('child', () => {})).toMatchObject({
+      threadId: 'child',
+      state,
+      available: true,
+    });
+    expect(await owner.control(input)).toBe('rejected');
+    expect(await owner.control({ requestId: 'held-stop', threadId: 'child', action: 'stop' })).toBe(
+      state === 'working' ? 'accepted' : 'rejected',
+    );
+    expect(
+      f.rpc.request.mock.calls.filter(
+        ([method, params]) => params.threadId === 'child' && method === 'turn/interrupt',
+      ),
+    ).toHaveLength(state === 'working' ? 1 : 0);
+  },
+);
+
+it.each(
+  ['ack', 'sync-failure'].flatMap((outcome) =>
+    ['working', 'completed'].map((state) => ({ outcome, state })),
+  ),
+)(
+  'serializes child control for $state child through invocation and releases before $outcome',
+  async ({ outcome, state }) => {
+    const f = await admittedContextChild();
+    if (state === 'completed')
+      f.callbacks.onNotification('turn/completed', {
+        threadId: 'child',
+        turn: { id: 'child-turn', status: 'completed' },
+      });
+    const controlMethod = state === 'completed' ? 'turn/start' : 'turn/steer';
+    const eventsPath = join(dirname(f.storePath!), 'child-events.db');
+    const events = new EventStore(eventsPath);
+    const writer = new Database(eventsPath, { timeout: 0 });
+    const rpc = f.rpc.request.getMockImplementation()!;
+    let release!: () => void;
+    const pending = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const input = {
+      requestId: 'serialized-child',
+      threadId: 'child',
+      action: 'message' as const,
+      text: 'Check',
+    };
+    f.conversationOptions.withQueueMutation = (operation) =>
+      events.contextTransitions.withAdmissionLock(operation);
+    const claim = f.store.subagents.claimControl.bind(f.store.subagents);
+    vi.spyOn(f.store.subagents, 'claimControl').mockImplementation((...args) => {
+      expect(() => writer.exec('BEGIN IMMEDIATE')).toThrow(/locked/i);
+      return claim(...args);
+    });
+    f.conversationOptions.assertQueueCommandCurrent = (id) => {
+      expect(id).toBe('root-command');
+      expect(() => writer.exec('BEGIN IMMEDIATE')).toThrow(/locked/i);
+    };
+    f.rpc.request.mockImplementation((method, params) => {
+      if (method !== controlMethod || params.threadId !== 'child') return rpc(method, params);
+      expect(() => writer.exec('BEGIN IMMEDIATE')).toThrow(/locked/i);
+      if (outcome === 'sync-failure') throw Error('Lost child control ACK');
+      return pending.then(() =>
+        state === 'completed' ? { turn: { id: 'child-next' } } : { turnId: params.expectedTurnId },
+      );
+    });
+    try {
+      const control = f.owner.control(input);
+      await vi.waitFor(() =>
+        expect(
+          f.rpc.request.mock.calls.some(
+            ([method, params]) => method === controlMethod && params.threadId === 'child',
+          ),
+        ).toBe(true),
+      );
+      writer.exec('BEGIN IMMEDIATE; ROLLBACK');
+      release();
+      const expected = outcome === 'ack' ? 'accepted' : 'uncertain';
+      expect(await control).toBe(expected);
+      f.conversationOptions.assertQueueCommandCurrent = () => {
+        throw Error('Context now held');
+      };
+      expect(await f.owner.control(input)).toBe(expected);
+      expect(
+        f.rpc.request.mock.calls.filter(
+          ([method, params]) => method === controlMethod && params.threadId === 'child',
+        ),
+      ).toHaveLength(1);
+    } finally {
+      release();
+      f.conversationOptions.withQueueMutation = undefined;
+      writer.close();
+      events.close();
+    }
+  },
+);
+
 it('contains anchor reconciliation storage failures without closing the parent transport', async () => {
   const f = await setup(undefined, undefined, undefined, undefined, async () => binding);
   enableSubagentFixture(f);

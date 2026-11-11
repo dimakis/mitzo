@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.1054-provider-context-submission';
+  'v1.0.1055-child-context-submission';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -831,10 +831,10 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/codex-subagent-store.test.ts':
     '27795a90514d66d586ed15ac6b01b930cbb28eead7c214e32bcb7bb1776117fc',
   '../__tests__/codex-subagents.test.ts':
-    'e5828f70a45ea436c63fc4b3929222e4181525bdd487e2a7c62d72e28e7595e8',
+    '75ad904ff58b4c1e14a808b51a223a0d4015304377c7c40f860e75d65b8da3c9',
   '../codex-subagent-routes.ts': '941f0a93f074d2a255b7cccbb4610ceb557f6d8c274c5d21b958df63f2acbef2',
   '../codex-subagent-store.ts': 'b98446af0295c7ade03436b380dff2f4acc4ceab7c002caeda9c64d101cc38ed',
-  '../codex-subagents.ts': 'ea86b5241ad746b31582801b1b83cb11f11b91b352b818546a6d9ac46340f10b',
+  '../codex-subagents.ts': 'a81209648e171e737481f7373aaf1e400f367105dce914e42a25d7003e80f878',
   '../__tests__/notification-routes.test.ts':
     'b286b89488ddfccc23f953a46795fd227ebdee8f74d3c4752fe303aae27b374d',
   '../__tests__/symposium-review-app.test.ts':
@@ -1618,7 +1618,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/codex-chat-session.test.ts':
     '0cc72f911b11ac2defec7d6efa238f7c9eea60a5549bedfd40920cdbd0f97a2d',
   '../__tests__/codex-conversation.test.ts':
-    '134e46e40009e53bde42de25058c05c33bc571fa7a4c63710e23498a75b5fb9b',
+    '002c2109ea45f2c64f1898eafe7715f39dfc73b57886572589e01605481e6e1f',
   '../__tests__/codex-native-approvals.test.ts':
     '289e63cb3e656e841951829d9a63e0357c09b1a2298e947f18a3f90e77443857',
   '../__tests__/codex-native-artifact-qualification.test.ts':
@@ -2451,7 +2451,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../scripts/attest-knowledge-runtime.py':
     '5737ec8e7fc19a17b6ef5a35c1898e834d2a5d2d2a9f7593b607eaaf1971cfeb',
   '../agent-context-sandbox.ts': '8b61edc17ccc94bc95eae3796e68a0beb9540534e3bfbb348a04154c41995416',
-  '../codex-conversation.ts': '0542393f971f5a41748d558435b6e7c9ad44df9b5e6352fb8fd71789d5d41e5b',
+  '../codex-conversation.ts': '74a7cfad7ff9381b9984f9e9ef13951056af846c49f1ab39193ab09ea81f5373',
   '../codex-conversation-store.ts':
     '275bf9d6caaa71b2ba3db742e7dbeb92db14f94b4eaae6b232b32b8d3a3192f1',
   '../symposium-custodian-ipc.ts':

@@ -715,7 +715,15 @@ export class CodexConversation {
           throw Error('Native subagent policy owner unavailable');
         this.opts.assertNativeExecutionCurrent(this.opts.nativeExecution, child.commandId);
       },
-      request: async (method, params, beforeDispatch) => {
+      withControlAdmission: <T>(sourceCommandId: string, operation: () => T) => {
+        const claim = () => {
+          this.opts.assertSubagentControlAdmission?.();
+          this.opts.assertQueueCommandCurrent?.(sourceCommandId);
+          return operation();
+        };
+        return this.opts.withQueueMutation ? this.opts.withQueueMutation(claim) : claim();
+      },
+      request: async (method, params, beforeDispatch, submission) => {
         await this.opts.prepareAgentContext?.(
           this.opts.startupSignal ?? new AbortController().signal,
         );
@@ -726,9 +734,30 @@ export class CodexConversation {
           generation !== this.transportGeneration
         )
           throw Error('Original subagent transport unavailable');
-        if (method === 'turn/start' || method === 'turn/steer')
-          this.opts.assertSubagentControlAdmission?.();
+        if (method === 'turn/start' || method === 'turn/steer') {
+          if (!submission) throw Error('Original child control source required');
+          return this.withProviderSubmission(
+            () => {
+              this.opts.assertSubagentControlAdmission?.();
+              beforeDispatch?.();
+              if (
+                this.closed ||
+                !this.ready ||
+                this.client !== client ||
+                generation !== this.transportGeneration ||
+                this.binding !== binding
+              )
+                throw Error('Original subagent transport unavailable');
+              this.opts.assertQueueCommandCurrent?.(submission.sourceCommandId);
+            },
+            () => {
+              submission.onSubmitted();
+              return client.request(method, params);
+            },
+          );
+        }
         beforeDispatch?.();
+        submission?.onSubmitted();
         return client.request(method, params);
       },
       tools: this.opts.tools,
