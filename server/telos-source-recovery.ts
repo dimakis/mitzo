@@ -31,7 +31,10 @@ export function createTelosSourcePermissionRecovery(dbPath: () => string) {
       try {
         const record = store.lookup(permId, sessionId, 'operator:' + actorId);
         if (!record || !store.dismiss(permId, sessionId, 'operator:' + actorId)) return false;
-        dismissReviewedTelosSourcePermission(record.proof);
+        dismissReviewedTelosSourcePermission(record.proof, {
+          receipt: record.receipt,
+          canonicalCreation: store.canonical(record.id),
+        });
         return true;
       } finally {
         store.close();

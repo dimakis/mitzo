@@ -203,3 +203,23 @@ it('preserves a save-uncertain response without relabeling its outcome', async (
   expect(response.body).toEqual({ code: 'save_uncertain', error: original.message });
   expect(logs.warn).not.toHaveBeenCalled();
 });
+
+it('classifies the retained cause of an uncertain save without leaking it or claiming failure', async () => {
+  const f = await fixture();
+  const original = new TelosSourceSaveUncertainError({ cause: sqliteFailure() });
+  vi.spyOn(TelosSourceCapture.prototype, 'read').mockImplementationOnce(() => {
+    throw original;
+  });
+  const response = await f.read();
+  expect(response.status).toBe(503);
+  expect(response.body).toEqual({ code: 'save_uncertain', error: original.message });
+  expect(logs.warn).toHaveBeenCalledExactlyOnceWith('Reviewed source operation failed', {
+    phase: 'action',
+    saveStatus: 'unconfirmed',
+    reason: 'sqlite_unavailable',
+    errorKind: 'sqlite',
+    errorCode: 'SQLITE_ERROR',
+  });
+  expect(JSON.stringify(logs.warn.mock.calls)).not.toContain('private_sql_text');
+  expect(JSON.stringify(response.body)).not.toContain('private_sql_text');
+});
