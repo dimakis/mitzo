@@ -136,3 +136,16 @@ it('rejects an unlocated route shared across environments while explicit locatio
     reasoningEffort: 'high',
   });
 });
+
+it('retains account defaults while an unavailable environment exposes no selectable models', async () => {
+  const { accountModelPreference } = await import('../account-preference');
+  const data = multiRuntimeInventoryFixture();
+  const intent = {
+    ...createChatRuntimeSelection(),
+    account: { accountId: 'api', model: 'shell-model' },
+    execution: { location: 'openshell' as const, targetId: 'shell' },
+  };
+  const claude = runtimeModelAccounts(intent, data).find((account) => account.id === 'vertex')!;
+  expect(claude.models).toEqual([]);
+  expect(accountModelPreference(claude).model).toBe('claude-model');
+});

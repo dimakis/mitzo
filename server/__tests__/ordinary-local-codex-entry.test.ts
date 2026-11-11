@@ -379,13 +379,14 @@ const invoke = (
   body: unknown,
   login: string | null = auth.id,
   workspaceDefaults = false,
+  query: Record<string, string> = {},
 ) =>
   new Promise<{ status: number; body: unknown }>((resolve, reject) => {
     let status = 200;
     const req = {
       method,
       url,
-      query: workspaceDefaults ? { workspaceDefaults: '1' } : {},
+      query: { ...(workspaceDefaults ? { workspaceDefaults: '1' } : {}), ...query },
       headers: {
         'x-connection-id': 'entry-stream',
       },
@@ -2168,5 +2169,40 @@ it('admits an OpenShell follow-up from a new verified login without changing the
     expect(sessions.get('retained-shell')!.ownedLocalAuthSessionId).toBe(originalLogin);
   } finally {
     revokeAuthSession(actor);
+  }
+});
+
+it('refreshes only the requested model account before projecting capabilities', async () => {
+  fixtures.library.mockReturnValue({ list: () => ({ versions: [publishedProfile] }) });
+  const refresh = vi.spyOn(profiles, 'refresh').mockResolvedValue();
+  try {
+    const response = await invoke('GET', '/capabilities', undefined, auth.id, false, {
+      modelAccount: 'personal',
+      refreshModels: '1',
+    });
+    expect(response.status).toBe(200);
+    expect(refresh).toHaveBeenCalledExactlyOnceWith(true, { accountId: 'personal' });
+    refresh.mockClear();
+    await invoke('GET', '/capabilities', undefined);
+    expect(refresh).not.toHaveBeenCalled();
+  } finally {
+    refresh.mockRestore();
+  }
+});
+
+it('withholds refreshed model metadata when the interactive login is revoked during discovery', async () => {
+  fixtures.library.mockReturnValue({ list: () => ({ versions: [publishedProfile] }) });
+  const refresh = vi.spyOn(profiles, 'refresh').mockImplementation(async () => {
+    revokeAuthSession(auth);
+  });
+  try {
+    const response = await invoke('GET', '/capabilities', undefined, auth.id, false, {
+      modelAccount: 'personal',
+      refreshModels: '1',
+    });
+    expect(response.status).toBe(401);
+    expect(response.body).not.toHaveProperty('accounts');
+  } finally {
+    refresh.mockRestore();
   }
 });

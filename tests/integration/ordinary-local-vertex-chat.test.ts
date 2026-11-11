@@ -260,6 +260,7 @@ it.each([
         const req = {
           method: url === '/capabilities' ? 'GET' : 'POST',
           url,
+          query: {},
           headers: { 'x-connection-id': f.dependencies.operatorConnectionId },
           body,
         };
