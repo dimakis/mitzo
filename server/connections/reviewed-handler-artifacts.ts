@@ -10,8 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.1049-task-commit-routing';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.1049-task-commit-routing';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -24,7 +23,8 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../github-log-read.ts': '7f6ec3cff9629e55c95442b38baacd3606b6dbba272dfeb159a1ae22b01c551a',
-  '../__tests__/github-log-read.test.ts': '32d99f2715973e37bebd36b06854756daf935fe847b24bff484ae040076999a7',
+  '../__tests__/github-log-read.test.ts':
+    '32d99f2715973e37bebd36b06854756daf935fe847b24bff484ae040076999a7',
   '../../packages/harness/src/github-command-consent.ts':
     '4f7978ac6ebf77446c28fbe55c588197697efdcf845b72a949e08698e11cb1b5',
   '../../packages/harness/__tests__/github-command-consent.test.ts':
