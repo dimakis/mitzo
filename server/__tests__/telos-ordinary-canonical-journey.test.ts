@@ -298,28 +298,86 @@ it('CT09: actual canonical non-Git advisor-to-worker journey retains file bytes,
     selection: f.first.request.selection,
     workspace: { kind: 'ordinary' as const, preparationId: prepared.preparationId },
   };
-  const material = {
-    artifactId: canonical.material.id,
-    revision: canonical.material.revision,
-    sha256: canonical.material.sha256,
-  };
-  canonical.work.execute(
-    {
-      operation: 'classify',
-      itemId: 'studio',
-      requestId: randomUUID(),
-      expectedRevision: canonical.work.read('studio', canonical.actor).revision,
-      kind: 'outcome',
-    },
-    canonical.actor,
-  );
   chat.eventStore.upsertSession({
     ...canonical.events.getSession('planning')!,
     accountBinding: f.binding,
   });
+  // Enter through the approved ordinary-chat creator instead of repairing a
+  // pre-classified fixture. The resulting item must support the whole journey.
+  const { TelosItemStore: CreationItems } = await import('../telos-item-store.js');
+  const { executeTelosBacklogOperation } = await import('../telos-backlog-tools.js');
+  const creationItems = new CreationItems(canonical.dbPath);
+  cleanup.push(() => creationItems.close());
+  const createInput = {
+    requestId: randomUUID(),
+    summary: 'Home recording feature',
+    intent: 'Record music using the reviewed acoustic plan.',
+    rationale: 'Retain the discussion, delegate the work and review its result.',
+    acceptanceCriteria: ['The separate worker returns a retained result for review.'],
+    note: 'The operator approved this standalone feature.',
+  };
+  const approveCreation = vi.fn(async (_name: string, input: Record<string, unknown>) => ({
+    behavior: 'allow' as const,
+    updatedInput: input,
+  }));
+  const createFeature = () =>
+    executeTelosBacklogOperation(
+      {
+        items: creationItems,
+        work: canonical.work,
+        approve: approveCreation,
+        context: {
+          operatorId: canonical.actor.id,
+          conversationId: 'planning',
+          toolName: 'TelosCreateFeature',
+          requestHash: createHash('sha256').update(JSON.stringify(createInput)).digest('hex'),
+          signal: new AbortController().signal,
+          assertCurrentSync() {},
+          async assertCurrent() {},
+        },
+      },
+      'TelosCreateFeature',
+      createInput,
+    );
+  const created = await createFeature();
+  expect(created.isError, created.content).toBe(false);
+  expect(await createFeature()).toEqual(created);
+  expect(approveCreation).toHaveBeenCalledWith(
+    'TelosCreateFeature',
+    createInput,
+    expect.any(AbortSignal),
+  );
+  const creationReceipt = JSON.parse(created.content);
+  const featureId: string = creationReceipt.item.id;
+  expect(creationReceipt).toMatchObject({
+    item: { workLevel: 'feature', parentId: null },
+    preparation: {
+      dedicatedConversationCreated: false,
+      sourceFilesSaved: false,
+      originatingConversationId: 'planning',
+    },
+  });
+  expect(canonical.work.read(featureId, canonical.actor)).toMatchObject({
+    kind: 'outcome',
+    assignments: [],
+    attempts: [],
+  });
+  expect(nativeSessions).toHaveLength(0);
+  const savedMaterial = canonical.artifacts.save({
+    itemId: featureId,
+    filename: 'acoustic-plan.md',
+    title: 'Acoustic plan',
+    bytes: Buffer.from('The reviewed panel layout.'),
+    sessionId: 'planning',
+  });
+  const material = {
+    artifactId: savedMaterial.id,
+    revision: savedMaterial.revision,
+    sha256: savedMaterial.sha256,
+  };
   const role = async (kind: 'advisor' | 'lead') => {
     const reviewed = await api.reviewRoleContext({
-      itemId: 'studio',
+      itemId: featureId,
       role: kind,
       ...(kind === 'advisor' ? { advisorPurpose: 'child' as const } : {}),
       sourceSnapshotIds: [],
@@ -328,7 +386,7 @@ it('CT09: actual canonical non-Git advisor-to-worker journey retains file bytes,
     const input = {
       version: 2 as const,
       requestId: randomUUID(),
-      itemId: 'studio',
+      itemId: featureId,
       role: kind,
       expectedRevision: reviewed.selection.brief.revision,
       expectedAssignmentRevision: kind === 'lead' ? 0 : null,
@@ -365,14 +423,14 @@ it('CT09: actual canonical non-Git advisor-to-worker journey retains file bytes,
     messageId: 'reviewed',
     text: 'Retain this reviewed acoustic plan; execution is a separate decision.',
   });
-  const revision = (await api.read('studio')).revision;
+  const revision = (await api.read(featureId)).revision;
   const draft = {
     requestId: randomUUID(),
     operation: 'child' as const,
-    itemId: 'studio',
+    itemId: featureId,
     advisorConversationId: advisorId,
     expectedRevision: revision,
-    parentId: 'studio',
+    parentId: featureId,
     expectedParentRevision: revision,
     proposed: {
       name: 'Reviewed recording plan',
@@ -666,7 +724,7 @@ it('CT09: actual canonical non-Git advisor-to-worker journey retains file bytes,
   });
   expect(verified.status).toBe(200);
   expect(items.read(childId).status).toBe('completed');
-  expect(items.read('studio').status).toBe('active');
+  expect(items.read(featureId).status).toBe('active');
   markCt09Phase('verified-complete');
   for (const session of nativeSessions)
     session.lifecycle.onNotification('turn/completed', {
