@@ -9,7 +9,13 @@ import { buildPermissionHandler } from './permission-handler.js';
 import type { SessionRegistry } from './session-registry.js';
 import { nativeGrantFence } from './codex-native-grant-fence.js';
 import { PERMISSION_TIMEOUT_MS } from './constants.js';
-import { checkSkillPolicy, effectivePermissionMode, recordPermissionAudit } from '@mitzo/harness';
+import {
+  checkSkillPolicy,
+  effectivePermissionMode,
+  recordPermissionAudit,
+  githubReadCommandRepository,
+  githubCommandConsentDescription,
+} from '@mitzo/harness';
 import { nativeCommandApprovalScope } from './codex-native-approval-scope.js';
 import { createLogger } from './logger.js';
 import { captureNativeDevelopmentGrant } from './native-development-grant.js';
@@ -401,6 +407,10 @@ export function createCodexNativeApprovalHandler(options: {
             throw Error('Native command directory changed during approval');
         };
       const commandRequest = request.method === 'item/commandExecution/requestApproval';
+      const githubRepository =
+        commandRequest && request.params.command
+          ? githubReadCommandRepository(request.params.command)
+          : undefined;
       const network = commandRequest && request.params.additionalPermissions?.network?.enabled;
       const result = await permission(toolName, input, {
         signal: currentSignal,
@@ -420,8 +430,9 @@ export function createCodexNativeApprovalHandler(options: {
           'Review the displayed operation, working directory and requested access. Existing workspace and credential protections still apply. Approval that expires during validation is refused without granting permission.',
         ...(sessionGrantKey
           ? {
-              sessionGrantDescription:
-                'Allow for session repeats this exact command with the displayed access in this directory until this native thread ends. Changed commands or access require another approval.',
+              sessionGrantDescription: githubRepository
+                ? githubCommandConsentDescription(githubRepository)
+                : 'Allow for session repeats this exact command with the displayed access in this directory until this native thread ends. Changed commands or access require another approval.',
             }
           : {}),
         ...(request.method === 'item/permissions/requestApproval'

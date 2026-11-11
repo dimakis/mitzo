@@ -27,6 +27,10 @@ export type { SseClient } from './sse-registry.js';
 
 // Permissions
 export {
+  githubReadCommandRepository,
+  githubCommandConsentDescription,
+} from './github-command-consent.js';
+export {
   assertToolGuardCurrent,
   DEFAULT_TOOL_GUARD_POLICY,
   runGuardedTool,

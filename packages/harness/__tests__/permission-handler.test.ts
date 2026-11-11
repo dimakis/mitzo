@@ -22,6 +22,46 @@ function fakeTransport(): SessionTransport & { sent: Record<string, unknown>[] }
 }
 
 describe('buildPermissionHandler', () => {
+  it.each(['anthropic', 'vertex'])(
+    'retains repository CI reads without a tool-wide shell grant for %s',
+    async (provider) => {
+      const registry = new SessionRegistry();
+      const transport = fakeTransport();
+      const abort = new AbortController();
+      registry.register('github-client', {
+        transport,
+        abortController: abort,
+        mode: 'agent',
+        sessionId: 'github-session',
+        cwd: '/workspace',
+        sessionAllowList: new Set(),
+        accountBinding: { accountId: 'selected', provider, profileRevision: 'revision' } as never,
+      });
+      const decide = buildPermissionHandler('github-client', registry);
+      const opts = { signal: abort.signal, toolUseID: 'read' };
+      try {
+        const first = decide('Bash', { command: 'gh run view 42 -R owner/repo --log' }, opts);
+        await vi.waitFor(() => expect(transport.sent[0]?.type).toBe('permission_request'));
+        expect(transport.sent[0].sessionGrantDescription).toContain('CI logs for owner/repo');
+        resolvePending(transport.sent[0].permId as string, 'always');
+        expect(await first).toMatchObject({ behavior: 'allow' });
+        expect(registry.get('github-client')!.sessionAllowList.has('Bash')).toBe(false);
+        transport.sent.length = 0;
+        expect(
+          await decide('Bash', { command: 'gh api /repos/OWNER/REPO/actions/jobs/123/logs' }, opts),
+        ).toMatchObject({ behavior: 'allow' });
+        expect(transport.sent).toEqual([]);
+        const write = decide('Bash', { command: 'gh run rerun 42 -R owner/repo' }, opts);
+        await vi.waitFor(() => expect(transport.sent[0]?.type).toBe('permission_request'));
+        resolvePending(transport.sent[0].permId as string, 'deny');
+        expect(await write).toMatchObject({ behavior: 'deny' });
+      } finally {
+        abort.abort();
+        registry.dispose();
+      }
+    },
+  );
+
   it('rechecks a skill restriction installed while retained native consent awaits workspace policy', async () => {
     const registry = new SessionRegistry();
     registry.register('native-client', {

@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { isAbsolute } from 'node:path';
 import type { NativeApprovalRequest } from './codex-native-permission-protocol.js';
 import { nativeCommandDirectoryScope } from './codex-native-grant-fence.js';
+import { githubReadCommandRepository } from '@mitzo/harness';
 
 /** Retain consent to an exact command, never a shell prefix or a filesystem
  * expansion. The adapter still checks each RPC's current owner and grant fence;
@@ -33,14 +34,15 @@ export function nativeCommandApprovalScope(
     return;
   const directory = nativeCommandDirectoryScope(params.cwd, owner.cwd);
   if (!directory) return;
-  return `native-command-v1:${createHash('sha256')
+  const repository = githubReadCommandRepository(params.command);
+  return `${repository ? 'native-github-read-v1' : 'native-command-v1'}:${createHash('sha256')
     .update(
       JSON.stringify([
         owner,
         directory,
         params.threadId,
         params.cwd,
-        params.command,
+        repository ?? params.command,
         params.additionalPermissions ?? null,
       ]),
     )

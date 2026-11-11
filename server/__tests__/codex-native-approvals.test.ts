@@ -585,6 +585,48 @@ describe('native approval adapter with the existing pending owner', () => {
     expect(f.registry.get('client')!.sessionAllowList.size).toBe(0);
   });
 
+  it('reuses repository CLI consent for different CI jobs and logs, and fences revocation', async () => {
+    const f = setup();
+    const first = f.handler(
+      'item/commandExecution/requestApproval',
+      { ...commandParams(), command: 'gh run view 42 --repo owner/repo --log-failed' },
+      f.controller.signal,
+      f.context,
+    );
+    resolvePending(await request(f), 'always', undefined, 'session');
+    expect(await first).toEqual({ decision: 'accept' });
+    expect(f.sent[0].sessionGrantDescription).toContain('CI logs for owner/repo');
+    f.sent.length = 0;
+    for (const command of [
+      'gh run view --repo OWNER/REPO --job 123 --log',
+      'gh api /repos/owner/repo/actions/jobs/456/logs',
+    ]) {
+      const next = f.handler(
+        'item/commandExecution/requestApproval',
+        { ...commandParams(), command },
+        f.controller.signal,
+        f.context,
+      );
+      await vi.waitFor(() => expect(f.sent).toEqual([]));
+      expect(await next).toEqual({ decision: 'accept' });
+    }
+    const readFence = f.fences.at(-1);
+    const write = f.handler(
+      'item/commandExecution/requestApproval',
+      {
+        ...commandParams(),
+        command: 'gh run rerun 42 --repo owner/repo',
+        availableDecisions: ['accept', 'decline'],
+      },
+      f.controller.signal,
+      f.context,
+    );
+    resolvePending(await request(f), 'deny', undefined, 'session');
+    expect(await write).toEqual({ decision: 'decline' });
+    f.registry.get('client')!.sessionAllowList.clear();
+    expect(readFence).toThrow('Native command consent was revoked');
+  });
+
   it('reuses explicit exact-command consent across turns, while checking revocation at delivery', async () => {
     const f = setup();
     const params = {
