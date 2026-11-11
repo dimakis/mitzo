@@ -61,3 +61,9 @@ rounding. The existing persisted concurrency test exceeded Vitest's default 5s
 on a shared runner; its functional deadline is now 30s. All 11 synthetic samples
 passed locally after this change (maximum measured workload 235ms, no model
 calls). These test corrections require fresh hosted CI and review before merge.
+
+Hosted CI for `bf3cbd00` passed all four unit shards and the queue-specific desktop
+and iPhone layouts. Current-head phone/desktop captures in both themes were
+inspected. A separate existing ordinary Send-retry test reported a 44px target as
+43.999969px. The unified layout suite now consistently permits the same 0.001px
+rounding in raw target measurements; interaction and size coverage remain intact.
