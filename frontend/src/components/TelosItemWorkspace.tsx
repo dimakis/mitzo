@@ -157,7 +157,7 @@ export function TelosItemWorkspace({
   );
   const work = (
     <section>
-      <h2>{record.kind === 'coordinator' ? 'Coordinated outcomes' : 'Child work'}</h2>
+      <h2>{record.kind === 'coordinator' ? 'Features' : 'Child work'}</h2>
       {relatedState === 'loading' && <p role="status">Loading child work…</p>}
       {relatedState === 'unavailable' && (
         <div role="alert">

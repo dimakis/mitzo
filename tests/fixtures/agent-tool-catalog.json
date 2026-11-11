@@ -575,7 +575,7 @@
     "id": "mitzo:TelosManageItem",
     "version": 1,
     "name": "TelosManageItem",
-    "description": "Inspect a Telos item and lifecycle (read); edit its title, intent, rationale or acceptance criteria (edit); record evidence and optionally change status to active, acknowledged or completed (update); archive, unarchive or restore. Read first: edit/update use item.revision; lifecycle changes use lifecycle.revision. Complete unfinished children before the parent. Large reads return json-fragment: follow nextOffset with unchanged snapshotHash and concatenate contentFragment. Mutations require exact approval and requestId; retry uncertain delivery with identical input. No lead assignment needed. No permanent deletion.",
+    "description": "Inspect a Telos item and lifecycle (read); edit its brief or classify an unclassified item with workLevel outcome, feature or slice before lead/worker setup (edit); record evidence and optionally change status to active, acknowledged or completed (update); archive, unarchive or restore. Read first: edit/update use item.revision; lifecycle changes use lifecycle.revision. Complete unfinished children before the parent. Large reads return json-fragment: follow nextOffset with unchanged snapshotHash and concatenate contentFragment. Mutations require exact approval and requestId; retry uncertain delivery with identical input. No lead assignment needed. No permanent deletion or conversion of existing work levels.",
     "source": "Telos",
     "required": false,
     "behavior": "mixed",
