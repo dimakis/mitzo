@@ -13,10 +13,12 @@ import {
   checkSkillPolicy,
   effectivePermissionMode,
   recordPermissionAudit,
-  githubReadCommandRepository,
   githubCommandConsentDescription,
 } from '@mitzo/harness';
-import { nativeCommandApprovalScope } from './codex-native-approval-scope.js';
+import {
+  nativeCommandApprovalScope,
+  nativeGithubReadCommand,
+} from './codex-native-approval-scope.js';
 import { createLogger } from './logger.js';
 import { captureNativeDevelopmentGrant } from './native-development-grant.js';
 const log = createLogger('codex-native-approvals');
@@ -409,7 +411,7 @@ export function createCodexNativeApprovalHandler(options: {
       const commandRequest = request.method === 'item/commandExecution/requestApproval';
       const githubRepository =
         commandRequest && request.params.command
-          ? githubReadCommandRepository(request.params.command)
+          ? nativeGithubReadCommand(request.params.command)?.repository
           : undefined;
       const network = commandRequest && request.params.additionalPermissions?.network?.enabled;
       const result = await permission(toolName, input, {

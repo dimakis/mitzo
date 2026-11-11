@@ -18,6 +18,13 @@ The shared parser admits only literal `gh run view`, `gh run list` and GET-only
 downloads, alternate hosts, headers and unknown arguments keep normal approval.
 The consent card describes this repository scope before it is retained.
 
+The native adapter also recognizes the observed `/bin/zsh -lc` envelope with
+one complete single- or double-quoted literal command. It decodes only that
+literal for classification, retains the shell identity in the consent key, and
+executes/displays the unchanged original command. Expansion, additional shell
+arguments, other shell modes and unsupported composition keep ordinary approval.
+Bare and wrapped commands do not share a grant.
+
 Codex binds consent to the current native owner, thread, directory identity and
 requested access. Claude and Vertex use the shared permission handler and SDK
 hook, binding consent to the account, workspace, mode and input access fields.
@@ -60,6 +67,18 @@ and billing route; verified review events and execution delivery; denial,
 cancellation and revocation checks; and runtime-specific live qualification.
 An unavailable reviewer must remain visible and must not grant access. This
 change does not manufacture qualification or enable an unverified reviewer.
+
+## Remaining workflow scope gaps
+
+This repository read grammar does not cover `gh pr view/checks`, log reads with
+redirection or pipelines, Git fetch/push, or arbitrary Bash. TaskExecution can
+cover selected routine commands and networking, but native tools retain their
+own permission owner; a TaskExecution grant does not automatically become native
+shell authority. A complete fix needs consistent task authority at each execution
+adapter and a bounded CI-log collection route, with current owner/account/root,
+cancellation and revocation checks. Telos updates and publication also retain
+their separate reviewed mutation contracts. Notification coalescing does not
+remove these authorization requests or establish that the whole workflow is fixed.
 
 ## Validation and limits
 
