@@ -33,7 +33,7 @@ export function githubReadCommandRepository(command: string): string | undefined
   const seen = new Set<string>();
   const booleanFlags =
     family === 'api' ? ['--paginate', '--slurp'] : ['--log', '--log-failed', '--exit-status'];
-  const valueFlags =
+  const valueFlags: Readonly<Record<string, string | undefined>> =
     family === 'api'
       ? { '--method': 'method', '-X': 'method', '--jq': 'jq', '-q': 'jq' }
       : {
@@ -68,7 +68,7 @@ export function githubReadCommandRepository(command: string): string | undefined
     }
     if (arg.startsWith('-')) {
       const [flag, ...inline] = arg.split('=');
-      const key = (valueFlags as Record<string, string>)[flag!];
+      const key = valueFlags[flag!];
       if (!key || seen.has(key)) return;
       seen.add(key);
       const value = inline.length ? inline.join('=') : args[++i];

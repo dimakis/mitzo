@@ -19,10 +19,10 @@ export async function sendPushoverNotification(
   message: string,
   url?: string,
   urlTitle?: string,
-): Promise<void> {
+): Promise<boolean> {
   const token = process.env.PUSHOVER_API_TOKEN;
   const user = process.env.PUSHOVER_USER_KEY;
-  if (!token || !user) return;
+  if (!token || !user) return false;
 
   const payload: Record<string, string> = {
     token,
@@ -35,15 +35,26 @@ export async function sendPushoverNotification(
   if (urlTitle) payload.url_title = urlTitle;
 
   try {
-    await fetch(PUSHOVER_API_URL, {
+    const response = await fetch(PUSHOVER_API_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
+      signal: AbortSignal.timeout(10_000),
     });
+    if (!response.ok)
+      log.warn('notification rejected', {
+        stage: 'notification_delivery',
+        code: 'pushover_http_failure',
+        status: response.status,
+      });
+    return response.ok;
   } catch (err: unknown) {
     log.error('failed to send pushover notification', {
+      stage: 'notification_delivery',
+      code: 'pushover_transport_failure',
       error: err instanceof Error ? err.message : err,
     });
+    return false;
   }
 }
 
@@ -52,12 +63,13 @@ export async function sendPermissionNotification(
   toolInput: string,
   permId: string,
   sessionId?: string,
-): Promise<void> {
+  options?: { reviewOnly: boolean },
+): Promise<boolean> {
   const baseUrl = process.env.BASE_URL;
-  if (!isConfigured() || !baseUrl) return;
+  if (!isConfigured() || !baseUrl) return false;
 
-  await sendPushoverNotification(
-    `Mitzo: ${toolName}`,
+  return sendPushoverNotification(
+    options?.reviewOnly ? toolName : `Mitzo: ${toolName}`,
     toolInput,
     sessionUrl(sessionId),
     'Open Mitzo',

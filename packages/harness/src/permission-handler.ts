@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { hasPermissionNotificationOwner } from './permission-notification-owner.js';
 import {
   githubReadCommandRepository,
   githubCommandConsentDescription,
@@ -7,7 +8,13 @@ import { withToolGuardPhase } from './tool-guard.js';
 import { z } from 'zod';
 import type { PermissionRequest, UserQuestion } from '@mitzo/protocol';
 import type { PermissionResult } from '@anthropic-ai/claude-agent-sdk';
-import { registerPending, resolvePending, removePending, hasPending } from './permissions.js';
+import {
+  registerPending,
+  resolvePending,
+  removePending,
+  hasPending,
+  PERMISSION_EXPIRED_MESSAGE,
+} from './permissions.js';
 import { sendPermissionNotification, isConfigured as ntfyConfigured } from './notify.js';
 import {
   sendPermissionNotification as pushoverSendPermission,
@@ -772,9 +779,9 @@ export function buildPermissionHandler(
       // Lifecycle listeners may resolve synchronously during registration.
       if (settled) return;
 
-      if (ntfyConfigured() || pushoverConfigured()) {
+      if (!hasPermissionNotificationOwner() && (ntfyConfigured() || pushoverConfigured())) {
         notificationTimer = setTimeout(() => {
-          if (hasPending(permId)) {
+          if (hasPending(permId) && !hasPermissionNotificationOwner()) {
             if (ntfyConfigured())
               sendPermissionNotification(toolName, inputSummary, permId, session.sessionId);
             if (pushoverConfigured())
@@ -790,7 +797,7 @@ export function buildPermissionHandler(
             removePending(permId);
             wrappedResolve({
               behavior: 'deny',
-              message: 'Tool approval expired without a response; request approval again',
+              message: PERMISSION_EXPIRED_MESSAGE,
             });
           }
         },

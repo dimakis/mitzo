@@ -4,8 +4,8 @@ import type { NativeApprovalRequest } from './codex-native-permission-protocol.j
 import { nativeCommandDirectoryScope } from './codex-native-grant-fence.js';
 import { githubReadCommandRepository } from '@mitzo/harness';
 
-/** Retain consent to an exact command, never a shell prefix or a filesystem
- * expansion. The adapter still checks each RPC's current owner and grant fence;
+/** Retain an exact command or a recognized repository CLI read scope, never a
+ * shell prefix or filesystem expansion. Each RPC still checks its owner and grant fence;
  * upstream receives an ordinary accept for that RPC, not a policy amendment. */
 export function nativeCommandApprovalScope(
   request: NativeApprovalRequest,

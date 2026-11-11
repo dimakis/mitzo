@@ -22,7 +22,7 @@ function fakeTransport(): SessionTransport & { sent: Record<string, unknown>[] }
 }
 
 describe('buildPermissionHandler', () => {
-  it.each(['anthropic', 'vertex'])(
+  it.each(['anthropic-claude', 'anthropic-vertex'])(
     'retains repository CI reads without a tool-wide shell grant for %s',
     async (provider) => {
       const registry = new SessionRegistry();
@@ -615,7 +615,8 @@ describe('buildPermissionHandler', () => {
       ).toBe(false);
       expect(await execution).toMatchObject({
         behavior: 'deny',
-        message: 'Tool approval expired without a response; request approval again',
+        message:
+          'Tool approval expired without a response. Wait for the user; do not recreate the unchanged request automatically.',
       });
       expect(allowList.size).toBe(0);
       expect(getPendingRequestsBySession('deadline-session')).toEqual([]);
@@ -1068,7 +1069,7 @@ describe('buildPermissionHandler', () => {
         message:
           cause === 'abort'
             ? 'Tool approval cancelled because the operation was aborted'
-            : 'Tool approval expired without a response; request approval again',
+            : 'Tool approval expired without a response. Wait for the user; do not recreate the unchanged request automatically.',
       });
       expect(lifecycle).toHaveBeenLastCalledWith({
         type: 'resolved',
