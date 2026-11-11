@@ -39,6 +39,13 @@ offers reviewed lead setup and its slice offers worker setup. It grants no role 
 execution authority. Older reviewed outcome packets retain their original meaning
 and replay identity; there is no automatic migration of existing work.
 
+For existing unclassified backlog items, read `item.workLevel` using
+`TelosManageItem`. An approved edit with `workLevel: outcome|feature|slice` repairs
+classification in place with a fresh item revision and audit note. Classify parents
+first. The repair retains the item ID, brief and history, and refuses conversion of
+an existing classification or changes after lead/worker setup. Those cases need an
+explicit migration or handover contract, not a relabelled chat.
+
 Use reviewed role setup and the exact assigned lead's `TelosStartSlice` only for an
 eligible selected child. Runtime kinds (`coordinator`, `outcome`, `work_item`) do not
 redefine the semantic levels or prove nested feature-lead support. A missing creator

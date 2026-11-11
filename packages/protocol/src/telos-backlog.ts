@@ -55,6 +55,12 @@ export const TelosEditItemInputSchema = z
     itemId: id,
     requestId: id,
     expectedRevision: revision,
+    workLevel: z
+      .enum(['outcome', 'feature', 'slice'])
+      .optional()
+      .describe(
+        'Classify an existing unclassified item before lead/worker setup; does not reassign chats or convert an existing level',
+      ),
     summary: z.string().trim().min(1).max(240).optional(),
     intent: z.string().trim().min(1).max(8000).optional(),
     rationale: z.string().trim().min(1).max(8000).optional(),
@@ -63,8 +69,10 @@ export const TelosEditItemInputSchema = z
   })
   .refine(
     (v) =>
-      [v.summary, v.intent, v.rationale, v.acceptanceCriteria].some((value) => value !== undefined),
-    'Supply at least one brief field to edit',
+      [v.summary, v.intent, v.rationale, v.acceptanceCriteria, v.workLevel].some(
+        (value) => value !== undefined,
+      ),
+    'Supply a brief field or an unclassified work level to edit',
   );
 export const TelosManageItemInputSchema = z.discriminatedUnion('operation', [
   z.strictObject({

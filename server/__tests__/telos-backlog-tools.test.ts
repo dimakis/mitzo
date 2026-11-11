@@ -114,6 +114,85 @@ const featureBrief = {
   acceptanceCriteria: ['An ordinary chat can create, inspect and decompose the feature.'],
   note: 'User authorized this standalone feature.',
 };
+it('repairs an unclassified existing feature with exact approval, stable replay and its original ID', async () => {
+  const f = fixture();
+  const original = f.items.read('studio');
+  const request = {
+    operation: 'edit',
+    itemId: 'studio',
+    requestId: 'repair-level',
+    expectedRevision: original.revision,
+    workLevel: 'feature',
+    note: 'Classify the existing feature for reviewed lead setup',
+  };
+  const result = await f.run('TelosManageItem', request);
+  expect(result.isError).toBe(false);
+  expect(JSON.parse(result.content).item).toMatchObject({
+    id: 'studio',
+    workLevel: 'feature',
+    summary: original.summary,
+  });
+  expect(f.approve).toHaveBeenCalledWith('TelosManageItem', request, expect.any(AbortSignal));
+  expect(f.work.read('studio', f.actor)).toMatchObject({
+    kind: 'outcome',
+    assignments: [],
+    attempts: [],
+  });
+  expect(await f.run('TelosManageItem', request)).toEqual(result);
+  expect(f.db.prepare('SELECT count(*) AS n FROM items').get()).toEqual({ n: 1 });
+  const changed = await f.run('TelosManageItem', {
+    ...request,
+    requestId: 'convert-existing',
+    expectedRevision: f.items.read('studio').revision,
+    workLevel: 'outcome',
+  });
+  expect(changed.isError).toBe(true);
+  expect(changed.content).toContain('already classified');
+});
+it('refuses invalid slice classification and rolls back its audit receipt', async () => {
+  const f = fixture();
+  const before = f.items.read('studio');
+  const result = await f.run('TelosManageItem', {
+    operation: 'edit',
+    itemId: 'studio',
+    requestId: 'invalid-level',
+    expectedRevision: before.revision,
+    workLevel: 'slice',
+    note: 'Invalid root slice',
+  });
+  expect(result.isError).toBe(true);
+  expect(result.content).toContain('does not match its parent');
+  expect(f.items.read('studio')).toEqual(before);
+  expect(f.work.read('studio', f.actor).kind).toBeNull();
+});
+it('preserves existing role links when an unclassified item already has a lead', async () => {
+  const f = fixture();
+  f.work.execute(
+    {
+      operation: 'link',
+      itemId: 'studio',
+      requestId: 'existing-lead',
+      expectedRevision: f.work.read('studio', f.actor).revision,
+      role: 'lead',
+      conversation: { namespace: 'mitzo', conversationId: 'planning' },
+    },
+    f.actor,
+  );
+  const before = f.items.read('studio');
+  const work = f.work.read('studio', f.actor);
+  const result = await f.run('TelosManageItem', {
+    operation: 'edit',
+    itemId: 'studio',
+    requestId: 'unsafe-level',
+    expectedRevision: before.revision,
+    workLevel: 'feature',
+    note: 'Must preserve the existing role',
+  });
+  expect(result.isError).toBe(true);
+  expect(result.content).toContain('cannot change after lead or worker setup');
+  expect(f.items.read('studio')).toEqual(before);
+  expect(f.work.read('studio', f.actor)).toEqual(work);
+});
 it('creates a feature and slice that the existing lead and worker setup can use', async () => {
   const f = fixture();
   const feature = JSON.parse((await f.run('TelosCreateFeature', featureBrief)).content);

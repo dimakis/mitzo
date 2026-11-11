@@ -130,8 +130,17 @@ export class TelosItemStore {
           )
           .all(itemId) as UpdateRow[])
       : [];
+    const kind = this.workKind(itemId);
     return {
       id: row.id,
+      workLevel:
+        kind === 'coordinator'
+          ? 'outcome'
+          : kind === 'outcome'
+            ? 'feature'
+            : kind === 'work_item'
+              ? 'slice'
+              : null,
       summary: row.summary,
       status: row.status,
       parentId: row.parent_id,
@@ -140,7 +149,7 @@ export class TelosItemStore {
       acceptanceCriteria: JSON.parse(row.acceptance_criteria || '[]') as string[],
       updatedAt: row.updated_at,
       revision: createHash('sha256')
-        .update(JSON.stringify([row, children, updates, this.workKind(itemId)]))
+        .update(JSON.stringify([row, children, updates, kind]))
         .digest('hex'),
       children: children.map((child) => ({
         id: child.id,
@@ -400,6 +409,63 @@ export class TelosItemStore {
     return this.mutate(input, sessionId, assertion, beforeApply, input);
   }
 
+  /** Repair an unclassified backlog item without changing retained role context.
+   * Classification shares the canonical edit transaction and replay receipt. */
+  private classifyUnassigned(itemId: string, level: NonNullable<TelosEditItemInput['workLevel']>) {
+    const kind = { outcome: 'coordinator', feature: 'outcome', slice: 'work_item' }[level];
+    const existing = this.workKind(itemId);
+    if (existing === kind) return;
+    if (existing)
+      throw Error(
+        'Telos work level is already classified; existing roles and history require a reviewed migration',
+      );
+    for (const [table, condition] of [
+      ['telos_work_assignments', 'item_id=?'],
+      ['telos_work_attempts', 'item_id=?'],
+      ['telos_work_links', "item_id=? AND role IN ('lead','worker')"],
+      [
+        'telos_work_role_setups',
+        "json_extract(intent,'$.input.itemId')=? AND json_extract(intent,'$.input.role') IN ('lead','worker')",
+      ],
+    ]) {
+      if (
+        this.db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?").get(table) &&
+        this.db.prepare(`SELECT 1 FROM ${table} WHERE ${condition} LIMIT 1`).get(itemId)
+      )
+        throw Error(
+          'Telos work level cannot change after lead or worker setup; preserve the original attempt',
+        );
+    }
+    const row = this.db.prepare('SELECT parent_id FROM items WHERE id=?').get(itemId) as {
+      parent_id: string | null;
+    };
+    const parentKind = row.parent_id ? this.workKind(row.parent_id) : null;
+    if (
+      (level === 'outcome' && row.parent_id !== null) ||
+      (level === 'feature' && row.parent_id !== null && parentKind !== 'coordinator') ||
+      (level === 'slice' && parentKind !== 'outcome')
+    )
+      throw Error(
+        'Telos work level does not match its parent; classify the outcome and feature first',
+      );
+    if (
+      level === 'slice' &&
+      this.db.prepare('SELECT 1 FROM items WHERE parent_id=? LIMIT 1').get(itemId)
+    )
+      throw Error('Telos work level slice cannot contain child work');
+    initializeTelosWorkKinds(this.db);
+    if (
+      level === 'outcome' &&
+      this.db
+        .prepare(
+          "SELECT 1 FROM items i JOIN telos_work_kinds k ON k.item_id=i.id WHERE i.parent_id=? AND k.kind='work_item' LIMIT 1",
+        )
+        .get(itemId)
+    )
+      throw Error('Telos work level outcome requires feature children');
+    this.db.prepare('INSERT INTO telos_work_kinds(item_id,kind) VALUES(?,?)').run(itemId, kind);
+  }
+
   /** The original canonical owner keeps the outer writer and receipt ordering. */
   updateGuarded(
     input: TelosItemUpdateInput,
@@ -445,6 +511,7 @@ export class TelosItemStore {
         // Fresh-effect eligibility must not hide a known committed receipt.
         assertCurrent(beforeApply);
         if (!updatesExist) this.ensureUpdates();
+        if (edit?.workLevel) this.classifyUnassigned(input.itemId, edit.workLevel);
         const status = input.status ?? before.status;
         const now = new Date().toISOString();
         if (edit)

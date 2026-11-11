@@ -2116,7 +2116,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     '68b440dacf7db8f1afee47cce7fd463002f1bd14e7e4b3f6e391143a9e466f7c',
   '../../packages/protocol/src/client-capabilities.ts':
     '8dd04e33daf77b98951f93a1e377e79a671a5f9303585c847d01ae895fd9bd95',
-  '../telos-item-store.ts': '169328ca069ca6b5178e8879db0b340bfc2a38e168586d1693789a606d4280f4',
+  '../telos-item-store.ts': '923140955a99197296e91141666ff9fd07bde816b6f53f7df3a481d852b800cf',
   '../telos-item-routes.ts': 'b600aaad3c66f6221d526c6a16d11d61d99f761e640f4cc4d9c14bef84b12789',
   '../telos-item-tools.ts': '6338abf7d20c0a7ee4f68de4c85e49a75acb8a76545822fba14246d86efe6abf',
   '../telos-mcp-server.ts': '1f92e4f921a3a9af617e878c3460f5d82eaeb533158d9b7bfc4bc9b0028ed4ef',
@@ -3827,16 +3827,16 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/client/src/__tests__/telos-work-api.test.ts':
     '909af02fc3e7fb9517cdb744b1902bf7175676eb33a68a9ce35f91f6ef95cf95',
   '../../packages/protocol/src/telos-backlog.ts':
-    'ff35fbe1c4d9521cf8c14f79606c9d170596987f478a6b26d74c4d14de0a16e9',
+    '39a9a6c76f96955a3156e3bcde11964b544b7516d09216de270442f950339ac4',
   '../__tests__/telos-backlog-artifacts.test.ts':
     '5ef9b1cc1c26935c9ff558d04b8ff07f773c02eda25f9b0b0b4e98b23af540d4',
   '../__tests__/telos-backlog-tools.test.ts':
-    'c261e004b5e4036db5ffafdb9ba2b7b04f25025dc5b60f9e98292e6f137b21fd',
+    '146c0751f054febce7925538c0f1c2a8b2fdefde9d89f9f3982e4c1496d4e146',
   '../__tests__/telos-backlog.test.ts':
     'e682d8e975298dd997b05183e6b676cefe9fd9944f229cee1f2f6f235237f32e',
   '../__tests__/telos-work-routes.test.ts':
     '42db839f3847185e7e666e84a9afc1e6a6d038d7b325e9888eb1e51fffabd59b',
-  '../telos-backlog-tools.ts': '02dc2097e29eceba3647066c8cbcca500e5a57b9fce136eb7a99bd266dfbb666',
+  '../telos-backlog-tools.ts': '2732ccd7a1e76eb138006b2d6ca7ee025329c87ab74fb7ebb92ea636fc5b5a6a',
   '../../tests/offline/telos-outcomes-workspace.spec.ts':
     '5050ae8f4d41867db0a9d26ca13c3e3c869a66c086c2f09414ae9d7ca3023d83',
   '../../tests/integration/telos-s9/integrated-candidate/surface-control-inbox.ts':
