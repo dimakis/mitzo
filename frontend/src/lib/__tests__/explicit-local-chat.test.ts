@@ -19,6 +19,27 @@ import { evaluateChatRuntimeSelection } from '../chat-runtime-selection';
 import { localInventoryFixture } from '../../test-utils/local-inventory-fixture';
 import { multiRuntimeInventoryFixture } from '../../test-utils/multi-runtime-inventory-fixture';
 
+it('accepts more than 64 distinct accounts and 128 routes while retaining the inventory byte budget', () => {
+  const base = localInventoryFixture();
+  const catalog = (count: number) => ({
+    ...base,
+    accounts: Array.from({ length: count }, (_, index) => ({
+      ...base.accounts[0],
+      account: { ...base.accounts[0].account, accountId: `account-${index}` },
+    })),
+    routes: Array.from({ length: count }, (_, index) => ({
+      ...base.routes[0],
+      account: { ...base.routes[0].account, accountId: `account-${index}` },
+    })),
+  });
+  const many = ExplicitLocalInventorySchema.parse(catalog(150));
+  expect(many.accounts).toHaveLength(150);
+  expect(many.routes).toHaveLength(150);
+  const excessive = catalog(5000);
+  expect(new TextEncoder().encode(JSON.stringify(excessive)).length).toBeGreaterThan(1048576);
+  expect(ExplicitLocalInventorySchema.safeParse(excessive).success).toBe(false);
+});
+
 it('keeps Vertex and personal Claude as separate account choices on the same local SDK route', () => {
   const data = multiRuntimeInventoryFixture();
   const work = data.accounts.find((entry) => entry.account.provider === 'anthropic-vertex')!;

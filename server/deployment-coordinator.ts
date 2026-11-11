@@ -1,6 +1,20 @@
+import { createLogger } from './logger.js';
+import { findSessionRuntimeError, SessionRuntimeError } from './session-runtime-error.js';
 import { createHash, randomUUID } from 'node:crypto';
 import type { AuthSession } from './auth.js';
 import type { EventStore } from '@mitzo/protocol/event-store';
+
+const log = createLogger('deployment-coordinator');
+function recordFailure(stage: string, operationId: string, sessionId: string, cause: unknown) {
+  const failure =
+    findSessionRuntimeError(cause) ?? new SessionRuntimeError('recovery_unavailable', { cause });
+  log.warn('Deployment reconciliation requires attention', {
+    stage,
+    operationId,
+    sessionId,
+    ...failure.telemetry(),
+  });
+}
 
 type Store = EventStore['deployment'];
 type Operation = ReturnType<Store['get']>;
@@ -13,6 +27,7 @@ export interface DeploymentPort {
   pause(entry: Entry, auth: AuthSession): Promise<void>;
   settled(entry: Entry, auth: AuthSession): boolean | Promise<boolean>;
   quiescent(): boolean;
+  idleHandoffReady?(operation: Operation): boolean;
   healthy(): boolean;
   receipt(entry: Entry): 'absent' | 'accepted' | 'uncertain';
   resume(
@@ -99,7 +114,8 @@ export class DeploymentCoordinator {
           this.authorize(operation, auth);
           this.port.validate(entry, auth);
           if (settled) this.change(id, entry.sessionId, 'paused', null);
-        } catch {
+        } catch (error) {
+          recordFailure('pause_settlement', id, entry.sessionId, error);
           this.change(
             id,
             entry.sessionId,
@@ -122,6 +138,7 @@ export class DeploymentCoordinator {
     if (this.inFlight) throw Error('Wait for current deployment reconciliation');
     const operation = this.store.get(id);
     this.authorize(operation, auth);
+    if (operation.maintenance) throw Error('Maintenance has separate activation authority');
     const hash = createHash('sha256').update(activationId).digest('hex');
     if (operation.phase === 'activating' && operation.activationHash === hash) return operation;
     if (
@@ -151,14 +168,22 @@ export class DeploymentCoordinator {
         if (!['paused', 'activating', 'resuming'].includes(operation.phase))
           throw Error('Pause must settle before resume');
         if (
-          operation.activationHash &&
+          this.activationAuthority(operation) &&
           (!input.activationId ||
             createHash('sha256').update(input.activationId).digest('hex') !==
-              operation.activationHash)
+              this.activationAuthority(operation))
         )
           throw Error('Original activation owner required');
+        if (
+          operation.maintenance &&
+          (input.rollback ||
+            (operation.maintenance.idleSnapshotSha256
+              ? operation.sessions.length !== 0 || this.port.idleHandoffReady?.(operation) !== true
+              : operation.phase === 'activating' && !this.port.quiescent()))
+        )
+          throw Error('Drained maintenance requires quiescent target; rollback is not supported');
         const expected =
-          operation.activationHash && !input.rollback
+          this.activationAuthority(operation) && !input.rollback
             ? operation.targetCommit
             : operation.sourceCommit;
         if (
@@ -213,7 +238,8 @@ export class DeploymentCoordinator {
             if (this.port.receipt(entry) !== 'accepted')
               throw Error('Continuation admission is uncertain');
             this.change(id, entry.sessionId, 'resumed', null);
-          } catch {
+          } catch (error) {
+            recordFailure('continuation', id, entry.sessionId, error);
             const receipt = this.port.receipt(entry);
             this.change(
               id,
@@ -284,7 +310,7 @@ export class DeploymentCoordinator {
         if (
           !entry ||
           entry.state !== 'blocked' ||
-          !entry.pauseSettled ||
+          (!entry.pauseSettled && !entry.drainedProof) ||
           entry.deliveryAttempted ||
           this.port.receipt(entry) !== 'absent'
         )
@@ -313,10 +339,24 @@ export class DeploymentCoordinator {
       },
     );
   }
+  private activationAuthority(operation: Operation): string | undefined {
+    if (
+      operation.maintenance &&
+      (operation.maintenance.kind !== 'drained-handoff-v1' ||
+        operation.activationHash ||
+        (operation.maintenance.idleSnapshotSha256 !== undefined &&
+          (!/^[a-f0-9]{64}$/.test(operation.maintenance.idleSnapshotSha256) ||
+            operation.sessions.length !== 0)) ||
+        !/^[a-f0-9]{64}$/.test(operation.maintenance.authorityHash))
+    )
+      throw Error('Complete separate maintenance authority required');
+    return operation.maintenance?.authorityHash ?? operation.activationHash;
+  }
   private assertActivationOwner(operation: Operation, activationId: string) {
     if (
-      !operation.activationHash ||
-      createHash('sha256').update(activationId).digest('hex') !== operation.activationHash
+      !this.activationAuthority(operation) ||
+      createHash('sha256').update(activationId).digest('hex') !==
+        this.activationAuthority(operation)
     )
       throw Error('Original activation capability required');
   }
@@ -324,7 +364,7 @@ export class DeploymentCoordinator {
     if (this.inFlight) throw Error('Wait for the current deployment operation to settle');
     this.port.authorize(auth);
     const operation = this.store.get(id);
-    if (operation.activationHash)
+    if (operation.maintenance || operation.activationHash)
       throw Error('Activation owner must finish or roll back before releasing admission');
     // Cancellation can release a stale deployment hold, but never resumes a
     // session or deletes uncertainty/interrupt/command history.

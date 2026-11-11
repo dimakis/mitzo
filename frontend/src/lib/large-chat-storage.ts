@@ -1,5 +1,7 @@
 import { createBrowserId } from './browser-crypto';
+import { readChatStorage } from './chat-storage-read';
 import { createIndexedChatDisk } from './indexed-chat-disk';
+import { APP_FOREGROUND_EVENT } from './app-lifecycle-events';
 
 const PREFIX = 'mitzo-large-chat:v1:';
 const THRESHOLD = 256 * 1024;
@@ -261,25 +263,53 @@ export class LargeChatStorage {
 
 let database: Promise<IDBDatabase> | undefined;
 function openDatabase(): Promise<IDBDatabase> {
-  return (database ??= new Promise((resolve, reject) => {
+  if (database) return database;
+  const opened = new Promise<IDBDatabase>((resolve, reject) => {
     const request = indexedDB.open('mitzo-chat-payloads', 1);
+    const retire = () => {
+      if (database === opened) database = undefined;
+    };
+    const fail = (cause: unknown) => {
+      clearTimeout(timer);
+      retire();
+      reject(cause);
+    };
+    const timer = setTimeout(() => fail(Error('Chat storage open timed out')), 15_000);
     request.onupgradeneeded = () => request.result.createObjectStore('payloads');
-    request.onsuccess = () => resolve(request.result);
-    request.onerror = () => {
-      database = undefined;
-      reject(request.error);
+    request.onsuccess = () => {
+      clearTimeout(timer);
+      const db = request.result;
+      // An abandoned open can still finish after its retry acquired a new owner.
+      if (database !== opened) {
+        db.close();
+        return;
+      }
+      // WebKit can close the connection while the app is suspended. A resolved
+      // promise for that closed handle must not poison every subsequent read.
+      db.onclose = retire;
+      db.onversionchange = () => {
+        retire();
+        db.close();
+      };
+      resolve(db);
     };
-    request.onblocked = () => {
-      database = undefined;
-      reject(Error('Chat storage is blocked by another tab'));
-    };
-  }));
+    request.onerror = () => fail(request.error);
+    request.onblocked = () => fail(Error('Chat storage is blocked by another tab'));
+  }).catch((cause: unknown) => {
+    // A synchronous open failure also invalidates the cached attempt.
+    if (database === opened) database = undefined;
+    throw cause;
+  });
+  database = opened;
+  return opened;
 }
+
 async function operation<T>(
   mode: IDBTransactionMode,
   run: (store: IDBObjectStore) => IDBRequest<T>,
 ): Promise<T> {
   const db = await openDatabase();
+  if (mode === 'readonly') return readChatStorage(db, run);
   return new Promise((resolve, reject) => {
     const transaction = db.transaction('payloads', mode);
     const request = run(transaction.objectStore('payloads'));
@@ -319,6 +349,11 @@ function current() {
 }
 // Environments without IndexedDB retain the established small Web Storage behavior.
 export const chatStorage = {
+  recover: () => initializeChatStorage(),
+  subscribe(listener: () => void) {
+    window.addEventListener(CHAT_STORAGE_CHANGED, listener);
+    return () => window.removeEventListener(CHAT_STORAGE_CHANGED, listener);
+  },
   get asynchronous() {
     return typeof indexedDB !== 'undefined';
   },
@@ -366,30 +401,29 @@ if (typeof window !== 'undefined')
   window.addEventListener('storage', (event) => {
     if (event.storageArea !== localStorage) return;
     disk?.invalidateLegacy();
-    void initializeChatStorage()
-      .then(() => {
-        window.dispatchEvent(new Event(CHAT_STORAGE_CHANGED));
-        window.dispatchEvent(new Event('storage'));
-        window.dispatchEvent(new Event('mitzo-chat-drafts-changed'));
-      })
-      .catch(() => window.dispatchEvent(new Event(CHAT_STORAGE_CHANGED)));
+    void refreshChatStorage();
   });
 
-async function refreshChatStorage() {
-  try {
-    await initializeChatStorage();
-    window.dispatchEvent(new Event(CHAT_STORAGE_CHANGED));
-    window.dispatchEvent(new Event('storage'));
-    window.dispatchEvent(new Event('mitzo-chat-drafts-changed'));
-  } catch {
-    window.dispatchEvent(new Event(CHAT_STORAGE_CHANGED));
-  }
+let refreshing: Promise<void> | undefined;
+function refreshChatStorage(): Promise<void> {
+  return (refreshing ??= (async () => {
+    try {
+      await initializeChatStorage();
+      window.dispatchEvent(new Event(CHAT_STORAGE_CHANGED));
+      window.dispatchEvent(new Event('storage'));
+      window.dispatchEvent(new Event('mitzo-chat-drafts-changed'));
+    } catch {
+      window.dispatchEvent(new Event(CHAT_STORAGE_CHANGED));
+    }
+  })().finally(() => {
+    refreshing = undefined;
+  }));
 }
 if (typeof window !== 'undefined') {
-  window.addEventListener('focus', () => {
+  const refreshOnResume = () => {
     if (instance) void refreshChatStorage();
-  });
-  window.addEventListener('pageshow', () => {
-    if (instance) void refreshChatStorage();
-  });
+  };
+  window.addEventListener('focus', refreshOnResume);
+  window.addEventListener('pageshow', refreshOnResume);
+  window.addEventListener(APP_FOREGROUND_EVENT, refreshOnResume);
 }

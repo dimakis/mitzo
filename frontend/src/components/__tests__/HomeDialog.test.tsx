@@ -12,7 +12,39 @@ beforeEach(() => {
     this.removeAttribute('open');
   };
 });
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  vi.restoreAllMocks();
+  vi.unstubAllGlobals();
+  delete (HTMLElement.prototype as Partial<HTMLElement>).animate;
+});
+
+it('opens the shared sheet once without replaying on edits or retaining motion after close', () => {
+  const cancel = vi.fn();
+  const animate = vi.fn(() => ({ cancel }));
+  Object.defineProperty(HTMLElement.prototype, 'animate', { configurable: true, value: animate });
+  vi.stubGlobal('getComputedStyle', () => ({
+    getPropertyValue: (name: string) => (name.includes('duration') ? '200ms' : 'ease-out'),
+  }));
+  const view = render(
+    <HomeDialog title="Review" onClose={() => {}}>
+      <input aria-label="Retained draft" defaultValue="Original" />
+    </HomeDialog>,
+  );
+  const draft = screen.getByRole('textbox');
+  fireEvent.change(draft, { target: { value: 'Edited draft' } });
+  expect(animate).toHaveBeenCalledTimes(1);
+  view.rerender(
+    <HomeDialog title="Review updated" onClose={() => {}}>
+      <input aria-label="Retained draft" defaultValue="Original" />
+    </HomeDialog>,
+  );
+  expect(screen.getByRole('textbox')).toBe(draft);
+  expect((draft as HTMLInputElement).value).toBe('Edited draft');
+  expect(animate).toHaveBeenCalledTimes(1);
+  view.unmount();
+  expect(cancel).toHaveBeenCalledTimes(1);
+});
 
 it('supports a shared full-screen variant while retaining native close, focus and scroll ownership', () => {
   const opener = document.createElement('button');

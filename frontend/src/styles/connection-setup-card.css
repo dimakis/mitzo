@@ -17,11 +17,11 @@
   text-transform: uppercase;
 }
 .connection-setup-surface h1 {
-  margin: 0 0 12px;
-  font-size: 28px;
+  margin: 0 0 var(--space-3);
+  font-size: var(--text-collection-title);
   line-height: 1.2;
   letter-spacing: -0.035em;
-  font-weight: 600;
+  font-weight: 500;
 }
 .connection-setup-surface p {
   line-height: 1.6;
@@ -141,7 +141,7 @@
     padding: 24px 20px;
   }
   .connection-setup-surface h1 {
-    font-size: 25px;
+    font-size: var(--text-page-title);
   }
   .connection-setup-actions {
     align-items: stretch;

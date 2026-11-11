@@ -1,4 +1,5 @@
 import { reviewQueuedDrafts, closeComposerStatus } from '../support/composer-status';
+import { expectMotionSettled } from '../support/motion-settled';
 import { createTelosWorkFixtures } from '../../frontend/src/test-utils/telos-work-fixtures';
 import { readChatStorage } from '../support/persisted-chat-storage';
 import {
@@ -1059,6 +1060,7 @@ test('Today details and nickname controls inherit appearance and remain usable w
     await page.getByRole('button', { name: 'Manage pins' }).click();
     const pinPopup = page.getByRole('dialog');
     await expect(pinPopup).toBeVisible();
+    await expectMotionSettled(pinPopup);
     const popupBounds = (await pinPopup.boundingBox())!;
     expect(popupBounds.x).toBeCloseTo((page.viewportSize()!.width - popupBounds.width) / 2, 0);
     for (const direction of ['up', 'down']) {
@@ -2611,6 +2613,44 @@ test('reviewed launches let users dismiss Agent settings and reach Send at a sho
   await expect(settings).toHaveAttribute('aria-expanded', 'false');
   await expect(settings).toBeFocused();
   await expect(settingRow(page, 'Model')).toBeHidden();
+  // Reuse this rendered composer journey for the storage-blocked recovery state.
+  // Functional storage/receipt ownership is covered through the real adapter in unit tests.
+  await page.evaluate(() => {
+    const store = (
+      window as unknown as {
+        __mitzoStore: {
+          setState(state: object): void;
+          getState(): { recoverLocalCommand(): boolean };
+        };
+      }
+    ).__mitzoStore;
+    const recover = store.getState().recoverLocalCommand;
+    store.setState({
+      localCommand: { state: 'blocked' },
+      recoverLocalCommand: () => {
+        store.setState({ localCommand: null, recoverLocalCommand: recover });
+        return true;
+      },
+    });
+  });
+  const retryStorage = page.getByRole('button', { name: 'Retry', exact: true });
+  await expect(retryStorage).toBeEnabled();
+  await page.getByRole('button', { name: 'Conversation status details', exact: true }).click();
+  const status = page.getByRole('dialog', { name: 'Conversation status', exact: true });
+  await expect(status).toContainText('Saved outgoing messages are unavailable');
+  const dialogRetry = status.getByRole('button', { name: 'Retry', exact: true });
+  await expectMotionSettled(dialogRetry);
+  expect((await dialogRetry.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+  for (const theme of ['light', 'dark']) {
+    await page.evaluate((theme) => {
+      document.documentElement.dataset.theme = theme;
+    }, theme);
+    await expect(dialogRetry).toBeInViewport();
+    await page.screenshot({ path: testInfo.outputPath(`storage-recovery-${theme}.png`) });
+  }
+  await dialogRetry.click();
+  await expect(status).not.toContainText('Saved outgoing messages are unavailable');
+  await closeComposerStatus(page);
   const send = page.getByRole('button', { name: 'Send launch prompt', exact: true });
   await send.scrollIntoViewIfNeeded();
   await expect(send).toBeInViewport();
@@ -4331,6 +4371,7 @@ test('rejected idle ordinary Send keeps attachments and an explicit retry withou
   expect(await retainedQueue()).not.toContain('data:image');
   const retry = page.getByRole('button', { name: 'Send queued prompt 1', exact: true });
   await expect(retry).toBeVisible();
+  await expectMotionSettled(retry);
   expect((await retry.boundingBox())!.height).toBeGreaterThanOrEqual(44);
   for (const theme of ['dark', 'light']) {
     await page.evaluate((theme) => {
