@@ -186,6 +186,9 @@ export type { NativeBaseReadScope } from './native-base-read-scope.js';
 import type { NativeBaseReadScope } from './native-base-read-scope.js';
 
 export interface CodexConversationOptions {
+  /** Host-only committed context identity, never an admission epoch or public input.
+   * Selected before constructing the owner; absent retains exact legacy behavior. */
+  providerContextRevision?: string;
   enableToolFailureContinuation?: boolean;
   /** Original live owner admits the exact durable child under unchanged authority. */
   admitToolFailureContinuation?(input: CodexCommandInput): boolean | void;
@@ -582,7 +585,21 @@ export class CodexConversation {
   private readonly disableProjectDocuments: boolean;
   private adviserSkills: { path: string }[] = [];
   private readonly agentContextSource?: string;
+  private readonly providerContextRevision?: string;
   constructor(private opts: CodexConversationOptions) {
+    this.providerContextRevision = z
+      .string()
+      .regex(/^[a-f0-9]{64}$/)
+      .optional()
+      .parse(opts.providerContextRevision);
+    if (
+      this.providerContextRevision !== undefined &&
+      (opts.deferToolSurfaceReplacement !== true || opts.providerThreadLifecycle === 'attempt')
+    )
+      throw Error('Committed provider context requires deferred durable thread ownership');
+    // Context-bearing owners retain the validated mode selection as well as
+    // its revision. Later caller mutation cannot bypass deferred ACK custody.
+    if (this.providerContextRevision !== undefined) this.opts = { ...opts };
     assertNativeCodexContextAdmission({ source: opts.agentContextSource });
     this.agentContextSource = opts.agentContextSource;
     this.disableWebSearch = opts.disableWebSearch === true;
@@ -2396,7 +2413,18 @@ export class CodexConversation {
   }
 
   private toolSurfaceRevision() {
-    return createHash('sha256').update(JSON.stringify(this.dynamicToolsOption())).digest('hex');
+    const tools = this.dynamicToolsOption();
+    // Native provider configuration is immutable for both tools and role context.
+    // Reuse its ACK/ownership journal; never mark the old thread current at adoption.
+    const surface =
+      this.providerContextRevision === undefined
+        ? tools
+        : {
+            version: 'provider-context-v1',
+            tools,
+            contextRevision: this.providerContextRevision,
+          };
+    return createHash('sha256').update(JSON.stringify(surface)).digest('hex');
   }
 
   /** Preserve the original phase target until its exact owner has settled.

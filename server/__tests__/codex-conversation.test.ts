@@ -2585,6 +2585,146 @@ it('retains framing diagnostics without making an accepted turn eligible for rep
   expect(f.requests.filter(({ method }) => method === 'turn/start')).toHaveLength(1);
 });
 
+it('refreshes unchanged tools for committed provider context only at the acknowledged replacement boundary', async () => {
+  const f = await setup();
+  await f.c.send({ id: 'before-role', prompt: 'Discuss the feature' });
+  f.callbacks.onNotification('turn/completed', {
+    threadId: f.getProviderThread(),
+    turn: { id: 'turn-1', status: 'completed' },
+  });
+  await vi.waitFor(() => expect(f.c.queue()[0].status).toBe('completed'));
+  const before = f.store.read('app', f.getBinding());
+  f.c.close();
+  const options: CodexConversationOptions = {
+    ...f.conversationOptions,
+    storedBinding: f.getBinding(),
+    deferToolSurfaceReplacement: true,
+    providerContextRevision: 'a'.repeat(64),
+  };
+  const next = new CodexConversation(options);
+  cleanup.push(() => next.close());
+  options.deferToolSurfaceReplacement = false;
+  options.providerThreadLifecycle = 'attempt';
+  await next.initialize();
+  // Constructing the next authorized owner starts no model turn and cannot
+  // pretend that the old provider thread already carries the new role context.
+  expect(f.requests.filter(({ method }) => method === 'turn/start')).toHaveLength(1);
+  expect(f.requests.filter(({ method }) => method === 'thread/start')).toHaveLength(2);
+  expect(f.store.read('app', f.getBinding())).toMatchObject({
+    threadId: before.threadId,
+    toolSurfaceRevision: before.toolSurfaceRevision,
+  });
+  const replacement = f.getProviderThread();
+  expect(replacement).not.toBe(before.threadId);
+  // Caller mutation cannot change a constructed owner's selected context.
+  options.providerContextRevision = 'b'.repeat(64);
+  await next.send({ id: 'after-role', prompt: 'Delegate the selected slice' });
+  const accepted = f.store.read('app', f.getBinding());
+  expect(accepted).toMatchObject({
+    threadId: replacement,
+    threadGeneration: before.threadGeneration + 1,
+  });
+  expect(accepted.toolSurfaceRevision).not.toBe(before.toolSurfaceRevision);
+  expect(f.requests.at(-1)?.params.additionalContext).toMatchObject({
+    'mitzo.tool-surface-rollover': {
+      kind: 'untrusted',
+      value: expect.stringContaining('Keep the existing workstream.'),
+    },
+  });
+  f.callbacks.onNotification('turn/completed', {
+    threadId: replacement,
+    turn: { id: 'turn-2', status: 'completed' },
+  });
+  await vi.waitFor(() => expect(next.queue().at(-1)?.status).toBe('completed'));
+  next.close();
+  const restarted = new CodexConversation({
+    ...options,
+    providerContextRevision: 'a'.repeat(64),
+    deferToolSurfaceReplacement: true,
+    providerThreadLifecycle: undefined,
+  });
+  cleanup.push(() => restarted.close());
+  await restarted.initialize();
+  expect(f.requests.filter(({ method }) => method === 'thread/start')).toHaveLength(2);
+  expect(f.store.read('app', f.getBinding()).toolSurfaceRevision).toBe(
+    accepted.toolSurfaceRevision,
+  );
+});
+
+it('preserves context-refresh dispatch uncertainty across owner reconstruction without another thread or turn', async () => {
+  const f = await setup();
+  const before = f.store.read('app', f.getBinding());
+  f.c.close();
+  const options = {
+    ...f.conversationOptions,
+    storedBinding: f.getBinding(),
+    deferToolSurfaceReplacement: true,
+    providerContextRevision: 'a'.repeat(64),
+  };
+  const next = new CodexConversation(options);
+  cleanup.push(() => next.close());
+  await next.initialize();
+  const rpc = f.rpc.request.getMockImplementation()!;
+  const lost = new CodexTransportError('connection', { reason: 'stream_error' });
+  f.rpc.request.mockImplementation((method, params) => {
+    if (method === 'turn/start') throw lost;
+    return rpc(method, params);
+  });
+  await expect(
+    next.send({ id: 'refresh-uncertain', prompt: 'Use the committed role' }),
+  ).rejects.toBe(lost);
+  expect(f.store.read('app', f.getBinding())).toMatchObject({
+    threadId: before.threadId,
+    toolSurfaceRevision: before.toolSurfaceRevision,
+  });
+  expect(() => f.store.assertNoPendingThreadDispatch('app', f.getBinding())).toThrow();
+  next.close();
+  const starts = f.rpc.request.mock.calls.filter(([method]) =>
+    ['thread/start', 'turn/start'].includes(method),
+  ).length;
+  const restarted = new CodexConversation(options);
+  cleanup.push(() => restarted.close());
+  await expect(restarted.initialize()).rejects.toThrow();
+  expect(
+    f.rpc.request.mock.calls.filter(([method]) => ['thread/start', 'turn/start'].includes(method)),
+  ).toHaveLength(starts);
+  expect(
+    f.store.commands('app', f.getBinding()).filter((command) => command.id === 'refresh-uncertain'),
+  ).toHaveLength(1);
+});
+
+it.each(['', 'not-a-context-revision', 'A'.repeat(64)])(
+  'rejects malformed host context revision before constructing transport: %s',
+  async (providerContextRevision) => {
+    const f = await setup();
+    const createClient = vi.fn(f.conversationOptions.createClient);
+    expect(
+      () =>
+        new CodexConversation({ ...f.conversationOptions, createClient, providerContextRevision }),
+    ).toThrow();
+    expect(createClient).not.toHaveBeenCalled();
+  },
+);
+
+it.each(['immediate', 'attempt'] as const)(
+  'refuses context refresh with %s thread ownership before transport construction',
+  async (mode) => {
+    const f = await setup();
+    const createClient = vi.fn(f.conversationOptions.createClient);
+    expect(
+      () =>
+        new CodexConversation({
+          ...f.conversationOptions,
+          createClient,
+          providerContextRevision: 'a'.repeat(64),
+          deferToolSurfaceReplacement: mode !== 'immediate',
+          ...(mode === 'attempt' ? { providerThreadLifecycle: 'attempt' as const } : {}),
+        }),
+    ).toThrow('Committed provider context requires deferred durable thread ownership');
+    expect(createClient).not.toHaveBeenCalled();
+  },
+);
+
 it('preserves prior conversation text once when refreshing a stale tool surface', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'mitzo-codex-stale-tools-'));
   const store = new CodexConversationStore(join(dir, 'private.db'));
