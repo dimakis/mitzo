@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.1032-symposium-private-path-normalization';
+  'v1.0.1033-agent-delivery-receipt-fixture';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -1459,7 +1459,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/existing-local-repository-workspaces.test.ts':
     '5f33af94efe047dbac10317ba60e9461e0e7e7d598fabaab5d11eac476669e46',
   '../__tests__/agent-communication-native.test.ts':
-    'ee2341c31daaae095cf9f86597a12defa3ffb555edd935a1fb046d750b44a2ca',
+    'effa92955f7d71679bfbe17315f6f21fd9c9da9cefb050fab1dfc82ab1c6e154',
   '../session-history-authorization.ts':
     '68d9d36a11ed5ac179f6143a08adecf3109daf264fa2e1898d12a70e37819801',
   '../session-history-tools.ts': 'f66039084b4c156b3be20cf65dc7cd1b8729135f747356d2ed9ed3b611dab782',
