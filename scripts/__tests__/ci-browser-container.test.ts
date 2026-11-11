@@ -37,6 +37,7 @@ it('retains command arguments, narrow mounts and the real failing container exit
   const args = readFileSync(env.TRACE, 'utf8').trim().split('\n');
   expect(args.slice(-3)).toEqual(['node', 'test.js', 'argument with spaces']);
   expect(args).toContain(`${env.RUNNER_TOOL_CACHE}:${env.RUNNER_TOOL_CACHE}:ro`);
+  expect(args).not.toContain(`${env.RUNNER_TEMP}:${env.RUNNER_TEMP}`);
   expect(args).not.toContain('GITHUB_TOKEN');
   expect(args.join(' ')).not.toContain('must-not-be-forwarded');
   expect(args).toContain('--pull=never');

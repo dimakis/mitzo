@@ -192,6 +192,8 @@ jobs:
       contents: read
     steps:
       - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
       - uses: ./.github/actions/ci-node
         with:
           node-version: ${{ env.MITZO_CI_NODE_VERSION }}
@@ -268,6 +270,8 @@ jobs:
             shards: 3
     steps:
       - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
       - uses: ./.github/actions/ci-node
         with:
           node-version: ${{ env.MITZO_CI_NODE_VERSION }}
@@ -716,6 +720,8 @@ jobs:
       S9_SUPPLEMENTAL_PORTABLE_CLI: '1'
     steps:
       - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
       - uses: ./.github/actions/ci-node
         with:
           node-version: ${{ env.MITZO_CI_NODE_VERSION }}

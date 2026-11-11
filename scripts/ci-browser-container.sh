@@ -17,18 +17,29 @@ case "$node_directory/" in
   "$RUNNER_TOOL_CACHE/"*) ;;
   *) echo 'CI_BROWSER_NODE_CUSTODY: Node must come from the selected runner tool cache' >&2; exit 1 ;;
 esac
-mkdir -p "$RUNNER_TEMP/ci-browser-home"
+browser_temp="$RUNNER_TEMP/ci-browser"
+mkdir -p "$browser_temp/home" "$browser_temp/tmp"
 name="mitzo-browser-${GITHUB_RUN_ID}-$$"
 args=(run --rm --init --pull=never --ipc=host --name "$name"
   --user "$(id -u):$(id -g)"
   --volume "$GITHUB_WORKSPACE:$GITHUB_WORKSPACE"
-  --volume "$RUNNER_TEMP:$RUNNER_TEMP"
+  --volume "$browser_temp:$browser_temp"
   --volume "$RUNNER_TOOL_CACHE:$RUNNER_TOOL_CACHE:ro"
   --workdir "$GITHUB_WORKSPACE"
   --env "PATH=$node_directory:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
-  --env "HOME=$RUNNER_TEMP/ci-browser-home")
+  --env "HOME=$browser_temp/home"
+  --env "RUNNER_TEMP=$browser_temp"
+  --env "TMPDIR=$browser_temp/tmp")
+if [[ -n ${S9_MGMT_PYTHON:-} ]]; then
+  venv="$RUNNER_TEMP/telos-s9-python"
+  if [[ $S9_MGMT_PYTHON != "$venv/bin/python" ]]; then
+    echo 'CI_BROWSER_PYTHON_CUSTODY: unexpected canonical CLI environment' >&2
+    exit 1
+  fi
+  args+=(--volume "$venv:$venv:ro")
+fi
 # Explicitly retain test/run attribution without forwarding tokens or credentials.
-for variable in CI GITHUB_ACTIONS GITHUB_SHA GITHUB_RUN_ID GITHUB_RUN_ATTEMPT GITHUB_JOB GITHUB_WORKSPACE RUNNER_OS RUNNER_TEMP NODE_OPTIONS S9_MGMT_PYTHON S9_SUPPLEMENTAL_PORTABLE_CLI; do
+for variable in CI GITHUB_ACTIONS GITHUB_SHA GITHUB_RUN_ID GITHUB_RUN_ATTEMPT GITHUB_JOB GITHUB_WORKSPACE RUNNER_OS NODE_OPTIONS S9_MGMT_PYTHON S9_SUPPLEMENTAL_PORTABLE_CLI; do
   args+=(--env "$variable")
 done
 cancel() {

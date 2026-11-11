@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.1045-ci-browser-image';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.1046-ci-browser-custody';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -3925,7 +3925,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../.github/workflows/ci-recovery.yml':
     '5d4e9a6560e549d2879ef776c2b4d321d420c25b22ec3a7741390e5bf617111a',
   '../../.github/workflows/ci.yml':
-    '3b52c2e4f8080fb3839bc49dbe360031212d02df71ffe1b16588cc6b7a977382',
+    'd5040b42aba9f91c6ac2b1a95e74980a291d8940aae6918999d7003fad1d78ca',
   '../../playwright.config.ts': '6c61752a4a2e9cab19d8217b46080c5898bc79c5a0fde1f2b703a254d278daa0',
   '../../playwright.offline.config.ts':
     'fb694df154a2cb402c7f46b417efb357b6d19a72210d269ad0b1580798392adc',
@@ -4132,9 +4132,9 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../.github/actions/ci-playwright/action.yml':
     '1c6e7a91b5e7363c00c224ab10739bfc73e0a027c9e7b9508af620d96321b6d1',
   '../../scripts/ci-browser-container.sh':
-    '46439e216785fa3ac962128ce7c645373082378c3904c3da7754814977219389',
+    '7e1607396f3df512ef7c58c161f499d2be22d0d9b90ddaec01d8f818e4aadfa0',
   '../../scripts/__tests__/ci-browser-container.test.ts':
-    '70f3b9dc680db41a47097d01f097a16160f7f6d20d139a3ff5eeda90e6d565be',
+    '9c858438e528dede65f0e6f747846eb7faa61d4f5930eadcbb3bf3f353e2da80',
   '../../.github/actions/ci-native-fixture/action.yml':
     'f8c24df3203636c7292fa1d0d8994ee5b9db53301c49fe43eab3e355907b6f05',
   '../../.github/actions/ci-node/action.yml':
