@@ -22,6 +22,83 @@ function fakeTransport(): SessionTransport & { sent: Record<string, unknown>[] }
 }
 
 describe('buildPermissionHandler', () => {
+  it.each(['skill', 'abort', 'owner'])(
+    'rechecks %s after the workspace await before reusing GitHub read consent',
+    async (change) => {
+      const registry = new SessionRegistry();
+      const transport = fakeTransport();
+      const abort = new AbortController();
+      registry.register('github-race', {
+        transport,
+        abortController: abort,
+        mode: 'agent',
+        sessionId: 'github-race-session',
+        cwd: '/workspace',
+        sessionAllowList: new Set(),
+      });
+      const handler = buildPermissionHandler('github-race', registry);
+      const opts = { signal: abort.signal, toolUseID: 'github-race' };
+      try {
+        const first = handler('Bash', { command: 'gh run view 42 -R owner/repo --log' }, opts);
+        await vi.waitFor(() => expect(transport.sent[0]?.type).toBe('permission_request'));
+        resolvePending(transport.sent[0].permId as string, 'always');
+        expect(await first).toMatchObject({ behavior: 'allow' });
+        const reused = handler(
+          'Bash',
+          { command: 'gh api repos/owner/repo/actions/jobs/123/logs' },
+          opts,
+        );
+        if (change === 'skill') setSkillPolicy(registry, 'github-race', []);
+        else if (change === 'abort') abort.abort();
+        else registry.get('github-race')!.sessionId = 'replacement-session';
+        expect(await reused).toMatchObject({ behavior: 'deny' });
+      } finally {
+        abort.abort();
+        registry.dispose();
+      }
+    },
+  );
+
+  it.each(['anthropic-claude', 'anthropic-vertex'])(
+    'retains repository CI reads without a tool-wide shell grant for %s',
+    async (provider) => {
+      const registry = new SessionRegistry();
+      const transport = fakeTransport();
+      const abort = new AbortController();
+      registry.register('github-client', {
+        transport,
+        abortController: abort,
+        mode: 'agent',
+        sessionId: 'github-session',
+        cwd: '/workspace',
+        sessionAllowList: new Set(),
+        accountBinding: { accountId: 'selected', provider, profileRevision: 'revision' } as never,
+      });
+      const decide = buildPermissionHandler('github-client', registry);
+      const opts = { signal: abort.signal, toolUseID: 'read' };
+      try {
+        const first = decide('Bash', { command: 'gh run view 42 -R owner/repo --log' }, opts);
+        await vi.waitFor(() => expect(transport.sent[0]?.type).toBe('permission_request'));
+        expect(transport.sent[0].sessionGrantDescription).toContain('CI logs for owner/repo');
+        resolvePending(transport.sent[0].permId as string, 'always');
+        expect(await first).toMatchObject({ behavior: 'allow' });
+        expect(registry.get('github-client')!.sessionAllowList.has('Bash')).toBe(false);
+        transport.sent.length = 0;
+        expect(
+          await decide('Bash', { command: 'gh api /repos/OWNER/REPO/actions/jobs/123/logs' }, opts),
+        ).toMatchObject({ behavior: 'allow' });
+        expect(transport.sent).toEqual([]);
+        const write = decide('Bash', { command: 'gh run rerun 42 -R owner/repo' }, opts);
+        await vi.waitFor(() => expect(transport.sent[0]?.type).toBe('permission_request'));
+        resolvePending(transport.sent[0].permId as string, 'deny');
+        expect(await write).toMatchObject({ behavior: 'deny' });
+      } finally {
+        abort.abort();
+        registry.dispose();
+      }
+    },
+  );
+
   it('rechecks a skill restriction installed while retained native consent awaits workspace policy', async () => {
     const registry = new SessionRegistry();
     registry.register('native-client', {
@@ -575,7 +652,8 @@ describe('buildPermissionHandler', () => {
       ).toBe(false);
       expect(await execution).toMatchObject({
         behavior: 'deny',
-        message: 'Tool approval expired without a response; request approval again',
+        message:
+          'Tool approval expired without a response. Wait for the user; do not recreate the unchanged request automatically.',
       });
       expect(allowList.size).toBe(0);
       expect(getPendingRequestsBySession('deadline-session')).toEqual([]);
@@ -1028,7 +1106,7 @@ describe('buildPermissionHandler', () => {
         message:
           cause === 'abort'
             ? 'Tool approval cancelled because the operation was aborted'
-            : 'Tool approval expired without a response; request approval again',
+            : 'Tool approval expired without a response. Wait for the user; do not recreate the unchanged request automatically.',
       });
       expect(lifecycle).toHaveBeenLastCalledWith({
         type: 'resolved',

@@ -192,15 +192,16 @@ jobs:
       contents: read
     steps:
       - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
       - uses: ./.github/actions/ci-node
         with:
           node-version: ${{ env.MITZO_CI_NODE_VERSION }}
-      - name: Prefer HTTPS Ubuntu mirrors for browser dependencies
-        uses: ./.github/actions/ci-ubuntu-mirrors
-      - name: Install browsers and dependencies
+      - uses: ./.github/actions/ci-playwright
         timeout-minutes: 8
-        run: npx playwright install --with-deps webkit chromium
-      - run: node scripts/ci-browser-run.mjs test:browser
+        with:
+          browsers: webkit chromium
+      - run: bash scripts/ci-browser-container.sh node scripts/ci-browser-run.mjs test:browser
         id: browser-tests
       - name: Retain browser failure evidence
         if: ${{ always() && steps.browser-tests.outcome != 'success' }}
@@ -270,6 +271,8 @@ jobs:
             shards: 3
     steps:
       - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
       - uses: ./.github/actions/ci-node
         with:
           node-version: ${{ env.MITZO_CI_NODE_VERSION }}
@@ -291,14 +294,13 @@ jobs:
         run: |
           python3 scripts/ci-build-output.py restore server "$RUNNER_TEMP/ci-compiled/ci-server.zip"
           python3 scripts/ci-build-output.py restore frontend "$RUNNER_TEMP/ci-compiled/ci-frontend.zip"
-      - name: Prefer HTTPS Ubuntu mirrors for browser dependencies
-        uses: ./.github/actions/ci-ubuntu-mirrors
-      - name: Install browsers and dependencies
+      - uses: ./.github/actions/ci-playwright
         timeout-minutes: 8
-        run: npx playwright install --with-deps ${{ matrix.browser }}
+        with:
+          browsers: ${{ matrix.browser }}
       - name: Verify shared theme and mobile layouts without a backend
         id: offline-tests
-        run: node scripts/ci-browser-run.mjs test:ui:ci:prebuilt --project=${{ matrix.project }} --shard=${{ matrix.shard }}/${{ matrix.shards }}
+        run: bash scripts/ci-browser-container.sh node scripts/ci-browser-run.mjs test:ui:ci:prebuilt --project=${{ matrix.project }} --shard=${{ matrix.shard }}/${{ matrix.shards }}
       - name: Retain offline layout failure evidence
         if: ${{ always() && steps.offline-tests.outcome != 'success' }}
         uses: actions/upload-artifact@v7
@@ -720,6 +722,8 @@ jobs:
       S9_SUPPLEMENTAL_PORTABLE_CLI: '1'
     steps:
       - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
       - uses: ./.github/actions/ci-node
         with:
           node-version: ${{ env.MITZO_CI_NODE_VERSION }}
@@ -728,7 +732,7 @@ jobs:
           artifact-id: ${{ needs.preflight.outputs.workspace_artifact_id }}
       - uses: ./.github/actions/ci-canonical-browser
       - name: Run the required closed supplemental shard
-        run: node tests/integration/telos-s9/integrated-candidate/run-supplemental-ci.mjs --shard=${{ matrix.shard }}/2
+        run: bash scripts/ci-browser-container.sh node tests/integration/telos-s9/integrated-candidate/run-supplemental-ci.mjs --shard=${{ matrix.shard }}/2
       - name: Retain exact supplemental owner results
         if: always()
         uses: actions/upload-artifact@v7

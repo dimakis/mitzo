@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { qualifyToolResult, reportToolFailure } from './tool-failure-reporting.js';
 import { copyCallbackOutcome } from './turn-callbacks.js';
-import { findSessionRuntimeError } from './session-runtime-error.js';
+import { findSessionRuntimeError, SessionRuntimeError } from './session-runtime-error.js';
 import { sessionPromptSchemas, sessionPromptDefinitions } from './session-prompt-definitions.js';
 import type { TurnCallbackRunner } from './turn-callbacks.js';
 import type { ConnectionBoundary } from './session-connection-tools.js';
@@ -25,6 +25,12 @@ import {
 import { sessionCredentialTools } from './session-credential-tools.js';
 
 const prefix = 'mcp__mitzo-connections__';
+/** A failed authority check cannot become a recoverable application failure. */
+class SdkAuthorityFailure extends SessionRuntimeError {
+  constructor(cause: unknown) {
+    super('runtime_unavailable', { cause });
+  }
+}
 const schemas = {
   ...sessionPromptSchemas,
   ...credentialConnectionSchemas,
@@ -88,6 +94,22 @@ export function createCredentialSdkServer(
   },
 ) {
   const runtimeId = randomUUID();
+  const authority = boundary && {
+    async assertCurrent(signal: AbortSignal) {
+      try {
+        await boundary.assertCurrent(signal);
+      } catch (cause) {
+        throw new SdkAuthorityFailure(cause);
+      }
+    },
+    assertCurrentSync(signal: AbortSignal) {
+      try {
+        boundary.assertCurrentSync(signal);
+      } catch (cause) {
+        throw new SdkAuthorityFailure(cause);
+      }
+    },
+  };
   let current: { id: string; tools: ReturnType<typeof sessionCredentialTools> } | undefined;
   return createSdkMcpServer({
     name: 'mitzo-connections',
@@ -144,24 +166,24 @@ export function createCredentialSdkServer(
                       registry,
                       prefix,
                       undefined,
-                      boundary
-                        ? () => boundary.assertCurrent(session.abortController.signal)
+                      authority
+                        ? () => authority.assertCurrent(session.abortController.signal)
                         : undefined,
-                      boundary
-                        ? () => boundary.assertCurrentSync(session.abortController.signal)
+                      authority
+                        ? () => authority.assertCurrentSync(session.abortController.signal)
                         : undefined,
                       false,
                       { boundary: boundary?.connectionBoundary },
                     ),
                   };
-                await boundary?.assertCurrent(signal);
+                await authority?.assertCurrent(signal);
                 const rawResult = await current.tools.execute(definition.name, input, signal, {
                   turnId: runtimeId,
                   callId: String(
                     (extra as { requestId?: unknown } | undefined)?.requestId ?? randomUUID(),
                   ),
                 });
-                await boundary?.assertCurrent(signal);
+                await authority?.assertCurrent(signal);
                 const result =
                   rawResult && qualifyToolResult(definition.name, input, signal, rawResult);
                 const delivered = {
@@ -176,19 +198,22 @@ export function createCredentialSdkServer(
                 return result ? copyCallbackOutcome(result, delivered) : delivered;
               },
             ).catch((error: unknown) => {
-              const failure = reportToolFailure(error, {
+              const authorityFailed = error instanceof SdkAuthorityFailure;
+              const cause = authorityFailed ? error.cause : error;
+              const failure = reportToolFailure(cause, {
                 sessionId: sessionId() ?? runtimeId,
                 tool: definition.name,
                 signal,
               });
-              // Explicit cancellation and timeout retirement retain their owner
-              // fences. Report before propagating, so they are never silent.
+              // Authority failures, cancellation and timeout retirement retain
+              // their fences. Report before propagating the original cause.
               if (
+                authorityFailed ||
                 signal.aborted ||
-                error instanceof ToolGuardTimeoutError ||
-                findSessionRuntimeError(error)
+                cause instanceof ToolGuardTimeoutError ||
+                findSessionRuntimeError(cause)
               )
-                throw error;
+                throw cause;
               return copyCallbackOutcome(failure, {
                 content: [{ type: 'text' as const, text: failure.content }],
                 isError: true,

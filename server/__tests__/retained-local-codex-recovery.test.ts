@@ -946,17 +946,26 @@ async function reconcileRetainedColdTurn(
     nativeStatus !== 'completed',
   );
 }
+// These composed journeys reopen real Git/SQLite custody and exercise multiple
+// refusals. CI measured 4.6–5.0s under shard contention; retain a bounded budget
+// above the unit-test default without skipping any recovery assertions.
+const coldRecoveryTimeoutMs = 15_000;
 it.each(['interrupted', 'completed'] as const)(
   'reconciles an already dispatched cold turn observed %s without replay',
   (status) => reconcileRetainedColdTurn(status),
+  coldRecoveryTimeoutMs,
 );
 
-it('reconciles settled interrupted work after a real policy change under fresh authority without replay', () =>
-  reconcileRetainedColdTurn('interrupted', true));
+it(
+  'reconciles settled interrupted work after a real policy change under fresh authority without replay',
+  () => reconcileRetainedColdTurn('interrupted', true),
+  coldRecoveryTimeoutMs,
+);
 
 it.each([false, true])(
   'reconciles a failed capacity turn with settled receipts without replay (policy drift: %s)',
   (policyDrift) => reconcileRetainedColdTurn('failed', policyDrift, false),
+  coldRecoveryTimeoutMs,
 );
 
 it('recovers an interrupted TaskExecution GitHub read with an uncertain receipt without replay', () =>
@@ -1162,5 +1171,8 @@ it.each(
   },
 );
 
-it('recovers an interrupted turn without a completion phase, retaining its original outcome and receipts', () =>
-  reconcileRetainedColdTurn('interrupted', true, false));
+it(
+  'recovers an interrupted turn without a completion phase, retaining its original outcome and receipts',
+  () => reconcileRetainedColdTurn('interrupted', true, false),
+  coldRecoveryTimeoutMs,
+);

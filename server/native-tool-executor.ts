@@ -24,6 +24,7 @@ import { loadAccountProfiles } from './account-profiles.js';
 import { toolInputError } from './tool-input-error.js';
 import { authorizeGitHubRead } from './github-read-approval.js';
 import { executePublicGitHubRead } from './public-github-read.js';
+import { GithubLogReadSchema, validateGithubLogRead } from './github-log-read.js';
 import { createCodexPathProtection, privateCodexRoots } from './codex-private-path.js';
 import {
   workspaceRuntimeAuthorityPaths,
@@ -60,6 +61,9 @@ const schemas = {
     .strict(),
   GitHubRead: z
     .object({
+      log: GithubLogReadSchema.optional().describe(
+        'Authenticated CI job log paging: optional literal query, UTF-16 offset and character limit (up to 16000). Use /repos/OWNER/REPO/actions/jobs/JOB_ID/logs. Source is bounded to 8 MiB; follow nextOffset until null.',
+      ),
       endpoint: z
         .string()
         .min(1)
@@ -283,8 +287,17 @@ export function createNativeToolExecutor(
           : refused(permission.message);
       }
       if (block.name === 'GitHubRead' && 'endpoint' in parsed.data) {
+        const log =
+          'log' in parsed.data && parsed.data.log !== undefined
+            ? validateGithubLogRead(parsed.data.endpoint, parsed.data.log)
+            : undefined;
+        if (log && parsed.data.access === 'public')
+          return refused(
+            'Log paging requires a separately authorized authenticated GitHub read; public reads never switch credentials automatically',
+          );
         const input = {
           endpoint: parsed.data.endpoint,
+          ...(log ? { log } : {}),
           ...('access' in parsed.data && parsed.data.access ? { access: parsed.data.access } : {}),
           ...('view' in parsed.data && parsed.data.view ? { view: parsed.data.view } : {}),
         };
@@ -313,6 +326,7 @@ export function createNativeToolExecutor(
           options.maxOutputBytes,
           input.view,
           assertReadCurrent,
+          ...(log ? ([log] as const) : []),
         );
         assertReadCurrent();
         return result(content);

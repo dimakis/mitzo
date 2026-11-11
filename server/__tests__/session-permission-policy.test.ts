@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import { buildPermissionHandler, SessionRegistry, resolvePending } from '@mitzo/harness';
 import {
   buildSessionPermissionHooks,
   SESSION_PERMISSION_INSTRUCTIONS,
@@ -6,6 +7,56 @@ import {
 } from '../session-permission-policy.js';
 
 describe('provider-independent permission authority', () => {
+  it('reuses CI read consent through the SDK hook and prompts again after account changes', async () => {
+    const registry = new SessionRegistry();
+    const abort = new AbortController();
+    const send = vi.fn();
+    registry.register('ci-client', {
+      transport: { send, isOpen: () => true },
+      abortController: abort,
+      mode: 'agent',
+      sessionId: 'ci-session',
+      cwd: '/repo',
+      sessionAllowList: new Set(),
+    });
+    const hook = buildSessionPermissionHooks(buildPermissionHandler('ci-client', registry))
+      .PreToolUse![0].hooks[0];
+    const run = (command: string) =>
+      hook(
+        {
+          hook_event_name: 'PreToolUse',
+          session_id: 'ci-session',
+          transcript_path: '',
+          cwd: '/repo',
+          tool_name: 'Bash',
+          tool_use_id: command,
+          tool_input: { command },
+        },
+        command,
+        { signal: abort.signal },
+      );
+    try {
+      const first = run('gh run view 42 -R owner/repo --log');
+      await vi.waitFor(() => expect(send).toHaveBeenCalledOnce());
+      resolvePending(send.mock.calls[0][0].permId, 'always');
+      expect(await first).toMatchObject({ hookSpecificOutput: { permissionDecision: 'allow' } });
+      send.mockClear();
+      expect(await run('gh api repos/owner/repo/actions/jobs/123/logs')).toMatchObject({
+        hookSpecificOutput: { permissionDecision: 'allow' },
+      });
+      expect(send).not.toHaveBeenCalled();
+      registry.get('ci-client')!.ownedLocalAuthSessionId = 'different-account-session';
+      const changed = run('gh run view 42 -R owner/repo --job 456 --log');
+      await vi.waitFor(() => expect(send).toHaveBeenCalledOnce());
+      resolvePending(send.mock.calls[0][0].permId, 'deny');
+      expect(await changed).toMatchObject({ hookSpecificOutput: { permissionDecision: 'deny' } });
+      expect(registry.get('ci-client')!.sessionAllowList.has('Bash')).toBe(false);
+    } finally {
+      abort.abort();
+      registry.dispose();
+    }
+  });
+
   it('refuses reviewed Telos capture when the SDK supplies no actual tool invocation identity', async () => {
     const decide = vi.fn().mockResolvedValue({ behavior: 'allow', updatedInput: {} });
     const hooks = buildSessionPermissionHooks(decide);

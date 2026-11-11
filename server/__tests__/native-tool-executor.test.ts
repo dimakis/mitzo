@@ -465,6 +465,42 @@ describe('native tool execution through session permissions', () => {
       expect.any(Function),
     );
   });
+  it('reuses repository consent for different job logs and passes bounded log controls to the transport', async () => {
+    const read = (job: number) =>
+      executor()(
+        call('GitHubRead', {
+          endpoint: `/repos/example/project/actions/jobs/${job}/logs`,
+          log: { query: 'FAIL', limit: 2000 },
+        }),
+        abort.signal,
+      );
+    const first = read(123);
+    await vi.waitFor(() => expect(sent.some((e) => e.type === 'permission_request')).toBe(true));
+    resolvePending(sent.find((e) => e.type === 'permission_request')!.permId as string, 'always');
+    expect((await first).is_error).toBe(false);
+    sent.length = 0;
+    expect((await read(456)).is_error).toBe(false);
+    expect(sent.some((e) => e.type === 'permission_request')).toBe(false);
+    expect(executeTrustedGitHubRead).toHaveBeenLastCalledWith(
+      '/repos/example/project/actions/jobs/456/logs',
+      abort.signal,
+      undefined,
+      undefined,
+      undefined,
+      expect.any(Function),
+      { query: 'FAIL', limit: 2000 },
+    );
+  });
+  it('refuses public log paging and non-log filtering without a prompt or credential fallback', async () => {
+    const before = vi.mocked(executeTrustedGitHubRead).mock.calls.length;
+    for (const input of [
+      { endpoint: '/repos/example/project/actions/jobs/123/logs', access: 'public', log: {} },
+      { endpoint: '/repos/example/project/contents/file', log: {} },
+    ])
+      expect((await executor()(call('GitHubRead', input), abort.signal)).is_error).toBe(true);
+    expect(sent.some((e) => e.type === 'permission_request')).toBe(false);
+    expect(vi.mocked(executeTrustedGitHubRead).mock.calls).toHaveLength(before);
+  });
   it('reads public GitHub data without a card or an authenticated grant', async () => {
     const before = vi.mocked(executeTrustedGitHubRead).mock.calls.length;
     expect(

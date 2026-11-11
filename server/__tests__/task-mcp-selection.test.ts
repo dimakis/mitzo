@@ -176,6 +176,8 @@ it('keeps configured receipt tools and scoped task tools together without launch
         { name: 'mitzo_mcp_forged' },
       ]),
     ).toHaveLength(3);
+    expect(connect).not.toHaveBeenCalled();
+    await peers.ensureToolCurrent?.(configured.definitions[0].name, f.abort.signal);
     expect(connect).toHaveBeenCalledOnce();
     expect(f.connect).toHaveBeenCalledOnce();
     expect(connect).toHaveBeenCalledWith(

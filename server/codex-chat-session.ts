@@ -1,3 +1,4 @@
+import { closeMcpAfterFailure } from './codex-mcp-tools.js';
 import { copyCallbackOutcome, retainCallbackOutcome } from './turn-callbacks.js';
 import { retainedApplicationEffectObserver } from './retained-application-effects.js';
 import { agentMessagePrompt } from '@mitzo/protocol';
@@ -1861,10 +1862,9 @@ async function openCodexChatBound(
         ...(apiTools?.admitted ?? []),
       ]);
   } catch (error) {
-    await mcp.close();
     dispose();
     startupReservation?.();
-    throw error;
+    await closeMcpAfterFailure(mcp, error);
   }
   const localTaskTools = options.ownedLocal
     ? sessionAgentTaskTools(
@@ -2231,7 +2231,13 @@ async function openCodexChatBound(
     else dispose();
     signal.removeEventListener('abort', close);
     events.close();
-    void mcp.close();
+    void mcp.close().catch(() => {
+      log.warn('Session MCP cleanup failed', {
+        code: 'mcp_cleanup_failed',
+        stage: 'session_close',
+        conversationId: options.conversationId,
+      });
+    });
     runtimes.delete(options.session);
     const livePublishingOwner = getLiveCapabilityConversationBinding(
       options.conversationId,
@@ -2313,7 +2319,7 @@ async function openCodexChatBound(
         (nativeExecution ? NATIVE_MAC_EXECUTION_INSTRUCTIONS : HOST_TOOL_INSTRUCTIONS) +
         (localServiceTools?.instructions ?? '') +
         (googleWorkspaceTools?.definitions.length
-          ? '\nUse GoogleWorkspaceRead for Google Drive, Docs, Sheets, Slides and Calendar reads. Discover its full schema with DescribeIntegrationTool. This controller tool uses the existing Google sign-in after exact approval; shell gws has no credential access.\n'
+          ? '\nUse GoogleWorkspaceRead for Google Drive, Docs, Sheets, Slides and Calendar reads. Discover its full schema with DescribeIntegrationTool. This controller tool uses the existing Google sign-in; Auto reads freely, other modes ask once per chat and account. Prefer it over shell gws, which has no credential access.\n'
           : '') +
         WEB_ACCESS_INSTRUCTIONS +
         GITHUB_PUBLISHING_INSTRUCTIONS +
@@ -3422,14 +3428,24 @@ async function openCodexChatBound(
             }),
             isError: true,
           };
-        assertAgentToolSelected(options.session, output.toolName);
-        const owner = options.registry.findBySessionId(options.conversationId);
-        if (!owner || owner.session !== options.session) throw new CodexToolFailure('stale_owner');
-        if (
-          checkSkillPolicy(options.registry, owner.clientId, mcp.displayName(output.toolName)) ===
-          'deny'
-        )
-          throw new CodexToolFailure('permission_denied');
+        const assertRetainedToolAuthorized = () => {
+          signal.throwIfAborted();
+          assertAgentToolSelected(options.session, output.toolName);
+          const owner = options.registry.findBySessionId(options.conversationId);
+          if (!owner || owner.session !== options.session)
+            throw new CodexToolFailure('stale_owner');
+          if (
+            checkSkillPolicy(options.registry, owner.clientId, mcp.displayName(output.toolName)) ===
+            'deny'
+          )
+            throw new CodexToolFailure('permission_denied');
+        };
+        const assertRetainedToolCurrent = () => {
+          callContext.assertCurrentSync?.();
+          assertRetainedToolAuthorized();
+        };
+        assertRetainedToolCurrent();
+        callContext.registerResponseFence?.(assertRetainedToolAuthorized);
         if (options.ownedOpenShell) {
           const original = openShellRetainedReads.get(request.data.outputId);
           if (
@@ -3517,12 +3533,14 @@ async function openCodexChatBound(
           return { content: JSON.stringify(result), isError: false };
         } else {
           if (!mcp.assertToolCurrent) throw new CodexToolFailure('stale_owner');
+          await mcp.ensureToolCurrent?.(output.toolName, signal);
+          assertRetainedToolCurrent();
           mcp.assertToolCurrent(output.toolName);
           if (!mcp.outputScope || mcp.outputScope(output.toolName) !== output.sourceScope)
             throw new CodexToolFailure('stale_owner');
         }
         const result = readToolOutputPage(output.content, request.data);
-        callContext.assertCurrentSync?.();
+        assertRetainedToolCurrent();
         return { content: JSON.stringify(result), isError: false };
       }
       if (integrationDiscovery?.handles(name)) {
