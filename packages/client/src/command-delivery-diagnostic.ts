@@ -55,3 +55,21 @@ export function commandDeliveryMessage(diagnostic: CommandDeliveryDiagnostic): s
       return 'Delivery confirmation is unavailable. Retry checks the same message.';
   }
 }
+
+/** Shared composer copy for every durable outgoing-command state. */
+export function localCommandStatusMessage(state: string): string | undefined {
+  switch (state) {
+    case 'consumed':
+      return undefined;
+    case 'pending':
+      return 'Sending…';
+    case 'blocked':
+      return 'Saved outgoing messages are unavailable. Your drafts are kept. Retry checks device storage.';
+    case 'uncertain':
+    case 'reserved':
+    case 'retained':
+      return 'Delivery not confirmed.';
+    default:
+      return 'Message recovery is unavailable. Your draft is kept.';
+  }
+}

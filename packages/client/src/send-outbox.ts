@@ -23,6 +23,8 @@ import {
 /** Ordered, acknowledged HTTP delivery. SSE state never gates prompt submission. */
 export type SendOutboxStorage = Pick<Storage, 'getItem' | 'setItem'> & {
   flush?: () => Promise<void>;
+  /** Reopen/hydrate device storage only; never dispatch or replace saved intent. */
+  recover?: () => Promise<void>;
   subscribe?: (listener: () => void) => () => void;
 };
 interface Entry {
@@ -92,6 +94,7 @@ export class SendOutbox {
   private localStates = new WeakMap<Entry, string>();
   private persistenceCause: unknown;
   private unsubscribeStorage?: () => void;
+  private storageRecovery?: object;
 
   constructor(private config: Config) {
     this.key = `mitzo-send-outbox:${config.url}`;
@@ -296,13 +299,54 @@ export class SendOutbox {
 
   /** Deliberate recovery resubmits only the frozen request, never a rebuilt draft. */
   retryLocalCommand(commandId?: string): boolean {
-    if (
-      !this.config.localFirstCommand ||
-      !this.active ||
-      this.invalidLocalRecovery ||
-      !this.entries.length
-    )
-      return false;
+    if (!this.config.localFirstCommand || !this.active) return false;
+    if (this.invalidLocalRecovery) {
+      if (this.storageRecovery) return false;
+      const finish = () => {
+        if (this.restore()) {
+          this.notifySelectedLocal();
+          this.wake();
+          return true;
+        }
+        this.config.notify({ type: '_local_command_state', state: 'blocked' });
+        return false;
+      };
+      if (!this.config.storage?.recover) return finish();
+      else {
+        const owner = (this.storageRecovery = {});
+        void (async () => {
+          let timer: ReturnType<typeof setTimeout> | undefined;
+          try {
+            await Promise.race([
+              this.config.storage!.recover!(),
+              new Promise<never>((_resolve, reject) => {
+                timer = setTimeout(() => reject(Error('Storage recovery timed out')), 15_000);
+              }),
+            ]);
+            // Storage notifications may already have recovered the queue. Never
+            // overwrite newer in-memory delivery or revive a retired auth scope.
+            if (this.active && this.storageRecovery === owner && this.invalidLocalRecovery)
+              finish();
+          } catch (cause) {
+            if (this.active && this.storageRecovery === owner && this.invalidLocalRecovery) {
+              console.warn('[mitzo] Saved command recovery unavailable', {
+                stage: 'hydrate',
+                code: 'local_recovery_unavailable',
+                exceptionType: cause instanceof DOMException ? cause.name : 'Error',
+              });
+              this.config.notify({ type: '_local_command_state', state: 'blocked' });
+            }
+          } finally {
+            if (timer) clearTimeout(timer);
+            if (this.storageRecovery === owner) this.storageRecovery = undefined;
+          }
+        })();
+      }
+      // Recovering a previously unreadable queue is observation only. A separate
+      // explicit retry may send the now-visible original command.
+      return true;
+    }
+    if (!this.entries.length) return false;
     const entry = commandId
       ? this.entries.find((entry) => entry.body.clientMsgId === commandId)
       : this.selectedLocalEntry();
@@ -318,6 +362,7 @@ export class SendOutbox {
   }
 
   stop(): void {
+    this.storageRecovery = undefined;
     this.unsubscribeStorage?.();
     this.unsubscribeStorage = undefined;
     for (const controller of this.receiptReads.values()) controller.abort();
@@ -422,6 +467,7 @@ export class SendOutbox {
 
   /** Reject queued prompts and surface an in-flight prompt as delivery-ambiguous. */
   rejectAll(error: string): void {
+    this.storageRecovery = undefined;
     for (const controller of this.receiptReads.values()) controller.abort();
     this.receiptReads.clear();
     this.receiptRechecks.clear();
@@ -902,7 +948,7 @@ export class SendOutbox {
 
   private persist(): boolean {
     try {
-      if (!this.config.storage) return false;
+      if (!this.config.storage || this.invalidLocalRecovery) return false;
       const retained = [...this.entries];
       for (const [entry, index] of this.completingLocal)
         if (!retained.includes(entry)) retained.splice(Math.min(index, retained.length), 0, entry);

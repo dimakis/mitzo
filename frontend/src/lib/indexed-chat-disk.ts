@@ -1,4 +1,5 @@
 import { createBrowserId } from './browser-crypto';
+import { readChatStorage } from './chat-storage-read';
 
 type LegacyDisk = Pick<Storage, 'length' | 'key' | 'getItem'>;
 export interface ChatDiskRecord {
@@ -256,19 +257,12 @@ export function createIndexedChatDisk(
     {
       async read() {
         const db = await open();
-        return new Promise<ChatDiskRecord[]>((resolve, reject) => {
-          const tx = db.transaction('payloads', 'readonly');
-          const request = tx
-            .objectStore('payloads')
-            .getAll(IDBKeyRange.bound(PREFIX, PREFIX + '\uffff'));
-          tx.oncomplete = () => {
-            const records: unknown[] = request.result;
-            if (records.some((record) => !validRecord(record)))
-              reject(Error('Saved chat index is invalid'));
-            else resolve(records as ChatDiskRecord[]);
-          };
-          tx.onerror = tx.onabort = () => reject(tx.error ?? Error('Chat storage read failed'));
-        });
+        const records: unknown[] = await readChatStorage(db, (store) =>
+          store.getAll(IDBKeyRange.bound(PREFIX, PREFIX + '\uffff')),
+        );
+        if (records.some((record) => !validRecord(record)))
+          throw Error('Saved chat index is invalid');
+        return records as ChatDiskRecord[];
       },
       async write(record, expected, legacyUnchanged) {
         const db = await open();
