@@ -91,6 +91,7 @@ import {
   captureCollaborationDurableTranscript,
   openCollaborationVisibleSource,
   readCollaborationFinalizedReply,
+  readCollaborationStreamingReply,
 } from './collaboration-visible-source.js';
 import { CollaborationContractError } from './collaboration-conversation.js';
 import { SessionCollaborationError } from './session-collaboration.js';
@@ -4160,6 +4161,15 @@ export class EventStore {
       if (!this.isCollaborationParticipantAvailable(sessionId))
         throw new SessionCollaborationError('not_found');
       return readCollaborationFinalizedReply(this.db!, sessionId, messageId);
+    })();
+  }
+  /** Host-only in-progress visible text, separately qualified from frozen history. */
+  readOrdinaryStreamingReply(sessionId: string, messageId: string) {
+    return this.db!.transaction(() => {
+      this.assertConversationIdentity(sessionId);
+      if (!this.isCollaborationParticipantAvailable(sessionId))
+        throw new SessionCollaborationError('not_found');
+      return readCollaborationStreamingReply(this.db!, sessionId, messageId);
     })();
   }
 

@@ -41,6 +41,7 @@ it('uses stable IDs for one, several and all responders without a separate recip
   expect(screen.getByLabelText('Selected IDs').textContent).toBe('a,b');
   fireEvent.click(screen.getByRole('button', { name: 'Done choosing replies' }));
   expect(screen.queryByRole('group', { name: 'Who replies to this prompt' })).toBeNull();
+  expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Choose who replies' }));
 });
 it('opens from @, preserves surrounding draft text and clears only the matching selector token', () => {
   render(<Surface maximum={1} />);
@@ -60,6 +61,7 @@ it('keeps an unknown @ as draft text when dismissed and never changes selection 
   expect(screen.getByText('No matching agent.')).toBeTruthy();
   fireEvent.click(screen.getByRole('button', { name: 'Done choosing replies' }));
   expect(input.value).toBe('Inspect @unknown');
+  expect(document.activeElement).toBe(input);
   expect(screen.getByLabelText('Selected IDs').textContent).toBe('');
 });
 it('does not offer all when the retained adapter supports only one recipient', () => {

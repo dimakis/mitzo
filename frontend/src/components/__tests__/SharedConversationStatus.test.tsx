@@ -67,6 +67,7 @@ it.each(['setup', 'view'] as const)(
       cursor: 0,
     };
     let failed = false;
+    let progressReads = 0;
     let confirmView!: (response: Response) => void;
     const confirmation = new Promise<Response>((resolve) => {
       confirmView = resolve;
@@ -93,7 +94,16 @@ it.each(['setup', 'view'] as const)(
             participantSessionIds: view.participantSessionIds,
           },
         });
-      if (url.endsWith('/conversation')) return confirmation;
+      if (url.endsWith('/progress')) {
+        progressReads++;
+        return Response.json({
+          collaborationId: view.collaborationId,
+          membershipRevision: view.membershipRevision,
+          replies: [],
+          refusals: [],
+        });
+      }
+      if (url.endsWith('/conversation')) return (await confirmation).clone();
       throw Error('Unexpected request: ' + url);
     });
     surface(fetch);
@@ -123,7 +133,8 @@ it.each(['setup', 'view'] as const)(
       stage === 'setup' ? 2 : 1,
     );
     expect(fetch.mock.calls.filter(([url]) => url.endsWith('/conversation'))).toHaveLength(
-      stage === 'view' ? 2 : 1,
+      (stage === 'view' ? 2 : 1) + progressReads,
     );
+    expect(progressReads).toBeGreaterThan(0);
   },
 );

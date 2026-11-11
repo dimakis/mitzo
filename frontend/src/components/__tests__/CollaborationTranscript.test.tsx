@@ -27,6 +27,69 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 const names = { architect: 'Architect', reviewer: 'Reviewer', reader: 'Reader' };
+it('attributes live visible text and preserves finalized answers beside a live source refusal', () => {
+  const view = sharedConversationView();
+  render(
+    <MemoryRouter>
+      <CollaborationTranscript
+        projection={createCollaborationProjection(view)}
+        names={names}
+        progress={{
+          collaborationId: view.collaborationId,
+          membershipRevision: view.membershipRevision,
+          replies: [
+            {
+              projectionId: uuid(98),
+              sourceMessageId: 'live-reviewer',
+              deliveryId: uuid(5),
+              sessionId: 'reviewer',
+              text: 'Live reviewer text',
+            },
+          ],
+          refusals: [{ deliveryId: uuid(5), sessionId: 'reviewer', code: 'capacity_refused' }],
+        }}
+      />
+    </MemoryRouter>,
+  );
+  expect(screen.getByText('Live reviewer text')).toBeTruthy();
+  expect(screen.getByLabelText('Message details for Reviewer')).toBeTruthy();
+  expect(screen.getByText(sharedReply.text)).toBeTruthy();
+  expect(screen.getByRole('alert').textContent).toContain('Reviewer: The live reply is too large');
+});
+it('suppresses exactly a finalized source while another live source for the same delivery stays visible', () => {
+  const view = sharedConversationView();
+  render(
+    <MemoryRouter>
+      <CollaborationTranscript
+        projection={createCollaborationProjection(view)}
+        names={names}
+        progress={{
+          collaborationId: view.collaborationId,
+          membershipRevision: view.membershipRevision,
+          replies: [
+            {
+              projectionId: uuid(98),
+              sourceMessageId: sharedReply.source!.messageId,
+              deliveryId: sharedReply.replyToDeliveryId!,
+              sessionId: 'architect',
+              text: sharedReply.text,
+            },
+            {
+              projectionId: uuid(99),
+              sourceMessageId: 'later-source',
+              deliveryId: sharedReply.replyToDeliveryId!,
+              sessionId: 'architect',
+              text: 'A different live message',
+            },
+          ],
+          refusals: [],
+        }}
+      />
+    </MemoryRouter>,
+  );
+  expect(screen.getAllByText(sharedReply.text)).toHaveLength(1);
+  expect(screen.getByText('A different live message')).toBeTruthy();
+});
 it('never queries ordinary origins using the aggregate collaboration identity', async () => {
   const links = vi.spyOn(TelosWorkApiClient.prototype, 'links').mockResolvedValue([]);
   render(
@@ -121,7 +184,9 @@ it('projects replayed recipient failures without deleting another recipient repl
       <CollaborationTranscript projection={projection} names={names} />
     </MemoryRouter>,
   );
-  fireEvent.click(screen.getByText('To Architect, Reviewer · Context for Reader'));
+  fireEvent.click(
+    screen.getByText('To Architect, Reviewer · Context for Reader · 1 recipient needs attention'),
+  );
   expect(screen.getByText('Prompt failed')).toBeTruthy();
   expect(screen.getByText('Definite refusal')).toBeTruthy();
   expect(screen.getByText(sharedReply.text)).toBeTruthy();

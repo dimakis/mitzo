@@ -27,6 +27,70 @@ function setup() {
   return { path: join(root, 'private.db'), root };
 }
 
+it.each([
+  'completed',
+  'failed',
+  'interrupted',
+  'ambiguous',
+  'thread_dispatch',
+  'other_ambiguous_command',
+] as const)('observes settled command outcome without releasing recovery (%s)', (scenario) => {
+  const { path } = setup();
+  const store = new CodexConversationStore(path);
+  try {
+    store.create('outcome', binding, '/offline');
+    store.bindThread('outcome', binding, 'thread');
+    store.enqueue('outcome', binding, { id: 'original', prompt: 'Explicit request' });
+    const command = store.claimNext('outcome', binding)!;
+    if (scenario === 'thread_dispatch')
+      store.beginThreadReplacementDispatch('outcome', binding, 'thread', 'replacement', command);
+    if (scenario === 'completed' || scenario === 'other_ambiguous_command') {
+      store.finish('outcome', binding, command.id, 'completed');
+      if (scenario === 'other_ambiguous_command') {
+        store.enqueue('outcome', binding, { id: 'later', prompt: 'Different request' });
+        store.claimNext('outcome', binding);
+        store.pauseForRecovery(
+          'outcome',
+          binding,
+          'later',
+          'failed',
+          'resume',
+          undefined,
+          true,
+          true,
+        );
+      }
+    } else {
+      store.pauseForRecovery(
+        'outcome',
+        binding,
+        command.id,
+        scenario === 'interrupted' ? 'interrupted' : 'failed',
+        'resume',
+        undefined,
+        false,
+        scenario === 'ambiguous',
+      );
+    }
+    const state = store.read('outcome', binding);
+    const queue = store.queueSummary('outcome', binding);
+    expect(store.settledCommandOutcome('outcome', binding, 'original')).toBe(
+      scenario === 'completed' || scenario === 'failed' || scenario === 'interrupted'
+        ? scenario
+        : undefined,
+    );
+    expect(store.settledCommandOutcome('outcome', binding, 'missing')).toBeUndefined();
+    expect(
+      store.settledCommandOutcome('outcome', { ...binding, accountId: 'unrelated' }, 'original'),
+    ).toBeUndefined();
+    expect(store.settledCommandOutcome('missing-session', binding, 'original')).toBeUndefined();
+    expect(store.read('outcome', binding)).toEqual(state);
+    expect(store.queueSummary('outcome', binding)).toEqual(queue);
+  } finally {
+    store.close();
+  }
+});
+
 it('queues exactly one failure continuation from a settled completed source and preserves it across restart', () => {
   const { path } = setup();
   let store = new CodexConversationStore(path);

@@ -21,6 +21,7 @@ import { createBrowserId } from '../lib/browser-crypto';
 import { createConversationJoiningApplicationOwner } from '../lib/conversation-joining-application-owner';
 import { useConversationPresentation } from '../hooks/useConversationPresentation';
 import { useConversationSending } from '../hooks/useConversationSending';
+import { useConversationProgress } from '../hooks/useConversationProgress';
 import { ConversationAgents } from './ConversationAgents';
 import { CollaborationTranscript } from './CollaborationTranscript';
 import { ChatInput } from './ChatInput';
@@ -228,10 +229,20 @@ function useSharedConversation({
     refresh: presentation.refresh,
   });
   const active = !!view?.participantSessionIds.some((id) => id !== sourceConversationId);
+  const progress = useConversationProgress({
+    api: api.collaborations,
+    // Existing collaboration observation survives a temporary singleton. Its
+    // authorized view still owns later remote joins; active only controls UI.
+    view,
+    authScope,
+    getVerifiedAuthScope,
+    refreshTranscript: presentation.observeTranscript,
+  });
   return {
     sourceConversationId,
     presentation,
     sending,
+    progress,
     joiningOwner,
     names,
     active,
@@ -310,12 +321,16 @@ export function SharedConversationBody({
       <>
         {children}
         <ChatStatusMessage
-          error={host.error ?? (host.joiningOwner ? host.presentation.error : null)}
+          error={
+            host.error ??
+            (host.joiningOwner ? host.presentation.error : null) ??
+            host.progress.error
+          }
           action={{ label: 'Refresh collaboration', onClick: host.retry }}
         />
       </>
     );
-  const { presentation, sending, names } = host;
+  const { presentation, sending, progress, names } = host;
   const { draft, projection, composerResponders } = presentation;
   return (
     <>
@@ -330,6 +345,7 @@ export function SharedConversationBody({
           permission={null}
           onPermissionRespond={() => {}}
           projection={projection}
+          progress={progress.progress}
           names={names}
           beforeMessages={undefined}
           afterMessages={undefined}
@@ -346,8 +362,8 @@ export function SharedConversationBody({
                 textOnly
                 boundedFirstCommand
                 externalContextBlocks={EMPTY_CONTEXT}
-                running={false}
-                onStop={() => {}}
+                running={!!sending.pending}
+                onStop={() => void sending.stop()}
                 collaboration={<></>}
                 responders={
                   composerResponders
@@ -357,7 +373,6 @@ export function SharedConversationBody({
                           ...member,
                           name: names[member.id] ?? member.name,
                         })),
-                        maximum: 1,
                         disabled: !!sending.pending,
                       }
                     : undefined
@@ -390,6 +405,12 @@ export function SharedConversationBody({
             </div>
           )}
       {sending.error && <p role="alert">{sending.error}</p>}
+      {progress.error && <p role="alert">{progress.error}</p>}
+      {sending.pending && (sending.stopStatus || sending.pending.stopRequested) && (
+        <p role="status">
+          {sending.stopStatus ?? 'Stop was requested. Check the original request; do not resend.'}
+        </p>
+      )}
       {sendFailure && <p role="alert">{sendFailure}</p>}
     </>
   );

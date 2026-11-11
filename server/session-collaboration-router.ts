@@ -16,6 +16,8 @@ import {
   CollaborationMessageInputSchema,
   CollaborationMessageSchema,
   CollaborationRecipientReadinessSchema,
+  CollaborationStopResultSchema,
+  CollaborationProgressSchema,
   CollaborationSourceSetupQuerySchema,
   CollaborationSourceSetupSchema,
   COLLABORATION_EXECUTION_DISABLED,
@@ -30,6 +32,9 @@ import type { CollaborationApplicationReview } from './collaboration-application
 import type { EventStore } from './event-store.js';
 import type { ApplicationCollaborationMessaging } from './collaboration-application-messaging.js';
 import { recentAuthorizationSession, requireSameOriginJson } from './connections-router.js';
+import { createLogger } from './logger.js';
+
+const log = createLogger('collaboration-router');
 
 function failure(res: Response, error: unknown, dispatchNotStarted = false) {
   if (error instanceof CollaborationContractError) {
@@ -51,6 +56,12 @@ function failure(res: Response, error: unknown, dispatchNotStarted = false) {
     return res
       .status(error.code === 'not_found' ? 404 : error.code === 'conflict' ? 409 : 400)
       .json({ error: error.message });
+  log.error('Collaboration request could not be completed', {
+    err: error,
+    code: 'collaboration_request_failed',
+    stage: 'collaboration_request',
+    route: res.req.route?.path,
+  });
   return res
     .status(503)
     .json({ error: 'Collaboration links could not be checked. Refresh before retrying.' });
@@ -122,6 +133,20 @@ export function createSessionCollaborationRouter({
       return failure(res, error);
     }
   });
+  router.get('/:id/progress', (req, res) => {
+    const id = SessionCollaborationIdSchema.safeParse(req.params.id);
+    if (!id.success) return res.status(400).json({ error: 'Invalid collaboration ID' });
+    try {
+      if (!messaging) throw new CollaborationContractError('execution_unavailable');
+      return res.json(
+        CollaborationProgressSchema.parse(
+          messaging.progress(recentAuthorizationSession(res)!, id.data),
+        ),
+      );
+    } catch (error) {
+      return failure(res, error);
+    }
+  });
   router.get('/:id/recipients/:sessionId', async (req, res) => {
     const id = SessionCollaborationIdSchema.safeParse(req.params.id);
     const session = CollaborationBeginSchema.shape.sessionId.safeParse(req.params.sessionId);
@@ -157,6 +182,22 @@ export function createSessionCollaborationRouter({
               message: store.collaborationConversation.getMessageForRequest(id.data, input.data),
               terminal: false,
             },
+      );
+    } catch (error) {
+      return failure(res, error);
+    }
+  });
+  router.post('/:id/messages/stop', requireSameOriginJson, async (req, res) => {
+    const id = SessionCollaborationIdSchema.safeParse(req.params.id);
+    const input = CollaborationMessageInputSchema.safeParse(req.body);
+    if (!id.success || !input.success)
+      return res.status(400).json({ error: 'Invalid original message control' });
+    try {
+      if (!messaging) throw new CollaborationContractError('execution_unavailable');
+      return res.json(
+        CollaborationStopResultSchema.parse(
+          await messaging.stop(recentAuthorizationSession(res)!, id.data, input.data),
+        ),
       );
     } catch (error) {
       return failure(res, error);
