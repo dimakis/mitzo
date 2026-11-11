@@ -394,7 +394,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/reusable-authority.test.ts':
     '85c3f9f0a7cbf941c3128312b41105e52985fe399e313fdf2d80cb2f8fd2d930',
   '../__tests__/google-read-consent.test.ts':
-    '8dbf92a5d32159b8c9fec84c30436972b56f509654116087a9f32c55b588eee0',
+    'feaf2bad21675aee45531d319e667d1c65a369a136603f8b627dd7cc1f0f176b',
   '../__tests__/telos-progress-consent.test.ts':
     'fd59fbdfd67746f8f5acc5f462d8cc9c65c08fea3109f8b1c9fbebcff47e72ef',
   '../../frontend/ios/MitzoShared/Tests/MitzoSharedTests/WatchSourceRelayTests.swift':
@@ -469,7 +469,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/harness/src/tool-guard.ts':
     '4bf394c1361e4055f34deeeb4b94e6e18275af1d05540af9bcabfd21739f7d87',
   '../../docs/features/approval-modes-reusable-access.md':
-    'efcd495aa8886666bedc852626c7d25f419f7a594abb7707bf05f173ca71848e',
+    '16d8411cd029f70c081561ae866d23759e6fe670ab9fc8a066a6294ba07a03fc',
   '../../frontend/src/components/ReusableAccessGrants.tsx':
     '0bf994f5e6af7cd4c536ebc2059119120383adc151539490eff605dd75694997',
   '../../frontend/src/components/__tests__/ReusableAccessGrants.test.tsx':
@@ -2613,7 +2613,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../openshell-runtime.ts': '4289834fb795911bc8952a141dd592ad695621e3e43fa590de1395094a5a1c95',
   '../codex-admission-preparation.ts':
     '0cb595a8fed20de735d4fa718544baf1a36ccebf3beecc763badd696e4af3098',
-  '../codex-chat-session.ts': 'd643f1cc326bca61ef8761c670e47e1393674755e97aa30bd059788e996469cf',
+  '../codex-chat-session.ts': '2affc743a1bd648d9bc96c12e46cb030d87b10327ff3527c812e0dda433226b2',
   '../connections-runtime.ts': 'c5c0da8aa548c029b1dbe7c1eb880311f35c6dfab26ff0e437db6134455089ef',
   'capabilities/operation-store.ts':
     '60c15c84c9cfddbbf30b01b215b1d7551271715f5cce5b3b4fd85092f7e575eb',
@@ -3295,7 +3295,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/worktree-fetch-observation.test.ts':
     'e943335de38d924ad7ec1f9334f235bbddb0649914ed1604a27176869a9d8094',
   '../../tests/fixtures/agent-tool-catalog.json':
-    'e0510a965e9d2a201dc7ab6210795a2a36c97b34ef872dd3a3a2a873a42eb3f2',
+    '0287e91125239c10083de0e11daf1f8711d1f772122804a378caa1fc0e96564c',
   '../../tests/integration/ordinary-local-vertex-chat.test.ts':
     'b91d67b5c07b16554aa2ff4c4f079e261fcf4ccd822175deb13db6efc6947e24',
   '../../packages/sqlite-file-owner/package.json':
@@ -4122,8 +4122,8 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../google-workspace-management.ts':
     'a779bd5c9793ecd908a60c86a09c142d43b16fe52dc1f9c13def640fbc61ce31',
   '../session-google-workspace-tools.ts':
-    '11ed62776ce6e3ab760c9c9256d5fd34e477fd9ac64865f966d1dd82b6e5df72',
-  '../google-workspace-read.ts': 'ee7d9a7ee9f1a1d703a40386500d54a8c6f1d222573cc431b095f37b8447c68d',
+    '6e7490952192947952c8eb8a5f9f6c3388016c40ee43f0c8b52acfbbb5849dea',
+  '../google-workspace-read.ts': '4101c150646b8371e6fbab26797638817265a585b15973075163352082f4815e',
   '../../frontend/src/components/__tests__/ChatInputInterruptReceipt.test.tsx':
     'f56472dc3bbc283e50e96774b73bf0bd4a8efa40ab8b98d8c7899df5ee3bf442',
   '../../frontend/src/hooks/__tests__/useQueuedMessages.test.ts':
