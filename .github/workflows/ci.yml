@@ -195,11 +195,10 @@ jobs:
       - uses: ./.github/actions/ci-node
         with:
           node-version: ${{ env.MITZO_CI_NODE_VERSION }}
-      - name: Prefer HTTPS Ubuntu mirrors for browser dependencies
+      - name: Inspect runner Ubuntu mirrors for browser dependencies
         run: |
-          sudo sed -i '\|^http://azure\.archive\.ubuntu\.com/ubuntu/|d' /etc/apt/apt-mirrors.txt
-          grep -Fq 'https://archive.ubuntu.com/ubuntu/' /etc/apt/apt-mirrors.txt
-          grep -Fq 'https://security.ubuntu.com/ubuntu/' /etc/apt/apt-mirrors.txt
+          # Preserve the runner's regional mirror and fallback order.
+          cat /etc/apt/apt-mirrors.txt
           apt-config dump Acquire::Retries Acquire::http::Timeout Acquire::https::Timeout
       - name: Install browsers and dependencies
         timeout-minutes: 8
@@ -295,11 +294,10 @@ jobs:
         run: |
           python3 scripts/ci-build-output.py restore server "$RUNNER_TEMP/ci-compiled/ci-server.zip"
           python3 scripts/ci-build-output.py restore frontend "$RUNNER_TEMP/ci-compiled/ci-frontend.zip"
-      - name: Prefer HTTPS Ubuntu mirrors for browser dependencies
+      - name: Inspect runner Ubuntu mirrors for browser dependencies
         run: |
-          sudo sed -i '\|^http://azure\.archive\.ubuntu\.com/ubuntu/|d' /etc/apt/apt-mirrors.txt
-          grep -Fq 'https://archive.ubuntu.com/ubuntu/' /etc/apt/apt-mirrors.txt
-          grep -Fq 'https://security.ubuntu.com/ubuntu/' /etc/apt/apt-mirrors.txt
+          # Preserve the runner's regional mirror and fallback order.
+          cat /etc/apt/apt-mirrors.txt
           apt-config dump Acquire::Retries Acquire::http::Timeout Acquire::https::Timeout
       - name: Install browsers and dependencies
         timeout-minutes: 8
