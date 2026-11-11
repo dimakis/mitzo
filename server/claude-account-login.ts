@@ -21,6 +21,8 @@ interface Active {
   timer: ReturnType<typeof setTimeout>;
   unobserve(): void;
   codeSubmitted: boolean;
+  startupSettled: Promise<void>;
+  shutdown?: Promise<void>;
 }
 type Options = {
   store: ClaudeAccountStore;
@@ -34,6 +36,10 @@ export class ClaudeAccountLogin {
   private active = new Map<string, Active>();
   private failures = new Map<string, Error>();
   private unresolved = new Map<string, ClaudeLoginAttempt>();
+  private closing = false;
+  private closed?: Promise<void>;
+  private operations = new Set<Promise<unknown>>();
+  private storeClosed = false;
   private current: typeof isAuthSessionCurrent;
   private observe: typeof registerAuthSession;
   private createLogin: typeof createClaudeLoginProcess;
@@ -52,6 +58,7 @@ export class ClaudeAccountLogin {
         });
   }
   private requireAuth(auth: AuthSession) {
+    if (this.storeClosed) throw Error('Claude sign-in host is stopped');
     if (!this.current(auth)) throw Error('Claude sign-in authorization expired or revoked');
   }
   private owned(auth: AuthSession, id: string) {
@@ -85,10 +92,25 @@ export class ClaudeAccountLogin {
       attempts: this.options.store.recentAttempts(auth.id).map((row) => this.public(row)),
     };
   }
-  async start(auth: AuthSession, input: z.input<typeof ClaudeLoginInput>) {
+  private track<T>(action: () => Promise<T>): Promise<T> {
+    if (this.closing) return Promise.reject(Error('Claude sign-in host is stopping'));
+    const operation = action();
+    this.operations.add(operation);
+    void operation.then(
+      () => this.operations.delete(operation),
+      () => this.operations.delete(operation),
+    );
+    return operation;
+  }
+  start(auth: AuthSession, input: z.input<typeof ClaudeLoginInput>) {
+    return this.track(() => this.startAttempt(auth, input));
+  }
+  private async startAttempt(auth: AuthSession, input: z.input<typeof ClaudeLoginInput>) {
     this.requireAuth(auth);
     if (this.unresolved.size || this.options.store.hasUnconfirmedCleanup())
       throw Error('Claude sign-in needs host recovery before another attempt');
+    if ([...this.active.keys()].some((id) => id !== input.requestId))
+      throw Error('Finish or cancel the pending Claude sign-in first');
     const row = this.options.store.reserve(
       auth.id,
       Math.min(auth.expiresAt, Date.now() + 10 * 60_000),
@@ -96,8 +118,12 @@ export class ClaudeAccountLogin {
     );
     if (row.state !== 'preparing' || this.active.has(row.requestId)) return this.public(row);
     const controller = new AbortController();
+    let settleStartup!: () => void;
     const active: Active = {
       controller,
+      startupSettled: new Promise<void>((resolve) => {
+        settleStartup = resolve;
+      }),
       codeSubmitted: false,
       unobserve: () => undefined,
       timer: setTimeout(
@@ -109,16 +135,20 @@ export class ClaudeAccountLogin {
     };
     active.timer.unref();
     this.active.set(row.requestId, active);
-    active.unobserve = this.observe(auth, () => {
-      void this.stop(row, 'cancelled', 'CLAUDE_LOGIN_AUTH_REVOKED');
-    });
     try {
-      active.native = await this.createLogin(
-        this.options.store.config(row.accountId),
-        controller.signal,
-      );
+      try {
+        active.unobserve = this.observe(auth, () => {
+          void this.stop(row, 'cancelled', 'CLAUDE_LOGIN_AUTH_REVOKED');
+        });
+        active.native = await this.createLogin(
+          this.options.store.config(row.accountId),
+          controller.signal,
+        );
+      } finally {
+        settleStartup();
+      }
       if (controller.signal.aborted || !this.current(auth)) {
-        await active.native.cancel();
+        await this.stop(row, 'cancelled', 'CLAUDE_LOGIN_AUTH_REVOKED');
         return this.public(this.options.store.attempt(row.requestId)!);
       }
       this.options.store.assertConfig(row);
@@ -141,7 +171,7 @@ export class ClaudeAccountLogin {
             if (!controller.signal.aborted)
               await this.failed(row, cause, 'CLAUDE_LOGIN_VERIFICATION_FAILED');
           } finally {
-            this.cleanup(row.requestId);
+            if (!controller.signal.aborted) this.cleanup(row.requestId);
           }
         })
         .catch((cause: unknown) => this.failed(row, cause, 'CLAUDE_LOGIN_RECOVERY_REQUIRED'));
@@ -151,7 +181,10 @@ export class ClaudeAccountLogin {
       return this.public(this.options.store.attempt(row.requestId)!);
     }
   }
-  async submit(auth: AuthSession, id: string, code: string) {
+  submit(auth: AuthSession, id: string, code: string) {
+    return this.track(() => this.submitCode(auth, id, code));
+  }
+  private async submitCode(auth: AuthSession, id: string, code: string) {
     const row = this.owned(auth, id),
       active = this.active.get(id);
     if (
@@ -170,16 +203,19 @@ export class ClaudeAccountLogin {
     )
       throw Error('Copy the complete code from this sign-in page');
     active.codeSubmitted = true;
-    this.options.store.assertConfig(row);
-    this.options.store.update({ ...row, state: 'verifying' });
     try {
+      this.options.store.assertConfig(row);
+      this.options.store.update({ ...row, state: 'verifying' });
       await active.native.submit(code.trim());
     } catch (cause) {
       await this.failed(row, cause, 'CLAUDE_LOGIN_CODE_UNCONFIRMED');
     }
     return this.status(auth, id);
   }
-  async cancel(auth: AuthSession, id: string) {
+  cancel(auth: AuthSession, id: string) {
+    return this.track(() => this.cancelAttempt(auth, id));
+  }
+  private async cancelAttempt(auth: AuthSession, id: string) {
     const row = this.owned(auth, id);
     await this.stop(row, 'cancelled', null);
     return this.status(auth, id);
@@ -189,14 +225,21 @@ export class ClaudeAccountLogin {
     if (!active) return;
     // Commit cancellation before awaiting native shutdown; late success cannot publish an account.
     try {
-      this.options.store.update({ ...row, state, errorCode: code });
+      this.options.store.update({ ...row, state, errorCode: code, cleanupPending: true });
       active.controller.abort();
-      await active.native?.cancel();
+      await this.shutdown(active);
+      this.options.store.update({ ...row, state, errorCode: code, cleanupPending: false });
     } catch (cause) {
       await this.failed(row, cause, 'CLAUDE_LOGIN_CANCELLATION_UNCONFIRMED');
     } finally {
       this.cleanup(row.requestId);
     }
+  }
+  private shutdown(active: Active) {
+    return (active.shutdown ??= (async () => {
+      await active.startupSettled;
+      await active.native?.cancel();
+    })());
   }
   private async failed(row: ClaudeLoginAttempt, cause: unknown, errorCode: string) {
     const diagnosticId = randomUUID();
@@ -212,7 +255,13 @@ export class ClaudeAccountLogin {
       diagnosticId,
     });
     try {
-      this.options.store.update({ ...row, state: 'failed', errorCode, diagnosticId });
+      this.options.store.update({
+        ...row,
+        state: 'failed',
+        errorCode,
+        diagnosticId,
+        cleanupPending: true,
+      });
     } catch (journalCause) {
       this.unresolved.set(row.requestId, {
         ...row,
@@ -231,13 +280,14 @@ export class ClaudeAccountLogin {
     const active = this.active.get(row.requestId);
     active?.controller.abort();
     try {
-      await active?.native?.cancel();
+      if (active) await this.shutdown(active);
     } catch (cleanupCause) {
       const unresolved = {
         ...row,
         state: 'failed' as const,
         errorCode: 'CLAUDE_LOGIN_CHILD_UNCONFIRMED',
         diagnosticId,
+        cleanupPending: true,
       };
       this.unresolved.set(row.requestId, unresolved);
       try {
@@ -258,6 +308,31 @@ export class ClaudeAccountLogin {
         diagnosticId,
         causeType: cleanupCause instanceof Error ? cleanupCause.name : 'unknown',
       });
+      this.cleanup(row.requestId);
+      return;
+    }
+    try {
+      this.options.store.update({
+        ...row,
+        state: 'failed',
+        errorCode,
+        diagnosticId,
+        cleanupPending: false,
+      });
+    } catch (journalCause) {
+      this.unresolved.set(row.requestId, {
+        ...row,
+        state: 'failed',
+        errorCode: 'CLAUDE_LOGIN_JOURNAL_FAILED',
+        diagnosticId,
+      });
+      log.error('Claude sign-in cleanup journal update failed', {
+        stage: 'claude_login_journal',
+        code: 'CLAUDE_LOGIN_JOURNAL_FAILED',
+        requestId: row.requestId,
+        diagnosticId,
+        causeType: journalCause instanceof Error ? journalCause.name : 'unknown',
+      });
     }
     this.cleanup(row.requestId);
   }
@@ -268,11 +343,18 @@ export class ClaudeAccountLogin {
     active.unobserve();
     this.active.delete(id);
   }
-  async close() {
-    for (const id of [...this.active.keys()]) {
-      const row = this.options.store.attempt(id);
-      if (row) await this.stop(row, 'cancelled', 'CLAUDE_LOGIN_HOST_STOPPED');
-    }
-    this.options.store.close();
+  close() {
+    this.closing = true;
+    return (this.closed ??= (async () => {
+      for (const id of [...this.active.keys()]) {
+        const row = this.options.store.attempt(id);
+        if (row) await this.stop(row, 'cancelled', 'CLAUDE_LOGIN_HOST_STOPPED');
+      }
+      // Native cancellation can settle before the admitted API continuation.
+      // Drain its final status/failure writes before closing the journal.
+      await Promise.allSettled([...this.operations]);
+      this.options.store.close();
+      this.storeClosed = true;
+    })());
   }
 }

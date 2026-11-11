@@ -3,6 +3,7 @@ import { existsSync, lstatSync, mkdirSync, realpathSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { isAbsolute, join } from 'node:path';
 import { z } from 'zod';
+import { registerWorkspaceRuntimeAuthorityPaths } from './workspace-runtime-private-paths.js';
 import {
   assertPrivateOperationDirectory,
   publishPrivateOperationFile,
@@ -40,6 +41,7 @@ const Attempt = z.strictObject({
   expiresAt: z.number(),
   errorCode: z.string().nullable(),
   diagnosticId: z.string().nullable(),
+  cleanupPending: z.boolean().default(false),
   configDev: z.string(),
   configIno: z.string(),
 });
@@ -131,7 +133,7 @@ export class ClaudeAccountStore {
   hasUnconfirmedCleanup() {
     return !!this.db
       .prepare(
-        "SELECT 1 FROM attempts WHERE json_extract(metadata,'$.errorCode') IN ('CLAUDE_LOGIN_CHILD_UNCONFIRMED','CLAUDE_LOGIN_CANCELLATION_UNCONFIRMED') LIMIT 1",
+        "SELECT 1 FROM attempts WHERE json_extract(metadata,'$.cleanupPending') = 1 OR json_extract(metadata,'$.errorCode') IN ('CLAUDE_LOGIN_CHILD_UNCONFIRMED','CLAUDE_LOGIN_CANCELLATION_UNCONFIRMED') LIMIT 1",
       )
       .get();
   }
@@ -232,7 +234,29 @@ export class ClaudeAccountStore {
 
 /** Read-only projection merged with operator profiles, without rewriting their configuration. */
 export function readManagedClaudeProfiles(root = claudeAccountsDirectory()) {
-  if (!existsSync(root)) return [];
+  if (!isAbsolute(root)) throw Error('Claude account storage must be absolute');
+  // Exact metadata paths are immutable to providers; native account subdirectories
+  // must remain writable for credentials, refresh and conversation history.
+  const journal = join(root, 'accounts.db');
+  registerWorkspaceRuntimeAuthorityPaths(
+    ['', '-wal', '-shm', '-journal'].map((suffix) => journal + suffix),
+  );
+  try {
+    lstatSync(root);
+  } catch (cause) {
+    if ((cause as NodeJS.ErrnoException).code === 'ENOENT') return [];
+    throw cause;
+  }
+  // Absence is expected before first use; existing storage still has to pass custody checks.
+  assertPrivateOperationDirectory(root);
+  if (realpathSync(root) !== root)
+    throw Error('Claude account storage must be a physical directory');
+  try {
+    lstatSync(join(root, 'accounts.db'));
+  } catch (cause) {
+    if ((cause as NodeJS.ErrnoException).code === 'ENOENT') return [];
+    throw cause;
+  }
   const store = new ClaudeAccountStore(root, true);
   try {
     return store.accounts().map((account) => ({

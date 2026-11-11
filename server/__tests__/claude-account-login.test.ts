@@ -8,8 +8,154 @@ import { ClaudeAccountLogin } from '../claude-account-login.js';
 const roots: string[] = [];
 const stores: ClaudeAccountStore[] = [];
 afterEach(() => {
+  vi.restoreAllMocks();
   for (const store of stores.splice(0)) store.close();
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
+});
+
+it.each(['custody', 'journal'])(
+  'retains a failed submission and cleans native work after %s failure',
+  async (failure) => {
+    const f = fixture(),
+      session = auth(),
+      request = input();
+    await f.host.start(session, request);
+    if (failure === 'custody')
+      vi.spyOn(f.store, 'assertConfig').mockImplementationOnce(() => {
+        throw Error('custody changed');
+      });
+    else
+      vi.spyOn(f.store, 'update').mockImplementationOnce(() => {
+        throw Error('journal unavailable');
+      });
+    await expect(
+      f.host.submit(session, request.requestId, 'secret#expected'),
+    ).resolves.toMatchObject({
+      state: 'failed',
+      errorCode: 'CLAUDE_LOGIN_CODE_UNCONFIRMED',
+      diagnosticId: expect.any(String),
+    });
+    expect(f.submit).not.toHaveBeenCalled();
+    expect(f.cancel).toHaveBeenCalledOnce();
+    await expect(f.host.submit(session, request.requestId, 'secret#expected')).rejects.toThrow();
+    expect(f.store.hasUnconfirmedCleanup()).toBe(false);
+  },
+);
+
+function deferred() {
+  let resolve!: () => void;
+  const promise = new Promise<void>((done) => {
+    resolve = done;
+  });
+  return { promise, resolve };
+}
+
+it('retains admission through cancellation during native startup and shutdown', async () => {
+  const f = fixture(),
+    session = auth(),
+    request = input();
+  const startup = deferred(),
+    shutdown = deferred();
+  const create = f.createLogin.getMockImplementation()!;
+  f.createLogin.mockImplementationOnce(async (...args) => {
+    await startup.promise;
+    return create(...args);
+  });
+  f.cancel.mockImplementationOnce(async () => {
+    await shutdown.promise;
+  });
+  const starting = f.host.start(session, request);
+  const cancelling = f.host.cancel(session, request.requestId);
+  let cancelled = false;
+  void cancelling.then(() => {
+    cancelled = true;
+  });
+  expect(f.store.hasUnconfirmedCleanup()).toBe(true);
+  await expect(f.host.start(session, input())).rejects.toThrow();
+  expect(cancelled).toBe(false);
+  startup.resolve();
+  await vi.waitFor(() => expect(f.cancel).toHaveBeenCalledOnce());
+  await expect(f.host.start(session, input())).rejects.toThrow();
+  expect(cancelled).toBe(false);
+  shutdown.resolve();
+  await Promise.all([starting, cancelling]);
+  expect(f.cancel).toHaveBeenCalledOnce();
+  expect(f.store.hasUnconfirmedCleanup()).toBe(false);
+  await expect(f.host.start(session, input())).resolves.toMatchObject({ state: 'pending' });
+});
+
+it('fences new starts and waits for deferred startup before closing storage', async () => {
+  const f = fixture(),
+    session = auth(),
+    request = input();
+  const startup = deferred();
+  const create = f.createLogin.getMockImplementation()!;
+  f.createLogin.mockImplementationOnce(async (...args) => {
+    await startup.promise;
+    return create(...args);
+  });
+  const starting = f.host.start(session, request);
+  const close = vi.spyOn(f.store, 'close');
+  const closing = f.host.close();
+  await expect(f.host.start(session, input())).rejects.toThrow('stopping');
+  expect(close).not.toHaveBeenCalled();
+  startup.resolve();
+  await Promise.all([starting, closing]);
+  expect(f.cancel).toHaveBeenCalledOnce();
+  expect(close).toHaveBeenCalledOnce();
+  stores.splice(stores.indexOf(f.store), 1);
+});
+
+it.each([false, true])(
+  'drains an in-flight code submission before closing storage; rejection=%s',
+  async (reject) => {
+    const f = fixture(),
+      session = auth(),
+      request = input(),
+      delivery = deferred();
+    await f.host.start(session, request);
+    f.submit.mockImplementationOnce(async () => {
+      await delivery.promise;
+      if (reject) throw Error('late delivery failure');
+    });
+    const submitting = f.host.submit(session, request.requestId, 'secret#expected');
+    const close = vi.spyOn(f.store, 'close');
+    const closing = f.host.close();
+    await vi.waitFor(() => expect(f.cancel).toHaveBeenCalledOnce());
+    expect(close).not.toHaveBeenCalled();
+    delivery.resolve();
+    await expect(submitting).resolves.toMatchObject({ state: reject ? 'failed' : 'cancelled' });
+    await closing;
+    expect(close).toHaveBeenCalledOnce();
+    expect(() => f.host.status(session, request.requestId)).toThrow('stopped');
+    stores.splice(stores.indexOf(f.store), 1);
+  },
+);
+
+it('retains unconfirmed cleanup across host recovery and deduplicates concurrent cancellation', async () => {
+  const f = fixture(),
+    session = auth(),
+    request = input(),
+    shutdown = deferred();
+  await f.host.start(session, request);
+  f.cancel.mockImplementationOnce(async () => {
+    await shutdown.promise;
+  });
+  const first = f.host.cancel(session, request.requestId);
+  const second = f.host.cancel(session, request.requestId);
+  const recovered = new ClaudeAccountLogin({
+    store: f.store,
+    isCurrent: () => true,
+    observe: () => () => undefined,
+    createLogin: f.createLogin,
+  });
+  await expect(recovered.start(session, input())).rejects.toThrow('host recovery');
+  f.complete();
+  expect(f.verify).not.toHaveBeenCalled();
+  shutdown.resolve();
+  await Promise.all([first, second]);
+  expect(f.cancel).toHaveBeenCalledOnce();
+  expect(f.store.accounts()).toEqual([]);
 });
 const auth = () => ({ id: 'browser-one', expiresAt: Date.now() + 60_000 });
 const input = () => ({ requestId: crypto.randomUUID(), label: 'Personal Claude' });
