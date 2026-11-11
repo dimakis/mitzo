@@ -30,6 +30,7 @@ vi.mock('../../lib/biometric', () => ({
 }));
 vi.mock('../../lib/haptics', () => ({ notifySuccess: vi.fn() }));
 import { Login } from '../Login';
+import { loginSucceeded } from '../../lib/api-fetch';
 
 const fetcher = vi.fn();
 let enrolled = true;
@@ -71,6 +72,53 @@ afterEach(() => {
 });
 
 describe('Apple login consumer with the real client adapter', () => {
+  it('returns to the destination when another tab restores authentication', async () => {
+    renderLogin();
+    await screen.findByRole('button', { name: 'Sign in with Apple' });
+    act(() => {
+      window.dispatchEvent(
+        new window.StorageEvent('storage', {
+          key: 'mitzo_auth_token',
+          newValue: 'other-tab-token',
+          storageArea: localStorage,
+        }),
+      );
+    });
+    await screen.findByText('Authenticated destination');
+  });
+  it('leaves local authentication completion to the active login flow', async () => {
+    renderLogin();
+    await screen.findByRole('button', { name: 'Sign in with Apple' });
+    act(() => loginSucceeded('local-token'));
+    expect(screen.queryByText('Authenticated destination')).toBeNull();
+    expect(screen.getByRole('button', { name: 'Sign in with Apple' })).toBeEnabled();
+  });
+  it('discards a pending Apple authorization after another tab restores authentication', async () => {
+    native.enabled = true;
+    let finish!: (result: { state: string; code: string }) => void;
+    native.authorize.mockReturnValueOnce(
+      new Promise((resolve) => {
+        finish = resolve;
+      }),
+    );
+    renderLogin();
+    fireEvent.click(await screen.findByRole('button', { name: 'Sign in with Apple' }));
+    await waitFor(() => expect(native.authorize).toHaveBeenCalled());
+    act(() => {
+      window.dispatchEvent(
+        new window.StorageEvent('storage', {
+          key: 'mitzo_auth_token',
+          newValue: 'other-tab-token',
+          storageArea: localStorage,
+        }),
+      );
+    });
+    await screen.findByText('Authenticated destination');
+    await act(async () => finish({ state: 'synthetic-state', code: 'late-code' }));
+    expect(fetcher.mock.calls.some(([url]) => url.endsWith('/native'))).toBe(false);
+    expect(localStorage.getItem('mitzo_auth_token')).toBeNull();
+    expect(native.saveToken).not.toHaveBeenCalled();
+  });
   it('requires explicit passphrase enrollment and completes native authentication', async () => {
     enrolled = false;
     native.enabled = true;
