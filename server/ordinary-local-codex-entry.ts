@@ -107,11 +107,7 @@ function inventory(
 ) {
   const profiles = loadAccountProfiles();
   if (harness === 'claude-sdk') {
-    if (
-      location !== 'local' ||
-      process.env.MITZO_ORDINARY_LOCAL_VERTEX_ENABLED !== '1' ||
-      !process.env.MITZO_ACCOUNT_PROFILES_FILE
-    )
+    if (location !== 'local' || process.env.MITZO_ORDINARY_LOCAL_VERTEX_ENABLED !== '1')
       throw Error(unavailable);
     const catalog = localVertexCapabilities(
       profiles,

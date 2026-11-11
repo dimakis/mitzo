@@ -31,7 +31,6 @@ export function canResumeOwnedLocalVertexDriver(sessionId: string, authSessionId
       !meta?.accountBinding ||
       !custody ||
       !isDeepStrictEqual(custody.binding, eventStore.getSessionRuntimeBinding(sessionId)) ||
-      !process.env.MITZO_ACCOUNT_PROFILES_FILE ||
       !isDeepStrictEqual(
         {
           accountId: meta.accountBinding.accountId,
@@ -111,10 +110,12 @@ export async function startOwnedLocalVertexCommand(
       throw unavailable();
     return { ...(await live.retryInitial(options.command)), sessionId };
   }
-  if (!process.env.MITZO_ACCOUNT_PROFILES_FILE) throw unavailable();
+  const profileFiles = process.env.MITZO_ACCOUNT_PROFILES_FILE
+    ? [process.env.MITZO_ACCOUNT_PROFILES_FILE]
+    : [];
   registerWorkspaceRuntimeAuthorityPaths(
-    [join(BASE_REPO, '.mitzo'), process.env.MITZO_ACCOUNT_PROFILES_FILE],
-    [join(BASE_REPO, '.mitzo'), process.env.MITZO_ACCOUNT_PROFILES_FILE],
+    [join(BASE_REPO, '.mitzo'), ...profileFiles],
+    [join(BASE_REPO, '.mitzo'), ...profileFiles],
   );
   const controller = new AbortController();
   let queue: OrdinaryLocalVertexCommandOwner | undefined;

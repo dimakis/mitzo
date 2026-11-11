@@ -10,6 +10,7 @@ import {
 } from './claude-subscription-custody.js';
 import { createLogger } from './logger.js';
 import { readReadyOpenAIAccountProfiles } from './openai-account-enrollment.js';
+import { readManagedClaudeProfiles } from './claude-account-store.js';
 import { cachedModels, CatalogModel, refreshModels, readCodexModels } from './model-catalog.js';
 import { CredentialReferenceSchema, credentials } from './credentials.js';
 import { discoverOpenAIModels } from './openai-enrollment-models.js';
@@ -1416,6 +1417,7 @@ function claimsEnrolledOpenAIResources(value: unknown): boolean {
 
 /** A file contains profiles and credential references, never credential values. */
 export function loadAccountProfiles(): AccountProfiles {
+  const managedClaude = readManagedClaudeProfiles();
   if (process.env.MITZO_ACCOUNT_PROFILES_FILE) {
     try {
       const configured: unknown = JSON.parse(
@@ -1429,7 +1431,7 @@ export function loadAccountProfiles(): AccountProfiles {
         throw new Error('Enrollment registry must be absolute');
       if (registryPath) protectCodexProfileRoots([dirname(registryPath)]);
       const enrolled = registryPath ? readReadyOpenAIAccountProfiles(registryPath, configured) : [];
-      return new AccountProfiles([...configured, ...enrolled], {
+      return new AccountProfiles([...configured, ...enrolled, ...managedClaude], {
         enrolledOpenAIAccountIds: new Set(enrolled.map((profile) => profile.id)),
         codexEnabled:
           process.env.MITZO_CODEX_ENABLED === '1' ||
@@ -1449,7 +1451,8 @@ export function loadAccountProfiles(): AccountProfiles {
   // Existing Vertex project configuration supplies a visible, explicitly selected billing
   // profile; catalog presence alone never launches a request. Set CLAUDE_CODE_USE_VERTEX=0 to hide it.
   const projectId = process.env.ANTHROPIC_VERTEX_PROJECT_ID;
-  if (!projectId || process.env.CLAUDE_CODE_USE_VERTEX === '0') return new AccountProfiles([]);
+  if (!projectId || process.env.CLAUDE_CODE_USE_VERTEX === '0')
+    return new AccountProfiles(managedClaude);
   return new AccountProfiles([
     {
       id: 'vertex-default',
@@ -1462,6 +1465,7 @@ export function loadAccountProfiles(): AccountProfiles {
         join(homedir(), '.config/gcloud/application_default_credentials.json'),
       models: LEGACY_MODELS.map(({ id, label }) => ({ id, label })),
     },
+    ...managedClaude,
   ]);
 }
 
