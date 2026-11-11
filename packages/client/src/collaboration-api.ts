@@ -19,6 +19,10 @@ import {
   CollaborationRecipientReadinessSchema,
   CollaborationStopResultSchema,
   CollaborationProgressSchema,
+  CollaborationPromptReviewInputSchema,
+  CollaborationPromptReviewRequestSchema,
+  CollaborationPromptReviewResultSchema,
+  type CollaborationPromptReviewInput,
   CollaborationSnapshotReferenceSchema,
   CollaborationSnapshotSelectionSchema,
   CollaborationApplicationReviewInputSchema,
@@ -232,6 +236,25 @@ export class CollaborationApiClient {
       {
         method: 'POST',
         body,
+      },
+    );
+  }
+  reviewPrompt(
+    id: string,
+    clientId: string,
+    input: CollaborationPromptReviewInput,
+    signal?: AbortSignal,
+  ) {
+    return this.request(
+      this.path(id, 'prompt-reviews'),
+      CollaborationPromptReviewResultSchema,
+      signal,
+      {
+        method: 'POST',
+        body: CollaborationPromptReviewRequestSchema.parse({
+          ...CollaborationPromptReviewInputSchema.parse(input),
+          clientId,
+        }),
       },
     );
   }
