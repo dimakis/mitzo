@@ -195,7 +195,8 @@ The existing intercepted `chat-model-settings` journey now switches between
 OpenAI and Claude, refreshes choices, selects thinking, switches back, and verifies
 retained settings and composer text. It adds no backend or full-app journey. All
 six theme/browser variants plus two browser-startup checks passed in 11.8s, one
-worker with a 2 GiB command-local Node heap. Inspected [mobile dark](../design/assets/account-model-settings-mobile-dark.png)
+worker with a 2 GiB command-local Node heap. The final version-label rerun passed
+the same eight checks in 12.2s. Inspected [mobile dark](../design/assets/account-model-settings-mobile-dark.png)
 and [desktop light](../design/assets/account-model-settings-desktop-light.png)
 captures preserve the approved settings sheet, Mint/System and Teal/Georgia.
 Full builds and the broader browser matrix remain CI gates. No live subscription,
