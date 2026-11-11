@@ -417,6 +417,10 @@ export function buildPermissionHandler(
           message:
             'A registered conversation and fresh host invocation are required for reviewed Telos capture.',
         };
+      // Normalize a fresh shared-outcome proposal before its review and receipt
+      // are captured. Execution/recovery schemas must preserve older packets.
+      if (toolName === 'TelosCreateOutcome' || toolName === 'mcp__telos__TelosCreateOutcome')
+        _toolInput = { workLevel: 'outcome', ..._toolInput };
     }
     const currentClientId = (): string | undefined => {
       if (!session.sessionId) return registry.get(clientId) === session ? clientId : undefined;

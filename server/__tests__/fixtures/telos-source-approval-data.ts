@@ -202,7 +202,9 @@ export function createTelosSourceApprovalData() {
         }
         const approval = resolution.updatedInput?.__mitzoTelosApproval;
         if (typeof approval !== 'string') throw Error('Actual source approval receipt missing');
-        executed = service.execute(approval, 'planning', proposal);
+        const { __mitzoTelosApproval, ...reviewedProposal } = resolution.updatedInput;
+        void __mitzoTelosApproval;
+        executed = service.execute(approval, 'planning', reviewedProposal);
         toolResult = formatTelosSourceResult(executed);
       });
       const event = await arrival;
