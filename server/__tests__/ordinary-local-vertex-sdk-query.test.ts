@@ -30,6 +30,7 @@ it.each(['person@example.test', 'other@example.test'])(
     });
     const input = new AsyncQueue<import('@anthropic-ai/claude-agent-sdk').SDKUserMessage>();
     const controller = new AbortController();
+    const onUnsent = vi.fn(() => expect(controller.signal.aborted).toBe(false));
     createOrdinaryLocalVertexSdkQuery({
       options: {
         env: {
@@ -47,7 +48,7 @@ it.each(['person@example.test', 'other@example.test'])(
       adapt: (native) => native as never,
       settings: () => ({}),
       inputChanged: () => {},
-      onUnsent: vi.fn(),
+      onUnsent,
     });
     input.push({
       type: 'user',
@@ -56,10 +57,13 @@ it.each(['person@example.test', 'other@example.test'])(
       message: { role: 'user', content: 'Private task' },
     });
     const pending = prompt[Symbol.asyncIterator]().next();
-    if (email === 'person@example.test')
+    if (email === 'person@example.test') {
       expect((await pending).value).toMatchObject({ type: 'user' });
-    else {
-      await expect(pending).rejects.toThrow('Claude subscription');
+      expect(onUnsent).not.toHaveBeenCalled();
+    } else {
+      await expect(pending).rejects.toMatchObject({ code: 'input_not_dispatched' });
+      expect(controller.signal.reason.cause.message).toContain('Claude subscription');
+      expect(onUnsent).toHaveBeenCalledOnce();
       expect(controller.signal.aborted).toBe(true);
     }
     expect(accountInfo).toHaveBeenCalledTimes(1);

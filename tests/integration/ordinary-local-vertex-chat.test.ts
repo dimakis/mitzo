@@ -132,13 +132,14 @@ afterEach(async () => {
   services.query.mockReset();
 });
 it.each([
-  { personal: false, managed: false, refuseMode: false },
-  { personal: true, managed: false, refuseMode: false },
-  { personal: true, managed: true, refuseMode: false },
-  { personal: false, managed: false, refuseMode: true },
+  { personal: false, managed: false, refuseStartup: false },
+  { personal: true, managed: false, refuseStartup: false },
+  { personal: true, managed: true, refuseStartup: false },
+  { personal: false, managed: false, refuseStartup: true },
+  { personal: true, managed: false, refuseStartup: true },
 ])(
-  'routes first, queued future and cold commands through the actual SDK owner with original thread; personal=$personal managed=$managed refuseMode=$refuseMode',
-  async ({ personal, managed, refuseMode }) => {
+  'routes first, queued future and cold commands through the actual SDK owner with original thread; personal=$personal managed=$managed refuseStartup=$refuseStartup',
+  async ({ personal, managed, refuseStartup }) => {
     const nextModel = managed ? 'opus' : 'next-model';
     const nextThinking = managed ? null : 'high';
     // Each account scenario gets its own controller/event-store singletons.
@@ -151,7 +152,7 @@ it.each([
       chatRoute: true,
       personal,
       managed,
-      anthropicApi: refuseMode,
+      anthropicApi: refuseStartup && !personal,
     });
     if (personal) {
       const capture = ClaudeSubscriptionCustody.capture;
@@ -191,7 +192,7 @@ it.each([
       });
       const instance = {
         accountInfo: vi.fn(async () => ({
-          email: 'person@example.test',
+          email: refuseStartup ? 'other@example.test' : 'person@example.test',
           subscriptionType: 'max',
           apiProvider: 'firstParty',
         })),
@@ -243,7 +244,7 @@ it.each([
         setModel: vi.fn(async () => {}),
         setMaxThinkingTokens: vi.fn(async () => {}),
         setPermissionMode: vi.fn(async () => {
-          if (refuseMode) throw Error('OFFLINE_MODE_REFUSED synthetic-secret');
+          if (refuseStartup) throw Error('OFFLINE_MODE_REFUSED synthetic-secret');
         }),
         stopTask: vi.fn(async () => {}),
       };
@@ -366,7 +367,7 @@ it.each([
     );
     expect(persisted).toBe('[]');
     outbox.stop();
-    if (refuseMode) {
+    if (refuseStartup) {
       const sessionId = f.reservation.conversationId;
       await vi.waitFor(() => expect(chat.registry.findBySessionId(sessionId)).toBeNull());
       expect(providerInputs).toEqual([]);

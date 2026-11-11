@@ -138,6 +138,34 @@ export function createOrdinaryLocalVertexSdkQuery<
   const states = new WeakMap<Query, State>();
   const restoreApiPermissionMode = !!owners.options.env?.MITZO_ANTHROPIC_API_CUSTODY;
   let permissionMode = owners.options.permissionMode ?? 'default';
+  const refuseInput = (message: SDKUserMessage, cause: unknown, stage: string): never => {
+    // An explicit stop is cancellation, not a provider refusal. Otherwise
+    // report while the original session still owns its live delivery path:
+    // query-loop deliberately suppresses errors after an abort.
+    if (owners.controller.signal.aborted) throw cause;
+    const failure = new SessionRuntimeError('input_not_dispatched', { cause });
+    log.warn('SDK input refused before provider dispatch', {
+      sessionId: owners.sdkSessionId,
+      stage,
+      ...failure.telemetry(),
+    });
+    try {
+      owners.onUnsent(message, failure);
+    } catch (reportingError) {
+      failure.cause = new AggregateError(
+        [cause, reportingError],
+        'SDK input refusal and diagnostic delivery failure',
+      );
+      log.warn('Could not report refused SDK input', {
+        sessionId: owners.sdkSessionId,
+        stage,
+        code: 'sdk_input_failure_reporting_failed',
+        ...failure.telemetry(),
+      });
+    }
+    owners.controller.abort(failure);
+    throw failure;
+  };
   const prompt = async function* (queue: AsyncQueue<SDKUserMessage>, current: () => Query) {
     let permissionRestored = false;
     for await (const message of queue) {
@@ -151,26 +179,7 @@ export function createOrdinaryLocalVertexSdkQuery<
           await owners.authorize(owners.controller.signal);
           permissionRestored = true;
         } catch (error) {
-          // An explicit stop is cancellation, not a provider refusal. Otherwise
-          // report while the original session still owns its live delivery path:
-          // query-loop deliberately suppresses errors after an abort.
-          if (owners.controller.signal.aborted) throw error;
-          const failure = new SessionRuntimeError('input_not_dispatched', { cause: error });
-          try {
-            owners.onUnsent(message, failure);
-          } catch (reportingError) {
-            failure.cause = new AggregateError(
-              [error, reportingError],
-              'SDK permission refusal and diagnostic delivery failure',
-            );
-            log.warn('Could not report refused SDK input', {
-              stage: 'permission_mode_acknowledgement',
-              code: 'sdk_input_failure_reporting_failed',
-              ...failure.telemetry(),
-            });
-          }
-          owners.controller.abort(failure);
-          throw failure;
+          refuseInput(message, error, 'permission_mode_acknowledgement');
         }
       }
       if (owners.options.env?.MITZO_CLAUDE_EXPECTED_EMAIL) {
@@ -178,8 +187,7 @@ export function createOrdinaryLocalVertexSdkQuery<
           assertClaudeSubscriptionAccount(await current().accountInfo(), owners.options.env);
           await owners.authorize(owners.controller.signal);
         } catch (error) {
-          owners.controller.abort(error);
-          throw error;
+          refuseInput(message, error, 'subscription_identity');
         }
       }
       yield message;
