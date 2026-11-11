@@ -22,6 +22,43 @@ function fakeTransport(): SessionTransport & { sent: Record<string, unknown>[] }
 }
 
 describe('buildPermissionHandler', () => {
+  it.each(['skill', 'abort', 'owner'])(
+    'rechecks %s after the workspace await before reusing GitHub read consent',
+    async (change) => {
+      const registry = new SessionRegistry();
+      const transport = fakeTransport();
+      const abort = new AbortController();
+      registry.register('github-race', {
+        transport,
+        abortController: abort,
+        mode: 'agent',
+        sessionId: 'github-race-session',
+        cwd: '/workspace',
+        sessionAllowList: new Set(),
+      });
+      const handler = buildPermissionHandler('github-race', registry);
+      const opts = { signal: abort.signal, toolUseID: 'github-race' };
+      try {
+        const first = handler('Bash', { command: 'gh run view 42 -R owner/repo --log' }, opts);
+        await vi.waitFor(() => expect(transport.sent[0]?.type).toBe('permission_request'));
+        resolvePending(transport.sent[0].permId as string, 'always');
+        expect(await first).toMatchObject({ behavior: 'allow' });
+        const reused = handler(
+          'Bash',
+          { command: 'gh api repos/owner/repo/actions/jobs/123/logs' },
+          opts,
+        );
+        if (change === 'skill') setSkillPolicy(registry, 'github-race', []);
+        else if (change === 'abort') abort.abort();
+        else registry.get('github-race')!.sessionId = 'replacement-session';
+        expect(await reused).toMatchObject({ behavior: 'deny' });
+      } finally {
+        abort.abort();
+        registry.dispose();
+      }
+    },
+  );
+
   it.each(['anthropic-claude', 'anthropic-vertex'])(
     'retains repository CI reads without a tool-wide shell grant for %s',
     async (provider) => {

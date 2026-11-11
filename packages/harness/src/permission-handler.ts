@@ -346,6 +346,7 @@ export function buildPermissionHandler(
       const { command, description: _description, timeout: _timeout, ...access } = _toolInput;
       return JSON.stringify([
         typeof command === 'string' ? githubReadCommandRepository(command) : undefined,
+        session.sessionId,
         session.accountBinding,
         session.ownedLocalAuthSessionId,
         workspacePolicySnapshot(),
@@ -514,7 +515,7 @@ export function buildPermissionHandler(
       return { behavior: 'deny', message: 'Original approval scope changed' };
     if (!observationCurrent())
       return { behavior: 'deny', message: 'Original approval input or invocation changed' };
-    if (nativeApproval) {
+    if (nativeApproval || githubRepository) {
       const activeClient = currentClientId();
       if (
         originalSignal.aborted ||

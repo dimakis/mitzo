@@ -11,6 +11,10 @@ const needs =
   "resolved_at IS NULL AND (kind IN ('approval','question') OR COALESCE(json_extract(data, '$.inbox.needsAttention'),0)=1)";
 
 const visible = 'inbox_visible(data,inbox_source_path)=1';
+const unreadApprovalAlert = `alert.kind='approval' AND alert.read_at IS NULL
+  AND alert.archived_at IS NULL AND alert.alerted_at>=?
+  AND (alert.resolution IS NULL OR alert.resolution='expired')`;
+const APPROVAL_ALERT_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 type InboxReadPolicy = (filename: string, sourcePath?: string) => boolean;
 
 type Input = Omit<
@@ -443,9 +447,15 @@ export class NotificationStore {
     return (
       this.db
         .prepare(
-          `SELECT * FROM notifications WHERE ${visible} AND delivery_status='queued' AND archived_at IS NULL AND delivery_at<=? AND resolved_at IS NULL ORDER BY delivery_at LIMIT 25`,
+          `SELECT * FROM notifications AS candidate WHERE ${visible}
+            AND delivery_status='queued' AND archived_at IS NULL AND delivery_at<=? AND resolved_at IS NULL
+            AND (kind!='approval' OR NOT EXISTS (
+              SELECT 1 FROM notifications AS alert WHERE ${unreadApprovalAlert}
+                AND json_extract(alert.data, '$.sessionId')=json_extract(candidate.data, '$.sessionId')
+                AND alert.id!=candidate.id
+            )) ORDER BY delivery_at LIMIT 25`,
         )
-        .all(now) as Row[]
+        .all(now, now - APPROVAL_ALERT_MAX_AGE_MS) as Row[]
     ).map(item);
   }
   deliveredDevices(id: string): string[] {
@@ -462,12 +472,10 @@ export class NotificationStore {
     if (notification.kind !== 'approval' || !notification.sessionId) return false;
     return !!this.db
       .prepare(
-        `SELECT 1 FROM notifications
-      WHERE kind='approval' AND read_at IS NULL AND archived_at IS NULL
-        AND json_extract(data, '$.sessionId')=? AND id!=?
-        AND alerted_at>=? AND (resolution IS NULL OR resolution='expired') LIMIT 1`,
+        `SELECT 1 FROM notifications AS alert WHERE ${unreadApprovalAlert}
+        AND json_extract(alert.data, '$.sessionId')=? AND alert.id!=? LIMIT 1`,
       )
-      .get(notification.sessionId, notification.id, now - 24 * 60 * 60 * 1000);
+      .get(now - APPROVAL_ALERT_MAX_AGE_MS, notification.sessionId, notification.id);
   }
   delivery(
     id: string,

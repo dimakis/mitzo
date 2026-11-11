@@ -342,10 +342,9 @@ export class NotificationCenter {
           this.store.delivery(item.id, 'cancelled');
           continue;
         }
-        if (this.store.hasUnseenApprovalAlert(item)) {
-          this.store.delivery(item.id, 'cancelled');
-          continue;
-        }
+        // Defer while the earlier alert is unread. A decision or acknowledgement
+        // must make an already-pending request eligible again.
+        if (this.store.hasUnseenApprovalAlert(item)) continue;
         const at = nextDeliveryAt(this.store.preferences(), Date.now());
         if (at === null || at > Date.now()) continue;
         const native = this.deps.configured() && this.deps.devices() > 0;

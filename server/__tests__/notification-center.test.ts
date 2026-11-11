@@ -50,6 +50,68 @@ function setup(
   return { store, center, push, changed };
 }
 describe('central notification delivery', () => {
+  it('does not let a full deferred batch starve another chat or question', async () => {
+    const { center, store, push } = setup();
+    const ids = Array.from({ length: 28 }, (_, index) => `deferred-${index}`);
+    try {
+      registerPending(ids[0], 'Bash', vi.fn(), {}, 'elevated', request.sessionId, {
+        ...request,
+        permId: ids[0],
+      });
+      await center.flush();
+      for (const [index, permId] of ids.slice(1).entries()) {
+        const sessionId = index === 25 ? 'another-chat' : request.sessionId;
+        registerPending(permId, 'Bash', vi.fn(), {}, 'elevated', sessionId, {
+          ...request,
+          permId,
+          sessionId,
+          ...(index === 26
+            ? {
+                questions: [
+                  { id: 'q', question: 'Which target?', options: [], multiSelect: false },
+                ],
+              }
+            : {}),
+        });
+      }
+      await center.flush();
+      await center.flush();
+      expect(push.mock.calls.map(([message]) => message.data.notificationId)).toEqual([
+        `permission:${ids[0]}`,
+        `permission:${ids[26]}`,
+        `permission:${ids[27]}`,
+      ]);
+    } finally {
+      ids.forEach((id) => removePending(id));
+      center.close();
+      store.close();
+    }
+  });
+
+  it('delivers an already-coalesced approval after the earlier alert receives a decision', async () => {
+    const { center, store, push } = setup();
+    const ids = ['coalesced-first', 'coalesced-pending'];
+    try {
+      for (const permId of ids)
+        registerPending(permId, 'Bash', vi.fn(), {}, 'elevated', request.sessionId, {
+          ...request,
+          permId,
+        });
+      await center.flush();
+      expect(push).toHaveBeenCalledTimes(1);
+      await center.flush();
+      expect(push).toHaveBeenCalledTimes(1);
+      resolvePending(ids[0], 'once');
+      await center.flush();
+      expect(push).toHaveBeenCalledTimes(2);
+      expect(push.mock.calls[1][0].data.notificationId).toBe(`permission:${ids[1]}`);
+    } finally {
+      ids.forEach((id) => removePending(id));
+      center.close();
+      store.close();
+    }
+  });
+
   it('does not switch to legacy alerts after a partial native delivery', async () => {
     vi.useFakeTimers();
     let devices = 2;
