@@ -116,6 +116,7 @@ export interface ConnectionsViewProps {
     | 'legacy'
     | 'openai'
     | 'openai-add'
+    | 'claude'
     | 'keychain'
     | 'api';
   connectionId?: string;

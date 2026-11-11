@@ -492,6 +492,13 @@ for (const [name, Screen] of [
     expect(localSend).toHaveBeenCalledOnce();
     act(() => store.setState({ connection: { status: 'disconnected', clientId: null } }));
     expect(recovery).toBeDisabled();
+    // An unreadable device queue needs a local read retry even while offline.
+    act(() => store.setState({ localCommand: { state: 'blocked' } }));
+    expect(recovery).toBeEnabled();
+    expect(screen.getByText(/Saved outgoing messages are unavailable/)).toBeTruthy();
+    fireEvent.click(recovery);
+    expect(recover).toHaveBeenCalledTimes(2);
+    expect(localSend).toHaveBeenCalledOnce();
   });
   for (const apiHost of [false, true])
     it.each([

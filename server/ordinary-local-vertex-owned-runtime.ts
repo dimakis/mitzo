@@ -84,13 +84,7 @@ export class OrdinaryLocalVertexOwnedRuntime {
   #active?: string;
   #lastCompleted?: string;
   constructor(private readonly owners: Owners) {
-    if (
-      !owners.enabled ||
-      !process.env.MITZO_ACCOUNT_PROFILES_FILE ||
-      custodianControllerMode ||
-      custodianOwnerMode
-    )
-      throw unavailable();
+    if (!owners.enabled || custodianControllerMode || custodianOwnerMode) throw unavailable();
     owners.signal.throwIfAborted();
     this.owners = {
       ...owners,

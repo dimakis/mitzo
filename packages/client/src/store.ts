@@ -67,10 +67,11 @@ import { MitzoApiClient } from './api-client.js';
 import { MitzoConnection } from './connection.js';
 import type { MitzoConnectionConfig } from './connection.js';
 import { SseConnection } from './sse-connection.js';
-import { SendOutbox, hasReviewedSource } from './send-outbox.js';
+import { SendOutbox, hasReviewedSource, type SendOutboxStorage } from './send-outbox.js';
 import {
   CommandDeliveryDiagnosticSchema,
   commandDeliveryMessage,
+  localCommandStatusMessage,
   type CommandDeliveryDiagnostic,
   type CommandDeliveryObserver,
 } from './command-delivery-diagnostic.js';
@@ -270,11 +271,11 @@ export interface MitzoStoreOptions {
   /** Durable HTTP admission of initial reviewed briefing commands while WS receives events. */
   reviewedSendConfig?: {
     url: string;
-    storage: Pick<Storage, 'getItem' | 'setItem'> & { flush?: () => Promise<void> };
+    storage: SendOutboxStorage;
   };
   localFirstCommandConfig?: {
     url: string;
-    storage: Pick<Storage, 'getItem' | 'setItem'> & { flush?: () => Promise<void> };
+    storage: SendOutboxStorage;
     onDeliveryDiagnostic?: CommandDeliveryObserver;
   };
   /** Start with transports latched off until restoreAuthentication() after an explicit login. */
@@ -498,7 +499,14 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
             if (event.type !== '_local_command_state') return;
             if (event.state === 'idle') {
               visibleLocalCommandId = undefined;
-              store.setState({ localCommand: null, sendStatus: null });
+              store.setState({
+                localCommand: null,
+                sendStatus: null,
+                ...(store.getState().localCommand?.state === 'blocked' &&
+                store.getState().sendError === localCommandStatusMessage('blocked')
+                  ? { sendError: null }
+                  : {}),
+              });
               return;
             }
             let request: LocalCommandRequest | undefined;
@@ -531,7 +539,8 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
               });
             const locationLabel = request?.runOn === 'openshell' ? 'OpenShell' : 'Local';
             const visible =
-              localCommandScope == null
+              state === 'blocked' ||
+              (localCommandScope == null
                 ? visibleLocalCommandId === undefined ||
                   visibleLocalCommandId === request?.clientMsgId
                 : 'draftId' in localCommandScope
@@ -540,7 +549,7 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
                     localCommandSessionId(
                       request,
                       ordinaryDelivery?.version === 1 ? ordinaryDelivery.sessionId : sessionId,
-                    );
+                    ));
             if (visible) {
               const runtimeFailure = RuntimeFailureSchema.safeParse(event.runtimeFailure);
               const deliveryDiagnostic = CommandDeliveryDiagnosticSchema.safeParse(
@@ -586,15 +595,17 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
                 ['completed', 'ended', 'interrupted', 'failed', 'cancelled'].includes(ownState);
               store.setState({
                 messages,
-                ...(runtimeFailure.success && ['retained', 'reserved', 'uncertain'].includes(state)
-                  ? { sendError: runtimeFailureMessage(runtimeFailure.data) }
-                  : deliveryDiagnostic && state === 'uncertain'
-                    ? { sendError: commandDeliveryMessage(deliveryDiagnostic) }
-                    : event.receiptConfirmed === true || ['pending', 'consumed'].includes(state)
-                      ? { sendError: null }
-                      : deliveryDiagnostic
-                        ? { sendError: commandDeliveryMessage(deliveryDiagnostic) }
-                        : {}),
+                ...(state === 'blocked'
+                  ? { sendError: localCommandStatusMessage(state) }
+                  : runtimeFailure.success && ['retained', 'reserved', 'uncertain'].includes(state)
+                    ? { sendError: runtimeFailureMessage(runtimeFailure.data) }
+                    : deliveryDiagnostic && state === 'uncertain'
+                      ? { sendError: commandDeliveryMessage(deliveryDiagnostic) }
+                      : event.receiptConfirmed === true || ['pending', 'consumed'].includes(state)
+                        ? { sendError: null }
+                        : deliveryDiagnostic
+                          ? { sendError: commandDeliveryMessage(deliveryDiagnostic) }
+                          : {}),
                 localCommand: {
                   request,
                   ...(composerDraft ? { composerDraft } : {}),
@@ -1534,7 +1545,7 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
     recoverLocalCommand() {
       return (
         !!reviewedAuthenticated &&
-        !!connection.getConnectionId() &&
+        (get().localCommand?.state === 'blocked' || !!connection.getConnectionId()) &&
         !!localOutbox?.retryLocalCommand(get().localCommand?.request?.clientMsgId)
       );
     },

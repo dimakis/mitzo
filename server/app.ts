@@ -372,6 +372,7 @@ import {
 import { createGitInfoDiscovery, createGitInfoHandler } from './git-discovery.js';
 import { isValidInternalToken } from './internal-token.js';
 import { createConnectionsRouter, recentAppReauthorizationHandlers } from './connections-router.js';
+import { createClaudeAccountRouter } from './claude-account-router.js';
 import { createConnectionsAccessRouter } from './connections-access-router.js';
 import {
   personalInventorySource,
@@ -548,6 +549,12 @@ mountObservedRouter(app, '/api/yapper', yapperHttpProxy);
 mountObservedRouter(app, '/api/yapper-ws', yapperWsProxy.http);
 
 app.use(cookieParser());
+mountObservedRouter(
+  app,
+  '/api/claude-accounts',
+  operatorAuthMiddleware,
+  createClaudeAccountRouter(),
+);
 
 // This protected route is deliberately ahead of the global 10MB JSON parser.
 // Its local parsers cap sensitive connection inputs at a few KiB. Runtime setup
