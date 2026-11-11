@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.1053-retained-mcp-policy';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.1054-completed-reasoning-timing';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -32,8 +32,8 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/configured-tool-authority.test.ts':
     '93d89d5ca87f5eb651718c5a29634a3bc4c37384d674eaf31c8b51f5f6056e5b',
   '../__tests__/codex-output-timing.test.ts':
-    'bb5295e15de2dc991ecb35192c5e3507ab05532ecad06d4258f3df21770d56c6',
-  '../codex-output-timing.ts': '8250ce62a4a1ad7e6db007f799138afe839b981b2602e2508205ae21db55bdda',
+    '3353f924d105e76497a6d2886d42586050fb009b8ff21c091048de8d2c75d300',
+  '../codex-output-timing.ts': '32283e843552e4a673ab3885f396ac0fcbc2782345b9f8b94730643de7581c8f',
   '../../.github/actions/ci-playwright/action.yml':
     '1c6e7a91b5e7363c00c224ab10739bfc73e0a027c9e7b9508af620d96321b6d1',
   '../../scripts/ci-browser-container.sh':

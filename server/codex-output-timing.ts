@@ -34,7 +34,12 @@ export class CodexOutputTiming {
       ['item/reasoning/summaryTextDelta', 'item/reasoning/textDelta'].includes(method) &&
       typeof params.delta === 'string' &&
       params.delta.length > 0;
-    const item = params.item as { type?: string; text?: string } | undefined;
+    const item = params.item as { type?: string; text?: string; summary?: unknown } | undefined;
+    const completedReasoning =
+      method === 'item/completed' &&
+      item?.type === 'reasoning' &&
+      Array.isArray(item.summary) &&
+      item.summary.some((text) => typeof text === 'string' && text.length > 0);
     const completedText =
       method === 'item/completed' &&
       item?.type === 'agentMessage' &&
@@ -42,7 +47,8 @@ export class CodexOutputTiming {
       item.text.length > 0;
     const tool =
       ['item/started', 'item/completed'].includes(method) && activityItems.has(item?.type ?? '');
-    if (text || reasoning || completedText || tool) this.finish('activity', 'output');
+    if (text || reasoning || completedReasoning || completedText || tool)
+      this.finish('activity', 'output');
     if (text || completedText) this.finish('text', 'output');
   }
   close(result: 'terminal_before_output' | 'failed_before_output') {
