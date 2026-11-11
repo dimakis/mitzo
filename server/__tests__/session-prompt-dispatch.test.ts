@@ -311,6 +311,21 @@ it('labels callbacks with source and work reference without making peer text hum
   expect(text).toContain('T7');
   expect(text).toContain('no additional permissions');
 });
+it('labels legacy peer prompts with the chat name while retaining the exact reply ID', () => {
+  const fxt = fixture();
+  const text = sessionPromptText(
+    {
+      ...fxt.delivery,
+      kind: 'agent',
+      senderSessionId: 'worker',
+      workId: 'T7',
+    },
+    'Review coordinator',
+  );
+  expect(text.split('\n')[0]).toBe('Agent message from Review coordinator · task T7');
+  expect(text).toContain('Reply with SendSessionMessage to session worker');
+  expect(text).toContain('no additional permissions');
+});
 it.each(['timer', 'agent'] as const)(
   'does not cold-resume a durably user-closed recipient for %s delivery',
   async (kind) => {

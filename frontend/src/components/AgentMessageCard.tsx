@@ -1,4 +1,5 @@
 import type { AgentMessageProjection } from '@mitzo/protocol';
+import { usePeerChatName } from '../hooks/usePeerChatName';
 import { CopyButton } from './CopyButton';
 import { UiIcon } from './UiIcon';
 import './AgentMessageCard.css';
@@ -16,7 +17,7 @@ export function AgentMessageCard({ projection }: { projection: AgentMessageProje
   const { message, direction, senderName, recipientName } = projection;
   const incoming = direction === 'incoming';
   const remoteId = incoming ? message.senderConversationId : message.recipientConversationId;
-  const remoteName = incoming ? senderName : recipientName;
+  const remote = usePeerChatName(remoteId, incoming ? senderName : recipientName);
   const long = message.text.length > 700;
   return (
     <article
@@ -40,8 +41,11 @@ export function AgentMessageCard({ projection }: { projection: AgentMessageProje
         </time>
       </div>
       <a className="agent-message-chat" href={`/chat/${encodeURIComponent(remoteId)}`}>
-        {remoteName || 'Chat'} <UiIcon name="arrowUpRight" size={16} />
+        {remote.name} <UiIcon name="arrowUpRight" size={16} />
       </a>
+      {remote.failed && (
+        <p className="workspace-muted">Chat name unavailable. Showing the last known name.</p>
+      )}
       <div className="msg-bubble-content">
         {long ? `${message.text.slice(0, 400)}…` : message.text}
       </div>
@@ -59,6 +63,12 @@ export function AgentMessageCard({ projection }: { projection: AgentMessageProje
         <summary>Message details</summary>
         <p>
           From {senderName} · To {recipientName}
+        </p>
+        <p>
+          Sender chat ID: <code>{message.senderConversationId}</code>
+        </p>
+        <p>
+          Recipient chat ID: <code>{message.recipientConversationId}</code>
         </p>
         <p>{new Date(projection.timestamp).toLocaleString()}</p>
         <p>
