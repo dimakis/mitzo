@@ -438,6 +438,58 @@ function enableSubagentFixture(f: Awaited<ReturnType<typeof setup>>) {
   });
 }
 
+it('validates subagents with the thinking selection of their originating command', async () => {
+  const f = await setup();
+  enableSubagentFixture(f);
+  const validateModel = vi.fn((model: string, effort?: string) => {
+    if (model !== 'test-model' || !['high', 'low'].includes(effort ?? ''))
+      throw Error('Selection unavailable');
+  });
+  f.conversationOptions.validateModel = validateModel;
+  await f.c.send({ id: 'thinking-parent', prompt: 'Review edge cases', reasoningEffort: 'high' });
+  f.c.enqueue({ id: 'future-command', prompt: 'Later work', reasoningEffort: 'low' });
+  const original = f.rpc.request.getMockImplementation()!;
+  const child = {
+    id: 'thinking-child',
+    parentThreadId: f.getProviderThread(),
+    sessionId: 'native-tree',
+    cwd: '/workspace',
+    model: 'test-model',
+    modelProvider: 'openai',
+  };
+  f.rpc.request.mockImplementation(async (method, params) => {
+    if (method === 'thread/read') return { thread: { ...child, id: params.threadId } };
+    if (params.threadId === child.id) {
+      if (method === 'thread/resume')
+        return { thread: child, model: child.model, modelProvider: 'openai' };
+      if (method === 'thread/turns/list') return { data: [], nextCursor: null };
+    }
+    return original(method, params);
+  });
+  f.callbacks.onNotification('thread/started', { thread: child });
+  f.callbacks.onNotification('turn/started', { threadId: child.id, turn: { id: 'child-turn' } });
+  await f.c.getSubagents()!.settled();
+  expect(f.c.getSubagents()!.list()[0]).toMatchObject({
+    threadId: child.id,
+    available: true,
+    state: 'working',
+  });
+  expect(validateModel.mock.calls.at(-1)).toEqual(['test-model', 'high']);
+  await f.callbacks.onRequest(
+    'item/tool/call',
+    {
+      threadId: child.id,
+      turnId: 'child-turn',
+      callId: 'child-call',
+      tool: 'Read',
+      arguments: {},
+    },
+    new AbortController().signal,
+  );
+  expect(f.execute).toHaveBeenCalledOnce();
+  expect(f.c.queue()[0].status).toBe('running');
+});
+
 it('contains anchor reconciliation storage failures without closing the parent transport', async () => {
   const f = await setup(undefined, undefined, undefined, undefined, async () => binding);
   enableSubagentFixture(f);
