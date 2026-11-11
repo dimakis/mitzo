@@ -65,12 +65,13 @@ export class SessionResourceRemovalService {
         'failed',
         error instanceof Error ? error.message : 'Chat removal could not be verified.',
       );
-    } catch {
+    } catch (recordingError) {
       // Keep the original failure and admission fence if its durable diagnostic
       // cannot be saved; report the secondary failure separately.
       log.error('Could not record the chat removal failure', {
         ...diagnostic,
         code: 'removal_failure_record_unavailable',
+        err: recordingError,
       });
     }
   }

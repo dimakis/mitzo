@@ -10,8 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.1023-account-model-storage-integration';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.1024-chat-deletion-recovery';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -23,6 +22,10 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
+  '../session-removal-blocker.ts':
+    '1e2210be53388a6c6edc485cb22f29ba8a93465808370fd1e22913822df11199',
+  '../__tests__/session-removal-native-blocker.test.ts':
+    'ebb2ef79ae97acb086a2af8dc82755276b24c651e8e8fb644deaf962d5706904',
   '../../frontend/src/lib/__tests__/account-preference.test.ts':
     '4143a4f2c597cbc62160aa07c574e3a61cb10f70e0a989b5a8200dbe70d26675',
   '../__tests__/claude-model-discovery.test.ts':
@@ -609,14 +612,14 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../tests/offline/message-text-selection.spec.ts':
     '58dedea9c8a0946cacfd06a76fe269155dccae8f46864d305ed70cd17d582c9d',
   '../session-resource-removal.ts':
-    'f0ae3f23b02c89b2b6014b01389992ee77ac79f1c8ca38210289be4bfcc453c9',
+    '33b56cc9d081673289b09bb90bd26db4425805dabfa6066e6f92dbabd7272a71',
   '../session-removal-runtime.ts':
     '96cbbc6e18a94f4f41e44aa5c0955c1e7604d6e19edf726b701619aaf9d56ff8',
   '../local-session-removal.ts': '6ac2695a89153024b6898601d62a45731ff49993a2d0b604e1f58962388a1d16',
   '../../packages/protocol/src/session-removal-store.ts':
     'df2ac3cc7f3ac4b8d3b6483b88abcd8f126f15e8b21d6b52ce3bac8b98eba685',
   '../__tests__/session-resource-removal.test.ts':
-    '6d158e1c3b8a82ed54ed8512cc849fd2916d48bcf6c84e72f7ec7000985611a1',
+    '38ea33be06bdbff60b17ac08d1e5ea55b25ca5dfdf2c80e09687de712f1a7c63',
   '../__tests__/session-removal-runtime.test.ts':
     '36b31025a622cdcd7dc78efb1a29849208e4176a28c804baf7a273bbd9ccb5f6',
   '../__tests__/local-session-removal.test.ts':
@@ -628,13 +631,13 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/lib/__tests__/session-removal-action.test.ts':
     'dd20ed97c14642d0af406daf449854838abbedafd99b8f268811901a3cd5f921',
   '../../frontend/src/components/__tests__/SessionRemovalDialog.test.tsx':
-    '13fe424e2342c4e45f94729c58b2fe174bb78826d88afd40763c33ad2a218c4d',
+    '599f73fc9bfc14aeaabcfcab9b864d035d37d4a9e6439905c3edf21ed7769e8c',
   '../../tests/offline/sandbox-removal.spec.ts':
-    'c49a2e50c885dd0fd1407cf4cd3378a9628a940df6b56241c9c18987d978bd8b',
+    '6f289ed1e00fdf52d9522b79a74c8738a88ba05bd836b194ee9c271958754006',
   '../../tests/fixtures/sandboxes.tsx':
     '0f30f8988c90cbc60d40af6cd41f33d1f5d4a2d8dc5aeacf80b70db8706e357d',
   '../../docs/features/session-resource-removal.md':
-    'd4cc0ee7798066e6f2742a0d577ced6e3fe181706c506db1b152a34e18898c59',
+    '343d4b7c19484748961c10104143c6544689fa1f11f508f6bd5875222cc844c8',
   '../../docs/operations/startup-transcript-observability.md':
     '40324fd76844a89970053738c53bbfb5207af0b10df4bc7e0f58f461c186ed79',
   '../__tests__/mcp-startup-observation.test.ts':
@@ -1548,7 +1551,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/prepared-repository-barrier-read.test.ts':
     'a36e52c23e69f8922b3013a1d6f9ff0335bb2d013c181a1a818f63b3a2045caf',
   '../__tests__/codex-prepared-repository-boundary.test.ts':
-    '907f275fb0a01d79c8fe4f0c3d829015e90441c3bbbf0b5ad12577f1f77deb12',
+    '95bd6dddaf639c2037aa8755b3b242a6d311ce876ad198eaecfcc44ce88ee16f',
   '../../packages/harness/__tests__/permission-decision-observation.test.ts':
     '95652995cce184b5a89d022b1e9787e3fa2576af162cf8cab44ca09fc12a84d4',
   '../codex-tool-result.ts': '8ea5abcb14bcf305d82379a0147a3bb14e38ab74d00f2392af79d733ecfe839d',
@@ -2390,7 +2393,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../agent-context-sandbox.ts': '8b61edc17ccc94bc95eae3796e68a0beb9540534e3bfbb348a04154c41995416',
   '../codex-conversation.ts': '0c950c53c6dc8c00145b3a735be2c6f0a2ae528e3df19e079370722a55502e87',
   '../codex-conversation-store.ts':
-    '187002fde6513ac1968472f3c76a76ca0cfe91775879f26f097f03dc4d8dd88e',
+    '3ebfcc6386bc0983a4f0050e94b82fb82ee6ab818aee2bc69c8780b57b81f86a',
   '../symposium-custodian-ipc.ts':
     '8dcbf6aefbf29742b2828b7e8ca657aa294e8ee9601f52422ada469fac1731cc',
   '../symposium-custodian-authority.ts':
@@ -2812,10 +2815,10 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     'ca4fa6b7bf4e6adc17667d40c845d6ba24ea0e561c9d9a2e12d5e2d1a2e3ea3e',
   '../../frontend/src/components/SymposiumProfileProposals.tsx':
     'cdbfd4a2f27bc548cca872b616f1a2d0f1bac021a4dec95a0e24d87a3ea864ca',
-  '../session-removal.ts': '5f34deb4642dcfc65de992419db9b471cac05b6a1f5dc84c90f4303554db5d22',
+  '../session-removal.ts': 'f47f7ebb182d3e1a3b3a542c96539ac71f6bf781ef7436a88d423926e1ff3af8',
   '../sandbox-inventory.ts': 'c785cab670191e142ef24d819b6e56950c910f7dffbb67613c0c71ac72bca4b9',
   '../../frontend/src/components/SessionRemovalDialog.tsx':
-    '196212a3929bb012d6e1510c54615a05515db99fa2cd05771dcf665b7f50db21',
+    'b46e4392caf35d3ba41f7b64c0f4c0e3261b9c9d5def66415248f58a3dc47ed0',
   '../../frontend/src/components/SessionPanel.tsx':
     '38b879217b1c556620d4bfd4eff1bdea9d2875c85c4bb75989013fd5d06b7320',
   '../../frontend/src/pages/SessionList.tsx':

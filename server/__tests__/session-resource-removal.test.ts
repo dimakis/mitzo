@@ -3,6 +3,9 @@ import Database from 'better-sqlite3';
 import { SessionRemovalStore } from '../../packages/protocol/src/session-removal-store.js';
 import { SessionResourceRemovalService } from '../session-resource-removal.js';
 
+const log = vi.hoisted(() => ({ warn: vi.fn(), error: vi.fn() }));
+vi.mock('../logger.js', () => ({ createLogger: () => log }));
+
 const cleanup: Array<() => void> = [];
 afterEach(() => cleanup.splice(0).forEach((close) => close()));
 function fixture() {
@@ -50,12 +53,22 @@ it('keeps failed shutdown visible and fenced; an explicit keep action releases o
 it('preserves the shutdown failure if recording that failure also fails', async () => {
   const f = fixture();
   const primary = Error('native shutdown remains unverified');
+  const secondary = Error('failure record unavailable');
   f.deps.closeRuntime.mockRejectedValueOnce(primary);
   vi.spyOn(f.store, 'transition').mockImplementationOnce(() => {
-    throw Error('failure record unavailable');
+    throw secondary;
   });
   await expect(f.service.prepare('chat', f.current)).rejects.toBe(primary);
   expect(() => f.store.assertAdmissible('chat')).toThrow(/remov/);
+  expect(log.error).toHaveBeenCalledWith(
+    'Could not record the chat removal failure',
+    expect.objectContaining({
+      stage: 'prepare',
+      sessionId: 'chat',
+      code: 'removal_failure_record_unavailable',
+      err: secondary,
+    }),
+  );
 });
 it('rechecks authority and resources before release and never clears uncertainty after release starts', async () => {
   const f = fixture();
