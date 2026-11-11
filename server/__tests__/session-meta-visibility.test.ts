@@ -46,6 +46,38 @@ let server: Server;
 let store: EventStore;
 let root: string;
 
+it('delivers reply read state through the authenticated list and metadata routes', async () => {
+  const id = 'read-state-entry';
+  store.upsertSession({ sessionId: id, conversationSource: 'mitzo', summary: 'Read marker' });
+  store.append(id, 'message_start', { messageId: 'reply' });
+  store.append(id, 'block_delta', {
+    messageId: 'reply',
+    blockType: 'text',
+    delta: 'Visible reply',
+  });
+  const seq = store.append(id, 'message_end', { messageId: 'reply' });
+  const state = await request(server).get(`/api/sessions/${id}/read-state`);
+  expect(state.status).toBe(200);
+  expect(state.body).toMatchObject({ latestReplySeq: seq, readReplySeq: 0, revision: 0 });
+  const marked = await request(server)
+    .put(`/api/sessions/${id}/read-state`)
+    .send({ readReplySeq: seq, expectedRevision: 0 });
+  expect(marked.status).toBe(200);
+  expect(marked.body).toMatchObject({ readReplySeq: seq, revision: 1 });
+  const listed = await request(server).get('/api/sessions');
+  expect(
+    listed.body.sessions.find((session: { id: string }) => session.id === id).replyReadState,
+  ).toMatchObject({ readReplySeq: seq, revision: 1 });
+  store.hideSession(id);
+  expect(
+    (
+      await request(server)
+        .put(`/api/sessions/${id}/read-state`)
+        .send({ markedUnread: true, expectedRevision: 1 })
+    ).status,
+  ).toBe(404);
+});
+
 it.each([false, true, 'unavailable'] as const)(
   'projects native presence for pre-runtime OpenAI metadata (%s) without inventing a runtime',
   async (presence) => {

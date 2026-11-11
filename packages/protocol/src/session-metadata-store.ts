@@ -1,5 +1,6 @@
 import { OrdinaryOpenShellCommandAdmissionSchema } from './ordinary-openshell-admission.js';
 import type Database from 'better-sqlite3';
+import { ConversationReadStore } from './conversation-read-state.js';
 import { z } from 'zod';
 import { createHash } from 'node:crypto';
 import { AgentLibraryVersionSchema } from './agent-library.js';
@@ -117,8 +118,11 @@ export interface SessionMetadataOwner {
 /** Borrows EventStore's connection and prepared statements. The owner retains
  * schema, migrations, backup and close; public hooks are resolved at call time. */
 export class SessionMetadataStore {
+  readonly reads: ConversationReadStore;
   private searchIndex?: SessionSearchIndex;
-  constructor(private readonly owner: SessionMetadataOwner) {}
+  constructor(private readonly owner: SessionMetadataOwner) {
+    this.reads = new ConversationReadStore(owner.database);
+  }
   close(): void {
     void this.closeSearchIndex();
   }

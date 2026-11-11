@@ -5,6 +5,8 @@ import { copyToClipboard } from '../lib/clipboard';
 import { HomePinButton } from './HomePinButton';
 import { UiIcon } from './UiIcon';
 import { recordTitle } from '../lib/record-title';
+import { useConversationReadState } from '../hooks/useConversationReadState';
+import { changeConversationReadState } from '../lib/conversation-read-state';
 export interface SessionActionsProps {
   session: Session;
   onOpen: () => void;
@@ -24,6 +26,9 @@ export function SessionActions({
   onDetails,
 }: SessionActionsProps) {
   const pins = useConversationPins();
+  const { state: readState, unread } = useConversationReadState(session.id, session.replyReadState);
+  const [readError, setReadError] = useState('');
+  const [savingRead, setSavingRead] = useState(false);
   const [copyStatus, setCopyStatus] = useState('');
   const pinned = pins.pins.some((pin) => pin.id === session.id);
   const role = menu ? 'menuitem' : undefined;
@@ -33,6 +38,33 @@ export function SessionActions({
         <UiIcon name="chats" />
         Open conversation
       </button>
+      <button
+        type="button"
+        role={role}
+        disabled={savingRead}
+        onClick={async () => {
+          setSavingRead(true);
+          setReadError('');
+          try {
+            await changeConversationReadState(
+              session.id,
+              unread ? { readReplySeq: readState!.latestReplySeq } : { markedUnread: true },
+              readState,
+            );
+            onClose?.();
+          } catch (cause) {
+            setReadError(
+              cause instanceof Error ? cause.message : 'Couldn’t save read status. Try again.',
+            );
+          } finally {
+            setSavingRead(false);
+          }
+        }}
+      >
+        <UiIcon name="chats" />
+        {savingRead ? 'Saving read status…' : unread ? 'Mark as read' : 'Mark as unread'}
+      </button>
+      {readError && <p role="alert">{readError}</p>}
       <button
         type="button"
         role={role}

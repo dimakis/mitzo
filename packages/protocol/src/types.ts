@@ -373,7 +373,15 @@ export interface SessionContextUsage {
   limits: ModelTokenLimits | null;
 }
 
+export interface ConversationReadState {
+  latestReplySeq: number;
+  readReplySeq: number;
+  markedUnread: boolean;
+  revision: number;
+}
+
 export interface Session {
+  replyReadState?: ConversationReadState;
   id: string;
   summary: string;
   /** Recorded model choice, never inferred from the engine or a global default. */
@@ -398,6 +406,7 @@ export type SessionActivityState = 'init' | 'working' | 'waiting' | 'done' | 'id
 export type WaitReason = 'permission' | 'review' | 'blocked';
 
 export interface SessionActivity {
+  replyReadState?: ConversationReadState;
   sessionId: string;
   clientId: string;
   title: string;
@@ -461,6 +470,7 @@ export interface StoredEvent {
 }
 
 export interface SessionSearchResult {
+  replyReadState?: ConversationReadState;
   sessionId: string;
   summary: string | null;
   model?: string;

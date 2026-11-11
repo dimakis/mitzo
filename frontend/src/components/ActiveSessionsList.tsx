@@ -1,9 +1,8 @@
 import { useSessionInteraction, type SessionActionPoint } from '../hooks/useSessionInteraction';
-import { UiIcon } from './UiIcon';
+import { ConversationUnreadDot } from './ConversationUnreadDot';
 import { SessionActivityStatus } from './SessionActivityStatus';
 import { useSessionOrdering } from '../hooks/useSessionOrder';
 import { MotionList } from './MotionList';
-import { sessionStatusIcons } from '../lib/status-icons';
 import { useCallback } from 'react';
 import { useSessionOverview, type SessionActivity } from '../hooks/useSessionOverview';
 
@@ -31,9 +30,14 @@ function ActivityCard({
       data-motion-key={activity.sessionId}
       {...(onActions ? handlers : { onClick: () => onTap(activity.sessionId) })}
     >
-      <span className="cc-card-icon">
-        <UiIcon name={sessionStatusIcons[activity.state]} />
-      </span>
+      <ConversationUnreadDot
+        session={{
+          id: activity.sessionId,
+          summary: activity.title,
+          lastModified: activity.lastEventAt,
+          replyReadState: activity.replyReadState,
+        }}
+      />
       <div className="cc-card-content">
         <div className="cc-card-title">{activity.title}</div>
         <div className="cc-card-meta">

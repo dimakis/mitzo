@@ -350,6 +350,7 @@ export class SessionOverviewEmitter {
     return {
       sessionId,
       clientId: session.clientId,
+      replyReadState: this.deps.eventStore.getSessionReadState?.(sessionId),
       title,
       model: session.model,
       accountLabel: session.accountLabel,
@@ -396,6 +397,7 @@ export class SessionOverviewEmitter {
 
     return {
       sessionId: meta.sessionId,
+      replyReadState: this.deps.eventStore.getSessionReadState?.(meta.sessionId),
       clientId: meta.sessionId, // No live clientId — use sessionId
       title,
       ...sessionModelIdentity(meta),

@@ -85,3 +85,29 @@ it('holds nested scrolling and keeps the list still while scrolled away from the
   tick(1000);
   expect(view.getByTestId('panel').dataset.held).toBe('false');
 });
+
+it('does not interrupt a promotion when Show latest is pressed repeatedly', () => {
+  const view = renderHook(({ activities }) => useSessionOrdering(rows, activities, true), {
+    initialProps: { activities: rows.map((s) => live(s.id, s.lastModified)) },
+  });
+  view.rerender({ activities: [live('a', 300), live('b', 500), live('c', 600)] });
+  act(() => view.result.current.showLatest());
+  act(() => view.result.current.showLatest());
+  expect(view.result.current.sessions.map((s) => s.id)).toEqual(['c', 'a', 'b']);
+});
+
+it('queues newly discovered conversations instead of inserting a burst above known rows', () => {
+  const view = renderHook(({ sessions }) => useSessionOrdering(sessions, [], false), {
+    initialProps: { sessions: rows },
+  });
+  view.rerender({
+    sessions: [
+      ...rows,
+      { id: 'd', summary: 'D', lastModified: 800 },
+      { id: 'e', summary: 'E', lastModified: 900 },
+    ],
+  });
+  expect(view.result.current.sessions.slice(0, 3).map((s) => s.id)).toEqual(['a', 'b', 'c']);
+  tick(600);
+  expect(view.result.current.sessions.map((s) => s.id)).toEqual(['e', 'a', 'b', 'c', 'd']);
+});

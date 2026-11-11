@@ -1,0 +1,52 @@
+# Conversation ordering and reply read state
+
+Dimitri requested these changes in the originating conversation on 11 November
+2026 after reporting that both the desktop sidebar and regular Chats list jumped
+while several sessions ran. He asked for slower, pronounced promotions, one at a
+time; finished jobs separated from active jobs; and read state since the latest
+reply, with Mark as unread in the existing session actions. He suggested using
+the presence-dot position for read state and asked about blue. The chosen UI
+uses a blue unread dot, an empty fixed gutter once read, and a stronger unread
+title; existing activity labels continue to describe execution.
+
+## Behavior
+
+- Each conversation promotion takes 1100ms using the shared reorder motion role.
+  Commits have a 2.5-second scheduling interval, so successive moves do not overlap.
+  Repeated activity coalesces by session. Newly discovered conversations use the
+  same queue. Tool traffic never establishes message freshness.
+- In progress precedes Finished. Completion moves through the queue rather than
+  leaving a finished row between running jobs. Sidebar and library use MotionList
+  to preserve the visible conversation and avoid remounting its controls.
+- Nested scroll events are captured. Hover, active scrolling, a viewport away
+  from the top, keyboard focus and action dialogs hold ordering. Show latest
+  applies the next update; repeated clicks cannot interrupt an ongoing movement.
+  Reduced motion removes movement while preserving ordering and browsing rules.
+- Completed visible assistant text establishes a durable reply sequence. Thinking,
+  tools, streaming text and saved metadata do not establish unread replies.
+  A visible open transcript acknowledges only the reply shown; looking at a
+  collection row does not. Another unseen reply remains unread.
+- Mark as unread and Mark as read share the existing right-click, long-press and
+  overflow actions. Manual unread survives status updates and remains until a
+  later visit or explicit read action. Server receipts and SSE updates reconcile
+  devices. Revisions fence concurrent changes; read metadata never changes recency.
+- Histories with no durable text/reply boundary have no invented reply cursor.
+  Existing retained replies with no read receipt start unread. Failed saves keep
+  the visible marker and show a retryable error in the owning control.
+
+## Verification
+
+The focused regression run passed 321 tests across 22 files, with one existing
+design test skipped. It includes the real EventStore, a database reopen,
+revision conflicts, the mounted HTTP list/read-state routes, hidden-session
+denial, sanitized database failures, menu save failures, visible/hidden-tab
+receipts, serialization, repeated Show latest, new-row bursts and nested scrolls.
+Frontend and server TypeScript compilation, the frontend production build,
+changed-file ESLint with zero warnings and source-artifact validation passed.
+
+The offline browser fixture covers read/unread actions and failure/retry on both
+surfaces, both themes and alternate appearance, alongside the existing gestures,
+motion, scrolling, reduced motion, preview and keyboard scenarios. Browser startup
+is currently blocked by macOS sandbox process-registration permission; actual
+rendered checks and capture inspection remain pending. No live model call,
+deployment or merge was performed.

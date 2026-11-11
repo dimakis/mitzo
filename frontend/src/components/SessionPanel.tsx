@@ -1,6 +1,7 @@
 import { useCallback, useState, useRef } from 'react';
 import { useSessionOrdering } from '../hooks/useSessionOrder';
 import { MotionList } from './MotionList';
+import { ConversationUnreadDot } from './ConversationUnreadDot';
 import { useListBrowsing } from '../hooks/useListBrowsing';
 import { SessionActivityStatus } from './SessionActivityStatus';
 import { mergeSessionActivities } from '../lib/session-activity';
@@ -66,6 +67,7 @@ function SessionPanelRow({
         {...handlers}
         aria-current={active || undefined}
       >
+        <ConversationUnreadDot session={session} />
         <span className="session-panel-item-text">
           <span className="session-panel-item-summary">{title}</span>
           <span className="session-panel-item-meta">
@@ -138,6 +140,7 @@ export function SessionPanel({ activeSessionId, onSelectSession, onNewChat }: Se
         id: activity.sessionId,
         summary: activity.title,
         lastModified: activity.lastEventAt,
+        replyReadState: activity.replyReadState,
       },
       trigger,
       point,

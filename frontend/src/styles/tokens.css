@@ -15,6 +15,7 @@
   --accent-rose: #f3a6bf;
   --accent-amber: #eac080;
   --accent-blue: #91bfff;
+  --color-unread: var(--accent-blue);
   --accent-mint: #b2dea1;
   --accent-coral: #f6ad94;
   --accent-plum: #d6a6eb;

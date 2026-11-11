@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { SessionActivity } from '@mitzo/protocol';
 import type { Session } from '../types/chat';
 import { isSessionActivityActive } from '../lib/session-attention';
@@ -35,7 +35,10 @@ export function useSessionOrdering(
   paused: boolean,
   { grouped = false }: { grouped?: boolean } = {},
 ) {
-  const activityById = new Map(activities.map((activity) => [activity.sessionId, activity]));
+  const activityById = useMemo(
+    () => new Map(activities.map((activity) => [activity.sessionId, activity])),
+    [activities],
+  );
   const [ranks, setRanks] = useState(
     () => new Map(sessions.map((s) => [s.id, observedRank(s, activityById.get(s.id))])),
   );
@@ -57,6 +60,7 @@ export function useSessionOrdering(
   });
   const showLatest = useCallback(() => {
     const m = model.current;
+    if (Date.now() - m.lastCommit < MIN_REORDER_MS) return;
     clearTimeout(m.timer);
     m.timer = undefined;
     m.hydrationHeld = false;
@@ -92,9 +96,11 @@ export function useSessionOrdering(
     for (const session of sessions) {
       const group = conversationGroup(session, activityById.get(session.id));
       if (!m.groups.has(session.id)) {
-        m.groups = new Map(m.groups).set(session.id, group);
+        m.groups = new Map(m.groups).set(session.id, m.loaded ? 1 : group);
+        if (m.loaded && grouped) m.pendingGroups.set(session.id, group);
         setGroups(m.groups);
       } else if (grouped && m.groups.get(session.id) !== group) {
+        if (initialHydration && !m.observations.has(session.id) && m.loaded) m.hydrationHeld = true;
         m.pendingGroups.set(session.id, group);
         m.pending.set(
           session.id,
@@ -118,14 +124,14 @@ export function useSessionOrdering(
       // Newly discovered rows wait below the list during an interaction.
       m.ranks.set(
         session.id,
-        paused && m.loaded
+        m.loaded
           ? -Infinity
           : observedRank(
               session,
               activities.find((activity) => activity.sessionId === session.id),
             ),
       );
-      if (paused && m.loaded) m.pending.set(session.id, session.lastModified);
+      if (m.loaded) m.pending.set(session.id, observedRank(session, activityById.get(session.id)));
     }
     if (seeded) setRanks(m.ranks);
     if (sessions.length) m.loaded = true;
@@ -179,7 +185,7 @@ export function useSessionOrdering(
         Math.max(BATCH_MS, MIN_REORDER_MS - (Date.now() - m.lastCommit)),
       );
     }
-  }, [sessions, activities, paused, showLatest, ranks, grouped]);
+  }, [sessions, activities, paused, showLatest, ranks, grouped, activityById]);
 
   useEffect(
     () => () => {
@@ -191,8 +197,10 @@ export function useSessionOrdering(
   const ordered = [...sessions].sort(
     (a, b) =>
       (grouped ? (groups.get(a.id) ?? 1) - (groups.get(b.id) ?? 1) : 0) ||
-      (ranks.get(b.id) ?? (paused ? -Infinity : observedRank(b, activityById.get(b.id)))) -
-        (ranks.get(a.id) ?? (paused ? -Infinity : observedRank(a, activityById.get(a.id)))) ||
+      (ranks.get(b.id) ??
+        (model.current.loaded ? -Infinity : observedRank(b, activityById.get(b.id)))) -
+        (ranks.get(a.id) ??
+          (model.current.loaded ? -Infinity : observedRank(a, activityById.get(a.id)))) ||
       a.id.localeCompare(b.id),
   );
   return { sessions: ordered, groups, pendingCount, showLatest };

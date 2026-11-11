@@ -21,6 +21,7 @@ import { formatRelativeTime } from '../lib/formatTime';
 import '../styles/chat-drafts.css';
 import type { Session } from '../types/chat';
 import { SessionActivityStatus } from '../components/SessionActivityStatus';
+import { ConversationUnreadDot } from '../components/ConversationUnreadDot';
 import { useLongPress } from '../hooks/useLongPress';
 import { computeSwipeState, REVEAL_WIDTH } from '../lib/swipe-reveal';
 import { selectionChanged } from '../lib/haptics';
@@ -253,13 +254,7 @@ function SwipeableSession({
           showPreview({ x: event.clientX, y: event.clientY });
         }}
       >
-        {session.isActive && session.isAttached != null && (
-          <span
-            className={`session-status-dot ${session.isAttached ? 'attached' : 'detached'}`}
-            role="status"
-            aria-label={session.isAttached ? 'Session active' : 'Session detached'}
-          />
-        )}
+        <ConversationUnreadDot session={session} />
         <div className="session-item-content">
           {editing ? (
             <input
@@ -460,6 +455,7 @@ export function SessionList() {
       lastModified: result.updatedAt,
       model: existing?.model ?? result.model,
       accountLabel: result.accountLabel ?? existing?.accountLabel,
+      replyReadState: result.replyReadState ?? existing?.replyReadState,
       snippet: result.snippet,
     };
   });

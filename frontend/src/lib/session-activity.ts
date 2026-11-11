@@ -15,6 +15,7 @@ export function mergeSessionActivities(
       summary: saved?.summary || a.title,
       model: a.model ?? saved?.model,
       accountLabel: saved?.accountLabel ?? a.accountLabel,
+      replyReadState: a.replyReadState ?? saved?.replyReadState,
       lastModified: saved?.lastModified ?? a.lastMessageAt ?? a.lastEventAt,
       isActive: isSessionActivityActive(a),
     });
