@@ -10,8 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.1047-symposium-visual-evidence';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.1048-participant-fixture-assets';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -32,7 +31,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../tests/fixtures/symposium-joining-review.tsx':
     '90efacc8370ff045b428535146c33285e75726ac65e5f2997a75eb3119366a7d',
   '../../tests/offline/symposium-joining-review.spec.ts':
-    '4aaa09dcd904460807d96eb03f2c2f0cd0da6863c823f50cc796bc87aa240573',
+    'a358613009c080cd19182eebae43bb62ebf79739ac4e8e0efee5598a1279f61d',
   '../__tests__/collaboration-application-claude.test.ts':
     '8b6d9f5b45d3a9b3046a859823227863b63388aa6323be8286e5680e9a872105',
   '../__tests__/ordinary-local-vertex-command-owner.test.ts':

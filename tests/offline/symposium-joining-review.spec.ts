@@ -1,10 +1,12 @@
 import { test, expect } from '@playwright/test';
 import { build } from 'esbuild';
 import { resolve } from 'node:path';
+import { readFile } from 'node:fs/promises';
 
 const bundle = build({
   entryPoints: [resolve('tests/fixtures/symposium-joining-review.tsx')],
   bundle: true,
+  external: ['/openai-mark.svg', '/claude-mark.svg'],
   write: false,
   outfile: '/tmp/mitzo-joining-review.js',
   jsx: 'automatic',
@@ -57,8 +59,13 @@ for (const theme of ['dark', 'light'])
       let preparations = 0;
       const errors: string[] = [];
       page.on('pageerror', (error) => errors.push(error.message));
-      await page.route('**/*', (route) => {
+      await page.route('**/*', async (route) => {
         const path = new URL(route.request().url()).pathname;
+        if (['/openai-mark.svg', '/claude-mark.svg'].includes(path))
+          return route.fulfill({
+            body: await readFile(resolve('frontend/public', path.slice(1))),
+            contentType: 'image/svg+xml',
+          });
         if (path === '/api/auth/check')
           return route.fulfill({ json: { ok: true, authSessionId: 'offline-participant-login' } });
         if (path === '/api/chat/runtime/capabilities') return route.fulfill({ json: inventory });
@@ -147,10 +154,15 @@ for (const theme of ['dark', 'light']) {
     let renderedLogin = 0;
     page.on('pageerror', (error) => errors.push(error.message));
     await page.routeWebSocket('**/*', (socket) => socket.close());
-    await page.route('**/*', (route) => {
+    await page.route('**/*', async (route) => {
       const url = new URL(route.request().url());
       if (url.hostname !== 'mitzo-ui.test' || route.request().method() !== 'GET')
         return route.abort();
+      if (['/openai-mark.svg', '/claude-mark.svg'].includes(url.pathname))
+        return route.fulfill({
+          body: await readFile(resolve('frontend/public', url.pathname.slice(1))),
+          contentType: 'image/svg+xml',
+        });
       // Each presentation case has its own verified fixture login. Durable
       // same-login reload recovery is exercised by the actual recovery owner tests.
       if (url.pathname === '/api/auth/check')
