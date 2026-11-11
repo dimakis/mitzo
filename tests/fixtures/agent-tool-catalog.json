@@ -594,6 +594,17 @@
     "requirement": "Requires the current authenticated operator and original tool selection; brief and lifecycle mutations use exact request approval. Browsing and maintenance require no lead assignment."
   },
   {
+    "id": "mitzo:TelosCreateFeature",
+    "version": 1,
+    "name": "TelosCreateFeature",
+    "description": "Create one standalone feature item with a complete brief and observable acceptance criteria. Use this for a single feature without inventing an outcome wrapper or milestones. Search existing work first. Supply a unique requestId and audit note; requires exact approval. Retry uncertainty with identical input and ID. Saves canonical backlog work and originating-chat provenance only; source attachment, reviewed working-session setup, assignment and execution remain separate.",
+    "source": "Telos",
+    "required": false,
+    "behavior": "write",
+    "routes": ["codex-owned-local"],
+    "requirement": "Requires the current authenticated operator and original tool selection; brief and lifecycle mutations use exact request approval. Browsing and maintenance require no lead assignment."
+  },
+  {
     "id": "mitzo:TelosSaveArtifact",
     "version": 1,
     "name": "TelosSaveArtifact",

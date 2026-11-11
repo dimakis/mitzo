@@ -4054,6 +4054,7 @@ async function openCodexChatBound(
                 input,
               ),
             name !== 'TelosCreateChild' &&
+              name !== 'TelosCreateFeature' &&
               (name !== 'TelosManageItem' || input.operation === 'read'),
           );
         } finally {
