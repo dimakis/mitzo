@@ -432,6 +432,9 @@ export function createCodexNativeApprovalHandler(options: {
           : {}),
         nativeApproval: {
           expiresAt,
+          onExpiry: () => {
+            expiryObserved = true;
+          },
           allowSessionScope:
             request.method === 'item/permissions/requestApproval' || sessionGrantKey !== undefined,
           sessionGrantKey,

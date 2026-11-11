@@ -244,6 +244,8 @@ export function buildPermissionHandler(
         assertCurrentSync(): void;
         /** Original adapter deadline; creating a card must not renew it. */
         readonly expiresAt?: number;
+        /** Retain this owner's observed timeout even if another timer or clock lags. */
+        readonly onExpiry?: () => void;
         allowSessionScope?: boolean;
         /** Adapter-owned exact scope. Absent when the provider retains its own grant. */
         sessionGrantKey?: string;
@@ -264,6 +266,7 @@ export function buildPermissionHandler(
     const nativeApproval = opts.nativeApproval;
     const nativeApprovalAssertion = nativeApproval?.assertCurrentSync;
     const nativeExpiresAt = nativeApproval?.expiresAt;
+    const onNativeExpiry = nativeApproval?.onExpiry;
     const nativeSessionGrantKey =
       nativeApproval?.allowSessionScope === true && nativeApproval.sessionGrantKey?.trim()
         ? nativeApproval.sessionGrantKey
@@ -752,6 +755,17 @@ export function buildPermissionHandler(
           if (hasPending(permId)) {
             resolutionEvent = 'permission_timeout';
             removePending(permId);
+            try {
+              onNativeExpiry?.();
+            } catch (error) {
+              log.warn('Native approval expiry observation failed; approval remains refused', {
+                code: 'native_approval_expiry_observer_failed',
+                stage: 'permission_timeout',
+                sessionId: session.sessionId,
+                permId,
+                errorType: error instanceof Error ? error.name : 'non-Error',
+              });
+            }
             wrappedResolve({
               behavior: 'deny',
               message: 'Tool approval expired without a response; request approval again',

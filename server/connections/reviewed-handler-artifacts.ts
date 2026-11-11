@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.1039-claude-sdk-subscription-labels';
+  'v1.0.1040-claude-labels-approval-expiry';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -905,7 +905,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../native-project-instructions.ts':
     '21e00374db10075507c43f3cfb3898e20a18c2bf1035af0e26cdecfed0c33341',
   '../../packages/harness/__tests__/permission-handler.test.ts':
-    '3b0d96f17f8f6057f359294675d20527456237463eb99e4fd71e2295f227f3c2',
+    '4bda3cf486bed7afe1c2872398c391fcc7d8b10934d0053e1550ad8b84a8b22a',
   '../__tests__/trusted-native-operation.test.ts':
     '8c76b4e781930f2e680f63af469ba2ea9d8d2294e621706b2e63595d8422c495',
   '../codex-native-approval-scope.ts':
@@ -1572,7 +1572,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/codex-conversation.test.ts':
     'e099c15fdfac002a5a5f163ac9f4d95c89c995cf6bd88699fb38632bc5d6e536',
   '../__tests__/codex-native-approvals.test.ts':
-    '289e63cb3e656e841951829d9a63e0357c09b1a2298e947f18a3f90e77443857',
+    '86de91c1c0ab39c372e9da1d27bf6560b119080cf8f4bb76dc20d08039a56b7d',
   '../__tests__/codex-native-artifact-qualification.test.ts':
     'bf39b31337d0714faac6d73f3b96aa99e8e960f39a54e81f1429699890d7cd05',
   '../__tests__/codex-native-execution-policy.test.ts':
@@ -1596,7 +1596,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/owned-local-codex-native-unqualified.test.ts':
     'a472401aa366f081b91fd99d4d52939375076a88365570a2413ad39354a7e762',
   '../codex-native-approvals.ts':
-    '6eb6e1327c5a185735f759c0b83b80751c40837c363a35ebd8a0458b2420aab8',
+    '42221bf5ca99508d51937a70ffdd6cdf3163d323ecbfab4f0ff37092c6258001',
   '../codex-native-artifact-qualification.ts':
     'cd4f2f9c4913c2e7002a31f8035b0b8c102831d9d380971582344ba46bf86679',
   '../codex-native-execution-policy.ts':
@@ -2299,7 +2299,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/client/src/store.ts':
     'cc79b091161db6d4c150353b822f5035143606c609d769ca632aa6a79b484207',
   '../../packages/harness/src/permission-handler.ts':
-    '590489b260fb6e01da99d1e765791f07832d281b7430e76cc2e387ffdd28f28f',
+    'f6ac825d647bda10a439c3ad80ad5da4baa3258dbf02b20a464894a25b31d4d8',
   '../../packages/harness/src/permissions.ts':
     '6aabd48e3db7fad06a90ca13693485bb7955272ab846bd68cc5da2be4b4c22fe',
   '../../packages/protocol/src/session-approval-scope.ts':

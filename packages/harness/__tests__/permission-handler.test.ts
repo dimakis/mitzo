@@ -22,6 +22,43 @@ function fakeTransport(): SessionTransport & { sent: Record<string, unknown>[] }
 }
 
 describe('buildPermissionHandler', () => {
+  it.each([false, true])(
+    'refuses expired native approval when its observer throws: %s',
+    async (throws) => {
+      vi.useFakeTimers();
+      const registry = new SessionRegistry();
+      registry.register('expiry-client', {
+        transport: fakeTransport(),
+        abortController: new AbortController(),
+        mode: 'agent',
+        sessionId: 'expiry-session',
+      });
+      let pendingDuringExpiry: ReturnType<typeof getPendingRequestsBySession> | undefined;
+      const onExpiry = vi.fn(() => {
+        pendingDuringExpiry = getPendingRequestsBySession('expiry-session');
+        if (throws) throw Error('observer unavailable');
+      });
+      try {
+        const pending = buildPermissionHandler('expiry-client', registry)(
+          'NativeCommandApproval',
+          {},
+          {
+            signal: new AbortController().signal,
+            toolUseID: 'expiry-rpc',
+            nativeApproval: { assertCurrentSync() {}, expiresAt: Date.now() + 20, onExpiry },
+          },
+        );
+        await vi.advanceTimersByTimeAsync(20);
+        expect(await pending).toMatchObject({ behavior: 'deny' });
+        expect(onExpiry).toHaveBeenCalledOnce();
+        expect(pendingDuringExpiry).toEqual([]);
+        expect(getPendingRequestsBySession('expiry-session')).toEqual([]);
+      } finally {
+        registry.dispose();
+        vi.useRealTimers();
+      }
+    },
+  );
   it('rechecks a skill restriction installed while retained native consent awaits workspace policy', async () => {
     const registry = new SessionRegistry();
     registry.register('native-client', {
