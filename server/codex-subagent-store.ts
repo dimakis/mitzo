@@ -93,10 +93,13 @@ export class CodexSubagentStore {
       .get();
   }
   /** Unqualified retained child activity blocks a deployment, including cold unknown trees. */
-  unsettledConversationIds(): string[] {
+  unsettledConversationIds(conversationId?: string): string[] {
+    const args = conversationId === undefined ? [] : [z.string().min(1).parse(conversationId)];
     const rows = this.db
-      .prepare('SELECT conversation_id,data FROM codex_subagents')
-      .all() as Array<{ conversation_id: string; data: string }>;
+      .prepare(
+        `SELECT conversation_id,data FROM codex_subagents${args.length ? ' WHERE conversation_id=?' : ''}`,
+      )
+      .all(...args) as Array<{ conversation_id: string; data: string }>;
     const unsettled = new Set(
       rows
         .filter(
@@ -112,8 +115,9 @@ export class CodexSubagentStore {
     const effects = this.db.prepare(`SELECT e.conversation_id,e.identity,e.result,
       ${this.hasEffectOutcomeTable ? 'o.receipt_digest,o.outcome' : 'NULL AS receipt_digest,NULL AS outcome'}
       FROM codex_subagent_effects e ${this.effectOutcomeJoin()}
-      WHERE e.result IS NULL OR e.result='"uncertain"' OR e.effect_id LIKE 'tool:%'`);
-    for (const row of effects.iterate() as Iterable<{
+      WHERE (e.result IS NULL OR e.result='"uncertain"' OR e.effect_id LIKE 'tool:%')
+      ${args.length ? 'AND e.conversation_id=?' : ''}`);
+    for (const row of effects.iterate(...args) as Iterable<{
       conversation_id: string;
       identity: string;
       result: string | null;

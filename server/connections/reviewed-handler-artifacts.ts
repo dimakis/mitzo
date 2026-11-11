@@ -10,8 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.1056-provider-context-revision';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.1057-context-quiescence';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -467,7 +466,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/protocol/src/tool-failure.ts':
     '1224926b1b374af0789a5258fd48e125c67e55c9b213d788a4f5cd1c8568e049',
   '../__tests__/codex-conversation-store.test.ts':
-    '68002bc49da05515a774c2aac11df77aa49cd7a5160bd1d75334c5502a6b0a7a',
+    'f992e5eba2d29174bde1c2812745906fdf2fff2494f5a44f51fc35faadee95f2',
   '../task-execution-failure.ts':
     'a98a54cfbf0f7fd20e97588e60f940e74eb236db733baf0ec1da99c4c41d1df6',
   '../tool-failure-continuation.ts':
@@ -833,7 +832,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/codex-subagents.test.ts':
     '75ad904ff58b4c1e14a808b51a223a0d4015304377c7c40f860e75d65b8da3c9',
   '../codex-subagent-routes.ts': '941f0a93f074d2a255b7cccbb4610ceb557f6d8c274c5d21b958df63f2acbef2',
-  '../codex-subagent-store.ts': 'b98446af0295c7ade03436b380dff2f4acc4ceab7c002caeda9c64d101cc38ed',
+  '../codex-subagent-store.ts': '51effc10c994439fa2d742b3e331eab6141d8672cf338786df4f1b0a88348762',
   '../codex-subagents.ts': 'a81209648e171e737481f7373aaf1e400f367105dce914e42a25d7003e80f878',
   '../__tests__/notification-routes.test.ts':
     'b286b89488ddfccc23f953a46795fd227ebdee8f74d3c4752fe303aae27b374d',
@@ -2453,7 +2452,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../agent-context-sandbox.ts': '8b61edc17ccc94bc95eae3796e68a0beb9540534e3bfbb348a04154c41995416',
   '../codex-conversation.ts': 'bb6251232ec5fe277404a7cb4fd39f864b32b2e2f50ba5981756b0572b5dae34',
   '../codex-conversation-store.ts':
-    '275bf9d6caaa71b2ba3db742e7dbeb92db14f94b4eaae6b232b32b8d3a3192f1',
+    '5bd2d75dbf12ea377f86db0ef5360004bc1da27493fa3c38cd772c445b798ff6',
   '../symposium-custodian-ipc.ts':
     '8dcbf6aefbf29742b2828b7e8ca657aa294e8ee9601f52422ada469fac1731cc',
   '../symposium-custodian-authority.ts':

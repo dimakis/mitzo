@@ -27,6 +27,157 @@ function setup() {
   return { path: join(root, 'private.db'), root };
 }
 
+it.each([
+  'idle',
+  'queued',
+  'running',
+  'recovery',
+  'tool',
+  'unknown_tool',
+  'legacy_tool',
+  'invalid_tool',
+  'dispatch',
+  'ownership',
+  'steering_claimed',
+  'steering_uncertain',
+  'steering_accepted',
+  'steering_rejected',
+  'child',
+  'child_control',
+  'foreign_child',
+] as const)(
+  'observes context-transition quiescence without changing retained work (%s)',
+  (scenario) => {
+    const { path } = setup();
+    let store = new CodexConversationStore(path);
+    store.create('chat', binding, '/task');
+    store.bindThread('chat', binding, 'thread');
+    store.enqueue('chat', binding, { id: 'original', prompt: 'Completed discussion' });
+    const command = store.claimNext('chat', binding)!;
+    const tool = { turnId: 'turn', toolName: 'Read', requestHash: 'a'.repeat(64) };
+    if (['tool', 'unknown_tool', 'legacy_tool', 'invalid_tool'].includes(scenario))
+      store.claimTool('chat', binding, command.id, 'call', tool);
+    if (['unknown_tool', 'legacy_tool', 'invalid_tool'].includes(scenario))
+      store.recordToolResult(
+        'chat',
+        binding,
+        command.id,
+        'call',
+        tool,
+        retainCallbackOutcome(
+          {
+            content: 'Unqualified result',
+            isError: false,
+          },
+          'unknown',
+        ),
+      );
+    if (scenario === 'dispatch' || scenario === 'ownership')
+      store.beginThreadReplacementDispatch('chat', binding, 'thread', 'replacement', command);
+    if (scenario === 'ownership')
+      store.acceptThreadReplacement(
+        'chat',
+        binding,
+        'thread',
+        'replacement',
+        command,
+        'revision',
+        undefined,
+        'tool_surface_change',
+        'turn',
+      );
+    if (scenario.startsWith('steering_')) {
+      store.recordNativeTurnAck('chat', binding, command, 'thread', 'turn');
+      const input = { requestId: 'correction', targetCommandId: command.id, text: 'Correction' };
+      expect(
+        store.claimSteering(
+          'chat',
+          binding,
+          input,
+          store.nativeTurnTarget('chat', binding, command.id, command.attempt)!,
+        ),
+      ).toBe(true);
+      if (scenario !== 'steering_claimed')
+        store.settleSteering(
+          'chat',
+          binding,
+          input,
+          scenario === 'steering_accepted'
+            ? 'accepted'
+            : scenario === 'steering_rejected'
+              ? 'rejected'
+              : 'uncertain',
+        );
+    }
+    if (scenario === 'recovery') store.pauseForRecovery('chat', binding, command.id);
+    else if (scenario !== 'running') store.finish('chat', binding, command.id, 'completed');
+    if (scenario === 'queued') store.enqueue('chat', binding, { id: 'next', prompt: 'Next' });
+    if (['child', 'child_control', 'foreign_child'].includes(scenario)) {
+      const scope = {
+        conversationId: scenario === 'foreign_child' ? 'other' : 'chat',
+        bindingRevision: 'retained-binding',
+      };
+      store.subagents.save(scope, {
+        threadId: 'child',
+        rootThreadId: 'thread',
+        parentThreadId: 'thread',
+        commandId: command.id,
+        policyRevision: 'policy',
+        name: 'Review',
+        task: 'Review',
+        model: 'fixture',
+        state: scenario === 'child_control' ? 'completed' : 'working',
+        blocks: [],
+        revision: 1,
+      });
+      if (scenario === 'child_control')
+        store.subagents.claimControl(scope, {
+          requestId: 'uncertain-message',
+          threadId: 'child',
+          action: 'message',
+          text: 'Continue',
+        });
+    }
+    store.close();
+    store = new CodexConversationStore(path);
+    const db = new Database(path);
+    try {
+      if (scenario === 'legacy_tool' || scenario === 'invalid_tool')
+        db.prepare('UPDATE codex_tools SET result_effect_outcome=? WHERE conversation_id=?').run(
+          scenario === 'legacy_tool' ? null : 'invalid',
+          'chat',
+        );
+      const before = db.serialize();
+      const check = () => store.assertContextTransitionQuiescent('chat', binding, '/task');
+      if (['idle', 'foreign_child', 'steering_accepted', 'steering_rejected'].includes(scenario))
+        expect(check).not.toThrow();
+      else expect(check).toThrow();
+      expect(() => store.assertContextTransitionQuiescent('chat', binding, '/other')).toThrow();
+      expect(() =>
+        store.assertContextTransitionQuiescent('chat', { ...binding, accountId: 'other' }, '/task'),
+      ).toThrow();
+      expect(db.serialize()).toEqual(before);
+    } finally {
+      db.close();
+      store.close();
+    }
+  },
+);
+
+it('refuses unacknowledged startup during context quiescence without rejecting acknowledged history', () => {
+  const { path } = setup();
+  const store = new CodexConversationStore(path);
+  try {
+    store.reserveStartup('chat', binding, '/task');
+    store.markStartupProviderInitializing('chat', binding);
+    expect(() => store.assertContextTransitionQuiescent('chat', binding, '/task')).toThrow();
+    store.bindThread('chat', binding, 'acknowledged');
+    expect(() => store.assertContextTransitionQuiescent('chat', binding, '/task')).not.toThrow();
+  } finally {
+    store.close();
+  }
+});
+
 it('checks the actual FIFO selection inside the native claim transaction', () => {
   const { path } = setup();
   const store = new CodexConversationStore(path);
