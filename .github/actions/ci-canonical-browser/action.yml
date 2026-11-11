@@ -15,12 +15,7 @@ runs:
         echo "S9_MGMT_PYTHON=$RUNNER_TEMP/telos-s9-python/bin/python" >> "$GITHUB_ENV"
     - name: Prefer HTTPS Ubuntu mirrors for browser dependencies
       if: runner.os == 'Linux'
-      shell: bash
-      run: |
-        sudo sed -i '\|^http://azure\.archive\.ubuntu\.com/ubuntu/|d' /etc/apt/apt-mirrors.txt
-        grep -Fq 'https://archive.ubuntu.com/ubuntu/' /etc/apt/apt-mirrors.txt
-        grep -Fq 'https://security.ubuntu.com/ubuntu/' /etc/apt/apt-mirrors.txt
-        apt-config dump Acquire::Retries Acquire::http::Timeout Acquire::https::Timeout
+      uses: ./.github/actions/ci-ubuntu-mirrors
     - shell: bash
       run: |
         if [[ "$RUNNER_OS" == Linux ]]; then
