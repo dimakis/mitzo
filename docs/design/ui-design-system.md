@@ -1397,6 +1397,16 @@ WebKit ignores their minimum height; offline geometry checks require 44px target
 
 ## Session library and context summaries
 
+On 11 November 2026 Dimitri requested slower, pronounced promotions, one at a
+time, across Chats and its sidebar, and separation of finished jobs from active
+work. The shared ordering queue now commits one conversation per 2.5-second
+scheduling interval, using the 1100ms shared reorder motion role. In progress
+precedes Finished; completions move through the same queue. Captured nested
+scroll events, a scrolled-away viewport, mouse hover, keyboard focus and action
+dialogs hold ordering. Both views preserve their visible row through MotionList;
+Show latest applies the next held update. Reduced motion retains the order and
+browsing policy while removing animated movement. Existing controls remain.
+
 Activity additions use shared `SessionActivityStatus` and `ActivityBars` in the
 existing collection, search, pins, preview and sidebar. Open chat enriches the
 approved single composer-status row. Explicit elapsed/waiting/completion labels

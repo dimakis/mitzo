@@ -441,9 +441,10 @@ export function SessionList() {
   const combined = mergeSessionActivities(sessions, activities);
   const {
     sessions: all,
+    groups,
     pendingCount,
     showLatest,
-  } = useSessionOrdering([...combined.values()], activities, paused);
+  } = useSessionOrdering([...combined.values()], activities, paused, { grouped: true });
   const active = all.filter((s) => s.isActive);
   const attention = all.filter((s) => {
     const activity = byId.get(s.id);
@@ -750,7 +751,15 @@ export function SessionList() {
                 </p>
               )}
               <MotionList className="session-list">
-                {visible.map((s) => (
+                {visible.flatMap((s, index) => [
+                  ...(filter === 'all' &&
+                  (index === 0 || groups.get(s.id) !== groups.get(visible[index - 1].id))
+                    ? [
+                        <h2 key={`group-${groups.get(s.id)}`} className="session-list-group-title">
+                          {groups.get(s.id) === 0 ? 'In progress' : 'Finished'}
+                        </h2>,
+                      ]
+                    : []),
                   <SwipeableSession
                     key={s.id}
                     session={s}
@@ -764,8 +773,8 @@ export function SessionList() {
                     onClick={openSession}
                     onRename={handleRename}
                     onInteractionChange={onInteractionChange}
-                  />
-                ))}
+                  />,
+                ])}
               </MotionList>
               {hasMore && filter === 'all' && (
                 <button className="session-load-more" onClick={loadMore} disabled={loadingMore}>

@@ -2,7 +2,7 @@ import { Component, createRef, type ReactElement } from 'react';
 import { animateMotion } from '../lib/motion';
 import { useReducedMotion } from '../hooks/useReducedMotion';
 
-type Props = { children: ReactElement[]; className?: string };
+type Props = { children: ReactElement[]; className?: string; scrollSelector?: string };
 type Snapshot = {
   positions: Map<string, number>;
   anchor?: { key: string; top: number };
@@ -27,7 +27,7 @@ class MovingRows extends Component<Props & { reduced: boolean }, object, Snapsho
       return null;
     const root = this.root.current;
     if (!root) return null;
-    const scroller = root.closest<HTMLElement>('.session-list-scroll');
+    const scroller = root.closest<HTMLElement>(this.props.scrollSelector ?? '.session-list-scroll');
     const snapshot: Snapshot = { positions: new Map(), scroller };
     const viewport = scroller?.getBoundingClientRect();
     for (const child of root.children) {

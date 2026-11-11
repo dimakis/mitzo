@@ -1,6 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { SessionActivity } from '@mitzo/protocol';
 import type { Session } from '../types/chat';
+import { isSessionActivityActive } from '../lib/session-attention';
+
+export function conversationGroup(session: Session, activity?: SessionActivity) {
+  return (activity ? isSessionActivityActive(activity) : session.isActive) ? 0 : 1;
+}
 
 // Scheduling policy, independent of animation timing. Bounded batches cannot be
 // starved by continuous tool output, and successive batches have a cooldown.
@@ -28,14 +33,20 @@ export function useSessionOrdering(
   sessions: Session[],
   activities: SessionActivity[],
   paused: boolean,
+  { grouped = false }: { grouped?: boolean } = {},
 ) {
   const activityById = new Map(activities.map((activity) => [activity.sessionId, activity]));
   const [ranks, setRanks] = useState(
     () => new Map(sessions.map((s) => [s.id, observedRank(s, activityById.get(s.id))])),
   );
   const [pendingCount, setPendingCount] = useState(0);
+  const [groups, setGroups] = useState(
+    () => new Map(sessions.map((s) => [s.id, conversationGroup(s, activityById.get(s.id))])),
+  );
   const model = useRef({
     ranks,
+    groups,
+    pendingGroups: new Map<string, number>(),
     observations: new Map(activities.map((activity) => [activity.sessionId, activity])),
     pending: new Map<string, number>(),
     timer: undefined as ReturnType<typeof setTimeout> | undefined,
@@ -51,11 +62,19 @@ export function useSessionOrdering(
     m.hydrationHeld = false;
     if (!m.pending.size) return;
     m.ranks = new Map(m.ranks);
-    for (const [id, time] of m.pending) m.ranks.set(id, Math.max(time, m.ranks.get(id) ?? 0));
-    m.pending.clear();
+    // One promotion per movement, including explicit Show latest. Repeated
+    // observations coalesce by session rather than building an animation backlog.
+    const [id, time] = [...m.pending].sort((a, b) => b[1] - a[1])[0];
+    m.ranks.set(id, Math.max(time, m.ranks.get(id) ?? 0));
+    m.pending.delete(id);
+    if (m.pendingGroups.has(id)) {
+      m.groups = new Map(m.groups).set(id, m.pendingGroups.get(id)!);
+      m.pendingGroups.delete(id);
+      setGroups(m.groups);
+    }
     m.lastCommit = Date.now();
     setRanks(m.ranks);
-    setPendingCount(0);
+    setPendingCount(m.pending.size);
   }, []);
 
   useEffect(() => {
@@ -64,7 +83,27 @@ export function useSessionOrdering(
     const seededIds = new Set<string>();
     const initialHydration = !m.hydrated && activities.length > 0;
     const liveIds = new Set(activities.map((a) => a.sessionId));
+    const presentIds = new Set(sessions.map((s) => s.id));
+    for (const id of m.pending.keys())
+      if (!presentIds.has(id)) {
+        m.pending.delete(id);
+        m.pendingGroups.delete(id);
+      }
     for (const session of sessions) {
+      const group = conversationGroup(session, activityById.get(session.id));
+      if (!m.groups.has(session.id)) {
+        m.groups = new Map(m.groups).set(session.id, group);
+        setGroups(m.groups);
+      } else if (grouped && m.groups.get(session.id) !== group) {
+        m.pendingGroups.set(session.id, group);
+        m.pending.set(
+          session.id,
+          Math.max(
+            observedRank(session, activityById.get(session.id)),
+            m.pending.get(session.id) ?? 0,
+          ),
+        );
+      } else m.pendingGroups.delete(session.id);
       if (m.ranks.has(session.id)) {
         // Saved refresh is authoritative when no live projection is available.
         // A live tool signal must never leak into this fallback clock.
@@ -140,7 +179,7 @@ export function useSessionOrdering(
         Math.max(BATCH_MS, MIN_REORDER_MS - (Date.now() - m.lastCommit)),
       );
     }
-  }, [sessions, activities, paused, showLatest]);
+  }, [sessions, activities, paused, showLatest, ranks, grouped]);
 
   useEffect(
     () => () => {
@@ -151,9 +190,10 @@ export function useSessionOrdering(
   );
   const ordered = [...sessions].sort(
     (a, b) =>
+      (grouped ? (groups.get(a.id) ?? 1) - (groups.get(b.id) ?? 1) : 0) ||
       (ranks.get(b.id) ?? (paused ? -Infinity : observedRank(b, activityById.get(b.id)))) -
         (ranks.get(a.id) ?? (paused ? -Infinity : observedRank(a, activityById.get(a.id)))) ||
       a.id.localeCompare(b.id),
   );
-  return { sessions: ordered, pendingCount, showLatest };
+  return { sessions: ordered, groups, pendingCount, showLatest };
 }

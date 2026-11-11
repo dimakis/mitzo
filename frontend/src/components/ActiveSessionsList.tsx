@@ -1,7 +1,8 @@
 import { useSessionInteraction, type SessionActionPoint } from '../hooks/useSessionInteraction';
 import { UiIcon } from './UiIcon';
 import { SessionActivityStatus } from './SessionActivityStatus';
-import { useSessionOrder } from '../hooks/useSessionOrder';
+import { useSessionOrdering } from '../hooks/useSessionOrder';
+import { MotionList } from './MotionList';
 import { sessionStatusIcons } from '../lib/status-icons';
 import { useCallback } from 'react';
 import { useSessionOverview, type SessionActivity } from '../hooks/useSessionOverview';
@@ -27,6 +28,7 @@ function ActivityCard({
   return (
     <button
       className={`cc-card cc-card--${activity.state}${isActive ? ' cc-card--current' : ''}`}
+      data-motion-key={activity.sessionId}
       {...(onActions ? handlers : { onClick: () => onTap(activity.sessionId) })}
     >
       <span className="cc-card-icon">
@@ -63,7 +65,7 @@ export function ActiveSessionsList({
 
   const display = connected === false ? lastKnownActivities : activities;
   const byId = new Map(display.map((a) => [a.sessionId, a]));
-  const ordered = useSessionOrder(
+  const { sessions: ordered, groups } = useSessionOrdering(
     display.map((a) => ({
       id: a.sessionId,
       summary: a.title,
@@ -71,6 +73,7 @@ export function ActiveSessionsList({
     })),
     activities,
     paused || connected === false,
+    { grouped: true },
   );
   const visible = ordered
     .map((s) => byId.get(s.id)!)
@@ -94,16 +97,25 @@ export function ActiveSessionsList({
           {attendCount} need{attendCount === 1 ? 's' : ''} attention
         </div>
       )}
-      {visible.map((a) => (
-        <ActivityCard
-          key={a.sessionId}
-          activity={a}
-          isActive={a.sessionId === activeSessionId}
-          onTap={handleTap}
-          onActions={onActions}
-          connected={connected}
-        />
-      ))}
+      <MotionList className="active-session-rows" scrollSelector=".active-sessions-list">
+        {visible.flatMap((a, index) => [
+          ...(index === 0 || groups.get(a.sessionId) !== groups.get(visible[index - 1].sessionId)
+            ? [
+                <h2 key={`group-${groups.get(a.sessionId)}`} className="session-list-group-title">
+                  {groups.get(a.sessionId) === 0 ? 'In progress' : 'Finished'}
+                </h2>,
+              ]
+            : []),
+          <ActivityCard
+            key={a.sessionId}
+            activity={a}
+            isActive={a.sessionId === activeSessionId}
+            onTap={handleTap}
+            onActions={onActions}
+            connected={connected}
+          />,
+        ])}
+      </MotionList>
     </div>
   );
 }

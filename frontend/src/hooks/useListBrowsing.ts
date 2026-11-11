@@ -8,6 +8,8 @@ export function useListBrowsing(ref: RefObject<HTMLElement | null>, blocked: boo
     if (!element) return;
     let timer: ReturnType<typeof setTimeout> | undefined;
     const pointers = new Set<number>();
+    const scrolled = new Set<HTMLElement>();
+    let hovering = false;
     let touching = false,
       keyboard = false;
     const focused = () =>
@@ -20,11 +22,28 @@ export function useListBrowsing(ref: RefObject<HTMLElement | null>, blocked: boo
     const release = () => {
       clearTimeout(timer);
       timer = setTimeout(() => {
-        if (!pointers.size && !touching && !focused()) setBrowsing(false);
+        if (!pointers.size && !touching && !focused() && !hovering && !scrolled.size)
+          setBrowsing(false);
       }, 1000);
     };
     const browse = () => {
       hold();
+      release();
+    };
+    const scroll = (event: Event) => {
+      if (event.target instanceof HTMLElement) {
+        if (event.target.scrollTop > 1) scrolled.add(event.target);
+        else scrolled.delete(event.target);
+      }
+      browse();
+    };
+    const enter = (event: PointerEvent) => {
+      if (event.pointerType !== 'mouse') return;
+      hovering = true;
+      hold();
+    };
+    const leave = () => {
+      hovering = false;
       release();
     };
     const down = (event: PointerEvent) => {
@@ -62,7 +81,10 @@ export function useListBrowsing(ref: RefObject<HTMLElement | null>, blocked: boo
       keyboard = false;
       release();
     };
-    element.addEventListener('scroll', browse, { passive: true });
+    // Element scroll events do not bubble. Capture nested sidebar scrollports.
+    element.addEventListener('scroll', scroll, { passive: true, capture: true });
+    element.addEventListener('pointerenter', enter);
+    element.addEventListener('pointerleave', leave);
     element.addEventListener('wheel', browse, { passive: true });
     element.addEventListener('pointerdown', down);
     element.addEventListener('touchstart', touchStart, { passive: true });
@@ -76,7 +98,9 @@ export function useListBrowsing(ref: RefObject<HTMLElement | null>, blocked: boo
     window.addEventListener('blur', blur);
     return () => {
       clearTimeout(timer);
-      element.removeEventListener('scroll', browse);
+      element.removeEventListener('scroll', scroll, true);
+      element.removeEventListener('pointerenter', enter);
+      element.removeEventListener('pointerleave', leave);
       element.removeEventListener('wheel', browse);
       element.removeEventListener('pointerdown', down);
       element.removeEventListener('touchstart', touchStart);

@@ -401,6 +401,14 @@
 .session-panel .active-sessions-list {
   min-height: 0;
   overflow-y: auto;
+  overflow-anchor: none;
+}
+.session-panel-list {
+  overflow-anchor: none;
+}
+.active-session-rows {
+  display: grid;
+  gap: var(--space-2);
 }
 @media (min-width: 768px) {
   .desktop-shell .workspace-page.conversation-library {
