@@ -68,7 +68,13 @@ describe('central notification delivery', () => {
           ...(index === 26
             ? {
                 questions: [
-                  { id: 'q', question: 'Which target?', options: [], multiSelect: false },
+                  {
+                    id: 'q',
+                    header: 'Target',
+                    question: 'Which target?',
+                    options: [],
+                    multiSelect: false,
+                  },
                 ],
               }
             : {}),
@@ -309,7 +315,13 @@ describe('central notification delivery', () => {
             ...(index === 2
               ? {
                   questions: [
-                    { id: 'q', question: 'Which target?', options: [], multiSelect: false },
+                    {
+                      id: 'q',
+                      header: 'Target',
+                      question: 'Which target?',
+                      options: [],
+                      multiSelect: false,
+                    },
                   ],
                 }
               : {}),
