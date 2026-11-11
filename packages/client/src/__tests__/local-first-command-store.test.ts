@@ -74,6 +74,7 @@ function setup(
   saved: string | null = null,
   sendHandoff?: import('../store.js').MitzoStoreOptions['sendHandoff'],
   flush?: () => Promise<void>,
+  readBlocked = false,
 ) {
   let raw: string | null = saved;
   let storageBlocked = false;
@@ -110,7 +111,10 @@ function setup(
     localFirstCommandConfig: {
       url: '/local/send',
       storage: {
-        getItem: () => raw,
+        getItem: () => {
+          if (readBlocked) throw Error('Storage unavailable');
+          return raw;
+        },
         setItem: (_: string, value: string) => {
           if (storageBlocked) throw Error('Synthetic device storage quota');
           raw = value;
@@ -128,6 +132,7 @@ function setup(
     },
     unblockStorage: () => {
       storageBlocked = false;
+      readBlocked = false;
     },
   };
 }
@@ -2708,4 +2713,20 @@ it('clears preparation only for the latest command cancellation and never revive
     seq: 8,
   });
   expect(store.getState().sendStatus).toBe('Preparing response…');
+});
+
+it('recovers blocked storage offline and admits a new command only after reconnect and an explicit send', async () => {
+  const { store, fetch, unblockStorage } = setup(null, undefined, undefined, true);
+  expect(store.getState().localCommand?.state).toBe('blocked');
+  expect(store.getState().sendError).toMatch(/Saved outgoing messages are unavailable/);
+  store.getState().selectLocalCommandDraft('fresh');
+  unblockStorage();
+  expect(store.getState().recoverLocalCommand()).toBe(true);
+  expect(store.getState().localCommand).toBeNull();
+  expect(store.getState().sendError).toBeNull();
+  expect(fetch).not.toHaveBeenCalled();
+  channel.id = 'reconnected';
+  expect(store.getState().sendLocalFirstCommand(request, { draftId: 'fresh' })).toBe(true);
+  await vi.waitFor(() => expect(store.getState().localCommand?.state).toBe('consumed'));
+  expect(fetch.mock.calls.filter(([url]) => url === '/local/send')).toHaveLength(1);
 });

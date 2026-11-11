@@ -1,3 +1,4 @@
+import { localCommandStatusMessage } from '@mitzo/client';
 import type { MessageReplyContext } from '@mitzo/protocol';
 import { SessionLaunchConfigSchema } from '@mitzo/protocol';
 import { SessionLaunchDefaultsControl } from '../components/SessionLaunchDefaultsControl';
@@ -1303,7 +1304,7 @@ function DesktopChatViewContent() {
                   ),
                 accountNeedsConfirmation: localRuntime.accountNeedsConfirmation,
                 accountReference: localRuntime.intent.accountReference ?? null,
-                onRefresh: localRuntime.refresh,
+                onRefresh: localRuntime.refreshModels,
                 selection: localRuntime.intent.account,
                 onAccountChange: (selection) =>
                   (!briefingOwnedDraft ||
@@ -2179,9 +2180,8 @@ function DesktopChatViewContent() {
                                 recoverLocalCommand();
                               },
                               disabled:
-                                !connected ||
-                                !localCommand.request ||
-                                localCommand.state === 'blocked',
+                                localCommand.state !== 'blocked' &&
+                                (!connected || !localCommand.request),
                             }
                           : undefined
                       }
@@ -2201,18 +2201,10 @@ function DesktopChatViewContent() {
                         (localRuntime.commandAvailable &&
                         localCommand &&
                         localCommand.state !== 'consumed'
-                          ? localCommand.state === 'pending'
-                            ? 'Sending…'
-                            : ['uncertain', 'reserved', 'retained'].includes(localCommand.state)
-                              ? 'Delivery not confirmed.'
-                              : 'Something went wrong.'
+                          ? localCommandStatusMessage(localCommand.state)
                           : undefined) ??
                         (explicitNew && localCommand && localCommand.state !== 'consumed'
-                          ? localCommand.state === 'pending'
-                            ? 'Sending…'
-                            : ['uncertain', 'reserved', 'retained'].includes(localCommand.state)
-                              ? 'Delivery not confirmed.'
-                              : 'Something went wrong.'
+                          ? localCommandStatusMessage(localCommand.state)
                           : undefined) ??
                         (localFirstCommand && (!localTransportAvailable || !connected)
                           ? 'Execution connection is unavailable. Reconnect before sending.'

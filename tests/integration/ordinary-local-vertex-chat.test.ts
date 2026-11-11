@@ -120,16 +120,22 @@ afterEach(async () => {
   services.requests.length = 0;
   services.query.mockReset();
 });
-it.each([false, true])(
-  'routes first, queued future and cold commands through the actual SDK owner with original thread; personal=%s',
-  async (personal) => {
+it.each([
+  { personal: false, managed: false },
+  { personal: true, managed: false },
+  { personal: true, managed: true },
+])(
+  'routes first, queued future and cold commands through the actual SDK owner with original thread; personal=$personal managed=$managed',
+  async ({ personal, managed }) => {
+    const nextModel = managed ? 'opus' : 'next-model';
+    const nextThinking = managed ? null : 'high';
     // Each account scenario gets its own controller/event-store singletons.
     vi.resetModules();
     const { ClaudeSubscriptionCustody } =
       await import('../../server/claude-subscription-custody.js');
     const { ownedVertexRuntimeFixture } =
       await import('../../server/__tests__/fixtures/owned-local-vertex-runtime.js');
-    const f = await ownedVertexRuntimeFixture(cleanups, { chatRoute: true, personal });
+    const f = await ownedVertexRuntimeFixture(cleanups, { chatRoute: true, personal, managed });
     if (personal) {
       const capture = ClaudeSubscriptionCustody.capture;
       vi.spyOn(ClaudeSubscriptionCustody, 'capture').mockImplementation((env) =>
@@ -254,6 +260,7 @@ it.each([false, true])(
         const req = {
           method: url === '/capabilities' ? 'GET' : 'POST',
           url,
+          query: {},
           headers: { 'x-connection-id': f.dependencies.operatorConnectionId },
           body,
         };
@@ -406,7 +413,7 @@ it.each([false, true])(
         this: InstanceType<typeof OrdinaryLocalCodexSelectionOwner>,
         expected,
       ) {
-        if (expected.selection.model === 'next-model') {
+        if (expected.selection.model === nextModel) {
           admissionWaiting = true;
           await pendingAuthority;
         }
@@ -416,7 +423,7 @@ it.each([false, true])(
       ...wire,
       sessionId: f.reservation.conversationId,
       clientMsgId: 'expired-followup',
-      selection: { ...wire.selection, model: 'next-model', thinking: 'high' },
+      selection: { ...wire.selection, model: nextModel, thinking: nextThinking },
       payload: { text: 'Never admitted' },
     });
     await vi.waitFor(() => expect(admissionWaiting).toBe(true));
@@ -439,12 +446,12 @@ it.each([false, true])(
         ...wire,
         sessionId: f.reservation.conversationId,
         clientMsgId: 'queued',
-        selection: { ...wire.selection, model: 'next-model', thinking: 'high' },
+        selection: { ...wire.selection, model: nextModel, thinking: nextThinking },
         payload: { text: '/mockup Frozen followup' },
       }),
     ).resolves.toMatchObject({ status: 202, body: { dispatched: true, state: 'consumed' } });
     expect(services.requests).toHaveLength(1);
-    expect(services.requests[0].options.effort).toBe('low');
+    expect(services.requests[0].options.effort).toBe(managed ? undefined : 'low');
     expect(services.requests[0].options.allowedTools).toContain(
       'mcp__mitzo-web-access__RequestWebAccess',
     );
@@ -490,8 +497,8 @@ it.each([false, true])(
     );
     expect(services.requests[1].options).toMatchObject({
       resume: f.reservation.conversationId,
-      model: 'next-model',
-      effort: 'high',
+      model: nextModel,
+      ...(managed ? {} : { effort: 'high' }),
       env: personal
         ? {
             CLAUDE_CONFIG_DIR: f.configuration[0].credentialRef,
@@ -557,13 +564,13 @@ it.each([false, true])(
     );
     expect(services.requests[2].options).toMatchObject({
       resume: f.reservation.conversationId,
-      model: 'next-model',
-      effort: 'high',
+      model: nextModel,
+      ...(managed ? {} : { effort: 'high' }),
     });
     expect(services.requests[3].options).toMatchObject({
       resume: f.reservation.conversationId,
-      model: 'fixture-model',
-      effort: 'low',
+      model: f.request.selection.model,
+      ...(managed ? {} : { effort: 'low' }),
     });
     await vi.waitFor(() =>
       expect(chat.eventStore.getSession(f.reservation.conversationId)?.executionPhase).toBe(
@@ -589,7 +596,7 @@ it.each([false, true])(
         ...wire,
         sessionId: f.reservation.conversationId,
         clientMsgId: 'saved-after-stop',
-        selection: { ...wire.selection, model: 'next-model', thinking: 'high' },
+        selection: { ...wire.selection, model: nextModel, thinking: nextThinking },
         payload: { text: 'Retain this queued work' },
       }),
     ).resolves.toMatchObject({ status: 202 });
@@ -616,7 +623,7 @@ it.each([false, true])(
       chat.eventStore.getOrdinaryLocalVertexCommandAdmission('saved-after-stop'),
     ).toMatchObject({
       state: 'consumed',
-      selection: { model: 'next-model', thinking: 'high' },
+      selection: { model: nextModel, thinking: nextThinking },
     });
 
     expect(vi.mocked(fetch).mock.calls.every(([url]) => String(url).endsWith('/health'))).toBe(

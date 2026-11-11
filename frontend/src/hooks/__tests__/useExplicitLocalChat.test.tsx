@@ -1105,3 +1105,210 @@ it('does not borrow the current default identity to confirm a legacy restored dr
   expect(result.current.intent.accountReference ?? null).toBeNull();
   expect(result.current.accountNeedsConfirmation).toBe(true);
 });
+
+it('requests a selected account model refresh without turning metadata retries into forced discovery', async () => {
+  const inventory = localInventoryFixture();
+  vi.mocked(apiFetch)
+    .mockClear()
+    .mockImplementation(async () => Response.json(inventory));
+  const { result } = renderHook(() =>
+    useExplicitLocalChat(
+      'model-refresh',
+      {
+        ...createChatRuntimeSelection(),
+        account: { accountId: 'personal', model: 'luna-fixture', reasoningEffort: 'low' },
+        accountReference: inventory.accounts[0].account,
+      },
+      null,
+      true,
+    ),
+  );
+  await waitFor(() => expect(result.current.inventory).not.toBeNull());
+  act(() => result.current.refreshModels());
+  await waitFor(() =>
+    expect(apiFetch).toHaveBeenCalledWith(
+      '/api/chat/runtime/capabilities?workspaceDefaults=1&modelAccount=personal&refreshModels=1',
+      expect.anything(),
+    ),
+  );
+  expect(result.current.intent.account?.model).toBe('luna-fixture');
+  await waitFor(() => expect(result.current.inventory).not.toBeNull());
+  vi.mocked(apiFetch).mockClear();
+  act(() => result.current.refresh());
+  await waitFor(() =>
+    expect(apiFetch).toHaveBeenCalledWith(
+      '/api/chat/runtime/capabilities?workspaceDefaults=1',
+      expect.anything(),
+    ),
+  );
+  expect(
+    vi.mocked(apiFetch).mock.calls.every(([url]) => !String(url).includes('refreshModels=1')),
+  ).toBe(true);
+});
+
+it('loads selected Claude capabilities, consumes each forced refresh, and keeps retained intent', async () => {
+  const inventory: import('../../lib/explicit-local-chat').ExplicitLocalInventory =
+    localInventoryFixture();
+  inventory.accounts[0].account.provider = 'anthropic-claude';
+  inventory.routes[0].account.provider = 'anthropic-claude';
+  inventory.routes[0].harness = 'claude-sdk';
+  inventory.targets[0].harness = 'claude-sdk';
+  const otherAccount = {
+    ...inventory.accounts[0],
+    account: {
+      ...inventory.accounts[0].account,
+      accountId: 'other',
+      provider: 'openai-codex' as const,
+    },
+  };
+  inventory.accounts.push(otherAccount);
+  vi.mocked(apiFetch)
+    .mockClear()
+    .mockImplementation(async () => Response.json(inventory));
+  const { result } = renderHook(() =>
+    useExplicitLocalChat(
+      'claude-models',
+      {
+        ...createChatRuntimeSelection(),
+        account: { accountId: 'personal', model: 'retained-model', reasoningEffort: 'high' },
+        accountReference: inventory.accounts[0].account,
+      },
+      null,
+      true,
+    ),
+  );
+  await waitFor(() => expect(result.current.inventory).not.toBeNull());
+  expect(apiFetch).toHaveBeenCalledExactlyOnceWith(
+    '/api/chat/runtime/capabilities?workspaceDefaults=1&modelAccount=personal',
+    expect.anything(),
+  );
+  expect(result.current.intent.account).toEqual({
+    accountId: 'personal',
+    model: 'retained-model',
+    reasoningEffort: 'high',
+  });
+  const chooseAccount = (accountId: 'personal' | 'other') =>
+    result.current.update(
+      {
+        ...result.current.intent,
+        account: {
+          accountId,
+          model: accountId === 'personal' ? 'retained-model' : 'luna-fixture',
+          reasoningEffort: accountId === 'personal' ? 'high' : 'low',
+        },
+      },
+      true,
+    );
+  act(() => result.current.refreshModels());
+  await waitFor(() =>
+    expect(apiFetch).toHaveBeenCalledWith(
+      '/api/chat/runtime/capabilities?workspaceDefaults=1&modelAccount=personal&refreshModels=1',
+      expect.anything(),
+    ),
+  );
+  vi.mocked(apiFetch).mockClear();
+  act(() => chooseAccount('other'));
+  await waitFor(() =>
+    expect(apiFetch).toHaveBeenCalledWith(
+      '/api/chat/runtime/capabilities?workspaceDefaults=1',
+      expect.anything(),
+    ),
+  );
+  act(() => chooseAccount('personal'));
+  await waitFor(() =>
+    expect(apiFetch).toHaveBeenCalledWith(
+      '/api/chat/runtime/capabilities?workspaceDefaults=1&modelAccount=personal',
+      expect.anything(),
+    ),
+  );
+  expect(
+    vi.mocked(apiFetch).mock.calls.some(([url]) => String(url).includes('refreshModels=1')),
+  ).toBe(false);
+  vi.mocked(apiFetch).mockClear();
+  act(() => result.current.refreshModels());
+  await waitFor(() =>
+    expect(apiFetch).toHaveBeenCalledExactlyOnceWith(
+      '/api/chat/runtime/capabilities?workspaceDefaults=1&modelAccount=personal&refreshModels=1',
+      expect.anything(),
+    ),
+  );
+  vi.mocked(apiFetch).mockClear();
+  act(() => {
+    result.current.refreshModels();
+    chooseAccount('other');
+  });
+  await waitFor(() =>
+    expect(apiFetch).toHaveBeenCalledWith(
+      '/api/chat/runtime/capabilities?workspaceDefaults=1',
+      expect.anything(),
+    ),
+  );
+  act(() => chooseAccount('personal'));
+  await waitFor(() =>
+    expect(apiFetch).toHaveBeenCalledWith(
+      '/api/chat/runtime/capabilities?workspaceDefaults=1&modelAccount=personal',
+      expect.anything(),
+    ),
+  );
+  expect(
+    vi.mocked(apiFetch).mock.calls.some(([url]) => String(url).includes('refreshModels=1')),
+  ).toBe(false);
+});
+
+it.each(['conversation', 'workspace'])(
+  'does not borrow the previous Claude account while %s metadata is pending',
+  async (transition) => {
+    const inventory: import('../../lib/explicit-local-chat').ExplicitLocalInventory =
+      localInventoryFixture();
+    inventory.accounts[0].account.provider = 'anthropic-claude';
+    inventory.routes[0].account.provider = 'anthropic-claude';
+    inventory.routes[0].harness = 'claude-sdk';
+    inventory.targets[0].harness = 'claude-sdk';
+    let deferMetadata = false;
+    vi.mocked(apiFetch)
+      .mockClear()
+      .mockImplementation(async (url) => {
+        if (!String(url).endsWith('/meta')) return Response.json(inventory);
+        if (deferMetadata) return new Promise<Response>(() => {});
+        return Response.json({
+          sessionId: 'old-chat',
+          runtimeBinding: {
+            version: 2,
+            account: inventory.accounts[0].account,
+            harness: { implementation: 'claude-sdk' },
+            execution: { location: 'local', targetId: 'mac', targetRevision: 'target-r1' },
+          },
+          runtimeCommandScope: 'conversation',
+          mode: 'agent',
+          agentProfile: inventory.agentProfiles[0],
+          modelSelection: { model: 'luna-fixture', reasoningEffort: 'low' },
+        });
+      });
+    const { result, rerender } = renderHook(
+      ({ sessionId, revision }) =>
+        useExplicitLocalChat('draft', null, sessionId, true, '', undefined, revision),
+      { initialProps: { sessionId: 'old-chat', revision: 'workspace:1' } },
+    );
+    await waitFor(() =>
+      expect(apiFetch).toHaveBeenCalledWith(
+        '/api/chat/runtime/capabilities?workspaceDefaults=1&sessionId=old-chat&modelAccount=personal',
+        expect.anything(),
+      ),
+    );
+    await waitFor(() => expect(result.current.metadataPending).toBe(false));
+    vi.mocked(apiFetch).mockClear();
+    deferMetadata = true;
+    const sessionId = transition === 'conversation' ? 'new-chat' : 'old-chat';
+    rerender({ sessionId, revision: transition === 'workspace' ? 'workspace:2' : 'workspace:1' });
+    await waitFor(() =>
+      expect(apiFetch).toHaveBeenCalledWith(
+        `/api/chat/runtime/capabilities?workspaceDefaults=1&sessionId=${sessionId}`,
+        expect.anything(),
+      ),
+    );
+    expect(result.current.metadataPending).toBe(true);
+    expect(
+      vi.mocked(apiFetch).mock.calls.some(([url]) => String(url).includes('modelAccount=')),
+    ).toBe(false);
+  },
+);

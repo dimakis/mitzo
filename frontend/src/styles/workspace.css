@@ -362,6 +362,9 @@
   background: var(--workspace-bg);
   color: var(--workspace-text);
 }
+.connections-setup :is(button, input, select) {
+  min-height: var(--control-height);
+}
 .connections-field textarea {
   min-height: 42px;
   padding: 9px 10px;

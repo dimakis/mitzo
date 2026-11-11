@@ -100,7 +100,7 @@ for (const theme of ['dark', 'light'])
     const safeBottom = info.project.name === 'mobile-chromium' ? 34 : 0;
     if (safeTop) {
       const cdp = await page.context().newCDPSession(page);
-      await cdp.send('Emulation.setSafeAreaInsets', {
+      await cdp.send('Emulation.setSafeAreaInsetsOverride', {
         insets: { top: safeTop, bottom: safeBottom, left: 0, right: 0 },
       });
     }
