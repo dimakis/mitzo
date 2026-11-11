@@ -2,6 +2,121 @@
 
 Living map owner: workstream C, `01a14bdc-d152-7912-84d4-c0012e9d5206`.
 
+## 10 November 2026 multiple-responder source candidate
+
+The replacement owner integrated accepted recovery main `048b3e05` after #1279
+landed, preserving the original full/source reviews and all responder additions.
+The combined head passed 661 offline application/native recovery checks. A later
+trusted-ledger reconciliation identified the remaining singleton observer defect:
+removing the last other participant disabled polling, hiding a subsequent remote
+join and answer. A component regression reproduced that exact missed answer.
+Observation now retains the existing authorized collaboration view independently
+of whether the shared composer is active. Auth epochs, audience renewal, abort and
+owner checks remain unchanged. The repair and existing real HTTP observer journey
+pass with 122 focused/design checks (one existing skip); hosted singleton rejoin
+browser cases retain an unsent draft in light/dark desktop/mobile layouts. Current
+hosted evidence and trusted verification of both historical findings remain gates.
+
+This separate candidate builds on the long-discussion slice in #1279. It reuses
+the approved Defaults, All and multi-selection composer controls. The sending
+owner resolves every recipient, verifies every readiness receipt, and retains the
+original default/all/selected intent, membership/policy and request identity.
+Changing the picker or policy cannot retarget an outstanding request.
+
+The ordinary prompt adapter observes the exact command's durable provider terminal
+and native store settlement. Missing custody, pending thread dispatch, ownership
+conflicts or unsettled effects yield uncertainty. Observation cannot dispatch,
+acknowledge recovery or release a queue. Settlement is renewed on every observation;
+loss of previously completed proof becomes uncertain and can later settle again.
+Unexpected storage/programming errors remain observable. Shared answer text and
+provider context ACK are independent of this outcome observation.
+
+The actual Add-agent/application journey now uses two independent same-account
+native threads through seven external-only synthetic native turns: Defaults partial
+success, a definitive context-capacity failure, explicit selected retry of only the
+failed agent, and an ambiguous later failure. Successful answers remain visible.
+The exact ambiguous request remains retained through unmount/remount, observation
+and retry with no eighth turn. Conservative conversation-wide effects qualification
+may also mark earlier receipts uncertain; it never deletes their accepted answers.
+
+Local evidence uses one worker and a 1 GiB Node heap:
+
+- 67 cases pass across sending-hook, recovery owner and actual fresh-agent UI.
+  New regressions forbid clearing the original request because finalized text is
+  visible or because settlement proof is lost during the refresh await.
+- 21 integration/consumer cases pass, including the separate 27-turn real composer
+  journey, ordinary prompt dispatch and transcript presentation.
+- Six selected native-store settlement cases pass; the other 72 cases in that
+  file were filtered, not executed. Earlier adapter checks passed 56 cases.
+- Protocol, harness and client builds passed. Full frontend compilation exceeded
+  the local 1 GiB heap; its uncertain run/log are preserved and hosted compilation
+  remains required. No full local compile success is claimed.
+- Two focused read-only reviews verified the repaired journal/settlement defects
+  and current permission/effects fences without remaining concrete blockers.
+
+Offline browser cases cover partial results, uncertainty, reload, selection,
+keyboard focus, minimum touch controls and mobile overflow in light/dark themes.
+They are listed but not locally executed: the host sandbox blocks browser launch.
+Hosted execution, actual rendered artifacts and approved-reference comparison are
+required. No protected reference, design token or check is changed.
+
+The shared Stop control now uses the exact retained reply command and a deterministic
+delivery-scoped interruption ID through `OrdinarySessionPromptPort.stopOrdinary`.
+Current auth, contributor control, account/runtime binding and registry custody
+are renewed after an asynchronous import and immediately before the native owner's
+atomic compare/claim/interrupt. A claimed native request never reissues an RPC;
+requested cancellation remains separate from provider terminal/effects evidence.
+An old control response cannot label or block Stop on a new same-owner request.
+
+The actual seven-turn application journey requests Stop while the fourth native
+turn is held. Exactly one `turn/interrupt` targets that original thread/turn;
+repeating Stop emits none, and cancellation ACK does not make the original terminal.
+A concurrent definite provider failure then settles normally, and the explicit
+selected retry retains the same native thread. The hook's 17 cases include lost
+Stop response/remount and same-owner completed/late-success/late-failure control
+races. The prompt port's 23 cases include successor, durable claim, settled,
+foreign and revoked owner, plus contributor/account custody changing during a yield.
+The permission and response-race findings from focused review were repaired.
+Browser cases now render the existing Stop control and retain its intent on reload;
+hosted execution and visual evidence remain pending.
+
+Live replies now use a separate authenticated progress projection, independent
+of finalized answer persistence. Every source requires the accepted version-2
+native mapping, exact command and pinned historical admission. The dedicated
+in-progress reader reuses the bounded ordinary visible-block decoder; frozen
+prefixes and finalized replies still require their original complete-message
+qualification. Reasoning, tool deltas and provider thread/turn identifiers never
+enter the public progress response. Current auth, continuous membership, source
+availability and exact settings are renewed before return. Per-source refusals
+do not prevent later eligible sources; unexpected storage errors still propagate.
+
+The actual application test emits a held external native turn's text delta, waits
+for that attributed streaming bubble, remounts and reads it again without another
+native turn. It then performs the exact Stop journey. Verified partial text from
+the failed turn persists once as a finalized answer beside its separate failure
+outcome. The seven-turn count and original failure/retry assertions remain.
+The expanded recovery suite passes 59 cases; 15 reply-source cases pass, including
+in-progress text, private reasoning exclusion, strict frozen/finalized readers,
+wrong command, hidden source, duplicate start, legacy mapping and oversized text.
+Five progress-hook cases cover auth-loss publication ordering, verified same-login
+restoration, late responses, stale audience and failed reads. Transcript checks
+verify attributed live text, visible refusal and exact-source finalization without
+hiding another live source for the same delivery. Focused read-only reviews found
+and verified fixes for auth epoch/restoration and live/final handoff races.
+
+Protocol/harness/client builds and scoped lint pass. Local full frontend checking
+remains limited by the previously retained 1 GiB heap failure. Browser fixtures
+include desktop/mobile light/dark captures with live text and Stop, but have only
+been listed locally under the host browser guard. Hosted renders and independent
+approved-reference comparison remain required. The accepted Claude integration
+was preserved when these later source changes were reapplied; none implicitly
+enrolls a Claude participant in the Local Codex adapter.
+
+This is unmerged candidate evidence, not full feature completion. Per-prompt
+reviewed context, forwarding and remaining combined
+qualification remain open. All original 16 criteria and the uncertain live Telos
+edit remain retained. No live models, deployment or runtime/device acceptance occur.
+
 ## 10 November 2026 long-discussion delivery candidate
 
 The published candidate is [PR #1279](https://github.com/dimakis/mitzo/pull/1279).

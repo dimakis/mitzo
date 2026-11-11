@@ -44,6 +44,8 @@ function port(
   deliverOrdinary: OrdinarySessionPromptPort['deliverOrdinary'],
 ): OrdinarySessionPromptPort {
   return {
+    observedOutcome: (_auth, sessionId, commandId) =>
+      store.getOrdinaryProviderTurnTerminal(sessionId, commandId),
     deliverOrdinary,
     authorized: () => true,
     inspect: async () => ({ busy: false }),
@@ -128,6 +130,42 @@ function acknowledgeRecordedPrompts() {
     }),
   );
 }
+
+it('stops retained reply commands independently with stable control identities and no new send', async () => {
+  const stop = vi.fn(async (_auth, sessionId: string, _commandId, _requestId, current) => {
+    current();
+    if (sessionId === 'one') throw Error('Unexpected storage failure');
+    return 'requested' as const;
+  });
+  const ordinary = port(async (prompt) => {
+    prompts.push(prompt);
+  });
+  ordinary.stopOrdinary = stop;
+  owner = new ApplicationCollaborationMessaging(store, ordinary);
+  const request = {
+    ...input('one', 'Stop both original commands'),
+    responders: { kind: 'all' as const },
+  };
+  const message = await owner.send(auth, group, request, new AbortController().signal);
+  const first = await owner.stop(auth, group, request);
+  const again = await owner.stop(auth, group, request);
+  expect(first).toEqual(again);
+  expect(first.recipients.map((r) => r.status)).toEqual(['uncertain', 'requested']);
+  expect(prompts).toHaveLength(2);
+  expect(stop.mock.calls.map((c) => c.slice(1, 4))).toEqual(
+    [0, 1, 0, 1].map((i) => [
+      message.deliveries[i].sessionId,
+      `collaboration:${message.deliveries[i].deliveryId}`,
+      `collaboration-stop:${message.deliveries[i].deliveryId}`,
+    ]),
+  );
+  expect(diagnostics.warn).toHaveBeenCalledWith(
+    'Could not confirm the original collaboration Stop',
+    expect.objectContaining({ err: expect.any(Error), code: 'collaboration_stop_uncertain' }),
+  );
+  await expect(owner.stop(auth, group, { ...request, text: 'Changed original' })).rejects.toThrow();
+  expect(prompts).toHaveLength(2);
+});
 
 it('keeps readiness and new explicit sends available after the display page overflows', async () => {
   acknowledgeRecordedPrompts();
@@ -329,6 +367,46 @@ it('keeps unexpected pending-inventory failures observable without accepting a r
   const request = input('one', 'Do not hide the storage failure');
   await expect(owner.send(auth, group, request, new AbortController().signal)).rejects.toBe(cause);
   expect(store.collaborationConversation.getMessageForRequest(group, request)).toBeNull();
+  expect(prompts).toEqual([]);
+});
+
+it('renews retained outcomes after native uncertainty without changing delivery or replaying', () => {
+  const { message, delivery } = retainedPrompt();
+  const record = (outcome: 'completed' | 'uncertain' | undefined) =>
+    store.collaborationConversation.recordReplyOutcome(
+      group,
+      message.messageId,
+      delivery.deliveryId,
+      () => outcome,
+    );
+  record('completed');
+  record(undefined);
+  expect(
+    store.collaborationConversation
+      .getMessage(group, message.messageId)!
+      .deliveries.find((d) => d.deliveryId === delivery.deliveryId),
+  ).toMatchObject({
+    outcome: 'uncertain',
+    revision: 3,
+    status: 'queued',
+    commandId: 'initial-two',
+  });
+  record('completed');
+  const confirmed = store.collaborationConversation.getMessage(group, message.messageId)!;
+  record('completed');
+  expect(store.collaborationConversation.getMessage(group, message.messageId)).toEqual(confirmed);
+  const cause = Error('Synthetic native outcome read failed');
+  expect(() =>
+    store.collaborationConversation.recordReplyOutcome(
+      group,
+      message.messageId,
+      delivery.deliveryId,
+      () => {
+        throw cause;
+      },
+    ),
+  ).toThrow(cause);
+  expect(store.collaborationConversation.getMessage(group, message.messageId)).toEqual(confirmed);
   expect(prompts).toEqual([]);
 });
 
@@ -667,6 +745,74 @@ function finalizedAnswer(text = 'Retained answer', beforeEnd?: (id: string) => v
   store.append('two', 'message_end', { messageId });
   return source;
 }
+
+function streamingAnswer(text: string) {
+  const messageId = randomUUID();
+  const source = {
+    commandId: 'initial-two',
+    messageId,
+    providerThreadId: 'thread',
+    providerTurnId: 'turn',
+  };
+  recordOrdinaryReplySource(
+    store,
+    'two',
+    source,
+    captureOrdinaryReplyExecution(store, 'two', source),
+  );
+  store.append('two', 'message_start', { messageId });
+  store.append('two', 'block_start', { messageId, blockId: 'text', blockType: 'text' });
+  store.append('two', 'block_delta', { messageId, blockId: 'text', delta: text });
+  return messageId;
+}
+
+it('recovers live text independently after an oversized source without finalizing or dispatching', () => {
+  retainedPrompt();
+  streamingAnswer('x'.repeat(100001));
+  streamingAnswer('Later eligible live text');
+  const progress = owner.progress(auth, group);
+  expect(progress.replies.map((r) => r.text)).toEqual(['Later eligible live text']);
+  expect(progress.refusals).toHaveLength(1);
+  expect(JSON.stringify(progress)).not.toMatch(/providerThread|providerTurn|initial-two/);
+  expect(store.collaborationConversation.view(group).messages).toHaveLength(1);
+  expect(prompts).toHaveLength(0);
+  expect(
+    new ApplicationCollaborationMessaging(
+      store,
+      port(async () => {}),
+    ).progress(auth, group),
+  ).toEqual(progress);
+});
+
+it.each(['hidden', 'unlink_rejoin', 'settings_changed', 'storage_error'])(
+  'renews live reply access and preserves unexpected failures: %s',
+  (scenario) => {
+    retainedPrompt();
+    streamingAnswer('Exact private-session visible text');
+    if (scenario === 'hidden') store.hideSession('two');
+    if (scenario === 'unlink_rejoin') {
+      store.setSessionCollaboration(group, { expectedRevision: 1, participantSessionIds: ['one'] });
+      store.setSessionCollaboration(group, {
+        expectedRevision: 2,
+        participantSessionIds: ['one', 'two'],
+      });
+    }
+    if (scenario === 'settings_changed') {
+      const settings = store.getOrdinaryConversationSettings('two')!;
+      vi.spyOn(store, 'getOrdinaryConversationSettings').mockReturnValue({
+        ...settings,
+        selection: { ...settings.selection, model: 'changed-model' },
+      });
+    }
+    if (scenario === 'storage_error') {
+      vi.spyOn(store, 'readOrdinaryStreamingReply').mockImplementation(() => {
+        throw Error('Unexpected live storage read');
+      });
+      expect(() => owner.progress(auth, group)).toThrow('Unexpected live storage read');
+    } else expect(owner.progress(auth, group).replies).toHaveLength(0);
+    expect(prompts).toHaveLength(0);
+  },
+);
 
 it.each([
   'providerThreadId',

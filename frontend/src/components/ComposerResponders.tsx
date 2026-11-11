@@ -206,7 +206,7 @@ export function ComposerResponders({
               </label>
             ))}
           {matches.length === 0 && <p>No matching agent.</p>}
-          <button type="button" onClick={() => close()}>
+          <button type="button" onClick={() => close(true)}>
             Done choosing replies
           </button>
         </div>
