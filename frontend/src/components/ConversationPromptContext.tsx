@@ -17,6 +17,15 @@ export function ConversationPromptContext({
   const { ref, present } = useMotionPresence(flow.open, 'fade');
   const reviewed = flow.review;
   const snapshot = reviewed?.snapshot;
+  const selectedArtifacts = flow.form.artifacts ?? [];
+  const matches = (a: (typeof selectedArtifacts)[number], b: (typeof selectedArtifacts)[number]) =>
+    a.artifactId === b.artifactId && a.revision === b.revision && a.sha256 === b.sha256;
+  const artifacts = [
+    ...(flow.artifacts ?? []),
+    ...selectedArtifacts
+      .filter((pin) => !flow.artifacts?.some((artifact) => matches(pin, artifact)))
+      .map((pin) => ({ ...pin, title: 'Previously selected artifact', available: false })),
+  ];
   return (
     <>
       <button
@@ -113,6 +122,55 @@ export function ConversationPromptContext({
                 Includes visible messages through the reviewed boundary and their referenced saved
                 artifact versions.
               </p>
+            )}
+            {flow.form.mode === 'selected' && (
+              <fieldset className="conversation-context-selection" disabled={flow.busy || disabled}>
+                <legend>Saved artifact versions</legend>
+                {artifacts.length === 0 && <p>No registered artifacts in this conversation.</p>}
+                <p>
+                  Shows up to 50 recent registered versions. Older selections remain below until
+                  removed.
+                </p>
+                {artifacts.map((artifact) => (
+                  <label key={`${artifact.artifactId}:${artifact.revision}:${artifact.sha256}`}>
+                    <input
+                      type="checkbox"
+                      disabled={
+                        !artifact.available &&
+                        !selectedArtifacts.some((pin) => matches(pin, artifact))
+                      }
+                      checked={selectedArtifacts.some((pin) => matches(pin, artifact))}
+                      onChange={(e) =>
+                        flow.edit({
+                          ...flow.form,
+                          artifacts: e.target.checked
+                            ? [
+                                ...(flow.form.artifacts ?? []),
+                                {
+                                  artifactId: artifact.artifactId,
+                                  revision: artifact.revision,
+                                  sha256: artifact.sha256,
+                                },
+                              ]
+                            : (flow.form.artifacts ?? []).filter(
+                                (pin) =>
+                                  pin.artifactId !== artifact.artifactId ||
+                                  pin.revision !== artifact.revision ||
+                                  pin.sha256 !== artifact.sha256,
+                              ),
+                        })
+                      }
+                    />
+                    <span>
+                      {artifact.title}
+                      <small>
+                        Saved version {artifact.revision}
+                        {!artifact.available && ' · unavailable'}
+                      </small>
+                    </span>
+                  </label>
+                ))}
+              </fieldset>
             )}
             <label className="conversation-agent-field">
               Brief
