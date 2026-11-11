@@ -21,6 +21,10 @@ import {
   type CommandDeliveryObserver,
 } from './command-delivery-diagnostic.js';
 /** Ordered, acknowledged HTTP delivery. SSE state never gates prompt submission. */
+export type SendOutboxStorage = Pick<Storage, 'getItem' | 'setItem'> & {
+  flush?: () => Promise<void>;
+  subscribe?: (listener: () => void) => () => void;
+};
 interface Entry {
   body: Record<string, unknown>;
   scope: number;
@@ -37,7 +41,7 @@ interface Config {
   fetch: (url: string, init?: RequestInit) => Promise<Response>;
   notify: (event: Record<string, unknown>) => void;
   headers?: () => Record<string, string>;
-  storage?: Pick<Storage, 'getItem' | 'setItem'> & { flush?: () => Promise<void> };
+  storage?: SendOutboxStorage;
   timeoutMs?: number;
   requireDurableBriefings?: boolean;
   /** Independent launch commands survive tab replacement; never inherit another launch’s session. */
@@ -87,9 +91,16 @@ export class SendOutbox {
   private completingLocal = new Map<Entry, number>();
   private localStates = new WeakMap<Entry, string>();
   private persistenceCause: unknown;
+  private unsubscribeStorage?: () => void;
 
   constructor(private config: Config) {
     this.key = `mitzo-send-outbox:${config.url}`;
+    this.restore();
+  }
+
+  /** Re-read original durable intent after a failed read; never substitute an empty queue. */
+  private restore(): boolean {
+    const config = this.config;
     try {
       const saved: unknown = JSON.parse(config.storage?.getItem(this.key) ?? '[]');
       if (config.localFirstCommand) {
@@ -164,19 +175,31 @@ export class SendOutbox {
             typeof entry.body.clientMsgId === 'string' &&
             typeof entry.body.prompt === 'string',
         );
-    } catch {
+      this.invalidLocalRecovery = false;
+      return true;
+    } catch (cause) {
+      if (config.localFirstCommand && !this.invalidLocalRecovery)
+        console.warn('[mitzo] Saved command recovery unavailable', {
+          stage: 'storage',
+          code: 'local_recovery_unavailable',
+          exceptionType: cause instanceof Error ? cause.name : 'Error',
+        });
       this.invalidLocalRecovery = !!config.localFirstCommand;
+      return false;
     }
   }
 
   start(): void {
     this.active = true;
     if (this.config.localFirstCommand) {
+      this.unsubscribeStorage ??= this.config.storage?.subscribe?.(() => {
+        if (this.active && this.invalidLocalRecovery) this.wake();
+      });
+      if (this.invalidLocalRecovery) this.restore();
       if (this.invalidLocalRecovery)
         this.config.notify({ type: '_local_command_state', state: 'blocked' });
       else {
-        const entry = this.selectedLocalEntry();
-        if (entry) this.notifyLocal(entry, 'uncertain');
+        this.notifySelectedLocal();
         this.wake();
       }
       return;
@@ -188,6 +211,10 @@ export class SendOutbox {
    * request or a guarded command's deliberate recovery decision. */
   wake(): void {
     if (this.config.localFirstCommand) {
+      if (this.invalidLocalRecovery) {
+        if (!this.active || !this.restore()) return;
+        this.notifySelectedLocal();
+      }
       // Connectivity and view selection permit observation only. They never
       // replay retained intent, including an already completed device action.
       const entry = this.selectedLocalScope ? this.selectedLocalEntry() : undefined;
@@ -245,8 +272,17 @@ export class SendOutbox {
   }
 
   private selectLocalScope(scope: typeof this.selectedLocalScope): void {
-    if (!this.config.localFirstCommand || this.invalidLocalRecovery) return;
+    if (!this.config.localFirstCommand) return;
     this.selectedLocalScope = scope;
+    if (this.invalidLocalRecovery && !this.restore()) {
+      this.config.notify({ type: '_local_command_state', state: 'blocked' });
+      return;
+    }
+    this.notifySelectedLocal();
+    this.wake();
+  }
+
+  private notifySelectedLocal(): void {
     const entry = this.selectedLocalEntry();
     if (entry)
       this.notifyLocal(
@@ -256,7 +292,6 @@ export class SendOutbox {
           : 'uncertain',
       );
     else this.config.notify({ type: '_local_command_state', state: 'idle' });
-    this.wake();
   }
 
   /** Deliberate recovery resubmits only the frozen request, never a rebuilt draft. */
@@ -283,6 +318,8 @@ export class SendOutbox {
   }
 
   stop(): void {
+    this.unsubscribeStorage?.();
+    this.unsubscribeStorage = undefined;
     for (const controller of this.receiptReads.values()) controller.abort();
     this.receiptReads.clear();
     this.receiptRechecks.clear();
@@ -311,6 +348,7 @@ export class SendOutbox {
         body,
         ordinaryDelivery?.version === 1 ? ordinaryDelivery.sessionId : undefined,
       );
+      if (this.invalidLocalRecovery) this.restore();
       if (this.invalidLocalRecovery || !this.active) {
         this.enqueueFailure = this.invalidLocalRecovery ? 'blocked' : 'inactive';
         return false;

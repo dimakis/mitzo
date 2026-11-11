@@ -1,11 +1,11 @@
-import { useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { SendMessageOptions } from '@mitzo/client';
 import {
   CodexSteerInputSchema as Request,
   type CodexSteerInput as Correction,
   type ImageAttachment,
 } from '@mitzo/protocol';
-import { chatStorage } from '../lib/large-chat-storage';
+import { chatStorage, CHAT_STORAGE_CHANGED } from '../lib/large-chat-storage';
 import { apiFetch } from '../lib/api-fetch';
 import { createBrowserId } from '../lib/browser-crypto';
 type Delivery = SendMessageOptions['onDelivery'];
@@ -42,6 +42,21 @@ export function useTurnSteering(
   const [, render] = useState(0);
   const [feedback, setFeedback] = useState<{ owner: object; error: string }>();
   const selected = owner.current;
+  const recoverRead = useCallback(() => {
+    if (owner.current !== selected || !selected.blocked || selected.busy) return;
+    try {
+      selected.pending = retained(selected.sessionId);
+      selected.blocked = false;
+      setFeedback(undefined);
+      render((n) => n + 1);
+    } catch {
+      // Keep the original unavailable state; a read retry never dispatches a correction.
+    }
+  }, [selected]);
+  useEffect(() => {
+    window.addEventListener(CHAT_STORAGE_CHANGED, recoverRead);
+    return () => window.removeEventListener(CHAT_STORAGE_CHANGED, recoverRead);
+  }, [recoverRead]);
   const error = selected.busy
     ? ''
     : feedback?.owner === selected
@@ -152,9 +167,11 @@ export function useTurnSteering(
   return {
     error,
     busy: selected.busy,
-    retry: selected.pending
-      ? () => void execute(selected, selected.pending!, selected.delivery, selected.refusal)
-      : undefined,
+    retry: selected.blocked
+      ? recoverRead
+      : selected.pending
+        ? () => void execute(selected, selected.pending!, selected.delivery, selected.refusal)
+        : undefined,
     submit: (
       text: string,
       delivery?: Delivery,

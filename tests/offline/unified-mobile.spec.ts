@@ -4333,6 +4333,7 @@ test('rejected idle ordinary Send keeps attachments and an explicit retry withou
   expect(await retainedQueue()).not.toContain('data:image');
   const retry = page.getByRole('button', { name: 'Send queued prompt 1', exact: true });
   await expect(retry).toBeVisible();
+  await expectMotionSettled(retry);
   expect((await retry.boundingBox())!.height).toBeGreaterThanOrEqual(44);
   for (const theme of ['dark', 'light']) {
     await page.evaluate((theme) => {

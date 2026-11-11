@@ -58,6 +58,7 @@ export class IndexedChatDisk {
     return this.keys()[index] ?? null;
   }
   keys() {
+    if (!this.initialized) throw Error('Saved chat storage is loading');
     return (this.keyCache ??= [
       ...new Set([
         ...Array.from({ length: this.legacy.length }, (_, i) => this.legacy.key(i)).filter(

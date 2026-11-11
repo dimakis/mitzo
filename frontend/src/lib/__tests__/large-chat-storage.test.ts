@@ -2,6 +2,58 @@ import { expect, it, vi } from 'vitest';
 import { SendOutbox } from '../../../../packages/client/src/send-outbox';
 import { LargeChatStorage } from '../large-chat-storage';
 import { createReviewedOutboxStorage } from '../reviewed-outbox-storage';
+import { APP_FOREGROUND_EVENT } from '../app-lifecycle-events';
+
+it('coalesces native and window resume reads and notifies subscribers after hydration settles', async () => {
+  const target = new EventTarget();
+  let hold = false;
+  const pending: { oncomplete?: () => void }[] = [];
+  const transaction = vi.fn(() => {
+    const tx: { oncomplete?: () => void; objectStore?: () => object } = {};
+    tx.objectStore = () => ({
+      getAll() {
+        if (hold) pending.push(tx);
+        else queueMicrotask(() => tx.oncomplete?.());
+        return { result: [] };
+      },
+    });
+    return tx;
+  });
+  const indexedDB = {
+    open() {
+      const request: { result: object; onsuccess?: () => void } = { result: { transaction } };
+      queueMicrotask(() => request.onsuccess?.());
+      return request;
+    },
+  };
+  vi.stubGlobal('window', target);
+  vi.stubGlobal('localStorage', fixture().storage);
+  vi.stubGlobal('indexedDB', indexedDB);
+  vi.stubGlobal('IDBKeyRange', { bound: () => ({}) });
+  vi.stubGlobal('BroadcastChannel', undefined);
+  vi.resetModules();
+  try {
+    const { chatStorage, initializeChatStorage } = await import('../large-chat-storage');
+    await initializeChatStorage();
+    const changed = vi.fn();
+    const unsubscribe = chatStorage.subscribe(changed);
+    hold = true;
+    target.dispatchEvent(new Event(APP_FOREGROUND_EVENT));
+    target.dispatchEvent(new Event('focus'));
+    target.dispatchEvent(new Event('pageshow'));
+    await vi.waitFor(() => expect(pending).toHaveLength(1));
+    expect(transaction).toHaveBeenCalledTimes(2);
+    expect(changed).not.toHaveBeenCalled();
+    pending[0].oncomplete!();
+    await vi.waitFor(() => expect(changed).toHaveBeenCalledTimes(1));
+    unsubscribe();
+    target.dispatchEvent(new Event('mitzo-chat-storage-changed'));
+    expect(changed).toHaveBeenCalledTimes(1);
+  } finally {
+    vi.unstubAllGlobals();
+  }
+});
+
 function fixture() {
   const disk = new Map<string, string>();
   const blobs = new Map<string, string>();
