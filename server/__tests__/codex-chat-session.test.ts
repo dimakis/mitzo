@@ -858,9 +858,13 @@ it('does not advertise unavailable host tools to an OpenShell runtime', async ()
     milestones: ['Expose the trusted host tool'],
     profile: 'manual',
   };
+  const reviewedInput = { ...input, workLevel: 'outcome' };
   mocks.permissionHandler.mockResolvedValueOnce({
     behavior: 'allow',
-    updatedInput: { ...input, __mitzoTelosApproval: '00000000-0000-4000-8000-000000000001' },
+    updatedInput: {
+      ...reviewedInput,
+      __mitzoTelosApproval: '00000000-0000-4000-8000-000000000001',
+    },
   });
   const fetch = vi.fn().mockResolvedValue(
     new Response(
@@ -873,13 +877,13 @@ it('does not advertise unavailable host tools to an OpenShell runtime', async ()
         permId: 'permission',
         sessionId: 'conversation',
         sourceSnapshotId: 'snapshot',
-        operation: { kind: 'create', outcome: input },
+        operation: { kind: 'create', outcome: reviewedInput },
         receipt: {
           commandId: 'command',
           actorId: 'operator:user',
           work: {
             itemId: 'telos-live',
-            kind: 'outcome',
+            kind: 'coordinator',
             parentId: null,
             revision: 'a'.repeat(64),
             links: [],
@@ -922,7 +926,7 @@ it('does not advertise unavailable host tools to an OpenShell runtime', async ()
   });
   expect(mocks.permissionHandler).toHaveBeenCalledWith(
     'TelosCreateOutcome',
-    input,
+    reviewedInput,
     expect.objectContaining({ forcePrompt: true, allowSessionGrant: false }),
   );
   expect(fetch).toHaveBeenCalledWith(
@@ -931,10 +935,18 @@ it('does not advertise unavailable host tools to an OpenShell runtime', async ()
       headers: expect.objectContaining({ 'X-Client-Id': 'client' }),
     }),
   );
+  expect(JSON.parse(fetch.mock.calls[0][1].body)).toEqual({
+    approvalReceiptId: '00000000-0000-4000-8000-000000000001',
+    proposal: reviewedInput,
+    operation: 'create',
+  });
   mocks.useTls = true;
   mocks.permissionHandler.mockResolvedValueOnce({
     behavior: 'allow',
-    updatedInput: { ...input, __mitzoTelosApproval: '00000000-0000-4000-8000-000000000001' },
+    updatedInput: {
+      ...reviewedInput,
+      __mitzoTelosApproval: '00000000-0000-4000-8000-000000000001',
+    },
   });
   await executeTool('TelosCreateOutcome', input, new AbortController().signal, {
     turnId: 'actual-turn',
