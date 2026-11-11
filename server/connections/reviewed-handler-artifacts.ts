@@ -10,8 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.1039-reviewed-artifact-integration';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.1043-context-test-types';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -34,7 +33,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../collaboration-prompt-context.ts':
     'b3803df0df9b28f8c90464ff7e27842860cb64915f75f06c1944415b949dc970',
   '../../frontend/src/hooks/__tests__/useConversationPromptContext.test.tsx':
-    'a2b5bcd859001a5320a20d722857c5fb3b2ee43ca062388032000f9ad446275f',
+    'e3b126bafdc07aa99b2afe4ae98cc2edde2150aa9faf3de194685dbe5e1d6f24',
   '../../frontend/src/hooks/useConversationPromptContext.ts':
     '4caefb6b8ee8487fcf07924777e87fe75ad63f704079ad9dcf806c50040518c3',
   '../../frontend/src/components/ConversationPromptContext.tsx':

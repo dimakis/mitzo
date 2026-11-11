@@ -174,7 +174,7 @@ it('shows the exact frozen artifact contents before attaching conversation-so-fa
     target: { value: 'Inspect saved context' },
   });
   fireEvent.change(screen.getByLabelText('Context'), { target: { value: 'conversation_so_far' } });
-  fireEvent.click(screen.getByRole('button', { name: 'Review context', exact: true }));
+  fireEvent.click(screen.getByRole('button', { name: /^Review context$/ }));
   await screen.findByText('Reviewed note');
   fireEvent.click(screen.getByText('Review included context'));
   const contents = screen.getByLabelText('Saved contents, version 2');
