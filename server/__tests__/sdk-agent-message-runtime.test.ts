@@ -15,6 +15,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { runQueryLoop } from '../query-loop.js';
+import { OrdinaryLocalVertexCommandOwner } from '../ordinary-local-vertex-command-owner.js';
 vi.mock('@anthropic-ai/claude-agent-sdk', () => ({ query: vi.fn() }));
 
 const cleanup: Array<() => void> = [];
@@ -22,14 +23,15 @@ afterEach(() => {
   for (const close of cleanup.splice(0).reverse()) close();
 });
 
-function fixture() {
+function fixture(prepareWorker?: (events: EventStore) => void) {
   const root = mkdtempSync(join(tmpdir(), 'sdk-peer-receipt-'));
   cleanup.push(() => rmSync(root, { recursive: true, force: true }));
   const path = join(root, 'events.db');
   let events = new EventStore(path);
   cleanup.push(() => events.close());
   events.upsertSession({ sessionId: 'sender' });
-  events.upsertSession({ sessionId: 'worker' });
+  if (prepareWorker) prepareWorker(events);
+  else events.upsertSession({ sessionId: 'worker' });
   const registry = new SessionRegistry();
   cleanup.push(() => registry.dispose());
   const identity = {};
@@ -66,14 +68,14 @@ function fixture() {
   const push = vi.fn<(input: SDKUserMessage) => void>();
   const assertCurrent = vi.fn();
   const enqueue = vi.fn(async () => {});
-  const create = () =>
+  const create = (activeCommandId = () => active) =>
     new SdkAgentMessageRuntime({
       events,
       session,
       identity,
       operatorAuthSessionId: 'operator',
       assertCurrent,
-      activeCommandId: () => active,
+      activeCommandId,
       stopped: () => paused,
       push,
       enqueue,
@@ -102,6 +104,279 @@ function fixture() {
   };
 }
 
+const originalInputId = '00000000-0000-4000-8000-000000000001';
+const successorInputId = '00000000-0000-4000-8000-000000000002';
+
+async function composedFixture() {
+  const binding = {
+    version: 2 as const,
+    account: {
+      accountId: 'vertex',
+      provider: 'anthropic-vertex' as const,
+      profileRevision: 'exact-profile',
+    },
+    harness: { implementation: 'claude-sdk' as const },
+    execution: { location: 'local' as const, targetId: 'mac', targetRevision: 'exact-target' },
+  };
+  const meta = {
+    sessionId: 'worker',
+    repositoryWorkspaceId: 'workspace',
+    cwd: '/fixture',
+    accountBinding: { ...binding.account, accountLabel: 'Vertex', model: 'offline' },
+  };
+  const command = (id: string) => ({
+    clientMsgId: id,
+    requestFingerprint: `exact-${id}`,
+    payload: { text: id },
+    selection: {
+      version: 1 as const,
+      agent: { profileId: 'published', revision: 1 },
+      context: { source: 'none' as const, revision: null },
+      permission: { mode: 'ask' as const, revision: 0 },
+      model: 'offline',
+      thinking: null,
+    },
+  });
+  const f = fixture((store) =>
+    store.admitOrdinaryLocalVertexCommand(meta, binding, command('original')),
+  );
+  const events = new AsyncQueue<Record<string, unknown>>();
+  let stdin!: AsyncIterable<SDKUserMessage>;
+  vi.mocked(query).mockImplementation((request) => {
+    stdin = request.prompt as typeof stdin;
+    return {
+      close: () => events.close(),
+      [Symbol.asyncIterator]: () => events[Symbol.asyncIterator](),
+    } as never;
+  });
+  let state!: { completing: boolean };
+  const controller = f.session.abortController;
+  cleanup.push(() => controller.abort());
+  const sdk = createOrdinaryLocalVertexSdkQuery<
+    AsyncIterable<Record<string, unknown>> & { close(): void }
+  >({
+    options: {},
+    input: new AsyncQueue<SDKUserMessage>(),
+    lifetime: new SdkHookLifetime(),
+    sdkSessionId: 'worker',
+    cwd: '/fixture',
+    controller,
+    authorize: async () => f.assertCurrent(),
+    authorizeSync: () => f.assertCurrent(),
+    adapt: (q) => q as never,
+    settings: () => ({}),
+    inputChanged: () => {},
+    peerMessages: () => runtime,
+    mcpServers: (current) => {
+      state = current;
+      return {};
+    },
+  });
+  const abort = vi.fn(() => controller.abort());
+  const push = vi.fn((id: string) => {
+    sdk.push({
+      type: 'user',
+      uuid: id === 'original' ? originalInputId : successorInputId,
+      parent_tool_use_id: null,
+      message: { role: 'user', content: id },
+    });
+  });
+  const commands = new OrdinaryLocalVertexCommandOwner({
+    store: f.events,
+    sessionId: 'worker',
+    assertCurrent: f.assertCurrent,
+    query: {
+      setModel: async () => {},
+      setMaxThinkingTokens: async () => {},
+      push,
+      abort,
+    },
+    settings: () => ({ model: 'offline', thinkingTokens: null }),
+  });
+  const runtime = f.create(() => commands.peerTurnTarget());
+  f.push.mockImplementation((input) => sdk.push(input));
+  await commands.enqueue('original');
+  f.events.admitOrdinaryLocalVertexContinuation(meta, binding, command('successor'));
+  await commands.enqueue('successor');
+  const inputs = stdin[Symbol.asyncIterator]();
+  expect((await inputs.next()).value?.uuid).toBe(originalInputId);
+  const observedInputs = vi.fn((id: string) => commands.inputObserved(id));
+  const afterAssistant = vi.fn();
+  async function* observedQuery() {
+    for await (const event of sdk.query) {
+      yield event;
+      if (event.type === 'assistant') afterAssistant();
+    }
+  }
+  const resultIds: Array<string | undefined> = [];
+  const settlements: Array<Promise<string>> = [];
+  const loop = runQueryLoop(
+    observedQuery(),
+    'operator:worker',
+    f.registry,
+    controller,
+    undefined,
+    undefined,
+    {
+      onUserInput: (_clientId, id) => observedInputs(id),
+      onResult: (_clientId, result, id) => {
+        resultIds.push(id);
+        settlements.push(
+          commands.resultObserved(id, result.is_error === true).then(
+            () => 'completed',
+            () => 'refused',
+          ),
+        );
+      },
+    },
+  );
+  events.push({
+    type: 'user',
+    session_id: 'worker',
+    uuid: originalInputId,
+    message: { role: 'user', content: 'Original task' },
+  });
+  events.push({
+    type: 'stream_event',
+    session_id: 'worker',
+    event: { type: 'message_start', message: { id: 'original-assistant' } },
+  });
+  await vi.waitFor(() => expect(commands.peerTurnTarget()).toBe('original'));
+  return {
+    ...f,
+    runtime,
+    commands,
+    inputs,
+    stream: events,
+    observedInputs,
+    afterAssistant,
+    resultIds,
+    settlements,
+    ordinaryPush: push,
+    abort,
+    state: () => state,
+    finish: async () => {
+      sdk.query.close();
+      await loop;
+    },
+  };
+}
+
+it.each(['exact', 'wrong-text', 'foreign-uuid'] as const)(
+  'keeps the active ordinary command and successor fenced through a %s peer ACK and the original result',
+  async (ack) => {
+    const f = await composedFixture();
+    await f.runtime.steer(f.message, () => {}, f.session.abortController.signal);
+    const input = (await f.inputs.next()).value!;
+    f.stream.push({
+      type: 'user',
+      session_id: 'worker',
+      uuid: ack === 'foreign-uuid' ? 'stale-foreign-input' : input.uuid,
+      message: ack === 'wrong-text' ? { role: 'user', content: 'Wrong input' } : input.message,
+    });
+    // This event follows the ACK in the real wrapper/consumer, providing a
+    // deterministic barrier without relying on a timer to prove no completion.
+    f.stream.push({
+      type: 'assistant',
+      session_id: 'worker',
+      message: { id: 'original-assistant', content: [] },
+    });
+    await vi.waitFor(() => expect(f.afterAssistant).toHaveBeenCalledOnce());
+    expect(f.observedInputs.mock.calls).toEqual([[originalInputId]]);
+    expect(f.commands.activeCommandId()).toBe('original');
+    expect(f.events.getSession('worker')?.executionPhase).toBe('RUNNING');
+    expect(f.ordinaryPush.mock.calls.map(([id]) => id)).toEqual(['original']);
+    expect(f.resultIds).toEqual([]);
+    expect(f.state().completing).toBe(false);
+    expect(f.events.agentCommunication.read('sender', f.message.messageId).status).toBe(
+      ack === 'exact' ? 'delivered' : 'uncertain',
+    );
+    if (ack !== 'exact') {
+      expect(await f.runtime.steer(f.message, () => {}, f.session.abortController.signal)).toBe(
+        'uncertain',
+      );
+      expect(f.push).toHaveBeenCalledOnce();
+    }
+    f.stream.push({
+      type: 'result',
+      session_id: 'worker',
+      uuid: 'original-result',
+      is_error: false,
+    });
+    await vi.waitFor(() => expect(f.resultIds).toHaveLength(1));
+    expect(f.resultIds).toEqual([ack === 'foreign-uuid' ? undefined : originalInputId]);
+    expect(await f.settlements[0]).toBe(ack === 'foreign-uuid' ? 'refused' : 'completed');
+    expect(f.state().completing).toBe(true);
+    expect(f.ordinaryPush.mock.calls.map(([id]) => id)).toEqual(
+      ack === 'foreign-uuid' ? ['original'] : ['original', 'successor'],
+    );
+    expect(f.abort).toHaveBeenCalledTimes(ack === 'foreign-uuid' ? 1 : 0);
+    await f.finish();
+  },
+);
+
+it('drops a revoked peer correction at real stdin yield while the original result alone releases its successor', async () => {
+  const f = await composedFixture();
+  let allowed = true;
+  const current = () => {
+    if (!allowed) throw Error('Messaging grant revoked');
+  };
+  await f.runtime.steer(f.message, current, f.session.abortController.signal);
+  allowed = false;
+  const nextInput = f.inputs.next();
+  await vi.waitFor(() =>
+    expect(f.events.agentCommunication.read('sender', f.message.messageId)).toMatchObject({
+      status: 'failed',
+      reason: 'before_provider_submission',
+    }),
+  );
+  expect(f.commands.activeCommandId()).toBe('original');
+  expect(f.state().completing).toBe(false);
+  expect(f.observedInputs.mock.calls).toEqual([[originalInputId]]);
+  expect(f.ordinaryPush.mock.calls.map(([id]) => id)).toEqual(['original']);
+  expect(f.resultIds).toEqual([]);
+  await expect(
+    f.runtime.steer(f.message, current, f.session.abortController.signal),
+  ).rejects.toThrow('Messaging grant revoked');
+  expect(f.push).toHaveBeenCalledOnce();
+  f.stream.push({ type: 'result', session_id: 'worker', uuid: 'original-result', is_error: false });
+  await vi.waitFor(() => expect(f.resultIds).toEqual([originalInputId]));
+  expect(await f.settlements[0]).toBe('completed');
+  expect((await nextInput).value?.uuid).toBe(successorInputId);
+  expect(f.abort).not.toHaveBeenCalled();
+  await f.finish();
+});
+
+it('keeps the original command unsettled and never replays it when recipient authority is revoked before its result', async () => {
+  const f = await composedFixture();
+  await f.runtime.steer(f.message, () => {}, f.session.abortController.signal);
+  const input = (await f.inputs.next()).value!;
+  f.stream.push({
+    type: 'user',
+    session_id: 'worker',
+    uuid: input.uuid,
+    message: input.message,
+  });
+  await vi.waitFor(() =>
+    expect(f.events.agentCommunication.read('sender', f.message.messageId).status).toBe(
+      'delivered',
+    ),
+  );
+  f.assertCurrent.mockImplementation(() => {
+    throw Error('Original recipient authority revoked');
+  });
+  f.stream.push({ type: 'result', session_id: 'worker', uuid: 'original-result', is_error: false });
+  await f.finish();
+  expect(f.resultIds).toEqual([]);
+  expect(f.commands.activeCommandId()).toBe('original');
+  expect(f.events.getSession('worker')?.executionPhase).toBe('RUNNING');
+  await expect(f.commands.enqueue('original')).rejects.toThrow(
+    'Original recipient authority revoked',
+  );
+  expect(f.ordinaryPush.mock.calls.map(([id]) => id)).toEqual(['original']);
+  expect(f.push).toHaveBeenCalledOnce();
+  expect(f.abort).toHaveBeenCalledOnce();
+});
 it('uses priority-now stdin input, and accepts only its exact replay ACK without consuming the original command input or result', async () => {
   const f = fixture();
   const runtime = f.create();

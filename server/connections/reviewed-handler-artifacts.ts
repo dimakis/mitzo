@@ -39,7 +39,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/ordinary-local-vertex-command-owner.test.ts':
     '18651323ee26cf8c2c30ceb4fe449440585082bd3863a91edc5df564b66605bf',
   '../__tests__/sdk-agent-message-runtime.test.ts':
-    '7010fb92ef5b8ac0f80c80aa480394eeeb10eddee213affa7a801da6b904ee5d',
+    'a2d2cce45200025d52b03cb590bcffcc704b02294bfe90c30a6bb0ec6a7b6cb3',
   '../agent-message-runtime.ts': '6ed90be83e2569424a78a6f3a9fdcd09764559efaa59ff8166a3672a8484cd97',
   '../sdk-agent-message-runtime.ts':
     'a99c542418aa8f3f05366f1b6bcbfbeda46c366543a219d63dfb2aa3b6608bdb',
