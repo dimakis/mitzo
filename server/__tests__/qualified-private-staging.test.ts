@@ -3,6 +3,13 @@ import * as fs from 'node:fs/promises';
 import { materializeQualifiedLocalRepositoryTask } from '../qualified-local-repository-actor.js';
 import { verifyLocalRepositoryPreparationObjectData } from '../local-repository-preparation-object-data.js';
 import { executePrivateRepositoryStagingCheckout } from '../sandboxed-command.js';
+import { publishNativePreparedRepository } from '../native-preparation-publication.js';
+
+vi.mock('../native-preparation-publication.js', async (original) => ({
+  ...(await original<typeof import('../native-preparation-publication.js')>()),
+  nativePreparationPublicationWriteRoots: vi.fn(() => []),
+  publishNativePreparedRepository: vi.fn(),
+}));
 
 vi.mock('node:fs/promises', () => ({
   lstat: vi.fn(),
@@ -145,3 +152,47 @@ it.each(['revoked', 'missing'] as const)(
     ).toBeLessThanOrEqual(256);
   },
 );
+
+it('retains publication rejection plus disposal and final owner refusal without replay', async () => {
+  const f = fixture(0);
+  const original = Error('publication boundary refused');
+  const disposal = Error('artifact cleanup refused');
+  const revoked = Error('native owner revoked during cleanup');
+  vi.mocked(fs.writeFile).mockResolvedValue(undefined);
+  vi.mocked(publishNativePreparedRepository).mockRejectedValue(original);
+  f.dispose.mockImplementation(async () => {
+    f.controller.abort(revoked);
+    throw disposal;
+  });
+  await expect(materializeQualifiedLocalRepositoryTask(f.operation)).rejects.toMatchObject({
+    code: 'operation_finalization_failed',
+    cause: original,
+    errors: [original, disposal, revoked],
+  });
+  expect(publishNativePreparedRepository).toHaveBeenCalledOnce();
+  expect(f.dispose).toHaveBeenCalledOnce();
+});
+
+it('retains private index read rejection when closing it also fails and still disposes the artifact', async () => {
+  const f = fixture(0);
+  const original = Error('index read refused');
+  const cleanup = Error('index close refused');
+  const close = vi.fn(async () => {
+    throw cleanup;
+  });
+  vi.mocked(fs.open).mockResolvedValue({
+    stat: async () => {
+      throw original;
+    },
+    close,
+  } as never);
+  await expect(materializeQualifiedLocalRepositoryTask(f.operation)).rejects.toMatchObject({
+    code: 'operation_finalization_failed',
+    stage: 'repository_index',
+    cause: original,
+    errors: [original, cleanup],
+  });
+  expect(close).toHaveBeenCalledOnce();
+  expect(f.dispose).toHaveBeenCalledOnce();
+  expect(publishNativePreparedRepository).not.toHaveBeenCalled();
+});

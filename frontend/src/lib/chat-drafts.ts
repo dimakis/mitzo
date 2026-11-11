@@ -48,6 +48,7 @@ export const ChatDraftSchema = z.object({
       collaborationId: SessionCollaborationIdSchema,
       authScope: z.string().min(1),
       input: CollaborationMessageInputSchema,
+      stopRequested: z.boolean().optional(),
     })
     .optional(),
   settings: z.object({
@@ -206,7 +207,8 @@ export function saveChatDraft(draft: ChatDraft): boolean {
       !draft.settings.launch &&
       !draft.settings.sourceSnapshots?.length &&
       !draft.settings.retainRuntimeIntent &&
-      !draft.settings.collaborationResponders
+      !draft.settings.collaborationResponders &&
+      !draft.collaborationSend
     )
       chatStorage.removeItem(PREFIX + draft.id);
     else
