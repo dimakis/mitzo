@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.1045-subagent-inspection-mirrors';
+  'v1.0.1046-subagent-inspection-mirrors';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -4135,7 +4135,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../.github/actions/ci-canonical-browser/action.yml':
     '3e3cc325edd75287c9ec91955a666ede79618cb28c4f98ac8ca836c7b5142229',
   '../../.github/actions/ci-ubuntu-mirrors/action.yml':
-    '2176e875248d0201980888051d177b3f33fd13ce2a2a25f16b453c4cc8638f25',
+    '37f122d873509a7d26bb548daf676372f83e87cc61ce286b29a9bb4e559dc5bb',
   '../../.github/actions/ci-native-fixture/action.yml':
     'f8c24df3203636c7292fa1d0d8994ee5b9db53301c49fe43eab3e355907b6f05',
   '../../.github/actions/ci-node/action.yml':
