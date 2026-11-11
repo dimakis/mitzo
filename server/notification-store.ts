@@ -68,6 +68,11 @@ export class NotificationStore {
       this.db.exec('ALTER TABLE notifications ADD COLUMN archived_at INTEGER');
     if (!columns.some((column) => column.name === 'inbox_source_path'))
       this.db.exec('ALTER TABLE notifications ADD COLUMN inbox_source_path TEXT');
+    if (!columns.some((column) => column.name === 'alerted_at'))
+      this.db.exec('ALTER TABLE notifications ADD COLUMN alerted_at INTEGER');
+    this.db.exec(`CREATE INDEX IF NOT EXISTS notifications_approval_attention
+      ON notifications(json_extract(data, '$.sessionId'), alerted_at)
+      WHERE kind='approval' AND read_at IS NULL AND archived_at IS NULL`);
     // The one-second delivery sweep should visit only live candidates. Keep the
     // privacy callback out of indexes: every candidate must use current policy.
     this.db.exec(`
@@ -450,6 +455,20 @@ export class NotificationStore {
         .all(id) as { device: string }[]
     ).map((row) => row.device);
   }
+  /** One unread alert per blocked chat, including a retry after expiry. Keep
+   * every decision visible; coalescing delivery never resolves or grants it.
+   * A day-old alert cannot suppress a new day's work indefinitely. */
+  hasUnseenApprovalAlert(notification: MitzoNotification, now = Date.now()): boolean {
+    if (notification.kind !== 'approval' || !notification.sessionId) return false;
+    return !!this.db
+      .prepare(
+        `SELECT 1 FROM notifications
+      WHERE kind='approval' AND read_at IS NULL AND archived_at IS NULL
+        AND json_extract(data, '$.sessionId')=? AND id!=?
+        AND alerted_at>=? AND (resolution IS NULL OR resolution='expired') LIMIT 1`,
+      )
+      .get(notification.sessionId, notification.id, now - 24 * 60 * 60 * 1000);
+  }
   delivery(
     id: string,
     status: 'accepted' | 'failed' | 'cancelled',
@@ -463,9 +482,14 @@ export class NotificationStore {
       for (const device of acceptedDevices) record.run(id, device);
       this.db
         .prepare(
-          'UPDATE notifications SET delivery_status=?, delivery_attempts=delivery_attempts+1, delivery_at=COALESCE(?,delivery_at) WHERE id=?',
+          'UPDATE notifications SET delivery_status=?, delivery_attempts=delivery_attempts+1, delivery_at=COALESCE(?,delivery_at), alerted_at=COALESCE(alerted_at, ?) WHERE id=?',
         )
-        .run(retryAt ? 'queued' : status, retryAt ?? null, id);
+        .run(
+          retryAt ? 'queued' : status,
+          retryAt ?? null,
+          status === 'accepted' || acceptedDevices.length ? Date.now() : null,
+          id,
+        );
     })();
   }
   attempts(id: string): number {

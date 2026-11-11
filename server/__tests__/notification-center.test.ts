@@ -33,6 +33,87 @@ function setup(
   return { store, center, push, changed };
 }
 describe('central notification delivery', () => {
+  it('alerts once for an unread approval episode, including expired/recreated requests and restart', async () => {
+    const f = setup();
+    let center = f.center;
+    const ids = ['episode-first', 'episode-parallel', 'episode-retry', 'episode-after-read'];
+    const add = (permId: string) =>
+      registerPending(permId, 'Bash', vi.fn(), {}, 'elevated', request.sessionId, {
+        ...request,
+        permId,
+      });
+    try {
+      add(ids[0]);
+      add(ids[1]);
+      await center.flush();
+      expect(f.push).toHaveBeenCalledTimes(1);
+      expect(f.store.feed('needs').items).toHaveLength(2);
+      removePending(ids[0]);
+      removePending(ids[1]);
+      center.close();
+      center = new NotificationCenter(f.store, {
+        push: f.push,
+        changed: f.changed,
+        configured: () => true,
+        devices: () => 1,
+        sessionTitle: () => 'Fix notifications',
+      });
+      add(ids[2]);
+      await center.flush();
+      expect(f.push).toHaveBeenCalledTimes(1);
+      expect(f.store.feed('needs').items.map((item) => item.permId)).toEqual([ids[2]]);
+      f.store.markRead(`permission:${ids[0]}`);
+      add(ids[3]);
+      await center.flush();
+      expect(f.push).toHaveBeenCalledTimes(2);
+    } finally {
+      ids.forEach((id) => removePending(id));
+      center.close();
+      f.store.close();
+    }
+  });
+
+  it('does not coalesce separate chats, questions or requests after an explicit decision', async () => {
+    const { center, store, push } = setup();
+    const ids = ['attention-one', 'attention-other', 'attention-question', 'attention-new'];
+    try {
+      for (const [index, permId] of ids.slice(0, 3).entries())
+        registerPending(
+          permId,
+          'Bash',
+          vi.fn(),
+          {},
+          'elevated',
+          index === 1 ? 'other-session' : request.sessionId,
+          {
+            ...request,
+            permId,
+            sessionId: index === 1 ? 'other-session' : request.sessionId,
+            ...(index === 2
+              ? {
+                  questions: [
+                    { id: 'q', question: 'Which target?', options: [], multiSelect: false },
+                  ],
+                }
+              : {}),
+          },
+        );
+      await center.flush();
+      expect(push).toHaveBeenCalledTimes(3);
+      resolvePending(ids[0], 'once');
+      registerPending(ids[3], 'Bash', vi.fn(), {}, 'elevated', request.sessionId, {
+        ...request,
+        permId: ids[3],
+      });
+      await center.flush();
+      expect(push).toHaveBeenCalledTimes(4);
+    } finally {
+      ids.forEach((id) => removePending(id));
+      center.close();
+      store.close();
+    }
+  });
+
   it('keeps the notification owner active while an asynchronous source scan is pending', async () => {
     const { store, center } = setup();
     let finish!: (changed: boolean) => void;

@@ -326,6 +326,10 @@ export class NotificationCenter {
           this.store.delivery(item.id, 'cancelled');
           continue;
         }
+        if (this.store.hasUnseenApprovalAlert(item)) {
+          this.store.delivery(item.id, 'cancelled');
+          continue;
+        }
         const at = nextDeliveryAt(this.store.preferences(), Date.now());
         if (at === null || at > Date.now()) continue;
         if (!this.deps.configured() || this.deps.devices() === 0) continue;
