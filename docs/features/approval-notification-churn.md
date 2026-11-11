@@ -104,6 +104,93 @@ cancellation and revocation checks. Telos updates and publication also retain
 their separate reviewed mutation contracts. Notification coalescing does not
 remove these authorization requests or establish that the whole workflow is fixed.
 
+## Security finding: task grants are not native execution grants
+
+Source inspection and focused security review on 11 November 2026 rejected a
+transparent conversion of task consent into native consent. The evidence is in
+[task operation dispatch](../../server/task-execution-operation.ts),
+[the sandbox runner](../../server/sandboxed-command.ts),
+[native policy composition](../../server/owned-local-codex-native-policy.ts),
+[native development consent](../../server/native-development-grant.ts) and
+[the native approval adapter](../../server/codex-native-approvals.ts).
+
+Task execution uses isolated HOME/scratch, protects Git metadata and excludes
+host credentials. Its network scope distinguishes none, loopback and internet;
+grant expiry and revocation abort the running operation. Native Codex has a
+different filesystem policy, can read the host GitHub CLI credential store and
+uses a Boolean network overlay. `captureNativeDevelopmentGrant` returns a
+synchronous consent fence, not equivalent cancellation of an already running
+native item. Therefore a grant ID or `executionRoute` cannot authorize that wider
+native environment.
+
+The current command-approval RPC supplies an approval decision, with no supported
+replacement-command or replacement-result channel. Executing TaskExecution from
+that callback and then accepting would risk executing the command twice;
+executing and then declining would conceal an effect behind a refusal. Neither
+is an acceptable delegation bridge. Routing guidance must remain partial
+delivery until the execution adapter itself supports the required contract.
+
+The concrete next platform action is to establish either provider-supported
+pre-execution delegation with result delivery, or enforced native policy narrowed
+to the consumed task scope together with exact-running-item cancellation. Keep
+this requirement in the existing approval work; it is separate from the ordinary
+session steering implementation and does not create another merge owner.
+
+Completion requires all of the following evidence:
+
+1. The intended Codex, Claude and Vertex worker discovers and consumes only its
+   current operator/account/workspace grant. Command variations and different CI
+   job IDs reuse it with no extra approval inside scope; an unselected worker,
+   changed custody/root/account, Ask mode or broader operation cannot inherit it.
+2. Exactly one executor starts each operation. Original request IDs survive
+   interruption, reconnect and result delivery. Unknown outcomes stay inspectable
+   and are reconciled before any retry; acceptance is never reported as execution.
+3. Expiry, parent revocation, cancellation and ownership loss stop the exact
+   running operation and prevent later delivery/effects under stale authority.
+   Test the actual provider adapter and consumer, including process termination,
+   not only a consent callback or generated guidance.
+4. Bounded CI-log inspection and collection into selected workspace files retain
+   the same repository scope, output limits and safe path handling. Filter/page
+   changes do not create approval churn. Credential-free requests never silently
+   become authenticated, and arbitrary shell pipelines do not inherit GitHub
+   consent. Live qualification uses an explicitly selected authorized target;
+   merge and production activation remain separate.
+
+## Adapter and consumer evidence
+
+[The composed log-consumer tests](../../server/__tests__/task-execution-log-consumer.test.ts)
+exercise the real task tool, grant store, permission handler, native executor and
+trusted log transport together. Only the external GitHub process is substituted.
+Five cases verify selected-worker discovery, ordinary and SDK-prefixed routes,
+different job IDs/literal filters, one initial approval, completed-request replay
+without refetch, unselected-worker refusal, and in-flight expiry/revocation with
+an explicit unknown outcome and retained uncertain receipt. Provider labels cover
+Codex, Claude and Vertex account bindings; these are offline fixtures, not live
+provider qualification or proof of real process termination.
+
+[Task-tool tests](../../server/__tests__/task-execution-tools.test.ts) additionally
+cover inherited development consent, routine command variations, detached retained
+workers and separately revoked parent authority. Their executor is substituted;
+[native executor tests](../../server/__tests__/native-tool-executor.test.ts) cover
+the next boundary, including exact task input and the final spawn recheck. These
+layers do not establish transparent delegation from a provider's native tool.
+
+A real host TaskExecution grant was reused on 11 November 2026 to read CI job
+`130723279548`, save the returned log inside its selected checkout, and run
+different local filter commands without another approval. The saved response was
+16,847 bytes including the added final newline (SHA-256
+`57e94abd59c9c73760730ddcef629a616d9e83d4d713d7c6bc64d4c543a7afbc`);
+literal `[command]` filtering saved 37 matching lines, and absent filters saved
+empty files. The read and writes used distinct retained request IDs under the
+same existing grant. Raw logs remain untracked local test results.
+
+This verifies an agent-mediated read → save → filter sequence in the current
+session. It does not establish a direct authenticated download-to-file operation,
+large-log transfer without model-mediated content, or another live worker's
+authority. The running release lacks this PR's `log` field, so the live read used
+the existing bounded raw response; new paging is verified offline. Qualification
+of the accepted implementation across actual worker runtimes remains outstanding.
+
 ## Validation and limits
 
 Offline tests exercise the real Codex approval adapter, shared handler and SDK
@@ -111,8 +198,9 @@ hook, repository read classifier, notification lifecycle/store, delivery fallbac
 HTTP and transport failures, privacy, expiry and restart behavior. Shared package
 type checks, focused lint and the reviewed-source manifest are also checked.
 
-These tests do not establish physical-device delivery, live GitHub execution,
-model-backed reviewer behavior or production adoption. The user's reported
+Offline tests do not establish physical-device delivery, model-backed reviewer
+behavior or production adoption. The scoped live read above does not qualify the
+new paging implementation. The user's reported
 five-minute interruption pattern has not been correlated with private incident
 logs; expiry/recreation and duplicate delivery are reproduced implementation
 paths, not a claimed complete incident diagnosis. Review, CI, merge and explicit
