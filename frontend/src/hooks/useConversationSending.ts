@@ -19,8 +19,24 @@ export function useConversationSending(options: {
   authScope?: string;
   getVerifiedAuthScope(): string | undefined;
   refresh(): Promise<CollaborationView | void>;
+  snapshot?: CollaborationMessageInput['snapshot'];
+  contextDisabledReason?: string;
+  onAccepted?(input: CollaborationMessageInput): void;
 }) {
-  const { api, view, draftId, authScope, getVerifiedAuthScope, refresh, responders } = options;
+  const {
+    api,
+    view,
+    draftId,
+    authScope,
+    getVerifiedAuthScope,
+    refresh,
+    responders,
+    snapshot,
+    contextDisabledReason,
+    onAccepted,
+  } = options;
+  const acceptedCallback = useRef(onAccepted);
+  acceptedCallback.current = onAccepted;
   const recipientKey = JSON.stringify(
     view && responders ? resolveConversationResponders(view, responders) : [],
   );
@@ -105,7 +121,20 @@ export function useConversationSending(options: {
         if (!terminal) return;
         const confirmed = await api.observeSend(group, original.input);
         if (!valid() || !confirmed.terminal) return;
+        const receipt = confirmed.message;
+        if (
+          !receipt ||
+          receipt.text !== original.input.text ||
+          receipt.membershipRevision !== original.input.expectedMembershipRevision ||
+          receipt.policySequence !== original.input.expectedPolicySequence ||
+          JSON.stringify(receipt.snapshot) !== JSON.stringify(original.input.snapshot)
+        )
+          throw Error('The original request receipt changed. Keep its identity and inspect it.');
+        acceptedCallback.current?.(original.input);
         retain();
+        // Callback publication can change the owning conversation. Never
+        // publish readiness into a successor after the original receipt settles.
+        if (!valid()) return;
       }
       if (!recipients.length) return;
       const results = await Promise.all(
@@ -181,7 +210,8 @@ export function useConversationSending(options: {
         ? 'Choose who replies with @ or enable replies by default in Agents.'
         : !view || recipients.some((id) => view.unavailableParticipantSessionIds.includes(id))
           ? 'Refresh Agents and choose an available participant.'
-          : (visible.error ??
+          : (contextDisabledReason ??
+            visible.error ??
             (visible.ready ? undefined : (visible.reason ?? 'Checking recipient readiness…')));
   const send = useCallback(
     async (text: string) => {
@@ -208,7 +238,7 @@ export function useConversationSending(options: {
             expectedPolicySequence: view.policySequence,
             text,
             responders,
-            snapshot: null,
+            snapshot: snapshot ?? null,
           }),
         };
         retain(original);
@@ -223,15 +253,17 @@ export function useConversationSending(options: {
             receipt.deliveries.some((d) => d.purpose === 'reply' && d.sessionId === id),
           ) ||
           receipt.membershipRevision !== original.input.expectedMembershipRevision ||
-          receipt.policySequence !== original.input.expectedPolicySequence
+          receipt.policySequence !== original.input.expectedPolicySequence ||
+          JSON.stringify(receipt.snapshot) !== JSON.stringify(original.input.snapshot)
         )
           throw Error('The receipt does not match the original request. Check its outcome.');
         await refresh();
-        return (
-          valid() &&
-          receipt.deliveries.some(
-            (d) => d.purpose === 'reply' && ['queued', 'delivered'].includes(d.status),
-          )
+        if (!valid()) return false;
+        // Only the validated exact receipt consumes one-prompt attachments.
+        // The original send journal retains its snapshot for outcome recovery.
+        acceptedCallback.current?.(original.input);
+        return receipt.deliveries.some(
+          (d) => d.purpose === 'reply' && ['queued', 'delivered'].includes(d.status),
         );
       } catch (cause) {
         if (valid()) {
@@ -261,6 +293,7 @@ export function useConversationSending(options: {
       retain,
       refresh,
       publish,
+      snapshot,
     ],
   );
   const stop = useCallback(async () => {
