@@ -68,7 +68,15 @@ export function useSessionOrdering(
     m.ranks = new Map(m.ranks);
     // One promotion per movement, including explicit Show latest. Repeated
     // observations coalesce by session rather than building an animation backlog.
-    const [id, time] = [...m.pending].sort((a, b) => b[1] - a[1])[0];
+    // Drain group changes in arrival order before recency promotions so a stream
+    // of newer active replies cannot strand finished work in the active group.
+    const pending = [...m.pending];
+    const [id, time] =
+      pending.find(
+        ([sessionId]) =>
+          m.pendingGroups.has(sessionId) &&
+          m.pendingGroups.get(sessionId) !== m.groups.get(sessionId),
+      ) ?? pending.sort((a, b) => b[1] - a[1])[0];
     m.ranks.set(id, Math.max(time, m.ranks.get(id) ?? 0));
     m.pending.delete(id);
     if (m.pendingGroups.has(id)) {

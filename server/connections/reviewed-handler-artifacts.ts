@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.1039-conversation-order-symposium-integration';
+  'v1.0.1040-conversation-group-priority';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -26,7 +26,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/components/SessionActions.tsx':
     'a3fa9b97cef33db35f9715eb85cd733760d022e03e087543bed127708cc1c54b',
   '../../frontend/src/hooks/__tests__/conversation-ordering.test.tsx':
-    '93f2b9be5c7136a697183f87939f8e3f00ce170bb84ace8b6cdb39c126b83ad7',
+    'cdab36d1b9b206494fb921df13dd363d5e60f2e568a685628fb6733e25e15f76',
   '../../frontend/src/pages/__tests__/SessionList.test.tsx':
     '2ca71eda210a16d69236e4a42b3f7c02a3fb55f39ce5fc25cb450a8dc117bb09',
   '../../frontend/src/components/ConversationUnreadDot.tsx':
@@ -938,7 +938,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     '92af65b4196ba7afbe76e53c693b0f39dda169c6cb4f1621c18357bd821b0381',
   '../github-read-approval.ts': 'ba512e252f456ce7d38ad30064a14767acac278cc39f3956817638ba17c71292',
   '../../frontend/src/hooks/useSessionOrder.ts':
-    '411697841fb2578558b7701556c5b50c11f2c3ddace5cc510395943ceee9a3cc',
+    '4cf70641dff6f80bca2901619b32b063eb89bb9d9da49fd6e61e986d20a82058',
   '../../frontend/src/hooks/useListBrowsing.ts':
     '830058284344f0b71a626556d1dd1c73a013cd52ed55c7a1a8d808f45027bba6',
   '../../frontend/src/components/MotionList.tsx':

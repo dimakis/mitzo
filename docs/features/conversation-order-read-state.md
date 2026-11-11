@@ -16,7 +16,9 @@ title; existing activity labels continue to describe execution.
   Repeated activity coalesces by session. Newly discovered conversations use the
   same queue. Tool traffic never establishes message freshness.
 - In progress precedes Finished. Completion moves through the queue rather than
-  leaving a finished row between running jobs. Sidebar and library use MotionList
+  leaving a finished row between running jobs. Group changes drain in arrival
+  order before recency promotions, so newer active replies cannot starve a
+  pending completion. Sidebar and library use MotionList
   to preserve the visible conversation and avoid remounting its controls.
 - Nested scroll events are captured. Hover, active scrolling, a viewport away
   from the top, keyboard focus and action dialogs hold ordering. Show latest
@@ -65,6 +67,9 @@ worker and a 1 GiB Node heap. Coverage includes upstream responder progress and
 the composed application observer journey, as well as read receipts, ordering,
 durable storage and the actual HTTP metadata routes. Source-artifact validation
 also passed. The PR's merge conflict prevented ordinary pull-request CI from
-running; publishing this resolved candidate is intended to restore that workflow.
+running; publishing the resolved candidate restored that workflow (run
+`43031852101`). A further regression reproduced newer active replies delaying a
+finished row's group change; prioritizing queued group changes fixed it. All 24
+ordering, motion and legacy-order tests passed after that correction.
 Browser assertions and the sandbox guard remain intact. Final CI, browser
 captures and exact-head Centaur approval remain outstanding.

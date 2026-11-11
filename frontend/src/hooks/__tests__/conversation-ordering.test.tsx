@@ -63,6 +63,18 @@ it('keeps finished sessions below running work and commits completion through th
   expect(view.result.current.sessions.map((s) => s.id)).toEqual(['c', 'b', 'a']);
 });
 
+it('moves finished work out of the active group before newer active replies can starve it', () => {
+  const view = renderHook(
+    ({ activities }) => useSessionOrdering(rows, activities, false, { grouped: true }),
+    { initialProps: { activities: rows.map((s) => live(s.id, s.lastModified)) } },
+  );
+  view.rerender({ activities: [live('a', 2000), live('b', 1000, 'done'), live('c', 100)] });
+  tick(600);
+  expect(view.result.current.groups.get('b')).toBe(1);
+  expect(view.result.current.sessions.map((s) => s.id)).toEqual(['a', 'c', 'b']);
+  expect(view.result.current.pendingCount).toBe(1);
+});
+
 it('holds nested scrolling and keeps the list still while scrolled away from the top', () => {
   function List() {
     const ref = useRef<HTMLDivElement>(null);
