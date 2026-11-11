@@ -10,8 +10,13 @@ import {
   captureOrdinaryReplyExecution,
   recordOrdinaryReplySource,
 } from '../collaboration-ordinary-replies.js';
+import { OrdinaryCollaborationReview } from '../collaboration-review-owner.js';
+import { createCollaborationContextSource } from '../collaboration-context-source.js';
 
-vi.mock('../auth.js', () => ({ isAuthSessionCurrent: () => true }));
+vi.mock('../auth.js', () => ({
+  isAuthSessionCurrent: () => true,
+  isAuthenticatedOperatorSessionId: (id: string) => id === 'renewed-primary-operator',
+}));
 const diagnostics = vi.hoisted(() => ({
   debug: vi.fn(),
   info: vi.fn(),
@@ -130,6 +135,185 @@ function acknowledgeRecordedPrompts() {
     }),
   );
 }
+
+async function reviewedPromptContext(
+  recipients = ['one', 'two'],
+  text = 'Exact selected source context',
+) {
+  const messageId = randomUUID();
+  const boundary = store.append('one', 'user_message', { messageId, text });
+  const view = store.collaborationConversation.view(group);
+  const source = createCollaborationContextSource({
+    store,
+    authorizeConversation: async () => {},
+    assertConversationCurrent: () => {},
+  });
+  const snapshot = await new OrdinaryCollaborationReview({ store, source: () => source }).review(
+    group,
+    {
+      operatorId: auth.id,
+      settings: recipients.map((id) => store.getOrdinaryConversationSettings(id)),
+      selection: {
+        requestId: randomUUID(),
+        expectedMembershipRevision: view.membershipRevision,
+        sourceConversationId: 'one',
+        boundary: { sequence: boundary, messageId },
+        mode: 'selected',
+        messageIds: [messageId],
+        artifacts: [],
+        purpose: 'Review this prompt context',
+        joiningBrief: 'Reviewed context, independent of boot and tools',
+      },
+      promptAudience: { sessionIds: recipients, policySequence: view.policySequence },
+    },
+    { assertBeforeCommit: () => source.assertCurrentAtSave() },
+  );
+  return { snapshotId: snapshot.snapshotId, sha256: snapshot.sha256 };
+}
+
+it('delivers exact per-prompt context and retains it for a reader before its later requested turn', async () => {
+  shareWithReader();
+  acknowledgeRecordedPrompts();
+  const snapshot = await reviewedPromptContext();
+  const first = { ...input('one', 'Answer with the reviewed source'), snapshot };
+  await owner.send(auth, group, first, new AbortController().signal);
+  expect(prompts).toHaveLength(1);
+  expect(prompts[0].text).toContain('Exact selected source context');
+  expect(prompts[0].text).toContain('Reviewed context, independent of boot and tools');
+  expect(prompts[0].text).toContain('"sharedContext"');
+  const reader = input('two', 'Now respond explicitly');
+  await owner.send(auth, group, reader, new AbortController().signal);
+  expect(prompts).toHaveLength(2);
+  expect(prompts[1].text).toContain('Exact selected source context');
+  expect(prompts[1].text).toContain('Answer with the reviewed source');
+  const delivered = store.collaborationConversation.getMessageForRequest(group, first)!;
+  expect(delivered.deliveries.find((d) => d.sessionId === 'two')).toMatchObject({
+    status: 'delivered',
+    commandId: prompts[1].commandId,
+  });
+  await owner.send(auth, group, first, new AbortController().signal);
+  expect(prompts).toHaveLength(2);
+});
+
+it.each(['hidden', 'outside_audience', 'settings_changed', 'source_rejoined', 'policy_changed'])(
+  'refuses invalid per-prompt source or audience before accepting a new request: %s',
+  async (scenario) => {
+    acknowledgeRecordedPrompts();
+    const snapshot = await reviewedPromptContext(
+      scenario === 'outside_audience' ? ['one'] : ['one', 'two'],
+    );
+    if (scenario === 'hidden') store.hideSession('one');
+    if (scenario === 'policy_changed') shareWithReader();
+    if (scenario === 'settings_changed') {
+      const read = store.getOrdinaryConversationSettings.bind(store);
+      vi.spyOn(store, 'getOrdinaryConversationSettings').mockImplementation((id) => {
+        const settings = read(id)!;
+        return id === 'two'
+          ? { ...settings, selection: { ...settings.selection, model: 'changed' } }
+          : settings;
+      });
+    }
+    if (scenario === 'source_rejoined') {
+      store.setSessionCollaboration(group, { expectedRevision: 1, participantSessionIds: ['two'] });
+      store.setSessionCollaboration(group, {
+        expectedRevision: 2,
+        participantSessionIds: ['one', 'two'],
+      });
+    }
+    const request = { ...input('two', 'Do not accept missing reviewed authority'), snapshot };
+    await expect(owner.send(auth, group, request, new AbortController().signal)).rejects.toThrow();
+    expect(store.collaborationConversation.getMessageForRequest(group, request)).toBeNull();
+    expect(prompts).toHaveLength(0);
+  },
+);
+
+it('charges all retained per-message context bytes before acceptance or delivery claims', async () => {
+  shareWithReader();
+  acknowledgeRecordedPrompts();
+  const snapshot = await reviewedPromptContext(undefined, 'x'.repeat(100000));
+  for (let i = 0; i < 4; i++)
+    await owner.send(
+      auth,
+      group,
+      { ...input('one', `Reviewed packet ${i}`), snapshot },
+      new AbortController().signal,
+    );
+  expect(prompts).toHaveLength(4);
+  const request = input('two', 'y'.repeat(100000));
+  await expect(owner.send(auth, group, request, new AbortController().signal)).rejects.toThrow(
+    'capacity_refused',
+  );
+  expect(store.collaborationConversation.getMessageForRequest(group, request)).toBeNull();
+  for (const message of store.collaborationConversation.view(group).messages)
+    expect(message.deliveries.find((d) => d.sessionId === 'two')).toMatchObject({
+      commandId: null,
+      status: 'pending',
+    });
+  expect(prompts).toHaveLength(4);
+});
+
+it('bounds distinct pending context inventory before compiling later sources or claiming deliveries', async () => {
+  shareWithReader();
+  acknowledgeRecordedPrompts();
+  for (let i = 0; i < 8; i++) {
+    const snapshot = await reviewedPromptContext(undefined, `${i}:` + 'x'.repeat(100000));
+    await owner.send(
+      auth,
+      group,
+      { ...input('one', `Unique context ${i}`), snapshot },
+      new AbortController().signal,
+    );
+  }
+  const read = vi.spyOn(store.collaborationConversation, 'getReviewCompilationForSnapshot');
+  const request = input('two', 'Read all retained contexts');
+  await expect(owner.send(auth, group, request, new AbortController().signal)).rejects.toThrow(
+    'capacity_refused',
+  );
+  // Preparation stops during raw byte inventory, before rehydrating any full
+  // source compiler/witness. Existing reader claims and turns stay untouched.
+  expect(read).not.toHaveBeenCalled();
+  expect(store.collaborationConversation.getMessageForRequest(group, request)).toBeNull();
+  expect(prompts).toHaveLength(8);
+  for (const message of store.collaborationConversation.view(group).messages)
+    expect(message.deliveries.find((d) => d.sessionId === 'two')).toMatchObject({
+      commandId: null,
+      status: 'pending',
+    });
+});
+
+it('recovers pending reviewed context after verified primary-operator login renewal without rewriting provenance', async () => {
+  shareWithReader();
+  acknowledgeRecordedPrompts();
+  const snapshot = await reviewedPromptContext();
+  await owner.send(
+    auth,
+    group,
+    { ...input('one', 'Keep the exact reviewed context'), snapshot },
+    new AbortController().signal,
+  );
+  const request = input('two', 'Read it under renewed authority');
+  await expect(
+    owner.send(
+      { ...auth, id: 'unverified-other-realm' },
+      group,
+      request,
+      new AbortController().signal,
+    ),
+  ).rejects.toThrow('snapshot_changed');
+  expect(prompts).toHaveLength(1);
+  await owner.send(
+    { ...auth, id: 'renewed-primary-operator' },
+    group,
+    request,
+    new AbortController().signal,
+  );
+  expect(prompts).toHaveLength(2);
+  expect(prompts[1].text).toContain('Exact selected source context');
+  expect(
+    store.collaborationConversation.getReviewCompilationForSnapshot(group, snapshot.snapshotId)
+      ?.operatorId,
+  ).toBe(auth.id);
+});
 
 it('stops retained reply commands independently with stable control identities and no new send', async () => {
   const stop = vi.fn(async (_auth, sessionId: string, _commandId, _requestId, current) => {
