@@ -102,6 +102,13 @@ Existing exact-command consent remains separate and bound to its command,
 directory, access profile, account and thread. This feature reuses PR #1240's
 accepted directory-identity checks and redacted audit stream.
 
+The 11 November [approval notification change](approval-notification-churn.md)
+adds explicitly displayed repository-read consent for recognized GitHub CLI
+commands, shared by Codex and Claude/Vertex. Different CI jobs/logs reuse that
+scope; unrelated commands retain exact consent. It also consolidates approval
+delivery and suppresses repeated unread-chat alerts. Automatic review remains
+unqualified; source implementation and offline tests do not prove deployment.
+
 ## Recovery and validation evidence
 
 Recovered session `3950b08a-f0bc-8b83-85f2-da1096714c99` held local commits

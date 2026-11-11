@@ -437,7 +437,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/harness/src/tool-guard.ts':
     '4bf394c1361e4055f34deeeb4b94e6e18275af1d05540af9bcabfd21739f7d87',
   '../../docs/features/approval-modes-reusable-access.md':
-    'efcd495aa8886666bedc852626c7d25f419f7a594abb7707bf05f173ca71848e',
+    '7293a23362a25830bb18a08ff1f673d50ec7aa4310354048d1e7270d0f6bf1ae',
   '../../frontend/src/components/ReusableAccessGrants.tsx':
     '0bf994f5e6af7cd4c536ebc2059119120383adc151539490eff605dd75694997',
   '../../frontend/src/components/__tests__/ReusableAccessGrants.test.tsx':
