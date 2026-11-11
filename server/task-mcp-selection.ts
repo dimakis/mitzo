@@ -104,7 +104,11 @@ export async function connectSelectedTaskMcpTools(
 type McpPeer = Pick<
   Awaited<ReturnType<typeof connectCodexMcpTools>>,
   'definitions' | 'displayName' | 'execute' | 'close'
-> & { assertToolCurrent?: (name: string) => void; outputScope?: (name: string) => string };
+> & {
+  assertToolCurrent?: (name: string) => void;
+  outputScope?: (name: string) => string;
+  ensureToolCurrent?: (name: string, signal: AbortSignal) => Promise<void>;
+};
 /** Keep each original peer's executor, permission, cancellation and close owners. */
 export function combineMcpToolPeers(primary: McpPeer, task: McpPeer): McpPeer {
   const owners = new Map<string, McpPeer>();
@@ -115,6 +119,12 @@ export function combineMcpToolPeers(primary: McpPeer, task: McpPeer): McpPeer {
     }
   return {
     definitions: [...primary.definitions, ...task.definitions],
+    ensureToolCurrent: async (name, signal) => {
+      const owner = owners.get(name);
+      if (!owner) throw Error('MCP tool is not selected');
+      await owner.ensureToolCurrent?.(name, signal);
+      owner.assertToolCurrent?.(name);
+    },
     displayName: (name) => owners.get(name)?.displayName(name) ?? name,
     outputScope: (name) => {
       const owner = owners.get(name);
@@ -128,7 +138,13 @@ export function combineMcpToolPeers(primary: McpPeer, task: McpPeer): McpPeer {
       owner.assertToolCurrent(name);
     },
     close: async () => {
-      await Promise.allSettled([primary.close(), task.close()]);
+      const results = await Promise.allSettled([primary.close(), task.close()]);
+      const failures = results.filter((result) => result.status === 'rejected');
+      if (failures.length)
+        throw new AggregateError(
+          failures.map((result) => result.reason),
+          'MCP cleanup failed',
+        );
     },
     execute: (...args) => {
       const owner = owners.get(args[0]);
