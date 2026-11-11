@@ -1302,7 +1302,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../tests/fixtures/chat-model-settings.tsx':
     '81f8ff3661bd8e88d370fe1ff6a0fcc46693dc97f1de2d57608b7d118b58f131',
   '../../tests/offline/chat-model-settings.spec.ts':
-    'd95d37b0a537fc10f2bee0e0ae149e6f9763568f1aa8f00e4a18c7577d01e48c',
+    '8890834dd4e3dad9c669e4093e4a30d30bf6a3c2f81357d4e3ab5ac6f8953412',
   '../../packages/protocol/__tests__/event-store-internal-identity.test.ts':
     'c9d5fd312f2a822909b1d27775c89dc2b268a31f16d29c0a95ada737f7c126b3',
   '../__tests__/symposium-profile-read-allocation.test.ts':
