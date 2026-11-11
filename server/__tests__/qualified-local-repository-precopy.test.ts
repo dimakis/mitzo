@@ -139,3 +139,31 @@ it('retains the original native proof at private worker execution after private 
     await rm(scratch, { recursive: true, force: true });
   }
 });
+
+it.each(['dispose', 'owner', 'both'] as const)(
+  'retains the original artifact failure when %s finalization also fails',
+  async (mode) => {
+    const f = fixture();
+    const original = Error('private artifact verification failure');
+    const disposal = Error('private artifact disposal failure');
+    const revoked = Error('private native owner failure');
+    vi.mocked(verifyLocalRepositoryPreparationObjectData).mockRejectedValue(original);
+    if (mode !== 'owner') f.objects.dispose.mockRejectedValue(disposal);
+    if (mode !== 'dispose')
+      f.operation.context.assertCurrent.mockResolvedValueOnce(undefined).mockRejectedValue(revoked);
+    await expect(
+      materializeQualifiedLocalRepositoryTask(f.operation as never),
+    ).rejects.toMatchObject({
+      code: 'operation_finalization_failed',
+      cause: original,
+      errors: [
+        original,
+        ...(mode !== 'owner' ? [disposal] : []),
+        ...(mode !== 'dispose' ? [revoked] : []),
+      ],
+    });
+    expect(f.objects.dispose).toHaveBeenCalledOnce();
+    expect(f.operation.context.assertCurrent).toHaveBeenCalledTimes(2);
+    expect(executePrivateRepositoryStagingCheckout).not.toHaveBeenCalled();
+  },
+);

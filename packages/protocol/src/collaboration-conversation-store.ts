@@ -886,6 +886,41 @@ export class CollaborationConversationStore {
       },
     );
   }
+  /** Host-only observation of the exact ordinary command; no request can supply an outcome. */
+  recordReplyOutcome(
+    group: string,
+    messageId: string,
+    deliveryId: string,
+    read: (
+      sessionId: string,
+      commandId: string,
+    ) => 'completed' | 'failed' | 'interrupted' | 'uncertain' | undefined,
+  ) {
+    return this.db
+      .transaction(() => {
+        this.group(group);
+        const message = this.current(group, 'message', messageId, CollaborationMessageSchema);
+        const delivery = message?.deliveries.find((d) => d.deliveryId === deliveryId);
+        if (!message || !delivery || delivery.purpose !== 'reply' || !delivery.commandId)
+          throw new ContractError('reply_conflict');
+        const observed = read(delivery.sessionId, delivery.commandId);
+        const outcome = observed ?? (delivery.outcome ? 'uncertain' : undefined);
+        if (!outcome || delivery.outcome === outcome) return;
+        if (delivery.outcome && delivery.outcome !== 'uncertain' && outcome !== 'uncertain')
+          throw new ContractError('reply_conflict');
+        const next = CollaborationDeliverySchema.parse({
+          ...delivery,
+          outcome,
+          revision: delivery.revision + 1,
+        });
+        message.deliveries = message.deliveries.map((d) =>
+          d.deliveryId === deliveryId ? next : d,
+        );
+        this.put(group, 'message', messageId, message);
+        this.event(group, { kind: 'delivery', messageId, delivery: next });
+      })
+      .immediate();
+  }
   /** Host-only attributed projection. The trusted source port must verify the exact ordinary
    * command/message mapping and finalized visible blocks. Context receipts retain the original
    * exchange audience; only a later explicit ordinary command can deliver them.

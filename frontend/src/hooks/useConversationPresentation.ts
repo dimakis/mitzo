@@ -72,6 +72,7 @@ export function useConversationPresentation(options: ConversationPresentationOpt
     epoch = useRef(0),
     readId = useRef(0);
   const controller = useRef<AbortController | null>(null);
+  const foregroundRead = useRef<{ owner: object; id: number } | null>(null);
   // Ephemeral UI retry state only. The server owns durable policy request receipts.
   const pending = useRef<PendingPolicy | null>(null);
   const empty = useCallback(
@@ -123,6 +124,7 @@ export function useConversationPresentation(options: ConversationPresentationOpt
     epoch.current++;
     readId.current++;
     controller.current?.abort();
+    if (foregroundRead.current?.owner === owner) foregroundRead.current = null;
     pending.current = null;
     // The application's ProtectedRoute owns login recovery. Retire private
     // collaboration state without inventing a second feature-specific login.
@@ -167,14 +169,21 @@ export function useConversationPresentation(options: ConversationPresentationOpt
       pending.current = null;
   }, []);
   const read = useCallback(
-    async (events: boolean): Promise<{ error?: string; view?: CollaborationView } | undefined> => {
+    async (
+      events: boolean,
+      background = false,
+    ): Promise<{ error?: string; view?: CollaborationView } | undefined> => {
       if (!valid()) {
         clearPrivate();
         return;
       }
+      // Observation must not interrupt an explicit refresh or disable mounted
+      // draft/recipient controls while checking another device's replies.
+      if (background && foregroundRead.current?.owner === owner) return;
       const starting = latest.current.owner === owner ? latest.current.projection : null;
       const identity = ++readId.current,
         generation = epoch.current;
+      if (!background) foregroundRead.current = { owner, id: identity };
       controller.current?.abort();
       const abort = new AbortController();
       controller.current = abort;
@@ -183,7 +192,7 @@ export function useConversationPresentation(options: ConversationPresentationOpt
         epoch.current === generation &&
         readId.current === identity &&
         !abort.signal.aborted;
-      publish({ loading: true, error: null });
+      publish({ ...(background ? {} : { loading: true }), error: null });
       try {
         let projection: CollaborationProjection,
           hasMoreEvents = false;
@@ -226,12 +235,18 @@ export function useConversationPresentation(options: ConversationPresentationOpt
           publish({ loading: false, error });
           return { error };
         }
+      } finally {
+        if (foregroundRead.current?.owner === owner && foregroundRead.current.id === identity)
+          foregroundRead.current = null;
       }
     },
     [valid, clearPrivate, owner, api, collaborationId, publish, reconcile, readDraft],
   );
   const refresh = useCallback(async () => {
     return (await read(false))?.view;
+  }, [read]);
+  const observeTranscript = useCallback(async () => {
+    return (await read(false, true))?.view;
   }, [read]);
   const refreshEvents = useCallback(async () => {
     await read(true);
@@ -427,6 +442,7 @@ export function useConversationPresentation(options: ConversationPresentationOpt
         : null;
   return {
     projection,
+    observeTranscript,
     draft: visible.draft,
     loading: visible.loading,
     error: visible.error,

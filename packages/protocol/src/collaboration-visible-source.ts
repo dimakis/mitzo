@@ -45,7 +45,7 @@ const ordinary = (alias = '') => {
     AND json_type(${prefix}payload,'$.symposiumProvenance') IS NULL`;
 };
 // Completed visible text only. No SDK history, tool I/O, reasoning or provider payload is read.
-const anchors = `session_id=@session AND seq<=@through AND ${ordinary()} AND
+const completedAnchors = `session_id=@session AND seq<=@through AND ${ordinary()} AND
  (type='user_message' OR (type='message_end' AND EXISTS (
  SELECT 1 FROM events b WHERE b.session_id=events.session_id AND b.seq<events.seq
  AND b.type='block_start' AND ${ordinary('b')}
@@ -134,7 +134,7 @@ export function captureCollaborationDurableTranscript(
     }
     const last = db
       .prepare(
-        `SELECT ${messageIdProjection} AS messageId FROM events WHERE ${anchors} ORDER BY seq DESC LIMIT 1`,
+        `SELECT ${messageIdProjection} AS messageId FROM events WHERE ${completedAnchors} ORDER BY seq DESC LIMIT 1`,
       )
       .get(args) as { messageId: unknown } | undefined;
     if (!last || typeof last.messageId !== 'string') fail();
@@ -202,16 +202,70 @@ export function readCollaborationFinalizedReply(
   }
 }
 
+/** Exact in-progress visible text only. It is never a finalized reply, snapshot,
+ * delivery ACK or continuation right. The caller supplies accepted provenance. */
+export function readCollaborationStreamingReply(
+  db: Database.Database,
+  session: string,
+  messageId: string,
+) {
+  if (!CollaborationSnapshotMessageSchema.shape.messageId.safeParse(messageId).success) fail();
+  const rows = db
+    .prepare(
+      `SELECT seq,type FROM events WHERE session_id=?
+    AND json_extract(payload,'$.messageId')=?
+    AND type IN ('user_message','message_start','message_end') ORDER BY seq LIMIT 3`,
+    )
+    .all(session, messageId) as Array<{ seq: number; type: string }>;
+  if (!rows.length || rows.some((r) => r.type === 'message_end')) return undefined;
+  if (rows.length !== 1 || rows[0].type !== 'message_start') fail();
+  if (
+    !db
+      .prepare(
+        `SELECT 1 FROM events WHERE session_id=? AND type='block_start'
+    AND json_extract(payload,'$.messageId')=? AND json_extract(payload,'$.blockType')='text' LIMIT 1`,
+      )
+      .get(session, messageId)
+  )
+    return undefined;
+  const { through } = db
+    .prepare('SELECT MAX(seq) AS through FROM events WHERE session_id=?')
+    .get(session) as { through: number };
+  if (!Number.isSafeInteger(through) || through >= Number.MAX_SAFE_INTEGER) fail();
+  try {
+    const source = createVisibleSource(
+      db,
+      session,
+      { sequence: through, messageId },
+      null,
+      messageId,
+      true,
+    );
+    const [message] = source.readSelected([messageId]);
+    source.assertCurrent();
+    return message;
+  } catch (error) {
+    if (error instanceof z.ZodError) fail();
+    throw error;
+  }
+}
+
 function createVisibleSource(
   db: Database.Database,
   session: string,
   boundary: Boundary,
   initialPrompt?: string | null,
   exactReply?: string,
+  streaming = false,
 ) {
   const through = boundary.sequence;
   if (!Number.isSafeInteger(through) || through < 0) fail();
   const args = { session, through };
+  // Only the dedicated in-progress reader selects starts. Frozen snapshots and
+  // finalized recovery keep their complete-message anchors and closed blocks.
+  const anchors = streaming
+    ? `session_id=@session AND seq<=@through AND ${ordinary()} AND type='message_start'`
+    : completedAnchors;
   function validateBoundary() {
     if (exactReply !== undefined) {
       // Only this finalized message qualifies. Unrelated queued/active turns,
@@ -359,7 +413,8 @@ function createVisibleSource(
           `SELECT seq FROM events WHERE session_id=? AND seq<? AND type='message_start'
         AND ${ordinary()} AND json_extract(payload,'$.messageId')=? ORDER BY seq DESC LIMIT 1`,
         )
-        .get(session, anchor.seq, anchor.messageId) as { seq: number } | undefined;
+        .get(session, streaming ? through + 1 : anchor.seq, anchor.messageId) as
+        { seq: number } | undefined;
       if (!start) fail();
       type Row = {
         seq: number;
@@ -379,7 +434,12 @@ function createVisibleSource(
         AND json_extract(payload,'$.messageId')=? AND type IN ('block_start','block_delta','block_end')
         ORDER BY seq LIMIT 20001`,
         )
-        .iterate(session, start.seq, anchor.seq, anchor.messageId) as IterableIterator<Row>;
+        .iterate(
+          session,
+          start.seq,
+          streaming ? through + 1 : anchor.seq,
+          anchor.messageId,
+        ) as IterableIterator<Row>;
       const opened = new Map<string, { content: string; closed: boolean; visible: boolean }>();
       let eventCount = 0;
       let visibleBlocks = 0;
@@ -430,7 +490,7 @@ function createVisibleSource(
       }
       for (const [blockId, block] of opened)
         if (block.visible) {
-          if (!block.closed) fail();
+          if (!block.closed && !streaming) fail();
           blocks.push({ blockId, content: block.content, sha256: hash(block.content) });
         }
       if (!blocks.length) fail();
@@ -460,7 +520,12 @@ function createVisibleSource(
       observations.set(message.messageId, {
         anchor: {
           seq: message.sequence,
-          type: message.author === 'operator' ? 'user_message' : 'message_end',
+          type:
+            message.author === 'operator'
+              ? 'user_message'
+              : streaming
+                ? 'message_start'
+                : 'message_end',
           messageId: message.messageId,
         },
         sha256: hash(JSON.stringify(message)),
