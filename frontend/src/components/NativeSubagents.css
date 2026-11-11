@@ -71,6 +71,9 @@
 .native-subagent-dialog--empty {
   block-size: auto;
 }
+.native-subagent-dialog--empty .home-dialog-content {
+  block-size: auto;
+}
 .native-subagent-dialog--empty .native-subagent-body {
   flex: 0 1 auto;
 }
@@ -174,6 +177,7 @@
     border: 0;
   }
   .native-subagent-dialog .home-dialog-content {
+    block-size: 100%;
     padding-block-start: max(var(--space-4), env(safe-area-inset-top));
     padding-block-end: max(var(--space-4), env(safe-area-inset-bottom));
     padding-inline-start: max(var(--space-4), env(safe-area-inset-left));

@@ -125,6 +125,10 @@ for (const theme of ['dark', 'light'])
     expect(back!.y).toBeGreaterThanOrEqual(safeTop);
     const send = await dialog.getByRole('button', { name: 'Send to Subagent' }).boundingBox();
     expect(send!.y + send!.height).toBeLessThanOrEqual(844 - safeBottom);
+    if (!info.project.name.startsWith('mobile')) {
+      const bounds = await dialog.boundingBox();
+      expect(bounds!.y + bounds!.height - send!.y - send!.height).toBeLessThan(64);
+    }
     const retry = await dialog.getByRole('button', { name: 'Retry inspection' }).boundingBox();
     const input = dialog.getByRole('textbox', { name: 'Message Subagent' });
     await expect(input).toHaveAttribute('rows', '1');

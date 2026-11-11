@@ -755,7 +755,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../tests/integration/native-subagent-visibility.test.tsx':
     '75cf48bc38aa942998df4e0ae0a409cf991a205c8bc7c7d60d8d9df5bbde6bdd',
   '../../tests/offline/native-subagent-visibility.spec.ts':
-    '13eb26f01d24538485acd4706dc4b9d26ecb1ba65d9857cea7da7b257ae7b0d4',
+    '0a8234f07428ccd6e4787d3426b1c1ed78507f28706f121d9ed10dcfe4976ef7',
   '../../tests/fixtures/native-subagents.tsx':
     '2a5f7279ceff28f6bec882c065b4f45c3525c700178a5b3826688c15c4f12357',
   '../../tests/offline/native-subagents.spec.ts':
@@ -767,7 +767,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/hooks/useNativeSubagents.ts':
     '148cde4c33c3767611270dabe583e9a672a60f12b5b8f912300c09820b4bdc63',
   '../../frontend/src/components/NativeSubagents.css':
-    'cd54f0aa7eb9fa55b1bb4ade6f99fc6da3b71a11c7c24075ae56f2dc222ca21d',
+    '30ff209db5b32c8b01867f61eec7f826c7df786513262e3a93d796208c1c1ca6',
   '../../frontend/src/components/NativeSubagents.tsx':
     'bd273cba81bc82ee39ca6c1c2c116708837ec9f5d4b9b9e660a535bc6575d711',
   '../../packages/protocol/src/native-subagents.ts':
