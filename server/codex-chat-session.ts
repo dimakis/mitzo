@@ -3420,14 +3420,24 @@ async function openCodexChatBound(
             }),
             isError: true,
           };
-        assertAgentToolSelected(options.session, output.toolName);
-        const owner = options.registry.findBySessionId(options.conversationId);
-        if (!owner || owner.session !== options.session) throw new CodexToolFailure('stale_owner');
-        if (
-          checkSkillPolicy(options.registry, owner.clientId, mcp.displayName(output.toolName)) ===
-          'deny'
-        )
-          throw new CodexToolFailure('permission_denied');
+        const assertRetainedToolAuthorized = () => {
+          signal.throwIfAborted();
+          assertAgentToolSelected(options.session, output.toolName);
+          const owner = options.registry.findBySessionId(options.conversationId);
+          if (!owner || owner.session !== options.session)
+            throw new CodexToolFailure('stale_owner');
+          if (
+            checkSkillPolicy(options.registry, owner.clientId, mcp.displayName(output.toolName)) ===
+            'deny'
+          )
+            throw new CodexToolFailure('permission_denied');
+        };
+        const assertRetainedToolCurrent = () => {
+          callContext.assertCurrentSync?.();
+          assertRetainedToolAuthorized();
+        };
+        assertRetainedToolCurrent();
+        callContext.registerResponseFence?.(assertRetainedToolAuthorized);
         if (options.ownedOpenShell) {
           const original = openShellRetainedReads.get(request.data.outputId);
           if (
@@ -3516,13 +3526,13 @@ async function openCodexChatBound(
         } else {
           if (!mcp.assertToolCurrent) throw new CodexToolFailure('stale_owner');
           await mcp.ensureToolCurrent?.(output.toolName, signal);
-          callContext.assertCurrentSync?.();
+          assertRetainedToolCurrent();
           mcp.assertToolCurrent(output.toolName);
           if (!mcp.outputScope || mcp.outputScope(output.toolName) !== output.sourceScope)
             throw new CodexToolFailure('stale_owner');
         }
         const result = readToolOutputPage(output.content, request.data);
-        callContext.assertCurrentSync?.();
+        assertRetainedToolCurrent();
         return { content: JSON.stringify(result), isError: false };
       }
       if (integrationDiscovery?.handles(name)) {
