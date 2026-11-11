@@ -413,6 +413,10 @@ function capabilityToolsForConversation(
 export function publicCodexRuntimeError(error: Error): string {
   const retained = findSessionRuntimeError(error);
   if (retained) return retained.publicMessage();
+  // Command admission preserves a safe outer refusal and the typed startup
+  // cause. Project that reviewed cause instead of losing its actionable reason.
+  if (!(error instanceof CodexStartupError) && error.cause instanceof CodexStartupError)
+    return publicCodexRuntimeError(error.cause);
   if (error.message === NATIVE_MAC_ARTIFACT_UNAVAILABLE) return error.message;
   if (error instanceof SandboxAgentContextAdmissionError)
     return error.message + ' No provider turn was started.';
