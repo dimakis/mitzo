@@ -4,6 +4,8 @@ import {
   CollaborationContractError,
   CollaborationApplicationReviewInputSchema,
   CollaborationApplicationReviewResultSchema,
+  CollaborationPromptReviewInputSchema,
+  CollaborationPromptReviewResultSchema,
   createOrdinaryFreshPermission,
   type CollaborationApplicationReviewInput,
   type CollaborationSnapshot,
@@ -38,6 +40,155 @@ const unavailable = () => new CollaborationContractError('execution_unavailable'
  */
 export class CollaborationApplicationReview {
   constructor(private readonly owners: { store: EventStore; workspaces: RepositoryWorkspaces }) {}
+
+  /** Compile exact context for existing ordinary participants. This does not
+   * prepare a session, enqueue a command or invoke an inference/capacity runtime. */
+  async reviewPrompt(
+    auth: AuthSession,
+    operatorConnectionId: string,
+    group: string,
+    raw: unknown,
+    signal: AbortSignal,
+  ) {
+    const input = CollaborationPromptReviewInputSchema.parse(raw);
+    const inputSha = createHash('sha256').update(JSON.stringify(input)).digest('hex');
+    const operator = captureAgentLibraryAuthorization(operatorConnectionId);
+    const assertObservation = () => {
+      signal.throwIfAborted();
+      operator.assertCurrent();
+      const source = this.owners.store.getSession(input.selection.sourceConversationId);
+      if (
+        !isAuthSessionCurrent(auth) ||
+        operator.auth.id !== auth.id ||
+        liveTransportAuthSessionId(operatorConnectionId) !== auth.id ||
+        !source ||
+        source.isHidden ||
+        source.sessionType === 'symposium' ||
+        source.symposiumConfig ||
+        !this.owners.store
+          .getSessionCollaboration(group)
+          ?.participantSessionIds.includes(source.sessionId)
+      )
+        throw unavailable();
+    };
+    assertObservation();
+    const retained = this.owners.store.collaborationConversation.getReviewCompilation(
+      group,
+      input.selection.requestId,
+    );
+    if (
+      retained &&
+      (retained.operatorId !== auth.id ||
+        retained.applicationInputSha256 !== inputSha ||
+        !isDeepStrictEqual(retained.promptAudience, {
+          sessionIds: input.recipientSessionIds,
+          policySequence: input.expectedPolicySequence,
+        }))
+    )
+      throw new CollaborationContractError('request_conflict');
+    const currentSettings = () =>
+      input.recipientSessionIds.map((id) => {
+        const settings = this.owners.store.getOrdinaryConversationSettings(id);
+        if (
+          !settings ||
+          settings.binding.harness.implementation !== 'codex' ||
+          settings.binding.execution.location !== 'local'
+        )
+          throw unavailable();
+        return settings;
+      });
+    const selected = retained?.settings ?? currentSettings();
+    if (selected.length !== input.recipientSessionIds.length)
+      throw new CollaborationContractError('snapshot_changed');
+    const isChanged = () => {
+      const view = this.owners.store.collaborationConversation.view(group);
+      return (
+        view.membershipRevision !== input.selection.expectedMembershipRevision ||
+        view.policySequence !== input.expectedPolicySequence ||
+        input.recipientSessionIds.some(
+          (id, i) =>
+            !view.participantSessionIds.includes(id) ||
+            view.unavailableParticipantSessionIds.includes(id) ||
+            !isDeepStrictEqual(this.owners.store.getOrdinaryConversationSettings(id), selected[i]),
+        )
+      );
+    };
+    const assertCurrent = () => {
+      assertObservation();
+      if (isChanged()) throw new CollaborationContractError('snapshot_changed');
+    };
+    const result = (snapshot: CollaborationSnapshot) => {
+      assertObservation();
+      const artifactLabels = snapshot.artifacts.map((pin) => {
+        const output = this.owners.store.getSessionOutput(
+          snapshot.sourceConversationId,
+          pin.artifactId,
+        );
+        if (
+          !output ||
+          output.provenance ||
+          output.sourceAvailability !== 'available' ||
+          output.revision !== pin.revision ||
+          output.source.sha256 !== pin.sha256 ||
+          output.source.messageEndSeq > snapshot.boundary.sequence
+        )
+          throw new CollaborationContractError('snapshot_changed');
+        return {
+          artifactId: pin.artifactId,
+          revision: pin.revision,
+          sha256: pin.sha256,
+          title: output.title,
+        };
+      });
+      return CollaborationPromptReviewResultSchema.parse({
+        snapshot,
+        recipientSessionIds: input.recipientSessionIds,
+        settings: Object.fromEntries(input.recipientSessionIds.map((id, i) => [id, selected[i]])),
+        expectedMembershipRevision: input.selection.expectedMembershipRevision,
+        expectedPolicySequence: input.expectedPolicySequence,
+        requiresReview: isChanged(),
+        artifactLabels,
+      });
+    };
+    if (retained?.snapshotId) {
+      const snapshot = this.owners.store.collaborationConversation.getSnapshot(
+        group,
+        retained.snapshotId,
+      );
+      if (!snapshot) throw new CollaborationContractError('snapshot_changed');
+      return result(snapshot);
+    }
+    assertCurrent();
+    const source = createCollaborationContextSource({
+      store: this.owners.store,
+      authorizeConversation: async () => assertCurrent(),
+      assertConversationCurrent: assertCurrent,
+    });
+    const review = new OrdinaryCollaborationReview({
+      store: this.owners.store,
+      source: () => source,
+    });
+    const snapshot = await review.review(
+      group,
+      {
+        operatorId: auth.id,
+        applicationInputSha256: inputSha,
+        selection: input.selection,
+        settings: selected,
+        promptAudience: {
+          sessionIds: input.recipientSessionIds,
+          policySequence: input.expectedPolicySequence,
+        },
+      },
+      {
+        assertBeforeCommit: () => {
+          assertCurrent();
+          source.assertCurrentAtSave();
+        },
+      },
+    );
+    return result(snapshot);
+  }
 
   async review(
     auth: AuthSession,
