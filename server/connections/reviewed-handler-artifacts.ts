@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.1043-context-test-types';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.1044-peer-message-guidance';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -861,9 +861,11 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/session-prompt-tools.test.ts':
     '23116791adbbf9f1c84b11c6ada31db8a38bfec1d49ad29bc21740ca48db821d',
   '../session-prompt-definitions.ts':
-    '368e1b31f4d718e4f0886aeab9e90398604ed2925903df1b884c7be13c89d352',
+    '6ee1ad79a9c33a04c33ee89fd7e17df60fa5ae591f21d135f441d9339c05ac90',
   '../session-prompt-dispatch.ts':
-    '4f6ed962c6524ecb71e3a87ed107f377a1e91a622e4571c69c7f44007315a8a4',
+    '18e2aaab023d5139bd4089b4c4856996f49411d5f3458e68cbbe182818a8953b',
+  '../peer-message-instructions.ts':
+    '20d2d52ddc52731c41dc752a5e721fa164dae3aa41957b958f4fc802fc5da81d',
   '../session-prompt-router.ts': '4d11907d907fb6fe0df41cbdd9ecd25336c2e647be761f55cba7e01539aebb7a',
   '../session-prompt-runtime.ts':
     '8ab804b640c6f14f7e03d581b54f60fa14d77347833b671fb6cd1c76b42ddd1b',

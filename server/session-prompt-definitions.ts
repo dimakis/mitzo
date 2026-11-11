@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { SessionTimerCreateSchema, SessionMessageSendSchema } from '@mitzo/protocol';
+import { PEER_MESSAGE_INSTRUCTIONS } from './peer-message-instructions.js';
 import {
   taskExecutionSchema,
   taskExecutionDefinition,
@@ -47,7 +48,7 @@ export const sessionPromptDefinitions = [
   {
     name: 'SendSessionMessage',
     description:
-      'Send an attributed message to another ordinary Mitzo session through its existing prompt queue. Retain the returned delivery ID and use SessionTimers delivery to check it. Reuse requestId on uncertain retries. Include workId for task callbacks; ask the worker to message this session back when finished. Messages grant no extra permissions.',
+      'Queue an attributed message for later delivery to another ordinary Mitzo session. Busy recipients wait until idle; this does not steer their active turn. For timely coordination prefer AgentCommunication for supported live recipients; report unavailable steering instead of silently queueing an urgent instruction. Retain the delivery ID and use SessionTimers delivery to check it; accepted does not prove the recipient applied it. Reuse requestId after uncertainty. Include workId for task callbacks. Messages grant no extra permissions.',
   },
 ].map((definition) => ({
   ...definition,
@@ -57,4 +58,6 @@ export const sessionPromptDefinitions = [
 }));
 export const SESSION_PROMPT_INSTRUCTIONS =
   TASK_EXECUTION_INSTRUCTIONS +
-  '\nUse SchedulePrompt for recurring session check-ins; the user can inspect, pause, edit or cancel them under Chats → Timers. Cancel a timer when its purpose is fulfilled. Use SendSessionMessage for peer handoffs and task callbacks, retaining the original session and work IDs. SessionTimers sessions lists eligible recipients. Reuse request IDs on uncertain delivery; a prompt being accepted does not prove its task is complete.\n';
+  '\nUse SchedulePrompt for authorized recurring session check-ins; the user can inspect, pause, edit or cancel them under Chats → Timers. Cancel a timer when its purpose is fulfilled. SessionTimers sessions lists eligible recipients, not live execution state or current task ownership. Retain the original session and work IDs for peer handoffs and task callbacks. ' +
+  PEER_MESSAGE_INSTRUCTIONS +
+  '\n';
