@@ -29,6 +29,21 @@ import {
   currentTaskCapabilityConsent,
 } from './task-capability-consent.js';
 const log = createLogger('task-execution');
+/** A current routing hint, never an execution receipt or native sandbox grant. */
+function executionRoute(
+  grants: ReadonlyArray<{ id: string }>,
+  prefix: string,
+  session: ManagedSession,
+) {
+  if (!grants.length || effectivePermissionMode(session) === 'ask') return null;
+  return {
+    tool: prefix + 'TaskExecution',
+    grantIds: grants.map((grant) => grant.id),
+    operations: ['run', 'github_read', 'commit'],
+    executionLocation: 'host',
+    nativeToolsCovered: false,
+  };
+}
 /** One host adapter for SDK/Vertex, Responses and native Local/OpenShell calls.
  * A grant ID is only a locator; signed operator and actual workspace identity
  * are independently checked on every call and before each effect.
@@ -131,7 +146,13 @@ export function sessionTaskExecutionTools(options: {
               isError: false,
             };
           }
-          return { content: JSON.stringify({ grants: grants.map(publicGrant) }), isError: false };
+          return {
+            content: JSON.stringify({
+              grants: grants.map(publicGrant),
+              executionRoute: executionRoute(grants, prefix, session),
+            }),
+            isError: false,
+          };
         }
         if (!call?.turnId || !call.callId)
           throw Error('Verified current task tool call is required');
@@ -237,7 +258,13 @@ export function sessionTaskExecutionTools(options: {
             sessionId,
             members: members.length,
           });
-          return { content: JSON.stringify({ grant: publicGrant(grant) }), isError: false };
+          return {
+            content: JSON.stringify({
+              grant: publicGrant(grant),
+              executionRoute: executionRoute([grant], prefix, session),
+            }),
+            isError: false,
+          };
         }
         if (!input.grantId) throw Error('Task operation requires grantId');
         const assertGrant = () => {
