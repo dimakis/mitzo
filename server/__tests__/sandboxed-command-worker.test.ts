@@ -112,6 +112,30 @@ it('retains actual network and file restrictions in the fixed macOS helper polic
   expect(manager.initialize).not.toHaveBeenCalled();
 });
 
+it.each(['denyRead', 'allowRead', 'denyWrite', 'allowWrite', 'root-deny'] as const)(
+  'generates the same complete fixed-helper policy for trailing /** and its literal %s directory',
+  async (field) => {
+    const { payload, manager, spawn } = await privateFileFixture();
+    const path = field === 'root-deny' ? '/' : join(root, field);
+    const key = field === 'root-deny' ? 'denyRead' : field;
+    // Exercise a real allowRead carve-out rather than an unused allow entry.
+    if (key === 'allowRead') payload.config.filesystem.denyRead = [root];
+    payload.config.filesystem[key] = [path === '/' ? '/**' : path + '/**'];
+    const dependencies = { manager, spawn: spawn as never, platform: 'darwin' as const };
+    await expect(runSandboxedWorker(payload, dependencies)).resolves.toBe(0);
+    const globCommand = spawn.mock.calls[0][1][1];
+    payload.config.filesystem[key] = [path];
+    await expect(runSandboxedWorker(payload, dependencies)).resolves.toBe(0);
+    const literalCommand = spawn.mock.calls[1][1][1];
+    // The command attribution token is the only per-invocation difference.
+    const profile = (command: string) =>
+      command.replace(/CMD64_[A-Za-z0-9+/=]+_END_/g, 'CMD64_<command-id>_END_');
+    expect(profile(globCommand)).toBe(profile(literalCommand));
+    expect(globCommand).toContain(`(subpath "${path}")`);
+    expect(manager.initialize).not.toHaveBeenCalled();
+  },
+);
+
 it('rechecks original fixed-helper authority after direct macOS wrapping before spawn', async () => {
   const { payload, manager, spawn } = await privateFileFixture();
   const wrapPrivateFile = vi.fn(async () => {

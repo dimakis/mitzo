@@ -47,14 +47,14 @@ interface WorkerDependencies {
   wrapPrivateFile?: (command: string, config: SandboxRuntimeConfig) => Promise<string>;
 }
 
-async function macOSWrapper() {
+async function sandboxRuntimeModule(name: 'macos-sandbox-utils.js' | 'sandbox-utils.js') {
   const require = createRequire(import.meta.url);
   const directory = dirname(require.resolve('@anthropic-ai/sandbox-runtime'));
-  return import(pathToFileURL(join(directory, 'sandbox', 'macos-sandbox-utils.js')).href);
+  return import(pathToFileURL(join(directory, 'sandbox', name)).href);
 }
 
 async function wrapFilesystemOnly(command: string, config: SandboxRuntimeConfig): Promise<string> {
-  const { wrapCommandWithSandboxMacOS } = await macOSWrapper();
+  const { wrapCommandWithSandboxMacOS } = await sandboxRuntimeModule('macos-sandbox-utils.js');
   return wrapCommandWithSandboxMacOS({
     command,
     commandId: randomUUID(),
@@ -84,7 +84,10 @@ async function wrapFilesystemOnly(command: string, config: SandboxRuntimeConfig)
  * after wrapping, and the parent still joins and revalidates the original owner.
  */
 async function wrapPrivateFile(command: string, config: SandboxRuntimeConfig): Promise<string> {
-  const { wrapCommandWithSandboxMacOS } = await macOSWrapper();
+  const [{ wrapCommandWithSandboxMacOS }, { removeTrailingGlobSuffix }] = await Promise.all([
+    sandboxRuntimeModule('macos-sandbox-utils.js'),
+    sandboxRuntimeModule('sandbox-utils.js'),
+  ]);
   return wrapCommandWithSandboxMacOS({
     command,
     commandId: randomUUID(),
@@ -95,13 +98,16 @@ async function wrapPrivateFile(command: string, config: SandboxRuntimeConfig): P
     allowAppleEvents: false,
     allowPty: false,
     enableWeakerNetworkIsolation: false,
+    // Match SandboxManager's preprocessing: a trailing /** includes the
+    // directory itself. Passing it raw would deny descendants but allow
+    // listing the denied directory. Use the pinned runtime's own normalizer.
     readConfig: {
-      denyOnly: config.filesystem.denyRead,
-      allowWithinDeny: config.filesystem.allowRead,
+      denyOnly: config.filesystem.denyRead.map(removeTrailingGlobSuffix),
+      allowWithinDeny: (config.filesystem.allowRead ?? []).map(removeTrailingGlobSuffix),
     },
     writeConfig: {
-      allowOnly: config.filesystem.allowWrite,
-      denyWithinAllow: config.filesystem.denyWrite,
+      allowOnly: config.filesystem.allowWrite.map(removeTrailingGlobSuffix),
+      denyWithinAllow: config.filesystem.denyWrite.map(removeTrailingGlobSuffix),
     },
   });
 }

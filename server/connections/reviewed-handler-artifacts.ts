@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.1031-symposium-main-motion-integration';
+  'v1.0.1032-symposium-private-path-normalization';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -1415,7 +1415,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/native-exclusive-file.test.ts':
     '902bb6263650e586a731f5ccbe3c2253971b1fe87b1ea6946d8ae12957f699f0',
   '../__tests__/sandboxed-command-worker.test.ts':
-    'cab45df614d2131a01d720d45ea2c1b010e814f2e0091ed9a66d7a7c99fe9737',
+    '51f19786488bc5e04bd53451fb8ced16ccd1e0e9926dbfbe20ac526d32e32c25',
   '../prepared-repository-transition-capture.ts':
     '08be76cbfc8bb74b5c5ba444b953f362463b12875ac679749a583fe2d4aa16f7',
   '../__tests__/prepared-repository-transition-capture.test.ts':
@@ -2486,7 +2486,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../credential-sdk-boundary.ts':
     '9f6e8ca3d8bb923506603fcea71525d45b0aee1a39e81d6817d3f22c356c8a2e',
   '../sandboxed-command-worker.ts':
-    '1bb26662b50d6cd0e50b1810faf1706c3f09d5e93a9c73ec40539125beb7178a',
+    '2a573c2e8c11ffdb61a537e9b190f820bebd7ee1479bc65a3b81ba0ba2ab120e',
   '../protected-sdk-command.ts': '9b77fcbe62a8fb900f7ec548220345e50a6c56ebb194c1a748aaaf590812c39a',
   '../native-hooks.ts': 'e9a26f3bd8938fb8efb14966352041477868675355351253207b4bbcd1a46e10',
   '../__tests__/native-hooks.test.ts':
