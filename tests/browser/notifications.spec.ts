@@ -1,3 +1,4 @@
+import { approvalSecondary } from '../support/approval-actions';
 import { expect, test } from '@playwright/test';
 
 for (const decision of ['once', 'always'] as const) {
@@ -109,10 +110,12 @@ for (const decision of ['once', 'always'] as const) {
           name: 'Approval for Review request 1',
           exact: true,
         });
-        const allow = controls.getByRole('button', {
-          name: decision === 'always' ? 'Allow for session' : 'Allow once',
-          exact: true,
-        });
+        const primary = controls.getByRole('button', { name: 'Approve once', exact: true });
+        await expect(primary).toBeInViewport({ ratio: 1 });
+        const allow =
+          decision === 'always'
+            ? await approvalSecondary(page, controls, 'Approve for session')
+            : primary;
         await expect(allow).toBeInViewport({ ratio: 1 });
         expect((await allow.boundingBox())!.height).toBeGreaterThanOrEqual(44);
         await page.screenshot({
@@ -151,22 +154,29 @@ for (const decision of ['once', 'always'] as const) {
         await first.click();
       }
       const detail = page.getByRole('region', { name: 'Notification details' });
-      await expect(detail.getByText(/^npm test/)).toBeVisible();
+      await expect(detail.getByRole('button', { name: 'Request details' })).toHaveAttribute(
+        'aria-expanded',
+        'false',
+      );
+      await detail.getByRole('button', { name: 'Request details' }).click();
+      await expect(detail.locator('.operation-details pre')).toContainText('Long request evidence');
       await expect(
         detail.getByText('Keep workspace shell checks allowed until this session ends.'),
       ).toBeVisible();
-      await expect(detail.getByRole('button', { name: 'Allow for session' })).toBeInViewport({
+      await expect(detail.getByRole('button', { name: 'Approve once' })).toBeInViewport({
         ratio: 1,
       });
       await page.screenshot({
         path: testInfo.outputPath(`inbox-approval-${decision}.png`),
         animations: 'disabled',
       });
-      await detail
-        .getByRole('button', { name: decision === 'always' ? 'Allow for session' : 'Allow once' })
-        .click();
+      const decisionAction =
+        decision === 'always'
+          ? await approvalSecondary(page, detail, 'Approve for session')
+          : detail.getByRole('button', { name: 'Approve once' });
+      await decisionAction.click();
       await expect(page.getByText('Saved.', { exact: true })).toBeVisible();
-      await expect(detail.getByRole('button', { name: 'Allow once' })).toHaveCount(0);
+      await expect(detail.getByRole('button', { name: 'Approve once' })).toHaveCount(0);
       await page.getByRole('link', { name: 'Preferences', exact: true }).click();
       await expect(
         page.getByRole('heading', { name: 'Notification preferences', exact: true }),

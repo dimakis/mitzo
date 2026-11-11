@@ -3,6 +3,7 @@ import { afterEach, expect, it } from 'vitest';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { MemoryRouter, useLocation } from 'react-router-dom';
 import { ToolPill } from '../ToolPill';
+import { ToolGroup } from '../ToolGroup';
 import { ChatArea } from '../ChatArea';
 import { telosWorkerReceipt } from '../TelosWorkerReceiptCard';
 import type { FinishedBlock } from '../../types/chat';
@@ -51,6 +52,33 @@ const block = (result: unknown = receipt): FinishedBlock => ({
 function Location() {
   return <output data-testid="location">{useLocation().pathname}</output>;
 }
+it('keeps one validated worker action above collapsed grouped activity', () => {
+  render(
+    <MemoryRouter>
+      <ToolGroup
+        sessionId="lead"
+        tools={[
+          block(),
+          { ...block(), blockId: 'repeat' },
+          {
+            blockId: 'read',
+            blockType: 'tool_use',
+            content: '',
+            toolName: 'Read',
+            toolResult: 'done',
+          },
+        ]}
+      />
+    </MemoryRouter>,
+  );
+  const links = screen.getAllByRole('link', { name: /Plan recording setup/ });
+  expect(links).toHaveLength(1);
+  expect(links[0].closest('.operation-header')).toBeTruthy();
+  expect(screen.getByRole('button', { name: '3 tool calls' }).getAttribute('aria-expanded')).toBe(
+    'false',
+  );
+  expect(links[0].getAttribute('href')).toBe('/chat/worker');
+});
 it('renders the worker row in the lead transcript and navigates only after its link is activated', () => {
   render(
     <MemoryRouter initialEntries={['/chat/lead']}>
@@ -60,11 +88,13 @@ it('renders the worker row in the lead transcript and navigates only after its l
   );
   const link = screen.getByRole('link', { name: /Plan recording setup/ });
   expect(link.getAttribute('href')).toBe('/chat/worker');
-  expect(link.querySelector('[data-icon="messagesSquare"]')).toBeTruthy();
+  expect(
+    link.closest('.operation-header')?.querySelector('[data-icon="messagesSquare"]'),
+  ).toBeTruthy();
   expect(link.querySelector('[data-icon="arrowUpRight"]')).toBeTruthy();
   expect(link.textContent).not.toContain('High');
   expect(screen.getByText(/Research · Personal · Luna · Independent workspace/)).toBeTruthy();
-  expect(screen.getByText('Worker chat · created from this lead conversation')).toBeTruthy();
+  expect(screen.getByText('Created from this lead conversation')).toBeTruthy();
   expect(screen.queryByText(/Running|Completed|Work has not started/)).toBeNull();
   expect(screen.getByTestId('location').textContent).toBe('/chat/lead');
   expect(screen.queryByRole('button', { name: /execute|start work/i })).toBeNull();

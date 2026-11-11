@@ -1,35 +1,56 @@
-# Direct Inbox approvals
+# Shared tool and approval headers
 
-Dimitri requested this change on 10 November 2026 in the originating Mitzo
-conversation: “I don’t like the fact I need to click the details to get the
-approval button on the card. It should be one click, no scroll.” The supplied
-phone screenshot shows the Inbox session-approval inspector.
+Dimitri requested direct Inbox approval on 10 November 2026: “It should be one
+click, no scroll.” After reviewing the interactive shared-header mock, he
+approved the broader change: “Yep. For every tool. Build it”. The originating
+conversation, exact reference and scope are retained in
+[the approval record](../design/approved/tool-operations/VALIDATION.md).
 
-Pending approval entries now offer Allow once, eligible Allow for session, and
-Deny alongside the existing review navigation. The full inspector puts the same
-controls before its scrolling evidence. Questions retain their answer form.
-The server continues to own request identity, expiry, scope and settlement.
-Resolved, archived and expired entries have no direct approval controls; pending
-decisions disable controls and rejected submissions leave a visible error.
+Every web tool family now uses `OperationCard`: type/icon, operation and scope on
+the left, primary action or status at the top right, and optional full evidence
+below. This includes commands, files, integrations, unfamiliar tools, grouped
+calls, delegated agents, connection/repository setup, task review and worker
+receipts. Completed activity uses quiet rows; actions remain above collapsed
+activity. Original tool output, failures and interruption states remain available.
 
-The implementation reuses collection records, notification controls,
-ApprovalRequestSummary, semantic accent colors, UI font and spacing/radius scales.
-The approval grouping retains the existing collection surface; decision buttons
-are separate from the review button, with no nested interactive elements.
+`ApprovalCard` supplies the same decision layout in Chat, Inbox entries and the
+notification inspector. Approve, Grant, Send answer and source-save actions sit
+beside the operation. More holds eligible session retention and secondary
+decisions. Known command/access facts stay visible; Details exposes original
+evidence without moving the action below it. Long evidence and question forms
+scroll independently of the Chat overlay header.
 
-## Validation as of 10 November 2026
+The old notification renderer tied conversation Grant to session eligibility;
+when session grants were disabled, it could show only Deny. Conversation Grant
+now has its own primary action and retains each transport's original decision
+encoding. Incomplete live payloads expose Review to the original session and a
+visible explanation. No generic approval is fabricated from an incomplete record.
 
-- 151 focused unit/design checks passed, with one existing skipped design check.
-- Changed TypeScript passed ESLint; changed files passed Prettier and Git whitespace checks.
-- Expanded the existing notifications browser fixture for direct and inspector
-  decisions, full visibility before clicking, 44px targets, long input, phone and
-  desktop layouts, dark Mint/System and light Teal/Georgia preferences.
-- The full UI build exceeded the required 1 GiB local Node heap. A smaller
-  fixture containing the real Inbox components compiled successfully, but macOS
-  denied Chromium process registration. An escalated native run was also blocked
-  by the repository's sandbox guard. No rendered screenshot or visual acceptance
-  is claimed. Full typecheck/build and browser execution remain required in CI.
+The server still owns request identity, scope, expiry and settlement. Questions
+require their original answer; sending locks choices and duplicate actions.
+Errors retain draft state for retry. Expiry fabricates no denial. Source review
+uses its original preview/save/change/recovery controller, source selection,
+immutable retry identities and authenticated reads. Recovery keeps Dismiss even
+when the original creation tool normally uses Cancel. Resolved, archived and
+expired records expose no approval actions. Historical question prompts remain
+readable. Existing nested native-child inspection and native Watch review keep
+their separate approved contracts.
 
-Prepared from local Mitzo source revision `9f165ea599d8`. This record documents
-the requested behavior and local verification; it does not establish merge or
-production deployment.
+## Validation as of 11 November 2026
+
+Focused checks cover top actions, all generic tool families, exact response
+payloads, session eligibility, source review/change/recovery failure paths,
+question drafts, expiry, duplicate prevention, retained activity and validated
+setup/worker/task navigation. The approved-design ledger retains earlier
+revisions and pins the newly approved reference and updated contracts.
+
+Offline fixtures cover phone WebKit/Chromium and desktop Chromium, light/dark
+themes, alternate fonts/accents, larger text, long evidence, focus and 44px
+controls without backend or model calls. Local execution remains limited:
+macOS denies browser process registration, and the full UI build/typecheck
+exceeds the mandated 1 GiB local heap. No new rendered screenshot is claimed;
+full build/typecheck and rendered browser execution remain required in CI.
+
+Prepared from Mitzo source `9f165ea599d8` in an isolated task clone. This record
+proves saved implementation and its reported verification, not merge, deployment
+or production acceptance.

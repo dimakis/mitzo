@@ -88,7 +88,7 @@ for (const theme of ['dark', 'light'] as const)
     const neutral = await command.locator('.tool-pill-dot--interrupted').evaluate((dot) => ({
       animation: getComputedStyle(dot).animationName,
       color: getComputedStyle(dot).backgroundColor,
-      muted: getComputedStyle(dot.closest('.tool-pill-header')!).color,
+      muted: getComputedStyle(dot.closest('.operation-status')!).color,
     }));
     expect(neutral.animation).toBe('none');
     expect(neutral.color).toBe(neutral.muted);

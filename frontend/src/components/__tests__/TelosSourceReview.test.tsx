@@ -10,6 +10,7 @@ import {
 } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import type { ReactElement } from 'react';
+import { approvalAction, queryApprovalAction, findApprovalAction } from './approval-action-helper';
 import { PermissionBanner } from '../PermissionBanner';
 import { subscribeTelosSourceSaves } from '../../lib/telos-source-updates';
 
@@ -133,7 +134,7 @@ it('requests a revision with feedback while preserving the draft and requiring a
     originalOutcome: review.operation.outcome,
   }));
   render(<PermissionBanner {...props} />);
-  fireEvent.click(await screen.findByRole('button', { name: 'Request changes' }));
+  fireEvent.click(await findApprovalAction('Request changes'));
   const feedback = screen.getByRole('textbox', { name: 'What should change?' });
   expect(screen.getByRole('button', { name: 'Send changes' }).hasAttribute('disabled')).toBe(true);
   fireEvent.change(feedback, { target: { value: 'Make the first milestone a mobile test.' } });
@@ -159,16 +160,18 @@ it('returns to the proposal with focus and unsent feedback preserved', async () 
     suggestedMessageIds: ['assistant-1'],
   });
   render(<PermissionBanner {...props} />);
-  fireEvent.click(await screen.findByRole('button', { name: 'Request changes' }));
+  fireEvent.click(await findApprovalAction('Request changes'));
   const feedback = screen.getByRole('textbox', { name: 'What should change?' });
   expect(document.activeElement).toBe(feedback);
   fireEvent.change(feedback, { target: { value: 'Start with the mobile regression.' } });
-  fireEvent.click(screen.getByRole('button', { name: 'Back to proposal' }));
-  expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Request changes' }));
+  fireEvent.click(approvalAction('Back to proposal'));
+  expect(document.activeElement).toBe(
+    screen.getByRole('button', { name: 'More approval actions' }),
+  );
   expect(screen.getByRole('button', { name: 'Create outcome' }).hasAttribute('disabled')).toBe(
     false,
   );
-  fireEvent.click(screen.getByRole('button', { name: 'Request changes' }));
+  fireEvent.click(approvalAction('Request changes'));
   expect(
     (screen.getByRole('textbox', { name: 'What should change?' }) as HTMLTextAreaElement).value,
   ).toBe('Start with the mobile regression.');
@@ -190,7 +193,7 @@ it('retries only the identical feedback after delivery uncertainty and cannot sa
       originalOutcome: review.operation.outcome,
     }));
   render(<PermissionBanner {...props} />);
-  fireEvent.click(await screen.findByRole('button', { name: 'Request changes' }));
+  fireEvent.click(await findApprovalAction('Request changes'));
   fireEvent.change(screen.getByRole('textbox', { name: 'What should change?' }), {
     target: { value: 'Narrow the scope.' },
   });
@@ -264,7 +267,7 @@ it.each(['create', 'feedback'] as const)(
         await waitFor(() => expect(api.approveSourcePermission).toHaveBeenCalledTimes(1));
         expect(api.approveSourcePermission.mock.calls[0][1].requestId).toMatch(uuid);
       } else {
-        fireEvent.click(screen.getByRole('button', { name: 'Request changes' }));
+        fireEvent.click(approvalAction('Request changes'));
         fireEvent.change(screen.getByRole('textbox', { name: 'What should change?' }), {
           target: { value: 'Narrow the scope.' },
         });
@@ -289,9 +292,7 @@ it('keeps source correction and feedback available when the automatic preview fa
   expect(screen.getByRole('button', { name: 'Create outcome' }).hasAttribute('disabled')).toBe(
     true,
   );
-  expect(screen.getByRole('button', { name: 'Request changes' }).hasAttribute('disabled')).toBe(
-    false,
-  );
+  expect(approvalAction('Request changes').hasAttribute('disabled')).toBe(false);
   fireEvent.click(screen.getByText('Change saved context'));
   fireEvent.click(screen.getByRole('button', { name: 'Review selected source' }));
   await waitFor(() =>
@@ -312,7 +313,7 @@ it('distinguishes a retained feedback receipt from confirmed agent delivery', as
     deliveryStatus: 'unconfirmed',
   }));
   render(<PermissionBanner {...props} />);
-  fireEvent.click(await screen.findByRole('button', { name: 'Request changes' }));
+  fireEvent.click(await findApprovalAction('Request changes'));
   fireEvent.change(screen.getByRole('textbox', { name: 'What should change?' }), {
     target: { value: 'Narrow the scope.' },
   });
@@ -383,7 +384,7 @@ it('cannot enable an automatic save when authentication is lost during preview',
   act(() => window.dispatchEvent(new Event('mitzo:auth-lost')));
   await act(async () => finish(await original(...api.previewSourcePermission.mock.calls[0])));
   expect(screen.queryByRole('region', { name: 'Reviewed source' })).toBeNull();
-  expect(screen.getByRole('button', { name: 'Allow Once' }).hasAttribute('disabled')).toBe(true);
+  expect(approvalAction('Approve once').hasAttribute('disabled')).toBe(true);
   expect(api.approveSourcePermission).not.toHaveBeenCalled();
 });
 
@@ -415,7 +416,7 @@ it('labels worker provenance without selecting it and carries the reviewed mater
     materialScopeSha256,
     selection: { artifacts: [{ artifactId: 'material-one', revision: 3, sha256: 'd'.repeat(64) }] },
   });
-  fireEvent.click(screen.getByRole('button', { name: 'Allow Once' }));
+  fireEvent.click(approvalAction('Approve once'));
   await waitFor(() => expect(api.approveSourcePermission).toHaveBeenCalledTimes(1));
   expect(api.approveSourcePermission.mock.calls[0][1]).toMatchObject({ materialScopeSha256 });
 });
@@ -435,7 +436,7 @@ it.each([false, true])(
     try {
       const banner = render(<PermissionBanner {...props} />);
       await selectAndPreview();
-      fireEvent.click(screen.getByRole('button', { name: 'Allow Once' }));
+      fireEvent.click(approvalAction('Approve once'));
       await waitFor(() => expect(api.approveSourcePermission).toHaveBeenCalledTimes(1));
       banner.unmount();
       if (authLost) act(() => window.dispatchEvent(new Event('mitzo:auth-lost')));
@@ -472,13 +473,13 @@ it('announces a shared pending approval receipt once across banner replacement',
   try {
     const first = render(<PermissionBanner {...props} />);
     await selectAndPreview();
-    fireEvent.click(screen.getByRole('button', { name: 'Allow Once' }));
+    fireEvent.click(approvalAction('Approve once'));
     await waitFor(() => expect(api.approveSourcePermission).toHaveBeenCalledTimes(1));
     const originalInput = api.approveSourcePermission.mock.calls[0][1];
     first.unmount();
     render(<PermissionBanner {...props} />);
     await screen.findByText('Reviewed source');
-    fireEvent.click(screen.getByRole('button', { name: 'Allow Once' }));
+    fireEvent.click(approvalAction('Approve once'));
     expect(api.approveSourcePermission).toHaveBeenCalledTimes(1);
     await act(async () =>
       finish({
@@ -511,7 +512,7 @@ it.each(['permId', 'sessionId'] as const)(
     try {
       const banner = render(<PermissionBanner {...props} />);
       await selectAndPreview();
-      fireEvent.click(screen.getByRole('button', { name: 'Allow Once' }));
+      fireEvent.click(approvalAction('Approve once'));
       await waitFor(() => expect(api.approveSourcePermission).toHaveBeenCalledTimes(1));
       banner.unmount();
       await act(async () =>
@@ -552,8 +553,8 @@ describe('ordinary Telos source approval', () => {
   });
   it('does not infer source authority from a tool name without the host marker', () => {
     render(<PermissionBanner {...props} reviewKind={undefined} />);
-    expect(screen.getByRole('button', { name: 'Allow for session' })).toBeTruthy();
-    fireEvent.click(screen.getByRole('button', { name: 'Allow Once' }));
+    expect(approvalAction('Approve for session')).toBeTruthy();
+    fireEvent.click(approvalAction('Approve once'));
     expect(props.onRespond).toHaveBeenCalledWith(review.permId, 'once', props.toolName);
     expect(api.getSourcePermission).not.toHaveBeenCalled();
   });
@@ -562,8 +563,8 @@ describe('ordinary Telos source approval', () => {
     render(<PermissionBanner {...props} />);
     const source = await screen.findByRole('checkbox', { name: /The agreed studio brief/ });
     expect((source as HTMLInputElement).checked).toBe(false);
-    expect(screen.getByRole('button', { name: 'Allow Once' }).hasAttribute('disabled')).toBe(true);
-    expect(screen.queryByRole('button', { name: 'Allow for session' })).toBeNull();
+    expect(approvalAction('Approve once').hasAttribute('disabled')).toBe(true);
+    expect(queryApprovalAction('Approve for session')).toBeNull();
     expect(source.closest('details')?.querySelector('summary')?.textContent).toContain(
       'Change saved context',
     );
@@ -575,7 +576,7 @@ describe('ordinary Telos source approval', () => {
     render(<PermissionBanner {...props} />);
     await selectAndPreview();
     expect(screen.getByText(/Boundary.*8/)).toBeTruthy();
-    fireEvent.click(screen.getByRole('button', { name: 'Allow Once' }));
+    fireEvent.click(approvalAction('Approve once'));
     await waitFor(() => expect(api.approveSourcePermission).toHaveBeenCalledTimes(1));
     const input = api.previewSourcePermission.mock.calls[0][1];
     expect(input.selection.messageIds).toEqual(['assistant-1']);
@@ -592,7 +593,7 @@ describe('ordinary Telos source approval', () => {
     await selectAndPreview();
     fireEvent.click(screen.getByRole('checkbox', { name: /Layout plan/ }));
     expect(screen.queryByText('Reviewed source')).toBeNull();
-    expect(screen.getByRole('button', { name: 'Allow Once' }).hasAttribute('disabled')).toBe(true);
+    expect(approvalAction('Approve once').hasAttribute('disabled')).toBe(true);
     fireEvent.click(screen.getByRole('button', { name: 'Review selected source' }));
     await screen.findByText('Reviewed source');
     expect(api.previewSourcePermission.mock.calls[1][1].selection.artifacts).toEqual([
@@ -620,12 +621,12 @@ describe('ordinary Telos source approval', () => {
     api.approveSourcePermission.mockRejectedValueOnce(new Error('Connection lost'));
     render(<PermissionBanner {...props} />);
     await selectAndPreview();
-    fireEvent.click(screen.getByRole('button', { name: 'Allow Once' }));
+    fireEvent.click(approvalAction('Approve once'));
     await screen.findByRole('alert');
     expect(
       screen.getByRole('checkbox', { name: /The agreed studio brief/ }).matches(':disabled'),
     ).toBe(true);
-    fireEvent.click(screen.getByRole('button', { name: 'Allow Once' }));
+    fireEvent.click(approvalAction('Approve once'));
     await waitFor(() => expect(api.approveSourcePermission).toHaveBeenCalledTimes(2));
     expect(api.approveSourcePermission.mock.calls[1]).toEqual(
       api.approveSourcePermission.mock.calls[0],
@@ -635,7 +636,7 @@ describe('ordinary Telos source approval', () => {
   it('denies through the existing permission response without preparing a save', async () => {
     render(<PermissionBanner {...props} />);
     await screen.findByRole('checkbox', { name: /The agreed studio brief/ });
-    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    fireEvent.click(approvalAction('Cancel'));
     expect(props.onRespond).toHaveBeenCalledWith(review.permId, 'deny', props.toolName);
     expect(api.approveSourcePermission).not.toHaveBeenCalled();
   });
@@ -647,7 +648,7 @@ describe('ordinary Telos source approval', () => {
     });
     render(<PermissionBanner {...props} toolName="TelosAdoptSource" />);
     await screen.findByText('Add source to existing item · existing-studio');
-    expect(screen.queryByRole('button', { name: 'Allow for session' })).toBeNull();
+    expect(queryApprovalAction('Approve for session')).toBeNull();
     expect(api.previewSourcePermission).not.toHaveBeenCalled();
   });
 
@@ -697,7 +698,7 @@ describe('ordinary Telos source approval', () => {
       finish(await original(review.permId, input));
     });
     expect(screen.queryByText('Reviewed source')).toBeNull();
-    expect(screen.getByRole('button', { name: 'Allow Once' }).hasAttribute('disabled')).toBe(true);
+    expect(approvalAction('Approve once').hasAttribute('disabled')).toBe(true);
     expect(api.approveSourcePermission).not.toHaveBeenCalled();
   });
 
@@ -720,14 +721,14 @@ describe('ordinary Telos source approval', () => {
     );
     const first = render(<PermissionBanner {...props} />);
     await selectAndPreview();
-    fireEvent.click(screen.getByRole('button', { name: 'Allow Once' }));
+    fireEvent.click(approvalAction('Approve once'));
     await waitFor(() => expect(api.approveSourcePermission).toHaveBeenCalledTimes(1));
     const input = api.approveSourcePermission.mock.calls[0][1];
     first.unmount();
     await act(async () => fail(new Error('Lost response')));
     render(<PermissionBanner {...props} />);
     await screen.findByText('Reviewed source');
-    fireEvent.click(screen.getByRole('button', { name: 'Allow Once' }));
+    fireEvent.click(approvalAction('Approve once'));
     await waitFor(() => expect(api.approveSourcePermission).toHaveBeenCalledTimes(2));
     expect(api.approveSourcePermission.mock.calls[1][1]).toEqual(input);
     expect(api.getSourcePermission).toHaveBeenCalledTimes(2);
@@ -758,7 +759,7 @@ describe('ordinary Telos source approval', () => {
     render(<PermissionBanner {...props} />);
     await screen.findByText('Reviewed source');
     expect(screen.getByText('The agreed studio brief.')).toBeTruthy();
-    fireEvent.click(screen.getByRole('button', { name: 'Allow Once' }));
+    fireEvent.click(approvalAction('Approve once'));
     await waitFor(() => expect(api.approveSourcePermission).toHaveBeenCalledTimes(1));
     expect(api.approveSourcePermission.mock.calls[0][1]).toEqual({ ...input, previewSha256 });
     expect(api.previewSourcePermission).not.toHaveBeenCalled();
@@ -800,7 +801,7 @@ describe('ordinary Telos source approval', () => {
     expect(
       (await screen.findByRole('link', { name: 'Open saved item' })).getAttribute('href'),
     ).toBe('/todos/studio');
-    expect(screen.getByRole('button', { name: 'Allow Once' }).hasAttribute('disabled')).toBe(true);
+    expect(approvalAction('Approve once').hasAttribute('disabled')).toBe(true);
     expect(api.approveSourcePermission).not.toHaveBeenCalled();
   });
 
@@ -1018,14 +1019,14 @@ describe('ordinary Telos source approval', () => {
     expect(screen.queryByRole('checkbox', { name: /The agreed studio brief/ })).toBeNull();
     expect(screen.queryByText('Reviewed source')).toBeNull();
     expect(screen.queryByText('The agreed studio brief.')).toBeNull();
-    expect(screen.getByRole('button', { name: 'Allow Once' }).hasAttribute('disabled')).toBe(true);
+    expect(approvalAction('Approve once').hasAttribute('disabled')).toBe(true);
   });
 
   it('never displays a previous cached preview before a fresh authenticated read', async () => {
     api.approveSourcePermission.mockRejectedValueOnce(new Error('Lost response'));
     const first = render(<PermissionBanner {...props} />);
     await selectAndPreview();
-    fireEvent.click(screen.getByRole('button', { name: 'Allow Once' }));
+    fireEvent.click(approvalAction('Approve once'));
     await screen.findByRole('alert');
     first.unmount();
     api.getSourcePermission.mockRejectedValueOnce({ status: 403, code: 'unauthorized' });
@@ -1076,12 +1077,12 @@ describe('ordinary Telos source approval', () => {
     expect(screen.getByRole('region', { name: 'Outcome brief' })).toBeTruthy();
     expect(screen.getByText('Source details')).toBeTruthy();
     expect(screen.queryByRole('timer')).toBeNull();
-    expect(screen.queryByRole('button', { name: 'Allow Once' })).toBeNull();
+    expect(queryApprovalAction('Approve once')).toBeNull();
     expect(screen.getByRole('button', { name: 'Retry same save' }).hasAttribute('disabled')).toBe(
       false,
     );
     expect(onExpire).not.toHaveBeenCalled();
-    fireEvent.click(screen.getByRole('button', { name: 'Dismiss' }));
+    fireEvent.click(approvalAction('Dismiss'));
     expect(props.onRespond).toHaveBeenCalledWith(review.permId, 'deny', props.toolName);
     expect(api.approveSourcePermission).not.toHaveBeenCalled();
   });
@@ -1115,7 +1116,7 @@ describe('ordinary Telos source approval', () => {
     expect(alert.textContent).toContain('The original save is still unconfirmed');
     expect(alert.textContent).not.toMatch(/deny|ask again|new request/i);
     expect(screen.queryByText('The agreed studio brief.')).toBeNull();
-    expect(screen.getByRole('button', { name: 'Dismiss' }).hasAttribute('disabled')).toBe(false);
+    expect(approvalAction('Dismiss').hasAttribute('disabled')).toBe(false);
     expect(screen.getByRole('button', { name: 'Retry same save' }).hasAttribute('disabled')).toBe(
       true,
     );
@@ -1190,7 +1191,7 @@ describe('ordinary Telos source approval', () => {
       expect(alert.textContent).toMatch(/same save|original save/i);
       expect(retry.hasAttribute('disabled')).toBe(false);
       expect(screen.getByText('The agreed studio brief.')).toBeTruthy();
-      expect(screen.getByRole('button', { name: 'Dismiss' }).hasAttribute('disabled')).toBe(false);
+      expect(approvalAction('Dismiss').hasAttribute('disabled')).toBe(false);
       fireEvent.click(retry);
       await screen.findByRole('link', { name: 'Open saved item' });
       expect(api.approveSourcePermission.mock.calls).toEqual([
@@ -1209,7 +1210,7 @@ describe('ordinary Telos source approval', () => {
       .mockRejectedValueOnce({ status: 409, code: 'conflict' });
     render(<PermissionBanner {...props} />);
     await selectAndPreview();
-    const allow = screen.getByRole('button', { name: 'Allow Once' });
+    const allow = approvalAction('Approve once');
     fireEvent.click(allow);
     await waitFor(() =>
       expect(screen.getByRole('alert').textContent).toMatch(/Save is unconfirmed/),
@@ -1247,7 +1248,7 @@ describe('ordinary Telos source approval', () => {
     api.approveSourcePermission.mockRejectedValueOnce({ status: 409, code: 'conflict' });
     render(<PermissionBanner {...props} />);
     await selectAndPreview();
-    const allow = screen.getByRole('button', { name: 'Allow Once' });
+    const allow = approvalAction('Approve once');
     if (failure) {
       fireEvent.click(allow);
       await waitFor(() =>
@@ -1279,7 +1280,7 @@ describe('ordinary Telos source approval', () => {
         .mockRejectedValueOnce({ status, code });
       render(<PermissionBanner {...props} />);
       await selectAndPreview();
-      const allow = screen.getByRole('button', { name: 'Allow Once' });
+      const allow = approvalAction('Approve once');
       fireEvent.click(allow);
       await waitFor(() =>
         expect(screen.getByRole('alert').textContent).toMatch(/Save is unconfirmed/),
@@ -1303,7 +1304,7 @@ describe('ordinary Telos source approval', () => {
     api.approveSourcePermission.mockRejectedValueOnce({ status: 503, code: 'save_uncertain' });
     const { rerender } = render(<PermissionBanner {...props} />);
     await selectAndPreview();
-    fireEvent.click(screen.getByRole('button', { name: 'Allow Once' }));
+    fireEvent.click(approvalAction('Approve once'));
     await waitFor(() =>
       expect(screen.getByRole('alert').textContent).toMatch(/Save is unconfirmed/),
     );

@@ -174,7 +174,7 @@
           "approval": {
             "thread": "01a14b56-e8c7-7e21-aafb-e9b5b63ae917",
             "quote": "Fine. That works. Implement this and only this.",
-            "scope": "Replace the binary priority affordance with a 1\u201310 selector in the existing item header and show the selected value as a compact P<n> badge in the existing Work tree. Preserve the rest of the approved Telos interface."
+            "scope": "Replace the binary priority affordance with a 1–10 selector in the existing item header and show the selected value as a compact P<n> badge in the existing Work tree. Preserve the rest of the approved Telos interface."
           },
           "references": [
             {
@@ -364,7 +364,7 @@
           "approvedOn": "2026-10-16",
           "approval": {
             "thread": "01a13ea4-6c32-7af0-b635-c3f5f56aecb5",
-            "quote": "Looks decent. Let\u2019s update telos and give a handover to start",
+            "quote": "Looks decent. Let’s update telos and give a handover to start",
             "scope": "Fresh ordinary agent setup, reviewed joining brief, compact participant header, one Agents view and shared composer. Existing-chat import removed; Fork remains separate. Canonical Telos approval d2b5bce4090c39a595457335763271b5 revision 1."
           },
           "references": [
@@ -380,7 +380,7 @@
           "invariants": [
             "Ordinary chat first, compact participant header, one Agents dialog and the existing shared composer with stable recipient attribution.",
             "Add agent is fresh editable setup with Agent, name, Account/Model/Thinking, Mac host then OpenShell runtime choices, real repository and full or selected starting context.",
-            "Add agent retains Cancel and Fresh session \u00b7 starts with a prompt. in its reachable footer; returning to Agents preserves the editable draft.",
+            "Add agent retains Cancel and Fresh session · starts with a prompt. in its reachable footer; returning to Agents preserves the editable draft.",
             "Before joining retains Back/title/close, separate boot guidance, exact attributed context and saved artifact filenames/versions, editable refrozen brief on the same screen, flat Agents policy row, and Back / Join conversation.",
             "No extra Freeze step, existing-chat import, cross-group enrollment or substitute recipient form; Fork remains separate.",
             "Setup, review, joining and reading alone invoke no model; unavailable authority, stale review and uncertain recovery retain editable intent or original join identity.",
@@ -424,7 +424,7 @@
           "approvedOn": "2026-10-18",
           "approval": {
             "thread": "01a13ea4-6c32-7af0-b635-c3f5f56aecb5",
-            "quote": "Looks decent. Let\u2019s update telos and give a handover to start",
+            "quote": "Looks decent. Let’s update telos and give a handover to start",
             "scope": "Fresh ordinary agent setup, reviewed joining brief, compact participant header, one Agents view and shared composer. Existing-chat import removed; Fork remains separate. Canonical Telos approval d2b5bce4090c39a595457335763271b5 revision 1."
           },
           "references": [
@@ -440,7 +440,7 @@
           "invariants": [
             "Ordinary chat first, compact participant header, one Agents dialog and the existing shared composer with stable recipient attribution.",
             "Add agent is fresh editable setup with Agent, name, Account/Model/Thinking, Mac host then OpenShell runtime choices, real repository and full or selected starting context.",
-            "Add agent retains Cancel and Fresh session \u00b7 starts with a prompt. in its reachable footer; returning to Agents preserves the editable draft.",
+            "Add agent retains Cancel and Fresh session · starts with a prompt. in its reachable footer; returning to Agents preserves the editable draft.",
             "Before joining retains Back/title/close, separate boot guidance, exact attributed context and saved artifact filenames/versions, editable refrozen brief on the same screen, flat Agents policy row, and Back / Join conversation.",
             "No extra Freeze step, existing-chat import, cross-group enrollment or substitute recipient form; Fork remains separate.",
             "Setup, review, joining and reading alone invoke no model; unavailable authority, stale review and uncertain recovery retain editable intent or original join identity.",
@@ -697,7 +697,7 @@
     },
     {
       "id": "cohesive-chat",
-      "activeRevision": "compact-linked-chat-2026-11-10",
+      "activeRevision": "compact-linked-chat-shared-approvals-2026-11-10",
       "revisions": [
         {
           "id": "compact-linked-chat-2026-11-10",
@@ -800,6 +800,230 @@
             }
           ],
           "validation": "docs/features/cohesive-chat-ux.md"
+        },
+        {
+          "id": "compact-linked-chat-shared-approvals-2026-11-10",
+          "approvedBy": "Dimitri (explicit approval of the shared-header mock for every tool)",
+          "approvedOn": "2026-11-10",
+          "approval": {
+            "thread": "Mitzo conversation 27a9fc7f-a330-8d00-bfe7-de0e2fab4224",
+            "quote": "Yep. For every tool. Build it",
+            "scope": "Explicit approval of the shared-header interactive mock after requesting approval at the top beside the operation, one click without opening Details or scrolling. Applies across every web tool family and Chat/Inbox approval consumer. Retains permission, source-review, validated navigation and existing nested native-child ownership."
+          },
+          "references": [
+            {
+              "path": "docs/design/approved/chat-links-access/cohesive-ux-v007.html",
+              "sha256": "7dd8b32ead8da550338b000d4975214bf977c668f878fd1d8567a4cbef1ac530"
+            },
+            {
+              "path": "docs/design/approved/chat-links-access/approval-and-timer-direction.md",
+              "sha256": "9cdd06f0af0167e60b377d9722ee51f691224a84cedd8c992fe94904890b2851"
+            },
+            {
+              "path": "docs/design/approved/tool-operations/shared-headers-v001.html",
+              "sha256": "37faeb0b8f5ed9490d7dfecd8147517cc47d6b81096eab5a27a5428bdf3c2744"
+            }
+          ],
+          "invariants": [
+            "Use the existing theme, accent, font, UiIcon, scales and shared sheet; avoid generic card wrappers for lists and transcript events.",
+            "Keep Symposium joining/lifecycle behavior, one composer status owner and existing appearance settings. Header actions have clear backgrounds, accent icons, equal touch targets and visible focus.",
+            "Show exact-source author/time/text quotes in transcript and composer. Tap jumps/highlights and returns to the opener; unavailable sources retain their reference without guessing.",
+            "Chronological launch receipts scroll with the transcript. Links & access owns related chat navigation; linking/unlinking grants no execution access. New chat requires explicit reviewed approval and existing runtime/delivery fences.",
+            "Permissions and Connections use Back within the compact sheet. Preserve scope, expiry, revocation, stale/unavailable evidence and unsent grant edits.",
+            "Drafts is a counted collapsible section with three latest rows and All drafts; retain draft, attachment, repository and discard ownership.",
+            "Approval actions remain outside scrolling request details. Known concrete fields lead; unknown shapes retain full details. Never infer or broaden scope, conceal expiry or alter decision semantics.",
+            "Timer deletion confirms and revision-fences removal, stops future checks, and retains command/delivery evidence. Complete prompts remain available in a disclosure.",
+            "Use already observed freshness on the first Chats render; reserve metadata/status geometry and offer late initial reordering explicitly while preserving subsequent live batching/browsing behavior.",
+            "Approved shared approval headers supersede the previous approval action/disclosure placement only; all other compact linked-chat contracts remain in force."
+          ],
+          "sources": [
+            "frontend/src/components/SessionChatLinks.tsx",
+            "frontend/src/components/SessionAccess.tsx",
+            "frontend/src/components/SessionLaunchCards.tsx",
+            "frontend/src/components/AgentMessageCard.tsx",
+            "frontend/src/components/ReplyQuote.tsx",
+            "frontend/src/components/ApprovalRequestSummary.tsx",
+            "frontend/src/components/SessionTimersDialog.tsx",
+            "frontend/src/pages/SessionList.tsx",
+            "frontend/src/hooks/useSessionOrder.ts",
+            "frontend/src/styles/header-actions.css",
+            "frontend/src/styles/chat-sheets.css",
+            "server/session-launch-routes.ts",
+            "server/session-launch-store.ts",
+            "server/session-prompt-store.ts",
+            "frontend/src/components/OperationCard.tsx",
+            "frontend/src/components/ApprovalCard.tsx"
+          ],
+          "checks": [
+            "frontend/src/components/__tests__/HeaderActions.test.tsx",
+            "frontend/src/components/__tests__/ChatReplyContext.test.tsx",
+            "frontend/src/components/__tests__/PeerMessagePresentation.test.tsx",
+            "frontend/src/components/__tests__/SessionChatLinks.test.tsx",
+            "frontend/src/components/__tests__/ApprovalRequestSummary.test.tsx",
+            "frontend/src/components/__tests__/SessionTimersDialog.test.tsx",
+            "frontend/src/pages/__tests__/SessionListDrafts.test.tsx",
+            "frontend/src/hooks/__tests__/useSessionOrder.test.ts",
+            "tests/offline/session-launch.spec.ts",
+            "tests/offline/session-access.spec.ts",
+            "tests/offline/session-library.spec.ts",
+            "tests/offline/session-timers.spec.ts",
+            "tests/offline/agent-messages.spec.ts",
+            "tests/offline/chat-drafts-updates.spec.ts",
+            "server/__tests__/session-chat-links.test.ts",
+            "server/__tests__/session-launch-routes.test.ts",
+            "server/__tests__/session-prompt-store.test.ts",
+            "server/__tests__/session-prompt-service.test.ts",
+            "frontend/src/components/__tests__/OperationCard.test.tsx",
+            "frontend/src/components/__tests__/ApprovalCard.test.tsx",
+            "frontend/src/components/__tests__/PermissionBanner.test.tsx"
+          ],
+          "protectedChecks": [
+            {
+              "path": "frontend/src/components/__tests__/HeaderActions.test.tsx",
+              "sha256": "c08579e15fae217f40dd647ad9852325f9a6d1f8cc78c0530ba752e7ce879ae2"
+            },
+            {
+              "path": "frontend/src/components/__tests__/ChatReplyContext.test.tsx",
+              "sha256": "f1e48af400bd7406686eed96f860b47794509c083ea1a2cf86972cbbee7fe60d"
+            },
+            {
+              "path": "frontend/src/components/__tests__/PeerMessagePresentation.test.tsx",
+              "sha256": "f71575d3f3a0b9ba3636db00d614c5b67ae9814bf6e5902e4d54ebbfb02738d9"
+            },
+            {
+              "path": "frontend/src/components/__tests__/SessionChatLinks.test.tsx",
+              "sha256": "4507a3569794b1deca9c6d2b17012b97fcbe856a306206f564ff0cfb6c746758"
+            },
+            {
+              "path": "frontend/src/components/__tests__/ApprovalRequestSummary.test.tsx",
+              "sha256": "a7b6751ec3b7320fbb70c7bf83699917cc20e22a2da0783e66534e3eda80dc0f"
+            },
+            {
+              "path": "frontend/src/components/__tests__/SessionTimersDialog.test.tsx",
+              "sha256": "45eeb66a7d25220d8862457e5367593836ed59b47cc19520d878a26a56295e0d"
+            },
+            {
+              "path": "frontend/src/pages/__tests__/SessionListDrafts.test.tsx",
+              "sha256": "528acc84c470af59d47337d21a3a0f7de4bb60470d796f96a7dd6a6b0c137edd"
+            },
+            {
+              "path": "frontend/src/hooks/__tests__/useSessionOrder.test.ts",
+              "sha256": "6a4e985987d3697d89a14a668679850b10e6419c99ecfb2dcabbe020bcad7022"
+            }
+          ],
+          "validation": "docs/design/approved/tool-operations/VALIDATION.md"
+        }
+      ]
+    },
+    {
+      "id": "tool-operations",
+      "activeRevision": "shared-operation-headers-2026-11-10",
+      "revisions": [
+        {
+          "id": "shared-operation-headers-2026-11-10",
+          "approvedBy": "Dimitri (explicit approval of the shared-header mock for every tool)",
+          "approvedOn": "2026-11-10",
+          "approval": {
+            "thread": "Mitzo conversation 27a9fc7f-a330-8d00-bfe7-de0e2fab4224",
+            "quote": "Yep. For every tool. Build it",
+            "scope": "Explicit approval of the shared-header interactive mock after requesting approval at the top beside the operation, one click without opening Details or scrolling. Applies across every web tool family and Chat/Inbox approval consumer. Retains permission, source-review, validated navigation and existing nested native-child ownership."
+          },
+          "references": [
+            {
+              "path": "docs/design/approved/tool-operations/shared-headers-v001.html",
+              "sha256": "37faeb0b8f5ed9490d7dfecd8147517cc47d6b81096eab5a27a5428bdf3c2744"
+            }
+          ],
+          "invariants": [
+            "Every web tool family uses the same type/icon, operation/scope and top action/status header, including unfamiliar future tool names.",
+            "Primary Approve, conversation Grant, Send answer and source-save actions sit beside the operation outside scrolling evidence; Details is optional and secondary decisions use the shared More menu.",
+            "Keep original scope, exact request/response identity, expiry, source review and immutable recovery semantics; a missing payload shows explicit review/recovery, never an invented grant.",
+            "Keep real failure/interruption and submitting states visible. Disable duplicate actions, retain question drafts and make errors retryable under their existing authority.",
+            "Actionable setup, task review and worker receipts stay visible above collapsed activity, with original validated destinations and no automatic navigation or execution.",
+            "Use semantic theme/font/spacing/radius tokens, UiIcon, shared disclosure motion, visible keyboard focus and at least 44px touch targets on phone and desktop.",
+            "Existing chat settings, composer, native Watch approval review and nested native-child inspection retain their separately approved contracts."
+          ],
+          "sources": [
+            "frontend/src/components/OperationCard.tsx",
+            "frontend/src/components/ApprovalCard.tsx",
+            "frontend/src/components/PermissionBanner.tsx",
+            "frontend/src/components/NotificationApprovalActions.tsx",
+            "frontend/src/components/ToolPill.tsx",
+            "frontend/src/components/ToolGroup.tsx",
+            "frontend/src/components/ToolSetupCards.tsx",
+            "frontend/src/components/SubagentCard.tsx",
+            "frontend/src/components/ConnectionSetupCard.tsx",
+            "frontend/src/components/RepositoryChatSetupCard.tsx",
+            "frontend/src/components/TelosWorkerReceiptCard.tsx",
+            "frontend/src/components/TelosOutcomeNotice.tsx",
+            "frontend/src/styles/operation-card.css",
+            "frontend/src/pages/UnifiedInboxView.tsx",
+            "frontend/src/pages/NotificationsView.tsx"
+          ],
+          "checks": [
+            "frontend/src/components/__tests__/OperationCard.test.tsx",
+            "frontend/src/components/__tests__/ApprovalCard.test.tsx",
+            "frontend/src/components/__tests__/PermissionBanner.test.tsx",
+            "frontend/src/components/__tests__/ToolPill.test.tsx",
+            "frontend/src/components/__tests__/ToolGroup.test.tsx",
+            "frontend/src/components/__tests__/SubagentCard.test.tsx",
+            "frontend/src/components/__tests__/ConnectionSetupCard.test.tsx",
+            "frontend/src/components/__tests__/RepositoryChatSetupCard.test.tsx",
+            "frontend/src/components/__tests__/TelosWorkerReceiptCard.test.tsx",
+            "frontend/src/components/__tests__/TelosSourceReview.test.tsx",
+            "frontend/src/components/__tests__/TelosSourceMaterials.test.tsx",
+            "frontend/src/components/__tests__/ApprovalRequestSummary.test.tsx",
+            "frontend/src/components/__tests__/ApprovalUnknownScope.test.tsx",
+            "frontend/src/components/__tests__/AgentActivity.test.tsx",
+            "frontend/src/components/__tests__/NativeSubagentsChatArea.test.tsx",
+            "frontend/src/pages/__tests__/UnifiedInboxView.test.tsx",
+            "frontend/src/pages/__tests__/NotificationsView.test.tsx",
+            "tests/offline/shared-tool-operations.spec.ts",
+            "tests/offline/approval-cards.spec.ts",
+            "tests/offline/permission-once-only.spec.ts",
+            "tests/offline/telos-source-approval.spec.ts",
+            "tests/offline/telos-worker-receipt.spec.ts",
+            "tests/browser/notifications.spec.ts"
+          ],
+          "protectedChecks": [
+            {
+              "path": "frontend/src/components/__tests__/OperationCard.test.tsx",
+              "sha256": "d59cba2097f2798ef66aa0971abd01ba256ab7e07df506dc3f98c7a576e51104"
+            },
+            {
+              "path": "frontend/src/components/__tests__/ApprovalCard.test.tsx",
+              "sha256": "00504c5d041074adfbf2679a8ed91834bb1a75624b7b4afe3d53747ca1a3a981"
+            },
+            {
+              "path": "frontend/src/components/__tests__/PermissionBanner.test.tsx",
+              "sha256": "4f0e68b740fa07ff16970320ccdede2c9115dc4ef02742d697ebbafc5a2c4268"
+            },
+            {
+              "path": "frontend/src/components/__tests__/ToolPill.test.tsx",
+              "sha256": "30bcd75081e1de1b6a07122742a351629811f952a03db2df5a8afe84c2cd6034"
+            },
+            {
+              "path": "frontend/src/components/__tests__/TelosWorkerReceiptCard.test.tsx",
+              "sha256": "168b9e57e7704af2f4090b4ed745ac01e53ea1342bb98081577abf7d85340a40"
+            },
+            {
+              "path": "frontend/src/components/__tests__/TelosSourceReview.test.tsx",
+              "sha256": "1c77b3093fd88503f8dba2c2ed231592fe6b35275dcfb1d5455a83bbca87afa0"
+            },
+            {
+              "path": "frontend/src/pages/__tests__/UnifiedInboxView.test.tsx",
+              "sha256": "3d7e1c63e1d57e95dfd838e33dde01b81e33c8bab74018d83ed11da6e9e6f5a8"
+            },
+            {
+              "path": "tests/offline/shared-tool-operations.spec.ts",
+              "sha256": "b3944adc2e419ff5f264834cc7047c97d1885bcac63f3eaabfb96a896eab0735"
+            },
+            {
+              "path": "tests/offline/permission-once-only.spec.ts",
+              "sha256": "2a4793d3b2ee37dd71d6cf3f6841ade1aa52dc4332cc5141b97b294f62b88ee5"
+            }
+          ],
+          "validation": "docs/design/approved/tool-operations/VALIDATION.md"
         }
       ]
     }

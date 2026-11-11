@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { approvalAction, queryApprovalAction } from './approval-action-helper';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, act, cleanup } from '@testing-library/react';
 import { PermissionBanner } from '../PermissionBanner';
@@ -37,10 +38,8 @@ describe('PermissionBanner', () => {
       target: { value: 'Keep this answer' },
     });
     for (let attempt = 0; attempt < 2; attempt++) {
-      fireEvent.click(screen.getByRole('button', { name: 'Send answer' }));
-      expect(screen.getByRole('button', { name: 'Send answer' }).hasAttribute('disabled')).toBe(
-        false,
-      );
+      fireEvent.click(approvalAction('Send answer'));
+      expect(approvalAction('Send answer').hasAttribute('disabled')).toBe(false);
       expect((screen.getByLabelText('Your answer') as HTMLTextAreaElement).value).toBe(
         'Keep this answer',
       );
@@ -52,17 +51,15 @@ describe('PermissionBanner', () => {
   it('shows response progress, prevents duplicates and allows retry after failure', () => {
     const onRespond = vi.fn();
     const { rerender } = render(<PermissionBanner {...defaultProps} onRespond={onRespond} />);
-    fireEvent.click(screen.getByRole('button', { name: 'Allow for session' }));
+    fireEvent.click(approvalAction('Approve once'));
     expect(screen.getByRole('status').textContent).toContain('Sending response');
-    fireEvent.click(screen.getByRole('button', { name: 'Allow for session' }));
+    fireEvent.click(approvalAction('Approve once'));
     expect(onRespond).toHaveBeenCalledTimes(1);
     rerender(
       <PermissionBanner {...defaultProps} onRespond={onRespond} responseError="Try again" />,
     );
-    expect(screen.getByRole('button', { name: 'Allow for session' }).hasAttribute('disabled')).toBe(
-      false,
-    );
-    fireEvent.click(screen.getByRole('button', { name: 'Allow for session' }));
+    expect(approvalAction('Approve once').hasAttribute('disabled')).toBe(false);
+    fireEvent.click(approvalAction('Approve once'));
     expect(onRespond).toHaveBeenCalledTimes(2);
   });
 
@@ -77,17 +74,19 @@ describe('PermissionBanner', () => {
     expect(
       screen.getByText('Keep website access for this domain until the session ends.'),
     ).toBeTruthy();
-    expect(screen.getByRole('button', { name: 'Allow for session' })).toBeTruthy();
+    expect(approvalAction('Approve for session')).toBeTruthy();
   });
-  it('shows details by default, preserves collapse and opens the next request', () => {
+  it('keeps approval visible with details closed and preserves expansion until the next request', () => {
     const { rerender } = render(<PermissionBanner {...defaultProps} />);
-    const details = screen.getByText('Request details').closest('details')!;
-    expect(details.open).toBe(true);
-    details.open = false;
+    const details = () => screen.getByRole('button', { name: 'Request details' });
+    expect(details().getAttribute('aria-expanded')).toBe('false');
+    expect(approvalAction('Approve once')).toBeTruthy();
+    fireEvent.click(details());
+    expect(details().getAttribute('aria-expanded')).toBe('true');
     rerender(<PermissionBanner {...defaultProps} responseError="Try again" />);
-    expect(screen.getByText('Request details').closest('details')?.open).toBe(false);
+    expect(details().getAttribute('aria-expanded')).toBe('true');
     rerender(<PermissionBanner {...defaultProps} permId="next" />);
-    expect(screen.getByText('Request details').closest('details')?.open).toBe(true);
+    expect(details().getAttribute('aria-expanded')).toBe('false');
   });
 
   it('renders at the document root so mobile navigation cannot cover its actions', () => {
@@ -114,24 +113,24 @@ describe('PermissionBanner', () => {
     expect(screen.getByText('Display Name')).toBeTruthy();
   });
 
-  it('Allow Once calls onRespond with correct args', () => {
+  it('Approve once calls onRespond with correct args', () => {
     const onRespond = vi.fn();
     render(<PermissionBanner {...defaultProps} onRespond={onRespond} />);
-    fireEvent.click(screen.getByRole('button', { name: 'Allow Once' }));
+    fireEvent.click(approvalAction('Approve once'));
     expect(onRespond).toHaveBeenCalledWith('p1', 'once', 'Bash');
   });
 
   it('session allowance calls onRespond with correct args', () => {
     const onRespond = vi.fn();
     render(<PermissionBanner {...defaultProps} onRespond={onRespond} />);
-    fireEvent.click(screen.getByRole('button', { name: 'Allow for session' }));
+    fireEvent.click(approvalAction('Approve for session'));
     expect(onRespond).toHaveBeenCalledWith('p1', 'always', 'Bash');
   });
 
   it('Deny calls onRespond with deny', () => {
     const onRespond = vi.fn();
     render(<PermissionBanner {...defaultProps} onRespond={onRespond} />);
-    fireEvent.click(screen.getByText('Deny'));
+    fireEvent.click(approvalAction('Deny'));
     expect(onRespond).toHaveBeenCalledWith('p1', 'deny', 'Bash');
   });
 
@@ -184,17 +183,17 @@ describe('PermissionBanner', () => {
     expect(onRespond).not.toHaveBeenCalled();
   });
 
-  it('renders all action buttons with correct CSS classes', () => {
+  it('keeps the primary action in the shared header and secondary decisions in its menu', () => {
     render(<PermissionBanner {...defaultProps} />);
-    expect(document.querySelector('.perm-banner-btn--once')).toBeTruthy();
-    expect(document.querySelector('.perm-banner-btn--always')).toBeTruthy();
-    expect(document.querySelector('.perm-banner-btn--deny')).toBeTruthy();
+    expect(approvalAction('Approve once').closest('.operation-header')).toBeTruthy();
+    expect(approvalAction('Approve for session').getAttribute('role')).toBe('menuitem');
+    expect(approvalAction('Deny').getAttribute('role')).toBe('menuitem');
   });
 
   it('shows a retryable permission response error without dismissing the prompt', () => {
     render(<PermissionBanner {...defaultProps} responseError="Review the prompt and try again." />);
     expect(screen.getByRole('alert').textContent).toContain('Review the prompt and try again.');
-    expect(screen.getByRole('button', { name: 'Allow Once' })).toBeTruthy();
+    expect(approvalAction('Approve once')).toBeTruthy();
   });
 
   it('adds perm-banner--visible class after mount', () => {
@@ -232,9 +231,9 @@ describe('PermissionBanner', () => {
       />,
     );
     expect(screen.queryByText('Always Allow')).toBeNull();
-    expect(screen.getByRole('button', { name: 'Send answer' }).hasAttribute('disabled')).toBe(true);
+    expect(approvalAction('Send answer').hasAttribute('disabled')).toBe(true);
     fireEvent.click(screen.getByLabelText(/Personal/));
-    fireEvent.click(screen.getByRole('button', { name: 'Send answer' }));
+    fireEvent.click(approvalAction('Send answer'));
     expect(onRespond).toHaveBeenCalledWith('p1', 'once', 'AskUserQuestion', {
       account: ['Personal'],
     });
@@ -263,7 +262,7 @@ describe('PermissionBanner', () => {
     fireEvent.click(screen.getByLabelText('Chat'));
     fireEvent.click(screen.getByLabelText('Tools'));
     fireEvent.change(screen.getByLabelText('Your answer'), { target: { value: 'Also voice' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Send answer' }));
+    fireEvent.click(approvalAction('Send answer'));
     expect(onRespond).toHaveBeenCalledWith('p1', 'once', 'AskUserQuestion', {
       q: ['Chat', 'Tools', 'Also voice'],
     });
@@ -281,10 +280,10 @@ describe('PermissionBanner', () => {
     const input = 'x'.repeat(450);
     render(<PermissionBanner {...defaultProps} toolInput={input} />);
     expect(screen.getByText(input)).toBeTruthy();
-    expect(screen.getByRole('button', { name: 'Allow for session' })).toBeTruthy();
+    expect(approvalAction('Approve for session')).toBeTruthy();
   });
 
-  it('offers session retention alongside a durable conversation grant', () => {
+  it('offers the durable conversation grant without a misleading session allowance', () => {
     const onRespond = vi.fn();
     render(
       <PermissionBanner
@@ -296,9 +295,9 @@ describe('PermissionBanner', () => {
     );
 
     expect(screen.getByText(/across reconnects and Mitzo restarts/)).toBeTruthy();
-    expect(screen.queryByRole('button', { name: 'Allow Once' })).toBeNull();
-    expect(screen.getByRole('button', { name: 'Allow for session' })).toBeTruthy();
-    fireEvent.click(screen.getByRole('button', { name: 'Grant to conversation' }));
+    expect(queryApprovalAction('Approve once')).toBeNull();
+    expect(queryApprovalAction('Approve for session')).toBeNull();
+    fireEvent.click(approvalAction('Grant to conversation'));
     expect(onRespond).toHaveBeenCalledWith('p1', 'once', 'GrantIntegrationAccess');
   });
 
@@ -321,16 +320,16 @@ describe('PermissionBanner', () => {
     expect(
       screen.queryByText('Session allowance covers this tool until the task ends.'),
     ).toBeNull();
-    expect(screen.getByRole('button', { name: 'Allow searches for this session' })).toBeTruthy();
-    fireEvent.click(screen.getByRole('button', { name: 'Allow searches for this session' }));
+    expect(approvalAction('Approve searches for this session')).toBeTruthy();
+    fireEvent.click(approvalAction('Approve searches for this session'));
     expect(onRespond).toHaveBeenCalledWith('p1', 'always', 'RequestWebAccess');
   });
   it.each(['RequestWebAccess', 'GitCommit', 'Bash', 'ExecuteProviderCapability'])(
     'offers session retention for exact %s requests',
     (toolName) => {
       render(<PermissionBanner {...defaultProps} toolName={toolName} approvalScope="request" />);
-      expect(screen.getByRole('button', { name: 'Allow Once' })).toBeTruthy();
-      expect(screen.getByRole('button', { name: 'Allow for session' })).toBeTruthy();
+      expect(approvalAction('Approve once')).toBeTruthy();
+      expect(approvalAction('Approve for session')).toBeTruthy();
       expect(
         screen.getByText(
           'Allow once covers the displayed request. Allow for session keeps this approval until the session ends.',
@@ -343,7 +342,7 @@ describe('PermissionBanner', () => {
     (toolName) => {
       render(<PermissionBanner {...defaultProps} toolName={toolName} />);
       expect(screen.getByText('Session allowance covers all telos tools.')).toBeTruthy();
-      expect(screen.getByRole('button', { name: 'Allow for session' })).toBeTruthy();
+      expect(approvalAction('Approve for session')).toBeTruthy();
     },
   );
 
@@ -366,7 +365,7 @@ describe('PermissionBanner', () => {
       />,
     );
     fireEvent.click(screen.getByLabelText('Yes'));
-    fireEvent.click(screen.getByRole('button', { name: 'Send answer' }));
+    fireEvent.click(approvalAction('Send answer'));
     expect(onRespond).toHaveBeenCalledWith('p1', 'once', 'AskUserQuestion', {
       constructor: ['Yes'],
     });
@@ -415,10 +414,10 @@ describe('host session-grant display policy', () => {
           onRespond={onRespond}
         />,
       );
-      expect(screen.queryByRole('button', { name: 'Allow for session' })).toBeNull();
+      expect(queryApprovalAction('Approve for session')).toBeNull();
       expect(screen.queryByText('Keep this approval until the session ends.')).toBeNull();
       expect(screen.getByText('Allow once covers the displayed request.')).toBeTruthy();
-      fireEvent.click(screen.getByRole('button', { name: 'Allow Once' }));
+      fireEvent.click(approvalAction('Approve once'));
       expect(onRespond).toHaveBeenCalledOnce();
       expect(onRespond).toHaveBeenCalledWith('p1', 'once', 'Bash');
     },
@@ -433,7 +432,7 @@ describe('host session-grant display policy', () => {
         toolInput={JSON.stringify({ operation: 'search', query: 'Pricing' })}
       />,
     );
-    expect(screen.queryByRole('button', { name: 'Allow searches for this session' })).toBeNull();
+    expect(queryApprovalAction('Approve searches for this session')).toBeNull();
     expect(screen.getByText('Allow once covers the displayed request.')).toBeTruthy();
   });
   it('keeps the existing conversation grant action when only session grants are unavailable', () => {
@@ -446,17 +445,17 @@ describe('host session-grant display policy', () => {
         onRespond={onRespond}
       />,
     );
-    expect(screen.queryByRole('button', { name: 'Allow for session' })).toBeNull();
+    expect(queryApprovalAction('Approve for session')).toBeNull();
     expect(
       screen.getByText(/This integration remains available to this conversation across reconnects/),
     ).toBeTruthy();
-    fireEvent.click(screen.getByRole('button', { name: 'Grant to conversation' }));
+    fireEvent.click(approvalAction('Grant to conversation'));
     expect(onRespond).toHaveBeenCalledWith('p1', 'once', 'Bash');
   });
   it('retains Deny for an explicitly once-only request', () => {
     const onRespond = vi.fn();
     render(<PermissionBanner {...defaultProps} allowSessionGrant={false} onRespond={onRespond} />);
-    fireEvent.click(screen.getByRole('button', { name: 'Deny' }));
+    fireEvent.click(approvalAction('Deny'));
     expect(onRespond).toHaveBeenCalledWith('p1', 'deny', 'Bash');
   });
   it.each([undefined, true])(
@@ -473,7 +472,7 @@ describe('host session-grant display policy', () => {
         />,
       );
       expect(screen.getByText('Keep workspace checks until the session ends.')).toBeTruthy();
-      fireEvent.click(screen.getByRole('button', { name: 'Allow for session' }));
+      fireEvent.click(approvalAction('Approve for session'));
       expect(onRespond).toHaveBeenCalledWith('p1', 'always', 'Bash');
     },
   );

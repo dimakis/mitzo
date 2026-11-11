@@ -51,19 +51,12 @@ for (const theme of ['dark', 'light']) {
       await expect(page.getByRole('textbox', { name: 'Message Mitzo' })).toHaveValue(
         'Keep this draft in the lead conversation.',
       );
-      expect(
-        await link.evaluate((element) => {
-          const row = getComputedStyle(element);
-          const icon = getComputedStyle(element.querySelector('.telos-worker-receipt-icon')!);
-          return {
-            gap: row.gap,
-            padding: row.paddingTop,
-            width: icon.width,
-            height: icon.height,
-            radius: icon.borderRadius,
-          };
-        }),
-      ).toEqual({ gap: '10px', padding: '13px', width: '30px', height: '36px', radius: '6px' });
+      await expect(
+        link
+          .locator('xpath=ancestor::*[contains(@class,"operation-header")]')
+          .getByRole('heading', { name: 'Plan recording setup' }),
+      ).toBeVisible();
+      await expect(link.locator('[data-icon="arrowUpRight"]')).toHaveCount(1);
       const bounds = await link.boundingBox();
       expect(bounds!.height).toBeGreaterThanOrEqual(44);
       expect(
@@ -76,8 +69,7 @@ for (const theme of ['dark', 'light']) {
       if (isMobile) {
         await link.tap();
       } else {
-        await page.keyboard.press('Tab');
-        await page.keyboard.press('Tab');
+        await link.focus();
         await expect(link).toBeFocused();
         await page.keyboard.press('Enter');
       }

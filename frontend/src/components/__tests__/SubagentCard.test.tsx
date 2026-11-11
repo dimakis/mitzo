@@ -90,7 +90,7 @@ describe('SubagentCard', () => {
     expect(container.querySelector('.tool-pill-detail')).not.toBeTruthy();
 
     // Click to expand — now uses tool-pill-header
-    const header = container.querySelector('.tool-pill-header');
+    const header = screen.getByRole('button', { name: /Details for Agent/ });
     if (header) {
       fireEvent.click(header);
     }

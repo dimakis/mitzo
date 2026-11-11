@@ -1,3 +1,4 @@
+import { approvalSecondary } from '../support/approval-actions';
 import { chatStorageBootstrap } from '../support/chat-storage-bootstrap';
 import { navigateWithServiceHealth } from '../support/service-health-navigation';
 import { waitForNewFixtureReads } from '../support/fixture-reads';
@@ -357,7 +358,7 @@ for (const theme of ['dark', 'light'] as const)
             card.getByRole('checkbox', { name: /Use the approved acoustic plan/ }),
           ).toBeVisible();
           await expect(
-            card.getByRole('button', { name: 'Allow for session', exact: true }),
+            card.getByRole('button', { name: 'Approve for session', exact: true }),
           ).toHaveCount(0);
           await expect(
             card.getByRole('heading', { name: 'Save to Telos', exact: true }),
@@ -370,7 +371,7 @@ for (const theme of ['dark', 'light'] as const)
           await expect(sourceDetails).not.toHaveAttribute('open', '');
           await expect(card.getByText(/Seat unknown · generation unknown/)).toHaveCount(0);
           await expect(
-            card.getByRole('button', { name: 'Allow Once', exact: true }),
+            card.getByRole('button', { name: 'Approve once', exact: true }),
           ).toBeDisabled();
           expect(
             await card
@@ -406,7 +407,7 @@ for (const theme of ['dark', 'light'] as const)
                 fieldsets.every((fieldset) => fieldset.scrollWidth <= fieldset.clientWidth),
               ),
           ).toBe(true);
-          for (const name of ['Allow Once', kind === 'create' ? 'Cancel' : 'Deny']) {
+          for (const name of ['Approve once', 'More approval actions']) {
             const action = card.getByRole('button', { name, exact: true });
             await expect(action).toBeInViewport();
             expect((await action.boundingBox())!.height).toBeGreaterThanOrEqual(44);
@@ -446,7 +447,7 @@ for (const theme of ['dark', 'light'] as const)
         host.advanceMaterial();
         expect(
           await card
-            .locator('.perm-banner-info')
+            .locator('.operation-details')
             .evaluate((body) => body.scrollWidth <= body.clientWidth),
         ).toBe(true);
         await card
@@ -457,7 +458,7 @@ for (const theme of ['dark', 'light'] as const)
           .getByRole('region', { name: 'Reviewed source', exact: true })
           .scrollIntoViewIfNeeded();
         await page.screenshot({ path: info.outputPath(`source-approval-create-${theme}.png`) });
-        await card.getByRole('button', { name: 'Allow Once', exact: true }).click();
+        await card.getByRole('button', { name: 'Approve once', exact: true }).click();
         await expect(card).toHaveCount(0);
         expect(receipts).toHaveLength(1);
         const created = receipts[0].receipt.work.itemId;
@@ -506,7 +507,7 @@ for (const theme of ['dark', 'light'] as const)
           .getByRole('region', { name: 'Reviewed source', exact: true })
           .scrollIntoViewIfNeeded();
         await page.screenshot({ path: info.outputPath(`source-approval-adopt-${theme}.png`) });
-        await adoption.getByRole('button', { name: 'Allow Once', exact: true }).click();
+        await adoption.getByRole('button', { name: 'Approve once', exact: true }).click();
         await expect(adoption).toHaveCount(0);
         expect(receipts).toHaveLength(2);
         expect(receipts[1].receipt.work.itemId).toBe(created);
@@ -524,7 +525,7 @@ for (const theme of ['dark', 'light'] as const)
         const savedCount = host.counts().sources.total;
 
         const denied = await request('create', 'native');
-        await denied.getByRole('button', { name: 'Cancel', exact: true }).click();
+        await (await approvalSecondary(page, denied, 'Cancel')).click();
         await expect(denied).toHaveCount(0);
         expect(host.counts().sources.total).toBe(savedCount);
         expect(host.counts().canonicalCreates).toBe(1);
@@ -538,15 +539,17 @@ for (const theme of ['dark', 'light'] as const)
           stale.getByRole('region', { name: 'Reviewed source', exact: true }),
         ).toBeVisible();
         host.staleItem(created);
-        await stale.getByRole('button', { name: 'Allow Once', exact: true }).click();
+        await stale.getByRole('button', { name: 'Approve once', exact: true }).click();
         const staleError = stale.getByRole('alert');
         await expect(staleError).toContainText('This request changed or is no longer authorized');
         await staleError.scrollIntoViewIfNeeded();
         await expect(staleError).toBeInViewport();
-        await expect(stale.getByRole('button', { name: 'Allow Once', exact: true })).toBeDisabled();
+        await expect(
+          stale.getByRole('button', { name: 'Approve once', exact: true }),
+        ).toBeDisabled();
         await page.screenshot({ path: info.outputPath(`source-approval-stale-${theme}.png`) });
         expect(host.counts().sources.total).toBe(savedCount);
-        await stale.getByRole('button', { name: 'Deny', exact: true }).click();
+        await (await approvalSecondary(page, stale, 'Deny')).click();
         await expect(stale).toHaveCount(0);
         await expect(input).toHaveValue('Keep this ordinary chat draft.');
         expect(host.counts()).toMatchObject({
@@ -575,16 +578,18 @@ for (const theme of ['dark', 'light'] as const)
           const livePreviewCount = previews.length;
           const liveReceiptCount = receipts.length;
           host.loseNextCanonicalResponse();
-          await live.getByRole('button', { name: 'Allow Once', exact: true }).click();
+          await live.getByRole('button', { name: 'Approve once', exact: true }).click();
           await expect(live.getByRole('alert')).toContainText('Save is unconfirmed');
           expect(host.hideOriginalSource()).toBe(true);
           const beforeLiveDenied = host.retainedOwnerCounts();
-          await live.getByRole('button', { name: 'Allow Once', exact: true }).click();
+          await live.getByRole('button', { name: 'Approve once', exact: true }).click();
           await expect(live.getByRole('alert')).toContainText('same save after access returns');
           await expect(live.getByRole('alert')).not.toContainText(
             /new request|ask again|review a new/i,
           );
-          await expect(live.getByRole('button', { name: 'Allow Once', exact: true })).toBeEnabled();
+          await expect(
+            live.getByRole('button', { name: 'Approve once', exact: true }),
+          ).toBeEnabled();
           await expect(live.getByRole('timer')).toHaveCount(1);
           await expect(
             page.getByRole('region', { name: 'Save recovery', exact: true }),
@@ -596,7 +601,7 @@ for (const theme of ['dark', 'light'] as const)
             path: info.outputPath(`source-approval-live-denied-${theme}.png`),
           });
           expect(host.restoreOriginalSourceAccess()).toBe(true);
-          await live.getByRole('button', { name: 'Allow Once', exact: true }).click();
+          await live.getByRole('button', { name: 'Approve once', exact: true }).click();
           await expect(live).toHaveCount(0);
           expect(receipts).toHaveLength(liveReceiptCount + 1);
           const liveReceipt = receipts.at(-1)!;
@@ -685,7 +690,7 @@ for (const theme of ['dark', 'light'] as const)
           await page.screenshot({
             path: info.outputPath(`source-material-pages-reviewed-${theme}.png`),
           });
-          await materials.getByRole('button', { name: 'Allow Once', exact: true }).click();
+          await materials.getByRole('button', { name: 'Approve once', exact: true }).click();
           await expect(materials).toHaveCount(0);
           expect(host.receiptSource(receipts.at(-1)!).packet.context.artifacts[0].revision).toBe(
             150,
@@ -710,7 +715,7 @@ for (const theme of ['dark', 'light'] as const)
         const originalDeadline = reviews.at(-1)!.expiresAt;
         if (responseLoss === 'source') host.loseNextSaveResponse();
         else host.loseNextCanonicalResponse();
-        await uncertain.getByRole('button', { name: 'Allow Once', exact: true }).click();
+        await uncertain.getByRole('button', { name: 'Approve once', exact: true }).click();
         await expect(uncertain.getByRole('alert')).toContainText('Save is unconfirmed');
         const savedBeforeRestart = host.counts();
         expect(savedBeforeRestart.canonicalCreates).toBe(beforeLoss.canonicalCreates + 1);
@@ -738,9 +743,7 @@ for (const theme of ['dark', 'light'] as const)
         await expect(recoveryCard.getByRole('alert')).not.toContainText(
           /deny|ask again|new request/i,
         );
-        await expect(
-          recoveryCard.getByRole('button', { name: 'Dismiss', exact: true }),
-        ).toBeEnabled();
+        await expect(await approvalSecondary(page, recoveryCard, 'Dismiss')).toBeEnabled();
         await expect(
           recoveryCard.getByRole('button', { name: 'Retry same save', exact: true }),
         ).toBeDisabled();
@@ -754,10 +757,10 @@ for (const theme of ['dark', 'light'] as const)
           recoveryCard.getByRole('button', { name: 'Retry same save', exact: true }),
         ).toBeEnabled();
         await expect(
-          recoveryCard.getByRole('button', { name: 'Allow Once', exact: true }),
+          recoveryCard.getByRole('button', { name: 'Approve once', exact: true }),
         ).toHaveCount(0);
         await expect(
-          recoveryCard.getByRole('button', { name: 'Allow for session', exact: true }),
+          recoveryCard.getByRole('button', { name: 'Approve for session', exact: true }),
         ).toHaveCount(0);
         await expect(recoveryCard.getByRole('timer')).toHaveCount(0);
         await expect(
@@ -831,7 +834,7 @@ for (const theme of ['dark', 'light'] as const)
         });
         expect(host.counts().allocations).toBe(0);
         expect(host.toolResult()).toBeNull();
-        await recoveryCard.getByRole('button', { name: 'Dismiss', exact: true }).click();
+        await (await approvalSecondary(page, recoveryCard, 'Dismiss')).click();
         await expect(recoveryCard).toHaveCount(0);
         expect(host.recoveryRequests()).toEqual([]);
         expect(host.counts().sources.total).toBe(beforeLoss.sources.total + 1);

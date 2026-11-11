@@ -2,8 +2,9 @@ import { TelosWorkDelegationReceiptSchema } from '@mitzo/protocol';
 import { Link } from 'react-router-dom';
 import type { ToolBlock } from '../lib/tool-status';
 import { getToolStatus } from '../lib/tool-status';
+import type { ReactNode } from 'react';
+import { OperationCard } from './OperationCard';
 import { UiIcon } from './UiIcon';
-import './TelosWorkerReceiptCard.css';
 
 /** A receipt is navigation evidence for its exact originating lead, never a
  * command to start a worker or a replacement for the ordinary transcript. */
@@ -55,32 +56,37 @@ export function telosWorkerReceipt(block: ToolBlock, sessionId?: string) {
 export function TelosWorkerReceiptCard({
   block,
   sessionId,
+  details,
 }: {
   block: ToolBlock;
   sessionId?: string;
+  details?: ReactNode;
 }) {
   const receipt = telosWorkerReceipt(block, sessionId);
   if (!receipt) return null;
   const display = receipt.workerDisplay;
+  const title = display?.title || 'Worker conversation';
   return (
-    <div className="telos-worker-receipt">
-      <Link className="telos-worker-receipt-row" to={receipt.workerPath}>
-        <span className="telos-worker-receipt-icon">
-          <UiIcon name="messagesSquare" size={16} />
-        </span>
-        <span className="telos-worker-receipt-name">
-          <strong>{display?.title || 'Worker conversation'}</strong>
-          {display && (
-            <small>
-              {[display.profile, display.account, display.model, display.target]
-                .filter(Boolean)
-                .join(' · ')}
-            </small>
-          )}
-          <small>Worker chat · created from this lead conversation</small>
-        </span>
-        <UiIcon name="arrowUpRight" size={16} />
-      </Link>
-    </div>
+    <OperationCard
+      title={title}
+      kind="Worker chat"
+      icon="messagesSquare"
+      scope="Created from this lead conversation"
+      actions={
+        <Link className="operation-primary" to={receipt.workerPath} aria-label={`Open ${title}`}>
+          Open
+          <UiIcon name="arrowUpRight" size={16} />
+        </Link>
+      }
+      details={details}
+    >
+      {display && (
+        <p>
+          {[display.profile, display.account, display.model, display.target]
+            .filter(Boolean)
+            .join(' · ')}
+        </p>
+      )}
+    </OperationCard>
   );
 }

@@ -32,8 +32,10 @@ it('shows the exact command, directory and broad network access before collapsed
   expect(screen.getByText('/repo')).toBeTruthy();
   expect(screen.getByText('Enabled for this request')).toBeTruthy();
   expect(screen.getByText('/output')).toBeTruthy();
-  expect(document.querySelector('.approval-request-details')?.hasAttribute('open')).toBe(false);
-  expect(screen.queryByRole('button', { name: 'Allow for Session' })).toBeNull();
-  fireEvent.click(screen.getByRole('button', { name: 'Allow Once' }));
+  expect(
+    screen.getByRole('button', { name: 'Request details' }).getAttribute('aria-expanded'),
+  ).toBe('false');
+  expect(screen.queryByRole('button', { name: 'Approve for session' })).toBeNull();
+  fireEvent.click(screen.getByRole('button', { name: 'Approve once' }));
   expect(respond).toHaveBeenCalledWith('request', 'once', 'CodexNativeCommand');
 });

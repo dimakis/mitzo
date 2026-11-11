@@ -60,6 +60,8 @@ export function UnifiedInboxView({ desktop = false }: { desktop?: boolean } = {}
   const [selected, setSelected] = useState<MitzoNotification | null>(null);
   const [filters, setFilters] = useState(false);
   const [error, setError] = useState('');
+  const [actionError, setActionError] = useState('');
+  const [failedRecordId, setFailedRecordId] = useState<string | null>(null);
   const [detailError, setDetailError] = useState('');
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -186,7 +188,18 @@ export function UnifiedInboxView({ desktop = false }: { desktop?: boolean } = {}
         if (item.readAt === null && !read.current.has(item.id) && mutate) {
           read.current.add(item.id);
           void mutate(`/${encodeURIComponent(item.id)}/read`)
-            .catch(() => undefined)
+            .catch((cause: unknown) => {
+              console.warn('Inbox read state could not be saved', {
+                code: 'inbox_mark_read_failed',
+                stage: 'mark_read',
+                recordId: item.id,
+                sessionId: item.sessionId,
+                cause,
+              });
+              setActionError(
+                (previous) => previous || 'Could not mark this item read. Reopen it to retry.',
+              );
+            })
             .finally(() => read.current.delete(item.id));
         }
       })
@@ -232,7 +245,8 @@ export function UnifiedInboxView({ desktop = false }: { desktop?: boolean } = {}
     acting.current = true;
     const id = activeId.current;
     setBusy(true);
-    setError('');
+    setActionError('');
+    setFailedRecordId(null);
     setNotice('');
     try {
       if (resolution) {
@@ -253,7 +267,8 @@ export function UnifiedInboxView({ desktop = false }: { desktop?: boolean } = {}
       }
       setRevision((n) => n + 1);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not save this change.');
+      setActionError(err instanceof Error ? err.message : 'Could not save this change.');
+      setFailedRecordId(path.endsWith('/respond') ? decodeURIComponent(path.split('/')[1]) : null);
       setRevision((value) => value + 1);
     } finally {
       acting.current = false;
@@ -315,6 +330,7 @@ export function UnifiedInboxView({ desktop = false }: { desktop?: boolean } = {}
         <RequestDetail
           item={selected}
           busy={busy}
+          responseError={failedRecordId === selected.id ? actionError : undefined}
           onRespond={(decision, answers) =>
             void act(`/${encodeURIComponent(selected.id)}/respond`, {
               sessionId: selected.sessionId,
@@ -380,6 +396,11 @@ export function UnifiedInboxView({ desktop = false }: { desktop?: boolean } = {}
             </button>
           )}
         </div>
+      )}
+      {actionError && (
+        <p role="alert" className="workspace-load-error">
+          {actionError}
+        </p>
       )}
       {hideList ? (
         <button ref={back} className="proposal-back" onClick={close}>
@@ -525,67 +546,79 @@ export function UnifiedInboxView({ desktop = false }: { desktop?: boolean } = {}
             )}
             {feed?.items.map((item) => (
               <div className="inbox-entry" key={item.id}>
-                <button
-                  className="collection-record proposal-record"
-                  aria-label={inboxTitle(item)}
-                  aria-current={selectedId === item.id ? 'true' : undefined}
-                  ref={(node) => {
-                    if (node) rows.current.set(item.id, node);
-                    else rows.current.delete(item.id);
-                  }}
-                  onClick={() => open(item)}
-                >
-                  <span className="proposal-record-meta">
-                    <small>
-                      {inboxType(item)}
-                      {item.resolvedAt !== null ? ' · Resolved' : ''}
-                      {item.archivedAt != null ? ' · Archived' : ''}
-                    </small>
-                    <time dateTime={new Date(item.createdAt).toISOString()}>
-                      {new Date(item.createdAt).toLocaleDateString(undefined, {
-                        month: 'short',
-                        day: 'numeric',
-                      })}
-                    </time>
-                  </span>
-                  <strong>{inboxTitle(item)}</strong>
-                  <p>{inboxSummary(item)}</p>
-                  <span className="proposal-record-footer">
-                    <small>
-                      {item.inbox
-                        ? inboxSource(item.inbox.agent)
-                        : item.readAt === null
-                          ? 'Unread'
-                          : ''}
-                    </small>
-                    <span className="proposal-record-open">
-                      {inboxNeedsYou(item)
-                        ? 'Review request'
-                        : item.inbox?.category === 'briefing'
-                          ? 'Read briefing'
-                          : 'Open'}{' '}
-                      <UiIcon name="forward" size={16} />
-                    </span>
-                  </span>
-                </button>
-                {item.kind === 'approval' &&
-                  item.permId &&
-                  !item.resolution &&
-                  inboxNeedsYou(item) &&
-                  item.request &&
-                  !item.request.questions &&
-                  selectedId !== item.id && (
+                {item.permId && !item.resolution && inboxNeedsYou(item) ? (
+                  <>
                     <NotificationApprovalActions
                       item={item}
                       busy={busy}
-                      onRespond={(decision) =>
+                      responseError={failedRecordId === item.id ? actionError : undefined}
+                      onRespond={(decision, answers) =>
                         void act(`/${encodeURIComponent(item.id)}/respond`, {
                           sessionId: item.sessionId,
                           decision,
+                          ...(answers ? { answers } : {}),
                         })
                       }
                     />
-                  )}
+                    <button
+                      type="button"
+                      className="workspace-text-link"
+                      aria-label={inboxTitle(item)}
+                      aria-current={selectedId === item.id ? 'true' : undefined}
+                      ref={(node) => {
+                        if (node) rows.current.set(item.id, node);
+                        else rows.current.delete(item.id);
+                      }}
+                      onClick={() => open(item)}
+                    >
+                      Open request
+                    </button>
+                  </>
+                ) : (
+                  <button
+                    className="collection-record proposal-record"
+                    aria-label={inboxTitle(item)}
+                    aria-current={selectedId === item.id ? 'true' : undefined}
+                    ref={(node) => {
+                      if (node) rows.current.set(item.id, node);
+                      else rows.current.delete(item.id);
+                    }}
+                    onClick={() => open(item)}
+                  >
+                    <span className="proposal-record-meta">
+                      <small>
+                        {inboxType(item)}
+                        {item.resolvedAt !== null ? ' · Resolved' : ''}
+                        {item.archivedAt != null ? ' · Archived' : ''}
+                      </small>
+                      <time dateTime={new Date(item.createdAt).toISOString()}>
+                        {new Date(item.createdAt).toLocaleDateString(undefined, {
+                          month: 'short',
+                          day: 'numeric',
+                        })}
+                      </time>
+                    </span>
+                    <strong>{inboxTitle(item)}</strong>
+                    <p>{inboxSummary(item)}</p>
+                    <span className="proposal-record-footer">
+                      <small>
+                        {item.inbox
+                          ? inboxSource(item.inbox.agent)
+                          : item.readAt === null
+                            ? 'Unread'
+                            : ''}
+                      </small>
+                      <span className="proposal-record-open">
+                        {inboxNeedsYou(item)
+                          ? 'Review request'
+                          : item.inbox?.category === 'briefing'
+                            ? 'Read briefing'
+                            : 'Open'}{' '}
+                        <UiIcon name="forward" size={16} />
+                      </span>
+                    </span>
+                  </button>
+                )}
               </div>
             ))}
             {feed && feed.total > 50 && (

@@ -888,29 +888,42 @@ and desktop Chromium, without backend or provider calls.
 
 ## Approval cards
 
-`PermissionBanner` uses a quiet token-styled surface and compact outlined
-44px actions in one row. Allow once, Allow for session and Deny remain explicit; durable
-integration grants keep their existing conversation label alongside session
-retention. The server supplies the human scope explanation when available.
-Request details start open in a native labelled disclosure with `UiIcon`,
-keeping full long input accessible and collapsible. Visible Once, Session and Deny
-labels retain full accessible action names. Shared CSS
-entrance motion remains in effect. The card body scrolls independently while
-its decision row stays reachable on narrow phones and with larger text.
+`OperationCard` is the shared web frame for every tool family, including unknown
+future tools: type/icon, operation title and useful scope on the left; the primary
+action or status at the top right. `ApprovalCard` supplies its shared decision
+presentation to the Chat overlay, Inbox entries and notification inspector.
+`PermissionBanner` only places that same component above mobile navigation.
+Approve, conversation Grant, question Send answer and source-save actions stay
+beside the operation, outside independently scrolling evidence. They require no
+Details click or evidence scrolling. Secondary session retention, Deny/Cancel and
+source-change actions use the shared keyboard-accessible More menu. Scope and
+expiry remain server owned; conversation grants stay available even when a
+session allowance is ineligible. No display rule creates a broader grant.
 
-Structured questions retain their choices and written answer fields, Send answer
-and Cancel. They do not offer session authorization. Response progress disables
-duplicate decisions; errors retain the card and allow retry. Local expiry removes
-the card without submitting a user denial; the server owns timeout resolution.
-Inbox entries expose Allow once, eligible Allow for session and Deny directly,
-alongside the existing optional review navigation. The full request view places
-these same controls before its independently scrolling evidence; opening details
-or scrolling is not required to decide. Use the shared notification decision
-controls, semantic primary action, scope caption, expiry and 44px touch targets.
-Questions retain their answer form. Resolved, expired and archived entries expose
-no direct decisions; pending submissions disable them and failures stay visible.
-This placement follows Dimitri's explicit 10 November 2026 direction: “It should
-be one click, no scroll.” Native notification actions revalidate displayed input and scope;
+Use semantic accent roles, UiIcon, shared type/spacing/radius tokens, 44px targets,
+visible focus and MotionPresence disclosure motion. Completed tools become quiet
+rows. Setup, task-review and worker-navigation actions remain visible above
+collapsed grouped activity. Original input/output, real failure/interruption
+state and existing validated destinations remain inspectable. Tool-specific
+questions, secure setup and source selection keep their original controllers.
+
+Known command, directory and requested-access facts lead the evidence. Ordinary
+technical details start closed behind a labelled Details control. Source review
+starts open, preserving the latest exchange and exact preview before saving.
+Long evidence scrolls independently of the top action; the Chat overlay also
+scrolls long question forms independently. Larger text and narrow phones retain
+the header controls. Unavailable live notification payloads show an explicit
+Review action to the original session, rather than an invented approval.
+
+Structured questions retain their choices and written answers, Send answer and
+Cancel, without session authorization. Pending responses lock duplicate actions
+and answer edits. Failures retain the card and draft for retry. Local expiry
+submits no denial. Resolved, expired and archived Inbox records expose no direct
+decisions. The approved reference and originating instruction are recorded in
+[the shared-header design](approved/tool-operations/VALIDATION.md): “Yep. For every
+tool. Build it”, following “It should be one click, no scroll.”
+
+Native notification actions revalidate displayed input and scope;
 the Watch rechecks the complete reviewed request through its authenticated phone
 relay before submitting a session decision. Ordinary Watch chat uses a quiet
 44px Review request entry into that same complete review surface; it never
@@ -933,9 +946,9 @@ Once. The exact compiled text, boundary, brief and version pins remain inspectab
 Outcome creation offers **Create outcome**, **Request changes** and **Cancel**.
 Request changes opens an inline, labelled feedback field, with **Send changes**,
 **Back to proposal** and **Cancel**. Going back preserves unsent feedback and
-returns focus. The primary action occupies the full footer row; the other two
-retain reachable shared control-height targets. Feedback uses the existing
-question-written controls and base text size. The footer stays outside the
+returns focus to the More trigger. The primary action stays at the top beside
+the operation; Request changes and Cancel retain reachable shared menu targets. Feedback uses the existing
+question-written controls and base text size. The header stays outside the
 scrolling body. Source adoption retains Once and Deny; a session allowance cannot
 approve unseen future source selections. Other tools retain their scope/actions.
 
