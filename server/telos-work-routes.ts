@@ -18,6 +18,23 @@ import {
 import { TelosWorkStore, TelosWorkError, type TelosWorkActor } from './telos-work-store.js';
 import { isAuthSessionCurrent, registerAuthSession, type AuthSession } from './auth.js';
 import { requireSameOriginJson } from './connections-router.js';
+import { createLogger } from './logger.js';
+import { describeTelosOperationFailure } from './telos-operation-failure.js';
+
+const log = createLogger('telos-work');
+function reportWorkFailure(error: unknown, phase: string, operation: string, sessionId?: string) {
+  try {
+    log.warn('Telos work operation failed', {
+      code: 'telos_work_unavailable',
+      phase,
+      operation,
+      ...(sessionId ? { sessionId } : {}),
+      ...describeTelosOperationFailure(error),
+    });
+  } catch {
+    // Diagnostics must not replace the original operation's response.
+  }
+}
 
 export interface TelosWorkRoleRequest {
   actor: TelosWorkActor;
@@ -65,6 +82,7 @@ export function createTelosWorkRouter(options: {
     mode: 'write' | 'record' | 'lifecycle' | 'collection' = 'write',
   ) => {
     let store: TelosWorkStore | undefined;
+    let phase = 'open_storage';
     try {
       const policy = {
         ordinaryConversation: options.ordinaryConversation,
@@ -76,6 +94,7 @@ export function createTelosWorkRouter(options: {
           : mode === 'lifecycle' || mode === 'collection'
             ? TelosWorkStore.openForLifecycleListRead(options.dbPath(), policy)
             : new TelosWorkStore(options.dbPath(), policy);
+      phase = 'execute_operation';
       let result: unknown;
       try {
         result = action(store);
@@ -99,6 +118,7 @@ export function createTelosWorkRouter(options: {
           : error instanceof z.ZodError
             ? 400
             : 503;
+      if (status >= 500) reportWorkFailure(error, phase, mode);
       res.status(status).json({
         code: known ? error.code : status === 400 ? 'invalid' : 'unavailable',
         error: known
@@ -110,7 +130,11 @@ export function createTelosWorkRouter(options: {
               : 'Telos work service unavailable',
       });
     } finally {
-      store?.close();
+      try {
+        store?.close();
+      } catch (error) {
+        reportWorkFailure(error, 'close_storage', mode);
+      }
     }
   };
   const actor = (res: Response): TelosWorkActor | undefined => {
@@ -432,6 +456,7 @@ export function createTelosWorkRouter(options: {
               : error instanceof z.ZodError
                 ? 400
                 : 503;
+          if (status >= 500) reportWorkFailure(error, 'execute_host', operation.path);
           res.status(status).json({
             ...([
               'roles/setup',
@@ -554,6 +579,8 @@ export function createTelosWorkRouter(options: {
           : error instanceof z.ZodError
             ? 400
             : 503;
+      if (status >= 500)
+        reportWorkFailure(error, 'execute_host', 'delegate_slice', selected.sessionId);
       res.status(status).json({
         code:
           status === 403
