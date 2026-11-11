@@ -51,6 +51,17 @@ for (const theme of ['dark', 'light'])
       let reviewCount = 0;
       let attachedSnapshot: { snapshotId: string; sha256: string };
       const sourceText = 'Exact saved design context for this prompt.';
+      const artifactText =
+        'Frozen résumé — saved version two\n<script>literal reviewed text</script>\n';
+      const artifact = {
+        artifactId: 'reviewed-artifact',
+        revision: 2,
+        sha256: createHash('sha256').update(artifactText).digest('hex'),
+        sourceConversationId: 'architect',
+        mediaType: 'text/plain',
+        sizeBytes: Buffer.byteLength(artifactText),
+        contentBase64: Buffer.from(artifactText).toString('base64'),
+      };
       const source = CollaborationDurableTranscriptSchema.parse({
         sourceConversationId: 'architect',
         boundary: { sequence: 1, messageId: 'selected-source' },
@@ -106,7 +117,7 @@ for (const theme of ['dark', 'light'])
             purpose: input.selection.purpose,
             joiningBrief: input.selection.joiningBrief,
             messages: source.messages,
-            artifacts: [],
+            artifacts: [artifact],
             summary: null,
             capacity: { status: 'unverified', reason: 'Offline capacity is unverified' },
           };
@@ -119,7 +130,14 @@ for (const theme of ['dark', 'light'])
               expectedMembershipRevision: input.selection.expectedMembershipRevision,
               expectedPolicySequence: input.expectedPolicySequence,
               requiresReview: false,
-              artifactLabels: [],
+              artifactLabels: [
+                {
+                  artifactId: artifact.artifactId,
+                  revision: artifact.revision,
+                  sha256: artifact.sha256,
+                  title: 'Frozen saved note',
+                },
+              ],
             }),
           });
         }
@@ -239,6 +257,10 @@ for (const theme of ['dark', 'light'])
       await context.getByRole('button', { name: 'Review context', exact: true }).click();
       await expect(attach).toBeEnabled();
       await context.getByText('Review included context', { exact: false }).click();
+      const artifactPreview = context.getByLabel('Saved contents, version 2');
+      await expect(artifactPreview).toHaveText(artifactText);
+      expect(await artifactPreview.textContent()).toBe(artifactText);
+      await expect(artifactPreview.locator('script')).toHaveCount(0);
       expect(sends).toBe(0);
       expect(reviewCount).toBe(2);
       expect(await context.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);

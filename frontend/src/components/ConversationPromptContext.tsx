@@ -2,6 +2,7 @@ import type { useConversationPromptContext } from '../hooks/useConversationPromp
 import { useMotionPresence } from '../hooks/useMotionPresence';
 import { HomeDialog } from './HomeDialog';
 import { UiIcon } from './UiIcon';
+import { ReviewedArtifactContents } from './ReviewedArtifactContents';
 import './ConversationAgents.css';
 
 export function ConversationPromptContext({
@@ -158,10 +159,12 @@ export function ConversationPromptContext({
                         {reviewed?.artifactLabels?.find(
                           (label) =>
                             label.artifactId === artifact.artifactId &&
+                            label.revision === artifact.revision &&
                             label.sha256 === artifact.sha256,
                         )?.title ?? artifact.artifactId}
                       </strong>
                       <small>Saved version {artifact.revision}</small>
+                      <ReviewedArtifactContents {...artifact} />
                     </div>
                   ))}
                 </details>

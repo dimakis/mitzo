@@ -133,6 +133,60 @@ it('restores focus to the context trigger after a composer pointer action and na
   expect((composer as HTMLTextAreaElement).value).toBe('Keep this draft');
 });
 
+it('shows the exact frozen artifact contents before attaching conversation-so-far context', async () => {
+  installDialogStub();
+  const f = fixture();
+  const text = 'Frozen résumé — version two\n<script>stay literal</script>\n';
+  vi.mocked(f.api.collaborations.reviewPrompt).mockImplementation(
+    async (_group, _client, input) => ({
+      ...f.result(input),
+      snapshot: {
+        ...f.result(input).snapshot,
+        artifacts: [
+          {
+            artifactId: 'saved-note',
+            revision: 2,
+            sha256: 'c'.repeat(64),
+            sourceConversationId: 'architect',
+            mediaType: 'text/plain',
+            sizeBytes: Buffer.byteLength(text),
+            contentBase64: Buffer.from(text).toString('base64'),
+          },
+        ],
+      },
+      artifactLabels: [
+        { artifactId: 'saved-note', revision: 2, sha256: 'c'.repeat(64), title: 'Reviewed note' },
+      ],
+    }),
+  );
+  function Controls() {
+    const flow = useConversationPromptContext(f.options);
+    return (
+      <ConversationPromptContext flow={flow} names={{ reviewer: 'Reviewer' }} disabled={false} />
+    );
+  }
+  render(<Controls />);
+  fireEvent.click(screen.getByRole('button', { name: 'Review prompt context' }));
+  await waitFor(() =>
+    expect(screen.getByLabelText('Purpose').hasAttribute('disabled')).toBe(false),
+  );
+  fireEvent.change(screen.getByLabelText('Purpose'), {
+    target: { value: 'Inspect saved context' },
+  });
+  fireEvent.change(screen.getByLabelText('Context'), { target: { value: 'conversation_so_far' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Review context', exact: true }));
+  await screen.findByText('Reviewed note');
+  fireEvent.click(screen.getByText('Review included context'));
+  const contents = screen.getByLabelText('Saved contents, version 2');
+  expect(contents.textContent).toBe(text);
+  expect(contents.querySelector('script')).toBeNull();
+  expect(
+    screen.getByRole('button', { name: 'Attach reviewed context' }).hasAttribute('disabled'),
+  ).toBe(false);
+  expect(JSON.stringify(drafts.getChatDraft(f.draft.id))).not.toContain('Frozen résumé');
+  expect(f.api.collaborations.reviewPrompt).toHaveBeenCalledOnce();
+});
+
 it('recovers a lost review response by exact retained selectors after remount without inference or private persistence', async () => {
   const f = fixture();
   vi.mocked(f.api.collaborations.reviewPrompt).mockRejectedValueOnce(

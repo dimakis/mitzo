@@ -74,6 +74,11 @@ keyboard focus, touch controls and theme captures; hosted renders and current-he
 review/CI remain required. Explicit saved-artifact version selection, exact
 forwarding and broader milestone qualification remain open. Conversation-so-far
 review can include referenced artifact versions through the existing compiler.
+Both prompt and joining reviews display each included artifact's frozen contents,
+with the exact version label. UTF-8 text preserves whitespace and renders markup
+literally; binary or malformed historical bytes remain inspectable as Base64.
+Reference-only historical snapshots explicitly say that saved contents are absent.
+Regression checks cover the real prompt review hook and the rendered browser fixture.
 No deployment, live inference or installed-runtime acceptance is established.
 
 ## Accepted shared composer and reply recovery
