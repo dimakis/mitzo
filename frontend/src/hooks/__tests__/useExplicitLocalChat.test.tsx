@@ -259,6 +259,64 @@ it('withholds repository presentation while metadata refresh is pending or fails
   expect(result.current.repositoryWorkspaceId).toBe(workspaceId);
 });
 
+it('retains a bound chat model across responsive remounts without changing the next chat', async () => {
+  const { ChatRuntimeDraftProvider } = await import('../ChatRuntimeDraftProvider');
+  const data = localInventoryFixture();
+  data.accounts[0].models.push({ id: 'sol-fixture', label: 'Sol', reasoningEfforts: ['high'] });
+  vi.mocked(apiFetch).mockImplementation(async (url) =>
+    Response.json(
+      String(url).endsWith('/meta')
+        ? {
+            sessionId: 'bound-session',
+            repositoryWorkspaceId: '11111111-1111-4111-8111-111111111111',
+            runtimeBinding: {
+              version: 2,
+              account: data.accounts[0].account,
+              harness: { implementation: 'codex' },
+              execution: { location: 'local', targetId: 'mac', targetRevision: 'target-r1' },
+            },
+            runtimeCommandScope: 'conversation',
+            mode: 'agent',
+            agentProfile: data.agentProfiles[0],
+            modelSelection: { model: 'luna-fixture', reasoningEffort: 'low' },
+          }
+        : data,
+    ),
+  );
+  let active!: ReturnType<typeof useExplicitLocalChat>;
+  function Screen() {
+    active = useExplicitLocalChat('draft', null, 'bound-session', true);
+    return null;
+  }
+  const view = (layout: string, owner = 'bound-session:0') => (
+    <ChatRuntimeDraftProvider owner={owner}>
+      <Screen key={layout} />
+    </ChatRuntimeDraftProvider>
+  );
+  const { rerender } = render(view('phone'));
+  await waitFor(() => expect(active.commandAvailable).toBe(true));
+  act(() =>
+    active.update({
+      ...active.intent,
+      account: { ...active.intent.account!, model: 'sol-fixture', reasoningEffort: 'high' },
+    }),
+  );
+  rerender(view('desktop'));
+  await waitFor(() => expect(active.commandAvailable).toBe(true));
+  expect(active.intent.account).toMatchObject({ model: 'sol-fixture', reasoningEffort: 'high' });
+  const prepared = prepareLocalContinuationCommand(active.intent, active.inventory, {
+    sessionId: 'bound-session',
+    repositoryWorkspaceId: active.repositoryWorkspaceId!,
+    clientMsgId: 'next-command',
+    mode: 'agent',
+    text: 'Continue',
+  });
+  expect(prepared.request?.selection).toMatchObject({ model: 'sol-fixture', thinking: 'high' });
+  rerender(view('other', 'another-session:0'));
+  await waitFor(() => expect(active.commandAvailable).toBe(true));
+  expect(active.intent.account?.model).toBe('luna-fixture');
+});
+
 it('keeps future inference intent and ignores an older metadata response after consecutive same-branch adoption invalidations', async () => {
   const data = localInventoryFixture();
   data.accounts[0].models.push({
@@ -669,6 +727,29 @@ it('keeps unknown session metadata fail-closed with visible retry, then recovers
   await waitFor(() => expect(result.current.bound).toBe(true));
   expect(result.current.binding!.execution.location).toBe('local');
   expect(result.current.metadataPending).toBe(false);
+});
+
+it('reports a sanitized model-settings restore failure without losing its visible retry state', async () => {
+  const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+  const failure = new Error('private upstream fixture');
+  vi.mocked(apiFetch).mockImplementation(async (path) => {
+    if (String(path).endsWith('/meta')) throw failure;
+    return Response.json(localInventoryFixture());
+  });
+  try {
+    const { result } = renderHook(() => useExplicitLocalChat('draft', null, 'failed-chat', true));
+    await waitFor(() => expect(result.current.metadataUnavailable).toBe(true));
+    expect(result.current.reason).toContain('Retry to continue');
+    expect(warn).toHaveBeenCalledWith('[mitzo] Conversation settings unavailable', {
+      code: 'runtime_session_metadata_unavailable',
+      stage: 'metadata',
+      sessionId: 'failed-chat',
+      cause: 'Error',
+    });
+    expect(JSON.stringify(warn.mock.calls)).not.toContain('private upstream');
+  } finally {
+    warn.mockRestore();
+  }
 });
 
 it('preserves a builtin launch namespace when switching to Local despite a matching user profile', async () => {

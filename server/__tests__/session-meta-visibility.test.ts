@@ -292,6 +292,29 @@ it('retains the last admitted model and thinking when optional account refresh f
   });
   expect(response.body.accountBinding.model).toBe('first');
   expect(store.getSessionRuntimeBinding(meta.sessionId)).toEqual(runtime);
+  const listed = await request(server).get('/api/sessions?limit=100');
+  expect(listed.status).toBe(200);
+  expect(
+    listed.body.sessions.find((session: { id: string }) => session.id === meta.sessionId),
+  ).toMatchObject({ model: 'next' });
+  const readLatest = store.getLatestOrdinaryCommandAdmission.bind(store);
+  const failedRead = vi
+    .spyOn(store, 'getLatestOrdinaryCommandAdmission')
+    .mockImplementation((id) => {
+      if (id === meta.sessionId) throw Error('Private receipt read fixture');
+      return readLatest(id);
+    });
+  try {
+    const unavailable = await request(server).get('/api/sessions?limit=100');
+    expect(unavailable.status).toBe(200);
+    const retained = unavailable.body.sessions.find(
+      (session: { id: string }) => session.id === meta.sessionId,
+    );
+    expect(retained).toHaveProperty('id', meta.sessionId);
+    expect(retained).not.toHaveProperty('model');
+  } finally {
+    failedRead.mockRestore();
+  }
 });
 
 it('reads a pinned session’s recorded context by ID without catalog, runtime or list work', async () => {
