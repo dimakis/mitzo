@@ -1,12 +1,33 @@
-# Server deployment with session pause and continuation
+# Server deployment and retained session-control operations
 
-Deployment is a separately authorized production operation. Staging remains stood
-down. Build and preflight the accepted release before pausing any work.
+## Current deployment policy — 11 November 2026
+
+At the user's request, `npm run deploy` again builds and preflights the accepted
+release, installs its launchd configuration and restarts the server directly.
+It requires no deployment operator JWT or session pause/activation handshake and
+sends no automatic continuation prompts. Active turns may be interrupted by the
+restart; saved history and normal recovery controls remain available under their
+existing ownership and effect checks.
+
+The accepted-source guard, deployment lock, knowledge-enrollment check, runtime
+declarations and OpenShell production preflight remain required. Production
+deployment still needs an explicit user request; staging remains stood down.
+
+Deployment does not clear an existing admission hold, mark historical effects
+settled or change permanent quarantines. Preserve all retained ledger, maintenance,
+startup-marker and ownership evidence. Resolve any existing hold through its
+original owner before choosing a direct restart.
+
+## Retained pause/continuation protocol
+
+The following protocol remains available for explicitly selected session-control
+operations and recovery of retained deployments. It is no longer part of
+`scripts/deploy.sh` and is not a prerequisite for an ordinary redeployment.
 
 The server exposes protocol 1 at `/api/deployment`. It requires a current signed
 interactive operator JWT, persistent logout/revocation authority and same-origin
-JSON mutations. Internal agent tokens cannot control owned chats. The deployment
-script reads its JWT from `MITZO_DEPLOY_OPERATOR_TOKEN_FILE` (regular file, mode 0600) and retains its operation ID in `MITZO_DEPLOY_STATE_PATH` (private file).
+JSON mutations. Internal agent tokens cannot control owned chats. The session-control
+CLI reads its JWT from `MITZO_DEPLOY_OPERATOR_TOKEN_FILE` (regular file, mode 0600) and retains its operation ID in `MITZO_DEPLOY_STATE_PATH` (private file).
 It sends credentials only to `http://127.0.0.1:3101`, without redirects. Do not put
 tokens in command arguments or logs. Use a fresh state path for each deployment.
 
@@ -50,10 +71,9 @@ never delete uncertainty records to unblock a restart.
    blocked or uncertain sessions. Completed admission is reported as resumed; it
    does not claim that the agent finished its task.
 
-`scripts/deploy.sh` performs this sequence after its existing build/preflight.
-Before continuation starts, activation/health failure restores the previous plist
-and explicitly invokes `... rollback` against its exact healthy source commit.
-After continuation starts, an error must not roll back over running resumed work.
+For retained pause/continuation deployments, verify the exact healthy source
+before explicitly invoking `... rollback`. After continuation starts, an error
+must not roll back over running resumed work.
 The activation owner must finish or reconcile rollback; the API does not offer an
 unsafe lease timeout or automatic hold expiry. If that process is lost, retain its
 private state/capability, confirm no forward activation process remains, and
@@ -92,8 +112,7 @@ first-install procedure.
 
 An older daemon cannot enforce this protocol. The CLI refuses a missing protocol;
 it does not interrupt through a side channel, edit native databases, fabricate
-operator authority or bypass an idle guard. The first accepted release containing
-this capability must use the retained idle deployment procedure. Later redeploys
-can pause/resume active qualified sessions through the API. Live model tests are
-not part of deployment; any such test needs separately authorized target, supported
+operator authority or bypass an idle guard. Ordinary deployment uses the direct restart policy above. Explicitly selected
+session-control operations may pause/resume qualified sessions through the API.
+Live model tests are not part of deployment; any such test needs separately authorized target, supported
 Luna selection and advance exact model/account disclosure.

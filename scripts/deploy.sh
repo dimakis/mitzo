@@ -60,38 +60,6 @@ fi
 echo "Validating OpenShell production bundle..."
 NODE_ENV=production node scripts/verify-openshell-production.mjs .env --service-plist com.mitzo.server.plist
 
-# Prepare only after all builds/preflight. The daemon owns the durable session
-# ledger and admission hold; no direct database edits or agent-token impersonation.
-: "${MITZO_DEPLOY_OPERATOR_TOKEN_FILE:?A private signed operator JWT file is required}"
-: "${MITZO_DEPLOY_STATE_PATH:?Choose a retained private deployment state file}"
-node scripts/deployment-sessions.mjs prepare "$(git rev-parse HEAD)"
-node scripts/deployment-sessions.mjs activate
-PREVIOUS_PLIST="$(mktemp "${TMPDIR:-/tmp}/mitzo-previous-plist.XXXXXX")"
-cp "$PLIST_DEST" "$PREVIOUS_PLIST"
-RESUME_STARTED=0
-rollback_deployment() {
-  local status=$?
-  trap - EXIT INT TERM HUP
-  if [ "$status" -ne 0 ] && [ "$RESUME_STARTED" -eq 0 ]; then
-    echo "Activation failed; restoring previous release while retaining deployment ledger" >&2
-    cp "$PREVIOUS_PLIST" "$PLIST_DEST"
-    launchctl bootout "gui/$(id -u)/com.mitzo.server" 2>/dev/null || true
-    for _ in {1..50}; do
-      if ! launchctl print "gui/$(id -u)/com.mitzo.server" >/dev/null 2>&1; then break; fi
-      sleep 0.1
-    done
-    if launchctl bootstrap "gui/$(id -u)" "$PLIST_DEST"; then
-      node scripts/deployment-sessions.mjs rollback ||
-        echo "Rollback recovery needs attention; retained deployment hold was not cleared" >&2
-    fi
-  fi
-  rm -f "$PREVIOUS_PLIST"
-  release_deploy_lock
-  exit "$status"
-}
-trap rollback_deployment EXIT
-trap 'exit 130' INT TERM HUP
-
 # Generate launchd plist from template (replaces __MITZO_HOME__ placeholder)
 echo "Installing launchd plist..."
 sed "s|__MITZO_HOME__|${MITZO_HOME}|g" com.mitzo.server.plist > "$PLIST_DEST"
@@ -117,9 +85,4 @@ for _ in {1..50}; do
 done
 launchctl bootstrap "gui/$(id -u)" "$PLIST_DEST"
 
-# First verify the exact target health without issuing any session continuation.
-# Once resume starts, failures must never trigger a rollback over resumed work.
-node scripts/deployment-sessions.mjs health
-RESUME_STARTED=1
-node scripts/deployment-sessions.mjs resume
-echo "Deployed, healthy, and captured sessions resumed."
+echo "Deployed and restarted."
