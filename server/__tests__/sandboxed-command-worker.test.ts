@@ -50,6 +50,143 @@ function fixture() {
   return { payload, manager, spawn };
 }
 
+async function privateFileFixture() {
+  const f = fixture();
+  const request = {
+    operation: 'CreateDirectory',
+    file_path: root + '/child',
+    rootAnchor: { rootPath: root, identity: { dev: '1', ino: '2' } },
+    parentIdentity: { dev: '1', ino: '2' },
+    expectedAbsent: true,
+    deniedRoots: [],
+    identity: null,
+    limit: 1,
+    timeoutMs: 1000,
+  };
+  const { privateNativeFileHelperCommand } = await import('../native-file-operation.js');
+  f.payload.privateNativeFileRequestJson = JSON.stringify(request);
+  f.payload.command = privateNativeFileHelperCommand(f.payload.privateNativeFileRequestJson);
+  return f;
+}
+
+it('uses a network-denying macOS wrapper for fixed file helpers without proxy initialization', async () => {
+  const { payload, manager, spawn } = await privateFileFixture();
+  const wrapPrivateFile = vi.fn(async () => 'fixed file sandbox');
+  const dependencies = {
+    manager,
+    spawn: spawn as never,
+    platform: 'darwin' as const,
+    wrapPrivateFile,
+  };
+  expect(await runSandboxedWorker(payload, dependencies)).toBe(0);
+  expect(wrapPrivateFile).toHaveBeenCalledWith(
+    payload.command,
+    expect.objectContaining({
+      filesystem: expect.objectContaining({ allowWrite: [root] }),
+      network: expect.objectContaining({ allowedDomains: [] }),
+    }),
+  );
+  expect(manager.initialize).not.toHaveBeenCalled();
+  expect(manager.wrapWithSandbox).not.toHaveBeenCalled();
+  expect(manager.reset).not.toHaveBeenCalled();
+  expect(spawn.mock.calls[0][1]).toEqual(['-c', 'fixed file sandbox']);
+});
+
+it('retains actual network and file restrictions in the fixed macOS helper policy', async () => {
+  const { payload, manager, spawn } = await privateFileFixture();
+  const secret = join(root, 'synthetic-private.json');
+  await writeFile(secret, 'SYNTHETIC PRIVATE BYTES');
+  payload.config.filesystem.denyRead = [secret];
+  payload.config.filesystem.denyWrite = [secret];
+  expect(
+    await runSandboxedWorker(payload, { manager, spawn: spawn as never, platform: 'darwin' }),
+  ).toBe(0);
+  const command = spawn.mock.calls[0][1][1];
+  expect(command).toContain('/usr/bin/sandbox-exec');
+  expect(command).toMatch(/\(deny default(?:\s|\))/);
+  expect(command).not.toContain('(allow network');
+  expect(command).not.toContain('(allow system-socket (socket-domain AF_UNIX))');
+  expect(command).not.toContain('(allow appleevent-send)');
+  expect(command).not.toContain('(allow pseudo-tty)');
+  expect(command).toContain(secret);
+  expect(manager.initialize).not.toHaveBeenCalled();
+});
+
+it.each(['denyRead', 'allowRead', 'denyWrite', 'allowWrite', 'root-deny'] as const)(
+  'generates the same complete fixed-helper policy for trailing /** and its literal %s directory',
+  async (field) => {
+    const { payload, manager, spawn } = await privateFileFixture();
+    const path = field === 'root-deny' ? '/' : join(root, field);
+    const key = field === 'root-deny' ? 'denyRead' : field;
+    // Exercise a real allowRead carve-out rather than an unused allow entry.
+    if (key === 'allowRead') payload.config.filesystem.denyRead = [root];
+    payload.config.filesystem[key] = [path === '/' ? '/**' : path + '/**'];
+    const dependencies = { manager, spawn: spawn as never, platform: 'darwin' as const };
+    await expect(runSandboxedWorker(payload, dependencies)).resolves.toBe(0);
+    const globCommand = spawn.mock.calls[0][1][1];
+    payload.config.filesystem[key] = [path];
+    await expect(runSandboxedWorker(payload, dependencies)).resolves.toBe(0);
+    const literalCommand = spawn.mock.calls[1][1][1];
+    // The command attribution token is the only per-invocation difference.
+    const profile = (command: string) =>
+      command.replace(/CMD64_[A-Za-z0-9+/=]+_END_/g, 'CMD64_<command-id>_END_');
+    expect(profile(globCommand)).toBe(profile(literalCommand));
+    expect(globCommand).toContain(`(subpath "${path}")`);
+    expect(manager.initialize).not.toHaveBeenCalled();
+  },
+);
+
+it('rechecks original fixed-helper authority after direct macOS wrapping before spawn', async () => {
+  const { payload, manager, spawn } = await privateFileFixture();
+  const wrapPrivateFile = vi.fn(async () => {
+    renameSync(root, root + '-old');
+    mkdirSync(root);
+    return 'fixed file sandbox';
+  });
+  const dependencies = {
+    manager,
+    spawn: spawn as never,
+    platform: 'darwin' as const,
+    wrapPrivateFile,
+  };
+  await expect(runSandboxedWorker(payload, dependencies)).rejects.toThrow(
+    'Sandbox authority changed',
+  );
+  expect(spawn).not.toHaveBeenCalled();
+  expect(manager.initialize).not.toHaveBeenCalled();
+});
+
+it.each(['domains', 'local-binding', 'unix-sockets', 'environment'] as const)(
+  'refuses fixed-helper %s expansion before selecting a direct wrapper',
+  async (change) => {
+    const { payload, manager, spawn } = await privateFileFixture();
+    if (change === 'domains') payload.config.network.allowedDomains = ['example.test'];
+    if (change === 'local-binding') payload.config.network.allowLocalBinding = true;
+    if (change === 'unix-sockets') payload.config.network.allowAllUnixSockets = true;
+    if (change === 'environment') payload.env = { SYNTHETIC: 'PRIVATE' };
+    await expect(
+      runSandboxedWorker(payload, { manager, spawn: spawn as never, platform: 'darwin' }),
+    ).rejects.toThrow('Invalid private native file isolation');
+    expect(manager.initialize).not.toHaveBeenCalled();
+    expect(spawn).not.toHaveBeenCalled();
+  },
+);
+
+it('keeps the existing proxy-backed Linux fixed-helper path', async () => {
+  const { payload, manager, spawn } = await privateFileFixture();
+  const wrapPrivateFile = vi.fn();
+  const dependencies = {
+    manager,
+    spawn: spawn as never,
+    platform: 'linux' as const,
+    wrapPrivateFile,
+  };
+  expect(await runSandboxedWorker(payload, dependencies)).toBe(0);
+  expect(wrapPrivateFile).not.toHaveBeenCalled();
+  expect(manager.initialize).toHaveBeenCalledOnce();
+  expect(manager.reset).toHaveBeenCalledOnce();
+});
+
 it.each([false, true])(
   'preserves actual command termination with environment transfer %s',
   async (transferEnvironment) => {
@@ -340,52 +477,59 @@ it('rejects substituted private checkout commands before sandbox setup', async (
   expect(manager.initialize).not.toHaveBeenCalled();
   expect(spawn).not.toHaveBeenCalled();
 });
-it('validates fixed private program and request bytes again after asynchronous sandbox wrapping', async () => {
-  const {
-    nativeFileHelperProgram,
-    privateNativeFileProgramCommand,
-    projectPrivateNativeFileHelperRequest,
-  } = await import('../native-file-operation.js');
-  const { payload, manager, spawn } = fixture();
-  vi.stubEnv('HOME', join(root, 'home'));
-  const programPath = join(root, 'helper.py'),
-    requestPath = join(root, 'request.json');
-  const rootInfo = new AuthoritySnapshot();
-  rootInfo.capture(root);
-  const rootIdentity = rootInfo.serialize().find((item) => item.path === root)!.stat!;
-  const requestJson = projectPrivateNativeFileHelperRequest(
-    JSON.stringify({
-      operation: 'CreateDirectory',
-      identity: null,
-      limit: 1,
-      timeoutMs: 1000,
-      file_path: join(root, 'target'),
-      rootAnchor: { rootPath: root, identity: { dev: rootIdentity.dev, ino: rootIdentity.ino } },
-      parentIdentity: { dev: rootIdentity.dev, ino: rootIdentity.ino },
-      expectedAbsent: true,
-      deniedRoots: [],
-    }),
-  );
-  await writeFile(programPath, nativeFileHelperProgram);
-  await writeFile(requestPath, requestJson);
-  rootInfo.capture(programPath, true);
-  rootInfo.capture(requestPath, true);
-  payload.authority = rootInfo.serialize();
-  payload.privateNativeFileRequestJson = requestJson;
-  payload.privateNativeFileProgram = { programPath, requestPath };
-  payload.command = privateNativeFileProgramCommand(programPath, requestPath);
-  try {
-    expect(await runSandboxedWorker(payload, { manager, spawn: spawn as never })).toBe(0);
-    spawn.mockClear();
-    manager.wrapWithSandbox.mockImplementation(async () => {
-      writeFileSync(programPath, 'FOREIGN PROGRAM');
-      return 'wrapped';
-    });
-    await expect(runSandboxedWorker(payload, { manager, spawn: spawn as never })).rejects.toThrow(
-      'Sandbox authority changed',
+it.each(['linux', 'darwin'] as const)(
+  'validates fixed private program and request bytes again after asynchronous %s wrapping',
+  async (platform) => {
+    const {
+      nativeFileHelperProgram,
+      privateNativeFileProgramCommand,
+      projectPrivateNativeFileHelperRequest,
+    } = await import('../native-file-operation.js');
+    const { payload, manager, spawn } = fixture();
+    vi.stubEnv('HOME', join(root, 'home'));
+    const programPath = join(root, 'helper.py'),
+      requestPath = join(root, 'request.json');
+    const rootInfo = new AuthoritySnapshot();
+    rootInfo.capture(root);
+    const rootIdentity = rootInfo.serialize().find((item) => item.path === root)!.stat!;
+    const requestJson = projectPrivateNativeFileHelperRequest(
+      JSON.stringify({
+        operation: 'CreateDirectory',
+        identity: null,
+        limit: 1,
+        timeoutMs: 1000,
+        file_path: join(root, 'target'),
+        rootAnchor: { rootPath: root, identity: { dev: rootIdentity.dev, ino: rootIdentity.ino } },
+        parentIdentity: { dev: rootIdentity.dev, ino: rootIdentity.ino },
+        expectedAbsent: true,
+        deniedRoots: [],
+      }),
     );
-    expect(spawn).not.toHaveBeenCalled();
-  } finally {
-    vi.unstubAllEnvs();
-  }
-});
+    await writeFile(programPath, nativeFileHelperProgram);
+    await writeFile(requestPath, requestJson);
+    rootInfo.capture(programPath, true);
+    rootInfo.capture(requestPath, true);
+    payload.authority = rootInfo.serialize();
+    payload.privateNativeFileRequestJson = requestJson;
+    payload.privateNativeFileProgram = { programPath, requestPath };
+    payload.command = privateNativeFileProgramCommand(programPath, requestPath);
+    const wrapPrivateFile = vi.fn(async () => 'fixed file sandbox');
+    const dependencies = { manager, spawn: spawn as never, platform, wrapPrivateFile };
+    try {
+      expect(await runSandboxedWorker(payload, dependencies)).toBe(0);
+      spawn.mockClear();
+      const substitute = async () => {
+        writeFileSync(programPath, 'FOREIGN PROGRAM');
+        return 'wrapped';
+      };
+      manager.wrapWithSandbox.mockImplementation(substitute);
+      wrapPrivateFile.mockImplementation(substitute);
+      await expect(runSandboxedWorker(payload, dependencies)).rejects.toThrow(
+        'Sandbox authority changed',
+      );
+      expect(spawn).not.toHaveBeenCalled();
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  },
+);

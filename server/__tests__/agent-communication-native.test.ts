@@ -787,6 +787,7 @@ async function fixture(
     nativePrivateName?: string;
     nativePolicyCheck?: (sessionId: string) => unknown;
     productionPolicy?: boolean;
+    beforeNativePolicy?: (sessionId: string, commandId: string) => Promise<void>;
     steerBusy?: 'accepted' | 'lost' | 'rejected';
     onVerifyBinding?: (sessionId: string) => void;
     /** Defensive fault injection inside a genuine verified callback. These
@@ -979,6 +980,8 @@ async function fixture(
             ? {
                 nativeExecution,
                 resolveNativeExecutionPolicy: async ({ commandId }) => {
+                  if (options.beforeNativePolicy)
+                    await options.beforeNativePolicy(sessionId, commandId);
                   if (options.productionPolicy)
                     dispatch.admission.nativeExecutionWorkspace(commandId);
                   return selectedNativePolicy();
@@ -1268,22 +1271,61 @@ it('reports positive pre-provider native policy failure as failed, visibly, with
   ).toBe('failed');
 }, 20000);
 
-it('delivers through the production command workspace policy after a busy recipient finishes', async () => {
-  const f = await fixture({ productionPolicy: true });
-  const result = await f.a.call({
-    operation: 'send',
-    requestId: randomUUID(),
-    recipientConversationId: f.b.sessionId,
-    text: 'Do not strand the command at native_policy.',
-  });
-  expect(result.value.status).toBe('queued');
-  await f.b.complete();
-  await vi.waitFor(async () =>
+it.each([false, true])(
+  'delivers through the production command workspace policy after a busy recipient finishes (held policy: %s)',
+  async (heldPolicy) => {
+    const policyGate: { commandId?: string; held: boolean } = { held: false };
+    const f = await fixture({
+      productionPolicy: true,
+      beforeNativePolicy: async (_sessionId, commandId) => {
+        if (!heldPolicy || commandId !== policyGate.commandId) return;
+        policyGate.held = true;
+        expect(f.b.requests.filter((request) => request.method === 'turn/start')).toHaveLength(1);
+        // Valid owner/workspace verification has no one-second delivery promise.
+        // Keep the original production check AFTER this controlled wait.
+        await new Promise<void>((resolve) => setTimeout(resolve, 1200));
+      },
+    });
+    const result = await f.a.call({
+      operation: 'send',
+      requestId: randomUUID(),
+      recipientConversationId: f.b.sessionId,
+      text: 'Do not strand the command at native_policy.',
+    });
+    policyGate.commandId = result.value.commandId;
+    expect(result.value.status).toBe('queued');
+    let unsubscribe = () => {};
+    const delivered = new Promise<void>((resolve, reject) => {
+      const changed = () => {
+        try {
+          const receipt = f.f.events.agentCommunication.read(f.a.sessionId, result.value.messageId);
+          if (receipt.status === 'delivered') resolve();
+          else if (receipt.status === 'failed')
+            reject(Error(`Peer delivery failed: ${receipt.reason}`));
+        } catch (cause) {
+          reject(cause);
+        }
+      };
+      // Subscribe before the completion that wakes the queued command. Observe
+      // durable ACK projection within the original 20s case budget, rather than
+      // polling full authorization and assuming preparation finishes within 1s.
+      unsubscribe = f.f.events.agentCommunication.subscribe(f.a.sessionId, changed);
+      changed();
+    });
+    cleanups.push(unsubscribe);
+    try {
+      await Promise.all([f.b.complete(), delivered]);
+    } finally {
+      unsubscribe();
+    }
     expect(
       (await f.a.call({ operation: 'read', messageId: result.value.messageId })).value.status,
-    ).toBe('delivered'),
-  );
-}, 20000);
+    ).toBe('delivered');
+    expect(f.b.requests.filter((request) => request.method === 'turn/start')).toHaveLength(2);
+    expect(policyGate.held).toBe(heldPolicy);
+  },
+  20000,
+);
 
 it('delivers an attributed peer message to the current native turn once without waiting for completion or enqueuing another command', async () => {
   const f = await fixture({ steerBusy: 'accepted' });

@@ -12,6 +12,10 @@ import {
 } from '@mitzo/protocol';
 import { createJoinedOrdinaryApplication } from '../integrated-candidate/joined-ordinary-application';
 import { initializeReadinessData, selectedModel, createExternalInventory } from './synthetic-data';
+import {
+  expectRetainedAttemptUnchanged,
+  type ObservedTransportRefresh,
+} from '../../../../server/__tests__/fixtures/retained-attempt.js';
 
 const clone = <T>(value: T): T => structuredClone(value);
 const inventorySchema = z
@@ -337,6 +341,22 @@ it('CT10 preserves the running attempt and refuses a newly reviewed retry while 
   };
   const runningBeforeDiscovery = immutableOriginal();
   expect(runningBeforeDiscovery.context).toEqual(originalContext);
+  const transportRefreshes: ObservedTransportRefresh[] = [];
+  // Observe the real owner without replacing admission, attachment or lifecycle
+  // writes. SSE can reconnect while this document stays open: reattachment
+  // legitimately refreshes lifecycle timestamps, not the retained attempt.
+  const setSessionState = chat.eventStore.setSessionState.bind(chat.eventStore);
+  vi.spyOn(chat.eventStore, 'setSessionState').mockImplementation((sessionId, state, options) => {
+    if (sessionId !== original.sessionId) return setSessionState(sessionId, state, options);
+    const before = clone(chat.eventStore.getSession(sessionId)!);
+    setSessionState(sessionId, state, options);
+    transportRefreshes.push({
+      state,
+      reason: options?.reason,
+      before,
+      after: clone(chat.eventStore.getSession(sessionId)!),
+    });
+  });
   const allTurns = () =>
     h.nativeSessions.flatMap((a) =>
       a.rpc.request.mock.calls
@@ -466,6 +486,7 @@ it('CT10 preserves the running attempt and refuses a newly reviewed retry while 
   expect(positive.attempt.attemptId).not.toBe(first.attempt.attemptId);
   expect(positive.attempt.executionTaskId).not.toBe(first.attempt.executionTaskId);
   expect((await api.read('recording-slice')).attempts).toHaveLength(2);
+  expect(immutableOriginal()).toEqual(runningBeforeDiscovery);
   const current = await start(
     positive.workerConversationId,
     'Execute this explicit new attempt under the reviewed listening-notes brief.',
@@ -528,7 +549,12 @@ it('CT10 preserves the running attempt and refuses a newly reviewed retry while 
   expect(f.workspaces.getOrdinaryWorkspaceForConversation(current.sessionId)!.id).not.toBe(
     runningBeforeDiscovery.workspace!.id,
   );
-  expect(immutableOriginal()).toEqual(runningBeforeDiscovery);
+  expectRetainedAttemptUnchanged(runningBeforeDiscovery, immutableOriginal(), transportRefreshes);
+  await record('original-attempt-preserved-through-observed-transport-refreshes', {
+    transportRefreshes,
+    before: runningBeforeDiscovery,
+    after: immutableOriginal(),
+  });
   expect(h.pageErrors).toEqual([]);
   await record('explicit-restored-selection-new-attempt-positive-control', {
     positiveInput,
