@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.1050-approval-ci-integration';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.1051-command-latency';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -22,6 +22,9 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
+  '../__tests__/codex-output-timing.test.ts':
+    'bb5295e15de2dc991ecb35192c5e3507ab05532ecad06d4258f3df21770d56c6',
+  '../codex-output-timing.ts': '8250ce62a4a1ad7e6db007f799138afe839b981b2602e2508205ae21db55bdda',
   '../../.github/actions/ci-playwright/action.yml':
     '1c6e7a91b5e7363c00c224ab10739bfc73e0a027c9e7b9508af620d96321b6d1',
   '../../scripts/ci-browser-container.sh':
@@ -1612,7 +1615,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/codex-chat-session.test.ts':
     '7bf9c93c29f95e93b483eaf925815cdcc7675b3de88b0247ab4a7f12e5992a7f',
   '../__tests__/codex-conversation.test.ts':
-    'e099c15fdfac002a5a5f163ac9f4d95c89c995cf6bd88699fb38632bc5d6e536',
+    'a27501beac28744dcc3536701b833f1c333c8fb92ef0af71f154abd3c98ac437',
   '../__tests__/codex-native-approvals.test.ts':
     'c9af8a37a40c5d4c66f2e9b00ca0bdc545093c54b9b18421efa0bfe1b810b491',
   '../__tests__/codex-native-artifact-qualification.test.ts':
@@ -2441,7 +2444,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../scripts/attest-knowledge-runtime.py':
     '5737ec8e7fc19a17b6ef5a35c1898e834d2a5d2d2a9f7593b607eaaf1971cfeb',
   '../agent-context-sandbox.ts': '8b61edc17ccc94bc95eae3796e68a0beb9540534e3bfbb348a04154c41995416',
-  '../codex-conversation.ts': '0c950c53c6dc8c00145b3a735be2c6f0a2ae528e3df19e079370722a55502e87',
+  '../codex-conversation.ts': '26e0bcdeae7f6798c1d7577bb82efb9d4a6f04dd7706385241ab94de283da943',
   '../codex-conversation-store.ts':
     '2ebbf717b237fb6a136ddc170ef302557febca075cba7ff23069a61b0d9522fc',
   '../symposium-custodian-ipc.ts':
@@ -3074,9 +3077,9 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     '971e477cbefc2d3a3ce30e42140c157123ae1d7912a8a864e9daee4519843c2a',
   '../__tests__/ordinary-repository-preparation-api.test.ts':
     'be392a0df72a2018169440df07e18fa8ef4c9f8963ba080061d05235108e0110',
-  '../command-timing-trace.ts': 'f4c8ddbcae082c29fd718f09dd4b846b5aacc25574f43d681e31a508bae76560',
+  '../command-timing-trace.ts': '30789f147dc29a3eeab1d5cd02030c581232f658495a4c085b774b95f716268e',
   '../__tests__/command-timing-trace.test.ts':
-    '65f51c783408f255dce89aa221ff33b0f45f51eb8c906f858cb61fc99f1f0a80',
+    'b7e82faf980ce8268467a9867b333d5abb0d5f94c230a3065861a965de561442',
   '../__tests__/prompt-trace-timing.test.ts':
     'e5ac6f87bfd69c1e788304b274cd7b25768869099361dc4e69d0e35c535bf6c1',
   '../__tests__/prompt-trace-timing.e2e.test.ts':
