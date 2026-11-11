@@ -171,6 +171,7 @@ it.each([
     );
     let releaseFirst: (() => void) | undefined;
     let consumePeer: (() => Promise<Record<string, unknown>>) | undefined;
+    let idleInputReady: Promise<void> | undefined;
     let first = true;
     const history: string[] = [];
     const providerInputs: string[] = [];
@@ -188,6 +189,7 @@ it.each([
           apiProvider: 'firstParty',
         })),
         async *[Symbol.asyncIterator]() {
+          if (idleInputReady) await idleInputReady;
           const inputs = request.prompt[Symbol.asyncIterator]();
           for await (const message of { [Symbol.asyncIterator]: () => inputs }) {
             if (closed.value) break;
@@ -732,6 +734,7 @@ it.each([
       if (!peerAllowed) throw Error('Idle sender revoked');
     };
     const beforeIdleHistory = [...history];
+    const beforeIdleProviderInputs = [...providerInputs];
     const beforeIdleQueries = services.requests.length;
     if (idleSuccess) {
       await expect(
@@ -752,6 +755,11 @@ it.each([
       return;
     }
     if (stdinRevocation) {
+      let releaseIdleInput!: () => void;
+      idleInputReady = new Promise<void>((resolve) => {
+        releaseIdleInput = resolve;
+      });
+      cleanups.push(() => releaseIdleInput());
       const { SdkAgentMessageRuntime } = await import('../../server/sdk-agent-message-runtime.js');
       const before = SdkAgentMessageRuntime.prototype.beforeInput;
       vi.spyOn(SdkAgentMessageRuntime.prototype, 'beforeInput').mockImplementation(
@@ -761,15 +769,23 @@ it.each([
           return before.call(this, input, available);
         },
       );
-      // Admission can finish before the async stdin consumer refuses the input;
-      // durable failure and absence at the provider are the decisive evidence.
-      await idleRuntime.enqueue!(idlePeer, guard, idleSession.abortController.signal, f.auth);
+      // Hold the synthetic provider before its first next(): this case targets
+      // revocation after admission and immediately before stdin submission.
+      // Earlier asynchronous-admission revocation is exercised separately below.
+      await expect(
+        idleRuntime.enqueue!(idlePeer, guard, idleSession.abortController.signal, f.auth),
+      ).resolves.toBe('queued');
+      expect(peerAllowed).toBe(true);
+      expect(history).toEqual(beforeIdleHistory);
+      expect(providerInputs).toEqual(beforeIdleProviderInputs);
+      releaseIdleInput();
       await vi.waitFor(() =>
         expect(
           chat.eventStore.agentCommunication.read('offline-peer-sender', idlePeer.messageId),
         ).toMatchObject({ status: 'failed', reason: 'before_provider_submission' }),
       );
       expect(history).toEqual(beforeIdleHistory);
+      expect(providerInputs).toEqual(beforeIdleProviderInputs);
       expect(services.requests).toHaveLength(beforeIdleQueries + 1);
       return;
     }
