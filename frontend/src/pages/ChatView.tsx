@@ -1311,7 +1311,7 @@ function ChatViewContent() {
                   ),
                 accountNeedsConfirmation: localRuntime.accountNeedsConfirmation,
                 accountReference: localRuntime.intent.accountReference ?? null,
-                onRefresh: localRuntime.refresh,
+                onRefresh: localRuntime.refreshModels,
                 selection: localRuntime.intent.account,
                 onAccountChange: (selection) =>
                   (!briefingOwnedDraft ||
