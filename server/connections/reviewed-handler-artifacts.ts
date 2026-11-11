@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.1048-task-routing-google-consent';
+  'v1.0.1049-task-commit-routing';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -1640,7 +1640,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../codex-native-permission-protocol.ts':
     '9f0090fa908f306c95110e928dc64fd5a7324a7aa3cfed3c1572c8d23bedbf48',
   '../owned-local-codex-native-policy.ts':
-    '547e3db2489f66850648c572b32d527707f6c8ec179a488ebbfb05e8c580b5d3',
+    '59a93a79894034ab9623727d39fb1ea2dfc11936fd97c6b295ebd6a290759b41',
   '../__tests__/chat-provider-startup-admission.test.ts':
     'e61be37a4c42eb9acbd5a122ecdd9f2d7a40831e4c308e19d02a6a5a149cc543',
   '../__tests__/connections-credential-readiness.test.ts':
