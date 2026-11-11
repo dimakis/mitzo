@@ -161,6 +161,50 @@ it('reserves one deterministic uncertain child before mutation and atomically co
   ).toThrow();
 });
 
+it('inherits the actual source epoch while preserving an older prepared primary as workspace lineage', () => {
+  const store = fixture();
+  const primary = store.reservePreparedRepositoryContinuation('session', transition);
+  store.commitPreparedRepositoryContinuation('session', primary.childCommandId, transition);
+  store.finalizePreparedRepositoryContinuation(
+    'session',
+    primary.childCommandId,
+    transition,
+    () => {},
+  );
+  const handover = {
+    sessionId: 'session',
+    operationId: 'context-change',
+    fingerprint: 'a'.repeat(64),
+    expectedEpoch: 0,
+  };
+  store.contextTransitions.begin(handover);
+  store.contextTransitions.release(handover, 'aborted', () => undefined);
+  const nextMeta = { ...meta, repositoryWorkspaceId: 'new', cwd: '/new' };
+  store.withOrdinaryContextAdmission('session', 1, () =>
+    store.admitPreparedRepositoryPrimaryContinuation(
+      nextMeta,
+      binding,
+      { ...original, clientMsgId: 'source1', requestFingerprint: 'source1' },
+      primary.childCommandId,
+    ),
+  );
+  store.claimOrdinaryLocalCommandDispatch('source1');
+  store.completeOrdinaryLocalCommand('source1');
+  store.withOrdinaryDerivedCommandContext('session', 'source1', () =>
+    store.admitPreparedRepositoryPrimaryContinuation(
+      nextMeta,
+      binding,
+      { ...original, clientMsgId: 'derived1', requestFingerprint: 'derived1' },
+      primary.childCommandId,
+    ),
+  );
+  expect(store.contextTransitions.readCommand(primary.childCommandId)?.epoch).toBe(0);
+  expect(store.contextTransitions.readCommand('derived1')?.epoch).toBe(1);
+  expect(
+    store.getOrdinaryLocalCommandExecutionAdmission('derived1')?.preparedRepositoryPrimaryCommandId,
+  ).toBe(primary.childCommandId);
+});
+
 it('leaves an incomplete transition uncertain and prevents a second operation or changed proof', () => {
   const store = fixture();
   const reserved = store.reservePreparedRepositoryContinuation('session', transition);

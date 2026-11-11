@@ -2317,6 +2317,7 @@ export class CodexConversationStore {
     commandId: string,
     turnId: string,
     raw: ToolFailure,
+    assertSourceCurrent?: (commandId: string) => void,
   ): CodexCommandInput | undefined {
     return this.db.transaction(() => {
       const state = this.read(id, binding);
@@ -2374,6 +2375,7 @@ export class CodexConversationStore {
           failure,
         },
       };
+      assertSourceCurrent?.(commandId);
       this.enqueue(id, binding, child);
       return child;
     })();

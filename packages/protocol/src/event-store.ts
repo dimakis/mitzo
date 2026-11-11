@@ -508,6 +508,41 @@ export class EventStore {
         .digest('hex'),
     });
   }
+  /** A derived command inherits its actual consumed source, never a newer
+   * ambient scope. The native primary command remains separate workspace lineage.
+   * This synchronous host callback must recheck after mutable owner callbacks. */
+  withOrdinaryDerivedCommandContext<T>(
+    sessionId: string,
+    sourceCommandId: string,
+    operation: (assertSourceCurrent: () => void) => T,
+  ): T {
+    return this.contextTransitions.withAdmissionLock(() => {
+      this.assertOrdinaryContextCommand(sessionId, sourceCommandId);
+      const source = this.getSendCommand(sourceCommandId)!;
+      if (source.error) throw Error('Original source admission failed');
+      const payloadHash = createHash('sha256').update(JSON.stringify(source.payload)).digest('hex');
+      const sourceEpoch = this.contextTransitions.readCommand(sourceCommandId)?.epoch ?? 0;
+      const receipt = this.getOrdinaryCommandExecutionAdmission(sourceCommandId);
+      if (receipt?.state !== 'consumed') throw Error('Original source admission required');
+      const assertSourceCurrent = () => {
+        this.assertOrdinaryContextCommand(sessionId, sourceCommandId);
+        const current = this.getSendCommand(sourceCommandId)!;
+        if (
+          current.error ||
+          (this.contextTransitions.readCommand(sourceCommandId)?.epoch ?? 0) !== sourceEpoch ||
+          createHash('sha256').update(JSON.stringify(current.payload)).digest('hex') !==
+            payloadHash ||
+          !isDeepStrictEqual(this.getOrdinaryCommandExecutionAdmission(sourceCommandId), receipt)
+        )
+          throw Error('Original source context changed');
+      };
+      return this.withOrdinaryContextAdmission(sessionId, sourceEpoch, () => {
+        const result = operation(assertSourceCurrent);
+        assertSourceCurrent();
+        return result;
+      });
+    });
+  }
   private readonly ordinaryWireAdmission = new AsyncLocalStorage<{
     scope: OrdinaryCommandWireScope;
     assertCurrentSync: () => void;

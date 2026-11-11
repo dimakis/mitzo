@@ -96,6 +96,24 @@ import { tracer } from './tracing.js';
 import { createLogger } from './logger.js';
 import { codexRuntimeErrorTelemetry } from './codex-runtime-diagnostics.js';
 const log = createLogger('codex-conversation');
+function reportToolRecoveryFailure(
+  conversationId: string,
+  commandId: string,
+  stage: 'tool_recovery_admission' | 'tool_recovery_cleanup',
+  cause: unknown,
+): void {
+  try {
+    log.warn('Tool recovery requires attention', {
+      conversationId,
+      commandId,
+      stage,
+      code: `${stage}_failed`,
+      ...(cause instanceof Error ? codexRuntimeErrorTelemetry(cause) : {}),
+    });
+  } catch {
+    // Diagnostics cannot replace the original cause or prevent cleanup/delivery.
+  }
+}
 import {
   resolveWebSearchPolicy,
   type PersistedWebSearchGrant,
@@ -3880,13 +3898,16 @@ export class CodexConversation {
               failedToolSource.commandId,
               turn.data.id,
             );
-          child = this.opts.store.queueToolFailureContinuation(
-            this.opts.conversationId,
-            this.binding!,
-            failedToolSource.commandId,
-            turn.data.id,
-            finalToolFailure,
-          );
+          const queue = () =>
+            this.opts.store.queueToolFailureContinuation(
+              this.opts.conversationId,
+              this.binding!,
+              failedToolSource.commandId,
+              turn.data.id,
+              finalToolFailure,
+              this.opts.assertQueueCommandCurrent,
+            );
+          child = this.opts.withQueueMutation ? this.opts.withQueueMutation(queue) : queue();
           if (child) {
             const admitted = this.opts.admitToolFailureContinuation?.(child);
             if (admitted !== true) this.opts.beforeEnqueue?.(child);
@@ -3902,20 +3923,35 @@ export class CodexConversation {
               commandId: child.id,
             });
           }
-        } catch {
+        } catch (cause) {
+          reportToolRecoveryFailure(
+            this.opts.conversationId,
+            failedToolSource.commandId,
+            'tool_recovery_admission',
+            cause,
+          );
           if (child) {
             try {
               this.opts.store.cancelQueued(this.opts.conversationId, this.binding!, child.id);
-            } catch {
-              /* Preserve uncertain receipt. */
+            } catch (cleanupCause) {
+              reportToolRecoveryFailure(
+                this.opts.conversationId,
+                child.id,
+                'tool_recovery_cleanup',
+                cleanupCause,
+              );
             }
           }
-          this.opts.onError?.(
-            new Error(
-              'Tool recovery admission failed; saved work and the original failure are preserved.',
-            ),
-          );
-          this.close();
+          try {
+            this.opts.onError?.(
+              new Error(
+                'Tool recovery admission failed; saved work and the original failure are preserved.',
+                { cause },
+              ),
+            );
+          } finally {
+            this.close();
+          }
         }
       }
       if (providerFailure)

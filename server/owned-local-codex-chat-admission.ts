@@ -284,6 +284,7 @@ export class OwnedLocalCodexChatAdmission {
   }
   admitToolFailureContinuation(input: CodexCommandInput): void {
     if (this.#primary) return this.#primary.admitToolFailureContinuation(input);
+    input = structuredClone(input);
     this.assertCurrentSync();
     const sourceId = input.toolFailureContinuation?.sourceCommandId;
     const source =

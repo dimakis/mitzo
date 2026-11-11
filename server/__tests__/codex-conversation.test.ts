@@ -177,7 +177,15 @@ it('excludes an actual adapter approval phase from its host execution deadline',
   expect(result.success).toBe(true);
 });
 
-it.each(['clear', 'unfinished', 'failed-earlier', 'suppressed-during-prepare'] as const)(
+it.each([
+  'clear',
+  'unfinished',
+  'failed-earlier',
+  'suppressed-during-prepare',
+  'context-held',
+  'context-held-diagnostic-failure',
+  'context-held-delivery-failure',
+] as const)(
   'continues once after authoritative approval expiry only with safe command-wide native outcomes (%s)',
   async (nativeOutcome) => {
     const f = await setup();
@@ -246,12 +254,32 @@ it.each(['clear', 'unfinished', 'failed-earlier', 'suppressed-during-prepare'] a
           turnId,
           item: { type: 'commandExecution', id: 'unfinished', command: 'unknown operation' },
         });
+      if (nativeOutcome.startsWith('context-held')) {
+        if (nativeOutcome === 'context-held-diagnostic-failure') {
+          const telemetry = runtimeDiagnostics.codexRuntimeErrorTelemetry;
+          vi.spyOn(runtimeDiagnostics, 'codexRuntimeErrorTelemetry').mockImplementation((error) => {
+            if (error.message === 'Context transition held') throw Error('Diagnostic sink failed');
+            return telemetry(error);
+          });
+        }
+        if (nativeOutcome === 'context-held-delivery-failure') {
+          f.onError.mockImplementation(() => {
+            throw Error('Viewer failed');
+          });
+        }
+        f.conversationOptions.assertQueueCommandCurrent = (id) => {
+          expect(id).toBe('expired-source');
+          throw Error('Context transition held');
+        };
+      }
       f.callbacks.onNotification('turn/completed', {
         threadId: f.getProviderThread(),
         turn: { id: turnId, status: 'completed' },
       });
     };
-    await fail('turn-1', 'approval-1');
+    if (nativeOutcome === 'context-held-delivery-failure') {
+      await expect(fail('turn-1', 'approval-1')).rejects.toThrow('Viewer failed');
+    } else await fail('turn-1', 'approval-1');
     if (nativeOutcome !== 'clear') {
       if (nativeOutcome === 'suppressed-during-prepare')
         await vi.waitFor(() => expect(f.c.isPaused()).toBe(true));
@@ -267,6 +295,16 @@ it.each(['clear', 'unfinished', 'failed-earlier', 'suppressed-during-prepare'] a
               command.toolFailureContinuation && ['queued', 'running'].includes(command.status),
           ),
       ).toBe(false);
+      if (nativeOutcome.startsWith('context-held')) {
+        expect(f.c.queue().filter((command) => command.toolFailureContinuation)).toEqual([]);
+        expect(f.c.queue()[0].status).toBe('completed');
+        expect(f.onClosed).toHaveBeenCalledOnce();
+        expect(f.onError).toHaveBeenCalledWith(
+          expect.objectContaining({
+            cause: expect.objectContaining({ message: 'Context transition held' }),
+          }),
+        );
+      }
       return;
     }
     await vi.waitFor(() =>

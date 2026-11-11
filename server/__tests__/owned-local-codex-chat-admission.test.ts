@@ -15,7 +15,7 @@ import { codexNativeExecutionPolicy } from '../codex-native-execution-policy.js'
 import { preparedRepositoryResultSha256 } from '../codex-conversation-store.js';
 import type { FrozenHostCodexBootstrapLease } from '../frozen-host-codex-bootstrap.js';
 import type { OrdinaryLocalCodexAdmissionExpectation } from '../ordinary-local-codex-admission.js';
-function fixture() {
+function fixture(contextEpoch = 0) {
   const store = new EventStore(':memory:');
   const accounts = new AccountProfiles(
     [
@@ -75,29 +75,41 @@ function fixture() {
     selection,
     agentProfile,
   } as OrdinaryLocalCodexAdmissionExpectation;
-  store.admitOrdinaryLocalCommand(
-    {
+  if (contextEpoch === 1) {
+    const transition = {
       sessionId: 'session',
-      accountBinding: binding,
-      cwd: '/offline/workspace',
-      repositoryWorkspaceId: 'workspace',
-      selectedModel: 'fixture-model',
-      reasoningEffort: null,
-      mode: 'agent',
-      agentProfile,
-    },
-    runtime,
-    {
-      clientMsgId: 'command',
-      requestFingerprint: 'fingerprint',
-      selection,
-      payload: {
-        text: 'Frozen prepared prompt',
-        systemPrompt: 'Frozen developer instructions',
-        intent: 'Original intent',
-        images: [{ data: 'Zml4dHVyZQ==', mediaType: 'image/png' }],
+      operationId: 'initial-context',
+      fingerprint: 'a'.repeat(64),
+      expectedEpoch: 0,
+    };
+    store.contextTransitions.begin(transition);
+    store.contextTransitions.release(transition, 'committed', () => undefined);
+  }
+  store.withOrdinaryContextAdmission('session', contextEpoch, () =>
+    store.admitOrdinaryLocalCommand(
+      {
+        sessionId: 'session',
+        accountBinding: binding,
+        cwd: '/offline/workspace',
+        repositoryWorkspaceId: 'workspace',
+        selectedModel: 'fixture-model',
+        reasoningEffort: null,
+        mode: 'agent',
+        agentProfile,
       },
-    },
+      runtime,
+      {
+        clientMsgId: 'command',
+        requestFingerprint: 'fingerprint',
+        selection,
+        payload: {
+          text: 'Frozen prepared prompt',
+          systemPrompt: 'Frozen developer instructions',
+          intent: 'Original intent',
+          images: [{ data: 'Zml4dHVyZQ==', mediaType: 'image/png' }],
+        },
+      },
+    ),
   );
   const lease = {
     client: { initialize: vi.fn(), request: vi.fn(), close: vi.fn() },
@@ -269,8 +281,16 @@ it.each(['enqueue', 'dispatch'] as const)(
   },
 );
 
-it('admits a settled failure continuation through the existing owned command receipts', () => {
-  const f = fixture();
+it.each([
+  'legacy',
+  'current',
+  'stale',
+  'held',
+  'registration-failure',
+  'registration-transition',
+  'caller-mutation',
+] as const)('retains %s source context for settled tool recovery', (context) => {
+  const f = fixture(context === 'current' ? 1 : 0);
   const root = mkdtempSync(join(tmpdir(), 'tool-recovery-owner-'));
   const native = new CodexConversationStore(join(root, 'native.db'));
   try {
@@ -315,7 +335,54 @@ it('admits a settled failure continuation through the existing owned command rec
       owner.admitToolFailureContinuation({ ...child, prompt: 'unrelated task' }),
     ).toThrow();
     expect(f.store.getSendCommand(child.id)).toBeUndefined();
+    if (context === 'stale' || context === 'held') {
+      const transition = {
+        sessionId: 'session',
+        operationId: 'handover',
+        fingerprint: 'b'.repeat(64),
+        expectedEpoch: 0,
+      };
+      f.store.contextTransitions.begin(transition);
+      if (context === 'stale')
+        f.store.contextTransitions.release(transition, 'aborted', () => undefined);
+      const recover = () => owner.admitToolFailureContinuation(child);
+      expect(() =>
+        context === 'stale'
+          ? f.store.withOrdinaryContextAdmission('session', 1, recover)
+          : recover(),
+      ).toThrow();
+      expect(f.store.getSendCommand(child.id)).toBeUndefined();
+      expect(f.store.getOrdinaryLocalCommandExecutionAdmission('command')?.state).toBe('consumed');
+      return;
+    }
+    if (context === 'registration-failure' || context === 'registration-transition') {
+      const register = owner.admitContinuation.bind(owner);
+      const injected = vi.spyOn(owner, 'admitContinuation').mockImplementation((...args) => {
+        register(...args);
+        if (context === 'registration-failure') throw Error('Registration interrupted');
+        const transition = {
+          sessionId: 'session',
+          operationId: 'nested-transition',
+          fingerprint: 'c'.repeat(64),
+          expectedEpoch: 0,
+        };
+        f.store.contextTransitions.begin(transition);
+        f.store.contextTransitions.release(transition, 'aborted', () => undefined);
+      });
+      expect(() => owner.admitToolFailureContinuation(child)).toThrow();
+      expect(f.store.getSendCommand(child.id)).toBeUndefined();
+      expect(() => owner.assertBeforeDispatch(child.id)).toThrow();
+      injected.mockRestore();
+    }
+    if (context === 'caller-mutation') {
+      f.lease.assertCurrentSync = vi.fn(() => {
+        child.toolFailureContinuation!.sourceCommandId = 'substituted-source';
+      });
+    }
     owner.admitToolFailureContinuation(child);
+    expect(f.store.contextTransitions.readCommand(child.id)?.epoch).toBe(
+      context === 'current' ? 1 : 0,
+    );
     expect(owner.canClaimCommand(child.id)).toBe(true);
     expect(owner.nativeExecutionWorkspace(child.id)).toEqual(f.input.expected.workspace);
     expect(f.store.getOrdinaryLocalCommandExecutionAdmission(child.id)?.selection).toEqual(

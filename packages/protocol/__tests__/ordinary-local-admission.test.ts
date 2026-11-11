@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import Database from 'better-sqlite3';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -49,6 +50,63 @@ describe('ordinary local durable command admission', () => {
     fingerprint: 'a'.repeat(64),
     expectedEpoch: 0,
   };
+  it('rolls back derived admission when a callback marks its consumed source failed', () => {
+    const store = open();
+    store.admitOrdinaryLocalCommand(meta, binding, input);
+    store.claimOrdinaryLocalCommandDispatch('c1');
+    store.completeOrdinaryLocalCommand('c1');
+    expect(() =>
+      store.withOrdinaryDerivedCommandContext('s1', 'c1', (assertSource) => {
+        store.admitOrdinaryLocalContinuation(meta, binding, {
+          ...input,
+          clientMsgId: 'child',
+          requestFingerprint: 'child',
+        });
+        store.failSendCommand('c1', 'Source no longer eligible');
+        assertSource();
+      }),
+    ).toThrow(/source/i);
+    expect(store.getSendCommand('child')).toBeUndefined();
+    expect(store.getSendCommand('c1')?.error).toBeFalsy();
+    store.failSendCommand('c1', 'Source no longer eligible');
+    expect(() => store.withOrdinaryDerivedCommandContext('s1', 'c1', () => undefined)).toThrow(
+      /source/i,
+    );
+  });
+  it('keeps an unstamped legacy source at epoch zero and refuses it after a transition', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'legacy-context-'));
+    const path = join(dir, 'events.db');
+    try {
+      const store = open(path);
+      store.admitOrdinaryLocalCommand(meta, binding, input);
+      store.claimOrdinaryLocalCommandDispatch('c1');
+      store.completeOrdinaryLocalCommand('c1');
+      const legacy = new Database(path);
+      try {
+        legacy.prepare('DELETE FROM ordinary_command_context_epochs WHERE command_id=?').run('c1');
+      } finally {
+        legacy.close();
+      }
+      expect(store.contextTransitions.readCommand('c1')).toBeUndefined();
+      store.withOrdinaryDerivedCommandContext('s1', 'c1', () =>
+        store.admitOrdinaryLocalContinuation(meta, binding, {
+          ...input,
+          clientMsgId: 'child',
+          requestFingerprint: 'child',
+        }),
+      );
+      expect(store.contextTransitions.readCommand('child')?.epoch).toBe(0);
+      store.contextTransitions.begin(transition);
+      store.contextTransitions.release(transition, 'aborted', () => undefined);
+      expect(() => store.withOrdinaryDerivedCommandContext('s1', 'c1', () => undefined)).toThrow(
+        /stale/i,
+      );
+      expect(store.contextTransitions.readCommand('c1')).toBeUndefined();
+    } finally {
+      for (const s of stores.splice(0)) s.close();
+      rmSync(dir, { recursive: true });
+    }
+  });
   it('fences fresh command, startup and execution admission without changing unrelated chats', () => {
     const store = open();
     store.contextTransitions.begin(transition);
