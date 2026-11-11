@@ -10,8 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.1016-queue-preview-diagnostics';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.1017-queue-visual-evidence';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -1226,7 +1225,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../retained-local-codex-recovery.ts':
     '11f58e029b9d684d111ba998dfde52de9cd589796a0e5bdfe54274cb422b52e7',
   '../../tests/offline/queue-status.spec.ts':
-    'eec829b3109c0a6f3a8dab1a35153887f3cb2a229dbbbf7b85a0912301217779',
+    '8a050b0680f33776274dfbff8ba3d64bf0fee6056dc2b3120a7ced5bdaa80a76',
   '../codex-borrowed-search.ts': '67dd1d8dc6165ca13cc3a41fc9708328bd0c5bf23ef329315499365699d7b144',
   '../__tests__/codex-borrowed-search.test.ts':
     '967cb447fd787e24f4308b125d21e8d9ba8f77c66abd7060fbddde6c7171e34f',

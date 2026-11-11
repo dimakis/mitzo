@@ -104,7 +104,7 @@ for (const theme of ['dark', 'light']) {
       .scrollIntoViewIfNeeded();
     await expect(dialog.getByRole('button', { name: 'Continue chat' })).toBeVisible();
     expect(mutations).toEqual([]);
-    await page.screenshot({ path: info.outputPath(`saved-peer-queue-${theme}.png`) });
+    await page.screenshot({ path: info.outputPath(`chat-status-saved-peer-queue-${theme}.png`) });
     unavailable = true;
     await page.keyboard.press('Escape');
     await page.getByRole('button', { name: 'Emit queue metadata change', exact: true }).click();

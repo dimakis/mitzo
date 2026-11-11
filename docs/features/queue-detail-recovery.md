@@ -46,3 +46,9 @@ frontend type check exceeded the required 1 GiB local Node heap, so its result
 is unverified and the full build/type checks remain with CI. CI browser execution and visual review remain
 required before acceptance. No live conversation was resumed or cancelled, and
 no production deployment was performed.
+
+The landing integration on 11 November passed 229 focused checks, including the
+updated shared dialog/motion behavior. Hosted server/frontend type checks and
+builds also passed. Queue captures use the `chat-status-saved-peer-queue-` prefix
+so CI retains successful images in its existing responsiveness artifacts; they
+must be inspected for the final candidate before claiming visual verification.
