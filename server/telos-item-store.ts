@@ -9,6 +9,7 @@ import { createHash } from 'node:crypto';
 import { mkdirSync, existsSync, chmodSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { initializeTelosSchema } from './telos-schema.js';
+import { initializeTelosWorkKinds } from './telos-work-schema.js';
 import { assertTelosItemActive } from './telos-lifecycle-facts.js';
 import { drainRejectedTelosAuthority } from './telos-authority-diagnostic.js';
 import {
@@ -101,6 +102,20 @@ export class TelosItemStore {
       .prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='telos_item_updates'")
       .get();
   }
+  private workKind(itemId: string): 'coordinator' | 'outcome' | 'work_item' | null {
+    if (
+      !this.db
+        .prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='telos_work_kinds'")
+        .get()
+    )
+      return null;
+    return (
+      (
+        this.db.prepare('SELECT kind FROM telos_work_kinds WHERE item_id=?').get(itemId) as
+          { kind: 'coordinator' | 'outcome' | 'work_item' } | undefined
+      )?.kind ?? null
+    );
+  }
   private snapshot(itemId: string, updatesExist = this.hasUpdates()) {
     const row = this.db.prepare('SELECT * FROM items WHERE id=?').get(itemId) as
       ItemRow | undefined;
@@ -125,7 +140,7 @@ export class TelosItemStore {
       acceptanceCriteria: JSON.parse(row.acceptance_criteria || '[]') as string[],
       updatedAt: row.updated_at,
       revision: createHash('sha256')
-        .update(JSON.stringify([row, children, updates]))
+        .update(JSON.stringify([row, children, updates, this.workKind(itemId)]))
         .digest('hex'),
       children: children.map((child) => ({
         id: child.id,
@@ -310,6 +325,14 @@ export class TelosItemStore {
           .slice(0, 16);
         const now = new Date().toISOString();
         if (!updatesExist) this.ensureUpdates();
+        const parentKind = child ? this.workKind(child.parentId) : null;
+        const kind =
+          !child || parentKind === 'coordinator'
+            ? 'outcome'
+            : parentKind === 'outcome'
+              ? 'work_item'
+              : null;
+        if (kind) initializeTelosWorkKinds(this.db);
         this.db
           .prepare(
             `INSERT INTO items(id,parent_id,summary,intent,rationale,acceptance_criteria,profile,status,
@@ -328,6 +351,10 @@ export class TelosItemStore {
             now,
             now,
           );
+        if (kind)
+          this.db
+            .prepare('INSERT INTO telos_work_kinds(item_id,kind) VALUES(?,?)')
+            .run(itemId, kind);
         this.db
           .prepare(
             "INSERT INTO history(item_id,old_status,new_status,changed_at) VALUES(?,NULL,'active',?)",

@@ -114,6 +114,74 @@ const featureBrief = {
   acceptanceCriteria: ['An ordinary chat can create, inspect and decompose the feature.'],
   note: 'User authorized this standalone feature.',
 };
+it('creates a feature and slice that the existing lead and worker setup can use', async () => {
+  const f = fixture();
+  const feature = JSON.parse((await f.run('TelosCreateFeature', featureBrief)).content);
+  expect(f.work.read(feature.item.id, f.actor).kind).toBe('outcome');
+  const slice = JSON.parse(
+    (
+      await f.run('TelosCreateChild', {
+        ...featureBrief,
+        requestId: 'feature-slice',
+        parentId: feature.item.id,
+        expectedParentRevision: feature.item.revision,
+        summary: 'Deliver one slice',
+      })
+    ).content,
+  );
+  expect(slice.ok).toBe(true);
+  expect(f.work.read(slice.item.id, f.actor).kind).toBe('work_item');
+  expect(f.work.read(feature.item.id, f.actor).assignments).toEqual([]);
+  expect(f.work.read(slice.item.id, f.actor).attempts).toEqual([]);
+  const replay = JSON.parse((await f.run('TelosCreateFeature', featureBrief)).content);
+  expect(replay).toEqual(feature);
+});
+it('creates a feature beneath an explicitly classified shared outcome', async () => {
+  const f = fixture();
+  f.work.execute(
+    {
+      operation: 'classify',
+      itemId: 'studio',
+      requestId: 'shared-outcome',
+      expectedRevision: f.work.read('studio', f.actor).revision,
+      kind: 'coordinator',
+    },
+    f.actor,
+  );
+  const result = JSON.parse(
+    (
+      await f.run('TelosCreateChild', {
+        ...featureBrief,
+        parentId: 'studio',
+        expectedParentRevision: f.items.read('studio').revision,
+      })
+    ).content,
+  );
+  expect(result.ok).toBe(true);
+  expect(f.work.read(result.item.id, f.actor).kind).toBe('outcome');
+});
+it('requires a fresh parent review after its work level changes', async () => {
+  const f = fixture();
+  const expectedParentRevision = f.items.read('studio').revision;
+  f.work.execute(
+    {
+      operation: 'classify',
+      itemId: 'studio',
+      requestId: 'level-change',
+      expectedRevision: f.work.read('studio', f.actor).revision,
+      kind: 'coordinator',
+    },
+    f.actor,
+  );
+  const result = await f.run('TelosCreateChild', {
+    ...featureBrief,
+    parentId: 'studio',
+    expectedParentRevision,
+  });
+  expect(result.isError).toBe(true);
+  expect(result.content).toContain('read the parent again');
+  expect(f.items.read('studio').children).toEqual([]);
+});
 it('reports rejected asynchronous backlog authority and preserves the failed operation without saving a feature', async () => {
   const f = fixture();
   const warn = vi.fn();
