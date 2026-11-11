@@ -5,6 +5,13 @@ import request from 'supertest';
 import { createAppleSignIn } from '../apple-sign-in.js';
 import { createAppleSignInRouter } from '../apple-sign-in-router.js';
 
+function responseCookies(response: { headers: Record<string, unknown> }): string[] {
+  const cookies = response.headers['set-cookie'];
+  if (!Array.isArray(cookies) || !cookies.every((value) => typeof value === 'string'))
+    throw new Error('Expected separate Set-Cookie header values');
+  return cookies;
+}
+
 function fixture() {
   let owner: string | null = 'apple-owner';
   const config = {
@@ -87,7 +94,7 @@ describe('Apple authentication HTTP boundary', () => {
       .send({ client: 'web' });
     expect(start.status).toBe(200);
     expect(Object.keys(start.body)).toEqual(['authorizationUrl']);
-    const bindingCookie = start.headers['set-cookie'][0];
+    const bindingCookie = responseCookies(start)[0];
     expect(bindingCookie).toContain('HttpOnly');
     expect(bindingCookie).toContain('Secure');
     expect(bindingCookie).toContain('SameSite=Lax');
@@ -98,9 +105,7 @@ describe('Apple authentication HTTP boundary', () => {
       .set('Cookie', bindingCookie.split(';')[0]);
     expect(callback.status).toBe(303);
     expect(callback.headers.location).toBe('/login?apple=success');
-    const cookie = callback.headers['set-cookie'].find((value: string) =>
-      value.startsWith('cc_auth='),
-    );
+    const cookie = responseCookies(callback).find((value) => value.startsWith('cc_auth='));
     expect(cookie).toContain('HttpOnly');
     expect(cookie).toContain('Secure');
     expect(callback.text).not.toContain('ordinary-operator-jwt');

@@ -32,7 +32,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/apple-sign-in.test.ts':
     '4d6dd9121c1d9304afdc6b5ee9acb06cbfe0b79938f389ff790508fb1965ffe8',
   '../__tests__/apple-sign-in-router.test.ts':
-    'aaad035417f876655bdfb70394d6fdbdc2caff340d1f8851df45c740ddc02536',
+    '26dbedde94d7cf3fde6606122b2b98fe2087320ee53a8ed040624112b1ef9376',
   '../__tests__/apple-private-file.test.ts':
     'f679cdd7dba4991dad0d782f18a8fd3673cc8bd6264702ecf2062da75a741ddd',
   '../../frontend/src/lib/apple-sign-in.ts':
