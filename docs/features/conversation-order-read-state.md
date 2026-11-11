@@ -73,3 +73,10 @@ finished row's group change; prioritizing queued group changes fixed it. All 24
 ordering, motion and legacy-order tests passed after that correction.
 Browser assertions and the sandbox guard remain intact. Final CI, browser
 captures and exact-head Centaur approval remain outstanding.
+
+Main advanced to `0b8b94f1dd6519f7fcfb5b9eafdb352f03dc475e` during that
+integration, landing the next Symposium context change. GitHub reported a fresh
+manifest conflict and suppressed CI for the group-priority head. Resolved that
+actual conflict, retaining both inventories and regenerating source fingerprints.
+The integration passed 65 tests across nine files, including the new upstream
+prompt-context and send-recovery coverage alongside read state and ordering.

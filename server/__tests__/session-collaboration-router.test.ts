@@ -74,8 +74,8 @@ it('resolves setup only through the existing live authenticated source transport
   }
   expect((await request(app).get(url).set('x-operator', 'yes')).status).toBe(503);
 });
-function reviewInput() {
-  return {
+function reviewInput(route = 'reviews') {
+  const input = {
     clientId: 'existing-live-transport',
     selection: {
       requestId: randomUUID(),
@@ -98,43 +98,60 @@ function reviewInput() {
       permissionMode: 'ask',
     },
   };
+  if (route === 'reviews') return input;
+  return {
+    clientId: input.clientId,
+    selection: input.selection,
+    recipientSessionIds: ['local'],
+    expectedPolicySequence: 0,
+  };
 }
-it('keeps application reviews unavailable without the real source/settings owner', async () => {
-  await request(app).put(path).set('x-operator', 'yes').send(body);
-  const response = await request(app)
-    .post(`${path}/reviews`)
-    .set('x-operator', 'yes')
-    .send(reviewInput());
-  expect(response.status).toBe(503);
-  expect(response.body.code).toBe('execution_unavailable');
-  expect(response.headers['cache-control']).toContain('no-store');
-  expect(store.collaborationConversation.view(path.split('/').at(-1)!).cursor).toBe(0);
-  expect(store.listSessions()).toHaveLength(3);
-});
-it.each(['settings', 'capacity', 'operatorId', 'applicationInputSha256'])(
-  'refuses caller-supplied review %s at the public route',
-  async (field) => {
+it.each(['reviews', 'prompt-reviews'])(
+  'keeps %s unavailable without the real source/settings owner',
+  async (route) => {
     await request(app).put(path).set('x-operator', 'yes').send(body);
     const response = await request(app)
-      .post(`${path}/reviews`)
+      .post(`${path}/${route}`)
       .set('x-operator', 'yes')
-      .send({ ...reviewInput(), [field]: {} });
-    expect(response.status).toBe(400);
+      .send(reviewInput(route));
+    expect(response.status).toBe(503);
+    expect(response.body.code).toBe('execution_unavailable');
+    expect(response.headers['cache-control']).toContain('no-store');
     expect(store.collaborationConversation.view(path.split('/').at(-1)!).cursor).toBe(0);
+    expect(store.listSessions()).toHaveLength(3);
   },
 );
-it('requires operator auth and same-origin JSON for observational review too', async () => {
-  expect((await request(app).post(`${path}/reviews`).send(reviewInput())).status).toBe(401);
-  expect(
-    (
-      await request(app)
-        .post(`${path}/reviews`)
-        .set('x-operator', 'yes')
-        .set('Origin', 'https://other.invalid')
-        .send(reviewInput())
-    ).status,
-  ).toBe(403);
+it.each(
+  ['reviews', 'prompt-reviews'].flatMap((route) =>
+    ['settings', 'capacity', 'operatorId', 'applicationInputSha256'].map((field) => ({
+      route,
+      field,
+    })),
+  ),
+)('refuses caller-supplied $field at the $route public route', async ({ route, field }) => {
+  await request(app).put(path).set('x-operator', 'yes').send(body);
+  const response = await request(app)
+    .post(`${path}/${route}`)
+    .set('x-operator', 'yes')
+    .send({ ...reviewInput(route), [field]: {} });
+  expect(response.status).toBe(400);
+  expect(store.collaborationConversation.view(path.split('/').at(-1)!).cursor).toBe(0);
 });
+it.each(['reviews', 'prompt-reviews'])(
+  'requires operator auth and same-origin JSON for %s',
+  async (route) => {
+    expect((await request(app).post(`${path}/${route}`).send(reviewInput(route))).status).toBe(401);
+    expect(
+      (
+        await request(app)
+          .post(`${path}/${route}`)
+          .set('x-operator', 'yes')
+          .set('Origin', 'https://other.invalid')
+          .send(reviewInput(route))
+      ).status,
+    ).toBe(403);
+  },
+);
 it('requires interactive operator authorization on reads and mutations', async () => {
   expect((await request(app).get(path)).status).toBe(401);
   expect((await request(app).get('/api/session-collaborations?sessionId=local')).status).toBe(401);
