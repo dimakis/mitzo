@@ -191,7 +191,8 @@
 }
 .backup-coverage p,
 .backup-runs p,
-.backup-panel > p {
+.backup-panel > p,
+.backup-panel > .motion-disclosure > p {
   font-size: 13px;
 }
 .backup-runs time {

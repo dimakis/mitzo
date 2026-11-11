@@ -26,5 +26,11 @@ initTheme();
 
 // Missing payloads retain the existing fail-closed draft/outbox recovery behavior.
 void initializeChatStorage()
-  .catch(() => {})
+  .catch((cause: unknown) => {
+    console.warn('[mitzo] Chat storage startup unavailable', {
+      stage: 'hydrate',
+      code: 'chat_storage_unavailable',
+      exceptionType: cause instanceof DOMException ? cause.name : 'Error',
+    });
+  })
   .then(() => import('./render-app'));

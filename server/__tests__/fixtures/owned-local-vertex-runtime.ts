@@ -9,6 +9,7 @@ import { EventStore } from '../../event-store.js';
 import { AgentLibraryStore } from '../../agent-library-store.js';
 import { RepositoryWorkspaces } from '../../repository-workspaces.js';
 import { loadAccountProfiles } from '../../account-profiles.js';
+import { ClaudeAccountStore } from '../../claude-account-store.js';
 import { bindAgentLibraryTransport } from '../../agent-library-transport.js';
 
 import {
@@ -27,6 +28,7 @@ export async function ownedVertexRuntimeFixture(
     personal?: boolean;
     anthropicApi?: boolean;
     modelIds?: readonly [string, string];
+    managed?: boolean;
   } = {},
 ) {
   const root = await realpath(await mkdtemp(join(tmpdir(), 'mitzo-owned-driver-')));
@@ -128,14 +130,33 @@ export async function ownedVertexRuntimeFixture(
   ];
   const writeProfiles = () =>
     writeFileSync(configPath, JSON.stringify(configuration), { mode: 0o600 });
-  writeProfiles();
-  vi.stubEnv('MITZO_ACCOUNT_PROFILES_FILE', configPath);
+  let accountId = 'personal';
+  const model = options.managed ? 'sonnet' : (options.modelIds?.[0] ?? 'fixture-model');
+  if (options.managed) {
+    if (!options.personal) throw Error('Managed fixture requires a personal Claude account');
+    const managedRoot = join(root, 'managed-claude');
+    vi.stubEnv('MITZO_CLAUDE_ACCOUNTS_DIR', managedRoot);
+    const store = new ClaudeAccountStore(managedRoot);
+    try {
+      const row = store.reserve('fixture', Date.now() + 60000, {
+        requestId: randomUUID(),
+        label: 'Personal',
+      });
+      store.connected(row, { email: 'person@example.test', planType: 'max' });
+      accountId = row.accountId;
+      configuration[0].credentialRef = store.config(accountId);
+    } finally {
+      store.close();
+    }
+    vi.stubEnv('MITZO_ACCOUNT_PROFILES_FILE', undefined);
+    vi.stubEnv('ANTHROPIC_VERTEX_PROJECT_ID', undefined);
+  } else {
+    writeProfiles();
+    vi.stubEnv('MITZO_ACCOUNT_PROFILES_FILE', configPath);
+  }
   vi.stubEnv('MITZO_OPENAI_ACCOUNT_ENROLLMENT_DB', '');
   vi.stubEnv('MITZO_CODEX_ENABLED', '1');
-  const binding = loadAccountProfiles().resolve(
-    'personal',
-    options.modelIds?.[0] ?? 'fixture-model',
-  );
+  const binding = loadAccountProfiles().resolve(accountId, model);
   const eventPath = options.chatRoute ? join(root, '.mitzo', 'events.db') : join(root, 'events.db');
   const events = new EventStore(eventPath);
   const library = new AgentLibraryStore(eventPath);
@@ -256,8 +277,8 @@ export async function ownedVertexRuntimeFixture(
       agent: { profileId: 'developer', revision: 1 },
       context: { source: 'none' as const, revision: null },
       permission: { mode: 'agent' as const, revision: 0 },
-      model: options.modelIds?.[0] ?? 'fixture-model',
-      thinking: 'low',
+      model,
+      thinking: options.managed ? null : 'low',
     },
     payload: { text: 'Implement the task', intent: 'Original user intent' },
   };

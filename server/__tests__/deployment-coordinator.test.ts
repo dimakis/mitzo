@@ -1,3 +1,6 @@
+import { createHash } from 'node:crypto';
+import Database from 'better-sqlite3';
+import { maintenanceFingerprint, DeploymentStore } from '@mitzo/protocol/event-store';
 import { afterEach, expect, it, vi } from 'vitest';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -343,4 +346,231 @@ it('rechecks durable continuation custody before reopening a blocked delivery', 
   ).rejects.toThrow(/changed/);
   expect(f.events.deployment.get('operation').sessions[0]!.state).toBe('resuming');
   expect(f.port.resume).not.toHaveBeenCalled();
+});
+
+it('atomically retains historical uncertainty under permanent quarantine and distinct drained maintenance authority', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'deployment-maintenance-'));
+  closes.push(() => rmSync(root, { recursive: true, force: true }));
+  const path = join(root, 'events.db');
+  const f = fixture(path);
+  const db = new Database(path);
+  closes.push(() => db.close());
+  f.events.upsertSession({ sessionId: 'historical', initialPrompt: 'Retained task' });
+  f.events.setSessionState('historical', 'ENDED', { force: true });
+  db.prepare(
+    'INSERT INTO send_commands(client_msg_id,session_id,payload,ordinary_admission) VALUES(?,?,?,?)',
+  ).run(
+    'unknown-command',
+    'historical',
+    '{"prompt":"Original retained input"}',
+    '{"state":"uncertain"}',
+  );
+  const source = f.events.deployment.begin({
+    id: 'source-hold',
+    sourceCommit: 'a'.repeat(40),
+    targetCommit: 'b'.repeat(40),
+    auth: f.auth,
+  });
+  const sourceData = JSON.stringify(source);
+  const command = db
+    .prepare('SELECT * FROM send_commands WHERE client_msg_id=?')
+    .get('unknown-command');
+  const input = {
+    id: 'maintenance',
+    sourceOperationId: source.id,
+    sourceOperationSha256: maintenanceFingerprint(sourceData),
+    authorityId: 'separate-authority',
+    sourceCommit: source.sourceCommit,
+    targetCommit: source.targetCommit,
+    expectedRunningSessions: [],
+    expectedCommands: [{ commandId: 'unknown-command', sha256: maintenanceFingerprint(command) }],
+    idleSnapshotSha256: 'c'.repeat(64),
+  };
+  let excluded = false,
+    drained = true;
+  const port = {
+    authorize: () => {
+      f.port.authorize(f.auth);
+      return f.auth;
+    },
+    assertSourceExcluded: () => {
+      if (!excluded) throw Error('Source still owns writers');
+    },
+    assertDrained: () => {
+      if (!drained) throw Error('Current effects unsettled');
+      return {
+        retainedSessionIds: ['current'],
+        proofSha256: 'c'.repeat(64),
+        idleSnapshotSha256: 'c'.repeat(64),
+        sessions: [],
+      };
+    },
+  };
+  expect(f.events.deploymentStartupPending()).toBe(true);
+  expect(() => f.events.deployment.maintenance.adopt(input, port)).toThrow(/Source/);
+  excluded = true;
+  drained = false;
+  expect(() => f.events.deployment.maintenance.adopt(input, port)).toThrow(/effects/);
+  expect(f.events.deployment.maintenance.sessionIds()).toEqual([]);
+  drained = true;
+  expect(() =>
+    f.events.deployment.maintenance.adopt(
+      { ...input, expectedCommands: [{ commandId: 'unknown-command', sha256: 'd'.repeat(64) }] },
+      port,
+    ),
+  ).toThrow(/reviewed/);
+  expect(() =>
+    f.events.deployment.maintenance.adopt({ ...input, idleSnapshotSha256: 'd'.repeat(64) }, port),
+  ).toThrow(/idle/);
+  expect(() =>
+    f.events.deployment.maintenance.adopt(
+      {
+        ...input,
+        expectedRunningSessions: [{ sessionId: 'current', targetSha256: 'e'.repeat(64) }],
+      },
+      port,
+    ),
+  ).toThrow(/idle/);
+  // The legacy active flag can remain set after ENDED. It is not proof of a
+  // live owner, nor may maintenance rewrite that original metadata to proceed.
+  db.prepare("UPDATE sessions SET state='ACTIVE',is_active=1 WHERE session_id='historical'").run();
+  expect(() => f.events.deployment.maintenance.adopt(input, port)).toThrow(/ended/);
+  db.prepare(
+    "UPDATE sessions SET state='ENDED',execution_phase='RUNNING' WHERE session_id='historical'",
+  ).run();
+  expect(() => f.events.deployment.maintenance.adopt(input, port)).toThrow(/ended/);
+  db.prepare("UPDATE sessions SET execution_phase=NULL WHERE session_id='historical'").run();
+  const historicalSession = db
+    .prepare("SELECT * FROM sessions WHERE session_id='historical'")
+    .get();
+  const operation = f.events.deployment.maintenance.adopt(input, port);
+  expect(db.prepare("SELECT * FROM sessions WHERE session_id='historical'").get()).toEqual(
+    historicalSession,
+  );
+  expect(operation.activationHash).toBeUndefined();
+  expect(operation.maintenance).toMatchObject({
+    kind: 'drained-handoff-v1',
+    sourceOperationId: source.id,
+    retainedSessionIds: ['current'],
+  });
+  expect(db.prepare('SELECT data FROM deployment_operations WHERE id=?').get(source.id)).toEqual({
+    data: sourceData,
+  });
+  expect(
+    db.prepare('SELECT * FROM send_commands WHERE client_msg_id=?').get('unknown-command'),
+  ).toEqual(command);
+  expect(f.events.deploymentStartupPending()).toBe(false);
+  expect(() => f.events.deployment.assertAdmission('historical', 'anything')).toThrow(
+    /quarantined/,
+  );
+  expect(() => f.events.reserveOrdinaryStartup(['historical'])).toThrow(/Deployment/);
+  expect(f.events.deployment.canDispatch('historical')).toBe(false);
+  expect(() => f.events.deployment.maintenance.assertControl('historical')).toThrow(/read-only/);
+  expect(f.events.getSession('historical')?.initialPrompt).toBe('Retained task');
+  expect(() => f.coordinator.cancel(operation.id, f.auth)).toThrow(/Activation owner/);
+  f.commit('b'.repeat(40));
+  f.settle();
+  await expect(f.coordinator.resume(operation.id, f.auth)).rejects.toThrow(/activation owner/);
+  await expect(
+    f.coordinator.resume(operation.id, f.auth, { activationId: input.authorityId, rollback: true }),
+  ).rejects.toThrow(/rollback/);
+  f.port.quiescent = () => false; // Legacy history still blocks generic deployment.
+  f.port.idleHandoffReady = () => false;
+  await expect(
+    f.coordinator.resume(operation.id, f.auth, { activationId: input.authorityId }),
+  ).rejects.toThrow(/quiescent/);
+  f.port.idleHandoffReady = () => true;
+  expect(
+    (await f.coordinator.resume(operation.id, f.auth, { activationId: input.authorityId })).phase,
+  ).toBe('completed');
+  expect(f.port.resume).not.toHaveBeenCalled();
+  expect(f.events.deployment.canDispatch('current')).toBe(true);
+  expect(f.events.deployment.canDispatch('historical')).toBe(false);
+  const reopened = new EventStore(path);
+  try {
+    expect(reopened.deployment.maintenance.isQuarantined('historical')).toBe(true);
+    expect(() => reopened.deployment.assertAdmission('historical')).toThrow(/quarantined/);
+  } finally {
+    reopened.close();
+  }
+});
+
+it('keeps the durable source hold readable while a real SQLite writer fence excludes cancellation', () => {
+  const root = mkdtempSync(join(tmpdir(), 'deployment-writer-fence-'));
+  closes.push(() => rmSync(root, { recursive: true, force: true }));
+  const path = join(root, 'events.db');
+  const f = fixture(path);
+  f.begin();
+  const sourceConnection = new Database(path, { timeout: 1 });
+  closes.push(() => sourceConnection.close());
+  const sourceCoordinator = new DeploymentCoordinator(
+    new DeploymentStore(sourceConnection),
+    f.port,
+  );
+  const fence = new Database(path, { timeout: 1 });
+  closes.push(() => fence.close());
+  fence.exec('BEGIN IMMEDIATE');
+  try {
+    expect(f.events.deployment.canDispatch('chat')).toBe(false);
+    expect(() => sourceCoordinator.cancel('operation', f.auth)).toThrow(/locked/);
+    expect(f.events.deployment.active()?.id).toBe('operation');
+  } finally {
+    fence.exec('ROLLBACK');
+  }
+});
+
+it('reconciles accepted maintenance receipts while resumed work runs without replaying an uncertain continuation', async () => {
+  const f = fixture();
+  f.begin();
+  f.settle();
+  f.commit('b'.repeat(40));
+  f.events.deployment.update('operation', (operation) => {
+    operation.phase = 'activating';
+    operation.maintenance = {
+      kind: 'drained-handoff-v1',
+      sourceOperationId: 'old-source',
+      sourceOperationSha256: 'a'.repeat(64),
+      authorityHash: createHash('sha256').update('maintenance-capability').digest('hex'),
+      proofSha256: 'c'.repeat(64),
+      retainedSessionIds: ['chat', 'other'],
+      quarantinedSessionIds: [],
+    };
+    operation.sessions = [
+      ...operation.sessions,
+      { ...operation.sessions[0], sessionId: 'other', resumeId: 'other-resume' },
+    ].map((entry) => ({
+      ...entry,
+      state: 'paused',
+      drainedProof: {
+        kind: 'naturally-completed-v1',
+        targetSha256: 'd'.repeat(64),
+        completionSha256: 'e'.repeat(64),
+        custodySha256: 'f'.repeat(64),
+        handoffSha256: 'c'.repeat(64),
+      },
+    }));
+  });
+  const receipts = new Map<string, 'accepted' | 'uncertain'>();
+  f.port.receipt = (entry) => receipts.get(entry.sessionId) ?? 'absent';
+  let quiescent = true;
+  f.port.quiescent = () => quiescent;
+  f.port.resume = vi.fn(async (entry) => {
+    if (entry.sessionId === 'chat') {
+      receipts.set('chat', 'accepted');
+      quiescent = false;
+      return;
+    }
+    receipts.set('other', 'uncertain');
+    throw Error('Acknowledgement lost');
+  });
+  const first = await f.coordinator.resume('operation', f.auth, {
+    activationId: 'maintenance-capability',
+  });
+  expect(first.sessions.map((entry) => entry.state)).toEqual(['resumed', 'uncertain']);
+  const second = await f.coordinator.resume('operation', f.auth, {
+    activationId: 'maintenance-capability',
+  });
+  expect(second.sessions.map((entry) => entry.state)).toEqual(['resumed', 'uncertain']);
+  expect(f.port.resume).toHaveBeenCalledTimes(2);
+  expect(f.events.deployment.active()?.id).toBe('operation');
 });

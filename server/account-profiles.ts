@@ -11,6 +11,7 @@ import {
 } from './claude-subscription-custody.js';
 import { createLogger } from './logger.js';
 import { readReadyOpenAIAccountProfiles } from './openai-account-enrollment.js';
+import { readManagedClaudeProfiles } from './claude-account-store.js';
 import { cachedModels, CatalogModel, refreshModels, readCodexModels } from './model-catalog.js';
 import { CredentialReferenceSchema, credentials } from './credentials.js';
 import { discoverOpenAIModels } from './openai-enrollment-models.js';
@@ -623,9 +624,7 @@ export class AccountProfiles {
                     : 'google-cloud',
           models: supportedModels(
             profile,
-            provider === 'anthropic-vertex' ||
-              provider === 'anthropic-claude' ||
-              provider === 'anthropic-api'
+            provider === 'anthropic-vertex' || provider === 'anthropic-api'
               ? profile.models
               : (discovered?.models ?? profile.models),
           ),
@@ -720,7 +719,7 @@ export class AccountProfiles {
           try {
             signal.throwIfAborted();
             const env = this.sdkEnv(
-              this.resolve(profile.id, profile.models[0].id),
+              this.resolve(profile.id, profile.models[0].id, true),
               Object.fromEntries(
                 ['HOME', 'PATH', 'TMPDIR'].flatMap((key) =>
                   process.env[key] === undefined ? [] : [[key, process.env[key]!]],
@@ -893,11 +892,13 @@ export class AccountProfiles {
     return profiles[0]?.models;
   }
 
-  async refresh(force = false, options: { discoverApi?: boolean } = {}) {
+  async refresh(force = false, options: { discoverApi?: boolean; accountId?: string } = {}) {
     await Promise.all(
       this.profiles
+        .filter((p) => !options.accountId || p.id === options.accountId)
         .filter(
           (p) =>
+            p.provider === 'anthropic-claude' ||
             (p.provider === 'openai' && !p.connection && options.discoverApi !== false) ||
             (p.provider === 'openai-codex' && this.options.codexEnabled),
         )
@@ -905,6 +906,8 @@ export class AccountProfiles {
           refreshModels(
             JSON.stringify(profile),
             async () => {
+              if (profile.provider === 'anthropic-claude')
+                return this.discoverSubscriptionModels(profile);
               if (profile.provider === 'openai') return this.discoverApiModels(profile);
               if (profile.provider !== 'openai-codex') return profile.models;
               return this.discoverCodexModels(profile);
@@ -913,6 +916,59 @@ export class AccountProfiles {
           ),
         ),
     );
+  }
+
+  private async discoverSubscriptionModels(profile: z.infer<typeof ClaudeProfile>) {
+    const deadline = new AbortController();
+    const timeout = setTimeout(
+      () => deadline.abort(new Error('Claude model discovery timed out')),
+      this.options.modelDiscoveryTimeoutMs ?? 10_000,
+    );
+    try {
+      const env = this.sdkEnv(
+        this.resolve(profile.id, profile.models[0].id, true),
+        Object.fromEntries(
+          ['HOME', 'PATH', 'TMPDIR', 'LANG', 'LC_ALL'].flatMap((key) =>
+            process.env[key] === undefined ? [] : [[key, process.env[key]!]],
+          ),
+        ),
+      );
+      // Keep native SDK and credential-boundary initialization out of other accounts.
+      const { discoverClaudeModels } = await import('./claude-model-discovery.js');
+      const models = await discoverClaudeModels(env, deadline.signal);
+      // Configured ordering remains the account default when native discovery includes it.
+      const configured = new Map(
+        profile.models.map((model, index) => [model.id, { model, index }]),
+      );
+      return models
+        .map((model) => {
+          const effort = configured.get(model.id)?.model.defaultReasoningEffort;
+          return {
+            ...model,
+            ...(effort && model.reasoningEfforts?.includes(effort)
+              ? { defaultReasoningEffort: effort }
+              : {}),
+          };
+        })
+        .sort(
+          (a, b) =>
+            (configured.get(a.id)?.index ?? profile.models.length) -
+            (configured.get(b.id)?.index ?? profile.models.length),
+        );
+    } catch (cause) {
+      createLogger('account-profiles').warn('Claude model discovery failed', {
+        accountId: profile.id,
+        code: 'claude_model_discovery_failed',
+        stage: 'claude_model_discovery',
+        reason: deadline.signal.aborted ? 'timeout' : 'native_metadata_unavailable',
+        ...(cause instanceof ClaudeSubscriptionSignInError
+          ? { signIn: cause.telemetry() }
+          : { errorType: cause instanceof Error ? cause.name : 'unknown' }),
+      });
+      throw cause;
+    } finally {
+      clearTimeout(timeout);
+    }
   }
 
   /** Metadata-only control-plane request using this account's explicit key reference. */
@@ -1116,10 +1172,7 @@ export class AccountProfiles {
       throw new Error('Codex execution is not enabled; development acceptance is required');
     const selectableModels = supportedModels(
       profile,
-      configured ||
-        profile.provider === 'anthropic-vertex' ||
-        profile.provider === 'anthropic-claude' ||
-        profile.provider === 'anthropic-api'
+      configured || profile.provider === 'anthropic-vertex' || profile.provider === 'anthropic-api'
         ? profile.models
         : (cachedModels(JSON.stringify(profile))?.models ?? profile.models),
     );
@@ -1463,6 +1516,7 @@ function claimsEnrolledOpenAIResources(value: unknown): boolean {
 
 /** A file contains profiles and credential references, never credential values. */
 export function loadAccountProfiles(): AccountProfiles {
+  const managedClaude = readManagedClaudeProfiles();
   if (process.env.MITZO_ACCOUNT_PROFILES_FILE) {
     try {
       const configured: unknown = JSON.parse(
@@ -1476,7 +1530,7 @@ export function loadAccountProfiles(): AccountProfiles {
         throw new Error('Enrollment registry must be absolute');
       if (registryPath) protectCodexProfileRoots([dirname(registryPath)]);
       const enrolled = registryPath ? readReadyOpenAIAccountProfiles(registryPath, configured) : [];
-      return new AccountProfiles([...configured, ...enrolled], {
+      return new AccountProfiles([...configured, ...enrolled, ...managedClaude], {
         enrolledOpenAIAccountIds: new Set(enrolled.map((profile) => profile.id)),
         codexEnabled:
           process.env.MITZO_CODEX_ENABLED === '1' ||
@@ -1496,7 +1550,8 @@ export function loadAccountProfiles(): AccountProfiles {
   // Existing Vertex project configuration supplies a visible, explicitly selected billing
   // profile; catalog presence alone never launches a request. Set CLAUDE_CODE_USE_VERTEX=0 to hide it.
   const projectId = process.env.ANTHROPIC_VERTEX_PROJECT_ID;
-  if (!projectId || process.env.CLAUDE_CODE_USE_VERTEX === '0') return new AccountProfiles([]);
+  if (!projectId || process.env.CLAUDE_CODE_USE_VERTEX === '0')
+    return new AccountProfiles(managedClaude);
   return new AccountProfiles([
     {
       id: 'vertex-default',
@@ -1509,6 +1564,7 @@ export function loadAccountProfiles(): AccountProfiles {
         join(homedir(), '.config/gcloud/application_default_credentials.json'),
       models: LEGACY_MODELS.map(({ id, label }) => ({ id, label })),
     },
+    ...managedClaude,
   ]);
 }
 
