@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.1045-forwarding-test-types';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.1046-forwarding-ui';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -22,6 +22,12 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
+  '../../frontend/src/hooks/useConversationForwarding.ts':
+    'e31aea83bce04ecd12721d36e24c8f48e3e094bd2c997d61b260a9ad7f274347',
+  '../../frontend/src/hooks/__tests__/useConversationForwarding.test.tsx':
+    '1c80b8bbf03c6d8a1d76ffd8a24444824c3ae14abad541f70515547f006ef355',
+  '../__tests__/collaboration-forward-ui.test.tsx':
+    '0fe71aa49e3d8f92d5689b02339b165c6875668670cd4bd69c67074e4de9a155',
   '../__tests__/collaboration-application-forwarding.test.ts':
     '713e28a52f3d936c6eb41ff5a12bf66c6fa12400924b2cc3b191171052834039',
   '../__tests__/collaboration-forward-application-journey.test.ts':
@@ -53,7 +59,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/hooks/useConversationPromptContext.ts':
     '46c349cc7138ae96bfcfb68e511dd6eeb93320ee56375cf5c90b9e44306d6439',
   '../../frontend/src/components/ConversationPromptContext.tsx':
-    '77a8e5d03c622975579a437bae2f7cb509869a8af4acbc3968ff11d5bb2c5c43',
+    'fa2a1f12612f6fd3dbb3ec1931b1b780a1b858c9f8f62b8ee5a9d12dc1e81298',
   '../__tests__/collaboration-application-observer-ui.test.tsx':
     '14a06ae03bfa0e778c848bbb266c83a6d4ecdce5751a548ef02a47647164c655',
   '../../frontend/src/components/__tests__/ComposerResponders.test.tsx':
@@ -361,7 +367,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/components/ConversationRepositoryPicker.tsx':
     'bad89b264d8bff41ed745fd33629e658ac947d6bc56b3945baae6fa0df2986cf',
   '../../frontend/src/components/SharedConversation.tsx':
-    '827e16f886c9cbfd0ed089ff37427dedc8f2198bffd07c7a347de5e6cc5f283a',
+    '8abefb1b971f55678ef137a398f7efe029b634ac9588b994d84d0af8f21bb4f8',
   '../../frontend/src/components/__tests__/SharedConversation.test.tsx':
     'eb4b3a1a1375ca77aed0be6521ab354b048361f1ce5f2d331b5ac5c695daff16',
   '../../frontend/src/hooks/__tests__/useConversationSending.test.tsx':
@@ -375,7 +381,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../tests/fixtures/symposium-composer.tsx':
     '3e821497de4f4088e1610134821046e992e81117e897cb1c30864ccc2ff6b8ad',
   '../../tests/offline/symposium-composer.spec.ts':
-    '71bf9a3a36b158f7564a9c937802b80e850afb6089dceb92b5e24f6aebac8658',
+    'f56380c397479f860dfa8ba633fb128bd26a339d0aab3db0ba488cc459b3b0a3',
   '../../docs/evidence/symposium-integration-acceptance.md':
     '576918c0c6d980938e2468a459740bfb814f14275326ebac732ab8d361b5cee0',
   '../../docs/features/symposium.md':
@@ -2243,7 +2249,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/lib/launch-draft-delivery.ts':
     '05839a85eee84c490f9679ce36dc624280173a2d19c8b8ca5f8080a7fb19acb3',
   '../../frontend/src/hooks/useDraft.ts':
-    'e3d5f2b55ab6fb81bf7e6a1bcae791c476134c23ca267437ae8db9d5cc920218',
+    '7d0233bcfd6517aa0f7fa93e39194d32f9623154c2c4ee7c2b871cb77d54cce4',
   '../../frontend/src/hooks/useSavedChatDrafts.ts':
     '82bf6749c8e92ca502b4c907ec2d9fdb50d1391818ce183cdcef890f47adac0c',
   '../../frontend/src/hooks/__tests__/useSavedChatDrafts.test.tsx':
@@ -2255,7 +2261,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/hooks/useBriefingChat.ts':
     'd0b124d3acf747c6a2605cdf23a7a0bfa59fc87d2aed1d3cd230e440d2c69996',
   '../../frontend/src/lib/chat-drafts.ts':
-    '6cfd1ed92c25a912a4319acfae09f0ee0c253da8f1fb880c5c79f41513fac80e',
+    'f04722dde28ca1e93c984b334b67f8415dddd7350bd021f52ac219531a6b3c9e',
   '../../frontend/src/lib/chat-runtime-selection.ts':
     'e9575afee57124d8747a2c1d71efb196df90e33ea946b7e96be3eb66a098b2ea',
   '../../frontend/src/lib/explicit-local-chat.ts':
@@ -3943,7 +3949,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../.github/workflows/ci-recovery.yml':
     '5d4e9a6560e549d2879ef776c2b4d321d420c25b22ec3a7741390e5bf617111a',
   '../../.github/workflows/ci.yml':
-    '5d5ada9a5be72e3dd073cf65c3418bbe89c88fd0d65caa257c5d78a3a287f81b',
+    'f318f09a9314756821f023e824cc724b94054115ac219fb9b9e9814db294f0d8',
   '../../playwright.config.ts': '6c61752a4a2e9cab19d8217b46080c5898bc79c5a0fde1f2b703a254d278daa0',
   '../../playwright.offline.config.ts':
     'fb694df154a2cb402c7f46b417efb357b6d19a72210d269ad0b1580798392adc',

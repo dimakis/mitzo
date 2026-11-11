@@ -353,6 +353,7 @@ jobs:
             test-results/offline/**/agent-messages-*.png
             test-results/offline/**/timer-*.png
             test-results/offline/**/shared-composer-*.png
+            test-results/offline/**/forward-context-review-*.png
             test-results/offline/**/sandbox-removal-*.png
             test-results/offline/**/reusable-access-*.png
             test-results/offline/**/native-approval-*.png
