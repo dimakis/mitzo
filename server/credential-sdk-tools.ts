@@ -113,7 +113,7 @@ export function createCredentialSdkServer(
             : session.abortController.signal;
           if (signal.aborted)
             return {
-              content: [{ type: 'text', text: 'Tool call cancelled before dispatch.' }],
+              content: [{ type: 'text' as const, text: 'Tool call cancelled before dispatch.' }],
               isError: true,
             };
           return (boundary?.runCallback ?? ((work) => work()))(() =>
@@ -130,7 +130,9 @@ export function createCredentialSdkServer(
                 const id = sessionId();
                 if (!id)
                   return {
-                    content: [{ type: 'text', text: 'Session is not ready; retry shortly' }],
+                    content: [
+                      { type: 'text' as const, text: 'Session is not ready; retry shortly' },
+                    ],
                     isError: true,
                   };
                 if (current?.id !== id)
