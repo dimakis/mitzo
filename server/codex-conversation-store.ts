@@ -3141,6 +3141,32 @@ export class CodexConversationStore {
       : this.db.prepare("SELECT 1 FROM codex_commands WHERE status='running' LIMIT 1").get());
   }
   /** Negative readiness observation only; never reconciles effects or releases a queue. */
+  settledCommandOutcome(id: string, binding: AccountBinding, commandId: string) {
+    return this.db.transaction(() => {
+      // Missing/changed native custody is an expected negative observation.
+      // Do not make an old receipt hide the retained shared transcript.
+      const conversation = this.hotReadStatement('conversation').get(id) as
+        { binding: string } | undefined;
+      if (!conversation || conversation.binding !== this.key(binding)) return;
+      const status = this.commandStatus(id, binding, commandId);
+      if (status !== 'completed' && status !== 'failed' && status !== 'interrupted') return;
+      if (
+        this.db
+          .prepare('SELECT 1 FROM codex_pending_thread_dispatches WHERE conversation_id=? LIMIT 1')
+          .get(id) ||
+        this.db
+          .prepare(
+            'SELECT 1 FROM codex_thread_acceptances WHERE conversation_id=? AND (ownership_pending<>0 OR terminal_conflict<>0) LIMIT 1',
+          )
+          .get(id) ||
+        this.unsettledCommandEffects(id)
+      )
+        return;
+      return status;
+    })();
+  }
+
+  /** Negative readiness observation only; never reconciles effects or releases a queue. */
   continuationBlocker(id: string, binding: AccountBinding) {
     this.read(id, binding);
     const pending = this.unsettledCommandEffects(id);
