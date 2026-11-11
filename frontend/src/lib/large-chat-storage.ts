@@ -1,5 +1,6 @@
 import { createBrowserId } from './browser-crypto';
 import { createIndexedChatDisk } from './indexed-chat-disk';
+import { APP_FOREGROUND_EVENT } from './app-lifecycle-events';
 
 const PREFIX = 'mitzo-large-chat:v1:';
 const THRESHOLD = 256 * 1024;
@@ -319,6 +320,10 @@ function current() {
 }
 // Environments without IndexedDB retain the established small Web Storage behavior.
 export const chatStorage = {
+  subscribe(listener: () => void) {
+    window.addEventListener(CHAT_STORAGE_CHANGED, listener);
+    return () => window.removeEventListener(CHAT_STORAGE_CHANGED, listener);
+  },
   get asynchronous() {
     return typeof indexedDB !== 'undefined';
   },
@@ -366,30 +371,29 @@ if (typeof window !== 'undefined')
   window.addEventListener('storage', (event) => {
     if (event.storageArea !== localStorage) return;
     disk?.invalidateLegacy();
-    void initializeChatStorage()
-      .then(() => {
-        window.dispatchEvent(new Event(CHAT_STORAGE_CHANGED));
-        window.dispatchEvent(new Event('storage'));
-        window.dispatchEvent(new Event('mitzo-chat-drafts-changed'));
-      })
-      .catch(() => window.dispatchEvent(new Event(CHAT_STORAGE_CHANGED)));
+    void refreshChatStorage();
   });
 
-async function refreshChatStorage() {
-  try {
-    await initializeChatStorage();
-    window.dispatchEvent(new Event(CHAT_STORAGE_CHANGED));
-    window.dispatchEvent(new Event('storage'));
-    window.dispatchEvent(new Event('mitzo-chat-drafts-changed'));
-  } catch {
-    window.dispatchEvent(new Event(CHAT_STORAGE_CHANGED));
-  }
+let refreshing: Promise<void> | undefined;
+function refreshChatStorage(): Promise<void> {
+  return (refreshing ??= (async () => {
+    try {
+      await initializeChatStorage();
+      window.dispatchEvent(new Event(CHAT_STORAGE_CHANGED));
+      window.dispatchEvent(new Event('storage'));
+      window.dispatchEvent(new Event('mitzo-chat-drafts-changed'));
+    } catch {
+      window.dispatchEvent(new Event(CHAT_STORAGE_CHANGED));
+    }
+  })().finally(() => {
+    refreshing = undefined;
+  }));
 }
 if (typeof window !== 'undefined') {
-  window.addEventListener('focus', () => {
+  const refreshOnResume = () => {
     if (instance) void refreshChatStorage();
-  });
-  window.addEventListener('pageshow', () => {
-    if (instance) void refreshChatStorage();
-  });
+  };
+  window.addEventListener('focus', refreshOnResume);
+  window.addEventListener('pageshow', refreshOnResume);
+  window.addEventListener(APP_FOREGROUND_EVENT, refreshOnResume);
 }

@@ -67,7 +67,7 @@ import { MitzoApiClient } from './api-client.js';
 import { MitzoConnection } from './connection.js';
 import type { MitzoConnectionConfig } from './connection.js';
 import { SseConnection } from './sse-connection.js';
-import { SendOutbox, hasReviewedSource } from './send-outbox.js';
+import { SendOutbox, hasReviewedSource, type SendOutboxStorage } from './send-outbox.js';
 import {
   CommandDeliveryDiagnosticSchema,
   commandDeliveryMessage,
@@ -270,11 +270,11 @@ export interface MitzoStoreOptions {
   /** Durable HTTP admission of initial reviewed briefing commands while WS receives events. */
   reviewedSendConfig?: {
     url: string;
-    storage: Pick<Storage, 'getItem' | 'setItem'> & { flush?: () => Promise<void> };
+    storage: SendOutboxStorage;
   };
   localFirstCommandConfig?: {
     url: string;
-    storage: Pick<Storage, 'getItem' | 'setItem'> & { flush?: () => Promise<void> };
+    storage: SendOutboxStorage;
     onDeliveryDiagnostic?: CommandDeliveryObserver;
   };
   /** Start with transports latched off until restoreAuthentication() after an explicit login. */
