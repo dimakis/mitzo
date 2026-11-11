@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, expect, it } from 'vitest';
+import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { randomUUID } from 'node:crypto';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -117,6 +117,83 @@ function input(end: number, sessionId = 'two') {
     },
   };
 }
+
+it('streams exact accepted visible text without weakening frozen or finalized readers', () => {
+  recordSource(store, 'two', mapping());
+  const owner = new OrdinaryCollaborationReplies(store);
+  store.append('two', 'message_start', { messageId: 'visible-reply' });
+  expect(owner.streaming('two', 'initial-two', 'visible-reply')).toBeUndefined();
+  store.append('two', 'block_start', {
+    messageId: 'visible-reply',
+    blockId: 'private-thinking',
+    blockType: 'thinking',
+  });
+  store.append('two', 'block_delta', {
+    messageId: 'visible-reply',
+    blockId: 'private-thinking',
+    delta: 'Never share reasoning',
+  });
+  store.append('two', 'block_start', {
+    messageId: 'visible-reply',
+    blockId: 'text-block',
+    blockType: 'text',
+  });
+  store.append('two', 'block_delta', {
+    messageId: 'visible-reply',
+    blockId: 'text-block',
+    delta: 'Visible ',
+  });
+  expect(owner.streaming('two', 'initial-two', 'visible-reply')?.text).toBe('Visible ');
+  expect(store.readOrdinaryFinalizedReply('two', 'visible-reply')).toBeUndefined();
+  expect(() => store.getDurableSessionTranscript('two')).toThrow();
+  store.append('two', 'block_delta', {
+    messageId: 'visible-reply',
+    blockId: 'text-block',
+    delta: 'answer',
+  });
+  expect(owner.streaming('two', 'initial-two', 'visible-reply')?.text).toBe('Visible answer');
+  store.append('two', 'block_end', { messageId: 'visible-reply', blockId: 'text-block' });
+  store.append('two', 'block_end', { messageId: 'visible-reply', blockId: 'private-thinking' });
+  const end = store.append('two', 'message_end', { messageId: 'visible-reply' });
+  expect(owner.streaming('two', 'initial-two', 'visible-reply')).toBeUndefined();
+  expect(owner.record(group, input(end)).text).toBe('Visible answer');
+});
+
+it.each(['wrong_command', 'hidden', 'duplicate_start', 'oversized', 'legacy', 'storage_error'])(
+  'refuses unsafe live sources without dispatch: %s',
+  (scenario) => {
+    const source = mapping();
+    if (scenario === 'legacy')
+      store.append('two', 'ordinary_reply_source', { version: 1, ...source });
+    else recordSource(store, 'two', source);
+    store.append('two', 'message_start', { messageId: 'visible-reply' });
+    if (scenario === 'duplicate_start')
+      store.append('two', 'message_start', { messageId: 'visible-reply' });
+    store.append('two', 'block_start', {
+      messageId: 'visible-reply',
+      blockId: 'text-block',
+      blockType: 'text',
+    });
+    store.append('two', 'block_delta', {
+      messageId: 'visible-reply',
+      blockId: 'text-block',
+      delta: scenario === 'oversized' ? 'x'.repeat(100001) : 'Visible fragment',
+    });
+    if (scenario === 'hidden') store.hideSession('two');
+    if (scenario === 'storage_error')
+      vi.spyOn(store, 'readOrdinaryStreamingReply').mockImplementation(() => {
+        throw Error('Storage failure remains visible');
+      });
+    expect(() =>
+      new OrdinaryCollaborationReplies(store).streaming(
+        'two',
+        scenario === 'wrong_command' ? 'another-command' : 'initial-two',
+        'visible-reply',
+      ),
+    ).toThrow();
+    expect(store.readOrdinaryFinalizedReply('one', 'unrelated-message')).toBeUndefined();
+  },
+);
 
 it('persists a private exact command mapping and reads only finalized visible text through EventStore', () => {
   recordSource(store, 'two', mapping());

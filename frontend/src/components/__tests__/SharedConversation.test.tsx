@@ -12,6 +12,7 @@ import {
 } from '../SharedConversation';
 import {
   sharedConversationView,
+  sharedReply,
   settings,
   uuid,
 } from '../../../../tests/fixtures/symposium-shared-conversation-data';
@@ -27,6 +28,91 @@ afterEach(() => {
   vi.restoreAllMocks();
   ordinary.connection = null;
 });
+
+it('observes remote rejoining and its reply after the last other participant leaves, without a local send or refresh', async () => {
+  const view = sharedConversationView();
+  view.messages = [];
+  let progressFailure = false;
+  const policies = structuredClone(view.policies);
+  const fetch = vi.fn(async (url: string, options?: RequestInit) => {
+    expect(options?.method ?? 'GET').toBe('GET');
+    if (url.includes('source-setup'))
+      return Response.json({
+        state: 'selected',
+        sourceConversationId: 'architect',
+        collaboration: {
+          version: 1,
+          collaborationId: view.collaborationId,
+          revision: view.membershipRevision,
+          participantSessionIds: view.participantSessionIds,
+        },
+      });
+    if (url.endsWith('/progress'))
+      if (progressFailure)
+        return Response.json(
+          { error: 'Could not observe shared discussion', code: 'execution_unavailable' },
+          { status: 503 },
+        );
+    if (url.endsWith('/progress'))
+      return Response.json({
+        collaborationId: view.collaborationId,
+        membershipRevision: view.membershipRevision,
+        replies: [],
+        refusals: [],
+      });
+    if (url.endsWith('/conversation')) return Response.json(view);
+    throw Error('Unexpected observer request: ' + url);
+  });
+  const proof = () => 'login';
+  render(
+    <MemoryRouter>
+      <SharedConversationHost
+        sourceConversationId="architect"
+        api={new MitzoApiClient(fetch)}
+        clientId="client"
+        authScope="login"
+        getVerifiedAuthScope={proof}
+      >
+        <SharedConversationBody
+          sourceConversationId="architect"
+          ordinaryHistory={<p>Ordinary discussion remains available</p>}
+          chat={{
+            messages: [],
+            current: null,
+            running: false,
+            permission: null,
+            onPermissionRespond: () => {},
+          }}
+        >
+          <p>Ordinary discussion remains available</p>
+        </SharedConversationBody>
+      </SharedConversationHost>
+    </MemoryRouter>,
+  );
+  await screen.findByRole('button', { name: 'Choose who replies' });
+  view.participantSessionIds = ['architect'];
+  view.membershipRevision++;
+  view.policies = policies.filter((policy) => policy.sessionId === 'architect');
+  await waitFor(
+    () => expect(screen.queryByRole('button', { name: 'Choose who replies' })).toBeNull(),
+    { timeout: 5000 },
+  );
+  progressFailure = true;
+  await screen.findByText('Could not observe shared discussion', {}, { timeout: 5000 });
+  expect(screen.getByText('Ordinary discussion remains available')).toBeTruthy();
+  progressFailure = false;
+  view.participantSessionIds = ['architect', 'reviewer'];
+  view.membershipRevision++;
+  view.policies = policies.filter((policy) =>
+    view.participantSessionIds.includes(policy.sessionId),
+  );
+  view.messages = [{ ...sharedReply, text: 'Remote answer after rejoining' }];
+  view.cursor = 3;
+  await screen.findByText('Remote answer after rejoining', {}, { timeout: 5000 });
+  expect(
+    fetch.mock.calls.every(([, options]) => !options?.method || options.method === 'GET'),
+  ).toBe(true);
+}, 15000);
 it('mounts the retained shared transcript through the production wrapper while preserving ordinary history', async () => {
   const view = sharedConversationView();
   view.joinedParticipants = [{ sessionId: 'reviewer', name: 'Reviewer' }];

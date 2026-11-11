@@ -17,6 +17,8 @@ import {
   CollaborationMessageInputSchema,
   CollaborationMessageSchema,
   CollaborationRecipientReadinessSchema,
+  CollaborationStopResultSchema,
+  CollaborationProgressSchema,
   CollaborationSnapshotReferenceSchema,
   CollaborationSnapshotSelectionSchema,
   CollaborationApplicationReviewInputSchema,
@@ -106,6 +108,16 @@ export class CollaborationApiClient {
   view(id: string, signal?: AbortSignal) {
     return this.request(this.path(id, 'conversation'), CollaborationViewSchema, signal);
   }
+  progress(id: string, signal?: AbortSignal) {
+    return this.request(
+      this.path(id, 'progress'),
+      CollaborationProgressSchema.refine(
+        (r) => r.collaborationId === id,
+        'Conversation progress identity changed',
+      ),
+      signal,
+    );
+  }
   recipientReadiness(id: string, sessionId: string, signal?: AbortSignal) {
     CollaborationBeginSchema.shape.sessionId.parse(sessionId);
     return this.request(
@@ -124,6 +136,18 @@ export class CollaborationApiClient {
         message: CollaborationMessageSchema.nullable(),
         terminal: z.boolean().default(false),
       }),
+      signal,
+      { method: 'POST', body: CollaborationMessageInputSchema.parse(input) },
+    );
+  }
+  /** Exact original command control only. A requested Stop is not terminal proof. */
+  stopSend(id: string, input: CollaborationMessageInput, signal?: AbortSignal) {
+    return this.request(
+      this.path(id, 'messages/stop'),
+      CollaborationStopResultSchema.refine(
+        (r) => r.requestId === input.requestId,
+        'Original Stop identity changed',
+      ),
       signal,
       { method: 'POST', body: CollaborationMessageInputSchema.parse(input) },
     );
