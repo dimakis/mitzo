@@ -33,7 +33,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../docs/features/agent-communication.md':
     '4cab031ee52b267dc4afbcbf03b741b39cc398ec17da2687292f22dc99c88266',
   '../__tests__/agent-communication-cross-runtime.test.ts':
-    'e48593633d4d1616733ad23e11d9cb502747845e64661d883b0707d3285740be',
+    '5f044535927ede4add40c6ea5f0ddceb8cabcad7ac1800f0f1e0801371f19e56',
   '../__tests__/agent-communication-diagnostics.test.ts':
     '15761543b4acf55d2e7f13a2cbd4029b171d4a4790426b465acee17d316153aa',
   '../__tests__/ordinary-local-vertex-command-owner.test.ts':
@@ -897,7 +897,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/styles/session-timers.css':
     'd1aadc713e86019158354ddf4535a6d7c39d25487c01b9f9a1c8ddec7a77c0bc',
   '../__tests__/session-prompt-dispatch.test.ts':
-    '9b6217918401e10ed9d75e061f10e78ce05f024e41475fbf2850bf25a1192077',
+    'b8c91a14898dc06f12f997737f1dd2d18534f9016bcef3da637e040abd71583e',
   '../__tests__/session-prompt-router.test.ts':
     'd41780d41d76cab07a60b56300dbb1c977a2b4285fb7d0c37bd2645a47745549',
   '../__tests__/session-prompt-tools.test.ts':
@@ -4237,7 +4237,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/claude-personal-policy.test.ts':
     'f7fc1ccde245b17a92c50176e928450e39ef5367a5cc8f49956873f308cd32ce',
   '../__tests__/ordinary-local-vertex-owned-runtime.test.ts':
-    '2036c1f79cddce8a65d75e2fc179a31411025f7abc22e2974712af994d97d4ae',
+    '8632c4f40e8c8dd320b660bb108fbda87bcddb83da1de144777a0e0d2bb6f80c',
   '../../docs/features/personal-claude-local.md':
     '566ce4b1eac8e00a28cde4d92fd8bb47ac02093bf7f17a82be30dabb82063f1a',
 });

@@ -122,7 +122,7 @@ it('rechecks the exact peer sender guard after asynchronous selection and before
   let allowed = true;
   const original = OrdinaryLocalCodexSelectionOwner.prototype.assertCurrent;
   vi.spyOn(OrdinaryLocalCodexSelectionOwner.prototype, 'assertCurrent').mockImplementation(
-    async function (expected) {
+    async function (this: OrdinaryLocalCodexSelectionOwner, expected) {
       await original.call(this, expected);
       allowed = false;
     },

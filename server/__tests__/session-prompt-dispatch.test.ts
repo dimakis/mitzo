@@ -3,9 +3,12 @@ import { EventStore } from '../event-store.js';
 import type { SessionRegistry, ConnectionRegistry } from '@mitzo/harness';
 import type { SessionPromptDelivery } from '../session-prompt-store.js';
 import { createSessionPromptPort, sessionPromptText } from '../session-prompt-dispatch.js';
+import type { OwnedOrdinaryDispatchInput } from '../ordinary-scoped-command.js';
 
 const f = vi.hoisted(() => ({
-  dispatch: vi.fn(async () => ({ dispatched: true })),
+  dispatch: vi.fn<(input: OwnedOrdinaryDispatchInput) => Promise<{ dispatched: boolean }>>(
+    async () => ({ dispatched: true }),
+  ),
   binding: {} as Record<string, unknown>,
   selection: {} as Record<string, unknown>,
   authorized: true,
@@ -175,7 +178,7 @@ it('forwards the exact idle SDK sender fence into ordinary admission', async () 
       if (!allowed) throw Error('Sender revoked');
     },
   );
-  const dispatch = f.dispatch.mock.calls[0]?.[0] as unknown as { assertCurrent?: () => void };
+  const dispatch = f.dispatch.mock.calls[0]![0];
   expect(dispatch.assertCurrent).toBeTypeOf('function');
   allowed = false;
   expect(dispatch.assertCurrent).toThrow('Sender revoked');

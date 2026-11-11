@@ -87,10 +87,12 @@ function fixture(sourceRuntime: 'codex' | 'claude-sdk' = 'codex') {
     steeringReceiptForRequest: vi.fn(() => undefined),
     commandStatus: vi.fn(() => undefined),
   } as unknown as CodexConversationStore;
-  const approve = vi.fn(async (input: Record<string, unknown>) => ({
-    behavior: 'allow',
-    updatedInput: input,
-  }));
+  const approve = vi.fn<Parameters<typeof sessionAgentCommunicationTools>[0]['approve']>(
+    async (input) => ({
+      behavior: 'allow',
+      updatedInput: input,
+    }),
+  );
   const tools = sessionAgentCommunicationTools({
     toolName:
       sourceRuntime === 'claude-sdk'
