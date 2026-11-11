@@ -1,6 +1,7 @@
 import type { ConversationAgent } from './ConversationAgents';
 import type { useConversationJoiningReview } from '../hooks/useConversationJoiningReview';
 import { UiIcon } from './UiIcon';
+import { ReviewedArtifactContents } from './ReviewedArtifactContents';
 
 export function ConversationJoiningReview({
   flow,
@@ -79,6 +80,7 @@ export function ConversationJoiningReview({
                     Saved version {artifact.revision}
                     {label?.filename ? ` · ${label.filename}` : ''}
                   </small>
+                  <ReviewedArtifactContents {...artifact} />
                 </div>
               );
             })}
