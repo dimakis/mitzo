@@ -40,6 +40,13 @@ it('launches an admitted source in its discovery directory rather than the chat 
       cwd: '/different-task-worktree',
     });
     try {
+      expect(connect).not.toHaveBeenCalled();
+      await tools.execute(
+        tools.definitions[0].name,
+        {},
+        async () => ({ behavior: 'deny' as const }),
+        options.signal,
+      );
       expect(connect.mock.calls[0][1].cwd).toBe('/authorized-source');
     } finally {
       await tools.close();
@@ -48,7 +55,7 @@ it('launches an admitted source in its discovery directory rather than the chat 
     catalog.close();
   }
 });
-it('refuses changed output schemas before exposure even when the library has not refreshed', async () => {
+it('refuses changed output schemas before invocation even when the library has not refreshed', async () => {
   const catalog = new ConfiguredToolCatalog(':memory:');
   let outputSchema = { type: 'object' };
   const close = vi.fn(async () => {});
@@ -74,8 +81,16 @@ it('refuses changed output schemas before exposure even when the library has not
     await expect(
       (async () => {
         const tools = await admitConfiguredTools(catalog, [ref], options);
-        await tools.close();
-        return tools;
+        try {
+          return await tools.execute(
+            tools.definitions[0].name,
+            {},
+            async () => ({ behavior: 'allow' as const }),
+            options.signal,
+          );
+        } finally {
+          await tools.close();
+        }
       })(),
     ).rejects.toThrow(/definition changed/);
     expect(close).toHaveBeenCalledTimes(2);
