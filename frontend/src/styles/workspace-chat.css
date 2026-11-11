@@ -678,9 +678,9 @@
 }
 .conversation-filters button {
   flex: 1;
-  min-height: 40px;
-  padding: 8px 4px;
-  border-radius: 9px;
+  min-height: var(--control-height);
+  padding: var(--space-2) var(--space-1);
+  border-radius: var(--radius-control);
   font-size: var(--text-xs);
   background: transparent;
   color: var(--text-dim);
@@ -699,9 +699,10 @@
   min-height: 0;
 }
 .conversation-list-caption {
-  font-size: var(--text-xs);
+  font-size: var(--text-section-label);
+  font-weight: 500;
   color: var(--text-dim);
-  margin: 18px 0 4px;
+  margin: var(--space-4) 0 var(--space-1);
 }
 .session-list-error {
   display: flex;
@@ -816,9 +817,10 @@
 }
 .conversation-library .session-list-header h1 {
   margin: 0;
-  font-size: 20px;
-  font-weight: 600;
-  letter-spacing: -0.02em;
+  font-size: var(--text-collection-title);
+  font-weight: 500;
+  line-height: 1.15;
+  letter-spacing: -0.035em;
 }
 .conversation-library .workspace-primary {
   min-height: 44px;

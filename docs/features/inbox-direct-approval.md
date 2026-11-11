@@ -44,6 +44,12 @@ question drafts, expiry, duplicate prevention, retained activity and validated
 setup/worker/task navigation. The approved-design ledger retains earlier
 revisions and pins the newly approved reference and updated contracts.
 
+After integrating main's UI sizing/motion update `8605952b`, 469 focused
+unit/design checks passed with one existing skip. Submission failures remain
+visible after a successful feed refresh, and the same card can retry. Six real
+component browser fixtures bundled successfully; changed TypeScript passed
+ESLint and reviewed source fingerprints verified.
+
 Offline fixtures cover phone WebKit/Chromium and desktop Chromium, light/dark
 themes, alternate fonts/accents, larger text, long evidence, focus and 44px
 controls without backend or model calls. Local execution remains limited:
@@ -51,6 +57,6 @@ macOS denies browser process registration, and the full UI build/typecheck
 exceeds the mandated 1 GiB local heap. No new rendered screenshot is claimed;
 full build/typecheck and rendered browser execution remain required in CI.
 
-Prepared from Mitzo source `9f165ea599d8` in an isolated task clone. This record
+Prepared from Mitzo source `9f165ea599d8`, integrating `8605952b`, in an isolated task clone. This record
 proves saved implementation and its reported verification, not merge, deployment
 or production acceptance.

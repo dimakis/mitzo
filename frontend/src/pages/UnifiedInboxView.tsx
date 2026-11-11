@@ -6,6 +6,7 @@ import remarkGfm from 'remark-gfm';
 import type { InboxFeed, MitzoNotification } from '@mitzo/protocol';
 import { useNotifications } from '../components/NotificationProvider';
 import { WorkspacePageHeading } from '../components/WorkspacePageHeading';
+import { MotionDetails } from '../components/MotionDetails';
 import { UiIcon } from '../components/UiIcon';
 import { RequestDetail } from './NotificationsView';
 import { NotificationApprovalActions } from '../components/NotificationApprovalActions';
@@ -317,14 +318,13 @@ export function UnifiedInboxView({ desktop = false }: { desktop?: boolean } = {}
               {stripFrontmatter(selected.inbox.content || selected.body)}
             </ReactMarkdown>
           </div>
-          <details className="inbox-provenance">
-            <summary>Source &amp; technical details</summary>
+          <MotionDetails className="inbox-provenance" summary="Source & technical details">
             <p>
               {inboxSource(selected.inbox.agent)} · {selected.inbox.agent}
             </p>
             <p>{selected.title}</p>
             <p>{selected.inbox.tags.join(' · ')}</p>
-          </details>
+          </MotionDetails>
         </>
       ) : (
         <RequestDetail

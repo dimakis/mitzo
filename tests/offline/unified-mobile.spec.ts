@@ -1,4 +1,5 @@
 import { reviewQueuedDrafts, closeComposerStatus } from '../support/composer-status';
+import { expectMotionSettled } from '../support/motion-settled';
 import { createTelosWorkFixtures } from '../../frontend/src/test-utils/telos-work-fixtures';
 import { readChatStorage } from '../support/persisted-chat-storage';
 import {
@@ -1059,6 +1060,7 @@ test('Today details and nickname controls inherit appearance and remain usable w
     await page.getByRole('button', { name: 'Manage pins' }).click();
     const pinPopup = page.getByRole('dialog');
     await expect(pinPopup).toBeVisible();
+    await expectMotionSettled(pinPopup);
     const popupBounds = (await pinPopup.boundingBox())!;
     expect(popupBounds.x).toBeCloseTo((page.viewportSize()!.width - popupBounds.width) / 2, 0);
     for (const direction of ['up', 'down']) {
