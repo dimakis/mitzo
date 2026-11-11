@@ -185,6 +185,20 @@ it('reuses ordinary native dispatch with the approved choices and durable IDs', 
   expect(call).not.toHaveProperty('adviserScope');
   expect(mocks.upsert).toHaveBeenCalledWith({ sessionId: 'child', summary: 'Reviewed title' });
 });
+it('starts with the coordinator tools exposed by the selected default profile', async () => {
+  const selected = {
+    ...record,
+    configuration: {
+      ...configuration,
+      extraTools: ['AgentCommunication', 'TaskExecution', 'StartSession', 'SessionTimers'],
+    },
+  };
+  await createSessionLaunchPort().start(selected, authority, vi.fn());
+  expect(mocks.dispatch).toHaveBeenCalledOnce();
+  expect(mocks.dispatch.mock.calls[0][0].command.selection.agent).toEqual(
+    configuration.runtime.agentProfile,
+  );
+});
 it.each([
   {
     ...configuration,
@@ -197,6 +211,8 @@ it.each([
   { ...configuration, repositoryWorkspaceId: 'parent-workspace' },
   { ...configuration, contextBlocks: ['private-context'] },
   { ...configuration, extraTools: ['tool'] },
+  { ...configuration, extraTools: ['TelosStartSlice'] },
+  { ...configuration, extraTools: ['TelosWorkControl'] },
   { ...configuration, runtime: { ...configuration.runtime, accountReference: null } },
 ])('rejects unsupported or changed selections before workspace effects', async (config) => {
   await expect(createSessionLaunchPort().validate(config, authority)).rejects.toThrow();

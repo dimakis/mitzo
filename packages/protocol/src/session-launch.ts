@@ -31,6 +31,28 @@ export const SessionLaunchConfigSchema = z.strictObject({
 });
 export type SessionLaunchConfig = z.infer<typeof SessionLaunchConfigSchema>;
 
+export function sessionLaunchHandoverUrl(proposalId: string): string {
+  return `/api/session-launch/requests/${encodeURIComponent(proposalId)}/handover.md`;
+}
+/** Only the retained handover endpoint can bypass workspace file resolution. */
+export function isSessionLaunchHandoverUrl(url: string): boolean {
+  return /^\/api\/session-launch\/requests\/[a-f\d]{8}-[a-f\d]{4}-[a-f\d]{4}-[a-f\d]{4}-[a-f\d]{12}\/handover\.md$/i.test(
+    url,
+  );
+}
+
+/** Shared presentation of the startup route's static limits. Catalog, account
+ * and tool availability still require current controller qualification. */
+export function sessionLaunchConfigurationReason(config: SessionLaunchConfig): string | null {
+  if (config.runtime.execution.location !== 'local')
+    return 'Agent-created sessions currently require Local Mac.';
+  if (!config.isolation || config.repositoryWorkspaceId !== null)
+    return 'Choose an independent ordinary workspace. Repository session launching is not available yet.';
+  if (config.contextBlocks.length)
+    return 'Selected context blocks are unavailable for this startup route. Put the handover text in Handoff prompt and clear Context before starting.';
+  return null;
+}
+
 export const SessionLaunchOverridesSchema = SessionLaunchConfigSchema.omit({
   version: true,
   runtime: true,

@@ -83,6 +83,15 @@ Title, handoff and configuration are editable before **Approve & start**; saving
 the configuration as the persistent default is an explicit separate choice. The
 original composer and draft remain mounted and approval does not navigate away.
 
+The retained **Handover.md** reuses the shared filename group and `ShareButton`
+file-options sheet. Authenticated bytes use browser Download or native Share/Save
+to Files; no temporary path or raw native API anchor is used. Visible failures,
+busy/retry ownership, focus return and touch geometry remain with that shared
+component. Static startup limits appear before approval. Only a certified
+pre-allocation refusal unlocks the existing pending review for editing; uncertain
+delivery retains Check request. The offline `session-launch-recovery` fixture
+covers these states without changing the approved settings hierarchy or tokens.
+
 The existing Run on editor includes a labelled Execution host control using the
 shared native select and semantic styles. It lists only server-observed routes
 for the selected account and environment. The exact saved host remains visible

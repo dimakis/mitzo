@@ -1,6 +1,8 @@
 import {
   StartSessionInputSchema,
   resolveSessionLaunchConfig,
+  sessionLaunchConfigurationReason,
+  sessionLaunchHandoverUrl,
   DEFAULT_MITZO_PROFILE_ID,
   DEFAULT_MITZO_PROFILE_REVISION,
   type SessionLaunchConfig,
@@ -18,7 +20,7 @@ export const sessionLaunchDefinitions = [
   {
     name: 'StartSession',
     description:
-      'Propose a new ordinary Mitzo chat using the saved default session configuration and optional overrides. The user reviews and edits the complete configuration, title and handoff before Approve & start. A pending proposal has not allocated or started a chat. Reuse the exact requestId and arguments after uncertainty. Saved defaults and chat links grant no permissions. Initial execution supports independent Local Mac Codex sessions; unavailable choices remain editable in review.',
+      'Propose a new ordinary Mitzo chat using saved defaults and optional overrides. Put the complete self-contained handover in prompt; do not rely on a temporary file path. The retained request provides handoverDownloadUrl for exact Markdown download, even before startup. The user reviews and edits configuration, title and handoff before Approve & start. A pending proposal has not allocated or started a chat. Reuse the exact requestId and arguments after uncertainty. Supports independent Local Mac Codex sessions and additional tools already exposed by the selected agent profile; selection grants no permissions. Unsupported context/workspace choices return startupBlocker and remain editable in review.',
     input_schema: z.toJSONSchema(StartSessionInputSchema),
   },
 ];
@@ -105,7 +107,12 @@ export function sessionLaunchTools(options: {
       current();
       captured.assertCurrent();
       controller.changed(options.sessionId);
-      return publicSessionLaunchRecord(record);
+      const startupBlocker = sessionLaunchConfigurationReason(record.configuration);
+      return {
+        ...publicSessionLaunchRecord(record),
+        handoverDownloadUrl: sessionLaunchHandoverUrl(record.proposalId),
+        ...(startupBlocker ? { startupBlocker } : {}),
+      };
     },
   };
 }

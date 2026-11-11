@@ -80,6 +80,9 @@ describe('StartSession proposal tool', () => {
       callId: 'call',
     });
     expect(result.state).toBe('pending');
+    expect(result.handoverDownloadUrl).toBe(
+      '/api/session-launch/requests/9fbe6c84-ebac-4223-9f48-617f3ab7075f/handover.md',
+    );
     expect(f.store.propose).toHaveBeenCalledWith(
       expect.objectContaining({
         operatorId: 'user',
