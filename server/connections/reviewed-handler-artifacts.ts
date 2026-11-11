@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.1052-forwarding-captures';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.1053-forwarding-recipients';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -381,7 +381,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../tests/fixtures/symposium-composer.tsx':
     '3e821497de4f4088e1610134821046e992e81117e897cb1c30864ccc2ff6b8ad',
   '../../tests/offline/symposium-composer.spec.ts':
-    '861f0180cfee71991d8d5b7a5fbd1d2751a9b85dccd180087ab4f9c8b6c848cd',
+    'ac1fc8a3524f17ab440a3746ff80eb1716308914522bd2c27eaa7d1e5077e44b',
   '../../docs/evidence/symposium-integration-acceptance.md':
     '576918c0c6d980938e2468a459740bfb814f14275326ebac732ab8d361b5cee0',
   '../../docs/features/symposium.md':

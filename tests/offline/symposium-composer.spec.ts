@@ -428,7 +428,9 @@ for (const theme of ['dark', 'light'])
       await expect(confirmForward).toBeEnabled();
       await context.getByRole('button', { name: 'Inspect original context' }).click();
       const originalContext = context.getByRole('region', { name: 'Original forward context' });
-      await expect(originalContext.getByText('Reviewer', { exact: true })).toBeVisible();
+      // Future discussion readers receive context even when only Reviewer replies.
+      expect(forward!.selection.target.sessionIds).toEqual(['reader', 'reviewer']);
+      await expect(originalContext.getByText('reader, Reviewer', { exact: true })).toBeVisible();
       expect(await originalContext.getByLabel('Saved contents, version 2').textContent()).toBe(
         artifactText,
       );
