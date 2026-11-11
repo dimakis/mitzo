@@ -1,17 +1,19 @@
 # Symposium: current direction and source guide
 
-Updated 10 November 2026. Start here for Symposium product work.
+Updated 11 November 2026. Start here for Symposium product work.
 Existing Telos item: `c0851ba23fcc5d04`; reuse it rather than create another parent
 or a task for every document. Tracker closure and source landing do not prove
 runtime acceptance or authorize deployment.
 
-## Multiple-responder source candidate
+## Accepted multiple-responder source
 
-Published as draft [PR #1280](https://github.com/dimakis/mitzo/pull/1280), stacked
-on #1279. Accept the parent into main first, then integrate and qualify the
-successor against actual main. Merging into a feature branch is not source landing.
+[PR #1280](https://github.com/dimakis/mitzo/pull/1280) merged into main as
+`14fb28b0d03a0d780b663f1ef0697699ec546b88` on 11 November. CI run 43008032180
+attempt 2 and Centaur review 5858244434 qualified its exact source head with
+LGTM, a merge recommendation and zero blockers. The strict accepted-base,
+dedicated-App and read-only MGMT gates passed before guarded merge.
 
-The next source candidate enables the approved Defaults, All and multiple `@`
+The accepted source enables the approved Defaults, All and multiple `@`
 selections through the existing shared composer. Every selected recipient must
 pass ordinary readiness before a new request is accepted. The original intent
 and receipt keep their identity across selection changes, partial results,
@@ -29,7 +31,7 @@ claim. Repeated requests never reissue a claimed interrupt or target a successor
 Stop intent survives reload; a cancellation ACK does not establish terminal outcome
 or release uncertain effects. Late control responses cannot affect another prompt.
 
-The candidate also displays attributed live text from each exact accepted ordinary
+The shared conversation also displays attributed live text from each exact accepted ordinary
 command. A read-only, authenticated projection includes visible text and excludes
 private reasoning, tool data and provider identifiers. Partial text recovers after
 remount without inference; finalization replaces only that exact live source.
@@ -44,10 +46,12 @@ observer regression covers a live-to-final handoff, a remote membership change a
 a fast external reply with no local request journal or manual refresh.
 
 Offline application evidence covers two independent same-account sessions,
-partial failure, an explicit selected retry and uncertainty after reload. Hosted
-CI, browser renders and trusted current-head review remain required before landing.
-Per-prompt reviewed context, forwarding and broader
-milestone qualification remain open. No deployment or live inference is qualified.
+partial failure, an explicit selected retry and uncertainty after reload. Retained
+desktop/mobile light/dark responder renders were inspected. Per-prompt reviewed
+context, saved-artifact selection, forwarding and personal Claude remain in the
+dependent landing sequence #1281, #1282, #1284 and #1289. Each successor must be
+integrated and qualified against actual accepted main. Broader milestone
+qualification remains open. No deployment or live inference is qualified.
 
 ## Reviewed context for one prompt — source candidate
 
@@ -123,22 +127,35 @@ Lost preparation responses have a read-only request-ID observation route. Exact
 confirmation and send retries retain their original identities. The offline
 application journey covers an older retained version, a newer saved successor,
 storage failure, complete application restart and actual ordinary native input
-with synthetic external transport. The forwarding sheet, user-controlled request
-for responses, broader qualification and current-head CI/review remain open. This
-adapter alone does not complete or deploy the feature.
+with synthetic external transport.
+
+The current source candidate also provides context-only forwarding in the shared
+composer's existing context review. Inspect exact source messages, frozen artifact
+versions and all reviewed recipients, prepare the forward, then explicitly confirm.
+The prompt draft stays unsent. A later explicit ordinary prompt requests a response.
+Original-context reinspection recovers a retained preparation independently of newer
+prompt edits; lost confirmation responses preserve the original request identity.
+The real application UI regression covers this path and read-only recovery with
+synthetic external transport. See the [forwarding evidence](../evidence/symposium-forwarding-ui-2026-11-11.md).
+
+This UI selects material from the current source discussion. A cross-conversation
+chooser and separate retained-Telos-artifact picker are not supplied. API coverage
+does not establish those UI paths. Final accepted-base CI, trusted review, combined
+rendered verification and broader qualification remain open. This candidate does
+not establish deployment or live acceptance.
 
 ## Accepted shared composer and reply recovery
 
-The next source increment removes the display-page limit from new sends. Pending
+Accepted PR #1279 removes the display-page limit from new sends. Pending
 discussion is enumerated per recipient in bounded keyset pages, including older
 attributed replies, and checked against the complete encoded 512 KiB packet limit
 before acceptance. Already claimed context stays with its original command; an
-older unclaimed reply request cannot be adopted by a later send. This candidate
-is published as [PR #1279](https://github.com/dimakis/mitzo/pull/1279), with focused
-offline/application evidence and combined accepted Claude main `f7fd876a`.
-Current-head CI and trusted review remain required.
-Defaults/multiple responders, new reviewed per-prompt context, exact forwarding,
-streaming and the remaining milestone qualification are still open. See the
+older unclaimed reply request cannot be adopted by a later send. The
+[merged PR #1279](https://github.com/dimakis/mitzo/pull/1279) retains focused
+offline/application evidence and its integration with accepted Claude main `f7fd876a`.
+Defaults/multiple responders and streaming are accepted through #1280 above.
+New reviewed per-prompt context, exact forwarding and the remaining milestone
+qualification are still in progress. See the
 [current evidence](../evidence/symposium-integration-acceptance.md).
 
 PRs #1252 and #1261 are merged. Current source supports server-owned recipient
