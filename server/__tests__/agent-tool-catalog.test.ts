@@ -116,6 +116,23 @@ it('keeps legacy behavior but blocks explicit selections on unsupported routes a
   ).toThrow(/unavailable/i);
 });
 
+it('keeps required structured questions available to explicit Claude SDK profiles', () => {
+  const session = {};
+  bindAgentToolSelection(
+    session,
+    { tools: [{ id: 'mitzo:AgentCommunication', version: 1 }] } as never,
+    'claude-sdk',
+  );
+  expect(agentToolAllowed(session, 'AskUserQuestion')).toBe(true);
+  expect(agentToolAllowed(session, 'Bash')).toBe(false);
+  expect(() =>
+    assertAgentToolRoute(
+      { tools: [{ id: 'mitzo:AskUserQuestion', version: 1 }] } as never,
+      'claude-sdk',
+    ),
+  ).not.toThrow();
+});
+
 it('refuses missing connection dependencies before exposing an unusable selected operation', async () => {
   const { assertAgentToolAvailability } = await import('../agent-tool-selection.js');
   const runtime = await import('../credential-connections-runtime.js');

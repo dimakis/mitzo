@@ -138,7 +138,12 @@ it.each([
       await import('../../server/claude-subscription-custody.js');
     const { ownedVertexRuntimeFixture } =
       await import('../../server/__tests__/fixtures/owned-local-vertex-runtime.js');
-    const f = await ownedVertexRuntimeFixture(cleanups, { chatRoute: true, personal, managed });
+    const f = await ownedVertexRuntimeFixture(cleanups, {
+      chatRoute: true,
+      personal,
+      managed,
+      ...(idleSuccess ? { tools: [{ id: 'mitzo:AgentCommunication', version: 1 }] } : {}),
+    });
     if (personal) {
       const capture = ClaudeSubscriptionCustody.capture;
       vi.spyOn(ClaudeSubscriptionCustody, 'capture').mockImplementation((env) =>
@@ -413,6 +418,47 @@ it.each([
       captureAgentLibraryAuthorization(sessionToolOperatorConnection(sdkSession, 'sdk')).auth.id,
     ).toBe(f.auth.id);
     sdkSession.ownerConnectionId = viewer;
+    if (idleSuccess) {
+      const { getPendingRequestsBySession, resolvePending } = await import('@mitzo/harness');
+      const options = services.requests[0].options as Options;
+      const questions = [
+        {
+          question: 'Which checkpoint?',
+          header: 'Checkpoint',
+          options: [{ label: 'Current', description: 'Keep the active task.' }],
+          multiSelect: false,
+        },
+      ];
+      const answer = options.canUseTool!(
+        'AskUserQuestion',
+        { questions },
+        { signal: new AbortController().signal, toolUseID: 'explicit-sdk-question' },
+      );
+      await vi.waitFor(() =>
+        expect(getPendingRequestsBySession(f.reservation.conversationId)).toHaveLength(1),
+      );
+      const pending = getPendingRequestsBySession(f.reservation.conversationId)[0];
+      expect(pending.questions).toMatchObject([{ question: 'Which checkpoint?' }]);
+      expect(
+        resolvePending(
+          pending.permId,
+          'once',
+          { 'Which checkpoint?': ['Current'] },
+          f.reservation.conversationId,
+        ),
+      ).toBe(true);
+      await expect(answer).resolves.toMatchObject({
+        behavior: 'allow',
+        updatedInput: { answers: { 'Which checkpoint?': 'Current' } },
+      });
+      await expect(
+        options.canUseTool!(
+          'Bash',
+          { command: 'true' },
+          { signal: new AbortController().signal, toolUseID: 'unselected-shell' },
+        ),
+      ).resolves.toMatchObject({ behavior: 'deny' });
+    }
     if (personal) {
       const sdkOptions = services.requests[0].options as Options;
       expect(sdkOptions.sandbox).toMatchObject({

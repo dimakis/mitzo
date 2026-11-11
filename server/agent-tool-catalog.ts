@@ -102,7 +102,12 @@ export function agentToolCatalog(): AgentToolCatalogEntry[] {
                   : source === 'GitHub publishing'
                     ? ['local-api', 'codex', 'codex-owned-local']
                     : source === 'Workspace'
-                      ? ['local-api', 'codex', 'codex-owned-local']
+                      ? [
+                          'local-api',
+                          'codex',
+                          'codex-owned-local',
+                          ...(tool.name === 'AskUserQuestion' ? ['claude-sdk'] : []),
+                        ]
                       : source === 'Connections' || source === 'Web'
                         ? [
                             'local-api',
