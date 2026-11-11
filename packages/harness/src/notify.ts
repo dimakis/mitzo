@@ -17,6 +17,13 @@ function sessionUrl(sessionId?: string): string {
   return sessionId ? `${BASE_URL}/chat/${sessionId}` : BASE_URL;
 }
 
+function titleHeader(title: string): string {
+  // ntfy decodes RFC 2047 headers; fetch accepts only byte-valued header text.
+  return /[^\x20-\x7e]/.test(title)
+    ? `=?UTF-8?B?${Buffer.from(title, 'utf8').toString('base64')}?=`
+    : title;
+}
+
 export async function sendPermissionNotification(
   toolName: string,
   toolInput: string,
@@ -36,7 +43,7 @@ export async function sendPermissionNotification(
   const denyUrl = `${BASE_URL}/api/permission/${permId}/respond?decision=deny&token=${token}`;
 
   const headers: Record<string, string> = {
-    Title: options?.reviewOnly ? toolName : `Mitzo: ${toolName}`,
+    Title: titleHeader(options?.reviewOnly ? toolName : `Mitzo: ${toolName}`),
     Priority: '4',
     Tags: 'robot',
     Actions: [
@@ -87,7 +94,7 @@ export async function sendTurnCompleteNotification(
 
   const title = sessionTitle ? `Mitzo: ${sessionTitle}` : 'Mitzo';
   const headers: Record<string, string> = {
-    Title: title,
+    Title: titleHeader(title),
     Priority: '3',
     Tags: 'speech_balloon',
     Actions: `view, Open Mitzo, ${sessionUrl(sessionId)}`,

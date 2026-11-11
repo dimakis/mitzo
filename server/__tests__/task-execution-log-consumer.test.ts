@@ -118,7 +118,7 @@ it.each([
     github.execute.mockImplementation((_file, args, options, callback) => {
       expect(args.slice(0, 5)).toEqual(['api', '--hostname', 'github.com', '--method', 'GET']);
       expect(options.maxBuffer).toBe(8 * 1024 * 1024);
-      callback(null, 'setup\nFAIL [literal] job failed\nPASS finished\n', '');
+      callback(null, '  FAIL [literal] job failed\nPASS finished  \n\n', '');
       return {};
     });
     const status = JSON.parse(
@@ -134,13 +134,17 @@ it.each([
         .grants,
     ).toEqual([]);
     for (const [job, query, content] of [
-      [123, '[literal]', 'FAIL [literal] job failed'],
-      [456, 'PASS', 'PASS finished'],
+      [123, '  FAIL', '  FAIL [literal] job failed'],
+      [456, 'PASS', 'PASS finished  '],
     ] as const) {
       const input = f.input(job, query);
       const result = await f.tools('worker').execute(input, f.signal, f.call);
       expect(result.isError, result.content).toBe(false);
-      expect(JSON.parse(result.content)).toMatchObject({ content, nextOffset: null });
+      expect(JSON.parse(result.content)).toMatchObject({
+        content,
+        nextOffset: null,
+        sourceBytes: Buffer.byteLength('  FAIL [literal] job failed\nPASS finished  \n\n'),
+      });
       // A repeated delivery keeps the original request ID and does not refetch.
       expect(await f.tools('worker').execute(input, f.signal, f.call)).toEqual(result);
       expect(f.store.runStatus(f.grant.id, 'worker', input.requestId).state).toBe('completed');
