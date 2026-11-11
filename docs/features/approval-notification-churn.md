@@ -70,12 +70,22 @@ change does not manufacture qualification or enable an unverified reviewer.
 
 ## Remaining workflow scope gaps
 
+Authenticated `GitHubRead` and `TaskExecution github_read` now accept `log` on
+`/repos/OWNER/REPO/actions/jobs/JOB_ID/logs`. For example, `log: { query: "FAIL" }`
+returns matching lines using a literal filter; `offset` and `limit` page the
+filtered text. Offsets count UTF-16 characters, and `nextOffset: null` marks the
+end. Each fetch is limited to 8 MiB and each output page is bounded. Oversized
+sources fail explicitly. Run-level ZIP downloads are not interpreted as text.
+The same repository/task consent covers different job IDs and filters. Public
+reads do not silently switch to credentials. This route avoids a shell redirect
+or pipeline for ordinary failure inspection; it does not save a local log file.
+
 This repository read grammar does not cover `gh pr view/checks`, log reads with
 redirection or pipelines, Git fetch/push, or arbitrary Bash. TaskExecution can
 cover selected routine commands and networking, but native tools retain their
 own permission owner; a TaskExecution grant does not automatically become native
 shell authority. A complete fix needs consistent task authority at each execution
-adapter and a bounded CI-log collection route, with current owner/account/root,
+adapter and bounded CI-log collection to local files, with current owner/account/root,
 cancellation and revocation checks. Telos updates and publication also retain
 their separate reviewed mutation contracts. Notification coalescing does not
 remove these authorization requests or establish that the whole workflow is fixed.
