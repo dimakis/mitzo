@@ -12,6 +12,7 @@ import { TurnCallbacks, type TurnCallbackRunner } from './turn-callbacks.js';
 import type { OrdinaryLocalCommandAdmission } from '@mitzo/protocol';
 import { assertOrdinaryLocalVertexHistory } from './ordinary-local-vertex-native-history.js';
 import { assertClaudeSubscriptionAccount } from './claude-subscription-custody.js';
+import { assertOrdinarySynchronousFence } from './ordinary-turn-lifecycle.js';
 /** Only the lifetime of an SDK query, not runtime/auth/history state. Retiring a
  * completed query cannot abort its successor; stale hooks always refuse effects. */
 export class SdkHookLifetime {
@@ -33,8 +34,15 @@ export interface SdkCallbackState {
   callbacks: TurnCallbacks;
   runCallback: TurnCallbackRunner;
 }
+/** Host-only opaque capture; a forged object cannot name a native query. */
+export interface OrdinarySdkQueryControl {
+  captureInterruptTarget(): object | undefined;
+  interruptIfCurrent(target: object): Promise<boolean>;
+}
 export function createSdkCallbackState(): SdkCallbackState {
-  const callbacks = new TurnCallbacks();
+  // SDK terminal evidence must retain uncertainty even when the callback
+  // finished before the native result arrived. Later text cannot settle effects.
+  const callbacks = new TurnCallbacks({ retainUnknownOutcomes: true });
   return {
     retired: false,
     completing: false,
@@ -114,6 +122,9 @@ export function createOrdinaryLocalVertexSdkQuery<
   controller: AbortController;
   authorize(signal: AbortSignal): Promise<void>;
   authorizeSync(signal: AbortSignal): void;
+  /** Trusted ordinary command/source fence, after every awaited SDK account
+   * check and immediately before yielding that exact frozen user input. */
+  beforeInput?(commandId: string): void;
   adapt(query: Query): T;
   settings(
     selection: OrdinaryLocalCommandAdmission['selection'],
@@ -131,6 +142,10 @@ export function createOrdinaryLocalVertexSdkQuery<
     processClose?: ReturnType<typeof observeOrdinarySdkProcessClose>;
   };
   const states = new WeakMap<Query, State>();
+  const interruptTargets = new WeakMap<
+    object,
+    { run: Query; state: State; interrupt(): Promise<void> }
+  >();
   const prompt = async function* (queue: AsyncQueue<SDKUserMessage>, current: () => Query) {
     for await (const message of queue) {
       await owners.authorize(owners.controller.signal);
@@ -142,6 +157,19 @@ export function createOrdinaryLocalVertexSdkQuery<
           owners.controller.abort(error);
           throw error;
         }
+      }
+      try {
+        owners.authorizeSync(owners.controller.signal);
+        if (owners.beforeInput) {
+          const commandId = (message as SDKUserMessage & { mitzoMessageId?: unknown })
+            .mitzoMessageId;
+          if (typeof commandId !== 'string' || !/^\S{1,200}$/.test(commandId))
+            throw Error('Original SDK input command identity unavailable');
+          assertOrdinarySynchronousFence(commandId, () => owners.beforeInput!(commandId));
+        }
+      } catch (error) {
+        owners.controller.abort(error);
+        throw error;
       }
       yield message;
     }
@@ -201,10 +229,14 @@ export function createOrdinaryLocalVertexSdkQuery<
       let terminal = false;
       try {
         for await (const event of owners.adapt(run)) {
+          const state = states.get(run)!;
+          // The consumer correlates input echoes and message starts with its
+          // current FIFO command. A terminal/retired query cannot contribute
+          // provenance to that successor, even while its stream drains.
+          if (state.retired || state.completing || terminal) continue;
           if (event.session_id !== undefined && event.session_id !== owners.sdkSessionId)
             throw Error('Original SDK thread identity changed');
           if (event.type === 'result') {
-            const state = states.get(run)!;
             state.completing = true;
             state.callbacks.seal();
             if (state.callbacks.needsSettlement)
@@ -234,6 +266,37 @@ export function createOrdinaryLocalVertexSdkQuery<
   return {
     query: joined,
     firstQuery,
+    captureInterruptTarget() {
+      const state = states.get(native)!;
+      if (
+        owners.controller.signal.aborted ||
+        state.retired ||
+        state.completing ||
+        typeof native.interrupt !== 'function'
+      )
+        return;
+      const target = Object.freeze({});
+      interruptTargets.set(target, {
+        run: native,
+        state,
+        interrupt: native.interrupt.bind(native),
+      });
+      return target;
+    },
+    async interruptIfCurrent(target: object) {
+      const witness = interruptTargets.get(target);
+      if (
+        !witness ||
+        witness.run !== native ||
+        witness.state.retired ||
+        witness.state.completing ||
+        owners.controller.signal.aborted
+      )
+        return false;
+      owners.authorizeSync(owners.controller.signal);
+      await witness.interrupt();
+      return true;
+    },
     push(message: SDKUserMessage) {
       input.push(message);
     },

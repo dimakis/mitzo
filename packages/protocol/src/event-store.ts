@@ -5,6 +5,11 @@ export {
   type DrainedMaintenancePort,
 } from './deployment-maintenance-store.js';
 import { DeploymentStore } from './deployment-store.js';
+import {
+  OrdinarySdkTurnAcceptedSchema,
+  OrdinarySdkInterruptTargetSchema,
+  OrdinarySdkInterruptReceiptSchema,
+} from './ordinary-turn.js';
 import { MessageReplyContextSchema, type MessageReplyContext } from './message-reply.js';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { isAbsolute, resolve, sep } from 'node:path';
@@ -748,7 +753,11 @@ export class EventStore {
         meta,
         binding,
         input,
-        receipt.settings.binding.execution.location === 'local' ? 'local' : 'openshell',
+        receipt.settings.binding.harness.implementation === 'claude-sdk'
+          ? 'vertex'
+          : receipt.settings.binding.execution.location === 'local'
+            ? 'local'
+            : 'openshell',
         operationId,
       );
       this.db!.prepare(
@@ -4171,6 +4180,71 @@ export class EventStore {
         throw new SessionCollaborationError('not_found');
       return readCollaborationStreamingReply(this.db!, sessionId, messageId);
     })();
+  }
+
+  /** Bounded private SDK input/result identity for one retained ordinary
+   * command. This never reads provider history or confers runtime authority. */
+  getOrdinarySdkTurnEvents(sessionId: string, commandId: string) {
+    return this.db!.prepare(
+      `SELECT type,payload FROM events WHERE session_id=?
+       AND type IN ('ordinary_sdk_turn_accepted','ordinary_sdk_turn_settled')
+       AND json_extract(payload,'$.commandId')=? ORDER BY seq LIMIT 3`,
+    )
+      .all(sessionId, commandId)
+      .map((row) => {
+        const event = row as { type: string; payload: string };
+        return { type: event.type, payload: JSON.parse(event.payload) as unknown };
+      });
+  }
+  getOrdinarySdkInterruptReceipt(sessionId: string, requestId: string) {
+    const rows = this.db!.prepare(
+      `SELECT payload FROM events WHERE session_id=? AND type='ordinary_sdk_interrupt_claimed'
+       AND json_extract(payload,'$.requestId')=? ORDER BY seq LIMIT 2`,
+    ).all(sessionId, requestId) as Array<{ payload: string }>;
+    if (rows.length > 1) throw Error('Ambiguous ordinary SDK interruption receipt');
+    return rows[0]
+      ? OrdinarySdkInterruptReceiptSchema.parse(JSON.parse(rows[0].payload))
+      : undefined;
+  }
+  /** Exact original SDK command compare/one-way claim. A claim proves neither
+   * native cancellation nor terminal/effect settlement and is never replayed. */
+  claimOrdinarySdkInterrupt(sessionId: string, requestId: string, raw: unknown) {
+    const target = OrdinarySdkInterruptTargetSchema.parse(raw);
+    const receipt = OrdinarySdkInterruptReceiptSchema.parse({ version: 1, requestId, target });
+    return this.db!.transaction(() => {
+      const previous = this.getOrdinarySdkInterruptReceipt(sessionId, requestId);
+      if (previous) {
+        if (!isDeepStrictEqual(previous, receipt)) throw Error('SDK interruption identity changed');
+        return { fresh: false, receipt: previous };
+      }
+      const command = this.getSendCommand(target.commandId);
+      const admission = this.getOrdinaryLocalVertexCommandAdmission(target.commandId);
+      const executionAdmission = this.getExecutionAdmission(sessionId, target.commandId);
+      const events = this.getOrdinarySdkTurnEvents(sessionId, target.commandId);
+      const accepted =
+        events.length === 1 && events[0].type === 'ordinary_sdk_turn_accepted'
+          ? OrdinarySdkTurnAcceptedSchema.parse(events[0].payload)
+          : undefined;
+      const { execution, ...identity } = target;
+      if (
+        execution.sessionId !== sessionId ||
+        !executionAdmission ||
+        executionAdmission.requestFingerprint !== target.executionFingerprint ||
+        !isDeepStrictEqual(executionAdmission.token, execution) ||
+        command?.sessionId !== sessionId ||
+        command.error ||
+        !admission ||
+        admission.state !== 'consumed' ||
+        admission.requestFingerprint !== target.executionFingerprint ||
+        !accepted ||
+        !isDeepStrictEqual(accepted, identity)
+      )
+        return;
+      const stopped = this.transitionExecution(execution, 'STOPPING');
+      if (!stopped.applied) return;
+      this.append(sessionId, 'ordinary_sdk_interrupt_claimed', receipt);
+      return { fresh: true, receipt };
+    }).immediate();
   }
 
   /** Exact native provider terminal notification, distinct from display state,

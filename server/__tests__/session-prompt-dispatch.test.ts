@@ -9,6 +9,7 @@ const f = vi.hoisted(() => ({
   binding: {} as Record<string, unknown>,
   selection: {} as Record<string, unknown>,
   authorized: true,
+  sdkOutcome: undefined as 'completed' | 'failed' | 'interrupted' | 'uncertain' | undefined,
   native: { captureInterruptTarget: vi.fn(), interruptIfCurrent: vi.fn() },
   current: vi.fn(),
   release: vi.fn(),
@@ -25,6 +26,9 @@ const f = vi.hoisted(() => ({
     hostReservation?: { taskRoot: string };
     sandbox?: boolean;
   },
+}));
+vi.mock('../ordinary-sdk-turn-evidence.js', () => ({
+  observedOrdinarySdkOutcome: () => f.sdkOutcome,
 }));
 vi.mock('../auth.js', () => ({
   isAuthSessionCurrent: () => f.authorized,
@@ -65,6 +69,7 @@ vi.mock('../ordinary-openshell-codex-entry.js', () => ({
 
 function fixture(harness = 'codex', location = 'local') {
   f.authorized = true;
+  f.sdkOutcome = undefined;
   f.dispatch.mockClear();
   f.current.mockClear();
   f.release.mockClear();
@@ -82,7 +87,14 @@ function fixture(harness = 'codex', location = 'local') {
     version: 2,
     account: {
       accountId: 'recipient-account',
-      provider: 'fixture-provider',
+      provider:
+        harness === 'claude-sdk'
+          ? 'anthropic-claude'
+          : harness === 'gemini'
+            ? 'google-vertex'
+            : harness === 'responses'
+              ? 'openai'
+              : 'openai-codex',
       profileRevision: 'p1',
     },
     harness: { implementation: harness },
@@ -261,7 +273,7 @@ it('observes ordinary collaboration capability without binding or dispatching an
   await expect(fxt.port.inspectCollaboration!(prompt)).resolves.toBeUndefined();
   expect(f.dispatch).not.toHaveBeenCalled();
   f.live = { session: {}, clientId: 'foreign' };
-  await expect(fxt.port.inspectCollaboration!(prompt)).rejects.toThrow('fresh Local Codex');
+  await expect(fxt.port.inspectCollaboration!(prompt)).rejects.toThrow('fresh configured');
   expect(f.dispatch).not.toHaveBeenCalled();
   fxt.port.close();
 });
@@ -320,47 +332,151 @@ it('fences cancellation and logout after asynchronous preparation', async () => 
   ).rejects.toThrow(/authorization/i);
 });
 
-it('dispatches an explicitly requested first turn into the original silently prepared session', async () => {
-  const fxt = fixture();
-  const settings = {
-    binding: f.binding,
-    selection: f.selection,
-    repositoryWorkspaceId: 'workspace',
-  };
-  fxt.events.getLatestOrdinaryCommandAdmission = () => undefined;
-  fxt.events.getOrdinarySessionPreparationForConversation = () =>
-    ({ allocationOperationId: 'original-allocation', firstCommandId: null }) as never;
-  fxt.events.getOrdinaryConversationSettings = () => settings as never;
+it.each(['codex', 'claude-sdk'])(
+  'dispatches an explicitly requested %s first turn into the original silently prepared session',
+  async (harness) => {
+    const fxt = fixture(harness);
+    const settings = {
+      binding: f.binding,
+      selection: f.selection,
+      repositoryWorkspaceId: 'workspace',
+    };
+    fxt.events.getLatestOrdinaryCommandAdmission = () => undefined;
+    fxt.events.getOrdinarySessionPreparationForConversation = () =>
+      ({ allocationOperationId: 'original-allocation', firstCommandId: null }) as never;
+    fxt.events.getOrdinaryConversationSettings = () => settings as never;
+    const prompt = {
+      sessionId: 'worker',
+      commandId: 'explicit-group-command',
+      auth: fxt.delivery.auth,
+      text: 'Exact reviewed shared context\n\nExplicit question',
+      settings,
+      preparationOperationId: 'original-allocation',
+      ...(harness === 'codex' ? { onQueryEvent: vi.fn() } : {}),
+      turnLifecycle: { beforeDispatch: vi.fn(), accepted: vi.fn(), terminal: vi.fn() },
+    };
+    try {
+      await fxt.port.deliverOrdinary(prompt as never, new AbortController().signal, f.current);
+      expect(f.dispatch).toHaveBeenCalledExactlyOnceWith(
+        expect.objectContaining({
+          sessionId: 'worker',
+          commandId: prompt.commandId,
+          continuation: false,
+          preparationOperationId: 'original-allocation',
+          ...(harness === 'codex' ? { onQueryEvent: prompt.onQueryEvent } : {}),
+          ordinaryTurnLifecycle: expect.any(Object),
+          command: expect.objectContaining({
+            selection: f.selection,
+            payload: { text: prompt.text },
+          }),
+        }),
+      );
+    } finally {
+      fxt.port.close();
+    }
+  },
+);
+it('observes SDK readiness and terminal evidence without substituting generic execution cleanup', async () => {
+  const fxt = fixture('claude-sdk');
   const prompt = {
     sessionId: 'worker',
-    commandId: 'explicit-group-command',
+    commandId: 'sdk-command',
+    text: 'Explicit request',
     auth: fxt.delivery.auth,
-    text: 'Exact reviewed shared context\n\nExplicit question',
-    settings,
-    preparationOperationId: 'original-allocation',
-    onQueryEvent: vi.fn(),
+    settings: { binding: f.binding, selection: f.selection, repositoryWorkspaceId: 'workspace' },
     turnLifecycle: { beforeDispatch: vi.fn(), accepted: vi.fn(), terminal: vi.fn() },
   };
-  try {
-    await fxt.port.deliverOrdinary(prompt as never, new AbortController().signal, f.current);
-    expect(f.dispatch).toHaveBeenCalledExactlyOnceWith(
-      expect.objectContaining({
-        sessionId: 'worker',
-        commandId: prompt.commandId,
-        continuation: false,
-        preparationOperationId: 'original-allocation',
-        onQueryEvent: prompt.onQueryEvent,
-        ordinaryTurnLifecycle: expect.any(Object),
-        command: expect.objectContaining({
-          selection: f.selection,
-          payload: { text: prompt.text },
-        }),
-      }),
-    );
-  } finally {
-    fxt.port.close();
-  }
+  await expect(fxt.port.inspectCollaboration!(prompt as never)).resolves.toBeUndefined();
+  expect(f.dispatch).not.toHaveBeenCalled();
+  await fxt.port.deliverOrdinary(prompt as never, new AbortController().signal, f.current);
+  expect(f.dispatch).toHaveBeenCalledExactlyOnceWith(
+    expect.objectContaining({
+      ordinaryTurnLifecycle: expect.any(Object),
+      onSessionPrepared: expect.any(Function),
+    }),
+  );
+  expect(fxt.port.observedOutcome!(prompt.auth, 'worker', 'sdk-command')).toBeUndefined();
+  f.sdkOutcome = 'uncertain';
+  expect(fxt.port.observedOutcome!(prompt.auth, 'worker', 'sdk-command')).toBe('uncertain');
+  f.sdkOutcome = 'completed';
+  expect(fxt.port.observedOutcome!(prompt.auth, 'worker', 'sdk-command')).toBe('completed');
+  fxt.port.close();
 });
+it.each([
+  'current',
+  'successor',
+  'claimed',
+  'settled',
+  'foreign',
+  'revoked',
+  'owner_changed',
+  'auth_lost',
+])(
+  'routes SDK Stop only to the original ordinary owner and keeps uncertain claims observational: %s',
+  async (scenario) => {
+    const h = fixture('claude-sdk');
+    h.events.getSendCommand = () => ({ sessionId: 'worker' }) as never;
+    h.events.getOrdinarySdkInterruptReceipt = () =>
+      scenario === 'claimed' ? ({ retained: true } as never) : undefined;
+    f.sdkOutcome = scenario === 'settled' ? 'completed' : 'uncertain';
+    const captured = { commandId: scenario === 'successor' ? 'successor-command' : 'original' };
+    const control = {
+      captureInterruptTarget: vi.fn(() => captured),
+      interruptIfCurrent: vi.fn(async () => {
+        if (scenario === 'auth_lost') f.authorized = false;
+        return 'requested';
+      }),
+    };
+    const session = {
+      ordinaryRuntimeOwner: {
+        authSessionId: scenario === 'foreign' ? 'other' : 'login',
+        sdkTurns: control,
+      },
+    };
+    f.live = { session };
+    if (scenario === 'owner_changed')
+      control.captureInterruptTarget.mockImplementation(() => {
+        session.ordinaryRuntimeOwner = { ...session.ordinaryRuntimeOwner };
+        return captured;
+      });
+    f.authorized = scenario !== 'revoked';
+    try {
+      const result = h.port.stopOrdinary!(
+        h.delivery.auth,
+        'worker',
+        'original',
+        'sdk-stop',
+        vi.fn(),
+      );
+      if (scenario === 'revoked' || scenario === 'auth_lost')
+        await expect(result).rejects.toThrow('authorization');
+      else
+        await expect(result).resolves.toBe(
+          scenario === 'current'
+            ? 'requested'
+            : scenario === 'settled'
+              ? 'settled'
+              : scenario === 'foreign'
+                ? 'unavailable'
+                : 'uncertain',
+        );
+      expect(control.interruptIfCurrent).toHaveBeenCalledTimes(
+        ['current', 'auth_lost'].includes(scenario) ? 1 : 0,
+      );
+      if (scenario === 'revoked' || scenario === 'auth_lost')
+        expect(() => h.port.observedOutcome!(h.delivery.auth, 'worker', 'original')).toThrow(
+          'authorization',
+        );
+      else
+        expect(h.port.observedOutcome!(h.delivery.auth, 'worker', 'original')).toBe(
+          scenario === 'settled' ? 'completed' : 'uncertain',
+        );
+    } finally {
+      f.authorized = true;
+      h.port.close();
+    }
+  },
+);
 
 it('keeps timers unable to start unused sessions and rejects changed prepared settings before dispatch', async () => {
   const fxt = fixture();

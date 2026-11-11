@@ -5,6 +5,36 @@ Existing Telos item: `c0851ba23fcc5d04`; reuse it rather than create another par
 or a task for every document. Tracker closure and source landing do not prove
 runtime acceptance or authorize deployment.
 
+## Personal Claude alongside an API-key participant — source candidate
+
+The replacement owner's provider candidate uses the existing Local Mac ordinary
+Claude SDK owner and personal subscription custody. A fresh participant can be
+prepared silently with the selected account, agent and repository, then start
+only on an explicit request. It does not substitute an Anthropic API credential
+for personal Claude sign-in. A separate configured API-key participant keeps its
+own account, native owner and private execution evidence.
+
+Exact SDK input acceptance, final reply identity, terminal settlement and Stop
+claims are retained privately against the original ordinary command. Late events
+from a retired SDK run cannot acquire a queued successor's identity. Unknown tool
+effects remain uncertain; a cancellation acknowledgment does not prove settlement.
+Final synchronous authorization follows asynchronous credential/source checks.
+
+The offline real HTTP application journey exercises both personal Claude and a
+separate OpenAI API-key participant: silent joins, first/later attributed replies,
+exact retries without extra inputs, an exact older saved artifact, independent
+Stop claims and terminal settlement, complete restart without replay, and explicit
+cold continuation of the same personal Claude session. Only external credential
+and provider processes are synthetic; application authentication, account routing,
+admission, stores and source delivery remain real. The Add-agent repository picker
+now carries the selected supported harness instead of hard-coding Codex; remote
+SDK and unsupported routes remain unavailable.
+
+This is source qualification. Hosted CI, browser evidence, trusted current-head
+review and gated landing remain required. No real subscription/API test, account
+enrollment, deployment or runtime acceptance is claimed. The forwarding sheet and
+explicit request-for-responses flow remain separate work after the retained stack.
+
 ## Multiple-responder source candidate
 
 Published as draft [PR #1280](https://github.com/dimakis/mitzo/pull/1280), stacked
