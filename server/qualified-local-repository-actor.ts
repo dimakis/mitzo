@@ -1,4 +1,5 @@
 import { capturePrivateRepositoryPublicationEntries } from './private-repository-publication-entries.js';
+import { joinRetainedFinalizers } from './retained-finalization.js';
 import { createHash } from 'node:crypto';
 import { constants } from 'node:fs';
 import { lstat, mkdir, open, writeFile, cp } from 'node:fs/promises';
@@ -101,14 +102,18 @@ export async function materializeQualifiedLocalRepositoryTask(operation: {
     const reader = await captureNativeLocalRepositoryReader(context, {
       deadline: preparationReadDeadline(deadline, context.signal),
     });
+    let readFailure: { cause: unknown } | undefined;
     try {
       return await action(new LocalRepositoryReadAccess(reader), reader);
+    } catch (cause) {
+      readFailure = { cause };
+      throw cause;
     } finally {
-      try {
-        await reader.dispose();
-      } finally {
-        await sourceFull();
-      }
+      await joinRetainedFinalizers(
+        'repository_read',
+        [() => reader.dispose(), sourceFull],
+        readFailure,
+      );
     }
   };
   current();
@@ -137,6 +142,7 @@ export async function materializeQualifiedLocalRepositoryTask(operation: {
   const admin = join(common, 'worktrees', `repo-${facts.workspaceId}`);
   const denied = freezeNativeReadExclusions(owner.scope.deniedRoots);
   let publication: Readonly<QualifiedLocalRepositoryPublication> | undefined;
+  let publicationFailure: { cause: unknown } | undefined;
   try {
     // This is the INITIAL parser's historical witness, never a new baseline or
     // current success. The fixed helper's complete preflight checks it freshly
@@ -353,6 +359,7 @@ export async function materializeQualifiedLocalRepositoryTask(operation: {
         constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK,
       );
       let index: Buffer;
+      let indexFailure: { cause: unknown } | undefined;
       try {
         const before = await indexFile.stat();
         if (!before.isFile() || before.nlink !== 1 || before.size > 16 * 1024 * 1024)
@@ -366,8 +373,11 @@ export async function materializeQualifiedLocalRepositoryTask(operation: {
           before.ctimeMs !== after.ctimeMs
         )
           throw unavailable();
+      } catch (cause) {
+        indexFailure = { cause };
+        throw cause;
       } finally {
-        await indexFile.close();
+        await joinRetainedFinalizers('repository_index', [() => indexFile.close()], indexFailure);
       }
       await publish(Buffer.from(`ref: refs/heads/${facts.featureBranch}\n`));
       await publish(Buffer.from('../..\n'));
@@ -404,12 +414,15 @@ export async function materializeQualifiedLocalRepositoryTask(operation: {
       };
       publication = await publishTask(plan);
     }
+  } catch (cause) {
+    publicationFailure = { cause };
+    throw cause;
   } finally {
-    try {
-      await disposeArtifact();
-    } finally {
-      await nativeFull();
-    }
+    await joinRetainedFinalizers(
+      'repository_publication',
+      [disposeArtifact, nativeFull],
+      publicationFailure,
+    );
   }
   if (!publication) throw unavailable();
   const taskIdentity = await read(async (access) =>

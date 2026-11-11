@@ -3390,7 +3390,13 @@ export async function sendOwnedLocalCodexCommand(input: {
       await native.resumeAfterExplicitSend();
     }
     return { ...result, sessionId: input.sessionId };
-  } catch {
+  } catch (cause) {
+    log.warn('Owned ordinary send needs admission or recovery attention', {
+      err: cause,
+      code: 'owned_ordinary_send_unavailable',
+      stage: 'owned_ordinary_admission_or_recovery',
+      sessionId: input.sessionId,
+    });
     throw unavailable();
   }
 }
