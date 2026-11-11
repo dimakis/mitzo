@@ -66,6 +66,13 @@ remote `server.url`). Redeploying the Mac server does not update that bundle.
 - Local elapsed times exclude CI queue time. Baseline runtime delta and CI cost
   are not yet measured; fixtures were extended instead of adding expensive
   provider, native, database-process or browser journeys.
+- Hosted unit shard 1 exposed four existing malformed-command assertions: a
+  synchronous failed Retry incorrectly returned success. Retry now returns the
+  validation result; asynchronous hydration still reports that recovery started.
+  The new malformed-storage case uses the same contract and no longer waits on
+  an unnecessary timer. All blocked-state, byte-preservation and no-dispatch
+  assertions remain. The two existing outbox files passed 70 tests in 4.51 s
+  total, 3.74 s test execution; no fixture or expensive journey was added.
 
 ## Remaining verification
 

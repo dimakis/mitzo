@@ -444,7 +444,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../scripts/__tests__/reauthorize-host-codex-login.test.ts':
     '777976c0b8f2a1283af2695aca3ebc615710cd37d09466051180bd2c8399d73e',
   '../../packages/client/src/__tests__/local-first-command-outbox.test.ts':
-    '5bf1d386fbce9e9b08a3aa365385c6928714dc4ba9bed79a718be9ea6c1cdcaf',
+    '685b6e14a34920d242d93116fd4f0d774460b6f55bfb43713ad70328056a2a01',
   '../../packages/client/src/__tests__/local-first-command-store.test.ts':
     '5d6a122217b0a9c940962ed8055002a7969ae26c768c415a93cc3daff2058194',
   '../../tests/offline/local-first-command.spec.ts':
@@ -2218,7 +2218,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/types/workspace.ts':
     'c54ac596082365496ebf53ca12ce1602b792acfd09092a216285aa69dd38c162',
   '../../packages/client/src/send-outbox.ts':
-    'a59842d48fd814f9803fcb4a0a77db5e6bf1a83cc83785b0c063c76f85b0ce34',
+    '2944f845bb24af02aa14afcb5417b5e35bcb8adb2ffba6c462962da09269f6c8',
   '../../packages/protocol/src/local-codex-first-command.ts':
     'ea563f4e054a78a47fcba9df25da64a6d29c4aa6d16b65df0e18cfd9873a2ad9',
   '../ordinary-local-codex-entry.ts':

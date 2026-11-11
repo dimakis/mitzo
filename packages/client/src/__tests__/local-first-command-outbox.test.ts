@@ -1728,7 +1728,7 @@ it('retries blocked storage hydration once without dispatching, and fences late 
   outbox.stop();
 });
 
-it('keeps malformed saved intent blocked and byte-for-byte intact through Retry and sign-out', async () => {
+it('keeps malformed saved intent blocked and byte-for-byte intact through Retry and sign-out', () => {
   const storage = disk();
   storage.setItem('', '{invalid retained intent');
   const fetch = vi.fn();
@@ -1741,8 +1741,7 @@ it('keeps malformed saved intent blocked and byte-for-byte intact through Retry 
     localFirstCommand: true,
   });
   outbox.start();
-  expect(outbox.retryLocalCommand()).toBe(true);
-  await new Promise((resolve) => setTimeout(resolve, 0));
+  expect(outbox.retryLocalCommand()).toBe(false);
   expect(notify).toHaveBeenLastCalledWith(expect.objectContaining({ state: 'blocked' }));
   outbox.rejectAll('Signed out');
   expect(storage.getItem()).toBe('{invalid retained intent');

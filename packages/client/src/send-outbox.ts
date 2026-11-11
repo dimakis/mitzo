@@ -306,9 +306,12 @@ export class SendOutbox {
         if (this.restore()) {
           this.notifySelectedLocal();
           this.wake();
-        } else this.config.notify({ type: '_local_command_state', state: 'blocked' });
+          return true;
+        }
+        this.config.notify({ type: '_local_command_state', state: 'blocked' });
+        return false;
       };
-      if (!this.config.storage?.recover) finish();
+      if (!this.config.storage?.recover) return finish();
       else {
         const owner = (this.storageRecovery = {});
         void (async () => {
