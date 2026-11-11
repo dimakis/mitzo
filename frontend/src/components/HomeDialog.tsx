@@ -3,6 +3,8 @@ import { createPortal } from 'react-dom';
 import { UiIcon } from './UiIcon';
 import '../styles/home.css';
 import '../styles/header-actions.css';
+import { animateMotion } from '../lib/motion';
+import { useReducedMotion } from '../hooks/useReducedMotion';
 
 const bodyScrollLocks = new WeakMap<HTMLElement, { owners: Set<symbol>; overflow: string }>();
 
@@ -49,6 +51,8 @@ export function HomeDialog({
 }) {
   const dialogRef = useRef<HTMLDialogElement>(null);
   const restoreFocus = useRef(document.activeElement);
+  const reduced = useReducedMotion();
+  const previousOpen = useRef(false);
   useEffect(() => {
     if (!open) {
       restoreFocus.current = document.activeElement;
@@ -82,6 +86,16 @@ export function HomeDialog({
       }
     };
   }, [open]);
+  // The modal is shown in the preceding effect; start its motion in that same
+  // effect flush. Focus restoration stays after DOM removal, outside React's
+  // mutation-time focus restoration.
+  useEffect(() => {
+    const opening = open && !previousOpen.current;
+    previousOpen.current = open;
+    if (!opening || inactive || reduced || !dialogRef.current) return;
+    const animation = animateMotion(dialogRef.current, 'sheet');
+    return () => animation?.cancel();
+  }, [open, inactive, reduced]);
   return createPortal(
     <dialog
       ref={dialogRef}

@@ -10,7 +10,9 @@ import '../../frontend/src/styles/workspace-chat.css';
 
 function Fixture() {
   const legacy = new URLSearchParams(window.location.search).has('legacy');
-  const [failed, setFailed] = useState(!legacy);
+  const accountSwitch = new URLSearchParams(window.location.search).has('accounts');
+  const [refreshed, setRefreshed] = useState(false);
+  const [failed, setFailed] = useState(!legacy && !accountSwitch);
   const [selection, setSelection] = useState({
     accountId: 'work',
     model: 'luna',
@@ -39,16 +41,17 @@ function Fixture() {
         settings={
           <AccountModelPicker
             presentation="settings"
-            sessionId="chat"
+            sessionId={accountSwitch ? null : 'chat'}
             preferredModel="luna"
             onChange={() => {}}
-            lockAccount
+            lockAccount={!accountSwitch}
             disabled={!!settings.disabledReason}
             disabledReason={settings.disabledReason}
             notice={settings.notice}
             onRetry={() => setFailed(false)}
             controlled={{
               selection,
+              onRefresh: () => setRefreshed(true),
               accounts: [
                 {
                   id: 'work',
@@ -58,6 +61,32 @@ function Fixture() {
                     { id: 'luna-next', label: 'Luna next', reasoningEfforts: ['low', 'high'] },
                   ],
                 },
+                ...(accountSwitch
+                  ? [
+                      {
+                        id: 'claude',
+                        label: 'Personal Claude',
+                        models: [
+                          {
+                            id: 'sonnet',
+                            label: 'Claude Sonnet 4.6',
+                            reasoningEfforts: ['medium', 'high'],
+                            defaultReasoningEffort: 'medium',
+                          },
+                          ...(refreshed
+                            ? [
+                                {
+                                  id: 'opus',
+                                  label: 'Claude Opus 4.8',
+                                  reasoningEfforts: ['high', 'max'],
+                                  defaultReasoningEffort: 'high',
+                                },
+                              ]
+                            : []),
+                        ],
+                      },
+                    ]
+                  : []),
               ],
               onChange: (next) =>
                 setSelection({

@@ -1,3 +1,4 @@
+import { localCommandStatusMessage } from '@mitzo/client';
 import type { MessageReplyContext } from '@mitzo/protocol';
 import { SessionLaunchConfigSchema } from '@mitzo/protocol';
 import { SessionLaunchDefaultsControl } from '../components/SessionLaunchDefaultsControl';
@@ -120,18 +121,9 @@ function ChatViewContent() {
   const [profileToolsTarget, setProfileToolsTarget] = useState<HTMLDivElement | null>(null);
   const [keyboardOpen, setKeyboardOpen] = useState(false);
 
-  useEffect(
-    () =>
-      onKeyboardToggle((visible) => {
-        setKeyboardOpen(visible);
-        if (visible) {
-          requestAnimationFrame(() => {
-            scrollRef.current?.scrollTo({ top: scrollRef.current!.scrollHeight });
-          });
-        }
-      }),
-    [],
-  );
+  // ChatArea owns scroll intent during viewport/composer resizing. Opening the
+  // keyboard must not pull a reader away from an older message.
+  useEffect(() => onKeyboardToggle(setKeyboardOpen), []);
   const { sessionId } = useParams<{ sessionId?: string }>();
   const searchParams = useChatDraftSearch(!sessionId);
   const [agentProfile, setAgentProfile] = useState<AgentProfileSelection | null>(null);
@@ -865,7 +857,7 @@ function ChatViewContent() {
       (!repositoryHandoff.present || repositoryHandoff.assignedConversationId === activeSessionId)
     ) {
       awaitingNewSession.current = false;
-      navigate(`/chat/${activeSessionId}`, { replace: true });
+      navigate(`/chat/${activeSessionId}`, { replace: true, state: { chatAssignment: true } });
     }
   }, [
     activeSessionId,
@@ -1319,7 +1311,7 @@ function ChatViewContent() {
                   ),
                 accountNeedsConfirmation: localRuntime.accountNeedsConfirmation,
                 accountReference: localRuntime.intent.accountReference ?? null,
-                onRefresh: localRuntime.refresh,
+                onRefresh: localRuntime.refreshModels,
                 selection: localRuntime.intent.account,
                 onAccountChange: (selection) =>
                   (!briefingOwnedDraft ||
@@ -2260,7 +2252,8 @@ function ChatViewContent() {
                             recoverLocalCommand();
                           },
                           disabled:
-                            !connected || !localCommand.request || localCommand.state === 'blocked',
+                            localCommand.state !== 'blocked' &&
+                            (!connected || !localCommand.request),
                         }
                       : undefined
                   }
@@ -2281,18 +2274,10 @@ function ChatViewContent() {
                     (localRuntime.commandAvailable &&
                     localCommand &&
                     localCommand.state !== 'consumed'
-                      ? localCommand.state === 'pending'
-                        ? 'Sending…'
-                        : ['uncertain', 'reserved', 'retained'].includes(localCommand.state)
-                          ? 'Delivery not confirmed.'
-                          : 'Something went wrong.'
+                      ? localCommandStatusMessage(localCommand.state)
                       : undefined) ??
                     (explicitNew && localCommand && localCommand.state !== 'consumed'
-                      ? localCommand.state === 'pending'
-                        ? 'Sending…'
-                        : ['uncertain', 'reserved', 'retained'].includes(localCommand.state)
-                          ? 'Delivery not confirmed.'
-                          : 'Something went wrong.'
+                      ? localCommandStatusMessage(localCommand.state)
                       : undefined) ??
                     (localFirstCommand && (!localTransportAvailable || !connected)
                       ? 'Execution connection is unavailable. Reconnect before sending.'

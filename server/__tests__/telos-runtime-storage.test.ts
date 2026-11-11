@@ -94,9 +94,15 @@ it('refuses an empty replacement when the legacy directory cannot be inspected',
 });
 it.each(
   ['selected', 'legacy'].flatMap((location) =>
-    ['-wal', '-shm', '-journal', '-unknown-sidecar', '.migration.json', 'ownership'].map(
-      (evidence) => ({ location, evidence }),
-    ),
+    [
+      '-wal',
+      '-shm',
+      '-journal',
+      '-unknown-sidecar',
+      '.migration.json',
+      '.recovery.json',
+      'ownership',
+    ].map((evidence) => ({ location, evidence })),
   ),
 )(
   'refuses fresh storage beside $location $evidence recovery evidence',

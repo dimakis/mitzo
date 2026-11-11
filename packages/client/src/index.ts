@@ -11,6 +11,7 @@ export { WS_READY_STATE } from './types.js';
 export {
   CommandDeliveryDiagnosticSchema,
   commandDeliveryMessage,
+  localCommandStatusMessage,
 } from './command-delivery-diagnostic.js';
 export type {
   CommandDeliveryDiagnostic,

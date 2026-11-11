@@ -1,4 +1,5 @@
 import { initializeTaskExecution, closeTaskExecution } from '../task-execution-runtime.js';
+import { retainCallbackOutcome } from '../turn-callbacks.js';
 import { composeOwnedLocalNativeExecutionPolicyForWorkspace } from '../owned-local-codex-native-policy.js';
 import { registerWorkspaceRuntimeAuthorityPaths } from '../workspace-runtime-private-paths.js';
 import { login, authenticateToken, revokeAuthSession } from '../auth.js';
@@ -425,7 +426,7 @@ it.each([
 );
 
 async function reconcileRetainedColdTurn(
-  nativeStatus: 'interrupted' | 'completed',
+  nativeStatus: 'interrupted' | 'completed' | 'failed',
   policyDrift = false,
   completionPhase = true,
 ) {
@@ -620,7 +621,8 @@ async function reconcileRetainedColdTurn(
       createHash('sha256').update(original.workspace.directory!).digest('hex'),
       policy.policyRevision,
     );
-  native.pauseForRecovery(id, binding, command.id, 'interrupted', 'resume', undefined, true, true);
+  const retainedStatus = nativeStatus === 'failed' ? 'failed' : 'interrupted';
+  native.pauseForRecovery(id, binding, command.id, retainedStatus, 'resume', undefined, true, true);
   native.enqueue(id, binding, { id: 'saved-follow-up', prompt: 'Preserve queued work' });
   const custody = native.readHostCustody(id, binding)!;
   const draft = join(original.workspace.directory!, 'unfinished-work.txt');
@@ -674,7 +676,10 @@ async function reconcileRetainedColdTurn(
           {
             id: params?.threadId === 'child' ? 'child-turn' : 'original-turn',
             status: params?.threadId === 'child' ? 'completed' : nativeStatus,
-            error: null,
+            error:
+              nativeStatus === 'failed'
+                ? { message: 'The model is at capacity', codexErrorInfo: 'serverOverloaded' }
+                : null,
           },
         ],
         nextCursor: null,
@@ -795,7 +800,7 @@ async function reconcileRetainedColdTurn(
   ).toBeUndefined();
   // Reuse the same retained checkout and still-fenced command for adverse
   // receipt observations. No extra repository, database or native journey.
-  for (const [column, value] of nativeStatus === 'interrupted'
+  for (const [column, value] of nativeStatus !== 'completed'
     ? ([
         [
           taskStore ? 'result_content' : policyDrift ? 'tool_name' : 'result_effect_outcome',
@@ -809,7 +814,7 @@ async function reconcileRetainedColdTurn(
     if (column === 'tool_name') identity.toolName = String(value);
     await expect(driver.reconcileRetainedEffects()).rejects.toThrow();
     expect(native.read(id, binding).recovery).toBe(1);
-    expect(native.commandStatus(id, binding, command.id)).toBe('interrupted');
+    expect(native.commandStatus(id, binding, command.id)).toBe(retainedStatus);
     const originalTool = before.tools[0] as Record<string, unknown>;
     db.prepare(`UPDATE codex_tools SET ${column}=? WHERE call_id='failed-read'`).run(
       originalTool[column],
@@ -848,7 +853,7 @@ async function reconcileRetainedColdTurn(
       f.writeProfiles();
     }
   };
-  if (nativeStatus === 'interrupted') afterItem = revokeAccount;
+  if (nativeStatus !== 'completed') afterItem = revokeAccount;
   else {
     const request = probe.rpc.request.getMockImplementation()!;
     probe.rpc.request.mockImplementation(async (method, params) => {
@@ -902,7 +907,7 @@ async function reconcileRetainedColdTurn(
   ).toBe(false);
   expect(probe.rpc.close).toHaveBeenCalled();
   expect(probe.rpc.request.mock.calls.some(([method]) => method === 'thread/items/list')).toBe(
-    nativeStatus === 'interrupted',
+    nativeStatus !== 'completed',
   );
 }
 it.each(['interrupted', 'completed'] as const)(
@@ -912,6 +917,211 @@ it.each(['interrupted', 'completed'] as const)(
 
 it('reconciles settled interrupted work after a real policy change under fresh authority without replay', () =>
   reconcileRetainedColdTurn('interrupted', true));
+
+it.each([false, true])(
+  'reconciles a failed capacity turn with settled receipts without replay (policy drift: %s)',
+  (policyDrift) => reconcileRetainedColdTurn('failed', policyDrift, false),
+);
+
+it.each(
+  (['warm', 'cold'] as const).flatMap((retirement) =>
+    (['settled-capacity', 'unknown-write', 'context-limit'] as const).map((failure) => ({
+      retirement,
+      failure,
+    })),
+  ),
+)(
+  'continues $retirement failed-turn recovery with $failure evidence',
+  async ({ retirement, failure }) => {
+    const unknownWrite = failure === 'unknown-write';
+    const contextLimit = failure === 'context-limit';
+    const f = await ownedRuntimeFixture(cleanups);
+    const first = f.create();
+    await first.admit(f.request);
+    const original = f.dispatch.mock.calls[0][0];
+    const id = original.sessionId,
+      binding = original.lease.binding;
+    const store = new CodexConversationStore(join(f.root, 'capacity-consumer.db'));
+    cleanups.push(() => store.close());
+    store.create(id, binding, original.workspace.directory!);
+    original.admission.persistCustody(store);
+    const policy = composeOwnedLocalNativeExecutionPolicyForWorkspace(
+      { binding, assertCurrentSync: () => original.admission.assertCurrentSync() },
+      () => ({
+        cwd: original.workspace.directory!,
+        mode: 'agent',
+        workspaceRoots: [original.workspace.directory!],
+        authSessionId: f.auth.id,
+      }),
+    );
+    let callbacks!: CodexLifecycleTransport;
+    let turns = 0;
+    let authorized = true;
+    let afterItem = () => {};
+    const base = f.rpc.request.getMockImplementation()!;
+    const error = contextLimit
+      ? { message: 'Context window exceeded', codexErrorInfo: 'contextWindowExceeded' }
+      : { message: 'The model is at capacity', codexErrorInfo: 'serverOverloaded' };
+    let observedError = error;
+    const toolName = unknownWrite ? 'Write' : 'Read';
+    const settledItem = {
+      id: 'finished-read',
+      type: 'dynamicToolCall',
+      tool: toolName,
+      arguments: {},
+      status: unknownWrite ? 'failed' : 'completed',
+      success: !unknownWrite,
+    };
+    let item: Record<string, unknown> = settledItem;
+    f.rpc.request.mockImplementation(async (method, params) => {
+      if (method === 'thread/start' || method === 'thread/resume')
+        return { thread: { id: 'capacity-thread' }, model: binding.model, modelProvider: 'openai' };
+      if (method === 'turn/start') return { turn: { id: `capacity-turn-${++turns}` } };
+      if (method === 'thread/turns/list')
+        return {
+          data: [{ id: 'capacity-turn-1', status: 'failed', error: observedError }],
+          nextCursor: null,
+        };
+      if (method === 'thread/items/list') {
+        afterItem();
+        return { data: [{ turnId: 'capacity-turn-1', item }], nextCursor: null };
+      }
+      return base(method, params);
+    });
+    const execute = vi.fn(async () =>
+      unknownWrite
+        ? retainCallbackOutcome(
+            { content: 'Write failed after possible mutation', isError: true },
+            'unknown',
+          )
+        : { content: 'Original read result', isError: false },
+    );
+    const options = {
+      conversationId: id,
+      cwd: original.workspace.directory!,
+      systemPrompt: original.payload.systemPrompt,
+      profile: original.profile,
+      storedBinding: binding,
+      store,
+      ownerKind: 'ordinary' as const,
+      transportClosure: 'terminal' as const,
+      enableCapacityRecovery: false,
+      nativeExecution: policy,
+      assertNativeExecutionCurrent: () => original.admission.assertCurrentSync(),
+      requestNativeApproval: async () => ({ decision: 'decline' as const }),
+      assertRecoveryCurrent: () => {
+        if (!authorized) throw Error('Original recovery authorization revoked');
+        original.admission.assertCurrentSync();
+      },
+      verifyBinding: async () => binding,
+      canClaimCommand: () => true,
+      tools: [{ name: toolName, description: 'Offline tool', input_schema: { type: 'object' } }],
+      createClient: (owner: CodexLifecycleTransport) => {
+        callbacks = owner;
+        return f.rpc;
+      },
+      emit: () => {},
+      onError: () => {},
+      executeTool: execute,
+    };
+    let runtime = new CodexConversation(options);
+    cleanups.push(() => runtime.close());
+    await runtime.initialize();
+    await runtime.send({ id: original.commandId, prompt: 'Original work' });
+    if (!contextLimit)
+      await callbacks.onRequest(
+        'item/tool/call',
+        {
+          threadId: 'capacity-thread',
+          turnId: 'capacity-turn-1',
+          callId: 'finished-read',
+          tool: toolName,
+          arguments: {},
+        },
+        new AbortController().signal,
+      );
+    await runtime.send({ id: 'saved-capacity-follow-up', prompt: 'Continue with the saved work' });
+    callbacks.onNotification('turn/completed', {
+      threadId: 'capacity-thread',
+      turn: { id: 'capacity-turn-1', status: 'failed', error },
+    });
+    if (retirement === 'cold') {
+      runtime.close();
+      runtime = new CodexConversation(options);
+      await runtime.initialize();
+    }
+    if (contextLimit) {
+      expect(store.continuationBlocker(id, binding)).toBeUndefined();
+      await runtime.resumeAfterExplicitSend();
+      expect(store.commandStatus(id, binding, original.commandId)).toBe('failed');
+      expect(store.commandStatus(id, binding, 'saved-capacity-follow-up')).toBe('running');
+      expect(store.read(id, binding).recovery).toBe(0);
+      expect(turns).toBe(2);
+      expect(execute).not.toHaveBeenCalled();
+      expect(f.rpc.request.mock.calls.some(([method]) => method === 'thread/items/list')).toBe(
+        false,
+      );
+      return;
+    }
+    if (unknownWrite) {
+      await expect(runtime.resumeAfterExplicitSend()).rejects.toThrow('matching settled receipts');
+      expect(store.commandStatus(id, binding, original.commandId)).toBe('failed');
+      expect(store.commandStatus(id, binding, 'saved-capacity-follow-up')).toBe('queued');
+      expect(store.read(id, binding).recovery).toBe(1);
+      expect(turns).toBe(1);
+      expect(execute).toHaveBeenCalledOnce();
+      return;
+    }
+    for (const invalidItem of [
+      { ...settledItem, status: 'inProgress' },
+      { ...settledItem, arguments: { changed: true } },
+      { ...settledItem, id: 'unmatched-tool' },
+      { type: 'commandExecution', id: 'unfinished-command', status: 'failed', exitCode: null },
+      { type: 'fileChange', id: 'unfinished-patch', status: 'failed', changes: [] },
+      { type: 'futureEffect', id: 'unknown-effect' },
+    ]) {
+      item = invalidItem;
+      await expect(runtime.resumeAfterExplicitSend()).rejects.toThrow();
+      expect(store.read(id, binding).recovery).toBe(1);
+      expect(store.commandStatus(id, binding, 'saved-capacity-follow-up')).toBe('queued');
+      expect(turns).toBe(1);
+    }
+    item = settledItem;
+    afterItem = () => {
+      observedError = { ...error, message: 'Different terminal error' };
+    };
+    await expect(runtime.resumeAfterExplicitSend()).rejects.toThrow('terminal identity changed');
+    observedError = error;
+    afterItem = () => {
+      authorized = false;
+    };
+    await expect(runtime.resumeAfterExplicitSend()).rejects.toThrow('authorization revoked');
+    expect(store.read(id, binding).recovery).toBe(1);
+    expect(turns).toBe(1);
+    authorized = true;
+    afterItem = () => {};
+    const originalOwner = options.assertRecoveryCurrent;
+    options.assertRecoveryCurrent = async () => {
+      throw Error('Asynchronous owner rejection');
+    };
+    await expect(runtime.resumeAfterExplicitSend()).rejects.toThrow('must be synchronous');
+    expect(store.read(id, binding).recovery).toBe(1);
+    expect(turns).toBe(1);
+    options.assertRecoveryCurrent = originalOwner;
+    await runtime.resumeAfterExplicitSend();
+    expect(
+      store.commands(id, binding).map(({ id, status, attempt }) => ({ id, status, attempt })),
+    ).toEqual([
+      { id: original.commandId, status: 'failed', attempt: 1 },
+      { id: 'saved-capacity-follow-up', status: 'running', attempt: 1 },
+    ]);
+    expect(store.read(id, binding).recovery).toBe(0);
+    expect(store.continuationBlocker(id, binding)).toBeUndefined();
+    expect(store.completionPhase(id, binding, original.commandId, 1)).toBeUndefined();
+    expect(turns).toBe(2);
+    expect(execute).toHaveBeenCalledOnce();
+  },
+);
 
 it('recovers an interrupted turn without a completion phase, retaining its original outcome and receipts', () =>
   reconcileRetainedColdTurn('interrupted', true, false));

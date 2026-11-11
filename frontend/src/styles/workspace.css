@@ -24,7 +24,7 @@
   margin: 0 0 24px;
 }
 .workspace-page-heading h1 {
-  font-size: clamp(28px, 3.2vw, 32px);
+  font-size: var(--text-collection-title);
   font-weight: 500;
   letter-spacing: -0.035em;
   line-height: 1.15;
@@ -39,7 +39,7 @@
   line-height: 1.5;
 }
 .workspace-page h2 {
-  font-size: 17px;
+  font-size: var(--text-section-title);
   font-weight: 550;
   line-height: 1.4;
 }
@@ -361,6 +361,9 @@
   border-radius: 8px;
   background: var(--workspace-bg);
   color: var(--workspace-text);
+}
+.connections-setup :is(button, input, select) {
+  min-height: var(--control-height);
 }
 .connections-field textarea {
   min-height: 42px;

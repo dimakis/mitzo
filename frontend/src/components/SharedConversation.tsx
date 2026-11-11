@@ -246,7 +246,9 @@ function useSharedConversation({
   const active = !!view?.participantSessionIds.some((id) => id !== sourceConversationId);
   const progress = useConversationProgress({
     api: api.collaborations,
-    view: active ? view : undefined,
+    // Existing collaboration observation survives a temporary singleton. Its
+    // authorized view still owns later remote joins; active only controls UI.
+    view,
     authScope,
     getVerifiedAuthScope,
     refreshTranscript: presentation.observeTranscript,
@@ -335,7 +337,11 @@ export function SharedConversationBody({
       <>
         {children}
         <ChatStatusMessage
-          error={host.error ?? (host.joiningOwner ? host.presentation.error : null)}
+          error={
+            host.error ??
+            (host.joiningOwner ? host.presentation.error : null) ??
+            host.progress.error
+          }
           action={{ label: 'Refresh collaboration', onClick: host.retry }}
         />
       </>

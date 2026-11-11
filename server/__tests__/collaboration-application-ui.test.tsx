@@ -1,5 +1,5 @@
 // @vitest-environment node-compatible-dom
-import { afterAll, beforeAll, expect, it, vi } from 'vitest';
+import { afterAll, beforeAll, expect, it, onTestFailed, vi } from 'vitest';
 import React from 'react';
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
@@ -11,8 +11,8 @@ let h: Awaited<ReturnType<typeof journey.getApplicationUiJourney>>;
 let SharedConversationHost: typeof import('../../frontend/src/components/SharedConversation.js').SharedConversationHost;
 let SharedConversationBody: typeof import('../../frontend/src/components/SharedConversation.js').SharedConversationBody;
 // Cold application compilation and silent joining are setup, with their own
-// bounded deadline. Keep all 27 real ordinary turns inside the unchanged
-// interaction deadline, rather than charging setup twice on busy CI workers.
+// bounded deadline. Keep all 27 real ordinary turns inside the interaction
+// deadline, rather than charging setup twice on busy CI workers.
 beforeAll(async () => {
   h = await journey.getApplicationUiJourney();
   ({ SharedConversationHost, SharedConversationBody } =
@@ -28,6 +28,38 @@ it('sends first and later selected prompts from the production shared composer a
   Object.defineProperty(HTMLElement.prototype, 'scrollTo', { configurable: true, value: () => {} });
   (await import('../auth.js')).setAuthRevocationStore(h.events);
   const runtime = await recordApplicationMessagingRuntime(h.events);
+  // JSDOM has no browser EventSource. Keep the real auth/EventBus owner while
+  // replacing only its unrelated external broadcast connection, never chat RPC.
+  vi.stubGlobal(
+    'EventSource',
+    class extends EventTarget {
+      readyState = 0;
+      onopen = null;
+      onerror = null;
+      constructor(url: string) {
+        super();
+        expect(new URL(url, 'http://offline.invalid').pathname).toBe('/api/events');
+      }
+      close() {
+        this.readyState = 2;
+      }
+    },
+  );
+  const started = performance.now();
+  let stage = 'restore_login';
+  let historyTurnsCompleted = 0;
+  onTestFailed(() => {
+    console.error(
+      'SYMPOSIUM_OFFLINE_UI_FAILURE',
+      JSON.stringify({
+        stage,
+        historyTurnsCompleted,
+        requestedTurns: runtime.requests.filter((request) => request.method === 'turn/start')
+          .length,
+        elapsedMs: Math.round(performance.now() - started),
+      }),
+    );
+  });
   vi.stubGlobal('fetch', h.fetch);
   const auth = await import('../../frontend/src/lib/api-fetch.js');
   expect(await auth.restoreCookieAuthentication()).toBe(true);
@@ -90,6 +122,7 @@ it('sends first and later selected prompts from the production shared composer a
       ).toBe(false),
     );
     fireEvent.click(screen.getByRole('button', { name: 'Send message' }));
+    stage = 'first_composer_reply';
     await waitFor(
       async () => {
         const view = await h.api.view(h.group);
@@ -117,6 +150,7 @@ it('sends first and later selected prompts from the production shared composer a
     expect(reply.author).toEqual({ sessionId: h.joinedSessionId });
     expect(reply.replyToDeliveryId).toBeTruthy();
     ui.unmount();
+    stage = 'remount_original_reply';
     ui = render(surface());
     await waitFor(() =>
       expect(screen.getAllByText('Reviewed the selected design.')).toHaveLength(1),
@@ -134,6 +168,7 @@ it('sends first and later selected prompts from the production shared composer a
     // and its next explicit send must still reach the ordinary native owner.
     await act(async () => {
       for (let i = 0; i < 25; i++) {
+        stage = 'grow_acknowledged_history';
         const current = await h.api.view(h.group);
         const accepted = await h.api.send(h.group, {
           requestId: crypto.randomUUID(),
@@ -151,9 +186,11 @@ it('sends first and later selected prompts from the production shared composer a
             ),
           ).toBe('completed'),
         );
+        historyTurnsCompleted++;
       }
     });
     expect((await h.api.view(h.group)).hasEarlierMessages).toBe(true);
+    stage = 'final_composer_after_paging';
     fireEvent.change(screen.getByRole('textbox', { name: 'Message Mitzo' }), {
       target: { value: 'Review a second question explicitly.' },
     });
@@ -197,6 +234,7 @@ it('sends first and later selected prompts from the production shared composer a
     ).toBe(true);
   } finally {
     cleanup();
+    (await import('../../frontend/src/lib/event-bus-singleton.js')).eventBus.disconnect();
     const { registry } = await import('../chat.js');
     const live = registry.findBySessionId(h.joinedSessionId);
     if (live) await act(async () => registry.abort(live.clientId));
@@ -207,4 +245,7 @@ it('sends first and later selected prompts from the production shared composer a
       Object.defineProperty(HTMLElement.prototype, 'scrollTo', originalScrollTo);
     else Reflect.deleteProperty(HTMLElement.prototype, 'scrollTo');
   }
-}, 30000);
+  // This journey performs 27 real application turns, including paged history.
+  // Allow their aggregate cost on shared CI workers; individual readiness/reply
+  // waits above retain their existing deadlines and assertions.
+}, 60000);

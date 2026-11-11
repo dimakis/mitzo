@@ -1,5 +1,5 @@
-// Load runtime configuration before bootstrap dependencies validate or capture it.
-import 'dotenv/config';
+// Fail before application imports can create stores, routes or recovery owners.
+import './deployment-maintenance-entry.js';
 import { createDeploymentRuntime } from './deployment-runtime.js';
 import { createDeploymentRouter } from './deployment-routes.js';
 import { getLocalCommit } from './git-version.js';
@@ -26,6 +26,7 @@ import { custodianControllerMode, custodianOwnerMode } from './symposium-custodi
 import { finishAppShutdown } from './symposium-app-exit.js';
 import { closeCapabilityOperationStores } from './capability-operation-owner.js';
 import { createSymposiumShutdown, settleSymposiumCleanup } from './symposium-shutdown.js';
+import { closeClaudeAccountLogin } from './claude-account-router.js';
 import { bootstrapConfiguredSymposiumHost } from './symposium-owned-config.js';
 import { loadAccountProfiles } from './account-profiles.js';
 import dns from 'node:dns';
@@ -1403,6 +1404,7 @@ async function shutdown(signal: string) {
   openShellLifecycle?.store.close();
   try {
     await drainOwnedSymposium();
+    await closeClaudeAccountLogin();
     await closeCapabilityOperationStores(AbortSignal.timeout(120_000));
     symposiumNativeHost?.registry.close();
     await finishAppShutdown(

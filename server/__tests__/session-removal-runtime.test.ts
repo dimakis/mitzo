@@ -24,6 +24,7 @@ function fixture() {
   };
   const deps = {
     events: {
+      deployment: { maintenance: { assertControl: vi.fn() } },
       getSession: vi.fn(() => session),
       getSessionRuntimeBinding: vi.fn(() => ({
         version: 2,
@@ -73,6 +74,17 @@ it('does not call stopped data safe merely because the runtime disappeared', () 
     throw Error('pending tool');
   });
   expect(() => f.runtime.assertSettled('chat')).toThrow(/pending tool/);
+});
+it('rechecks quarantine at the native queued-command cancellation boundary', async () => {
+  const f = fixture();
+  f.deps.events.deployment.maintenance.assertControl
+    .mockImplementationOnce(() => {})
+    .mockImplementationOnce(() => {
+      throw Error('Historical execution is quarantined');
+    });
+  await expect(f.runtime.closeRuntime('chat')).rejects.toThrow(/quarantined/);
+  expect(f.native.cancelQueued).not.toHaveBeenCalled();
+  expect(f.live.session.ordinaryRuntimeOwner.close).not.toHaveBeenCalled();
 });
 it('rejects Symposium and retained task-board custody before teardown', () => {
   const f = fixture();

@@ -1,4 +1,5 @@
 import { disabledLocalCapabilities } from '../support/disabled-local-capabilities';
+import { expectMotionSettled } from '../support/motion-settled';
 import { expect, test } from '@playwright/test';
 import { readFile } from 'node:fs/promises';
 import { resolve, extname } from 'node:path';
@@ -424,10 +425,11 @@ test('connects a subscription adviser through compact account management without
   await page.getByRole('button', { name: 'Manage adviser accounts' }).click();
   const dialog = page.getByRole('dialog', { name: 'Adviser accounts' });
   await expect(dialog).toBeVisible();
+  await expectMotionSettled(dialog);
   const buttons = await dialog
     .getByRole('button')
     .evaluateAll((elements) => elements.map((element) => element.getBoundingClientRect().height));
-  expect(buttons.every((height) => height >= 44)).toBe(true);
+  for (const height of buttons) expect(height).toBeGreaterThanOrEqual(44);
   await page.screenshot({ path: testInfo.outputPath('adviser-accounts-dark.png') });
   await dialog.getByRole('button', { name: 'Continue with ChatGPT on your Mac' }).click();
   await expect(dialog.getByRole('status')).toContainText('connected');
