@@ -19,12 +19,15 @@ it('coalesces native and window resume reads and notifies subscribers after hydr
     });
     return tx;
   });
+  const databases: { onclose?: () => void; transaction: typeof transaction }[] = [];
   const indexedDB = {
-    open() {
-      const request: { result: object; onsuccess?: () => void } = { result: { transaction } };
+    open: vi.fn(() => {
+      const db = { transaction };
+      databases.push(db);
+      const request: { result: object; onsuccess?: () => void } = { result: db };
       queueMicrotask(() => request.onsuccess?.());
       return request;
-    },
+    }),
   };
   vi.stubGlobal('window', target);
   vi.stubGlobal('localStorage', fixture().storage);
@@ -49,10 +52,134 @@ it('coalesces native and window resume reads and notifies subscribers after hydr
     unsubscribe();
     target.dispatchEvent(new Event('mitzo-chat-storage-changed'));
     expect(changed).toHaveBeenCalledTimes(1);
+    hold = false;
+    databases[0].onclose?.();
+    await initializeChatStorage();
+    expect(indexedDB.open).toHaveBeenCalledTimes(2);
   } finally {
     vi.unstubAllGlobals();
   }
 });
+
+it('bounds a stalled database open and closes its late handle without replacing the retry owner', async () => {
+  vi.useFakeTimers();
+  const requests: {
+    result: { close: ReturnType<typeof vi.fn>; transaction: ReturnType<typeof vi.fn> };
+    onsuccess?: () => void;
+  }[] = [];
+  const open = vi.fn(() => {
+    const request = {
+      result: {
+        close: vi.fn(),
+        transaction: vi.fn(() => {
+          const tx: { oncomplete?: () => void; objectStore?: () => object } = {};
+          tx.objectStore = () => ({
+            getAll: () => {
+              queueMicrotask(() => tx.oncomplete?.());
+              return { result: [] };
+            },
+          });
+          return tx;
+        }),
+      },
+    };
+    requests.push(request);
+    return request;
+  });
+  vi.stubGlobal('window', new EventTarget());
+  vi.stubGlobal('localStorage', fixture().storage);
+  vi.stubGlobal('indexedDB', { open });
+  vi.stubGlobal('IDBKeyRange', { bound: () => ({}) });
+  vi.stubGlobal('BroadcastChannel', undefined);
+  vi.resetModules();
+  try {
+    const { initializeChatStorage, chatStorage } = await import('../large-chat-storage');
+    const first = expect(initializeChatStorage()).rejects.toThrow(/timed out/);
+    await vi.advanceTimersByTimeAsync(15_000);
+    await first;
+    const retry = chatStorage.recover();
+    requests[0].onsuccess!();
+    expect(requests[0].result.close).toHaveBeenCalledOnce();
+    requests[1].onsuccess!();
+    await vi.advanceTimersByTimeAsync(0);
+    await retry;
+    expect(open).toHaveBeenCalledTimes(2);
+    expect(requests[1].result.close).not.toHaveBeenCalled();
+  } finally {
+    vi.unstubAllGlobals();
+    vi.useRealTimers();
+  }
+});
+
+it.each(['index', 'legacy payload'] as const)(
+  'retires a stalled %s read after opening and ignores its late completion on retry',
+  async (stage) => {
+    vi.useFakeTimers();
+    let stalled = true;
+    let legacyValue = 'Retained draft';
+    const pending: { oncomplete?: () => void; abort: ReturnType<typeof vi.fn> }[] = [];
+    const storage = fixture();
+    if (stage === 'legacy payload') storage.disk.set('draft', 'mitzo-large-chat:v1:payload');
+    const transaction = vi.fn(() => {
+      const tx: {
+        oncomplete?: () => void;
+        abort: ReturnType<typeof vi.fn>;
+        objectStore?: () => object;
+      } = {
+        abort: vi.fn(),
+      };
+      const read = (kind: string, result: unknown) => {
+        if (stalled && kind === stage) pending.push(tx);
+        else queueMicrotask(() => tx.oncomplete?.());
+        return { result };
+      };
+      tx.objectStore = () => ({
+        getAll: () => read('index', []),
+        get: () => read('legacy payload', legacyValue),
+      });
+      return tx;
+    });
+    vi.stubGlobal('window', new EventTarget());
+    vi.stubGlobal('localStorage', storage.storage);
+    vi.stubGlobal('indexedDB', {
+      open: () => {
+        const request: { result: object; onsuccess?: () => void } = { result: { transaction } };
+        queueMicrotask(() => request.onsuccess?.());
+        return request;
+      },
+    });
+    vi.stubGlobal('IDBKeyRange', { bound: () => ({}) });
+    vi.stubGlobal('BroadcastChannel', undefined);
+    vi.resetModules();
+    try {
+      const { initializeChatStorage, chatStorage } = await import('../large-chat-storage');
+      const result = vi.fn();
+      const first = initializeChatStorage().then(() => result('success'), result);
+      await vi.advanceTimersByTimeAsync(15_000);
+      expect(result).toHaveBeenCalledWith(
+        expect.objectContaining({ message: expect.stringMatching(/timed out/) }),
+      );
+      await first;
+      expect(pending[0].abort).toHaveBeenCalledOnce();
+      const lateComplete = pending[0].oncomplete!;
+      stalled = false;
+      legacyValue = 'Fresh recovered draft';
+      const retry = chatStorage.recover();
+      await vi.advanceTimersByTimeAsync(0);
+      await retry;
+      lateComplete();
+      await vi.advanceTimersByTimeAsync(0);
+      expect(result).toHaveBeenCalledOnce();
+      if (stage === 'legacy payload') {
+        expect(chatStorage.getItem('draft')).toBe('Fresh recovered draft');
+        expect(storage.disk.get('draft')).toBe('mitzo-large-chat:v1:payload');
+      }
+    } finally {
+      vi.unstubAllGlobals();
+      vi.useRealTimers();
+    }
+  },
+);
 
 function fixture() {
   const disk = new Map<string, string>();
