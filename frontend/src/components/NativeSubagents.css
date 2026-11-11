@@ -43,6 +43,7 @@
 }
 .native-subagent-dialog {
   block-size: min(56rem, calc(100dvh - 2 * var(--page-gutter)));
+  font: var(--text-base) / 1.5 var(--font-ui);
 }
 .native-subagent-dialog .home-dialog-content {
   display: flex;
@@ -64,6 +65,53 @@
   overflow: auto;
   overflow-wrap: anywhere;
 }
+.native-subagent-body > .native-subagent-state {
+  margin-inline-start: 0;
+}
+.native-subagent-dialog--empty {
+  block-size: auto;
+}
+.native-subagent-dialog--empty .native-subagent-body {
+  flex: 0 1 auto;
+}
+.native-subagent-body > * + * {
+  margin-block-start: var(--space-3);
+}
+.native-subagent-unavailable {
+  display: grid;
+  justify-items: start;
+  gap: var(--space-3);
+  padding-block: var(--space-4);
+  border-block: 1px solid var(--color-border);
+}
+.native-subagent-unavailable h3 {
+  font-size: var(--text-base);
+  font-weight: 600;
+}
+.native-subagent-unavailable p,
+.native-subagent-empty {
+  color: var(--color-muted);
+}
+.native-subagent-details {
+  min-inline-size: 0;
+  inline-size: 100%;
+  color: var(--color-muted);
+  font-size: var(--text-sm);
+}
+.native-subagent-details summary {
+  display: flex;
+  align-items: center;
+  min-block-size: var(--control-height);
+  cursor: pointer;
+}
+.native-subagent-details code {
+  font-family: var(--font-mono);
+  overflow-wrap: anywhere;
+}
+.native-subagent-details summary:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
 .native-subagent-body button {
   min-block-size: var(--control-height);
   min-inline-size: var(--control-height);
@@ -82,6 +130,12 @@
   flex-direction: column;
   gap: var(--space-2);
   min-inline-size: 0;
+  border-block-start: 1px solid var(--color-border);
+  padding-block-start: var(--space-3);
+}
+.native-subagent-composer label {
+  font-size: var(--text-sm);
+  font-weight: 550;
 }
 .native-subagent-composer textarea {
   inline-size: 100%;
@@ -117,5 +171,12 @@
     max-block-size: 100dvh;
     margin: 0;
     border-radius: 0;
+    border: 0;
+  }
+  .native-subagent-dialog .home-dialog-content {
+    padding-block-start: max(var(--space-4), env(safe-area-inset-top));
+    padding-block-end: max(var(--space-4), env(safe-area-inset-bottom));
+    padding-inline-start: max(var(--space-4), env(safe-area-inset-left));
+    padding-inline-end: max(var(--space-4), env(safe-area-inset-right));
   }
 }
