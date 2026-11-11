@@ -124,3 +124,24 @@ it('discards a late name read after an authentication change', async () => {
   await act(async () => finish(metadata('Previous login name')));
   expect(screen.queryByRole('link', { name: 'Previous login name' })).toBeNull();
 });
+
+it('does not let a slower pre-rename read replace the newer name', async () => {
+  let finish!: (response: Response) => void;
+  vi.mocked(apiFetch).mockReturnValueOnce(
+    new Promise((resolve) => {
+      finish = resolve;
+    }),
+  );
+  render(<AgentMessageCard projection={projection} />);
+  vi.mocked(apiFetch).mockResolvedValue(metadata('Renamed coordinator'));
+  renamed();
+  await screen.findByRole('link', { name: 'Renamed coordinator' });
+  await act(async () => finish(metadata('Old coordinator')));
+  expect(screen.getByRole('link', { name: 'Renamed coordinator' })).toBeTruthy();
+});
+
+it.each(['', '   ', sender])('uses a readable name for unnamed metadata (%s)', async (summary) => {
+  vi.mocked(apiFetch).mockResolvedValue(metadata(summary));
+  render(<AgentMessageCard projection={projection} />);
+  await screen.findByRole('link', { name: 'Untitled chat' });
+});

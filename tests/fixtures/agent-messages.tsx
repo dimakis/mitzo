@@ -11,13 +11,14 @@ import '../../frontend/src/styles/workspace.css';
 
 const incoming: AgentMessageProjection = {
   direction: 'incoming',
-  senderName: 'PR coordinator — native subagents first',
+  // Reproduce a retained event whose label was recorded before the chat was named.
+  senderName: '64d8bed3-f73f-8939-8dcf-987cd24fcf6f',
   recipientName: 'Independent feature session',
   timestamp: 1793925200000,
   message: {
     messageId: 'c5d70b9d-8b6f-4640-bdf4-a958abb272f6',
     commandId: 'agent-message:first',
-    senderConversationId: 'coordinator',
+    senderConversationId: '64d8bed3-f73f-8939-8dcf-987cd24fcf6f',
     recipientConversationId: 'feature',
     text: 'Pause PR work until the coordinator releases you.\nLet current CI finish. Keep your checkout and uncommitted work.\nThis entire message remains visible before delivery.',
     replyTo: null,

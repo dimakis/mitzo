@@ -326,6 +326,28 @@ it('labels legacy peer prompts with the chat name while retaining the exact repl
   expect(text).toContain('Reply with SendSessionMessage to session worker');
   expect(text).toContain('no additional permissions');
 });
+it('resolves the sender name through the real prompt port at delivery', async () => {
+  const fxt = fixture();
+  const worker = fxt.events.getSession('worker')!;
+  vi.spyOn(fxt.events, 'getSession').mockImplementation((id) =>
+    id === 'coordinator' ? { ...worker, sessionId: id, summary: 'Review coordinator' } : worker,
+  );
+  await fxt.port.deliver(
+    { ...fxt.delivery, kind: 'agent', senderSessionId: 'coordinator' },
+    new AbortController().signal,
+    f.current,
+  );
+  expect(f.dispatch).toHaveBeenCalledWith(
+    expect.objectContaining({
+      command: expect.objectContaining({
+        payload: expect.objectContaining({
+          text: expect.stringContaining('Agent message from Review coordinator\n'),
+        }),
+      }),
+    }),
+  );
+  fxt.port.close();
+});
 it.each(['timer', 'agent'] as const)(
   'does not cold-resume a durably user-closed recipient for %s delivery',
   async (kind) => {
