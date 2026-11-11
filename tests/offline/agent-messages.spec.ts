@@ -18,9 +18,21 @@ for (const theme of ['dark', 'light'])
   test(`visible peer messages and delivery state (${theme})`, async ({ page }, info) => {
     const files = (await output).outputFiles!;
     const errors: string[] = [];
+    let chatName = 'PR coordinator — native subagents first';
+    let metadataStatus = 200;
     page.on('pageerror', (error) => errors.push(error.message));
     await page.route('**/*', async (route) => {
       const path = new URL(route.request().url()).pathname;
+      const metadata = /^\/api\/sessions\/([^/]+)\/meta$/.exec(path);
+      if (metadata)
+        return route.fulfill({
+          status: metadataStatus,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            sessionId: metadata[1],
+            summary: metadata[1] === 'feature' ? 'Independent feature session' : chatName,
+          }),
+        });
       if (/^\/(openai|claude|openshell|github)-mark.svg$/.test(path))
         return route.fulfill({
           contentType: 'image/svg+xml',
@@ -58,6 +70,22 @@ for (const theme of ['dark', 'light'])
     await link.focus();
     await expect(link).toBeFocused();
     expect((await link.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+    expect(await link.getAttribute('href')).toBe('/chat/64d8bed3-f73f-8939-8dcf-987cd24fcf6f');
+    chatName = 'Renamed coordinator with a longer readable chat name';
+    await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
+    await expect(incoming.getByRole('link')).toHaveText(chatName);
+    metadataStatus = 503;
+    await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
+    await expect(incoming).toContainText('Chat name unavailable. Showing the last known name.');
+    await expect(incoming.getByRole('link')).toHaveText(chatName);
+    await expect(incoming.getByRole('status')).toHaveText('Delivery failed');
+    metadataStatus = 404;
+    await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
+    await expect(incoming.getByRole('link')).toHaveText('Unavailable chat');
+    await expect(incoming).toContainText('64d8bed3-f73f-8939-8dcf-987cd24fcf6f');
+    metadataStatus = 200;
+    await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
+    await expect(incoming.getByRole('link')).toHaveText(chatName);
     const quote = page.locator('.chat-messages .chat-reply-link');
     await expect(quote).toContainText('You');
     await expect(quote.locator('time')).toBeVisible();
