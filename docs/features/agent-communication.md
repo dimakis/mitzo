@@ -5,6 +5,15 @@ autonomous session coordination. The existing [native exchange contract](../desi
 owns authorization and delivery. This document does not establish release or
 production activation.
 
+The 2026-11-11 source proposal extends that contract through verified ordinary
+runtime adapters. It is based on deployed revision
+`58221eafa964761962ea0c949c682f11486e1575`. Local Codex keeps its existing native
+steering path. Owned Local Claude SDK queries use priority-now input and an exact
+replay acknowledgement without changing the active command's input/result
+correlation. Inventory exposes unsupported capabilities rather than silently
+omitting an owned runtime. Other runtime and Symposium control paths require
+their actual owners; an agent/chat label does not establish adapter support.
+
 Each send appears in both chat transcripts immediately after authorization,
 including sends that subsequently fail. The complete text, sender and recipient
 conversation links, time, copy action, message/reply IDs and current delivery
@@ -13,8 +22,10 @@ replay show the same message. Older invisible retained messages are backfilled
 without resending them. No peer message is presented as a human request.
 
 The operator can approve one message or grant messaging for the originating
-session. The latter covers further messages to that operator's live Local Mac
-Codex chats and correlated replies from those peers. Losing the original live
+session. Existing grants cover that operator's live Local Mac Codex chats and
+correlated replies from those peers. Cross-runtime exchanges require a separate
+`adapters-v1` audience grant; the original grant never expands automatically.
+Losing the original live
 owner or clearing its grant removes reply coverage. Runtime, operator, recipient,
 skill/tool and cancellation checks remain in effect for every send. Messages
 convey no publication, filesystem, work-control or merge authority.
@@ -22,8 +33,8 @@ Correlated replies pass through the shared permission constraints, including Ask
 mode. The exact grant owner and membership are rechecked across asynchronous
 admission and at queued provider dispatch; a revoked grant cannot be reused.
 
-A busy recipient receives the message through exact-target native steering.
-An idle recipient uses its original command queue. A paused or cold conversation
+A supported busy recipient receives an active-turn correction through its verified
+native or SDK adapter. An idle recipient uses guarded ordinary admission. A paused or cold conversation
 is never resumed implicitly. Acknowledgement loss stays uncertain and exact
 retries only inspect the original request. Delivery means the provider accepted
 the message; a requested pause still requires the recipient's own acknowledgement.

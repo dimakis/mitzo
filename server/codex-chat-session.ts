@@ -83,6 +83,7 @@ import {
   recordAgentMessageAcceptance,
   recordAgentMessageCommandOutcome,
   sessionAgentCommunicationTools,
+  executeAgentCommunicationTool,
 } from './agent-communication-tools.js';
 import {
   assertAgentToolRoute,
@@ -501,6 +502,10 @@ function store() {
 /** Reuse the private native command ledger for session-scoped Symposium threads. */
 export function getCodexConversationStore(): CodexConversationStore {
   return store();
+}
+/** Peer discovery never creates private native state on another runtime's behalf. */
+export function existingCodexConversationStore() {
+  return privateStore;
 }
 export function getCodexRuntime(session: ManagedSession) {
   return runtimes.get(session);
@@ -3876,19 +3881,14 @@ async function openCodexChatBound(
             },
             'settled',
           );
-        try {
-          return {
-            content: JSON.stringify(await communicationTools.execute(input, signal, callContext)),
-            isError: false,
-          };
-        } catch (error) {
-          const failure = {
-            content:
-              'Agent communication is unavailable under the current sender, recipient or exact-message approval. If delivery was uncertain, read the original message/request receipt before sending again.',
-            isError: true,
-          };
-          return error instanceof Error ? copyCallbackOutcome(error, failure) : failure;
-        }
+        return executeAgentCommunicationTool(
+          () => communicationTools.execute(input, signal, callContext),
+          {
+            conversationId: options.conversationId,
+            requestId: input.requestId,
+            recipientConversationId: input.recipientConversationId,
+          },
+        );
       }
       if (name === 'StartSession') {
         if (!launchTools)

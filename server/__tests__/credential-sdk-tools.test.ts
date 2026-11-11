@@ -3,6 +3,7 @@ import { createCredentialSdkServer, credentialSdkPermission } from '../credentia
 import * as credentialRuntime from '../credential-connections-runtime.js';
 import { SessionRegistry, ToolGuardTimeoutError, type ToolGuardPolicy } from '@mitzo/harness';
 import { TurnCallbacks, assertTurnCallbackEffects } from '../turn-callbacks.js';
+import { AgentCommunicationError } from '../agent-message-runtime.js';
 const mocked = vi.hoisted(() => ({
   tools: [] as Array<{
     name: string;
@@ -21,6 +22,44 @@ vi.mock('@anthropic-ai/claude-agent-sdk', () => ({
     return { type: 'sdk', name: 'mitzo-connections' };
   },
 }));
+it('exposes peer messaging only through an explicitly installed owned SDK callback and retains capability diagnostics', async () => {
+  const registry = new SessionRegistry();
+  registry.register('owned', {
+    sessionId: 'sdk-owned',
+    mode: 'agent',
+    transport: { send() {}, isOpen: () => true },
+    abortController: new AbortController(),
+  } as never);
+  let current = true;
+  const execute = vi.fn(async () => {
+    throw new AgentCommunicationError(
+      'runtime_unsupported',
+      'capability',
+      'The target has no verified peer adapter.',
+    );
+  });
+  const assert = () => {
+    if (!current) throw Error('revoked');
+  };
+  try {
+    createCredentialSdkServer(() => 'sdk-owned', registry.get('owned')!, registry, {
+      profilesOnly: true,
+      assertCurrent: async () => assert(),
+      assertCurrentSync: assert,
+      agentCommunication: () => ({ execute }),
+    });
+    const tool = mocked.tools.find((item) => item.name === 'AgentCommunication');
+    expect(tool).toBeDefined();
+    const result = await tool!.handler({ operation: 'list' });
+    expect(JSON.stringify(result)).toContain('runtime_unsupported');
+    expect(execute).toHaveBeenCalledOnce();
+    current = false;
+    await expect(tool!.handler({ operation: 'list' })).rejects.toThrow('revoked');
+    expect(execute).toHaveBeenCalledOnce();
+  } finally {
+    registry.dispose();
+  }
+});
 it('exposes the same discovery, session approval and request tools to SDK sessions', async () => {
   const session = { abortController: new AbortController() };
   const registry = new SessionRegistry();

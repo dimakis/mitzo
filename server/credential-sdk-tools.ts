@@ -1,6 +1,12 @@
 import { randomUUID } from 'node:crypto';
 import { sessionPromptSchemas, sessionPromptDefinitions } from './session-prompt-definitions.js';
-import type { TurnCallbackRunner } from './turn-callbacks.js';
+import { copyCallbackOutcome, type TurnCallbackRunner } from './turn-callbacks.js';
+import {
+  AgentCommunicationSdkInput,
+  agentCommunicationDefinitions,
+  executeAgentCommunicationTool,
+  type sessionAgentCommunicationTools,
+} from './agent-communication-tools.js';
 import type { ConnectionBoundary } from './session-connection-tools.js';
 import { knowledgeToolSchemas, knowledgeToolDefinitions } from './session-knowledge-tools.js';
 import { profileToolSchemas, profileToolDefinitions } from './session-profile-tools.js';
@@ -23,6 +29,7 @@ import { sessionCredentialTools } from './session-credential-tools.js';
 
 const prefix = 'mcp__mitzo-connections__';
 const schemas = {
+  AgentCommunication: AgentCommunicationSdkInput,
   ...sessionPromptSchemas,
   ...credentialConnectionSchemas,
   ...repositoryChatSchemas,
@@ -82,6 +89,7 @@ export function createCredentialSdkServer(
     assertCurrent(signal: AbortSignal): Promise<void>;
     assertCurrentSync(signal: AbortSignal): void;
     runCallback?: TurnCallbackRunner;
+    agentCommunication?(): Pick<ReturnType<typeof sessionAgentCommunicationTools>, 'execute'>;
   },
 ) {
   const runtimeId = randomUUID();
@@ -89,10 +97,12 @@ export function createCredentialSdkServer(
   return createSdkMcpServer({
     name: 'mitzo-connections',
     version: '1.0.0',
-    tools: (boundary?.profilesOnly
-      ? [...profileToolDefinitions, ...sessionPromptDefinitions]
-      : definitions
-    ).map((definition) =>
+    tools: [
+      ...(boundary?.profilesOnly
+        ? [...profileToolDefinitions, ...sessionPromptDefinitions]
+        : definitions),
+      ...(boundary?.agentCommunication ? agentCommunicationDefinitions : []),
+    ].map((definition) =>
       tool(
         definition.name,
         definition.description,
@@ -130,6 +140,29 @@ export function createCredentialSdkServer(
                     content: [{ type: 'text', text: 'Session is not ready; retry shortly' }],
                     isError: true,
                   };
+                if (definition.name === 'AgentCommunication' && boundary?.agentCommunication) {
+                  await boundary.assertCurrent(signal);
+                  const peerInput = AgentCommunicationSdkInput.parse(input);
+                  const result = await executeAgentCommunicationTool(
+                    () =>
+                      boundary.agentCommunication!().execute(peerInput, signal, {
+                        turnId: runtimeId,
+                        callId: String(
+                          (extra as { requestId?: unknown } | undefined)?.requestId ?? randomUUID(),
+                        ),
+                      }),
+                    {
+                      conversationId: id,
+                      requestId: peerInput.requestId,
+                      recipientConversationId: peerInput.recipientConversationId,
+                    },
+                  );
+                  await boundary.assertCurrent(signal);
+                  return copyCallbackOutcome(result, {
+                    content: [{ type: 'text', text: result.content }],
+                    isError: result.isError,
+                  });
+                }
                 if (current?.id !== id)
                   current = {
                     id,

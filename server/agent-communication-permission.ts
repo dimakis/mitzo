@@ -8,6 +8,8 @@ import type { EventStore } from './event-store.js';
 
 const grantKey = (operator: string, conversation: string) =>
   `agent-communication:${operator}:${conversation}`;
+const adapterGrantKey = (operator: string, conversation: string) =>
+  `agent-communication:adapters-v1:${operator}:${conversation}`;
 
 /** One explicit session grant covers this chat's exchanges with the same signed
  * operator's live peers, including their correlated replies. It conveys no
@@ -27,12 +29,31 @@ export function createAgentMessageApprover(options: {
     if (!owner || !operator || owner.session.abortController.signal.aborted)
       throw Error('Current signed native sender required');
     const ownerIdentity = owner.session.ordinaryRuntimeOwner;
-    const ownGrantKey = grantKey(operator, options.conversationId);
+    // The original card approved Local Codex peers only. Preserve that narrow
+    // grant without retroactively expanding its recipients to other runtimes.
+    const nativePair = [options.conversationId, input.recipientConversationId].every((id) => {
+      const binding = typeof id === 'string' && options.events.getSessionRuntimeBinding(id);
+      return (
+        binding &&
+        binding.version === 2 &&
+        binding.harness.implementation === 'codex' &&
+        binding.execution.location === 'local'
+      );
+    });
+    const expandedKey = adapterGrantKey(operator, options.conversationId);
+    const ownGrantKey =
+      nativePair && !owner.session.sessionAllowList.has(expandedKey)
+        ? grantKey(operator, options.conversationId)
+        : expandedKey;
     let replyGrantCurrent: (() => boolean) | undefined;
     if (typeof input.replyTo === 'string') {
       const original = options.events.agentCommunication.forHost(input.replyTo);
       const peer = options.registry.findBySessionId(original.message.senderConversationId);
       const peerIdentity = peer?.session.ordinaryRuntimeOwner;
+      const replyKey = [
+        adapterGrantKey(operator, original.message.senderConversationId),
+        ...(nativePair ? [grantKey(operator, original.message.senderConversationId)] : []),
+      ].find((key) => peer?.session.sessionAllowList.has(key));
       replyGrantCurrent = () =>
         Boolean(
           original.operatorAuthSessionId === operator &&
@@ -46,9 +67,8 @@ export function createAgentMessageApprover(options: {
           !peer.session.abortController.signal.aborted &&
           !options.registry.isClosingOut(peer.clientId) &&
           !options.registry.isUserClose(peer.clientId) &&
-          peer.session.sessionAllowList.has(
-            grantKey(operator, original.message.senderConversationId),
-          ),
+          !!replyKey &&
+          peer.session.sessionAllowList.has(replyKey),
         );
     }
     const decision = await buildPermissionHandler(
@@ -63,7 +83,9 @@ export function createAgentMessageApprover(options: {
       sessionGrantKey: ownGrantKey,
       isRetainedSessionGrantCurrent: replyGrantCurrent,
       sessionGrantDescription:
-        'Exchange messages between this chat and your other live Local Mac Codex chats for this session, including their replies. This does not authorize their work or merges.',
+        ownGrantKey === expandedKey
+          ? 'Exchange messages between this chat and your other live chats with verified message adapters for this session, including their replies. This does not authorize their work, credentials, networking or merges.'
+          : 'Exchange messages between this chat and your other live Local Mac Codex chats for this session, including their replies. This does not authorize their work or merges.',
       title: 'Allow agent messages?',
       description:
         'Allow this message once, or allow these same-operator exchanges for this session. Every message and delivery receipt appears in both chats.',

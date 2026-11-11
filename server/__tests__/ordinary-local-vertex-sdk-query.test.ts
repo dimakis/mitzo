@@ -10,6 +10,55 @@ vi.mock('@anthropic-ai/claude-agent-sdk', () => ({
   getSessionInfo: vi.fn(async () => ({ sessionId: 'original', cwd: '/task' })),
   getSessionMessages: vi.fn(async () => [{ uuid: 'input' }]),
 }));
+it('checks peer input immediately before stdin yield and consumes peer ACKs before ordinary result correlation', async () => {
+  let prompt!: AsyncIterable<import('@anthropic-ai/claude-agent-sdk').SDKUserMessage>;
+  const events = new AsyncQueue<Record<string, unknown>>();
+  vi.mocked(query).mockImplementation((request) => {
+    prompt = request.prompt as typeof prompt;
+    return {
+      close: vi.fn(),
+      [Symbol.asyncIterator]: () => events[Symbol.asyncIterator](),
+    } as never;
+  });
+  const input = new AsyncQueue<import('@anthropic-ai/claude-agent-sdk').SDKUserMessage>();
+  const controller = new AbortController();
+  const beforeInput = vi.fn((message: { uuid?: string }) => message.uuid !== 'revoked-peer');
+  const observe = vi.fn(
+    (event: Readonly<Record<string, unknown>>) =>
+      event.type === 'user' && event.uuid === 'peer-ack',
+  );
+  const owner = createOrdinaryLocalVertexSdkQuery<AsyncIterable<Record<string, unknown>>>({
+    options: {},
+    input,
+    controller,
+    lifetime: new SdkHookLifetime(),
+    sdkSessionId: 'original',
+    cwd: '/task',
+    authorize: async () => {},
+    authorizeSync: () => {},
+    adapt: (q) => q as never,
+    settings: () => ({}),
+    inputChanged: () => {},
+    peerMessages: () => ({ beforeInput, observe }),
+  });
+  input.push({
+    type: 'user',
+    uuid: 'revoked-peer',
+    parent_tool_use_id: null,
+    message: { role: 'user', content: 'Must not reach stdin' },
+  });
+  input.close();
+  expect((await prompt[Symbol.asyncIterator]().next()).done).toBe(true);
+  expect(beforeInput).toHaveBeenCalledOnce();
+  const original = { type: 'user', session_id: 'original', uuid: 'original-input' };
+  events.push(original);
+  events.push({ type: 'user', session_id: 'original', uuid: 'peer-ack' });
+  events.push({ type: 'result', session_id: 'original' });
+  const output = owner.query[Symbol.asyncIterator]();
+  expect((await output.next()).value).toEqual(original);
+  expect((await output.next()).value).toMatchObject({ type: 'result' });
+  controller.abort();
+});
 it.each(['person@example.test', 'other@example.test'])(
   'verifies the running personal SDK account before yielding a prompt: %s',
   async (email) => {

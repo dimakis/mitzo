@@ -1,0 +1,442 @@
+import { afterAll, afterEach, expect, it, vi } from 'vitest';
+import { randomUUID } from 'node:crypto';
+import { SessionRegistry, resolvePending } from '@mitzo/harness';
+import { createAgentMessageApprover } from '../agent-communication-permission.js';
+import { EventStore } from '../event-store.js';
+import { bindAgentLibraryTransport } from '../agent-library-transport.js';
+import { setAuthRevocationStore } from '../auth.js';
+import { sessionAgentCommunicationTools } from '../agent-communication-tools.js';
+import type { CodexConversationStore } from '../codex-conversation-store.js';
+import { registerAgentMessageRuntime, type AgentMessageRuntime } from '../agent-message-runtime.js';
+
+const cleanups: Array<() => void> = [];
+const revocations = new EventStore(':memory:');
+setAuthRevocationStore(revocations);
+afterAll(() => revocations.close());
+afterEach(() => {
+  for (const cleanup of cleanups.splice(0).reverse()) cleanup();
+});
+
+/** Real operator, session, binding and receipt owners; no SDK/model/host credentials.
+ * Native custody is synthetic and deliberately does not exist for the Claude peer.
+ */
+function fixture(sourceRuntime: 'codex' | 'claude-sdk' = 'codex') {
+  const events = new EventStore(':memory:');
+  cleanups.push(() => events.close());
+  const registry = new SessionRegistry();
+  cleanups.push(() => registry.dispose());
+  const auth = { id: randomUUID(), expiresAt: Date.now() + 60_000 };
+  cleanups.push(bindAgentLibraryTransport('operator', auth));
+  const bindings = [
+    {
+      id: 'orchestrator',
+      provider: sourceRuntime === 'codex' ? 'openai-codex' : 'anthropic-vertex',
+      harness: sourceRuntime,
+    },
+    { id: 'claude-worker', provider: 'anthropic-vertex', harness: 'claude-sdk' },
+    { id: 'codex-worker', provider: 'openai-codex', harness: 'codex' },
+  ] as const;
+  for (const { id, provider, harness } of bindings) {
+    const binding = {
+      version: 2,
+      account: { accountId: id, provider, profileRevision: 'offline-profile' },
+      harness: { implementation: harness },
+      execution: { location: 'local', targetId: 'mac', targetRevision: 'offline-target' },
+    };
+    events.createSessionWithRuntimeBinding(
+      {
+        sessionId: id,
+        summary: id,
+        mode: 'agent',
+        repositoryWorkspaceId: `${id}-workspace`,
+        cwd: process.cwd(),
+        accountBinding: { ...binding.account, accountLabel: id, model: 'offline-model' },
+      },
+      binding,
+    );
+    registry.register(`operator:${id}`, {
+      sessionId: id,
+      ownerConnectionId: 'operator',
+      transport: { send() {}, isOpen: () => true },
+      abortController: new AbortController(),
+      mode: 'agent',
+      sessionAllowList: new Set(),
+      ordinaryRuntimeOwner: {
+        location: 'local',
+        authSessionId: auth.id,
+        identity: {},
+        initialCommandId: `${id}-initial`,
+        admit: vi.fn(async () => ({ dispatched: true })),
+        retryInitial: vi.fn(async () => ({ dispatched: false })),
+        close() {},
+      },
+    });
+  }
+  const native = {
+    hasConversation: vi.fn((id: string) =>
+      bindings.some((entry) => entry.id === id && entry.harness === 'codex'),
+    ),
+    readHostCustody: vi.fn(() => ({ authSessionId: auth.id })),
+    acceptedProviderTurnForCommand: vi.fn(() => undefined),
+    steeringReceiptForRequest: vi.fn(() => undefined),
+    commandStatus: vi.fn(() => undefined),
+  } as unknown as CodexConversationStore;
+  const approve = vi.fn(async (input: Record<string, unknown>) => ({
+    behavior: 'allow',
+    updatedInput: input,
+  }));
+  const tools = sessionAgentCommunicationTools({
+    events,
+    native,
+    registry,
+    conversationId: 'orchestrator',
+    session: registry.get('operator:orchestrator')!,
+    assertRuntimeCurrent: async () => {},
+    assertRuntimeCurrentSync() {},
+    approve,
+    startQueued: vi.fn(async () => {}),
+  });
+  const execute = (input: Record<string, unknown>) =>
+    tools.execute(input, new AbortController().signal, {
+      turnId: 'original-turn',
+      callId: randomUUID(),
+    });
+  const install = (id: string, runtime: string, state: 'busy' | 'idle' | 'stopped' = 'busy') => {
+    const session = registry.get(`operator:${id}`)!;
+    const steer = vi.fn<AgentMessageRuntime['steer']>(async () => 'accepted');
+    const enqueue = vi.fn<NonNullable<AgentMessageRuntime['enqueue']>>(async () => 'queued');
+    const assertCurrent = vi.fn();
+    cleanups.push(
+      registerAgentMessageRuntime(session, {
+        identity: session.ordinaryRuntimeOwner!.identity,
+        runtime,
+        assertCurrent,
+        state: () => state,
+        steer,
+        enqueue,
+      }),
+    );
+    return { session, steer, enqueue, assertCurrent };
+  };
+  return {
+    events,
+    registry,
+    auth,
+    approve,
+    execute,
+    install,
+    installClaude: (state: 'busy' | 'idle' | 'stopped' = 'busy') =>
+      install('claude-worker', 'claude-sdk', state),
+  };
+}
+
+it('shows an owned live Claude worker with an explicit delivery capability instead of silently omitting it', async () => {
+  const f = fixture();
+  const result = await f.execute({ operation: 'list', offset: 0 });
+  expect(result).toMatchObject({
+    chats: expect.arrayContaining([
+      expect.objectContaining({
+        conversationId: 'claude-worker',
+        capability: expect.objectContaining({ runtime: 'claude-sdk' }),
+      }),
+    ]),
+  });
+  expect(f.approve).not.toHaveBeenCalled();
+});
+
+it('refuses an unsupported runtime explicitly before approval without queueing or a false receipt', async () => {
+  const f = fixture();
+  await expect(
+    f.execute({
+      operation: 'send',
+      requestId: randomUUID(),
+      recipientConversationId: 'claude-worker',
+      text: 'Pause at your next safe boundary.',
+    }),
+  ).rejects.toMatchObject({ code: 'runtime_unsupported', stage: 'capability' });
+  expect(f.approve).not.toHaveBeenCalled();
+  expect(f.events.agentCommunication.inbox('claude-worker').messages).toEqual([]);
+  expect(
+    f.registry.get('operator:claude-worker')!.ordinaryRuntimeOwner!.admit,
+  ).not.toHaveBeenCalled();
+});
+
+it.each(['busy', 'idle'] as const)(
+  'routes an owned Claude %s recipient through its adapter and retains the exact receipt',
+  async (state) => {
+    const f = fixture();
+    const adapter = f.installClaude(state);
+    const input = {
+      operation: 'send',
+      requestId: randomUUID(),
+      recipientConversationId: 'claude-worker',
+      text: 'Coordinate at a safe boundary.',
+    };
+    const result = await f.execute(input);
+    expect(result).toMatchObject({ status: state === 'busy' ? 'delivered' : 'queued' });
+    expect(adapter.steer).toHaveBeenCalledTimes(state === 'busy' ? 1 : 0);
+    expect(adapter.enqueue).toHaveBeenCalledTimes(state === 'idle' ? 1 : 0);
+    expect(await f.execute(input)).toEqual(result);
+    expect(f.approve).toHaveBeenCalledTimes(1);
+  },
+);
+
+it('refuses a stopped runtime without enqueueing or recovering it', async () => {
+  const f = fixture();
+  const adapter = f.installClaude('stopped');
+  await expect(
+    f.execute({
+      operation: 'send',
+      requestId: randomUUID(),
+      recipientConversationId: 'claude-worker',
+      text: 'Do not resume implicitly.',
+    }),
+  ).rejects.toMatchObject({ code: 'recipient_stopped' });
+  expect(f.approve).not.toHaveBeenCalled();
+  expect(adapter.steer).not.toHaveBeenCalled();
+  expect(adapter.enqueue).not.toHaveBeenCalled();
+});
+
+it('refuses a replaced recipient owner after approval without invoking its adapter', async () => {
+  const f = fixture();
+  const adapter = f.installClaude();
+  f.approve.mockImplementation(async (input) => {
+    adapter.session.ordinaryRuntimeOwner = {
+      ...adapter.session.ordinaryRuntimeOwner!,
+      identity: {},
+    };
+    return { behavior: 'allow', updatedInput: input };
+  });
+  await expect(
+    f.execute({
+      operation: 'send',
+      requestId: randomUUID(),
+      recipientConversationId: 'claude-worker',
+      text: 'Original owner only.',
+    }),
+  ).rejects.toThrow();
+  expect(adapter.steer).not.toHaveBeenCalled();
+});
+
+it('refuses denied approval before reserving or dispatching cross-runtime input', async () => {
+  const f = fixture();
+  const adapter = f.installClaude();
+  f.approve.mockImplementation(async (input) => ({ behavior: 'deny', updatedInput: input }));
+  await expect(
+    f.execute({
+      operation: 'send',
+      requestId: randomUUID(),
+      recipientConversationId: 'claude-worker',
+      text: 'Not approved.',
+    }),
+  ).rejects.toMatchObject({ code: 'approval_denied', stage: 'approval' });
+  expect(f.events.agentCommunication.inbox('claude-worker').messages).toEqual([]);
+  expect(adapter.steer).not.toHaveBeenCalled();
+});
+it.each([
+  ['claude-worker', 1],
+  ['codex-worker', 0],
+] as const)(
+  'does not broaden a pre-existing native-only grant when addressing %s',
+  async (recipient, expectedPrompts) => {
+    const f = fixture();
+    const source = f.registry.get('operator:orchestrator')!;
+    source.sessionAllowList.add(`agent-communication:${f.auth.id}:orchestrator`);
+    const prompts: unknown[] = [];
+    source.transport.send = (event) => {
+      if (event.type === 'permission_request') {
+        prompts.push(event);
+        queueMicrotask(() =>
+          resolvePending(event.permId as string, 'once', undefined, event.sessionId as string),
+        );
+      }
+    };
+    const approve = createAgentMessageApprover({
+      events: f.events,
+      registry: f.registry,
+      conversationId: 'orchestrator',
+      assertCurrent() {},
+    });
+    expect(
+      await approve(
+        {
+          operation: 'send',
+          requestId: randomUUID(),
+          recipientConversationId: recipient,
+          text: 'Keep original approval scope.',
+        },
+        new AbortController().signal,
+      ),
+    ).toMatchObject({ behavior: 'allow' });
+    expect(prompts).toHaveLength(expectedPrompts);
+  },
+);
+it.each([false, true])(
+  'correlated SDK replies require the expanded audience grant rather than an old native-only grant (%s)',
+  async (expanded) => {
+    const f = fixture();
+    const origin = f.registry.get('operator:orchestrator')!;
+    origin.sessionAllowList.add(`agent-communication:${f.auth.id}:orchestrator`);
+    if (expanded)
+      origin.sessionAllowList.add(`agent-communication:adapters-v1:${f.auth.id}:orchestrator`);
+    const message = f.events.agentCommunication.reserve(
+      'orchestrator',
+      f.auth.id,
+      { turnId: 'origin-turn', callId: 'origin-call' },
+      {
+        requestId: randomUUID(),
+        recipientConversationId: 'claude-worker',
+        text: 'Original peer exchange.',
+      },
+    );
+    const source = f.registry.get('operator:claude-worker')!;
+    const prompts: unknown[] = [];
+    source.transport.send = (event) => {
+      if (event.type === 'permission_request') {
+        prompts.push(event);
+        queueMicrotask(() =>
+          resolvePending(event.permId as string, 'once', undefined, event.sessionId as string),
+        );
+      }
+    };
+    const approve = createAgentMessageApprover({
+      events: f.events,
+      registry: f.registry,
+      conversationId: 'claude-worker',
+      assertCurrent() {},
+    });
+    expect(
+      await approve(
+        {
+          operation: 'send',
+          requestId: randomUUID(),
+          recipientConversationId: 'orchestrator',
+          replyTo: message.messageId,
+          text: 'Explicit correlated reply.',
+        },
+        new AbortController().signal,
+      ),
+    ).toMatchObject({ behavior: 'allow' });
+    expect(prompts).toHaveLength(expanded ? 0 : 1);
+  },
+);
+it('keeps a known revoked runtime visible as unavailable and refuses a new send with an explicit authorization diagnostic', async () => {
+  const f = fixture();
+  const target = f.installClaude();
+  target.assertCurrent.mockImplementation(() => {
+    throw Error('private target authority detail');
+  });
+  expect(await f.execute({ operation: 'list', offset: 0 })).toMatchObject({
+    chats: expect.arrayContaining([
+      expect.objectContaining({
+        conversationId: 'claude-worker',
+        availability: 'unavailable',
+        capability: expect.objectContaining({ reason: 'runtime_authority_unavailable' }),
+      }),
+    ]),
+  });
+  await expect(
+    f.execute({
+      operation: 'send',
+      requestId: randomUUID(),
+      recipientConversationId: 'claude-worker',
+      text: 'Do not dispatch after revocation.',
+    }),
+  ).rejects.toMatchObject({ code: 'recipient_authority_unavailable', stage: 'authorization' });
+  expect(target.steer).not.toHaveBeenCalled();
+});
+
+it('never resubmits an uncertain cross-runtime message or silently falls back to queueing', async () => {
+  const f = fixture();
+  const adapter = f.installClaude();
+  adapter.steer.mockResolvedValue('uncertain');
+  const input = {
+    operation: 'send',
+    requestId: randomUUID(),
+    recipientConversationId: 'claude-worker',
+    text: 'Original uncertain request.',
+  };
+  const first = await f.execute(input);
+  expect(first).toMatchObject({ status: 'uncertain' });
+  expect(await f.execute(input)).toEqual(first);
+  expect(adapter.steer).toHaveBeenCalledOnce();
+  expect(adapter.enqueue).not.toHaveBeenCalled();
+  expect(f.approve).toHaveBeenCalledOnce();
+});
+
+it('does not downgrade an exact provider ACK that races idle admission completion', async () => {
+  const f = fixture();
+  const adapter = f.installClaude('idle');
+  adapter.enqueue.mockImplementation(async (message: unknown) => {
+    f.events.agentCommunication.recordForHost(
+      (message as { messageId: string }).messageId,
+      'delivered',
+    );
+    return 'queued';
+  });
+  expect(
+    await f.execute({
+      operation: 'send',
+      requestId: randomUUID(),
+      recipientConversationId: 'claude-worker',
+      text: 'ACK arrives during admission.',
+    }),
+  ).toMatchObject({ status: 'delivered' });
+});
+
+it('refuses an expired sending operator before discovering or dispatching peer work', async () => {
+  const f = fixture();
+  f.auth.expiresAt = Date.now() - 1;
+  await expect(f.execute({ operation: 'list', offset: 0 })).rejects.toThrow(/authentication/);
+  expect(f.approve).not.toHaveBeenCalled();
+});
+
+it.each([
+  ['claude-worker', 'claude-sdk'],
+  ['codex-worker', 'codex'],
+] as const)('routes an owned SDK sender to its %s runtime owner', async (id, runtime) => {
+  const f = fixture('claude-sdk');
+  const target = f.install(id, runtime);
+  expect(
+    await f.execute({
+      operation: 'send',
+      requestId: randomUUID(),
+      recipientConversationId: id,
+      text: 'Cross-runtime reply.',
+    }),
+  ).toMatchObject({ status: 'delivered' });
+  expect(target.steer).toHaveBeenCalledOnce();
+});
+
+it.each(['cold', 'hidden', 'foreign'] as const)(
+  'does not recover or disclose a %s peer through the shared runtime inventory',
+  async (state) => {
+    const f = fixture();
+    const target = f.installClaude();
+    if (state === 'cold') delete target.session.ordinaryRuntimeOwner;
+    else if (state === 'hidden') {
+      f.events.hideSession('claude-worker');
+      expect(f.events.getSession('claude-worker')?.isHidden).toBe(true);
+    } else
+      target.session.ordinaryRuntimeOwner = {
+        ...target.session.ordinaryRuntimeOwner!,
+        authSessionId: 'foreign',
+      };
+    const listed = await f.execute({ operation: 'list', offset: 0 });
+    expect(listed).toMatchObject({
+      chats: expect.not.arrayContaining([
+        expect.objectContaining({ conversationId: 'claude-worker' }),
+      ]),
+    });
+    await expect(
+      f.execute({
+        operation: 'send',
+        requestId: randomUUID(),
+        recipientConversationId: 'claude-worker',
+        text: 'Do not revive.',
+      }),
+    ).rejects.toMatchObject({ code: 'recipient_unavailable' });
+    expect(target.steer).not.toHaveBeenCalled();
+    expect(target.enqueue).not.toHaveBeenCalled();
+  },
+);
