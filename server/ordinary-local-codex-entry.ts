@@ -55,7 +55,7 @@ import {
   type SessionRuntimeBindingV2,
 } from '@mitzo/protocol';
 export { LocalCodexFirstCommandSchema, type LocalCodexFirstCommand } from '@mitzo/protocol';
-import { operatorAuthMiddleware, type AuthSession } from './auth.js';
+import { operatorAuthMiddleware, isAuthSessionCurrent, type AuthSession } from './auth.js';
 import { requireSameOriginJson } from './connections-router.js';
 import {
   bindAgentLibraryTransport,
@@ -379,13 +379,26 @@ function createOwnedCodexEntryRouter(
     next();
   });
   router.use(operatorAuthMiddleware);
-  router.get('/capabilities', (req, res) => {
+  router.get('/capabilities', async (req, res) => {
     try {
       const auth = res.locals.authSession as AuthSession | undefined;
       if (!auth || auth.expiresAt <= Date.now())
         return res
           .status(401)
           .json({ ok: false, code: 'interactive_auth_required', error: unavailable });
+      if (req.query.modelAccount !== undefined) {
+        const accountId = req.query.modelAccount;
+        if (typeof accountId !== 'string' || !/^[a-zA-Z0-9_-]{1,128}$/.test(accountId))
+          throw Error('Invalid model account');
+        const profiles = loadAccountProfiles();
+        if (!profiles.catalog().some((account) => account.id === accountId))
+          throw Error('Model account unavailable');
+        await profiles.refresh(req.query.refreshModels === '1', { accountId });
+        if (!isAuthSessionCurrent(auth))
+          return res
+            .status(401)
+            .json({ ok: false, code: 'interactive_auth_required', error: unavailable });
+      }
       let result = general ? ordinaryCodexCapabilities() : inventory().result;
       let retainedAccount: SessionRuntimeBindingV2['account'] | undefined;
       if (general && req.query?.sessionId !== undefined) {
@@ -493,7 +506,12 @@ function createOwnedCodexEntryRouter(
       };
       if (Buffer.byteLength(JSON.stringify(response), 'utf8') > 1048576) throw Error(unavailable);
       return res.json(response);
-    } catch {
+    } catch (cause) {
+      log.warn('Runtime model inventory unavailable', {
+        code: 'runtime_model_inventory_unavailable',
+        stage: 'capability_projection',
+        errorType: cause instanceof Error ? cause.name : 'unknown',
+      });
       return res.status(409).json({ ok: false, code: 'entry_unavailable', error: unavailable });
     }
   });

@@ -1250,6 +1250,13 @@ function ControlledAccountModelPicker({
               )}
             </PickerOptions>
           )}
+      {account?.modelDiscovery?.stale && (
+        <QuickSettingsSupplement page="model">
+          <span role="status">
+            Model refresh failed. Showing the last available list. Refresh models to retry.
+          </span>
+        </QuickSettingsSupplement>
+      )}
       {quick && onRefresh && (
         <QuickSettingsSupplement page="model">
           <button disabled={disabled} onClick={onRefresh}>

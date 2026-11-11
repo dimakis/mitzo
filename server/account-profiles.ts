@@ -1,3 +1,4 @@
+import { discoverClaudeModels } from './claude-model-discovery.js';
 import {
   ApiHarnessConnectionSchema,
   apiHarnessConnection,
@@ -599,7 +600,7 @@ export class AccountProfiles {
                   : 'google-cloud',
           models: supportedModels(
             profile,
-            provider === 'anthropic-vertex' || provider === 'anthropic-claude'
+            provider === 'anthropic-vertex'
               ? profile.models
               : (discovered?.models ?? profile.models),
           ),
@@ -693,7 +694,7 @@ export class AccountProfiles {
           try {
             signal.throwIfAborted();
             const env = this.sdkEnv(
-              this.resolve(profile.id, profile.models[0].id),
+              this.resolve(profile.id, profile.models[0].id, true),
               Object.fromEntries(
                 ['HOME', 'PATH', 'TMPDIR'].flatMap((key) =>
                   process.env[key] === undefined ? [] : [[key, process.env[key]!]],
@@ -866,11 +867,13 @@ export class AccountProfiles {
     return profiles[0]?.models;
   }
 
-  async refresh(force = false, options: { discoverApi?: boolean } = {}) {
+  async refresh(force = false, options: { discoverApi?: boolean; accountId?: string } = {}) {
     await Promise.all(
       this.profiles
+        .filter((p) => !options.accountId || p.id === options.accountId)
         .filter(
           (p) =>
+            p.provider === 'anthropic-claude' ||
             (p.provider === 'openai' && !p.connection && options.discoverApi !== false) ||
             (p.provider === 'openai-codex' && this.options.codexEnabled),
         )
@@ -878,6 +881,8 @@ export class AccountProfiles {
           refreshModels(
             JSON.stringify(profile),
             async () => {
+              if (profile.provider === 'anthropic-claude')
+                return this.discoverSubscriptionModels(profile);
               if (profile.provider === 'openai') return this.discoverApiModels(profile);
               if (profile.provider !== 'openai-codex') return profile.models;
               return this.discoverCodexModels(profile);
@@ -886,6 +891,54 @@ export class AccountProfiles {
           ),
         ),
     );
+  }
+
+  private async discoverSubscriptionModels(profile: z.infer<typeof ClaudeProfile>) {
+    const deadline = new AbortController();
+    const timeout = setTimeout(
+      () => deadline.abort(new Error('Claude model discovery timed out')),
+      this.options.modelDiscoveryTimeoutMs ?? 10_000,
+    );
+    try {
+      const env = this.sdkEnv(
+        this.resolve(profile.id, profile.models[0].id, true),
+        Object.fromEntries(
+          ['HOME', 'PATH', 'TMPDIR', 'LANG', 'LC_ALL'].flatMap((key) =>
+            process.env[key] === undefined ? [] : [[key, process.env[key]!]],
+          ),
+        ),
+      );
+      const models = await discoverClaudeModels(env, deadline.signal);
+      // Configured ordering remains the account default when native discovery includes it.
+      const configured = new Map(
+        profile.models.map((model, index) => [model.id, { model, index }]),
+      );
+      return models
+        .map((model) => {
+          const effort = configured.get(model.id)?.model.defaultReasoningEffort;
+          return {
+            ...model,
+            ...(effort && model.reasoningEfforts?.includes(effort)
+              ? { defaultReasoningEffort: effort }
+              : {}),
+          };
+        })
+        .sort(
+          (a, b) =>
+            (configured.get(a.id)?.index ?? profile.models.length) -
+            (configured.get(b.id)?.index ?? profile.models.length),
+        );
+    } catch (cause) {
+      createLogger('account-profiles').warn('Claude model discovery failed', {
+        accountId: profile.id,
+        code: 'claude_model_discovery_failed',
+        stage: 'claude_model_discovery',
+        reason: deadline.signal.aborted ? 'timeout' : 'native_metadata_unavailable',
+      });
+      throw cause;
+    } finally {
+      clearTimeout(timeout);
+    }
   }
 
   /** Metadata-only control-plane request using this account's explicit key reference. */
@@ -1089,9 +1142,7 @@ export class AccountProfiles {
       throw new Error('Codex execution is not enabled; development acceptance is required');
     const selectableModels = supportedModels(
       profile,
-      configured ||
-        profile.provider === 'anthropic-vertex' ||
-        profile.provider === 'anthropic-claude'
+      configured || profile.provider === 'anthropic-vertex'
         ? profile.models
         : (cachedModels(JSON.stringify(profile))?.models ?? profile.models),
     );
