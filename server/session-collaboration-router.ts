@@ -21,6 +21,11 @@ import {
   CollaborationPromptReviewRequestSchema,
   CollaborationPromptReviewResultSchema,
   CollaborationSourceArtifactsSchema,
+  CollaborationForwardPrepareRequestSchema,
+  CollaborationForwardConfirmRequestSchema,
+  CollaborationForwardReadQuerySchema,
+  CollaborationForwardReadSchema,
+  CollaborationForwardConfirmationSchema,
   CollaborationSourceSetupQuerySchema,
   CollaborationSourceSetupSchema,
   COLLABORATION_EXECUTION_DISABLED,
@@ -32,6 +37,7 @@ import { captureAgentLibraryAuthorization } from './agent-library-transport.js';
 import { liveTransportAuthSessionId } from './transport-auth-ownership.js';
 import type { OrdinaryCollaborationJoiningPort } from './collaboration-joining-owner.js';
 import type { CollaborationApplicationReview } from './collaboration-application-review.js';
+import type { CollaborationApplicationForwarding } from './collaboration-application-forwarding.js';
 import type { EventStore } from './event-store.js';
 import type { ApplicationCollaborationMessaging } from './collaboration-application-messaging.js';
 import { recentAuthorizationSession, requireSameOriginJson } from './connections-router.js';
@@ -69,12 +75,53 @@ function failure(res: Response, error: unknown, dispatchNotStarted = false) {
     .status(503)
     .json({ error: 'Collaboration links could not be checked. Refresh before retrying.' });
 }
+/** One lifetime for source review/forwarding awaits; no caller can renew an
+ * expired request by keeping an HTTP connection or source promise alive. */
+async function authorizedRequest(
+  req: Request,
+  res: Response,
+  auth: AuthSession,
+  action: (signal: AbortSignal) => Promise<unknown>,
+) {
+  const controller = new AbortController();
+  const cancel = () => controller.abort();
+  const unregister = registerAuthSession(auth, cancel);
+  const ownerSignal = custodianRequestSignal(req);
+  ownerSignal?.addEventListener('abort', cancel, { once: true });
+  if (ownerSignal?.aborted || req.aborted) cancel();
+  const close = () => {
+    if (!res.writableEnded) cancel();
+  };
+  req.once('aborted', cancel);
+  res.once('close', close);
+  const timer = setTimeout(cancel, Math.min(120000, Math.max(0, auth.expiresAt - Date.now())));
+  try {
+    controller.signal.throwIfAborted();
+    const result = await action(controller.signal);
+    controller.signal.throwIfAborted();
+    if (!isAuthSessionCurrent(auth))
+      return res.status(403).json({ error: 'Operator authorization expired or revoked' });
+    return res.json(result);
+  } catch (error) {
+    if (res.destroyed) return;
+    if (!isAuthSessionCurrent(auth))
+      return res.status(403).json({ error: 'Operator authorization expired or revoked' });
+    return failure(res, error);
+  } finally {
+    clearTimeout(timer);
+    unregister();
+    ownerSignal?.removeEventListener('abort', cancel);
+    req.off('aborted', cancel);
+    res.off('close', close);
+  }
+}
 /** Mount behind operator auth. Linking shares no context, grants no access and dispatches no turn. */
 export function createSessionCollaborationRouter({
   store,
   joining,
   review,
   messaging,
+  forwarding,
 }: {
   store: EventStore;
   joining?:
@@ -82,6 +129,7 @@ export function createSessionCollaborationRouter({
   /** Lazy construction uses the existing real workspace owner, never caller settings. */
   review?: () => CollaborationApplicationReview;
   messaging?: ApplicationCollaborationMessaging;
+  forwarding?: CollaborationApplicationForwarding;
 }) {
   const router = Router();
   router.use((_req, res, next) => {
@@ -277,6 +325,72 @@ export function createSessionCollaborationRouter({
       return failure(res, error);
     }
   });
+  router.get('/:id/forward-preparations/:requestId', (req, res) => {
+    const auth = recentAuthorizationSession(res);
+    if (!auth) return;
+    const id = SessionCollaborationIdSchema.safeParse(req.params.id);
+    const request = z.uuid().safeParse(req.params.requestId);
+    const query = CollaborationForwardReadQuerySchema.safeParse(req.query);
+    if (!id.success || !request.success || !query.success)
+      return res.status(400).json({ error: 'Invalid forwarding observation' });
+    try {
+      if (!forwarding) return unavailable(res);
+      return res.json(
+        CollaborationForwardReadSchema.nullable().parse(
+          forwarding.observePreparation(auth, query.data.clientId, id.data, request.data),
+        ),
+      );
+    } catch (error) {
+      return failure(res, error);
+    }
+  });
+  router.get('/:id/forwards/:forwardId', (req, res) => {
+    const auth = recentAuthorizationSession(res);
+    if (!auth) return;
+    const id = SessionCollaborationIdSchema.safeParse(req.params.id);
+    const forward = z.uuid().safeParse(req.params.forwardId);
+    const query = CollaborationForwardReadQuerySchema.safeParse(req.query);
+    if (!id.success || !forward.success || !query.success)
+      return res.status(400).json({ error: 'Invalid forwarding observation' });
+    try {
+      if (!forwarding) return unavailable(res);
+      return res.json(
+        CollaborationForwardReadSchema.parse(
+          forwarding.read(auth, query.data.clientId, id.data, forward.data),
+        ),
+      );
+    } catch (error) {
+      return failure(res, error);
+    }
+  });
+  for (const confirm of [false, true])
+    router.post(
+      `/:id/forwards/${confirm ? 'confirm' : 'prepare'}`,
+      requireSameOriginJson,
+      (req, res) => {
+        const auth = recentAuthorizationSession(res);
+        if (!auth) return;
+        const id = SessionCollaborationIdSchema.safeParse(req.params.id);
+        const input = (
+          confirm
+            ? CollaborationForwardConfirmRequestSchema
+            : CollaborationForwardPrepareRequestSchema
+        ).safeParse(req.body);
+        if (!id.success || !input.success)
+          return res.status(400).json({ error: 'Invalid forwarding request' });
+        if (!forwarding) return unavailable(res);
+        const { clientId, ...intent } = input.data;
+        return authorizedRequest(req, res, auth, async (signal) =>
+          confirm
+            ? CollaborationForwardConfirmationSchema.parse(
+                await forwarding.confirm(auth, clientId, id.data, intent, signal),
+              )
+            : CollaborationForwardReadSchema.parse(
+                await forwarding.prepare(auth, clientId, id.data, intent, signal),
+              ),
+        );
+      },
+    );
   for (const prompt of [false, true])
     router.post(
       `/:id/${prompt ? 'prompt-reviews' : 'reviews'}`,
@@ -292,50 +406,20 @@ export function createSessionCollaborationRouter({
         ).safeParse(req.body);
         if (!id.success || !input.success)
           return res.status(400).json({ error: 'Invalid collaboration review' });
-        const controller = new AbortController();
-        const cancel = () => controller.abort();
-        const unregister = registerAuthSession(auth, cancel);
-        const ownerSignal = custodianRequestSignal(req);
-        ownerSignal?.addEventListener('abort', cancel, { once: true });
-        if (ownerSignal?.aborted || req.aborted) cancel();
-        const close = () => {
-          if (!res.writableEnded) cancel();
-        };
-        req.once('aborted', cancel);
-        res.once('close', close);
-        const timer = setTimeout(
-          cancel,
-          Math.min(120000, Math.max(0, auth.expiresAt - Date.now())),
-        );
-        try {
-          controller.signal.throwIfAborted();
+        if (!review) return unavailable(res);
+        return authorizedRequest(req, res, auth, async (signal) => {
           if (!store.getSessionCollaboration(id.data))
             throw new CollaborationContractError('not_found');
-          if (!review) return unavailable(res);
           const { clientId, ...intent } = input.data;
           const result = prompt
-            ? await review().reviewPrompt(auth, clientId, id.data, intent, controller.signal)
-            : await review().review(auth, clientId, id.data, intent, controller.signal);
-          controller.signal.throwIfAborted();
-          if (!isAuthSessionCurrent(auth)) throw new Error('Authorization unavailable');
-          return res.json(
-            (prompt
+            ? await review().reviewPrompt(auth, clientId, id.data, intent, signal)
+            : await review().review(auth, clientId, id.data, intent, signal);
+          return (
+            prompt
               ? CollaborationPromptReviewResultSchema
               : CollaborationApplicationReviewResultSchema
-            ).parse(result),
-          );
-        } catch (error) {
-          if (res.destroyed) return;
-          if (!isAuthSessionCurrent(auth))
-            return res.status(403).json({ error: 'Operator authorization expired or revoked' });
-          return failure(res, error);
-        } finally {
-          clearTimeout(timer);
-          unregister();
-          ownerSignal?.removeEventListener('abort', cancel);
-          req.off('aborted', cancel);
-          res.off('close', close);
-        }
+          ).parse(result);
+        });
       },
     );
   const join = async (
