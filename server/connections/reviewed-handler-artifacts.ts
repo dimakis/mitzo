@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.1024-subagent-thinking-inspection';
+  'v1.0.1025-subagent-thinking-inspection';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -767,7 +767,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/hooks/useNativeSubagents.ts':
     '148cde4c33c3767611270dabe583e9a672a60f12b5b8f912300c09820b4bdc63',
   '../../frontend/src/components/NativeSubagents.css':
-    '30ff209db5b32c8b01867f61eec7f826c7df786513262e3a93d796208c1c1ca6',
+    '9d7bdd4def59719ce6465149a1fe3b890a9196367bbfc814e0afa7de8dfee1bf',
   '../../frontend/src/components/NativeSubagents.tsx':
     'bd273cba81bc82ee39ca6c1c2c116708837ec9f5d4b9b9e660a535bc6575d711',
   '../../packages/protocol/src/native-subagents.ts':

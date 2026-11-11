@@ -69,7 +69,8 @@
   margin-inline-start: 0;
 }
 .native-subagent-dialog--empty {
-  block-size: auto;
+  /* Native modal insets stretch an auto block size; retain intrinsic sizing. */
+  block-size: fit-content;
 }
 .native-subagent-dialog--empty .home-dialog-content {
   block-size: auto;
