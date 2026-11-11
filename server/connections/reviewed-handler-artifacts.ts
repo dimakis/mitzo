@@ -4073,7 +4073,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/codex-conversation-rpc-cleanup.integration.test.ts':
     '25267beedb7c3a0e08eaa7c78b68e2c8adb595fd9cabe1c1b0691115283da6e9',
   '../__tests__/ordinary-local-vertex-sdk-query.test.ts':
-    'a4c4cb5ab22badbead544b440d9105dafdf6e93a288c015b60436d1bc2858a78',
+    'f0b9fb90a43e1fef20f4e576192c8417e446c2e4c139b9e64f0d7bbbfdb3e081',
   '../__tests__/retained-runtime-failure.test.ts':
     'c611d50fcfee26e3217fb41ac547ca6c77cee855815bd217e82cf1f6f33ded9f',
   '../__tests__/sdk-turn-query.test.ts':

@@ -22,7 +22,8 @@ it('checks peer input immediately before stdin yield and consumes peer ACKs befo
   });
   const input = new AsyncQueue<import('@anthropic-ai/claude-agent-sdk').SDKUserMessage>();
   const controller = new AbortController();
-  const beforeInput = vi.fn((message: { uuid?: string }) => message.uuid !== 'revoked-peer');
+  const revokedPeerId = '00000000-0000-4000-8000-000000000001';
+  const beforeInput = vi.fn((message: { uuid?: string }) => message.uuid !== revokedPeerId);
   const observe = vi.fn(
     (event: Readonly<Record<string, unknown>>) =>
       event.type === 'user' && event.uuid === 'peer-ack',
@@ -43,7 +44,7 @@ it('checks peer input immediately before stdin yield and consumes peer ACKs befo
   });
   input.push({
     type: 'user',
-    uuid: 'revoked-peer',
+    uuid: revokedPeerId,
     parent_tool_use_id: null,
     message: { role: 'user', content: 'Must not reach stdin' },
   });
