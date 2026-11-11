@@ -263,11 +263,14 @@ it('retains a bound chat model across responsive remounts without changing the n
   const { ChatRuntimeDraftProvider } = await import('../ChatRuntimeDraftProvider');
   const data = localInventoryFixture();
   data.accounts[0].models.push({ id: 'sol-fixture', label: 'Sol', reasoningEfforts: ['high'] });
+  let admittedThinking = 'low';
   vi.mocked(apiFetch).mockImplementation(async (url) =>
     Response.json(
       String(url).endsWith('/meta')
         ? {
-            sessionId: 'bound-session',
+            sessionId: String(url).includes('/another-session/')
+              ? 'another-session'
+              : 'bound-session',
             repositoryWorkspaceId: '11111111-1111-4111-8111-111111111111',
             runtimeBinding: {
               version: 2,
@@ -278,19 +281,19 @@ it('retains a bound chat model across responsive remounts without changing the n
             runtimeCommandScope: 'conversation',
             mode: 'agent',
             agentProfile: data.agentProfiles[0],
-            modelSelection: { model: 'luna-fixture', reasoningEffort: 'low' },
+            modelSelection: { model: 'luna-fixture', reasoningEffort: admittedThinking },
           }
         : data,
     ),
   );
   let active!: ReturnType<typeof useExplicitLocalChat>;
-  function Screen() {
-    active = useExplicitLocalChat('draft', null, 'bound-session', true);
+  function Screen({ sessionId }: { sessionId: string }) {
+    active = useExplicitLocalChat('draft', null, sessionId, true);
     return null;
   }
   const view = (layout: string, owner = 'bound-session:0') => (
     <ChatRuntimeDraftProvider owner={owner}>
-      <Screen key={layout} />
+      <Screen key={layout} sessionId={owner.split(':')[0]} />
     </ChatRuntimeDraftProvider>
   );
   const { rerender } = render(view('phone'));
@@ -315,6 +318,13 @@ it('retains a bound chat model across responsive remounts without changing the n
   rerender(view('other', 'another-session:0'));
   await waitFor(() => expect(active.commandAvailable).toBe(true));
   expect(active.intent.account?.model).toBe('luna-fixture');
+  admittedThinking = 'high';
+  rerender(view('return'));
+  await waitFor(() => expect(active.commandAvailable).toBe(true));
+  expect(active.intent.account).toMatchObject({
+    model: 'luna-fixture',
+    reasoningEffort: 'high',
+  });
 });
 
 it('keeps future inference intent and ignores an older metadata response after consecutive same-branch adoption invalidations', async () => {

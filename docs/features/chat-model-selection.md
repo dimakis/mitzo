@@ -34,6 +34,13 @@ Overview tests cover live and retained chats. A metadata restore failure preserv
 its visible retry state and emits a sanitized diagnostic while retaining the cause
 in the local failure state.
 
+The owner-switch regression also visits a second conversation without editing it,
+then returns to the first after its admitted thinking level changes. The shared
+draft owner discards the abandoned selection when ownership changes, so reopening
+uses the latest admitted settings. Same-owner responsive remounts still retain
+the unsent choice. This was reproduced before the correction and verified offline
+on 11 November 2026; it does not establish production behavior.
+
 The intercepted `chat-model-settings` browser journey also checks the header,
 picker and frozen command after recreating the screen in phone/desktop projects,
 light/dark themes and alternate appearance. Local browser startup was blocked by
