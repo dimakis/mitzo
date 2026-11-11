@@ -6,10 +6,16 @@ import { Login } from '../Login';
 import { saveTokenToWatch } from '../../lib/watch-auth';
 import { apiFetch, restoreCookieAuthentication, AUTH_RESTORED_EVENT } from '../../lib/api-fetch';
 import { biometricLogin, isBiometricAvailable, saveBiometricPassphrase } from '../../lib/biometric';
+import { readAppleSignInStatus } from '../../lib/apple-sign-in';
+vi.mock('../../lib/apple-sign-in', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../lib/apple-sign-in')>()),
+  readAppleSignInStatus: vi.fn(),
+}));
 vi.mock('../../lib/api-fetch', () => ({
   apiFetch: vi.fn(),
   restoreCookieAuthentication: vi.fn(),
   AUTH_RESTORED_EVENT: 'auth-restored',
+  AUTH_LOST_EVENT: 'auth-lost',
   isCrossTabAuthEvent: () => true,
   getApiBaseUrl: () => '',
   getStoredAuthToken: () => 'test-token',
@@ -42,6 +48,7 @@ function setup(target = destination) {
   );
 }
 beforeEach(() => {
+  vi.mocked(readAppleSignInStatus).mockResolvedValue({ enabled: false });
   vi.mocked(isBiometricAvailable).mockResolvedValue(false);
   vi.mocked(apiFetch).mockResolvedValue({
     ok: true,

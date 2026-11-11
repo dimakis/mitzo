@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		A11E510A2026111100000001 /* AppleSignInBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = A11E510A2026111100000002 /* AppleSignInBridge.swift */; };
 		1F97793D2FB86A7A00B87829 /* WatchAuthBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1F97793C2FB86A7A00B87829 /* WatchAuthBridge.swift */; };
 		1F97793E2FB86A8000B87829 /* WatchRelayCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1F97793B2FB86A5700B87829 /* WatchRelayCoordinator.swift */; };
 		2C807BBEF27900A4B4C713F3 /* VoiceService.swift in Sources */ = {isa = PBXBuildFile; fileRef = E438A1E5CA844963819792C4 /* VoiceService.swift */; };
@@ -57,6 +58,7 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		A11E510A2026111100000002 /* AppleSignInBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppleSignInBridge.swift; sourceTree = "<group>"; };
 		1F97793B2FB86A5700B87829 /* WatchRelayCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchRelayCoordinator.swift; sourceTree = "<group>"; };
 		1F97793C2FB86A7A00B87829 /* WatchAuthBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchAuthBridge.swift; sourceTree = "<group>"; };
 		264FB5577C8B9098BE816A36 /* MitzoWatch.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = MitzoWatch.app; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -134,6 +136,7 @@
 				504EC3071FED79650016851F /* AppDelegate.swift */,
 				1F97793B2FB86A5700B87829 /* WatchRelayCoordinator.swift */,
 				1F97793C2FB86A7A00B87829 /* WatchAuthBridge.swift */,
+				A11E510A2026111100000002 /* AppleSignInBridge.swift */,
 				504EC30B1FED79650016851F /* Main.storyboard */,
 				504EC30E1FED79650016851F /* Assets.xcassets */,
 				504EC3101FED79650016851F /* LaunchScreen.storyboard */,
@@ -305,6 +308,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				1F97793D2FB86A7A00B87829 /* WatchAuthBridge.swift in Sources */,
+				A11E510A2026111100000001 /* AppleSignInBridge.swift in Sources */,
 				1F97793E2FB86A8000B87829 /* WatchRelayCoordinator.swift in Sources */,
 				504EC3081FED79650016851F /* AppDelegate.swift in Sources */,
 			);

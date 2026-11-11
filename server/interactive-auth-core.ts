@@ -86,7 +86,11 @@ export function createInteractiveAuth(input: InteractiveAuthConfig) {
 
   async function login(passphrase: string): Promise<string | null> {
     if (passphrase !== PASSPHRASE) return null;
+    return issueOperatorSession();
+  }
 
+  /** Only trusted authentication adapters may call this after proving the owner. */
+  async function issueOperatorSession(): Promise<string> {
     const jwt = new SignJWT({ sub: 'user' });
     if (config.realm) jwt.setIssuer(config.realm.issuer).setAudience(config.realm.audience);
     return jwt
@@ -334,6 +338,7 @@ export function createInteractiveAuth(input: InteractiveAuthConfig) {
       return !!session && session.expiresAt > Date.now() && !isSessionRevoked(session);
     },
     login,
+    issueOperatorSession,
     verifyPassphrase,
     authenticateToken,
     verifyLogoutToken,

@@ -10,8 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.1023-account-model-storage-integration';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.1024-apple-owner-sign-in';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -23,6 +22,29 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
+  '../apple-sign-in.ts': '37dd9de7da852038d1fa7aa98bf3b13200b6f1d5c14b2ea0dbbf4bd75efbc645',
+  '../apple-private-file.ts': '3292cc2badd176c6831dc58dd83a9ae611d9acce6a529cbe3f57e947debf2031',
+  '../apple-owner-store.ts': '63c6c0eca1dce50ddb63706b78e46fc1d7e4cf3e87ab157aa6ab6748afcfc617',
+  '../apple-sign-in-provider.ts':
+    '477e1d43870fe313768ff298013dcaf8d42fbcbbd17e0b06ee4110058d2cee8d',
+  '../apple-sign-in-router.ts': '63b9c93ba015bcd80da557b94e504c4fc388b357a8b48c1b36ba8fe805911754',
+  '../apple-sign-in-runtime.ts': '69074cd4b7ff27f448391becf2c43bb931b186d136bc26346e769c3babdbb356',
+  '../__tests__/apple-sign-in.test.ts':
+    '4d6dd9121c1d9304afdc6b5ee9acb06cbfe0b79938f389ff790508fb1965ffe8',
+  '../__tests__/apple-sign-in-router.test.ts':
+    'aaad035417f876655bdfb70394d6fdbdc2caff340d1f8851df45c740ddc02536',
+  '../__tests__/apple-private-file.test.ts':
+    'f679cdd7dba4991dad0d782f18a8fd3673cc8bd6264702ecf2062da75a741ddd',
+  '../../frontend/src/lib/apple-sign-in.ts':
+    '2b0e3ed5aebed2d7e9363d8fb9d20175a3e1915c375656c57021280a518d06cf',
+  '../../frontend/src/pages/Login.tsx':
+    '70767bab7f59a813bce5f6f9bbd55ddd0fd8ea1ed274537e3408c88ce75dec44',
+  '../../frontend/src/pages/__tests__/Login.apple.test.tsx':
+    '12bf82eab4dd2f04524836ea0629ae1fad729524596a6a20f3f9610253c3ff83',
+  '../../frontend/src/lib/__tests__/apple-sign-in.test.ts':
+    '67f84ced3015602e23240413a7090f04b676d986422a6a6725565f43b25d48aa',
+  '../../frontend/ios/App/App/AppleSignInBridge.swift':
+    '3aeb25aa91edfa7430253d3547804166adbf75cff5a8f80af0d7cdd0d6160cad',
   '../../frontend/src/lib/__tests__/account-preference.test.ts':
     '4143a4f2c597cbc62160aa07c574e3a61cb10f70e0a989b5a8200dbe70d26675',
   '../__tests__/claude-model-discovery.test.ts':
@@ -358,7 +380,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../docs/features/watch-approval-types.md':
     '08cb59068407842170f497a038fa754524992fca67b55329bae2ffccd6be196c',
   '../../frontend/ios/App/App/AppDelegate.swift':
-    '7679fe6809d60df5017fdc1eef82d74f7af55827bd5c2f6c7ea2e10c5e2d832e',
+    'db614a53523df8dcc4ab8143888d82d3550c585adf8123fcb6fef32bbea19e95',
   '../../frontend/ios/MitzoShared/Sources/MitzoShared/Networking/MitzoAPIClient.swift':
     '57de22a4d3066d7b85b4691c2784d6051199fb31cc48a3957089cfa98a811a89',
   '../../frontend/ios/MitzoShared/Sources/MitzoShared/Networking/WatchRelay.swift':
@@ -2278,7 +2300,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../bounded-file-read.ts': '8332b3e5908ebe1464eeb7c99a8963bc402ae1f2d89a979a7495f53d54914070',
   '../session-permission-revision.ts':
     'cf71bb38e2008352cbccfd22aae88f747625a3533c26aad22537d9509c11a26a',
-  '../auth.ts': '5486a4a5312d8214d94d981278a08aaf30e3a24c116023d954aa83b010bb0c14',
+  '../auth.ts': '7ffe02e12ab2e7c9f416255147f2fa63bb65d4012e3115719c6eb87f82d462f3',
   '../native-file-operation.ts': 'c3adf4c733857ed950dcdf02dc67b04b17db6b018ec9c08dff2fb49c2c3d4838',
   '../sandboxed-command.ts': '4987b778ae0eb72a1c444053055b0412bab3a9b3d7ec486aed6b33aa105cc09c',
   '../../packages/client/src/connection.ts':
@@ -2361,7 +2383,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../session-access.ts': 'feeeea5ffcf16bb1c4542191a74d5eebde2ea2dbcac7cf0e5315d05e2249b1dc',
   '../session-metadata-error.ts':
     '377bd861f0e48e022fb49fb8c021e14f2da8d921f9d61c9fa738f31080596eae',
-  '../app.ts': 'b7e27fcae6287d89ec92e6ad2708371063b415b2f7ea0806512dd660920ffa99',
+  '../app.ts': 'c2ac129a2d1170fe42f39d866ac5018da98187dfed31fac3eff9b956ab43f1e3',
   '../auth-check-tracing.ts': '067dc344d8ee76ffe39739a99076f614711ca3d11f96682c842c596a7bbd112e',
   '../telemetry-relay.ts': '302bf6cec2b988ae71a123a5dd04d0f2266a82c3ee51873ec64d8be452c25427',
   '../symposium-review-route-composition.ts':
@@ -2636,7 +2658,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/protocol/src/ordinary-openshell-admission.ts':
     'e0bf739a1a01a4a0068710b6297a890319a9a0d0c52caef40a66317a3f09d451',
   '../host-codex-custody.ts': '61aa7f207e85cda995ab21ca987946db1fbe83e81e232f038b656eb235d24212',
-  '../interactive-auth-core.ts': '512e933252bda6a86584dcb3d6a622ddea43d9e525c682dffae91f622e745120',
+  '../interactive-auth-core.ts': '9da4b9c02711bfea58f2bbf36902c8236890b471783fd3e3dc03a5c75da6c8f7',
   '../openshell-codex-custody.ts':
     '7e08950de4b9e31af2aaa87e5bb8eb14a11322e893a4adc363e6c507fe6b323a',
   '../openshell-lifecycle-controller.ts':
