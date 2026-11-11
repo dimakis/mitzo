@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.1049-claude-browser-ci-contracts';
+  'v1.0.1050-claude-shared-draft-edit';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -358,7 +358,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../tests/fixtures/symposium-composer.tsx':
     '3e821497de4f4088e1610134821046e992e81117e897cb1c30864ccc2ff6b8ad',
   '../../tests/offline/symposium-composer.spec.ts':
-    '52357b48a743a653a2dc07e784de7e2680d84019e76e8d77fc4dae50e101b35e',
+    '0747240617cdcb0d674fcee8a0fb7794dfb11be4e992288b8d02092fd96cac0f',
   '../../docs/evidence/symposium-integration-acceptance.md':
     '576918c0c6d980938e2468a459740bfb814f14275326ebac732ab8d361b5cee0',
   '../../docs/features/symposium.md':
@@ -2226,7 +2226,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/lib/launch-draft-delivery.ts':
     '05839a85eee84c490f9679ce36dc624280173a2d19c8b8ca5f8080a7fb19acb3',
   '../../frontend/src/hooks/useDraft.ts':
-    'e3d5f2b55ab6fb81bf7e6a1bcae791c476134c23ca267437ae8db9d5cc920218',
+    '691568071c1733b617bff4b436be56e87dc25ccc1d4047a1b122444cf8380f7d',
   '../../frontend/src/hooks/useSavedChatDrafts.ts':
     '82bf6749c8e92ca502b4c907ec2d9fdb50d1391818ce183cdcef890f47adac0c',
   '../../frontend/src/hooks/__tests__/useSavedChatDrafts.test.tsx':
@@ -3595,7 +3595,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/components/__tests__/TelosSourceReview.test.tsx':
     '06e6c55790df6a5b350afa6815cf9dc25128f65b81bd321013b4d8f7fe2cf0c9',
   '../../frontend/src/hooks/__tests__/useDraft.test.ts':
-    '41139a8559934b719a7ca08ae285c16baac451655a499e7d43be9f4203a0887c',
+    '51d4d1ec422da7d8511d110c025897594a9a2c69f13eece8bb8f5f1d11775643',
   '../../frontend/src/hooks/__tests__/useNewChatDraft.test.tsx':
     '3942ae3873900aae93c862fe665dcd44feae3e29c8a0212e4c3fe94dc56d7ac7',
   '../../frontend/src/pages/__tests__/ChatViewSavedDrafts.test.tsx':
