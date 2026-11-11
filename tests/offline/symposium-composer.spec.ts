@@ -414,6 +414,12 @@ for (const theme of ['dark', 'light'])
       await expect(artifactPreview).toHaveText(artifactText);
       expect(await artifactPreview.textContent()).toBe(artifactText);
       await expect(artifactPreview.locator('script')).toHaveCount(0);
+      await artifactPreview.scrollIntoViewIfNeeded();
+      await expect(artifactPreview).toBeInViewport();
+      await page.screenshot({
+        path: info.outputPath('forward-context-review-frozen-' + theme + '.png'),
+        fullPage: true,
+      });
       expect(sends).toBe(0);
       expect(reviewCount).toBe(2);
       const prepareForward = context.getByRole('button', { name: 'Prepare context forward' });
@@ -422,10 +428,19 @@ for (const theme of ['dark', 'light'])
       await expect(confirmForward).toBeEnabled();
       await context.getByRole('button', { name: 'Inspect original context' }).click();
       const originalContext = context.getByRole('region', { name: 'Original forward context' });
-      await expect(originalContext.getByText('Reviewer', { exact: true })).toBeVisible();
+      // Future discussion readers receive context even when only Reviewer replies.
+      expect(forward!.selection.target.sessionIds).toEqual(['reader', 'reviewer']);
+      await expect(originalContext.getByText('reader, Reviewer', { exact: true })).toBeVisible();
       expect(await originalContext.getByLabel('Saved contents, version 2').textContent()).toBe(
         artifactText,
       );
+      const originalArtifact = originalContext.getByLabel('Saved contents, version 2');
+      await originalArtifact.scrollIntoViewIfNeeded();
+      await expect(originalArtifact).toBeInViewport();
+      await page.screenshot({
+        path: info.outputPath('forward-context-review-recovered-' + theme + '.png'),
+        fullPage: true,
+      });
       await expect(confirmForward).toBeEnabled();
       expect(reviewCount).toBe(3);
       if (isMobile) expect((await confirmForward.boundingBox())!.height).toBeGreaterThanOrEqual(44);
