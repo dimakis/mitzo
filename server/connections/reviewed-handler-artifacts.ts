@@ -2574,11 +2574,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     'c103af10de4adc81cdc474b3e69ef2b3de5e447d4dcf15da4fc1894c422b913b',
   '../../packages/protocol/src/session-output-reference-store.ts':
     'e3d0095bfe092da676eb3671f8c147500e9436a95a9438d0315b8037b14b3029',
-<<<<<<< HEAD
-  '../chat.ts': 'a1366cbaf9c6733cb5a50f90b36501a494c4749891781b987820842cf30b1689',
-=======
-  '../chat.ts': 'c048607dd4036c57628b691d72581a0c378e2bacc869835fd2da7b92393f74bf',
->>>>>>> origin/main
+  '../chat.ts': 'c9c7439f380c4a9280d79bb7023d8d90d32ab2799ef32d9db602f8aadd519e3b',
   '../../packages/harness/src/session-registry.ts':
     '920286cff62bab7712d9e8648166e74e2c1e084f11e0fe8978d2435c4a58da74',
   '../agent-context-binding.ts': '4917ff83899105b7ac2c537c8db18111eeb97386d1ca0a2d2b576d872e1db360',
