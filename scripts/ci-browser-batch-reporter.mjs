@@ -34,6 +34,7 @@ export default class BrowserBatchReporter {
       id: test.id,
       status: result.status,
       expectedStatus: test.expectedStatus,
+      durationMs: result.duration,
     });
     this.save();
   }
