@@ -77,6 +77,13 @@
     "passed": 19
   },
   "paired_hosted_measurements": [],
+  "historical_unit_replay_caution": {
+    "first_sample_max_summed_suite_load_change_percent": -38.8,
+    "second_sample_partial_ts_tsx_baseline_max_seconds": 1228.6,
+    "second_sample_partial_ts_tsx_candidate_max_seconds": 1235.1,
+    "second_sample_partial_ts_tsx_change_percent": 0.5,
+    "interpretation": "Unfavorable second sample retained. Overlapping suite durations are not elapsed predictions; rolling and paired candidate measurements remain required."
+  },
   "limitations": [
     "No observed elapsed speedup claimed. Weights are historical, and case lifecycle/setup overhead is not modeled.",
     "No full browser or Apple build execution on this host. Current assertion/skip counts require hosted candidate reports.",

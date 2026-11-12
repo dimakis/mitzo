@@ -64,6 +64,9 @@ isolation priorities; this trial preserves that policy. Fresh CI has no measured
 rolling unit history yet, so the ownership change remains a trial rather than a
 claim of a stable improvement. Retain subsequent unit JSON reports, including
 unfavorable samples, before deciding whether to keep or revise these owners.
+The original retained replay reduced maximum summed suite load by 38.8%, but the
+second run's partial TS/TSX replay increased it from 1,228.6 to 1,235.1 seconds
+(0.5%). Preserve that unfavorable result. Neither replay predicts elapsed time.
 
 Offline browser discovery and the original ten Playwright shard lists agree on
 459 cases in each current project. The new partition has the same complete
