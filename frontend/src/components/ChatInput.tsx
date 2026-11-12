@@ -282,6 +282,7 @@ function ChatInputContent({
     prepareSubmission,
     releaseSubmission,
     update: updateQueued,
+    retryPersistence,
     dequeue,
     restoreRejected,
     removeSubmitted,
@@ -1558,6 +1559,7 @@ function ChatInputContent({
           }}
           onSend={fireQueuedAsInterrupt}
           onUpdate={updateQueued}
+          onRetryOrder={retryPersistence}
           onRemove={removeQueued}
           onEditingChange={setQueueEditorOpen}
         />

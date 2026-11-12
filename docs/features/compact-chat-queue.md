@@ -26,17 +26,17 @@ cannot overwrite a different pending draft.
 ## Engine and runtime scope
 
 Ordering and ordinary dispatch use the same ChatInput/useQueuedMessages path for
-every engine and runtime. Focused consumer tests queue two messages, reorder them,
-and finish the response through the shared composer under the four requested
-Codex/Claude Code × Local Mac/OpenShell route labels. They invoke existing owner
-callbacks, not real providers; they do not qualify native runtime availability.
+every admitted engine and runtime. A consumer test queues two messages, reorders
+them, and finishes the response through that shared composer. It invokes existing
+owner callbacks; it does not qualify native runtime availability. Repeating this
+test under different route labels would not establish additional coverage.
 
 Steering and recovery continue through their existing runtime owners and checks.
 The queue now shows the actual unavailable reason instead of a disabled unexplained
 lightning button. Main at `f7a474ea9` still enables native turn steering only for
 bound Codex chats. Bound Claude SDK steering is **not added by this UI change**.
-Existing PR #1310 supplies related Claude/Codex peer-runtime work and is unmerged
-at the inspected head `20d47ab950ae7edda5f07b374e580a9d3737732d`. Full native Claude
+PR #1310 supplied related Local Claude/Codex peer-runtime work and was accepted as
+`94b60f4f8fffd0f319bebbae00a4f7fa1b5f6faf` on 12 November 2026. Full native Claude
 user steering remains a separately unfulfilled runtime requirement; peer-message
 support alone does not prove the user-composer path. No unsupported route silently
 falls back to Stop, replacement admission or a different turn.
@@ -46,9 +46,18 @@ falls back to Stop, replacement admission or a different turn.
 - Test-first: ten compact tray/composer regressions initially failed on the old
   popup and missing order controls. Two queue-hook tests additionally reproduced
   crossing an unconfirmed dispatch and overwriting a different row identity.
-- Focused unit run: 129 passed across compact tray, existing save-ownership,
+- Focused unit run: 130 passed across compact tray, existing save-ownership,
   queue persistence, order fencing, composer status, direct corrections and send
-  receipt coverage before the final documentation/diagnostic pass.
+  receipt coverage. A further regression reproduces failed Make next persistence,
+  explicit recovery and a later text save; all 12 focused tray/persistence tests
+  pass after retaining the changed position throughout recovery.
+- Review regressions also cover retaining edited text during Make next, guarding
+  row switches during editing, pending context receipt checks, and retrying the
+  actual failed IndexedDB write rather than only flushing its failed receipt.
+- Runtime resolver, steering-route and owned queue-control suites passed 74 tests.
+  Two additional suites could not run locally: the native SQLite owner addon was
+  absent, and a Claude fixture attempted to inspect a policy-denied account path.
+  These failures are retained as CI obligations, not runtime qualification.
 - Package TypeScript builds passed. The full frontend TypeScript check exhausted
   the required 1 GiB heap; it is not recorded as passing and remains a CI check.
 - Updated offline browser fixture preserves the existing steering, attachments,

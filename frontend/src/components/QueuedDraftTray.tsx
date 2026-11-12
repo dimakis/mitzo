@@ -17,6 +17,7 @@ type Props = {
   onPause(): void;
   onSend(index: number): void;
   onUpdate(index: number, message: QueuedMessage, position: number): boolean;
+  onRetryOrder?(): Promise<boolean>;
   onRemove(index: number): void;
   onEditingChange(open: boolean): void;
 };
@@ -40,6 +41,7 @@ export function QueuedDraftTray({
   onPause,
   onSend,
   onUpdate,
+  onRetryOrder,
   onRemove,
   onEditingChange,
 }: Props) {
@@ -112,10 +114,16 @@ export function QueuedDraftTray({
         setError('Could not change dispatch order. Check the current queue and try again.');
         return;
       }
+      if (alive.current) {
+        setEditor((current) =>
+          current && (current.id ? current.id === message.queueEntryId : current.index === index)
+            ? { ...current, index: target, position: target }
+            : current,
+        );
+      }
       await chatStorage.flush();
       if (chatStorage.failed) throw Error('storage');
       if (alive.current) {
-        setEditor(null);
         setAnnouncement(
           'Dispatch order changed. Position ' +
             (target + 1) +
@@ -148,8 +156,7 @@ export function QueuedDraftTray({
     operation.current = true;
     setMoving(true);
     try {
-      await chatStorage.flush();
-      if (chatStorage.failed) throw Error('storage');
+      if (!onRetryOrder || !(await onRetryOrder())) throw Error('storage');
       if (alive.current) {
         setOrderError(false);
         setError('');
@@ -278,7 +285,7 @@ export function QueuedDraftTray({
                     aria-expanded={!!selected}
                     title={message.text}
                     aria-describedby={id + '-preview-' + index}
-                    disabled={disabled || !!message.dispatchPending}
+                    disabled={disabled || !!message.dispatchPending || (!!editor && !selected)}
                     onClick={() => {
                       if (selected) {
                         close();
@@ -345,7 +352,7 @@ export function QueuedDraftTray({
                         disabled={
                           (message.dispatchPending ? recoveryBlocked : blocked) ||
                           disabled ||
-                          !!contextReason ||
+                          (!message.dispatchPending && !!contextReason) ||
                           !!editor
                         }
                         onClick={() => onSend(index)}

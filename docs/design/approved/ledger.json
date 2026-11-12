@@ -681,7 +681,7 @@
           "protectedChecks": [
             {
               "path": "frontend/src/components/__tests__/QueuedDraftTray.compact.test.tsx",
-              "sha256": "b460fe0795ba71d6753b274a35f0a7057666efad3b8132f0d07d49fc4af4b776"
+              "sha256": "c531e5d830bbfe632d4c44e6e9541f39b1645b1cd6b7e1a98f8f88e84acfb7f1"
             },
             {
               "path": "frontend/src/hooks/__tests__/useQueuedMessages.ordering.test.ts",
