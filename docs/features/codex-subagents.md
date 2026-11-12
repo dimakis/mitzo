@@ -1,5 +1,27 @@
 # Native Codex subagents
 
+## Inspection repair (11 November 2026)
+
+Owned admissions validate a model and thinking-level pair. Native subagents
+remain enabled only for eligible owned Local Mac Codex sessions; OpenShell and
+adviser sessions retain their disabled policy, and this repair does not change
+Claude or Gemini execution. Inspection previously passed only the child's model to that validator,
+so a valid inherited child could fail with `model_unavailable` when the parent
+had a thinking level. Validation now resolves the child's original command and
+passes its retained thinking selection. It never borrows a later queued command's
+settings. Account, native session-tree, workspace, command-attempt, generation and
+control fences remain in place; this does not expand model-selection authority.
+
+The regressions reproduce the failure through CodexConversation, including the
+actual owned Local Mac admission validator, and verify a child executor callback
+while the parent stays running. A queued command with another thinking selection
+cannot replace the child's original setting. Missing original commands and
+rejected selections keep inspection unavailable before subscription or execution.
+The phone inspection now respects safe areas, groups empty/error content with a
+compact disabled composer and keeps retry failures visible within the modal.
+Stage and correlation diagnostics remain available through Technical details.
+All verification is offline; no provider turn or deployment is implied.
+
 Implementation draft, 5 November 2026, based on Mitzo main
 `79c334fa1e640372c1f5c54cf60b24bee50a1970`. Native Mac Codex sessions now opt in
 to upstream multi-agent execution and expose nested child activity and controls.
