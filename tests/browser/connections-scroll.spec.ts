@@ -215,9 +215,9 @@ test('new OpenAI API enrollment requires identity and billing consent without ch
     return route.fulfill({ json: {} });
   });
   await page.goto('/connections');
-  await page.getByRole('link', { name: 'Choose OpenAI API' }).click();
+  await page.getByRole('link', { name: 'Choose AI API account' }).click();
   await expect(
-    page.getByRole('heading', { name: 'Add OpenAI API account', exact: true }),
+    page.getByRole('heading', { name: 'Add AI API account', exact: true }),
   ).toBeVisible();
   await expect(page.getByLabel('API key', { exact: true })).toHaveCount(0);
   await page.getByRole('button', { name: 'Confirm identity to add an account' }).click();
