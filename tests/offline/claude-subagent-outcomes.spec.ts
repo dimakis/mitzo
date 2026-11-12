@@ -60,8 +60,17 @@ for (const theme of ['dark', 'light']) {
       await button.focus();
       await page.keyboard.press('Enter');
       await expect(child.getByText('Retained public output', { exact: true })).toBeVisible();
-      if (status === 'unavailable')
-        await expect(child.getByText('cancellation-reference')).toBeVisible();
+      if (status === 'unavailable') {
+        await expect(child.getByText('00000000-0000-4000-8000-000000000000')).toBeVisible();
+        await expect(page.locator('body')).toHaveJSProperty(
+          'scrollWidth',
+          await page.locator('body').evaluate((element) => element.clientWidth),
+        );
+        await page.screenshot({
+          path: info.outputPath(`native-subagents-claude-unavailable-${theme}.png`),
+          fullPage: true,
+        });
+      }
       await page.keyboard.press('Enter');
       await expect(button).toBeFocused();
     }

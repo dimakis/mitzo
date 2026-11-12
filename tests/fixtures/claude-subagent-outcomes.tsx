@@ -28,7 +28,7 @@ createRoot(document.getElementById('root')!).render(
                 ? {
                     diagnostic: {
                       code: 'claude_child_stop_failed',
-                      correlationId: 'cancellation-reference',
+                      correlationId: '00000000-0000-4000-8000-000000000000',
                     } as const,
                   }
                 : {}),

@@ -676,7 +676,9 @@ export function parseServerMessage(
       result.messagesActions.push({
         type: msg.nonfatal === true ? 'CONTROL_REJECTED' : 'ERROR',
         error: errorMsg || 'Unknown error',
-        ...(typeof msg.seq === 'number' ? { retainedFailureSeq: msg.seq } : {}),
+        ...(msg.nonfatal === true && typeof msg.seq === 'number'
+          ? { retainedFailureSeq: msg.seq }
+          : {}),
       });
       break;
     }

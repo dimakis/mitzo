@@ -48,6 +48,12 @@ Sources and validation:
 
 Local adapter/replay and design tests pass. Local browser startup was blocked by
 macOS process-registration permissions after selecting the installed browser cache;
-dependent UI cases did not run. Hosted browser checks and visual captures remain
-required evidence. Broad builds and the complete suite belong to CI under the
+dependent UI cases did not run. Hosted run
+[43144378731](https://github.com/dimakis/mitzo/actions/runs/43144378731) at
+`042852d92cd5fb50f3080fb751ee3d3493be8d4c` passed the six child-outcome browser
+cases. Phone/WebKit and desktop/Chromium captures were inspected in both themes
+and appearance choices; status labels, disclosure, failure copy and retained draft
+remained readable. These captures establish rendering only. Check
+[PR #1315](https://github.com/dimakis/mitzo/pull/1315) for final combined CI and
+Centaur receipts. Broad builds and the complete suite belong to CI under the
 repository's local resource limit. No deployment, staging or provider turn ran.
