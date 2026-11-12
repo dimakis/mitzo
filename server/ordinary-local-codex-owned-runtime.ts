@@ -1,4 +1,5 @@
 import { findSessionRuntimeError } from './session-runtime-error.js';
+import { retainCodexPreparationFailure } from './codex-preparation-failure.js';
 import { reconcileRetainedLocalCodexEffects } from './retained-local-codex-effects.js';
 import {
   freezeOrdinarySkillCommand,
@@ -80,7 +81,8 @@ import { freezePendingHostTaskData } from './pending-host-task.js';
 import type { CredentialSetupNotification } from './credential-setup-continuation.js';
 import { RetainedLocalCodexRecovery } from './retained-local-codex-recovery.js';
 
-const unavailable = () => new Error('Owned local Codex runtime unavailable');
+const unavailable = (cause?: unknown) =>
+  new Error('Owned local Codex runtime unavailable', { cause });
 function strictSync(result: unknown): void {
   if (result === undefined) return;
   void Promise.resolve(result).catch(() => {});
@@ -1252,7 +1254,7 @@ export class OrdinaryLocalCodexOwnedRuntime<K extends LocalWorkspaceKind = 'repo
       if (failure) throw failure;
       const capabilityError = findNativeMacExecutionUnavailable(error);
       if (capabilityError) throw capabilityError;
-      throw unavailable();
+      throw unavailable(retainCodexPreparationFailure('runtime_admission', error));
     }
   }
 
