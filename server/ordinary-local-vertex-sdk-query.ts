@@ -14,6 +14,7 @@ import { assertOrdinaryLocalVertexHistory } from './ordinary-local-vertex-native
 import { assertClaudeSubscriptionAccount } from './claude-subscription-custody.js';
 import type { SdkAgentMessageRuntime } from './sdk-agent-message-runtime.js';
 import { createLogger } from './logger.js';
+import { sdkQueryRetiredEvent } from './sdk-query-retirement.js';
 const log = createLogger('owned-sdk-query');
 /** Only the lifetime of an SDK query, not runtime/auth/history state. Retiring a
  * completed query cannot abort its successor; stale hooks always refuse effects. */
@@ -243,6 +244,9 @@ export function createOrdinaryLocalVertexSdkQuery<
           retired: state.retired,
         });
       }
+      // This native iterator has ended; the joined iterator can remain open
+      // while waiting for another admitted query on the same SDK history.
+      yield sdkQueryRetiredEvent();
     }
   };
   const joined = new Proxy(owners.adapt(native), {

@@ -58,6 +58,12 @@ in source; attributing that specific incident to it remains unproven.
 
 ## Validation record
 
+- Accepted SDK child-recovery integrations retain child output when each native
+  query retires while the joined conversation iterator remains open. A trusted
+  host event marks unresolved children unavailable before admitting a successor;
+  provider JSON cannot impersonate that boundary. Real-wrapper regression tests
+  cover both SDK adapters, post-terminal iterator failure, successor input and
+  cancellation without duplicate outcomes or result correlation changes.
 - Test-first: ten compact tray/composer regressions initially failed on the old
   popup and missing order controls. Two queue-hook tests additionally reproduced
   crossing an unconfirmed dispatch and overwriting a different row identity.
