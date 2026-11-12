@@ -73,8 +73,8 @@ for (const theme of ['dark', 'light'])
     await expect(panel.locator('.telos-tree-conversation').first()).toBeHidden();
     await expect(panel.locator('.telos-node-status').first()).toBeVisible();
     await expect(panel.locator('.telos-node-icon').first()).toBeHidden();
-    await expect(panel.getByText('Coordinator', { exact: true }).first()).toBeVisible();
-    await expect(panel.getByText('Coordinator', { exact: true }).first()).toHaveCSS(
+    await expect(panel.getByText('Outcome', { exact: true }).first()).toBeVisible();
+    await expect(panel.getByText('Outcome', { exact: true }).first()).toHaveCSS(
       'white-space',
       'nowrap',
     );

@@ -226,10 +226,10 @@ it('CT13/14 actual App: recursive canonical tree, category pins and provenance s
   await browserExpect(row('Audio programme')).toBeVisible();
   await tree.getByRole('button', { name: 'Expand all', exact: true }).click();
   for (const [title, kind] of [
-    ['Audio programme', 'Coordinator'],
-    ['Home studio', 'Outcome'],
-    ['Recording plan', 'Outcome'],
-    ['Install acoustic panels', 'Work item'],
+    ['Audio programme', 'Outcome'],
+    ['Home studio', 'Feature'],
+    ['Recording plan', 'Feature'],
+    ['Install acoustic panels', 'Slice'],
     ['Unclassified retained note', 'Unclassified'],
   ])
     await browserExpect(row(title).locator('.telos-node-copy > .telos-node-meta')).toContainText(

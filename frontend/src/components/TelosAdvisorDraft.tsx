@@ -135,7 +135,12 @@ export function TelosAdvisorDraft({ conversationId }: { conversationId?: string 
         value: {
           name: operation === 'refine' ? record.summary : '',
           desiredOutcome: operation === 'refine' ? record.intent : '',
-          type: operation === 'refine' ? record.kind : 'work_item',
+          type:
+            operation === 'refine'
+              ? record.kind
+              : record.kind === 'coordinator'
+                ? 'outcome'
+                : 'work_item',
           category: record.categories[0] ?? '',
         },
       });
@@ -270,9 +275,9 @@ export function TelosAdvisorDraft({ conversationId }: { conversationId?: string 
                 value={fields.type}
                 onChange={(event) => change('type', event.target.value)}
               >
-                <option value="outcome">Outcome</option>
-                <option value="coordinator">Coordinator</option>
-                <option value="work_item">Work item</option>
+                <option value="outcome">Feature</option>
+                <option value="coordinator">Outcome</option>
+                <option value="work_item">Slice</option>
               </select>
             </label>
           )}

@@ -20,6 +20,8 @@ import {
   TelosCollectionWakeupRequired,
 } from './telos-snooze.js';
 import { TelosWorkError } from './telos-work-store.js';
+import { initializeTelosWorkKinds } from './telos-work-schema.js';
+import { drainRejectedTelosAuthority } from './telos-authority-diagnostic.js';
 
 export interface NativeTelosItem {
   id: string;
@@ -74,7 +76,7 @@ export class TelosRuntimeStore extends TelosItemStore {
   private checkMutationAuthority() {
     const result: unknown = this.mutationAuthority?.();
     if (result !== undefined) {
-      void Promise.resolve(result).catch(() => {});
+      drainRejectedTelosAuthority(result, 'item-authority');
       throw Error('Synchronous current Telos authority required');
     }
   }
@@ -346,7 +348,7 @@ export class TelosRuntimeStore extends TelosItemStore {
         this.checkMutationAuthority();
         const current: unknown = assertCurrent?.();
         if (current !== undefined) {
-          void Promise.resolve(current).catch(() => {});
+          drainRejectedTelosAuthority(current, 'item-authority');
           throw Error('Synchronous current Telos authority required');
         }
         const hash = createHash('sha256').update(JSON.stringify(input)).digest('hex');
@@ -374,9 +376,18 @@ export class TelosRuntimeStore extends TelosItemStore {
             'Historical Telos creation identity already exists; inspect the original outcome',
           );
         const id = randomUUID();
+        if (input.workLevel === 'outcome') initializeTelosWorkKinds(db);
         this.insert({ id, summary: input.summary, profile: input.profile, outcome: input });
-        for (const summary of input.milestones)
-          this.insert({ id: randomUUID(), summary, profile: input.profile, parentId: id });
+        if (input.workLevel === 'outcome')
+          db.prepare("INSERT INTO telos_work_kinds(item_id,kind) VALUES(?,'coordinator')").run(id);
+        for (const summary of input.milestones) {
+          const childId = randomUUID();
+          this.insert({ id: childId, summary, profile: input.profile, parentId: id });
+          if (input.workLevel === 'outcome')
+            db.prepare("INSERT INTO telos_work_kinds(item_id,kind) VALUES(?,'outcome')").run(
+              childId,
+            );
+        }
         const records = this.projectRows(
           db
             .prepare('SELECT * FROM items WHERE id=? OR parent_id=? ORDER BY rowid')

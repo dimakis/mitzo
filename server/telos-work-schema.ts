@@ -61,7 +61,6 @@ export function initializeTelosWorkSchema(db: Database.Database) {
     CREATE TRIGGER IF NOT EXISTS telos_work_main_publications_approval BEFORE UPDATE OF data ON telos_work_main_publications WHEN json_extract(OLD.data,'$.approvalReceiptId') IS NOT NULL AND json_extract(NEW.data,'$.approvalReceiptId') IS NOT json_extract(OLD.data,'$.approvalReceiptId') BEGIN SELECT RAISE(ABORT,'Publication approval receipt is immutable'); END;
     CREATE TRIGGER IF NOT EXISTS telos_work_control_evidence_no_update BEFORE UPDATE ON telos_work_control_evidence BEGIN SELECT RAISE(ABORT,'Control evidence is immutable'); END;
     CREATE TRIGGER IF NOT EXISTS telos_work_control_evidence_no_delete BEFORE DELETE ON telos_work_control_evidence BEGIN SELECT RAISE(ABORT,'Control evidence is immutable'); END;
-    CREATE TABLE IF NOT EXISTS telos_work_kinds(item_id TEXT PRIMARY KEY REFERENCES items(id),kind TEXT NOT NULL CHECK(kind IN ('coordinator','outcome','work_item')));
     CREATE TABLE IF NOT EXISTS telos_work_links(seq INTEGER PRIMARY KEY,item_id TEXT NOT NULL REFERENCES items(id),role TEXT NOT NULL,namespace TEXT NOT NULL,conversation_id TEXT NOT NULL,data TEXT NOT NULL,UNIQUE(item_id,role,namespace,conversation_id));
     CREATE INDEX IF NOT EXISTS telos_work_links_conversation ON telos_work_links(namespace,conversation_id);
     CREATE TABLE IF NOT EXISTS telos_work_assignments(item_id TEXT NOT NULL REFERENCES items(id),role TEXT NOT NULL CHECK(role IN ('lead','worker')),data TEXT NOT NULL,PRIMARY KEY(item_id,role));
@@ -91,6 +90,15 @@ export function initializeTelosWorkSchema(db: Database.Database) {
     CREATE TRIGGER IF NOT EXISTS telos_work_sources_no_delete BEFORE DELETE ON telos_work_sources BEGIN SELECT RAISE(ABORT,'Source snapshot is immutable'); END;
   `),
   )();
+  initializeTelosWorkKinds(db);
+}
+
+/** Creation enrolls only classification and composition guards, on its original
+ * writer. It does not initialize role, allocation, control or source owners. */
+export function initializeTelosWorkKinds(db: Database.Database) {
+  db.exec(
+    `CREATE TABLE IF NOT EXISTS telos_work_kinds(item_id TEXT PRIMARY KEY REFERENCES items(id),kind TEXT NOT NULL CHECK(kind IN ('coordinator','outcome','work_item')));`,
+  );
   // Use the same guard for insertion and reparenting, including canonical writes.
   const guard = `
     SELECT CASE WHEN NEW.parent_id IS NOT NULL AND NOT EXISTS(SELECT 1 FROM items WHERE id=NEW.parent_id) THEN RAISE(ABORT,'Work parent not found') END;

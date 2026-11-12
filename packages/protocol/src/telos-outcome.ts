@@ -19,6 +19,8 @@ export const TelosOutcomeLinkSchema = z.object({
   description: z.string().optional().default(''),
 });
 export const TelosOutcomeCreateBodySchema = z.object({
+  // Absent in historical reviewed packets: preserve their exact replay identity.
+  workLevel: z.literal('outcome').optional(),
   summary: z.string().trim().min(1).max(160),
   intent: z.string().trim().min(1).max(2000),
   rationale: z.string().trim().min(1).max(2000),

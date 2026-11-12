@@ -4,11 +4,19 @@ import express from 'express';
 import request from 'supertest';
 import Database from 'better-sqlite3';
 import { mkdtempSync, rmSync } from 'node:fs';
+import fs from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createTelosArtifactRouter, telosArtifactSaveJson } from '../telos-artifact-routes.js';
+import { executeTelosArtifactTool } from '../telos-artifact-tools.js';
+import { telosDiagnosticFailure } from '../telos-operation-failure.js';
+import { listenOnLoopback, closeTestServer } from './loopback-test-server.js';
+const logs = vi.hoisted(() => ({ warn: vi.fn() }));
+vi.mock('../logger.js', () => ({ createLogger: () => logs }));
 const dirs: string[] = [];
 afterEach(() => {
+  vi.restoreAllMocks();
+  logs.warn.mockReset();
   for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true });
 });
 function setup() {
@@ -55,6 +63,173 @@ function setup() {
   return { app, call, readFile, path };
 }
 describe('Telos host artifact routes', () => {
+  it('delivers a real HTTP helper failure as a tool error, then returns the recovered save receipt', async () => {
+    const { app, readFile } = setup();
+    const server = await listenOnLoopback(app);
+    try {
+      const address = server.address();
+      if (!address || typeof address === 'string') throw Error('Private test listener missing');
+      readFile.mockRejectedValueOnce(
+        Object.assign(new Error('PRIVATE timeout'), { code: 'ETIMEDOUT' }),
+      );
+      const input = {
+        requestId: 'same-save',
+        itemId: 't',
+        filename: 'spec.md',
+        title: 'Spec',
+        path: '/spec.md',
+      };
+      const save = () =>
+        executeTelosArtifactTool(
+          `http://127.0.0.1:${address.port}`,
+          'active',
+          'token',
+          'TelosSaveArtifact',
+          input,
+        );
+      expect(await save()).toEqual({
+        isError: true,
+        content: 'Telos artifact service unavailable',
+      });
+      expect(logs.warn).toHaveBeenCalledExactlyOnceWith(
+        'Telos artifact operation failed',
+        expect.objectContaining({
+          phase: 'read_workspace',
+          reason: 'process_timeout',
+          errorCode: 'ETIMEDOUT',
+        }),
+      );
+      const recovered = await save();
+      expect(recovered.isError).toBe(false);
+      expect(JSON.parse(recovered.content)).toMatchObject({
+        ok: true,
+        artifact: { revision: 1, sessionId: 'session-original' },
+      });
+      expect(await save()).toEqual(recovered);
+      expect(readFile).toHaveBeenCalledTimes(2);
+    } finally {
+      await closeTestServer(server);
+    }
+  });
+  it('does not inspect diagnostic getters or expose a nested private error', async () => {
+    const { call, readFile } = setup();
+    const getter = vi.fn(() => 'PRIVATE code');
+    const cause = new Error('PRIVATE inner');
+    Object.defineProperty(cause, 'code', { get: getter });
+    Object.defineProperty(cause, 'cause', { get: getter });
+    readFile.mockRejectedValueOnce(new Error('PRIVATE outer', { cause }));
+    expect(
+      (await call('save', { itemId: 't', filename: 'spec.md', title: 'Spec', path: '/spec.md' }))
+        .status,
+    ).toBe(503);
+    expect(getter).not.toHaveBeenCalled();
+    expect(JSON.stringify(logs.warn.mock.calls)).not.toContain('PRIVATE');
+    expect(logs.warn).toHaveBeenCalledExactlyOnceWith(
+      'Telos artifact operation failed',
+      expect.objectContaining({ reason: 'unexpected' }),
+    );
+  });
+  it('keeps the original failure visible when storage cleanup also fails', async () => {
+    const { call, readFile } = setup();
+    const close = TelosArtifactStore.prototype.close;
+    vi.spyOn(TelosArtifactStore.prototype, 'close').mockImplementationOnce(function (
+      this: TelosArtifactStore,
+    ) {
+      close.call(this);
+      throw Object.assign(new Error('PRIVATE cleanup'), { code: 'SQLITE_BUSY' });
+    });
+    readFile.mockRejectedValueOnce(Object.assign(new Error('PRIVATE read'), { code: 'EPERM' }));
+    const failed = await call('save', {
+      itemId: 't',
+      filename: 'spec.md',
+      title: 'Spec',
+      path: '/spec.md',
+    });
+    expect(failed.status).toBe(503);
+    expect(failed.body).toEqual({ ok: false, error: 'Telos artifact service unavailable' });
+    expect(logs.warn.mock.calls.map(([, context]) => context.phase)).toEqual([
+      'read_workspace',
+      'close_storage',
+    ]);
+    expect(JSON.stringify(logs.warn.mock.calls)).not.toContain('PRIVATE');
+  });
+  it('reports a failed workspace helper without exposing its output and allows the same save to recover', async () => {
+    const { call, readFile } = setup();
+    const failure = Object.assign(new Error('PRIVATE path and command'), {
+      code: 71,
+      stdout: 'PRIVATE document bytes',
+      stderr: 'PRIVATE helper diagnostic',
+    });
+    readFile.mockRejectedValueOnce(failure);
+    const input = { itemId: 't', filename: 'spec.md', title: 'Spec', path: '/PRIVATE/spec.md' };
+    const failed = await call('save', input);
+    expect(failed.status).toBe(503);
+    expect(failed.body).toEqual({ ok: false, error: 'Telos artifact service unavailable' });
+    expect(logs.warn).toHaveBeenCalledExactlyOnceWith('Telos artifact operation failed', {
+      code: 'telos_artifact_unavailable',
+      phase: 'read_workspace',
+      operation: 'save',
+      sessionId: 'session-original',
+      reason: 'process_failed',
+      errorKind: 'error',
+      errorCode: 'process_exit',
+      exitCode: 71,
+    });
+    expect(JSON.stringify(logs.warn.mock.calls)).not.toContain('PRIVATE');
+    expect((await call('find', {})).body.artifacts).toEqual([]);
+    expect((await call('save', input)).status).toBe(200);
+    expect((await call('find', {})).body.artifacts).toHaveLength(1);
+  });
+  it.each(['written', 'callback_failure', 'thrown_failure', 'short_write'] as const)(
+    'preserves both causes and the failed response when logging fails (fallback %s)',
+    async (fallbackState) => {
+      const { call, readFile } = setup();
+      const fallbackCause = new Error('PRIVATE fallback failure');
+      const fallback = vi.spyOn(fs, 'write').mockImplementation(((
+        _fd: number,
+        line: string,
+        done: (error: Error | null, written: number) => void,
+      ) => {
+        if (fallbackState === 'thrown_failure') throw fallbackCause;
+        done(
+          fallbackState === 'callback_failure' ? fallbackCause : null,
+          fallbackState === 'short_write' ? 1 : Buffer.byteLength(line),
+        );
+      }) as typeof fs.write);
+      const original = new Error('PRIVATE failure');
+      const diagnosticCause = new Error('PRIVATE log sink failed');
+      readFile.mockRejectedValueOnce(original);
+      logs.warn.mockImplementationOnce(() => {
+        throw diagnosticCause;
+      });
+      const response = await call('save', {
+        itemId: 't',
+        filename: 'spec.md',
+        title: 'Spec',
+        path: '/spec.md',
+      });
+      expect(response.status).toBe(503);
+      expect(logs.warn).toHaveBeenCalledTimes(1);
+      expect(fallback).toHaveBeenCalledTimes(1);
+      const line = String(fallback.mock.calls[0][1]);
+      const diagnostic = JSON.parse(line);
+      expect(diagnostic).toMatchObject({
+        code: 'telos_diagnostic_sink_failed',
+        stage: 'read_workspace',
+        operation: 'save',
+        sessionId: 'session-original',
+      });
+      expect(line).not.toContain('PRIVATE');
+      const retained = telosDiagnosticFailure(diagnostic.diagnosticId);
+      expect(retained?.operationCause).toBe(original);
+      expect(retained?.diagnosticCause).toBe(diagnosticCause);
+      if (fallbackState === 'written') expect(retained?.fallbackCause).toBeUndefined();
+      else if (fallbackState === 'short_write')
+        expect(retained?.fallbackCause).toBeInstanceOf(Error);
+      else expect(retained?.fallbackCause).toBe(fallbackCause);
+      expect((await call('find', {})).body.artifacts).toEqual([]);
+    },
+  );
   it('keeps reviewed source packets outside generic outputs and conversation artifact authority', async () => {
     const { app, path, call } = setup();
     const store = new TelosArtifactStore(path);
@@ -194,6 +369,7 @@ describe('Telos host artifact routes', () => {
       path: '/sandbox/spec.md',
     });
     expect(failed.status).toBe(409);
+    expect(logs.warn).not.toHaveBeenCalled();
     expect(failed.body.artifact).toBeUndefined();
     expect((await call('find', {})).body.artifacts).toEqual([]);
     readFile.mockResolvedValueOnce({
@@ -275,6 +451,14 @@ describe('work output listing', () => {
     const unavailable = await request(app).get('/api/telos/items/t/artifacts');
     expect(unavailable.status).toBe(503);
     expect(unavailable.body.artifacts).toBeUndefined();
+    expect(logs.warn).toHaveBeenCalledExactlyOnceWith(
+      'Telos artifact operation failed',
+      expect.objectContaining({
+        code: 'telos_artifact_unavailable',
+        phase: 'list_artifacts',
+        reason: 'sqlite_unavailable',
+      }),
+    );
   });
   it('rejects invalid work identity instead of returning all artifacts', async () => {
     const { app } = setup();

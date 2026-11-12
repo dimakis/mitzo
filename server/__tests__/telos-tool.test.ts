@@ -6,6 +6,7 @@ import {
   TELOS_CREATE_OUTCOME_TOOL,
   formatTelosSourceResult,
   formatTelosPermissionDenial,
+  TelosOutcomeInput,
 } from '../telos-tool.js';
 
 const input = {
@@ -47,6 +48,9 @@ const sourceReceipt = {
 afterEach(() => vi.unstubAllGlobals());
 
 describe('Telos host tool', () => {
+  it('includes the shared outcome level before a new proposal is reviewed', () => {
+    expect(TelosOutcomeInput.parse(input)).toEqual({ ...input, workLevel: 'outcome' });
+  });
   it('returns requested revisions as actionable feedback rather than a failed creation', () => {
     const receipt = {
       kind: 'telos_outcome_changes_requested',
