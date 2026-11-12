@@ -14,7 +14,17 @@ import { createTelosWorkRouter } from '../telos-work-routes.js';
 import { TaskStore } from '../task-store.js';
 import { TaskOrchestrator } from '../task-orchestrator.js';
 import { reviewTelosWorkRoleContext } from '../telos-work-role-review.js';
+import { TelosArtifactStore } from '../telos-artifact-store.js';
 import type { TelosWorkRoleRequest } from '../telos-work-routes.js';
+const logs = vi.hoisted(() => ({ warn: vi.fn() }));
+vi.mock('../logger.js', async (original) => {
+  const actual = await original<typeof import('../logger.js')>();
+  return {
+    ...actual,
+    createLogger: (module: string) =>
+      module === 'telos-work' ? logs : actual.createLogger(module),
+  };
+});
 // Isolate chat's legacy startup metadata before imports. This is not a Git source
 // or an admitted workspace; every actual task must use its separate private ID/cwd.
 const startup = await vi.hoisted(async () => {
@@ -44,6 +54,8 @@ beforeAll(() => setAuthRevocationStore(startupStore));
 const cleanup: Array<() => void | Promise<void>> = [];
 afterEach(async () => {
   for (const close of cleanup.splice(0).reverse()) await close();
+  vi.restoreAllMocks();
+  logs.warn.mockReset();
 });
 afterAll(() => {
   startupStore.close();
@@ -199,6 +211,102 @@ async function fixture() {
     },
   };
 }
+it.each(['foreign', 'missing'] as const)(
+  'reports %s selected material as a review conflict before delegation effects',
+  async (kind) => {
+    const x = await fixture();
+    const before = x.f.native.events.listSessions().length;
+    const material = x.f.canonical.material;
+    const response = await x.tool({
+      requestId: randomUUID(),
+      childItemId: 'slice',
+      mode: 'start',
+      predecessorAttemptId: null,
+      sourceSnapshotIds: [],
+      artifactRefs: [
+        {
+          artifactId: material.id,
+          revision: kind === 'missing' ? 99 : material.revision,
+          sha256: material.sha256,
+        },
+      ],
+    });
+    expect(response.status).toBe(409);
+    expect(response.body).toEqual({
+      code: 'conflict',
+      error: 'Work delegation conflicts with retained state',
+    });
+    expect(x.f.native.events.listSessions()).toHaveLength(before);
+    expect(x.f.work.read('slice', x.f.actor).attempts).toEqual([]);
+    expect(x.tasks.getTree()).toEqual([]);
+    expect(logs.warn).not.toHaveBeenCalled();
+  },
+);
+
+it('retains sanitized storage diagnostics through the actual delegation consumer and safely retries before effects', async () => {
+  const x = await fixture();
+  const material = x.f.canonical.artifacts.save({
+    itemId: 'slice',
+    filename: 'plan.md',
+    title: 'Reviewed plan',
+    bytes: Buffer.from('Plan'),
+    sessionId: 'planning',
+  });
+  const input = {
+    requestId: randomUUID(),
+    childItemId: 'slice',
+    mode: 'start',
+    predecessorAttemptId: null,
+    sourceSnapshotIds: [],
+    artifactRefs: [
+      { artifactId: material.id, revision: material.revision, sha256: material.sha256 },
+    ],
+  };
+  const before = x.f.native.events.listSessions().length;
+  const read = vi.spyOn(TelosArtifactStore.prototype, 'read');
+  read.mockImplementationOnce(() => {
+    throw Object.assign(new Error('Private SQL, /private/custody, token-secret'), {
+      code: 'SQLITE_BUSY',
+      stderr: 'private process bytes',
+    });
+  });
+  const failed = await x.tool(input);
+  expect(failed.status).toBe(503);
+  expect(failed.body).toEqual({
+    code: 'unavailable',
+    error: 'Ordinary work delegation unavailable',
+  });
+  expect(logs.warn).toHaveBeenCalledWith(
+    'Telos work operation failed',
+    expect.objectContaining({
+      code: 'telos_work_unavailable',
+      phase: 'execute_host',
+      operation: 'delegate_slice',
+      sessionId: x.leadId,
+      reason: 'sqlite_busy',
+      errorCode: 'SQLITE_BUSY',
+    }),
+  );
+  expect(JSON.stringify(logs.warn.mock.calls)).not.toMatch(
+    /Private SQL|private\/custody|token-secret|private process bytes/,
+  );
+  expect(x.f.native.events.listSessions()).toHaveLength(before);
+  expect(x.f.work.read('slice', x.f.actor).attempts).toEqual([]);
+  expect(x.tasks.getTree()).toEqual([]);
+  logs.warn.mockImplementationOnce(() => {
+    throw Error('Diagnostic sink unavailable');
+  });
+  read.mockImplementationOnce(() => {
+    throw Object.assign(new Error('storage still busy'), { code: 'SQLITE_BUSY' });
+  });
+  expect((await x.tool(input)).body).toEqual(failed.body);
+  const retried = await x.tool(input);
+  expect(retried.status).toBe(200);
+  expect((await x.tool(input)).body).toEqual(retried.body);
+  expect(x.f.native.events.listSessions()).toHaveLength(before + 1);
+  expect(x.f.work.read('slice', x.f.actor).attempts).toHaveLength(1);
+});
+
 it('typed operator HTTP delegates an exact canonical child via the existing dispatcher into independent non-Git custody and recovers the same identities', async () => {
   const x = await fixture(),
     before = x.f.native.events.listSessions().length;

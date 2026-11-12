@@ -105,6 +105,33 @@ or live model calls are authorized here.
 
 ## Delivery 2: reviewed adoption and recovery
 
+### Recovered prerequisites, 12 November 2026
+
+The eleven retained continuation commits through `8f5ed6d73` have been reconciled
+with accepted #1302 (`1b333750`) and the #1320 main integration (`97bc4dc0`) in a
+separate candidate. Original commits and their recovery branch remain retained.
+The primitives fence send receipts, dispatch/queue claims, recovery continuations
+and child controls with the original command's context epoch. They also retain
+provider-context revision through thread acknowledgements and add read-only
+durable quiescence checks. They expose no existing-chat adoption tool or API.
+
+Integration retains current user-correction identity refusal, queue timing and
+change notifications, originating child model/thinking validation, uncertain
+TaskExecution read recovery and their tests alongside the recovered context
+checks. Every source registration from both candidates is retained. Core
+protocol/conversation/storage/subagent checks pass 741 tests on the combined
+source; another 199 owner/admission/cold-recovery/delegation/route checks pass.
+These 940 selected checks are offline evidence, with no live model calls.
+
+The next implementation boundary is exact idle-runtime retirement: refuse busy
+or unsettled owners, retain an awaitable drain through all finalizers, and preserve
+failure on replay. Registry removal alone is insufficient. Then add the reviewed
+transition journal, committed role-context refresh, API/client/review controls and
+composed recovery journey. Handover must start no model command, preserve the
+existing conversation/workspace/settings/history, and retain prior worker
+assignments and receipts. No live runtime or complete adoption claim follows
+from these recovered prerequisites.
+
 Reconcile #1302's unpublished context-epoch/quiescence work first. Select the exact
 existing ordinary chat, work/role/revisions and account/runtime/history custody.
 Review bounded context and replacement eligibility at a safe point; preserve prior
