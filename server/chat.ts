@@ -2806,7 +2806,10 @@ This is an independent checkout with its own Git storage, not a linked worktree.
       const packBoundSdk = agentContext?.source === 'packs' || !!options.ordinarySdkAuthority;
       const contextStopReason = 'Accepted agent context is no longer authorized; start a new chat.';
       const sdkHookLifetime = new SdkHookLifetime();
-      const authorizeSdkContext = async (signal: AbortSignal) => {
+      const authorizeSdkContext = async (
+        signal: AbortSignal,
+        beforeRefusal?: (cause: unknown) => never,
+      ) => {
         const joined = AbortSignal.any([abortController.signal, signal]);
         try {
           options.adviserScope?.assertCurrent();
@@ -2817,8 +2820,16 @@ This is an independent checkout with its own Git storage, not a linked worktree.
         } catch (error) {
           // SDK hook failures can be recoverable diagnostics. Abort the owning
           // provider process too, so a denied continuation cannot be retried.
-          if (packBoundSdk && !sdkHookLifetime.retired(signal))
-            abortController.abort(new Error(contextStopReason));
+          if (packBoundSdk && !sdkHookLifetime.retired(signal)) {
+            try {
+              // An input owner must retain its actionable refusal while the
+              // original viewer is still attached. Explicit cancellation has
+              // already selected its outcome and must not become a refusal.
+              if (!joined.aborted) beforeRefusal?.(error);
+            } finally {
+              abortController.abort(new Error(contextStopReason, { cause: error }));
+            }
+          }
           throw error;
         }
       };

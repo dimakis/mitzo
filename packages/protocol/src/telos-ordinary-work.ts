@@ -18,6 +18,12 @@ export const TelosOrdinaryWorkRoleSetupInputSchema = z
   .refine(
     (value) => ['lead', 'worker'].includes(value.role) || value.expectedAssignmentRevision === null,
     'Invalid role assignment selection',
+  )
+  .refine(
+    (value) =>
+      !value.createOnly ||
+      (['lead', 'worker'].includes(value.role) && value.expectedAssignmentRevision === 0),
+    'Create-only requires an unassigned lead or worker role',
   );
 export const TelosOrdinaryWorkRoleSetupIntentSchema = TelosWorkRoleSetupIntentSchema.extend({
   input: TelosOrdinaryWorkRoleSetupInputSchema,

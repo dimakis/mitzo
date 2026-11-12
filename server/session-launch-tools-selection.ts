@@ -16,6 +16,7 @@ export async function assertSessionLaunchTools(
     { telosItemDefinitions },
     { githubMainPublicationTool },
     { ordinaryNativeTelosArtifactTools },
+    { telosSessionLaunchDefinition },
     { bindAgentToolSelection, nativeExecutionToolsAllowed },
   ] = await Promise.all([
     import('./telos-work-tools.js'),
@@ -23,6 +24,7 @@ export async function assertSessionLaunchTools(
     import('./telos-item-tools.js'),
     import('./telos-main-publication.js'),
     import('./telos-artifact-tools.js'),
+    import('./telos-session-launch-tool.js'),
     import('./agent-tool-selection.js'),
   ]);
   // StartSession allocates an ordinary chat without a retained Telos role.
@@ -34,6 +36,7 @@ export async function assertSessionLaunchTools(
       ...telosWorkControlDefinitions,
       ...telosItemDefinitions,
       githubMainPublicationTool,
+      telosSessionLaunchDefinition,
     ].map((tool) => tool.name),
   );
   const artifactNames = new Set(ordinaryNativeTelosArtifactTools(true).map((tool) => tool.name));

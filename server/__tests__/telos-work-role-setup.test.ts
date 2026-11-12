@@ -22,6 +22,33 @@ afterEach(async () => {
   await cleanupJoiningFixtures();
 });
 
+it('reserves a create-only role before allocation and blocks competing agent and manual setup', async () => {
+  const r = await roleFixture();
+  const input = { ...r.input, createOnly: true };
+  const first = r.work.prepareRoleSetup(input, r.actor);
+  expect(r.work.prepareRoleSetup(input, r.actor)).toEqual(first);
+  expect(() =>
+    r.work.prepareRoleSetup({ ...input, requestId: 'competing-agent' }, r.actor),
+  ).toThrow(input.requestId);
+  expect(() => r.work.prepareRoleSetup({ ...r.input, requestId: 'manual-setup' }, r.actor)).toThrow(
+    /original|reserved/i,
+  );
+  expect(() =>
+    r.work.execute(
+      {
+        itemId: r.input.itemId,
+        requestId: 'manual-assignment',
+        expectedRevision: r.input.expectedRevision,
+        operation: 'setup_role',
+        role: 'lead',
+        expectedAssignmentRevision: 0,
+        conversationId: 'unrelated-session',
+      },
+      r.actor,
+    ),
+  ).toThrow(/original|reserved/i);
+});
+
 async function roleFixture() {
   const f = await createJoiningFixture();
   const root = mkdtempSync(join(tmpdir(), 'telos-role-owner-'));
