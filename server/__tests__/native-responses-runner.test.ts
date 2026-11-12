@@ -76,6 +76,24 @@ describe('deferred Gemini durable compatibility', () => {
       content: 'written',
     })),
   });
+  it('delivers the failure reason to Gemini, continues, and retains it across restart', async () => {
+    fetchMock.mockResolvedValueOnce(response(1));
+    const opts = options();
+    opts.executeTool.mockRejectedValueOnce(
+      Object.assign(Error('private upstream payload'), { code: 'ENOMEM' }),
+    );
+    const events = await collect(new NativeResponsesRunner(opts).run('write'));
+    expect(opts.executeTool).toHaveBeenCalledOnce();
+    expect(store.load('app-id', binding)?.status).toBe('idle');
+    const nextRequest = JSON.stringify(JSON.parse(fetchMock.mock.calls.at(-1)![1].body).contents);
+    expect(nextRequest).toContain('memory_exhausted');
+    expect(nextRequest).not.toContain('private upstream payload');
+    expect(JSON.stringify(events)).toContain('memory_exhausted');
+    store.close();
+    store = new NativeResponsesStore(join(root, 'continuation.db'));
+    await collect(new NativeResponsesRunner(options()).run('continue'));
+    expect(JSON.stringify(fetchMock.mock.calls.at(-1)![1].body)).toContain('memory_exhausted');
+  });
   it('persists signed history and tool outcomes before another request, without exposing credentials', async () => {
     fetchMock.mockResolvedValueOnce(response(1));
     const opts = options();

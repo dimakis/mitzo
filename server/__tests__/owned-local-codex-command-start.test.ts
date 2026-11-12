@@ -1,3 +1,4 @@
+import './fixtures/offline-user-home.js';
 import { afterAll, beforeAll, beforeEach, expect, it, vi } from 'vitest';
 import { createHash } from 'node:crypto';
 import { mkdtempSync, rmSync } from 'node:fs';
@@ -13,6 +14,7 @@ import { getRepositoryWorkspaces } from '../repository-workspace-runtime.js';
 import { openCodexChat, getCodexConversationStore } from '../codex-chat-session.js';
 import { captureAgentLibraryAuthorization } from '../agent-library-transport.js';
 import { CodexStartupError } from '../codex-startup-error.js';
+import { codexRuntimeErrorTelemetry } from '../codex-runtime-diagnostics.js';
 import type { OrdinaryLocalCodexOwnedRuntime } from '../ordinary-local-codex-owned-runtime.js';
 import type { FrozenHostCodexBootstrapLease } from '../frozen-host-codex-bootstrap.js';
 
@@ -605,9 +607,15 @@ it('releases a new idle driver for an exact duplicate without preparing a query 
 it('releases driver failure without exposing its private evidence or starting a query', async () => {
   const f = request();
   runtime.mode = 'failure';
-  await expect(chat.startOwnedLocalCodexCommand(f.transport, f.clientId, f.args)).rejects.toThrow(
-    'Owned local Codex chat unavailable',
-  );
+  const failure = await chat
+    .startOwnedLocalCodexCommand(f.transport, f.clientId, f.args)
+    .catch((error: unknown) => error);
+  expect(failure).toBeInstanceOf(Error);
+  expect((failure as Error).message).toBe('Owned local Codex chat unavailable');
+  expect((failure as Error).cause).toBeInstanceOf(CodexStartupError);
+  const telemetry = codexRuntimeErrorTelemetry(failure as Error);
+  expect(telemetry).toMatchObject({ startupPhase: 'runtime_admission' });
+  expect(JSON.stringify(telemetry)).not.toContain('private admission evidence');
   expect(runtime.instances[0].close).toHaveBeenCalledOnce();
   expect(openCodexChat).not.toHaveBeenCalled();
 });

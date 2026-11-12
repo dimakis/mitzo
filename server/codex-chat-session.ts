@@ -1,6 +1,7 @@
+import { closeMcpAfterFailure } from './codex-mcp-tools.js';
 import { copyCallbackOutcome, retainCallbackOutcome } from './turn-callbacks.js';
 import { retainedApplicationEffectObserver } from './retained-application-effects.js';
-import { agentMessagePrompt } from '@mitzo/protocol';
+import { steerNativeAgentMessage } from './agent-message-runtime.js';
 import { agentContextRuntimeError } from './agent-context-authority.js';
 import {
   RepositoryMaterializationSchema,
@@ -83,6 +84,7 @@ import {
   recordAgentMessageAcceptance,
   recordAgentMessageCommandOutcome,
   sessionAgentCommunicationTools,
+  executeAgentCommunicationTool,
 } from './agent-communication-tools.js';
 import {
   assertAgentToolRoute,
@@ -165,7 +167,7 @@ import {
 import { requireCustodianOrdinaryRuntime } from './custodian-ordinary-runtime.js';
 import { custodianControllerMode, custodianOwnerMode } from './symposium-custodian-mode.js';
 import { JIRA_API_ENDPOINT } from './connections-gateway.js';
-import { HOST_TOOL_INSTRUCTIONS } from './session-permission-policy.js';
+import { HOST_TOOL_INSTRUCTIONS, TOOL_FAILURE_INSTRUCTIONS } from './session-permission-policy.js';
 import { createNativeHooks } from './native-hooks.js';
 import { requestCodexUserInput } from './codex-user-input.js';
 import { loadAccountProfiles } from './account-profiles.js';
@@ -413,6 +415,10 @@ function capabilityToolsForConversation(
 export function publicCodexRuntimeError(error: Error): string {
   const retained = findSessionRuntimeError(error);
   if (retained) return retained.publicMessage();
+  // Command admission preserves a safe outer refusal and the typed startup
+  // cause. Project that reviewed cause instead of losing its actionable reason.
+  if (!(error instanceof CodexStartupError) && error.cause instanceof CodexStartupError)
+    return publicCodexRuntimeError(error.cause);
   if (error.message === NATIVE_MAC_ARTIFACT_UNAVAILABLE) return error.message;
   if (error instanceof SandboxAgentContextAdmissionError)
     return error.message + ' No provider turn was started.';
@@ -501,6 +507,10 @@ function store() {
 /** Reuse the private native command ledger for session-scoped Symposium threads. */
 export function getCodexConversationStore(): CodexConversationStore {
   return store();
+}
+/** Peer discovery never creates private native state on another runtime's behalf. */
+export function existingCodexConversationStore() {
+  return privateStore;
 }
 export function getCodexRuntime(session: ManagedSession) {
   return runtimes.get(session);
@@ -1857,10 +1867,9 @@ async function openCodexChatBound(
         ...(apiTools?.admitted ?? []),
       ]);
   } catch (error) {
-    await mcp.close();
     dispose();
     startupReservation?.();
-    throw error;
+    await closeMcpAfterFailure(mcp, error);
   }
   const localTaskTools = options.ownedLocal
     ? sessionAgentTaskTools(
@@ -1903,21 +1912,9 @@ async function openCodexChatBound(
           if (!runtime) throw Error('Recipient native queue unavailable');
           await runtime.startQueued();
         },
-        steer: async (session, message, assertCurrent) => {
-          const runtime = runtimes.get(session);
-          if (!runtime) throw Error('Recipient native queue unavailable');
-          const target = runtime.captureInterruptTarget();
-          if (!target) return 'inactive';
-          const result = await runtime.steer(
-            {
-              requestId: message.commandId,
-              targetCommandId: target.commandId,
-              text: agentMessagePrompt(message),
-            },
-            assertCurrent,
-          );
-          return result.status === 'stale_target' ? 'inactive' : result.status;
-        },
+        steer: (session, message, assertCurrent) =>
+          steerNativeAgentMessage(runtimes.get(session), message, assertCurrent),
+        nativeState: (session) => runtimes.get(session)?.peerMessageState() ?? 'unavailable',
       })
     : undefined;
   const launchTools = options.ownedLocal
@@ -2227,7 +2224,13 @@ async function openCodexChatBound(
     else dispose();
     signal.removeEventListener('abort', close);
     events.close();
-    void mcp.close();
+    void mcp.close().catch(() => {
+      log.warn('Session MCP cleanup failed', {
+        code: 'mcp_cleanup_failed',
+        stage: 'session_close',
+        conversationId: options.conversationId,
+      });
+    });
     runtimes.delete(options.session);
     const livePublishingOwner = getLiveCapabilityConversationBinding(
       options.conversationId,
@@ -2309,7 +2312,7 @@ async function openCodexChatBound(
         (nativeExecution ? NATIVE_MAC_EXECUTION_INSTRUCTIONS : HOST_TOOL_INSTRUCTIONS) +
         (localServiceTools?.instructions ?? '') +
         (googleWorkspaceTools?.definitions.length
-          ? '\nUse GoogleWorkspaceRead for Google Drive, Docs, Sheets, Slides and Calendar reads. Discover its full schema with DescribeIntegrationTool. This controller tool uses the existing Google sign-in after exact approval; shell gws has no credential access.\n'
+          ? '\nUse GoogleWorkspaceRead for Google Drive, Docs, Sheets, Slides and Calendar reads. Discover its full schema with DescribeIntegrationTool. This controller tool uses the existing Google sign-in; Auto reads freely, other modes ask once per chat and account. Prefer it over shell gws, which has no credential access.\n'
           : '') +
         WEB_ACCESS_INSTRUCTIONS +
         GITHUB_PUBLISHING_INSTRUCTIONS +
@@ -2331,6 +2334,10 @@ async function openCodexChatBound(
           : '');
   const instructionDelivery = assembleInstructionSections([
     { source: 'profile-and-runtime', text: baseSystemPrompt },
+    {
+      source: 'tool-failure-recovery',
+      text: options.adviserScope ? '' : TOOL_FAILURE_INSTRUCTIONS,
+    },
     {
       source: 'tool-discovery',
       text: options.adviserScope ? '' : (integrationDiscovery?.instructions ?? ''),
@@ -3414,14 +3421,24 @@ async function openCodexChatBound(
             }),
             isError: true,
           };
-        assertAgentToolSelected(options.session, output.toolName);
-        const owner = options.registry.findBySessionId(options.conversationId);
-        if (!owner || owner.session !== options.session) throw new CodexToolFailure('stale_owner');
-        if (
-          checkSkillPolicy(options.registry, owner.clientId, mcp.displayName(output.toolName)) ===
-          'deny'
-        )
-          throw new CodexToolFailure('permission_denied');
+        const assertRetainedToolAuthorized = () => {
+          signal.throwIfAborted();
+          assertAgentToolSelected(options.session, output.toolName);
+          const owner = options.registry.findBySessionId(options.conversationId);
+          if (!owner || owner.session !== options.session)
+            throw new CodexToolFailure('stale_owner');
+          if (
+            checkSkillPolicy(options.registry, owner.clientId, mcp.displayName(output.toolName)) ===
+            'deny'
+          )
+            throw new CodexToolFailure('permission_denied');
+        };
+        const assertRetainedToolCurrent = () => {
+          callContext.assertCurrentSync?.();
+          assertRetainedToolAuthorized();
+        };
+        assertRetainedToolCurrent();
+        callContext.registerResponseFence?.(assertRetainedToolAuthorized);
         if (options.ownedOpenShell) {
           const original = openShellRetainedReads.get(request.data.outputId);
           if (
@@ -3509,12 +3526,14 @@ async function openCodexChatBound(
           return { content: JSON.stringify(result), isError: false };
         } else {
           if (!mcp.assertToolCurrent) throw new CodexToolFailure('stale_owner');
+          await mcp.ensureToolCurrent?.(output.toolName, signal);
+          assertRetainedToolCurrent();
           mcp.assertToolCurrent(output.toolName);
           if (!mcp.outputScope || mcp.outputScope(output.toolName) !== output.sourceScope)
             throw new CodexToolFailure('stale_owner');
         }
         const result = readToolOutputPage(output.content, request.data);
-        callContext.assertCurrentSync?.();
+        assertRetainedToolCurrent();
         return { content: JSON.stringify(result), isError: false };
       }
       if (integrationDiscovery?.handles(name)) {
@@ -3876,19 +3895,14 @@ async function openCodexChatBound(
             },
             'settled',
           );
-        try {
-          return {
-            content: JSON.stringify(await communicationTools.execute(input, signal, callContext)),
-            isError: false,
-          };
-        } catch (error) {
-          const failure = {
-            content:
-              'Agent communication is unavailable under the current sender, recipient or exact-message approval. If delivery was uncertain, read the original message/request receipt before sending again.',
-            isError: true,
-          };
-          return error instanceof Error ? copyCallbackOutcome(error, failure) : failure;
-        }
+        return executeAgentCommunicationTool(
+          () => communicationTools.execute(input, signal, callContext),
+          {
+            conversationId: options.conversationId,
+            requestId: input.requestId,
+            recipientConversationId: input.recipientConversationId,
+          },
+        );
       }
       if (name === 'StartSession') {
         if (!launchTools)

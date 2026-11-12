@@ -113,8 +113,11 @@ reply fences recheck read consent and skill restrictions after result processing
 
 Native command cards describe the requested command/network operation. Commands
 in the current task directory can offer **Allow for session** for the exact
-command text and requested access in the current native thread. Changes to the
-command, directory, mode, policy or runtime require fresh approval. Filesystem
+command text and requested access in the current native thread. Recognized GitHub
+CLI repository reads instead retain the explicitly displayed repository-read scope,
+so another CI job/log read can reuse consent. The same classifier serves Claude
+and Vertex. See [scope and notification behavior](approval-notification-churn.md).
+Other changes to the command, directory, mode, policy or runtime require fresh approval. Filesystem
 expansions, file changes, stdin callbacks and managed-network callbacks remain
 separate exact requests. A one-time decision adds no retained consent.
 

@@ -210,6 +210,7 @@ export function useQueuedMessages(
   prepareSubmission: (msg: QueuedMessage) => Promise<QueuedMessage | undefined>;
   releaseSubmission: (retained: QueuedMessage, original: QueuedMessage) => void;
   update: (index: number, msg: QueuedMessage, position: number) => boolean;
+  retryPersistence: () => Promise<boolean>;
   dequeue: () => QueuedMessage | undefined;
   restoreRejected: (msg: QueuedMessage) => QueuedMessage;
   removeSubmitted: (msg: QueuedMessage) => void;
@@ -242,7 +243,7 @@ export function useQueuedMessages(
     [],
   );
   const persist = useCallback(
-    (id: string | undefined, next: QueuedMessage[], maximum?: number) => {
+    (id: string | undefined, next: QueuedMessage[], maximum?: number, force = false) => {
       const ownsLiveQueue = mounted.current && persistence.current.sessionId === id;
       let observed: QueuedMessage[] | undefined;
       let readable = true;
@@ -266,7 +267,7 @@ export function useQueuedMessages(
       try {
         written =
           readable &&
-          ((observed !== undefined && sameStoredQueue(observed, candidate)) ||
+          ((!force && observed !== undefined && sameStoredQueue(observed, candidate)) ||
             saveQueue(id, candidate));
       } finally {
         suppressOwnEvent.current = suppressed;
@@ -448,8 +449,12 @@ export function useQueuedMessages(
       if (
         !original ||
         original.dispatchPending ||
+        (original.queueEntryId !== undefined && msg.queueEntryId !== original.queueEntryId) ||
         position < 0 ||
-        position >= queueRef.current.length
+        position >= queueRef.current.length ||
+        queueRef.current
+          .slice(Math.min(index, position), Math.max(index, position) + 1)
+          .some((entry) => entry.dispatchPending)
       )
         return false;
       const next = queueRef.current.filter((_, i) => i !== index);
@@ -476,6 +481,30 @@ export function useQueuedMessages(
     setQueueRaw(queueRef.current);
     return item;
   }, []);
+
+  /** Retry the current queue's actual write, not just a failed storage barrier.
+   * Reconcile fresh peer state before writing and never release another owner. */
+  const retryPersistence = useCallback(async (): Promise<boolean> => {
+    const owner = sessionRef.current;
+    const intended = queueRef.current;
+    if (!mounted.current || pendingAdmission.current.has(owner)) return false;
+    const saved = persist(owner, intended, undefined, true);
+    if (!saved.written) return false;
+    queueRef.current = saved.queue;
+    setQueueRaw(saved.queue);
+    try {
+      await chatStorage.flush();
+      return (
+        mounted.current &&
+        sessionRef.current === owner &&
+        !chatStorage.failed &&
+        sameStoredQueue(saved.queue, intended) &&
+        sameStoredQueue(readQueue(owner), intended)
+      );
+    } catch {
+      return false; // The caller keeps the visible failed state and dispatch hold.
+    }
+  }, [persist]);
 
   // Return already-submitted input without discarding it when the ordinary queue is full.
   const restoreRejected = useCallback(
@@ -691,6 +720,7 @@ export function useQueuedMessages(
     prepareSubmission,
     releaseSubmission,
     update,
+    retryPersistence,
     dequeue,
     restoreRejected,
     removeSubmitted,

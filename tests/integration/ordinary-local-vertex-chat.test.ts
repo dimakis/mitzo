@@ -1,5 +1,6 @@
 import '../../server/__tests__/fixtures/offline-user-home.js';
 import { EventEmitter } from 'node:events';
+import { randomUUID } from 'node:crypto';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import type { McpSdkServerConfigWithInstance, Options } from '@anthropic-ai/claude-agent-sdk';
@@ -121,12 +122,14 @@ afterEach(async () => {
   services.query.mockReset();
 });
 it.each([
-  { personal: false, managed: false },
-  { personal: true, managed: false },
-  { personal: true, managed: true },
+  { personal: false, managed: false, stdinRevocation: false },
+  { personal: true, managed: false, stdinRevocation: false },
+  { personal: true, managed: true, stdinRevocation: false },
+  { personal: false, managed: false, stdinRevocation: true },
+  { personal: false, managed: false, stdinRevocation: false, idleSuccess: true },
 ])(
-  'routes first, queued future and cold commands through the actual SDK owner with original thread; personal=$personal managed=$managed',
-  async ({ personal, managed }) => {
+  'routes first, queued future and cold commands through the actual SDK owner with original thread; personal=$personal managed=$managed stdinRevocation=$stdinRevocation idleSuccess=$idleSuccess',
+  async ({ personal, managed, stdinRevocation, idleSuccess }) => {
     const nextModel = managed ? 'opus' : 'next-model';
     const nextThinking = managed ? null : 'high';
     // Each account scenario gets its own controller/event-store singletons.
@@ -135,7 +138,12 @@ it.each([
       await import('../../server/claude-subscription-custody.js');
     const { ownedVertexRuntimeFixture } =
       await import('../../server/__tests__/fixtures/owned-local-vertex-runtime.js');
-    const f = await ownedVertexRuntimeFixture(cleanups, { chatRoute: true, personal, managed });
+    const f = await ownedVertexRuntimeFixture(cleanups, {
+      chatRoute: true,
+      personal,
+      managed,
+      ...(idleSuccess ? { tools: [{ id: 'mitzo:AgentCommunication', version: 1 }] } : {}),
+    });
     if (personal) {
       const capture = ClaudeSubscriptionCustody.capture;
       vi.spyOn(ClaudeSubscriptionCustody, 'capture').mockImplementation((env) =>
@@ -162,6 +170,8 @@ it.each([
       }),
     );
     let releaseFirst: (() => void) | undefined;
+    let consumePeer: (() => Promise<Record<string, unknown>>) | undefined;
+    let idleInputReady: Promise<void> | undefined;
     let first = true;
     const history: string[] = [];
     const providerInputs: string[] = [];
@@ -179,9 +189,11 @@ it.each([
           apiProvider: 'firstParty',
         })),
         async *[Symbol.asyncIterator]() {
-          for await (const message of request.prompt) {
+          if (idleInputReady) await idleInputReady;
+          const inputs = request.prompt[Symbol.asyncIterator]();
+          for await (const message of { [Symbol.asyncIterator]: () => inputs }) {
             if (closed.value) break;
-            const inputUuid = `input-${message.mitzoMessageId}`;
+            const inputUuid = message.uuid ?? `input-${message.mitzoMessageId}`;
             history.push(message.mitzoMessageId);
             const content = message.message.content;
             providerInputs.push(
@@ -189,6 +201,23 @@ it.each([
                 ? content
                 : content.map((block: { text?: string }) => block.text ?? '').join(''),
             );
+            if (message.uuid) {
+              for (const replay of [
+                { uuid: randomUUID(), content: message.message.content },
+                { uuid: message.uuid, content: 'Wrong peer acknowledgement text' },
+              ]) {
+                yield {
+                  type: 'user',
+                  parent_tool_use_id: null,
+                  uuid: replay.uuid,
+                  message: { role: 'user', content: replay.content },
+                };
+                expect(
+                  chat.eventStore.agentCommunication.forCommand(message.mitzoMessageId)?.message
+                    .status,
+                ).not.toBe('delivered');
+              }
+            }
             yield {
               type: 'user',
               uuid: inputUuid,
@@ -200,14 +229,36 @@ it.each([
               session_id: id,
               event: { type: 'message_start', message: { id: `assistant-${inputUuid}` } },
             };
+            if (message.uuid)
+              yield {
+                type: 'user',
+                uuid: inputUuid,
+                parent_tool_use_id: null,
+                message: { role: 'user', content: message.message.content },
+              };
             if (first) {
               first = false;
-              await new Promise<void>((resolve) => {
+              const completed = new Promise<void>((resolve) => {
                 releaseFirst = resolve;
                 request.options.abortController.signal.addEventListener('abort', resolve, {
                   once: true,
                 });
               });
+              const peer = await new Promise<Record<string, unknown>>((resolve) => {
+                consumePeer = async () => {
+                  const correction = (await inputs.next()).value;
+                  resolve(correction);
+                  return correction;
+                };
+                request.options.abortController.signal.addEventListener(
+                  'abort',
+                  () => resolve({}),
+                  { once: true },
+                );
+              });
+              if (closed.value) return;
+              yield { ...peer, session_id: id };
+              await completed;
             }
             if (closed.value) return;
             yield {
@@ -237,6 +288,7 @@ it.each([
       await vi.waitFor(() =>
         expect(chat.registry.findBySessionId(f.reservation.conversationId)).toBeNull(),
       );
+      chat.setConnectionRegistry(null);
       chat.eventStore.close();
     });
     const transport = { send: vi.fn(), isOpen: () => true };
@@ -369,6 +421,47 @@ it.each([
       captureAgentLibraryAuthorization(sessionToolOperatorConnection(sdkSession, 'sdk')).auth.id,
     ).toBe(f.auth.id);
     sdkSession.ownerConnectionId = viewer;
+    if (idleSuccess) {
+      const { getPendingRequestsBySession, resolvePending } = await import('@mitzo/harness');
+      const options = services.requests[0].options as Options;
+      const questions = [
+        {
+          question: 'Which checkpoint?',
+          header: 'Checkpoint',
+          options: [{ label: 'Current', description: 'Keep the active task.' }],
+          multiSelect: false,
+        },
+      ];
+      const answer = options.canUseTool!(
+        'AskUserQuestion',
+        { questions },
+        { signal: new AbortController().signal, toolUseID: 'explicit-sdk-question' },
+      );
+      await vi.waitFor(() =>
+        expect(getPendingRequestsBySession(f.reservation.conversationId)).toHaveLength(1),
+      );
+      const pending = getPendingRequestsBySession(f.reservation.conversationId)[0];
+      expect(pending.questions).toMatchObject([{ question: 'Which checkpoint?' }]);
+      expect(
+        resolvePending(
+          pending.permId,
+          'once',
+          { 'Which checkpoint?': ['Current'] },
+          f.reservation.conversationId,
+        ),
+      ).toBe(true);
+      await expect(answer).resolves.toMatchObject({
+        behavior: 'allow',
+        updatedInput: { answers: { 'Which checkpoint?': 'Current' } },
+      });
+      await expect(
+        options.canUseTool!(
+          'Bash',
+          { command: 'true' },
+          { signal: new AbortController().signal, toolUseID: 'unselected-shell' },
+        ),
+      ).resolves.toMatchObject({ behavior: 'deny' });
+    }
     if (personal) {
       const sdkOptions = services.requests[0].options as Options;
       expect(sdkOptions.sandbox).toMatchObject({
@@ -452,6 +545,84 @@ it.each([
     ).resolves.toMatchObject({ status: 202, body: { dispatched: true, state: 'consumed' } });
     expect(services.requests).toHaveLength(1);
     expect(services.requests[0].options.effort).toBe(managed ? undefined : 'low');
+    // The actual chat-installed adapter inserts into this busy SDK query. Its
+    // replay ACK must neither settle the original nor recreate the queued query.
+    const { agentMessageRuntime } = await import('../../server/agent-message-runtime.js');
+    chat.eventStore.upsertSession({ sessionId: 'offline-peer-sender' });
+    const peer = chat.eventStore.agentCommunication.reserve(
+      'offline-peer-sender',
+      f.auth.id,
+      { turnId: 'sender-turn', callId: 'peer-call' },
+      {
+        requestId: randomUUID(),
+        recipientConversationId: f.reservation.conversationId,
+        text: 'Preserve the original task and account for this correction.',
+      },
+    );
+    chat.eventStore.agentCommunication.claim(peer.messageId);
+    const peerCard = (direction: string, messageId: string, status?: string) =>
+      expect.objectContaining({
+        type: 'agent_message',
+        sessionId: f.reservation.conversationId,
+        projection: expect.objectContaining({
+          direction,
+          message: expect.objectContaining({ messageId, ...(status ? { status } : {}) }),
+        }),
+      });
+    await vi.waitFor(() =>
+      expect(transport.send).toHaveBeenCalledWith(peerCard('incoming', peer.messageId)),
+    );
+    const runtime = agentMessageRuntime(sdkSession, f.auth.id)!;
+    expect(runtime.state()).toBe('busy');
+    expect(await runtime.steer(peer, () => {}, sdkSession.abortController.signal)).toBe(
+      'uncertain',
+    );
+    expect(await consumePeer!()).toMatchObject({ uuid: peer.messageId, priority: 'now' });
+    await vi.waitFor(() =>
+      expect(
+        chat.eventStore.agentCommunication.read('offline-peer-sender', peer.messageId).status,
+      ).toBe('delivered'),
+    );
+    expect(transport.send).toHaveBeenCalledWith(peerCard('incoming', peer.messageId, 'delivered'));
+    const outgoingPeer = chat.eventStore.agentCommunication.reserve(
+      f.reservation.conversationId,
+      f.auth.id,
+      { turnId: 'recipient-turn', callId: 'outgoing-peer-call' },
+      {
+        requestId: randomUUID(),
+        recipientConversationId: 'offline-peer-sender',
+        text: 'Retain the outgoing card in this SDK conversation too.',
+      },
+    );
+    await vi.waitFor(() =>
+      expect(transport.send).toHaveBeenCalledWith(peerCard('outgoing', outgoingPeer.messageId)),
+    );
+    const { ConnectionRegistry } = await import('@mitzo/harness');
+    const connections = new ConnectionRegistry();
+    cleanups.push(() => connections.dispose());
+    const firstTab = { isOpen: () => true, send: vi.fn() };
+    const reconnectedTab = { isOpen: () => true, send: vi.fn() };
+    connections.register('first-peer-tab', firstTab);
+    connections.watch('first-peer-tab', f.reservation.conversationId);
+    chat.setConnectionRegistry(connections);
+    chat.eventStore.agentCommunication.claim(outgoingPeer.messageId);
+    await vi.waitFor(() =>
+      expect(firstTab.send).toHaveBeenCalledWith(
+        peerCard('outgoing', outgoingPeer.messageId, 'uncertain'),
+      ),
+    );
+    connections.remove('first-peer-tab');
+    connections.register('reconnected-peer-tab', reconnectedTab);
+    connections.watch('reconnected-peer-tab', f.reservation.conversationId);
+    expect(sdkSession.observers.size).toBe(0);
+    expect(chat.eventStore.getSession(f.reservation.conversationId)?.executionPhase).toBe(
+      'RUNNING',
+    );
+    expect(
+      chat.eventStore.getExecutionAdmission(f.reservation.conversationId, 'queued'),
+    ).toBeUndefined();
+    expect(history).toEqual([f.request.clientMsgId]);
+    expect(services.requests).toHaveLength(1);
     expect(services.requests[0].options.allowedTools).toContain(
       'mcp__mitzo-web-access__RequestWebAccess',
     );
@@ -507,6 +678,16 @@ it.each([
         : { ANTHROPIC_VERTEX_PROJECT_ID: 'offline-project', CLOUD_ML_REGION: 'offline-region' },
     });
     expect(services.requests[1].options).not.toHaveProperty('sessionId');
+    chat.eventStore.agentCommunication.recordForHost(outgoingPeer.messageId, 'delivered');
+    await vi.waitFor(() =>
+      expect(reconnectedTab.send).toHaveBeenCalledWith(
+        peerCard('outgoing', outgoingPeer.messageId, 'delivered'),
+      ),
+    );
+    connections.remove('reconnected-peer-tab');
+    expect(
+      chat.eventStore.agentCommunication.read('offline-peer-sender', peer.messageId).status,
+    ).toBe('delivered');
     expect(services.requests[1].options.mcpServers).toHaveProperty('mitzo-web-access');
     const queriesBeforeStaleSearch = services.query.mock.calls.length;
     expect(
@@ -546,6 +727,18 @@ it.each([
     await vi.waitFor(() =>
       expect(chat.registry.findBySessionId(f.reservation.conversationId)).toBeNull(),
     );
+    const afterStopPeer = chat.eventStore.agentCommunication.reserve(
+      f.reservation.conversationId,
+      f.auth.id,
+      { turnId: 'closed-recipient-turn', callId: 'closed-peer-call' },
+      {
+        requestId: randomUUID(),
+        recipientConversationId: 'offline-peer-sender',
+        text: 'Retained after the original owner stopped.',
+      },
+    );
+    await new Promise<void>((resolve) => queueMicrotask(resolve));
+    expect(transport.send).not.toHaveBeenCalledWith(peerCard('outgoing', afterStopPeer.messageId));
     await expect(
       invoke('/continue', {
         ...wire,
@@ -580,6 +773,99 @@ it.each([
     expect(chat.eventStore.getOrdinaryLocalVertexCustody(f.reservation.conversationId)).toEqual(
       custody,
     );
+    const prompts = await import('../../server/session-prompt-runtime.js');
+    prompts.initializeSessionPrompts(':memory:', {
+      eventStore: chat.eventStore,
+      sessionRegistry: chat.registry,
+      connRegistry: { broadcast() {} } as never,
+    });
+    cleanups.push(() => prompts.closeSessionPrompts());
+    const idleSession = chat.registry.findBySessionId(f.reservation.conversationId)!.session;
+    const idleRuntime = agentMessageRuntime(idleSession, f.auth.id)!;
+    const idlePeer = chat.eventStore.agentCommunication.reserve(
+      'offline-peer-sender',
+      f.auth.id,
+      { turnId: 'idle-sender-turn', callId: 'idle-peer-call' },
+      {
+        requestId: randomUUID(),
+        recipientConversationId: f.reservation.conversationId,
+        text: 'Never submit after sender revocation.',
+      },
+    );
+    chat.eventStore.agentCommunication.claim(idlePeer.messageId);
+    let peerAllowed = true;
+    const guard = () => {
+      if (!peerAllowed) throw Error('Idle sender revoked');
+    };
+    const beforeIdleHistory = [...history];
+    const beforeIdleProviderInputs = [...providerInputs];
+    const beforeIdleQueries = services.requests.length;
+    if (idleSuccess) {
+      await expect(
+        idleRuntime.enqueue!(idlePeer, guard, idleSession.abortController.signal, f.auth),
+      ).resolves.toBe('queued');
+      await vi.waitFor(() =>
+        expect(
+          chat.eventStore.agentCommunication.read('offline-peer-sender', idlePeer.messageId),
+        ).toMatchObject({ status: 'delivered' }),
+      );
+      expect(history).toHaveLength(beforeIdleHistory.length + 1);
+      expect(services.requests).toHaveLength(beforeIdleQueries + 1);
+      await vi.waitFor(() =>
+        expect(chat.eventStore.getSession(f.reservation.conversationId)?.executionPhase).toBe(
+          'TERMINAL',
+        ),
+      );
+      return;
+    }
+    if (stdinRevocation) {
+      let releaseIdleInput!: () => void;
+      idleInputReady = new Promise<void>((resolve) => {
+        releaseIdleInput = resolve;
+      });
+      cleanups.push(() => releaseIdleInput());
+      const { SdkAgentMessageRuntime } = await import('../../server/sdk-agent-message-runtime.js');
+      const before = SdkAgentMessageRuntime.prototype.beforeInput;
+      vi.spyOn(SdkAgentMessageRuntime.prototype, 'beforeInput').mockImplementation(
+        function (input, available) {
+          if ((input as { mitzoMessageId?: string }).mitzoMessageId === idlePeer.commandId)
+            peerAllowed = false;
+          return before.call(this, input, available);
+        },
+      );
+      // Hold the synthetic provider before its first next(): this case targets
+      // revocation after admission and immediately before stdin submission.
+      // Earlier asynchronous-admission revocation is exercised separately below.
+      await expect(
+        idleRuntime.enqueue!(idlePeer, guard, idleSession.abortController.signal, f.auth),
+      ).resolves.toBe('queued');
+      expect(peerAllowed).toBe(true);
+      expect(history).toEqual(beforeIdleHistory);
+      expect(providerInputs).toEqual(beforeIdleProviderInputs);
+      releaseIdleInput();
+      await vi.waitFor(() =>
+        expect(
+          chat.eventStore.agentCommunication.read('offline-peer-sender', idlePeer.messageId),
+        ).toMatchObject({ status: 'failed', reason: 'before_provider_submission' }),
+      );
+      expect(history).toEqual(beforeIdleHistory);
+      expect(providerInputs).toEqual(beforeIdleProviderInputs);
+      expect(services.requests).toHaveLength(beforeIdleQueries + 1);
+      return;
+    }
+    const idleSelection = vi
+      .spyOn(OrdinaryLocalCodexSelectionOwner.prototype, 'assertCurrent')
+      .mockImplementation(async function (expected) {
+        await assertSelection.call(this, expected);
+        peerAllowed = false;
+      });
+    await expect(
+      idleRuntime.enqueue!(idlePeer, guard, idleSession.abortController.signal, f.auth),
+    ).rejects.toThrow('authority_unavailable');
+    idleSelection.mockRestore();
+    expect(chat.eventStore.getSendCommand(idlePeer.commandId)).toBeUndefined();
+    expect(history).toEqual(beforeIdleHistory);
+    expect(services.requests).toHaveLength(beforeIdleQueries);
     first = true;
     releaseFirst = undefined;
     await expect(

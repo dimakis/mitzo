@@ -198,6 +198,54 @@ it('retains observed expiry when the wall clock remains before the deadline', as
     clock.mockRestore();
   }
 });
+it('retains expiry when the permission card timer wins before the adapter timer', async () => {
+  vi.useFakeTimers();
+  const started = Date.now();
+  const clock = vi.spyOn(Date, 'now').mockReturnValue(started);
+  const schedule = setTimeout;
+  const outerExpired = vi.fn();
+  // Both owners enforce the same deadline, but their timers can run in either order.
+  const timer = vi
+    .spyOn(globalThis, 'setTimeout')
+    .mockImplementationOnce((callback, delay, ...args) =>
+      schedule(
+        () => {
+          outerExpired();
+          callback(...args);
+        },
+        (delay ?? 0) + 1,
+      ),
+    );
+  try {
+    const f = setup('agent', 20);
+    const observeFailure = vi.fn();
+    const pending = f.handler(
+      'item/commandExecution/requestApproval',
+      {
+        ...commandParams(),
+        startedAtMs: started,
+        networkApprovalContext: { host: 'example.test', protocol: 'https' },
+      },
+      f.controller.signal,
+      { ...f.context, observeFailure },
+    );
+    await vi.advanceTimersByTimeAsync(20);
+    expect(await pending).toEqual({ decision: 'cancel' });
+    expect(outerExpired).not.toHaveBeenCalled();
+    expect(Date.now()).toBe(started);
+    expect(getPendingRequestsBySession('session')).toEqual([]);
+    expect(observeFailure).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({
+        code: 'approval_expired',
+        effectStatus: 'unknown',
+        recovery: 'inspect_operation',
+      }),
+    );
+  } finally {
+    timer.mockRestore();
+    clock.mockRestore();
+  }
+});
 async function request(f: ReturnType<typeof fixture>) {
   await vi.waitFor(() => expect(f.sent[0]?.permId).toBeDefined());
   return f.sent[0].permId as string;
@@ -584,6 +632,55 @@ describe('native approval adapter with the existing pending owner', () => {
     expect(await result).toEqual({ decision: 'accept' });
     expect(f.registry.get('client')!.sessionAllowList.size).toBe(0);
   });
+
+  it.each(['plain', 'single-quoted native shell', 'double-quoted native shell'])(
+    'reuses repository CLI consent for different CI jobs and logs (%s), and fences revocation',
+    async (envelope) => {
+      const wrap = (command: string) =>
+        envelope === 'plain'
+          ? command
+          : `/bin/zsh -lc ${envelope.startsWith('single') ? `'${command}'` : `"${command}"`}`;
+      const f = setup();
+      const first = f.handler(
+        'item/commandExecution/requestApproval',
+        { ...commandParams(), command: wrap('gh run view 42 --repo owner/repo --log-failed') },
+        f.controller.signal,
+        f.context,
+      );
+      resolvePending(await request(f), 'always', undefined, 'session');
+      expect(await first).toEqual({ decision: 'accept' });
+      expect(f.sent[0].sessionGrantDescription).toContain('CI logs for owner/repo');
+      f.sent.length = 0;
+      for (const command of [
+        'gh run view --repo OWNER/REPO --job 123 --log',
+        'gh api /repos/owner/repo/actions/jobs/456/logs',
+      ]) {
+        const next = f.handler(
+          'item/commandExecution/requestApproval',
+          { ...commandParams(), command: wrap(command) },
+          f.controller.signal,
+          f.context,
+        );
+        await vi.waitFor(() => expect(f.sent).toEqual([]));
+        expect(await next).toEqual({ decision: 'accept' });
+      }
+      const readFence = f.fences.at(-1);
+      const write = f.handler(
+        'item/commandExecution/requestApproval',
+        {
+          ...commandParams(),
+          command: wrap('gh run rerun 42 --repo owner/repo'),
+          availableDecisions: ['accept', 'decline'],
+        },
+        f.controller.signal,
+        f.context,
+      );
+      resolvePending(await request(f), 'deny', undefined, 'session');
+      expect(await write).toEqual({ decision: 'decline' });
+      f.registry.get('client')!.sessionAllowList.clear();
+      expect(readFence).toThrow('Native command consent was revoked');
+    },
+  );
 
   it('reuses explicit exact-command consent across turns, while checking revocation at delivery', async () => {
     const f = setup();

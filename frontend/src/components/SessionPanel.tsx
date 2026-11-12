@@ -2,7 +2,11 @@ import { useCallback, useState, useRef } from 'react';
 import { useSessionOrder } from '../hooks/useSessionOrder';
 import { useListBrowsing } from '../hooks/useListBrowsing';
 import { SessionActivityStatus } from './SessionActivityStatus';
-import { mergeSessionActivities } from '../lib/session-activity';
+import {
+  mergeSessionActivities,
+  retainSessionModel,
+  type ModelObservation,
+} from '../lib/session-activity';
 import type { Session } from '../types/chat';
 import { UiIcon } from './UiIcon';
 import { useSessionList } from '../hooks/useSessionList';
@@ -109,7 +113,15 @@ export function SessionPanel({ activeSessionId, onSelectSession, onNewChat }: Se
     scroller,
     Boolean(menu || renaming || details || removing || search.active),
   );
-  const combined = mergeSessionActivities(sessions, activities);
+  const modelObservations = useRef(new Map<string, ModelObservation>());
+  for (const result of search.results)
+    retainSessionModel(modelObservations.current, result.sessionId, result);
+  const combined = mergeSessionActivities(
+    sessions,
+    activities,
+    lastKnownActivities,
+    modelObservations.current,
+  );
   const ordered = useSessionOrder([...combined.values()], activities, paused);
   const displayById = new Map(
     (connected === false ? lastKnownActivities : activities).map((a) => [a.sessionId, a]),

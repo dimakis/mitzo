@@ -2,7 +2,59 @@ import { afterEach, expect, it } from 'vitest';
 import { mkdtempSync, mkdirSync, realpathSync, rmSync, writeFileSync, renameSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { ClaudeSubscriptionCustody } from '../claude-subscription-custody.js';
+import {
+  assertClaudeSubscriptionAccount,
+  ClaudeSubscriptionCustody,
+} from '../claude-subscription-custody.js';
+
+it.each([
+  ['Claude Max', 'max'],
+  ['Claude Pro', 'pro'],
+  ['max', 'max'],
+  ['pro', 'pro'],
+])('accepts the SDK subscription label %s for the configured %s plan', (subscriptionType, plan) => {
+  expect(() =>
+    assertClaudeSubscriptionAccount(
+      { apiProvider: 'firstParty', email: 'PERSON@example.test', subscriptionType },
+      { MITZO_CLAUDE_EXPECTED_EMAIL: 'person@example.test', MITZO_CLAUDE_EXPECTED_PLAN: plan },
+    ),
+  ).not.toThrow();
+});
+
+it.each([
+  { subscriptionType: 'Claude Pro' },
+  { subscriptionType: 'Claude Team' },
+  { subscriptionType: 'Claude API' },
+  { subscriptionType: undefined },
+  { subscriptionType: 'unknown' },
+  { email: 'other@example.test' },
+  { email: undefined },
+  { apiProvider: 'vertex' as const },
+  { apiKeySource: 'ANTHROPIC_API_KEY' },
+])('rejects changed or unsupported SDK identity with an identity diagnostic: %j', (change) => {
+  expect(() =>
+    assertClaudeSubscriptionAccount(
+      {
+        apiProvider: 'firstParty',
+        email: 'person@example.test',
+        subscriptionType: 'Claude Max',
+        ...change,
+      },
+      { MITZO_CLAUDE_EXPECTED_EMAIL: 'person@example.test', MITZO_CLAUDE_EXPECTED_PLAN: 'max' },
+    ),
+  ).toThrow(expect.objectContaining({ reason: 'identity_mismatch' }));
+});
+
+it('does not accept missing or unsupported plans even when both sides agree', () => {
+  for (const plan of [undefined, 'Claude Team', 'unknown']) {
+    expect(() =>
+      assertClaudeSubscriptionAccount(
+        { apiProvider: 'firstParty', email: 'person@example.test', subscriptionType: plan },
+        { MITZO_CLAUDE_EXPECTED_EMAIL: 'person@example.test', MITZO_CLAUDE_EXPECTED_PLAN: plan },
+      ),
+    ).toThrow();
+  }
+});
 const roots: string[] = [];
 afterEach(() => {
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });

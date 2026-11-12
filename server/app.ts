@@ -1,4 +1,5 @@
 import { SessionRuntimeError, findSessionRuntimeError } from './session-runtime-error.js';
+import { agentMessageRuntime } from './agent-message-runtime.js';
 import { reportRetainedRuntimeFailure } from './retained-runtime-failure.js';
 import { reconcilableLocalCodexCommand } from './retained-local-codex-effects.js';
 import { sessionMetadataDiagnostic } from './session-metadata-error.js';
@@ -44,7 +45,11 @@ import { loadMcpServers } from './mcp-config.js';
 
 import { createWarmPoolRouter, type SandboxConversation } from './openshell-warm-pool-router.js';
 import { getOpenShellWarmPool } from './openshell-warm-pool-binding.js';
-import { sessionListMetadata, sessionModelIdentity } from './session-list-metadata.js';
+import {
+  readSessionModelSelection,
+  sessionListMetadata,
+  sessionModelIdentity,
+} from './session-list-metadata.js';
 import { readCompactionHistory } from './compaction-history.js';
 import {
   readOwnedVertexQueue,
@@ -3425,8 +3430,10 @@ app.get('/api/sessions/search', async (req, res) => {
       await eventStore.searchSessionsAsync(q, limit, abort.signal, cacheDirectory)
     ).map((result) => ({
       ...result,
-      ...sessionModelIdentity(eventStore.getSession(result.sessionId) ?? {}, (id, fallback) =>
-        accountAliases.label(id, fallback),
+      ...sessionModelIdentity(
+        eventStore.getSession(result.sessionId) ?? {},
+        (id, fallback) => accountAliases.label(id, fallback),
+        readSessionModelSelection(eventStore, result.sessionId),
       ),
     }));
     res.json({ results });
@@ -3473,6 +3480,7 @@ app.get('/api/sessions', async (req, res) => {
           meta ?? {},
           eventStore.getLatestEvent(s.id, 'token_update'),
           (id, fallback) => accountAliases.label(id, fallback),
+          readSessionModelSelection(eventStore, s.id),
         ),
         numTurns: meta?.numTurns,
         closedBy: meta?.closedBy ?? undefined,
@@ -4205,12 +4213,39 @@ mountObservedRouter(
         assertQueueOperator(id, authorization);
         assertOrdinaryContributorControlAllowed(eventStore, id, 'interrupt');
         if (
-          eventStore.getSessionRuntimeBinding(id)?.harness.implementation !== 'codex' ||
+          !['codex', 'claude-sdk'].includes(
+            eventStore.getSessionRuntimeBinding(id)?.harness.implementation ?? '',
+          ) ||
           eventStore.getSession(id)?.symposiumConfig
         )
           throw Error('Native ordinary turn required');
       };
       authorize();
+      const binding = eventStore.getSessionRuntimeBinding(id);
+      if (binding?.harness.implementation === 'claude-sdk') {
+        if (binding.version !== 2 || binding.execution.location !== 'local' || !authorization)
+          throw Error('Admitted local SDK owner required');
+        const previous = eventStore.userSteering.read(id, authorization.id, input);
+        if (previous)
+          return {
+            status:
+              previous.status === 'accepted' || previous.status === 'rejected'
+                ? previous.status
+                : 'uncertain',
+          };
+        const session = registry.findBySessionId(id)?.session;
+        if (!session) return { status: 'stale_target' };
+        const runtime = agentMessageRuntime(session, authorization.id);
+        if (!runtime?.steerUser) return { status: 'stale_target' };
+        return runtime.steerUser(input, () => {
+          authorize();
+          if (
+            registry.findBySessionId(id)?.session !== session ||
+            agentMessageRuntime(session, authorization.id) !== runtime
+          )
+            throw Error('Original SDK runtime unavailable');
+        });
+      }
       const previous = getCodexConversationStore().steeringReceipt(id, _binding, input);
       if (previous)
         return { status: previous.status === 'claimed' ? 'uncertain' : previous.status };

@@ -929,6 +929,18 @@ async function runSandboxedCommand(
           );
           return;
         }
+        if (isError) {
+          const termination = signal
+            ? `signal ${signal}`
+            : code !== null
+              ? `exit code ${code}`
+              : 'no exit status';
+          output = `Command failed (${termination}). ${
+            outcome === 'unknown'
+              ? 'Outcome uncertain. Inspect the original operation and partial work before retrying; do not repeat it automatically.'
+              : 'The command completed with a failure. Inspect its output and correct the cause before retrying.'
+          }\n${output}`;
+        }
         if (
           isError &&
           metadataRoots.length > 0 &&

@@ -41,6 +41,15 @@ export class OrdinaryLocalVertexCommandOwner {
   activeCommandId(): string | undefined {
     return this.#active?.commandId ?? this.#dispatchingCommandId;
   }
+  acceptsPeerMessages(): boolean {
+    return !this.#paused && !this.#failed;
+  }
+  /** A preparing command is not yet a provider-acknowledged steering target. */
+  peerTurnTarget(): string | undefined {
+    return this.#active && this.#inputUuid && this.#inputDispatched === this.#active.commandId
+      ? this.#active.commandId
+      : undefined;
+  }
   enqueue(commandId: string, preparationSignal?: AbortSignal): Promise<void> {
     return this.#serialize(
       async () => {
