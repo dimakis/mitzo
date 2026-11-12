@@ -91,6 +91,7 @@ import {
   captureCollaborationDurableTranscript,
   openCollaborationVisibleSource,
   readCollaborationFinalizedReply,
+  readCollaborationStreamingReply,
 } from './collaboration-visible-source.js';
 import { CollaborationContractError } from './collaboration-conversation.js';
 import { SessionCollaborationError } from './session-collaboration.js';
@@ -3211,6 +3212,8 @@ export class EventStore {
       db.exec('ALTER TABLE sessions ADD COLUMN reasoning_effort TEXT');
       this.log.info('migrated sessions table: added reasoning_effort');
     }
+    if (!columnNames.has('permission_mode'))
+      db.exec('ALTER TABLE sessions ADD COLUMN permission_mode TEXT');
   }
 
   private migrateSessionRuntimeBinding(db: Database.Database): void {
@@ -4160,6 +4163,15 @@ export class EventStore {
       if (!this.isCollaborationParticipantAvailable(sessionId))
         throw new SessionCollaborationError('not_found');
       return readCollaborationFinalizedReply(this.db!, sessionId, messageId);
+    })();
+  }
+  /** Host-only in-progress visible text, separately qualified from frozen history. */
+  readOrdinaryStreamingReply(sessionId: string, messageId: string) {
+    return this.db!.transaction(() => {
+      this.assertConversationIdentity(sessionId);
+      if (!this.isCollaborationParticipantAvailable(sessionId))
+        throw new SessionCollaborationError('not_found');
+      return readCollaborationStreamingReply(this.db!, sessionId, messageId);
     })();
   }
 

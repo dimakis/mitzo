@@ -2,17 +2,20 @@ import type { MitzoMode } from '@mitzo/protocol';
 
 const MODE_DESCRIPTIONS: Record<MitzoMode, string> = {
   ask: 'Read-only. Switch to Agent or Auto to make changes.',
-  agent: 'File edits allowed; commands ask for approval. Integrations ask for approval.',
-  auto: 'File edits and commands allowed. Integrations ask for approval.',
+  agent:
+    'File edits allowed; commands ask unless already approved. Service access follows your grants.',
+  auto: 'File edits and workspace commands allowed. Some services still require approval.',
 };
 
 export function PermissionModePicker({
   mode,
   onChange,
   disabled = false,
+  unavailableModes = {},
 }: {
   mode: MitzoMode;
   disabled?: boolean;
+  unavailableModes?: Partial<Record<MitzoMode, string>>;
   onChange: (mode: MitzoMode) => void;
 }) {
   return (
@@ -26,9 +29,11 @@ export function PermissionModePicker({
           key={value}
           className={`mode-pill${mode === value ? ' mode-pill--active' : ''}`}
           aria-pressed={mode === value}
-          disabled={disabled}
+          disabled={disabled || !!unavailableModes[value]}
           title={
-            disabled ? 'Available once chat permissions are confirmed.' : MODE_DESCRIPTIONS[value]
+            disabled
+              ? 'Available once chat permissions are confirmed.'
+              : (unavailableModes[value] ?? MODE_DESCRIPTIONS[value])
           }
           aria-description={MODE_DESCRIPTIONS[value]}
           onClick={() => onChange(value)}

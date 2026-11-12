@@ -1,3 +1,4 @@
+import { localCommandStatusMessage } from '@mitzo/client';
 import type { MessageReplyContext } from '@mitzo/protocol';
 import { SessionLaunchConfigSchema } from '@mitzo/protocol';
 import { SessionLaunchDefaultsControl } from '../components/SessionLaunchDefaultsControl';
@@ -423,7 +424,7 @@ function ChatViewContent() {
     sessionId || activeSessionId,
     !isSymposium && (!sessionId || sessionId === activeSessionId),
   );
-  const ordinaryControls = !activeSessionId || trustedSessionType === 'chat';
+  const ordinaryControls = !activeSessionId || trustedSessionType === 'chat' || localRuntime.bound;
   const accountScope = !sessionId && !activeSessionId ? newChatDraft.draft.id : activeSessionId;
   const [accountChoice, setAccountChoice] = useState<{
     scope: string | null;
@@ -642,11 +643,13 @@ function ChatViewContent() {
         ? newChatDraft.draft.settings.isolation
         : true,
   });
-  const mode = !draftEnabled
-    ? storeMode
-    : draftOptions.id === newChatDraft.draft.id
-      ? draftOptions.mode
-      : initialDraftMode;
+  const mode = localBound
+    ? (localRuntime.mode ?? storeMode)
+    : !draftEnabled
+      ? storeMode
+      : draftOptions.id === newChatDraft.draft.id
+        ? draftOptions.mode
+        : initialDraftMode;
   const isolation =
     draftOptions.id === newChatDraft.draft.id
       ? draftOptions.isolation
@@ -887,7 +890,7 @@ function ChatViewContent() {
       sessionId: activeSessionId,
       ordinaryWorkspaceId: localRuntime.ordinaryWorkspaceId,
       clientMsgId: queuedCommandId ?? createBrowserId(),
-      mode: localRuntime.mode ?? 'agent',
+      mode: localRuntime.commandMode ?? localRuntime.mode ?? 'agent',
       retainedAgentProfile: localRuntime.agentProfile,
       retainedAgentContext: localRuntime.agentContext,
       text,
@@ -947,7 +950,7 @@ function ChatViewContent() {
       const command = prepareLocalFirstCommand(localRuntime.intent, localRuntime.inventory, {
         clientMsgId: queuedCommandId ?? createBrowserId(),
         repositoryWorkspaceId: localRuntime.repositoryWorkspaceId,
-        mode: localRuntime.mode ?? 'agent',
+        mode: localRuntime.commandMode ?? localRuntime.mode ?? 'agent',
         retainedAgentProfile: localRuntime.agentProfile,
         retainedAgentContext: localRuntime.agentContext,
         text,
@@ -974,7 +977,7 @@ function ChatViewContent() {
         sessionId: activeSessionId,
         clientMsgId: queuedCommandId ?? createBrowserId(),
         repositoryWorkspaceId: localRuntime.repositoryWorkspaceId,
-        mode: localRuntime.mode ?? 'agent',
+        mode: localRuntime.commandMode ?? localRuntime.mode ?? 'agent',
         retainedAgentProfile: localRuntime.agentProfile,
         retainedAgentContext: localRuntime.agentContext,
         nativeConstraint: localRuntime.nativeConstraint,
@@ -1310,7 +1313,7 @@ function ChatViewContent() {
                   ),
                 accountNeedsConfirmation: localRuntime.accountNeedsConfirmation,
                 accountReference: localRuntime.intent.accountReference ?? null,
-                onRefresh: localRuntime.refresh,
+                onRefresh: localRuntime.refreshModels,
                 selection: localRuntime.intent.account,
                 onAccountChange: (selection) =>
                   (!briefingOwnedDraft ||
@@ -1742,7 +1745,14 @@ function ChatViewContent() {
             <PermissionModePicker
               mode={mode}
               onChange={handleModeChange}
-              disabled={controlsBlocked || localBound || modeChangeReady === false}
+              disabled={controlsBlocked || modeChangeReady === false}
+              unavailableModes={
+                localRuntime.intent.execution.location === 'openshell'
+                  ? {
+                      ask: 'Ask is available with Local Mac execution. OpenShell supports Agent and Auto.',
+                    }
+                  : undefined
+              }
             />
             {activeSessionId && !controlsBlocked && (
               <button
@@ -2151,7 +2161,7 @@ function ChatViewContent() {
                                 sessionId: activeSessionId,
                                 clientMsgId: createBrowserId(),
                                 repositoryWorkspaceId: localRuntime.repositoryWorkspaceId!,
-                                mode: localRuntime.mode ?? 'agent',
+                                mode: localRuntime.commandMode ?? localRuntime.mode ?? 'agent',
                                 retainedAgentProfile: localRuntime.agentProfile,
                                 retainedAgentContext: localRuntime.agentContext,
                                 nativeConstraint: localRuntime.nativeConstraint,
@@ -2251,7 +2261,8 @@ function ChatViewContent() {
                             recoverLocalCommand();
                           },
                           disabled:
-                            !connected || !localCommand.request || localCommand.state === 'blocked',
+                            localCommand.state !== 'blocked' &&
+                            (!connected || !localCommand.request),
                         }
                       : undefined
                   }
@@ -2272,18 +2283,10 @@ function ChatViewContent() {
                     (localRuntime.commandAvailable &&
                     localCommand &&
                     localCommand.state !== 'consumed'
-                      ? localCommand.state === 'pending'
-                        ? 'Sending…'
-                        : ['uncertain', 'reserved', 'retained'].includes(localCommand.state)
-                          ? 'Delivery not confirmed.'
-                          : 'Something went wrong.'
+                      ? localCommandStatusMessage(localCommand.state)
                       : undefined) ??
                     (explicitNew && localCommand && localCommand.state !== 'consumed'
-                      ? localCommand.state === 'pending'
-                        ? 'Sending…'
-                        : ['uncertain', 'reserved', 'retained'].includes(localCommand.state)
-                          ? 'Delivery not confirmed.'
-                          : 'Something went wrong.'
+                      ? localCommandStatusMessage(localCommand.state)
                       : undefined) ??
                     (localFirstCommand && (!localTransportAvailable || !connected)
                       ? 'Execution connection is unavailable. Reconnect before sending.'

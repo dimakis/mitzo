@@ -2188,6 +2188,10 @@ async function _startChatInner(
   }
   if (options.skillAllowedTools) setSkillPolicy(registry, clientId, options.skillAllowedTools);
   session.model = options.model ?? session.model;
+  // Ordinary receipts keep their original selection. The separate user policy
+  // is restored before provider/tool startup and remains mutable between turns.
+  if (session.sessionId)
+    session.permissionMode = eventStore.getSession(session.sessionId)?.permissionMode ?? undefined;
   session.inputQueue = inputQueue as { push: (msg: unknown) => void; close: () => void };
   _onSessionChange?.(clientId, 'start');
 
@@ -2918,7 +2922,7 @@ This is an independent checkout with its own Git storage, not a linked worktree.
               ? ''
               : GITHUB_PUBLISHING_INSTRUCTIONS + SESSION_TOOL_INSTRUCTIONS),
         },
-        permissionMode: MODE_TO_SDK[session.mode] as 'plan' | 'default',
+        permissionMode: MODE_TO_SDK[effectivePermissionMode(session)] as 'plan' | 'default',
         allowedTools: options.ordinarySdkAuthority
           ? [
               'mcp__mitzo-connections__SymposiumReadProfiles',
@@ -3390,7 +3394,13 @@ export async function sendOwnedLocalCodexCommand(input: {
       await native.resumeAfterExplicitSend();
     }
     return { ...result, sessionId: input.sessionId };
-  } catch {
+  } catch (cause) {
+    log.warn('Owned ordinary send needs admission or recovery attention', {
+      err: cause,
+      code: 'owned_ordinary_send_unavailable',
+      stage: 'owned_ordinary_admission_or_recovery',
+      sessionId: input.sessionId,
+    });
     throw unavailable();
   }
 }
@@ -3558,7 +3568,8 @@ export async function startOwnedLocalCodexCommand(
     onEnded?: () => void;
   },
 ): Promise<{ dispatched: boolean; sessionId: string }> {
-  const unavailable = () => new Error('Owned local Codex chat unavailable');
+  const unavailable = (cause?: unknown) =>
+    new Error('Owned local Codex chat unavailable', { cause });
   // Loading these owners can allocate their private stores. Absence stays off.
   if (
     process.env.MITZO_ORDINARY_LOCAL_CODEX_ENABLED !== '1' ||
@@ -3881,16 +3892,32 @@ export async function startOwnedLocalCodexCommand(
   } catch (error) {
     try {
       prepared?.close();
-    } catch {
-      /* Preserve receipt/workspace uncertainty. */
+    } catch (cleanupError) {
+      log.warn('Owned local startup cleanup failed', {
+        sessionId: input.reservation.conversationId,
+        code: 'owned_local_startup_cleanup_failed',
+        stage: 'prepared_close',
+        ...codexRuntimeErrorTelemetry(
+          retainCodexPreparationFailure('runtime_admission', cleanupError),
+        ),
+      });
     }
     try {
       release();
-    } catch {
-      /* No automatic retry or custody cleanup. */
+    } catch (cleanupError) {
+      log.warn('Owned local startup cleanup failed', {
+        sessionId: input.reservation.conversationId,
+        code: 'owned_local_startup_cleanup_failed',
+        stage: 'driver_release',
+        ...codexRuntimeErrorTelemetry(
+          retainCodexPreparationFailure('runtime_admission', cleanupError),
+        ),
+      });
     }
     throw (
-      findNativeMacExecutionUnavailable(error) ?? findSessionRuntimeError(error) ?? unavailable()
+      findNativeMacExecutionUnavailable(error) ??
+      findSessionRuntimeError(error) ??
+      unavailable(retainCodexPreparationFailure('runtime_admission', error))
     );
   }
 }
@@ -4063,6 +4090,7 @@ export async function prepareOwnedCodexChat(
       sessionId,
       cwd: expected.workspace.cwd,
       mode: expected.selection.permission.mode,
+      permissionMode: eventStore.getSession(sessionId)?.permissionMode ?? undefined,
       model: expected.selection.model,
       branch: 'featureBranch' in workspace ? workspace.featureBranch : undefined,
       agentName: expected.agentProfile?.definition.name,
@@ -6214,6 +6242,7 @@ export async function startOwnedLocalResponsesCommand(
         sessionId,
         cwd: selected.expected.workspace.cwd,
         mode: selected.expected.selection.permission.mode,
+        permissionMode: eventStore.getSession(sessionId)?.permissionMode ?? undefined,
         model: selected.expected.selection.model,
         branch: selected.workspace.featureBranch,
         accountBinding: selected.binding,

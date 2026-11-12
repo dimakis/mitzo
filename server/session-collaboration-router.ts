@@ -16,6 +16,10 @@ import {
   CollaborationMessageInputSchema,
   CollaborationMessageSchema,
   CollaborationRecipientReadinessSchema,
+  CollaborationStopResultSchema,
+  CollaborationProgressSchema,
+  CollaborationPromptReviewRequestSchema,
+  CollaborationPromptReviewResultSchema,
   CollaborationSourceSetupQuerySchema,
   CollaborationSourceSetupSchema,
   COLLABORATION_EXECUTION_DISABLED,
@@ -30,6 +34,9 @@ import type { CollaborationApplicationReview } from './collaboration-application
 import type { EventStore } from './event-store.js';
 import type { ApplicationCollaborationMessaging } from './collaboration-application-messaging.js';
 import { recentAuthorizationSession, requireSameOriginJson } from './connections-router.js';
+import { createLogger } from './logger.js';
+
+const log = createLogger('collaboration-router');
 
 function failure(res: Response, error: unknown, dispatchNotStarted = false) {
   if (error instanceof CollaborationContractError) {
@@ -51,6 +58,12 @@ function failure(res: Response, error: unknown, dispatchNotStarted = false) {
     return res
       .status(error.code === 'not_found' ? 404 : error.code === 'conflict' ? 409 : 400)
       .json({ error: error.message });
+  log.error('Collaboration request could not be completed', {
+    err: error,
+    code: 'collaboration_request_failed',
+    stage: 'collaboration_request',
+    route: res.req.route?.path,
+  });
   return res
     .status(503)
     .json({ error: 'Collaboration links could not be checked. Refresh before retrying.' });
@@ -122,6 +135,20 @@ export function createSessionCollaborationRouter({
       return failure(res, error);
     }
   });
+  router.get('/:id/progress', (req, res) => {
+    const id = SessionCollaborationIdSchema.safeParse(req.params.id);
+    if (!id.success) return res.status(400).json({ error: 'Invalid collaboration ID' });
+    try {
+      if (!messaging) throw new CollaborationContractError('execution_unavailable');
+      return res.json(
+        CollaborationProgressSchema.parse(
+          messaging.progress(recentAuthorizationSession(res)!, id.data),
+        ),
+      );
+    } catch (error) {
+      return failure(res, error);
+    }
+  });
   router.get('/:id/recipients/:sessionId', async (req, res) => {
     const id = SessionCollaborationIdSchema.safeParse(req.params.id);
     const session = CollaborationBeginSchema.shape.sessionId.safeParse(req.params.sessionId);
@@ -157,6 +184,22 @@ export function createSessionCollaborationRouter({
               message: store.collaborationConversation.getMessageForRequest(id.data, input.data),
               terminal: false,
             },
+      );
+    } catch (error) {
+      return failure(res, error);
+    }
+  });
+  router.post('/:id/messages/stop', requireSameOriginJson, async (req, res) => {
+    const id = SessionCollaborationIdSchema.safeParse(req.params.id);
+    const input = CollaborationMessageInputSchema.safeParse(req.body);
+    if (!id.success || !input.success)
+      return res.status(400).json({ error: 'Invalid original message control' });
+    try {
+      if (!messaging) throw new CollaborationContractError('execution_unavailable');
+      return res.json(
+        CollaborationStopResultSchema.parse(
+          await messaging.stop(recentAuthorizationSession(res)!, id.data, input.data),
+        ),
       );
     } catch (error) {
       return failure(res, error);
@@ -210,48 +253,67 @@ export function createSessionCollaborationRouter({
       error: COLLABORATION_EXECUTION_DISABLED.reason,
       execution: COLLABORATION_EXECUTION_DISABLED,
     });
-  router.post('/:id/reviews', requireSameOriginJson, async (req, res) => {
-    const auth = recentAuthorizationSession(res);
-    if (!auth) return;
-    const id = SessionCollaborationIdSchema.safeParse(req.params.id);
-    const input = CollaborationApplicationReviewRequestSchema.safeParse(req.body);
-    if (!id.success || !input.success)
-      return res.status(400).json({ error: 'Invalid collaboration review' });
-    const controller = new AbortController();
-    const cancel = () => controller.abort();
-    const unregister = registerAuthSession(auth, cancel);
-    const ownerSignal = custodianRequestSignal(req);
-    ownerSignal?.addEventListener('abort', cancel, { once: true });
-    if (ownerSignal?.aborted || req.aborted) cancel();
-    const close = () => {
-      if (!res.writableEnded) cancel();
-    };
-    req.once('aborted', cancel);
-    res.once('close', close);
-    const timer = setTimeout(cancel, Math.min(120000, Math.max(0, auth.expiresAt - Date.now())));
-    try {
-      controller.signal.throwIfAborted();
-      if (!store.getSessionCollaboration(id.data))
-        throw new CollaborationContractError('not_found');
-      if (!review) return unavailable(res);
-      const { clientId, ...intent } = input.data;
-      const result = await review().review(auth, clientId, id.data, intent, controller.signal);
-      controller.signal.throwIfAborted();
-      if (!isAuthSessionCurrent(auth)) throw new Error('Authorization unavailable');
-      return res.json(CollaborationApplicationReviewResultSchema.parse(result));
-    } catch (error) {
-      if (res.destroyed) return;
-      if (!isAuthSessionCurrent(auth))
-        return res.status(403).json({ error: 'Operator authorization expired or revoked' });
-      return failure(res, error);
-    } finally {
-      clearTimeout(timer);
-      unregister();
-      ownerSignal?.removeEventListener('abort', cancel);
-      req.off('aborted', cancel);
-      res.off('close', close);
-    }
-  });
+  for (const prompt of [false, true])
+    router.post(
+      `/:id/${prompt ? 'prompt-reviews' : 'reviews'}`,
+      requireSameOriginJson,
+      async (req, res) => {
+        const auth = recentAuthorizationSession(res);
+        if (!auth) return;
+        const id = SessionCollaborationIdSchema.safeParse(req.params.id);
+        const input = (
+          prompt
+            ? CollaborationPromptReviewRequestSchema
+            : CollaborationApplicationReviewRequestSchema
+        ).safeParse(req.body);
+        if (!id.success || !input.success)
+          return res.status(400).json({ error: 'Invalid collaboration review' });
+        const controller = new AbortController();
+        const cancel = () => controller.abort();
+        const unregister = registerAuthSession(auth, cancel);
+        const ownerSignal = custodianRequestSignal(req);
+        ownerSignal?.addEventListener('abort', cancel, { once: true });
+        if (ownerSignal?.aborted || req.aborted) cancel();
+        const close = () => {
+          if (!res.writableEnded) cancel();
+        };
+        req.once('aborted', cancel);
+        res.once('close', close);
+        const timer = setTimeout(
+          cancel,
+          Math.min(120000, Math.max(0, auth.expiresAt - Date.now())),
+        );
+        try {
+          controller.signal.throwIfAborted();
+          if (!store.getSessionCollaboration(id.data))
+            throw new CollaborationContractError('not_found');
+          if (!review) return unavailable(res);
+          const { clientId, ...intent } = input.data;
+          const result = prompt
+            ? await review().reviewPrompt(auth, clientId, id.data, intent, controller.signal)
+            : await review().review(auth, clientId, id.data, intent, controller.signal);
+          controller.signal.throwIfAborted();
+          if (!isAuthSessionCurrent(auth)) throw new Error('Authorization unavailable');
+          return res.json(
+            (prompt
+              ? CollaborationPromptReviewResultSchema
+              : CollaborationApplicationReviewResultSchema
+            ).parse(result),
+          );
+        } catch (error) {
+          if (res.destroyed) return;
+          if (!isAuthSessionCurrent(auth))
+            return res.status(403).json({ error: 'Operator authorization expired or revoked' });
+          return failure(res, error);
+        } finally {
+          clearTimeout(timer);
+          unregister();
+          ownerSignal?.removeEventListener('abort', cancel);
+          req.off('aborted', cancel);
+          res.off('close', close);
+        }
+      },
+    );
   const join = async (
     req: Request,
     res: Response,

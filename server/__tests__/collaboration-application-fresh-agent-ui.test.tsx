@@ -38,7 +38,7 @@ it('adds an agent, edits and refreezes its brief, silently joins and sends an at
   const { SharedConversationHost, SharedConversationBody, SharedConversationAgents } =
     await import('../../frontend/src/components/SharedConversation.js');
   try {
-    render(
+    const surface = (
       <MemoryRouter>
         <SharedConversationHost
           sourceConversationId="existing-chat"
@@ -66,8 +66,9 @@ it('adds an agent, edits and refreezes its brief, silently joins and sends an at
             <p>Original discussion remains available.</p>
           </SharedConversationBody>
         </SharedConversationHost>
-      </MemoryRouter>,
+      </MemoryRouter>
     );
+    let ui = render(surface);
     fireEvent.click(await screen.findByRole('button', { name: /^Agents/ }));
     fireEvent.click(screen.getByRole('button', { name: 'Add agent', exact: true }));
     const dialog = screen.getByRole('dialog', { name: 'Add agent' });
@@ -153,6 +154,7 @@ it('adds an agent, edits and refreezes its brief, silently joins and sends an at
     fireEvent.keyDown(before, { key: 'Escape' });
     fireEvent.click(await screen.findByRole('button', { name: 'Choose who replies' }));
     fireEvent.click(screen.getByRole('checkbox', { name: 'FreshReviewer' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Done choosing replies' }));
     fireEvent.change(screen.getByRole('textbox', { name: 'Message Mitzo' }), {
       target: { value: 'Review this explicitly.' },
     });
@@ -161,14 +163,55 @@ it('adds an agent, edits and refreezes its brief, silently joins and sends an at
     fireEvent.click(
       await screen.findByRole('button', { name: 'Refresh conversation', exact: true }),
     );
-    const send = screen.getByRole('button', { name: 'Send message' });
-    await waitFor(() => expect((send as HTMLButtonElement).disabled).toBe(false));
-    fireEvent.click(send);
+    const send = () => screen.getByRole('button', { name: 'Send message' });
+    await waitFor(() => expect((send() as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(screen.getByRole('button', { name: 'Review prompt context' }));
+    const context = await screen.findByRole('dialog', { name: 'Context for this prompt' });
+    await waitFor(() =>
+      expect(
+        (within(context).getByRole('textbox', { name: 'Purpose' }) as HTMLInputElement).disabled,
+      ).toBe(false),
+    );
+    fireEvent.change(within(context).getByRole('textbox', { name: 'Purpose' }), {
+      target: { value: 'Compare this exact source for the first prompt' },
+    });
+    const selectedSource = await within(context).findByRole('checkbox', {
+      name: /Synthetic design requirement/,
+    });
+    fireEvent.click(selectedSource);
+    fireEvent.change(within(context).getByRole('textbox', { name: 'Brief', exact: true }), {
+      target: { value: 'Initial per-prompt brief' },
+    });
+    fireEvent.click(within(context).getByRole('button', { name: 'Review context', exact: true }));
+    const attachContext = () =>
+      within(context).getByRole('button', { name: 'Attach reviewed context' }) as HTMLButtonElement;
+    await waitFor(() =>
+      expect(attachContext().disabled, context.textContent ?? undefined).toBe(false),
+    );
+    expect(runtime.requests).toEqual([]);
+    fireEvent.change(within(context).getByRole('textbox', { name: 'Brief', exact: true }), {
+      target: { value: 'Only this exact reviewed source is shared for prompt one.' },
+    });
+    expect(attachContext().disabled).toBe(true);
+    fireEvent.click(within(context).getByRole('button', { name: 'Review context', exact: true }));
+    await waitFor(() => expect(attachContext().disabled).toBe(false));
+    expect(runtime.requests).toEqual([]);
+    fireEvent.click(attachContext());
+    await waitFor(() => expect((send() as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(send());
     await screen.findByText('Reviewed the selected design.', {}, { timeout: 10000 });
     const turns = runtime.requests.filter((r) => r.method === 'turn/start');
     expect(turns).toHaveLength(1);
     expect(JSON.stringify(turns[0].params)).toContain(
       'Edited through the real UI and refrozen exactly.',
+    );
+    expect(JSON.stringify(turns[0].params)).toContain(
+      'Only this exact reviewed source is shared for prompt one.',
+    );
+    expect(JSON.stringify(turns[0].params)).not.toContain('Initial per-prompt brief');
+    expect(JSON.stringify(turns[0].params)).not.toContain('DO_NOT_LEAK');
+    await waitFor(() =>
+      expect(screen.queryByRole('button', { name: 'Remove prompt context' })).toBeNull(),
     );
     const answer = (await h.api.view(h.group)).messages.find((m) => m.author !== 'operator')!;
     expect(answer.author).toEqual({ sessionId: joined.sessionId });
@@ -184,15 +227,27 @@ it('adds an agent, edits and refreezes its brief, silently joins and sends an at
       status: 'pending',
       commandId: null,
     });
+    // Background observers can display the answer before this device's original
+    // request has observed authoritative settlement. Keep that control fence.
+    await waitFor(
+      () =>
+        expect(
+          (screen.getByRole('button', { name: 'Choose who replies' }) as HTMLButtonElement)
+            .disabled,
+        ).toBe(false),
+      { timeout: 5000 },
+    );
     fireEvent.click(screen.getByRole('button', { name: 'Choose who replies' }));
     fireEvent.click(screen.getByRole('checkbox', { name: 'FreshReviewer', exact: true }));
-    fireEvent.click(screen.getByRole('button', { name: 'Choose who replies' }));
     fireEvent.click(screen.getByRole('checkbox', { name: reader.name, exact: true }));
+    fireEvent.keyDown(screen.getByRole('group', { name: 'Who replies to this prompt' }), {
+      key: 'Escape',
+    });
     fireEvent.change(screen.getByRole('textbox', { name: 'Message Mitzo' }), {
       target: { value: 'Respond to the FreshReviewer answer explicitly.' },
     });
-    await waitFor(() => expect((send as HTMLButtonElement).disabled).toBe(false));
-    fireEvent.click(send);
+    await waitFor(() => expect((send() as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(send());
     await waitFor(
       async () => {
         const next = await h.api.view(h.group);
@@ -217,6 +272,14 @@ it('adds an agent, edits and refreezes its brief, silently joins and sends an at
       { timeout: 10000 },
     );
     const bothTurns = runtime.requests.filter((r) => r.method === 'turn/start');
+    const sharedSends = h.fetch.mock.calls
+      .filter(([path, init]) => path.endsWith('/messages') && init?.method === 'POST')
+      .map(([, init]) => JSON.parse(String(init!.body)));
+    expect(sharedSends[0].snapshot).toBeTruthy();
+    expect(sharedSends[1].snapshot).toBeNull();
+    expect(JSON.stringify(bothTurns[1].params)).toContain(
+      'Only this exact reviewed source is shared for prompt one.',
+    );
     expect(bothTurns).toHaveLength(2);
     expect(bothTurns[1].params.threadId).not.toBe(bothTurns[0].params.threadId);
     expect(JSON.stringify(bothTurns[1].params)).toContain('Review this explicitly.');
@@ -225,6 +288,262 @@ it('adds an agent, edits and refreezes its brief, silently joins and sends an at
     expect(JSON.stringify(bothTurns[1].params)).toContain(
       'Respond to the FreshReviewer answer explicitly.',
     );
+    fireEvent.click(screen.getByRole('button', { name: 'Check original request' }));
+    // Defaults resolves the two independent sessions on the same account.
+    // Hold one native turn so the successful answer cannot settle the other.
+    const defaultsView = await h.api.view(h.group);
+    for (const policy of defaultsView.policies.filter((p) => p.sessionId !== 'existing-chat'))
+      await h.api.setPolicy(h.group, {
+        requestId: crypto.randomUUID(),
+        expectedMembershipRevision: defaultsView.membershipRevision,
+        expectedRevision: policy.revision,
+        sessionId: policy.sessionId,
+        readsFutureDiscussion: policy.readsFutureDiscussion,
+        repliesByDefault: true,
+      });
+    runtime.holdTurn(4);
+    await waitFor(() =>
+      expect(
+        (screen.getByRole('button', { name: 'Choose who replies' }) as HTMLButtonElement).disabled,
+      ).toBe(false),
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Choose who replies' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Defaults', exact: true }));
+    fireEvent.keyDown(screen.getByRole('group', { name: 'Who replies to this prompt' }), {
+      key: 'Escape',
+    });
+    fireEvent.change(screen.getByRole('textbox', { name: 'Message Mitzo' }), {
+      target: { value: 'Both reviewers: answer independently using Defaults.' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh conversation', exact: true }));
+    await waitFor(() => expect((send() as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(send());
+    let fanout!: Awaited<ReturnType<typeof h.api.view>>['messages'][number];
+    await waitFor(
+      async () => {
+        const next = await h.api.view(h.group);
+        fanout = next.messages.find(
+          (m) => m.text === 'Both reviewers: answer independently using Defaults.',
+        )!;
+        expect(fanout.responders.sort()).toEqual([joined.sessionId, reader.sessionId].sort());
+        expect(
+          next.messages.filter((m) =>
+            fanout.deliveries.some((d) => d.deliveryId === m.replyToDeliveryId),
+          ),
+        ).toHaveLength(1);
+        expect(runtime.requests.filter((r) => r.method === 'turn/start')).toHaveLength(4);
+      },
+      { timeout: 10000 },
+    );
+    expect(screen.getByRole('button', { name: 'Check original request' })).toBeTruthy();
+    const retainedDraft = (await import('../../frontend/src/lib/chat-drafts.js')).getChatDraft;
+    // The host owns the exact original input; Defaults is not rewritten to a
+    // fresh selection or reinterpreted by later policy changes during recovery.
+    const keys = Object.keys(localStorage).filter((key) => key.startsWith('mitzo-chat-draft:'));
+    const original = keys
+      .map((key) => retainedDraft(key.slice('mitzo-chat-draft:'.length))?.collaborationSend)
+      .find((pending) => pending?.input.text === fanout.text)!;
+    expect(original.input.responders).toEqual({ kind: 'default' });
+    expect((await h.api.observeSend(h.group, original.input)).terminal).toBe(false);
+    await act(async () => runtime.streamTurn(4, 'This is the live reply before completion.'));
+    const live = await h.typedApi.collaborations.progress(h.group);
+    expect(live.replies).toHaveLength(1);
+    expect(live.replies[0].sessionId).toBe(
+      fanout.deliveries.find(
+        (d) =>
+          d.commandId &&
+          h.events.getOrdinaryProviderTurnTerminal(d.sessionId, d.commandId) === undefined,
+      )!.sessionId,
+    );
+    expect(JSON.stringify(live)).not.toMatch(/private-native|providerThread|providerTurn/);
+    await waitFor(
+      () => expect(screen.getByText('This is the live reply before completion.')).toBeTruthy(),
+      { timeout: 5000 },
+    );
+    const speaker = view.joinedParticipants.find(
+      (p) => p.sessionId === live.replies[0].sessionId,
+    )!.name;
+    const assertLiveAttribution = () => {
+      const bubble = screen
+        .getByText('This is the live reply before completion.')
+        .closest('.msg-turn--streaming')!;
+      expect(
+        within(bubble as HTMLElement).getByLabelText(`Message details for ${speaker}`).textContent,
+      ).toContain(speaker);
+    };
+    assertLiveAttribution();
+    ui.unmount();
+    ui = render(surface);
+    await waitFor(
+      () => expect(screen.getByText('This is the live reply before completion.')).toBeTruthy(),
+      { timeout: 5000 },
+    );
+    assertLiveAttribution();
+    expect(runtime.requests.filter((r) => r.method === 'turn/start')).toHaveLength(4);
+    await h.api.send(h.group, original.input);
+    expect(runtime.requests.filter((r) => r.method === 'turn/start')).toHaveLength(4);
+    fireEvent.click(screen.getByRole('button', { name: 'Stop generation' }));
+    await waitFor(() =>
+      expect(runtime.requests.filter((r) => r.method === 'turn/interrupt')).toHaveLength(1),
+    );
+    expect(runtime.requests.find((r) => r.method === 'turn/interrupt')!.params).toEqual({
+      threadId: runtime.requests.filter((r) => r.method === 'turn/start')[3].params.threadId,
+      turnId: 'private-native-turn-4',
+    });
+    expect(
+      (await h.api.stopSend(h.group, original.input)).recipients.some(
+        (r) => r.status === 'uncertain',
+      ),
+    ).toBe(true);
+    expect(runtime.requests.filter((r) => r.method === 'turn/interrupt')).toHaveLength(1);
+    expect((await h.api.observeSend(h.group, original.input)).terminal).toBe(false);
+    await act(async () => runtime.finishTurn(4, 'failed', 'context'));
+    expect((await h.typedApi.collaborations.progress(h.group)).replies).toHaveLength(0);
+    fireEvent.click(screen.getByRole('button', { name: 'Check original request' }));
+    await waitFor(
+      async () => {
+        const current = await h.api.view(h.group);
+        const receipt = current.messages.find((m) => m.messageId === fanout.messageId)!;
+        expect(receipt.deliveries.filter((d) => d.outcome === 'failed')).toHaveLength(1);
+        expect(receipt.deliveries.filter((d) => d.outcome === 'completed')).toHaveLength(1);
+        expect(
+          current.messages.filter((m) =>
+            receipt.deliveries.some((d) => d.deliveryId === m.replyToDeliveryId),
+          ),
+        ).toHaveLength(2);
+        expect(
+          current.messages.filter((m) => m.text === 'This is the live reply before completion.'),
+        ).toHaveLength(1);
+        expect(screen.getAllByText('Reply failed')).toHaveLength(1);
+        expect(screen.getAllByText('Reviewed the selected design.')).toHaveLength(3);
+      },
+      { timeout: 10000 },
+    );
+    await h.api.send(h.group, original.input);
+    expect(runtime.requests.filter((r) => r.method === 'turn/start')).toHaveLength(4);
+    const failed = (await h.api.view(h.group)).messages
+      .find((m) => m.messageId === fanout.messageId)!
+      .deliveries.find((d) => d.outcome === 'failed')!;
+    expect(screen.getByText(/1 recipient needs attention/).tagName).toBe('SUMMARY');
+    await waitFor(() =>
+      expect(
+        (screen.getByRole('button', { name: 'Choose who replies' }) as HTMLButtonElement).disabled,
+      ).toBe(false),
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Choose who replies' }));
+    const successfulName = failed.sessionId === joined.sessionId ? reader.name : 'FreshReviewer';
+    fireEvent.click(screen.getByRole('checkbox', { name: successfulName, exact: true }));
+    fireEvent.click(screen.getByRole('button', { name: 'Done choosing replies' }));
+    fireEvent.change(screen.getByRole('textbox', { name: 'Message Mitzo' }), {
+      target: { value: 'Retry only the failed reviewer with this new explicit prompt.' },
+    });
+    await waitFor(() => expect((send() as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(send());
+    await waitFor(
+      async () => {
+        const current = await h.api.view(h.group);
+        const retry = current.messages.find(
+          (m) => m.text === 'Retry only the failed reviewer with this new explicit prompt.',
+        )!;
+        expect(retry.responders).toEqual([failed.sessionId]);
+        const retryCommand = retry.deliveries.find((d) => d.purpose === 'reply')!.commandId!;
+        expect(h.events.getSendCommand(retryCommand)).toBeDefined();
+        expect(
+          h.events.getSendCommand(retryCommand)?.error,
+          runtime.requests.map((r) => r.method).join(', '),
+        ).toBeFalsy();
+        expect(
+          current.messages.find(
+            (m) =>
+              m.replyToDeliveryId ===
+              retry.deliveries.find((d) => d.purpose === 'reply')!.deliveryId,
+          ),
+          JSON.stringify({
+            delivery: retry.deliveries,
+            methods: runtime.requests.map((r) => r.method),
+            terminal: h.events.getOrdinaryProviderTurnTerminal(failed.sessionId, retryCommand),
+          }),
+        ).toMatchObject({ author: { sessionId: failed.sessionId } });
+        expect(screen.getAllByText('Reviewed the selected design.')).toHaveLength(4);
+      },
+      { timeout: 10000 },
+    );
+    expect(runtime.requests.filter((r) => r.method === 'turn/start')).toHaveLength(5);
+    const nativeTurns = runtime.requests.filter((r) => r.method === 'turn/start');
+    expect(nativeTurns[4].params.threadId).toBe(nativeTurns[3].params.threadId);
+    expect(nativeTurns[4].params.threadId).not.toBe(nativeTurns[2].params.threadId);
+    expect(runtime.requests.find((r) => r.method === 'thread/turns/list')!.params.threadId).toBe(
+      nativeTurns[3].params.threadId,
+    );
+    expect(
+      (await h.api.view(h.group)).messages
+        .find((m) => m.messageId === fanout.messageId)!
+        .deliveries.find((d) => d.sessionId === failed.sessionId)!.outcome,
+    ).toBe('failed');
+    // An unclassified provider failure is terminal metadata but its effects
+    // remain uncertain. A successful peer answer must not retire this request.
+    fireEvent.click(screen.getByRole('button', { name: 'Check original request' }));
+    await waitFor(() =>
+      expect(
+        (screen.getByRole('button', { name: 'Choose who replies' }) as HTMLButtonElement).disabled,
+      ).toBe(false),
+    );
+    runtime.holdTurn(7);
+    fireEvent.click(screen.getByRole('button', { name: 'Choose who replies' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Defaults', exact: true }));
+    fireEvent.click(screen.getByRole('button', { name: 'Done choosing replies' }));
+    fireEvent.change(screen.getByRole('textbox', { name: 'Message Mitzo' }), {
+      target: { value: 'Keep this original request through an uncertain recipient failure.' },
+    });
+    await waitFor(() => expect((send() as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(send());
+    let uncertainRequest!: typeof original;
+    await waitFor(
+      () => {
+        uncertainRequest = keys
+          .map((key) => retainedDraft(key.slice('mitzo-chat-draft:'.length))?.collaborationSend)
+          .find(
+            (pending) =>
+              pending?.input.text ===
+              'Keep this original request through an uncertain recipient failure.',
+          )!;
+        expect(uncertainRequest).toBeTruthy();
+        expect(runtime.requests.filter((r) => r.method === 'turn/start')).toHaveLength(7);
+      },
+      { timeout: 10000 },
+    );
+    await act(async () => runtime.finishTurn(7, 'failed'));
+    await waitFor(async () => {
+      const observed = await h.api.observeSend(h.group, uncertainRequest.input);
+      expect(observed.terminal).toBe(false);
+      expect(observed.message!.deliveries.filter((d) => d.outcome === 'uncertain')).toHaveLength(1);
+      expect(observed.message!.deliveries.filter((d) => d.outcome === 'completed')).toHaveLength(1);
+    });
+    ui.unmount();
+    ui = render(surface);
+    fireEvent.click(await screen.findByRole('button', { name: 'Check original request' }));
+    await waitFor(() => {
+      const request = h.events.collaborationConversation.getMessageForRequest(
+        h.group,
+        uncertainRequest.input,
+      )!;
+      const deliveries = document.querySelector(
+        `[data-message-deliveries="${request.projectionId}"]`,
+      )!;
+      expect(
+        within(deliveries as HTMLElement).getAllByText('Outcome uncertain · do not resend'),
+      ).toHaveLength(1);
+      expect(screen.getAllByText('Reviewed the selected design.')).toHaveLength(5);
+      expect(screen.getByRole('button', { name: 'Stop generation' })).toBeTruthy();
+      expect(screen.queryByRole('button', { name: 'Send message' })).toBeNull();
+    });
+    await h.api.send(h.group, uncertainRequest.input);
+    expect(runtime.requests.filter((r) => r.method === 'turn/start')).toHaveLength(7);
+    expect(
+      keys
+        .map((key) => retainedDraft(key.slice('mitzo-chat-draft:'.length))?.collaborationSend)
+        .find((pending) => pending?.input.requestId === uncertainRequest.input.requestId),
+    ).toEqual(uncertainRequest);
   } finally {
     cleanup();
     const { registry } = await import('../chat.js');

@@ -42,6 +42,31 @@ import { NativeApprovalRequestSchema } from '../codex-native-permission-protocol
 import type { ManagedSession } from '../session-registry.js';
 
 let fixtureHome: string;
+it('applies editable user policy to native profiles while preserving original admission and root limits', () => {
+  const cwd = realpathSync(mkdtempSync(join(tmpdir(), 'mitzo-editable-policy-')));
+  try {
+    const session = { cwd, mode: 'agent', worktreePaths: new Map() } as ManagedSession;
+    const input = {
+      session,
+      binding: { accountId: 'fixture', profileRevision: 'revision' } as never,
+      assertCurrentSync: () => {},
+    };
+    const baseline = composeOwnedLocalNativeExecutionPolicy(input);
+    for (const mode of ['auto', 'ask', 'agent'] as const) {
+      session.permissionMode = mode;
+      const policy = composeOwnedLocalNativeExecutionPolicy(input);
+      expect(policy.permissions).toBe(`mitzo-native-${mode}`);
+      expect(policy.networkAccess).toBe(mode === 'auto' ? 'enabled' : 'restricted');
+      expect(policy.writableRoots).toEqual(mode === 'ask' ? [] : baseline.writableRoots);
+      expect(policy.deniedRoots).toEqual(baseline.deniedRoots);
+      expect(policy.readableRoots).toEqual(baseline.readableRoots);
+      expect(policy.writeProtectedRoots).toEqual(baseline.writeProtectedRoots);
+      expect(session.mode).toBe('agent');
+    }
+  } finally {
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
 beforeEach(() => {
   fixtureHome = realpathSync(mkdtempSync(join(tmpdir(), 'mitzo-native-policy-home-')));
   state.home = fixtureHome;

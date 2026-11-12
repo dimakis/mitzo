@@ -372,6 +372,7 @@ import {
 import { createGitInfoDiscovery, createGitInfoHandler } from './git-discovery.js';
 import { isValidInternalToken } from './internal-token.js';
 import { createConnectionsRouter, recentAppReauthorizationHandlers } from './connections-router.js';
+import { createClaudeAccountRouter } from './claude-account-router.js';
 import { createConnectionsAccessRouter } from './connections-access-router.js';
 import {
   personalInventorySource,
@@ -463,7 +464,7 @@ export {
 import { mkdirSync } from 'fs';
 import { homedir } from 'os';
 import { TaskStore, type TaskCreateInput, type TaskUpdateInput } from './task-store.js';
-import { SseRegistry } from '@mitzo/harness';
+import { SseRegistry, effectivePermissionMode } from '@mitzo/harness';
 import { SessionSseRegistry } from './session-sse-registry.js';
 import {
   isTransportConnectionOwnedBy,
@@ -548,6 +549,12 @@ mountObservedRouter(app, '/api/yapper', yapperHttpProxy);
 mountObservedRouter(app, '/api/yapper-ws', yapperWsProxy.http);
 
 app.use(cookieParser());
+mountObservedRouter(
+  app,
+  '/api/claude-accounts',
+  operatorAuthMiddleware,
+  createClaudeAccountRouter(),
+);
 
 // This protected route is deliberately ahead of the global 10MB JSON parser.
 // Its local parsers cap sensitive connection inputs at a few KiB. Runtime setup
@@ -3527,6 +3534,7 @@ const collaborationMessaging = new ApplicationCollaborationMessaging(
   eventStore,
   createSessionPromptPort({
     eventStore,
+    ordinaryCommands: getCodexConversationStore,
     sessionRegistry: registry,
     connRegistry: {
       broadcast: (sessionId, event) => getConnectionRegistry()?.broadcast(sessionId, event),
@@ -4004,6 +4012,7 @@ async function readSessionMetadata(req: express.Request<{ id: string }>, res: ex
       // Unknown presence must not be presented as a historical Responses source.
     }
   }
+  const livePermissionSession = registry.findBySessionId(meta.sessionId)?.session;
   res.json({
     sessionId: meta.sessionId,
     ...(hasNativeCodexConversation !== undefined ? { hasNativeCodexConversation } : {}),
@@ -4028,7 +4037,10 @@ async function readSessionMetadata(req: express.Request<{ id: string }>, res: ex
     cwd: meta.cwd,
     repositoryWorkspaceId: meta.repositoryWorkspaceId,
     ordinaryWorkspaceId: meta.ordinaryWorkspaceId,
-    mode: meta.mode,
+    mode: livePermissionSession
+      ? effectivePermissionMode(livePermissionSession)
+      : (meta.permissionMode ?? meta.mode),
+    commandMode: meta.mode,
     isActive: meta.isActive,
     // Optional catalog refresh may yield while this conversation is deleted.
     isHidden: eventStore.getSession(meta.sessionId)?.isHidden ?? true,

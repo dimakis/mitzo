@@ -8,7 +8,17 @@ import {
   createOwnedCodexFirstCommandHandler,
   createOwnedOrdinaryWorkspaceCommandRouter,
 } from './ordinary-local-codex-entry.js';
-import { operatorAuthMiddleware } from './auth.js';
+import {
+  operatorAuthMiddleware,
+  isAuthSessionCurrent,
+  isAuthenticatedOperatorSessionId,
+  hasPersistentRevocationAuthority,
+} from './auth.js';
+import { repositoryPreparedCommandStatus } from './repository-prepared-command.js';
+import { ordinaryWorkspacePreparedCommandStatus } from './ordinary-workspace-prepared-command.js';
+import { getRepositoryWorkspaces, getOrdinaryWorkspaces } from './repository-workspace-runtime.js';
+import { ordinaryOperatorOwnsConversation } from './ordinary-operator-identity.js';
+import { requireSameOriginJson } from './connections-router.js';
 import { getPendingRequestsBySession } from './permissions.js';
 import {
   assertOrdinaryContributorControlAllowed,
@@ -70,6 +80,7 @@ import { ExecutionAdmissionError } from '@mitzo/protocol/event-store';
 import { z } from 'zod';
 
 const log = createLogger('chat-rest');
+class PermissionModeRejected extends Error {}
 const WebSearchConsent = z
   .object({
     sessionId: z.string().min(1).max(200),
@@ -592,14 +603,141 @@ export function createChatRestRouter(
     }
   });
 
-  router.post('/mode', async (req, res) => {
+  router.post('/mode', operatorAuthMiddleware, requireSameOriginJson, async (req, res) => {
     const connectionId = getConnectionId(req, res);
     if (!connectionId) return;
     if (!requireConnection(connectionId, ctx.connRegistry, res)) return;
     const msg = validateBody(V2SetModeMessage, req.body, res);
     if (!msg) return;
     try {
-      const result = await handleSetModeV2(connectionId, msg, ctx);
+      const binding = ctx.eventStore.getSessionRuntimeBinding?.(msg.sessionId);
+      let assertPreparedCurrent: (() => void) | undefined;
+      const assertActorCurrent = () => {
+        const auth = res.locals.authSession;
+        if (
+          !isAuthSessionCurrent(auth) ||
+          !isTransportConnectionOwnedBy(connectionId, auth.id) ||
+          !isDeepStrictEqual(ctx.eventStore.getSessionRuntimeBinding(msg.sessionId), binding)
+        )
+          throw new PermissionModeRejected(
+            'Conversation permission owner changed. Refresh and retry.',
+          );
+      };
+      if (binding && !ctx.eventStore.getOrdinaryInitialCommandId(msg.sessionId)) {
+        const events = ctx.eventStore;
+        const meta = events.getSession(msg.sessionId);
+        const receipt = meta?.repositoryWorkspaceId
+          ? events.getOrdinarySessionPreparationForConversation(msg.sessionId)
+          : events.getOrdinaryWorkspaceSessionPreparationForConversation(msg.sessionId);
+        if (receipt) {
+          const assertPreparedActor = () => {
+            assertActorCurrent();
+            if (
+              !hasPersistentRevocationAuthority() ||
+              !isAuthenticatedOperatorSessionId(res.locals.authSession.id)
+            )
+              throw new PermissionModeRejected('Current ordinary operator unavailable.');
+          };
+          const workspaces = meta?.repositoryWorkspaceId
+            ? getRepositoryWorkspaces(true)
+            : getOrdinaryWorkspaces(true);
+          const readRecord = () =>
+            meta?.repositoryWorkspaceId
+              ? workspaces.get(receipt.workspaceId)
+              : workspaces.validateRetainedOrdinaryWorkspace(msg.sessionId);
+          const original = readRecord();
+          const controller = new AbortController();
+          const abort = () => controller.abort();
+          res.once('close', abort);
+          try {
+            const status = await (
+              meta?.repositoryWorkspaceId
+                ? repositoryPreparedCommandStatus
+                : ordinaryWorkspacePreparedCommandStatus
+            )({
+              events,
+              workspaces: () => workspaces,
+              sessionId: msg.sessionId,
+              signal: controller.signal,
+              assertCurrent: assertPreparedActor,
+            });
+            if (!status.prepared)
+              throw new PermissionModeRejected(
+                status.reason ?? 'Original preparation unavailable.',
+              );
+            assertPreparedCurrent = () => {
+              assertPreparedActor();
+              const currentReceipt = meta?.repositoryWorkspaceId
+                ? events.getOrdinarySessionPreparationForConversation(msg.sessionId)
+                : events.getOrdinaryWorkspaceSessionPreparationForConversation(msg.sessionId);
+              if (
+                !isDeepStrictEqual(receipt, currentReceipt) ||
+                !isDeepStrictEqual(original, readRecord()) ||
+                events.getOrdinaryInitialCommandId(msg.sessionId) ||
+                events.hasUncertainOrdinaryCommand(msg.sessionId)
+              )
+                throw new PermissionModeRejected(
+                  'Original preparation changed. Refresh and retry.',
+                );
+            };
+            assertPreparedCurrent();
+          } finally {
+            res.removeListener('close', abort);
+          }
+        }
+      }
+      const authorizeRuntimeMode = binding
+        ? () => {
+            const authSessionId = res.locals.authSession.id;
+            if (
+              !isAuthSessionCurrent(res.locals.authSession) ||
+              !isTransportConnectionOwnedBy(connectionId, authSessionId) ||
+              !isDeepStrictEqual(ctx.eventStore.getSessionRuntimeBinding(msg.sessionId), binding)
+            )
+              throw new PermissionModeRejected(
+                'Conversation permission owner changed. Refresh and retry.',
+              );
+            if (binding.execution.location === 'openshell' && msg.mode === 'ask')
+              throw new PermissionModeRejected(
+                'OpenShell supports Agent and Auto. Ask requires Local Mac execution.',
+              );
+            const meta = ctx.eventStore.getSession(msg.sessionId);
+            if (!meta?.accountBinding)
+              throw new PermissionModeRejected('Conversation account unavailable.');
+            const live = ctx.sessionRegistry.findBySessionId(msg.sessionId)?.session;
+            if (assertPreparedCurrent) {
+              assertPreparedCurrent();
+              return;
+            }
+            const owner =
+              live?.ownedLocalAuthSessionId ??
+              live?.ordinaryRuntimeOwner?.authSessionId ??
+              (binding.harness.implementation === 'codex'
+                ? (binding.execution.location === 'local'
+                    ? getCodexConversationStore().readHostCustody(
+                        msg.sessionId,
+                        meta.accountBinding,
+                      )
+                    : getCodexConversationStore().readOpenShellCustody(
+                        msg.sessionId,
+                        meta.accountBinding,
+                      )
+                  )?.authSessionId
+                : binding.harness.implementation === 'claude-sdk'
+                  ? ctx.eventStore.getOrdinaryLocalVertexCustody(msg.sessionId)?.authSessionId
+                  : getNativeResponsesStore().readOrdinaryCustody(
+                      msg.sessionId,
+                      meta.accountBinding,
+                    )?.authSessionId);
+            if (!owner || !ordinaryOperatorOwnsConversation(owner, authSessionId))
+              throw new PermissionModeRejected('Conversation permissions belong to another login.');
+            if (ctx.eventStore.hasUncertainOrdinaryCommand(msg.sessionId))
+              throw new PermissionModeRejected(
+                'Resolve the pending command before changing permission mode.',
+              );
+          }
+        : undefined;
+      const result = await handleSetModeV2(connectionId, msg, ctx, authorizeRuntimeMode);
       const status = result.ok
         ? 200
         : result.code === 'not_found'
@@ -609,7 +747,24 @@ export function createChatRestRouter(
             : 409;
       res.status(status).json(result);
     } catch (err) {
-      log.error('POST /chat/mode failed', { connectionId, error: String(err) });
+      if (err instanceof PermissionModeRejected) {
+        log.warn('permission mode change rejected', {
+          code: 'permission_mode_change_rejected',
+          connectionId,
+          sessionId: msg.sessionId,
+          error: err.message,
+        });
+        res
+          .status(409)
+          .json({ ok: false, code: 'permission_mode_change_rejected', error: err.message });
+        return;
+      }
+      log.error('POST /chat/mode failed', {
+        code: 'permission_mode_change_failed',
+        connectionId,
+        sessionId: msg.sessionId,
+        err,
+      });
       res.status(500).json({ ok: false, error: 'Internal server error' });
     }
   });

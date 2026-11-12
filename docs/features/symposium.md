@@ -5,6 +5,82 @@ Existing Telos item: `c0851ba23fcc5d04`; reuse it rather than create another par
 or a task for every document. Tracker closure and source landing do not prove
 runtime acceptance or authorize deployment.
 
+## Multiple-responder source candidate
+
+Published as draft [PR #1280](https://github.com/dimakis/mitzo/pull/1280), stacked
+on #1279. Accept the parent into main first, then integrate and qualify the
+successor against actual main. Merging into a feature branch is not source landing.
+
+The next source candidate enables the approved Defaults, All and multiple `@`
+selections through the existing shared composer. Every selected recipient must
+pass ordinary readiness before a new request is accepted. The original intent
+and receipt keep their identity across selection changes, partial results,
+reload and exact retries.
+
+Per-recipient completion, failure, interruption and uncertainty are observed from
+the exact ordinary command and native effects owner. Visible answer text alone
+does not retire an outstanding request. Failed recipients remain visible beside
+successful answers; a later explicit selection can ask only the failed agent.
+Unknown native outcomes retain the original request and never automatically resend.
+
+The existing Stop control now requests interruption of each retained reply command.
+It uses the ordinary native owner's exact turn comparison and durable interruption
+claim. Repeated requests never reissue a claimed interrupt or target a successor.
+Stop intent survives reload; a cancellation ACK does not establish terminal outcome
+or release uncertain effects. Late control responses cannot affect another prompt.
+
+The candidate also displays attributed live text from each exact accepted ordinary
+command. A read-only, authenticated projection includes visible text and excludes
+private reasoning, tool data and provider identifiers. Partial text recovers after
+remount without inference; finalization replaces only that exact live source.
+Auth loss clears it immediately, and only verified restoration renews observation.
+
+An observer without a local send also renews the authorized finalized transcript
+on each live sample, including turns that finish entirely between samples. Remote
+membership drift discards mismatched live text and renews the view before observing
+its new audience. Background reads keep draft controls usable and yield synchronously
+to an explicit read; they grant no inference or command control. The application
+observer regression covers a live-to-final handoff, a remote membership change and
+a fast external reply with no local request journal or manual refresh.
+
+Offline application evidence covers two independent same-account sessions,
+partial failure, an explicit selected retry and uncertainty after reload. Hosted
+CI, browser renders and trusted current-head review remain required before landing.
+Per-prompt reviewed context, forwarding and broader
+milestone qualification remain open. No deployment or live inference is qualified.
+
+## Reviewed context for one prompt — source candidate
+
+The next slice connects the existing source compiler to the shared composer's
+context control. Select ordinary source messages or the conversation so far,
+enter a purpose and brief, inspect the exact frozen material and recipients, then
+attach it to one explicit prompt. Review allocates no agent and starts no turn.
+The ordinary dispatcher receives each message's exact retained context, including
+before a reader's later requested reply. Accepted context is detached from the
+next draft while the original send keeps its snapshot for uncertainty and retries.
+
+Lost review responses retain selectors and request identity rather than private
+snapshot text. Reload requires checking the original review; audience, policy or
+settings drift requires explicit review again. Source privacy, full-prefix and
+artifact witnesses are renewed before dispatch. Verified primary-operator login
+renewal preserves accepted pending context without rewriting historical provenance.
+Distinct pending snapshots are inventoried against each recipient's encoded byte
+budget before compiler witnesses are retained; the complete packet still has its
+512 KiB admission check. Capacity remains honestly unverified until ordinary admission.
+
+The actual application journey and 127 other focused checks pass locally with
+external-only synthetic transport. Browser fixtures include review/edit/refreeze,
+keyboard focus, touch controls and theme captures; hosted renders and current-head
+review/CI remain required. Explicit saved-artifact version selection, exact
+forwarding and broader milestone qualification remain open. Conversation-so-far
+review can include referenced artifact versions through the existing compiler.
+Both prompt and joining reviews display each included artifact's frozen contents,
+with the exact version label. UTF-8 text preserves whitespace and renders markup
+literally; binary or malformed historical bytes remain inspectable as Base64.
+Reference-only historical snapshots explicitly say that saved contents are absent.
+Regression checks cover the real prompt review hook and the rendered browser fixture.
+No deployment, live inference or installed-runtime acceptance is established.
+
 ## Accepted shared composer and reply recovery
 
 The next source increment removes the display-page limit from new sends. Pending

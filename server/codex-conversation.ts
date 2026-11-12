@@ -1,4 +1,4 @@
-import { isReadOnlyBuiltinToolCall } from './builtin-tool-behavior.js';
+import { qualifyToolResult } from './tool-failure-reporting.js';
 import { ToolFailureSchema, toolFailure, type ToolFailure } from '@mitzo/protocol';
 import {
   assertToolGuardCurrent,
@@ -30,7 +30,13 @@ import {
 } from './codex-interrupted-effects.js';
 import type { RetainedHostResultObserver } from './retained-native-effect-evidence.js';
 import { beginOperationObservation } from './operation-observation.js';
-import { startCommandTimingSpan, finishCommandTimingSpan } from './command-timing-trace.js';
+import {
+  startCommandTimingSpan,
+  finishCommandTimingSpan,
+  recordCommandQueueReason,
+  type QueueReason,
+} from './command-timing-trace.js';
+import { CodexOutputTiming } from './codex-output-timing.js';
 import {
   codexApplicationContextFragments,
   codexDynamicToolsOption,
@@ -489,6 +495,7 @@ type ActiveCommand = {
   abort: AbortController;
   span?: Span;
   firstOutputSpan?: Span;
+  outputTiming?: CodexOutputTiming;
   preparationSpan?: Span;
   traceContext: Context;
   nativeExecution?: CodexNativeExecutionPolicy;
@@ -907,7 +914,7 @@ export class CodexConversation {
       );
     }
     this.paused = true;
-    this.opts.onQueueChange?.();
+    this.notifyQueueChange();
     this.opts.onTransportClosed?.({
       activeTurn: !!active,
       ...failure,
@@ -1132,14 +1139,21 @@ export class CodexConversation {
     this.startupObserverInitializing = false;
     await this.getSubagents()?.restore();
     this.opts.emit({ type: 'system', subtype: 'init', session_id: this.opts.conversationId });
-    this.opts.onQueueChange?.();
+    this.notifyQueueChange();
   }
-  private async contextRequest(client: Rpc, method: string, params: ObjectValue) {
+  private async contextRequest(
+    client: Rpc,
+    method: string,
+    params: ObjectValue,
+    assertCurrent: () => void = () => undefined,
+  ) {
+    assertCurrent();
     const signal =
       this.active?.abort.signal ?? this.opts.startupSignal ?? new AbortController().signal;
     signal.throwIfAborted();
     await this.opts.prepareAgentContext?.(signal);
     signal.throwIfAborted();
+    assertCurrent();
     if (this.closed) throw Error('Codex context dispatch closed');
     // Resuming/forking establishes execution ownership, not transcript delivery.
     // Even one retained turn can contain more tool output than a bounded RPC
@@ -1152,7 +1166,11 @@ export class CodexConversation {
         : params,
     );
   }
-  private async repairThreadOwnership(client: Rpc, options: Record<string, unknown>) {
+  private async repairThreadOwnership(
+    client: Rpc,
+    options: Record<string, unknown>,
+    assertCurrent: () => void = () => undefined,
+  ) {
     const pending = this.opts.store.pendingThreadOwnership(this.opts.conversationId, this.binding!);
     if (!pending) return;
     const generation = this.transportGeneration;
@@ -1163,12 +1181,18 @@ export class CodexConversation {
         modelProvider: z.string(),
       })
       .parse(
-        await this.contextRequest(client, 'thread/resume', {
-          ...options,
-          threadId: pending.threadId,
-          allowProviderModelFallback: false,
-        }),
+        await this.contextRequest(
+          client,
+          'thread/resume',
+          {
+            ...options,
+            threadId: pending.threadId,
+            allowProviderModelFallback: false,
+          },
+          assertCurrent,
+        ),
       );
+    assertCurrent();
     if (this.closed || generation !== this.transportGeneration)
       throw new Error('Codex accepted provider thread ownership transport changed');
     if (
@@ -1187,6 +1211,7 @@ export class CodexConversation {
     )
       throw new Error('Codex accepted provider thread ownership identity changed');
     await this.opts.onThreadChanged?.(pending.threadId);
+    assertCurrent();
     if (this.closed || generation !== this.transportGeneration)
       throw new Error('Codex accepted provider thread ownership transport changed');
     this.opts.store.completeThreadOwnership(
@@ -1212,7 +1237,7 @@ export class CodexConversation {
   getThreadId() {
     return this.threadId;
   }
-  assertPermissionModeChange(mode: MitzoMode) {
+  private webSearchAccessForMode(mode: MitzoMode): WebSearchAccess {
     if (!this.binding) throw new Error('Codex account binding unavailable');
     const state = this.opts.store.read(this.opts.conversationId, this.binding);
     const effective = resolveWebSearchPolicy({
@@ -1226,8 +1251,32 @@ export class CodexConversation {
         updatedAt: state.webSearchGrantUpdatedAt,
       },
     }).effective;
-    if (effective !== this.appliedWebSearchAccess)
+    return effective;
+  }
+  assertPermissionModeChange(mode: MitzoMode) {
+    if (this.webSearchAccessForMode(mode) !== this.appliedWebSearchAccess)
       throw new Error('Permission mode would change web-search access; start a new conversation');
+  }
+  /** Explicit user policy changes retain the conversation's search grant and
+   * serialize any necessary idle-thread reconfiguration with command admission. */
+  setUserPermissionMode(mode: MitzoMode, assertCurrent: () => void): Promise<void> {
+    const operation = this.explicitEnqueue.then(async () => {
+      assertCurrent();
+      if (this.webSearchAccessForMode(mode) === this.appliedWebSearchAccess) return;
+      const grant = this.getWebSearchGrant();
+      await this.reconfigureWebSearchGrant(
+        grant.revision,
+        grant.grant === 'allowed' ? 'allowed' : 'denied',
+        mode,
+        assertCurrent,
+      );
+      assertCurrent();
+    });
+    this.explicitEnqueue = operation.then(
+      () => undefined,
+      () => undefined,
+    );
+    return operation;
   }
   setWebSearchGrant(
     expectedRevision: number,
@@ -1461,7 +1510,7 @@ export class CodexConversation {
       if (deadline !== undefined) this.capacityAdmissionDeadlines.set(child.id, deadline);
       this.clearCapacityTimer();
       this.paused = false;
-      this.opts.onQueueChange?.();
+      this.notifyQueueChange();
       await this.pump();
       return 'queued' as const;
     } catch (error) {
@@ -1479,7 +1528,7 @@ export class CodexConversation {
           current.sourceCommandId,
         );
         this.paused = true;
-        this.opts.onQueueChange?.();
+        this.notifyQueueChange();
       }
       throw error;
     } finally {
@@ -1530,7 +1579,7 @@ export class CodexConversation {
     );
     this.clearCapacityTimer();
     this.paused = true;
-    this.opts.onQueueChange?.();
+    this.notifyQueueChange();
     if (this.active?.command.id === recovery.childCommandId) await this.interrupt();
     return 'stopped' as const;
   }
@@ -1579,10 +1628,16 @@ export class CodexConversation {
       this.commandContexts.set(input.id, context.active());
       // The durable enqueue has returned; time waiting for this exact command's claim.
       const timing = startCommandTimingSpan('codex.command.queue_wait', input.id, context.active());
-      if (timing) this.queueTimingSpans.set(input.id, timing);
+      if (timing) {
+        this.queueTimingSpans.set(input.id, timing);
+        recordCommandQueueReason(
+          timing,
+          this.active ? 'active_turn' : this.paused ? 'recovery' : 'queued',
+        );
+      }
       this.opts.onCommandQueued?.(input.id);
     }
-    this.opts.onQueueChange?.();
+    this.notifyQueueChange();
     return { model, reasoningEffort };
   }
   async admitExplicitSend(
@@ -1729,7 +1784,7 @@ export class CodexConversation {
       this.commandContexts.delete(commandId);
       finishCommandTimingSpan(this.queueTimingSpans.get(commandId), 'cancelled');
       this.queueTimingSpans.delete(commandId);
-      this.opts.onQueueChange?.();
+      this.notifyQueueChange();
     }
     return result;
   }
@@ -1748,7 +1803,7 @@ export class CodexConversation {
       confirmAmbiguous,
     );
     if (result !== 'queued') return result;
-    this.opts.onQueueChange?.();
+    this.notifyQueueChange();
     await this.acknowledgeRecovery();
     return result;
   }
@@ -1773,12 +1828,12 @@ export class CodexConversation {
     const delays = [1000, 2000, 5000, 10000, 30000];
     if (attempt >= delays.length) {
       this.recoveryPhase = undefined;
-      this.opts.onQueueChange?.();
+      this.notifyQueueChange();
       return;
     }
     const epoch = this.automaticRecoveryEpoch;
     this.recoveryPhase = 'reconnecting';
-    this.opts.onQueueChange?.();
+    this.notifyQueueChange();
     this.automaticRecoveryTimer = setTimeout(() => {
       this.automaticRecoveryTimer = undefined;
       this.automaticRecoveryRunning = { epoch };
@@ -1852,7 +1907,7 @@ export class CodexConversation {
       if (this.recovery === shared) {
         this.recovery = undefined;
         this.recoveryPhase = undefined;
-        this.opts.onQueueChange?.();
+        this.notifyQueueChange();
       }
     });
     this.recovery = shared;
@@ -1965,7 +2020,7 @@ export class CodexConversation {
     // is only for workspace startup and transport reattachment, not generation.
     if (this.recoveryPhase) {
       this.recoveryPhase = undefined;
-      this.opts.onQueueChange?.();
+      this.notifyQueueChange();
     }
     // Neither metadata nor a progress observer may release work through a
     // retired transport or undo a Stop that arrived during the reconnect.
@@ -2065,19 +2120,24 @@ export class CodexConversation {
   }
   private async reconnect() {
     this.recoveryPhase = 'reconnecting';
-    this.opts.onQueueChange?.();
+    this.notifyQueueChange();
     if (this.opts.reconnectGuard) return this.opts.reconnectGuard(() => this.reconnectBound());
     return this.reconnectBound();
   }
-  private async reconnectBound() {
+  private async reconnectBound(
+    modeOverride?: MitzoMode,
+    assertCurrent: () => void = () => undefined,
+  ) {
+    assertCurrent();
     if (!this.binding || !this.threadId) throw new Error('Codex recovery state is unavailable');
     if (this.opts.beforeReconnect) {
       this.recoveryPhase = 'starting_workspace';
-      this.opts.onQueueChange?.();
+      this.notifyQueueChange();
       await this.opts.beforeReconnect();
+      assertCurrent();
     }
     this.recoveryPhase = 'reconnecting';
-    this.opts.onQueueChange?.();
+    this.notifyQueueChange();
     const client = this.createClient();
     this.client = client;
     const startupGeneration = this.transportGeneration;
@@ -2093,12 +2153,14 @@ export class CodexConversation {
         }),
       );
       await this.observeStartupConfig(configResponse.config, startupGeneration);
+      assertCurrent();
       const runtimeConfig = this.runtimeConfiguration(configResponse.config);
       const modelProvider = this.opts.modelProvider ?? 'openai';
       const state = this.opts.store.read(this.opts.conversationId, this.binding);
       this.opts.store.assertNoPendingThreadDispatch(this.opts.conversationId, this.binding);
-      const threadOptions = this.threadOptions(runtimeConfig, modelProvider, state);
-      await this.repairThreadOwnership(client, threadOptions);
+      const threadOptions = this.threadOptions(runtimeConfig, modelProvider, state, modeOverride);
+      await this.repairThreadOwnership(client, threadOptions, assertCurrent);
+      assertCurrent();
       const toolSurfaceRevision = this.toolSurfaceRevision();
       const replacingInitialThread = !state.threadId && this.opts.deferToolSurfaceReplacement;
       const replacingStaleToolSurface =
@@ -2118,16 +2180,27 @@ export class CodexConversation {
               modelProvider: z.string(),
             })
             .parse(
-              await this.contextRequest(client, 'thread/start', {
-                ...threadOptions,
-                allowProviderModelFallback: false,
-                ...this.dynamicToolsOption(),
-              }),
+              await this.contextRequest(
+                client,
+                'thread/start',
+                {
+                  ...threadOptions,
+                  allowProviderModelFallback: false,
+                  ...this.dynamicToolsOption(),
+                },
+                assertCurrent,
+              ),
             )
         : replacingStaleToolSurface
-          ? await this.replaceStaleToolSurface(client, state, threadOptions, toolSurfaceRevision)
+          ? await this.replaceStaleToolSurface(
+              client,
+              state,
+              threadOptions,
+              toolSurfaceRevision,
+              assertCurrent,
+            )
           : replacingProviderThread
-            ? await this.replaceFailedProviderThread(client, state, threadOptions)
+            ? await this.replaceFailedProviderThread(client, state, threadOptions, assertCurrent)
             : z
                 .object({
                   thread: z.object({ id: z.string().min(1) }),
@@ -2135,11 +2208,16 @@ export class CodexConversation {
                   modelProvider: z.string(),
                 })
                 .parse(
-                  await this.contextRequest(client, 'thread/resume', {
-                    threadId: this.threadId,
-                    ...threadOptions,
-                    allowProviderModelFallback: false,
-                  }),
+                  await this.contextRequest(
+                    client,
+                    'thread/resume',
+                    {
+                      threadId: this.threadId,
+                      ...threadOptions,
+                      allowProviderModelFallback: false,
+                    },
+                    assertCurrent,
+                  ),
                 );
       if (
         (!replacingProviderThread && result.thread.id !== this.threadId) ||
@@ -2148,12 +2226,21 @@ export class CodexConversation {
       )
         throw new Error('Codex execution binding changed');
       this.threadId = result.thread.id;
+      assertCurrent();
       if (replacingInitialThread)
         this.pendingToolSurface = { thread: result.thread.id, revision: toolSurfaceRevision };
       if (replacingProviderThread) this.resetMapper(this.threadId);
       this.ready = true;
     } catch (error) {
-      client.close();
+      try {
+        client.close();
+      } catch (cleanupError) {
+        log.error('Codex reconnect cleanup failed', {
+          code: 'codex_reconnect_cleanup_failed',
+          conversationId: this.opts.conversationId,
+          err: cleanupError,
+        });
+      }
       throw error;
     }
   }
@@ -2205,6 +2292,7 @@ export class CodexConversation {
     runtimeConfig: Record<string, unknown>,
     modelProvider: string,
     state: ReturnType<CodexConversationStore['read']>,
+    modeOverride?: MitzoMode,
   ) {
     const backend = this.opts.webSearchBackend ?? 'host';
     const deploymentRevision = this.opts.webSearchDeploymentRevision ?? `${backend}:unversioned`;
@@ -2216,7 +2304,7 @@ export class CodexConversation {
       backend,
       deploymentCeiling: this.webSearchDeploymentCeiling,
       deploymentRevision,
-      mode: this.opts.getMode?.() ?? 'ask',
+      mode: modeOverride ?? this.opts.getMode?.() ?? 'ask',
       conversationGrant: {
         grant: state.webSearchGrant,
         revision: state.webSearchGrantRevision,
@@ -2240,7 +2328,10 @@ export class CodexConversation {
   private async reconfigureWebSearchGrant(
     expectedRevision: number,
     grant: 'allowed' | 'denied',
+    modeOverride?: MitzoMode,
+    assertCurrent: () => void = () => undefined,
   ): Promise<PersistedWebSearchGrant> {
+    assertCurrent();
     if (this.closed || !this.ready || !this.binding || !this.threadId)
       throw new Error('Codex conversation unavailable');
     if (this.active || this.pumping || this.paused)
@@ -2256,14 +2347,17 @@ export class CodexConversation {
     this.client.close();
     let client: Rpc | undefined;
     try {
-      const updated = this.opts.store.setWebSearchGrant(
-        this.opts.conversationId,
-        this.binding,
-        expectedRevision,
-        grant,
-      );
+      const updated =
+        modeOverride === undefined
+          ? this.opts.store.setWebSearchGrant(
+              this.opts.conversationId,
+              this.binding,
+              expectedRevision,
+              grant,
+            )
+          : current;
       if (this.pendingToolSurface) {
-        await this.reconnectBound();
+        await this.reconnectBound(modeOverride, assertCurrent);
         return updated;
       }
       client = this.createClient();
@@ -2280,6 +2374,7 @@ export class CodexConversation {
         }),
       );
       await this.observeStartupConfig(configResponse.config, startupGeneration);
+      assertCurrent();
       const runtimeConfig = this.runtimeConfiguration(configResponse.config);
       const modelProvider = this.opts.modelProvider ?? 'openai';
       const state = this.opts.store.read(this.opts.conversationId, this.binding);
@@ -2291,11 +2386,16 @@ export class CodexConversation {
           modelProvider: z.string(),
         })
         .parse(
-          await this.contextRequest(client, 'thread/resume', {
-            threadId: this.threadId,
-            ...this.threadOptions(runtimeConfig, modelProvider, state),
-            allowProviderModelFallback: false,
-          }),
+          await this.contextRequest(
+            client,
+            'thread/resume',
+            {
+              threadId: this.threadId,
+              ...this.threadOptions(runtimeConfig, modelProvider, state, modeOverride),
+              allowProviderModelFallback: false,
+            },
+            assertCurrent,
+          ),
         );
       if (
         result.thread.id !== this.threadId ||
@@ -2303,10 +2403,19 @@ export class CodexConversation {
         result.modelProvider !== modelProvider
       )
         throw new Error('Codex execution binding changed');
+      assertCurrent();
       this.ready = true;
       return updated;
     } catch (error) {
-      client?.close();
+      try {
+        client?.close();
+      } catch (cleanupError) {
+        log.error('Codex permission update cleanup failed', {
+          code: 'permission_mode_cleanup_failed',
+          conversationId: this.opts.conversationId,
+          err: cleanupError,
+        });
+      }
       this.paused = true;
       try {
         this.opts.store.pauseForRecovery(this.opts.conversationId, this.binding);
@@ -2317,7 +2426,7 @@ export class CodexConversation {
             : new Error('Codex recovery state could not be saved'),
         );
       }
-      this.opts.onQueueChange?.();
+      this.notifyQueueChange();
       throw error;
     }
   }
@@ -2472,8 +2581,10 @@ export class CodexConversation {
     state: ReturnType<CodexConversationStore['read']>,
     threadOptions: ReturnType<CodexConversation['threadOptions']>,
     toolSurfaceRevision: string,
+    assertCurrent: () => void = () => undefined,
   ) {
     await this.settleCompletionBeforeReplacement();
+    assertCurrent();
     if (!state.threadId) throw new Error('Codex provider thread is unavailable');
     const rolloverContext = this.conversationRolloverContext();
     const result = z
@@ -2483,12 +2594,18 @@ export class CodexConversation {
         modelProvider: z.string(),
       })
       .parse(
-        await this.contextRequest(client, 'thread/start', {
-          ...threadOptions,
-          allowProviderModelFallback: false,
-          ...this.dynamicToolsOption(),
-        }),
+        await this.contextRequest(
+          client,
+          'thread/start',
+          {
+            ...threadOptions,
+            allowProviderModelFallback: false,
+            ...this.dynamicToolsOption(),
+          },
+          assertCurrent,
+        ),
       );
+    assertCurrent();
     if (
       result.model !== this.binding!.model ||
       result.modelProvider !== (this.opts.modelProvider ?? 'openai')
@@ -2567,8 +2684,10 @@ export class CodexConversation {
     client: Rpc,
     state: ReturnType<CodexConversationStore['read']>,
     threadOptions: ReturnType<CodexConversation['threadOptions']>,
+    assertCurrent: () => void = () => undefined,
   ) {
     await this.settleCompletionBeforeReplacement();
+    assertCurrent();
     if (!state.threadId) throw new Error('Codex provider thread is unavailable');
     const lastCompletedTurnId = await this.latestCompletedProviderTurn(
       client,
@@ -2588,18 +2707,29 @@ export class CodexConversation {
       })
       .parse(
         lastCompletedTurnId
-          ? await this.contextRequest(client, 'thread/fork', {
-              threadId: state.threadId,
-              lastTurnId: lastCompletedTurnId,
-              excludeTurns: true,
-              ...threadOptions,
-            })
-          : await this.contextRequest(client, 'thread/start', {
-              ...threadOptions,
-              allowProviderModelFallback: false,
-              ...this.dynamicToolsOption(),
-            }),
+          ? await this.contextRequest(
+              client,
+              'thread/fork',
+              {
+                threadId: state.threadId,
+                lastTurnId: lastCompletedTurnId,
+                excludeTurns: true,
+                ...threadOptions,
+              },
+              assertCurrent,
+            )
+          : await this.contextRequest(
+              client,
+              'thread/start',
+              {
+                ...threadOptions,
+                allowProviderModelFallback: false,
+                ...this.dynamicToolsOption(),
+              },
+              assertCurrent,
+            ),
       );
+    assertCurrent();
     if (
       result.model !== this.binding!.model ||
       result.modelProvider !== (this.opts.modelProvider ?? 'openai')
@@ -2712,8 +2842,15 @@ export class CodexConversation {
   }
   private pump(): Promise<void> {
     if (this.pumping) return this.pumping;
-    if (this.active || this.paused || this.closed || this.opts.canStartCommand?.() === false)
+    if (this.closed) return Promise.resolve();
+    if (this.active || this.paused) {
+      this.recordQueueReason(this.active ? 'active_turn' : 'recovery');
       return Promise.resolve();
+    }
+    if (this.opts.canStartCommand?.() === false) {
+      this.recordQueueReason('deployment');
+      return Promise.resolve();
+    }
     const next = this.queue().find((command) => command.status === 'queued');
     const commandContext = next && this.commandContexts.get(next.id);
     this.pumping = context
@@ -2723,10 +2860,22 @@ export class CodexConversation {
       });
     return this.pumping;
   }
+  private notifyQueueChange() {
+    this.recordQueueReason(this.active ? 'active_turn' : this.paused ? 'recovery' : 'queued');
+    this.opts.onQueueChange?.();
+  }
+  private recordQueueReason(reason: QueueReason) {
+    for (const span of this.queueTimingSpans.values()) recordCommandQueueReason(span, reason);
+  }
   private finishTurnSpan(
     status: 'completed' | 'interrupted' | 'failed',
     failureCategory: 'none' | 'provider' | 'dispatch' | 'transport' | 'close' | 'acknowledgment',
   ) {
+    this.active?.outputTiming?.close(
+      failureCategory === 'none' || failureCategory === 'provider'
+        ? 'terminal_before_output'
+        : 'failed_before_output',
+    );
     this.active?.firstOutputSpan?.setAttribute(
       'mitzo.first_output.result',
       failureCategory === 'none' || failureCategory === 'provider'
@@ -2750,7 +2899,10 @@ export class CodexConversation {
     // this queue again after the original coordinator commits consumption.
     if (this.opts.canClaimCommand && this.binding) {
       const next = this.opts.store.nextQueuedCommandId(this.opts.conversationId, this.binding);
-      if (next && this.opts.canClaimCommand(next) === false) return;
+      if (next && this.opts.canClaimCommand(next) === false) {
+        this.recordQueueReason('admission');
+        return;
+      }
     }
     if (this.opts.beforeRuntimeAdmission && this.binding && !this.active) {
       const boundary = this.opts.beforeRuntimeAdmission;
@@ -2817,7 +2969,7 @@ export class CodexConversation {
         // explicit recovery pause even when only our idle transport was closed.
         this.paused = true;
         this.opts.store.pauseForRecovery(this.opts.conversationId, this.binding);
-        this.opts.onQueueChange?.();
+        this.notifyQueueChange();
         throw error;
       }
     }
@@ -2833,11 +2985,18 @@ export class CodexConversation {
         this.opts.conversationId,
         this.binding!,
       );
-      if (nextQueued && this.opts.canClaimCommand(nextQueued) === false) return;
+      if (nextQueued && this.opts.canClaimCommand(nextQueued) === false) {
+        this.recordQueueReason('admission');
+        return;
+      }
     }
-    if (this.opts.canStartCommand?.() === false) return;
+    if (this.opts.canStartCommand?.() === false) {
+      this.recordQueueReason('deployment');
+      return;
+    }
     const command = this.opts.store.claimNext(this.opts.conversationId, this.binding!);
     if (!command) return;
+    recordCommandQueueReason(this.queueTimingSpans.get(command.id), 'eligible');
     finishCommandTimingSpan(this.queueTimingSpans.get(command.id), 'claimed');
     this.queueTimingSpans.delete(command.id);
     const continuation = this.opts.store.capacityContinuation(
@@ -2863,7 +3022,7 @@ export class CodexConversation {
     this.commandContexts.delete(command.id);
     this.active = active;
     let transportGeneration = this.transportGeneration;
-    this.opts.onQueueChange?.();
+    this.notifyQueueChange();
     try {
       active.preparationSpan = startCommandTimingSpan(
         'codex.command.preparation',
@@ -2988,6 +3147,9 @@ export class CodexConversation {
       const dispatchSpan = tracer.startSpan('codex.turn.dispatch', {}, turnContext);
       const ackSpan = tracer.startSpan('codex.turn.acknowledgment', {}, turnContext);
       active.firstOutputSpan = tracer.startSpan('codex.turn.first_output', {}, turnContext);
+      active.outputTiming = new CodexOutputTiming(turnContext);
+      if (command.reasoningEffort)
+        active.span.setAttribute('gen_ai.request.reasoning_effort', command.reasoningEffort);
       let response: unknown;
       let dispatched = false;
       try {
@@ -3171,7 +3333,7 @@ export class CodexConversation {
                 : new Error('Codex provider thread ownership requires recovery'),
             );
             this.retireTransportForRecovery();
-            this.opts.onQueueChange?.();
+            this.notifyQueueChange();
             return;
           }
           active.ownershipPending = false;
@@ -3242,7 +3404,7 @@ export class CodexConversation {
         this.paused = true;
         active.abort.abort();
         if (this.active === active) this.active = undefined;
-        this.opts.onQueueChange?.();
+        this.notifyQueueChange();
         throw error;
       }
       const replaceProviderThread = requiresProviderThreadReplacement(error);
@@ -3273,7 +3435,7 @@ export class CodexConversation {
       this.recordPreDispatchFailure(active);
       if (this.active === active) this.active = undefined;
       if (replaceProviderThread || active.accepted) this.retireTransportForRecovery();
-      this.opts.onQueueChange?.();
+      this.notifyQueueChange();
       throw error;
     } finally {
       finishCommandTimingSpan(active.preparationSpan, 'stopped');
@@ -3516,6 +3678,8 @@ export class CodexConversation {
         this.active.nativeFileChangeRevisions.set(identity.data.id, consistent ? revision : null);
       }
     }
+    if (this.active?.turnId && params.turnId === this.active.turnId)
+      this.active.outputTiming?.observe(method, params);
     if (
       this.active?.firstOutputSpan &&
       [
@@ -3911,7 +4075,7 @@ export class CodexConversation {
         this.opts.onError?.(
           new ProviderFailureError(providerFailure, codexTurnFailureDiagnostic(turn.data.error)),
         );
-      this.opts.onQueueChange?.();
+      this.notifyQueueChange();
       // Completion can arrive before turn/start resolves. Wait for that request to settle.
       Promise.resolve(this.pumping)
         .then(() => (recoverQueuedFollowUp ? this.acknowledgeRecovery() : this.pump()))
@@ -4442,13 +4606,7 @@ export class CodexConversation {
       );
       // Only a returned, reviewed read result can qualify a failed callback here.
       // Explicit owner uncertainty, thrown exceptions and cancellation stay fenced.
-      if (
-        result.isError &&
-        !retainedCallbackOutcome(result) &&
-        !toolSignal.aborted &&
-        isReadOnlyBuiltinToolCall(call.tool, call.arguments)
-      )
-        retainCallbackOutcome(result, 'settled');
+      qualifyToolResult(call.tool, call.arguments, toolSignal, result);
     } catch (error) {
       if (error instanceof ToolGuardTimeoutError) {
         active.callbackEffectsUnknown = true;
@@ -4548,7 +4706,7 @@ export class CodexConversation {
             call.callId,
           )
         )
-          this.opts.onQueueChange?.();
+          this.notifyQueueChange();
       } catch {
         result = {
           content:
@@ -5010,7 +5168,7 @@ export class CodexConversation {
         try {
           attempt(() => this.client.close());
         } finally {
-          attempt(() => this.opts.onQueueChange?.());
+          attempt(() => this.notifyQueueChange());
           attempt(() => this.opts.onClosed?.());
         }
       }

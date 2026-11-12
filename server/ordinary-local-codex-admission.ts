@@ -152,8 +152,8 @@ export function ordinaryLocalCommandFingerprint(
     .digest('hex')}`;
 }
 class OrdinaryLocalCodexAdmissionError extends Error {}
-function fail(reason: string): never {
-  throw new OrdinaryLocalCodexAdmissionError(`Ordinary local Codex admission ${reason}`);
+function fail(reason: string, cause?: unknown): never {
+  throw new OrdinaryLocalCodexAdmissionError(`Ordinary local Codex admission ${reason}`, { cause });
 }
 
 const contentDigest = (value: unknown) =>
@@ -548,7 +548,7 @@ export class OrdinaryLocalCodexAdmissionCoordinator {
         } catch (error) {
           const failure = findSessionRuntimeError(error);
           if (failure) throw failure;
-          fail(claimed ? 'dispatch_uncertain' : 'authority_unavailable');
+          fail(claimed ? 'dispatch_uncertain' : 'authority_unavailable', error);
         }
         if (!d.bootstrapAuthority && !claim()) return { dispatched: false };
         try {
@@ -565,7 +565,7 @@ export class OrdinaryLocalCodexAdmissionCoordinator {
           if (failure) throw failure;
           const capabilityError = findNativeMacExecutionUnavailable(error);
           if (capabilityError) throw capabilityError;
-          fail('dispatch_uncertain');
+          fail('dispatch_uncertain', error);
         }
         return { dispatched: true };
       };
@@ -583,7 +583,7 @@ export class OrdinaryLocalCodexAdmissionCoordinator {
       const capabilityError = findNativeMacExecutionUnavailable(error);
       if (capabilityError) throw capabilityError;
       if (error instanceof OrdinaryLocalCodexAdmissionError) throw error;
-      fail(claimed ? 'dispatch_uncertain' : 'authority_unavailable');
+      fail(claimed ? 'dispatch_uncertain' : 'authority_unavailable', error);
     }
   }
 }

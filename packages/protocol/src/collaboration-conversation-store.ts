@@ -94,6 +94,16 @@ const ReviewCompilationInput = z.strictObject({
     .optional(),
   selection: CollaborationSnapshotSelectionSchema,
   settings: z.array(CollaborationSettingsSchema).min(1).max(16),
+  // Host-only audience for reviewed context attached to a later explicit prompt.
+  // Historical joining reviews omit it and retain their existing contract.
+  promptAudience: z
+    .strictObject({
+      sessionIds: SessionCollaborationSchema.shape.participantSessionIds.refine(
+        (value) => value.length > 0,
+      ),
+      policySequence: z.number().int().nonnegative().safe(),
+    })
+    .optional(),
 });
 const ReviewCompilation = ReviewCompilationInput.extend({
   snapshotRequestId: z.uuid(),
@@ -479,7 +489,31 @@ export class CollaborationConversationStore {
           if (!selected) throw new ContractError('unavailable_recipient');
           settings[sessionId] = CollaborationSettingsSchema.parse(selected);
         }
-        if (input.snapshot) this.reviewedSnapshot(group, input.snapshot, Object.values(settings));
+        if (input.snapshot) {
+          const review = this.getReviewCompilationForSnapshot(group, input.snapshot.snapshotId);
+          if (review?.promptAudience) {
+            if (
+              review.selection.expectedMembershipRevision !== current.revision ||
+              review.promptAudience.policySequence !== input.expectedPolicySequence ||
+              readers.some((id) => {
+                const index = review.promptAudience!.sessionIds.indexOf(id);
+                return index < 0 || !isDeepStrictEqual(review.settings[index], settings[id]);
+              })
+            )
+              throw new ContractError('snapshot_changed');
+            this.assertCurrentSnapshotSource(group, input.snapshot.snapshotId);
+          }
+          // A host-reviewed existing-participant packet may honestly retain
+          // unavailable capacity. Only ordinary admission can authorize a turn;
+          // the application adapter checks its complete encoded packet first.
+          // Historical caller-created snapshots retain their capacity contract.
+          this.reviewedSnapshot(
+            group,
+            input.snapshot,
+            Object.values(settings),
+            !review?.promptAudience,
+          );
+        }
         const message = CollaborationMessageSchema.parse({
           version: 1,
           messageId: randomUUID(),
@@ -885,6 +919,41 @@ export class CollaborationConversationStore {
         return next;
       },
     );
+  }
+  /** Host-only observation of the exact ordinary command; no request can supply an outcome. */
+  recordReplyOutcome(
+    group: string,
+    messageId: string,
+    deliveryId: string,
+    read: (
+      sessionId: string,
+      commandId: string,
+    ) => 'completed' | 'failed' | 'interrupted' | 'uncertain' | undefined,
+  ) {
+    return this.db
+      .transaction(() => {
+        this.group(group);
+        const message = this.current(group, 'message', messageId, CollaborationMessageSchema);
+        const delivery = message?.deliveries.find((d) => d.deliveryId === deliveryId);
+        if (!message || !delivery || delivery.purpose !== 'reply' || !delivery.commandId)
+          throw new ContractError('reply_conflict');
+        const observed = read(delivery.sessionId, delivery.commandId);
+        const outcome = observed ?? (delivery.outcome ? 'uncertain' : undefined);
+        if (!outcome || delivery.outcome === outcome) return;
+        if (delivery.outcome && delivery.outcome !== 'uncertain' && outcome !== 'uncertain')
+          throw new ContractError('reply_conflict');
+        const next = CollaborationDeliverySchema.parse({
+          ...delivery,
+          outcome,
+          revision: delivery.revision + 1,
+        });
+        message.deliveries = message.deliveries.map((d) =>
+          d.deliveryId === deliveryId ? next : d,
+        );
+        this.put(group, 'message', messageId, message);
+        this.event(group, { kind: 'delivery', messageId, delivery: next });
+      })
+      .immediate();
   }
   /** Host-only attributed projection. The trusted source port must verify the exact ordinary
    * command/message mapping and finalized visible blocks. Context receipts retain the original
@@ -1497,6 +1566,20 @@ export class CollaborationConversationStore {
       !this.continuousMember(membership, message.membershipRevision, sessionId)
     )
       throw new ContractError('reply_conflict');
+  }
+  /** A removed/rejoined source cannot silently restore an old snapshot grant. */
+  assertCurrentSnapshotSource(group: string, snapshotId: string) {
+    const membership = this.group(group);
+    const record = this.getReviewCompilationForSnapshot(group, snapshotId);
+    if (
+      !record ||
+      !this.continuousMember(
+        membership,
+        record.selection.expectedMembershipRevision,
+        record.selection.sourceConversationId,
+      )
+    )
+      throw new ContractError('snapshot_changed');
   }
   /** Exact host delivery lookup, independent of the bounded recent-message view. */
   getMessage(group: string, messageId: string) {

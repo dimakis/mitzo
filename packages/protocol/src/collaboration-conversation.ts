@@ -134,6 +134,16 @@ export const CollaborationApplicationReviewInputSchema = z.strictObject({
 export type CollaborationApplicationReviewInput = z.infer<
   typeof CollaborationApplicationReviewInputSchema
 >;
+/** Existing participant selectors only; settings and source bytes remain host-owned. */
+export const CollaborationPromptReviewInputSchema = z.strictObject({
+  selection: CollaborationSnapshotSelectionSchema,
+  recipientSessionIds: ids.refine((value) => value.length > 0),
+  expectedPolicySequence: sequence,
+});
+export const CollaborationPromptReviewRequestSchema = CollaborationPromptReviewInputSchema.extend({
+  clientId: id,
+});
+export type CollaborationPromptReviewInput = z.infer<typeof CollaborationPromptReviewInputSchema>;
 /** Transport correlation only; the server checks its existing live login binding. */
 export const CollaborationApplicationReviewRequestSchema =
   CollaborationApplicationReviewInputSchema.extend({ clientId: id });
@@ -147,6 +157,19 @@ export const CollaborationMessageInputSchema = z.strictObject({
     z.strictObject({ kind: z.literal('selected'), sessionIds: ids }),
   ]),
   snapshot: CollaborationSnapshotReferenceSchema.nullable(),
+});
+/** Sanitized control observations; requested never means terminal or safe to replay. */
+export const CollaborationStopResultSchema = z.strictObject({
+  requestId: z.uuid(),
+  recipients: z
+    .array(
+      z.strictObject({
+        sessionId: id,
+        deliveryId: z.uuid(),
+        status: z.enum(['requested', 'settled', 'uncertain', 'unavailable']),
+      }),
+    )
+    .max(16),
 });
 /** Trusted ordinary driver/source owner input. Text is read from finalized source events. */
 export const CollaborationReplyInputSchema = z.strictObject({
@@ -175,6 +198,8 @@ export const CollaborationDeliverySchema = z.strictObject({
   status: CollaborationDeliveryReceiptInputSchema.shape.status,
   commandId: id.nullable(),
   reason: z.string().max(1000).nullable(),
+  /** Current ordinary termination/effects observation, independent of prompt acknowledgement. */
+  outcome: z.enum(['completed', 'failed', 'interrupted', 'uncertain']).optional(),
 });
 /** Reference only. Exact retained forwarding bytes stay with the host storage owner. */
 export const CollaborationForwardReferenceSchema = z.strictObject({
@@ -440,6 +465,16 @@ export const CollaborationApplicationReviewResultSchema = z.strictObject({
 export type CollaborationApplicationReviewResult = z.infer<
   typeof CollaborationApplicationReviewResultSchema
 >;
+export const CollaborationPromptReviewResultSchema = z.strictObject({
+  snapshot: CollaborationSnapshotSchema,
+  recipientSessionIds: ids,
+  settings: z.record(id, CollaborationSettingsSchema),
+  expectedMembershipRevision: sequence,
+  expectedPolicySequence: sequence,
+  requiresReview: z.boolean(),
+  artifactLabels: CollaborationApplicationReviewResultSchema.shape.artifactLabels,
+});
+export type CollaborationPromptReviewResult = z.infer<typeof CollaborationPromptReviewResultSchema>;
 export const CollaborationJoinInputSchema = z.strictObject({
   ...request,
   name: z.string().trim().min(1).max(100),
@@ -523,6 +558,32 @@ export const CollaborationViewSchema = z.strictObject({
     .optional(),
   execution: CollaborationExecutionSchema,
 });
+/** Observational live text. It is not a durable shared answer or delivery receipt. */
+export const CollaborationProgressSchema = z.strictObject({
+  collaborationId: SessionCollaborationIdSchema,
+  membershipRevision: sequence,
+  replies: z
+    .array(
+      z.strictObject({
+        projectionId: z.uuid(),
+        sourceMessageId: id,
+        deliveryId: z.uuid(),
+        sessionId: id,
+        text: z.string().min(1).max(100_000),
+      }),
+    )
+    .max(50),
+  refusals: z
+    .array(
+      z.strictObject({
+        deliveryId: z.uuid(),
+        sessionId: id,
+        code: z.enum(['capacity_refused', 'reply_unavailable']),
+      }),
+    )
+    .max(16),
+});
+export type CollaborationProgress = z.infer<typeof CollaborationProgressSchema>;
 export const CollaborationCursorSchema = z.strictObject({
   after: z.coerce
     .number()

@@ -128,6 +128,7 @@ export class SseConnection implements ChatConnection {
   });
   private controlChain: Promise<unknown> = Promise.resolve();
   private switchIntent: Record<string, unknown> | null = null;
+  private modeIntent: Record<string, unknown> | null = null;
   private pendingSends: Array<{ endpoint: string; body: Record<string, unknown> }> = [];
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private authProbe: Promise<void> | null = null;
@@ -254,6 +255,7 @@ export class SseConnection implements ChatConnection {
     const endpoint = this.messageTypeToEndpoint(msg.type as string);
     if (!endpoint) return false;
     if (endpoint === 'switch') this.switchIntent = msg;
+    if (endpoint === 'mode') this.modeIntent = msg;
 
     if (this._connected && this._connectionId) {
       this.doPost(endpoint, msg);
@@ -976,6 +978,7 @@ export class SseConnection implements ChatConnection {
     const visible = () =>
       current() &&
       this.sendScope === sendScope &&
+      (endpoint !== 'mode' || this.modeIntent === intentBody) &&
       (endpoint !== 'switch' || this.switchIntent === intentBody);
     const transportFailure = (error: string) => {
       // Lifecycle failures must never enter the terminal provider-error reducer.
@@ -1086,7 +1089,11 @@ export class SseConnection implements ChatConnection {
           });
           return;
         }
-        transportFailure(`Could not ${endpoint} (${res.status}). Please retry.`);
+        transportFailure(
+          endpoint === 'mode' && typeof rejected?.error === 'string'
+            ? rejected.error
+            : `Could not ${endpoint} (${res.status}). Please retry.`,
+        );
       }
     } catch {
       // A late beacon or retry could suspend the resumed foreground owner.

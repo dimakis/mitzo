@@ -323,3 +323,49 @@ it.each([true, false])(
     expect(permissionRevision(chat.eventStore, f.id)).toBeUndefined();
   },
 );
+
+it.each([true, false])(
+  'persists guarded user modes without replacing command receipts (live=%s)',
+  async (live) => {
+    const f = fixture(true, live);
+    const original = chat.eventStore.getOrdinaryLocalCommandAdmission(f.commandId);
+    const authorize = vi.fn();
+    for (const mode of ['auto', 'ask', 'agent'] as const) {
+      const result = await ws.handleSetModeV2(
+        'browser',
+        { type: 'set_mode', sessionId: f.id, mode },
+        f.context,
+        authorize,
+      );
+      expect(result).toMatchObject({ ok: true, applied: true, persisted: true });
+      expect(chat.eventStore.getSession(f.id)).toMatchObject({
+        mode: 'agent',
+        permissionMode: mode,
+      });
+      expect(chat.eventStore.getOrdinaryLocalCommandAdmission(f.commandId)).toEqual(original);
+      expect(permissionRevision(chat.eventStore, f.id)).toBeUndefined();
+      if (live) expect(chat.registry.get(f.id)?.permissionMode).toBe(mode);
+    }
+    expect(authorize).toHaveBeenCalled();
+  },
+);
+
+it('rechecks the user permission owner after provider acknowledgement', async () => {
+  const f = fixture();
+  const authorize = vi.fn();
+  f.query.setPermissionMode.mockImplementationOnce(async () => {
+    authorize.mockImplementation(() => {
+      throw new Error('Owner revoked');
+    });
+  });
+  const result = await ws.handleSetModeV2(
+    'browser',
+    { type: 'set_mode', sessionId: f.id, mode: 'auto' },
+    f.context,
+    authorize,
+  );
+  expect(result).toMatchObject({ ok: false, applied: false, persisted: false });
+  expect(chat.eventStore.getSession(f.id)?.permissionMode).toBeUndefined();
+  expect(chat.registry.get(f.id)?.permissionMode).toBeUndefined();
+  expect(f.query.close).toHaveBeenCalledOnce();
+});

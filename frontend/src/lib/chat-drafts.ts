@@ -4,6 +4,7 @@ import {
   SourceSnapshotsSchema,
   SessionCollaborationIdSchema,
   CollaborationMessageInputSchema,
+  CollaborationPromptReviewInputSchema,
   SessionRuntimeBindingV1Schema,
 } from '@mitzo/protocol';
 import { createBrowserId, sha256Hex } from './browser-crypto';
@@ -48,6 +49,22 @@ export const ChatDraftSchema = z.object({
       collaborationId: SessionCollaborationIdSchema,
       authScope: z.string().min(1),
       input: CollaborationMessageInputSchema,
+      stopRequested: z.boolean().optional(),
+    })
+    .optional(),
+  collaborationContext: z
+    .object({
+      collaborationId: SessionCollaborationIdSchema,
+      authScope: z.string().min(1),
+      form: z.object({
+        mode: z.enum(['conversation_so_far', 'selected']),
+        purpose: z.string().max(4000),
+        brief: z.string().max(20000),
+        messageIds: z.array(z.string().min(1)).max(500),
+      }),
+      input: CollaborationPromptReviewInputSchema.optional(),
+      snapshot: CollaborationMessageInputSchema.shape.snapshot.optional(),
+      attached: z.boolean(),
     })
     .optional(),
   settings: z.object({
@@ -206,7 +223,9 @@ export function saveChatDraft(draft: ChatDraft): boolean {
       !draft.settings.launch &&
       !draft.settings.sourceSnapshots?.length &&
       !draft.settings.retainRuntimeIntent &&
-      !draft.settings.collaborationResponders
+      !draft.settings.collaborationResponders &&
+      !draft.collaborationSend &&
+      !draft.collaborationContext
     )
       chatStorage.removeItem(PREFIX + draft.id);
     else

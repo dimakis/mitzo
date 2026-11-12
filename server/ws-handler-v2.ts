@@ -483,7 +483,9 @@ export function handleReconnect(
           });
         }
 
-        const mode = found?.session?.mode ?? reconnectState.session?.mode;
+        const mode = found?.session
+          ? effectivePermissionMode(found.session)
+          : (reconnectState.session?.permissionMode ?? reconnectState.session?.mode);
         if (mode) {
           ctx.connRegistry.get(connectionId)?.transport.send({
             type: 'mode_changed',
@@ -649,7 +651,12 @@ export async function handleSwitchSession(
           msg.sessionId,
           liveTransportAuthSessionId(connectionId),
         ),
-        mode: ctx.sessionRegistry.findBySessionId(msg.sessionId)?.session.mode ?? sessionMeta.mode,
+        mode: (() => {
+          const live = ctx.sessionRegistry.findBySessionId(msg.sessionId)?.session;
+          return live
+            ? effectivePermissionMode(live)
+            : (sessionMeta.permissionMode ?? sessionMeta.mode);
+        })(),
         cwd: sessionMeta.cwd,
         branch: sessionMeta.branch,
         wtId: sessionMeta.wtId,
@@ -1784,12 +1791,14 @@ export function handleSetModeV2(
   connectionId: string,
   msg: SetModeMsg,
   ctx: V2HandlerContext,
+  authorizeRuntimeMode?: () => void,
 ): Promise<ModeChangeResult> {
-  if (ctx.eventStore.getSessionRuntimeBinding?.(msg.sessionId)) {
+  const runtimeBound = !!ctx.eventStore.getSessionRuntimeBinding?.(msg.sessionId);
+  if (runtimeBound && !authorizeRuntimeMode) {
     const error = 'Runtime-bound settings require guarded admission';
     try {
       ctx.connRegistry.get(connectionId)?.transport.send({
-        type: 'error',
+        type: 'mode_change_failed',
         sessionId: msg.sessionId,
         error,
       });
@@ -1807,6 +1816,7 @@ export function handleSetModeV2(
       error,
     });
   }
+  if (runtimeBound) authorizeRuntimeMode!();
   const found = ctx.sessionRegistry.findBySessionId(msg.sessionId);
   if (!found) {
     // Historical sessions have no runtime to update. Commit their next-launch
@@ -1817,9 +1827,13 @@ export function handleSetModeV2(
       if (!stored) {
         throw new Error(`Session not found: ${msg.sessionId}`);
       }
-      previousMode = stored.mode;
-      ctx.eventStore.upsertSession({ sessionId: msg.sessionId, mode: msg.mode });
-      recordPermissionChange(ctx.eventStore, msg.sessionId);
+      previousMode = stored.permissionMode ?? stored.mode;
+      authorizeRuntimeMode?.();
+      ctx.eventStore.upsertSession({
+        sessionId: msg.sessionId,
+        ...(runtimeBound ? { permissionMode: msg.mode } : { mode: msg.mode }),
+      });
+      if (!runtimeBound) recordPermissionChange(ctx.eventStore, msg.sessionId);
       const acknowledgement = { type: 'mode_changed', sessionId: msg.sessionId, mode: msg.mode };
       try {
         ctx.connRegistry.broadcast(msg.sessionId, acknowledgement);
@@ -1844,7 +1858,7 @@ export function handleSetModeV2(
       });
       try {
         ctx.connRegistry.get(connectionId)?.transport.send({
-          type: 'error',
+          type: 'mode_change_failed',
           sessionId: msg.sessionId,
           error: `Could not change permission mode: ${reason}`,
         });
@@ -1883,11 +1897,22 @@ export function handleSetModeV2(
             code: 'session_changed',
             error: 'Session changed during permission update',
           };
+        let providerChanged = false;
+        const query = found.session.queryInstance;
         try {
-          const query = found.session.queryInstance;
+          authorizeRuntimeMode?.();
+          if (runtimeBound && !query)
+            throw new Error('Conversation is still starting. Retry when ready.');
           // A startup session has no provider runtime yet. Commit synchronously;
           // startup reads its current mode when constructing the SDK query.
-          if (query?.setPermissionMode) await query.setPermissionMode(msg.mode);
+          if (runtimeBound && query?.setUserPermissionMode) {
+            await query.setUserPermissionMode(msg.mode, authorizeRuntimeMode!);
+            providerChanged = true;
+          } else if (query?.setPermissionMode) {
+            await query.setPermissionMode(msg.mode);
+            providerChanged = true;
+          }
+          authorizeRuntimeMode?.();
           const current = ctx.sessionRegistry.findBySessionId(msg.sessionId);
           if (!current || current.session !== found.session)
             return {
@@ -1897,11 +1922,15 @@ export function handleSetModeV2(
               code: 'session_changed',
               error: 'Session changed during permission update',
             };
-          ctx.sessionRegistry.setMode(current.clientId, msg.mode);
+          if (runtimeBound) current.session.permissionMode = msg.mode;
+          else ctx.sessionRegistry.setMode(current.clientId, msg.mode);
           let persistenceError: string | undefined;
           try {
-            ctx.eventStore.upsertSession({ sessionId: msg.sessionId, mode: msg.mode });
-            recordPermissionChange(ctx.eventStore, msg.sessionId);
+            ctx.eventStore.upsertSession({
+              sessionId: msg.sessionId,
+              ...(runtimeBound ? { permissionMode: msg.mode } : { mode: msg.mode }),
+            });
+            if (!runtimeBound) recordPermissionChange(ctx.eventStore, msg.sessionId);
           } catch (err) {
             persistenceError = err instanceof Error ? err.message : String(err);
             log.warn('set_mode persistence failed', {
@@ -1909,16 +1938,25 @@ export function handleSetModeV2(
               error: persistenceError,
             });
           }
-          ctx.connRegistry.broadcast(msg.sessionId, {
-            type: 'mode_changed',
-            sessionId: msg.sessionId,
-            mode: msg.mode,
-          });
+          try {
+            ctx.connRegistry.broadcast(msg.sessionId, {
+              type: 'mode_changed',
+              sessionId: msg.sessionId,
+              mode: msg.mode,
+            });
+          } catch (err) {
+            log.warn('mode acknowledgement delivery failed', {
+              code: 'permission_mode_delivery_failed',
+              connectionId,
+              sessionId: msg.sessionId,
+              err,
+            });
+          }
           log.info('set_mode', { connectionId, sessionId: msg.sessionId, mode: msg.mode });
           if (persistenceError !== undefined) {
             try {
               ctx.connRegistry.get(connectionId)?.transport.send({
-                type: 'error',
+                type: 'mode_change_failed',
                 sessionId: msg.sessionId,
                 error: `Permission mode applied, but could not save it for future sessions: ${persistenceError}`,
               });
@@ -1940,11 +1978,24 @@ export function handleSetModeV2(
                 error: `Permission mode applied, but could not save it for future sessions: ${persistenceError}`,
               };
         } catch (err) {
+          if (runtimeBound && providerChanged) {
+            // A changed provider must not remain reachable after user authority
+            // disappears before the corresponding host policy can be committed.
+            try {
+              query?.close();
+            } catch (cleanupError) {
+              log.error('permission mode provider cleanup failed', {
+                code: 'permission_mode_cleanup_failed',
+                sessionId: msg.sessionId,
+                err: cleanupError,
+              });
+            }
+          }
           const reason = err instanceof Error ? err.message : String(err);
           log.warn('set_mode failed', { connectionId, sessionId: msg.sessionId, error: reason });
           try {
             ctx.connRegistry.get(connectionId)?.transport.send({
-              type: 'error',
+              type: 'mode_change_failed',
               sessionId: msg.sessionId,
               error: `Could not change permission mode: ${reason}`,
             });
@@ -1961,12 +2012,16 @@ export function handleSetModeV2(
     );
   const update = previous.then(run, run);
   pendingModeChanges.set(found.session, update);
-  return update.then((result) => {
-    found.session.pendingPermissionModes?.delete(transition);
-    if (pendingModeChanges.get(found.session) === update) pendingModeChanges.delete(found.session);
-    const current = ctx.sessionRegistry.findBySessionId(msg.sessionId)?.session;
-    return { ...result, ...(current ? { mode: effectivePermissionMode(current) } : {}) };
-  });
+  return update
+    .finally(() => {
+      found.session.pendingPermissionModes?.delete(transition);
+      if (pendingModeChanges.get(found.session) === update)
+        pendingModeChanges.delete(found.session);
+    })
+    .then((result) => {
+      const current = ctx.sessionRegistry.findBySessionId(msg.sessionId)?.session;
+      return { ...result, ...(current ? { mode: effectivePermissionMode(current) } : {}) };
+    });
 }
 
 /** Legacy sockets are not registered v2 connections; deliver the shared result directly. */
@@ -1992,7 +2047,7 @@ export async function handleLegacySetMode(
       transport.send({ type: 'mode_changed', sessionId, mode: result.mode });
     if (!result.ok)
       transport.send({
-        type: 'error',
+        type: 'mode_change_failed',
         ...(sessionId ? { sessionId } : {}),
         error: result.error ?? 'Could not change permission mode',
       });

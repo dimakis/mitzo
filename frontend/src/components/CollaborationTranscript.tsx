@@ -1,4 +1,8 @@
-import type { CollaborationDelivery } from '@mitzo/protocol';
+import type {
+  CollaborationDelivery,
+  CollaborationProgress,
+  StreamingMessage,
+} from '@mitzo/protocol';
 import type { CollaborationProjection } from '@mitzo/client';
 import { conversationMessages } from '../lib/conversation-presentation';
 import { ChatArea, type ChatAreaProps } from './ChatArea';
@@ -21,9 +25,17 @@ type Props = Omit<
   projection: CollaborationProjection;
   names?: Readonly<Record<string, string>>;
   onRefresh?(): void;
+  progress?: CollaborationProgress;
 } & Partial<Pick<ChatAreaProps, 'current' | 'running' | 'permission' | 'onPermissionRespond'>>;
 
 function receiptLabel(delivery: CollaborationDelivery) {
+  if (delivery.purpose === 'reply' && delivery.outcome)
+    return {
+      completed: 'Reply completed',
+      failed: 'Reply failed',
+      interrupted: 'Reply stopped',
+      uncertain: 'Outcome uncertain · do not resend',
+    }[delivery.outcome];
   if (delivery.status === 'uncertain') return 'Outcome uncertain · do not resend';
   if (delivery.purpose === 'context') {
     if (delivery.status === 'pending') return 'Context pending · no response requested';
@@ -50,6 +62,7 @@ export function CollaborationTranscript({
   projection,
   names = {},
   onRefresh,
+  progress,
   afterMessages,
   current = null,
   running = false,
@@ -66,6 +79,34 @@ export function CollaborationTranscript({
       : label;
   };
   const messages = new Map(view.messages.map((message) => [message.projectionId, message]));
+  const live =
+    progress?.collaborationId === view.collaborationId &&
+    progress.membershipRevision === view.membershipRevision
+      ? progress
+      : undefined;
+  const streams: Record<string, StreamingMessage> = {};
+  const liveReplies =
+    live?.replies.filter(
+      (reply) =>
+        view.participantSessionIds.includes(reply.sessionId) &&
+        !view.unavailableParticipantSessionIds.includes(reply.sessionId) &&
+        !view.messages.some(
+          (message) =>
+            message.replyToDeliveryId === reply.deliveryId &&
+            message.source?.conversationId === reply.sessionId &&
+            message.source.messageId === reply.sourceMessageId,
+        ),
+    ) ?? [];
+  for (const reply of liveReplies) {
+    const blockId = `${reply.projectionId}:text`;
+    streams[reply.projectionId] = {
+      messageId: reply.projectionId,
+      blocks: new Map([
+        [blockId, { blockId, blockType: 'text', content: reply.text, done: false }],
+      ]),
+      blockOrder: [blockId],
+    };
+  }
   return (
     <ChatArea
       {...chat}
@@ -74,17 +115,20 @@ export function CollaborationTranscript({
       messageSessionId={(id) => messages.get(id)?.source?.conversationId}
       messages={conversationMessages(view)}
       current={current}
+      currentByMessage={streams}
       running={running}
       permission={permission}
       onPermissionRespond={onPermissionRespond}
       renderMessageAttribution={(id) => {
         const message = messages.get(id);
-        if (!message || message.author === 'operator') return null;
-        const sessionId = message.author.sessionId;
+        const streaming = liveReplies.find((reply) => reply.projectionId === id);
+        if (!streaming && (!message || message.author === 'operator')) return null;
+        const sessionId =
+          streaming?.sessionId ?? (message!.author as { sessionId: string }).sessionId;
         const origin = view.messages.find((prompt) =>
           prompt.deliveries.some(
             (delivery) =>
-              delivery.deliveryId === message.replyToDeliveryId &&
+              delivery.deliveryId === (streaming?.deliveryId ?? message?.replyToDeliveryId) &&
               delivery.sessionId === sessionId &&
               delivery.purpose === 'reply',
           ),
@@ -115,12 +159,23 @@ export function CollaborationTranscript({
         const message = messages.get(id);
         if (!message?.deliveries.length) return null;
         const readers = message.readers.filter((reader) => !message.responders.includes(reader));
+        const failed = message.deliveries.filter(
+          (delivery) =>
+            delivery.purpose === 'reply' &&
+            (delivery.outcome === 'failed' || ['failed', 'unavailable'].includes(delivery.status)),
+        ).length;
         return (
-          <details className="conversation-delivery-details">
+          <details
+            className="conversation-delivery-details"
+            data-message-deliveries={message.projectionId}
+          >
             <summary>
               {[
                 message.responders.length ? `To ${message.responders.map(name).join(', ')}` : '',
                 readers.length ? `Context for ${readers.map(name).join(', ')}` : '',
+                failed
+                  ? `${failed} ${failed === 1 ? 'recipient needs' : 'recipients need'} attention`
+                  : '',
               ]
                 .filter(Boolean)
                 .join(' · ')}
@@ -139,6 +194,14 @@ export function CollaborationTranscript({
       }}
       afterMessages={
         <>
+          {live?.refusals.map((refusal) => (
+            <p role="alert" key={refusal.deliveryId}>
+              {name(refusal.sessionId)}:{' '}
+              {refusal.code === 'capacity_refused'
+                ? 'The live reply is too large to display. Check the original request.'
+                : 'The live reply could not be verified. Check the original request.'}
+            </p>
+          ))}
           {view.hasEarlierMessages && (
             <p className="conversation-replay-status">
               Earlier messages are outside this retained page.

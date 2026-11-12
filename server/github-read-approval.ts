@@ -7,8 +7,10 @@ import {
 } from '@mitzo/harness';
 import type { ManagedSession } from './session-registry.js';
 import { captureSessionCapability } from './session-capability-grants.js';
+import type { GithubLogRead } from './github-log-read.js';
 
 export type GitHubReadInput = {
+  log?: GithubLogRead;
   endpoint: string;
   view?: 'summary' | 'full';
   access?: 'public' | 'authenticated';

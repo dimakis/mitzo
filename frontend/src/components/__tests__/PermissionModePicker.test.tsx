@@ -1,8 +1,8 @@
 // @vitest-environment jsdom
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import '@testing-library/jest-dom/vitest';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { PermissionModePicker } from '../PermissionModePicker';
-
 afterEach(cleanup);
 
 describe('PermissionModePicker', () => {
@@ -35,4 +35,34 @@ describe('PermissionModePicker', () => {
     rerender(<PermissionModePicker mode="auto" onChange={onChange} />);
     expect(screen.getByRole('button', { name: 'Auto' }).getAttribute('aria-pressed')).toBe('true');
   });
+});
+
+it('retains an observed mode while offering further changes', () => {
+  const change = vi.fn();
+  const view = render(<PermissionModePicker mode="agent" onChange={change} />);
+  fireEvent.click(screen.getByRole('button', { name: 'Auto' }));
+  expect(change).toHaveBeenLastCalledWith('auto');
+  expect(screen.getByRole('button', { name: 'Agent' })).toHaveAttribute('aria-pressed', 'true');
+  view.rerender(<PermissionModePicker mode="auto" onChange={change} />);
+  fireEvent.click(screen.getByRole('button', { name: 'Ask' }));
+  expect(change).toHaveBeenLastCalledWith('ask');
+});
+
+it('explains an unavailable mode without silently selecting a broader mode', () => {
+  const change = vi.fn();
+  render(
+    <PermissionModePicker
+      mode="agent"
+      onChange={change}
+      unavailableModes={{ ask: 'Ask requires Local Mac execution.' }}
+    />,
+  );
+  expect(screen.getByRole('button', { name: 'Ask' })).toBeDisabled();
+  expect(screen.getByRole('button', { name: 'Ask' })).toHaveAttribute(
+    'title',
+    'Ask requires Local Mac execution.',
+  );
+  fireEvent.click(screen.getByRole('button', { name: 'Ask' }));
+  expect(change).not.toHaveBeenCalled();
+  expect(screen.getByRole('button', { name: 'Auto' })).toBeEnabled();
 });

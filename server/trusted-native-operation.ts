@@ -1,6 +1,12 @@
 import { retainCallbackOutcome } from './turn-callbacks.js';
 import { githubReadProjection, githubReadSummary } from './github-read-summary.js';
 import {
+  GITHUB_LOG_SOURCE_LIMIT,
+  githubLogPage,
+  validateGithubLogRead,
+  type GithubLogRead,
+} from './github-log-read.js';
+import {
   validateRepositoryTaskCheckout,
   type RepositoryTaskCheckout,
 } from './repository-task-checkout.js';
@@ -32,8 +38,10 @@ import {
 } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { basename, dirname, join, relative, resolve } from 'node:path';
+import { createLogger } from './logger.js';
 
 const pathEnv = '/usr/bin:/bin:/opt/homebrew/bin:/usr/local/bin';
+const log = createLogger('trusted-native-operation');
 
 async function run(
   file: string,
@@ -49,6 +57,7 @@ async function run(
     assertRuntimeCurrentAsync?: () => Promise<void>;
     onStart?: () => void;
     readOnly?: boolean;
+    boundedReadDiagnostics?: boolean;
   },
 ): Promise<string> {
   await options.assertRuntimeCurrentAsync?.();
@@ -69,7 +78,27 @@ async function run(
       },
       (error, stdout, stderr) => {
         if (error) {
-          const failure = new Error((stderr || stdout || error.message).trim());
+          if (options.boundedReadDiagnostics)
+            log.warn('GitHub log transport failed', {
+              stage: 'github-log-read',
+              code: 'github_log_transport_failed',
+              cancelled: options.signal.aborted,
+              killed: error.killed === true,
+              exitCode: typeof error.code === 'number' ? error.code : undefined,
+            });
+          if (options.readOnly && error.code === 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER') {
+            reject(
+              new Error('GitHub response exceeds the source byte limit; request a narrower read', {
+                cause: error,
+              }),
+            );
+            return;
+          }
+          const failure = options.boundedReadDiagnostics
+            ? new Error('GitHub log transport failed; no log content was returned', {
+                cause: error,
+              })
+            : new Error((stderr || stdout || error.message).trim());
           // Only the original read adapter can attest to a normal process exit.
           // Cancellation, timeouts and writes retain uncertainty.
           if (
@@ -97,20 +126,33 @@ export async function executeTrustedGitHubRead(
   maxOutputBytes = 64 * 1024,
   view: 'summary' | 'full' = 'summary',
   assertCurrent?: () => void,
+  logOptions?: GithubLogRead,
 ): Promise<string> {
+  const log = logOptions === undefined ? undefined : validateGithubLogRead(endpoint, logOptions);
   const home = process.env.HOME;
   if (!home) throw new Error('Trusted GitHub credentials are unavailable');
   const request = trustedGitHubReadRequest(endpoint, view);
   const body = await run(request.file, request.args, {
     signal,
     timeoutMs,
-    maxOutputBytes,
+    maxOutputBytes: log ? GITHUB_LOG_SOURCE_LIMIT : maxOutputBytes,
     env: { HOME: home, GH_HOST: 'github.com' },
     readOnly: true,
+    boundedReadDiagnostics: log !== undefined,
     assertRuntimeCurrent: assertCurrent,
   });
   signal.throwIfAborted();
   assertCurrent?.();
+  if (log) {
+    const limit = Math.min(
+      log.limit ?? 16000,
+      Math.max(1, Math.floor((maxOutputBytes - 2048) / 6)),
+    );
+    const page = JSON.stringify(githubLogPage(body, { ...log, limit }));
+    if (Buffer.byteLength(page) > maxOutputBytes)
+      throw Error('GitHub log page exceeds the output limit');
+    return page;
+  }
   return view === 'full' ? body : githubReadSummary(body, `https://api.github.com${endpoint}`);
 }
 

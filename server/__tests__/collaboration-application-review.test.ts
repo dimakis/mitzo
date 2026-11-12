@@ -21,6 +21,125 @@ import {
 vi.mock('../mcp-config.js', () => ({ loadMcpServers: () => ({}) }));
 afterEach(cleanupApplicationReviewFixtures);
 
+async function promptReviewFixture() {
+  const f = await fixture();
+  const joining = await f.review();
+  const commandId = 'recipient-first';
+  f.store.admitOrdinaryLocalCommand(
+    {
+      sessionId: 'recipient',
+      cwd: '/fixture',
+      mode: joining.settings.selection.permission.mode,
+      repositoryWorkspaceId: joining.settings.repositoryWorkspaceId,
+      accountBinding: f.binding,
+    },
+    joining.settings.binding,
+    {
+      clientMsgId: commandId,
+      requestFingerprint: 'recipient-fingerprint',
+      selection: joining.settings.selection,
+      payload: { text: 'Existing ordinary command' },
+    },
+  );
+  f.store.claimOrdinaryLocalCommandDispatch(commandId);
+  f.store.setSessionCollaboration(f.group, {
+    expectedRevision: 1,
+    participantSessionIds: ['source', 'recipient'],
+  });
+  const view = f.store.collaborationConversation.view(f.group);
+  const input = {
+    selection: {
+      ...f.input.selection,
+      requestId: randomUUID(),
+      expectedMembershipRevision: view.membershipRevision,
+      joiningBrief: 'Exact per-prompt context',
+    },
+    recipientSessionIds: ['recipient'],
+    expectedPolicySequence: view.policySequence,
+  };
+  const review = (raw: unknown = input) =>
+    f.owner.reviewPrompt(f.auth, f.connectionId, f.group, raw, f.controller.signal);
+  return { ...f, input, review, settings: joining.settings };
+}
+
+it('reviews exact per-prompt context through actual source/settings owners without another session or command', async () => {
+  const f = await promptReviewFixture();
+  const sessions = f.store.listSessions();
+  const first = await f.review();
+  expect(first.snapshot.messages[0].blocks[0].content).toBe('Visible source');
+  expect(first.snapshot.joiningBrief).toBe('Exact per-prompt context');
+  expect(first.snapshot.capacity.status).toBe('unverified');
+  expect(first.recipientSessionIds).toEqual(['recipient']);
+  expect(first.settings.recipient).toEqual(f.settings);
+  expect(first.requiresReview).toBe(false);
+  expect(await f.review()).toEqual(first);
+  expect(f.store.listSessions()).toEqual(sessions);
+  expect(f.store.collaborationConversation.view(f.group).messages).toHaveLength(0);
+  expect(f.store.getOrdinaryInitialCommandId('recipient')).toBe('recipient-first');
+  const record = f.store.collaborationConversation.getReviewCompilationForSnapshot(
+    f.group,
+    first.snapshot.snapshotId,
+  )!;
+  expect(record.promptAudience).toEqual({
+    sessionIds: ['recipient'],
+    policySequence: first.expectedPolicySequence,
+  });
+  expect(JSON.stringify(first)).not.toMatch(/PRIVATE|credentialDigest|nativeWitness|privateHome/);
+});
+
+it('recovers original per-prompt review after settings change and requires explicit re-review', async () => {
+  const f = await promptReviewFixture();
+  const first = await f.review();
+  vi.spyOn(f.store, 'getOrdinaryConversationSettings').mockReturnValue({
+    ...f.settings,
+    selection: { ...f.settings.selection, model: 'another-model' },
+  });
+  const recovered = await f.review();
+  expect(recovered.snapshot).toEqual(first.snapshot);
+  expect(recovered.settings).toEqual(first.settings);
+  expect(recovered.requiresReview).toBe(true);
+  await expect(
+    f.review({ ...f.input, selection: { ...f.input.selection, requestId: randomUUID() } }),
+  ).resolves.toMatchObject({
+    settings: { recipient: { selection: { model: 'another-model' } } },
+    requiresReview: false,
+  });
+});
+
+it('refuses reused review identity, revoked source or transport authority before per-prompt recovery', async () => {
+  const f = await promptReviewFixture();
+  await f.review();
+  await expect(f.review({ ...f.input, recipientSessionIds: ['source'] })).rejects.toMatchObject({
+    code: 'request_conflict',
+  });
+  f.store.hideSession('source');
+  await expect(f.review()).rejects.toMatchObject({ code: 'execution_unavailable' });
+});
+
+it('recovers the exact review after policy drift and refreezes only with explicit new intent', async () => {
+  const f = await promptReviewFixture();
+  const first = await f.review();
+  const view = f.store.collaborationConversation.view(f.group);
+  const policy = view.policies.find((p) => p.sessionId === 'recipient')!;
+  f.store.collaborationConversation.setPolicy(f.group, {
+    requestId: randomUUID(),
+    expectedMembershipRevision: view.membershipRevision,
+    sessionId: 'recipient',
+    expectedRevision: policy.revision,
+    readsFutureDiscussion: !policy.readsFutureDiscussion,
+    repliesByDefault: policy.repliesByDefault,
+  });
+  expect(await f.review()).toMatchObject({ snapshot: first.snapshot, requiresReview: true });
+  expect(
+    await f.review({
+      ...f.input,
+      expectedPolicySequence: f.store.collaborationConversation.view(f.group).policySequence,
+      selection: { ...f.input.selection, requestId: randomUUID() },
+    }),
+  ).toMatchObject({ requiresReview: false });
+  expect(f.store.getOrdinaryInitialCommandId('recipient')).toBe('recipient-first');
+});
+
 it('derives actual settings and compiles visible source without allocating or dispatching', async () => {
   const f = await fixture();
   const result = await f.review();

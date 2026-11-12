@@ -71,8 +71,21 @@ provider to the chat's runtime. The existing management switch and reviewed
 provider-policy checks remain mandatory. Qualified Keychain and Knowledge tools use their own controller adapters; see
 `docs/features/codex-native-permission-protocol.md` for their native fences.
 
-Each read prepares the configured Google account identity, then requires exact
-request approval showing that account and the operation/resource. The controller
+Each read prepares the configured Google account identity. Approval follows the
+chat mode (11 November 2026):
+
+- **Auto** reads without a prompt. Lowering the mode before delivery withholds
+  the result.
+- **Agent** and **Ask** show the account and exact operation/resource. **Allow
+  for session** retains a read-only grant keyed to this chat, signed login, AI
+  account and Google email, so later reads by that account do not prompt.
+  **Once** covers only the displayed request. Another Google account asks again.
+- A matching reusable Access grant (file, Drive listing or calendar) still
+  applies first in every mode.
+
+Google writes (Docs/Slides authoring through the reviewed provider profile)
+keep their separate per-request approval and are not covered by read grants.
+The controller
 keeps the refresh/access tokens private. Only fixed Google HTTPS GET resources
 are permitted, redirects are rejected, bodies are limited to 2 MiB, and the read
 has a 30-second lifetime including approval. Runtime ownership, tool/skill

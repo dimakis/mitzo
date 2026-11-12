@@ -1,3 +1,4 @@
+import { withCodexToolCleanup } from './codex-tool-failure.js';
 import { isAbsolute, resolve as resolvePath } from 'node:path';
 import Database from 'better-sqlite3';
 import { createHash, randomUUID } from 'node:crypto';
@@ -153,83 +154,91 @@ export class ConfiguredToolCatalog {
       }
     };
     assertCurrent();
-    let clients;
-    try {
-      clients = await connectCodexMcpTools(sources, {
-        ...launchOptions,
-        assertRuntimeCurrent: assertCurrent,
-      });
-      assertCurrent();
-      this.db
-        .transaction(() => {
-          const previous = new Map(this.list().map((entry) => [entry.id, this.receipt(entry)]));
-          this.db.prepare('UPDATE configured_tools SET active=0').run();
-          for (const tool of clients!.discovered) {
-            if (Buffer.from(tool.tool, 'utf8').toString('utf8') !== tool.tool)
-              throw Error('MCP tool name must contain valid Unicode');
-            const source = sources[tool.server];
-            const id = `mcp:${source.librarySourceId}:${createHash('sha256').update(tool.tool).digest('hex')}`;
-            // Wire aliases embed mutable labels; pin the original definition independently.
-            const definition = {
-              ...tool.definition,
-              name: tool.tool,
-              description: tool.definition.description.slice(
-                `mcp__${tool.server}__${tool.tool}: `.length,
-              ),
-            };
-            const contract = initialBindings.get(tool.server)!;
-            const old = previous.get(id);
-            if (
-              old &&
-              old.binding === contract &&
-              canonical(old.definition) === canonical(definition) &&
-              canonical(old.descriptor) === canonical(tool.descriptor)
-            ) {
-              // A friendly rename changes the projection only, never the portable contract.
-              old.entry.source = tool.server;
-              this.db
-                .prepare('UPDATE configured_tools SET active=1,receipt=? WHERE revision=?')
-                .run(JSON.stringify(old), old.entry.revision);
-              continue;
-            }
-            const max = this.db
-              .prepare('SELECT MAX(version) AS version FROM configured_tools WHERE id=?')
-              .get(id) as { version: number | null };
-            const entry: Receipt['entry'] = {
-              id,
-              version: (max.version ?? 0) + 1,
-              revision: randomUUID(),
-              name: tool.tool,
-              description: definition.description,
-              source: tool.server,
-              required: false,
-              behavior: 'mixed',
-              routes: ['local-api', 'codex', 'codex-owned-local'],
-              requirement:
-                'Configured stdio source. Current source authorization and tool approval required; new session required for catalog changes.',
-            };
-            const receipt: Receipt = {
-              entry,
-              sourceId: source.librarySourceId!,
-              tool: tool.tool,
-              binding: contract,
-              launchCwd: launchOptions.cwd,
-              definition,
-              descriptor: tool.descriptor,
-            };
-            this.db
-              .prepare('INSERT INTO configured_tools VALUES (?,?,?,?,?)')
-              .run(id, entry.version, entry.revision, 1, JSON.stringify(receipt));
-          }
-        })
-        .immediate();
-      return this.list();
-    } catch (error) {
-      if (generation !== this.generation || this.closed)
-        throw Error('Discovery superseded or cancelled', { cause: error });
-      throw error;
-    } finally {
-      await clients?.close();
-    }
+    let clients: Awaited<ReturnType<typeof connectCodexMcpTools>> | undefined;
+    return withCodexToolCleanup(
+      async () => {
+        try {
+          clients = await connectCodexMcpTools(sources, {
+            ...launchOptions,
+            assertRuntimeCurrent: assertCurrent,
+          });
+          assertCurrent();
+          this.db
+            .transaction(() => {
+              const previous = new Map(this.list().map((entry) => [entry.id, this.receipt(entry)]));
+              this.db.prepare('UPDATE configured_tools SET active=0').run();
+              for (const tool of clients!.discovered) {
+                if (Buffer.from(tool.tool, 'utf8').toString('utf8') !== tool.tool)
+                  throw Error('MCP tool name must contain valid Unicode');
+                const source = sources[tool.server];
+                const id = `mcp:${source.librarySourceId}:${createHash('sha256').update(tool.tool).digest('hex')}`;
+                // Wire aliases embed mutable labels; pin the original definition independently.
+                const definition = {
+                  ...tool.definition,
+                  name: tool.tool,
+                  description: tool.definition.description.slice(
+                    `mcp__${tool.server}__${tool.tool}: `.length,
+                  ),
+                };
+                const contract = initialBindings.get(tool.server)!;
+                const old = previous.get(id);
+                if (
+                  old &&
+                  old.binding === contract &&
+                  canonical(old.definition) === canonical(definition) &&
+                  canonical(old.descriptor) === canonical(tool.descriptor)
+                ) {
+                  // A friendly rename changes the projection only, never the portable contract.
+                  old.entry.source = tool.server;
+                  this.db
+                    .prepare('UPDATE configured_tools SET active=1,receipt=? WHERE revision=?')
+                    .run(JSON.stringify(old), old.entry.revision);
+                  continue;
+                }
+                const max = this.db
+                  .prepare('SELECT MAX(version) AS version FROM configured_tools WHERE id=?')
+                  .get(id) as { version: number | null };
+                const entry: Receipt['entry'] = {
+                  id,
+                  version: (max.version ?? 0) + 1,
+                  revision: randomUUID(),
+                  name: tool.tool,
+                  description: definition.description,
+                  source: tool.server,
+                  required: false,
+                  behavior: 'mixed',
+                  routes: ['local-api', 'codex', 'codex-owned-local'],
+                  requirement:
+                    'Configured stdio source. Current source authorization and tool approval required; new session required for catalog changes.',
+                };
+                const receipt: Receipt = {
+                  entry,
+                  sourceId: source.librarySourceId!,
+                  tool: tool.tool,
+                  binding: contract,
+                  launchCwd: launchOptions.cwd,
+                  definition,
+                  descriptor: tool.descriptor,
+                };
+                this.db
+                  .prepare('INSERT INTO configured_tools VALUES (?,?,?,?,?)')
+                  .run(id, entry.version, entry.revision, 1, JSON.stringify(receipt));
+              }
+            })
+            .immediate();
+          return this.list();
+        } catch (error) {
+          if (generation !== this.generation || this.closed)
+            throw Error('Discovery superseded or cancelled', { cause: error });
+          throw error;
+        }
+      },
+      [
+        async () => {
+          await clients?.close();
+        },
+      ],
+      options.toolGuardPolicy?.cleanupMs,
+    );
   }
 }

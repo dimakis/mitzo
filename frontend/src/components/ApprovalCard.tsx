@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useMemo } from 'react';
+import { useState, useEffect, useRef, useMemo, useId } from 'react';
 import { OperationCard } from './OperationCard';
 import { WorkspaceActionMenu, type WorkspaceMenuItem } from './WorkspaceActionMenu';
 import { ApprovalRequestSummary } from './ApprovalRequestSummary';
@@ -92,6 +92,7 @@ export function ApprovalCard({
     else onRespond(id, decision, tool);
   };
   const [selections, setSelections] = useState<Map<string, string[]>>(() => new Map());
+  const answerGroup = useId();
   const [written, setWritten] = useState<Map<string, string>>(() => new Map());
   const deadline = useMemo(
     () => ({
@@ -380,7 +381,7 @@ export function ApprovalCard({
                   <input
                     type={q.multiSelect ? 'checkbox' : 'radio'}
                     disabled={locked}
-                    name={`${permId}:${q.id}`}
+                    name={`${answerGroup}:${permId}:${q.id}`}
                     checked={selections.get(q.id)?.includes(option.label) ?? false}
                     onChange={(event) => {
                       setSelections((old) =>

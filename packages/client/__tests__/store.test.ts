@@ -2690,6 +2690,105 @@ it('does not send stale mode when sending immediately after switching sessions',
 });
 
 describe('setMode', () => {
+  it('delivers provider and persistence failures through the real HTTP/SSE adapter without ending a streamed turn', async () => {
+    let welcome!: (event: MessageEvent) => void;
+    const source = {
+      addEventListener: (type: string, listener: (event: MessageEvent) => void) => {
+        if (type === 'welcome') welcome = listener;
+      },
+      removeEventListener: vi.fn(),
+      close: vi.fn(),
+      onmessage: null as ((event: MessageEvent) => void) | null,
+      onerror: null,
+    };
+    const emit = (message: Record<string, unknown>) =>
+      source.onmessage?.(new MessageEvent('message', { data: JSON.stringify(message) }));
+    let outcome = 'provider';
+    const fetch = vi.fn(async (url: string) => {
+      if (!url.endsWith('/mode')) return { ok: true };
+      const error =
+        outcome === 'provider' ? 'Provider refused' : 'Mode applied, but could not save. Retry.';
+      if (outcome !== 'provider')
+        emit({
+          type: 'mode_changed',
+          sessionId: 'selected',
+          mode: outcome === 'success' ? 'ask' : 'auto',
+        });
+      if (outcome !== 'success') emit({ type: 'mode_change_failed', sessionId: 'selected', error });
+      return {
+        ok: outcome === 'success',
+        status: outcome === 'provider' ? 409 : 500,
+        json: async () => ({ error }),
+      };
+    });
+    const store = createMitzoStore({
+      ...makeOptions(),
+      sseConfig: { baseUrl: '', fetch, createEventSource: () => source as unknown as EventSource },
+    });
+    try {
+      welcome(
+        new MessageEvent('welcome', { data: JSON.stringify({ connectionId: 'mode-browser' }) }),
+      );
+      await store.getState().switchSession('selected');
+      emit({ type: 'session_switched', sessionId: 'selected', mode: 'agent' });
+      emit({ type: 'message_start', sessionId: 'selected', messageId: 'answer' });
+      emit({ type: 'block_start', sessionId: 'selected', blockId: 'text', blockType: 'text' });
+      emit({
+        type: 'block_delta',
+        sessionId: 'selected',
+        blockId: 'text',
+        delta: 'Retained output',
+      });
+      emit({ type: 'session_state_changed', sessionId: 'selected', state: 'running' });
+      const before = store.getState().messages;
+      for (outcome of ['provider', 'persistence', 'success']) {
+        store.getState().setMode(outcome === 'success' ? 'ask' : 'auto');
+        await vi.waitFor(() => expect(store.getState().modeChangeReady).toBe(true));
+        await Promise.resolve();
+        expect(store.getState().messages).toBe(before);
+        expect(store.getState().messages.running).toBe(true);
+        expect(store.getState().messages.current?.blocks.get('text')?.content).toBe(
+          'Retained output',
+        );
+        expect(store.getState().config.mode).toBe(
+          outcome === 'provider' ? 'agent' : outcome === 'persistence' ? 'auto' : 'ask',
+        );
+        expect(store.getState().sendError).toBe(
+          outcome === 'provider'
+            ? 'Provider refused'
+            : outcome === 'persistence'
+              ? 'Mode applied, but could not save. Retry.'
+              : null,
+        );
+      }
+    } finally {
+      store.getState().invalidateAuthentication();
+    }
+  });
+  it('keeps streamed output running after a mode failure and clears only its own error on retry success', async () => {
+    const store = createReadyStore();
+    await store.getState().switchSession('selected');
+    lastWs.simulateMessage({ type: 'session_switched', sessionId: 'selected', mode: 'agent' });
+    store.getState().sendMessage('continue');
+    const before = store.getState().messages;
+    store.getState().setMode('ask');
+    lastWs.simulateMessage({
+      type: 'mode_change_failed',
+      sessionId: 'selected',
+      error: 'Provider refused',
+    });
+    expect(store.getState().messages).toBe(before);
+    expect(store.getState().modeChangeReady).toBe(true);
+    expect(store.getState().sendError).toBe('Provider refused');
+    store.getState().setMode('auto');
+    lastWs.simulateMessage({ type: 'mode_changed', sessionId: 'selected', mode: 'auto' });
+    expect(store.getState().sendError).toBeNull();
+    store.setState({ sendError: 'Unrelated send failure' });
+    store.getState().setMode('agent');
+    lastWs.simulateMessage({ type: 'mode_changed', sessionId: 'selected', mode: 'agent' });
+    expect(store.getState().sendError).toBe('Unrelated send failure');
+  });
+
   it('keeps the picker unavailable until the selected session mode is hydrated', async () => {
     const store = createReadyStore();
     await store.getState().switchSession('selected');

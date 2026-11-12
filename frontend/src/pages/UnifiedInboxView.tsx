@@ -548,18 +548,25 @@ export function UnifiedInboxView({ desktop = false }: { desktop?: boolean } = {}
               <div className="inbox-entry" key={item.id}>
                 {item.permId && !item.resolution && inboxNeedsYou(item) ? (
                   <>
-                    <NotificationApprovalActions
-                      item={item}
-                      busy={busy}
-                      responseError={failedRecordId === item.id ? actionError : undefined}
-                      onRespond={(decision, answers) =>
-                        void act(`/${encodeURIComponent(item.id)}/respond`, {
-                          sessionId: item.sessionId,
-                          decision,
-                          ...(answers ? { answers } : {}),
-                        })
+                    <div
+                      hidden={
+                        desktop && selectedId === item.id && !!item.request?.questions?.length
                       }
-                    />
+                      inert={desktop && selectedId === item.id && !!item.request?.questions?.length}
+                    >
+                      <NotificationApprovalActions
+                        item={item}
+                        busy={busy}
+                        responseError={failedRecordId === item.id ? actionError : undefined}
+                        onRespond={(decision, answers) =>
+                          void act(`/${encodeURIComponent(item.id)}/respond`, {
+                            sessionId: item.sessionId,
+                            decision,
+                            ...(answers ? { answers } : {}),
+                          })
+                        }
+                      />
+                    </div>
                     <button
                       type="button"
                       className="workspace-text-link"

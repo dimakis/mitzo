@@ -1710,6 +1710,96 @@ it('ends dispatch, acknowledgment and first-output spans and labels the selected
   ).not.toContain('private prompt');
 });
 
+it('distinguishes tool activity, reasoning and assistant text without closing completion early', async () => {
+  const spans = new Map<
+    string,
+    {
+      setAttribute: ReturnType<typeof vi.fn>;
+      setStatus: ReturnType<typeof vi.fn>;
+      end: ReturnType<typeof vi.fn>;
+    }
+  >();
+  const original = tracer.startSpan.bind(tracer);
+  vi.spyOn(tracer, 'startSpan').mockImplementation((name, options, ctx) => {
+    const span = original(name, options, ctx);
+    const tracked = { setAttribute: vi.fn(), setStatus: vi.fn(), end: vi.fn() };
+    spans.set(name, tracked);
+    return { ...tracked, spanContext: () => span.spanContext() } as unknown as Span;
+  });
+  const f = await setup();
+  await f.c.send({ id: 'session-prompt:timing', prompt: 'private prompt' });
+  expect(spans.has('codex.turn.first_activity')).toBe(true);
+  expect(spans.has('codex.turn.first_text')).toBe(true);
+  f.callbacks.onNotification('item/started', {
+    threadId: 'provider-thread',
+    turnId: 'stale-turn',
+    item: { id: 'old', type: 'commandExecution', command: 'pwd' },
+  });
+  expect(spans.get('codex.turn.first_activity')!.end).not.toHaveBeenCalled();
+  f.callbacks.onNotification('item/started', {
+    threadId: 'provider-thread',
+    turnId: 'turn-1',
+    item: { id: 'cmd', type: 'commandExecution', command: 'pwd' },
+  });
+  expect(spans.get('codex.turn.first_activity')!.end).toHaveBeenCalledOnce();
+  expect(spans.get('codex.turn.first_text')!.end).not.toHaveBeenCalled();
+  f.callbacks.onNotification('item/reasoning/textDelta', {
+    threadId: 'provider-thread',
+    turnId: 'turn-1',
+    itemId: 'reason',
+    delta: 'private reasoning',
+  });
+  expect(spans.get('codex.turn.first_output')!.end).toHaveBeenCalledOnce();
+  expect(spans.get('codex.turn.first_text')!.end).not.toHaveBeenCalled();
+  f.callbacks.onNotification('item/agentMessage/delta', {
+    threadId: 'provider-thread',
+    turnId: 'turn-1',
+    itemId: 'answer',
+    delta: 'hello',
+  });
+  expect(spans.get('codex.turn.first_text')!.end).toHaveBeenCalledOnce();
+  expect(spans.get('codex.turn')!.end).not.toHaveBeenCalled();
+  f.c.close();
+  expect(spans.get('codex.turn.first_activity')!.end).toHaveBeenCalledOnce();
+  expect(spans.get('codex.turn.first_text')!.end).toHaveBeenCalledOnce();
+  expect(JSON.stringify([...spans.values()].map((s) => s.setAttribute.mock.calls))).not.toContain(
+    'private',
+  );
+});
+
+it('records queue gates without changing FIFO dispatch', async () => {
+  const reasons: string[] = [];
+  const original = tracer.startSpan.bind(tracer);
+  vi.spyOn(tracer, 'startSpan').mockImplementation((name, options, ctx) => {
+    const span = original(name, options, ctx);
+    if (name !== 'codex.command.queue_wait') return span;
+    return {
+      ...span,
+      addEvent: vi.fn(),
+      setAttribute: (key: string, value: string) => {
+        if (key === 'mitzo.queue.reason') reasons.push(value);
+        return span;
+      },
+      end: vi.fn(),
+    } as unknown as Span;
+  });
+  const f = await setup();
+  f.conversationOptions.canStartCommand = () => false;
+  f.c.enqueue({ id: 'queued-gates', prompt: 'hello' });
+  await f.c.startQueued();
+  expect(reasons).toContain('deployment');
+  f.conversationOptions.canStartCommand = () => true;
+  f.conversationOptions.canClaimCommand = () => false;
+  await f.c.startQueued();
+  expect(reasons).toContain('admission');
+  f.conversationOptions.canClaimCommand = () => true;
+  await f.c.startQueued();
+  f.c.enqueue({ id: 'second-gates', prompt: 'next' });
+  expect(reasons).toContain('active_turn');
+  expect(f.rpc.request.mock.calls.filter(([method]) => method === 'turn/start')).toHaveLength(1);
+  f.c.close();
+});
+
 it('records matching first output before the turn/start acknowledgment', async () => {
   const firstOutput = { setAttribute: vi.fn(), end: vi.fn() };
   const original = tracer.startSpan.bind(tracer);
@@ -2874,6 +2964,85 @@ it('rejects stale or mid-turn web-search consent without reopening the thread', 
   await expect(c.setWebSearchGrant(0, 'allowed')).rejects.toThrow('between turns');
   expect(rpc.close).not.toHaveBeenCalled();
 });
+
+it('switches user modes repeatedly without replacing retained web-search consent', async () => {
+  const { c, requests } = await setup();
+  const assertCurrent = vi.fn();
+  await c.setWebSearchGrant(0, 'allowed');
+  for (const [mode, access] of [
+    ['ask', 'disabled'],
+    ['auto', 'live'],
+    ['ask', 'disabled'],
+    ['agent', 'live'],
+  ] as const) {
+    await c.setUserPermissionMode(mode, assertCurrent);
+    expect(
+      requests.filter(({ method }) => method === 'thread/resume').at(-1)?.params,
+    ).toMatchObject({ config: { web_search: access } });
+    expect(c.getWebSearchGrant()).toMatchObject({ grant: 'allowed', revision: 1 });
+  }
+  expect(assertCurrent).toHaveBeenCalled();
+});
+
+it('refuses a user mode update after authorization is revoked before provider effects', async () => {
+  const { c, rpc } = await setup();
+  await expect(
+    c.setUserPermissionMode('auto', () => {
+      throw Error('Revoked');
+    }),
+  ).rejects.toThrow('Revoked');
+  expect(rpc.close).not.toHaveBeenCalled();
+  expect(c.getWebSearchGrant()).toMatchObject({ grant: 'unresolved', revision: 0 });
+});
+it('closes the replacement process when mode authority is revoked during a tool-surface reconnect', async () => {
+  const { c, rpc } = await setup();
+  await c.setWebSearchGrant(0, 'allowed');
+  (
+    c as unknown as { pendingToolSurface: { thread: string; revision: string } }
+  ).pendingToolSurface = { thread: 'provider-thread', revision: 'pending' };
+  let current = true;
+  const request = rpc.request.getMockImplementation()!;
+  rpc.request.mockImplementation(async (...args: Parameters<typeof request>) => {
+    const result = await request(...args);
+    if (args[0] === 'thread/resume') current = false;
+    return result;
+  });
+  rpc.close.mockClear();
+  await expect(
+    c.setUserPermissionMode('ask', () => {
+      if (!current) throw Error('Revoked');
+    }),
+  ).rejects.toThrow('Revoked');
+  expect(rpc.close).toHaveBeenCalledTimes(2);
+  expect(c.isPaused()).toBe(true);
+});
+it.each([false, true])(
+  'rechecks mode authority after context preparation before provider dispatch (reconnect=%s)',
+  async (reconnect) => {
+    const { c, conversationOptions, requests } = await setup();
+    await c.setWebSearchGrant(0, 'allowed');
+    if (reconnect)
+      (
+        c as unknown as { pendingToolSurface: { thread: string; revision: string } }
+      ).pendingToolSurface = { thread: 'provider-thread', revision: 'pending' };
+    let current = true;
+    conversationOptions.prepareAgentContext = async () => {
+      current = false;
+    };
+    const before = requests.filter(
+      ({ method }) => method === 'thread/resume' || method === 'thread/start',
+    ).length;
+    await expect(
+      c.setUserPermissionMode('ask', () => {
+        if (!current) throw Error('Revoked');
+      }),
+    ).rejects.toThrow('Revoked');
+    expect(
+      requests.filter(({ method }) => method === 'thread/resume' || method === 'thread/start'),
+    ).toHaveLength(before);
+    expect(c.isPaused()).toBe(true);
+  },
+);
 it('recovers after consent persistence fails following transport retirement', async () => {
   const { c, store, rpc, requests, getBinding } = await setup();
   vi.spyOn(store, 'setWebSearchGrant').mockImplementationOnce(() => {

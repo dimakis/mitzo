@@ -1,4 +1,35 @@
+## Account-scoped model and thinking choices
+
+Account switching and model refresh reuse `AccountModelPicker`, the approved
+`QuickSettingsField`/`QuickSettingsChoices` editors and their existing notice
+style. Each account restores its own model/thinking preference; the global
+new-chat default stays explicit. Native Claude metadata supplies supported
+thinking levels, and failed discovery stays visible with Refresh models as the
+retry action. No layout, palette, type, motion or approved-design revision changes.
+The existing intercepted `chat-model-settings` fixture covers these interactions
+on phone/desktop, both themes and alternate appearance; see
+[verification and captures](../features/personal-claude-local.md#model-controls-11-november-2026).
+
 # Mitzo UI design contract
+
+## Claude subscription onboarding
+
+Claude uses the existing Connections grouped account rows and labelled form
+controls. Add connection and the account editor link to the same focused
+Connections destination; the approved Chat settings hierarchy stays unchanged.
+The private code input uses a password field, disables autocomplete/capitalization,
+and clears after submission and authentication loss. Browser sign-in opens only
+through an explicit labelled link. Pending, checking, cancelled, interrupted,
+failed and host-recovery states retain their original operation and diagnostic.
+Check status never starts another login or resubmits a code. Start chat saves an
+unsent Local Mac draft and leaves account defaults unchanged.
+
+The surface reuses semantic tokens, Connections spacing/type/controls and existing
+page motion, without new cards, palette or animation. The intercepted
+`claude-account-connect` fixture covers 320px phones and desktop, light/dark,
+Mint/System and Teal/Georgia, keyboard completion, 44px controls, narrow bounds,
+navigation recovery and lost acknowledgements. See
+[implementation evidence and remaining verification](../features/personal-claude-local.md#verification-status).
 
 ## Heading, disclosure and icon roles
 
