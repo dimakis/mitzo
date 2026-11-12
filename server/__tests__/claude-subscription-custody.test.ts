@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import {
   assertClaudeSubscriptionAccount,
   ClaudeSubscriptionCustody,
+  ClaudeSubscriptionSignInError,
 } from '../claude-subscription-custody.js';
 
 it.each([
@@ -83,6 +84,7 @@ it.each([
         mismatches,
       });
       expect(JSON.stringify(diagnostic)).not.toMatch(/private|example|Claude Max|vertex/);
+      expect(JSON.stringify(error)).not.toMatch(/private|example|Claude Max|vertex/);
     }
   },
 );
@@ -90,14 +92,21 @@ const roots: string[] = [];
 afterEach(() => {
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
 });
-function fixture() {
+function fixture(failNativeCommand = false) {
   const root = realpathSync(mkdtempSync(join(tmpdir(), 'claude-custody-')));
   roots.push(root);
   const config = join(root, 'personal');
   mkdirSync(config, { mode: 0o700 });
   const executable = join(root, 'claude');
   const status = join(root, 'status.json');
-  writeFileSync(executable, '#!/bin/sh\ncat "' + status + '"\n', { mode: 0o700 });
+  writeFileSync(
+    executable,
+    '#!/bin/sh\ncat "' +
+      status +
+      '"\n' +
+      (failNativeCommand ? 'cat "' + status + '" >&2\nexit 1\n' : ''),
+    { mode: 0o700 },
+  );
   const identity = {
     loggedIn: true,
     authMethod: 'claude.ai',
@@ -165,6 +174,29 @@ it('rejects logout, another identity, API billing, contaminated environments and
   expect(() => custody.assertCurrent(f.env)).toThrow();
 });
 
+it('retains native failure output in the original cause without exposing it in serialized errors', async () => {
+  const f = fixture(true),
+    custody = ClaudeSubscriptionCustody.capture(f.env, f.executable);
+  try {
+    await custody.verify(f.env, new AbortController().signal);
+    throw Error('verification unexpectedly succeeded');
+  } catch (error) {
+    expect(error).toBeInstanceOf(ClaudeSubscriptionSignInError);
+    const failure = error as ClaudeSubscriptionSignInError;
+    expect(failure.cause).toMatchObject({
+      stdout: expect.stringContaining(f.identity.email),
+      stderr: expect.stringContaining(f.identity.email),
+    });
+    expect(Object.prototype.propertyIsEnumerable.call(failure, 'cause')).toBe(false);
+    expect(JSON.parse(JSON.stringify(failure))).toMatchObject({
+      reason: 'native_command_failed',
+      code: 'claude_subscription_sign_in_unavailable',
+      diagnosticId: expect.any(String),
+    });
+    expect(JSON.stringify(failure)).not.toMatch(/person@|stdout|stderr|loggedIn|options/);
+  }
+});
+
 it('retains original cancellation and malformed-status causes with safe correlated diagnostics', async () => {
   const f = fixture(),
     custody = ClaudeSubscriptionCustody.capture(f.env, f.executable);
@@ -190,5 +222,6 @@ it('retains original cancellation and malformed-status causes with safe correlat
       diagnosticId: expect.any(String),
     });
     expect(JSON.stringify(diagnostic)).not.toMatch(/private|malformed/);
+    expect(JSON.stringify(error)).not.toMatch(/private|malformed/);
   }
 });

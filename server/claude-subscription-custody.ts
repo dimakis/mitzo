@@ -25,15 +25,17 @@ export class ClaudeSubscriptionSignInError extends Error {
   readonly code = 'claude_subscription_sign_in_unavailable';
   readonly stage = 'claude_sign_in_verification';
   readonly diagnosticId = randomUUID();
+  private readonly identity?: IdentityDiagnostic;
   constructor(
     readonly reason: SignInFailureReason,
-    private readonly options?: ErrorOptions & { identity?: IdentityDiagnostic },
+    options?: ErrorOptions & { identity?: IdentityDiagnostic },
   ) {
     super(
       'Claude subscription sign-in unavailable; check the configured Claude account on this Mac',
       options,
     );
     this.name = 'ClaudeSubscriptionSignInError';
+    this.identity = options?.identity;
   }
   telemetry() {
     return {
@@ -41,7 +43,7 @@ export class ClaudeSubscriptionSignInError extends Error {
       stage: this.stage,
       diagnosticId: this.diagnosticId,
       reason: this.reason,
-      ...this.options?.identity,
+      ...this.identity,
     };
   }
 }
