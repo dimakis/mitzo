@@ -12,6 +12,33 @@ const input = {
   csrf: 'proof',
 };
 beforeEach(() => vi.resetAllMocks());
+it.each([
+  [400, { code: 'ENROLLMENT_INPUT_INVALID', effectStatus: 'not_started' }, true],
+  [400, {}, false],
+  [400, { code: 'ENROLLMENT_INPUT_INVALID', effectStatus: 'uncertain' }, false],
+  [422, { code: 'ENROLLMENT_INPUT_INVALID', effectStatus: 'not_started' }, false],
+  [201, {}, false],
+  [201, { account: { id: 'incomplete', state: 'ready' } }, false],
+] as const)(
+  'classifies enrollment rejection without inferring delivery from HTTP %s',
+  async (status, body, retrySetup) => {
+    vi.mocked(apiFetch).mockResolvedValue(
+      new Response(JSON.stringify({ ...body, error: 'PRIVATE_KEY upstream details' }), {
+        status,
+      }),
+    );
+    const attempt = enrollOpenAIAccount({
+      csrf: 'proof',
+      requestId: 'operation-id',
+      label: 'Work API',
+      projectLabel: 'Research',
+      apiKey: 'ONE_SHOT_KEY',
+      billingConfirmed: true,
+    });
+    await expect(attempt).rejects.toMatchObject({ retrySetup });
+    await expect(attempt).rejects.not.toThrow('PRIVATE_KEY');
+  },
+);
 it('enrolls a new OpenAI account with an explicit operation ID, billing consent and CSRF proof', async () => {
   const account = { id: 'new-work', label: 'Work API', projectLabel: 'Research', state: 'ready' };
   vi.mocked(apiFetch).mockResolvedValue(new Response(JSON.stringify({ account }), { status: 201 }));
