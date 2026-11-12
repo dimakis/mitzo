@@ -1,18 +1,63 @@
 import type { useConversationPromptContext } from '../hooks/useConversationPromptContext';
+import type { CollaborationPromptReviewResult } from '@mitzo/protocol';
+import type { useConversationForwarding } from '../hooks/useConversationForwarding';
 import { useMotionPresence } from '../hooks/useMotionPresence';
 import { HomeDialog } from './HomeDialog';
 import { UiIcon } from './UiIcon';
 import { ReviewedArtifactContents } from './ReviewedArtifactContents';
 import './ConversationAgents.css';
 
+function ReviewedContextContents({
+  reviewed,
+  names,
+}: {
+  reviewed: CollaborationPromptReviewResult;
+  names: Readonly<Record<string, string>>;
+}) {
+  return (
+    <>
+      <p>{reviewed.snapshot.joiningBrief}</p>
+      {reviewed.snapshot.messages.map((message) => (
+        <div className="conversation-joining-message" key={message.messageId}>
+          <small>
+            {message.author === 'operator' ? 'You' : (names[message.author.sessionId] ?? 'Agent')}
+          </small>
+          {message.blocks.map((block) => (
+            <p key={block.blockId}>{block.content}</p>
+          ))}
+        </div>
+      ))}
+      {reviewed.snapshot.artifacts.map((artifact) => (
+        <div
+          className="conversation-joining-context"
+          key={`${artifact.artifactId}:${artifact.revision}`}
+        >
+          <strong>
+            {reviewed.artifactLabels?.find(
+              (label) =>
+                label.artifactId === artifact.artifactId &&
+                label.revision === artifact.revision &&
+                label.sha256 === artifact.sha256,
+            )?.title ?? artifact.artifactId}
+          </strong>
+          <small>Saved version {artifact.revision}</small>
+          <ReviewedArtifactContents {...artifact} />
+        </div>
+      ))}
+    </>
+  );
+}
+
 export function ConversationPromptContext({
   flow,
   names,
   disabled,
+  forwarding,
 }: {
   flow: ReturnType<typeof useConversationPromptContext>;
   names: Readonly<Record<string, string>>;
   disabled: boolean;
+  forwarding?: ReturnType<typeof useConversationForwarding>;
 }) {
   const { ref, present } = useMotionPresence(flow.open, 'fade');
   const reviewed = flow.review;
@@ -181,7 +226,7 @@ export function ConversationPromptContext({
                 onChange={(e) => flow.edit({ ...flow.form, brief: e.target.value })}
               />
             </label>
-            {snapshot && (
+            {snapshot && reviewed && (
               <>
                 <div className="conversation-joining-context">
                   <small>Reviewed context</small>
@@ -195,36 +240,7 @@ export function ConversationPromptContext({
                   <summary>
                     Review included context <UiIcon name="down" />
                   </summary>
-                  <p>{snapshot.joiningBrief}</p>
-                  {snapshot.messages.map((message) => (
-                    <div className="conversation-joining-message" key={message.messageId}>
-                      <small>
-                        {message.author === 'operator'
-                          ? 'You'
-                          : (names[message.author.sessionId] ?? 'Agent')}
-                      </small>
-                      {message.blocks.map((block) => (
-                        <p key={block.blockId}>{block.content}</p>
-                      ))}
-                    </div>
-                  ))}
-                  {snapshot.artifacts.map((artifact) => (
-                    <div
-                      className="conversation-joining-context"
-                      key={`${artifact.artifactId}:${artifact.revision}`}
-                    >
-                      <strong>
-                        {reviewed?.artifactLabels?.find(
-                          (label) =>
-                            label.artifactId === artifact.artifactId &&
-                            label.revision === artifact.revision &&
-                            label.sha256 === artifact.sha256,
-                        )?.title ?? artifact.artifactId}
-                      </strong>
-                      <small>Saved version {artifact.revision}</small>
-                      <ReviewedArtifactContents {...artifact} />
-                    </div>
-                  ))}
+                  <ReviewedContextContents reviewed={reviewed} names={names} />
                 </details>
                 <p className="conversation-agents-explanation">
                   {snapshot.capacity.status === 'unverified'
@@ -241,6 +257,94 @@ export function ConversationPromptContext({
               </>
             )}
             {flow.error && <p role="alert">{flow.error}</p>}
+            {forwarding && (
+              <section
+                className="conversation-joining-context"
+                aria-label="Forward reviewed context"
+              >
+                <strong>Forward context only</strong>
+                <p>
+                  Share the exact reviewed messages and saved versions with their reviewed
+                  recipients. The brief accompanies them. No reply starts; recipients receive this
+                  context before their next requested turn. Your prompt draft stays here.
+                </p>
+                {forwarding.observation?.state === 'confirmed' ? (
+                  <p role="status">
+                    Forward recorded. Delivery remains visible in the conversation.
+                  </p>
+                ) : forwarding.uncertain ? (
+                  <p role="status">
+                    Forwarding is not confirmed. Check the original request before taking another
+                    action.
+                  </p>
+                ) : forwarding.retained ? (
+                  <p role="status">
+                    Inspect the original reviewed context, then confirm this forward.
+                  </p>
+                ) : null}
+                {forwarding.originalReview && (
+                  <section aria-label="Original forward context">
+                    <small>Original forward recipients: </small>
+                    <strong>
+                      {forwarding.originalRecipients.map((id) => names[id] ?? id).join(', ')}
+                    </strong>
+                    <p>{forwarding.originalReview.snapshot.purpose}</p>
+                    <ReviewedContextContents reviewed={forwarding.originalReview} names={names} />
+                    {!forwarding.canConfirm &&
+                      !forwarding.busy &&
+                      forwarding.observation?.state !== 'confirmed' && (
+                        <p role="status">
+                          The original context cannot be confirmed with the current audience or
+                          settings.
+                        </p>
+                      )}
+                  </section>
+                )}
+                {forwarding.error && <p role="alert">{forwarding.error}</p>}
+                {!forwarding.retained ? (
+                  <button
+                    type="button"
+                    disabled={disabled || forwarding.busy || !forwarding.canPrepare}
+                    onClick={forwarding.prepare}
+                  >
+                    Prepare context forward
+                  </button>
+                ) : (
+                  <>
+                    <button type="button" disabled={forwarding.busy} onClick={forwarding.check}>
+                      Check original forward
+                    </button>
+                    {forwarding.observation?.state !== 'confirmed' && (
+                      <>
+                        <button
+                          type="button"
+                          disabled={disabled || !forwarding.canInspect}
+                          onClick={forwarding.inspect}
+                        >
+                          Inspect original context
+                        </button>
+                        <button
+                          type="button"
+                          disabled={disabled || !forwarding.canConfirm}
+                          onClick={forwarding.confirm}
+                        >
+                          Confirm context forward
+                        </button>
+                      </>
+                    )}
+                    <button
+                      type="button"
+                      disabled={!forwarding.canClear}
+                      onClick={forwarding.clear}
+                    >
+                      {forwarding.observation?.state === 'confirmed'
+                        ? 'Dismiss forwarding receipt'
+                        : 'Discard preparation'}
+                    </button>
+                  </>
+                )}
+              </section>
+            )}
           </div>
           <footer className="conversation-agents-footer">
             <button type="button" onClick={flow.close}>

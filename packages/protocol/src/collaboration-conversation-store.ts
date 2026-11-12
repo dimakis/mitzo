@@ -594,6 +594,13 @@ export class CollaborationConversationStore {
   }
   /** Host-private exact original actor/request observation, including pending state. */
   getForwardPreparation(group: string, operatorId: string, requestId: string) {
+    const record = this.getRetainedForwardPreparation(group, requestId);
+    if (record && record.operatorId !== operatorId) throw new ContractError('request_conflict');
+    return record;
+  }
+  /** Host-private original provenance for renewed ordinary-operator authorization.
+   * No access or execution grant; never return this record through a public API. */
+  getRetainedForwardPreparation(group: string, requestId: string) {
     this.group(group);
     z.uuid().parse(requestId);
     const receipt = this.db
@@ -603,9 +610,34 @@ export class CollaborationConversationStore {
       .get(group, requestId) as { result: string } | undefined;
     if (!receipt) return null;
     const initial = CollaborationForwardPreparationSchema.safeParse(JSON.parse(receipt.result));
-    if (!initial.success || initial.data.operatorId !== operatorId)
-      throw new ContractError('request_conflict');
+    if (!initial.success) throw new ContractError('request_conflict');
     return this.privateForward(group, initial.data.forwardId);
+  }
+  /** Private provenance observation; the application owner must authorize it. */
+  getRetainedForward(group: string, forwardId: string) {
+    return this.privateForward(group, forwardId);
+  }
+  /** If the source was a participant when selected, removal/rejoin cannot
+   * silently restore that original sharing grant. External sources still require
+   * the ordinary source owner's current authorization and exact material witness. */
+  assertCurrentForwardSource(group: string, forwardId: string) {
+    const record = this.privateForward(group, forwardId);
+    if (!record) throw new ContractError('snapshot_changed');
+    const source = record.input.selection.sourceConversationId;
+    if (!source) return;
+    const revision = record.input.selection.target.expectedMembershipRevision;
+    const original = this.db
+      .prepare(
+        `SELECT participant_session_ids FROM session_collaboration_revisions
+      WHERE collaboration_id=? AND revision=?`,
+      )
+      .get(group, revision) as { participant_session_ids: string } | undefined;
+    if (!original) throw new ContractError('snapshot_changed');
+    const members = SessionCollaborationSchema.shape.participantSessionIds.parse(
+      JSON.parse(original.participant_session_ids),
+    );
+    if (members.includes(source) && !this.continuousMember(this.group(group), revision, source))
+      throw new ContractError('snapshot_changed');
   }
   private privateForward(group: string, forwardId: string): CollaborationForwardPreparation | null {
     this.group(group);

@@ -359,6 +359,7 @@ jobs:
             test-results/offline/**/agent-messages-*.png
             test-results/offline/**/timer-*.png
             test-results/offline/**/shared-composer-*.png
+            test-results/offline/**/forward-context-review-*.png
             test-results/offline/**/multiple-responders-live-*.png
             test-results/offline/**/singleton-rejoin-*.png
             test-results/offline/**/prompt-context-review-*.png
