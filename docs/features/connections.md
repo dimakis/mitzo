@@ -4,6 +4,63 @@ More → Connections lists AI accounts and service connections. Choose the AI
 account inside a chat. Setup, authentication checks and successful use are
 different observations; none of them expands a chat's service permissions.
 
+## Add an AI API account
+
+Connections → Add → AI API account supports OpenAI, an EnMaaS preset, and a
+custom Responses-compatible API. Custom accounts use the existing Codex
+app-server on Local Mac. They are excluded from the legacy Responses engine,
+OpenShell routes and official-OpenAI key rotation. Existing chats retain their
+frozen account and endpoint. Select the new account and model for a new chat.
+
+After browser reauthorization, enter a public HTTPS API base URL and a key.
+**Get models** reads that exact endpoint's `/models` with bearer authentication;
+it makes no inference call. The request uses checked public DNS, verified TLS,
+a 15-second deadline and a bounded response, and never follows redirects with
+the key. Discovery errors remain visible. Changing the endpoint or key discards
+its catalog; late responses cannot overwrite the new selection.
+
+Select models from the catalog or enter explicit model IDs, one per line.
+Catalogs are advisory and may be incomplete. Explicit IDs can be saved even
+when `/models` is unsupported; that saves configuration without validating the
+key or making a model call. Saving requires the operator's explicit confirmation
+of Responses streaming, tools, follow-up turns and cancellation compatibility
+for the selected models. Neither discovery nor saving establishes that evidence.
+There is no protocol fallback or automatic translation of Chat Completions or
+Anthropic Messages to Responses.
+
+The EnMaaS preset uses `https://api.enmaas.devshift.net/v1` and prepopulates:
+
+- `rits/zai-org/glm-5-3`
+- `rits/deepseek-ai/DeepSeek-V4.1-Flash-1017`
+
+These hosted IDs stay explicit when discovery omits them. Discovered models
+are never automatically selected; other catalog entries can incur charges.
+The saved EnMaaS Source page, inspected on 10 November 2026, lists these hosted
+models and documents GLM restrictions around grammar/freeform tools, images and
+compaction. This enrollment change does not verify GLM's compatibility with the
+Codex engine or guarantee continuing free access. Live model qualification is a
+separate check under the repository's live-test policy. Source:
+[EnMaaS — The Source](https://source.redhat.com/departments/products_and_global_engineering/workload_management/enmaas),
+an internal Red Hat reference; no page content or credentials are bundled here.
+
+Keys use the existing private Keychain enrollment store. Custom accounts create
+no OpenShell provider replica. The journal retains operation identity, endpoint,
+model selection and failure stage, with no key or key digest. Interrupted or
+uncertain saves require status review and are never automatically replayed.
+Invalid endpoint details remain editable before any key is sent. If the server
+explicitly rejects a request before enrollment starts, correct its details and
+re-enter the key to make a fresh attempt. A missing or uncertain save receipt
+still requires status review.
+The 2048-character endpoint limit applies to both entered and normalized URLs.
+Localhost aliases with a trailing DNS root dot are rejected as well.
+**Ready** here means configuration and credential custody were saved; account
+authentication and successful use remain separate evidence below.
+
+Anthropic-compatible endpoints are a follow-on using the existing Claude Agent
+SDK engine. Its Google Vertex transport and Google authentication must be
+disabled for a direct EnMaaS Messages connection; EnMaaS does not become a
+Google Vertex account. That path is not enabled by this change.
+
 ## Account status
 
 - **Set up** means a configured account or personal-connection record exists.
