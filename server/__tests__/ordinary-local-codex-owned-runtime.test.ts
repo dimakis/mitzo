@@ -1,15 +1,17 @@
+import { resetOfflineUserEnvironment } from './fixtures/offline-user-home.js';
 import Database from 'better-sqlite3';
 import { codexRuntimeErrorTelemetry } from '../codex-runtime-diagnostics.js';
 import { ownedRuntimeFixture } from './fixtures/owned-local-codex-runtime.js';
 import { assembleCommandPrompt } from '../message-reply-context.js';
 import * as registries from '../skill-registry-runtime.js';
 import { SkillRegistry } from '../skills.js';
-import { afterEach, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { randomUUID } from 'node:crypto';
 import { agentLibrarySource } from './fixtures/agent-library-source.js';
 
 import { existsSync, readFileSync, writeFileSync, unlinkSync } from 'node:fs';
 import { FrozenHostCodexExecutable } from '../frozen-host-codex-executable.js';
+beforeEach(resetOfflineUserEnvironment);
 
 import { revokeAuthSession, login, authenticateToken } from '../auth.js';
 import { CodexConversationStore } from '../codex-conversation-store.js';

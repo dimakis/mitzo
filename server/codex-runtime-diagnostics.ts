@@ -5,6 +5,7 @@ import { CodexStartupError } from './codex-startup-error.js';
 import { RuntimePolicyAttestationError } from './openshell-runtime-policy.js';
 import { findSessionRuntimeError } from './session-runtime-error.js';
 import { NativeExecutionPolicyChangedError } from './codex-native-execution-policy.js';
+import { CodexToolValidationError } from './codex-tool-validation-error.js';
 
 const requestMethods = new Set([
   'initialize',
@@ -86,6 +87,7 @@ function projectRuntimeErrorTelemetry(error: Error, seen: Set<Error>): Record<st
         ? projectRuntimeErrorTelemetry(retained.cause, seen)
         : {}),
       ...retained.telemetry(),
+      ...(retained instanceof CodexToolValidationError ? retained.validationTelemetry() : {}),
       ...(retained instanceof NativeExecutionPolicyChangedError
         ? { nativePolicyChangedFields: retained.changedFields }
         : {}),
