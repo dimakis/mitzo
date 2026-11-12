@@ -173,7 +173,14 @@ export function createOrdinaryLocalVertexSdkQuery<
       systemPrompt: Array.isArray(systemPrompt)
         ? [...systemPrompt, cliGuidance]
         : typeof systemPrompt === 'object'
-          ? { ...systemPrompt, append: (systemPrompt.append ?? '') + cliGuidance }
+          ? systemPrompt.type === 'custom'
+            ? {
+                ...systemPrompt,
+                prompt: Array.isArray(systemPrompt.prompt)
+                  ? [...systemPrompt.prompt, cliGuidance]
+                  : systemPrompt.prompt + cliGuidance,
+              }
+            : { ...systemPrompt, append: (systemPrompt.append ?? '') + cliGuidance }
           : (systemPrompt ?? '') + cliGuidance,
       hooks,
       canUseTool,

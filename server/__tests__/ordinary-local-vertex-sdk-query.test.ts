@@ -10,6 +10,51 @@ vi.mock('@anthropic-ai/claude-agent-sdk', () => ({
   getSessionInfo: vi.fn(async () => ({ sessionId: 'original', cwd: '/task' })),
   getSessionMessages: vi.fn(async () => [{ uuid: 'input' }]),
 }));
+it.each([
+  { type: 'custom', prompt: 'reviewed instructions', snapshot: true },
+  { type: 'custom', prompt: ['reviewed instructions', 'second block'], snapshot: true },
+  { type: 'preset', preset: 'claude_code', append: 'reviewed instructions', snapshot: true },
+] satisfies NonNullable<Options['systemPrompt']>[])(
+  'retains the $type prompt and snapshot while adding native route guidance',
+  (systemPrompt) => {
+    vi.mocked(query).mockReturnValue({ close: vi.fn() } as never);
+    const controller = new AbortController();
+    createOrdinaryLocalVertexSdkQuery({
+      options: { systemPrompt },
+      input: new AsyncQueue(),
+      controller,
+      lifetime: new SdkHookLifetime(),
+      sdkSessionId: 'original',
+      cwd: '/task',
+      authorize: async () => {},
+      authorizeSync: () => {},
+      adapt: (native) => native as never,
+      settings: () => ({}),
+      inputChanged: () => {},
+    });
+    try {
+      const actual = vi.mocked(query).mock.calls.at(-1)![0].options!.systemPrompt;
+      expect(actual).toMatchObject({ type: systemPrompt.type, snapshot: true });
+      if (!actual || typeof actual !== 'object' || Array.isArray(actual))
+        throw Error('Original structured prompt must be retained');
+      const contents = actual.type === 'custom' ? actual.prompt : actual.append;
+      const text = Array.isArray(contents) ? contents.join('') : contents;
+      expect(text).toContain('reviewed instructions');
+      expect(text).toContain('This is the selected local Mac Claude SDK route.');
+      if (actual.type === 'custom') {
+        expect(actual).not.toHaveProperty('append');
+        if (Array.isArray(systemPrompt.prompt)) {
+          expect(actual.prompt).toEqual([
+            ...systemPrompt.prompt,
+            expect.stringContaining('This is the selected local Mac Claude SDK route.'),
+          ]);
+        }
+      } else expect(actual.preset).toBe('claude_code');
+    } finally {
+      controller.abort();
+    }
+  },
+);
 it('checks peer input immediately before stdin yield and consumes peer ACKs before ordinary result correlation', async () => {
   let prompt!: AsyncIterable<import('@anthropic-ai/claude-agent-sdk').SDKUserMessage>;
   const events = new AsyncQueue<Record<string, unknown>>();

@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.1071-claude-sdk-upgrade-diagnostics';
+  'v1.0.1072-claude-sdk-native-status';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -155,11 +155,11 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../claude-model-discovery.ts':
     '167e5a4dcd8547f1433e918707d31d92ba0d725a40483a70ab740349b628fac1',
   '../../frontend/src/components/ClaudeAccountConnection.tsx':
-    '141d503894f37d9c71888caff0d2ef7361825b07d0a89e84eee5141bf1614b98',
+    'c21367f9ecaac62955707a0db3cd0b3111559aa59769d3513a7975d321824315',
   '../../frontend/src/components/__tests__/ClaudeAccountConnection.test.tsx':
-    'f66cd7535ff30640d91537b14642e46d3e33d11eb0aae1a74801d48b617e4a4c',
+    'e1c42108da7697ed566a05c76b8cae2b0afded3c633df8a85fa0cc8473341e30',
   '../../frontend/src/lib/claude-account-api.ts':
-    'a32b19eb80b3d3c2a20b27d862290daf6a55991975dacb1b5ca32287f6c8f750',
+    'f4939097e1ed55c1bbe36478d7e503792eb0edcf6f94c303611a1f0f4bd74631',
   '../../frontend/src/pages/ConnectionsRoute.tsx':
     '73524a2b6ff2a19bb6a7bced8a99f7f5f3cec3aeb6d3f50957f948d7ce11e14e',
   '../../frontend/src/pages/ConnectionsView.tsx':
@@ -188,7 +188,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     'd62c9117de7255c4087d54fa5840f382f594ee7ef4b3f35b47fcaa20bebafa94',
   '../connections-access.ts': '46b54b46f8d38d739d4bea29fcfdd25b43d831fdb63e411571925451426329d1',
   '../../tests/offline/claude-account-connect.spec.ts':
-    '134c83a0e2a8fddc494efcdd739bcfc44127af80e06bd2059095e2dfd6ca03b0',
+    '4465db33d316a15f59429493ffcc582f34812f4bb2b847528bf6bccf288f5bde',
 
   '../../packages/client/src/__tests__/fixtures/local-first-command.ts':
     '1cffdd0cc5fb01bb7d4c7032506358ddd6dca17212e1d3a9115b6fbb3ae5b90d',
@@ -940,7 +940,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/owned-local-auth-feedback.test.ts':
     'fa4b4dca12a655e4075c03e6c95701ac9c8c1a6607f867e27668c914e988da21',
   '../../docs/design/ui-design-system.md':
-    '929c731aacdd2a7353bed13ee1b07031ffeef85d2b43df2f4b3a34a450634dfa',
+    '4c3b84304fa5ef508eb16f6826b107c0ef166d7c7ed646449635125d44e975b8',
   '../../packages/protocol/src/session-prompts.ts':
     '5a3c7a567c7b4d7b5699b7405282b11c11a07e0fb7e14d73e11529a3882cbc09',
   '../__tests__/session-prompt-service.test.ts':
@@ -1103,7 +1103,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/native-tool-executor.test.ts':
     'd6bfc3230fac5a34822b9c5541d720f1409037751534771769315c092d8aa175',
   '../__tests__/chat-account-startup.test.ts':
-    'f3a15eb7ec93a91a8b65a64f56e43bd488f391cde5d4a472f438c42a2ce4347e',
+    '66642b07326ca1637303f40d866813094ff3b7e378c7bbae301d92382aefa1bd',
   '../../packages/protocol/__tests__/session-metadata.test.ts':
     'b5de78900afd0a35f44cde5dcf0f2aeeceb1aaf36e13243cc30527fa23f65b08',
   '../__tests__/request-performance.test.ts':
@@ -2822,7 +2822,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../ordinary-local-vertex-replay.ts':
     'd7ecdd21c89be167a1b627b024687df00ead20df98c349f51b114d98a8800a75',
   '../ordinary-local-vertex-sdk-query.ts':
-    '22a6a440684e5b871b2e37b8688e5f0a034d8a19b837ec4ff369785f9582efb5',
+    '63cdaf0ed4631f6edb544d0719f7a62eb48af54203b9a12da1e173393bf0d8b1',
   '../ordinary-local-vertex-command-owner.ts':
     '21d7d64c7becf7032fb39a2603f0231a1a2cd459cf04ebf18207de45e0dc3a2d',
   '../ordinary-local-vertex-capabilities.ts':
@@ -3226,9 +3226,9 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/adviser-native-policy.test.ts':
     '90bb9c5eb3e68693d18a2c643458a657c17d8b8350401824798fe3efc9738fe7',
   '../__tests__/adviser-sdk-startup.test.ts':
-    '1a92c5db6825285f97ab97db57fcc8ee631a7cc41877b7716f818614ece0a3f1',
+    'ca0630734dd595b464f2b47bbf628fda32294c69ced99d5e18243df477a773f8',
   '../__tests__/adviser-task-scope.test.ts':
-    'adfbabeca07f72f43c99d33622aae8f92ab334cbe22efc356958d60ab4df4e89',
+    '9584230a5f559996fa5949ba24a773dbb917f2647f8515ce4e22798abca41226',
   '../__tests__/chat-native-responses-startup.test.ts':
     'a11b9c1033e1ed9f22951d5fd59845eb5cc4a543b63755fa9ffa2af07b0e3c29',
   '../__tests__/deferred-gemini-search-errors.test.ts':
@@ -3339,7 +3339,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../unified-inbox-routes.ts': '6413398c77b9f1c62fbb1c597d5cf7c857b65338b23592ce9751cf6755e271d4',
   '../read-only-git.ts': 'b1a5c01474cba24137b3a7eb5bb4dcbd4d593ee0a25230977de6ff272fdbebab',
   '../__tests__/chat-agent-context-startup.test.ts':
-    '6ee48458542d2ddb7c57361055bb3388c9ba83bd1faafaf82eae463fc07d728e',
+    '0c768633692a0bf38b180e62e520068f527b7433157cbd7fa6bf315bf3e715b4',
   '../__tests__/chat-contributor-route-admission.test.ts':
     'a19a8ee0f4424228487fefe455dca8198bfe046acf3016c16bb7029a43903edb',
   '../__tests__/chat-provider-admission.test.ts':
@@ -4167,7 +4167,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/codex-conversation-rpc-cleanup.integration.test.ts':
     '25267beedb7c3a0e08eaa7c78b68e2c8adb595fd9cabe1c1b0691115283da6e9',
   '../__tests__/ordinary-local-vertex-sdk-query.test.ts':
-    'aed45e301b35adf8089716a93048a12ca4c50ff89bcb0c088a4623bbe3030dbc',
+    '9a1a12f0a59a5c668ccca89fea6bc1058b1efa65f94395bcab66fb199eaf0b53',
   '../__tests__/retained-runtime-failure.test.ts':
     'c611d50fcfee26e3217fb41ac547ca6c77cee855815bd217e82cf1f6f33ded9f',
   '../__tests__/sdk-turn-query.test.ts':
@@ -4318,5 +4318,5 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/ordinary-local-vertex-owned-runtime.test.ts':
     '6c60a4bc7162da9b7fccd03e3a369da499db91037e372137c6b62795cf7eeccc',
   '../../docs/features/personal-claude-local.md':
-    'be7ec112aa4f24c561bb432bdba63b2a28be4c4b7206da1010189c8ac0ee518a',
+    '708490618ab5b651f3f3972db9d4424adccf3554b1c814a7a3f769be9f1ae773',
 });

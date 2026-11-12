@@ -26,6 +26,9 @@ for (const theme of ['dark', 'light'] as const) {
       requestId = '',
       starts = 0,
       codes = 0;
+    let checks = 0,
+      releaseCheck: (() => void) | undefined;
+    let signedIn = true;
     const accountId = () => `claude-${requestId}`;
     const attempt = () => ({
       requestId,
@@ -73,6 +76,31 @@ for (const theme of ['dark', 'light'] as const) {
         return route.abort('failed');
       }
       if (url.pathname === '/api/claude-accounts') return route.fulfill({ json: snapshot() });
+      if (url.pathname === '/api/connections-access') {
+        checks++;
+        if (checks === 1)
+          await new Promise<void>((resolve) => {
+            releaseCheck = resolve;
+          });
+        return route.fulfill({
+          json: {
+            generatedAt: Date.now(),
+            sources: [{ id: 'accounts', state: 'available', reason: null }],
+            resources: [
+              {
+                kind: 'ai-account',
+                owner: 'account-profiles',
+                nativeId: accountId(),
+                provider: 'anthropic-claude',
+                signIn: {
+                  status: signedIn ? 'verified' : 'failed',
+                  explanation: 'Claude sign-in could not be verified. Sign in again to continue.',
+                },
+              },
+            ],
+          },
+        });
+      }
       if (url.pathname === '/api/auth/check')
         return route.fulfill({ json: { authenticated: true } });
       if (url.pathname.startsWith('/api/')) return route.fulfill({ json: {} });
@@ -116,6 +144,11 @@ for (const theme of ['dark', 'light'] as const) {
     await expect(page.getByRole('alert')).toContainText('could not be confirmed');
     await expect(field).toHaveValue('');
     await page.getByRole('button', { name: 'Check sign-in status' }).click();
+    await expect(page.getByRole('button', { name: 'Checking sign-in…' })).toBeDisabled();
+    await expect(page.getByText('Checking native Claude sign-in…')).toBeVisible();
+    await expect.poll(() => checks).toBe(1);
+    releaseCheck!();
+    await expect(page.getByText('Personal Claude: Signed in.', { exact: true })).toBeVisible();
     await expect(page.getByText('person@example.test · Max')).toBeVisible();
     await expect(page.getByRole('button', { name: 'Start chat' })).toBeEnabled();
     expect(starts).toBe(1);
@@ -129,6 +162,18 @@ for (const theme of ['dark', 'light'] as const) {
     await checkControls();
     await page.screenshot({
       path: testInfo.outputPath('connections-claude-connected.png'),
+      fullPage: true,
+    });
+    signedIn = false;
+    await page.getByRole('button', { name: 'Check sign-in status' }).click();
+    await expect(page.getByRole('alert')).toContainText('Sign in again to continue.');
+    await expect(page.getByText('Personal Claude: Signed in.', { exact: true })).toHaveCount(0);
+    expect(checks).toBe(2);
+    expect(starts).toBe(1);
+    expect(codes).toBe(1);
+    await checkControls();
+    await page.screenshot({
+      path: testInfo.outputPath('connections-claude-check-failed.png'),
       fullPage: true,
     });
   });
