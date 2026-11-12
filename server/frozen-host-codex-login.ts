@@ -1,4 +1,5 @@
 import { SessionRuntimeError, findSessionRuntimeError } from './session-runtime-error.js';
+import { reportCodexCredentialInvalidation } from './codex-tool-validation-error.js';
 import {
   closeSync,
   constants,
@@ -413,17 +414,15 @@ export class FrozenHostCodexLogin {
         /* Retain private custody after close failure. */
       }
     };
-    const fail = (error: unknown): never => {
-      const reviewed = findSessionRuntimeError(error);
-      if (reviewed) {
-        try {
-          beforeInvalidation?.(reviewed);
-        } catch {
-          /* Diagnostics cannot retain invalid custody. */
-        }
-      }
+    const fail = (error: unknown, validation = false): never => {
+      const cause = reportCodexCredentialInvalidation(
+        error,
+        validation,
+        this.#signal?.aborted ?? false,
+        beforeInvalidation,
+      );
       close();
-      throw reviewed ?? unavailable();
+      throw findSessionRuntimeError(error) ?? new Error('Host Codex login unavailable', { cause });
     };
     try {
       if (this.#refreshVerifier) await this.#refreshVerifier.prepare(this.#signal);
@@ -450,7 +449,7 @@ export class FrozenHostCodexLogin {
           try {
             this.assertFilesCurrent();
           } catch (error) {
-            fail(error);
+            fail(error, true);
           }
         },
         assertCurrent: async () => {
@@ -461,7 +460,7 @@ export class FrozenHostCodexLogin {
             await this.qualifyCredentialRefresh(this.#signal);
             this.assertFilesCurrent();
           } catch (error) {
-            fail(error);
+            fail(error, true);
           }
         },
       };

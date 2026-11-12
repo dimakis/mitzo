@@ -53,6 +53,11 @@ reviewed account, workspace and policy failures keep their specific code. Strict
 client replay receives only the public failure code and reference, while the
 original operation and its uncertainty remain unchanged.
 
+Subscription and API credential owners publish before their own physical close,
+including failures below bootstrap. Existing reviewed failures retain their code;
+new live credential failures retain their private cause and report the reviewed
+validation code. Initial login failures keep their existing classification.
+
 Trusted Git commit preparation does not repeat full provider and workspace
 validation for every immutable object. It validates the complete owner before
 and after object preparation and before the branch update, while synchronously
@@ -69,6 +74,15 @@ hooks, the registered Claude SDK callback, the Gemini provider loop and durable
 history, and cold Codex reconciliation. They also preserve unknown writes,
 cancellation, account changes, missing receipts and request-hash mismatches.
 These are synthetic tests, not live-model or production recovery evidence.
+
+| Supported route                               | Recovery coverage                                                                                                                     |
+| --------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| Local Codex subscription and API accounts     | Credential-owner and bootstrap failures through the real lifecycle bridge; conversation, retained replay and client receipt rendering |
+| OpenShell Codex subscription and API accounts | Shared native conversation diagnostics and host TaskExecution receipts; sandbox built-ins remain provider-owned                       |
+| Claude SDK Vertex and personal accounts       | Registered credential callback, shared tool diagnostics and host TaskExecution receipts                                               |
+| Legacy unbound Claude SDK                     | Same registered callback; no named Anthropic API account admission is implied                                                         |
+| Gemini Vertex                                 | Deferred provider loop, shared tool diagnostics, durable failed-tool history and cancellation                                         |
+| Retired custom OpenAI Responses engine        | Rejection remains enforced; supported Responses protocol accounts use the Codex harness                                               |
 
 Historical shell operations without adequate terminal evidence still require
 operation-specific reconciliation. This change does not recover every legacy

@@ -1,5 +1,6 @@
+import { resetOfflineUserEnvironment } from './fixtures/offline-user-home.js';
 import { generateKeyPairSync } from 'node:crypto';
-import { afterEach, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import {
   chmodSync,
   mkdirSync,
@@ -17,8 +18,14 @@ import { join } from 'node:path';
 import { FrozenHostCodexLogin } from '../frozen-host-codex-login.js';
 import { refreshedAuth, signingKey } from './fixtures/codex-refresh-auth.js';
 import { privateCodexPathSnapshot } from '../codex-private-path.js';
+import { RuntimeFailureSchema, runtimeFailureMessage } from '@mitzo/protocol';
+import { OwnedCodexLifecycleBridge } from '../owned-codex-lifecycle-bridge.js';
+import type { FrozenHostCodexBootstrapLease } from '../frozen-host-codex-bootstrap.js';
+import { CodexTransportError } from '../codex-app-server-client.js';
+import { findSessionRuntimeError } from '../session-runtime-error.js';
 
 const roots: string[] = [];
+beforeEach(resetOfflineUserEnvironment);
 const auth = JSON.stringify({
   tokens: {
     access_token: 'fixture-access',
@@ -55,6 +62,42 @@ function fixture() {
   return { root, source, privateRoot, profile, client };
 }
 afterEach(() => roots.splice(0).forEach((root) => rmSync(root, { recursive: true, force: true })));
+
+it('publishes a raw subscription credential failure before physical close reenters the actual lifecycle owner', async () => {
+  const f = fixture();
+  const login = FrozenHostCodexLogin.capture(f.profile, { privateRoot: f.privateRoot });
+  const state: { lease?: FrozenHostCodexBootstrapLease } = {};
+  const bridge = new OwnedCodexLifecycleBridge(() => state.lease);
+  const onClose = vi.fn();
+  const connected = await login.connect(
+    () => f.client,
+    (failure) => bridge.lifecycle.onClose(failure),
+  );
+  state.lease = {
+    ...connected,
+    profile: f.profile,
+    privateHome: login.privateHome,
+    executableSha256: 'a'.repeat(64),
+  };
+  bridge.attach({ onNotification: vi.fn(), onRequest: vi.fn(async () => ({})), onClose });
+  f.client.close.mockImplementation(() =>
+    bridge.lifecycle.onClose(new CodexTransportError('connection')),
+  );
+  const original = Object.assign(Error('private/path secret-token'), { code: 'EPERM' });
+  f.client.request.mockRejectedValue(original);
+  const error = await connected.assertCurrent().catch((failure: unknown) => failure);
+  expect(error).toBeInstanceOf(Error);
+  expect((error as Error).message).toBe('Host Codex login unavailable');
+  const failure = findSessionRuntimeError(error)!;
+  expect(failure).toMatchObject({ code: 'tool_validation_failed', cause: original });
+  expect(onClose).toHaveBeenCalledExactlyOnceWith(failure);
+  expect(f.client.close).toHaveBeenCalledOnce();
+  expect(runtimeFailureMessage(RuntimeFailureSchema.parse(failure.telemetry()))).toBe(
+    failure.publicMessage(),
+  );
+  expect(JSON.stringify(failure.telemetry())).not.toMatch(/private\/path|secret-token/);
+  expect(failure.publicMessage()).not.toMatch(/private\/path|secret-token/);
+});
 
 it('freezes file-backed login only and verifies the actual client reused for admission', async () => {
   const f = fixture();

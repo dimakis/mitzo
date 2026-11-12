@@ -514,38 +514,47 @@ export class FrozenHostCodexBootstrapAuthority implements OrdinaryLocalCodexBoot
           ));
       loginLease = await observeLocalCodexPhase('bootstrap_connect', async () =>
         login instanceof FrozenHostCodexApiLogin
-          ? await login.connect(async (home) => {
-              this.assertSync(expected, undefined, executable);
-              if (this.owners.launchApi)
-                return this.owners.launchApi(home, executable, authBinding, !!retained, connection);
-              if (!this.owners.lifecycle) throw unavailable();
-              if (retained)
-                return CodexAppServerClient.launchIsolatedApiResume(
-                  home,
-                  this.owners.baseEnv,
-                  this.owners.lifecycle,
+          ? await login.connect(
+              async (home) => {
+                this.assertSync(expected, undefined, executable);
+                if (this.owners.launchApi)
+                  return this.owners.launchApi(
+                    home,
+                    executable,
+                    authBinding,
+                    !!retained,
+                    connection,
+                  );
+                if (!this.owners.lifecycle) throw unavailable();
+                if (retained)
+                  return CodexAppServerClient.launchIsolatedApiResume(
+                    home,
+                    this.owners.baseEnv,
+                    this.owners.lifecycle,
+                    executable,
+                    connection,
+                  );
+                const result = await CodexAppServerClient.launchIsolatedApi({
+                  privateHome: home,
                   executable,
+                  binding: authBinding,
                   connection,
-                );
-              const result = await CodexAppServerClient.launchIsolatedApi({
-                privateHome: home,
-                executable,
-                binding: authBinding,
-                connection,
-                signal: this.owners.signal,
-                lifecycle: this.owners.lifecycle,
-                base: this.owners.baseEnv,
-                resolveKey: (binding, signal) =>
-                  keyAuthority!.resolveKey(binding.accountId, signal),
-                assertCurrentSync: () => this.assertSync(expected, undefined, executable),
-                assertCurrent: async () => {
-                  this.assertSync(expected, undefined, executable);
-                  await keyAuthority!.assertReady(this.owners.signal);
-                  this.assertSync(expected, undefined, executable);
-                },
-              });
-              return result.client;
-            })
+                  signal: this.owners.signal,
+                  lifecycle: this.owners.lifecycle,
+                  base: this.owners.baseEnv,
+                  resolveKey: (binding, signal) =>
+                    keyAuthority!.resolveKey(binding.accountId, signal),
+                  assertCurrentSync: () => this.assertSync(expected, undefined, executable),
+                  assertCurrent: async () => {
+                    this.assertSync(expected, undefined, executable);
+                    await keyAuthority!.assertReady(this.owners.signal);
+                    this.assertSync(expected, undefined, executable);
+                  },
+                });
+                return result.client;
+              },
+              (failure) => this.owners.lifecycle?.onClose(failure),
+            )
           : await login.connect(
               (home) => {
                 this.assertSync(expected, undefined, executable);
