@@ -1,5 +1,7 @@
 import { expect, vi } from 'vitest';
 import { createHash } from 'node:crypto';
+import { writeFile } from 'node:fs/promises';
+import { join } from 'node:path';
 import type { EventStore } from '../../event-store.js';
 
 /** Only external native execution and its synthetic qualification are replaced. */
@@ -56,108 +58,125 @@ export async function recordApplicationMessagingRuntime(events: EventStore) {
     .mockImplementation(discoveryClient);
   let revokeSourceOnQualification = false;
   let nativeThreads = 0;
+  const nativeClient = (
+    lifecycle: Parameters<typeof CodexAppServerClient.launchIsolated>[2],
+    api = false,
+  ) => {
+    const threadId = `private-native-thread-${++nativeThreads}`;
+    let retainedTurn:
+      | {
+          id: string;
+          status: 'inProgress' | 'completed' | 'failed';
+          error?: { codex_error_info: string };
+        }
+      | undefined;
+    return {
+      initialize: async () => {},
+      close: () => {},
+      request: async (method: string, params: Record<string, unknown>) => {
+        requests.push({ method, params });
+        if (method === 'account/read')
+          return api
+            ? { account: { type: 'apiKey' }, requiresOpenaiAuth: true }
+            : {
+                account: { type: 'chatgpt', email: 'offline@example.invalid', planType: 'plus' },
+              };
+        if (method === 'config/read') return { config: {} };
+        if (method === 'model/list') {
+          if (revokeSourceOnQualification) events.hideSession('existing-chat');
+          return {
+            data: [
+              {
+                model: 'fixture-model',
+                displayName: 'Offline',
+                supportedReasoningEfforts: [{ reasoningEffort: 'low' }],
+              },
+            ],
+            nextCursor: null,
+          };
+        }
+        if (method === 'thread/start')
+          return {
+            thread: { id: threadId },
+            model: 'fixture-model',
+            modelProvider: 'openai',
+          };
+        if (method === 'thread/turns/list') {
+          if (params.threadId !== threadId || !retainedTurn)
+            throw Error('Unknown synthetic native recovery thread');
+          return {
+            data: [{ ...retainedTurn, error: retainedTurn.error ?? null }],
+            nextCursor: null,
+          };
+        }
+        if (method === 'turn/interrupt') {
+          if (params.threadId !== threadId || params.turnId !== retainedTurn?.id)
+            throw Error('Wrong synthetic native Stop target');
+          // External cancellation ACK is not terminal proof; the held provider
+          // turn may complete/fail concurrently and is settled separately.
+          return {};
+        }
+        if (method === 'turn/start') {
+          const turnNumber = requests.filter((r) => r.method === 'turn/start').length;
+          const turnId = `private-native-turn-${turnNumber}`;
+          retainedTurn = { id: turnId, status: 'inProgress' };
+          streamTurns.set(turnNumber, (text) =>
+            lifecycle!.onNotification('item/agentMessage/delta', {
+              threadId,
+              turnId,
+              itemId: `native-answer-${turnNumber}`,
+              delta: text,
+            }),
+          );
+          setTimeout(() => {
+            lifecycle!.onNotification('turn/started', {
+              threadId,
+              turn: { id: turnId, status: 'inProgress' },
+            });
+            const finish = (status: 'completed' | 'failed', failure?: 'context') => {
+              streamTurns.delete(turnNumber);
+              const error =
+                failure === 'context' ? { codex_error_info: 'context_window_exceeded' } : undefined;
+              retainedTurn = { id: turnId, status, error };
+              if (status === 'completed')
+                lifecycle!.onNotification('item/completed', {
+                  threadId,
+                  turnId,
+                  item: {
+                    id: `native-answer-${turnNumber}`,
+                    type: 'agentMessage',
+                    text: 'Reviewed the selected design.',
+                  },
+                });
+              lifecycle!.onNotification('turn/completed', {
+                threadId,
+                turn: { id: turnId, status, ...(error ? { error } : {}) },
+              });
+            };
+            if (heldTurns.has(turnNumber)) pendingTurns.set(turnNumber, finish);
+            else finish('completed');
+          }, 10);
+          return { turn: { id: turnId } };
+        }
+        throw Error(`Unexpected offline native method: ${method}`);
+      },
+    } as never;
+  };
   const launch = vi
     .spyOn(CodexAppServerClient, 'launchIsolated')
-    .mockImplementation((_home, _env, lifecycle) => {
-      const threadId = `private-native-thread-${++nativeThreads}`;
-      let retainedTurn:
-        | {
-            id: string;
-            status: 'inProgress' | 'completed' | 'failed';
-            error?: { codex_error_info: string };
-          }
-        | undefined;
-      return {
-        initialize: async () => {},
-        close: () => {},
-        request: async (method: string, params: Record<string, unknown>) => {
-          requests.push({ method, params });
-          if (method === 'account/read')
-            return {
-              account: { type: 'chatgpt', email: 'offline@example.invalid', planType: 'plus' },
-            };
-          if (method === 'config/read') return { config: {} };
-          if (method === 'model/list') {
-            if (revokeSourceOnQualification) events.hideSession('existing-chat');
-            return {
-              data: [
-                {
-                  model: 'fixture-model',
-                  displayName: 'Offline',
-                  supportedReasoningEfforts: [{ reasoningEffort: 'low' }],
-                },
-              ],
-              nextCursor: null,
-            };
-          }
-          if (method === 'thread/start')
-            return {
-              thread: { id: threadId },
-              model: 'fixture-model',
-              modelProvider: 'openai',
-            };
-          if (method === 'thread/turns/list') {
-            if (params.threadId !== threadId || !retainedTurn)
-              throw Error('Unknown synthetic native recovery thread');
-            return {
-              data: [{ ...retainedTurn, error: retainedTurn.error ?? null }],
-              nextCursor: null,
-            };
-          }
-          if (method === 'turn/interrupt') {
-            if (params.threadId !== threadId || params.turnId !== retainedTurn?.id)
-              throw Error('Wrong synthetic native Stop target');
-            // External cancellation ACK is not terminal proof; the held provider
-            // turn may complete/fail concurrently and is settled separately.
-            return {};
-          }
-          if (method === 'turn/start') {
-            const turnNumber = requests.filter((r) => r.method === 'turn/start').length;
-            const turnId = `private-native-turn-${turnNumber}`;
-            retainedTurn = { id: turnId, status: 'inProgress' };
-            streamTurns.set(turnNumber, (text) =>
-              lifecycle!.onNotification('item/agentMessage/delta', {
-                threadId,
-                turnId,
-                itemId: `native-answer-${turnNumber}`,
-                delta: text,
-              }),
-            );
-            setTimeout(() => {
-              lifecycle!.onNotification('turn/started', {
-                threadId,
-                turn: { id: turnId, status: 'inProgress' },
-              });
-              const finish = (status: 'completed' | 'failed', failure?: 'context') => {
-                streamTurns.delete(turnNumber);
-                const error =
-                  failure === 'context'
-                    ? { codex_error_info: 'context_window_exceeded' }
-                    : undefined;
-                retainedTurn = { id: turnId, status, error };
-                if (status === 'completed')
-                  lifecycle!.onNotification('item/completed', {
-                    threadId,
-                    turnId,
-                    item: {
-                      id: `native-answer-${turnNumber}`,
-                      type: 'agentMessage',
-                      text: 'Reviewed the selected design.',
-                    },
-                  });
-                lifecycle!.onNotification('turn/completed', {
-                  threadId,
-                  turn: { id: turnId, status, ...(error ? { error } : {}) },
-                });
-              };
-              if (heldTurns.has(turnNumber)) pendingTurns.set(turnNumber, finish);
-              else finish('completed');
-            }, 10);
-            return { turn: { id: turnId } };
-          }
-          throw Error(`Unexpected offline native method: ${method}`);
-        },
-      } as never;
+    .mockImplementation((_home, _env, lifecycle) => nativeClient(lifecycle));
+  const launchApi = vi
+    .spyOn(CodexAppServerClient, 'launchIsolatedApi')
+    .mockImplementation(async (options) => {
+      await options.assertCurrent(options.binding);
+      expect(await options.resolveKey(options.binding, options.signal)).toBe('synthetic-api-key');
+      await options.assertCurrent(options.binding);
+      await writeFile(
+        join(options.privateHome, 'auth.json'),
+        JSON.stringify({ OPENAI_API_KEY: 'synthetic-api-key' }),
+        { mode: 0o600, flag: 'wx' },
+      );
+      return { client: nativeClient(options.lifecycle, true), binding: options.binding };
     });
   return {
     requests,
@@ -178,6 +197,7 @@ export async function recordApplicationMessagingRuntime(events: EventStore) {
     },
     restore: () => {
       launch.mockRestore();
+      launchApi.mockRestore();
       discovery.mockRestore();
       preflight.mockRestore();
       artifact.mockRestore();

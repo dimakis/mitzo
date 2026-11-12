@@ -39,16 +39,28 @@ export function ConversationRepositoryPicker({
     return () => controller.abort();
   }, [attempt]);
   const routes = inventory
-    ? normalizeLocalInventory(inventory).routes.filter(
-        (r) =>
-          r.available &&
-          r.accountId === setup.selection?.accountId &&
-          r.location === setup.runOn &&
-          r.models.some((m) => m.id === setup.selection?.model) &&
-          inventory.targets.some(
-            (t) => t.targetId === r.targetId && t.location === setup.runOn && t.harness === 'codex',
-          ),
-      )
+    ? inventory.routes
+        .flatMap((configured) => {
+          if (
+            configured.harness !== 'codex' &&
+            !(configured.harness === 'claude-sdk' && setup.runOn === 'local')
+          )
+            return [];
+          return normalizeLocalInventory({ ...inventory, routes: [configured] }).routes.map(
+            (route) => ({ ...route, harness: configured.harness }),
+          );
+        })
+        .filter(
+          (r) =>
+            r.available &&
+            r.accountId === setup.selection?.accountId &&
+            r.location === setup.runOn &&
+            r.models.some((m) => m.id === setup.selection?.model) &&
+            inventory.targets.some(
+              (t) =>
+                t.targetId === r.targetId && t.location === setup.runOn && t.harness === r.harness,
+            ),
+        )
     : [];
   const route = routes.length === 1 ? routes[0] : undefined;
   return (
@@ -73,7 +85,7 @@ export function ConversationRepositoryPicker({
             runOn: setup.runOn,
             runtime: {
               account: route.accountReference,
-              harness: 'codex',
+              harness: route.harness,
               targetId: route.targetId,
             },
           }}
@@ -87,7 +99,7 @@ export function ConversationRepositoryPicker({
       ) : (
         <p role="status">
           {inventory
-            ? 'Choose an account, model and supported Codex environment to prepare a fresh repository.'
+            ? 'Choose an account, model and supported environment to prepare a fresh repository.'
             : 'Loading execution choices…'}
         </p>
       )}

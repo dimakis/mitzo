@@ -2,6 +2,43 @@
 
 Living map owner: workstream C, `01a14bdc-d152-7912-84d4-c0012e9d5206`.
 
+## 12 November 2026 source-acceptance checkpoint
+
+This checkpoint contributes landing evidence to the existing map without changing
+its ownership. GitHub merge receipts were checked on 12 November. Older sections
+retain their original dates, failure evidence and candidate-stage limitations;
+their preparation wording is not the current source-acceptance state.
+
+| Requirement and owner                                                                                                   | Exact source/PR                                                                                                                                                | Evidence and remaining boundary                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| ----------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Fresh join-to-answer and retained history: production UI, collaboration application and ordinary prompt/reply owners    | Accepted #1261 `878317bd3d994e6b9d9a153579db09f0bf868dc3`, #1276 `8978f4a1061ef2073967d7691b880af867d85d5e`, #1279 `048b3e05d1509074531f2d43ae165ad2c0de4f27`. | Integrated silent joining, explicit attributed turns, independent reply recovery and delivery beyond the visible page. The original dated application and owner-omission evidence is retained below.                                                                                                                                                                                                                                                                                                          |
+| Defaults/explicit recipients, Stop and streaming: messaging, ordinary command/effects and attributed progress owners    | Accepted #1280 `14fb28b0d03a0d780b663f1ef0697699ec546b88`.                                                                                                     | Independent same-account outcomes, partial failures, exact Stop identities and visible-to-final reply recovery. Joining, reading and observation invoke no inference.                                                                                                                                                                                                                                                                                                                                         |
+| Per-prompt context and saved bytes: authenticated review/compiler, snapshot authority and ordinary input adapter        | Accepted #1281 `0b8b94f1dd6519f7fcfb5b9eafdb352f03dc475e`; #1282 `d61ae5b25677df50a8b00470f9c01e4a15aaa661`.                                                   | #1282 CI 43208651729 and final Centaur review 5874486159 qualify head `9acb69fe`. Its accepted-base selection passed 114 focused account/application/context/native checks and compilation. Current desktop/mobile light/dark context-review PNGs were inspected; these visual fixtures are separate from backend integration.                                                                                                                                                                                |
+| Context-only forwarding: public UI/client, authenticated forwarding application, durable journal and ordinary consumers | Accepted #1284 `33bed3962a26d7ce21208610d11b0e85e1aa106d`.                                                                                                     | 114 tests pass across nine forwarding/application/context/API/notification files, including 20 forwarding-hook cases, production UI confirmation recovery and an older-artifact ordinary-consumer journey. CI 43231140948 and final Centaur review 5876732894 qualify head `9eed8f803`; required App status and guarded merge passed. Current desktop/mobile light/dark forwarding captures were inspected. Unsent cancellation restores only the exact journal, preserving prior ambiguity and replacements. |
+| Personal Claude: ordinary SDK preparation/queue/input/reply owners                                                      | #1289, source in this change.                                                                                                                                  | 155 focused tests pass across nine actual application, SDK owner/query, dispatch, API-account, native-executable and notification files on the integrated source. They cover silent preparation, attributed turns, exact Stop/restart, cold continuation and refusal of recovered shared commands lacking their original source observer. Current-head hosted CI, independent final security review and source acceptance remain required; no live provider/device qualification follows from these fixtures. |
+| Approved UX and qualification closure                                                                                   | Existing protected design ledger and dated renders; current #1282 CI artifacts.                                                                                | Saved-version, unavailable-selection, edited-brief and footer controls were inspected on desktop/mobile in both themes. Reconcile each milestone criterion and unfinished descendant against accepted evidence before closure. Other-conversation/Telos-artifact picker UI, full live account/runtime/OpenShell qualification, physical iOS and production activation remain outside these receipts.                                                                                                          |
+
+The native-executable fixture correction inherited from #1282 preserves the full
+buffer, length/hash, forced short reads, launch checks and 5000 ms deadline. Hosted
+job 131154015735 records all 13 tests passing in 56 ms. The earlier downstream timeout
+attempts remain retained; replacing the expensive generic property comparison
+with a native strict byte comparison does not establish a new runtime capability.
+
+The final candidate also integrates accepted #1319
+`8175174b0d9c1076e266c0d864fc83917585903b`. Its read-only connection discovery
+uses the same ordinary Claude SDK surface. The combined source passes 129 tests
+across eight application, SDK owner/query/effects, dispatch, connection-discovery,
+tool-catalog and joined ordinary-chat files, including queued and cold queries,
+profile restrictions, cancellation and revoked authority. Server compilation and
+all 2318 source fingerprints pass; the merge preserves every key from both
+parents. The earlier 155-test selection remains evidence for its preceding source,
+not an additional current-head total. Combined hosted CI and trusted current-head
+security verification remain required.
+
+Focused selections overlap and must not be added into a single test total. The
+source PRs and their exact-head CI/review receipts establish bounded acceptance;
+they do not independently prove the full feature or authorize production activation.
+
 ## 10 November 2026 one-prompt context source candidate
 
 This slice follows #1280 and composes the actual retained review/compiler,

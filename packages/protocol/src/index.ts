@@ -1,4 +1,5 @@
 export * from './markdown-paths.js';
+export * from './ordinary-turn.js';
 export { ToolFailureSchema, toolFailure, toolFailureAction } from './tool-failure.js';
 export type { ToolFailure } from './tool-failure.js';
 export { stripMarkdownCodeBlocks } from './markdown-code-blocks.js';
@@ -302,6 +303,7 @@ export {
   SessionRuntimeBindingV1Schema,
   SessionRuntimeBindingV2Schema,
   SessionRuntimeBindingSchema,
+  isOrdinaryRepositoryParticipantBinding,
 } from './session-runtime-binding.js';
 export type {
   SessionRuntimeBindingV1,

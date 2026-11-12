@@ -8,6 +8,7 @@ import {
   CollaborationPromptReviewResultSchema,
   CollaborationSourceArtifactsSchema,
   createOrdinaryFreshPermission,
+  isOrdinaryRepositoryParticipantBinding,
   type CollaborationApplicationReviewInput,
   type CollaborationSnapshot,
   type CollaborationSettings,
@@ -128,7 +129,7 @@ export class CollaborationApplicationReview {
         const settings = this.owners.store.getOrdinaryConversationSettings(id);
         if (
           !settings ||
-          settings.binding.harness.implementation !== 'codex' ||
+          !isOrdinaryRepositoryParticipantBinding(settings.binding) ||
           settings.binding.execution.location !== 'local'
         )
           throw unavailable();
@@ -430,7 +431,7 @@ export class CollaborationApplicationReview {
           record.ordinaryFirstReservation) ||
       record.handoff ||
       proof.runtimeBinding.execution.location !== target.runOn ||
-      proof.runtimeBinding.harness.implementation !== 'codex'
+      !isOrdinaryRepositoryParticipantBinding(proof.runtimeBinding)
     )
       throw unavailable();
     const profiles = loadAccountProfiles();
@@ -438,7 +439,10 @@ export class CollaborationApplicationReview {
     profiles.validateModelSelection(binding, target.model, target.reasoningEffort);
     const { ordinaryRepositoryRuntimeInventory } = await import('./ordinary-local-codex-entry.js');
     const resolveBinding = () => {
-      const inventory = ordinaryRepositoryRuntimeInventory(target.runOn, 'codex');
+      const inventory = ordinaryRepositoryRuntimeInventory(
+        target.runOn,
+        proof.runtimeBinding.harness.implementation,
+      );
       const current = inventory.profiles.resolve(target.accountId, target.model);
       inventory.profiles.validateModelSelection(current, target.model, target.reasoningEffort);
       const result = inventory.catalog.resolve({
@@ -447,7 +451,7 @@ export class CollaborationApplicationReview {
           provider: current.provider,
           profileRevision: current.profileRevision,
         },
-        harness: 'codex',
+        harness: proof.runtimeBinding.harness.implementation,
         targetId: proof.runtimeBinding.execution.targetId,
         mode: target.permissionMode,
       });

@@ -3,7 +3,7 @@ import { reopenClaudeSdkCredentials } from './claude-sdk-credentials.js';
 import { registerWorkspaceRuntimeAuthorityPaths } from './workspace-runtime-private-paths.js';
 import { dirname, join } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
-import type { SessionTransport } from '@mitzo/harness';
+import type { SessionTransport, ManagedSession } from '@mitzo/harness';
 import { hasPersistentRevocationAuthority } from './auth.js';
 import { captureAgentLibraryAuthorization } from './agent-library-transport.js';
 import { retainNativeHostToolOperator } from './native-host-tool-operator.js';
@@ -17,6 +17,9 @@ import {
 } from './ordinary-local-vertex-owned-runtime.js';
 import { OrdinaryLocalVertexSdkAuthority } from './ordinary-local-vertex-sdk-authority.js';
 import { OrdinaryLocalVertexCommandOwner } from './ordinary-local-vertex-command-owner.js';
+import { OrdinarySdkTurnEvidence } from './ordinary-sdk-turn-evidence.js';
+import type { OrdinaryTurnLifecycle } from './ordinary-turn-lifecycle.js';
+import { OrdinaryLocalVertexCommandRequestSchema } from './ordinary-local-codex-admission.js';
 const unavailable = () => Error('Owned Local Claude runtime unavailable');
 export function canResumeOwnedLocalVertexDriver(sessionId: string, authSessionId: string): boolean {
   try {
@@ -68,6 +71,7 @@ export async function sendOwnedLocalVertexCommand(input: {
   command: unknown;
   operatorConnectionId: string;
   signal?: AbortSignal;
+  ordinaryTurnLifecycle?: OrdinaryTurnLifecycle;
   assertCurrent?(): void;
 }) {
   const captured = captureAgentLibraryAuthorization(input.operatorConnectionId);
@@ -81,7 +85,12 @@ export async function sendOwnedLocalVertexCommand(input: {
     throw unavailable();
   input.assertCurrent?.();
   return {
-    ...(await owner.admit(input.command, input.signal, input.assertCurrent)),
+    ...(await owner.admit(
+      input.command,
+      input.signal,
+      input.assertCurrent,
+      input.ordinaryTurnLifecycle,
+    )),
     sessionId: input.sessionId,
   };
 }
@@ -96,6 +105,9 @@ export async function startOwnedLocalVertexCommand(
     ownerAuthSessionId: string;
     resume?: boolean;
     signal?: AbortSignal;
+    ordinaryTurnLifecycle?: OrdinaryTurnLifecycle;
+    preparationOperationId?: string;
+    onSessionPrepared?(session: ManagedSession): void;
   },
 ) {
   options.signal?.throwIfAborted();
@@ -123,6 +135,9 @@ export async function startOwnedLocalVertexCommand(
     [join(BASE_REPO, '.mitzo'), ...profileFiles],
   );
   const controller = new AbortController();
+  const turnLifecycles = new Map<string, OrdinaryTurnLifecycle>();
+  if (options.ordinaryTurnLifecycle)
+    turnLifecycles.set(command.clientMsgId, options.ordinaryTurnLifecycle);
   let queue: OrdinaryLocalVertexCommandOwner | undefined;
   let started = false;
   const dispatch = async (selected: OrdinaryLocalVertexOwnedDispatch) => {
@@ -183,16 +198,28 @@ export async function startOwnedLocalVertexCommand(
         clientMsgId: selected.commandId,
         operatorConnectionId: options.ownerConnectionId,
         ordinarySdkAuthority: authority,
-        ordinarySdkCommandOwner: (nativeQuery, push, reopen) => {
+        ordinarySdkCommandOwner: (nativeQuery, push, reopen, control) => {
           queue = new OrdinaryLocalVertexCommandOwner({
             store: eventStore,
             sessionId,
             assertCurrent: () => authority.assertCurrent(owner.signal),
+            assertCurrentSync: () => authority.assertCurrentSync(owner.signal),
+            turnEvidence: new OrdinarySdkTurnEvidence(
+              eventStore,
+              sessionId,
+              authority.sdkSessionId(),
+            ),
+            turnLifecycle: (id) => turnLifecycles.get(id),
             ownsClaim: (id) => owner.hasPendingCommand(id),
-            onTerminal: (id) => owner.commandTerminal(id),
+            onTerminal: (id) => {
+              owner.commandTerminal(id);
+              turnLifecycles.delete(id);
+            },
             settings: (selection) => ({ model: selection.model, thinkingTokens: null }),
             query: {
               applySettings: reopen,
+              captureInterruptTarget: () => control.captureInterruptTarget(),
+              interruptIfCurrent: (target) => control.interruptIfCurrent(target),
               setModel: (model) => nativeQuery.setModel(model),
               setMaxThinkingTokens: (tokens) => nativeQuery.setMaxThinkingTokens(tokens),
               push,
@@ -211,13 +238,33 @@ export async function startOwnedLocalVertexCommand(
             authSessionId: owner.authSessionId,
             identity: owner,
             initialCommandId: command.clientMsgId,
-            admit: (input, signal, current) => owner.admitContinuation(input, signal, current),
+            admit: (input, signal, current, lifecycle) => {
+              const parsed = OrdinaryLocalVertexCommandRequestSchema.parse(input);
+              if (lifecycle) {
+                const old = turnLifecycles.get(parsed.clientMsgId);
+                if (old && old !== lifecycle)
+                  throw Error('Original SDK turn observer already retained');
+                turnLifecycles.set(parsed.clientMsgId, lifecycle);
+              }
+              return owner.admitContinuation(input, signal, current).catch((error) => {
+                if (!eventStore.getSendCommand(parsed.clientMsgId))
+                  turnLifecycles.delete(parsed.clientMsgId);
+                throw error;
+              });
+            },
+            sdkTurns: {
+              captureInterruptTarget: () => queue!.captureInterruptTarget(),
+              interruptIfCurrent: (requestId, target) =>
+                queue!.interruptIfCurrent(requestId, target),
+            },
             retryInitial: (input) => owner.admit(input),
             close: () => {
               session.abortController.abort();
               owner.close();
+              turnLifecycles.clear();
             },
           };
+          options.onSessionPrepared?.(session);
           return queue;
         },
         onStartupAdmission: (error) => (error ? reject(error) : resolve()),
@@ -233,6 +280,9 @@ export async function startOwnedLocalVertexCommand(
     workspace: getRepositoryWorkspaces(true),
     reservation: options.reservation,
     commandId: command.clientMsgId,
+    ...(!options.resume && options.preparationOperationId
+      ? { preparationOperationId: options.preparationOperationId }
+      : {}),
     operatorConnectionId: options.operatorConnectionId,
     signal: controller.signal,
     dispatch,
