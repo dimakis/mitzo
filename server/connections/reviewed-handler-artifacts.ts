@@ -23,7 +23,7 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../tests/integration/claude-subagent-failures.test.tsx':
-    '240555306eb7c6502db52b0f693cf16bcbca4d82b536dd985103a40510bc33d7',
+    '0b2630a1a7436ebcaadc548ada318821ce2906c7a2973640125966aacc41a1f8',
   '../__tests__/claude-child-diagnostics.test.ts':
     'c3a7e87a6a63b3b8f97f1bfd7f013e6bf4964d97e90a0b6be2fdf63afc0e5453',
   '../claude-child-diagnostics.ts':
@@ -1991,7 +1991,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../session-permission-policy.ts':
     'ecea6009bd1307829048598f563b976328cc98ad1871b2d37d999a17743f7b27',
   '../../frontend/src/types/ws-messages.ts':
-    '7a380fb5213533ddd87da2bcfc202e1a6b5cf6b02e34ca73c9310e9007d8a77b',
+    'a1f28db383142b0ddf41247b5967836765f532813710bd393409859184893c32',
   '../../frontend/src/styles/global.css':
     'd7920cdb92fe3d0f302edb92d9b6b59370e7e6820d5ce8ce5d7f562d50cd6a18',
   '../../frontend/src/components/TelosSourceReview.tsx':
@@ -2395,7 +2395,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../symposium-app-exit.ts': '6129588f968e7ae2cca592104fc0975081f112c9cfa8ef475c7b12c3a7af7d1d',
   '../legacy-chat-delivery.ts': '30e041a7b8d1279cefae9198639444fa8e3dd4f76386598ec50ce66741f09f5c',
   '../chat-rest-handler.ts': '90ebbfbf3788386e7f3325b6d0b796823c13da73e8a3f14393e598b3173239b3',
-  '../query-loop.ts': '5bfd12e25f3a4afec33957ac2cc719d2facfa7be76267c1e47b96a3bae085168',
+  '../query-loop.ts': '6191b32715bb1df303d633772b5276eecd1d984c3807916e71d270277049f9ac',
   '../account-profiles.ts': '1f5a60618d0805803c1191f252ae5a6c93dd44bd55d1c67ce54f752c514b230d',
   '../ordinary-turn-lifecycle.ts':
     'a138e83ba1a2ec8ceaef967858fb926d5de83658d21f555f32c98174afd4064b',
@@ -2662,7 +2662,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/client/src/protocol-parser.ts':
     'f1553163acc9447df8734765b3cf6477da9c54c51354e2a3e7b1e13726afe9fe',
   '../../packages/client/src/slices/messages.ts':
-    '9baa7f09c060f0ec8ac1591a13ce1d86eeee81e2193cce0aca7020a2bd1c3698',
+    '00f913df422d963043a894af662fc631a92d547b2ff336f7fba5768d78d1bd5b',
   '../../packages/harness/src/providers/session-types.ts':
     '9db61b3cb13cf4c1ffe83e2c824f8a79865dcd9c847dec84109ad886910928cb',
   '../../packages/protocol/src/agent-context-pack.ts':

@@ -65,7 +65,11 @@ const childOutput = () => [
   stream({ type: 'content_block_stop', index: 0 }, 'agent-call'),
 ];
 
-async function run(events: Array<Record<string, unknown> | ((runtime: object) => void)>) {
+async function run(
+  events: Array<
+    Record<string, unknown> | ((runtime: object, activeTasks: Map<string, string>) => void)
+  >,
+) {
   const directory = mkdtempSync(join(tmpdir(), 'mitzo-claude-child-'));
   const store = new EventStore(join(directory, 'events.db'));
   const sent: Record<string, unknown>[] = [];
@@ -105,7 +109,7 @@ async function run(events: Array<Record<string, unknown> | ((runtime: object) =>
     sent.push(echo);
     async function* source() {
       for (const event of events) {
-        if (typeof event === 'function') event(session.queryInstance);
+        if (typeof event === 'function') event(session.queryInstance, session.activeTaskIds);
         else yield event;
       }
     }
@@ -285,6 +289,137 @@ describe('Claude task outcomes through adapter, client, replay and inline UI', (
       expect(
         messages.find((m) => m.messageId === 'parent-message')?.blocks[0].subagent,
       ).toMatchObject({ status: 'failed' });
+  });
+
+  it('keeps receiving output after stop rejection until a confirmed outcome', async () => {
+    const { state, replay } = await run([
+      ...parentEvents(),
+      taskStarted,
+      start('child-message', 'agent-call'),
+      stream(
+        { type: 'content_block_start', index: 0, content_block: { type: 'text' } },
+        'agent-call',
+      ),
+      stream(
+        { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: 'Before ' } },
+        'agent-call',
+      ),
+      (runtime) => {
+        reportClaudeChildDiagnostic(runtime, 'task-1', 'agent-call', {
+          code: 'claude_child_stop_failed',
+          correlationId: 'reference',
+        });
+      },
+      stream(
+        { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: 'and after' } },
+        'agent-call',
+      ),
+      stream({ type: 'content_block_stop', index: 0 }, 'agent-call'),
+      notification('completed'),
+    ]);
+    for (const messages of [state.messages, replay]) {
+      const child = messages.find((m) => m.messageId === 'parent-message')?.blocks[0].subagent;
+      expect(child).toMatchObject({
+        status: 'completed',
+        blocks: [expect.objectContaining({ content: 'Before and after' })],
+      });
+    }
+  });
+
+  it('preserves every child block when background output continues across parent turns', async () => {
+    const { state, replay } = await run([
+      ...parentEvents(),
+      taskStarted,
+      ...childOutput(),
+      { type: 'assistant' },
+      start('new-parent'),
+      stream({
+        type: 'content_block_start',
+        index: 0,
+        content_block: { type: 'tool_use', name: 'Read', id: 'new-call' },
+      }),
+      stream({ type: 'content_block_stop', index: 0 }),
+      start('second-child-message', 'agent-call'),
+      stream(
+        { type: 'content_block_start', index: 0, content_block: { type: 'text' } },
+        'agent-call',
+      ),
+      stream(
+        {
+          type: 'content_block_delta',
+          index: 0,
+          delta: { type: 'text_delta', text: 'Later child output' },
+        },
+        'agent-call',
+      ),
+      stream({ type: 'content_block_stop', index: 0 }, 'agent-call'),
+      notification('failed'),
+    ]);
+    for (const messages of [state.messages, replay])
+      expect(
+        messages
+          .find((m) => m.messageId === 'parent-message')
+          ?.blocks[0].subagent?.blocks.map((b) => b.content),
+      ).toEqual(['Retained public output', 'Later child output']);
+  });
+
+  it('tracks generic Bash background tasks without inventing child activity', async () => {
+    const events = parentEvents();
+    events[1] = stream({
+      type: 'content_block_start',
+      index: 0,
+      content_block: { type: 'tool_use', name: 'Bash', id: 'agent-call' },
+    });
+    let tracked = false;
+    const { sent } = await run([
+      ...events,
+      taskStarted,
+      (runtime, tasks) => {
+        expect(tasks.get('task-1')).toBe('agent-call');
+        tracked = reportClaudeChildDiagnostic(runtime, 'task-1', 'agent-call', {
+          code: 'claude_child_stop_failed',
+          correlationId: 'generic',
+        });
+      },
+      notification('completed'),
+    ]);
+    // The runtime reporter exists, but a Bash task must never create a subagent.
+    expect(tracked).toBe(true);
+    expect(
+      sent.filter(
+        (e) => e.type === 'subagent_start' || e.code === 'claude_child_parent_unavailable',
+      ),
+    ).toHaveLength(0);
+  });
+
+  it('keeps completed sibling usage when another child updates a finalized parent', async () => {
+    const { state, replay } = await run([
+      ...parentEvents(),
+      taskStarted,
+      stream({
+        type: 'content_block_start',
+        index: 1,
+        content_block: { type: 'tool_use', name: 'Agent', id: 'second-agent' },
+      }),
+      stream({ type: 'content_block_stop', index: 1 }),
+      { ...taskStarted, task_id: 'task-2', tool_use_id: 'second-agent' },
+      stream(
+        {
+          type: 'message_start',
+          message: { id: 'child-message', usage: { input_tokens: 50, output_tokens: 25 } },
+        },
+        'agent-call',
+      ),
+      ...childOutput().slice(1),
+      notification('completed'),
+      { type: 'assistant' },
+      start('new-parent'),
+      { ...notification('failed'), task_id: 'task-2', tool_use_id: 'second-agent' },
+    ]);
+    for (const messages of [state.messages, replay])
+      expect(
+        messages.find((m) => m.messageId === 'parent-message')?.blocks[0].subagent?.usage,
+      ).toMatchObject({ inputTokens: 50, outputTokens: 25 });
   });
 
   it.each([false, true])(

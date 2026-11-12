@@ -349,7 +349,7 @@ async function _runQueryLoopInner(
 
   function startTaskChild(toolId: string, taskId: string) {
     const parentBlockId = toolIdToBlockId.get(toolId);
-    if (!parentBlockId || startedSubagents.has(toolId)) return;
+    if (!parentBlockId || !agentToolIds.has(toolId) || startedSubagents.has(toolId)) return;
     startedSubagents.add(toolId);
     const parentMessageId = toolIdToMessageId.get(toolId);
     if (parentMessageId) parentMessageByChild.set(`task-${taskId}`, parentMessageId);
@@ -369,7 +369,7 @@ async function _runQueryLoopInner(
     diagnostic?: SubagentDiagnostic,
   ) {
     const parentBlockId = toolIdToBlockId.get(toolId);
-    if (!parentBlockId || terminalSubagents.has(toolId)) return;
+    if (!parentBlockId || !agentToolIds.has(toolId) || terminalSubagents.has(toolId)) return;
     if (!startedSubagents.has(toolId)) startTaskChild(toolId, taskId ?? toolId);
     const sub = activeSubagents.get(toolId);
     if (diagnostic && !childDiagnostics.has(toolId)) childDiagnostics.set(toolId, diagnostic);
@@ -386,7 +386,7 @@ async function _runQueryLoopInner(
       }),
     );
     if (status !== 'unavailable') terminalSubagents.add(toolId);
-    if (sub) {
+    if (sub && status !== 'unavailable') {
       endSubagentSpans(
         sub,
         status === 'completed' ? SpanStatusCode.OK : SpanStatusCode.ERROR,
@@ -397,6 +397,7 @@ async function _runQueryLoopInner(
   }
 
   let blockCounter = 0;
+  let childBlockCounter = 0;
   let caughtError = false;
   let terminalError: Error | undefined;
   let doneSent = false;
@@ -1352,7 +1353,7 @@ async function _runQueryLoopInner(
             if (subagent) {
               const contentBlock = evt.content_block as Record<string, unknown> | undefined;
               const index = evt.index as number;
-              const blockId = nextBlockId();
+              const blockId = `child-b${childBlockCounter++}`;
               const blockType = contentBlock?.type as string | undefined;
               subagent.subagentBlockIdByIndex.set(index, {
                 blockId,
@@ -1786,7 +1787,7 @@ async function _runQueryLoopInner(
             if (
               taskId &&
               toolUseId &&
-              agentToolIds.has(toolUseId) &&
+              toolIdToBlockId.has(toolUseId) &&
               !completedTasks.has(taskId) &&
               !terminalSubagents.has(toolUseId)
             ) {
@@ -1795,19 +1796,15 @@ async function _runQueryLoopInner(
               const subagent = activeSubagents.get(toolUseId);
               if (subagent) subagent.taskId = taskId;
               log.info('subagent task started', { clientId, taskId, toolUseId });
-            } else if (
-              taskId &&
-              !completedTasks.has(taskId) &&
-              !agentToolIds.has(toolUseId ?? '')
-            ) {
-              reportUncorrelatedChild(toolUseId ?? `task:${taskId}`);
+            } else if (taskId && !completedTasks.has(taskId)) {
+              log.debug('SDK task has no verified tool parent', { clientId, taskId, toolUseId });
             }
           } else if (subtype === 'task_notification') {
             const taskId = (msg as Record<string, unknown>).task_id as string | undefined;
             const status = (msg as Record<string, unknown>).status as string | undefined;
             const toolUseId = taskId
               ? (currentSession?.activeTaskIds.get(taskId) ??
-                (typeof msg.tool_use_id === 'string' && agentToolIds.has(msg.tool_use_id)
+                (typeof msg.tool_use_id === 'string' && toolIdToBlockId.has(msg.tool_use_id)
                   ? msg.tool_use_id
                   : undefined))
               : undefined;
@@ -1826,9 +1823,7 @@ async function _runQueryLoopInner(
               );
               log.info('subagent task finished', { clientId, taskId, toolUseId, status });
             } else if (taskId && !toolUseId && !completedTasks.has(taskId)) {
-              reportUncorrelatedChild(
-                typeof msg.tool_use_id === 'string' ? msg.tool_use_id : `task:${taskId}`,
-              );
+              log.debug('SDK task outcome has no verified tool parent', { clientId, taskId });
             }
           }
         } else if (msg.type === 'user') {
@@ -2051,6 +2046,7 @@ async function _runQueryLoopInner(
           ...(finalSession.activeTaskIds?.values() ?? []),
         ]);
         for (const toolId of pendingChildren) {
+          if (!agentToolIds.has(toolId)) continue;
           const diagnostic = {
             code: 'claude_child_outcome_unavailable' as const,
             correlationId: randomUUID(),
@@ -2111,7 +2107,7 @@ async function _runQueryLoopInner(
         });
       }
       // Clean up any open subagent spans (ERROR if catch was entered)
-      const subagentCleanupStatus = caughtError ? SpanStatusCode.ERROR : SpanStatusCode.OK;
+      const subagentCleanupStatus = SpanStatusCode.ERROR;
       for (const [, sub] of activeSubagents) {
         endSubagentSpans(
           sub,

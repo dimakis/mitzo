@@ -309,6 +309,8 @@ function finishSubagent(
     messageId: streaming.messageId,
     status: streaming.status ?? 'running',
     ...(streaming.diagnostic ? { diagnostic: streaming.diagnostic } : {}),
+    ...(streaming.summary ? { summary: streaming.summary } : {}),
+    ...(streaming.usage ? { usage: streaming.usage } : {}),
     blocks: streaming.blockOrder
       .map((blockId) => streaming.blocks.get(blockId))
       .filter((b): b is StreamingBlock => b != null)
@@ -709,14 +711,14 @@ function reduceRetainedSubagent(state: MessagesState, action: MessagesAction): M
   if (!('parentBlockId' in action)) return state;
   const owns = (message: { messageId: string }) =>
     !action.attributedMessageId || message.messageId === action.attributedMessageId;
-  if (state.current && owns(state.current) && state.current.blocks.has(action.parentBlockId))
-    return reduceLegacyMessages(state, action);
   const candidates = state.messages.filter(
     (message) =>
       !message.symposiumProvenance &&
       owns(message) &&
       message.blocks.some((block) => block.blockId === action.parentBlockId),
   );
+  if (state.current && owns(state.current) && state.current.blocks.has(action.parentBlockId))
+    return candidates.length === 0 ? reduceLegacyMessages(state, action) : state;
   if (candidates.length !== 1) return state;
   const message = candidates[0];
   const current: StreamingMessage = {
