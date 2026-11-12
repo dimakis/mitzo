@@ -108,3 +108,67 @@ export function gwsShellGuidance(): string {
   const shim = gwsShimPath();
   return `Google Workspace: run the gws CLI as ${shim} with normal gws arguments (for example ${shim} docs documents create --json '{"title":"Notes"}'). Plain \`gws\` cannot reach the signed-in account from this shell. It covers Docs, Sheets, Slides, Drive, Gmail, Calendar, Tasks and the gws helpers. Run it as one plain command without pipes, substitutions or variables. Pass local files with --upload, --attach or --output; other host paths are refused. Reads may be approved once per chat; every change asks for approval unless the chat is in Auto, and changes are unavailable in Ask. In Agent or Ask on native Codex, request network permission for the exact ${shim} command; Mitzo accepts that automatically and asks about the Google action itself. Never print or copy credentials or MITZO_GWS_TOKEN, and do not run gws auth.`;
 }
+
+export interface GwsFileArgument {
+  index: number;
+  /** Text before the path within argv[index]: '', '--upload=', '-o' and so on. */
+  prefix: string;
+  kind: 'in' | 'out';
+  value: string;
+}
+
+/**
+ * Every local file argument gws would read or write. The client embeds this
+ * exact function (via toString) and the broker re-runs it, so both sides agree
+ * on which positions must be staged. Keep the body plain JavaScript.
+ */
+export function gwsFileArguments(argv: readonly string[]): {
+  error?: string;
+  entries: GwsFileArgument[];
+} {
+  const inputs = ['--upload', '--attach', '-a'];
+  const outputs = ['--output', '-o'];
+  const valued = ['--parent', '--name', '--format', '--sanitize', '--upload-content-type'];
+  const entries: GwsFileArgument[] = [];
+  let uploadHelper = false;
+  for (let i = 0; i < argv.length; i++) {
+    const arg = argv[i]!;
+    let flag = arg;
+    let inline: string | undefined;
+    let prefix = '';
+    if (arg.startsWith('--') && arg.indexOf('=') > 0) {
+      flag = arg.slice(0, arg.indexOf('='));
+      inline = arg.slice(arg.indexOf('=') + 1);
+      prefix = flag + '=';
+    } else if (/^-[ao]./.test(arg)) {
+      flag = arg.slice(0, 2);
+      inline = arg.slice(2);
+      prefix = flag;
+    }
+    if (flag === '--output-dir')
+      return {
+        error: '--output-dir is unavailable through Mitzo; use --output or stdout.',
+        entries,
+      };
+    if (inputs.includes(flag) || outputs.includes(flag)) {
+      const index = inline === undefined ? ++i : i;
+      const value = inline === undefined ? argv[index] : inline;
+      if (value === undefined || value === '') return { error: flag + ' needs a value.', entries };
+      entries.push({ index, prefix, kind: inputs.includes(flag) ? 'in' : 'out', value });
+      continue;
+    }
+    if (arg === '+upload') {
+      uploadHelper = true;
+      continue;
+    }
+    if (valued.includes(arg)) {
+      i++;
+      continue;
+    }
+    if (uploadHelper && !arg.startsWith('-')) {
+      entries.push({ index: i, prefix: '', kind: 'in', value: arg });
+      uploadHelper = false;
+    }
+  }
+  return { entries };
+}

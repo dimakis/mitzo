@@ -420,6 +420,7 @@ import type { ProviderAttemptToken } from '@mitzo/protocol';
 import { getAccountUseStore } from './account-use-store.js';
 import {
   gwsBrokerForSession,
+  type GwsBroker,
   gwsShellGuidance,
   gwsShimInvocation,
   gwsShimWritesFiles,
@@ -2232,6 +2233,7 @@ async function _startChatInner(
 
   let newSdkSessionId: string | undefined;
   let unwatchSdkAgentMessages: (() => void) | undefined;
+  let gwsBroker: GwsBroker | undefined;
   const stopSdkAgentMessageWatch = () => {
     unwatchSdkAgentMessages?.();
     unwatchSdkAgentMessages = undefined;
@@ -2296,10 +2298,16 @@ async function _startChatInner(
       sessionEnv[`MITZO_REPO_${name.toUpperCase()}`] = path;
     }
     // Shell gws reaches the host login only through this chat's Mitzo broker.
-    const gwsBroker = await gwsBrokerForSession({
+    gwsBroker = await gwsBrokerForSession({
       key: `sdk:${wtId}`,
       registry,
       lifetime: session.abortController.signal,
+      // The selected runtime's own fences (adviser scope, ordinary SDK
+      // custody/account/workspace) gate every broker execution and delivery.
+      assertCurrent: async (signal) => {
+        options.adviserScope?.assertCurrent();
+        await options.ordinarySdkAuthority?.assertCurrent(signal);
+      },
       resolve: () => {
         const found = session.sessionId ? registry.findBySessionId(session.sessionId) : null;
         if (found) return found.session === session ? found : null;
@@ -3459,6 +3467,7 @@ This is an independent checkout with its own Git storage, not a linked worktree.
       }
     }
   } finally {
+    gwsBroker?.close();
     stopSdkAgentMessageWatch();
     const current = registry.get(clientId);
     if (!current || current === session) _onSessionChange?.(clientId, 'end', session.sessionId);

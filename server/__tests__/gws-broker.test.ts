@@ -88,7 +88,10 @@ function raw(socket: string, body: unknown, hold = false) {
   });
 }
 
-async function broker(mode: 'ask' | 'agent' | 'auto' = 'agent') {
+async function broker(
+  mode: 'ask' | 'agent' | 'auto' = 'agent',
+  assertCurrent?: (signal: AbortSignal) => Promise<void>,
+) {
   const f = capabilityFixture();
   f.session.mode = mode;
   const lifetime = new AbortController();
@@ -96,6 +99,7 @@ async function broker(mode: 'ask' | 'agent' | 'auto' = 'agent') {
     key: `test:${Math.random()}`,
     registry: f.registry,
     lifetime: lifetime.signal,
+    ...(assertCurrent ? { assertCurrent } : {}),
     resolve: () => ({ clientId: 'one', session: f.session }),
   });
   if (!b) throw Error('broker unavailable');
@@ -250,6 +254,21 @@ describe('gws broker', () => {
       outputs: [{ index: 4, prefix: '' }],
     });
     expect(misplaced.reply).toContain('invalid file arguments');
+    for (const argv of [
+      ['drive', 'files', 'get', `-o${join(root, 'clobber')}`],
+      ['drive', 'files', 'create', '-a/etc/hosts'],
+      ['drive', 'files', 'create', '--upload', '/etc/hosts'],
+    ]) {
+      const unstaged = await raw(b.socketPath, {
+        v: 1,
+        token: b.env().MITZO_GWS_TOKEN,
+        argv,
+        files: [],
+        outputs: [],
+      });
+      expect(unstaged.reply, argv.join(' ')).toContain('invalid file arguments');
+    }
+    expect(existsSync(join(root, 'clobber'))).toBe(false);
     const path = await shim(b.env(), ['gmail', '+send', '--body', '/etc/hosts']);
     expect(path.code).toBe(2);
     expect(path.stderr).toContain('host file paths are unavailable');
@@ -258,6 +277,20 @@ describe('gws broker', () => {
     expect(auth.stdout).toBe('');
     b.close();
     other.close();
+  });
+
+  it("refuses when the owning runtime's authorization fails", async () => {
+    let allowed = true;
+    const { broker: b } = await broker('auto', async () => {
+      if (!allowed) throw Error('workspace changed');
+    });
+    expect((await shim(b.env(), ['drive', 'files', 'list'])).code).toBe(0);
+    allowed = false;
+    const refused = await shim(b.env(), ['drive', 'files', 'list']);
+    expect(refused.code).toBe(2);
+    expect(refused.stdout).toBe('');
+    expect(refused.stderr).toContain('runtime authorization changed');
+    b.close();
   });
 
   it('cancels the host command when the client goes away and closes with the chat', async () => {

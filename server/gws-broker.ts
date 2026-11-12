@@ -21,7 +21,7 @@ import {
   type SessionRegistry,
 } from '@mitzo/harness';
 import { agentToolAllowed } from './agent-tool-selection.js';
-import { gwsBrokerRoot, gwsShimPath } from './gws-shell.js';
+import { gwsBrokerRoot, gwsFileArguments, gwsShimPath } from './gws-shell.js';
 export {
   GWS_SHELL_ENV_NAMES,
   gwsBrokerRoot,
@@ -60,9 +60,6 @@ const READ_HELPERS = new Set([
   '+meeting-prep',
   '+weekly-digest',
 ]);
-const INPUT_FLAGS = new Set(['--upload', '--attach', '-a']);
-const OUTPUT_FLAGS = new Set(['--output', '-o']);
-const STAGE_PREFIXES = new Set(['', '--upload=', '--attach=', '--output=', '-a', '-o']);
 
 /**
  * Reads are provable single reads by command shape; everything else (helpers
@@ -106,9 +103,7 @@ if (!socket || !token) {
   process.stderr.write('gws: the Mitzo gws broker is not available in this shell.\\n');
   process.exit(2);
 }
-const IN = new Set(['--upload', '--attach', '-a']);
-const OUT = new Set(['--output', '-o']);
-const VALUE = new Set(['--parent', '--name', '--format', '--sanitize', '--upload-content-type']);
+const gwsFileArguments = ${gwsFileArguments.toString()};
 const argv = process.argv.slice(2);
 const files = [];
 const outputs = [];
@@ -120,33 +115,11 @@ function stage(index, value, prefix) {
   const file = path.resolve(value);
   files.push({ index, prefix, name: path.basename(file), data: fs.readFileSync(file).toString('base64') });
 }
-let uploadHelper = false;
-for (let i = 0; i < argv.length; i++) {
-  const arg = argv[i];
-  let flag = arg;
-  let inline;
-  let prefix = '';
-  if (arg.startsWith('--') && arg.indexOf('=') > 0) {
-    flag = arg.slice(0, arg.indexOf('='));
-    inline = arg.slice(arg.indexOf('=') + 1);
-    prefix = flag + '=';
-  } else if (/^-[ao]./.test(arg)) {
-    flag = arg.slice(0, 2);
-    inline = arg.slice(2);
-    prefix = flag;
-  }
-  if (flag === '--output-dir') fail('--output-dir is unavailable through Mitzo; use --output or stdout.');
-  if (IN.has(flag) || OUT.has(flag)) {
-    const index = inline === undefined ? ++i : i;
-    const value = inline === undefined ? argv[index] : inline;
-    if (value === undefined || value === '') fail(flag + ' needs a value.');
-    if (IN.has(flag)) stage(index, value, prefix);
-    else outputs.push({ index, prefix, path: path.resolve(value) });
-    continue;
-  }
-  if (arg === '+upload') { uploadHelper = true; continue; }
-  if (VALUE.has(arg)) { i++; continue; }
-  if (uploadHelper && !arg.startsWith('-')) { stage(i, arg, ''); uploadHelper = false; }
+const parsed = gwsFileArguments(argv);
+if (parsed.error) fail(parsed.error);
+for (const entry of parsed.entries) {
+  if (entry.kind === 'in') stage(entry.index, entry.value, entry.prefix);
+  else outputs.push({ index: entry.index, prefix: entry.prefix, path: path.resolve(entry.value) });
 }
 const client = net.createConnection(socket);
 const chunks = [];
@@ -242,45 +215,31 @@ function parseRequest(raw: string): BrokerRequest {
 }
 
 /**
- * The client chooses staging positions, so confirm each one against the parsed
- * flags: a staged value must be the value of --upload/--attach/-a (or the
- * `drive +upload` file) for inputs and of --output/-o for outputs.
+ * The broker re-parses every file argument itself. Each one must be staged by
+ * the client at exactly that position and prefix, and nothing else may be.
  */
 function stagingValid(request: BrokerRequest): boolean {
-  const { argv } = request;
-  const seen = new Set<number>();
-  const check = (entry: StagedEntry, flags: Set<string>, positionalUpload: boolean) => {
-    if (
-      !Number.isInteger(entry.index) ||
-      entry.index < 0 ||
-      entry.index >= argv.length ||
-      seen.has(entry.index) ||
-      !STAGE_PREFIXES.has(entry.prefix)
-    )
-      return false;
-    seen.add(entry.index);
-    const arg = argv[entry.index]!;
-    if (entry.prefix) {
-      const flag = entry.prefix.endsWith('=') ? entry.prefix.slice(0, -1) : entry.prefix;
-      return flags.has(flag) && arg.startsWith(entry.prefix) && arg.length > entry.prefix.length;
-    }
-    if (entry.index > 0 && flags.has(argv[entry.index - 1]!)) return true;
-    const helper = argv.indexOf('+upload');
-    // `drive +upload <file>`: always a change, so a mis-staged positional
-    // can only alter which file a separately approved upload sends.
-    return positionalUpload && helper >= 0 && helper < entry.index && !arg.startsWith('-');
-  };
-  return (
-    request.files.every((entry) => check(entry, INPUT_FLAGS, true)) &&
-    request.outputs.every((entry) => check(entry, OUTPUT_FLAGS, false))
-  );
+  const parsed = gwsFileArguments(request.argv);
+  if (parsed.error) return false;
+  const key = (entry: { index: number; prefix: string }, kind: string) =>
+    `${kind}:${entry.index}:${entry.prefix}`;
+  const expected = parsed.entries.map((entry) => key(entry, entry.kind)).sort();
+  const staged = [
+    ...request.files.map((entry) => key(entry, 'in')),
+    ...request.outputs.map((entry) => key(entry, 'out')),
+  ].sort();
+  return expected.length === staged.length && expected.every((entry, i) => entry === staged[i]);
 }
 
 const refuse = (message: string): BrokerReply => ({ exitCode: 2, stderr: `gws: ${message}\n` });
 
 /** Rejects host path arguments the client did not stage. */
 function hostPathArgument(arg: string, scratch: string): boolean {
-  const value = arg.replace(/^--[a-z-]+=/, '').replace(/^@/, '');
+  // Strip flag forms (--flag=, attached short options) before checking paths.
+  const value = arg
+    .replace(/^--[a-z-]+=/, '')
+    .replace(/^-[A-Za-z](?=[/~.])/, '')
+    .replace(/^@/, '');
   if (!value || value.startsWith('{') || value.startsWith('[')) return false;
   const expanded =
     value === '~' || value.startsWith('~/') ? join(homedir(), value.slice(1)) : value;
@@ -297,6 +256,8 @@ export interface GwsBrokerOwner {
   readonly registry: SessionRegistry;
   /** Live owner of the chat, resolved on every request. */
   resolve(): { clientId: string; session: ManagedSession } | null;
+  /** The owning runtime's own authorization fence (workspace, account, context). */
+  assertCurrent?(signal: AbortSignal): Promise<void>;
   /** The chat's lifetime; the broker closes and cancels its commands when it ends. */
   readonly lifetime: AbortSignal;
 }
@@ -417,10 +378,20 @@ async function run(
         'host file paths are unavailable; pass files with --upload, --attach or --output.',
       );
     // Classify and approve exactly the arguments that will execute.
+    const runtimeCurrent = async () => {
+      try {
+        await owner.assertCurrent?.(signal);
+        return undefined;
+      } catch {
+        return "this chat's runtime authorization changed.";
+      }
+    };
+    const startup = await runtimeCurrent();
+    if (startup) return refuse(startup);
     const decision = await authorize(owner, argv, signal);
     if ('refusal' in decision) return refuse(decision.refusal);
     signal.throwIfAborted();
-    const before = decision.current();
+    const before = (await runtimeCurrent()) ?? decision.current();
     if (before) return refuse(before);
     const result = await new Promise<BrokerReply>((resolveRun) => {
       execFile(
@@ -453,7 +424,7 @@ async function run(
       outputs.push({ index: out.index, data: (await readFile(path)).toString('base64') });
     }
     signal.throwIfAborted();
-    const after = decision.current();
+    const after = (await runtimeCurrent()) ?? decision.current();
     if (after) return refuse(`${after} The command ran; its result was withheld.`);
     return { ...result, outputs };
   } finally {

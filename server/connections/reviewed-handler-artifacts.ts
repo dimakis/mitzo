@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.1083-gws-shell-broker';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.1084-gws-shell-broker';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -505,10 +505,10 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     '0791b9e017595a996dc106ac450053e089127b178899cf84c46017b3d3110366',
   '../__tests__/reusable-authority.test.ts':
     '85c3f9f0a7cbf941c3128312b41105e52985fe399e313fdf2d80cb2f8fd2d930',
-  '../gws-shell.ts': '3dd933c4b1ef40a8f11007441031f3de9c34c6a434096b3ccbe812adef708ef7',
-  '../gws-broker.ts': '2a3a614baf850e64bb34192546704c823ced4c7ef3367c15afb596df4b2fd09d',
+  '../gws-shell.ts': '9e3a7d93667523cb70563405aff35866017cbe8890fb75088102be29db10656d',
+  '../gws-broker.ts': '2eae7871b60b8b2a3db4a1d92be5274091442b13160f024f7d1e013c9fcf4929',
   '../__tests__/gws-broker.test.ts':
-    '44e62e070f03d6c3a397383df9565801567999298aa0fcb8dc4afa779115cea8',
+    'ca7729ab845ecc15e5dc8e69460eeb971e112da2af6be7e93bcc2f45af989461',
   '../__tests__/google-read-consent.test.ts':
     'feaf2bad21675aee45531d319e667d1c65a369a136603f8b627dd7cc1f0f176b',
   '../__tests__/telos-progress-consent.test.ts':
@@ -2520,7 +2520,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     'c103af10de4adc81cdc474b3e69ef2b3de5e447d4dcf15da4fc1894c422b913b',
   '../../packages/protocol/src/session-output-reference-store.ts':
     'e3d0095bfe092da676eb3671f8c147500e9436a95a9438d0315b8037b14b3029',
-  '../chat.ts': '93d2d4951d79229e1439a18999735a1204a781a812f9b161df0fe74989e799a2',
+  '../chat.ts': '52f4f4d3ef5bb4a5d047b0c87c0d744d79221746ddd7ab9acf3998a6bc8d5402',
   '../../packages/harness/src/session-registry.ts':
     '5475d51509dd9cc8947edc57022185069b4ba8bc3dc3b253cc49c6c6c4baf07e',
   '../agent-context-binding.ts': '4917ff83899105b7ac2c537c8db18111eeb97386d1ca0a2d2b576d872e1db360',
@@ -2736,7 +2736,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../openshell-runtime.ts': '4289834fb795911bc8952a141dd592ad695621e3e43fa590de1395094a5a1c95',
   '../codex-admission-preparation.ts':
     '0cb595a8fed20de735d4fa718544baf1a36ccebf3beecc763badd696e4af3098',
-  '../codex-chat-session.ts': '9c3f2648cde31ec59946153d38cf8981687cb943193b0dc3603c315449a14ba9',
+  '../codex-chat-session.ts': '9f3808a3ce2d9a82ec901479f87b2fb92a65b9c1f53333f61cd70d44108b77de',
   '../connections-runtime.ts': 'c5c0da8aa548c029b1dbe7c1eb880311f35c6dfab26ff0e437db6134455089ef',
   'capabilities/operation-store.ts':
     '60c15c84c9cfddbbf30b01b215b1d7551271715f5cce5b3b4fd85092f7e575eb',

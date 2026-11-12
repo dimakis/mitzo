@@ -1965,6 +1965,7 @@ async function openCodexChatBound(
         key: `codex:${options.conversationId}`,
         registry: options.registry,
         lifetime: options.session.abortController.signal,
+        assertCurrent: () => assertHostCurrent(),
         resolve: () => {
           const found = options.registry.findBySessionId(options.conversationId);
           return found?.session === options.session ? found : null;
@@ -2225,6 +2226,7 @@ async function openCodexChatBound(
   function finish() {
     if (closed) return;
     closed = true;
+    gwsBroker?.close();
     unwatchAgentMessages?.();
     options.ownedLocal?.close();
     githubPublishing.close();

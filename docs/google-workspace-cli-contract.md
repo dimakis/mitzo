@@ -116,10 +116,10 @@ scratch directory:
   session** scoped to this chat. Everything else, including `--dry-run` and
   `--help` forms, is a change and asks every time as `Bash`. Changes are
   refused in Ask.
-- The arguments that actually execute are classified. Staged positions are
+- The broker re-parses every file argument with the same parser the client embeds (`gwsFileArguments`), and each one must be staged at exactly that position. The arguments that actually execute are classified. Staged positions are
   validated against the parsed flags.
 - The shell skill ceiling (`Bash`) applies in every mode.
-- Runtime ownership, mode and the read grant are rechecked before execution
+- The owning runtime's own authorization fence (Codex host/workspace, Claude SDK account and adviser scope), runtime ownership, mode and the read grant are rechecked before execution
   and before results are returned.
 - Closing the client, ending the chat or closing the broker cancels the host
   command.
@@ -140,7 +140,7 @@ command is parsed with a strict shell-word parser and may sit inside one
 - in Ask, only when it writes no local files.
 
 Substitutions, variables, pipes and chained commands get the ordinary shell
-approval. The broker closes with its chat. If its socket cannot be created, the
+approval. The broker closes when its chat finishes or is aborted. If its socket cannot be created, the
 chat starts without it.
 
 The regression in `owned-local-codex-native-execution.test.ts` starts the actual
