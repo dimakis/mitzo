@@ -13,6 +13,7 @@ import {
 } from './task-worker-authority.js';
 import { assertTurnCallbackEffects, type TurnCallbackRunner } from './turn-callbacks.js';
 import { createSdkTurnQuery } from './sdk-turn-query.js';
+import { reportClaudeChildDiagnostic } from './claude-child-diagnostics.js';
 import { claudePersonalSandbox, claudePersonalToolPermission } from './claude-personal-policy.js';
 import { readClaudeAccountHistory } from './claude-account-history.js';
 import { findSessionRuntimeError, SessionRuntimeError } from './session-runtime-error.js';
@@ -5362,15 +5363,88 @@ export async function interruptChat(
     // Stop all active subagent tasks before interrupting the parent query.
     // Without this, interrupt() only halts the parent — which is blocked
     // waiting for the subagent, so the session hangs.
-    if (session.activeTaskIds.size > 0) {
-      const stops = [...session.activeTaskIds.keys()].map((taskId) =>
-        session
-          .queryInstance!.stopTask(taskId)
-          .catch((err: unknown) => log.warn('stopTask failed', { taskId, err })),
-      );
-      await Promise.allSettled(stops);
+    const runtime = session.queryInstance;
+    const children = [...session.activeTaskIds];
+    const results = await Promise.allSettled(
+      children.map(async ([taskId]) => runtime.stopTask(taskId)),
+    );
+    for (const [index, result] of results.entries()) {
+      if (result.status !== 'rejected') continue;
+      const [taskId, toolId] = children[index];
+      const diagnostic = { code: 'claude_child_stop_failed' as const, correlationId: randomUUID() };
+      log.warn('subagent cancellation could not be confirmed', {
+        stage: 'child_stop',
+        ...diagnostic,
+        clientId,
+        sessionId: session.sessionId,
+        taskId,
+        toolId,
+        err: result.reason,
+      });
+      if (registry.get(clientId) !== session || session.queryInstance !== runtime) continue;
+      const feedbackFailed = (stage: string, err: unknown) => {
+        log.error('subagent cancellation feedback failed; parent interruption continues', {
+          stage,
+          code: 'claude_child_feedback_failed',
+          correlationId: diagnostic.correlationId,
+          clientId,
+          sessionId: session.sessionId,
+          taskId,
+          toolId,
+          err,
+        });
+      };
+      try {
+        reportClaudeChildDiagnostic(runtime, taskId, toolId, diagnostic);
+      } catch (err) {
+        feedbackFailed('child_stop_activity', err);
+      }
+      const failure = {
+        v: 2,
+        type: 'error',
+        nonfatal: true,
+        ts: Date.now(),
+        sessionId: session.sessionId,
+        taskId,
+        ...diagnostic,
+        error: `Subagent cancellation could not be confirmed. Check retained activity before retrying. Reference: ${diagnostic.correlationId}`,
+      };
+      let feedback: Record<string, unknown> = failure;
+      if (session.sessionId) {
+        try {
+          const seq = eventStore.append(session.sessionId, 'error', failure);
+          feedback = { ...failure, seq };
+        } catch (err) {
+          feedbackFailed('child_stop_persistence', err);
+          feedback = {
+            ...failure,
+            retained: false,
+            error: `${failure.error} This feedback could not be saved.`,
+          };
+        }
+      }
+      try {
+        if (session.sessionId)
+          deliverRetainedSessionEvent(feedback, clientId, registry, _connRegistry ?? undefined);
+        else {
+          send(session.transport, feedback);
+          broadcastToObservers(session.observers, feedback);
+        }
+      } catch (err) {
+        // Delivery may be partial; retain the original reference without a blind resend.
+        feedbackFailed('child_stop_delivery', err);
+      }
     }
-    await session.queryInstance.interrupt();
+    if (registry.get(clientId) !== session || session.queryInstance !== runtime) {
+      log.warn('interrupt runtime owner changed', {
+        stage: 'parent_interrupt',
+        code: 'claude_interrupt_owner_changed',
+        clientId,
+        sessionId: session.sessionId,
+      });
+      return false;
+    }
+    await runtime.interrupt();
     // Only push to inputQueue on first delivery — a retried interrupt should
     // still call interrupt() (to halt the agent) but not double-queue the prompt.
     if (!isDup) {
