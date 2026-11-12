@@ -57,6 +57,14 @@ insufficient enabled-button assertion. The strengthened browser assertions and
 corrected mobile/desktop captures still require a new hosted run; no local browser
 execution or completed visual acceptance is claimed for this follow-up.
 
+The same run's WebKit light/dark cases reached the final runtime-error assertion
+and reported an EventSource MIME mismatch: the fixture's generic API fallback
+returned JSON for `/api/events`. The fixture now serves that exact endpoint with
+the event-stream content type and a bounded retry directive, matching the
+application's existing offline SSE fixtures. The no-runtime-errors and no-write
+assertions remain intact. This is a reproduced fixture-response defect; it does
+not establish a production layout/observer failure or passing corrected renders.
+
 ## 12 November 2026 source-acceptance checkpoint
 
 This checkpoint contributes landing evidence to the existing map without changing

@@ -49,6 +49,8 @@ for (const theme of ['dark', 'light'])
       if (route.request().method() !== 'GET') mutations.push(path);
       if (path === '/api/auth/check')
         return route.fulfill({ json: { ok: true, authSessionId: 'offline-dialog-login' } });
+      if (path === '/api/events')
+        return route.fulfill({ contentType: 'text/event-stream', body: 'retry: 60000\n\n' });
       if (path.endsWith('/source-setup'))
         return route.fulfill({
           json: {

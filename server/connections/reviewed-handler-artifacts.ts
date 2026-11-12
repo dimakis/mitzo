@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.1107-symposium-repository-dialog-sizing';
+  'v1.0.1108-symposium-dialog-event-stream-fixture';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -26,7 +26,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/components/__tests__/ConversationAgents.settings-scope.test.tsx':
     'a0d693a1b69e6cd88ff70ece610d44018966e7b72dfeab567d0ef3ae755d7216',
   '../../tests/offline/symposium-dialog-controls.spec.ts':
-    '05abd771c2438e4ee9293ea5142a9943f9e77965f11877f3f093b3e7a41aa887',
+    'dde628af4464024c8f5f5d3190b03cc8af4baca53fe5b9a1b0917df25cafe355',
   '../__tests__/fixtures/telos-ordinary-work.ts':
     '0b8d81da3391063f665428627fc4eca87f9d94a5575fe3b72c3eee3239f15f3b',
   '../telos-session-proposal-failure.ts':
@@ -540,7 +540,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../tests/offline/symposium-composer.spec.ts':
     '9867fcbd4ae751f7b53115b63b8b3914bb80e054da5970be8e35657afc6f72cb',
   '../../docs/evidence/symposium-integration-acceptance.md':
-    '71a7af5b9f1bc6ba48f466e94123a141ff19da69b7801889ffd6c69ec8317756',
+    'dfec4866f2bab9717b66428394d9d5175b0b363ddda7eb1af5e24203ee781017',
   '../../docs/features/symposium.md':
     '4c3e122d0780454a2519a68129bda931d42091d4201dca074d0e42e4c1527f94',
   '../repository-capability-identity.ts':
