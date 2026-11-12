@@ -50,3 +50,64 @@ separately; report longest lane, end-to-end latency and total runner-minutes.
 Overlapping suite durations are scheduling weights, never elapsed predictions.
 No stable p95 can be inferred from this small trial. No merge or production
 activation is authorized by this document.
+
+## Implemented trial and local evidence
+
+The three measured unit files move from shard 2 to shards 1, 3 and 4. Overrides
+apply after the existing ordinary hash partition, preserving every other file's
+owner. Final discovery contains 2,013 files, of which 2,011 remain in unit CI and
+the same two declared composed files retain their separate owner. A comparison
+against the original implementation over this exact inventory found precisely
+the three intended ownership changes. Existing Vitest ordering already runs
+longer files first when cached durations exist, after its failed/unknown-file and
+isolation priorities; this trial preserves that policy. Fresh CI has no measured
+rolling unit history yet, so the ownership change remains a trial rather than a
+claim of a stable improvement. Retain subsequent unit JSON reports, including
+unfavorable samples, before deciding whether to keep or revise these owners.
+
+Offline browser discovery and the original ten Playwright shard lists agree on
+459 cases in each current project. The new partition has the same complete
+exactly-once union. Historical timing weights match 420 WebKit, 420 mobile
+Chromium and 419 desktop Chromium cases; every unmatched case receives a finite
+fallback weight and remains required. No selected case, assertion, screenshot
+call or project was removed. Every process still selects at most five cases,
+with one worker, zero retries and the existing startup dependencies. Actual
+batch reports now retain case durations for later rolling timing refreshes.
+
+The browser aggregate still requires both original job results, and additionally
+downloads all ten run-scoped partition artifacts. It validates matching complete
+project inventories, exactly-once ownership, successful summaries and actual
+complete per-batch reports. Missing artifacts, results, duplicated cases and
+unexpected outcomes fail closed. Existing visual artifacts remain required.
+
+The native job has one Python resource owner. It creates and starts the same
+fresh simulator before the disposable-Keychain, Swift package, Watch receipt,
+Watch approval, app/Watch build and embedded-Watch validation commands. It joins
+that boot before installing the exact built app's offline fixture. Every command
+failure remains fatal, while independent checks and the diagnostic build retain
+their evidence. Cancellation retires only the owned boot process and simulator.
+Boot, install, launch, container lookup, bridge, build/check and cleanup stages
+have bounded waits and timestamped logs. The `readiness_observation_seconds`
+envelope includes compilation overlap; use bootstatus's own streamed elapsed
+time for actual cold-boot duration. Logs are retained on successful runs too.
+`ci-native-candidate.py --boot-mode sequential` provides an A/B control with the
+same checks, app path, fresh fixture, offline origin and bridge assertion.
+
+Local verification used one worker and a 1 GiB Node heap. The 295-test CI-script
+suite passed 294 tests. Its unchanged macOS process-title diagnostic failed
+because the executor denies `/bin/ps` (`Operation not permitted`); that gate is
+retained, and hosted CI must verify it. Focused sequencer/recovery/cancellation
+checks passed 102 tests; browser/gate checks passed 48; native workflow/gate
+checks passed 52; the later reporter/type follow-up passed 14. These overlapping
+groups must not be added. All 19 Python native process fixtures passed. Focused
+TypeScript checks, shared package compilation, formatting and diff checks passed.
+The fixture Playwright execution launches workers but no browser or model.
+
+See [the machine-readable evidence](../evidence/ci-performance-trial-2026-11-12.json)
+for the complete inventory comparison and historical-weight replay. These are
+scheduling estimates, not measured browser/native execution gains. Full native
+Apple builds, browser execution, current assertion/skip counts and fixed paired
+same-candidate hosted measurements remain required; no such benchmark has been
+dispatched by this session. Queue, dependency delay, actual longest lane,
+end-to-end duration and total runner-minutes cannot be inferred from this local
+replay. No production configuration, runner enrollment or capacity changed.

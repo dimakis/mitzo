@@ -1,0 +1,86 @@
+{
+  "as_of": "2026-11-12",
+  "baseline_main": "f7a474ea9b113a4fdb40c169d3e879bf118d2d4c",
+  "research_main": "3c14fbf1dcece0528dc7150b24a49a2ea413be0e",
+  "research_mgmt_commit": "9227e03b7ec1246b07a030bee281cb1e694a2132",
+  "unit_inventory": {
+    "discovered": 2013,
+    "selected": 2011,
+    "changed": [
+      {
+        "file": "tests/integration/prepared-repository/composer-delivery.test.tsx",
+        "from": 2,
+        "to": 1
+      },
+      {
+        "file": "server/__tests__/prepared-repository-native-public-tool-rollover-queued.test.ts",
+        "from": 2,
+        "to": 3
+      },
+      {
+        "file": "server/__tests__/prepared-repository-native-public-tool-rollover.test.ts",
+        "from": 2,
+        "to": 4
+      }
+    ]
+  },
+  "browser_inventory_replay": {
+    "method": "Same-source discovery replay with retained historical weights. No browser execution or elapsed-speedup measurement.",
+    "comparison": [
+      {
+        "project": "mobile-webkit",
+        "cases": 459,
+        "baselineCounts": [115, 126, 104, 114],
+        "candidateCounts": [115, 115, 114, 115],
+        "matchedWeights": 420,
+        "baselineEstimatedSeconds": [
+          492.54699999999985, 602.0880000000002, 385.9730000000001, 695.6470000000003
+        ],
+        "candidateEstimatedSeconds": [
+          544.2290000000003, 544.1749999999998, 543.6150000000002, 544.2359999999999
+        ]
+      },
+      {
+        "project": "mobile-chromium",
+        "cases": 459,
+        "baselineCounts": [156, 152, 151],
+        "candidateCounts": [153, 153, 153],
+        "matchedWeights": 420,
+        "baselineEstimatedSeconds": [712.9660000000002, 448.97599999999983, 685.5180000000001],
+        "candidateEstimatedSeconds": [615.7980000000001, 615.8110000000004, 615.8510000000002]
+      },
+      {
+        "project": "desktop-chromium",
+        "cases": 459,
+        "baselineCounts": [156, 152, 151],
+        "candidateCounts": [153, 153, 153],
+        "matchedWeights": 419,
+        "baselineEstimatedSeconds": [736.499, 460.208, 676.1030000000003],
+        "candidateEstimatedSeconds": [624.2729999999999, 624.2180000000001, 624.3190000000003]
+      }
+    ]
+  },
+  "local_ci_script_suite": {
+    "tests": 295,
+    "passed": 294,
+    "failed": 1,
+    "pending": 0,
+    "failure": {
+      "file": "scripts/__tests__/ci-browser-run.test.ts",
+      "test": "does not collect an owned process credential-bearing title",
+      "evidence": "/bin/ps: Operation not permitted",
+      "policy": "Retained unchanged; not skipped or weakened."
+    }
+  },
+  "python_native_fixtures": {
+    "tests": 19,
+    "passed": 19
+  },
+  "paired_hosted_measurements": [],
+  "limitations": [
+    "No observed elapsed speedup claimed. Weights are historical, and case lifecycle/setup overhead is not modeled.",
+    "No full browser or Apple build execution on this host. Current assertion/skip counts require hosted candidate reports.",
+    "No runner-independent trusted cancellation receiver exists in inspected source; <30-second target needs separately authorized infrastructure.",
+    "Every existing final CI/artifact/ownership/Centaur gate remains required; no merge, deployment or capacity changes authorized."
+  ]
+}
