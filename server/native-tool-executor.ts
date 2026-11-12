@@ -8,7 +8,8 @@ import {
   readRepositoryWorkspaceForConversation,
 } from './repository-workspace-runtime.js';
 import { executeSandboxedCommand } from './sandboxed-command.js';
-import { gwsShimInvocation, gwsShimWritesFiles, type GwsBroker } from './gws-broker.js';
+import type { GwsBroker } from './gws-broker.js';
+import { gwsShimInvocation, gwsShimWritesFiles } from './gws-shell.js';
 import { executeNativeFileOperation } from './native-file-operation.js';
 import {
   executeTrustedGitCommit,

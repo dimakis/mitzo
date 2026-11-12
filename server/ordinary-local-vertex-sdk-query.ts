@@ -8,7 +8,7 @@ import {
   type HookCallback,
 } from '@anthropic-ai/claude-agent-sdk';
 import { AsyncQueue } from './async-queue.js';
-import { gwsShellGuidance } from './gws-broker.js';
+import { gwsShellGuidance } from './gws-shell.js';
 import { TurnCallbacks, type TurnCallbackRunner } from './turn-callbacks.js';
 import type { OrdinaryLocalCommandAdmission } from '@mitzo/protocol';
 import { assertOrdinaryLocalVertexHistory } from './ordinary-local-vertex-native-history.js';

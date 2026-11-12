@@ -1,5 +1,5 @@
 import { repositoryObservationProgram } from './native-repository-observation.js';
-import { GWS_SHELL_ENV_NAMES } from './gws-broker.js';
+import { GWS_SHELL_ENV_NAMES } from './gws-shell.js';
 import { createLogger } from './logger.js';
 import { joinRetainedFinalizers } from './retained-finalization.js';
 import { nativePreparationPublicationWriteRoots } from './native-preparation-publication.js';

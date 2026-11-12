@@ -3,7 +3,7 @@ import type { NativeApprovalRequest } from './codex-native-permission-protocol.j
 import { captureSessionCapability, containsCapabilityPath } from './session-capability-grants.js';
 import { nativeCommandDirectoryScope } from './codex-native-grant-fence.js';
 import { isDeepStrictEqual } from 'node:util';
-import { isGwsShimCommand } from './gws-broker.js';
+import { isGwsShimCommand } from './gws-shell.js';
 
 /** A single command's explicit network overlay. Permission-profile approvals
  * would grant turn/session authority upstream and cannot retain this fence. */
