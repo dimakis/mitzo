@@ -24,6 +24,17 @@ job 131154015735 records all 13 tests passing in 56 ms. The earlier downstream t
 attempts remain retained; replacing the expensive generic property comparison
 with a native strict byte comparison does not establish a new runtime capability.
 
+The final candidate also integrates accepted #1319
+`8175174b0d9c1076e266c0d864fc83917585903b`. Its read-only connection discovery
+uses the same ordinary Claude SDK surface. The combined source passes 129 tests
+across eight application, SDK owner/query/effects, dispatch, connection-discovery,
+tool-catalog and joined ordinary-chat files, including queued and cold queries,
+profile restrictions, cancellation and revoked authority. Server compilation and
+all 2318 source fingerprints pass; the merge preserves every key from both
+parents. The earlier 155-test selection remains evidence for its preceding source,
+not an additional current-head total. Combined hosted CI and trusted current-head
+security verification remain required.
+
 Focused selections overlap and must not be added into a single test total. The
 source PRs and their exact-head CI/review receipts establish bounded acceptance;
 they do not independently prove the full feature or authorize production activation.
