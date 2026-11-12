@@ -11,6 +11,8 @@ import { HomeDialog } from './HomeDialog';
 import { UiIcon } from './UiIcon';
 import { ShareButton } from './ShareButton';
 import { SessionLaunchConfigEditor } from './SessionLaunchConfigEditor';
+import { TelosLinkedContext } from './TelosLinkedContext';
+import { readTelosRolePresentation } from '../lib/telos-role-presentation';
 import './SessionLaunchCards.css';
 import '../styles/chat-sheets.css';
 import type { SessionLaunchOriginData } from '../hooks/useSessionLaunch';
@@ -19,7 +21,7 @@ export function SessionLaunchOrigin({ origin }: { origin?: SessionLaunchOriginDa
   if (!origin) return null;
   return (
     <p className="session-launch-origin">
-      Started from{' '}
+      Created from{' '}
       <Link to={`/chat/${encodeURIComponent(origin.sessionId)}`}>
         {origin.title || 'Originating chat'} <UiIcon name="arrowUpRight" size={16} />
       </Link>
@@ -35,7 +37,64 @@ const states = {
   failed: 'Could not start',
   uncertain: 'Start unconfirmed · check this request',
   cancelled: 'Cancelled',
+  assigned: 'Created & assigned',
 };
+
+function launchState(request: SessionLaunchRecord) {
+  if (request.telos) {
+    if (request.state === 'starting') return 'Creating work chat…';
+    if (request.state === 'uncertain') return 'Assignment unconfirmed · check this request';
+    if (request.state === 'failed') return 'Could not create work chat';
+  }
+  return states[request.state];
+}
+
+function reviewedWorkContext(request: SessionLaunchRecord) {
+  if (!request.telos || !request.telosReview) return null;
+  const { telos, telosReview } = request;
+  const selection = telosReview.selection;
+  try {
+    readTelosRolePresentation(selection, telosReview.presentation, telosReview.presentationRef);
+    if (
+      selection.itemId !== telos.itemId ||
+      selection.role !== telos.role ||
+      selection.brief.revision !== telos.expectedRevision ||
+      JSON.stringify(selection.sources.map((source) => source.snapshotId)) !==
+        JSON.stringify(telos.sourceSnapshotIds) ||
+      JSON.stringify(selection.artifacts) !== JSON.stringify(telos.artifactRefs)
+    )
+      return null;
+    return telosReview;
+  } catch {
+    // Invalid retained display data must never enable an approval.
+    return null;
+  }
+}
+
+function WorkReview({ request }: { request: SessionLaunchRecord }) {
+  const review = reviewedWorkContext(request);
+  if (!request.telos || !review) return null;
+  return (
+    <>
+      <p>
+        <Link to={`/todos/${encodeURIComponent(request.telos.itemId)}`}>
+          {review.presentation.item.title || 'Selected work'}
+        </Link>
+        {' · '}
+        <span>{request.telos.role === 'lead' ? 'Feature lead' : 'Slice worker'}</span>
+      </p>
+      <TelosLinkedContext
+        context={review.selection}
+        presentation={review.presentation}
+        presentationRef={review.presentationRef}
+        summary="Review work context"
+      />
+      {!review.selection.sources.length && !review.presentation.artifacts.length && (
+        <p>No source discussions or materials selected.</p>
+      )}
+    </>
+  );
+}
 
 function ConfigSummary({ configuration }: { configuration: SessionLaunchConfig }) {
   return (
@@ -91,7 +150,12 @@ export function LaunchReview({
   }, []);
   const checking = checkFrom !== null;
   const pending = request.state === 'pending';
-  const configurationReason = sessionLaunchConfigurationReason(configuration) ?? invalid;
+  const configurationReason =
+    (request.telos && !reviewedWorkContext(request)
+      ? 'Reviewed work context is unavailable. Check the original request before approving.'
+      : null) ??
+    sessionLaunchConfigurationReason(configuration) ??
+    invalid;
   useEffect(() => {
     if (!checkFrom || busy) return;
     const observed = create
@@ -173,7 +237,8 @@ export function LaunchReview({
       <HomeDialog title="Session configuration" onClose={onClose} className="session-launch-dialog">
         <div className="session-launch-readonly">
           <h3>{request.title}</h3>
-          <p>{states[request.state]}</p>
+          <p>{launchState(request)}</p>
+          <WorkReview request={request} />
           <ConfigSummary configuration={request.configuration} />
           <dl>
             <dt>Account</dt>
@@ -215,9 +280,14 @@ export function LaunchReview({
       className="session-launch-dialog"
     >
       <div className="session-launch-form">
-        <p>Review the handoff before starting.</p>
+        <p>
+          {request.telos
+            ? 'Review the work and settings before creating its assigned chat. Creation does not start work.'
+            : 'Review the handoff before starting.'}
+        </p>
         <div className="session-launch-fields">
           <fieldset disabled={busy || attempted || Boolean(frozen.current) || disabled || !pending}>
+            <WorkReview request={request} />
             <label>
               Title
               <input
@@ -291,7 +361,11 @@ export function LaunchReview({
                   }
                   onClick={() => void submit('approve')}
                 >
-                  {frozen.current ? 'Retry start' : 'Approve & start'}
+                  {request.telos
+                    ? 'Approve & create'
+                    : frozen.current
+                      ? 'Retry start'
+                      : 'Approve & start'}
                 </button>
                 <button
                   type="button"
@@ -365,7 +439,13 @@ export function SessionLaunchCards({
         >
           <div className="session-launch-event-label">
             <UiIcon name="chats" size={16} />
-            <span>{request.state === 'running' ? 'Started a chat' : 'New chat request'}</span>
+            <span>
+              {request.state === 'assigned'
+                ? 'Created a work chat'
+                : request.state === 'running'
+                  ? 'Started a chat'
+                  : 'New chat request'}
+            </span>
             <time dateTime={new Date(request.createdAt).toISOString()}>
               {new Date(request.createdAt).toLocaleTimeString([], {
                 hour: '2-digit',
@@ -376,7 +456,7 @@ export function SessionLaunchCards({
           <strong>{request.title}</strong>
           <ConfigSummary configuration={request.configuration} />
           <div className="session-launch-actions">
-            <span role="status">{states[request.state]}</span>
+            <span role="status">{launchState(request)}</span>
             <span className="file-path-group" role="group" aria-label="Handover">
               <span>Handover.md</span>
               <ShareButton filePath={sessionLaunchHandoverUrl(request.proposalId)} />
@@ -407,7 +487,11 @@ export function SessionLaunchCards({
                 disabled={disabled || resuming !== null}
                 onClick={() => void resume(request)}
               >
-                {resuming === request.proposalId ? 'Resuming…' : 'Resume startup'}
+                {resuming === request.proposalId
+                  ? 'Recovering…'
+                  : request.telos
+                    ? 'Recover creation'
+                    : 'Resume startup'}
               </button>
             )}
           </div>

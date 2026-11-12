@@ -46,10 +46,15 @@ first. The repair retains the item ID, brief and history, and refuses conversion
 an existing classification or changes after lead/worker setup. Those cases need an
 explicit migration or handover contract, not a relabelled chat.
 
-Use reviewed role setup and the exact assigned lead's `TelosStartSlice` only for an
-eligible selected child. Runtime kinds (`coordinator`, `outcome`, `work_item`) do not
-redefine the semantic levels or prove nested feature-lead support. A missing creator
-or assignment path is a capability gap; retain the brief and report the pending step.
+Use `TelosCreateSession` from the exact currently assigned parent lead to propose
+a distinct session for an eligible direct child. An outcome orchestrator creates
+its feature lead; a feature lead creates its slice worker. Review child settings
+and selected work context in the originating chat, then **Approve & create**.
+The resulting chat is already assigned; no manual linking step is required.
+Creation admits no command. `TelosStartSlice` remains the existing exact-lead path
+for its selected eligible child. A missing creator or assignment path is a capability
+gap; retain the brief and report the pending step. Never substitute `StartSession`
+when a work-bound session was requested.
 Item creation, originating-chat provenance and a plain `StartSession` receipt do not
 establish a Telos role, task mapping or working session. Chat readiness does not mean
 execution or delivery. Reconcile the original attempt after uncertainty.
@@ -68,7 +73,7 @@ This adds no scheduler, global pause or implicit merge/deployment permission.
 
 ## Existing capabilities and attachment gaps
 
-Source inspection of the integrated delivery candidate on 11 November 2026 found
+Source inspection of the integrated delivery candidate on 12 November 2026 found
 these boundaries:
 
 | Capability                               | Evidence and limit                                                                                                                                                                                                                                                            |
@@ -79,12 +84,26 @@ these boundaries:
 | Post-fact attachment or handover         | No generic session-link/role-assignment mutation is exposed in the inspected agent catalog. `retainTelosWorkRoleContext` rejects replacement of existing immutable context; role setup does not accept any arbitrary existing chat for adoption.                              |
 | Three-level orchestration                | New creation maps outcome/feature/slice to the existing coordinator/lead/worker hierarchy. Creation and ordinary role setup are tested together. Runtime `work_item` remains a leaf; worker scope cannot arbitrarily redelegate. Live execution still needs its own evidence. |
 
+`TelosCreateSession` retains a durable proposal and canonical role operation across
+allocation and assignment. Retrying the original request recovers that operation;
+the `assigned` receipt records creation, not current responsibility or completion.
+An uncertain allocation reserves the role until reconciliation. If changed authority
+or context prevents recovery, an operator release capability is still missing; do
+not erase the reservation or use a new request ID to bypass it.
+
 Creating independent sessions from an existing session is the intended orchestrator
 workflow. Tree navigation should show current responsibility alongside separate
 creation provenance. Nested relationships need not nest runtimes; each session keeps
 its own selected account, model, thinking, workspace, permissions and execution receipts.
-This PR updates guidance and retains reviewed launch choices; it adds no attachment
-API, role transition, session-tree redesign or automatic runtime nesting.
+The agent creation flow adds no arbitrary existing-chat attachment, role-context
+replacement or automatic runtime nesting.
+
+The current child route is an independent Local Mac Codex workspace. Claude Local
+Mac and owned Codex Local Mac/OpenShell callers use shared host proposal/receipt owners;
+caller identity does not choose the child account or runtime. Claude/OpenShell
+callers and Claude/OpenShell children remain unsupported dependencies. These are
+offline contracts, not live qualification. See the
+[implementation and follow-up handoff](telos-agent-session-creation-handoff.md).
 
 Ordinary `StartSession` currently supports a selected Local Mac Codex account,
 model, thinking level, agent, host and permission mode in an independent workspace.
@@ -110,9 +129,9 @@ supported substitute. This follow-up is a capability plan, not shipped support.
 One shared source, `server/telos-workflow-instructions.ts`, supplies the workflow
 to backlog-capable Codex chats, Telos role chats and the ordinary artifact guidance.
 Tool descriptions repeat the relevant proposal/creation/setup step. Existing reviewed
-role-context bytes, canonical schemas, allocators, permissions and receipts remain
-unchanged. This is agent guidance, not another persisted workflow engine or automatic
-migration of existing trees. Existing history is preserved when repairing legacy work.
+role-context bytes, allocators and permission owners are reused by the reviewed
+creation flow. Existing history is preserved when repairing legacy work; this
+adds no automatic migration of existing trees.
 
 Direction: Dimitri's 8 November work-model clarification, accepted in MGMT #365
 (`architecture/discussions/mitzo/telos-work-model.md`, selected knowledge revision

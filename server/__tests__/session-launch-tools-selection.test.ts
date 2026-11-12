@@ -61,6 +61,7 @@ it.each(['TelosSaveArtifact', 'TelosReadArtifact'])(
 );
 it.each([
   'TelosStartSlice',
+  'TelosCreateSession',
   'TelosWorkControl',
   'TelosGetItem',
   'TelosUpdateItem',

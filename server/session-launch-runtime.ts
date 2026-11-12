@@ -19,99 +19,136 @@ function assertLaunchChildAdmissible(events: EventStore, id: string) {
 
 /** Reuse the same owned ordinary Local Mac Codex admission as New chat and
  * native advisers. No model/provider client or permission grant is created here. */
+export async function qualifySessionLaunchConfig(
+  config: SessionLaunchConfig,
+  authority: SessionLaunchAuthority,
+) {
+  authority.assertCurrent();
+  authority.signal.throwIfAborted();
+  const configurationReason = sessionLaunchConfigurationReason(config);
+  if (configurationReason) throw new SessionLaunchError(configurationReason);
+  const account = config.runtime.account;
+  const agent = config.runtime.agentProfile;
+  const targetId = config.runtime.execution.targetId;
+  if (!account || !agent || !targetId)
+    throw new SessionLaunchError(
+      'Choose an account, agent profile and Local Mac host before starting.',
+    );
+  const { captureAgentLibraryAuthorization } = await import('./agent-library-transport.js');
+  const captured = captureAgentLibraryAuthorization(authority.operatorConnectionId);
+  captured.assertCurrent();
+  if (captured.auth.id !== authority.authSessionId)
+    throw new SessionLaunchError('Original operator required.', 403);
+  const { loadAccountProfiles } = await import('./account-profiles.js');
+  const profiles = loadAccountProfiles();
+  const binding = profiles.resolve(account.accountId, account.model);
+  if (binding.provider !== 'openai-codex')
+    throw new SessionLaunchError('Choose a Local Mac Codex account.');
+  const reference = {
+    accountId: binding.accountId,
+    provider: 'openai-codex' as const,
+    profileRevision: binding.profileRevision,
+  };
+  if (
+    !config.runtime.accountReference ||
+    !isDeepStrictEqual(reference, config.runtime.accountReference)
+  )
+    throw new SessionLaunchError(
+      'The saved account identity changed or is missing. Review and save the account again.',
+    );
+  profiles.validateModelSelection(binding, account.model, account.reasoningEffort ?? undefined);
+  const { ordinaryRepositoryRuntimeInventory } = await import('./ordinary-local-codex-entry.js');
+  const inventory = ordinaryRepositoryRuntimeInventory('local', 'codex');
+  const runtime = { account: reference, harness: 'codex' as const, targetId, mode: config.mode };
+  const resolution = inventory.catalog.resolve(runtime);
+  const route = inventory.result.routes.find(
+    (candidate) =>
+      candidate.targetId === targetId &&
+      candidate.harness === 'codex' &&
+      isDeepStrictEqual(candidate.account, reference) &&
+      candidate.modes.some((mode) => mode === config.mode),
+  );
+  const selectedAccount = inventory.result.accounts.find((candidate) =>
+    isDeepStrictEqual(candidate.account, reference),
+  );
+  const model = selectedAccount?.models.find((candidate) => candidate.id === account.model);
+  if (
+    resolution.status !== 'compatible' ||
+    !route ||
+    !selectedAccount ||
+    selectedAccount.modelDiscovery.stale ||
+    !model ||
+    (account.reasoningEffort == null
+      ? !!model.reasoningEfforts?.length
+      : !model.reasoningEfforts?.includes(account.reasoningEffort))
+  )
+    throw new SessionLaunchError(
+      'The selected account, host, model, thinking or permission mode is unavailable.',
+    );
+  const { getAgentLibrary } = await import('./agent-library-runtime.js');
+  const { readOrdinaryCodexAgentProfile, ordinaryCodexAgentProfileRouteProjection } =
+    await import('./ordinary-codex-agent-profile.js');
+  const profile = readOrdinaryCodexAgentProfile(getAgentLibrary(), agent);
+  if (
+    !profile ||
+    profile.definition.contextRecipe ||
+    ordinaryCodexAgentProfileRouteProjection([profile], binding.provider, 'local', undefined, {
+      contextRecipes: 'none',
+      toolSelection: true,
+      toolRoute: 'codex-owned-local',
+    }).agentProfileRejections.length
+  )
+    throw new SessionLaunchError(
+      'The selected agent revision or its context is unavailable for an ordinary Local Mac session.',
+    );
+  await assertSessionLaunchTools(config.extraTools, profile.definition);
+  const selection = {
+    version: 1 as const,
+    agent,
+    context: { source: 'none' as const, revision: null },
+    permission: createOrdinaryFreshPermission(config.mode),
+    model: account.model,
+    thinking: account.reasoningEffort ?? null,
+  };
+  authority.assertCurrent();
+  captured.assertCurrent();
+  return { binding, runtime, selection, profile, inventory, runtimeBinding: resolution.binding };
+}
+/** Preparation selects an ordinary workspace; allocation remains exclusively
+ * in the canonical reviewed Telos role owner and its durable operation. */
+export async function prepareTelosSessionSettings(
+  config: SessionLaunchConfig,
+  authority: SessionLaunchAuthority,
+) {
+  const selected = await qualifySessionLaunchConfig(config, authority);
+  const { getOrdinaryWorkspaces } = await import('./repository-workspace-runtime.js');
+  const prepared = await getOrdinaryWorkspaces().prepareOrdinaryWorkspace({
+    binding: selected.binding,
+    selection: {
+      runOn: 'local',
+      runtime: {
+        account: selected.runtime.account,
+        harness: 'codex',
+        targetId: selected.runtime.targetId,
+      },
+    },
+    signal: authority.signal,
+  });
+  authority.assertCurrent();
+  authority.signal.throwIfAborted();
+  if (!isDeepStrictEqual(prepared.runtimeBinding, selected.runtimeBinding))
+    throw new SessionLaunchError(
+      'The selected child runtime changed. Review its configuration again.',
+    );
+  return {
+    version: 2 as const,
+    binding: prepared.runtimeBinding,
+    selection: selected.selection,
+    workspace: { kind: 'ordinary' as const, preparationId: prepared.preparationId },
+  };
+}
 export function createSessionLaunchPort(): SessionLaunchPort {
-  async function qualify(config: SessionLaunchConfig, authority: SessionLaunchAuthority) {
-    authority.assertCurrent();
-    authority.signal.throwIfAborted();
-    const configurationReason = sessionLaunchConfigurationReason(config);
-    if (configurationReason) throw new SessionLaunchError(configurationReason);
-    const account = config.runtime.account;
-    const agent = config.runtime.agentProfile;
-    const targetId = config.runtime.execution.targetId;
-    if (!account || !agent || !targetId)
-      throw new SessionLaunchError(
-        'Choose an account, agent profile and Local Mac host before starting.',
-      );
-    const { captureAgentLibraryAuthorization } = await import('./agent-library-transport.js');
-    const captured = captureAgentLibraryAuthorization(authority.operatorConnectionId);
-    captured.assertCurrent();
-    if (captured.auth.id !== authority.authSessionId)
-      throw new SessionLaunchError('Original operator required.', 403);
-    const { loadAccountProfiles } = await import('./account-profiles.js');
-    const profiles = loadAccountProfiles();
-    const binding = profiles.resolve(account.accountId, account.model);
-    if (binding.provider !== 'openai-codex')
-      throw new SessionLaunchError('Choose a Local Mac Codex account.');
-    const reference = {
-      accountId: binding.accountId,
-      provider: 'openai-codex' as const,
-      profileRevision: binding.profileRevision,
-    };
-    if (
-      !config.runtime.accountReference ||
-      !isDeepStrictEqual(reference, config.runtime.accountReference)
-    )
-      throw new SessionLaunchError(
-        'The saved account identity changed or is missing. Review and save the account again.',
-      );
-    profiles.validateModelSelection(binding, account.model, account.reasoningEffort ?? undefined);
-    const { ordinaryRepositoryRuntimeInventory } = await import('./ordinary-local-codex-entry.js');
-    const inventory = ordinaryRepositoryRuntimeInventory('local', 'codex');
-    const runtime = { account: reference, harness: 'codex' as const, targetId, mode: config.mode };
-    const resolution = inventory.catalog.resolve(runtime);
-    const route = inventory.result.routes.find(
-      (candidate) =>
-        candidate.targetId === targetId &&
-        candidate.harness === 'codex' &&
-        isDeepStrictEqual(candidate.account, reference) &&
-        candidate.modes.some((mode) => mode === config.mode),
-    );
-    const selectedAccount = inventory.result.accounts.find((candidate) =>
-      isDeepStrictEqual(candidate.account, reference),
-    );
-    const model = selectedAccount?.models.find((candidate) => candidate.id === account.model);
-    if (
-      resolution.status !== 'compatible' ||
-      !route ||
-      !selectedAccount ||
-      selectedAccount.modelDiscovery.stale ||
-      !model ||
-      (account.reasoningEffort == null
-        ? !!model.reasoningEfforts?.length
-        : !model.reasoningEfforts?.includes(account.reasoningEffort))
-    )
-      throw new SessionLaunchError(
-        'The selected account, host, model, thinking or permission mode is unavailable.',
-      );
-    const { getAgentLibrary } = await import('./agent-library-runtime.js');
-    const { readOrdinaryCodexAgentProfile, ordinaryCodexAgentProfileRouteProjection } =
-      await import('./ordinary-codex-agent-profile.js');
-    const profile = readOrdinaryCodexAgentProfile(getAgentLibrary(), agent);
-    if (
-      !profile ||
-      profile.definition.contextRecipe ||
-      ordinaryCodexAgentProfileRouteProjection([profile], binding.provider, 'local', undefined, {
-        contextRecipes: 'none',
-        toolSelection: true,
-        toolRoute: 'codex-owned-local',
-      }).agentProfileRejections.length
-    )
-      throw new SessionLaunchError(
-        'The selected agent revision or its context is unavailable for an ordinary Local Mac session.',
-      );
-    await assertSessionLaunchTools(config.extraTools, profile.definition);
-    const selection = {
-      version: 1 as const,
-      agent,
-      context: { source: 'none' as const, revision: null },
-      permission: createOrdinaryFreshPermission(config.mode),
-      model: account.model,
-      thinking: account.reasoningEffort ?? null,
-    };
-    authority.assertCurrent();
-    captured.assertCurrent();
-    return { binding, runtime, selection, profile, inventory, runtimeBinding: resolution.binding };
-  }
+  const qualify = qualifySessionLaunchConfig;
   async function assertResumeAbsent(
     record: RetainedSessionLaunch,
     authority: SessionLaunchAuthority,
