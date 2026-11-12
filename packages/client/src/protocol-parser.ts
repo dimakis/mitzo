@@ -672,10 +672,13 @@ export function parseServerMessage(
     case 'error': {
       const errorMsg = msg.error as string;
 
-      callbacks.setWsRunning?.(poolKey, false);
+      if (msg.nonfatal !== true) callbacks.setWsRunning?.(poolKey, false);
       result.messagesActions.push({
-        type: 'ERROR',
+        type: msg.nonfatal === true ? 'CONTROL_REJECTED' : 'ERROR',
         error: errorMsg || 'Unknown error',
+        ...(msg.nonfatal === true && typeof msg.seq === 'number'
+          ? { retainedFailureSeq: msg.seq }
+          : {}),
       });
       break;
     }
@@ -844,6 +847,8 @@ export function parseServerMessage(
       result.messagesActions.push({
         type: 'SUBAGENT_END',
         parentBlockId: msg.parentBlockId as string,
+        status: msg.status as import('@mitzo/protocol').SubagentStatus | undefined,
+        diagnostic: msg.diagnostic as import('@mitzo/protocol').SubagentDiagnostic | undefined,
         summary: msg.summary as string | undefined,
         usage: msg.usage as
           | {
@@ -861,10 +866,21 @@ export function parseServerMessage(
         type: 'SUBAGENT_END',
         parentBlockId: msg.parentBlockId as string,
         summary: 'Cancelled',
+        status: 'cancelled',
       });
       break;
   }
 
+  if (
+    typeof envelope.type === 'string' &&
+    envelope.type.startsWith('subagent_') &&
+    typeof envelope.messageId === 'string'
+  ) {
+    result.messagesActions = result.messagesActions.map((action) => ({
+      ...action,
+      attributedMessageId: envelope.messageId as string,
+    }));
+  }
   if (provenance) {
     result.messagesActions = result.messagesActions.map((action) => ({
       ...action,

@@ -494,7 +494,7 @@
     },
     {
       "id": "chat-status",
-      "activeRevision": "direct-interrupt-2026-11-06",
+      "activeRevision": "compact-inline-queue-2026-11-12",
       "revisions": [
         {
           "id": "above-composer-2026-11-04",
@@ -633,6 +633,66 @@
             }
           ],
           "validation": "docs/features/chat-composer-status.md"
+        },
+        {
+          "id": "compact-inline-queue-2026-11-12",
+          "approvedBy": "Dimitri (explicit approval of compact revision 3 and instruction to build and open a PR)",
+          "approvedOn": "2026-11-12",
+          "approval": {
+            "thread": "Mitzo chat in MGMT task repo-129e0088-815f-8b2b-a064-053790a2b1cf; conversation ID unavailable to this runtime",
+            "quote": "I love this. Let’s build and open a or",
+            "scope": "Build the approved compact revision 3: inline queue above the composer, bounded scrolling, retained information, minimize, direct dispatch ordering across shared engine/runtime owners. Preserve toolbar, settings, ownership, capability and delivery boundaries."
+          },
+          "references": [
+            {
+              "path": "docs/design/approved/chat-status/compact-inline-queue-2026-11-12.html",
+              "sha256": "17026ebce4444c45eb912b8f0f75a907be349c6ec820668fc8e4f09b0ddc1b90"
+            }
+          ],
+          "invariants": [
+            "Retain the single mounted status row, existing composer tools, message actions, appearance preferences and guarded runtime owners.",
+            "Queued drafts appear inline above the composer without a card shell or status-popup dependency; minimizing retains count, next-preview and pause.",
+            "Single-line previews and compact dispatch states scroll within 14dvh or 2.5 shared control heights; full inline details are bounded to 28dvh or five control heights.",
+            "Reorder and Make next change only numbered pending dispatch order; the existing shared composer drains the new first message after a response.",
+            "Retain complete text, attachments, reply/context references, editing and removal; a late save cannot close another editor or erase the composer draft.",
+            "Unconfirmed delivery rows cannot move or be crossed; identity and original target remain owned by the existing dispatch/recovery path.",
+            "Failed order saves remain visible and hold automatic draining until explicit retry succeeds; unavailable steering exposes a reason.",
+            "Use semantic tokens, shared MotionPresence and touch-sized controls without changing the approved Chat settings design.",
+            "Callback-level engine/runtime coverage does not claim that unsupported native steering or deployed runtime support exists."
+          ],
+          "sources": [
+            "frontend/src/components/ChatInput.tsx",
+            "frontend/src/components/QueuedDraftTray.tsx",
+            "frontend/src/components/QueuedDraftTray.css",
+            "frontend/src/hooks/useQueuedMessages.ts",
+            "frontend/src/components/ComposerStatus.tsx",
+            "frontend/src/pages/ChatView.tsx",
+            "frontend/src/pages/DesktopChatView.tsx"
+          ],
+          "checks": [
+            "frontend/src/components/__tests__/QueuedDraftTray.compact.test.tsx",
+            "frontend/src/components/__tests__/QueuedDraftTray.test.tsx",
+            "frontend/src/hooks/__tests__/useQueuedMessages.ordering.test.ts",
+            "frontend/src/hooks/__tests__/useQueuedMessages.test.ts",
+            "frontend/src/components/__tests__/ChatInputStatus.test.tsx",
+            "tests/offline/chat-queue-steering.spec.ts",
+            "tests/browser/composer-layout.spec.ts"
+          ],
+          "protectedChecks": [
+            {
+              "path": "frontend/src/components/__tests__/QueuedDraftTray.compact.test.tsx",
+              "sha256": "c531e5d830bbfe632d4c44e6e9541f39b1645b1cd6b7e1a98f8f88e84acfb7f1"
+            },
+            {
+              "path": "frontend/src/hooks/__tests__/useQueuedMessages.ordering.test.ts",
+              "sha256": "10ec8a467afa590352f3f175e3b682607c0ea20f2ea6dcf3feaa6b28725290b4"
+            },
+            {
+              "path": "tests/offline/chat-queue-steering.spec.ts",
+              "sha256": "66288dbc3bf6d48ef18257e6367516f5729d0c4ae38f3bc16255ca2475904a82"
+            }
+          ],
+          "validation": "docs/features/compact-chat-queue.md"
         }
       ]
     },

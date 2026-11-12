@@ -7,12 +7,28 @@ import { runBoundedToolCleanup, type ToolDefinition, type ToolGuardPolicy } from
 import type { McpServerConfig } from './mcp-config.js';
 import { normalizeMcpToolResult } from './codex-tool-result.js';
 import { CodexToolFailure, codexToolFailureResult } from './codex-tool-failure.js';
+import { createLogger } from './logger.js';
 import {
   mcpStdioEnvironment,
   snapshotMcpEnvironment,
   type McpLaunchEnvironment,
 } from './mcp-launch-environment.js';
 type Input = Record<string, unknown>;
+/** Preserve the original operation failure even when closing its MCP resources fails. */
+export async function closeMcpAfterFailure(
+  peer: { close(): Promise<void> },
+  primary: unknown,
+): Promise<never> {
+  try {
+    await peer.close();
+  } catch (cleanupError) {
+    throw new AggregateError([cleanupError], 'MCP operation and cleanup failed', {
+      // eslint-disable-next-line preserve-caught-error -- The cleanup error is retained in errors; primary remains the cause.
+      cause: primary,
+    });
+  }
+  throw primary;
+}
 interface Connection {
   listTools(cursor?: string): Promise<{
     tools: { name: string; description?: string; inputSchema: Input }[];
@@ -72,11 +88,26 @@ async function connect(
     options.signal.throwIfAborted();
     options.assertRuntimeCurrent?.();
     transport.stderr?.on('data', () => {});
-  } catch {
-    await runBoundedToolCleanup(() => client.close(), options.toolGuardPolicy?.cleanupMs).catch(
-      () => {},
-    );
-    throw new Error('MCP connection failed');
+  } catch (error) {
+    createLogger('mcp').warn('MCP connection failed', {
+      code: 'mcp_connection_failed',
+      stage: 'initialize',
+      sourceId: source.id,
+    });
+    try {
+      await runBoundedToolCleanup(() => client.close(), options.toolGuardPolicy?.cleanupMs);
+    } catch (cleanupError) {
+      createLogger('mcp').warn('MCP connection cleanup failed', {
+        code: 'mcp_cleanup_failed',
+        stage: 'initialize',
+        sourceId: source.id,
+      });
+      throw new AggregateError([cleanupError], 'MCP connection and cleanup failed', {
+        // eslint-disable-next-line preserve-caught-error -- Keep the primary cause and retain cleanup separately in errors.
+        cause: error,
+      });
+    }
+    throw new Error('MCP connection failed', { cause: error });
   }
   return {
     listTools: (cursor) =>
@@ -98,9 +129,28 @@ type Permission = (
   signal: AbortSignal,
   grant?: McpSessionGrant,
 ) => Promise<{ behavior: 'allow' | 'deny'; updatedInput?: Input; message?: string }>;
-function mcpWireName(canonical: string): string {
+export function mcpWireName(canonical: string): string {
   const identity = createHash('sha256').update(canonical).digest('hex').slice(0, 32);
   return `mitzo_mcp_${identity}`;
+}
+export function mcpToolOutputScope(
+  config: McpServerConfig,
+  options: Pick<McpToolsOptions, 'cwd' | 'env'>,
+  descriptor: Input,
+): string {
+  const launchIdentity = JSON.stringify({
+    command: config.command,
+    args: config.args,
+    cwd: options.cwd,
+    sourceId: config.librarySourceId,
+    env: config.librarySourceId
+      ? mcpStdioEnvironment(options.env, config.env)
+      : snapshotMcpEnvironment(options.env, config.env),
+  });
+  return createHash('sha256')
+    .update(launchIdentity)
+    .update(JSON.stringify(descriptor))
+    .digest('hex');
 }
 /** Bounded phase/index metadata only; provider errors can contain credentials. */
 async function observeMcpStartup<T>(
@@ -180,15 +230,30 @@ export async function connectCodexMcpTools(
     lifetime.abort(Error('MCP clients closed'));
     options.signal.removeEventListener('abort', onAbort);
     shutdown = (async () => {
-      await Promise.allSettled(peers.map(closePeer));
+      const results = await Promise.allSettled(peers.map(closePeer));
       // A pending connector can finish while shutdown awaits an acquired peer.
       // Include its real close if it arrives before this drain has completed.
-      while (activePeerShutdowns.size) await Promise.allSettled([...activePeerShutdowns]);
+      while (activePeerShutdowns.size)
+        results.push(...(await Promise.allSettled([...activePeerShutdowns])));
+      const failures = results.filter((result) => result.status === 'rejected');
+      if (failures.length) {
+        createLogger('mcp').warn('MCP cleanup failed', {
+          code: 'mcp_cleanup_failed',
+          stage: 'shutdown',
+          count: failures.length,
+        });
+        throw new AggregateError(
+          failures.map((result) => result.reason),
+          'MCP cleanup failed',
+        );
+      }
     })();
     return shutdown;
   };
   const onAbort = () => {
-    void close();
+    void close().catch(() => {
+      /* Shutdown reports the failure; explicit close retains its rejected receipt. */
+    });
   };
   options.signal.addEventListener('abort', onAbort, { once: true });
   try {
@@ -212,15 +277,6 @@ export async function connectCodexMcpTools(
           env: snapshotMcpEnvironment(options.env),
           cwd: options.cwdForSource?.(server) ?? options.cwd,
         };
-        const launchIdentity = JSON.stringify({
-          command: config.command,
-          args: config.args,
-          cwd: peerOptions.cwd,
-          sourceId: config.librarySourceId,
-          env: config.librarySourceId
-            ? mcpStdioEnvironment(peerOptions.env, config.env)
-            : snapshotMcpEnvironment(peerOptions.env, config.env),
-        });
         const peer = await observeMcpStartup('connect', source, () =>
           options.connect
             ? options.connect(config, peerOptions)
@@ -282,10 +338,7 @@ export async function connectCodexMcpTools(
             catalog.push({
               wire,
               canonical,
-              outputScope: createHash('sha256')
-                .update(launchIdentity)
-                .update(JSON.stringify(tool))
-                .digest('hex'),
+              outputScope: mcpToolOutputScope(config, peerOptions, tool),
               peer,
               discovery,
               grant: config.librarySourceId
@@ -319,9 +372,18 @@ export async function connectCodexMcpTools(
       throw new Error('MCP definitions too large');
     options.signal.throwIfAborted();
     options.assertRuntimeCurrent?.();
-  } catch {
-    await close();
-    throw new Error('MCP initialization failed. Check configured servers and retry.');
+  } catch (error) {
+    try {
+      await close();
+    } catch (cleanupError) {
+      throw new AggregateError([cleanupError], 'MCP initialization and cleanup failed', {
+        // eslint-disable-next-line preserve-caught-error -- Keep the primary cause and retain cleanup separately in errors.
+        cause: error,
+      });
+    }
+    throw new Error('MCP initialization failed. Check configured servers and retry.', {
+      cause: error,
+    });
   }
   return {
     definitions,

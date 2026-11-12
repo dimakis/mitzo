@@ -294,8 +294,7 @@ it('uses selected MCP receipts in the real Codex adapter and rechecks current so
     f.close.mockClear();
     const query = await openCodexChat(f.opts);
     try {
-      expect(f.connect).toHaveBeenCalledTimes(1);
-      expect(f.connect.mock.calls[0][0]).toMatchObject({ command: 'selected-peer' });
+      expect(f.connect).not.toHaveBeenCalled();
       const tools = mocks.conversationOptions!.tools as { name: string }[];
       expect(tools).toHaveLength(2);
       const wire = tools.find((tool) => tool.name !== 'AskUserQuestion')!.name;
@@ -303,6 +302,8 @@ it('uses selected MCP receipts in the real Codex adapter and rechecks current so
         content: 'selected result',
         isError: false,
       });
+      expect(f.connect).toHaveBeenCalledTimes(1);
+      expect(f.connect.mock.calls[0][0]).toMatchObject({ command: 'selected-peer' });
       expect(mocks.permissionHandler).toHaveBeenLastCalledWith(
         'mcp__selected__search',
         { query: 'original' },
@@ -356,27 +357,27 @@ it('refuses explicit selection before legacy OpenShell provisioning even when th
 });
 
 it.each(['instructions', 'tools'] as const)(
-  'captures the published profile once and rejects %s drift across MCP initialization',
+  'captures the published profile once and rejects %s drift during startup hook acquisition',
   async (field) => {
     const f = await selectedCodexToolsFixture();
     try {
       const entry = (await f.catalog.refresh(f.sourceOptions))[0];
       const profile = f.publish([f.catalog.reference(entry)]);
-      const connect = f.connect.getMockImplementation()!;
+      const acquireHooks = f.hooks.getMockImplementation()!;
       f.connect.mockClear();
       f.close.mockClear();
-      f.connect.mockImplementationOnce(async (config) => {
+      f.hooks.mockImplementationOnce((...args) => {
+        const acquired = acquireHooks(...args);
         if (field === 'instructions')
           profile.definition.instructions = 'Mutable editor replacement';
         else profile.definition.tools!.push({ id: 'mitzo:Write', version: 1 });
-        return connect(config);
+        return acquired;
       });
       await expect(openCodexChat({ ...f.opts, agentProfile: profile })).rejects.toThrow(
         /profile changed/,
       );
-      expect(f.connect).toHaveBeenCalledTimes(1);
-      expect(f.connect.mock.calls[0][0].command).toBe('selected-peer');
-      expect(f.close).toHaveBeenCalledOnce();
+      expect(f.connect).not.toHaveBeenCalled();
+      expect(f.close).not.toHaveBeenCalled();
       expect(f.dispose).toHaveBeenCalledOnce();
     } finally {
       f.cleanup();
@@ -624,7 +625,7 @@ it('closes both raw MCP peers when the shared Codex adapter loses its registered
   }
 });
 
-it('closes admitted MCP resources when later API admission fails', async () => {
+it('does not launch selected MCP sources when later API admission fails', async () => {
   const f = await selectedCodexToolsFixture();
   const { setCredentialConnectionsRuntime } = await import('../credential-connections-runtime.js');
   setCredentialConnectionsRuntime({ catalog: () => [{ status: 'active' }] } as never);
@@ -640,6 +641,7 @@ it('closes admitted MCP resources when later API admission fails', async () => {
       { id: 'mitzo:RequestConnectionAccess', version: 1 },
     ]);
     f.close.mockClear();
+    f.connect.mockClear();
     await expect(
       openCodexChat({
         ...f.opts,
@@ -652,7 +654,8 @@ it('closes admitted MCP resources when later API admission fails', async () => {
         },
       }),
     ).rejects.toThrow(/Receipt revoked/);
-    expect(f.close).toHaveBeenCalledOnce();
+    expect(f.close).not.toHaveBeenCalled();
+    expect(f.connect).not.toHaveBeenCalled();
     expect(f.dispose).toHaveBeenCalledOnce();
     expect(f.call).not.toHaveBeenCalled();
   } finally {
