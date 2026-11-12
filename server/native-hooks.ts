@@ -1,4 +1,5 @@
 import { retainCallbackOutcome, retainedCallbackOutcome } from './turn-callbacks.js';
+import { qualifyToolResult, reportToolFailure } from './tool-failure-reporting.js';
 import { execFile } from 'node:child_process';
 import { existsSync, readFileSync, mkdtempSync, rmSync } from 'node:fs';
 import { join, resolve } from 'node:path';
@@ -85,6 +86,7 @@ export class NativeHooks {
     options: { normalizeFilePath?: boolean } = {},
   ): Promise<CodexToolResult> {
     let executed = false;
+    let entered = false;
     try {
       const normalized =
         options.normalizeFilePath !== false && typeof input.file_path === 'string'
@@ -93,9 +95,10 @@ export class NativeHooks {
       const pre = await this.run('PreToolUse', { tool_name: name, tool_input: normalized }, signal);
       const checked = pre.input ?? normalized;
       signal.throwIfAborted();
+      entered = true;
       const rawResult = await execute(checked, pre.forcePrompt);
       executed = true;
-      const result = normalizeCodexToolResult(rawResult);
+      const result = qualifyToolResult(name, checked, signal, normalizeCodexToolResult(rawResult));
       // A settled refusal runs no post-tool hook. Preserve its original-owner
       // receipt even if terminal cancellation arrived during approval; calling
       // it an interrupted hook would manufacture uncertainty and block FIFO.
@@ -111,6 +114,8 @@ export class NativeHooks {
       signal.throwIfAborted();
       return appendCodexToolFeedback(result, context);
     } catch (error) {
+      if (entered && !executed)
+        return reportToolFailure(error, { sessionId: this.sessionId, tool: name, signal });
       return retainCallbackOutcome(
         {
           content: executed
