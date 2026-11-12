@@ -66,7 +66,9 @@ it('copies and hashes short native reads without including bytes outside the ret
     );
     const frozen = FrozenHostCodexExecutable.capture(source, home);
     expect(frozen.sha256).toBe(createHash('sha256').update(bytes).digest('hex'));
-    expect(readFileSync(frozen.path)).toEqual(bytes);
+    // Compare every copied byte natively; generic deep equality walks over a
+    // million indexed properties and can exhaust the test deadline on CI.
+    expect(readFileSync(frozen.path).equals(bytes)).toBe(true);
     frozen.assertLaunchCurrent();
   } finally {
     reads.readSync.mockImplementation(originalRead);

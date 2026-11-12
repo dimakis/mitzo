@@ -172,6 +172,14 @@ for (const theme of ['dark', 'light'] as const) {
     expect(starts).toBe(1);
     expect(codes).toBe(1);
     await checkControls();
+    const failure = page.getByRole('alert');
+    await failure.scrollIntoViewIfNeeded();
+    const failureBounds = (await failure.boundingBox())!;
+    const scrollBounds = (await page.locator('.connections-page').boundingBox())!;
+    expect(failureBounds.y).toBeGreaterThanOrEqual(scrollBounds.y);
+    expect(failureBounds.y + failureBounds.height).toBeLessThanOrEqual(
+      scrollBounds.y + scrollBounds.height,
+    );
     await page.screenshot({
       path: testInfo.outputPath('connections-claude-check-failed.png'),
       fullPage: true,
