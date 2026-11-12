@@ -9,7 +9,9 @@ import { sessionToolOperatorConnection } from './native-host-tool-operator.js';
 import { agentToolAllowed } from './agent-tool-selection.js';
 import { SessionLaunchError } from './session-launch-store.js';
 import { createLogger } from './logger.js';
+import { retainTelosSessionProposalFailure } from './telos-session-proposal-failure.js';
 export { executeTelosCreateSession } from './telos-session-launch-tool.js';
+export { telosSessionProposalFailure } from './telos-session-proposal-failure.js';
 
 const log = createLogger('telos-session-proposal');
 const envelope = z.strictObject({
@@ -17,11 +19,6 @@ const envelope = z.strictObject({
   sessionId: z.string().min(1).max(200),
   input: TelosCreateSessionInputSchema,
 });
-// Bounded internal causes; never expose provider, source or credential payloads.
-const causes = new Map<string, unknown>();
-export function telosSessionProposalFailure(requestId: string) {
-  return causes.get(requestId);
-}
 
 /** Claude's host MCP transport creates only a review proposal. The verified
  * current SDK owner and authenticated operator are derived outside model JSON. */
@@ -99,9 +96,7 @@ export function createTelosSessionProposalRouter(deps: {
     } catch (cause) {
       const known = cause instanceof SessionLaunchError;
       if (!known) {
-        causes.delete(input.requestId);
-        causes.set(input.requestId, cause);
-        while (causes.size > 32) causes.delete(causes.keys().next().value!);
+        retainTelosSessionProposalFailure(input.requestId, 'proposal', cause);
         log.error('Telos session proposal unavailable', {
           stage: 'proposal',
           code: 'telos_session_proposal_failed',

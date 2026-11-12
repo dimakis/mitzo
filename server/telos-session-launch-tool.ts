@@ -2,6 +2,7 @@ import { SessionLaunchRecordSchema, TelosCreateSessionInputSchema } from '@mitzo
 import { z } from 'zod';
 import { toolInputError } from './tool-input-error.js';
 import type { TelosToolResult } from './telos-tool.js';
+import { retainTelosSessionProposalFailure } from './telos-session-proposal-failure.js';
 
 /** Shared lightweight definition/transport; safe to import in the MCP process. */
 export const telosSessionLaunchDefinition = {
@@ -72,10 +73,21 @@ export async function executeTelosCreateSession(
         isError: true,
       };
     return { content: JSON.stringify(record.data), isError: false };
-  } catch {
+  } catch (cause) {
+    retainTelosSessionProposalFailure(parsed.data.requestId, 'delivery', cause);
     return {
-      content:
-        'Telos session proposal delivery is uncertain. Inspect or retry the same requestId and arguments; no assignment or model command is confirmed.',
+      content: JSON.stringify({
+        code: signal?.aborted
+          ? 'telos_session_proposal_delivery_cancelled'
+          : 'telos_session_proposal_delivery_failed',
+        stage: 'proposal_delivery',
+        requestId: parsed.data.requestId,
+        sourceSessionId: sessionId,
+        effectStatus: 'unknown',
+        message: signal?.aborted
+          ? 'Telos session proposal delivery was cancelled. Inspect the original request before resuming; cancellation does not prove no proposal exists.'
+          : 'Telos session proposal delivery is uncertain. Inspect or retry the same requestId and arguments; no assignment or model command is confirmed.',
+      }),
       isError: true,
     };
   }

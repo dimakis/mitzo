@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.1072-telos-proposal-disconnect-diagnostics';
+  'v1.0.1073-telos-proposal-transport-diagnostics';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -23,6 +23,8 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
+  '../telos-session-proposal-failure.ts':
+    'dc06e7747319a35365008030fb31c6258813b39e02d566a873818a16877e3a30',
   '../../scripts/ci-browser-partition.mjs':
     'f75ab9817d023bbcf1139e074b0edec99f45c561b15aa296658f8e34383aaa8d',
   '../../scripts/ci-browser-durations.json':
@@ -4367,9 +4369,9 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../docs/features/telos-agent-session-creation-handoff.md':
     'f144189dbd45d5092a58bf9be15cbfe0f947f0b5e3fe62bc04358af55067a28f',
   '../__tests__/telos-session-launch-adapters.test.ts':
-    '887f4836fd60f802ef2e8d72eddba94058d2c126234d5fb1acd627b73bdba1ae',
+    'e1d91a0376676c92007860ebc242818145f8c0505153997d4d3bec53bd9d6463',
   '../telos-session-launch-adapters.ts':
-    'ed0f0518fa9752a2a02b215278be6ba5e0d3228e343b40cf1376d9866c969b8d',
+    '930c5b1be8585501e576ecb848b9005b075a2359c8b9e570ba721f63d6ab9a00',
   '../telos-session-launch-tool.ts':
-    'ad45ebb5e2feff91a6c13723c3ad2cc0105a9435c73c623d9a13bff41c5cd494',
+    '3f4628e8c4250b2861d3f911ce5874c7a322831bef948534d6a234c29a5f7339',
 });

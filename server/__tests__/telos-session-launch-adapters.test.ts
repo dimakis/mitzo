@@ -112,13 +112,34 @@ describe('Telos work-bound session adapter contract', () => {
       });
       next();
     });
-    await expect(
-      request(app)
-        .post('/api/internal/telos/session/propose')
-        .set('X-Client-Id', 'claude-client')
-        .send({ clientId: 'claude-client', sessionId: 'claude-lead', input: disconnectedInput }),
-    ).rejects.toThrow(/socket hang up|aborted|ECONNRESET/i);
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => {
+        const response = await request(app)
+          .post('/api/internal/telos/session/propose')
+          .set('X-Client-Id', 'claude-client')
+          .send({ clientId: 'claude-client', sessionId: 'claude-lead', input: disconnectedInput });
+        return { ok: response.status === 200, json: async () => response.body };
+      }),
+    );
+    const result = await executeTelosCreateSession(
+      'http://fixture',
+      'claude-client',
+      'claude-lead',
+      'synthetic-token',
+      disconnectedInput,
+    );
+    expect(result.isError).toBe(true);
+    expect(JSON.parse(result.content)).toMatchObject({
+      code: 'telos_session_proposal_delivery_failed',
+      requestId: disconnectedInput.requestId,
+      effectStatus: 'unknown',
+    });
+    expect(result.content).not.toContain(cause.message);
     expect(telosSessionProposalFailure(disconnectedInput.requestId)).toBe(cause);
+    expect(telosSessionProposalFailure(disconnectedInput.requestId, 'delivery')).toBeInstanceOf(
+      Error,
+    );
     expect(mocks.error).toHaveBeenCalledWith('Telos session proposal unavailable', {
       stage: 'proposal',
       code: 'telos_session_proposal_failed',
@@ -207,6 +228,66 @@ describe('Telos work-bound session adapter contract', () => {
     );
     expect(result.isError).toBe(true);
     expect(result.content).toMatch(/not confirmed|does not match/i);
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+  it.each(['request', 'response'] as const)(
+    'retains a %s transport failure and returns a sanitized recovery diagnostic',
+    async (stage) => {
+      const cause = new Error('private transport payload and synthetic-token');
+      const fetch = vi.fn().mockImplementation(async () => {
+        if (stage === 'request') throw cause;
+        return {
+          ok: true,
+          json: async () => {
+            throw cause;
+          },
+        };
+      });
+      vi.stubGlobal('fetch', fetch);
+      const result = await executeTelosCreateSession(
+        'http://fixture',
+        'claude-client',
+        'claude-lead',
+        'synthetic-token',
+        input,
+      );
+      expect(result.isError).toBe(true);
+      expect(result.content).not.toContain('private transport payload');
+      expect(result.content).not.toContain('synthetic-token');
+      expect(result.content).toContain('telos_session_proposal_delivery_failed');
+      expect(JSON.parse(result.content)).toMatchObject({
+        code: 'telos_session_proposal_delivery_failed',
+        stage: 'proposal_delivery',
+        requestId: input.requestId,
+        sourceSessionId: 'claude-lead',
+        effectStatus: 'unknown',
+      });
+      expect(telosSessionProposalFailure(input.requestId, 'delivery')).toBe(cause);
+      expect(fetch).toHaveBeenCalledTimes(1);
+    },
+  );
+  it('keeps cancelled transport delivery explicitly uncertain without another request', async () => {
+    const controller = new AbortController();
+    const cause = new Error('private cancellation detail');
+    controller.abort(cause);
+    const fetch = vi.fn().mockRejectedValue(cause);
+    vi.stubGlobal('fetch', fetch);
+    const result = await executeTelosCreateSession(
+      'http://fixture',
+      'claude-client',
+      'claude-lead',
+      'synthetic-token',
+      input,
+      controller.signal,
+    );
+    expect(result.isError).toBe(true);
+    expect(JSON.parse(result.content)).toMatchObject({
+      code: 'telos_session_proposal_delivery_cancelled',
+      requestId: input.requestId,
+      effectStatus: 'unknown',
+    });
+    expect(result.content).not.toContain(cause.message);
+    expect(telosSessionProposalFailure(input.requestId, 'delivery')).toBe(cause);
     expect(fetch).toHaveBeenCalledTimes(1);
   });
   it('accepts the proposal response including its handover and editable startup blocker', async () => {
