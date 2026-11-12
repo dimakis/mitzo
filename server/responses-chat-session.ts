@@ -1,5 +1,6 @@
 import { closeMcpAfterFailure } from './codex-mcp-tools.js';
 import { admitApiTools } from './api-tool-execution.js';
+import { copyCallbackOutcome } from './turn-callbacks.js';
 import { getApiToolCatalog } from './api-tool-runtime.js';
 import { getToolBuilderStore } from './tool-builder-runtime.js';
 import { admitCustomTools } from './custom-tool-admission.js';
@@ -577,17 +578,20 @@ The selected account supplies model inference; Local host describes where the to
               : undefined,
             onDemandCreate: options.onDemandCreate,
           })({ ...block, input }, signal);
-          return { content: result.content, isError: !!result.is_error };
+          return copyCallbackOutcome(result, {
+            content: result.content,
+            isError: !!result.is_error,
+          });
         },
         // A custom contract can use file_path as ordinary computation data.
         { normalizeFilePath: !customToolNames.has(block.name) },
       );
-      return {
-        type: 'tool_result',
+      return copyCallbackOutcome(result, {
+        type: 'tool_result' as const,
         tool_use_id: block.id,
         content: result.content,
         is_error: result.isError,
-      };
+      });
     },
   });
   runtimes.set(options.session, runner);

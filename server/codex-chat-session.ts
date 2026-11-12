@@ -167,7 +167,7 @@ import {
 import { requireCustodianOrdinaryRuntime } from './custodian-ordinary-runtime.js';
 import { custodianControllerMode, custodianOwnerMode } from './symposium-custodian-mode.js';
 import { JIRA_API_ENDPOINT } from './connections-gateway.js';
-import { HOST_TOOL_INSTRUCTIONS } from './session-permission-policy.js';
+import { HOST_TOOL_INSTRUCTIONS, TOOL_FAILURE_INSTRUCTIONS } from './session-permission-policy.js';
 import { createNativeHooks } from './native-hooks.js';
 import { requestCodexUserInput } from './codex-user-input.js';
 import { loadAccountProfiles } from './account-profiles.js';
@@ -415,6 +415,10 @@ function capabilityToolsForConversation(
 export function publicCodexRuntimeError(error: Error): string {
   const retained = findSessionRuntimeError(error);
   if (retained) return retained.publicMessage();
+  // Command admission preserves a safe outer refusal and the typed startup
+  // cause. Project that reviewed cause instead of losing its actionable reason.
+  if (!(error instanceof CodexStartupError) && error.cause instanceof CodexStartupError)
+    return publicCodexRuntimeError(error.cause);
   if (error.message === NATIVE_MAC_ARTIFACT_UNAVAILABLE) return error.message;
   if (error instanceof SandboxAgentContextAdmissionError)
     return error.message + ' No provider turn was started.';
@@ -2330,6 +2334,10 @@ async function openCodexChatBound(
           : '');
   const instructionDelivery = assembleInstructionSections([
     { source: 'profile-and-runtime', text: baseSystemPrompt },
+    {
+      source: 'tool-failure-recovery',
+      text: options.adviserScope ? '' : TOOL_FAILURE_INSTRUCTIONS,
+    },
     {
       source: 'tool-discovery',
       text: options.adviserScope ? '' : (integrationDiscovery?.instructions ?? ''),

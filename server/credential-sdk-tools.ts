@@ -1,4 +1,6 @@
 import { randomUUID } from 'node:crypto';
+import { qualifyToolResult, reportToolFailure } from './tool-failure-reporting.js';
+import { findSessionRuntimeError, SessionRuntimeError } from './session-runtime-error.js';
 import { sessionPromptSchemas, sessionPromptDefinitions } from './session-prompt-definitions.js';
 import { copyCallbackOutcome, type TurnCallbackRunner } from './turn-callbacks.js';
 import {
@@ -29,6 +31,12 @@ import { sessionCredentialTools } from './session-credential-tools.js';
 import { agentToolAllowed, filterAgentTools } from './agent-tool-selection.js';
 
 const prefix = 'mcp__mitzo-connections__';
+/** A failed authority check cannot become a recoverable application failure. */
+class SdkAuthorityFailure extends SessionRuntimeError {
+  constructor(cause: unknown) {
+    super('runtime_unavailable', { cause });
+  }
+}
 const schemas = {
   AgentCommunication: AgentCommunicationSdkInput,
   ...sessionPromptSchemas,
@@ -95,6 +103,22 @@ export function createCredentialSdkServer(
   },
 ) {
   const runtimeId = randomUUID();
+  const authority = boundary && {
+    async assertCurrent(signal: AbortSignal) {
+      try {
+        await boundary.assertCurrent(signal);
+      } catch (cause) {
+        throw new SdkAuthorityFailure(cause);
+      }
+    },
+    assertCurrentSync(signal: AbortSignal) {
+      try {
+        boundary.assertCurrentSync(signal);
+      } catch (cause) {
+        throw new SdkAuthorityFailure(cause);
+      }
+    },
+  };
   let current: { id: string; tools: ReturnType<typeof sessionCredentialTools> } | undefined;
   return createSdkMcpServer({
     name: 'mitzo-connections',
@@ -122,7 +146,7 @@ export function createCredentialSdkServer(
             : session.abortController.signal;
           if (signal.aborted)
             return {
-              content: [{ type: 'text', text: 'Tool call cancelled before dispatch.' }],
+              content: [{ type: 'text' as const, text: 'Tool call cancelled before dispatch.' }],
               isError: true,
             };
           return (boundary?.runCallback ?? ((work) => work()))(() =>
@@ -139,11 +163,13 @@ export function createCredentialSdkServer(
                 const id = sessionId();
                 if (!id)
                   return {
-                    content: [{ type: 'text', text: 'Session is not ready; retry shortly' }],
+                    content: [
+                      { type: 'text' as const, text: 'Session is not ready; retry shortly' },
+                    ],
                     isError: true,
                   };
                 if (definition.name === 'AgentCommunication' && boundary?.agentCommunication) {
-                  await boundary.assertCurrent(signal);
+                  await authority!.assertCurrent(signal);
                   const peerInput = AgentCommunicationSdkInput.parse(input);
                   const result = await executeAgentCommunicationTool(
                     () =>
@@ -159,7 +185,7 @@ export function createCredentialSdkServer(
                       recipientConversationId: peerInput.recipientConversationId,
                     },
                   );
-                  await boundary.assertCurrent(signal);
+                  await authority!.assertCurrent(signal);
                   return copyCallbackOutcome(result, {
                     content: [{ type: 'text', text: result.content }],
                     isError: result.isError,
@@ -174,32 +200,59 @@ export function createCredentialSdkServer(
                       registry,
                       prefix,
                       undefined,
-                      boundary
-                        ? () => boundary.assertCurrent(session.abortController.signal)
+                      authority
+                        ? () => authority.assertCurrent(session.abortController.signal)
                         : undefined,
-                      boundary
-                        ? () => boundary.assertCurrentSync(session.abortController.signal)
+                      authority
+                        ? () => authority.assertCurrentSync(session.abortController.signal)
                         : undefined,
                       false,
                       { boundary: boundary?.connectionBoundary },
                     ),
                   };
-                await boundary?.assertCurrent(signal);
-                const result = await current.tools.execute(definition.name, input, signal, {
+                await authority?.assertCurrent(signal);
+                const rawResult = await current.tools.execute(definition.name, input, signal, {
                   turnId: runtimeId,
                   callId: String(
                     (extra as { requestId?: unknown } | undefined)?.requestId ?? randomUUID(),
                   ),
                 });
-                await boundary?.assertCurrent(signal);
-                return {
+                await authority?.assertCurrent(signal);
+                const result =
+                  rawResult && qualifyToolResult(definition.name, input, signal, rawResult);
+                const delivered = {
                   content: [
-                    { type: 'text', text: result?.content ?? 'Connection tool unavailable' },
+                    {
+                      type: 'text' as const,
+                      text: result?.content ?? 'Connection tool unavailable',
+                    },
                   ],
                   isError: result?.isError ?? true,
                 };
+                return result ? copyCallbackOutcome(result, delivered) : delivered;
               },
-            ),
+            ).catch((error: unknown) => {
+              const authorityFailed = error instanceof SdkAuthorityFailure;
+              const cause = authorityFailed ? error.cause : error;
+              const failure = reportToolFailure(cause, {
+                sessionId: sessionId() ?? runtimeId,
+                tool: definition.name,
+                signal,
+              });
+              // Authority failures, cancellation and timeout retirement retain
+              // their fences. Report before propagating the original cause.
+              if (
+                authorityFailed ||
+                signal.aborted ||
+                cause instanceof ToolGuardTimeoutError ||
+                findSessionRuntimeError(cause)
+              )
+                throw cause;
+              return copyCallbackOutcome(failure, {
+                content: [{ type: 'text' as const, text: failure.content }],
+                isError: true,
+              });
+            }),
           );
         },
       ),
