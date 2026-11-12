@@ -116,6 +116,75 @@ it('bounds delegation reads to the current lead exact child and ancestry', () =>
   expect(() => f.store.readDelegationTarget('lead', 'slice', 'outcome')).toThrow(/lead/);
 });
 
+describe('agent-created session work authority', () => {
+  it.each([
+    ['overall', 'outcome', 'coordinator', 'outcome', 'lead'],
+    ['outcome', 'slice', 'outcome', 'work_item', 'worker'],
+  ] as const)(
+    'resolves %s to %s using exact canonical assignment',
+    (parent, child, parentKind, childKind, role) => {
+      const f = fixture();
+      f.command(parent, { operation: 'classify', kind: parentKind });
+      f.command(child, { operation: 'classify', kind: childKind });
+      f.link(parent, 'lead', 'lead');
+      f.command(parent, {
+        operation: 'assign',
+        role: 'lead',
+        conversationId: 'lead',
+        expectedAssignmentRevision: 0,
+      });
+      expect(f.store.sessionCreationScope('lead', child)).toEqual({
+        version: 1,
+        parentItemId: parent,
+        parentAssignmentRevision: 1,
+        itemId: child,
+        expectedRevision: f.store.read(child, operator).revision,
+        role,
+      });
+      expect(() => f.store.sessionCreationScope('reviewer', child)).toThrow(/lead/i);
+      expect(() => f.store.sessionCreationScope('lead', 'other')).toThrow();
+      f.link(parent, 'lead', 'worker-b');
+      f.command(parent, {
+        operation: 'assign',
+        role: 'lead',
+        conversationId: 'worker-b',
+        expectedAssignmentRevision: 1,
+      });
+      expect(() => f.store.sessionCreationScope('lead', child)).toThrow(/lead/i);
+    },
+  );
+
+  it('refuses skipped semantic levels and an already assigned target', () => {
+    const f = fixture();
+    f.command('overall', { operation: 'classify', kind: 'coordinator' });
+    f.command('outcome', { operation: 'classify', kind: 'outcome' });
+    f.command('slice', { operation: 'classify', kind: 'work_item' });
+    f.link('overall', 'lead', 'lead');
+    f.command('overall', {
+      operation: 'assign',
+      role: 'lead',
+      conversationId: 'lead',
+      expectedAssignmentRevision: 0,
+    });
+    expect(() => f.store.sessionCreationScope('lead', 'slice')).toThrow(/lead|child/i);
+    f.link('outcome', 'lead', 'lead');
+    f.command('outcome', {
+      operation: 'assign',
+      role: 'lead',
+      conversationId: 'lead',
+      expectedAssignmentRevision: 0,
+    });
+    f.link('slice', 'worker', 'worker-a');
+    f.command('slice', {
+      operation: 'assign',
+      role: 'worker',
+      conversationId: 'worker-a',
+      expectedAssignmentRevision: 0,
+    });
+    expect(() => f.store.sessionCreationScope('lead', 'slice')).toThrow(/assign/i);
+  });
+});
+
 describe('durable Telos work relationships (offline, existing SQLite owners)', () => {
   it('retains one exact-child delegation across distinct requests and requires an explicit retry predecessor', () => {
     const f = fixture();

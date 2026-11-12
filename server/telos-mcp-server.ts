@@ -8,7 +8,15 @@ import {
   type TelosArtifactToolName,
 } from './telos-artifact-tools.js';
 /** Telos MCP server — safe, structured outcome creation through Mitzo's internal API. */
-import { TelosWorkControlToolInputSchema, TelosOutcomeProposalSchema } from '@mitzo/protocol';
+import {
+  TelosWorkControlToolInputSchema,
+  TelosOutcomeProposalSchema,
+  TelosCreateSessionInputSchema,
+} from '@mitzo/protocol';
+import {
+  executeTelosCreateSession,
+  telosSessionLaunchDefinition,
+} from './telos-session-launch-tool.js';
 import {
   TELOS_WORK_CONTROL_TOOL,
   telosWorkControlDefinitions,
@@ -51,6 +59,27 @@ if (!baseUrl || !clientId || !token) throw new Error('Missing Telos MCP configur
 
 const server = new McpServer({ name: 'telos', version: '1.0.0' });
 if (sessionId) {
+  server.registerTool(
+    'TelosCreateSession',
+    {
+      description: telosSessionLaunchDefinition.description,
+      inputSchema: TelosCreateSessionInputSchema.shape,
+    },
+    async (input: Record<string, unknown>, extra) => {
+      const result = await executeTelosCreateSession(
+        baseUrl,
+        clientId,
+        sessionId,
+        token,
+        input,
+        extra.signal,
+      );
+      return {
+        content: [{ type: 'text' as const, text: result.content }],
+        ...(result.isError ? { isError: true } : {}),
+      };
+    },
+  );
   server.registerTool(
     TELOS_WORK_CONTROL_TOOL,
     {

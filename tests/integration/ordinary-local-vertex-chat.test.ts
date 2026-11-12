@@ -17,6 +17,7 @@ const services = vi.hoisted(() => ({
   workspace: undefined as unknown,
   library: undefined as unknown,
   query: vi.fn(),
+  credentialReadFailure: false,
   requests: [] as Array<{
     options: Record<string, unknown>;
     prompt: AsyncIterable<Record<string, unknown>>;
@@ -115,6 +116,8 @@ vi.mock('../../server/account-use-store.js', () => ({
 vi.mock('../../server/keychain-rotation-credentials.js', () => ({
   KeychainRotationCredentials: class {
     async read() {
+      if (services.credentialReadFailure)
+        throw Error('OFFLINE_KEYCHAIN_UNAVAILABLE synthetic-secret');
       return {
         value: 'synthetic-key',
         version: 'eec02914-ac1f-4369-ab86-8e4f130abc92',
@@ -131,60 +134,80 @@ afterEach(async () => {
   vi.unstubAllEnvs();
   services.requests.length = 0;
   services.query.mockReset();
+  services.credentialReadFailure = false;
 });
-it.each([
-  {
-    personal: false,
-    managed: false,
-    refuseStartup: false,
-    stdinRevocation: false,
-    idleSuccess: false,
-  },
-  {
-    personal: true,
-    managed: false,
-    refuseStartup: false,
-    stdinRevocation: false,
-    idleSuccess: false,
-  },
-  {
-    personal: true,
-    managed: true,
-    refuseStartup: false,
-    stdinRevocation: false,
-    idleSuccess: false,
-  },
-  {
-    personal: false,
-    managed: false,
-    refuseStartup: true,
-    stdinRevocation: false,
-    idleSuccess: false,
-  },
-  {
-    personal: true,
-    managed: false,
-    refuseStartup: true,
-    stdinRevocation: false,
-    idleSuccess: false,
-  },
-  {
-    personal: false,
-    managed: false,
-    refuseStartup: false,
-    stdinRevocation: true,
-    idleSuccess: false,
-  },
-  {
-    personal: false,
-    managed: false,
-    refuseStartup: false,
-    stdinRevocation: false,
-    idleSuccess: true,
-  },
-])(
-  'routes first, queued future and cold commands through the actual SDK owner with original thread; personal=$personal managed=$managed refuseStartup=$refuseStartup stdinRevocation=$stdinRevocation idleSuccess=$idleSuccess',
-  async ({ personal, managed, refuseStartup, stdinRevocation, idleSuccess }) => {
+it.each(
+  [
+    {
+      personal: false,
+      managed: false,
+      refuseStartup: false,
+      stdinRevocation: false,
+      idleSuccess: false,
+    },
+    {
+      personal: true,
+      managed: false,
+      refuseStartup: false,
+      stdinRevocation: false,
+      idleSuccess: false,
+    },
+    {
+      personal: true,
+      managed: true,
+      refuseStartup: false,
+      stdinRevocation: false,
+      idleSuccess: false,
+    },
+    {
+      personal: false,
+      managed: false,
+      refuseStartup: true,
+      stdinRevocation: false,
+      idleSuccess: false,
+    },
+    {
+      personal: true,
+      managed: false,
+      refuseStartup: true,
+      stdinRevocation: false,
+      idleSuccess: false,
+    },
+    {
+      personal: false,
+      managed: false,
+      refuseStartup: false,
+      stdinRevocation: true,
+      idleSuccess: false,
+    },
+    {
+      personal: false,
+      managed: false,
+      refuseStartup: false,
+      stdinRevocation: false,
+      idleSuccess: true,
+    },
+    ...(['none', 'input', 'permission'] as const).map((credentialFailure) => ({
+      personal: false,
+      managed: false,
+      refuseStartup: false,
+      stdinRevocation: false,
+      idleSuccess: false,
+      anthropicApi: true,
+      credentialFailure,
+    })),
+  ].map((scenario) => ({ anthropicApi: false, credentialFailure: 'none', ...scenario })),
+)(
+  'routes first, queued future and cold commands through the actual SDK owner with original thread; personal=$personal managed=$managed refuseStartup=$refuseStartup stdinRevocation=$stdinRevocation idleSuccess=$idleSuccess anthropicApi=$anthropicApi credentialFailure=$credentialFailure',
+  async ({
+    personal,
+    managed,
+    refuseStartup,
+    stdinRevocation,
+    idleSuccess,
+    anthropicApi,
+    credentialFailure,
+  }) => {
     const nextModel = managed ? 'opus' : 'next-model';
     const nextThinking = managed ? null : 'high';
     // Each account scenario gets its own controller/event-store singletons.
@@ -197,7 +220,7 @@ it.each([
       chatRoute: true,
       personal,
       managed,
-      anthropicApi: refuseStartup && !personal,
+      anthropicApi: anthropicApi || (refuseStartup && !personal),
       ...(idleSuccess ? { tools: [{ id: 'mitzo:AgentCommunication', version: 1 }] } : {}),
     });
     if (personal) {
@@ -246,6 +269,7 @@ it.each([
         })),
         async *[Symbol.asyncIterator]() {
           if (idleInputReady) await idleInputReady;
+          if (credentialFailure === 'input') services.credentialReadFailure = true;
           const inputs = request.prompt[Symbol.asyncIterator]();
           for await (const message of { [Symbol.asyncIterator]: () => inputs }) {
             if (closed.value) break;
@@ -334,6 +358,7 @@ it.each([
         setMaxThinkingTokens: vi.fn(async () => {}),
         setPermissionMode: vi.fn(async () => {
           if (refuseStartup) throw Error('OFFLINE_MODE_REFUSED synthetic-secret');
+          if (credentialFailure === 'permission') services.credentialReadFailure = true;
         }),
         stopTask: vi.fn(async () => {}),
       };
@@ -457,7 +482,7 @@ it.each([
     );
     expect(persisted).toBe('[]');
     outbox.stop();
-    if (refuseStartup) {
+    if (refuseStartup || credentialFailure !== 'none') {
       const sessionId = f.reservation.conversationId;
       await vi.waitFor(() => expect(chat.registry.findBySessionId(sessionId)).toBeNull());
       expect(providerInputs).toEqual([]);
@@ -802,7 +827,9 @@ it.each([
             CLAUDE_CONFIG_DIR: f.configuration[0].credentialRef,
             MITZO_CLAUDE_EXPECTED_EMAIL: 'person@example.test',
           }
-        : { ANTHROPIC_VERTEX_PROJECT_ID: 'offline-project', CLOUD_ML_REGION: 'offline-region' },
+        : anthropicApi
+          ? { MITZO_ANTHROPIC_API_CUSTODY: expect.any(String) }
+          : { ANTHROPIC_VERTEX_PROJECT_ID: 'offline-project', CLOUD_ML_REGION: 'offline-region' },
     });
     expect(services.requests[1].options).not.toHaveProperty('sessionId');
     chat.eventStore.agentCommunication.recordForHost(outgoingPeer.messageId, 'delivered');

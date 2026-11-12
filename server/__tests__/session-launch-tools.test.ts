@@ -37,6 +37,7 @@ function fixture() {
       title: value.title,
       prompt: value.prompt,
       configuration: value.configuration,
+      ...(value.telos ? { telos: value.telos } : {}),
       proposalId: '9fbe6c84-ebac-4223-9f48-617f3ab7075f',
       state: 'pending',
       revision: 1,
@@ -49,6 +50,20 @@ function fixture() {
     })),
   };
   const defaults = { get: vi.fn(() => ({ revision: 1, configuration })) };
+  const telos = {
+    propose: vi.fn(async () => ({
+      telos: {
+        version: 1,
+        parentItemId: 'parent-feature',
+        parentAssignmentRevision: 1,
+        itemId: 'selected-slice',
+        expectedRevision: 'a'.repeat(64),
+        role: 'worker',
+        sourceSnapshotIds: [],
+        artifactRefs: [],
+      },
+    })),
+  };
   const registry = {
     findBySessionId: vi.fn(() => ({ session, clientId: 'connection:source' })),
     isClosingOut: () => false,
@@ -61,18 +76,63 @@ function fixture() {
     defaults,
     registry,
     current,
+    telos,
     tools: sessionLaunchTools({
       sessionId: 'source',
       session,
       registry,
       assertCurrent: async () => {},
       assertCurrentSync: current,
-      controller: () => ({ defaults, launches: { store }, changed: vi.fn() }),
+      controller: () => ({ defaults, launches: { store }, telos, changed: vi.fn() }),
     } as never),
   };
 }
 beforeEach(() => vi.clearAllMocks());
 describe('StartSession proposal tool', () => {
+  it('rejects changed operator custody during the awaited Telos proposal review', async () => {
+    const f = fixture();
+    const previous = f.telos.propose.getMockImplementation()!;
+    f.telos.propose.mockImplementation(async (...args) => {
+      const result = await previous(...args);
+      f.session.ownerConnectionId = 'replacement-operator';
+      return result;
+    });
+    await expect(
+      f.tools.execute(
+        { ...input, itemId: 'selected-slice', expectedRevision: 'a'.repeat(64) },
+        new AbortController().signal,
+        { turnId: 'turn', callId: 'call' },
+        'TelosCreateSession',
+      ),
+    ).rejects.toThrow(/operator changed/i);
+    expect(f.store.propose).not.toHaveBeenCalled();
+  });
+  it('uses the Telos-aware proposal owner and never drops selected work into an ordinary launch', async () => {
+    const f = fixture();
+    const selected = {
+      ...input,
+      itemId: 'selected-slice',
+      expectedRevision: 'a'.repeat(64),
+      sourceSnapshotIds: [],
+      artifactRefs: [],
+    };
+    const result = await f.tools.execute(
+      selected,
+      new AbortController().signal,
+      { turnId: 'turn', callId: 'call' },
+      'TelosCreateSession',
+    );
+    expect(f.telos.propose).toHaveBeenCalledWith(
+      'source',
+      selected,
+      expect.objectContaining({ authSessionId: 'login' }),
+    );
+    expect(result).toMatchObject({
+      state: 'pending',
+      telos: { itemId: selected.itemId, role: 'worker' },
+    });
+    expect(f.store.propose).toHaveBeenCalledTimes(1);
+  });
   it('resolves the saved exact host plus overrides, without starting a provider', async () => {
     const f = fixture();
     const result = await f.tools.execute(input, new AbortController().signal, {
