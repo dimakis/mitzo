@@ -350,14 +350,16 @@ export function createConnectionsRouter(options: {
         .strict()
         .safeParse(req.body);
       req.body = undefined;
-      if (!parsed.success) return res.status(400).json({ error: 'Invalid model refresh request' });
+      const accountId = z.string().min(1).max(200).safeParse(req.params.id);
+      if (!parsed.success || !accountId.success)
+        return res.status(400).json({ error: 'Invalid model refresh request' });
       if (!recentAuthorizationExpiry(res, parsed.data.csrf))
         return res.status(403).json({ error: 'Recent browser reauthorization required' });
       if (!options.openAIAccounts)
         return res.status(503).json({ error: 'API account setup is not configured' });
       try {
         const account = await options.openAIAccounts.refreshAccountModels(
-          req.params.id,
+          accountId.data,
           AbortSignal.timeout(15000),
         );
         return res.json({ account });
