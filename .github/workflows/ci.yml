@@ -370,6 +370,7 @@ jobs:
             test-results/offline/**/approval-*.png
             test-results/offline/**/empty-access-*.png
             test-results/offline/**/connections-*.png
+            test-results/offline/**/enmaas-*.png
             test-results/offline/**/stale-access.png
             test-results/offline/**/unknown-runtime-*.png
             test-results/offline/**/references.png

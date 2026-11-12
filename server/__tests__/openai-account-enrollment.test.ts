@@ -108,11 +108,10 @@ it.each(['responses', 'messages'] as const)(
     const account = await service.enroll(
       {
         ...f.input,
-        connection: {
-          ...gatewayConnection,
-          protocol,
-          ...(protocol === 'messages' ? { authentication: 'api-key' as const } : {}),
-        },
+        connection:
+          protocol === 'messages'
+            ? { ...gatewayConnection, protocol, authentication: 'api-key' }
+            : { ...gatewayConnection, protocol },
         models: [{ id: 'existing/model', label: 'Existing' }],
       },
       AbortSignal.timeout(1000),
