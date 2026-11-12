@@ -33,7 +33,7 @@ and final execution checks remain in force. No generic Bash or shell-prefix gran
 is created. Existing GitHubRead integration consent remains repository scoped and
 separate from native shell networking.
 
-## One approval alert per unread blocked chat
+## One alert per distinct approval
 
 The notification center owns approval delivery. It prefers native push when
 configured with devices, then Pushover or ntfy as a fallback. The shared runtime
@@ -46,14 +46,36 @@ approval of redacted or truncated details. HTTP failure is recorded as failure,
 with bounded retries, rather than successful delivery. Partial native delivery
 retries exclude devices that already accepted the alert and do not switch channels.
 
-After a successful alert, another unread approval in that chat does not send a
-second banner, including an expired request recreated by the agent. The store
-persists this state across restarts. Reading/archiving the earlier notice or an
-explicit decision ends its suppression; a notice older than 24 hours also stops
-suppressing new work. Questions and other chats remain independent. Every pending
-decision stays in the feed and badge count; coalescing grants no authority and
-does not resolve requests. Expiry now tells the agent to wait for the user instead
-of automatically recreating the unchanged request.
+Every distinct approval is eligible for its own alert, including concurrent
+decisions in one chat and a new request after expiry. An earlier unread alert
+cannot suppress another decision. The previous chat-wide, 24-hour suppression
+included expired alerts and could leave later approvals unannounced for hours.
+
+Deduplication uses the durable notification/request ID and accepted-device
+receipts. Repeated ingestion, delivery sweeps and restarts do not replay an
+accepted request; a partial delivery retries only its remaining devices.
+Historical expired notices remain in the feed without blocking new alerts,
+including in existing databases. Delivery never grants or resolves permission.
+Expiry still tells the agent to wait for the user instead of automatically
+recreating the unchanged request.
+
+This policy lives in the shared notification store and center. Claude and Vertex
+SDK sessions, Responses sessions and controller tools use the common permission
+handler; Local Mac and OpenShell Codex native approvals reach it through the
+native approval adapter. The central policy also covers seat access notices and
+both native and legacy delivery routes; it requires no runtime-specific switch.
+
+Queue, resolution and delivery diagnostics carry notification, permission and
+session correlation where available, stable stage/result codes, delivery channel
+and accepted-device counts. They exclude request bodies and device tokens.
+Transport exceptions retain their cause internally, record a bounded retry and
+allow the rest of the delivery batch to proceed.
+
+Offline regressions verified on 12 November 2026 reproduce the expired unread
+alert through the common handler and both native engine contexts. They also
+cover persisted databases, concurrent decisions, same-request deduplication,
+partial delivery and transport failure recovery. These tests use synthetic
+transports and do not establish delivery on a real iPhone or Watch.
 
 ## Remaining automatic-review gap
 
@@ -101,7 +123,7 @@ own permission owner; a TaskExecution grant does not automatically become native
 shell authority. A complete fix needs consistent task authority at each execution
 adapter and bounded CI-log collection to local files, with current owner/account/root,
 cancellation and revocation checks. Telos updates and publication also retain
-their separate reviewed mutation contracts. Notification coalescing does not
+their separate reviewed mutation contracts. Notification deduplication does not
 remove these authorization requests or establish that the whole workflow is fixed.
 
 ## Security finding: task grants are not native execution grants
