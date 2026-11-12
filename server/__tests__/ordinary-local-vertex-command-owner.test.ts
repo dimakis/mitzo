@@ -2,6 +2,8 @@ import { afterEach, expect, it, vi } from 'vitest';
 import { EventStore } from '../event-store.js';
 import type { OrdinaryLocalCommandAdmission } from '../../packages/protocol/src/ordinary-local-admission.js';
 import { OrdinaryLocalVertexCommandOwner } from '../ordinary-local-vertex-command-owner.js';
+import type { OrdinaryTurnLifecycle } from '../ordinary-turn-lifecycle.js';
+import { OrdinarySdkTurnEvidence } from '../ordinary-sdk-turn-evidence.js';
 import { randomUUID } from 'node:crypto';
 import { replayEventsToMessages } from '../conversation-transcript.js';
 const stores: EventStore[] = [];
@@ -35,12 +37,13 @@ const command = (id: string, model = 'first') => ({
     thinking: model === 'first' ? null : 'enabled',
   },
 });
-function setup() {
+function setup(turnLifecycle?: OrdinaryTurnLifecycle, recordEvidence = false) {
   const store = new EventStore(':memory:');
   stores.push(store);
   store.admitOrdinaryLocalVertexCommand(meta, binding, command('first'));
   const calls: string[] = [];
   const assertCurrent = vi.fn();
+  const assertCurrentSync = vi.fn();
   const query = {
     applySettings: undefined as
       ((selection: OrdinaryLocalCommandAdmission['selection']) => Promise<void>) | undefined,
@@ -65,6 +68,11 @@ function setup() {
     store,
     sessionId: 'session',
     assertCurrent,
+    assertCurrentSync,
+    turnLifecycle: () => turnLifecycle,
+    turnEvidence: recordEvidence
+      ? new OrdinarySdkTurnEvidence(store, 'session', 'sdk-thread')
+      : undefined,
     ownsClaim: (id) => store.getOrdinaryLocalVertexCommandAdmission(id)?.state === 'consumed',
     query,
     settings: (selection) => ({
@@ -72,8 +80,35 @@ function setup() {
       thinkingTokens: selection.thinking === null ? null : 10000,
     }),
   });
-  return { store, owner, calls, query, assertCurrent };
+  return { store, owner, calls, query, assertCurrent, assertCurrentSync };
 }
+it('renews only the exact active, not-yet-acknowledged SDK input at its final yield', async () => {
+  const lifecycle = { beforeDispatch: vi.fn(), accepted: vi.fn(), terminal: vi.fn() };
+  const f = setup(lifecycle, true);
+  expect(() => f.owner.assertInputCurrent('first')).toThrow('input command identity');
+  await f.owner.enqueue('first');
+  expect(() => f.owner.assertInputCurrent('another')).toThrow('input command identity');
+  f.owner.assertInputCurrent('first');
+  expect(f.assertCurrentSync).toHaveBeenCalledOnce();
+  expect(lifecycle.beforeDispatch).toHaveBeenCalledExactlyOnceWith('first');
+  f.owner.inputObserved('exact-sdk-input');
+  expect(() => f.owner.assertInputCurrent('first')).toThrow('input command identity');
+});
+it('refuses a source fence after queue insertion without yielding another command', async () => {
+  const lifecycle = {
+    beforeDispatch: vi.fn(() => {
+      throw Error('Shared source revoked');
+    }),
+    accepted: vi.fn(),
+    terminal: vi.fn(),
+  };
+  const f = setup(lifecycle);
+  await f.owner.enqueue('first');
+  expect(() => f.owner.assertInputCurrent('first')).toThrow('Shared source revoked');
+  expect(f.owner.activeCommandId()).toBe('first');
+  expect(f.query.push).toHaveBeenCalledOnce();
+  expect(f.store.getOrdinaryProviderTurnTerminal('session', 'first')).toBeUndefined();
+});
 it('offers a peer steering target only after the original SDK input is acknowledged', async () => {
   const f = setup();
   await f.owner.enqueue('first');
@@ -117,6 +152,18 @@ it('projects a positively cancelled queued peer message into both retained trans
       )?.agentMessage?.message,
     ).toMatchObject({ status: 'failed', reason: 'cancelled' });
   expect(f.query.push.mock.calls.map(([id]) => id)).toEqual(['first']);
+});
+it('refuses a recovered shared queue entry without its original source observer before dispatch', async () => {
+  const f = setup();
+  await f.owner.enqueue('first');
+  await f.owner.complete('first');
+  f.query.push.mockClear();
+  const id = `collaboration:${randomUUID()}`;
+  f.store.admitOrdinaryLocalVertexContinuation(meta, binding, command(id));
+  await expect(f.owner.enqueue(id)).rejects.toThrow('shared SDK source authority');
+  expect(f.query.push).not.toHaveBeenCalled();
+  expect(f.store.getExecutionAdmission('session', id)).toBeUndefined();
+  expect(f.query.abort).toHaveBeenCalledOnce();
 });
 it('changes SDK settings only between terminal commands and preserves queued snapshots', async () => {
   const { store, owner, calls, query } = setup();

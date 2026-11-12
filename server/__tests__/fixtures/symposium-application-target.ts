@@ -146,6 +146,7 @@ export async function prepareSyntheticGithub(
 export async function installApplicationReviewConnections(
   root: string,
   install: typeof import('../../app.js').setConnectionsRuntime,
+  accountIds: string[] = ['offline-personal'],
 ) {
   const { createConnectionsRuntime } = await import('../../connections-runtime.js');
   const { GitHubCliHostPublisher } =
@@ -161,7 +162,7 @@ export async function installApplicationReviewConnections(
     });
   const runtime = createConnectionsRuntime({
     directory: join(root, 'connections'),
-    eligibleAccountIds: () => ['offline-personal'],
+    eligibleAccountIds: () => accountIds,
     cli: '/nonexistent/offline-gateway-must-not-run',
     workspace: 'offline-observation',
   });
@@ -174,7 +175,7 @@ export async function installApplicationReviewConnections(
       label: 'Synthetic GitHub',
       endpoint: 'https://api.github.com',
       gatewayProviderName: 'offline-github',
-      desiredAccountIds: ['offline-personal'],
+      desiredAccountIds: accountIds,
       publicConfig: { allowedRepositories: ['example/acceptance'], allowedBaseBranches: ['main'] },
     });
     connection = runtime.store.transition(

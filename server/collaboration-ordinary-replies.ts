@@ -7,7 +7,7 @@ import {
   type CollaborationMessageSource,
 } from '@mitzo/protocol';
 import type { EventStore } from './event-store.js';
-import { ordinaryCodexCommandExecution } from './ordinary-codex-command-execution.js';
+import { ordinaryContributorCommandExecution } from './ordinary-codex-command-execution.js';
 
 const id = z.string().min(1).max(200).regex(/^\S+$/);
 const Source = z.strictObject({
@@ -44,7 +44,7 @@ type SourceStore = Pick<
  * reference pins provenance, not authority or a cached permission decision. */
 export function captureOrdinaryReplyExecution(store: SourceStore, sessionId: string, raw: unknown) {
   const source = TurnIdentity.parse(raw);
-  const admission = ordinaryCodexCommandExecution(store, sessionId, source.commandId, {
+  const admission = ordinaryContributorCommandExecution(store, sessionId, source.commandId, {
     requireClaimed: true,
   });
   return Object.freeze({ ...source, executionFingerprint: admission.requestFingerprint });
@@ -63,7 +63,7 @@ export function recordOrdinaryReplySource(
   const execution = Execution.parse(accepted);
   const identity = TurnIdentity.parse(source);
   const { executionFingerprint, ...acceptedIdentity } = execution;
-  const admission = ordinaryCodexCommandExecution(store, sessionId, source.commandId, {
+  const admission = ordinaryContributorCommandExecution(store, sessionId, source.commandId, {
     requireClaimed: true,
   });
   if (
@@ -101,7 +101,7 @@ export class OrdinaryCollaborationReplies {
     const mapping = retainedSource(rows[0]);
     if (mapping.version !== 2 || mapping.commandId !== commandId || mapping.messageId !== messageId)
       throw new CollaborationContractError('reply_conflict');
-    const admission = ordinaryCodexCommandExecution(this.store, sessionId, commandId, {
+    const admission = ordinaryContributorCommandExecution(this.store, sessionId, commandId, {
       historical: true,
       fingerprint: mapping.executionFingerprint,
     });
@@ -131,7 +131,7 @@ export class OrdinaryCollaborationReplies {
     const mapping = retainedSource(mappings[0]);
     if (mapping.commandId !== source.commandId || mapping.messageId !== source.messageId)
       throw new CollaborationContractError('reply_conflict');
-    const admission = ordinaryCodexCommandExecution(
+    const admission = ordinaryContributorCommandExecution(
       this.store,
       source.conversationId,
       source.commandId,

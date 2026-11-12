@@ -79,13 +79,14 @@ export async function dispatchOwnedOrdinaryCommand(input: OwnedOrdinaryDispatchI
     (!input.continuation && runtime.harness !== sessionHarnessForProvider(binding.account.provider))
   )
     throw Error('Exact ordinary dispatch selection required');
+  const localCodex =
+    binding.harness.implementation === 'codex' && binding.execution.location === 'local';
+  const localSdk =
+    binding.harness.implementation === 'claude-sdk' && binding.execution.location === 'local';
   if (
-    (input.adviserScope ||
-      input.onSessionPrepared ||
-      input.onQueryEvent ||
-      input.onTerminalOutcome ||
-      input.onEnded) &&
-    (binding.harness.implementation !== 'codex' || binding.execution.location !== 'local')
+    ((input.adviserScope || input.onQueryEvent || input.onTerminalOutcome || input.onEnded) &&
+      !localCodex) ||
+    (input.onSessionPrepared && !localCodex && !localSdk)
   )
     throw Error('Scoped callbacks are unavailable on this execution target');
   const continuation = input.continuation;
@@ -107,10 +108,19 @@ export async function dispatchOwnedOrdinaryCommand(input: OwnedOrdinaryDispatchI
       const ownerAuthSessionId = input.ownerAuthSessionId;
       if (!ownerAuthSessionId) throw Error('Exact ordinary operator identity required');
       return continuation && existing
-        ? sendOwnedLocalVertexCommand({ ...common, assertCurrent: input.assertCurrent })
+        ? sendOwnedLocalVertexCommand({
+            ...common,
+            assertCurrent: input.assertCurrent,
+            ordinaryTurnLifecycle: input.ordinaryTurnLifecycle,
+          })
         : startOwnedLocalVertexCommand(input.transport, input.clientId, {
             ...startup,
             ownerAuthSessionId,
+            ordinaryTurnLifecycle: input.ordinaryTurnLifecycle,
+            ...(!continuation && input.preparationOperationId
+              ? { preparationOperationId: input.preparationOperationId }
+              : {}),
+            ...(input.onSessionPrepared ? { onSessionPrepared: input.onSessionPrepared } : {}),
           });
     }
     case 'gemini':
