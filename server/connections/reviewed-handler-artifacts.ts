@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.1099-symposium-dialog-settings';
+  'v1.0.1100-symposium-picker-render-evidence';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -26,7 +26,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/components/__tests__/ConversationAgents.settings-scope.test.tsx':
     '4a3c8a1498539013ff8a0cf53a77bc6b30b135e88601e0f8b0fe005e8f1a9b6d',
   '../../tests/offline/symposium-dialog-controls.spec.ts':
-    '5f8b996a387acd2fcf9fc4ff27d0b623ea3f142243251386a4c64e738b37b63f',
+    '470ffe7d48c6457e55e830ca63395766829b82240e4142f31278810e85a3d91d',
   '../../frontend/src/components/__tests__/ConversationRepositoryPicker.test.tsx':
     'a22e84b14cdad3990308743da9aa8c6861519e5e45b96caf39d94ddc5a8561ad',
   '../../packages/protocol/__tests__/ordinary-prepared-session.test.ts':

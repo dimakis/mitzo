@@ -179,19 +179,21 @@ for (const theme of ['dark', 'light'])
       'offline-model',
     );
     await expect(dialog.getByRole('combobox', { name: 'Thinking level' })).toBeVisible();
-    await page.screenshot({ path: info.outputPath(`add-agent-fields-${theme}.png`) });
+    await dialog.getByRole('combobox', { name: 'Model', exact: true }).scrollIntoViewIfNeeded();
+    await page.screenshot({ path: info.outputPath(`fresh-setup-fields-${theme}.png`) });
     await dialog.getByRole('radio', { name: 'Mac host' }).check();
     await dialog.getByRole('button', { name: 'Add repository', exact: true }).click();
     const repository = dialog.getByLabel('Local repository');
     await expect(repository).toBeVisible();
     await repository.selectOption('local:local/project');
     await expect(dialog.getByRole('button', { name: 'Use repository', exact: true })).toBeEnabled();
+    await repository.scrollIntoViewIfNeeded();
     expect(
       await dialog
         .locator('.conversation-agents-body')
         .evaluate((el) => el.scrollWidth <= el.clientWidth),
     ).toBe(true);
-    await page.screenshot({ path: info.outputPath(`add-agent-repository-${theme}.png`) });
+    await page.screenshot({ path: info.outputPath(`fresh-setup-repository-${theme}.png`) });
     await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
     await page.getByRole('button', { name: 'Add agent', exact: true }).click();
     await expect(dialog.getByRole('textbox', { name: 'Name in this chat' })).toHaveValue('Bob');
