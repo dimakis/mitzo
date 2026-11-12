@@ -1,9 +1,14 @@
-import { afterEach, expect, it, vi } from 'vitest';
+import { resetOfflineUserEnvironment } from './fixtures/offline-user-home.js';
+import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { mkdtempSync, realpathSync, rmSync, writeFileSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import type { AccountBinding } from '@mitzo/protocol';
+import { RuntimeFailureSchema, runtimeFailureMessage, type AccountBinding } from '@mitzo/protocol';
 import { FrozenHostCodexApiLogin } from '../frozen-host-codex-api-login.js';
+import { OwnedCodexLifecycleBridge } from '../owned-codex-lifecycle-bridge.js';
+import type { FrozenHostCodexBootstrapLease } from '../frozen-host-codex-bootstrap.js';
+import { CodexTransportError } from '../codex-app-server-client.js';
+import { findSessionRuntimeError } from '../session-runtime-error.js';
 import * as boundedRead from '../bounded-file-read.js';
 const schemas = vi.hoisted(() => ({ objects: 0 }));
 vi.mock('zod', async (importOriginal) => {
@@ -20,6 +25,7 @@ vi.mock('zod', async (importOriginal) => {
   };
 });
 const roots: string[] = [];
+beforeEach(resetOfflineUserEnvironment);
 afterEach(() => roots.splice(0).forEach((root) => rmSync(root, { recursive: true, force: true })));
 afterEach(() => vi.restoreAllMocks());
 const binding: AccountBinding = {
@@ -56,6 +62,51 @@ function fixture() {
     },
   };
 }
+it('publishes a raw API credential failure before physical close reenters the actual lifecycle owner', async () => {
+  const f = fixture();
+  const login = await FrozenHostCodexApiLogin.capture(binding, {
+    privateRoot: f.root,
+    bootstrapId: '1'.repeat(64),
+    authority: f.authority,
+    signal: new AbortController().signal,
+  });
+  const state: { lease?: FrozenHostCodexBootstrapLease } = {};
+  const bridge = new OwnedCodexLifecycleBridge(() => state.lease);
+  const onClose = vi.fn();
+  const connected = await login.connect(f.launch, (failure) => bridge.lifecycle.onClose(failure));
+  state.lease = {
+    ...connected,
+    profile: {
+      accountId: binding.accountId,
+      accountLabel: binding.accountLabel,
+      model: binding.model,
+      email: 'api',
+      planType: 'api',
+    },
+    privateHome: login.privateHome,
+    executableSha256: 'a'.repeat(64),
+  };
+  bridge.attach({ onNotification: vi.fn(), onRequest: vi.fn(async () => ({})), onClose });
+  f.rpc.close.mockImplementation(() =>
+    bridge.lifecycle.onClose(new CodexTransportError('connection')),
+  );
+  const original = Object.assign(Error('private/path secret-token'), { code: 'EPERM' });
+  f.authority.resolveKey.mockRejectedValue(original);
+  const error = await connected.assertCredentialCurrent!(new AbortController().signal).catch(
+    (failure: unknown) => failure,
+  );
+  expect(error).toBeInstanceOf(Error);
+  expect((error as Error).message).toBe('API Codex login unavailable');
+  const failure = findSessionRuntimeError(error)!;
+  expect(failure).toMatchObject({ code: 'tool_validation_failed', cause: original });
+  expect(onClose).toHaveBeenCalledExactlyOnceWith(failure);
+  expect(f.rpc.close).toHaveBeenCalledOnce();
+  expect(runtimeFailureMessage(RuntimeFailureSchema.parse(failure.telemetry()))).toBe(
+    failure.publicMessage(),
+  );
+  expect(JSON.stringify(failure.telemetry())).not.toMatch(/private\/path|secret-token/);
+  expect(failure.publicMessage()).not.toMatch(/private\/path|secret-token/);
+});
 it('captures the key once and checks it afresh before any later launch', async () => {
   const f = fixture();
   const login = await FrozenHostCodexApiLogin.capture(binding, {

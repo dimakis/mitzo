@@ -1,8 +1,10 @@
 import { expect, it, vi } from 'vitest';
 import { createCredentialSdkServer, credentialSdkPermission } from '../credential-sdk-tools.js';
 import * as credentialRuntime from '../credential-connections-runtime.js';
+import * as credentialTools from '../session-credential-tools.js';
 import { SessionRegistry, ToolGuardTimeoutError, type ToolGuardPolicy } from '@mitzo/harness';
 import { TurnCallbacks, assertTurnCallbackEffects } from '../turn-callbacks.js';
+import { AgentCommunicationError } from '../agent-message-runtime.js';
 const mocked = vi.hoisted(() => ({
   tools: [] as Array<{
     name: string;
@@ -21,6 +23,74 @@ vi.mock('@anthropic-ai/claude-agent-sdk', () => ({
     return { type: 'sdk', name: 'mitzo-connections' };
   },
 }));
+it('exposes peer messaging only through an explicitly installed owned SDK callback and retains capability diagnostics', async () => {
+  const registry = new SessionRegistry();
+  registry.register('owned', {
+    sessionId: 'sdk-owned',
+    mode: 'agent',
+    transport: { send() {}, isOpen: () => true },
+    abortController: new AbortController(),
+  } as never);
+  let current = true;
+  const execute = vi.fn(async () => {
+    throw new AgentCommunicationError(
+      'runtime_unsupported',
+      'capability',
+      'The target has no verified peer adapter.',
+    );
+  });
+  const assert = () => {
+    if (!current) throw Error('revoked');
+  };
+  try {
+    createCredentialSdkServer(() => 'sdk-owned', registry.get('owned')!, registry, {
+      profilesOnly: true,
+      assertCurrent: async () => assert(),
+      assertCurrentSync: assert,
+      agentCommunication: () => ({ execute }),
+    });
+    const tool = mocked.tools.find((item) => item.name === 'AgentCommunication');
+    expect(tool).toBeDefined();
+    const result = await tool!.handler({ operation: 'list' });
+    expect(JSON.stringify(result)).toContain('runtime_unsupported');
+    expect(execute).toHaveBeenCalledOnce();
+    current = false;
+    await expect(tool!.handler({ operation: 'list' })).rejects.toThrow('revoked');
+    expect(execute).toHaveBeenCalledOnce();
+  } finally {
+    registry.dispose();
+  }
+});
+it('propagates SDK peer authority revocation after execution instead of reporting a recoverable tool result', async () => {
+  const registry = new SessionRegistry();
+  registry.register('owned', {
+    sessionId: 'sdk-owned',
+    mode: 'agent',
+    transport: { send() {}, isOpen: () => true },
+    abortController: new AbortController(),
+  } as never);
+  let current = true;
+  const execute = vi.fn(async () => {
+    current = false;
+    return { chats: [], nextOffset: null };
+  });
+  const assert = () => {
+    if (!current) throw Error('revoked after execution');
+  };
+  try {
+    createCredentialSdkServer(() => 'sdk-owned', registry.get('owned')!, registry, {
+      profilesOnly: true,
+      assertCurrent: async () => assert(),
+      assertCurrentSync: assert,
+      agentCommunication: () => ({ execute }),
+    });
+    const tool = mocked.tools.find((item) => item.name === 'AgentCommunication');
+    await expect(tool!.handler({ operation: 'list' })).rejects.toThrow('revoked after execution');
+    expect(execute).toHaveBeenCalledOnce();
+  } finally {
+    registry.dispose();
+  }
+});
 it('exposes the same discovery, session approval and request tools to SDK sessions', async () => {
   const session = { abortController: new AbortController() };
   const registry = new SessionRegistry();
@@ -52,6 +122,37 @@ it('exposes the same discovery, session approval and request tools to SDK sessio
   ]);
   const result = await mocked.tools[0].handler({});
   expect(JSON.stringify(result)).toContain('connections');
+});
+
+it('delivers SDK callback failures as actionable tool results and permits the next call', async () => {
+  const registry = new SessionRegistry();
+  registry.register('client', {
+    sessionId: 'chat',
+    mode: 'agent',
+    abortController: new AbortController(),
+  } as never);
+  const tools = vi.spyOn(credentialTools, 'sessionCredentialTools').mockReturnValue({
+    definitions: [],
+    execute: vi
+      .fn()
+      .mockRejectedValueOnce(Object.assign(Error('private payload'), { code: 'ENOMEM' }))
+      .mockResolvedValue({ content: 'next observation', isError: false }),
+  });
+  createCredentialSdkServer(() => 'chat', registry.get('client')!, registry, {
+    assertCurrent: async () => {},
+    assertCurrentSync: () => {},
+  });
+  try {
+    const handler = mocked.tools.find((tool) => tool.name === 'ListConnections')!.handler;
+    const failed = await handler({});
+    expect(failed).toMatchObject({ isError: true });
+    expect(JSON.stringify(failed)).toContain('memory_exhausted');
+    expect(JSON.stringify(failed)).not.toContain('private payload');
+    expect(await handler({})).toMatchObject({ isError: false });
+  } finally {
+    tools.mockRestore();
+    registry.dispose();
+  }
 });
 
 function callbackSdkFixture(toolGuardPolicy?: Readonly<ToolGuardPolicy>) {

@@ -210,12 +210,93 @@ for (const phase of ['prepare', 'confirm'] as const)
           expect(saved.text).toBe('Unsent prompt remains intact');
           if (outcome === 'reject')
             expect(saved.collaborationForward?.confirmationAttempted).not.toBe(true);
+          if (phase === 'confirm' && (outcome === 'auth loss' || outcome === 'unmount')) {
+            expect(saved.collaborationForward?.confirmationAttempted).toBe(false);
+            const restored = f.mount();
+            restored.rerender({
+              ...f.options,
+              view: {
+                ...f.options.view,
+                membershipRevision: f.options.view.membershipRevision + 1,
+              },
+            });
+            act(() => restored.result.current.check());
+            await waitFor(() =>
+              expect(restored.result.current.observation?.state).toBe('prepared'),
+            );
+            expect(restored.result.current.canConfirm).toBe(false);
+            expect(restored.result.current.canClear).toBe(true);
+            act(() => restored.result.current.clear());
+            await waitFor(() => expect(restored.result.current.retained).toBe(false));
+            expect(drafts.getChatDraft(f.draft.id)?.text).toBe('Unsent prompt remains intact');
+            expect(f.confirm).not.toHaveBeenCalled();
+          }
         }
       } finally {
         release();
       }
     },
   );
+
+it.each(['earlier uncertainty', 'replacement journal'] as const)(
+  'cancelled confirmation preserves %s',
+  async (retainedCase) => {
+    const storage = await durableStorage();
+    const f = fixture();
+    const h = f.mount();
+    await f.ready(h);
+    if (retainedCase === 'earlier uncertainty') {
+      f.confirm.mockRejectedValueOnce(Error('Confirmation response lost'));
+      act(() => h.result.current.confirm());
+      await waitFor(() => expect(h.result.current.error).toContain('response lost'));
+      act(() => h.result.current.check());
+      await waitFor(() => expect(h.result.current.canConfirm).toBe(true));
+    }
+    const original = drafts.getChatDraft(f.draft.id)!.collaborationForward!;
+    const callsBefore = f.confirm.mock.calls.length;
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let pending = false;
+    storage.gate(async (record) => {
+      const saved = JSON.parse(record.value ?? 'null')?.collaborationForward;
+      if (!pending && saved?.confirmationAttempted) {
+        pending = true;
+        await gate;
+      }
+    });
+    // A prior ambiguous journal already has this value; rotate the local text
+    // so the queued disk still exercises a real asynchronous write.
+    drafts.saveChatDraft({ ...drafts.getChatDraft(f.draft.id)!, text: 'Newer prompt edit' });
+    act(() => h.result.current.confirm());
+    await waitFor(() => expect(pending).toBe(true));
+    h.unmount();
+    const replacement =
+      retainedCase === 'replacement journal'
+        ? {
+            ...original,
+            input: {
+              ...original.input,
+              selection: { ...original.input.selection, requestId: uuid(99) },
+            },
+          }
+        : undefined;
+    if (replacement)
+      drafts.saveChatDraft({
+        ...drafts.getChatDraft(f.draft.id)!,
+        collaborationForward: replacement,
+      });
+    await act(async () => {
+      release();
+      await chatStorage.flush();
+    });
+    await storage.reopen();
+    expect(f.confirm).toHaveBeenCalledTimes(callsBefore);
+    expect(drafts.getChatDraft(f.draft.id)?.collaborationForward).toEqual(replacement ?? original);
+    expect(drafts.getChatDraft(f.draft.id)?.text).toBe('Newer prompt edit');
+  },
+);
 
 it('forwards only inspected selectors and versions, preserving the draft without requesting a reply', async () => {
   const f = fixture();

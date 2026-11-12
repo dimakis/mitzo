@@ -54,6 +54,7 @@ export interface ManagedSession {
     admit(
       command: unknown,
       preparationSignal?: AbortSignal,
+      assertAdmissionCurrent?: () => void,
       turnLifecycle?: OrdinaryTurnLifecycle,
     ): Promise<{ dispatched: boolean }>;
     /** Existing owned SDK queue only; native query selection stays private. */

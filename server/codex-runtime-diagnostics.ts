@@ -5,6 +5,7 @@ import { CodexStartupError } from './codex-startup-error.js';
 import { RuntimePolicyAttestationError } from './openshell-runtime-policy.js';
 import { findSessionRuntimeError } from './session-runtime-error.js';
 import { NativeExecutionPolicyChangedError } from './codex-native-execution-policy.js';
+import { CodexToolValidationError } from './codex-tool-validation-error.js';
 
 const requestMethods = new Set([
   'initialize',
@@ -74,10 +75,19 @@ export function codexRuntimeDiagnostic(error: Error): string | undefined {
 
 /** Shared by startup and running turns, with bounded fields safe for logs. */
 export function codexRuntimeErrorTelemetry(error: Error): Record<string, unknown> {
+  return projectRuntimeErrorTelemetry(error, new Set());
+}
+function projectRuntimeErrorTelemetry(error: Error, seen: Set<Error>): Record<string, unknown> {
+  if (seen.size >= 16 || seen.has(error)) return {};
+  seen.add(error);
   const retained = findSessionRuntimeError(error);
   if (retained)
     return {
+      ...(retained.cause instanceof Error
+        ? projectRuntimeErrorTelemetry(retained.cause, seen)
+        : {}),
       ...retained.telemetry(),
+      ...(retained instanceof CodexToolValidationError ? retained.validationTelemetry() : {}),
       ...(retained instanceof NativeExecutionPolicyChangedError
         ? { nativePolicyChangedFields: retained.changedFields }
         : {}),
@@ -88,7 +98,7 @@ export function codexRuntimeErrorTelemetry(error: Error): Record<string, unknown
     return { runtimePolicyAttestationFailed: true };
   if (error instanceof CodexStartupError)
     return {
-      ...(error.cause instanceof Error ? codexRuntimeErrorTelemetry(error.cause) : {}),
+      ...(error.cause instanceof Error ? projectRuntimeErrorTelemetry(error.cause, seen) : {}),
       ...error.telemetry(),
     };
   if (error.message === 'Codex conversation binding unavailable or changed')
@@ -117,7 +127,8 @@ export function codexRuntimeErrorTelemetry(error: Error): Record<string, unknown
         : {}),
     };
   }
-  if (!(error instanceof CodexRequestError)) return {};
+  if (!(error instanceof CodexRequestError))
+    return error.cause instanceof Error ? projectRuntimeErrorTelemetry(error.cause, seen) : {};
   return {
     ...(requestMethods.has(error.method) ? { requestMethod: error.method } : {}),
     requestErrorCategory: nativeFailureCategories.includes(error.category)

@@ -13,6 +13,10 @@ import type { OrdinaryLocalCommandAdmission } from '@mitzo/protocol';
 import { assertOrdinaryLocalVertexHistory } from './ordinary-local-vertex-native-history.js';
 import { assertClaudeSubscriptionAccount } from './claude-subscription-custody.js';
 import { assertOrdinarySynchronousFence } from './ordinary-turn-lifecycle.js';
+import type { SdkAgentMessageRuntime } from './sdk-agent-message-runtime.js';
+import { createLogger } from './logger.js';
+import { sdkQueryRetiredEvent } from './sdk-query-retirement.js';
+const log = createLogger('owned-sdk-query');
 /** Only the lifetime of an SDK query, not runtime/auth/history state. Retiring a
  * completed query cannot abort its successor; stale hooks always refuse effects. */
 export class SdkHookLifetime {
@@ -130,6 +134,7 @@ export function createOrdinaryLocalVertexSdkQuery<
     selection: OrdinaryLocalCommandAdmission['selection'],
   ): Pick<Options, 'model' | 'thinking' | 'effort'>;
   inputChanged(queue: AsyncQueue<SDKUserMessage>): void;
+  peerMessages?(): Pick<SdkAgentMessageRuntime, 'beforeInput' | 'observe'> | undefined;
   mcpServers?(state: {
     retired: boolean;
     completing: boolean;
@@ -140,6 +145,7 @@ export function createOrdinaryLocalVertexSdkQuery<
   const runs = new AsyncQueue<Query>();
   type State = SdkCallbackState & {
     processClose?: ReturnType<typeof observeOrdinarySdkProcessClose>;
+    postTerminalFailure?: unknown;
   };
   const states = new WeakMap<Query, State>();
   const interruptTargets = new WeakMap<
@@ -160,12 +166,18 @@ export function createOrdinaryLocalVertexSdkQuery<
       }
       try {
         owners.authorizeSync(owners.controller.signal);
+        const state = states.get(current());
+        const peerInput = owners
+          .peerMessages?.()
+          ?.beforeInput(message, !!state && !state.retired && !state.completing, state);
+        if (peerInput === false) continue;
         if (owners.beforeInput) {
           const commandId = (message as SDKUserMessage & { mitzoMessageId?: unknown })
             .mitzoMessageId;
-          if (typeof commandId !== 'string' || !/^\S{1,200}$/.test(commandId))
+          if (typeof commandId === 'string' && /^\S{1,200}$/.test(commandId))
+            assertOrdinarySynchronousFence(commandId, () => owners.beforeInput!(commandId));
+          else if (peerInput !== true)
             throw Error('Original SDK input command identity unavailable');
-          assertOrdinarySynchronousFence(commandId, () => owners.beforeInput!(commandId));
         }
       } catch (error) {
         owners.controller.abort(error);
@@ -236,6 +248,8 @@ export function createOrdinaryLocalVertexSdkQuery<
           if (state.retired || state.completing || terminal) continue;
           if (event.session_id !== undefined && event.session_id !== owners.sdkSessionId)
             throw Error('Original SDK thread identity changed');
+          const queryState = states.get(run)!;
+          if (owners.peerMessages?.()?.observe(event, queryState, !queryState.retired)) continue;
           if (event.type === 'result') {
             state.completing = true;
             state.callbacks.seal();
@@ -250,7 +264,20 @@ export function createOrdinaryLocalVertexSdkQuery<
         }
       } catch (error) {
         if (!terminal || owners.controller.signal.aborted) throw error;
+        const state = states.get(run)!;
+        state.postTerminalFailure = error;
+        // A proven terminal result stays terminal; retain and diagnose later
+        // query closure failures without replacing that outcome or losing successors.
+        log.warn('SDK query failed after its terminal result', {
+          code: 'sdk_post_terminal_failure',
+          stage: 'query_close',
+          sdkSessionId: owners.sdkSessionId,
+          retired: state.retired,
+        });
       }
+      // This native iterator has ended; the joined iterator can remain open
+      // while waiting for another admitted query on the same SDK history.
+      yield sdkQueryRetiredEvent();
     }
   };
   const joined = new Proxy(owners.adapt(native), {

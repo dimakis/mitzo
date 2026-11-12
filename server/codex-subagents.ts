@@ -116,7 +116,7 @@ interface Options {
     },
   ): Promise<ObjectValue>;
   requestUserInput?(params: ObjectValue, signal: AbortSignal): Promise<ObjectValue>;
-  validateModel?(model: string): void;
+  validateModel?(model: string, commandId: string): void;
   onChild(child: NativeSubagentSnapshot): boolean | void;
 }
 interface LiveChild {
@@ -580,7 +580,7 @@ export class CodexSubagents {
           )
             throw new ChildIdentityError('session_mismatch');
           try {
-            this.opts.validateModel?.(checked.model);
+            this.opts.validateModel?.(checked.model, observed.commandId);
           } catch {
             throw new ChildIdentityError('model_unavailable');
           }

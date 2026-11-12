@@ -80,8 +80,20 @@ it('denies wrappers and aliases by exact identity and captures selection once', 
 });
 it('keeps legacy behavior but blocks explicit selections on unsupported routes and unknown versions', () => {
   expect(() => assertAgentToolRoute(undefined, 'claude-sdk')).not.toThrow();
-  for (const route of ['claude-sdk', 'openshell', 'symposium'])
+  for (const route of ['openshell', 'symposium'])
     expect(() => assertAgentToolRoute({ tools: [] } as never, route)).toThrow(/not supported/i);
+  expect(() =>
+    assertAgentToolRoute(
+      { tools: [{ id: 'mitzo:AgentCommunication', version: 1 }] } as never,
+      'claude-sdk',
+    ),
+  ).not.toThrow();
+  expect(() =>
+    assertAgentToolRoute(
+      { tools: [{ id: 'mitzo:ConnectionRequest', version: 1 }] } as never,
+      'claude-sdk',
+    ),
+  ).toThrow(/unavailable/i);
   expect(() => assertAgentToolRoute({ tools: [] } as never, 'codex')).not.toThrow();
   expect(() => assertAgentToolRoute({ tools: [] } as never, 'local-api')).not.toThrow();
   expect(() =>
@@ -102,6 +114,23 @@ it('keeps legacy behavior but blocks explicit selections on unsupported routes a
   expect(() =>
     assertAgentToolRoute({ tools: [{ id: 'mitzo:Unknown', version: 1 }] } as never, 'local-api'),
   ).toThrow(/unavailable/i);
+});
+
+it('keeps required structured questions available to explicit Claude SDK profiles', () => {
+  const session = {};
+  bindAgentToolSelection(
+    session,
+    { tools: [{ id: 'mitzo:AgentCommunication', version: 1 }] } as never,
+    'claude-sdk',
+  );
+  expect(agentToolAllowed(session, 'AskUserQuestion')).toBe(true);
+  expect(agentToolAllowed(session, 'Bash')).toBe(false);
+  expect(() =>
+    assertAgentToolRoute(
+      { tools: [{ id: 'mitzo:AskUserQuestion', version: 1 }] } as never,
+      'claude-sdk',
+    ),
+  ).not.toThrow();
 });
 
 it('refuses missing connection dependencies before exposing an unusable selected operation', async () => {

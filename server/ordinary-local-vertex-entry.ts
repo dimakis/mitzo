@@ -72,6 +72,7 @@ export async function sendOwnedLocalVertexCommand(input: {
   operatorConnectionId: string;
   signal?: AbortSignal;
   ordinaryTurnLifecycle?: OrdinaryTurnLifecycle;
+  assertCurrent?(): void;
 }) {
   const captured = captureAgentLibraryAuthorization(input.operatorConnectionId);
   captured.assertCurrent();
@@ -82,8 +83,14 @@ export async function sendOwnedLocalVertexCommand(input: {
     eventStore.getSessionRuntimeBinding(input.sessionId)?.harness.implementation !== 'claude-sdk'
   )
     throw unavailable();
+  input.assertCurrent?.();
   return {
-    ...(await owner.admit(input.command, input.signal, input.ordinaryTurnLifecycle)),
+    ...(await owner.admit(
+      input.command,
+      input.signal,
+      input.assertCurrent,
+      input.ordinaryTurnLifecycle,
+    )),
     sessionId: input.sessionId,
   };
 }
@@ -231,7 +238,7 @@ export async function startOwnedLocalVertexCommand(
             authSessionId: owner.authSessionId,
             identity: owner,
             initialCommandId: command.clientMsgId,
-            admit: (input, signal, lifecycle) => {
+            admit: (input, signal, current, lifecycle) => {
               const parsed = OrdinaryLocalVertexCommandRequestSchema.parse(input);
               if (lifecycle) {
                 const old = turnLifecycles.get(parsed.clientMsgId);
@@ -239,7 +246,7 @@ export async function startOwnedLocalVertexCommand(
                   throw Error('Original SDK turn observer already retained');
                 turnLifecycles.set(parsed.clientMsgId, lifecycle);
               }
-              return owner.admitContinuation(input, signal).catch((error) => {
+              return owner.admitContinuation(input, signal, current).catch((error) => {
                 if (!eventStore.getSendCommand(parsed.clientMsgId))
                   turnLifecycles.delete(parsed.clientMsgId);
                 throw error;

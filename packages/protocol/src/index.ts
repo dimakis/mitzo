@@ -64,6 +64,8 @@ export type {
   FinishedSubagentState,
   SubagentState,
   SubagentUsage,
+  SubagentStatus,
+  SubagentDiagnostic,
   AgentDefinitionSource,
   AgentDefinition,
   AgentIdentity,

@@ -32,7 +32,7 @@ import {
   type RuntimeMigrationAdapters,
 } from '../openshell-runtime-migration.js';
 import type { CodexLifecycleTransport } from '../codex-app-server-client.js';
-import type { AccountBinding } from '@mitzo/protocol';
+import { AccountBindingSchema, type AccountBinding } from '@mitzo/protocol';
 import {
   CodexHostToolRequestError,
   CodexRequestError,
@@ -50,6 +50,7 @@ import {
 } from '@opentelemetry/api';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { OwnedCodexLifecycleBridge } from '../owned-codex-lifecycle-bridge.js';
+import { OwnedLocalCodexChatAdmission } from '../owned-local-codex-chat-admission.js';
 import type { FrozenHostCodexBootstrapLease } from '../frozen-host-codex-bootstrap.js';
 const cleanup: (() => void)[] = [];
 const binding = {
@@ -437,6 +438,174 @@ function enableSubagentFixture(f: Awaited<ReturnType<typeof setup>>) {
     requestNativeApproval: async () => ({ decision: 'decline' }),
   });
 }
+
+it.each(['validator', 'owned admission'])(
+  'validates subagents with their originating thinking selection through %s',
+  async (validation) => {
+    const f = await setup();
+    enableSubagentFixture(f);
+    const validateModel = vi.fn((model: string, effort?: string) => {
+      if (model !== 'test-model' || !['high', 'low'].includes(effort ?? ''))
+        throw Error('Selection unavailable');
+    });
+    if (validation === 'owned admission') {
+      const events = new EventStore(':memory:');
+      cleanup.push(() => events.close());
+      const account = AccountBindingSchema.parse(f.getBinding());
+      const runtime = {
+        version: 2 as const,
+        account: {
+          accountId: account.accountId,
+          provider: account.provider,
+          profileRevision: account.profileRevision,
+        },
+        harness: { implementation: 'codex' as const },
+        execution: { location: 'local' as const, targetId: 'mac', targetRevision: 'target' },
+      };
+      const selection = {
+        version: 1 as const,
+        agent: { profileId: 'agent', revision: 1 },
+        context: { source: 'none' as const, revision: null },
+        permission: { mode: 'agent' as const, revision: 0 },
+        model: account.model,
+        thinking: 'high',
+      };
+      const expected = {
+        binding: runtime,
+        hostId: 'host',
+        runtimeContractRevision: 'runtime',
+        capabilityRevision: 'cap',
+        workspace: { workspaceId: 'workspace', cwd: '/workspace' },
+        selection,
+      };
+      events.admitOrdinaryLocalCommand(
+        {
+          sessionId: 'app',
+          accountBinding: account,
+          cwd: '/workspace',
+          repositoryWorkspaceId: 'workspace',
+          selectedModel: account.model,
+          reasoningEffort: 'high',
+          mode: 'agent',
+        },
+        runtime,
+        {
+          clientMsgId: 'thinking-parent',
+          requestFingerprint: 'thinking-parent',
+          selection,
+          payload: { text: 'Review edge cases', systemPrompt: 'context' },
+        },
+      );
+      events.claimOrdinaryLocalCommandDispatch('thinking-parent');
+      const lease = {
+        binding: account,
+        profile: f.conversationOptions.profile,
+        client: f.rpc,
+        assertCurrentSync: vi.fn(),
+      } as unknown as FrozenHostCodexBootstrapLease;
+      const owner = OwnedLocalCodexChatAdmission.capture({
+        eventStore: events,
+        sessionId: 'app',
+        commandId: 'thinking-parent',
+        expected,
+        lease,
+        bridge: new OwnedCodexLifecycleBridge(() => lease),
+      });
+      events.completeOrdinaryLocalCommand('thinking-parent');
+      expect(() => owner.assertModelSelection(account.model)).toThrow();
+      validateModel.mockImplementation((model, effort) =>
+        owner.assertModelSelection(model, effort),
+      );
+    }
+    f.conversationOptions.validateModel = validateModel;
+    await f.c.send({ id: 'thinking-parent', prompt: 'Review edge cases', reasoningEffort: 'high' });
+    if (validation === 'validator')
+      f.c.enqueue({ id: 'future-command', prompt: 'Later work', reasoningEffort: 'low' });
+    const original = f.rpc.request.getMockImplementation()!;
+    const child = {
+      id: 'thinking-child',
+      parentThreadId: f.getProviderThread(),
+      sessionId: 'native-tree',
+      cwd: '/workspace',
+      model: 'test-model',
+      modelProvider: 'openai',
+    };
+    f.rpc.request.mockImplementation(async (method, params) => {
+      if (method === 'thread/read') return { thread: { ...child, id: params.threadId } };
+      if (params.threadId === child.id) {
+        if (method === 'thread/resume')
+          return { thread: child, model: child.model, modelProvider: 'openai' };
+        if (method === 'thread/turns/list') return { data: [], nextCursor: null };
+      }
+      return original(method, params);
+    });
+    f.callbacks.onNotification('thread/started', { thread: child });
+    f.callbacks.onNotification('turn/started', { threadId: child.id, turn: { id: 'child-turn' } });
+    await f.c.getSubagents()!.settled();
+    expect(f.c.getSubagents()!.list()[0]).toMatchObject({
+      threadId: child.id,
+      available: true,
+      state: 'working',
+    });
+    expect(validateModel.mock.calls.at(-1)).toEqual(['test-model', 'high']);
+    await f.callbacks.onRequest(
+      'item/tool/call',
+      {
+        threadId: child.id,
+        turnId: 'child-turn',
+        callId: 'child-call',
+        tool: 'Read',
+        arguments: {},
+      },
+      new AbortController().signal,
+    );
+    expect(f.execute).toHaveBeenCalledOnce();
+    expect(f.c.queue()[0].status).toBe('running');
+  },
+);
+
+it.each(['missing command', 'rejected selection'])(
+  'keeps subagent inspection unavailable after a %s',
+  async (failure) => {
+    const f = await setup();
+    enableSubagentFixture(f);
+    await f.c.send({ id: 'original-command', prompt: 'Review edge cases' });
+    const validateModel = vi.fn(() => {
+      if (failure === 'rejected selection') throw Error('Selection unavailable');
+    });
+    f.conversationOptions.validateModel = validateModel;
+    const commands =
+      failure === 'missing command' ? vi.spyOn(f.store, 'commands').mockReturnValue([]) : undefined;
+    const original = f.rpc.request.getMockImplementation()!;
+    const child = {
+      id: 'unavailable-child',
+      parentThreadId: f.getProviderThread(),
+      sessionId: 'native-tree',
+      cwd: '/workspace',
+      model: 'test-model',
+      modelProvider: 'openai',
+    };
+    f.rpc.request.mockImplementation(async (method, params) => {
+      if (method === 'thread/read') return { thread: { ...child, id: params.threadId } };
+      return original(method, params);
+    });
+    f.callbacks.onNotification('thread/started', { thread: child });
+    await f.c.getSubagents()!.settled();
+    commands?.mockRestore();
+    expect(f.c.getSubagents()!.list()[0]).toMatchObject({
+      available: false,
+      inspectionFailure: { stage: 'validate_identity' },
+    });
+    expect(
+      f.rpc.request.mock.calls.some(
+        ([method, params]) => method === 'thread/resume' && params.threadId === child.id,
+      ),
+    ).toBe(false);
+    expect(f.execute).not.toHaveBeenCalled();
+    expect(f.c.queue()[0].status).toBe('running');
+    if (failure === 'missing command') expect(validateModel).not.toHaveBeenCalled();
+  },
+);
 
 it('contains anchor reconciliation storage failures without closing the parent transport', async () => {
   const f = await setup(undefined, undefined, undefined, undefined, async () => binding);
@@ -1708,6 +1877,96 @@ it('ends dispatch, acknowledgment and first-output spans and labels the selected
   expect(
     JSON.stringify([...spans.values()].map((span) => span.setAttribute.mock.calls)),
   ).not.toContain('private prompt');
+});
+
+it('distinguishes tool activity, reasoning and assistant text without closing completion early', async () => {
+  const spans = new Map<
+    string,
+    {
+      setAttribute: ReturnType<typeof vi.fn>;
+      setStatus: ReturnType<typeof vi.fn>;
+      end: ReturnType<typeof vi.fn>;
+    }
+  >();
+  const original = tracer.startSpan.bind(tracer);
+  vi.spyOn(tracer, 'startSpan').mockImplementation((name, options, ctx) => {
+    const span = original(name, options, ctx);
+    const tracked = { setAttribute: vi.fn(), setStatus: vi.fn(), end: vi.fn() };
+    spans.set(name, tracked);
+    return { ...tracked, spanContext: () => span.spanContext() } as unknown as Span;
+  });
+  const f = await setup();
+  await f.c.send({ id: 'session-prompt:timing', prompt: 'private prompt' });
+  expect(spans.has('codex.turn.first_activity')).toBe(true);
+  expect(spans.has('codex.turn.first_text')).toBe(true);
+  f.callbacks.onNotification('item/started', {
+    threadId: 'provider-thread',
+    turnId: 'stale-turn',
+    item: { id: 'old', type: 'commandExecution', command: 'pwd' },
+  });
+  expect(spans.get('codex.turn.first_activity')!.end).not.toHaveBeenCalled();
+  f.callbacks.onNotification('item/started', {
+    threadId: 'provider-thread',
+    turnId: 'turn-1',
+    item: { id: 'cmd', type: 'commandExecution', command: 'pwd' },
+  });
+  expect(spans.get('codex.turn.first_activity')!.end).toHaveBeenCalledOnce();
+  expect(spans.get('codex.turn.first_text')!.end).not.toHaveBeenCalled();
+  f.callbacks.onNotification('item/reasoning/textDelta', {
+    threadId: 'provider-thread',
+    turnId: 'turn-1',
+    itemId: 'reason',
+    delta: 'private reasoning',
+  });
+  expect(spans.get('codex.turn.first_output')!.end).toHaveBeenCalledOnce();
+  expect(spans.get('codex.turn.first_text')!.end).not.toHaveBeenCalled();
+  f.callbacks.onNotification('item/agentMessage/delta', {
+    threadId: 'provider-thread',
+    turnId: 'turn-1',
+    itemId: 'answer',
+    delta: 'hello',
+  });
+  expect(spans.get('codex.turn.first_text')!.end).toHaveBeenCalledOnce();
+  expect(spans.get('codex.turn')!.end).not.toHaveBeenCalled();
+  f.c.close();
+  expect(spans.get('codex.turn.first_activity')!.end).toHaveBeenCalledOnce();
+  expect(spans.get('codex.turn.first_text')!.end).toHaveBeenCalledOnce();
+  expect(JSON.stringify([...spans.values()].map((s) => s.setAttribute.mock.calls))).not.toContain(
+    'private',
+  );
+});
+
+it('records queue gates without changing FIFO dispatch', async () => {
+  const reasons: string[] = [];
+  const original = tracer.startSpan.bind(tracer);
+  vi.spyOn(tracer, 'startSpan').mockImplementation((name, options, ctx) => {
+    const span = original(name, options, ctx);
+    if (name !== 'codex.command.queue_wait') return span;
+    return {
+      ...span,
+      addEvent: vi.fn(),
+      setAttribute: (key: string, value: string) => {
+        if (key === 'mitzo.queue.reason') reasons.push(value);
+        return span;
+      },
+      end: vi.fn(),
+    } as unknown as Span;
+  });
+  const f = await setup();
+  f.conversationOptions.canStartCommand = () => false;
+  f.c.enqueue({ id: 'queued-gates', prompt: 'hello' });
+  await f.c.startQueued();
+  expect(reasons).toContain('deployment');
+  f.conversationOptions.canStartCommand = () => true;
+  f.conversationOptions.canClaimCommand = () => false;
+  await f.c.startQueued();
+  expect(reasons).toContain('admission');
+  f.conversationOptions.canClaimCommand = () => true;
+  await f.c.startQueued();
+  f.c.enqueue({ id: 'second-gates', prompt: 'next' });
+  expect(reasons).toContain('active_turn');
+  expect(f.rpc.request.mock.calls.filter(([method]) => method === 'turn/start')).toHaveLength(1);
+  f.c.close();
 });
 
 it('records matching first output before the turn/start acknowledgment', async () => {

@@ -1,4 +1,5 @@
-import { afterEach, expect, it, vi } from 'vitest';
+import { resetOfflineUserEnvironment } from './fixtures/offline-user-home.js';
+import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { writeFile, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { SkillRegistry } from '../skills.js';
@@ -6,6 +7,7 @@ import * as registries from '../skill-registry-runtime.js';
 import { assembleCommandPrompt } from '../message-reply-context.js';
 import { ownedVertexRuntimeFixture } from './fixtures/owned-local-vertex-runtime.js';
 import { ClaudeSubscriptionCustody } from '../claude-subscription-custody.js';
+import { OrdinaryLocalCodexSelectionOwner } from '../ordinary-local-codex-selection-owner.js';
 vi.mock('../claude-account-history.js', () => ({
   readClaudeAccountHistory: vi.fn(async (sessionId: string, cwd: string) => ({
     info: { sessionId, cwd },
@@ -32,6 +34,7 @@ vi.mock('@anthropic-ai/claude-agent-sdk', async (original) => ({
     { type: 'user', uuid: 'original-input', message: { role: 'user', content: 'retained input' } },
   ]),
 }));
+beforeEach(resetOfflineUserEnvironment);
 const cleanups: Array<() => void | Promise<void>> = [];
 afterEach(async () => {
   for (const cleanup of cleanups.splice(0).reverse()) await cleanup();
@@ -172,6 +175,29 @@ async function fixture(options: Parameters<typeof ownedVertexRuntimeFixture>[1] 
   };
   return { f, dispatch, create };
 }
+it('rechecks the exact peer sender guard after asynchronous selection and before durable continuation admission', async () => {
+  const { f, create, dispatch } = await fixture();
+  const owner = create();
+  await owner.admit(f.request);
+  owner.commandTerminal(f.request.clientMsgId);
+  let allowed = true;
+  const original = OrdinaryLocalCodexSelectionOwner.prototype.assertCurrent;
+  vi.spyOn(OrdinaryLocalCodexSelectionOwner.prototype, 'assertCurrent').mockImplementation(
+    async function (this: OrdinaryLocalCodexSelectionOwner, expected) {
+      await original.call(this, expected);
+      allowed = false;
+    },
+  );
+  const guard = () => {
+    if (!allowed) throw Error('Peer sender revoked');
+  };
+  await expect(
+    owner.admitContinuation({ ...f.request, clientMsgId: 'revoked-peer' }, f.signal.signal, guard),
+  ).rejects.toThrow('authority_unavailable');
+  expect(f.events.getSendCommand('revoked-peer')).toBeUndefined();
+  expect(dispatch).toHaveBeenCalledOnce();
+});
+
 it('freezes SDK skill input before first admission and retains it for later and cold dispatch', async () => {
   const { f, create, dispatch } = await fixture({ chatRoute: true });
   vi.spyOn(registries, 'buildSkillRegistry').mockReturnValue(

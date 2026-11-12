@@ -98,7 +98,11 @@ it.each(['completed', 'retired'])(
       await owner.apply({ model: 'second' } as never);
     }
     streams[1].push({ type: 'assistant', session_id: 'original', uuid: 'successor-output' });
-    expect((await next).value).toMatchObject({ type: 'assistant', uuid: 'successor-output' });
+    expect((await next).value).toMatchObject({ type: 'sdk_query_retired' });
+    expect((await iterator.next()).value).toMatchObject({
+      type: 'assistant',
+      uuid: 'successor-output',
+    });
     controller.abort();
     streams[1].close();
     await iterator.return?.();
@@ -182,6 +186,56 @@ it.each(['current', 'revoked', 'missing_identity', 'async_fence'])(
     controller.abort();
   },
 );
+it('checks peer input immediately before stdin yield and consumes peer ACKs before ordinary result correlation', async () => {
+  let prompt!: AsyncIterable<import('@anthropic-ai/claude-agent-sdk').SDKUserMessage>;
+  const events = new AsyncQueue<Record<string, unknown>>();
+  vi.mocked(query).mockImplementation((request) => {
+    prompt = request.prompt as typeof prompt;
+    return {
+      close: vi.fn(),
+      [Symbol.asyncIterator]: () => events[Symbol.asyncIterator](),
+    } as never;
+  });
+  const input = new AsyncQueue<import('@anthropic-ai/claude-agent-sdk').SDKUserMessage>();
+  const controller = new AbortController();
+  const revokedPeerId = '00000000-0000-4000-8000-000000000001';
+  const beforeInput = vi.fn((message: { uuid?: string }) => message.uuid !== revokedPeerId);
+  const observe = vi.fn(
+    (event: Readonly<Record<string, unknown>>) =>
+      event.type === 'user' && event.uuid === 'peer-ack',
+  );
+  const owner = createOrdinaryLocalVertexSdkQuery<AsyncIterable<Record<string, unknown>>>({
+    options: {},
+    input,
+    controller,
+    lifetime: new SdkHookLifetime(),
+    sdkSessionId: 'original',
+    cwd: '/task',
+    authorize: async () => {},
+    authorizeSync: () => {},
+    adapt: (q) => q as never,
+    settings: () => ({}),
+    inputChanged: () => {},
+    peerMessages: () => ({ beforeInput, observe }),
+  });
+  input.push({
+    type: 'user',
+    uuid: revokedPeerId,
+    parent_tool_use_id: null,
+    message: { role: 'user', content: 'Must not reach stdin' },
+  });
+  input.close();
+  expect((await prompt[Symbol.asyncIterator]().next()).done).toBe(true);
+  expect(beforeInput).toHaveBeenCalledOnce();
+  const original = { type: 'user', session_id: 'original', uuid: 'original-input' };
+  events.push(original);
+  events.push({ type: 'user', session_id: 'original', uuid: 'peer-ack' });
+  events.push({ type: 'result', session_id: 'original' });
+  const output = owner.query[Symbol.asyncIterator]();
+  expect((await output.next()).value).toEqual(original);
+  expect((await output.next()).value).toMatchObject({ type: 'result' });
+  controller.abort();
+});
 it.each(['person@example.test', 'other@example.test'])(
   'verifies the running personal SDK account before yielding a prompt: %s',
   async (email) => {
@@ -189,7 +243,7 @@ it.each(['person@example.test', 'other@example.test'])(
     const events = new AsyncQueue<Record<string, unknown>>();
     const accountInfo = vi.fn(async () => ({
       email,
-      subscriptionType: 'max',
+      subscriptionType: 'Claude Max',
       apiProvider: 'firstParty',
     }));
     vi.mocked(query).mockImplementation((request) => {

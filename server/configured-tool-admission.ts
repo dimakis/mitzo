@@ -1,11 +1,154 @@
 import { isDeepStrictEqual } from 'node:util';
 import type { AgentToolReference } from '@mitzo/protocol';
-import { connectCodexMcpTools } from './codex-mcp-tools.js';
+import { connectCodexMcpTools, mcpWireName, mcpToolOutputScope } from './codex-mcp-tools.js';
 import { ConfiguredToolCatalog, type ConfiguredCatalogOptions } from './configured-tool-catalog.js';
 import { snapshotMcpEnvironment } from './mcp-launch-environment.js';
+import { LazyMcpSource } from './lazy-mcp-source.js';
+import { createLogger } from './logger.js';
+
+/** Publish pinned catalog definitions without launching any source. Live schemas are
+ * verified on first use, before the existing permission and execution path. */
+export async function admitConfiguredTools(
+  catalog: ConfiguredToolCatalog,
+  refs: AgentToolReference[],
+  options: ConfiguredCatalogOptions,
+) {
+  const selected = refs.filter((ref) => ref.id.startsWith('mcp:'));
+  options.assertRuntimeCurrent();
+  options.signal.throwIfAborted();
+  const sourceSnapshot = structuredClone(options.readSources());
+  const launchOptions = {
+    ...options,
+    env: snapshotMcpEnvironment(options.env),
+    readSources: () => sourceSnapshot,
+  };
+  const receipts = selected.map((ref) => catalog.resolve(ref, launchOptions));
+  let closed = false;
+  const assertCurrent = () => {
+    options.signal.throwIfAborted();
+    if (closed) throw Error('Configured MCP tools closed');
+    options.assertRuntimeCurrent();
+    for (const ref of selected) catalog.resolve(ref, options);
+  };
+  assertCurrent();
+  const admitted = receipts.map((receipt) => ({
+    wireName: mcpWireName(JSON.stringify([receipt.sourceId, receipt.tool])),
+    reference: catalog.reference(receipt.entry),
+    sourceId: receipt.sourceId,
+    tool: receipt.tool,
+  }));
+  const names = new Map(admitted.map((entry, index) => [entry.wireName, index]));
+  if (names.size !== admitted.length) throw Error('Duplicate selected MCP tool identity');
+  const sources = new Map<
+    string,
+    LazyMcpSource<Awaited<ReturnType<typeof connectConfiguredTools>>>
+  >();
+  for (const sourceId of new Set(receipts.map((receipt) => receipt.sourceId))) {
+    sources.set(
+      sourceId,
+      new LazyMcpSource(sourceId, (signal) =>
+        connectConfiguredTools(
+          catalog,
+          admitted.filter((entry) => entry.sourceId === sourceId).map((entry) => entry.reference),
+          {
+            ...launchOptions,
+            signal: AbortSignal.any([signal, options.signal]),
+            assertRuntimeCurrent: assertCurrent,
+          },
+        ),
+      ),
+    );
+  }
+  const indexOf = (name: string) => {
+    assertCurrent();
+    const index = names.get(name);
+    if (index === undefined) throw Error('Configured tool is not selected');
+    return index;
+  };
+  const definitions = admitted.map((entry, index) => ({
+    ...receipts[index].definition,
+    name: entry.wireName,
+    description: `Configured source ${entry.sourceId}, ${entry.tool}: ${receipts[index].definition.description}`,
+  }));
+  const outputScopes = receipts.map((receipt) =>
+    mcpToolOutputScope(
+      Object.values(sourceSnapshot).find((config) => config.librarySourceId === receipt.sourceId)!,
+      { ...launchOptions, cwd: receipt.launchCwd },
+      receipt.descriptor,
+    ),
+  );
+  let closing: Promise<void> | undefined;
+  const close = () => {
+    if (closing) return closing;
+    closed = true;
+    options.signal.removeEventListener('abort', onAbort);
+    closing = (async () => {
+      const results = await Promise.allSettled(
+        [...sources.values()].map((source) => source.close()),
+      );
+      const failures = results.filter((result) => result.status === 'rejected');
+      if (failures.length) {
+        createLogger('configured-mcp').warn('MCP source cleanup failed', {
+          code: 'mcp_cleanup_failed',
+          stage: 'cleanup',
+          count: failures.length,
+        });
+        throw new AggregateError(
+          failures.map((result) => result.reason),
+          'Configured MCP cleanup failed',
+        );
+      }
+    })();
+    return closing;
+  };
+  const onAbort = () => {
+    void close().catch(() => {
+      /* close reports failures; explicit close retains the rejected receipt. */
+    });
+  };
+  options.signal.addEventListener('abort', onAbort, { once: true });
+  if (options.signal.aborted) onAbort();
+  const ensureToolCurrent = async (name: string, signal: AbortSignal) => {
+    signal.throwIfAborted();
+    const index = indexOf(name);
+    const peer = await sources
+      .get(receipts[index].sourceId)!
+      .get(AbortSignal.any([signal, options.signal]));
+    indexOf(name);
+    peer.assertToolCurrent(name);
+    return peer;
+  };
+  return {
+    definitions,
+    admitted,
+    close,
+    ensureToolCurrent: async (name: string, signal: AbortSignal) => {
+      await ensureToolCurrent(name, signal);
+    },
+    displayName: (name: string) => {
+      const index = names.get(name);
+      if (index === undefined) return name;
+      const receipt = receipts[index];
+      const source = Object.entries(sourceSnapshot).find(
+        ([, config]) => config.librarySourceId === receipt.sourceId,
+      )![0];
+      return `mcp__${source}__${receipt.tool}`;
+    },
+    assertToolCurrent: (name: string) => {
+      indexOf(name);
+    },
+    outputScope: (name: string) => outputScopes[indexOf(name)],
+    execute: async (
+      ...args: Parameters<Awaited<ReturnType<typeof connectCodexMcpTools>>['execute']>
+    ) => {
+      const peer = await ensureToolCurrent(args[0], args[3]);
+      return peer.execute(...args);
+    },
+  };
+}
 
 /** Resolves receipts before starting peers; only selected sources are ever started. */
-export async function admitConfiguredTools(
+async function connectConfiguredTools(
   catalog: ConfiguredToolCatalog,
   refs: AgentToolReference[],
   options: ConfiguredCatalogOptions,
@@ -97,7 +240,18 @@ export async function admitConfiguredTools(
       },
     };
   } catch (error) {
-    await peers.close();
+    try {
+      await peers.close();
+    } catch (cleanupError) {
+      createLogger('configured-mcp').warn('MCP cleanup failed after schema validation', {
+        code: 'mcp_cleanup_failed',
+        stage: 'schema_validation',
+      });
+      throw new AggregateError([cleanupError], 'MCP schema validation and cleanup failed', {
+        // eslint-disable-next-line preserve-caught-error -- Keep the primary cause and retain cleanup separately in errors.
+        cause: error,
+      });
+    }
     throw error;
   }
 }

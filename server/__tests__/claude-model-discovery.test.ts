@@ -41,7 +41,7 @@ function fixture() {
   const accountInfo = vi.fn(async () => ({
     apiProvider: 'firstParty',
     email: env.MITZO_CLAUDE_EXPECTED_EMAIL,
-    subscriptionType: 'max',
+    subscriptionType: 'Claude Max',
     apiKeySource: 'none',
   }));
   const close = vi.fn();
@@ -81,7 +81,7 @@ it.each(['identity', 'custody', 'cancelled'])(
       f.accountInfo.mockResolvedValueOnce({
         apiProvider: 'firstParty',
         email: 'wrong@example.test',
-        subscriptionType: 'max',
+        subscriptionType: 'Claude Max',
         apiKeySource: 'none',
       });
     if (failure === 'custody') f.verify.mockRejectedValueOnce(new Error('custody changed'));

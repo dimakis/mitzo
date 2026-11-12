@@ -259,17 +259,23 @@ export class OrdinaryLocalVertexOwnedRuntime {
   admitResume(input: unknown) {
     return this.admitCommand(input, true, true);
   }
-  admitContinuation(input: unknown, preparationSignal?: AbortSignal) {
-    return this.admitCommand(input, true, false, preparationSignal);
+  admitContinuation(
+    input: unknown,
+    preparationSignal?: AbortSignal,
+    assertSenderCurrent?: () => void,
+  ) {
+    return this.admitCommand(input, true, false, preparationSignal, assertSenderCurrent);
   }
   private async admitCommand(
     raw: unknown,
     continuation: boolean,
     resume: boolean,
     preparationSignal?: AbortSignal,
+    assertSenderCurrent?: () => void,
   ): Promise<{ dispatched: boolean }> {
     const assertAdmissionCurrent = () => {
       preparationSignal?.throwIfAborted();
+      assertSenderCurrent?.();
       this.assertOwner();
     };
     assertAdmissionCurrent();

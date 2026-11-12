@@ -103,7 +103,7 @@ export function localVertexCapabilities(
       provider,
       'local',
       undefined,
-      { contextRecipes: 'none' },
+      { contextRecipes: 'none', toolSelection: true, toolRoute: 'claude-sdk' },
     );
   const targets = [target.descriptor()];
   const declaration = target.admissionDeclaration();
