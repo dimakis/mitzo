@@ -1,9 +1,9 @@
 import type { TelosWorkItem } from '@mitzo/protocol';
 export const telosKindLabel = (kind: TelosWorkItem['kind']) =>
   kind === 'coordinator'
-    ? 'Coordinator'
+    ? 'Outcome'
     : kind === 'outcome'
-      ? 'Outcome'
+      ? 'Feature'
       : kind === 'work_item'
-        ? 'Work item'
+        ? 'Slice'
         : 'Unclassified';

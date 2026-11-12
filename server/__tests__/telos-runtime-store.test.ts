@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -6,8 +6,10 @@ import Database from 'better-sqlite3';
 import { TelosRuntimeStore } from '../telos-runtime-store.js';
 import { TelosItemStore } from '../telos-item-store.js';
 import { renewDueTelosSnoozes } from '../telos-snooze.js';
+import * as logging from '../logger.js';
 
 const cleanups: Array<() => void> = [];
+afterEach(() => vi.restoreAllMocks());
 afterEach(() =>
   cleanups
     .splice(0)
@@ -262,6 +264,52 @@ describe('Mitzo canonical Telos persistence', () => {
       }),
     ).toThrow('revoked');
     expect(store.list().items).toEqual([]);
+  });
+  it('reports a rejected asynchronous creation guard while preserving an empty canonical store', async () => {
+    const { store } = fixture();
+    const warn = vi.fn();
+    vi.spyOn(logging, 'createLogger').mockReturnValue({
+      debug: vi.fn(),
+      info: vi.fn(),
+      warn,
+      error: vi.fn(),
+    });
+    expect(() =>
+      store.createOutcome(outcome, async () => {
+        throw Error('private upstream detail');
+      }),
+    ).toThrow('Synchronous current Telos authority required');
+    await vi.waitFor(() =>
+      expect(warn).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.objectContaining({
+          stage: 'item-authority',
+          code: 'ASYNC_AUTHORITY_REJECTED',
+          diagnosticId: expect.any(String),
+        }),
+      ),
+    );
+    expect(JSON.stringify(warn.mock.calls)).not.toContain('private upstream detail');
+    expect(store.list().items).toEqual([]);
+  });
+  it('creates a shared outcome with feature children usable by the existing role hierarchy', () => {
+    const { store, path } = fixture();
+    const input = { ...outcome, workLevel: 'outcome' };
+    const receipt = store.createOutcome(input, () => {});
+    const db = new Database(path);
+    try {
+      expect(
+        db.prepare('SELECT kind FROM telos_work_kinds WHERE item_id=?').get(receipt.item.id),
+      ).toEqual({ kind: 'coordinator' });
+      for (const child of receipt.item.children)
+        expect(
+          db.prepare('SELECT kind FROM telos_work_kinds WHERE item_id=?').get(child.id),
+        ).toEqual({ kind: 'outcome' });
+      expect(store.createOutcome(input, () => {})).toEqual({ ...receipt, created: false });
+      expect(() => store.createOutcome(outcome, () => {})).toThrow(/identity/);
+    } finally {
+      db.close();
+    }
   });
   it('keeps authored fields, hierarchy, progress and receipts across source imports', () => {
     const { store, path } = fixture();

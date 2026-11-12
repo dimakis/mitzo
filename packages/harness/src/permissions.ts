@@ -1,5 +1,10 @@
 import type { PermissionResult } from '@anthropic-ai/claude-agent-sdk';
 import type { PermissionRequest, QuestionAnswers } from '@mitzo/protocol';
+import {
+  TelosSourceRecoveryDismissalSchema,
+  type TelosSourcePermissionReceipt,
+  type TelosCanonicalOutcomeReceipt,
+} from '@mitzo/protocol';
 import type { ToolTier } from './tool-tiers.js';
 import { isDeepStrictEqual } from 'node:util';
 import { recordPermissionAudit } from './permission-audit.js';
@@ -357,7 +362,13 @@ export function resolveReviewedTelosSourcePermission(
 /** Denial only: dismiss retained consent without orphaning the same live tool.
  * Expiry and policy changes cannot grant authority here; they need not block denial.
  */
-export function dismissReviewedTelosSourcePermission(proof: PendingTelosSourceReview): boolean {
+export function dismissReviewedTelosSourcePermission(
+  proof: PendingTelosSourceReview,
+  saved?: {
+    receipt?: TelosSourcePermissionReceipt | null;
+    canonicalCreation?: TelosCanonicalOutcomeReceipt | null;
+  },
+): boolean {
   const entry = pending.get(proof.permId);
   if (
     !entry ||
@@ -368,6 +379,28 @@ export function dismissReviewedTelosSourcePermission(proof: PendingTelosSourceRe
     !isDeepStrictEqual(entry.toolInput, proof.toolInput)
   )
     return false;
+  if (
+    saved?.receipt &&
+    (saved.receipt.permId !== proof.permId || saved.receipt.sessionId !== proof.sessionId)
+  )
+    return false;
+  const canonicalCreation = saved?.canonicalCreation ?? saved?.receipt?.canonicalCreation;
+  const itemId = saved?.receipt?.receipt.work.itemId ?? canonicalCreation?.item.id;
+  if (canonicalCreation && itemId !== canonicalCreation.item.id) return false;
+  const message = JSON.stringify(
+    TelosSourceRecoveryDismissalSchema.parse({
+      kind: 'telos_save_recovery_dismissed',
+      permId: proof.permId,
+      sessionId: proof.sessionId,
+      toolUseId: proof.toolUseId,
+      saveStatus: saved?.receipt ? 'completed' : 'unconfirmed',
+      itemId,
+      canonicalCreation,
+      message: 'Reviewed save dismissed; retained save results remain recoverable',
+      nextAction:
+        'Do not create another outcome or retry creation. Dismissal does not prove the save failed. Use the retained receipt or item identity to reconcile the original save; further creation requires a new explicit operator request.',
+    }),
+  );
   // This exact retained-save denial is independent of the old approval
   // deadline. Generic expiry guidance must not invite a duplicate save.
   pending.delete(proof.permId);
@@ -376,7 +409,7 @@ export function dismissReviewedTelosSourcePermission(proof: PendingTelosSourceRe
     proof.permId,
     {
       behavior: 'deny',
-      message: 'Reviewed save dismissed; retained save results remain recoverable',
+      message,
     },
     undefined,
     'denied',

@@ -1,7 +1,8 @@
 import { afterEach, expect, it, vi } from 'vitest';
 import type { SessionLaunchConfig } from '@mitzo/protocol';
-import { SessionLaunchStore } from '../session-launch-store.js';
+import { SessionLaunchError, SessionLaunchStore } from '../session-launch-store.js';
 import { SessionLaunchService, type SessionLaunchPort } from '../session-launch-service.js';
+import { sessionLaunchFailureCause } from '../session-launch-diagnostics.js';
 
 const stores: SessionLaunchStore[] = [];
 afterEach(() => {
@@ -49,7 +50,7 @@ function fixture() {
 }
 it('keeps unsupported selections editable and allocates nothing before user approval', async () => {
   const f = fixture();
-  vi.mocked(f.port.validate).mockRejectedValue(Error('Unsupported settings'));
+  vi.mocked(f.port.validate).mockRejectedValue(new SessionLaunchError('Unsupported settings'));
   await expect(
     f.service.approve(f.record.proposalId, 'user', edits, f.record.revision, f.authority),
   ).rejects.toThrow('Unsupported');
@@ -75,6 +76,38 @@ it('starts the approved edited prompt once under concurrent duplicate approvals'
     childSessionId: 'child',
   });
 });
+it('does not certify a refusal as not started if another approval already claimed the request', async () => {
+  const f = fixture();
+  let reject!: (error: Error) => void;
+  vi.mocked(f.port.validate).mockImplementationOnce(
+    () =>
+      new Promise((_resolve, no) => {
+        reject = no;
+      }),
+  );
+  const refused = f.service.approve(f.record.proposalId, 'user', edits, 1, f.authority);
+  await f.service.approve(f.record.proposalId, 'user', edits, 1, f.authority);
+  reject(new SessionLaunchError('Late validation refusal'));
+  await expect(refused).rejects.toMatchObject({
+    message: expect.stringMatching(/Request changed/),
+  });
+  expect(f.store.get(f.record.proposalId, 'user').state).toBe('running');
+  expect(f.port.start).toHaveBeenCalledOnce();
+});
+it('preserves unexpected validation causes internally and keeps private payloads out of the public refusal', async () => {
+  const f = fixture();
+  const cause = new Error('private provider payload');
+  vi.mocked(f.port.validate).mockRejectedValue(cause);
+  await expect(
+    f.service.approve(f.record.proposalId, 'user', edits, 1, f.authority),
+  ).rejects.toMatchObject({
+    code: 'session_launch_preflight_refused',
+    effectStatus: 'not_started',
+    message: expect.not.stringContaining('private provider payload'),
+  });
+  expect(sessionLaunchFailureCause(f.record.proposalId)?.cause).toBe(cause);
+  expect(f.port.start).not.toHaveBeenCalled();
+});
 it('reconciles a lost acknowledgement from authoritative command receipts without replay', async () => {
   const f = fixture();
   vi.mocked(f.port.start).mockRejectedValue(Error('Provider response lost'));
@@ -88,6 +121,7 @@ it('reconciles a lost acknowledgement from authoritative command receipts withou
   const recovered = await f.service.approve(f.record.proposalId, 'user', edits, 1, f.authority);
   expect(recovered).toMatchObject({ state: 'running', childSessionId: 'retained-child' });
   expect(f.port.start).toHaveBeenCalledTimes(1);
+  expect(sessionLaunchFailureCause(f.record.proposalId)?.cause).toBeInstanceOf(Error);
 });
 it('does not launch after cancellation or revoked operator authority', async () => {
   const f = fixture();

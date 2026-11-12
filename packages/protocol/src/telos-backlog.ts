@@ -35,11 +35,7 @@ export const TelosRecordsResultSchema = z.strictObject({
     .array(z.strictObject({ itemId: id, code: z.string(), status: z.number().int() }))
     .max(100),
 });
-export const TelosCreateChildInputSchema = z.strictObject({
-  parentId: id.describe('Existing parent inspected with TelosManageItem read'),
-  expectedParentRevision: revision.describe(
-    'Parent item.revision from inspection, or parentRevision from the previous successful child creation',
-  ),
+export const TelosCreateFeatureInputSchema = z.strictObject({
   requestId: id.describe('Unique creation request; retry only with this exact input and ID'),
   summary: z.string().trim().min(1).max(240),
   intent: z.string().trim().min(1).max(8000),
@@ -47,11 +43,24 @@ export const TelosCreateChildInputSchema = z.strictObject({
   acceptanceCriteria: z.array(z.string().trim().min(1).max(2000)).min(1).max(30),
   note: z.string().trim().min(1).max(4000),
 });
+export const TelosCreateChildInputSchema = z.strictObject({
+  parentId: id.describe('Existing parent inspected with TelosManageItem read'),
+  expectedParentRevision: revision.describe(
+    'Parent item.revision from inspection, or parentRevision from the previous successful child creation',
+  ),
+  ...TelosCreateFeatureInputSchema.shape,
+});
 export const TelosEditItemInputSchema = z
   .strictObject({
     itemId: id,
     requestId: id,
     expectedRevision: revision,
+    workLevel: z
+      .enum(['outcome', 'feature', 'slice'])
+      .optional()
+      .describe(
+        'Classify an existing unclassified item before lead/worker setup; does not reassign chats or convert an existing level',
+      ),
     summary: z.string().trim().min(1).max(240).optional(),
     intent: z.string().trim().min(1).max(8000).optional(),
     rationale: z.string().trim().min(1).max(8000).optional(),
@@ -60,8 +69,10 @@ export const TelosEditItemInputSchema = z
   })
   .refine(
     (v) =>
-      [v.summary, v.intent, v.rationale, v.acceptanceCriteria].some((value) => value !== undefined),
-    'Supply at least one brief field to edit',
+      [v.summary, v.intent, v.rationale, v.acceptanceCriteria, v.workLevel].some(
+        (value) => value !== undefined,
+      ),
+    'Supply a brief field or an unclassified work level to edit',
   );
 export const TelosManageItemInputSchema = z.discriminatedUnion('operation', [
   z.strictObject({
@@ -89,3 +100,4 @@ export type TelosListItemsInput = z.input<typeof TelosListItemsInputSchema>;
 export type TelosRecordsResult = z.infer<typeof TelosRecordsResultSchema>;
 export type TelosEditItemInput = z.infer<typeof TelosEditItemInputSchema>;
 export type TelosCreateChildInput = z.infer<typeof TelosCreateChildInputSchema>;
+export type TelosCreateFeatureInput = z.infer<typeof TelosCreateFeatureInputSchema>;

@@ -65,6 +65,10 @@ export function TelosItemRoleEntries({
             ? 'Separate conversations are linked to this item.'
             : 'No dedicated conversation yet.'}
         </p>
+        <p>
+          Choose whether this is an outcome, feature or slice with an advisor before setting up its
+          lead or worker.
+        </p>
         <div className="home-inline-actions">
           {onOpenChat && (
             <button className="home-secondary" onClick={onOpenChat}>

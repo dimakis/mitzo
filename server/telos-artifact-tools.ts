@@ -82,6 +82,15 @@ export const telosArtifactDefinitions: ToolDefinition[] = [
     input_schema: z.toJSONSchema(TelosReadArtifactInput),
   },
 ];
+/** Ordinary owned Local Mac chats expose these artifacts only through an
+ * explicit published profile. Shared with launch qualification; no role is granted. */
+export function ordinaryNativeTelosArtifactTools(explicitSelection: boolean): ToolDefinition[] {
+  return explicitSelection
+    ? telosArtifactDefinitions.filter((tool) =>
+        ['TelosSaveArtifact', 'TelosReadArtifact'].includes(tool.name),
+      )
+    : [];
+}
 export const TELOS_ARTIFACT_INSTRUCTIONS = withTelosWorkflowInstructions(`
 ${TELOS_PROGRESS_INSTRUCTIONS}
 For a multi-slice ask, propose Telos using the planning workflow below. Simple tasks stay in chat;

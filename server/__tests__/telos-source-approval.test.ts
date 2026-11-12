@@ -52,6 +52,19 @@ async function selected(
   };
 }
 describe('actual ordinary Telos source approval owners', () => {
+  it.each(['native', 'sdk'] as const)(
+    'reviews the shared outcome level before saving a fresh %s proposal',
+    async (marker) => {
+      const f = fixture();
+      const choice = await selected(f, 'create', marker);
+      expect(choice.review.operation).toMatchObject({
+        kind: 'create',
+        outcome: { workLevel: 'outcome' },
+      });
+      const receipt = await f.service.approve(choice.permId, choice.approved, f.actor);
+      expect(receipt.receipt.work.kind).toBe('coordinator');
+    },
+  );
   it('opens outcome creation on the latest exchange and pages older context without creating anything', async () => {
     const f = fixture();
     for (let i = 0; i < 60; i++)

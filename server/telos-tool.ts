@@ -6,6 +6,8 @@ import {
   type TelosSourcePermissionOperation,
   TelosOutcomeRevisionReceiptSchema,
   TelosOutcomeCancellationSchema,
+  TelosSourceRecoveryDismissalSchema,
+  TelosOutcomeProposalSchema,
 } from '@mitzo/protocol';
 import { toolInputError } from './tool-input-error.js';
 import type { ToolDefinition } from '@mitzo/harness';
@@ -13,6 +15,10 @@ import type { ToolDefinition } from '@mitzo/harness';
 export const TELOS_CREATE_OUTCOME_TOOL = 'TelosCreateOutcome';
 
 export const telosOutcomeShape = {
+  workLevel: z
+    .literal('outcome')
+    .default('outcome')
+    .describe('Shared outcome coordinating feature items'),
   summary: z.string().trim().min(1).max(160).describe('Short, scannable outcome title'),
   intent: z.string().trim().min(1).max(2000).describe('What will be true when achieved'),
   rationale: z.string().trim().min(1).max(2000).describe('Why the outcome matters'),
@@ -79,6 +85,12 @@ export function formatTelosPermissionDenial(
   message: string,
   userCancelled = false,
 ): TelosToolResult {
+  try {
+    if (TelosSourceRecoveryDismissalSchema.safeParse(JSON.parse(message)).success)
+      return { content: message, isError: false };
+  } catch {
+    /* Other denials retain their existing classification. */
+  }
   if (userCancelled)
     return {
       content: JSON.stringify(
@@ -153,7 +165,9 @@ async function executeReviewedSource(
   operation: 'create' | 'adopt',
   signal?: AbortSignal,
 ): Promise<TelosToolResult> {
-  const schema = operation === 'create' ? TelosOutcomeInput : TelosAdoptSourceInput;
+  // Execution must preserve already-reviewed historical input. Only the new
+  // invocation schema above supplies the semantic level before permission review.
+  const schema = operation === 'create' ? TelosOutcomeProposalSchema : TelosAdoptSourceInput;
   if (!input || typeof input !== 'object' || Array.isArray(input))
     return { content: 'Invalid Telos input', isError: true };
   const { __mitzoTelosApproval, ...proposal } = input as Record<string, unknown>;
