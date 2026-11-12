@@ -10,8 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.1057-chat-model-settings-fixture';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.1058-chat-model-journey';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -1372,7 +1371,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../tests/fixtures/chat-model-settings.tsx':
     '1a3de348872184283bd0f962a2339543705b33fc850232c22235414242496556',
   '../../tests/offline/chat-model-settings.spec.ts':
-    'f989e31e9b4fe61a841350a7766f2d56b8c15ab76b81e366e3bb5d1434d2f83b',
+    '12dc0e3b15e57d7cf1a5dd9bde0328b0783516f5c94ca66a26c525cf2d355795',
   '../../packages/protocol/__tests__/event-store-internal-identity.test.ts':
     'c9d5fd312f2a822909b1d27775c89dc2b268a31f16d29c0a95ada737f7c126b3',
   '../__tests__/symposium-profile-read-allocation.test.ts':
@@ -1576,7 +1575,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../session-local-repository-tools.ts':
     '2fb0601c3aac31536089a0cb10a34d6000413a2472a1777267614c02c9365b45',
   '../__tests__/local-repository-read-scope.test.ts':
-    '8beb98baaa9143122b12803270470f06d6dbab393f3870a908438565bb3122f4',
+    '33d408977e29506b38145e67ec6b9f894d53fedcabda5a5c951a2f4f43a4df0d',
   '../__tests__/session-local-repository-tools.test.ts':
     'c07f92de3e0f42b7f6604758fa33a27e1a05a7a4126e2382650507e44f9c6328',
   '../__tests__/local-repository-read-artifacts.test.ts':

@@ -157,6 +157,9 @@ for (const theme of ['dark', 'light']) {
     await page.getByRole('button', { name: /^Model,/ }).click();
     await page.getByRole('button', { name: 'Sol fixture', exact: true }).click();
     await page.keyboard.press('Escape');
+    await page.getByRole('button', { name: /^Thinking,/ }).click();
+    await page.getByRole('button', { name: 'high', exact: true }).click();
+    await page.keyboard.press('Escape');
     await page.keyboard.press('Escape');
     await expect(page.getByRole('button', { name: 'Recreate chat screen' })).toBeInViewport();
     await page.getByRole('button', { name: 'Recreate chat screen' }).click();
