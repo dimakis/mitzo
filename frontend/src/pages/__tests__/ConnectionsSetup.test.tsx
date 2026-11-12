@@ -139,17 +139,17 @@ afterEach(() => {
 describe('focused connection setup', () => {
   it('offers a new OpenAI API account only when enrollment is enabled', async () => {
     await start();
-    expect(screen.queryByRole('link', { name: 'Choose OpenAI API' })).toBeNull();
+    expect(screen.queryByRole('link', { name: 'Choose AI API account' })).toBeNull();
     cleanup();
     vi.mocked(api.getConnections).mockResolvedValue({ ...catalog, openAIAccountsManaged: true });
     await start();
-    expect(screen.getByRole('link', { name: 'Choose OpenAI API' }).getAttribute('href')).toBe(
+    expect(screen.getByRole('link', { name: 'Choose AI API account' }).getAttribute('href')).toBe(
       '/connections?manage=openai-add',
     );
   });
   it('keeps stale OpenAI enrollment destinations explicitly unavailable', async () => {
     await start({ mode: 'openai-add' });
-    expect(screen.getByText('Adding OpenAI API accounts is unavailable.')).toBeTruthy();
+    expect(screen.getByText('Adding AI API accounts is unavailable.')).toBeTruthy();
     expect(screen.queryByLabelText('API key')).toBeNull();
   });
   it('opens with account and service choices, without unrelated forms or management controls', async () => {
