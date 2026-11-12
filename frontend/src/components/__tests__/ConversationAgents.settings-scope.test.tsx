@@ -144,11 +144,11 @@ it('keeps real Add agent pickers inside the dialog when opened from compact chat
     </MemoryRouter>,
   );
   fireEvent.click(screen.getByRole('button', { name: 'Agents, Architect' }));
-  fireEvent.click(screen.getByRole('button', { name: 'Add agent', exact: true }));
+  fireEvent.click(screen.getByRole('button', { name: /^Add agent$/ }));
   const dialog = screen.getByRole('dialog', { name: 'Add agent' });
-  const agent = await within(dialog).findByRole('combobox', { name: 'Agent', exact: true });
-  const account = await within(dialog).findByRole('combobox', { name: 'Account', exact: true });
-  const model = within(dialog).getByRole('combobox', { name: 'Model', exact: true });
+  const agent = await within(dialog).findByRole('combobox', { name: /^Agent$/ });
+  const account = await within(dialog).findByRole('combobox', { name: /^Account$/ });
+  const model = within(dialog).getByRole('combobox', { name: /^Model$/ });
   expect((account as HTMLSelectElement).value).toBe('offline-account');
   expect((model as HTMLSelectElement).value).toBe('offline-model');
   expect(within(dialog).getByRole('combobox', { name: 'Thinking level' })).toBeTruthy();
@@ -157,25 +157,23 @@ it('keeps real Add agent pickers inside the dialog when opened from compact chat
     target: { value: 'Bob' },
   });
   fireEvent.click(within(dialog).getByRole('radio', { name: 'Mac host' }));
-  fireEvent.click(
-    await within(dialog).findByRole('button', { name: 'Add repository', exact: true }),
-  );
+  fireEvent.click(await within(dialog).findByRole('button', { name: /^Add repository$/ }));
   expect(await within(dialog).findByRole('combobox', { name: 'Local repository' })).toBeTruthy();
   fireEvent.click(within(dialog).getByRole('button', { name: 'Cancel' }));
-  fireEvent.click(screen.getByRole('button', { name: 'Add agent', exact: true }));
+  fireEvent.click(screen.getByRole('button', { name: /^Add agent$/ }));
   expect(
     (screen.getByRole('textbox', { name: 'Name in this chat' }) as HTMLInputElement).value,
   ).toBe('Bob');
-  expect(await screen.findByRole('combobox', { name: 'Account', exact: true })).toBeTruthy();
-  expect(
-    (screen.getByRole('combobox', { name: 'Agent', exact: true }) as HTMLSelectElement).value,
-  ).toBe('["saved","reviewer",1]');
+  expect(await screen.findByRole('combobox', { name: /^Account$/ })).toBeTruthy();
+  expect((screen.getByRole('combobox', { name: /^Agent$/ }) as HTMLSelectElement).value).toBe(
+    '["saved","reviewer",1]',
+  );
   fireEvent.click(screen.getByRole('button', { name: 'Close Agents' }));
   fireEvent.click(screen.getByRole('button', { name: /^Workspace controls/ }));
   expect((screen.getByRole('textbox', { name: 'Source setting' }) as HTMLInputElement).value).toBe(
     'Original chat',
   );
-  expect(screen.queryByRole('combobox', { name: 'Agent', exact: true })).toBeNull();
+  expect(screen.queryByRole('combobox', { name: /^Agent$/ })).toBeNull();
   expect(
     vi.mocked(apiFetch).mock.calls.every(([, init]) => !init?.method || init.method === 'GET'),
   ).toBe(true);
