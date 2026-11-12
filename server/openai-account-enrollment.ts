@@ -20,8 +20,9 @@ import {
   discoverApiAccountModels,
   ApiAccountSetupError,
   type ApiModelDiscovery,
+  type QualifiedApiConnection,
+  type ApiDiscoveryOptions,
 } from './api-account-setup.js';
-import type { ApiHarnessConnection } from './account-harness-connection.js';
 import { createLogger } from './logger.js';
 const log = createLogger('api-account-enrollment');
 
@@ -39,11 +40,12 @@ export interface OpenAIEnrollmentAccount {
 export interface OpenAIEnrollmentProfile {
   id: string;
   label: string;
-  provider: 'openai';
+  provider: 'openai' | 'anthropic-api';
   credentialRef: CredentialReference;
   sandboxProvider?: string;
   sandboxProviderId?: string;
-  connection?: ApiHarnessConnection;
+  connection?: QualifiedApiConnection;
+  credentialVersion?: string;
   models: CatalogModel[];
 }
 export const OpenAIAccountEnrollmentInputSchema = z
@@ -220,7 +222,7 @@ export class OpenAIAccountEnrollmentStore {
   reserve(
     input: Pick<z.infer<typeof Input>, 'requestId' | 'label' | 'projectLabel'> & {
       controllerBinding: string;
-      connection?: ApiHarnessConnection;
+      connection?: QualifiedApiConnection;
       requestedModels?: z.infer<typeof ApiAccountModelsSchema>;
     },
     existingIds: readonly string[],
@@ -278,10 +280,15 @@ export class OpenAIAccountEnrollmentStore {
       .map((row) => ({
         id: row.accountId,
         label: row.label,
-        provider: 'openai',
+        provider: row.connection?.protocol === 'messages' ? 'anthropic-api' : 'openai',
         credentialRef: openAIEnrollmentCredentialReference(row.operationId),
         ...(row.connection
-          ? { connection: row.connection }
+          ? {
+              connection: row.connection,
+              ...(row.connection.protocol === 'messages'
+                ? { credentialVersion: row.operationId }
+                : {}),
+            }
           : { sandboxProvider: row.provider!.name, sandboxProviderId: row.provider!.id }),
         models: row.models!,
       }));
@@ -382,6 +389,7 @@ export class OpenAIAccountEnrollment {
         endpoint: string,
         value: string,
         signal: AbortSignal,
+        options?: ApiDiscoveryOptions,
       ) => Promise<ApiModelDiscovery>;
       gate: <T>(work: () => Promise<T>) => Promise<T>;
       readGate?: <T>(work: () => Promise<T>, signal: AbortSignal) => Promise<T>;
@@ -411,13 +419,17 @@ export class OpenAIAccountEnrollment {
     endpoint: string,
     apiKey: string,
     signal: AbortSignal,
+    options?: ApiDiscoveryOptions,
   ): Promise<ApiModelDiscovery> {
     try {
-      return await (this.options.discoverApiModels ?? discoverApiAccountModels)(
-        endpoint,
-        apiKey,
-        signal,
-      );
+      return this.options.discoverApiModels
+        ? await this.options.discoverApiModels(
+            endpoint,
+            apiKey,
+            signal,
+            ...(options ? [options] : []),
+          )
+        : await discoverApiAccountModels(endpoint, apiKey, signal, undefined, options);
     } catch (cause) {
       log.warn('API model discovery failed', {
         stage: 'catalog',
@@ -466,7 +478,12 @@ export class OpenAIAccountEnrollment {
         if (connection) {
           if (requestedModels) models = ApiAccountModelsSchema.parse(requestedModels);
           else {
-            const catalog = await this.discoverModels(connection.endpoint, apiKey, signal);
+            const catalog = await this.discoverModels(
+              connection.endpoint,
+              apiKey,
+              signal,
+              connection.protocol === 'messages' ? connection : undefined,
+            );
             if (catalog.partial)
               throw new ApiAccountSetupError(
                 'CATALOG_PARTIAL',

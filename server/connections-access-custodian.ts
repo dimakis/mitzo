@@ -38,6 +38,7 @@ const accountCatalog = z
         'openai',
         'anthropic-vertex',
         'anthropic-claude',
+        'anthropic-api',
         'google-vertex',
         'openai-codex',
       ]),

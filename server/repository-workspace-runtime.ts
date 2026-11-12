@@ -30,7 +30,7 @@ export function repositoryWorkspaceBinding(accountId: string, model: string) {
   if (
     !['openai', 'openai-codex'].includes(binding.provider) &&
     !(
-      ['anthropic-vertex', 'anthropic-claude'].includes(binding.provider) &&
+      ['anthropic-vertex', 'anthropic-claude', 'anthropic-api'].includes(binding.provider) &&
       process.env.MITZO_ORDINARY_LOCAL_VERTEX_ENABLED === '1' &&
       profiles
         .ordinaryLocalVertexInventory()
@@ -170,7 +170,7 @@ function workspaceOwner(readOnly = false, ordinary = false, local = false) {
       if (
         (!['openai', 'openai-codex'].includes(binding.provider) &&
           !(
-            ['anthropic-vertex', 'anthropic-claude'].includes(binding.provider) &&
+            ['anthropic-vertex', 'anthropic-claude', 'anthropic-api'].includes(binding.provider) &&
             process.env.MITZO_ORDINARY_LOCAL_VERTEX_ENABLED === '1' &&
             profiles
               .ordinaryLocalVertexInventory()

@@ -26,7 +26,7 @@ function validateHarness(
 ): void {
   const providers = {
     codex: ['openai-codex', 'openai'],
-    'claude-sdk': ['anthropic-vertex', 'anthropic-claude'],
+    'claude-sdk': ['anthropic-vertex', 'anthropic-claude', 'anthropic-api'],
     responses: ['openai'],
     gemini: ['google-vertex'],
   };
