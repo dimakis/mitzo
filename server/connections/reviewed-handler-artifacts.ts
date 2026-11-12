@@ -10,8 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.1055-claude-lazy-mcp-integration';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.1056-claude-task-cleanup-fix';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -27,7 +26,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     'ceaf09b6f08d436c725e6826fff815786dda12727ad150e0d3daa85d1911945f',
   '../lazy-mcp-source.ts': 'bd93f94687b160ad0df2fa761a4287a6d76d1186d6736811408c91b9dcf49dae',
   '../__tests__/task-mcp-selection.test.ts':
-    '728913be9a494065651f150ef84f52dbdaf41e7ec058bbb8e0a96aae1e506e85',
+    'd304a8ef802b7e3c160a65730f978ed53b3533027481fad763a74be6c1e77e2f',
   '../__tests__/configured-tool-source-launch.test.ts':
     '4b7242827f6a2adde179441956c75430d9c05f7695da4436a959c7e0be11e027',
   '../__tests__/configured-tool-authority.test.ts':
@@ -3020,7 +3019,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     '58f2da7c38a6df8cf557181b1dadf686317ccfd5ea6d0c049db98afaa5508570',
   '../../frontend/src/lib/tool-status.ts':
     'e1008a48aa56c86caef0a16d70706c6b12e2b1194d696530e149f35200c4a3d1',
-  '../task-mcp-selection.ts': '88d34e78f22ce071320911cfb50b5619050fdb6889881c17a77ed9d0adc39f97',
+  '../task-mcp-selection.ts': 'a3a6e3bc9d4d5d634011d24a1d95bafbc0328e86121a4d79296dffa56f9c6339',
   '../../frontend/src/lib/agent-tool-routes.ts':
     'b38157f1b23ab373c7294898a40aa07c3424fed464ce2ef9f18772541e4779ac',
   '../../frontend/src/hooks/useTelosCreatedItems.ts':
