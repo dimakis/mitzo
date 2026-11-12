@@ -6,6 +6,7 @@ import {
   SessionLaunchRecordSchema,
   type SessionLaunchConfig,
   type SessionLaunchRecord,
+  type TelosSessionLaunchScope,
 } from '@mitzo/protocol';
 import { z } from 'zod';
 
@@ -175,13 +176,22 @@ export class SessionLaunchStore {
       sourceSessionId: string;
       requestId: string;
       originalInput?: unknown;
+      telos?: TelosSessionLaunchScope;
     },
   ): RetainedSessionLaunch {
     return this.db
       .transaction(() => {
         SessionLaunchConfigSchema.parse(input.configuration);
         const fingerprint = createHash('sha256')
-          .update(JSON.stringify(canonical(input.originalInput ?? input)))
+          .update(
+            JSON.stringify(
+              canonical(
+                input.telos
+                  ? { originalInput: input.originalInput ?? input, telos: input.telos }
+                  : (input.originalInput ?? input),
+              ),
+            ),
+          )
           .digest('hex');
         const row = this.db
           .prepare(
@@ -203,6 +213,7 @@ export class SessionLaunchStore {
           title: input.title,
           prompt: input.prompt,
           configuration: structuredClone(input.configuration),
+          ...(input.telos ? { telos: structuredClone(input.telos) } : {}),
           revision: 1,
           state: 'pending',
           childSessionId: null,
@@ -263,7 +274,7 @@ export class SessionLaunchStore {
       beforeApply?.(this.db);
       Object.assign(r, structuredClone(edits), {
         allocationId: randomUUID(),
-        commandId: randomUUID(),
+        commandId: r.telos ? null : randomUUID(),
         state: 'starting',
         revision: r.revision + 1,
         updatedAt: Date.now(),
@@ -289,7 +300,7 @@ export class SessionLaunchStore {
         throw new SessionLaunchError(
           'Startup changed. Reload its current receipt before resuming.',
         );
-      if (!entry.record.allocationId || !entry.record.commandId)
+      if (!entry.record.allocationId || (!entry.record.telos && !entry.record.commandId))
         throw new SessionLaunchError('Original startup operation required.');
       entry.claimed = true;
       Object.assign(entry.record, {
@@ -303,6 +314,8 @@ export class SessionLaunchStore {
   markPrepared(id: string, childSessionId: string, preparationId: string) {
     return this.mutate(id, (entry) => {
       const r = entry.record;
+      if (r.telos)
+        throw new SessionLaunchError('Work-bound creation requires its assignment receipt.');
       if (
         (r.childSessionId && r.childSessionId !== childSessionId) ||
         (r.preparationId && r.preparationId !== preparationId)
@@ -322,6 +335,7 @@ export class SessionLaunchStore {
   markRunning(id: string) {
     return this.mutate(id, (entry) => {
       if (
+        entry.record.telos ||
         !entry.record.childSessionId ||
         !['starting', 'created', 'uncertain', 'running'].includes(entry.record.state)
       )
@@ -334,9 +348,29 @@ export class SessionLaunchStore {
       });
     });
   }
+  markAssigned(id: string, childSessionId: string, preparationId: string) {
+    return this.mutate(id, (entry) => {
+      const r = entry.record;
+      if (!r.telos || r.commandId || !['starting', 'uncertain', 'assigned'].includes(r.state))
+        throw new SessionLaunchError('A work-bound creation request is required.');
+      if (r.childSessionId && r.childSessionId !== childSessionId)
+        throw new SessionLaunchError('Assigned session identity changed.');
+      if (r.preparationId && r.preparationId !== preparationId)
+        throw new SessionLaunchError('Assigned preparation identity changed.');
+      if (r.state === 'assigned') return;
+      Object.assign(r, {
+        childSessionId,
+        preparationId,
+        state: 'assigned',
+        error: undefined,
+        revision: r.revision + 1,
+        updatedAt: Date.now(),
+      });
+    });
+  }
   fail(id: string, error: string, uncertain = false) {
     return this.mutate(id, (entry) => {
-      if (['running', 'cancelled'].includes(entry.record.state)) return;
+      if (['running', 'assigned', 'cancelled'].includes(entry.record.state)) return;
       const state = uncertain ? 'uncertain' : 'failed';
       if (entry.record.state === state && entry.record.error === error) return;
       Object.assign(entry.record, {
