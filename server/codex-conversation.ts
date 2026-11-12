@@ -1149,12 +1149,19 @@ export class CodexConversation {
     this.opts.emit({ type: 'system', subtype: 'init', session_id: this.opts.conversationId });
     this.notifyQueueChange();
   }
-  private async contextRequest(client: Rpc, method: string, params: ObjectValue) {
+  private async contextRequest(
+    client: Rpc,
+    method: string,
+    params: ObjectValue,
+    assertCurrent: () => void = () => undefined,
+  ) {
+    assertCurrent();
     const signal =
       this.active?.abort.signal ?? this.opts.startupSignal ?? new AbortController().signal;
     signal.throwIfAborted();
     await this.opts.prepareAgentContext?.(signal);
     signal.throwIfAborted();
+    assertCurrent();
     if (this.closed) throw Error('Codex context dispatch closed');
     // Resuming/forking establishes execution ownership, not transcript delivery.
     // Even one retained turn can contain more tool output than a bounded RPC
@@ -1167,7 +1174,11 @@ export class CodexConversation {
         : params,
     );
   }
-  private async repairThreadOwnership(client: Rpc, options: Record<string, unknown>) {
+  private async repairThreadOwnership(
+    client: Rpc,
+    options: Record<string, unknown>,
+    assertCurrent: () => void = () => undefined,
+  ) {
     const pending = this.opts.store.pendingThreadOwnership(this.opts.conversationId, this.binding!);
     if (!pending) return;
     const generation = this.transportGeneration;
@@ -1178,12 +1189,18 @@ export class CodexConversation {
         modelProvider: z.string(),
       })
       .parse(
-        await this.contextRequest(client, 'thread/resume', {
-          ...options,
-          threadId: pending.threadId,
-          allowProviderModelFallback: false,
-        }),
+        await this.contextRequest(
+          client,
+          'thread/resume',
+          {
+            ...options,
+            threadId: pending.threadId,
+            allowProviderModelFallback: false,
+          },
+          assertCurrent,
+        ),
       );
+    assertCurrent();
     if (this.closed || generation !== this.transportGeneration)
       throw new Error('Codex accepted provider thread ownership transport changed');
     if (
@@ -1202,6 +1219,7 @@ export class CodexConversation {
     )
       throw new Error('Codex accepted provider thread ownership identity changed');
     await this.opts.onThreadChanged?.(pending.threadId);
+    assertCurrent();
     if (this.closed || generation !== this.transportGeneration)
       throw new Error('Codex accepted provider thread ownership transport changed');
     this.opts.store.completeThreadOwnership(
@@ -1227,7 +1245,7 @@ export class CodexConversation {
   getThreadId() {
     return this.threadId;
   }
-  assertPermissionModeChange(mode: MitzoMode) {
+  private webSearchAccessForMode(mode: MitzoMode): WebSearchAccess {
     if (!this.binding) throw new Error('Codex account binding unavailable');
     const state = this.opts.store.read(this.opts.conversationId, this.binding);
     const effective = resolveWebSearchPolicy({
@@ -1241,8 +1259,32 @@ export class CodexConversation {
         updatedAt: state.webSearchGrantUpdatedAt,
       },
     }).effective;
-    if (effective !== this.appliedWebSearchAccess)
+    return effective;
+  }
+  assertPermissionModeChange(mode: MitzoMode) {
+    if (this.webSearchAccessForMode(mode) !== this.appliedWebSearchAccess)
       throw new Error('Permission mode would change web-search access; start a new conversation');
+  }
+  /** Explicit user policy changes retain the conversation's search grant and
+   * serialize any necessary idle-thread reconfiguration with command admission. */
+  setUserPermissionMode(mode: MitzoMode, assertCurrent: () => void): Promise<void> {
+    const operation = this.explicitEnqueue.then(async () => {
+      assertCurrent();
+      if (this.webSearchAccessForMode(mode) === this.appliedWebSearchAccess) return;
+      const grant = this.getWebSearchGrant();
+      await this.reconfigureWebSearchGrant(
+        grant.revision,
+        grant.grant === 'allowed' ? 'allowed' : 'denied',
+        mode,
+        assertCurrent,
+      );
+      assertCurrent();
+    });
+    this.explicitEnqueue = operation.then(
+      () => undefined,
+      () => undefined,
+    );
+    return operation;
   }
   setWebSearchGrant(
     expectedRevision: number,
@@ -2090,12 +2132,17 @@ export class CodexConversation {
     if (this.opts.reconnectGuard) return this.opts.reconnectGuard(() => this.reconnectBound());
     return this.reconnectBound();
   }
-  private async reconnectBound() {
+  private async reconnectBound(
+    modeOverride?: MitzoMode,
+    assertCurrent: () => void = () => undefined,
+  ) {
+    assertCurrent();
     if (!this.binding || !this.threadId) throw new Error('Codex recovery state is unavailable');
     if (this.opts.beforeReconnect) {
       this.recoveryPhase = 'starting_workspace';
       this.notifyQueueChange();
       await this.opts.beforeReconnect();
+      assertCurrent();
     }
     this.recoveryPhase = 'reconnecting';
     this.notifyQueueChange();
@@ -2114,12 +2161,14 @@ export class CodexConversation {
         }),
       );
       await this.observeStartupConfig(configResponse.config, startupGeneration);
+      assertCurrent();
       const runtimeConfig = this.runtimeConfiguration(configResponse.config);
       const modelProvider = this.opts.modelProvider ?? 'openai';
       const state = this.opts.store.read(this.opts.conversationId, this.binding);
       this.opts.store.assertNoPendingThreadDispatch(this.opts.conversationId, this.binding);
-      const threadOptions = this.threadOptions(runtimeConfig, modelProvider, state);
-      await this.repairThreadOwnership(client, threadOptions);
+      const threadOptions = this.threadOptions(runtimeConfig, modelProvider, state, modeOverride);
+      await this.repairThreadOwnership(client, threadOptions, assertCurrent);
+      assertCurrent();
       const toolSurfaceRevision = this.toolSurfaceRevision();
       const replacingInitialThread = !state.threadId && this.opts.deferToolSurfaceReplacement;
       const replacingStaleToolSurface =
@@ -2139,16 +2188,27 @@ export class CodexConversation {
               modelProvider: z.string(),
             })
             .parse(
-              await this.contextRequest(client, 'thread/start', {
-                ...threadOptions,
-                allowProviderModelFallback: false,
-                ...this.dynamicToolsOption(),
-              }),
+              await this.contextRequest(
+                client,
+                'thread/start',
+                {
+                  ...threadOptions,
+                  allowProviderModelFallback: false,
+                  ...this.dynamicToolsOption(),
+                },
+                assertCurrent,
+              ),
             )
         : replacingStaleToolSurface
-          ? await this.replaceStaleToolSurface(client, state, threadOptions, toolSurfaceRevision)
+          ? await this.replaceStaleToolSurface(
+              client,
+              state,
+              threadOptions,
+              toolSurfaceRevision,
+              assertCurrent,
+            )
           : replacingProviderThread
-            ? await this.replaceFailedProviderThread(client, state, threadOptions)
+            ? await this.replaceFailedProviderThread(client, state, threadOptions, assertCurrent)
             : z
                 .object({
                   thread: z.object({ id: z.string().min(1) }),
@@ -2156,11 +2216,16 @@ export class CodexConversation {
                   modelProvider: z.string(),
                 })
                 .parse(
-                  await this.contextRequest(client, 'thread/resume', {
-                    threadId: this.threadId,
-                    ...threadOptions,
-                    allowProviderModelFallback: false,
-                  }),
+                  await this.contextRequest(
+                    client,
+                    'thread/resume',
+                    {
+                      threadId: this.threadId,
+                      ...threadOptions,
+                      allowProviderModelFallback: false,
+                    },
+                    assertCurrent,
+                  ),
                 );
       if (
         (!replacingProviderThread && result.thread.id !== this.threadId) ||
@@ -2169,12 +2234,21 @@ export class CodexConversation {
       )
         throw new Error('Codex execution binding changed');
       this.threadId = result.thread.id;
+      assertCurrent();
       if (replacingInitialThread)
         this.pendingToolSurface = { thread: result.thread.id, revision: toolSurfaceRevision };
       if (replacingProviderThread) this.resetMapper(this.threadId);
       this.ready = true;
     } catch (error) {
-      client.close();
+      try {
+        client.close();
+      } catch (cleanupError) {
+        log.error('Codex reconnect cleanup failed', {
+          code: 'codex_reconnect_cleanup_failed',
+          conversationId: this.opts.conversationId,
+          err: cleanupError,
+        });
+      }
       throw error;
     }
   }
@@ -2226,6 +2300,7 @@ export class CodexConversation {
     runtimeConfig: Record<string, unknown>,
     modelProvider: string,
     state: ReturnType<CodexConversationStore['read']>,
+    modeOverride?: MitzoMode,
   ) {
     const backend = this.opts.webSearchBackend ?? 'host';
     const deploymentRevision = this.opts.webSearchDeploymentRevision ?? `${backend}:unversioned`;
@@ -2237,7 +2312,7 @@ export class CodexConversation {
       backend,
       deploymentCeiling: this.webSearchDeploymentCeiling,
       deploymentRevision,
-      mode: this.opts.getMode?.() ?? 'ask',
+      mode: modeOverride ?? this.opts.getMode?.() ?? 'ask',
       conversationGrant: {
         grant: state.webSearchGrant,
         revision: state.webSearchGrantRevision,
@@ -2261,7 +2336,10 @@ export class CodexConversation {
   private async reconfigureWebSearchGrant(
     expectedRevision: number,
     grant: 'allowed' | 'denied',
+    modeOverride?: MitzoMode,
+    assertCurrent: () => void = () => undefined,
   ): Promise<PersistedWebSearchGrant> {
+    assertCurrent();
     if (this.closed || !this.ready || !this.binding || !this.threadId)
       throw new Error('Codex conversation unavailable');
     if (this.active || this.pumping || this.paused)
@@ -2277,14 +2355,17 @@ export class CodexConversation {
     this.client.close();
     let client: Rpc | undefined;
     try {
-      const updated = this.opts.store.setWebSearchGrant(
-        this.opts.conversationId,
-        this.binding,
-        expectedRevision,
-        grant,
-      );
+      const updated =
+        modeOverride === undefined
+          ? this.opts.store.setWebSearchGrant(
+              this.opts.conversationId,
+              this.binding,
+              expectedRevision,
+              grant,
+            )
+          : current;
       if (this.pendingToolSurface) {
-        await this.reconnectBound();
+        await this.reconnectBound(modeOverride, assertCurrent);
         return updated;
       }
       client = this.createClient();
@@ -2301,6 +2382,7 @@ export class CodexConversation {
         }),
       );
       await this.observeStartupConfig(configResponse.config, startupGeneration);
+      assertCurrent();
       const runtimeConfig = this.runtimeConfiguration(configResponse.config);
       const modelProvider = this.opts.modelProvider ?? 'openai';
       const state = this.opts.store.read(this.opts.conversationId, this.binding);
@@ -2312,11 +2394,16 @@ export class CodexConversation {
           modelProvider: z.string(),
         })
         .parse(
-          await this.contextRequest(client, 'thread/resume', {
-            threadId: this.threadId,
-            ...this.threadOptions(runtimeConfig, modelProvider, state),
-            allowProviderModelFallback: false,
-          }),
+          await this.contextRequest(
+            client,
+            'thread/resume',
+            {
+              threadId: this.threadId,
+              ...this.threadOptions(runtimeConfig, modelProvider, state, modeOverride),
+              allowProviderModelFallback: false,
+            },
+            assertCurrent,
+          ),
         );
       if (
         result.thread.id !== this.threadId ||
@@ -2324,10 +2411,19 @@ export class CodexConversation {
         result.modelProvider !== modelProvider
       )
         throw new Error('Codex execution binding changed');
+      assertCurrent();
       this.ready = true;
       return updated;
     } catch (error) {
-      client?.close();
+      try {
+        client?.close();
+      } catch (cleanupError) {
+        log.error('Codex permission update cleanup failed', {
+          code: 'permission_mode_cleanup_failed',
+          conversationId: this.opts.conversationId,
+          err: cleanupError,
+        });
+      }
       this.paused = true;
       try {
         this.opts.store.pauseForRecovery(this.opts.conversationId, this.binding);
@@ -2493,8 +2589,10 @@ export class CodexConversation {
     state: ReturnType<CodexConversationStore['read']>,
     threadOptions: ReturnType<CodexConversation['threadOptions']>,
     toolSurfaceRevision: string,
+    assertCurrent: () => void = () => undefined,
   ) {
     await this.settleCompletionBeforeReplacement();
+    assertCurrent();
     if (!state.threadId) throw new Error('Codex provider thread is unavailable');
     const rolloverContext = this.conversationRolloverContext();
     const result = z
@@ -2504,12 +2602,18 @@ export class CodexConversation {
         modelProvider: z.string(),
       })
       .parse(
-        await this.contextRequest(client, 'thread/start', {
-          ...threadOptions,
-          allowProviderModelFallback: false,
-          ...this.dynamicToolsOption(),
-        }),
+        await this.contextRequest(
+          client,
+          'thread/start',
+          {
+            ...threadOptions,
+            allowProviderModelFallback: false,
+            ...this.dynamicToolsOption(),
+          },
+          assertCurrent,
+        ),
       );
+    assertCurrent();
     if (
       result.model !== this.binding!.model ||
       result.modelProvider !== (this.opts.modelProvider ?? 'openai')
@@ -2588,8 +2692,10 @@ export class CodexConversation {
     client: Rpc,
     state: ReturnType<CodexConversationStore['read']>,
     threadOptions: ReturnType<CodexConversation['threadOptions']>,
+    assertCurrent: () => void = () => undefined,
   ) {
     await this.settleCompletionBeforeReplacement();
+    assertCurrent();
     if (!state.threadId) throw new Error('Codex provider thread is unavailable');
     const lastCompletedTurnId = await this.latestCompletedProviderTurn(
       client,
@@ -2609,18 +2715,29 @@ export class CodexConversation {
       })
       .parse(
         lastCompletedTurnId
-          ? await this.contextRequest(client, 'thread/fork', {
-              threadId: state.threadId,
-              lastTurnId: lastCompletedTurnId,
-              excludeTurns: true,
-              ...threadOptions,
-            })
-          : await this.contextRequest(client, 'thread/start', {
-              ...threadOptions,
-              allowProviderModelFallback: false,
-              ...this.dynamicToolsOption(),
-            }),
+          ? await this.contextRequest(
+              client,
+              'thread/fork',
+              {
+                threadId: state.threadId,
+                lastTurnId: lastCompletedTurnId,
+                excludeTurns: true,
+                ...threadOptions,
+              },
+              assertCurrent,
+            )
+          : await this.contextRequest(
+              client,
+              'thread/start',
+              {
+                ...threadOptions,
+                allowProviderModelFallback: false,
+                ...this.dynamicToolsOption(),
+              },
+              assertCurrent,
+            ),
       );
+    assertCurrent();
     if (
       result.model !== this.binding!.model ||
       result.modelProvider !== (this.opts.modelProvider ?? 'openai')

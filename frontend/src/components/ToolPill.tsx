@@ -1,7 +1,9 @@
-import { MotionPresence } from './MotionPresence';
+import { OperationCard } from './OperationCard';
+import { connectionSetupResult } from '../lib/connection-setup-result';
+import { repositoryChatPreparationResult } from '../lib/repository-chat-preparation';
 import { NativeSubagents } from './NativeSubagents';
 import { UiIcon } from './UiIcon';
-import { useState, useCallback, useId } from 'react';
+import { useCallback } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import type { StreamingBlock, FinishedBlock, RawToolInput } from '../types/chat';
 import { getToolStatus, type ToolBlock } from '../lib/tool-status';
@@ -13,7 +15,7 @@ import { webAccessOutcome, webAccessSummary } from '../lib/web-access-outcome';
 import { ConnectionSetupCard } from './ConnectionSetupCard';
 import { RepositoryChatSetupCard } from './RepositoryChatSetupCard';
 import { GoogleSearchResult } from './GoogleSearchResult';
-import { TelosWorkerReceiptCard } from './TelosWorkerReceiptCard';
+import { TelosWorkerReceiptCard, telosWorkerReceipt } from './TelosWorkerReceiptCard';
 import { agentTaskProposalLink } from '../lib/agent-task-proposal-link';
 import { TelosOutcomeNotice } from './TelosOutcomeNotice';
 
@@ -142,11 +144,7 @@ function ToolResult({
           onPopOut={isRead && raw?.path && onPopOut ? () => onPopOut(raw.path!) : undefined}
         />
       )}
-      {taskReview && (
-        <Link className="session-work-link" to={taskReview.url}>
-          Review task in Library
-        </Link>
-      )}
+      {taskReview && <p>Task proposal saved. Review it using the action in the header.</p>}
     </div>
   );
 }
@@ -154,8 +152,6 @@ function ToolResult({
 export function ToolPill({ block, sessionId, showSetupCard = true }: Props) {
   const navigate = useNavigate();
   const location = useLocation();
-  const [expanded, setExpanded] = useState(false);
-  const detailId = useId();
   const { done, hasError, interrupted, running } = getToolStatus(block);
   const input = block.toolInput || '';
   const webOutcome = webAccessOutcome(block);
@@ -169,61 +165,89 @@ export function ToolPill({ block, sessionId, showSetupCard = true }: Props) {
     [navigate, location, sessionId],
   );
 
-  if (sessionId && block.rawInput?.nativeSubagentCommandId)
-    return (
-      <NativeSubagents sessionId={sessionId} commandId={block.rawInput.nativeSubagentCommandId} />
-    );
-
+  const details = (
+    <div className="tool-pill-detail">
+      {block.rawInput ? (
+        <RawInputDetail raw={block.rawInput} onPopOut={handlePopOut} />
+      ) : (
+        <div className="tool-pill-section">
+          <ToolResultContent text={input} label="Input" />
+        </div>
+      )}
+      <ToolResult block={block} sessionId={sessionId} onPopOut={handlePopOut} />
+    </div>
+  );
+  if (showSetupCard && connectionSetupResult(block, sessionId))
+    return <ConnectionSetupCard block={block} sessionId={sessionId} details={details} />;
+  if (showSetupCard && repositoryChatPreparationResult(block, sessionId))
+    return <RepositoryChatSetupCard block={block} sessionId={sessionId} details={details} />;
+  if (showSetupCard && telosWorkerReceipt(block, sessionId))
+    return <TelosWorkerReceiptCard block={block} sessionId={sessionId} details={details} />;
+  const taskReview = agentTaskProposalLink(block, sessionId);
+  const status = interrupted
+    ? 'Interrupted'
+    : webOutcome || (hasError ? 'Failed' : running ? 'Running...' : 'Done');
+  const title = webOutcome ? webSummary.name : block.toolName || 'Tool call';
+  const summary = webOutcome ? webSummary.target : input;
+  const rawType = block.rawInput?.type;
+  const kind =
+    rawType === 'command'
+      ? 'Command'
+      : rawType === 'read'
+        ? 'Read file'
+        : rawType === 'write' || rawType === 'diff'
+          ? 'File changes'
+          : rawType === 'agent'
+            ? 'Agent'
+            : 'Tool call';
   return (
-    <div
+    <OperationCard
+      title={title}
+      kind={kind}
+      icon={
+        rawType === 'command'
+          ? 'terminal'
+          : rawType === 'read' || rawType === 'write' || rawType === 'diff'
+            ? 'file'
+            : rawType === 'agent'
+              ? 'agents'
+              : 'work'
+      }
+      scope={summary}
+      status={
+        <>
+          <span
+            aria-hidden="true"
+            className={`tool-pill-dot ${interrupted ? 'tool-pill-dot--interrupted' : hasError ? 'tool-pill-dot--error' : running ? 'tool-pill-dot--pending' : 'tool-pill-dot--done'}`}
+          />
+          {status}
+        </>
+      }
+      tone={hasError ? 'error' : 'normal'}
       className={`tool-pill ${interrupted ? 'tool-pill--interrupted' : done ? (hasError ? 'tool-pill--error' : 'tool-pill--done') : 'tool-pill--running'}`}
+      toggleLabel={`Details for ${title} ${input} ${status}`}
+      details={details}
+      actions={
+        showSetupCard &&
+        taskReview && (
+          <Link
+            className="operation-primary"
+            aria-label="Review task in Library"
+            to={taskReview.url}
+          >
+            Review task
+          </Link>
+        )
+      }
     >
-      <button
-        type="button"
-        className={`tool-pill-header${webOutcome ? ' tool-pill-header--web' : ''}`}
-        onClick={() => setExpanded((e) => !e)}
-        aria-expanded={expanded}
-        aria-controls={detailId}
-      >
-        <span
-          className={`tool-pill-dot ${interrupted ? 'tool-pill-dot--interrupted' : done ? (hasError ? 'tool-pill-dot--error' : 'tool-pill-dot--done') : 'tool-pill-dot--pending'}`}
-        />
-        <span className="tool-pill-name">{webOutcome ? webSummary.name : block.toolName}</span>
-        <span className="tool-pill-input">{webOutcome ? webSummary.target : input}</span>
-        {interrupted ? (
-          <span className="tool-pill-status">Interrupted</span>
-        ) : webOutcome ? (
-          <span className="tool-pill-status">{webOutcome}</span>
-        ) : (
-          <>
-            {running && <span className="tool-pill-status">Running...</span>}
-            {done && hasError && <span className="tool-pill-status">Failed</span>}
-          </>
-        )}
-        <span className="tool-pill-chevron">
-          <UiIcon name={expanded ? 'down' : 'forward'} size={16} />
-        </span>
-      </button>
-      {showSetupCard && <ConnectionSetupCard block={block} sessionId={sessionId} />}
-      {showSetupCard && <RepositoryChatSetupCard block={block} sessionId={sessionId} />}
-      {showSetupCard && <TelosWorkerReceiptCard block={block} sessionId={sessionId} />}
-      {showSetupCard && <TelosOutcomeNotice block={block} />}
+      {showSetupCard && <TelosOutcomeNotice block={block} embedded />}
       {['RequestWebAccess', 'mcp__mitzo-web-access__RequestWebAccess'].includes(
         block.toolName ?? '',
       ) &&
         !hasError && <GoogleSearchResult result={block.toolResult} />}
-      <MotionPresence open={expanded} kind="disclosure" appear={false}>
-        <div id={detailId} className="tool-pill-detail">
-          {block.rawInput ? (
-            <RawInputDetail raw={block.rawInput} onPopOut={handlePopOut} />
-          ) : (
-            <div className="tool-pill-section">
-              <ToolResultContent text={input} label="Input" />
-            </div>
-          )}
-          <ToolResult block={block} sessionId={sessionId} onPopOut={handlePopOut} />
-        </div>
-      </MotionPresence>
+      {sessionId && block.rawInput?.nativeSubagentCommandId && (
+        <NativeSubagents sessionId={sessionId} commandId={block.rawInput.nativeSubagentCommandId} />
+      )}
       {block.subagent && (
         <SubagentCard
           subagent={block.subagent}
@@ -231,6 +255,6 @@ export function ToolPill({ block, sessionId, showSetupCard = true }: Props) {
           description={block.rawInput?.type === 'agent' ? block.rawInput.description : undefined}
         />
       )}
-    </div>
+    </OperationCard>
   );
 }

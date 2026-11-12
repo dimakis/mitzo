@@ -1,3 +1,4 @@
+import { approvalSecondary } from '../support/approval-actions';
 import { disabledLocalCapabilities } from '../support/disabled-local-capabilities';
 import { expect, test, type Page } from '@playwright/test';
 import { readFile } from 'node:fs/promises';
@@ -218,9 +219,12 @@ for (const theme of ['dark', 'light'])
     await expect(card.getByText('gh pr view 42', { exact: true })).toBeVisible();
     await expect(card.getByText('/workspace/mitzo', { exact: true })).toBeVisible();
     await expect(card.getByText('Enabled for this request', { exact: true })).toBeVisible();
-    await expect(card.locator('.approval-request-details')).not.toHaveAttribute('open', '');
+    await expect(card.getByRole('button', { name: 'Request details' })).toHaveAttribute(
+      'aria-expanded',
+      'false',
+    );
     await expect(card.locator('pre')).toBeHidden();
-    for (const name of ['Allow Once', 'Deny']) {
+    for (const name of ['Approve once', 'More approval actions']) {
       const action = card.getByRole('button', { name, exact: true });
       await expect(action).toBeInViewport();
       expect((await action.boundingBox())!.height).toBeGreaterThanOrEqual(44);
@@ -256,7 +260,7 @@ for (const theme of ['dark', 'light']) {
     await page.evaluate(() => {
       document.documentElement.style.fontSize = '20px';
     });
-    for (const name of ['Allow Once', 'Allow for session', 'Deny']) {
+    for (const name of ['Approve once', 'More approval actions']) {
       const button = card.getByRole('button', { name, exact: true });
       await expect(button).toBeInViewport();
       expect(
@@ -267,34 +271,36 @@ for (const theme of ['dark', 'light']) {
       );
       await button.focus();
       await expect(button).toBeFocused();
-      expect(await button.evaluate((el) => getComputedStyle(el).backgroundColor)).toBe(
-        'rgba(0, 0, 0, 0)',
-      );
     }
     const actionBoxes = await Promise.all(
-      ['Allow Once', 'Allow for session', 'Deny'].map((name) =>
+      ['Approve once', 'More approval actions'].map((name) =>
         card.getByRole('button', { name, exact: true }).boundingBox(),
       ),
     );
     expect(
       Math.max(...actionBoxes.map((box) => box!.y)) - Math.min(...actionBoxes.map((box) => box!.y)),
     ).toBeLessThan(1);
-    const details = card.locator('details');
-    await expect(details).toHaveAttribute('open', '');
+    const details = card.getByRole('button', { name: 'Request details', exact: true });
+    await expect(details).toHaveAttribute('aria-expanded', 'false');
+    await details.click();
+    await expect(details).toHaveAttribute('aria-expanded', 'true');
     await expect(card.locator('pre')).toContainText('long-request-path/'.repeat(50));
-    for (const button of await card.getByRole('button').all())
-      await expect(button).toBeInViewport();
+    await card.locator('.operation-details').evaluate((el) => {
+      el.scrollTop = el.scrollHeight;
+    });
+    await expect(card.getByRole('button', { name: 'Approve once' })).toBeInViewport({ ratio: 1 });
+    await expect(card.getByRole('heading')).toBeInViewport();
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
       true,
     );
-    await card.getByText('Request details', { exact: true }).click();
-    await expect(details).not.toHaveAttribute('open', '');
-    await card.getByText('Request details', { exact: true }).click();
-    await page.evaluate((theme) => {
-      if (theme === 'dark') document.documentElement.style.fontSize = '';
-      const body = document.querySelector('.perm-banner-info');
-      if (body) body.scrollTop = 0;
-    }, theme);
+    const session = await approvalSecondary(page, card, 'Approve for session');
+    await expect(session).toBeVisible();
+    await expect(page.getByRole('menuitem', { name: 'Deny', exact: true })).toBeVisible();
+    await page.keyboard.press('Escape');
+    await expect(card.getByRole('button', { name: 'More approval actions' })).toBeFocused();
+    await details.click();
+    await expect(details).toHaveAttribute('aria-expanded', 'false');
+    await details.click();
     await page.screenshot({
       path: testInfo.outputPath(`approval-${testInfo.project.name}-${theme}.png`),
       animations: 'disabled',

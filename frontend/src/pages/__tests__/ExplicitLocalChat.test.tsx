@@ -274,6 +274,7 @@ function setup(
     draft.settings.selection = intent.account;
   }
   saveChatDraft(draft);
+  let effectiveMode: 'ask' | 'agent' | 'auto' = 'agent';
   vi.mocked(apiFetch).mockImplementation(async (url) => {
     if (
       url === '/api/chat/runtime/capabilities?workspaceDefaults=1' ||
@@ -308,7 +309,8 @@ function setup(
               ...(ordinary
                 ? { ordinaryWorkspaceId: ordinary === 'invalid' ? 'invalid' : readyId }
                 : { repositoryWorkspaceId: readyId }),
-              mode: 'agent',
+              mode: effectiveMode,
+              commandMode: 'agent',
               agentProfile: fixture.agentProfiles[0],
               runtimeBinding: {
                 version: 2,
@@ -366,12 +368,82 @@ function setup(
     recoverMetadata: () => {
       metadataFailed = false;
     },
+    setEffectiveMode: (mode: 'ask' | 'agent' | 'auto') => {
+      effectiveMode = mode;
+      store.setState((state) => ({ sessionMetadataRevision: state.sessionMetadataRevision + 1 }));
+    },
   };
 }
 for (const [name, Screen] of [
   ['mobile', ChatView],
   ['desktop', DesktopChatView],
 ] as const) {
+  it(`${name}: displays current policy while preserving command admission across prepared-first and continuation sends`, async () => {
+    const { store, ordinarySend, setEffectiveMode, setOrdinaryConversation } = setup(
+      Screen,
+      false,
+      false,
+      true,
+      false,
+      false,
+      undefined,
+      'prepared',
+    );
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Test send' })).toBeEnabled());
+    act(() => {
+      setEffectiveMode('ask');
+      store.setState({ modeChangeReady: true });
+    });
+    const trigger = await screen.findByRole('button', { name: /^Workspace controls/ });
+    if (trigger.getAttribute('aria-expanded') !== 'true') fireEvent.click(trigger);
+    const more = screen.queryByRole('button', { name: /^More/ });
+    if (more) fireEvent.click(more);
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Ask' })).toHaveAttribute('aria-pressed', 'true'),
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Test send' }));
+    expect(ordinarySend.mock.calls[0][0]).toMatchObject({
+      selection: { permission: { mode: 'agent', revision: 0 } },
+    });
+    setOrdinaryConversation();
+    act(() =>
+      store.setState({
+        localCommand: {
+          request: ordinarySend.mock.calls[0][0],
+          ordinaryPhase: 'first',
+          state: 'consumed',
+          sessionId: 'bound-session',
+        },
+      }),
+    );
+    await waitFor(() =>
+      expect(screen.getByRole('combobox', { name: 'Thinking level' })).toBeEnabled(),
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Test send' }));
+    expect(ordinarySend.mock.calls[1][1]).toBe('continue');
+    expect(ordinarySend.mock.calls[1][0]).toMatchObject({
+      selection: { permission: { mode: 'agent', revision: 0 } },
+    });
+  });
+  it.each([false, true])(
+    `${name}: permission mode stays editable for a ready draft or bound conversation (bound=%s)`,
+    async (bound) => {
+      const { store } = setup(Screen, false, false, bound, false, true);
+      const trigger = await screen.findByRole('button', { name: /^Workspace controls/ });
+      await waitFor(() =>
+        expect(screen.queryByText('Loading conversation settings')).not.toBeInTheDocument(),
+      );
+      const change = vi.fn();
+      act(() => store.setState({ modeChangeReady: true, setMode: change }));
+      if (trigger.getAttribute('aria-expanded') !== 'true') fireEvent.click(trigger);
+      const more = screen.queryByRole('button', { name: /^More/ });
+      if (more) fireEvent.click(more);
+      const auto = await screen.findByRole('button', { name: 'Auto' });
+      await waitFor(() => expect(auto).toBeEnabled());
+      fireEvent.click(auto);
+      expect(change).toHaveBeenCalledWith('auto');
+    },
+  );
   it.each(['local', 'openshell'] as const)(
     `${name}: fresh %s chat does not instantly inherit another draft's failure`,
     async (runOn) => {

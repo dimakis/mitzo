@@ -1,3 +1,7 @@
+.unified-inbox .inbox-scroll[hidden] {
+  display: none;
+}
+
 .unified-inbox .inbox-views,
 .unified-inbox .inbox-list-tools,
 .unified-inbox .inbox-pagination,
@@ -87,6 +91,20 @@
 }
 .unified-inbox .collection-record strong {
   overflow-wrap: anywhere;
+}
+
+.unified-inbox .inbox-entry:has(.notification-approval-controls) {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-panel);
+  margin-bottom: var(--space-3);
+}
+.unified-inbox .inbox-entry:has(.notification-approval-controls) > .collection-record {
+  border: 0;
+  margin-bottom: 0;
+  padding: var(--space-3);
+}
+.unified-inbox .inbox-entry > .notification-approval-controls {
+  padding: 0 var(--space-3) var(--space-3);
 }
 
 /* Keep a usable reading surface when controls exceed a short native viewport. */

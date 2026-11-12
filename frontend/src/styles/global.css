@@ -1653,6 +1653,7 @@ textarea:focus {
 }
 
 .mode-pill {
+  min-height: var(--control-height);
   padding: 0.35rem 0.55rem;
   font-size: var(--text-xxs);
   font-weight: 600;
@@ -1664,7 +1665,7 @@ textarea:focus {
   transition:
     background var(--motion-duration-fast) var(--motion-ease),
     color var(--motion-duration-fast) var(--motion-ease);
-  min-width: 0;
+  min-width: var(--control-height);
   -webkit-tap-highlight-color: transparent;
   touch-action: manipulation;
 }

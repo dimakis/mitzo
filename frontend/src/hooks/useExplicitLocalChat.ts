@@ -175,6 +175,7 @@ export function useExplicitLocalChat(
     cwd?: string;
     repositoryContext?: z.infer<typeof RepositoryContextSchema>;
     mode?: 'ask' | 'agent' | 'auto';
+    commandMode?: 'ask' | 'agent' | 'auto';
     agentProfile?: AgentLibraryVersion;
     agentContext?: AgentContextSnapshot;
     nativeConstraint?: NativeContinuationConstraint;
@@ -432,6 +433,7 @@ export function useExplicitLocalChat(
               ? repository.data
               : undefined,
           mode: body.mode,
+          commandMode: body.commandMode ?? body.mode,
         });
         setMetadataLoadingForSession(null);
       })
@@ -639,6 +641,7 @@ export function useExplicitLocalChat(
     agentProfile: currentMeta?.agentProfile,
     agentContext: currentMeta?.agentContext,
     mode: currentMeta?.mode,
+    commandMode: currentMeta?.commandMode,
     nativeConstraint: currentMeta?.nativeConstraint,
     accountNeedsConfirmation,
     visible,

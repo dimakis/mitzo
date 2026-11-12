@@ -1,4 +1,9 @@
 // @vitest-environment jsdom
+import {
+  approvalAction,
+  queryApprovalAction,
+  findApprovalAction,
+} from '../../components/__tests__/approval-action-helper';
 import { beforeEach, afterEach, describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent, waitFor, cleanup } from '@testing-library/react';
 import '@testing-library/jest-dom/vitest';
@@ -91,11 +96,11 @@ describe('Notifications experience', () => {
       return new Response(JSON.stringify(data));
     });
     show();
-    fireEvent.click(await screen.findByRole('button', { name: 'Review request' }));
+    fireEvent.click(await findApprovalAction('Review request'));
     expect(
       screen.getByText('Keep workspace shell checks allowed until this session ends.'),
     ).toBeVisible();
-    fireEvent.click(screen.getByRole('button', { name: 'Allow for session' }));
+    fireEvent.click(approvalAction('Approve for session'));
     await waitFor(() =>
       expect(apiFetch).toHaveBeenCalledWith(
         '/api/notifications/permission%3Ap1/respond',
@@ -125,12 +130,11 @@ describe('Notifications experience', () => {
       return new Response(JSON.stringify(data));
     });
     show();
-    fireEvent.click(await screen.findByRole('button', { name: 'Review request' }));
-    await screen.findByRole('button', { name: 'questions' in request ? 'Cancel' : 'Deny' });
-    expect(screen.queryByText('Allow searches for this session')).not.toBeInTheDocument();
-    if ('questions' in request)
-      expect(screen.queryByRole('button', { name: 'Allow for session' })).toBeNull();
-    else expect(screen.getByRole('button', { name: 'Allow for session' })).toBeVisible();
+    fireEvent.click(await findApprovalAction('Review request'));
+    await findApprovalAction('questions' in request ? 'Cancel' : 'Deny');
+    expect(screen.queryByText('Approve searches for this session')).not.toBeInTheDocument();
+    if ('questions' in request) expect(queryApprovalAction('Approve for session')).toBeNull();
+    else expect(approvalAction('Approve for session')).toBeVisible();
   });
   it('offers an explicit session search grant in notification details', async () => {
     const original = vi.mocked(apiFetch).getMockImplementation()!;
@@ -147,8 +151,8 @@ describe('Notifications experience', () => {
       return new Response(JSON.stringify(data));
     });
     show();
-    fireEvent.click(await screen.findByRole('button', { name: 'Review request' }));
-    fireEvent.click(await screen.findByRole('button', { name: 'Allow searches for this session' }));
+    fireEvent.click(await findApprovalAction('Review request'));
+    fireEvent.click(await findApprovalAction('Approve searches for this session'));
     await waitFor(() =>
       expect(apiFetch).toHaveBeenCalledWith(
         '/api/notifications/permission%3Ap1/respond',
@@ -204,10 +208,10 @@ describe('Notifications experience', () => {
   );
   it('offers one-time and session approval from the notification center', async () => {
     show();
-    fireEvent.click(await screen.findByRole('button', { name: 'Review request' }));
+    fireEvent.click(await findApprovalAction('Review request'));
     expect(await screen.findByText('npm test')).toBeVisible();
-    expect(screen.getByRole('button', { name: 'Allow for session' })).toBeVisible();
-    fireEvent.click(screen.getByRole('button', { name: 'Allow once' }));
+    expect(approvalAction('Approve for session')).toBeVisible();
+    fireEvent.click(approvalAction('Approve once'));
     await waitFor(() =>
       expect(apiFetch).toHaveBeenCalledWith(
         '/api/notifications/permission%3Ap1/respond',
@@ -241,7 +245,7 @@ describe('Notifications experience', () => {
       );
     });
     show('/notifications?item=permission:p1');
-    fireEvent.click(await screen.findByRole('button', { name: 'Allow once' }));
+    fireEvent.click(await findApprovalAction('Approve once'));
     expect(await screen.findByText('Decision recorded')).toBeVisible();
   });
   it('directs conversation grants to the session rather than promising one-shot access', async () => {
@@ -257,30 +261,31 @@ describe('Notifications experience', () => {
       ),
     );
     show();
-    fireEvent.click(await screen.findByRole('button', { name: 'Review request' }));
-    expect(screen.queryByRole('button', { name: 'Allow once' })).toBeNull();
+    fireEvent.click(await findApprovalAction('Review request'));
+    expect(queryApprovalAction('Approve once')).toBeNull();
     expect(screen.getByRole('link', { name: 'Open session' })).toBeVisible();
-    expect(screen.getByRole('button', { name: 'Allow for session' })).toBeVisible();
+    expect(approvalAction('Grant to conversation').closest('.operation-header')).toBeTruthy();
+    expect(queryApprovalAction('Approve for session')).toBeNull();
   });
   it('does not equate marking updates read with granting approval', async () => {
     show();
     await screen.findByText('Run the next test?');
-    fireEvent.click(screen.getByRole('button', { name: 'Mark updates read' }));
+    fireEvent.click(approvalAction('Mark updates read'));
     await waitFor(() =>
       expect(apiFetch).toHaveBeenCalledWith(
         '/api/notifications/read-updates',
         expect.objectContaining({ method: 'POST' }),
       ),
     );
-    expect(screen.getByRole('button', { name: 'Review request' })).toBeVisible();
+    expect(approvalAction('Review request')).toBeVisible();
   });
   it('saves delivery preferences and distinguishes unavailable delivery', async () => {
     show();
     await screen.findByText('Run the next test?');
-    fireEvent.click(screen.getByRole('button', { name: 'Preferences' }));
+    fireEvent.click(approvalAction('Preferences'));
     expect(screen.getByText('Push is not configured on this server.')).toBeVisible();
     fireEvent.click(screen.getByRole('checkbox', { name: 'Session approvals' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Save preferences' }));
+    fireEvent.click(approvalAction('Save preferences'));
     await waitFor(() =>
       expect(apiFetch).toHaveBeenCalledWith(
         '/api/notifications/preferences',
@@ -306,7 +311,7 @@ describe('Notifications experience', () => {
     vi.mocked(apiFetch).mockRejectedValue(new Error('offline'));
     show();
     expect(await screen.findByRole('alert')).toHaveTextContent('Cannot load notifications');
-    expect(screen.getByRole('button', { name: 'Retry' })).toBeVisible();
+    expect(approvalAction('Retry')).toBeVisible();
   });
 });
 
@@ -348,15 +353,15 @@ it('archives finished items and restores from Archived, preserving pending reque
   show();
   await screen.findByText('Completed work');
   expect(screen.getAllByRole('button', { name: 'Archive' })).toHaveLength(1);
-  fireEvent.click(screen.getByRole('button', { name: 'Archive' }));
+  fireEvent.click(approvalAction('Archive'));
   await waitFor(() => expect(screen.queryByText('Completed work')).toBeNull());
-  expect(screen.getByRole('button', { name: 'Review request' })).toBeVisible();
-  fireEvent.click(screen.getByRole('button', { name: 'Archived' }));
-  fireEvent.click(await screen.findByRole('button', { name: 'Restore' }));
+  expect(approvalAction('Review request')).toBeVisible();
+  fireEvent.click(approvalAction('Archived'));
+  fireEvent.click(await findApprovalAction('Restore'));
   await waitFor(() => expect(screen.queryByText('Completed work')).toBeNull());
-  fireEvent.click(screen.getByRole('button', { name: 'All' }));
+  fireEvent.click(approvalAction('All'));
   await screen.findByText('Completed work');
-  fireEvent.click(screen.getByRole('button', { name: 'Archive resolved' }));
+  fireEvent.click(approvalAction('Archive resolved'));
   await waitFor(() => expect(screen.queryByText('Completed work')).toBeNull());
   expect(apiFetch).toHaveBeenCalledWith(
     '/api/notifications/archive-resolved',
@@ -396,9 +401,9 @@ it('returns to the previous page after archiving the last item on a page', async
     );
   });
   show();
-  fireEvent.click(await screen.findByRole('button', { name: 'Next' }));
+  fireEvent.click(await findApprovalAction('Next'));
   await screen.findByText('Last item');
-  fireEvent.click(screen.getByRole('button', { name: 'Archive' }));
+  fireEvent.click(approvalAction('Archive'));
   await screen.findByText('Update 0');
   expect(screen.queryByText('Last item')).toBeNull();
 });
@@ -421,13 +426,11 @@ describe('host session-grant display policy', () => {
         return new Response(JSON.stringify(data));
       });
       show();
-      fireEvent.click(await screen.findByRole('button', { name: 'Review request' }));
-      expect(screen.queryByRole('button', { name: 'Allow for session' })).toBeNull();
+      fireEvent.click(await findApprovalAction('Review request'));
+      expect(queryApprovalAction('Approve for session')).toBeNull();
       expect(screen.queryByText('Keep this approval until the session ends.')).toBeNull();
-      expect(screen.getByText('Allow once covers this request.')).toBeVisible();
-      fireEvent.click(
-        screen.getByRole('button', { name: decision === 'once' ? 'Allow once' : 'Deny' }),
-      );
+      expect(screen.getByText('Allow once covers the displayed request.')).toBeVisible();
+      fireEvent.click(approvalAction(decision === 'once' ? 'Approve once' : 'Deny'));
       await waitFor(() =>
         expect(apiFetch).toHaveBeenCalledWith(
           '/api/notifications/permission%3Ap1/respond',
@@ -452,8 +455,8 @@ describe('host session-grant display policy', () => {
         return new Response(JSON.stringify(data));
       });
       show();
-      fireEvent.click(await screen.findByRole('button', { name: 'Review request' }));
-      fireEvent.click(screen.getByRole('button', { name: 'Allow for session' }));
+      fireEvent.click(await findApprovalAction('Review request'));
+      fireEvent.click(approvalAction('Approve for session'));
       await waitFor(() =>
         expect(apiFetch).toHaveBeenCalledWith(
           '/api/notifications/permission%3Ap1/respond',

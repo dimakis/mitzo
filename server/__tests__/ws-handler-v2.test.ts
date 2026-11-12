@@ -1418,7 +1418,7 @@ describe('handleSetModeV2', () => {
     await handleSetModeV2('c1', { type: 'set_mode', sessionId: 'sess-1', mode: 'auto' }, ctx);
     expect(transport.sent).toEqual([
       expect.objectContaining({
-        type: 'error',
+        type: 'mode_change_failed',
         sessionId: 'sess-1',
         error: expect.stringContaining('Session not found'),
       }),
@@ -1485,7 +1485,7 @@ describe('handleSetModeV2', () => {
     expect(permissionRevision(ctx.eventStore, 'sess-1')).toBeUndefined();
     expect(transport.sent).toEqual([
       expect.objectContaining({
-        type: 'error',
+        type: 'mode_change_failed',
         sessionId: 'sess-1',
         error: expect.stringContaining('Disk full'),
       }),
@@ -1685,7 +1685,7 @@ describe('live provider mode changes', () => {
     expect(transport.sent).toEqual([
       { type: 'mode_changed', sessionId: 'sess-1', mode: 'agent' },
       expect.objectContaining({
-        type: 'error',
+        type: 'mode_change_failed',
         error: expect.stringContaining('Permission mode applied, but could not save'),
       }),
     ]);
@@ -1742,7 +1742,7 @@ describe('live provider mode changes', () => {
     expect(sessionReg.setMode).not.toHaveBeenCalled();
     expect(transport.sent).toEqual([
       expect.objectContaining({
-        type: 'error',
+        type: 'mode_change_failed',
         sessionId: 'sess-1',
         error: expect.stringContaining('Provider refused'),
       }),
@@ -1793,7 +1793,7 @@ describe('legacy permission mode transition', () => {
           expect(ctx.eventStore.upsertSession).not.toHaveBeenCalled();
           expect(transport.sent).toEqual([
             expect.objectContaining({
-              type: 'error',
+              type: 'mode_change_failed',
               error: expect.stringContaining('SDK rejected'),
             }),
           ]);
@@ -1805,7 +1805,7 @@ describe('legacy permission mode transition', () => {
           expect(transport.sent[0]).toMatchObject({ type: 'mode_changed', mode: 'auto' });
           if (failure === 'persistence')
             expect(transport.sent[1]).toMatchObject({
-              type: 'error',
+              type: 'mode_change_failed',
               error: expect.stringContaining('could not save'),
             });
         }
@@ -1847,7 +1847,7 @@ describe('legacy permission mode transition', () => {
     expect(ctx.eventStore.upsertSession).not.toHaveBeenCalled();
     expect(transport.sent).toEqual([
       expect.objectContaining({
-        type: 'error',
+        type: 'mode_change_failed',
         error: expect.stringContaining('Session is still starting'),
       }),
     ]);

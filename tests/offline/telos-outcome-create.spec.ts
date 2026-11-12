@@ -1,3 +1,4 @@
+import { approvalSecondary } from '../support/approval-actions';
 import { expect, test } from '@playwright/test';
 import { build } from 'esbuild';
 import { resolve } from 'node:path';
@@ -131,7 +132,13 @@ for (const theme of ['dark', 'light'])
           true,
         );
         if (flow === 'revision') {
-          await page.getByRole('button', { name: 'Request changes' }).click();
+          await (
+            await approvalSecondary(
+              page,
+              page.getByRole('region', { name: 'Approval required', exact: true }),
+              'Request changes',
+            )
+          ).click();
           const input = page.getByRole('textbox', { name: 'What should change?' });
           await expect(input).toBeFocused();
           await input.fill('Focus on mobile first and test recovery.');

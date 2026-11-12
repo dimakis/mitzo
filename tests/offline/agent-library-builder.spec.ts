@@ -585,8 +585,8 @@ async function openTaskReview(page: Page, expectedRevision: number, screenshotPa
   const activity = page.getByRole('button', { name: 'Activity: AgentProposeTask', exact: true });
   await expect(activity).toBeVisible();
   if ((await activity.getAttribute('aria-expanded')) !== 'true') await activity.click();
-  await page.getByRole('button', { name: 'AgentProposeTask', exact: true }).click();
   const review = page.getByRole('link', { name: 'Review task in Library', exact: true });
+  await expect(review).toBeVisible();
   if (screenshotPath) {
     await review.scrollIntoViewIfNeeded();
     await page.screenshot({ path: screenshotPath, animations: 'disabled' });

@@ -3765,16 +3765,18 @@ for (const appearance of [
     await expect(
       page.getByText('Checking the latest records and their status.', { exact: true }),
     ).toBeVisible();
-    await page.getByRole('button', { name: /^Agent Delegate checked the records/ }).click();
+    await page
+      .getByRole('button', { name: /^Details for Agent Delegate checked the records/ })
+      .click();
     await expect(page.getByText('Checking delegated evidence.', { exact: true })).toBeVisible();
     await page
-      .getByRole('button', { name: /^Agent Delegate checked the records/ })
+      .getByRole('button', { name: /^Details for Agent Delegate checked the records/ })
       .scrollIntoViewIfNeeded();
     await page.screenshot({
       path: testInfo.outputPath(`activity-delegated-${appearance.theme}.png`),
       animations: 'disabled',
     });
-    await page.getByRole('button', { name: /^Read \/workspace/ }).click();
+    await page.getByRole('button', { name: /^Details for Read \/workspace/ }).click();
     await expect(page.getByText('Records retrieved successfully', { exact: true })).toBeVisible();
     await page.screenshot({
       path: testInfo.outputPath(`activity-expanded-${appearance.theme}.png`),
@@ -3799,7 +3801,7 @@ for (const appearance of [
     showReply = false;
     await page.reload();
     await expect(toggle).toHaveAttribute('aria-expanded', 'true');
-    await expect(page.getByRole('button', { name: /^Read/ })).toBeVisible();
+    await expect(page.getByRole('button', { name: /^Details for Read/ })).toBeVisible();
     await page.getByRole('button', { name: /^Thought/ }).click();
     await expect(
       page.getByText('Checking the latest records and their status.', { exact: true }),
@@ -3875,7 +3877,7 @@ for (const reducedMotion of ['no-preference', 'reduce'] as const) {
       1,
     );
     await expect(toggle).toHaveAttribute('aria-expanded', 'true');
-    const read = page.getByRole('button', { name: /^Read/ });
+    const read = page.getByRole('button', { name: /^Details for Read/ });
     await read.focus();
     await expect(read).toBeFocused();
     await expect.poll(() => Boolean(live.send)).toBe(true);

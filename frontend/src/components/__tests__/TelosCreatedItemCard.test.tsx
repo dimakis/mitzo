@@ -311,7 +311,7 @@ it.each(['mounted', 'permission-resolved'] as const)(
     fireEvent.click(await screen.findByRole('checkbox', { name: /The agreed source text/ }));
     fireEvent.click(screen.getByRole('button', { name: 'Review selected source' }));
     await screen.findByText('Reviewed source');
-    fireEvent.click(screen.getByRole('button', { name: 'Allow Once' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Approve once' }));
     await waitFor(() => expect(approve).toHaveBeenCalledTimes(1));
     if (permissionState === 'permission-resolved') {
       // The real permission_resolved event removes only the banner before its

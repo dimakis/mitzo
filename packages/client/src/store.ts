@@ -986,6 +986,7 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
     );
   }
   let awaitingModeHydration: string | undefined;
+  let modeControlError: string | undefined;
 
   function fetchAndRestoreMessages(
     sessionId: string,
@@ -1745,11 +1746,28 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
     setMode(mode: MitzoMode) {
       if (!get().modeChangeReady) return;
       if (parserState.currentSessionId) {
-        connection.send({
-          type: 'set_mode',
-          sessionId: parserState.currentSessionId,
-          mode,
-        });
+        set({ modeChangeReady: false });
+        let sent = false;
+        try {
+          sent = connection.send({
+            type: 'set_mode',
+            sessionId: parserState.currentSessionId,
+            mode,
+          });
+        } catch (error) {
+          console.warn('[mitzo] Permission mode dispatch failed', {
+            code: 'permission_mode_dispatch_failed',
+            sessionId: parserState.currentSessionId,
+            error,
+          });
+        }
+        if (!sent) {
+          modeControlError = 'Could not send the mode change. Reconnect and retry.';
+          set({
+            modeChangeReady: true,
+            sendError: modeControlError,
+          });
+        }
         return;
       }
       set((s) => ({
@@ -2174,6 +2192,12 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
   };
 
   function wsListener(msg: Record<string, unknown>): boolean {
+    if (msg.type === 'mode_change_failed') {
+      if (msg.sessionId !== store.getState().sessions.active) return true;
+      modeControlError = String(msg.error);
+      store.setState({ modeChangeReady: true, sendError: modeControlError });
+      return true;
+    }
     if (msg.type === '_close' || msg.type === '_auth_lost')
       for (const id of backgroundSnapshotReads.keys()) cancelBackgroundRead(id);
     let retainedFailureSeq: number | undefined;
@@ -2183,6 +2207,10 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
       if ((msg.sessionId ?? null) !== store.getState().sessions.active) return true;
       if (msg.operation === 'switch') {
         awaitingModeHydration = undefined;
+        store.setState({ modeChangeReady: true });
+      }
+      if (msg.operation === 'mode') {
+        modeControlError = String(msg.error);
         store.setState({ modeChangeReady: true });
       }
       if (msg.operation !== 'suspend') store.setState({ sendError: String(msg.error) });
@@ -2776,7 +2804,10 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
       store.setState((s) => ({
         config: { ...s.config, mode: result.modeUpdate! },
         modeChangeReady: !awaitingSessionId,
+        sessionMetadataRevision: s.sessionMetadataRevision + 1,
+        ...(modeControlError && s.sendError === modeControlError ? { sendError: null } : {}),
       }));
+      modeControlError = undefined;
     }
 
     for (const incomingAction of result.messagesActions) {

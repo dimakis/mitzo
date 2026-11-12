@@ -3251,6 +3251,8 @@ export class EventStore {
       db.exec('ALTER TABLE sessions ADD COLUMN reasoning_effort TEXT');
       this.log.info('migrated sessions table: added reasoning_effort');
     }
+    if (!columnNames.has('permission_mode'))
+      db.exec('ALTER TABLE sessions ADD COLUMN permission_mode TEXT');
   }
 
   private migrateSessionRuntimeBinding(db: Database.Database): void {

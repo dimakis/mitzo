@@ -13,6 +13,23 @@ import {
 import { SessionMetadataBeforeExtraction } from './fixtures/session-metadata-before-extraction.js';
 
 const now = 1_800_000_000_000;
+it('retains editable user permissions across reopen without changing the frozen command mode', () => {
+  const f = fixture(false, true);
+  f.store.upsertSession({ sessionId: 'mode-policy', mode: 'agent' });
+  f.store.upsertSession({ sessionId: 'mode-policy', permissionMode: 'auto' });
+  f.reopen();
+  expect(f.store.getSession('mode-policy')).toMatchObject({
+    mode: 'agent',
+    permissionMode: 'auto',
+  });
+  f.store.upsertSession({ sessionId: 'mode-policy', permissionMode: 'ask' });
+  f.reopen();
+  expect(f.store.getSession('mode-policy')).toMatchObject({ mode: 'agent', permissionMode: 'ask' });
+  expect(() =>
+    f.store.upsertSession({ sessionId: 'mode-policy', permissionMode: 'invalid' as 'auto' }),
+  ).toThrow();
+  expect(f.store.getSession('mode-policy')?.permissionMode).toBe('ask');
+});
 const methods = [
   'getSessionRuntimeBinding',
   'createSessionWithRuntimeBinding',

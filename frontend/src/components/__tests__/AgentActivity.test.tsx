@@ -143,7 +143,7 @@ it.each(['', ' \n '])('keeps blank-message sharing within continuous activity (%
   expect(screen.getAllByRole('button', { name: 'Share excerpt' })).toHaveLength(5);
   fireEvent.click(screen.getByRole('button', { name: /^Thought/ }));
   expect(screen.getByText('Checking the records')).toBeTruthy();
-  expect(screen.getByRole('button', { name: /^Read/ })).toBeTruthy();
+  expect(screen.getByRole('button', { name: /^Details for Read/ })).toBeTruthy();
 });
 
 it.each([
@@ -239,7 +239,7 @@ it('collapses mixed activity across provider messages between visible responses 
   fireEvent.click(toggle);
   fireEvent.click(screen.getByRole('button', { name: /^Thought/ }));
   expect(screen.getByText('Checking the records')).toBeTruthy();
-  fireEvent.click(screen.getByRole('button', { name: /^Read/ }));
+  fireEvent.click(screen.getByRole('button', { name: /^Details for Read/ }));
   expect(screen.getByText('Report contents')).toBeTruthy();
   fireEvent.click(toggle);
   expect(screen.queryByText('Report contents')).toBeNull();
@@ -263,7 +263,7 @@ it('opens working activity, keeps it open between provider messages, then collap
       .getByRole('button', { name: /^(?:Activity|Agents at work):/ })
       .getAttribute('aria-expanded'),
   ).toBe('true');
-  expect(screen.getByRole('button', { name: /^Read/ })).toBeTruthy();
+  expect(screen.getByRole('button', { name: /^Details for Read/ })).toBeTruthy();
   const next = {
     ...current,
     blockOrder: ['tool', 'thought'],
@@ -425,7 +425,9 @@ it.each([
     const toggle = screen.getByRole('button', { name: /^(?:Activity|Agents at work):/ });
     expect(toggle.textContent).toContain(toolName === 'Bash' ? 'Command completed' : toolName);
     expect(toggle.getAttribute('aria-expanded')).toBe('true');
-    expect(screen.getByRole('button', { name: new RegExp(`^${toolName}`) })).toBeTruthy();
+    expect(
+      screen.getByRole('button', { name: new RegExp(`^Details for ${toolName}`) }),
+    ).toBeTruthy();
   },
 );
 
@@ -604,7 +606,7 @@ it('returns keyboard focus from activity details to the header when a reply coll
       <ChatArea {...base} messages={waiting} current={null} />
     </MemoryRouter>,
   );
-  const control = screen.getByRole('button', { name: /^Read/ });
+  const control = screen.getByRole('button', { name: /^Details for Read/ });
   control.focus();
   expect(document.activeElement).toBe(control);
   rerender(

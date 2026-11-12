@@ -6,11 +6,11 @@ import type {
   NotificationPreferences,
   QuestionAnswers,
 } from '@mitzo/protocol';
-import { useNotifications } from '../components/NotificationProvider';
+import { useNotifications } from '../components/NotificationContext';
 import { WorkspacePageHeading } from '../components/WorkspacePageHeading';
 import { UiIcon } from '../components/UiIcon';
 import { ApprovalRequestSummary } from '../components/ApprovalRequestSummary';
-import { approvalPresentation } from '../lib/approval-presentation';
+import { NotificationApprovalActions } from '../components/NotificationApprovalActions';
 import { apiFetch } from '../lib/api-fetch';
 import '../styles/notifications.css';
 const filters: [NotificationFilter, string][] = [
@@ -50,170 +50,77 @@ export function RequestDetail({
   item,
   onRespond,
   busy,
+  responseError,
 }: {
   item: MitzoNotification;
   onRespond: (decision: 'once' | 'always' | 'deny', answers?: QuestionAnswers) => void;
   busy: boolean;
+  responseError?: string;
 }) {
-  const [selections, setSelections] = useState<QuestionAnswers>({});
-  const [written, setWritten] = useState<Record<string, string>>({});
-  const request = item.request;
-  let sessionSearch = false;
-  if (
-    request?.toolName === 'RequestWebAccess' &&
-    request.approvalScope === 'session' &&
-    !request.questions
-  ) {
-    try {
-      sessionSearch = JSON.parse(request.toolInput).operation === 'search';
-    } catch {
-      /* Keep the ordinary server-described approval scope. */
-    }
-  }
-  const answers = Object.fromEntries(
-    (request?.questions ?? []).map((q) => [
-      q.id,
-      [...(selections[q.id] ?? []), ...(written[q.id]?.trim() ? [written[q.id].trim()] : [])],
-    ]),
-  );
-  const complete = request?.questions?.every((q) => answers[q.id].length > 0);
   const live = actionable(item);
   return (
     <section
-      className={`notification-detail${request ? ' notification-detail--request' : ''}`}
+      className={`notification-detail${item.request ? ' notification-detail--request' : ''}`}
       aria-label="Notification details"
     >
       <div className="notification-meta">
         <span>{labels[item.kind]}</span>
         <span>{timestamp(item.createdAt)}</span>
       </div>
-      <h2>
-        {request && !request.questions
-          ? approvalPresentation(request.toolInput, request.toolName).heading || item.title
-          : item.title}
-      </h2>
-      <div className="notification-request-body">
-        <p className="workspace-muted">{item.body}</p>
-        {item.sessionId && (
-          <Link to={`/chat/${encodeURIComponent(item.sessionId)}`}>Open session</Link>
-        )}
-        {item.inboxFilename && (
-          <Link to={`/inbox?item=${encodeURIComponent(item.inboxFilename)}`}>Open in Inbox</Link>
-        )}
-        {request?.questions?.map((q) => (
-          <fieldset key={q.id} className="notification-question">
-            <legend>{q.question}</legend>
-            {q.options.map((option) => (
-              <label key={option.label}>
-                <input
-                  type={q.multiSelect ? 'checkbox' : 'radio'}
-                  name={q.id}
-                  checked={(selections[q.id] ?? []).includes(option.label)}
-                  disabled={!live || busy}
-                  onChange={(e) => {
-                    setWritten((old) => ({ ...old, [q.id]: '' }));
-                    setSelections((old) => ({
-                      ...old,
-                      [q.id]: q.multiSelect
-                        ? e.target.checked
-                          ? [...(old[q.id] ?? []), option.label]
-                          : (old[q.id] ?? []).filter((v) => v !== option.label)
-                        : [option.label],
-                    }));
-                  }}
-                />
-                <span>
-                  {option.label}
-                  {option.description && <small>{option.description}</small>}
-                </span>
-              </label>
-            ))}
-            {q.allowFreeform !== false && (
-              <label>
-                Your answer
-                <input
-                  type={q.isSecret ? 'password' : 'text'}
-                  autoComplete="off"
-                  maxLength={4000}
-                  value={written[q.id] ?? ''}
-                  disabled={!live || busy}
-                  onChange={(e) => {
-                    setWritten((old) => ({ ...old, [q.id]: e.target.value }));
-                    if (!q.multiSelect) setSelections((old) => ({ ...old, [q.id]: [] }));
-                  }}
-                />
-              </label>
-            )}
-          </fieldset>
-        ))}
-        {request && !request.questions && (
-          <>
-            <ApprovalRequestSummary
-              input={request.toolInput}
-              toolName={request.toolName}
-              description={request.description}
-            />
-            <p className="workspace-muted">
-              {(request.allowSessionGrant !== false && request.sessionGrantDescription) ||
-                (request.approvalScope === 'conversation'
-                  ? 'This request concerns conversation access. Review its scope in the session.'
-                  : request.allowSessionGrant === false
-                    ? 'Allow once covers this request.'
-                    : sessionSearch
-                      ? 'Allow once, or allow searches on this account and model until the session ends. Website access stays separate.'
-                      : 'Allow once covers this request. Allow for session keeps this approval until the session ends.')}
-            </p>
-          </>
-        )}
-      </div>
-      {item.permId &&
-        (live ? (
-          <>
-            <p className="workspace-muted">
-              {item.expiresAt ? `Expires ${timestamp(item.expiresAt)}` : 'Waiting for a decision'}
-            </p>
-            <div className="notification-actions">
-              {request?.approvalScope !== 'conversation' && (
-                <button
-                  className="notification-button"
-                  disabled={busy || (!!request?.questions && !complete)}
-                  onClick={() => onRespond('once', request?.questions ? answers : undefined)}
-                >
-                  {request?.questions ? 'Send answer' : 'Allow once'}
-                </button>
-              )}
-              {request && !request.questions && request.allowSessionGrant !== false && (
-                <button
-                  className="notification-button"
-                  disabled={busy}
-                  onClick={() => onRespond('always')}
-                >
-                  {sessionSearch ? 'Allow searches for this session' : 'Allow for session'}
-                </button>
-              )}
-              <button
-                className="notification-button"
-                disabled={busy}
-                onClick={() => onRespond('deny')}
-              >
-                {request?.questions ? 'Cancel' : 'Deny'}
-              </button>
+      {live ? (
+        <NotificationApprovalActions
+          item={item}
+          busy={busy}
+          responseError={responseError}
+          onRespond={onRespond}
+          presentation="inline"
+        />
+      ) : (
+        <>
+          <h2>{item.title}</h2>
+          <p className="workspace-muted">{item.body}</p>
+          {item.request?.questions?.map((question) => (
+            <div key={question.id}>
+              <p>{question.question}</p>
+              <ul>
+                {question.options.map((option) => (
+                  <li key={option.label}>
+                    {option.label}
+                    {option.description ? ` · ${option.description}` : ''}
+                  </li>
+                ))}
+              </ul>
             </div>
-          </>
-        ) : (
-          <p className="notification-result">
-            <span>
-              {item.resolution === 'expired' || !item.resolution
-                ? 'Request expired'
-                : 'Decision recorded'}
-            </span>
-            {item.resolution === 'allowed'
-              ? ' · allowed'
-              : item.resolution === 'denied'
-                ? ' · denied'
-                : ''}
-          </p>
-        ))}
+          ))}
+          {item.permId && (
+            <p className="notification-result">
+              <span>
+                {item.resolution === 'expired' || !item.resolution
+                  ? 'Request expired'
+                  : 'Decision recorded'}
+              </span>
+              {item.resolution === 'allowed'
+                ? ' · allowed'
+                : item.resolution === 'denied'
+                  ? ' · denied'
+                  : ''}
+            </p>
+          )}
+          {item.request && (
+            <ApprovalRequestSummary
+              input={item.request.toolInput}
+              toolName={item.request.toolName}
+              description={item.request.description}
+            />
+          )}
+        </>
+      )}
+      {item.sessionId && (
+        <Link to={`/chat/${encodeURIComponent(item.sessionId)}`}>Open session</Link>
+      )}
+      {item.inboxFilename && (
+        <Link to={`/inbox?item=${encodeURIComponent(item.inboxFilename)}`}>Open in Inbox</Link>
+      )}
     </section>
   );
 }
@@ -514,6 +421,7 @@ export function NotificationsView({ preferencesOnly = false }: { preferencesOnly
                 key={selected.id}
                 item={selected}
                 busy={busy}
+                responseError={actionError}
                 onRespond={(decision, answers) =>
                   void act(`/${encodeURIComponent(selected.id)}/respond`, {
                     sessionId: selected.sessionId,

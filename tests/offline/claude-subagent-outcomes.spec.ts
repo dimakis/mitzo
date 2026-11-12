@@ -55,8 +55,9 @@ for (const theme of ['dark', 'light']) {
       ['unavailable', 'Status unavailable'],
     ]) {
       const child = page.getByRole('region', { name: `${status} child`, exact: true });
-      const button = child.getByRole('button', { expanded: false });
-      await expect(button).toContainText(label);
+      await expect(child.getByRole('heading', { name: label, exact: true })).toBeVisible();
+      const button = child.getByRole('button', { name: `Details for Agent ${label}`, exact: true });
+      await expect(button).toHaveAttribute('aria-expanded', 'false');
       await button.focus();
       await page.keyboard.press('Enter');
       await expect(child.getByText('Retained public output', { exact: true })).toBeVisible();
@@ -75,8 +76,8 @@ for (const theme of ['dark', 'light']) {
       await expect(button).toBeFocused();
     }
     const empty = page.getByRole('region', { name: 'Failed before output', exact: true });
-    await expect(empty.getByRole('button')).toContainText('Failed');
-    await empty.getByRole('button').click();
+    await expect(empty.getByRole('heading', { name: 'Failed', exact: true })).toBeVisible();
+    await empty.getByRole('button', { name: 'Details for Agent Failed', exact: true }).click();
     await expect(
       empty.getByText('Subagent failed. Review retained output before asking the parent to retry.'),
     ).toBeVisible();

@@ -500,6 +500,8 @@ export interface SessionMeta {
   cwd: string | null;
   mode: MitzoMode;
   isActive: boolean;
+  /** Current user-selected policy, separate from an ordinary command's frozen mode. */
+  permissionMode?: MitzoMode | null;
   isHidden: boolean;
   promptCount: number;
   manuallyRenamed: boolean;

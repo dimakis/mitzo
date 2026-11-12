@@ -1,4 +1,9 @@
 // @vitest-environment jsdom
+import {
+  approvalAction,
+  queryApprovalAction,
+  findApprovalAction,
+} from '../../components/__tests__/approval-action-helper';
 import '@testing-library/jest-dom/vitest';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
@@ -85,6 +90,147 @@ function show(path = '/inbox') {
   );
 }
 describe('combined Inbox', () => {
+  it.each(['once', 'always', 'deny'])(
+    'responds %s directly from the Inbox entry',
+    async (decision) => {
+      show();
+      const button = await findApprovalAction(
+        decision === 'once'
+          ? 'Approve once'
+          : decision === 'always'
+            ? 'Approve for session'
+            : 'Deny',
+      );
+      fireEvent.click(button);
+      await waitFor(() =>
+        expect(mutate).toHaveBeenCalledWith('/permission%3Ap/respond', {
+          sessionId: 's',
+          decision,
+        }),
+      );
+      expect(apiFetch).not.toHaveBeenCalledWith(
+        expect.stringContaining('/records/'),
+        expect.anything(),
+      );
+    },
+  );
+
+  it('keeps detail decisions before long request details', async () => {
+    vi.mocked(apiFetch).mockImplementation(
+      async (path) =>
+        new Response(
+          JSON.stringify(
+            String(path).includes('/records/')
+              ? {
+                  ...request,
+                  request: { ...request.request, toolInput: 'Long scope\n'.repeat(100) },
+                }
+              : { items: [request], total: 1, needsYou: 1, sources: [] },
+          ),
+        ),
+    );
+    show('/inbox?notice=permission:p');
+    const allow = await findApprovalAction('Approve once');
+    const details = screen.getByRole('button', { name: 'Request details' });
+    expect(allow.compareDocumentPosition(details) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(details).toHaveAttribute('aria-expanded', 'false');
+    fireEvent.click(details);
+    expect(details).toHaveAttribute('aria-expanded', 'true');
+  });
+
+  it.each([
+    { resolution: 'allowed', resolvedAt: 1 },
+    { archivedAt: 1 },
+    { expiresAt: Date.now() - 1000 },
+    { kind: 'question', request: { questions: [{ id: 'q', question: 'Which?', options: [] }] } },
+  ])('keeps unavailable and question decisions out of the list: %j', async (state) => {
+    vi.mocked(apiFetch).mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          items: [{ ...request, ...state }],
+          total: 1,
+          needsYou: 0,
+          sources: [],
+        }),
+      ),
+    );
+    show();
+    await findApprovalAction('Read the repository?');
+    expect(queryApprovalAction('Approve once')).not.toBeInTheDocument();
+  });
+
+  it('retains the entry and visible error when a direct decision fails', async () => {
+    let finishRefresh!: (response: Response) => void;
+    vi.mocked(apiFetch)
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ items: [request], total: 1, needsYou: 1, sources: [] })),
+      )
+      .mockImplementationOnce(
+        () =>
+          new Promise<Response>((resolve) => {
+            finishRefresh = resolve;
+          }),
+      );
+    mutate.mockRejectedValue(new Error('Approval expired. Refresh the request.'));
+    show();
+    fireEvent.click(await findApprovalAction('Approve once'));
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Approval expired. Refresh the request.',
+    );
+    expect(approvalAction('Read the repository?')).toBeVisible();
+    await waitFor(() => expect(finishRefresh).toBeDefined());
+    await act(async () =>
+      finishRefresh(
+        new Response(JSON.stringify({ items: [request], total: 1, needsYou: 1, sources: [] })),
+      ),
+    );
+    expect(screen.getByRole('alert')).toHaveTextContent('Approval expired. Refresh the request.');
+    expect(approvalAction('Approve once')).toBeEnabled();
+    mutate.mockResolvedValueOnce(undefined);
+    fireEvent.click(approvalAction('Approve once'));
+    await waitFor(() => expect(mutate).toHaveBeenCalledTimes(2));
+  });
+
+  it.each([
+    { allowSessionGrant: false, hidden: 'Approve for session', visible: 'Approve once' },
+    { approvalScope: 'conversation', hidden: 'Approve once', visible: 'Grant to conversation' },
+  ])(
+    'retains the server decision scope on the entry: %j',
+    async ({ hidden, visible, ...scope }) => {
+      vi.mocked(apiFetch).mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            items: [{ ...request, request: { ...request.request, ...scope } }],
+            total: 1,
+            needsYou: 1,
+            sources: [],
+          }),
+        ),
+      );
+      show();
+      expect(await findApprovalAction(visible)).toBeVisible();
+      expect(queryApprovalAction(hidden)).not.toBeInTheDocument();
+    },
+  );
+
+  it('disables direct decisions while the response is pending', async () => {
+    let settle!: () => void;
+    mutate.mockImplementation(
+      () =>
+        new Promise<void>((resolve) => {
+          settle = resolve;
+        }),
+    );
+    show();
+    const once = await findApprovalAction('Approve once');
+    fireEvent.click(once);
+    fireEvent.click(once);
+    expect(mutate).toHaveBeenCalledTimes(1);
+    expect(once).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'More approval actions' })).toBeDisabled();
+    await act(async () => settle());
+  });
+
   it('keeps legacy file paths in evidence instead of making them the list summary', async () => {
     vi.mocked(apiFetch).mockResolvedValue(
       new Response(
@@ -102,9 +248,7 @@ describe('combined Inbox', () => {
       ),
     );
     show('/inbox?view=proposals');
-    expect(
-      await screen.findByRole('button', { name: 'Connect the budget decisions' }),
-    ).toBeVisible();
+    expect(await findApprovalAction('Connect the budget decisions')).toBeVisible();
     expect(screen.queryByText(/command_center\/lib\/todo/)).not.toBeInTheDocument();
   });
   it('rejects a late private detail response after authentication is lost', async () => {
@@ -122,17 +266,14 @@ describe('combined Inbox', () => {
       window.dispatchEvent(new Event('auth-lost'));
       reply(new Response(JSON.stringify(request)));
     });
-    expect(screen.queryByRole('button', { name: 'Allow once' })).not.toBeInTheDocument();
+    expect(queryApprovalAction('Approve once')).not.toBeInTheDocument();
     expect(screen.queryByText('Read the repository?')).not.toBeInTheDocument();
   });
   it('defaults to Needs you and keeps technical tags out of the list', async () => {
     show();
     expect(await screen.findByRole('heading', { name: /^Inbox/ })).toBeVisible();
-    expect(await screen.findByRole('button', { name: 'Read the repository?' })).toBeVisible();
-    expect(screen.getByRole('button', { name: /Needs you/ })).toHaveAttribute(
-      'aria-pressed',
-      'true',
-    );
+    expect(await findApprovalAction('Read the repository?')).toBeVisible();
+    expect(approvalAction(/Needs you/)).toHaveAttribute('aria-pressed', 'true');
     expect(screen.queryByText('command_center')).not.toBeInTheDocument();
   });
   it('searches the whole Inbox and resets pagination when a refinement changes', async () => {
@@ -144,16 +285,16 @@ describe('combined Inbox', () => {
         expect.anything(),
       ),
     );
-    fireEvent.click(screen.getByRole('button', { name: 'Filters' }));
+    fireEvent.click(approvalAction('Filters'));
     expect(screen.getByLabelText('Source')).toBeVisible();
     expect(screen.getByLabelText('Status')).toBeVisible();
   });
   it('opens full content through old file links and offers recoverable archive with undo', async () => {
     show('/inbox?item=idea.md');
     expect(await screen.findByText('A useful explanation.')).toBeVisible();
-    fireEvent.click(screen.getByRole('button', { name: 'Archive' }));
+    fireEvent.click(approvalAction('Archive'));
     await waitFor(() => expect(mutate).toHaveBeenCalledWith('/inbox%3Aidea.md/archive'));
-    fireEvent.click(await screen.findByRole('button', { name: 'Undo' }));
+    fireEvent.click(await findApprovalAction('Undo'));
     await waitFor(() => expect(mutate).toHaveBeenCalledWith('/inbox%3Aidea.md/restore'));
   });
   it('retains authenticated one-shot responses rather than resolving by reading', async () => {
@@ -168,7 +309,7 @@ describe('combined Inbox', () => {
         ),
     );
     show('/inbox?notice=permission:p');
-    fireEvent.click(await screen.findByRole('button', { name: 'Allow once' }));
+    fireEvent.click(await findApprovalAction('Approve once'));
     await waitFor(() =>
       expect(mutate).toHaveBeenCalledWith(
         '/permission%3Ap/respond',
@@ -196,12 +337,10 @@ describe('live detail and pagination reconciliation', () => {
         ),
     );
     show('/inbox?notice=permission:p');
-    expect(await screen.findByRole('button', { name: 'Allow once' })).toBeVisible();
+    expect(await findApprovalAction('Approve once')).toBeVisible();
     resolved = true;
     act(() => events.get('notifications_changed')!());
-    await waitFor(() =>
-      expect(screen.queryByRole('button', { name: 'Allow once' })).not.toBeInTheDocument(),
-    );
+    await waitFor(() => expect(queryApprovalAction('Approve once')).not.toBeInTheDocument());
   });
   it('refreshes stale request controls after a rejected response', async () => {
     let resolved = false;
@@ -226,10 +365,8 @@ describe('live detail and pagination reconciliation', () => {
       }
     });
     show('/inbox?notice=permission:p');
-    fireEvent.click(await screen.findByRole('button', { name: 'Allow once' }));
-    await waitFor(() =>
-      expect(screen.queryByRole('button', { name: 'Allow once' })).not.toBeInTheDocument(),
-    );
+    fireEvent.click(await findApprovalAction('Approve once'));
+    await waitFor(() => expect(queryApprovalAction('Approve once')).not.toBeInTheDocument());
   });
   it('clamps a shrunken last page so the remaining records can be reached', async () => {
     vi.mocked(apiFetch).mockImplementation(
@@ -243,7 +380,7 @@ describe('live detail and pagination reconciliation', () => {
         ),
     );
     show('/inbox?view=all&offset=50');
-    expect(await screen.findByRole('button', { name: suggestion.title })).toBeVisible();
+    expect(await findApprovalAction(suggestion.title)).toBeVisible();
     expect(apiFetch).toHaveBeenCalledWith(expect.stringContaining('offset=0'), expect.anything());
   });
   it('records a new read receipt for reopened evidence with the same ID', async () => {

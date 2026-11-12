@@ -391,6 +391,12 @@ function mockedProvider(f: ReturnType<typeof fixture>) {
       setWebSearchGrant: (revision: number, grant: 'allowed' | 'denied') =>
         Promise.resolve(native.setWebSearchGrant('session', f.account, revision, grant)),
       getWebSearchGrant: () => native.readWebSearchGrant('session', f.account),
+      setUserPermissionMode: async (
+        _mode: import('@mitzo/protocol').MitzoMode,
+        assertCurrent: () => void,
+      ) => {
+        assertCurrent();
+      },
     };
   });
   return closed;

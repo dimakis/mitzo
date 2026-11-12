@@ -193,6 +193,7 @@ import { contextDigest } from './agent-context-compiler.js';
 import {
   buildPermissionHandler,
   checkSkillPolicy,
+  effectivePermissionMode,
   type ManagedSession,
   type SessionRegistry,
 } from '@mitzo/harness';
@@ -2621,7 +2622,7 @@ async function openCodexChatBound(
       : openShell
         ? 'openshell-runtime-config-v1'
         : `codex-cli:${SUPPORTED_CODEX_CLI_VERSION}`,
-    getMode: () => options.session.mode,
+    getMode: () => effectivePermissionMode(options.session),
     ...(nativeExecution
       ? {
           nativeExecution,
@@ -4588,6 +4589,13 @@ async function openCodexChatBound(
           'OpenShell native tools do not yet support Mitzo Ask mode; select Agent or Auto mode.',
         );
       runtime.assertPermissionModeChange(mode);
+    },
+    setUserPermissionMode: async (mode: ManagedSession['mode'], assertCurrent: () => void) => {
+      assertCurrent();
+      if (openShell && mode === 'ask')
+        throw new Error('OpenShell supports Agent and Auto. Ask requires Local Mac execution.');
+      await runtime.setUserPermissionMode(mode, assertCurrent);
+      assertCurrent();
     },
     setWebSearchGrant: (expectedRevision: number, grant: 'allowed' | 'denied') => {
       if (options.ownedLocal) throw Error('Owned local Codex chat unavailable');

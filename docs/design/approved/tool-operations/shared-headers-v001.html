@@ -1,0 +1,1443 @@
+<!doctype html>
+<html lang="en" data-theme="dark" data-accent="mint" data-font="georgia">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Mitzo · Tools and approvals</title>
+    <!-- Proposal v001, requested by Dimitri on 10 November 2026 in this chat.
+         Uses Mitzo's semantic palette, UI icon paths and control/spacing scales.
+         This is a simulated design proposal, not an accepted product implementation. -->
+    <style>
+      :root {
+        color-scheme: dark;
+        --color-bg: #131416;
+        --color-surface: #19191f;
+        --color-text: #f2f2f5;
+        --color-muted: #aaaab4;
+        --color-border: #33343d;
+        --color-accent: #b2dea1;
+        --color-on-accent: #171320;
+        --color-danger: #ff8585;
+        --color-warning: #eac080;
+        --font-ui: Georgia, serif;
+        --font-mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+        --space-1: 4px;
+        --space-2: 8px;
+        --space-3: 12px;
+        --space-4: 16px;
+        --space-6: 24px;
+        --radius-control: 10px;
+        --radius-panel: 12px;
+        --control-height: 44px;
+        --page-gutter: 20px;
+        --text-xs: 12px;
+        --text-sm: 14px;
+        --text-base: 16px;
+        --text-lg: 20px;
+      }
+      :root[data-theme="light"] {
+        color-scheme: light;
+        --color-bg: #fafaf9;
+        --color-surface: #fff;
+        --color-text: #25252b;
+        --color-muted: #666670;
+        --color-border: #dedee3;
+        --color-accent: #456b37;
+        --color-on-accent: #fff;
+        --color-danger: #b52f3b;
+        --color-warning: #876018;
+      }
+      :root[data-accent="teal"] {
+        --color-accent: #78d9bf;
+      }
+      :root[data-theme="light"][data-accent="teal"] {
+        --color-accent: #236f60;
+      }
+      :root[data-font="system"] {
+        --font-ui: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        background: var(--color-bg);
+        color: var(--color-text);
+        font: var(--text-base)/1.5 var(--font-ui);
+      }
+      button,
+      select,
+      textarea,
+      input {
+        font: inherit;
+      }
+      button,
+      select {
+        color: inherit;
+      }
+      button {
+        cursor: pointer;
+        touch-action: manipulation;
+      }
+      button:disabled {
+        cursor: default;
+        opacity: 0.5;
+      }
+      button:focus-visible,
+      a:focus-visible,
+      select:focus-visible,
+      input:focus-visible,
+      textarea:focus-visible {
+        outline: 2px solid var(--color-accent);
+        outline-offset: 3px;
+      }
+      button svg {
+        pointer-events: none;
+      }
+      svg {
+        width: 20px;
+        height: 20px;
+        flex-shrink: 0;
+      }
+      button {
+        min-height: var(--control-height);
+      }
+      [hidden] {
+        display: none !important;
+      }
+      h1,
+      h2,
+      h3,
+      p {
+        margin: 0;
+      }
+      button {
+        border: 0;
+        background: transparent;
+      }
+      a {
+        color: var(--color-accent);
+      }
+      .preview-bar {
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        max-width: 1120px;
+        margin: auto;
+        padding: var(--space-6) var(--page-gutter);
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: var(--space-4);
+        flex-wrap: wrap;
+        border-bottom: 1px solid var(--color-border);
+      }
+      .preview-title {
+        font-size: 14px;
+        font-weight: 600;
+      }
+      .preview-label {
+        font-size: 12px;
+        color: var(--color-muted);
+        margin-top: 4px;
+      }
+      .preview-options {
+        display: flex;
+        gap: var(--space-2);
+        flex-wrap: wrap;
+        align-items: center;
+      }
+      .preview-options select {
+        max-width: 145px;
+        font-size: 12px;
+        min-height: 44px;
+        background: var(--color-bg);
+        border: 1px solid var(--color-border);
+        border-radius: var(--radius-control);
+        padding: var(--space-2);
+      }
+      .segmented {
+        display: flex;
+        align-items: center;
+        gap: var(--space-1);
+      }
+      .segmented button {
+        padding: var(--space-2) var(--space-3);
+        color: var(--color-muted);
+        font-size: 14px;
+        border-radius: var(--radius-control);
+      }
+      .segmented button[aria-pressed="true"] {
+        background: color-mix(in srgb, var(--color-accent) 12%, transparent);
+        color: var(--color-accent);
+      }
+      .stage {
+        max-width: 1120px;
+        margin: auto;
+        padding: var(--space-6) var(--page-gutter) 64px;
+        display: grid;
+        grid-template-columns: minmax(0, 440px) minmax(0, 1fr);
+        gap: 64px;
+        align-items: start;
+      }
+      .stage.wide {
+        grid-template-columns: minmax(0, 1fr);
+      }
+      .stage.wide .notes {
+        display: none;
+      }
+      .notes {
+        padding-top: 64px;
+        font:
+          14px/1.65 -apple-system,
+          BlinkMacSystemFont,
+          "Segoe UI",
+          sans-serif;
+        max-width: 340px;
+        color: var(--color-muted);
+      }
+      .notes h2 {
+        font-size: 20px;
+        line-height: 1.3;
+        color: var(--color-text);
+        font-weight: 500;
+        margin-bottom: 24px;
+      }
+      .notes p {
+        margin-bottom: 20px;
+      }
+      .notes strong {
+        font-weight: 500;
+        color: var(--color-text);
+      }
+      .notes .key {
+        display: inline-grid;
+        place-items: center;
+        border: 1px solid var(--color-border);
+        border-radius: 50%;
+        width: 24px;
+        height: 24px;
+        font-size: 12px;
+        margin-right: 8px;
+        color: var(--color-accent);
+      }
+      .notes .small {
+        font-size: 12px;
+        border-top: 1px solid var(--color-border);
+        padding-top: 16px;
+      }
+      .screen {
+        min-width: 0;
+        border: 1px solid var(--color-border);
+        border-radius: var(--radius-panel);
+        overflow: clip;
+        background: var(--color-bg);
+      }
+      .masthead {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: var(--space-3) var(--space-4);
+        border-bottom: 1px solid var(--color-border);
+        min-height: 64px;
+      }
+      .brand {
+        font:
+          700 27px/1 -apple-system,
+          BlinkMacSystemFont,
+          "Segoe UI",
+          sans-serif;
+        letter-spacing: -1px;
+      }
+      .icon-button {
+        width: 44px;
+        display: grid;
+        place-items: center;
+        color: var(--color-muted);
+        padding: 0;
+        flex-shrink: 0;
+      }
+      .masthead .icon-button {
+        color: var(--color-accent);
+      }
+      .page-heading {
+        padding: var(--space-4);
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: var(--space-2);
+      }
+      .page-heading h1 {
+        font-size: 22px;
+        line-height: 1.25;
+        font-weight: 500;
+      }
+      .page-heading p {
+        font-size: 12px;
+        color: var(--color-muted);
+        margin-top: 4px;
+      }
+      .page-heading .back {
+        display: flex;
+        gap: 8px;
+        align-items: center;
+        color: var(--color-accent);
+        padding: 0;
+      }
+      .screen-tabs {
+        padding: 0 var(--space-2) var(--space-2);
+        border-bottom: 1px solid var(--color-border);
+      }
+      .screen-tabs button {
+        font-size: 13px;
+      }
+      .page-body {
+        padding: var(--space-4);
+        min-height: 380px;
+      }
+      .turn {
+        font-size: 15px;
+        margin-bottom: 24px;
+      }
+      .turn .author {
+        color: var(--color-muted);
+        font-size: 12px;
+        margin-bottom: 8px;
+      }
+      .turn .body {
+        line-height: 1.65;
+      }
+      .activity-label {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        color: var(--color-muted);
+        font-size: 12px;
+        margin: 16px 0 10px;
+      }
+      .activity-label span:last-child {
+        margin-left: auto;
+      }
+      .cards {
+        display: grid;
+        gap: var(--space-3);
+      }
+      .operation {
+        min-width: 0;
+        border: 1px solid var(--color-border);
+        border-radius: var(--radius-panel);
+        position: relative;
+        background: transparent;
+      }
+      .operation-header {
+        padding: var(--space-3);
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        gap: var(--space-2);
+        align-items: start;
+      }
+      .operation-identity {
+        min-width: 0;
+      }
+      .operation-type {
+        display: flex;
+        gap: 6px;
+        align-items: center;
+        color: var(--color-muted);
+        font-size: var(--text-xs);
+        line-height: 1.4;
+        margin-bottom: var(--space-1);
+      }
+      .operation-type svg {
+        width: 16px;
+        height: 16px;
+        color: var(--color-accent);
+      }
+      .operation h3 {
+        font-size: var(--text-base);
+        line-height: 1.4;
+        font-weight: 500;
+        overflow-wrap: anywhere;
+      }
+      .operation-scope {
+        font-size: var(--text-xs);
+        color: var(--color-muted);
+        margin-top: var(--space-1);
+        line-height: 1.5;
+      }
+      .operation-action {
+        display: flex;
+        align-items: flex-start;
+        gap: var(--space-1);
+      }
+      .primary {
+        background: var(--color-accent);
+        color: var(--color-on-accent);
+        border-radius: var(--radius-control);
+        padding: var(--space-2) var(--space-3);
+        font-size: var(--text-sm);
+        font-weight: 600;
+        white-space: nowrap;
+        display: inline-flex;
+        gap: 6px;
+        align-items: center;
+        justify-content: center;
+      }
+      .primary svg {
+        width: 16px;
+        height: 16px;
+      }
+      .primary:disabled {
+        background: var(--color-border);
+        color: var(--color-muted);
+        opacity: 1;
+      }
+      .operation-action .icon-button {
+        width: 44px;
+        min-width: 44px;
+        position: relative;
+      }
+      .operation-action .icon-button:before {
+        content: "";
+        position: absolute;
+        inset: 0 -4px;
+      }
+      .operation-summary {
+        margin: 0 var(--space-3) var(--space-2);
+        font-size: 13px;
+        line-height: 1.6;
+        color: var(--color-muted);
+        overflow-wrap: anywhere;
+      }
+      .operation-summary code {
+        font-family: var(--font-mono);
+        font-size: 12px;
+        color: var(--color-text);
+      }
+      .operation-footer {
+        padding: 0 var(--space-3);
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+        color: var(--color-muted);
+        font-size: var(--text-xs);
+      }
+      .details-toggle {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        padding: 0;
+        color: var(--color-accent);
+        font-size: 12px;
+        min-height: 44px;
+      }
+      .details-toggle svg {
+        width: 16px;
+        height: 16px;
+        transition: transform 0.15s;
+      }
+      .details-toggle[aria-expanded="true"] svg {
+        transform: rotate(90deg);
+      }
+      .expiry {
+        font-size: 11px;
+        white-space: nowrap;
+      }
+      .details-panel {
+        border-top: 1px solid var(--color-border);
+        padding: var(--space-3);
+        max-height: 250px;
+        overflow: auto;
+        overscroll-behavior: contain;
+        font-size: 13px;
+        line-height: 1.6;
+      }
+      .details-panel dl {
+        margin: 0;
+        display: grid;
+        gap: 12px;
+      }
+      .details-panel dt {
+        font-size: 12px;
+        color: var(--color-muted);
+      }
+      .details-panel dd {
+        margin: 2px 0 0;
+        overflow-wrap: anywhere;
+      }
+      .details-panel pre {
+        font: 12px/1.7 var(--font-mono);
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
+        margin: 0;
+      }
+      .details-panel .raw {
+        margin-top: 16px;
+        padding-top: 12px;
+        border-top: 1px solid var(--color-border);
+      }
+      .details-panel .raw span {
+        display: block;
+        color: var(--color-muted);
+        margin-bottom: 8px;
+      }
+      .more-menu {
+        position: absolute;
+        right: 12px;
+        top: 58px;
+        z-index: 5;
+        border: 1px solid var(--color-border);
+        border-radius: var(--radius-control);
+        background: var(--color-surface);
+        padding: 4px;
+        min-width: 190px;
+        max-width: calc(100% - 24px);
+      }
+      .more-menu button {
+        display: block;
+        text-align: left;
+        width: 100%;
+        padding: 8px 12px;
+        font-size: 13px;
+        min-height: 44px;
+        border-radius: 6px;
+      }
+      .more-menu button:hover {
+        background: color-mix(in srgb, var(--color-accent) 10%, transparent);
+      }
+      .more-menu button.danger {
+        color: var(--color-danger);
+      }
+      .status {
+        display: flex;
+        gap: 6px;
+        align-items: center;
+        color: var(--color-muted);
+        font-size: 12px;
+        min-height: 44px;
+        white-space: nowrap;
+      }
+      .status svg {
+        width: 16px;
+        height: 16px;
+        color: var(--color-accent);
+      }
+      .operation.settled {
+        border-color: transparent;
+        border-radius: 0;
+        border-bottom: 1px solid var(--color-border);
+      }
+      .operation.settled .operation-header {
+        padding-inline: 0;
+      }
+      .operation.settled .operation-summary {
+        margin-inline: 0;
+      }
+      .operation.settled .operation-footer {
+        padding-inline: 0;
+      }
+      .operation.settled .operation-type svg {
+        color: var(--color-muted);
+      }
+      .operation.failed .status,
+      .operation.failed .status svg {
+        color: var(--color-danger);
+      }
+      .response-error {
+        color: var(--color-danger);
+        font-size: 12px;
+        line-height: 1.5;
+        margin: 0 12px 12px;
+      }
+      .inline-options {
+        border-top: 1px solid var(--color-border);
+        padding: 8px 12px;
+        display: grid;
+        gap: 0;
+      }
+      .inline-options label {
+        display: flex;
+        gap: 8px;
+        align-items: center;
+        font-size: 13px;
+        min-height: 44px;
+      }
+      .inline-options input {
+        accent-color: var(--color-accent);
+        width: 18px;
+        height: 18px;
+        flex-shrink: 0;
+      }
+      .inline-options textarea {
+        color: var(--color-text);
+        background: transparent;
+        border: 1px solid var(--color-border);
+        border-radius: var(--radius-control);
+        padding: 8px;
+        width: 100%;
+        min-height: 70px;
+        font-size: 14px;
+        resize: vertical;
+      }
+      .source-check {
+        padding: 0 12px 12px;
+        display: flex;
+        gap: 8px;
+        align-items: start;
+        font-size: 12px;
+        color: var(--color-muted);
+      }
+      .source-check input {
+        accent-color: var(--color-accent);
+        width: 18px;
+        height: 18px;
+        flex-shrink: 0;
+      }
+      .preview-empty {
+        padding: 24px 0;
+        color: var(--color-muted);
+        font-size: 14px;
+      }
+      .all-heading {
+        font-size: 12px;
+        letter-spacing: 0.04em;
+        color: var(--color-muted);
+        margin: 20px 0 12px;
+      }
+      .all-heading:first-child {
+        margin-top: 0;
+      }
+      .composer {
+        border-top: 1px solid var(--color-border);
+        padding: var(--space-3) var(--space-4);
+      }
+      .composer-status {
+        font-size: 12px;
+        display: flex;
+        gap: 8px;
+        align-items: center;
+        color: var(--color-muted);
+        padding-bottom: 8px;
+      }
+      .composer-status svg {
+        width: 14px;
+        height: 14px;
+        color: var(--color-accent);
+      }
+      .composer-input {
+        border: 1px solid var(--color-border);
+        border-radius: var(--radius-panel);
+        padding: 12px;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        color: var(--color-muted);
+        font-size: 14px;
+      }
+      .composer-input .icon-button {
+        color: var(--color-accent);
+      }
+      .bottom-nav {
+        display: flex;
+        justify-content: space-around;
+        border-top: 1px solid var(--color-border);
+        padding: 8px 4px;
+      }
+      .bottom-nav button {
+        font-size: 11px;
+        display: flex;
+        align-items: center;
+        flex-direction: column;
+        justify-content: center;
+        gap: 3px;
+        color: var(--color-muted);
+        padding: 4px 12px;
+        min-width: 56px;
+      }
+      .bottom-nav button.active {
+        color: var(--color-accent);
+        background: color-mix(in srgb, var(--color-accent) 10%, transparent);
+        border-radius: var(--radius-control);
+      }
+      .notice {
+        position: fixed;
+        bottom: 24px;
+        left: 50%;
+        transform: translateX(-50%);
+        z-index: 10;
+        border: 1px solid var(--color-border);
+        background: var(--color-surface);
+        color: var(--color-text);
+        padding: 12px 20px;
+        border-radius: var(--radius-control);
+        font:
+          13px/1.5 -apple-system,
+          BlinkMacSystemFont,
+          "Segoe UI",
+          sans-serif;
+        max-width: calc(100% - 32px);
+      }
+      .wide .screen {
+        max-width: 1040px;
+        width: 100%;
+        margin: auto;
+      }
+      .wide .page-body {
+        padding: 24px 40px;
+      }
+      .wide .cards {
+        max-width: 760px;
+        margin: auto;
+      }
+      .wide .turn {
+        max-width: 760px;
+        margin: 0 auto 24px;
+      }
+      .wide .activity-label {
+        max-width: 760px;
+        margin: 16px auto 10px;
+      }
+      .wide .bottom-nav {
+        display: none;
+      }
+      .wide .composer {
+        padding-inline: max(40px, calc((100% - 760px) / 2));
+      }
+      .wide .page-heading {
+        padding: 20px 40px;
+      }
+      .wide .operation-header {
+        grid-template-columns: minmax(0, 1fr) auto;
+      }
+      .wide .all-heading {
+        max-width: 760px;
+        margin-inline: auto;
+      }
+      .wide .screen-tabs {
+        padding-left: 32px;
+      }
+      .preview-help {
+        font:
+          12px/1.5 -apple-system,
+          BlinkMacSystemFont,
+          "Segoe UI",
+          sans-serif;
+        color: var(--color-muted);
+        max-width: 1120px;
+        margin: 0 auto;
+        padding: 0 20px 24px;
+      }
+      @media (max-width: 760px) {
+        .preview-bar {
+          padding: 12px 16px;
+          gap: 8px;
+        }
+        .preview-options {
+          gap: 4px;
+        }
+        .preview-options select {
+          max-width: 125px;
+        }
+        .stage,
+        .stage.wide {
+          display: block;
+          padding: 16px 12px 40px;
+        }
+        .screen {
+          border: 0;
+          border-radius: 0;
+        }
+        .notes {
+          padding: 32px 4px 0;
+          max-width: none;
+        }
+        .notes h2 {
+          font-size: 18px;
+          margin-bottom: 16px;
+        }
+        .notes p {
+          margin-bottom: 16px;
+        }
+        .preview-label {
+          display: none;
+        }
+        .wide .page-body {
+          padding: 16px;
+        }
+        .wide .page-heading {
+          padding: 16px;
+        }
+        .wide .screen-tabs {
+          padding-left: 8px;
+        }
+        .wide .composer {
+          padding: 12px 16px;
+        }
+        .wide .bottom-nav {
+          display: flex;
+        }
+        .preview-help {
+          padding: 0 16px 24px;
+        }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        * {
+          transition: none !important;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <header class="preview-bar">
+      <div>
+        <div class="preview-title">Tools &amp; approvals</div>
+        <div class="preview-label">Interactive proposal · v001</div>
+      </div>
+      <div class="preview-options">
+        <div class="segmented" aria-label="Preview width">
+          <button type="button" data-width="phone" aria-pressed="true">
+            Phone</button
+          ><button type="button" data-width="wide" aria-pressed="false">
+            Desktop
+          </button>
+        </div>
+        <label
+          ><span hidden>Request state</span
+          ><select id="scenario" aria-label="Request state">
+            <option value="pending">Waiting for approval</option>
+            <option value="uncertain">Response unconfirmed</option>
+            <option value="expired">Request expired</option>
+          </select></label
+        >
+        <label
+          ><span hidden>Appearance</span
+          ><select id="appearance" aria-label="Appearance">
+            <option value="dark">Dark · Mint</option>
+            <option value="light">Light · Teal</option>
+          </select></label
+        >
+        <label
+          ><span hidden>Font</span
+          ><select id="font" aria-label="Font">
+            <option value="georgia">Georgia</option>
+            <option value="system">System font</option>
+          </select></label
+        >
+      </div>
+    </header>
+    <div class="stage" id="stage">
+      <main class="screen" aria-label="Mitzo preview">
+        <div class="masthead">
+          <span class="brand">mitzo</span
+          ><button
+            type="button"
+            class="icon-button"
+            aria-label="Search chats"
+            data-toast="Chat search stays in its current place."
+          >
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.7"
+            >
+              <path d="M10 3a7 7 0 1 0 0 14a7 7 0 1 0 0-14Zm5 12 6 6" />
+            </svg>
+          </button>
+        </div>
+        <div class="page-heading">
+          <div>
+            <h1 id="page-title">Inbox approval cleanup</h1>
+            <p id="page-subtitle">Chat · your existing conversation</p>
+          </div>
+          <button
+            type="button"
+            class="icon-button"
+            aria-label="Reset this preview"
+            id="reset"
+            title="Reset preview"
+          ></button>
+        </div>
+        <nav class="segmented screen-tabs" aria-label="Preview surface">
+          <button type="button" data-view="chat" aria-pressed="true">
+            Chat</button
+          ><button type="button" data-view="inbox" aria-pressed="false">
+            Inbox</button
+          ><button type="button" data-view="types" aria-pressed="false">
+            All types
+          </button>
+        </nav>
+        <div class="page-body" id="page-body"></div>
+        <div class="composer" id="composer">
+          <div class="composer-status" id="composer-status"></div>
+          <div class="composer-input">
+            <span>Message…</span
+            ><button
+              type="button"
+              class="icon-button"
+              data-toast="Your chat composer stays unchanged."
+              aria-label="Composer tools"
+              id="composer-tools"
+            ></button>
+          </div>
+        </div>
+        <nav
+          class="bottom-nav"
+          aria-label="Main navigation"
+          id="bottom-nav"
+        ></nav>
+      </main>
+      <aside class="notes">
+        <h2>The action stays beside<br />the thing it approves.</h2>
+        <p>
+          <span class="key">1</span
+          ><strong>One shared header.</strong> Operation on the left. Primary
+          action on the right. The same position in Chat, Inbox, and every tool
+          type.
+        </p>
+        <p>
+          <span class="key">2</span><strong>Scope stays readable.</strong> Once,
+          task access, and conversation access keep their meaning. A
+          conversation grant always has a Grant button.
+        </p>
+        <p>
+          <span class="key">3</span><strong>Details stay optional.</strong> Long
+          commands and original requests scroll inside their own area. Opening
+          them never moves the action below the content.
+        </p>
+        <p>
+          <span class="key">4</span><strong>One lifecycle.</strong> Waiting →
+          sending → resolved, with a visible failure or expiry. Finished calls
+          become quiet transcript rows.
+        </p>
+        <p class="small">
+          Try Approve, Details, and the action menu. “All types” includes shell
+          commands, file edits, task access, integrations, source review,
+          questions, and tools that need no permission. All actions here are
+          simulated.
+        </p>
+      </aside>
+    </div>
+    <p class="preview-help">
+      Prototype only. No real permissions, tool calls, or saved changes. Reset
+      restores the examples.
+    </p>
+    <div id="notice" class="notice" role="status" hidden></div>
+    <script>
+      const paths = {
+        shield: "M12 3 4 6v6c0 5 8 9 8 9s8-4 8-9V6Zm-4 9 3 3 5-6",
+        terminal: "M3 4h18v16H3Zm4 4 4 4-4 4m6 0h4",
+        file: "M14 3H5v18h14V8Zm0 0v5h5M8 13h8M8 17h5",
+        connections:
+          "M10 13a5 5 0 0 0 7 0l3-3a5 5 0 0 0-7-7l-2 2M14 11a5 5 0 0 0-7 0l-3 3a5 5 0 0 0 7 7l2-2",
+        work: "m4 6 2 2 4-4m3 2h7M4 14l2 2 4-4m3 2h7m-7 6h7",
+        chats: "M4 4h16v12H9l-5 4Z",
+        proposals: "M4 4h16v16H4ZM4 14h5l2 3h2l2-3h5",
+        today: "M3 10 12 3l9 7v11h-6v-7H9v7H3Z",
+        more: "M5 11h1v2H5Zm6 0h1v2h-1Zm6 0h1v2h-1Z",
+        check: "m5 12 4 4L19 6",
+        forward: "m9 6 6 6-6 6",
+        retry: "M20 7v5h-5m5-5a9 9 0 1 0 1 9",
+        error: "M12 2a10 10 0 1 0 0 20a10 10 0 1 0 0-20M12 7v6m0 4h.01",
+        clock: "M12 2a10 10 0 1 0 0 20a10 10 0 1 0 0-20m0 5v5l3 2",
+        plus: "M12 5v14M5 12h14",
+        search: "M10 3a7 7 0 1 0 0 14a7 7 0 1 0 0-14Zm5 12 6 6",
+        stop: "M7 7h10v10H7Z",
+      };
+      const icon = (name) =>
+        `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="${paths[name] || paths.work}"/></svg>`;
+      const escape = (value) =>
+        String(value).replace(
+          /[&<>"']/g,
+          (char) =>
+            ({
+              "&": "&amp;",
+              "<": "&lt;",
+              ">": "&gt;",
+              '"': "&quot;",
+              "'": "&#39;",
+            })[char],
+        );
+      const examples = [
+        {
+          id: "task",
+          type: "Task access",
+          icon: "shield",
+          title: "Finish the Inbox cleanup",
+          scope: "Workspace checks · 2 workers · 2 hours",
+          action: "Approve",
+          summary: "Authorize the selected task and workers.",
+          facts: [
+            ["Repositories", "mitzo, mgmt"],
+            ["Workers", "UI implementation; regression checks"],
+            ["Access", "Workspace commands and repository reads"],
+            ["Duration", "2 hours"],
+          ],
+          raw: "TaskExecution\nOperation: authorize\nNetwork: none\nMembers: selected task workers\nMerge and deployment require separate authorization.",
+          expiry: "Expires in 14 min",
+        },
+        {
+          id: "shell",
+          type: "Command",
+          icon: "terminal",
+          title: "Run the focused tests",
+          scope: "Once · workspace command",
+          action: "Approve",
+          summary: "npm test -- NotificationsView",
+          code: true,
+          session: true,
+          facts: [
+            ["Command", "npm test -- NotificationsView"],
+            ["Directory", "/workspace/mitzo"],
+            ["Access", "No network; workspace files"],
+          ],
+          raw:
+            "Native command approval\nCommand: npm test -- NotificationsView\nDirectory: /workspace/mitzo\n" +
+            "Retained request evidence.\n".repeat(24),
+          expiry: "Expires in 2 min",
+        },
+        {
+          id: "connection",
+          type: "Integration access",
+          icon: "connections",
+          title: "Use Team Jira in this chat",
+          scope: "This conversation · until revoked",
+          action: "Grant",
+          summary: "Read issues and project information.",
+          facts: [
+            ["Connection", "Team Jira"],
+            ["Access", "Read project issues and metadata"],
+            ["Applies to", "This conversation only"],
+            ["Retention", "Across reconnects, until revoked"],
+          ],
+          raw: "Conversation-scoped grant\nNo permission is granted to other chats.\nThis is not a reusable session-wide tool allowance.",
+          expiry: "Expires in 14 min",
+        },
+        {
+          id: "files",
+          type: "File changes",
+          icon: "file",
+          title: "Update the approval controls",
+          scope: "Once · 3 workspace files",
+          action: "Approve",
+          summary: "Keep the decision in the shared card header.",
+          facts: [
+            ["Files", "ApprovalActions.tsx\nRequestCard.tsx\napproval.css"],
+            ["Access", "Edit the listed workspace files"],
+          ],
+          raw: "--- Before\nActions below request body\n+++ After\nActions alongside operation heading",
+          expiry: "Expires in 2 min",
+        },
+        {
+          id: "source",
+          type: "Source review",
+          icon: "work",
+          title: "Save Inbox cleanup to Telos",
+          scope: "Selected source only · creates a feature",
+          action: "Save",
+          source: true,
+          summary: "A compact feature brief and the selected exchange.",
+          facts: [
+            ["Feature", "Consistent tools and approvals"],
+            ["Selected source", "The user’s instruction and reviewed brief"],
+            ["Creates", "One feature; no worker starts"],
+          ],
+          raw: "User: “Approval button should be up at the top. Easily clickable beside the main thing we’re doing.”\n\nBrief: Use one shared action header for tool and approval requests.",
+          expiry: "Expires in 10 min",
+        },
+        {
+          id: "question",
+          type: "Question",
+          icon: "chats",
+          title: "Which execution target?",
+          scope: "Answer required · no permission grant",
+          action: "Send",
+          question: true,
+          summary: "Choose where the selected task should run.",
+          facts: [
+            ["Question", "Which execution target should this task use?"],
+            ["Choices", "Local Mac; OpenShell"],
+          ],
+          raw: "The selected answer returns to the original question. It does not authorize unrelated tools.",
+          expiry: "Expires in 10 min",
+        },
+        {
+          id: "read",
+          type: "Read file",
+          icon: "file",
+          title: "Inspect the approval view",
+          scope: "README.md · read only",
+          state: "done",
+          facts: [
+            ["File", "/workspace/mitzo/README.md"],
+            ["Result", "Read successfully"],
+          ],
+          raw: "Read complete. The original file content remains available here.",
+        },
+        {
+          id: "running",
+          type: "Command",
+          icon: "terminal",
+          title: "Check the Inbox tests",
+          scope: "npm test -- Inbox · already authorized",
+          state: "running",
+          facts: [
+            ["Progress", "18 of 22 tests complete"],
+            ["Command", "npm test -- Inbox"],
+          ],
+          raw: "Running the previously approved workspace check.",
+        },
+        {
+          id: "failed",
+          type: "Command",
+          icon: "terminal",
+          title: "Build the frontend",
+          scope: "Command failed · original output retained",
+          state: "failed",
+          facts: [
+            ["Error", "Build exceeded the configured memory limit"],
+            ["Command", "npm run build"],
+          ],
+          raw: "FATAL ERROR: Allocation failed near the configured heap limit.\nNo deployment was attempted.",
+        },
+        {
+          id: "expired",
+          type: "Approval expired",
+          icon: "clock",
+          title: "Read the release notes",
+          scope: "Request expired · nothing approved",
+          state: "expired",
+          facts: [
+            ["Outcome", "The original permission request expired"],
+            ["Next action", "Ask the agent to issue a new request"],
+          ],
+          raw: "The expired permission cannot be revived or resubmitted.",
+        },
+      ];
+      const state = new Map();
+      let view = "chat";
+      let noticeTimer;
+      let renderVersion = 0;
+      function get(id) {
+        if (!state.has(id))
+          state.set(id, {
+            status: examples.find((x) => x.id === id).state || "pending",
+            open: false,
+            menu: false,
+            answer: "",
+            source: false,
+            error: "",
+          });
+        return state.get(id);
+      }
+      function details(item) {
+        return `<dl>${item.facts.map(([label, value]) => `<div><dt>${escape(label)}</dt><dd>${escape(value).replace(/\n/g, "<br>")}</dd></div>`).join("")}</dl><div class="raw"><span>Original request / output</span><pre>${escape(item.raw)}</pre></div>`;
+      }
+      function card(item) {
+        const s = get(item.id),
+          pending = s.status === "pending" || s.status === "sending",
+          settled = !pending;
+        let action = "";
+        if (pending) {
+          const label =
+            s.status === "sending"
+              ? "Sending…"
+              : s.uncertain
+                ? "Check status"
+                : item.source && !s.source
+                  ? "Review"
+                  : item.action;
+          action = `<button type="button" class="primary" data-action="approve" data-id="${item.id}" ${s.status === "sending" || (item.question && !s.answer) ? "disabled" : ""} aria-label="${escape(label + " · " + item.title)}">${s.status === "sending" ? "" : icon(item.source && !s.source ? "forward" : item.question ? "forward" : "check")}${label}</button>`;
+        } else {
+          const label =
+            {
+              approved: item.question
+                ? "Sent"
+                : item.source
+                  ? "Saved"
+                  : item.id === "connection"
+                    ? "Granted"
+                    : "Approved",
+              denied: "Denied",
+              done: "Done",
+              running: "Running",
+              failed: "Failed",
+              expired: "Expired",
+            }[s.status] || s.status;
+          action = `<span class="status">${icon(s.status === "failed" ? "error" : s.status === "running" ? "clock" : s.status === "expired" ? "clock" : "check")}${label}</span>`;
+        }
+        const summary = item.summary
+          ? `<p class="operation-summary">${item.code ? "<code>" : ""}${escape(item.summary)}${item.code ? "</code>" : ""}</p>`
+          : "";
+        const menu = s.menu
+          ? `<div class="more-menu" aria-label="Actions for ${escape(item.title)}">${s.status === "pending" && !s.uncertain && item.session ? '<button type="button" data-action="session" data-id="' + item.id + '">Approve for this session</button>' : ""}${s.status === "pending" && !s.uncertain ? '<button type="button" class="danger" data-action="deny" data-id="' + item.id + '">' + (item.question ? "Cancel question" : "Deny request") + "</button>" : ""}<button type="button" data-action="original" data-id="${item.id}">View original request</button></div>`
+          : "";
+        const question =
+          item.question && pending
+            ? `<div class="inline-options" role="group" aria-label="Execution target">${["Local Mac", "OpenShell"].map((option) => `<label><input type="radio" name="target" value="${option}" data-question="${item.id}" ${s.answer === option ? "checked" : ""} ${s.status === "sending" ? "disabled" : ""}>${option}</label>`).join("")}</div>`
+            : "";
+        const source =
+          item.source && s.open && pending
+            ? `<label class="source-check"><input type="checkbox" data-source="${item.id}" ${s.source ? "checked" : ""} ${s.status === "sending" ? "disabled" : ""}>I’ve reviewed this brief and selected source.</label>`
+            : "";
+        return `<article class="operation ${settled ? "settled" : ""} ${s.status === "failed" ? "failed" : ""}" data-card="${item.id}" aria-label="${escape(item.title)}" aria-busy="${s.status === "sending"}"><div class="operation-header"><div class="operation-identity"><div class="operation-type">${icon(item.icon)}<span>${escape(item.type)}</span></div><h3>${escape(item.title)}</h3><p class="operation-scope">${escape(item.scope)}</p></div><div class="operation-action">${action}<button type="button" class="icon-button" data-action="menu" data-id="${item.id}" aria-label="More actions · ${escape(item.title)}" aria-expanded="${s.menu}">${icon("more")}</button></div></div>${summary}${question}${s.error ? '<p class="response-error" role="alert">' + escape(s.error) + "</p>" : ""}<div class="operation-footer"><button type="button" class="details-toggle" data-action="details" data-id="${item.id}" aria-expanded="${s.open}" aria-controls="details-${item.id}">${icon("forward")}Details</button>${pending ? '<span class="expiry">' + escape(item.expiry || "Waiting for you") + "</span>" : ""}</div><div class="details-panel" id="details-${item.id}" ${s.open ? "" : "hidden"} tabindex="${s.open ? "0" : "-1"}" aria-label="Details for ${escape(item.title)}">${details(item)}</div>${source}${menu}</article>`;
+      }
+      function render() {
+        const inboxWaiting = [examples[0], examples[2], examples[3]].filter(
+          (item) => ["pending", "sending"].includes(get(item.id).status),
+        ).length;
+        const current = document.activeElement,
+          focusKey =
+            current?.dataset?.action && current?.dataset?.id
+              ? `${current.dataset.action}:${current.dataset.id}`
+              : null;
+        const body = document.getElementById("page-body");
+        const title = document.getElementById("page-title"),
+          subtitle = document.getElementById("page-subtitle");
+        title.textContent =
+          view === "inbox"
+            ? "Inbox"
+            : view === "types"
+              ? "One shared pattern"
+              : "Inbox approval cleanup";
+        subtitle.textContent =
+          view === "inbox"
+            ? `${inboxWaiting} ${inboxWaiting === 1 ? "request needs" : "requests need"} your attention`
+            : view === "types"
+              ? "Different operations. The same action position."
+              : "Chat · your existing conversation";
+        let content = "";
+        if (view === "chat")
+          content =
+            '<div class="turn"><p class="author">Mitzo · now</p><p class="body">I’ll update the shared controls and check the affected views. First, the task needs your approval.</p></div><div class="cards">' +
+            card(examples[0]) +
+            card(examples[1]) +
+            '</div><div class="activity-label">' +
+            icon("check") +
+            '<span>Earlier activity</span><span>1 complete</span></div><div class="cards">' +
+            card(examples[6]) +
+            "</div>";
+        else if (view === "inbox")
+          content =
+            '<div class="cards">' +
+            [examples[0], examples[2], examples[3]].map(card).join("") +
+            "</div>";
+        else
+          content =
+            '<p class="all-heading">APPROVALS &amp; INPUT</p><div class="cards">' +
+            examples.slice(0, 6).map(card).join("") +
+            '</div><p class="all-heading">TOOL ACTIVITY &amp; OUTCOMES</p><div class="cards">' +
+            examples.slice(6).map(card).join("") +
+            "</div>";
+        body.innerHTML = content;
+        document.getElementById("composer").hidden = view !== "chat";
+        const waiting = [examples[0], examples[1]].filter(
+          (x) => get(x.id).status === "pending",
+        ).length;
+        document.getElementById("composer-status").innerHTML =
+          icon(waiting ? "shield" : "check") +
+          "<span>" +
+          (waiting
+            ? "Waiting for your approval"
+            : "Approval responses recorded") +
+          "</span>";
+        document.getElementById("bottom-nav").innerHTML = [
+          ["today", "Today"],
+          ["chats", "Chats"],
+          ["proposals", "Inbox"],
+          ["work", "Work"],
+          ["more", "More"],
+        ]
+          .map(
+            ([name, label]) =>
+              `<button type="button" class="${(view === "inbox" ? name === "proposals" : name === "chats") ? "active" : ""}" data-nav="${name}" aria-label="${label}">${icon(name)}${label}</button>`,
+          )
+          .join("");
+        if (focusKey) {
+          const [action, id] = focusKey.split(":");
+          document
+            .querySelector(`[data-action="${action}"][data-id="${id}"]`)
+            ?.focus({ preventScroll: true });
+        }
+      }
+      function toast(text) {
+        clearTimeout(noticeTimer);
+        const node = document.getElementById("notice");
+        node.textContent = text;
+        node.hidden = false;
+        noticeTimer = setTimeout(() => (node.hidden = true), 3200);
+      }
+      function setView(next) {
+        view = next;
+        document
+          .querySelectorAll("[data-view]")
+          .forEach((button) =>
+            button.setAttribute(
+              "aria-pressed",
+              String(button.dataset.view === view),
+            ),
+          );
+        render();
+      }
+      function respond(id, kind) {
+        const s = get(id),
+          item = examples.find((x) => x.id === id);
+        if (s.status !== "pending") return;
+        if (s.uncertain) {
+          s.uncertain = false;
+          s.error = "";
+          s.menu = false;
+          render();
+          toast("Checked the original request · still waiting for approval.");
+          return;
+        }
+        if (kind !== "deny" && item.source && !s.source) {
+          s.open = true;
+          s.menu = false;
+          render();
+          toast("Review the brief and source below. Save stays in the header.");
+          return;
+        }
+        if (kind !== "deny" && item.question && !s.answer) return;
+        s.status = "sending";
+        s.error = "";
+        s.menu = false;
+        const version = renderVersion;
+        render();
+        setTimeout(() => {
+          if (version !== renderVersion) return;
+          s.status = kind === "deny" ? "denied" : "approved";
+          render();
+          toast(
+            kind === "session"
+              ? "Approved for this session · simulated"
+              : kind === "deny"
+                ? "Request denied · simulated"
+                : item.question
+                  ? "Answer sent · simulated"
+                  : item.source
+                    ? "Feature saved · simulated"
+                    : item.id === "connection"
+                      ? "Granted to this conversation · simulated"
+                      : "Approved · simulated",
+          );
+        }, 650);
+      }
+      document.addEventListener("click", (event) => {
+        const button = event.target.closest("button");
+        if (!button || button.disabled) return;
+        if (button.dataset.view) {
+          setView(button.dataset.view);
+          return;
+        }
+        if (button.dataset.width) {
+          document
+            .getElementById("stage")
+            .classList.toggle("wide", button.dataset.width === "wide");
+          document
+            .querySelectorAll("[data-width]")
+            .forEach((b) =>
+              b.setAttribute("aria-pressed", String(b === button)),
+            );
+          return;
+        }
+        if (button.dataset.toast) {
+          toast(button.dataset.toast);
+          return;
+        }
+        if (button.id === "reset") {
+          state.clear();
+          document.getElementById("scenario").value = "pending";
+          renderVersion++;
+          render();
+          toast("Preview reset.");
+          return;
+        }
+        if (button.dataset.nav) {
+          setView(button.dataset.nav === "proposals" ? "inbox" : "chat");
+          return;
+        }
+        const { action, id } = button.dataset;
+        if (!action || !id) return;
+        const s = get(id);
+        if (action === "approve" || action === "deny" || action === "session") {
+          respond(id, action);
+          return;
+        }
+        if (action === "details") {
+          s.open = !s.open;
+          render();
+          return;
+        }
+        if (action === "menu") {
+          const next = !s.menu;
+          state.forEach((value) => (value.menu = false));
+          s.menu = next;
+          render();
+          return;
+        }
+        if (action === "original") {
+          s.menu = false;
+          s.open = true;
+          render();
+          document
+            .getElementById("details-" + id)
+            ?.focus({ preventScroll: true });
+          return;
+        }
+      });
+      document.addEventListener("change", (event) => {
+        const node = event.target;
+        if (node.id === "appearance") {
+          document.documentElement.dataset.theme = node.value;
+          document.documentElement.dataset.accent =
+            node.value === "light" ? "teal" : "mint";
+        } else if (node.id === "font")
+          document.documentElement.dataset.font = node.value;
+        else if (node.id === "scenario") {
+          renderVersion++;
+          const task = get("task");
+          task.status = node.value === "expired" ? "expired" : "pending";
+          task.uncertain = node.value === "uncertain";
+          task.error = task.uncertain
+            ? "The response could not be confirmed. Check the original request before sending another decision."
+            : "";
+          task.menu = false;
+          render();
+        } else if (node.dataset.question) {
+          get(node.dataset.question).answer = node.value;
+          render();
+          document
+            .querySelector(
+              `[data-question="${node.dataset.question}"][value="${node.value}"]`,
+            )
+            ?.focus({ preventScroll: true });
+        } else if (node.dataset.source) {
+          get(node.dataset.source).source = node.checked;
+          render();
+          document
+            .querySelector(`[data-source="${node.dataset.source}"]`)
+            ?.focus({ preventScroll: true });
+        }
+      });
+      document.addEventListener("keydown", (event) => {
+        if (event.key === "Escape") {
+          let id;
+          for (const [key, value] of state)
+            if (value.menu) {
+              value.menu = false;
+              id = key;
+            }
+          if (id) {
+            render();
+            document
+              .querySelector(`[data-action="menu"][data-id="${id}"]`)
+              ?.focus({ preventScroll: true });
+          }
+        }
+      });
+      document.getElementById("reset").innerHTML = icon("retry");
+      document.getElementById("composer-tools").innerHTML = icon("plus");
+      render();
+    </script>
+  </body>
+</html>

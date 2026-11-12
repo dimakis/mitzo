@@ -313,7 +313,7 @@ it('clears protected review on an actual material-page authorization refusal', a
   fireEvent.click(await screen.findByRole('button', { name: 'Load more retained materials' }));
   await waitFor(() => expect(screen.getByRole('alert').textContent).toMatch(/Sign in again/));
   expect(screen.queryByRole('checkbox', { name: /Agreed source/ })).toBeNull();
-  expect(screen.getByRole('button', { name: 'Allow Once' }).hasAttribute('disabled')).toBe(true);
+  expect(screen.getByRole('button', { name: 'Approve once' }).hasAttribute('disabled')).toBe(true);
 });
 it('does not let the old material request finally unlock a newer pending page', async () => {
   let failFirst!: (e: Error) => void;

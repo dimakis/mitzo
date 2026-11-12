@@ -1081,7 +1081,7 @@ export async function createActualApp(kind: 'repository' | 'non-git') {
         expect(permission).toMatchObject({ reviewKind: 'telos_source' });
         expect(beforeOnce).toBeDefined();
         await beforeOnce?.(permission!);
-        const button = browser.page.getByRole('button', { name: 'Allow Once', exact: true });
+        const button = browser.page.getByRole('button', { name: 'Approve once', exact: true });
         await browserExpect(button).toBeVisible();
         await browserExpect(button).toBeEnabled();
         const responsePromise = browser.page.waitForResponse(

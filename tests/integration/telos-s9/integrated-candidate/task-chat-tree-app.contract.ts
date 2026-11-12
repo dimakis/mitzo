@@ -88,7 +88,7 @@ it('retains readable real task review and the exact attempt-associated worker ch
   };
   const tool = async (name: string, args: Record<string, unknown>) => {
     const pending = h.nativeTool(name, args);
-    const allow = page.getByRole('button', { name: 'Allow Once', exact: true });
+    const allow = page.getByRole('button', { name: 'Approve once', exact: true });
     const first = await Promise.race([
       pending.then((response) => ({ kind: 'result' as const, response })),
       allow

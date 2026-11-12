@@ -123,6 +123,8 @@ export function createOrdinaryLocalVertexSdkQuery<
     selection: OrdinaryLocalCommandAdmission['selection'],
   ): Pick<Options, 'model' | 'thinking' | 'effort'>;
   inputChanged(queue: AsyncQueue<SDKUserMessage>): void;
+  /** Current user policy is independent of each command's frozen selection. */
+  getPermissionMode?(): Options['permissionMode'];
   peerMessages?(): Pick<SdkAgentMessageRuntime, 'beforeInput' | 'observe'> | undefined;
   mcpServers?(state: {
     retired: boolean;
@@ -192,6 +194,7 @@ export function createOrdinaryLocalVertexSdkQuery<
       ...(selection
         ? { ...owners.settings(selection), sessionId: undefined, resume: owners.sdkSessionId }
         : {}),
+      permissionMode: owners.getPermissionMode?.() ?? owners.options.permissionMode,
     };
     if (selection) delete options.sessionId;
     const native = query({ prompt: prompt(input, () => native), options });

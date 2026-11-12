@@ -609,8 +609,12 @@ export class OrdinaryLocalCodexOwnedRuntime<K extends LocalWorkspaceKind = 'repo
                       () => ({
                         cwd: coldFacts.newWorkspace.directory,
                         workspaceRoots: [coldFacts.newWorkspace.directory],
-                        mode: this.owners.eventStore.getSession(this.#reservation.conversationId)!
-                          .mode,
+                        mode: (() => {
+                          const policy = this.owners.eventStore.getSession(
+                            this.#reservation.conversationId,
+                          )!;
+                          return policy.permissionMode ?? policy.mode;
+                        })(),
                         authSessionId: this.#authSessionId,
                       }),
                     ),

@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, expect, it } from 'vitest';
-import { cleanup, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { RepositoryChatSetupCard } from '../RepositoryChatSetupCard';
 import { ToolGroup } from '../ToolGroup';
@@ -38,6 +38,10 @@ it('offers a reviewed repository draft without starting a conversation', () => {
     preparation.setupUrl,
   );
   expect(screen.getByText('example/repo')).toBeTruthy();
+  expect(
+    screen.getByRole('link', { name: 'Open repository chat' }).closest('.operation-header'),
+  ).toBeTruthy();
+  fireEvent.click(screen.getByRole('button', { name: /Details/ }));
   expect(screen.getByText('aaaaaaaaaaaa')).toBeTruthy();
   expect(screen.getByText(preparation.prompt)).toBeTruthy();
 });

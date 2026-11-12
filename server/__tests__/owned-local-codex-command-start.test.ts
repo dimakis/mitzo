@@ -286,6 +286,34 @@ function request() {
     },
   };
 }
+it('restores a persisted restrictive policy before constructing the owned native runtime', async () => {
+  const f = request();
+  let release!: () => void;
+  runtime.queryGate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const claim = chat.eventStore.claimOrdinaryLocalCommandDispatch.bind(chat.eventStore);
+  vi.spyOn(chat.eventStore, 'claimOrdinaryLocalCommandDispatch').mockImplementationOnce(
+    (...args) => {
+      const result = claim(...args);
+      chat.eventStore.upsertSession({
+        sessionId: f.args.reservation.conversationId,
+        permissionMode: 'ask',
+      });
+      return result;
+    },
+  );
+  try {
+    await chat.startOwnedLocalCodexCommand(f.transport, f.clientId, f.args);
+    const session = chat.registry.findBySessionId(f.args.reservation.conversationId)!.session;
+    expect(session.mode).toBe('agent');
+    expect(session.permissionMode).toBe('ask');
+    expect(openCodexChat).toHaveBeenCalledWith(expect.objectContaining({ session }));
+  } finally {
+    release();
+    await vi.waitFor(() => expect(runtime.instances[0]?.close).toHaveBeenCalled());
+  }
+});
 function createDispatch(owners: Owners): Parameters<Owners['dispatch']>[0] {
   const { conversationId: sessionId, id: workspaceId } = owners.reservation;
   const definition = {

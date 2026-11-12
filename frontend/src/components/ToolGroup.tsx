@@ -1,7 +1,5 @@
 import { ToolSetupCards } from './ToolSetupCards';
-import { MotionPresence } from './MotionPresence';
-import { UiIcon } from './UiIcon';
-import { useId, useState } from 'react';
+import { OperationCard } from './OperationCard';
 import { getToolStatus, type ToolBlock } from '../lib/tool-status';
 import { ToolPill } from './ToolPill';
 
@@ -11,8 +9,6 @@ interface Props {
 }
 
 export function ToolGroup({ tools, sessionId }: Props) {
-  const [expanded, setExpanded] = useState(false);
-  const listId = useId();
   // A single operation already has its own detail disclosure. Show its useful
   // summary directly instead of requiring a second, count-only disclosure.
   if (tools.length === 1) return <ToolPill block={tools[0]} sessionId={sessionId} />;
@@ -36,34 +32,35 @@ export function ToolGroup({ tools, sessionId }: Props) {
   return (
     <div className="tool-group">
       <ToolSetupCards tools={tools} sessionId={sessionId} />
-      <button
-        type="button"
-        className="tool-group-header"
-        onClick={() => setExpanded((e) => !e)}
-        aria-expanded={expanded}
-        aria-controls={listId}
-      >
-        <div className="tool-group-dots">
-          {tools.slice(0, 8).map((t, i) => (
-            <span
-              key={t.blockId || i}
-              className={`tool-pill-dot ${statuses[i].interrupted ? 'tool-pill-dot--interrupted' : statuses[i].done ? (statuses[i].hasError ? 'tool-pill-dot--error' : 'tool-pill-dot--done') : 'tool-pill-dot--pending'}`}
-            />
-          ))}
-          {tools.length > 8 && <span className="tool-group-dots-more">+{tools.length - 8}</span>}
-        </div>
-        <span className="tool-group-label">{statusSummary}</span>
-        <span className="tool-group-chevron">
-          <UiIcon name={expanded ? 'down' : 'forward'} size={16} />
-        </span>
-      </button>
-      <MotionPresence open={expanded} kind="disclosure" appear={false}>
-        <div id={listId} className="tool-group-list">
-          {tools.map((t, i) => (
-            <ToolPill key={t.blockId || i} block={t} sessionId={sessionId} showSetupCard={false} />
-          ))}
-        </div>
-      </MotionPresence>
+      <OperationCard
+        title={statusSummary}
+        kind="Tool activity"
+        icon="layers"
+        toggleLabel={statusSummary}
+        scope={
+          <span className="tool-group-dots">
+            {tools.slice(0, 8).map((tool, i) => (
+              <span
+                key={tool.blockId || i}
+                className={`tool-pill-dot ${statuses[i].interrupted ? 'tool-pill-dot--interrupted' : statuses[i].done ? (statuses[i].hasError ? 'tool-pill-dot--error' : 'tool-pill-dot--done') : 'tool-pill-dot--pending'}`}
+              />
+            ))}
+            {tools.length > 8 && <span className="tool-group-dots-more">+{tools.length - 8}</span>}
+          </span>
+        }
+        details={
+          <div className="tool-group-list">
+            {tools.map((tool, i) => (
+              <ToolPill
+                key={tool.blockId || i}
+                block={tool}
+                sessionId={sessionId}
+                showSetupCard={false}
+              />
+            ))}
+          </div>
+        }
+      />
     </div>
   );
 }

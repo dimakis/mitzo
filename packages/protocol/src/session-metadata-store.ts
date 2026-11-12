@@ -42,6 +42,7 @@ export interface SessionRow {
   branch: string | null;
   cwd: string | null;
   mode: string;
+  permission_mode?: string | null;
   is_active: number;
   is_hidden: number;
   prompt_count: number;
@@ -278,6 +279,10 @@ export class SessionMetadataStore {
         fields.push('mode = ?');
         values.push(meta.mode);
       }
+      if (meta.permissionMode !== undefined) {
+        fields.push('permission_mode = ?');
+        values.push(z.enum(['ask', 'agent', 'auto']).nullable().parse(meta.permissionMode));
+      }
       if (meta.isActive !== undefined) {
         fields.push('is_active = ?');
         values.push(meta.isActive ? 1 : 0);
@@ -355,6 +360,7 @@ export class SessionMetadataStore {
         'branch',
         'cwd',
         'mode',
+        'permission_mode',
         'is_active',
         'initial_prompt',
         'sdk_transcript_verified',
@@ -379,6 +385,9 @@ export class SessionMetadataStore {
         meta.branch ?? null,
         meta.cwd ?? null,
         meta.mode ?? 'agent',
+        meta.permissionMode === undefined
+          ? null
+          : z.enum(['ask', 'agent', 'auto']).nullable().parse(meta.permissionMode),
         meta.isActive === false ? 0 : 1,
         meta.initialPrompt ?? null,
         meta.sdkTranscriptVerified ? 1 : 0,
@@ -716,6 +725,11 @@ export function rowToSession(row: SessionRow): SessionMeta {
     branch: row.branch,
     cwd: row.cwd,
     mode: row.mode as MitzoMode,
+    ...(row.permission_mode == null
+      ? {}
+      : {
+          permissionMode: z.enum(['ask', 'agent', 'auto']).parse(row.permission_mode),
+        }),
     isActive: row.is_active === 1,
     isHidden: row.is_hidden === 1,
     promptCount: row.prompt_count ?? 0,

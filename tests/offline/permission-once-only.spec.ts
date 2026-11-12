@@ -1,3 +1,4 @@
+import { approvalSecondary } from '../support/approval-actions';
 import { expect, test } from '@playwright/test';
 import { build } from 'esbuild';
 import { resolve } from 'node:path';
@@ -74,24 +75,15 @@ for (const theme of ['dark', 'light'] as const) {
           exact: true,
         });
         await expect(panel).toBeVisible();
-        await expect(panel.getByRole('button')).toHaveCount(allow === 'false' ? 2 : 3);
-        await expect(panel.getByRole('button', { name: /session/i })).toHaveCount(
-          allow === 'false' ? 0 : 1,
-        );
+        const approve = panel.getByRole('button', { name: 'Approve once', exact: true });
+        const more = panel.getByRole('button', { name: 'More approval actions' });
+        const details = panel.getByRole('button', { name: 'Request details' });
+        await expect(approve).toBeInViewport({ ratio: 1 });
+        await expect(details).toHaveAttribute('aria-expanded', 'false');
         if (allow === 'false') {
           await expect(
-            panel.getByText(
-              view === 'banner'
-                ? 'Allow once covers the displayed request.'
-                : 'Allow once covers this request.',
-              { exact: true },
-            ),
+            panel.getByText('Allow once covers the displayed request.', { exact: true }),
           ).toBeVisible();
-          await expect(
-            panel.getByText('Allow for session keeps this approval until the session ends.', {
-              exact: true,
-            }),
-          ).toHaveCount(0);
         } else {
           await expect(
             panel.getByText('Allow for session keeps this approval until the session ends.', {
@@ -99,70 +91,63 @@ for (const theme of ['dark', 'light'] as const) {
             }),
           ).toBeVisible();
         }
-        const geometry = await panel
-          .getByRole('button')
-          .evaluateAll((nodes) => nodes.map((node) => node.getBoundingClientRect().toJSON()));
-        for (const rect of geometry) {
+        for (const action of [approve, more, details]) {
+          const rect = (await action.boundingBox())!;
           expect(rect.height).toBeGreaterThanOrEqual(44);
           expect(rect.x).toBeGreaterThanOrEqual(0);
-          expect(rect.right).toBeLessThanOrEqual(isMobile ? 320 : 1280);
+          expect(rect.x + rect.width).toBeLessThanOrEqual(isMobile ? 320 : 1280);
         }
         expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(
           isMobile ? 320 : 1280,
         );
+        await more.click();
+        const menu = page.getByRole('menu', { name: 'More approval actions' });
+        await expect(
+          menu.getByRole('menuitem', { name: 'Approve for session', exact: true }),
+        ).toHaveCount(allow === 'false' ? 0 : 1);
+        await expect(menu.getByRole('menuitem', { name: 'Deny', exact: true })).toBeVisible();
+        await page.keyboard.press('Escape');
+        await expect(more).toBeFocused();
         if (view === 'banner' && allow === 'false') {
-          expect(Math.abs(geometry[0].width - geometry[1].width)).toBeLessThanOrEqual(1);
           await page.screenshot({ path: info.outputPath('once-only-banner.png'), fullPage: true });
-          const scroll = await panel.locator('.perm-banner-info').evaluate((node) => {
+          await details.click();
+          const scroll = await panel.locator('.operation-details').evaluate((node) => {
             node.scrollTop = node.scrollHeight;
             const input = node.querySelector('pre')!;
             return {
               top: node.scrollTop,
               inputBottom: input.getBoundingClientRect().bottom,
               infoBottom: node.getBoundingClientRect().bottom,
+              cardBottom: node.closest('.operation-card')!.getBoundingClientRect().bottom,
               inputText: input.textContent,
             };
           });
           expect(scroll.top).toBeGreaterThan(0);
           expect(scroll.inputText).toContain('END OF REVIEWED REQUEST');
           expect(scroll.inputBottom).toBeLessThanOrEqual(scroll.infoBottom + 1);
-          await expect(
-            panel.getByRole('button', { name: 'Allow Once', exact: true }),
-          ).toBeInViewport();
-          await expect(panel.getByRole('button', { name: 'Deny', exact: true })).toBeInViewport();
+          expect(scroll.inputBottom).toBeLessThanOrEqual(scroll.cardBottom + 1);
+          await expect(approve).toBeInViewport({ ratio: 1 });
           await page.screenshot({
             path: info.outputPath('once-only-banner-scrolled.png'),
             fullPage: true,
           });
-          for (const name of ['Request details', 'Allow Once', 'Deny']) {
-            await page.keyboard.press(browserName === 'webkit' ? 'Alt+Tab' : 'Tab');
-            const focused = await page.evaluate(() => {
-              const e = document.activeElement!;
-              return {
-                name: e.getAttribute('aria-label') ?? e.textContent?.trim(),
-                outline: getComputedStyle(e).outlineStyle,
-              };
-            });
-            expect(focused.name).toBe(name);
-            expect(focused.outline).not.toBe('none');
-          }
-          await page.keyboard.press(browserName === 'webkit' ? 'Alt+Shift+Tab' : 'Shift+Tab');
-          await expect(
-            panel.getByRole('button', { name: 'Allow Once', exact: true }),
-          ).toBeFocused();
+          await approve.focus();
+          await page.keyboard.press(browserName === 'webkit' ? 'Alt+Tab' : 'Tab');
+          await expect(more).toBeFocused();
+          expect(await more.evaluate((el) => getComputedStyle(el).outlineStyle)).not.toBe('none');
+          await page.keyboard.press(browserName === 'webkit' ? 'Alt+Tab' : 'Tab');
+          await expect(details).toBeFocused();
+          await approve.focus();
           await page.keyboard.press('Enter');
           await expect
             .poll(respond)
             .toEqual([['component-permission', 'once', 'PublishReviewedPullRequest']]);
-          await expect(panel.getByRole('button', { name: 'Deny', exact: true })).toBeDisabled();
+          await expect(more).toBeDisabled();
         } else {
           const decision = allow === 'false' ? 'deny' : 'always';
-          await panel
-            .getByRole('button', {
-              name: allow === 'false' ? 'Deny' : 'Allow for session',
-              exact: true,
-            })
-            .click();
+          await (
+            await approvalSecondary(page, panel, allow === 'false' ? 'Deny' : 'Approve for session')
+          ).click();
           await expect
             .poll(respond)
             .toEqual(
@@ -175,9 +160,12 @@ for (const theme of ['dark', 'light'] as const) {
     }
     for (const allow of ['false', 'missing']) {
       await page.goto(`/?view=banner&kind=conversation&allow=${allow}`);
+      const card = page.getByRole('region', { name: 'Approval required', exact: true });
+      await card.getByRole('button', { name: 'More approval actions' }).click();
       await expect(
-        page.getByRole('button', { name: 'Allow for session', exact: true }),
-      ).toHaveCount(allow === 'false' ? 0 : 1);
+        page.getByRole('menuitem', { name: 'Approve for session', exact: true }),
+      ).toHaveCount(0);
+      await page.keyboard.press('Escape');
       await page.getByRole('button', { name: 'Grant to conversation', exact: true }).click();
       await expect
         .poll(respond)
@@ -198,11 +186,22 @@ for (const theme of ['dark', 'light'] as const) {
             : [['once', answers]],
         );
     }
+    await page.goto('/?view=notification&kind=unavailable');
+    const review = page.getByRole('link', { name: 'Review', exact: true });
+    await expect(review).toBeInViewport({ ratio: 1 });
+    await expect(review).toHaveAttribute('href', '/chat/component-session');
+    expect(
+      await review.evaluate((el) => ({
+        margin: getComputedStyle(el).margin,
+        display: getComputedStyle(el).display,
+      })),
+    ).toEqual({ margin: '0px', display: 'inline-flex' });
+    expect((await review.boundingBox())!.height).toBeGreaterThanOrEqual(44);
     await page.goto('/?view=banner&kind=source&allow=true');
     await expect(page.getByRole('heading', { name: 'Save to Telos', exact: true })).toBeVisible();
     await expect(page.getByRole('alert')).toBeVisible();
     await expect(page.getByRole('button', { name: /session/i })).toHaveCount(0);
-    await expect(page.getByRole('button', { name: 'Allow Once', exact: true })).toBeDisabled();
+    await expect(page.getByRole('button', { name: 'Approve once', exact: true })).toBeDisabled();
     expect(sourceReads).toHaveLength(1);
     expect(await respond()).toEqual([]);
     expect(errors).toEqual([]);

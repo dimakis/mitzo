@@ -469,7 +469,7 @@ export {
 import { mkdirSync } from 'fs';
 import { homedir } from 'os';
 import { TaskStore, type TaskCreateInput, type TaskUpdateInput } from './task-store.js';
-import { SseRegistry } from '@mitzo/harness';
+import { SseRegistry, effectivePermissionMode } from '@mitzo/harness';
 import { SessionSseRegistry } from './session-sse-registry.js';
 import {
   isTransportConnectionOwnedBy,
@@ -4020,6 +4020,7 @@ async function readSessionMetadata(req: express.Request<{ id: string }>, res: ex
       // Unknown presence must not be presented as a historical Responses source.
     }
   }
+  const livePermissionSession = registry.findBySessionId(meta.sessionId)?.session;
   res.json({
     sessionId: meta.sessionId,
     ...(hasNativeCodexConversation !== undefined ? { hasNativeCodexConversation } : {}),
@@ -4044,7 +4045,10 @@ async function readSessionMetadata(req: express.Request<{ id: string }>, res: ex
     cwd: meta.cwd,
     repositoryWorkspaceId: meta.repositoryWorkspaceId,
     ordinaryWorkspaceId: meta.ordinaryWorkspaceId,
-    mode: meta.mode,
+    mode: livePermissionSession
+      ? effectivePermissionMode(livePermissionSession)
+      : (meta.permissionMode ?? meta.mode),
+    commandMode: meta.mode,
     isActive: meta.isActive,
     // Optional catalog refresh may yield while this conversation is deleted.
     isHidden: eventStore.getSession(meta.sessionId)?.isHidden ?? true,

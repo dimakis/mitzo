@@ -56,7 +56,7 @@ const item: MitzoNotification = {
   readAt: null,
   resolution: null,
   resolvedAt: null,
-  request,
+  request: kind === 'unavailable' ? undefined : request,
 };
 createRoot(document.getElementById('root')!).render(
   <MemoryRouter>

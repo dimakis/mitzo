@@ -232,7 +232,7 @@ it('coordinates six actual outcomes through UI requests, native recipient ACKs, 
           .some((m) => m.type === 'permission_request' && m.sessionId === sessionId),
       ).toBe(true),
     );
-    await page.getByRole('button', { name: 'Allow Once', exact: true }).click();
+    await page.getByRole('button', { name: 'Approve once', exact: true }).click();
     const receipt = await pending;
     expect(receipt.success, JSON.stringify(receipt)).toBe(true);
     const view = TelosWorkControlViewSchema.parse(JSON.parse(receipt.contentItems[0].text));

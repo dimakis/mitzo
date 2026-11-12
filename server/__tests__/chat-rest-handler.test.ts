@@ -7,7 +7,10 @@ vi.mock('../auth.js', async (importOriginal) => ({
   ) => {
     if (req.headers['x-test-service'])
       return res.status(403).json({ error: 'Interactive operator authentication is required' });
-    res.locals.authSession = { id: req.headers['x-test-auth'] ?? 'consent-login' };
+    res.locals.authSession = {
+      id: req.headers['x-test-auth'] ?? 'consent-login',
+      expiresAt: Date.now() + 60_000,
+    };
     next();
   },
 }));
@@ -20,6 +23,9 @@ import request from 'supertest';
 import { SessionSseRegistry } from '../session-sse-registry.js';
 import { SseTransport } from '../sse-transport.js';
 import { createChatRestRouter } from '../chat-rest-handler.js';
+import * as auth from '../auth.js';
+import * as preparedCommands from '../repository-prepared-command.js';
+import * as workspaceRuntime from '../repository-workspace-runtime.js';
 import { ConnectionRegistry, SessionRegistry } from '@mitzo/harness';
 import { SseConnection } from '@mitzo/client';
 import type { V2HandlerContext } from '../ws-handler-v2.js';
@@ -1384,6 +1390,153 @@ describe('chat-rest-handler', () => {
   });
 
   // ─── POST /api/chat/mode ───────────────────────────────────────────────
+
+  it.each(['ready', 'unavailable', 'changed', 'service'] as const)(
+    'POST /mode validates retained preparation without inventing native custody (%s)',
+    async (state) => {
+      const actual =
+        await vi.importActual<typeof import('../ws-handler-v2.js')>('../ws-handler-v2.js');
+      vi.mocked(handleSetModeV2).mockImplementation(actual.handleSetModeV2);
+      const registry = new SessionRegistry();
+      handlerContext.sessionRegistry = registry;
+      const binding = {
+        version: 2,
+        account: { accountId: 'personal', provider: 'openai-codex', profileRevision: 'profile-1' },
+        harness: { implementation: 'codex' },
+        execution: { location: 'local', targetId: 'mac', targetRevision: 'target-1' },
+      } as const;
+      eventStore.createSessionWithRuntimeBinding(
+        {
+          sessionId: 'prepared-mode',
+          cwd: '/workspace',
+          repositoryWorkspaceId: 'original',
+          mode: 'agent',
+          accountBinding: { ...binding.account, accountLabel: 'Personal', model: 'fixture' },
+        },
+        binding,
+      );
+      const receipt = { workspaceId: 'original', firstCommandId: null };
+      const receiptRead = vi
+        .spyOn(eventStore, 'getOrdinarySessionPreparationForConversation')
+        .mockReturnValue(receipt as never);
+      const record = { id: 'original', state: 'reserved' };
+      let changed = false;
+      const workspace = vi.spyOn(workspaceRuntime, 'getRepositoryWorkspaces').mockReturnValue({
+        get: () => (changed ? { ...record, state: 'retired' } : record),
+      } as never);
+      const primary = vi
+        .spyOn(auth, 'isAuthenticatedOperatorSessionId')
+        .mockReturnValue(state !== 'service');
+      const revocation = vi.spyOn(auth, 'hasPersistentRevocationAuthority').mockReturnValue(true);
+      const qualify = vi
+        .spyOn(preparedCommands, 'repositoryPreparedCommandStatus')
+        .mockImplementation(async (options) => {
+          options.assertCurrent();
+          changed = state === 'changed';
+          return { prepared: state !== 'unavailable' };
+        });
+      try {
+        for (const mode of state === 'ready' ? ['ask', 'auto', 'agent'] : ['ask']) {
+          const response = await request(testServer)
+            .post('/api/chat/mode')
+            .set('X-Connection-ID', CONNECTION_ID)
+            .send({ type: 'set_mode', sessionId: 'prepared-mode', mode });
+          expect(response.status).toBe(state === 'ready' ? 200 : 409);
+          expect(eventStore.getSession('prepared-mode')?.mode).toBe('agent');
+          expect(eventStore.getSession('prepared-mode')?.permissionMode).toBe(
+            state === 'ready' ? mode : undefined,
+          );
+        }
+      } finally {
+        receiptRead.mockRestore();
+        workspace.mockRestore();
+        primary.mockRestore();
+        revocation.mockRestore();
+        qualify.mockRestore();
+        registry.dispose();
+        vi.mocked(handleSetModeV2).mockResolvedValue({
+          ok: true,
+          applied: true,
+          persisted: true,
+          mode: 'agent',
+        });
+      }
+    },
+  );
+
+  it.each([
+    [true, false],
+    [false, false],
+    [true, true],
+  ])(
+    'POST /mode preserves ordinary admission while checking the owning login (owned=%s, expired=%s)',
+    async (owned, expired) => {
+      const actual =
+        await vi.importActual<typeof import('../ws-handler-v2.js')>('../ws-handler-v2.js');
+      vi.mocked(handleSetModeV2).mockImplementationOnce(actual.handleSetModeV2);
+      const registry = new SessionRegistry();
+      handlerContext.sessionRegistry = registry;
+      const binding = {
+        version: 2,
+        account: { accountId: 'personal', provider: 'openai-codex', profileRevision: 'profile-1' },
+        harness: { implementation: 'codex' },
+        execution: { location: 'local', targetId: 'mac', targetRevision: 'target-1' },
+      } as const;
+      const accountBinding = {
+        ...binding.account,
+        accountLabel: 'Personal',
+        model: 'fixture-model',
+      };
+      eventStore.createSessionWithRuntimeBinding(
+        {
+          sessionId: 'bound-mode',
+          cwd: '/workspace',
+          repositoryWorkspaceId: 'workspace',
+          mode: 'agent',
+          accountBinding,
+        },
+        binding,
+      );
+      registry.register('mode-owner', {
+        transport: connRegistry.get(CONNECTION_ID)!.transport,
+        abortController: new AbortController(),
+        mode: 'agent',
+        sessionId: 'bound-mode',
+        sessionAllowList: new Set(),
+        accountBinding,
+        ownerConnectionId: CONNECTION_ID,
+        ownedLocalAuthSessionId: owned ? 'consent-login' : 'other-login',
+      });
+      let restoreClock: (() => void) | undefined;
+      const applyMode = vi.fn(async () => {
+        if (expired) {
+          const clock = vi.spyOn(Date, 'now').mockReturnValue(Date.now() + 120_000);
+          restoreClock = () => clock.mockRestore();
+        }
+      });
+      registry.get('mode-owner')!.queryInstance = {
+        interrupt: vi.fn(),
+        close: vi.fn(),
+        stopTask: vi.fn(),
+        setPermissionMode: applyMode,
+      };
+      try {
+        const response = await request(testServer)
+          .post('/api/chat/mode')
+          .set('X-Connection-ID', CONNECTION_ID)
+          .send({ type: 'set_mode', sessionId: 'bound-mode', mode: 'auto' });
+        expect(response.status).toBe(owned && !expired ? 200 : 409);
+        expect(applyMode).toHaveBeenCalledTimes(owned ? 1 : 0);
+        expect(eventStore.getSession('bound-mode')?.mode).toBe('agent');
+        expect(eventStore.getSession('bound-mode')?.permissionMode).toBe(
+          owned && !expired ? 'auto' : undefined,
+        );
+      } finally {
+        restoreClock?.();
+        registry.dispose();
+      }
+    },
+  );
 
   it('POST /mode calls handleSetModeV2', async () => {
     const res = await request(testServer)

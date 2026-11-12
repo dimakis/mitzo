@@ -10,6 +10,38 @@ vi.mock('@anthropic-ai/claude-agent-sdk', () => ({
   getSessionInfo: vi.fn(async () => ({ sessionId: 'original', cwd: '/task' })),
   getSessionMessages: vi.fn(async () => [{ uuid: 'input' }]),
 }));
+it('restores current user policy for every successor while retaining frozen command mode', async () => {
+  const controller = new AbortController();
+  let mode: 'plan' | 'default' = 'plan';
+  const modes: Options['permissionMode'][] = [];
+  vi.mocked(query).mockImplementation((request) => {
+    modes.push(request.options?.permissionMode);
+    return { close: vi.fn(), async *[Symbol.asyncIterator]() {} } as never;
+  });
+  const owner = createOrdinaryLocalVertexSdkQuery({
+    options: { permissionMode: 'plan' },
+    input: new AsyncQueue(),
+    controller,
+    lifetime: new SdkHookLifetime(),
+    sdkSessionId: 'original',
+    cwd: '/task',
+    authorize: async () => {},
+    authorizeSync: () => {},
+    adapt: (q) => q as never,
+    settings: () => ({}),
+    inputChanged: () => {},
+    getPermissionMode: () => mode,
+  });
+  const selection = { model: 'original-model', permission: { mode: 'ask', revision: 0 } } as const;
+  try {
+    await owner.apply(selection as never);
+    for (mode of ['default', 'plan', 'default'] as const) await owner.apply(selection as never);
+    expect(modes).toEqual(['plan', 'default', 'plan', 'default']);
+    expect(selection.permission).toEqual({ mode: 'ask', revision: 0 });
+  } finally {
+    controller.abort();
+  }
+});
 it('checks peer input immediately before stdin yield and consumes peer ACKs before ordinary result correlation', async () => {
   let prompt!: AsyncIterable<import('@anthropic-ai/claude-agent-sdk').SDKUserMessage>;
   const events = new AsyncQueue<Record<string, unknown>>();

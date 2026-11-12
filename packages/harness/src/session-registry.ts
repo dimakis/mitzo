@@ -90,9 +90,13 @@ export interface ManagedSession {
   worktreePaths: Map<string, { path: string; wtId: string }>;
   /** Requested transitions constrain tools immediately until runtime acknowledgment. */
   pendingPermissionModes?: Map<symbol, MitzoMode>;
+  /** Live user policy; mode remains the immutable ordinary admission selection. */
+  permissionMode?: MitzoMode;
   queryInstance?: {
     /** Apply the shared Mitzo mode to provider runtime controls, when required. */
     setPermissionMode?: (mode: MitzoMode) => Promise<void>;
+    /** Authenticated user settings; ordinary command controls stay immutable. */
+    setUserPermissionMode?: (mode: MitzoMode, assertCurrent: () => void) => Promise<void>;
     /** Apply explicit conversation-scoped native web-search consent. */
     setWebSearchGrant?: (
       expectedRevision: number,
@@ -136,10 +140,10 @@ export interface ManagedSession {
 
 /** Never expand permissions until a transition succeeds; apply downgrades immediately. */
 export function effectivePermissionMode(
-  session: Pick<ManagedSession, 'mode' | 'pendingPermissionModes'>,
+  session: Pick<ManagedSession, 'mode' | 'permissionMode' | 'pendingPermissionModes'>,
 ): MitzoMode {
   const rank: Record<MitzoMode, number> = { ask: 0, agent: 1, auto: 2 };
-  let mode = session.mode;
+  let mode = session.permissionMode ?? session.mode;
   for (const pending of session.pendingPermissionModes?.values() ?? []) {
     if (rank[pending] < rank[mode]) mode = pending;
   }
@@ -650,7 +654,7 @@ export class SessionRegistry {
       result.push({
         clientId,
         sessionId: session.sessionId,
-        mode: session.mode,
+        mode: effectivePermissionMode(session),
         model: session.model ?? session.accountBinding?.model,
         accountLabel: session.accountBinding?.accountLabel,
         cwd: session.cwd,

@@ -2210,6 +2210,10 @@ async function _startChatInner(
   }
   if (options.skillAllowedTools) setSkillPolicy(registry, clientId, options.skillAllowedTools);
   session.model = options.model ?? session.model;
+  // Ordinary receipts keep their original selection. The separate user policy
+  // is restored before provider/tool startup and remains mutable between turns.
+  if (session.sessionId)
+    session.permissionMode = eventStore.getSession(session.sessionId)?.permissionMode ?? undefined;
   session.inputQueue = inputQueue as { push: (msg: unknown) => void; close: () => void };
   _onSessionChange?.(clientId, 'start');
 
@@ -2986,7 +2990,7 @@ This is an independent checkout with its own Git storage, not a linked worktree.
               ? '\n' + PEER_MESSAGE_INSTRUCTIONS + '\n'
               : GITHUB_PUBLISHING_INSTRUCTIONS + SESSION_TOOL_INSTRUCTIONS),
         },
-        permissionMode: MODE_TO_SDK[session.mode] as 'plan' | 'default',
+        permissionMode: MODE_TO_SDK[effectivePermissionMode(session)] as 'plan' | 'default',
         allowedTools: options.ordinarySdkAuthority
           ? [
               'mcp__mitzo-connections__SymposiumReadProfiles',
@@ -3041,6 +3045,8 @@ This is an independent checkout with its own Git storage, not a linked worktree.
           authorize: authorizeSdkContext,
           authorizeSync: (signal) => options.ordinarySdkAuthority!.assertCurrentSync(signal),
           adapt: adaptSdkQuery,
+          getPermissionMode: () =>
+            MODE_TO_SDK[effectivePermissionMode(session)] as 'plan' | 'default',
           settings: (selection) => ({
             model: parseModelSpec(selection.model).model,
             thinking: resolveThinking(selection.model),
@@ -4208,6 +4214,7 @@ export async function prepareOwnedCodexChat(
       sessionId,
       cwd: expected.workspace.cwd,
       mode: expected.selection.permission.mode,
+      permissionMode: eventStore.getSession(sessionId)?.permissionMode ?? undefined,
       model: expected.selection.model,
       branch: 'featureBranch' in workspace ? workspace.featureBranch : undefined,
       agentName: expected.agentProfile?.definition.name,
@@ -6432,6 +6439,7 @@ export async function startOwnedLocalResponsesCommand(
         sessionId,
         cwd: selected.expected.workspace.cwd,
         mode: selected.expected.selection.permission.mode,
+        permissionMode: eventStore.getSession(sessionId)?.permissionMode ?? undefined,
         model: selected.expected.selection.model,
         branch: selected.workspace.featureBranch,
         accountBinding: selected.binding,

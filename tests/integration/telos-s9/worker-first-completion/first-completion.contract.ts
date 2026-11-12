@@ -215,7 +215,7 @@ it('CT11 FIRST completion from an eligible started worker is refused after expli
         settled = true;
       },
     );
-    const allow = page.getByRole('button', { name: 'Allow Once', exact: true });
+    const allow = page.getByRole('button', { name: 'Approve once', exact: true });
     await vi.waitFor(async () => expect(settled || (await allow.count()) > 0).toBe(true), {
       timeout: 10_000,
     });
@@ -458,7 +458,7 @@ it('CT11 FIRST completion from an eligible started worker is refused after expli
         settled = true;
       },
     );
-    const allow = page.getByRole('button', { name: 'Allow Once', exact: true });
+    const allow = page.getByRole('button', { name: 'Approve once', exact: true });
     await vi.waitFor(async () => expect(settled || (await allow.count()) > 0).toBe(true), {
       timeout: 10_000,
     });
@@ -527,7 +527,9 @@ it('CT11 FIRST completion from an eligible started worker is refused after expli
       permissionsBefore,
     );
   }
-  await browserExpect(page.getByRole('button', { name: 'Allow Once', exact: true })).toHaveCount(0);
+  await browserExpect(page.getByRole('button', { name: 'Approve once', exact: true })).toHaveCount(
+    0,
+  );
   expect(after.task).toEqual(immediatelyBefore.task);
   expect(after.work).toEqual(immediatelyBefore.work);
   for (const key of [

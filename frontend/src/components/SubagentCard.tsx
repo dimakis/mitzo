@@ -1,6 +1,4 @@
-import { MotionPresence } from './MotionPresence';
-import { UiIcon } from './UiIcon';
-import { useState } from 'react';
+import { OperationCard } from './OperationCard';
 import type { FinishedSubagentState, StreamingSubagentState } from '@mitzo/protocol';
 import { ThinkingBlock } from './ThinkingBlock';
 import { ToolPill } from './ToolPill';
@@ -19,8 +17,6 @@ function formatTokens(usage?: { inputTokens: number; outputTokens: number }): st
 }
 
 export function SubagentCard({ subagent, description, sessionId }: SubagentCardProps) {
-  const [expanded, setExpanded] = useState(false);
-
   const status =
     subagent.status ?? ('running' in subagent && subagent.running ? 'running' : 'completed');
   const isRunning = status === 'running';
@@ -49,28 +45,24 @@ export function SubagentCard({ subagent, description, sessionId }: SubagentCardP
   const toolCount = blocks.filter((b) => b.blockType === 'tool_use').length;
 
   return (
-    <div
+    <OperationCard
+      title={summary}
+      kind="Agent"
+      icon="agents"
+      status={isRunning ? 'Running...' : status === 'completed' ? 'Done' : undefined}
+      tone={status === 'failed' || status === 'unavailable' ? 'error' : 'normal'}
+      scope={
+        <>
+          <span
+            className={`tool-pill-dot ${isRunning ? 'tool-pill-dot--pending' : status === 'failed' ? 'tool-pill-dot--error' : status === 'completed' ? 'tool-pill-dot--done' : 'tool-pill-dot--interrupted'}`}
+          />
+          {toolCount > 0 && <span className="tool-pill-badge">{toolCount}</span>}
+          {usage && <span className="tool-pill-tokens">{formatTokens(usage)}</span>}
+        </>
+      }
       className={`tool-pill tool-pill--agent ${done ? 'tool-pill--done' : 'tool-pill--running'}`}
-    >
-      <button
-        className="tool-pill-header"
-        onClick={() => setExpanded((e) => !e)}
-        aria-expanded={expanded}
-      >
-        <span
-          className={`tool-pill-dot ${isRunning ? 'tool-pill-dot--pending' : status === 'failed' ? 'tool-pill-dot--error' : status === 'completed' ? 'tool-pill-dot--done' : 'tool-pill-dot--interrupted'}`}
-        />
-        <span className="tool-pill-name">Agent</span>
-        <span className="tool-pill-input">{summary}</span>
-        {toolCount > 0 && <span className="tool-pill-badge">{toolCount}</span>}
-        {usage && <span className="tool-pill-tokens">{formatTokens(usage)}</span>}
-        {!done && <span className="tool-pill-status">Running...</span>}
-        <span className="tool-pill-chevron">
-          <UiIcon name={expanded ? 'down' : 'forward'} size={16} />
-        </span>
-      </button>
-
-      <MotionPresence open={expanded} kind="disclosure" appear={false}>
+      toggleLabel={`Details for Agent ${summary}`}
+      details={
         <div className="tool-pill-detail">
           {status === 'failed' && (
             <p>Subagent failed. Review retained output before asking the parent to retry.</p>
@@ -105,7 +97,7 @@ export function SubagentCard({ subagent, description, sessionId }: SubagentCardP
             return null;
           })}
         </div>
-      </MotionPresence>
-    </div>
+      }
+    />
   );
 }

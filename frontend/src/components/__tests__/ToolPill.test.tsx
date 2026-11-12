@@ -14,6 +14,41 @@ function wrap(ui: React.ReactElement) {
 }
 
 describe('ToolPill', () => {
+  it.each([
+    'Bash',
+    'Read',
+    'Write',
+    'Edit',
+    'GitHubRead',
+    'TaskExecution',
+    'mcp__atlassian__search',
+    'AnUnknownFutureTool',
+  ])('uses the shared operation header and retains exact evidence for %s', (toolName) => {
+    const input = '{"path":"/workspace/source","requestId":"keep-original"}';
+    const output = 'Full original output\n'.repeat(40);
+    const { container } = render(
+      wrap(
+        <ToolPill
+          block={{
+            blockId: 'call',
+            blockType: 'tool_use',
+            content: '',
+            toolName,
+            toolInput: input,
+            toolResult: output,
+          }}
+        />,
+      ),
+    );
+    expect(
+      screen.getByRole('heading', { name: toolName }).closest('.operation-header'),
+    ).toBeTruthy();
+    expect(container.querySelector('.operation-status')?.textContent).toBe('Done');
+    expect(screen.queryByText(/Full original output/)).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: /^Details for/ }));
+    expect(container.querySelector('.operation-details')?.textContent).toContain('keep-original');
+    expect(screen.getByText(/Full original output/).textContent).toBe(output);
+  });
   it('shows why outcome creation failed without opening the tool group or raw call', () => {
     const failed: FinishedBlock = {
       blockId: 'outcome-failed',
@@ -43,7 +78,7 @@ describe('ToolPill', () => {
       expectedRevision: 3,
     }),
   };
-  it('opens exact task review from its native result disclosure without an inline editor', () => {
+  it('opens exact task review directly from the shared header without an inline editor', () => {
     function Location() {
       const location = useLocation();
       return <output data-testid="location">{location.pathname + location.search}</output>;
@@ -54,7 +89,9 @@ describe('ToolPill', () => {
         <Location />
       </MemoryRouter>,
     );
-    expect(screen.queryByRole('link', { name: 'Review task in Library' })).toBeNull();
+    expect(
+      screen.getByRole('link', { name: 'Review task in Library' }).closest('.operation-header'),
+    ).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: /AgentProposeTask/ }));
     expect(screen.queryByText(taskProposal.toolResult!)).toBeNull();
     expect(screen.queryByRole('region', { name: 'Task editor' })).toBeNull();
@@ -87,6 +124,9 @@ describe('ToolPill', () => {
         />,
       ),
     );
+    expect(
+      screen.getByRole('link', { name: 'Review task in Library' }).closest('.operation-header'),
+    ).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: /2 tool calls/ }));
     fireEvent.click(screen.getByRole('button', { name: /AgentProposeTask/ }));
     expect(screen.getAllByRole('link', { name: 'Review task in Library' })).toHaveLength(1);
@@ -311,7 +351,7 @@ describe('ToolPill', () => {
       const { container } = render(wrap(<ToolPill block={block} />));
       fireEvent.click(screen.getByRole('button'));
 
-      expect(screen.getByText('Command')).toBeTruthy();
+      expect(container.querySelector('.code-block-highlight')?.textContent).toContain('Command');
       expect(container.querySelector('.code-block-highlight')).toBeTruthy();
     });
   });

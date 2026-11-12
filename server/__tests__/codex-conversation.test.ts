@@ -3133,6 +3133,85 @@ it('rejects stale or mid-turn web-search consent without reopening the thread', 
   await expect(c.setWebSearchGrant(0, 'allowed')).rejects.toThrow('between turns');
   expect(rpc.close).not.toHaveBeenCalled();
 });
+
+it('switches user modes repeatedly without replacing retained web-search consent', async () => {
+  const { c, requests } = await setup();
+  const assertCurrent = vi.fn();
+  await c.setWebSearchGrant(0, 'allowed');
+  for (const [mode, access] of [
+    ['ask', 'disabled'],
+    ['auto', 'live'],
+    ['ask', 'disabled'],
+    ['agent', 'live'],
+  ] as const) {
+    await c.setUserPermissionMode(mode, assertCurrent);
+    expect(
+      requests.filter(({ method }) => method === 'thread/resume').at(-1)?.params,
+    ).toMatchObject({ config: { web_search: access } });
+    expect(c.getWebSearchGrant()).toMatchObject({ grant: 'allowed', revision: 1 });
+  }
+  expect(assertCurrent).toHaveBeenCalled();
+});
+
+it('refuses a user mode update after authorization is revoked before provider effects', async () => {
+  const { c, rpc } = await setup();
+  await expect(
+    c.setUserPermissionMode('auto', () => {
+      throw Error('Revoked');
+    }),
+  ).rejects.toThrow('Revoked');
+  expect(rpc.close).not.toHaveBeenCalled();
+  expect(c.getWebSearchGrant()).toMatchObject({ grant: 'unresolved', revision: 0 });
+});
+it('closes the replacement process when mode authority is revoked during a tool-surface reconnect', async () => {
+  const { c, rpc } = await setup();
+  await c.setWebSearchGrant(0, 'allowed');
+  (
+    c as unknown as { pendingToolSurface: { thread: string; revision: string } }
+  ).pendingToolSurface = { thread: 'provider-thread', revision: 'pending' };
+  let current = true;
+  const request = rpc.request.getMockImplementation()!;
+  rpc.request.mockImplementation(async (...args: Parameters<typeof request>) => {
+    const result = await request(...args);
+    if (args[0] === 'thread/resume') current = false;
+    return result;
+  });
+  rpc.close.mockClear();
+  await expect(
+    c.setUserPermissionMode('ask', () => {
+      if (!current) throw Error('Revoked');
+    }),
+  ).rejects.toThrow('Revoked');
+  expect(rpc.close).toHaveBeenCalledTimes(2);
+  expect(c.isPaused()).toBe(true);
+});
+it.each([false, true])(
+  'rechecks mode authority after context preparation before provider dispatch (reconnect=%s)',
+  async (reconnect) => {
+    const { c, conversationOptions, requests } = await setup();
+    await c.setWebSearchGrant(0, 'allowed');
+    if (reconnect)
+      (
+        c as unknown as { pendingToolSurface: { thread: string; revision: string } }
+      ).pendingToolSurface = { thread: 'provider-thread', revision: 'pending' };
+    let current = true;
+    conversationOptions.prepareAgentContext = async () => {
+      current = false;
+    };
+    const before = requests.filter(
+      ({ method }) => method === 'thread/resume' || method === 'thread/start',
+    ).length;
+    await expect(
+      c.setUserPermissionMode('ask', () => {
+        if (!current) throw Error('Revoked');
+      }),
+    ).rejects.toThrow('Revoked');
+    expect(
+      requests.filter(({ method }) => method === 'thread/resume' || method === 'thread/start'),
+    ).toHaveLength(before);
+    expect(c.isPaused()).toBe(true);
+  },
+);
 it('recovers after consent persistence fails following transport retirement', async () => {
   const { c, store, rpc, requests, getBinding } = await setup();
   vi.spyOn(store, 'setWebSearchGrant').mockImplementationOnce(() => {

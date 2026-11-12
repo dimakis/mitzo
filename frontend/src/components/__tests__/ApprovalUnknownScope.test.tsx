@@ -61,8 +61,10 @@ it.each([
       />,
     );
     expect(screen.getByText(fact)).toBeTruthy();
-    expect(document.querySelector('.approval-request-details')?.hasAttribute('open')).toBe(false);
-    fireEvent.click(screen.getByRole('button', { name: 'Allow Once' }));
+    expect(
+      screen.getByRole('button', { name: 'Request details' }).getAttribute('aria-expanded'),
+    ).toBe('false');
+    fireEvent.click(screen.getByRole('button', { name: 'Approve once' }));
     expect(respond).toHaveBeenCalledWith('approval-206', 'once', tool);
   },
 );

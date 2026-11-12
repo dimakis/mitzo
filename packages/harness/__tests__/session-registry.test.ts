@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
-import { SessionRegistry } from '../src/session-registry.js';
+import { SessionRegistry, effectivePermissionMode } from '../src/session-registry.js';
 import {
   DETACHED_TTL_MS,
   CLOSEOUT_LEAD_MS,
@@ -12,6 +12,21 @@ import type { SessionTransport } from '../src/session-transport.js';
 function fakeTransport(): SessionTransport {
   return { send: vi.fn(), isOpen: () => true };
 }
+
+it('uses the saved user mode and retains restrictive pending transitions', () => {
+  const session = {
+    mode: 'agent' as const,
+    permissionMode: 'auto' as const,
+    pendingPermissionModes: new Map<symbol, 'ask' | 'agent' | 'auto'>(),
+  };
+  expect(effectivePermissionMode(session)).toBe('auto');
+  const pending = Symbol();
+  session.pendingPermissionModes.set(pending, 'ask');
+  expect(effectivePermissionMode(session)).toBe('ask');
+  session.pendingPermissionModes.delete(pending);
+  expect(effectivePermissionMode(session)).toBe('auto');
+  expect(session.mode).toBe('agent');
+});
 
 describe('SessionRegistry', () => {
   let registry: SessionRegistry;

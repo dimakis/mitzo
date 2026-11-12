@@ -4,10 +4,12 @@ export function ApprovalRequestSummary({
   input,
   toolName,
   description,
+  summaryOnly = false,
 }: {
   input: string;
   toolName?: string;
   description?: string;
+  summaryOnly?: boolean;
 }) {
   const presentation = approvalPresentation(input, toolName);
   return (
@@ -37,14 +39,16 @@ export function ApprovalRequestSummary({
           Review the request details before allowing this operation.
         </p>
       )}
-      <details
-        className="approval-request-details perm-banner-details"
-        open={!presentation.recognized}
-      >
-        <summary>Request details</summary>
-        {description && <p>{description}</p>}
-        <pre className="perm-banner-input">{input}</pre>
-      </details>
+      {!summaryOnly && (
+        <details
+          className="approval-request-details perm-banner-details"
+          open={!presentation.recognized}
+        >
+          <summary>Request details</summary>
+          {description && <p>{description}</p>}
+          <pre className="perm-banner-input">{input}</pre>
+        </details>
+      )}
     </>
   );
 }

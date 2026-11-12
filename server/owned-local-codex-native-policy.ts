@@ -4,6 +4,7 @@ import { realpathSync } from 'node:fs';
 import { isAbsolute, relative, resolve, sep } from 'node:path';
 import type { MitzoMode, AccountBinding } from '@mitzo/protocol';
 import type { ManagedSession } from './session-registry.js';
+import { effectivePermissionMode } from '@mitzo/harness';
 import { loadAccountProfiles } from './account-profiles.js';
 import { privateCodexPathSnapshot } from './codex-private-path.js';
 import {
@@ -24,7 +25,7 @@ export function composeOwnedLocalNativeExecutionPolicy(input: {
 }) {
   return composeOwnedLocalNativeExecutionPolicyForWorkspace(input, () => ({
     cwd: input.session.cwd!,
-    mode: input.session.mode,
+    mode: effectivePermissionMode(input.session),
     workspaceRoots: input.session.worktreePaths.size
       ? [...input.session.worktreePaths.values()].map((entry) => entry.path)
       : [input.session.cwd!],
