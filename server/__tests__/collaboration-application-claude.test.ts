@@ -425,6 +425,52 @@ it('silently joins personal Claude alongside a separate API-key participant and 
     expect(observed.inputs[3].sessionId).toBe(observed.inputs[0].sessionId);
     expect((await restored.api.send(group, cold)).messageId).toBe(continued.messageId);
     expect(observed.inputs).toHaveLength(4);
+
+    // Stop A with shared B durably queued, then lose B's in-memory source
+    // observer through restart. An explicit cold continuation cannot authorize B.
+    observed.holdNext = true;
+    const held = { ...cold, requestId: crypto.randomUUID(), text: 'Hold before queued recovery' };
+    await restored.api.send(group, held);
+    await vi.waitFor(() => expect(observed.settle).toBeTypeOf('function'));
+    const queued = await restored.api.send(group, {
+      ...cold,
+      requestId: crypto.randomUUID(),
+      text: 'Private queued context must not escape',
+    });
+    const queuedId = queued.deliveries.find((d) => d.sessionId === joinedSessionId)!.commandId!;
+    expect(restored.events.getOrdinaryLocalVertexCommandAdmission(queuedId)?.state).toBe(
+      'consumed',
+    );
+    expect(restored.events.getExecutionAdmission(joinedSessionId, queuedId)).toBeUndefined();
+    await restored.api.stopSend(group, held);
+    observed.settle!();
+    await vi.waitFor(async () =>
+      expect((await restored.api.observeSend(group, held)).terminal).toBe(true),
+    );
+    expect(observed.inputs).toHaveLength(5);
+    const currentChat = await import('../chat.js');
+    const currentWorkspaces = await import('../repository-workspace-runtime.js');
+    const live = currentChat.registry.findBySessionId(joinedSessionId);
+    if (live) currentChat.registry.abort(live.clientId);
+    await vi.waitFor(() => currentWorkspaces.getRepositoryWorkspaces(true).closeIdle());
+    native.restore();
+    await journey.restartApplication();
+    const recovered = await journey.getApplicationUiJourney();
+    (await import('../auth.js')).setAuthRevocationStore(recovered.events);
+    native = await recordApplicationMessagingRuntime(recovered.events);
+    const recoveryView = await recovered.api.view(group);
+    const refusal = await recovered.api.send(group, {
+      ...cold,
+      requestId: crypto.randomUUID(),
+      expectedMembershipRevision: recoveryView.membershipRevision,
+      expectedPolicySequence: recoveryView.policySequence,
+      text: 'Explicit cold continuation cannot replace the original sharing authority',
+    });
+    expect(refusal.deliveries.find((d) => d.sessionId === joinedSessionId)?.status).toBe(
+      'uncertain',
+    );
+    expect(recovered.events.getExecutionAdmission(joinedSessionId, queuedId)).toBeUndefined();
+    expect(observed.inputs).toHaveLength(5);
   } finally {
     const { registry } = await import('../chat.js');
     for (const sessionId of [joinedSessionId, apiSessionId]) {

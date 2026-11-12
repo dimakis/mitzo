@@ -687,3 +687,20 @@ shared route has not been accepted by this documentation change.
 Production activation, provider enrollment and retained-owner/resource settlement
 remain separate, operation-specific requirements. Live model tests explicitly
 use a supported Luna model with the exact charged account announced beforehand.
+
+## Source review follow-up — 12 November 2026
+
+The personal Claude candidate preserves current SDK peer/user steering, ordinary
+sender checks and Symposium command lifecycle fences together. A shared command
+recovered from the durable queue cannot dispatch without its original live source
+observer. Recovery preserves the queued command and reports uncertainty; a new
+continuation does not grant permission to replay its private context.
+
+The recording-transport application journey now queues B behind A, stops and
+settles A, restarts, and requests an explicit cold continuation. It verifies that
+B gets no execution admission or provider input when its observer is unavailable.
+The owner-level refusal and application outcome were observed failing before the
+correction and passing afterward. Earlier fresh joining, independent personal/API
+participants, attributed replies, exact artifacts, Stop and normal cold continuation
+remain in the same journey. These are offline source checks, not live account,
+device, deployment or full-feature acceptance.

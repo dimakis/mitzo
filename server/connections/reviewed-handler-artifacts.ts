@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.1072-symposium-claude-integration';
+  'v1.0.1073-symposium-claude-recovery-fence';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -34,9 +34,9 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../tests/offline/symposium-joining-review.spec.ts':
     'a358613009c080cd19182eebae43bb62ebf79739ac4e8e0efee5598a1279f61d',
   '../__tests__/collaboration-application-claude.test.ts':
-    '8b6d9f5b45d3a9b3046a859823227863b63388aa6323be8286e5680e9a872105',
+    '7e631a13551a5349b0c0d3110b420932140d6a1e860287736db04c541f0253d8',
   '../__tests__/ordinary-local-vertex-command-owner.test.ts':
-    '628163db3e12660d1a46a4d3ef9a767bd0cffdef115a5712d944eda5311b2bb5',
+    '3b975b54d6be0157211526138905908a2d36dc49d1e990be96c30b31cae34ccd',
   '../__tests__/ordinary-sdk-turn-evidence.test.ts':
     '20062ac6d79bad52aedfb4e0fd33bc773fb5d703c6a252c4747c761b8511c854',
   '../ordinary-sdk-turn-evidence.ts':
@@ -484,7 +484,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../docs/evidence/symposium-integration-acceptance.md':
     '576918c0c6d980938e2468a459740bfb814f14275326ebac732ab8d361b5cee0',
   '../../docs/features/symposium.md':
-    'c1402ff2ab154670e698f5f75a146719174b12f21dc1d07f1825821284cdf453',
+    'b10475552029a79fd878b43ba6589f1fb17ee836e2e64e966b8be34e1eb319a8',
   '../repository-capability-identity.ts':
     '2e35f24342d36e21f6c559afa93758f9ef83a2e3e435eda6d46e1a6101d16392',
   '../task-capability-consent.ts':
@@ -2844,7 +2844,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../ordinary-local-vertex-sdk-query.ts':
     'd1c0949cd240a1ebe3c96b4ebdedd78d07c237cead5b67b50378729871c31dee',
   '../ordinary-local-vertex-command-owner.ts':
-    '97dcfedef3cab8f72bd409e024e53d359f2f92d4527a2105690d6c75afef7bf1',
+    'd7b253f4354c8f574226b9775606dda4401c5fdcb2f349a53e7c3d0ef6bd873b',
   '../ordinary-local-vertex-capabilities.ts':
     'c19de2d61b857a29e29f7ca845e62dc5603c943892bf38ba78e9eca67868322e',
   '../ordinary-local-vertex-queue.ts':

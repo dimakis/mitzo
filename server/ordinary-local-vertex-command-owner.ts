@@ -56,6 +56,14 @@ export class OrdinaryLocalVertexCommandOwner {
   activeCommandId(): string | undefined {
     return this.#active?.commandId ?? this.#dispatchingCommandId;
   }
+  #turnLifecycle(commandId: string): OrdinaryTurnLifecycle | undefined {
+    const lifecycle = this.owners.turnLifecycle?.(commandId);
+    // Shared commands use this owner-issued namespace. A durable queue entry
+    // preserves content and identity, but cannot recreate its source grant.
+    if (commandId.startsWith('collaboration:') && !lifecycle)
+      throw Error('Original shared SDK source authority unavailable; review the queued command');
+    return lifecycle;
+  }
   captureInterruptTarget(): OrdinarySdkInterruptTarget | undefined {
     if (
       this.#failed ||
@@ -116,7 +124,7 @@ export class OrdinaryLocalVertexCommandOwner {
       throw Error('Original SDK input command identity unavailable');
     assertOrdinarySynchronousFence(commandId, () => this.owners.assertCurrentSync!());
     assertOrdinarySynchronousFence(commandId, () =>
-      this.owners.turnLifecycle?.(commandId)?.beforeDispatch(commandId),
+      this.#turnLifecycle(commandId)?.beforeDispatch(commandId),
     );
   }
   acceptsPeerMessages(): boolean {
@@ -294,6 +302,7 @@ export class OrdinaryLocalVertexCommandOwner {
     const settings = this.owners.settings(structuredClone(admission.selection));
     await this.#fence();
     assertPreparation();
+    this.#turnLifecycle(commandId);
     // A signed queue control may cancel this consumed head during authority I/O.
     // Observe that exact cancellation before allocating an execution generation.
     if (

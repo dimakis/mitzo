@@ -153,6 +153,18 @@ it('projects a positively cancelled queued peer message into both retained trans
     ).toMatchObject({ status: 'failed', reason: 'cancelled' });
   expect(f.query.push.mock.calls.map(([id]) => id)).toEqual(['first']);
 });
+it('refuses a recovered shared queue entry without its original source observer before dispatch', async () => {
+  const f = setup();
+  await f.owner.enqueue('first');
+  await f.owner.complete('first');
+  f.query.push.mockClear();
+  const id = `collaboration:${randomUUID()}`;
+  f.store.admitOrdinaryLocalVertexContinuation(meta, binding, command(id));
+  await expect(f.owner.enqueue(id)).rejects.toThrow('shared SDK source authority');
+  expect(f.query.push).not.toHaveBeenCalled();
+  expect(f.store.getExecutionAdmission('session', id)).toBeUndefined();
+  expect(f.query.abort).toHaveBeenCalledOnce();
+});
 it('changes SDK settings only between terminal commands and preserves queued snapshots', async () => {
   const { store, owner, calls, query } = setup();
   await owner.enqueue('first');
