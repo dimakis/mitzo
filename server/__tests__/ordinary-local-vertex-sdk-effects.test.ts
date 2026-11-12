@@ -74,6 +74,7 @@ it.each(['async', 'sync', 'wrapped'] as const)(
       assertCurrentSync,
     });
     expect([...sdk.handlers.keys()]).toEqual([
+      'ListConnections',
       'SymposiumProposeProfile',
       'SymposiumReadProfiles',
       'TaskExecution',
