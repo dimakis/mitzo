@@ -7782,20 +7782,19 @@ it('discovers and executes StartSession through the actual owned native default-
     expect(unbound.isError).toBe(true);
     expect(unbound.content).toMatch(/unavailable|Do not substitute/);
     expect(controller.launches.store.forSession('owned-session', 'user')).toHaveLength(1);
-    controller.telos = {
-      propose: vi.fn(async () => ({
-        telos: {
-          version: 1,
-          parentItemId: 'parent-feature',
-          parentAssignmentRevision: 1,
-          itemId: workInput.itemId,
-          expectedRevision: workInput.expectedRevision,
-          role: 'worker',
-          sourceSnapshotIds: [],
-          artifactRefs: [],
-        },
-      })),
-    } as never;
+    const proposeWork = vi.fn(async () => ({
+      telos: {
+        version: 1,
+        parentItemId: 'parent-feature',
+        parentAssignmentRevision: 1,
+        itemId: workInput.itemId,
+        expectedRevision: workInput.expectedRevision,
+        role: 'worker',
+        sourceSnapshotIds: [],
+        artifactRefs: [],
+      },
+    }));
+    controller.telos = { propose: proposeWork } as never;
     const workResult = await execute('TelosCreateSession', workInput, signal, call);
     expect(workResult.isError, workResult.content).toBe(false);
     expect(JSON.parse(workResult.content)).toMatchObject({
@@ -7811,7 +7810,7 @@ it('discovers and executes StartSession through the actual owned native default-
       stdout: 'private process output',
       stderr: 'private process diagnostic',
     });
-    vi.mocked(controller.telos!.propose).mockRejectedValueOnce(cause);
+    proposeWork.mockRejectedValueOnce(cause);
     const failed = await execute('TelosCreateSession', failedInput, signal, call);
     const { telosSessionProposalFailure } = await import('../telos-session-proposal-failure.js');
     expect(telosSessionProposalFailure(failedInput.requestId)).toBe(cause);
@@ -7835,7 +7834,7 @@ it('discovers and executes StartSession through the actual owned native default-
     mocks.proposalLogError.mockImplementationOnce(() => {
       throw diagnosticCause;
     });
-    vi.mocked(controller.telos!.propose).mockRejectedValueOnce(cause);
+    proposeWork.mockRejectedValueOnce(cause);
     const fs = (await import('node:fs')).default;
     const write = vi.spyOn(fs, 'write');
     try {
