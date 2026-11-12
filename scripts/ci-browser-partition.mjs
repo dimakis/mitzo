@@ -2,6 +2,8 @@ import { planBrowserBatches, requireBrowserBatch } from './ci-browser-batches.mj
 import { readFileSync, readdirSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import process from 'node:process';
+import console from 'node:console';
 
 const ids = (values) => values.map((t) => t.id).sort();
 const equal = (a, b) => JSON.stringify(a) === JSON.stringify(b);
