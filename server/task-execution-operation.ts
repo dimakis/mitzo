@@ -62,6 +62,7 @@ export async function executeTaskOperation(options: {
       exact.endpoint = input.endpoint;
       exact.access = input.access ?? 'authenticated';
       if (input.view) exact.view = input.view;
+      if (input.log) exact.log = input.log;
     }
     const cwd = input.cwd ? realpathSync(resolve(session.cwd!, input.cwd)) : session.cwd!;
     if (

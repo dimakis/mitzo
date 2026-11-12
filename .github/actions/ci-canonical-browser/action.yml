@@ -13,11 +13,6 @@ runs:
         python -m venv "$RUNNER_TEMP/telos-s9-python"
         "$RUNNER_TEMP/telos-s9-python/bin/python" -m pip install --require-hashes -r tests/integration/telos-s9/integrated-candidate/fixtures/mgmt-read-requirements.txt
         echo "S9_MGMT_PYTHON=$RUNNER_TEMP/telos-s9-python/bin/python" >> "$GITHUB_ENV"
-    - uses: ./.github/actions/ci-ubuntu-mirrors
-    - shell: bash
-      run: |
-        if [[ "$RUNNER_OS" == Linux ]]; then
-          npx playwright install --with-deps chromium
-        else
-          npx playwright install chromium
-        fi
+    - uses: ./.github/actions/ci-playwright
+      with:
+        browsers: chromium
