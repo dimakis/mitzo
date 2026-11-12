@@ -5,7 +5,10 @@ import { createTelosCanonicalData } from './telos-canonical-advisor.js';
 import { TelosWorkStore } from '../../telos-work-store.js';
 import { TelosOrdinaryWorkRoleSetup } from '../../telos-ordinary-work-role-setup.js';
 import { reviewTelosWorkRoleContext } from '../../telos-work-role-review.js';
-import { isAvailableTelosWorkConversation } from '../../telos-work-conversation.js';
+import {
+  isAvailableTelosWorkConversation,
+  isAvailableTelosSourceConversation,
+} from '../../telos-work-conversation.js';
 import { retainTelosWorkRoleContext } from '../../telos-work-role-context.js';
 import { isAuthSessionCurrent } from '../../auth.js';
 import type { TelosOrdinaryWorkRoleSetupInput } from '@mitzo/protocol';
@@ -20,6 +23,8 @@ export async function createTelosOrdinaryWorkFixture(
     new TelosWorkStore(canonical.dbPath, {
       ordinaryConversation: (id) =>
         isAvailableTelosWorkConversation(native.events.getSession(id)) || id === 'planning',
+      sourceConversation: (id) =>
+        isAvailableTelosSourceConversation(native.events.getSession(id)) || id === 'planning',
     });
   let work = openWork();
   cleanup.push(() => work.close());

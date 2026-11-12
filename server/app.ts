@@ -1315,6 +1315,7 @@ const sessionLaunchController = initializeSessionLaunches(
       events: eventStore,
       dbPath: () => telosDatabasePath(),
       ordinaryConversation: (id) => isAvailableTelosWorkConversation(eventStore.getSession(id)),
+      sourceConversation: (id) => isAvailableTelosSourceConversation(eventStore.getSession(id)),
       roleHost: (authority) => telosRoleHost(authority.operatorConnectionId, true),
       qualify: async (configuration, authority) => {
         await qualifySessionLaunchConfig(configuration, authority);

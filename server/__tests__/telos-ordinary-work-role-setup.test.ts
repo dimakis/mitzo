@@ -12,7 +12,10 @@ import { createTelosSessionLaunchHost } from '../telos-session-launch-host.js';
 import { createTelosWorkRoleHost } from '../telos-work-role-host.js';
 import { SessionLaunchStore } from '../session-launch-store.js';
 import { SessionLaunchService } from '../session-launch-service.js';
-import { isAvailableTelosWorkConversation } from '../telos-work-conversation.js';
+import {
+  isAvailableTelosWorkConversation,
+  isAvailableTelosSourceConversation,
+} from '../telos-work-conversation.js';
 import type { SessionLaunchConfig } from '@mitzo/protocol';
 // Isolate chat's legacy startup metadata before imports. This is not a Git source
 // or an admitted workspace; every actual task must use its separate private ID/cwd.
@@ -56,12 +59,16 @@ const fixture = (role?: 'advisor' | 'lead' | 'worker') =>
 it.each([
   'recovery',
   'feature lead recovery',
+  'Symposium origin recovery',
+  'stale Symposium origin before allocation',
   'stale before allocation',
   'stale after reservation',
 ] as const)(
   'creates only with current parent authority and recovers original custody (%s)',
   async (scenario) => {
     const f = await fixture();
+    const sourceConversation = (id: string) =>
+      isAvailableTelosSourceConversation(f.native.events.getSession(id));
     if (scenario === 'feature lead recovery') {
       f.work.execute(
         {
@@ -105,6 +112,53 @@ it.each([
       () => {},
     );
     const settings = f.input.settings;
+    if (scenario.includes('Symposium origin')) {
+      f.native.events.upsertSession({ sessionId: 'symposium-origin', conversationSource: 'mitzo' });
+      f.native.events.setSymposiumConfig('symposium-origin', {
+        version: 1,
+        revision: 1,
+        state: 'draft',
+        seats: [
+          {
+            id: 'builder',
+            name: 'Builder',
+            role: 'primary',
+            model: 'offline',
+            systemPrompt: 'Build.',
+            color: '#8040cc',
+          },
+          {
+            id: 'reviewer',
+            name: 'Reviewer',
+            role: 'reviewer',
+            model: 'offline',
+            systemPrompt: 'Review.',
+            color: '#008888',
+          },
+        ],
+        turnRules: { mode: 'directed', maxTurns: 4 },
+        interceptMode: 'manual',
+      });
+      expect(sourceConversation('symposium-origin')).toBe(true);
+      expect(isAvailableTelosWorkConversation(f.native.events.getSession('symposium-origin'))).toBe(
+        false,
+      );
+      f.work.execute(
+        {
+          operation: 'link',
+          itemId: child.item.id,
+          requestId: 'visible-symposium-origin',
+          expectedRevision: f.work.read(child.item.id, f.actor).revision,
+          role: 'origin',
+          conversation: { namespace: 'mitzo', conversationId: 'symposium-origin' },
+        },
+        f.actor,
+      );
+      expect(
+        f.work.read(child.item.id, f.actor).links.find((link) => link.role === 'origin')
+          ?.availability,
+      ).toBe('available');
+    }
     const replaceParent = () => {
       const parent = f.work.read('studio', f.actor);
       f.work.execute(
@@ -146,6 +200,7 @@ it.each([
       events: f.native.events,
       ordinaryConversation: (id) =>
         isAvailableTelosWorkConversation(f.native.events.getSession(id)),
+      sourceConversation,
       workspaces: () => f.native.workspaces,
       resolvePreparation: async () => {
         throw Error('Repository preparation must not run');
@@ -173,6 +228,7 @@ it.each([
       dbPath: () => f.canonical.dbPath,
       ordinaryConversation: (id) =>
         isAvailableTelosWorkConversation(f.native.events.getSession(id)),
+      sourceConversation,
       roleHost: () => ({
         ...roleHost,
         setupReviewedOrdinary: async (request) => {
@@ -187,6 +243,8 @@ it.each([
       qualify: async () => {},
       prepareSettings: async () => {
         if (scenario === 'stale before allocation') replaceParent();
+        if (scenario === 'stale Symposium origin before allocation')
+          f.native.events.hideSession('symposium-origin');
         return settings;
       },
     });
@@ -218,6 +276,10 @@ it.each([
     const ordinary = { validate: vi.fn(), start: vi.fn(), inspect: vi.fn() };
     const service = new SessionLaunchService(store, ordinary, host);
     const before = f.native.events.listSessions().length;
+    const hiddenOriginReservation =
+      scenario === 'stale Symposium origin before allocation'
+        ? vi.spyOn(f.native.workspaces, 'reserveOrdinaryWorkspace')
+        : undefined;
     if (scenario === 'stale after reservation') {
       const reserve = f.native.workspaces.reserveOrdinaryWorkspace.bind(f.native.workspaces);
       vi.spyOn(f.native.workspaces, 'reserveOrdinaryWorkspace').mockImplementation(
@@ -231,7 +293,11 @@ it.each([
     const uncertain = await service.approve(record.proposalId, 'user', edits, 1, authority);
     expect(uncertain.state).toBe('uncertain');
     if (scenario.startsWith('stale')) {
-      expect(f.native.events.listSessions()).toHaveLength(before);
+      // Hiding the existing Symposium removes one visible row; it must not allocate a child.
+      expect(f.native.events.listSessions()).toHaveLength(
+        before - (hiddenOriginReservation ? 1 : 0),
+      );
+      if (hiddenOriginReservation) expect(hiddenOriginReservation).not.toHaveBeenCalled();
       expect(f.work.read(child.item.id, f.actor).assignments).toHaveLength(0);
       expect(f.native.first.launch).not.toHaveBeenCalled();
       expect(ordinary.start).not.toHaveBeenCalled();
@@ -257,6 +323,11 @@ it.each([
     expect(f.work.read(child.item.id, f.actor).assignments[0].conversation.conversationId).toBe(
       recovered.childSessionId,
     );
+    if (scenario === 'Symposium origin recovery')
+      expect(
+        f.work.read(child.item.id, f.actor).links.find((link) => link.role === 'origin')
+          ?.availability,
+      ).toBe('available');
     expect(f.native.events.getOrdinaryInitialCommandId(recovered.childSessionId!)).toBeUndefined();
     expect(f.native.first.launch).not.toHaveBeenCalled();
     expect(ordinary.start).not.toHaveBeenCalled();

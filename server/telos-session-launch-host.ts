@@ -25,6 +25,7 @@ export interface TelosSessionLaunchDependencies {
   events: EventStore;
   dbPath(): string;
   ordinaryConversation(id: string): boolean;
+  sourceConversation(id: string): boolean;
   roleHost(authority: SessionLaunchAuthority): ReturnType<typeof createTelosWorkRoleHost>;
   qualify(configuration: SessionLaunchConfig, authority: SessionLaunchAuthority): Promise<void>;
   prepareSettings(
@@ -41,6 +42,7 @@ export function createTelosSessionLaunchHost(deps: TelosSessionLaunchDependencie
     // transaction. Never acquire a second schema writer from its callback.
     const work = TelosWorkStore.openReadOnly(deps.dbPath(), {
       ordinaryConversation: deps.ordinaryConversation,
+      sourceConversation: deps.sourceConversation,
     });
     try {
       return action(work);
