@@ -7,6 +7,7 @@ import {
   SessionLaunchOrigin,
 } from '../../frontend/src/components/SessionLaunchCards';
 import { localInventoryFixture } from '../../frontend/src/test-utils/local-inventory-fixture';
+import { telosSessionLaunchFixture } from '../../frontend/src/test-utils/telos-session-launch-fixture';
 import '../../frontend/src/styles/tokens.css';
 import '../../frontend/src/styles/global.css';
 import '../../frontend/src/styles/workspace-chat.css';
@@ -29,6 +30,7 @@ const configuration: SessionLaunchConfig = {
   extraTools: [],
 };
 const initial: SessionLaunchRecord = {
+  ...(new URLSearchParams(window.location.search).has('telos') ? telosSessionLaunchFixture() : {}),
   proposalId: 'b391d65c-33c8-4ea4-a38e-84385256bb8d',
   requestId: '07eb5281-4a58-4287-97c5-6b0a92c3e9a0',
   sourceSessionId: 'origin',

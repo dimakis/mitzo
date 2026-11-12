@@ -7,6 +7,7 @@ import { SessionLaunchCards, SessionLaunchOrigin } from '../SessionLaunchCards';
 import { apiFetch } from '../../lib/api-fetch';
 import type { SessionLaunchConfig, SessionLaunchRecord } from '@mitzo/protocol';
 import { downloadFile } from '../../lib/share-file';
+import { telosSessionLaunchFixture } from '../../test-utils/telos-session-launch-fixture';
 vi.mock('../../lib/share-file', () => ({ downloadFile: vi.fn(), shareFile: vi.fn() }));
 
 const render = (children: ReactNode) => renderView(children, { wrapper: MemoryRouter });
@@ -284,4 +285,65 @@ it('uses router navigation and retains the mounted original draft when opening t
   fireEvent.click(screen.getByRole('link', { name: 'Open chat' }));
   expect(screen.getByLabelText('Route').textContent).toBe('/chat/child');
   expect((screen.getByLabelText('Draft') as HTMLTextAreaElement).value).toBe('Keep this draft');
+});
+
+it('reviews the exact work and context in the originating dialog and creates without starting', async () => {
+  const work = { ...proposal, ...telosSessionLaunchFixture() };
+  vi.mocked(apiFetch).mockResolvedValue(
+    new Response(JSON.stringify({ ...work, state: 'assigned', childSessionId: 'lead' })),
+  );
+  const onUpdate = vi.fn();
+  render(<SessionLaunchCards requests={[work]} onUpdate={onUpdate} />);
+  fireEvent.click(screen.getByRole('button', { name: 'Review new session' }));
+  expect(screen.getByRole('link', { name: 'Capability baseline' }).getAttribute('href')).toBe(
+    '/todos/feature',
+  );
+  expect(screen.getByText('Feature lead')).toBeTruthy();
+  expect(screen.getByText('Review work context')).toBeTruthy();
+  expect(screen.getByText(work.telosReview.selection.brief.text)).toBeTruthy();
+  expect(screen.queryByRole('button', { name: 'Approve & start' })).toBeNull();
+  fireEvent.click(screen.getByRole('button', { name: 'Approve & create' }));
+  await waitFor(() => expect(onUpdate).toHaveBeenCalled());
+  const [path, init] = vi.mocked(apiFetch).mock.calls[0];
+  expect(path).toBe('/api/session-launch/requests/proposal/approve');
+  expect(JSON.parse(init!.body as string)).toEqual({
+    expectedRevision: 1,
+    title: proposal.title,
+    prompt: proposal.prompt,
+    configuration,
+    saveAsDefault: false,
+  });
+});
+
+it('keeps assigned readiness distinct from execution and offers recovery for uncertain work', () => {
+  const work = { ...proposal, ...telosSessionLaunchFixture() };
+  const view = render(
+    <SessionLaunchCards
+      requests={[{ ...work, state: 'assigned', childSessionId: 'lead' }]}
+      onUpdate={vi.fn()}
+    />,
+  );
+  expect(screen.getByRole('status').textContent).toBe('Created & assigned');
+  expect(screen.getByText('Created a work chat')).toBeTruthy();
+  expect(screen.queryByText('Started')).toBeNull();
+  view.rerender(
+    <SessionLaunchCards requests={[{ ...work, state: 'uncertain' }]} onUpdate={vi.fn()} />,
+  );
+  expect(screen.getByRole('status').textContent).toBe(
+    'Assignment unconfirmed · check this request',
+  );
+  expect(screen.getByRole('button', { name: 'Recover creation' })).toBeTruthy();
+  expect(screen.queryByRole('button', { name: 'Resume startup' })).toBeNull();
+});
+
+it('blocks work approval when retained context is missing or no longer matches the selected item', () => {
+  const work = { ...proposal, ...telosSessionLaunchFixture() };
+  work.telos.itemId = 'unreviewed-item';
+  render(<SessionLaunchCards requests={[work]} onUpdate={vi.fn()} />);
+  fireEvent.click(screen.getByRole('button', { name: 'Review new session' }));
+  expect(screen.getByRole('button', { name: 'Approve & create' }).hasAttribute('disabled')).toBe(
+    true,
+  );
+  expect(screen.getByText(/Reviewed work context is unavailable/)).toBeTruthy();
+  expect(apiFetch).not.toHaveBeenCalled();
 });

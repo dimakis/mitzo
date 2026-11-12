@@ -440,6 +440,17 @@
     "requirement": "Existing session permissions, cancellation and runtime admission apply."
   },
   {
+    "id": "mitzo:TelosCreateSession",
+    "version": 1,
+    "name": "TelosCreateSession",
+    "description": "Propose a distinct ordinary session already assigned to one exact authorized Telos child. An outcome orchestrator creates its feature lead; a feature lead creates its slice worker. Supply itemId and its current revision. Review child account/model/agent/runtime/permissions and explicit work sources in this originating chat, then Approve & create. Creation admits no model command. Child settings are independent of the caller; supported child route is currently an independent Local Mac Codex workspace. Reuse the same requestId after uncertainty. Never substitute plain StartSession or manually link an unrelated chat.",
+    "source": "Session creation",
+    "required": false,
+    "behavior": "write",
+    "routes": ["local-api", "codex", "codex-owned-local"],
+    "requirement": "Existing session permissions, cancellation and runtime admission apply."
+  },
+  {
     "id": "mitzo:TaskExecution",
     "version": 1,
     "name": "TaskExecution",
