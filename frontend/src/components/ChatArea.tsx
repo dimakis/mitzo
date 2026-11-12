@@ -811,7 +811,7 @@ export function ChatArea({
             value: (
               <>
                 <div
-                  data-reply-source={msg.messageId}
+                  data-reply-source={block === firstVisibleText ? msg.messageId : undefined}
                   tabIndex={-1}
                   className={`msg-turn${streaming ? ' msg-turn--streaming' : ''}`}
                 >

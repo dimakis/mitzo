@@ -6,6 +6,7 @@ import {
   CollaborationApplicationReviewResultSchema,
   CollaborationPromptReviewInputSchema,
   CollaborationPromptReviewResultSchema,
+  CollaborationSourceArtifactsSchema,
   createOrdinaryFreshPermission,
   type CollaborationApplicationReviewInput,
   type CollaborationSnapshot,
@@ -40,6 +41,42 @@ const unavailable = () => new CollaborationContractError('execution_unavailable'
  */
 export class CollaborationApplicationReview {
   constructor(private readonly owners: { store: EventStore; workspaces: RepositoryWorkspaces }) {}
+
+  /** Bounded registered metadata only; no candidate content or inference. The
+   * source/compiler renews exact selected artifact bytes during actual review. */
+  sourceArtifacts(
+    auth: AuthSession,
+    operatorConnectionId: string,
+    group: string,
+    sourceId: string,
+  ) {
+    const operator = captureAgentLibraryAuthorization(operatorConnectionId);
+    const current = () => {
+      operator.assertCurrent();
+      const source = this.owners.store.getSession(sourceId);
+      if (
+        !isAuthSessionCurrent(auth) ||
+        operator.auth.id !== auth.id ||
+        liveTransportAuthSessionId(operatorConnectionId) !== auth.id ||
+        !source ||
+        source.isHidden ||
+        source.sessionType === 'symposium' ||
+        source.symposiumConfig ||
+        !this.owners.store.getSessionCollaboration(group)?.participantSessionIds.includes(sourceId)
+      )
+        throw unavailable();
+    };
+    current();
+    const artifacts = this.owners.store.listSessionOutputs(sourceId).map((output) => ({
+      artifactId: output.outputId,
+      revision: output.revision,
+      sha256: output.source.sha256,
+      title: output.title,
+      available: output.sourceAvailability === 'available' && !output.provenance,
+    }));
+    current();
+    return CollaborationSourceArtifactsSchema.parse({ sourceConversationId: sourceId, artifacts });
+  }
 
   /** Compile exact context for existing ordinary participants. This does not
    * prepare a session, enqueue a command or invoke an inference/capacity runtime. */
