@@ -211,14 +211,26 @@ async function promoteQuarantinedObjects(
   objectStore: string,
   assertCurrent: () => Promise<void>,
   assertPhysical: () => void,
+  assertCurrentSync?: () => void,
 ) {
+  // The caller qualifies physical/provider custody before and after this local
+  // immutable-object phase. Retain live authority at each write; callers without
+  // a synchronous owner still need the original full asynchronous fence.
+  const current = async () => {
+    if (assertCurrentSync) assertCurrentSync();
+    else await assertCurrent();
+  };
+  const mutation = () => {
+    assertCurrentSync?.();
+    assertPhysical();
+  };
   for (const fanout of await readdir(quarantine, { withFileTypes: true })) {
     if (!/^[0-9a-f]{2}$/.test(fanout.name) || !fanout.isDirectory())
       throw new Error('Unexpected entry in quarantined Git object store');
     const sourceDirectory = join(quarantine, fanout.name);
     const targetDirectory = join(objectStore, fanout.name);
-    await assertCurrent();
-    assertPhysical();
+    await current();
+    mutation();
     await mkdir(targetDirectory).catch((error: NodeJS.ErrnoException) => {
       if (error.code !== 'EEXIST') throw error;
     });
@@ -271,7 +283,8 @@ async function promoteQuarantinedObjects(
       }
       // Only a fully written immutable inode is published under an object hash.
       const temporaryPath = join(targetDirectory, `.mitzo-object-${randomUUID()}`);
-      await assertCurrent();
+      await current();
+      mutation();
       assertDirectory();
       const temporary = await open(
         temporaryPath,
@@ -283,11 +296,14 @@ async function promoteQuarantinedObjects(
         operationError: unknown,
         cleanupError: unknown;
       try {
-        await assertCurrent();
+        await current();
+        mutation();
         await temporary.writeFile(content);
         await temporary.sync();
+        mutation();
         await temporary.chmod(0o444);
-        await assertCurrent();
+        await current();
+        mutation();
         assertDirectory();
         const currentTemporary = lstatSync(temporaryPath, { bigint: true });
         if (
@@ -706,6 +722,12 @@ export async function executeTrustedGitCommit(
       join(metadata.common, 'objects'),
       assertCurrent,
       assertPhysical,
+      assertRuntimeCurrent
+        ? () => {
+            signal.throwIfAborted();
+            assertRuntimeCurrent();
+          }
+        : undefined,
     );
     await sameIdentity(join(metadata.common, 'objects'), metadata.identities.objects);
     await validateRefUpdatePaths(metadata.common, metadata.branch);
