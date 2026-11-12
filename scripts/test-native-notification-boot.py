@@ -8,6 +8,7 @@ from pathlib import Path
 import subprocess
 import unittest
 from unittest.mock import patch
+from unittest.mock import MagicMock
 
 spec = importlib.util.spec_from_file_location(
     "notification_smoke", Path(__file__).with_name("test-native-notification-bridge.py")
@@ -17,6 +18,26 @@ spec.loader.exec_module(smoke)
 
 
 class ColdBootTests(unittest.TestCase):
+    def test_background_boot_has_a_finite_deadline_and_propagates_failure(self):
+        process = MagicMock()
+        process.wait.return_value = 1
+        with patch.object(smoke.subprocess, 'Popen', return_value=process):
+            boot = smoke.ColdBoot('owned-device')
+            with self.assertRaises(subprocess.CalledProcessError):
+                boot.wait()
+        self.assertLessEqual(process.wait.call_args.kwargs['timeout'], 600)
+
+    def test_background_boot_timeout_is_not_success_and_stop_retires_only_its_process(self):
+        process = MagicMock()
+        process.wait.side_effect = [subprocess.TimeoutExpired('bootstatus', 600), 0]
+        process.poll.return_value = None
+        with patch.object(smoke.subprocess, 'Popen', return_value=process) as start:
+            boot = smoke.ColdBoot('owned-device')
+            with self.assertRaises(subprocess.TimeoutExpired): boot.wait()
+            boot.stop()
+        process.terminate.assert_called_once()
+        self.assertEqual(start.call_args.args[0], ['xcrun','simctl','bootstatus','owned-device','-b'])
+
     def test_a_four_minute_cold_boot_reaches_readiness_with_a_bounded_wait(self):
         calls = []
 
@@ -84,6 +105,44 @@ class ColdBootTests(unittest.TestCase):
 
 # These fixtures exercise only a copied offline page and mocked native commands.
 class FailureEvidenceTests(unittest.TestCase):
+    def test_same_fresh_owned_boot_overlaps_checks_and_joins_before_install(self):
+        self.check_overlap()
+
+    def test_build_failure_and_cancellation_stop_owned_boot_without_installing(self):
+        self.check_overlap(RuntimeError('build failed'))
+        self.check_overlap(KeyboardInterrupt())
+
+    def check_overlap(self, failure=None):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            app, container, preferences = self.fixture(root)
+            preferences.write_bytes(plistlib.dumps({'mitzo_notification_server_url':smoke.ORIGIN}))
+            order=[]
+            def command(*args, **options):
+                order.append(args[0])
+                if args[:2] == ('list','runtimes'): return json.dumps({'runtimes':[{'isAvailable':True,'identifier':'fixture.iOS-26','version':'26.0'}]})
+                if args[0]=='create': return 'owned-device'
+                if args[0] in ['boot','install','delete','get_app_container','launch']: self.assertEqual(args[1],'owned-device')
+                if args[0]=='get_app_container': return str(container)
+                if args[0]=='launch': return 'com.mitzo.fixture: 123'
+                return ''
+            def prepare():
+                order.append('compile')
+                self.assertIn('boot',order)
+                self.assertNotIn('join',order)
+                if failure is not None: raise failure
+            boot=MagicMock()
+            boot.wait.side_effect=lambda: order.append('join')
+            boot.stop.side_effect=lambda: order.append('stop')
+            with patch.object(smoke,'simctl',side_effect=command), patch.object(smoke,'ColdBoot',return_value=boot), patch.object(smoke,'capture_failure'), patch.object(smoke.subprocess,'run',return_value=subprocess.CompletedProcess([],0)):
+                if failure is None: smoke.smoke(app,root/'evidence',prepare=prepare)
+                else:
+                    with self.assertRaises(type(failure)): smoke.smoke(app,root/'evidence',prepare=prepare)
+            self.assertLess(order.index('compile'),order.index('stop'))
+            self.assertLess(order.index('stop'),order.index('delete'))
+            if failure is None: self.assertLess(order.index('join'),order.index('install'))
+            else: self.assertNotIn('install',order)
+
     def test_preallocation_failure_has_metadata_without_probing_other_devices(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

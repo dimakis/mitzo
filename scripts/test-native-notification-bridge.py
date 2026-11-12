@@ -11,11 +11,53 @@ import subprocess
 import sys
 import tempfile
 import time
+from contextlib import contextmanager
+from datetime import datetime, timezone
 from typing import Optional
 from pathlib import Path
 
 ORIGIN = "https://mitzo-notification-test.invalid"
 LOG_LIMIT = 64 * 1024
+
+
+@contextmanager
+def native_stage(name: str):
+    started = time.perf_counter()
+    status = 'failed'
+    print('CI_NATIVE_STAGE ' + json.dumps({'stage': name, 'event': 'start',
+          'timestamp': datetime.now(timezone.utc).isoformat()}), flush=True)
+    try:
+        yield
+        status = 'passed'
+    finally:
+        print('CI_NATIVE_STAGE ' + json.dumps({'stage': name, 'event': 'end',
+              'status': status, 'seconds': time.perf_counter() - started,
+              'timestamp': datetime.now(timezone.utc).isoformat()}), flush=True)
+
+
+class ColdBoot:
+    """Only the owned bootstatus child is retired; readiness failures propagate."""
+    def __init__(self, device: str):
+        self.started = time.perf_counter()
+        self.command = ['xcrun', 'simctl', 'bootstatus', device, '-b']
+        self.process = subprocess.Popen(self.command)
+
+    def wait(self):
+        with native_stage('boot-join'):
+            result = self.process.wait(timeout=max(0.001, 600 - (time.perf_counter() - self.started)))
+            if result:
+                raise subprocess.CalledProcessError(result, self.command)
+        print('CI_NATIVE_BOOT ' + json.dumps({'seconds': time.perf_counter() - self.started}), flush=True)
+
+    def stop(self):
+        if self.process.poll() is not None:
+            return
+        self.process.terminate()
+        try:
+            self.process.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            self.process.kill()
+            self.process.wait(timeout=5)
 
 
 def simctl(*args: str, timeout: int = 180) -> str:
@@ -119,7 +161,8 @@ def capture_failure(
 
 
 def smoke(
-    app: Path, diagnostics_root: Path = Path("test-results/native-notification")
+    app: Path, diagnostics_root: Path = Path("test-results/native-notification"),
+    prepare=None,
 ) -> None:
     failed = False
     bundle_id = None
@@ -128,6 +171,7 @@ def smoke(
     device = None
     stage = "runtimes"
     evidence = None
+    boot = None
     try:
         runtimes = json.loads(simctl("list", "runtimes", "--json"))["runtimes"]
         available = [r for r in runtimes if r["isAvailable"] and ".iOS-" in r["identifier"]]
@@ -139,6 +183,14 @@ def smoke(
             "create", "Mitzo offline notification smoke",
             "com.apple.CoreSimulator.SimDeviceType.iPhone-16", runtime["identifier"]
         )
+        if prepare is not None:
+            stage = 'boot-start'
+            with native_stage(stage):
+                simctl('boot', device)
+                boot = ColdBoot(device)
+            stage = 'native-checks-and-build'
+            with native_stage(stage):
+                prepare()
         stage = "prepare"
         with tempfile.TemporaryDirectory(prefix="mitzo-native-notifications-") as temporary:
             copied = Path(temporary) / "App.app"
@@ -171,18 +223,27 @@ window.addEventListener('load', async () => {{
                 bundle_id = plistlib.load(source)["CFBundleIdentifier"]
             print("Booting an isolated iPhone simulator for the offline bridge test.", flush=True)
             stage = "boot"
-            simctl("boot", device)
-            wait_for_boot(device)
+            if boot is not None:
+                boot.wait()
+            else:
+                with native_stage(stage):
+                    simctl("boot", device)
+                    wait_for_boot(device)
             stage = "install"
-            simctl("install", device, str(copied))
+            with native_stage(stage):
+                simctl("install", device, str(copied))
             stage = "launch"
-            launch = launch_app(device, bundle_id)
+            with native_stage(stage):
+                launch = launch_app(device, bundle_id)
             pid = launch.rsplit(":", 1)[-1].strip()
             process_id = int(pid) if pid.isdecimal() else None
-            container = Path(simctl("get_app_container", device, bundle_id, "data"))
+            stage = 'container-lookup'
+            with native_stage(stage):
+                container = Path(simctl("get_app_container", device, bundle_id, "data"))
             preferences = container / "Library" / "Preferences" / f"{bundle_id}.plist"
             stage = "bridge"
-            wait_for_bridge(preferences)
+            with native_stage(stage):
+                wait_for_bridge(preferences)
             print("Real web-to-native notification configuration succeeded.")
             return
     except BaseException as error:
@@ -197,6 +258,11 @@ window.addEventListener('load', async () => {{
     finally:
         if device is not None:
             cleanup_errors = []
+            if boot is not None:
+                try:
+                    boot.stop()
+                except Exception as error:
+                    cleanup_errors.append(f'bootstatus: {type(error).__name__}')
             try:
                 shutdown = subprocess.run(
                     ["xcrun", "simctl", "shutdown", device], check=False, timeout=60
