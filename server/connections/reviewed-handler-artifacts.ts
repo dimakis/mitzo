@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.1093-telos-assigned-symposium-claude-integration';
+  'v1.0.1095-telos-assigned-native-repository-qualification';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -318,13 +318,13 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/components/__tests__/ShareButton.test.tsx':
     '3b849a970077e021d448ba319494d6171a411be1fe586fa7b18e4a49394c7e70',
   '../session-launch-tools-selection.ts':
-    '756776cc9cb2236aa85cc79a69129f14cb8cd38457feb2ea4e85fd435edfb347',
+    '41652d9862067bbe6973029442eb5c7fac7f9c9ec6d977e14a21d13455e126a4',
   '../session-launch-diagnostics.ts':
     '9733b7bad9e4dc7055becc5542d52aafbf09baaf9fa76af87e8d76cb65432fa4',
   '../__tests__/session-launch-handover.test.ts':
     '0a32179c74b13b66509ac2f18fdfc1f13cdba13f410a0a0a23a9c6f88b735ec7',
   '../__tests__/session-launch-tools-selection.test.ts':
-    '0cc54744b0c5c26b3c345d16873a8420efb6f4fd6c12671e86875fc126b165fa',
+    '2f8ba495c348dafd62c4f495e63569f88168d9f45095a56da85cbb1b61a2fe8f',
   '../__tests__/session-launch-handover-artifacts.test.ts':
     '4c64acfa0b424f7cc694291168a4196d3320896403d60b0e8b119a58640bf76d',
   '../../frontend/src/lib/__tests__/session-handover-native.test.ts':
@@ -718,7 +718,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/session-launch-routes.test.ts':
     'acfca28dc9edf9b9593d2c4bf62a664ecdfec6b6a9f2b87bf5ecc956079a901c',
   '../__tests__/session-launch-runtime.test.ts':
-    '65c65e4e5331cdf0778a1d7cca64c8f9a02e6ff89865e5966a14267129f7f8af',
+    'e3add50327a332cd8748efd264777d5aab18a33b30062843c9363683b4d8a452',
   '../__tests__/session-launch-service.test.ts':
     'a89404b88a6bdba351b7dccead2a65a3f8dc26d7a73f3f274f8187dbcd6b36ba',
   '../__tests__/session-launch-store.test.ts':
@@ -1767,7 +1767,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../scripts/qualify-codex-native-permissions.mjs':
     '848148f0e305800ab30aa84899798c0b4034c9fe2f062045d8a5672cfc09ae59',
   '../__tests__/codex-chat-session.test.ts':
-    'b894f84714f70cd68a7ffd3c2b65bfcdadcea064556192c1cc08279fc5a90bf3',
+    '1b6428e2ece3ed007a16c7ed117be4a3f4e77889ef20fb707ed65d441f69cdd9',
   '../__tests__/codex-conversation.test.ts':
     'c48273fc16ee1fef58b9063f5ccccb8da57da58b9a9131bff0adff1b42adda91',
   '../__tests__/codex-native-approvals.test.ts':
@@ -2267,7 +2267,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/components/AgentToolsEditor.tsx':
     '185739f065ba2ad81534a2b171239d086010447fe03e3669d920dcd13804b5b1',
   '../agent-tool-catalog.ts': '389e807cf39b43a65211ab379e4749d5f051b89f3b569fe40dc6c11f90abc8cc',
-  '../agent-tool-selection.ts': '7bf5d5468707f08b2442e1def95b2cf05ee01829b171d097923a796146d552b2',
+  '../agent-tool-selection.ts': 'dea75b897b44f8b2bcf3fa6d447a527ca5e353f545916242db3de58efb923a7f',
   '../../packages/protocol/src/agent-tools.ts':
     'a25c3fcd8a885db213c6528fe9e07fd11da6744304420b4f3affd2e354d1af82',
   '../symposium-session-create.ts':
@@ -2779,7 +2779,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../openshell-runtime.ts': '4289834fb795911bc8952a141dd592ad695621e3e43fa590de1395094a5a1c95',
   '../codex-admission-preparation.ts':
     '0cb595a8fed20de735d4fa718544baf1a36ccebf3beecc763badd696e4af3098',
-  '../codex-chat-session.ts': '020582283a6c21b455e8559d273cb26fe4426c9bb26125957a247f30664df4e8',
+  '../codex-chat-session.ts': '3d114f35ec7eebf04369ae1687600a3899f71dcc583af5b1150fe7fd405422e3',
   '../connections-runtime.ts': 'c5c0da8aa548c029b1dbe7c1eb880311f35c6dfab26ff0e437db6134455089ef',
   'capabilities/operation-store.ts':
     '60c15c84c9cfddbbf30b01b215b1d7551271715f5cce5b3b4fd85092f7e575eb',

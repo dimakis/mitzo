@@ -1,5 +1,5 @@
 import { beforeEach, expect, it, vi } from 'vitest';
-import type { SessionLaunchConfig } from '@mitzo/protocol';
+import type { SessionLaunchConfig, SymposiumProfileDefinition } from '@mitzo/protocol';
 import { createSessionLaunchPort, prepareTelosSessionSettings } from '../session-launch-runtime.js';
 import type { RetainedSessionLaunch } from '../session-launch-store.js';
 const mocks = vi.hoisted(() => ({
@@ -18,6 +18,7 @@ const mocks = vi.hoisted(() => ({
   removalFence: vi.fn(),
   upsert: vi.fn(),
   rename: vi.fn(),
+  selectedTools: undefined as SymposiumProfileDefinition['tools'],
   binding: {
     accountId: 'personal',
     accountLabel: 'Personal',
@@ -67,7 +68,7 @@ vi.mock('../ordinary-codex-agent-profile.js', () => ({
     profileId: 'default',
     revision: 1,
     kind: 'builtin',
-    definition: { name: 'Default' },
+    definition: { name: 'Default', tools: mocks.selectedTools },
   }),
   ordinaryCodexAgentProfileRouteProjection: () => ({ agentProfileRejections: [] }),
 }));
@@ -134,6 +135,7 @@ const authority = {
 };
 beforeEach(() => {
   vi.clearAllMocks();
+  mocks.selectedTools = undefined;
   mocks.prepare.mockResolvedValue({ preparationId: 'preparation', runtimeBinding: mocks.runtime });
   mocks.reserve.mockImplementation(async (input) => ({
     id: 'workspace',
@@ -197,6 +199,20 @@ it('prepares the independent Telos child tuple without allocating a session or c
     },
   });
   expect(mocks.prepare).toHaveBeenCalledOnce();
+  expect(mocks.reserve).not.toHaveBeenCalled();
+  expect(mocks.prepareSession).not.toHaveBeenCalled();
+  expect(mocks.dispatch).not.toHaveBeenCalled();
+});
+it('refuses repository preparation without native primitives before any workspace effect', async () => {
+  mocks.selectedTools = [{ id: 'mitzo:PrepareLocalRepository', version: 1 }];
+  const selected = {
+    ...record,
+    configuration: { ...configuration, extraTools: ['PrepareLocalRepository'] },
+  };
+  await expect(createSessionLaunchPort().start(selected, authority, vi.fn())).rejects.toThrow(
+    /Bash.*Read.*Write.*Edit/,
+  );
+  expect(mocks.prepare).not.toHaveBeenCalled();
   expect(mocks.reserve).not.toHaveBeenCalled();
   expect(mocks.prepareSession).not.toHaveBeenCalled();
   expect(mocks.dispatch).not.toHaveBeenCalled();

@@ -17,6 +17,7 @@ export async function assertSessionLaunchTools(
     { githubMainPublicationTool },
     { ordinaryNativeTelosArtifactTools },
     { telosSessionLaunchDefinition },
+    { bindAgentToolSelection, nativeExecutionToolsAllowed },
   ] = await Promise.all([
     import('./telos-work-tools.js'),
     import('./telos-work-control-tools.js'),
@@ -24,6 +25,7 @@ export async function assertSessionLaunchTools(
     import('./telos-main-publication.js'),
     import('./telos-artifact-tools.js'),
     import('./telos-session-launch-tool.js'),
+    import('./agent-tool-selection.js'),
   ]);
   // StartSession allocates an ordinary chat without a retained Telos role.
   // Use the native role-gated registrations, not names from caller input or
@@ -41,6 +43,8 @@ export async function assertSessionLaunchTools(
   const exposedArtifacts = new Set(
     ordinaryNativeTelosArtifactTools(definition.tools !== undefined).map((tool) => tool.name),
   );
+  const selectedProfile = {};
+  bindAgentToolSelection(selectedProfile, definition, 'codex-owned-local');
   for (const name of names) {
     if (roleTools.has(name))
       throw new SessionLaunchError(
@@ -62,6 +66,10 @@ export async function assertSessionLaunchTools(
     )
       throw new SessionLaunchError(
         `Additional tool ${name} is not selected by this agent profile. Choose a profile that includes it.`,
+      );
+    if (tool.source === 'Local repositories' && !nativeExecutionToolsAllowed(selectedProfile))
+      throw new SessionLaunchError(
+        `Additional tool ${name} requires Bash, Read, Write and Edit in the selected native tool profile. Choose a profile that exposes them.`,
       );
   }
 }

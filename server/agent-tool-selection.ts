@@ -108,6 +108,11 @@ export function agentToolAllowed(session: object, name: string): boolean {
 export function filterAgentTools<T extends { name: string }>(session: object, tools: T[]): T[] {
   return tools.filter((tool) => agentToolAllowed(session, tool.name));
 }
+/** Registration requires the complete native tool selection. Ownership,
+ * platform and current filesystem authority remain the adapter's checks. */
+export function nativeExecutionToolsAllowed(session: object): boolean {
+  return ['Bash', 'Read', 'Write', 'Edit'].every((name) => agentToolAllowed(session, name));
+}
 export function assertAgentToolSelected(session: object, name: string): void {
   if (!agentToolAllowed(session, name))
     throw Error(`Tool is not selected by this session's published agent profile: ${name}`);
