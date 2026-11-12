@@ -54,7 +54,9 @@ export function ordinaryContributorCommandExecution(
       admission.binding.harness.implementation === 'codex' ||
       (admission.binding.harness.implementation === 'claude-sdk' &&
         admission.binding.execution.location === 'local' &&
-        ['anthropic-claude', 'anthropic-vertex'].includes(admission.binding.account.provider))
+        ['anthropic-claude', 'anthropic-vertex', 'anthropic-api'].includes(
+          admission.binding.account.provider,
+        ))
     ) ||
     ((options.historical || options.requireClaimed) && admission.state === 'reserved')
   )
