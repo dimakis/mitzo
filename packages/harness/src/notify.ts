@@ -17,13 +17,21 @@ function sessionUrl(sessionId?: string): string {
   return sessionId ? `${BASE_URL}/chat/${sessionId}` : BASE_URL;
 }
 
+function titleHeader(title: string): string {
+  // ntfy decodes RFC 2047 headers; fetch accepts only byte-valued header text.
+  return /[^\x20-\x7e]/.test(title)
+    ? `=?UTF-8?B?${Buffer.from(title, 'utf8').toString('base64')}?=`
+    : title;
+}
+
 export async function sendPermissionNotification(
   toolName: string,
   toolInput: string,
   permId: string,
   sessionId?: string,
-): Promise<void> {
-  if (!NTFY_TOPIC || !BASE_URL) return;
+  options?: { reviewOnly: boolean },
+): Promise<boolean> {
+  if (!NTFY_TOPIC || !BASE_URL) return false;
 
   const truncatedInput =
     toolInput.length > NOTIFY_INPUT_MAX_CHARS
@@ -35,26 +43,45 @@ export async function sendPermissionNotification(
   const denyUrl = `${BASE_URL}/api/permission/${permId}/respond?decision=deny&token=${token}`;
 
   const headers: Record<string, string> = {
-    Title: `Mitzo: ${toolName}`,
+    Title: titleHeader(options?.reviewOnly ? toolName : `Mitzo: ${toolName}`),
     Priority: '4',
     Tags: 'robot',
     Actions: [
-      `http, Allow, ${allowUrl}, method=POST, clear=true`,
-      `http, Deny, ${denyUrl}, method=POST, clear=true`,
+      ...(options?.reviewOnly
+        ? []
+        : [
+            `http, Allow, ${allowUrl}, method=POST, clear=true`,
+            `http, Deny, ${denyUrl}, method=POST, clear=true`,
+          ]),
       `view, Open Mitzo, ${sessionUrl(sessionId)}`,
     ].join('; '),
   };
 
   try {
-    await fetch(`${NTFY_URL}/${NTFY_TOPIC}`, {
+    const response = await fetch(`${NTFY_URL}/${NTFY_TOPIC}`, {
       method: 'POST',
       headers,
-      body: `${toolName}: ${truncatedInput}`,
+      body: options?.reviewOnly ? truncatedInput : `${toolName}: ${truncatedInput}`,
+      signal: AbortSignal.timeout(10_000),
     });
+    if (!response.ok)
+      log.warn('permission notification rejected', {
+        stage: 'notification_delivery',
+        code: 'ntfy_http_failure',
+        status: response.status,
+        permId,
+        sessionId,
+      });
+    return response.ok;
   } catch (err: unknown) {
     log.error('failed to send notification', {
+      stage: 'notification_delivery',
+      code: 'ntfy_transport_failure',
+      permId,
+      sessionId,
       error: err instanceof Error ? err.message : err,
     });
+    return false;
   }
 }
 
@@ -67,7 +94,7 @@ export async function sendTurnCompleteNotification(
 
   const title = sessionTitle ? `Mitzo: ${sessionTitle}` : 'Mitzo';
   const headers: Record<string, string> = {
-    Title: title,
+    Title: titleHeader(title),
     Priority: '3',
     Tags: 'speech_balloon',
     Actions: `view, Open Mitzo, ${sessionUrl(sessionId)}`,

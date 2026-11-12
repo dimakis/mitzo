@@ -84,6 +84,14 @@ for (const theme of ['dark', 'light'])
     await input.press('Enter');
     await expect(input).toHaveValue('');
     await reviewQueue(page);
+    const inlineQueue = page.getByRole('region', { name: 'Up next' });
+    await expect(inlineQueue.locator('xpath=ancestor::dialog')).toHaveCount(0);
+    await page.getByRole('button', { name: 'Minimize queue' }).click();
+    await expect(page.getByRole('button', { name: 'Expand queue' })).toContainText(
+      'Please also check the previous quarter.',
+    );
+    await expect(page.getByRole('button', { name: 'Pause queue' })).toBeVisible();
+    await page.getByRole('button', { name: 'Expand queue' }).click();
     await expect(page.getByRole('region', { name: 'Up next' })).toContainText(
       'Please also check the previous quarter.',
     );
@@ -222,8 +230,19 @@ for (const theme of ['dark', 'light'])
     await expect(page.getByRole('region', { name: 'Up next' })).toContainText(
       'A separate queued task',
     );
+    await page.getByRole('button', { name: 'Reorder dispatch order' }).click();
+    await page.getByRole('button', { name: 'Move queued prompt 2 earlier' }).click();
+    await expect(page.locator('.queued-draft-row').first()).toContainText('A separate queued task');
+    await expect(
+      page.getByRole('button', { name: 'Edit, reorder or remove queued prompt 1' }),
+    ).toBeFocused();
+    expect(queued).toHaveLength(0);
+    await page.getByRole('button', { name: 'Move queued prompt 1 later' }).click();
+    await page.getByRole('button', { name: 'Done reordering' }).click();
+    const listBounds = (await page.locator('.queued-draft-list').boundingBox())!;
+    expect(listBounds.height).toBeLessThanOrEqual(110);
     await page.getByRole('button', { name: 'Edit, reorder or remove queued prompt 2' }).click();
-    const editor = page.getByRole('dialog', { name: 'Queued prompt' });
+    const editor = page.getByRole('region', { name: 'Queued prompt' });
     await expect(editor).toBeVisible();
     await editor.getByRole('textbox', { name: 'Prompt' }).fill('Edited next task');
     await editor.getByRole('button', { name: 'Move prompt earlier' }).click();

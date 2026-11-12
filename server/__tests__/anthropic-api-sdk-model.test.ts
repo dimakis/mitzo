@@ -160,6 +160,17 @@ it('keeps exact Messages model IDs through real admission, chat startup, SDK con
         operatorConnectionId: f.dependencies.operatorConnectionId,
         ordinarySdkAuthority: authority,
         ordinarySdkCommandOwner: (_native, send, apply) => {
+          // Production entry binds this owner before starting the SDK. Retain
+          // the same identity for the peer-input guard in this isolated adapter fixture.
+          chat.registry.get('exact-messages-model')!.ordinaryRuntimeOwner = {
+            location: 'local',
+            authSessionId: 'offline-sdk-operator',
+            identity: owner,
+            initialCommandId: f.request.clientMsgId,
+            admit: (request) => owner.admit(request),
+            retryInitial: (request) => owner.admit(request),
+            close: () => owner.close(),
+          };
           reopen = apply;
           push = send;
           return {
@@ -173,6 +184,9 @@ it('keeps exact Messages model IDs through real admission, chat startup, SDK con
             },
             inputObserved: () => {},
             resultObserved: async () => {},
+            activeCommandId: () => currentCommand,
+            peerTurnTarget: () => currentCommand,
+            acceptsPeerMessages: () => true,
           } as never;
         },
         onStartupAdmission: (error) => (error ? rejectAdmission(error) : resolveAdmission()),

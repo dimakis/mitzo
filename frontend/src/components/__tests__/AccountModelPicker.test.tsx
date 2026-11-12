@@ -29,6 +29,7 @@ it.each([false, true])(
       />,
     );
     const button = await screen.findByRole('button', { name: 'Refresh models' });
+    expect(screen.queryByRole('link', { name: 'Connect Claude subscription' })).toBeNull();
     fireEvent.click(button);
     if (controlled) expect(refresh).toHaveBeenCalledOnce();
     else await waitFor(() => expect(apiFetch).toHaveBeenCalledTimes(2));
@@ -669,6 +670,7 @@ it('offers personal subscription setup only in the Symposium account catalog inc
   );
   await screen.findByText('No account profiles configured.');
   expect(screen.queryByRole('button', { name: 'Connect personal subscription' })).toBeNull();
+  expect(screen.queryByRole('link', { name: 'Connect Claude subscription' })).toBeNull();
   rerender(
     <AccountModelPicker
       scope="symposium"

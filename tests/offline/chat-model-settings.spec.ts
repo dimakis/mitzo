@@ -104,6 +104,8 @@ for (const theme of ['dark', 'light']) {
     await page.goto('/?accounts');
     await page.getByRole('button', { name: /^Workspace controls/ }).click();
     await page.getByRole('button', { name: /^Account,/ }).click();
+    await expect(page.getByRole('link', { name: 'Connect Claude subscription' })).toHaveCount(0);
+    await page.screenshot({ path: info.outputPath(`quick-sheet-claude-account-${theme}.png`) });
     await page.getByRole('button', { name: 'Personal Claude', exact: true }).click();
     await page.getByRole('button', { name: 'Back to chat settings' }).click();
     await expect(page.getByRole('button', { name: /^Model,/ })).toContainText('Claude Sonnet 4.6');

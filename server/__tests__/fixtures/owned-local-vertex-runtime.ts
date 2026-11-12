@@ -11,6 +11,7 @@ import { RepositoryWorkspaces } from '../../repository-workspaces.js';
 import { loadAccountProfiles } from '../../account-profiles.js';
 import { ClaudeAccountStore } from '../../claude-account-store.js';
 import { bindAgentLibraryTransport } from '../../agent-library-transport.js';
+import type { AgentToolReference } from '@mitzo/protocol';
 
 import {
   OrdinaryLocalVertexTarget,
@@ -29,6 +30,7 @@ export async function ownedVertexRuntimeFixture(
     anthropicApi?: boolean;
     modelIds?: readonly [string, string];
     managed?: boolean;
+    tools?: AgentToolReference[];
   } = {},
 ) {
   const root = await realpath(await mkdtemp(join(tmpdir(), 'mitzo-owned-driver-')));
@@ -177,6 +179,7 @@ export async function ownedVertexRuntimeFixture(
       expectedOutput: 'Reviewed changes',
       acceptanceCriteria: ['Use evidence'],
       modelPolicyRole: 'agent',
+      ...(options.tools ? { tools: options.tools } : {}),
       ...(options.contextRecipe
         ? { contextRecipe: { version: 1, source: 'contexgin', agentName: 'fixture-agent' } }
         : {}),

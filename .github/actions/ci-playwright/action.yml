@@ -1,0 +1,22 @@
+name: Prepare pinned CI browsers
+description: Use the exact preinstalled Linux browsers or install native macOS browsers without Ubuntu package downloads.
+inputs:
+  browsers:
+    required: true
+    description: Space-separated Playwright browser names.
+runs:
+  using: composite
+  steps:
+    - name: Prepare the pinned Linux browser image
+      if: runner.os == 'Linux'
+      shell: bash
+      env:
+        CI_PLAYWRIGHT_BROWSERS: ${{ inputs.browsers }}
+      run: |
+        bash scripts/ci-browser-container.sh --prepare $CI_PLAYWRIGHT_BROWSERS
+    - name: Install native macOS browsers
+      if: runner.os == 'macOS'
+      shell: bash
+      env:
+        CI_PLAYWRIGHT_BROWSERS: ${{ inputs.browsers }}
+      run: npx playwright install $CI_PLAYWRIGHT_BROWSERS

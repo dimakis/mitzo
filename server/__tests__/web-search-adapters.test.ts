@@ -73,7 +73,7 @@ describe('selected-account native search adapters', () => {
       const accountInfo = vi.fn(async (): Promise<AccountInfo> => ({
         apiProvider: 'firstParty',
         email: matches ? 'person@example.test' : 'other@example.test',
-        subscriptionType: 'max',
+        subscriptionType: 'Claude Max',
       }));
       const sdk = vi.fn((request: Parameters<typeof query>[0]) =>
         Object.assign(

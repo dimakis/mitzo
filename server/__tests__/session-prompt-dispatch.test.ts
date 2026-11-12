@@ -3,9 +3,12 @@ import { EventStore } from '../event-store.js';
 import type { SessionRegistry, ConnectionRegistry } from '@mitzo/harness';
 import type { SessionPromptDelivery } from '../session-prompt-store.js';
 import { createSessionPromptPort, sessionPromptText } from '../session-prompt-dispatch.js';
+import type { OwnedOrdinaryDispatchInput } from '../ordinary-scoped-command.js';
 
 const f = vi.hoisted(() => ({
-  dispatch: vi.fn(async () => ({ dispatched: true })),
+  dispatch: vi.fn<(input: OwnedOrdinaryDispatchInput) => Promise<{ dispatched: boolean }>>(
+    async () => ({ dispatched: true }),
+  ),
   binding: {} as Record<string, unknown>,
   selection: {} as Record<string, unknown>,
   authorized: true,
@@ -158,6 +161,29 @@ function fixture(harness = 'codex', location = 'local') {
     }),
   };
 }
+it('forwards the exact idle SDK sender fence into ordinary admission', async () => {
+  const h = fixture('claude-sdk');
+  f.live = {
+    clientId: 'sdk',
+    session: {
+      ordinaryRuntimeOwner: { authSessionId: 'login' },
+      transport: { send() {}, isOpen: () => true },
+    },
+  };
+  let allowed = true;
+  await h.port.deliverOrdinary(
+    { sessionId: 'worker', commandId: 'peer', auth: h.delivery.auth, text: 'Exact peer' },
+    new AbortController().signal,
+    () => {
+      if (!allowed) throw Error('Sender revoked');
+    },
+  );
+  const dispatch = f.dispatch.mock.calls[0]![0];
+  expect(dispatch.assertCurrent).toBeTypeOf('function');
+  allowed = false;
+  expect(dispatch.assertCurrent).toThrow('Sender revoked');
+});
+
 it.each([
   'current',
   'successor',
