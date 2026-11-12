@@ -16,7 +16,9 @@ afterEach(() => {
   vi.restoreAllMocks();
   for (const close of cleanups.splice(0).reverse()) close();
 });
-function fixture(provider: 'anthropic-claude' | 'anthropic-vertex' = 'anthropic-claude') {
+function fixture(
+  provider: 'anthropic-claude' | 'anthropic-vertex' | 'anthropic-api' = 'anthropic-claude',
+) {
   const root = mkdtempSync(join(tmpdir(), 'ordinary-sdk-turn-'));
   cleanups.push(() => rmSync(root, { recursive: true, force: true }));
   const path = join(root, 'events.db');
@@ -213,7 +215,7 @@ function renderReply(store: EventStore, messageId = 'parent-renderer') {
   store.append('chat', 'block_end', { messageId, blockId: 'text', blockType: 'text' });
   return store.append('chat', 'message_end', { messageId });
 }
-it.each(['anthropic-claude', 'anthropic-vertex'] as const)(
+it.each(['anthropic-claude', 'anthropic-vertex', 'anthropic-api'] as const)(
   'retains exact input, renderer and callback-settled result through the actual SDK queue and store restart: %s',
   async (provider) => {
     const f = fixture(provider);

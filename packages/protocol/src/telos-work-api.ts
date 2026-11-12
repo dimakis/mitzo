@@ -34,12 +34,20 @@ export const TelosWorkRoleSetupInputSchema = z
     ...base,
     role: z.enum(['lead', 'worker', 'advisor', 'reviewer']),
     expectedAssignmentRevision: z.number().int().nonnegative().safe().nullable(),
+    /** Reserves a previously unassigned role; never a replacement/adoption. */
+    createOnly: z.literal(true).optional(),
     settings: CollaborationSettingsSchema,
     contextSelection: TelosWorkRoleContextSelectionSchema,
   })
   .refine(
     (value) => ['lead', 'worker'].includes(value.role) || value.expectedAssignmentRevision === null,
     'Invalid role assignment selection',
+  )
+  .refine(
+    (value) =>
+      !value.createOnly ||
+      (['lead', 'worker'].includes(value.role) && value.expectedAssignmentRevision === 0),
+    'Create-only requires an unassigned lead or worker role',
   );
 export const TelosWorkRoleSetupIntentSchema = z.strictObject({
   actorId: id,

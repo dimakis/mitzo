@@ -5,6 +5,8 @@ import { promisify } from 'node:util';
 import * as fs from 'node:fs/promises';
 import { mkdir, stat, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import { realpathSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { localRepositoryNativeToolFixture } from './fixtures/local-repository-native-tools.js';
 import { EventStore } from '../event-store.js';
 import { setAuthRevocationStore, revokeAuthSession } from '../auth.js';
@@ -32,7 +34,7 @@ setAuthRevocationStore(revocations);
 afterAll(() => revocations.close());
 beforeEach(() => {
   resetOfflineUserEnvironment();
-  vi.stubEnv('TMPDIR', '/private/tmp');
+  vi.stubEnv('TMPDIR', realpathSync(tmpdir()));
 });
 afterEach(async () => {
   for (const close of cleanups.splice(0).reverse()) await close();
@@ -126,7 +128,11 @@ async function signedReadPositive(
     () => performance.now(),
     (time) => (phase === 'call' ? boundaries.windowAt(time) : phase),
   );
-  cleanups.push(installSignedNativeReadStages(profile, boundaries));
+  // Diagnostic wrappers visit every nested authorization entry. Keep them
+  // opt-in so normal qualification measures the real consumer under its
+  // unchanged deadline. Set MITZO_NATIVE_READ_PROFILE=1 for stage accounting.
+  const profiling = process.env.MITZO_NATIVE_READ_PROFILE === '1';
+  if (profiling) cleanups.push(installSignedNativeReadStages(profile, boundaries));
   const runs = offlineHelper(undefined, boundaries);
   let setupProfile: ReturnType<typeof profile.snapshot> | undefined;
   let metrics: AdmissionMetrics | undefined;
@@ -297,6 +303,7 @@ async function signedReadPositive(
         tool,
         detachedViewer,
         pathCase,
+        profiling,
         passed,
         phase,
         setupElapsedMs: Number(((callStarted ?? ended) - started).toFixed(3)),
