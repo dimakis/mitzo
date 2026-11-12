@@ -157,6 +157,8 @@ for (const theme of ['dark', 'light']) {
     await page.getByRole('button', { name: /^Model,/ }).click();
     await page.getByRole('button', { name: 'Sol fixture', exact: true }).click();
     await page.keyboard.press('Escape');
+    await page.keyboard.press('Escape');
+    await expect(page.getByRole('button', { name: 'Recreate chat screen' })).toBeInViewport();
     await page.getByRole('button', { name: 'Recreate chat screen' }).click();
     await expect(page.getByRole('button', { name: 'Prepare next message' })).toBeEnabled();
     await expect(page.getByRole('button', { name: /^Workspace controls/ })).toHaveAccessibleName(
@@ -170,6 +172,7 @@ for (const theme of ['dark', 'light']) {
       'true',
     );
     await page.screenshot({ path: info.outputPath(`retained-chat-model-${theme}.png`) });
+    await page.keyboard.press('Escape');
     await page.keyboard.press('Escape');
     await page.getByRole('button', { name: 'Prepare next message' }).click();
     await expect(page.getByLabel('Frozen command settings')).toContainText('"model":"sol-fixture"');

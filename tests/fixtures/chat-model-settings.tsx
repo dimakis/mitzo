@@ -109,7 +109,15 @@ function Fixture() {
     </div>
   );
 }
-function BoundScreen({ onPrepared }: { onPrepared(value: string): void }) {
+function BoundScreen({
+  onPrepared,
+  onRecreate,
+  prepared,
+}: {
+  onPrepared(value: string): void;
+  onRecreate(): void;
+  prepared: string;
+}) {
   const runtime = useExplicitLocalChat('bound-draft', undefined, 'bound-session', true);
   const accounts = runtimeModelAccounts(runtime.intent, runtime.inventory);
   const account = accounts.find((entry) => entry.id === runtime.intent.account?.accountId);
@@ -154,6 +162,10 @@ function BoundScreen({ onPrepared }: { onPrepared(value: string): void }) {
       >
         Prepare next message
       </button>
+      <button type="button" onClick={onRecreate}>
+        Recreate chat screen
+      </button>
+      <output aria-label="Frozen command settings">{prepared}</output>
     </div>
   );
 }
@@ -163,11 +175,12 @@ function BoundFixture() {
   const [prepared, setPrepared] = useState('');
   return (
     <ChatRuntimeDraftProvider owner="bound-session:0">
-      <BoundScreen key={generation} onPrepared={setPrepared} />
-      <button type="button" onClick={() => setGeneration((value) => value + 1)}>
-        Recreate chat screen
-      </button>
-      <output aria-label="Frozen command settings">{prepared}</output>
+      <BoundScreen
+        key={generation}
+        onPrepared={setPrepared}
+        onRecreate={() => setGeneration((value) => value + 1)}
+        prepared={prepared}
+      />
     </ChatRuntimeDraftProvider>
   );
 }
