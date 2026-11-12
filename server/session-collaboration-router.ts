@@ -20,6 +20,7 @@ import {
   CollaborationProgressSchema,
   CollaborationPromptReviewRequestSchema,
   CollaborationPromptReviewResultSchema,
+  CollaborationSourceArtifactsSchema,
   CollaborationSourceSetupQuerySchema,
   CollaborationSourceSetupSchema,
   COLLABORATION_EXECUTION_DISABLED,
@@ -253,6 +254,29 @@ export function createSessionCollaborationRouter({
       error: COLLABORATION_EXECUTION_DISABLED.reason,
       execution: COLLABORATION_EXECUTION_DISABLED,
     });
+  router.get('/:id/context-source-artifacts', (req, res) => {
+    const auth = recentAuthorizationSession(res);
+    if (!auth) return;
+    const id = SessionCollaborationIdSchema.safeParse(req.params.id);
+    const query = CollaborationSourceSetupQuerySchema.safeParse(req.query);
+    if (!id.success || !query.success)
+      return res.status(400).json({ error: 'Invalid context source' });
+    try {
+      if (!review) return unavailable(res);
+      return res.json(
+        CollaborationSourceArtifactsSchema.parse(
+          review().sourceArtifacts(
+            auth,
+            query.data.clientId,
+            id.data,
+            query.data.sourceConversationId,
+          ),
+        ),
+      );
+    } catch (error) {
+      return failure(res, error);
+    }
+  });
   for (const prompt of [false, true])
     router.post(
       `/:id/${prompt ? 'prompt-reviews' : 'reviews'}`,

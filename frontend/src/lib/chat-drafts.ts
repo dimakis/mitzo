@@ -61,6 +61,7 @@ export const ChatDraftSchema = z.object({
         purpose: z.string().max(4000),
         brief: z.string().max(20000),
         messageIds: z.array(z.string().min(1)).max(500),
+        artifacts: CollaborationPromptReviewInputSchema.shape.selection.shape.artifacts.optional(),
       }),
       input: CollaborationPromptReviewInputSchema.optional(),
       snapshot: CollaborationMessageInputSchema.shape.snapshot.optional(),
