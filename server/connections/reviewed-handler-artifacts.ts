@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.1100-claude-sdk-sign-in';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.1101-claude-sdk-sign-in';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -1509,7 +1509,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../tests/fixtures/chat-model-settings.tsx':
     '0c92a56592011c62e408940afeef6add7d4fb3086aea92fcafbe72db773f5010',
   '../../tests/offline/chat-model-settings.spec.ts':
-    'b3eb9e3b8950b18adc64335d84cf132c3b085a6903f7a8748e3a82ea68fa90a1',
+    'd1a199def861983d7917fb348117ee7fbc5cf0cb84667f972b912c34b1446209',
   '../../packages/protocol/__tests__/event-store-internal-identity.test.ts':
     'c9d5fd312f2a822909b1d27775c89dc2b268a31f16d29c0a95ada737f7c126b3',
   '../__tests__/symposium-profile-read-allocation.test.ts':

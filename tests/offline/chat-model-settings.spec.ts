@@ -138,9 +138,9 @@ for (const theme of ['dark', 'light']) {
     await expect(page.getByRole('button', { name: /^Model,/ })).toContainText('Claude Sonnet 4.6');
     await page.getByRole('button', { name: /^Model,/ }).click();
     await expect(page.getByRole('button', { name: 'Luna', exact: true })).toHaveCount(0);
-    await expect(page.locator('.quick-settings-note:visible')).toContainText(
-      'Check sign-in in Connections',
-    );
+    await expect(
+      page.getByRole('status').filter({ hasText: 'Check sign-in in Connections' }),
+    ).toBeVisible();
     await page.screenshot({ path: info.outputPath(`claude-sign-in-failure-${theme}.png`) });
     await page.getByRole('button', { name: 'Refresh models', exact: true }).click();
     await expect(page.getByText(/Check sign-in in Connections/)).toHaveCount(0);
