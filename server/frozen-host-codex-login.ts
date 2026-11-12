@@ -400,6 +400,7 @@ export class FrozenHostCodexLogin {
   async connect<T extends FrozenHostCodexClient>(
     launch: (privateHome: string) => T,
     beforeInvalidation?: (error: SessionRuntimeError) => void,
+    isValidationLive?: () => boolean,
   ): Promise<FrozenHostCodexLoginLease<T>> {
     if (this.#attempted) throw unavailable();
     this.#attempted = true;
@@ -420,6 +421,7 @@ export class FrozenHostCodexLogin {
         validation,
         this.#signal?.aborted ?? false,
         beforeInvalidation,
+        isValidationLive,
       );
       close();
       throw findSessionRuntimeError(error) ?? new Error('Host Codex login unavailable', { cause });

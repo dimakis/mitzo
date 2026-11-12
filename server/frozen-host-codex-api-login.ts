@@ -205,6 +205,7 @@ export class FrozenHostCodexApiLogin {
   async connect<T extends FrozenHostCodexClient>(
     launch: (home: string) => Promise<T>,
     beforeInvalidation?: (error: SessionRuntimeError) => void,
+    isValidationLive?: () => boolean,
   ): Promise<FrozenHostCodexLoginLease<T>> {
     if (this.#attempted) throw unavailable();
     this.#attempted = true;
@@ -225,6 +226,7 @@ export class FrozenHostCodexApiLogin {
         validation,
         signal.aborted,
         beforeInvalidation,
+        isValidationLive,
       );
       close();
       throw findSessionRuntimeError(error) ?? new Error('API Codex login unavailable', { cause });

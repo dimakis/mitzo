@@ -59,6 +59,9 @@ new live credential failures retain their private cause and report the reviewed
 validation code. Initial login failures keep their existing classification.
 Initial bootstrap refusal and cancellation also keep their startup classification
 until qualification completes and the lease is handed to its consumer.
+Both credential owners consult that same handoff state on each failure, including
+credential checks performed during initial model qualification. If the phase
+cannot be read, the original failure and physical cleanup remain intact.
 
 Trusted Git commit preparation does not repeat full provider and workspace
 validation for every immutable object. It validates the complete owner before

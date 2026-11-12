@@ -512,6 +512,7 @@ export class FrozenHostCodexBootstrapAuthority implements OrdinaryLocalCodexBoot
             this.owners.lifecycle,
             selected,
           ));
+      let validationLive = false;
       loginLease = await observeLocalCodexPhase('bootstrap_connect', async () =>
         login instanceof FrozenHostCodexApiLogin
           ? await login.connect(
@@ -554,6 +555,7 @@ export class FrozenHostCodexBootstrapAuthority implements OrdinaryLocalCodexBoot
                 return result.client;
               },
               (failure) => this.owners.lifecycle?.onClose(failure),
+              () => validationLive,
             )
           : await login.connect(
               (home) => {
@@ -561,11 +563,11 @@ export class FrozenHostCodexBootstrapAuthority implements OrdinaryLocalCodexBoot
                 return launch(home, executable);
               },
               (failure) => this.owners.lifecycle?.onClose(failure),
+              () => validationLive,
             ),
       );
       const ownedLogin = loginLease;
       let retired = false;
-      let validationLive = false;
       const loginClose = ownedLogin.close;
       const closeLease = () => {
         if (retired) return;

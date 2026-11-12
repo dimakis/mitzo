@@ -99,6 +99,28 @@ it('publishes a raw subscription credential failure before physical close reente
   expect(failure.publicMessage()).not.toMatch(/private\/path|secret-token/);
 });
 
+it('closes subscription custody and preserves the primary error when its phase owner throws', async () => {
+  const f = fixture();
+  const login = FrozenHostCodexLogin.capture(f.profile, { privateRoot: f.privateRoot });
+  const publish = vi.fn();
+  const phaseError = Error('private phase failure');
+  const isLive = vi.fn(() => {
+    throw phaseError;
+  });
+  const connected = await login.connect(() => f.client, publish, isLive);
+  const original = Object.assign(Error('private credential failure'), { code: 'EPERM' });
+  f.client.request.mockRejectedValue(original);
+  const error = await connected.assertCurrent().catch((failure: unknown) => failure);
+  expect(error).toBeInstanceOf(Error);
+  expect(error).toMatchObject({ message: 'Host Codex login unavailable', cause: original });
+  expect(findSessionRuntimeError(error)).toBeUndefined();
+  expect(isLive).toHaveBeenCalledOnce();
+  expect(publish).not.toHaveBeenCalled();
+  expect(f.client.close).toHaveBeenCalledOnce();
+  connected.close();
+  expect(f.client.close).toHaveBeenCalledOnce();
+});
+
 it('freezes file-backed login only and verifies the actual client reused for admission', async () => {
   const f = fixture();
   const login = FrozenHostCodexLogin.capture(f.profile, { privateRoot: f.privateRoot });

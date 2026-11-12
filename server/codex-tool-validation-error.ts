@@ -42,10 +42,20 @@ export function reportCodexCredentialInvalidation(
   validation: boolean,
   cancelled: boolean,
   publish?: (error: SessionRuntimeError) => void,
+  isValidationLive: () => boolean = () => true,
 ): unknown {
-  const reviewed =
-    findSessionRuntimeError(error) ??
-    (validation ? new CodexToolValidationError('credential_check', error, cancelled) : undefined);
+  let reviewed = findSessionRuntimeError(error);
+  if (!reviewed && validation) {
+    try {
+      if (isValidationLive() === true)
+        reviewed = new CodexToolValidationError('credential_check', error, cancelled);
+    } catch {
+      log.warn('Credential validation phase unavailable; preserving original failure', {
+        stage: 'credential_check',
+        code: 'validation_phase_unavailable',
+      });
+    }
+  }
   if (reviewed) {
     try {
       publish?.(reviewed);
