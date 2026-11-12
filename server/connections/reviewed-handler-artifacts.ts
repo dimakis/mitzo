@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.1071-enmaas-sdk-model-integration';
+  'v1.0.1072-enmaas-sdk-fixture-contract';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -67,7 +67,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../session-list-metadata.ts': '902bc53e6f4568aa4383f1b4540f866dd94630446bd967de13ea594e217b5750',
   '../sdk-query-retirement.ts': 'a4f82c8f91373d89da95cf52c7e107914118b0cc755116c9817365b71d9b1bc9',
   '../__tests__/sdk-query-retirement.test.ts':
-    'b327d0329c3ecca9751078a041cfead555638f8ce5d63c1ad3ccf82bcd40dd56',
+    'a246e6d487e2a124872b6680c6b2f242fba438631468172c0177b26efd36304f',
   '../sdk-user-steering.ts': 'cdf9f62f0d408e9c7fd61542d780a739b0ce66714c537c1d14ffa99c0fea44ff',
   '../__tests__/sdk-user-steering.test.ts':
     'efc94b472d865d20f6dd5554bdbe0abcb2b48715e992fdf63c83928cf9cb92a3',
@@ -114,7 +114,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/ordinary-local-vertex-command-owner.test.ts':
     '18651323ee26cf8c2c30ceb4fe449440585082bd3863a91edc5df564b66605bf',
   '../__tests__/sdk-agent-message-runtime.test.ts':
-    '5f538ff8cf69a89126049fa774ab6a4b337e86a579da233160f5a8da2c229892',
+    '34d056276865a714113fb07a2ed361607ea1b971c20fdfe04792cab98fc62629',
   '../agent-message-runtime.ts': 'c572b9718f3c3cb8839b01fd7b79dec6e8a4632f3d4cc15f00adc8f3041a3adc',
   '../sdk-agent-message-runtime.ts':
     '4cd9fb859759d5a39a27ea70839033ca853ee0b3a48d5a367d8e11c7f9dcbe36',

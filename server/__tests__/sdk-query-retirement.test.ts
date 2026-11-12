@@ -124,6 +124,9 @@ it.each([
             adapt: (native) => native as never,
             settings: () => ({}),
             inputChanged: () => {},
+            onUnsent: (_message, error) => {
+              throw error;
+            },
           })
         : undefined;
     const q =
