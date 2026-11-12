@@ -317,7 +317,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: browser-partition-${{ matrix.project }}-${{ matrix.shard }}-${{ github.run_id }}
+          name: browser-partition-${{ matrix.project }}-shard-${{ matrix.shard }}-${{ github.run_id }}
           path: test-results/offline/evidence/
           overwrite: true
           retention-days: 7

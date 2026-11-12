@@ -10,8 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.1063-ci-model-steering-integration';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.1064-ci-partition-evidence';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -30,7 +29,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../scripts/__tests__/ci-browser-partition.test.ts':
     '862a2b0a443fbb184c6623d1503aac473b0c4976df7545504ecb6f254844a2fe',
   '../../scripts/__tests__/ci-browser-partition-workflow.test.ts':
-    '36f40f511c3df39172cb9426c246afa9aacb30debdaa78557798d0f7bc4fdb27',
+    '0b6cd5bb21eae1ce9a9e27465572d3fd5581dec9e09147620c1d47cada89f58f',
   '../../scripts/__tests__/ci-unit-rebalance.test.ts':
     '9e35dffcf400461a73ab9730e3287e73baf9f0bf24673df1281b1ea198bf6b8a',
   '../../scripts/__tests__/ci-native-overlap.test.ts':
@@ -4013,7 +4012,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../.github/workflows/ci-recovery.yml':
     '5d4e9a6560e549d2879ef776c2b4d321d420c25b22ec3a7741390e5bf617111a',
   '../../.github/workflows/ci.yml':
-    'e8a6e0df2ee5c8c5577cd397b4c7368e32a04960f96ebf1c467e88d21ce287e7',
+    '7714016ebea75d80d9f9bb4f3ce186f54a49452b13815def040c96e2445eb1b9',
   '../../playwright.config.ts': '6c61752a4a2e9cab19d8217b46080c5898bc79c5a0fde1f2b703a254d278daa0',
   '../../playwright.offline.config.ts':
     'fb694df154a2cb402c7f46b417efb357b6d19a72210d269ad0b1580798392adc',

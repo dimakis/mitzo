@@ -21,7 +21,14 @@ it('requires retained actual reports from all ten unchanged lanes at the existin
   ).toEqual({ 'mobile-webkit': 4, 'mobile-chromium': 3, 'desktop-chromium': 3 });
   expect(
     offline.steps.find((s) => s.name === 'Retain complete browser partition evidence'),
-  ).toMatchObject({ if: 'always()', with: { 'if-no-files-found': 'error', overwrite: true } });
+  ).toMatchObject({
+    if: 'always()',
+    with: {
+      name: 'browser-partition-${{ matrix.project }}-shard-${{ matrix.shard }}-${{ github.run_id }}',
+      'if-no-files-found': 'error',
+      overwrite: true,
+    },
+  });
   const gate = workflow.jobs['browser-validation'];
   expect(gate.steps.some((s) => s.run === 'node scripts/ci-browser-gate.mjs')).toBe(true);
   expect(
