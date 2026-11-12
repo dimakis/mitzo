@@ -21,7 +21,7 @@ const mocks = vi.hoisted(() => ({
   turnDispatchCount: 0,
   searchSkills: vi.fn(),
   searchWeb: vi.fn(),
-  mcpClose: vi.fn(),
+  mcpClose: vi.fn(async () => {}),
   connect: vi.fn(),
   permissionHandler: vi.fn(),
   assertPermissionModeChange: vi.fn(),
@@ -128,7 +128,10 @@ vi.mock('../codex-conversation.js', () => ({
     admitExplicitSend = mocks.send;
   },
 }));
-vi.mock('../codex-mcp-tools.js', () => ({ connectCodexMcpTools: mocks.connect }));
+vi.mock('../codex-mcp-tools.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../codex-mcp-tools.js')>()),
+  connectCodexMcpTools: mocks.connect,
+}));
 vi.mock('../codex-private-path.js', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../codex-private-path.js')>()),
   codexPrivateDirectory: () => mocks.privateDirectory,
@@ -4510,7 +4513,7 @@ it('admits selected MCP through the actual owned Local Codex lifecycle and fence
       'ListIntegrationTools',
       'ReadToolOutput',
     ]);
-    expect(sourceOptions.connect).toHaveBeenCalledOnce();
+    expect(sourceOptions.connect).not.toHaveBeenCalled();
     const execute = mocks.conversationOptions!.executeTool as (
       name: string,
       input: Record<string, unknown>,
@@ -4537,6 +4540,60 @@ it('admits selected MCP through the actual owned Local Codex lifecycle and fence
       ).content,
     );
     expect(peerCall).not.toHaveBeenCalled();
+    // A retained result from the same pinned source can reconnect lazily. Its
+    // original tool's policy must remain current across that asynchronous work.
+    let releaseDiscovery!: () => void;
+    const listing = vi.fn(async () => {
+      await new Promise<void>((resolve) => {
+        releaseDiscovery = resolve;
+      });
+      return { tools: [{ name: 'search', inputSchema: { type: 'object' } }] };
+    });
+    sourceOptions.connect.mockImplementationOnce(async () => ({
+      listTools: listing,
+      callTool: peerCall,
+      close: peerClose,
+    }));
+    mocks.readToolOutput.mockReturnValue({
+      toolName: wire,
+      content: 'retained source evidence',
+      sourceScope: actualMcp.mcpToolOutputScope(sources.selected, sourceOptions, {
+        name: 'search',
+        inputSchema: { type: 'object' },
+      }),
+    });
+    const retainedContext = {
+      turnId: 'turn',
+      callId: 'retained-reconnect',
+      assertCurrentSync: vi.fn(),
+      registerResponseFence: vi.fn(),
+    };
+    const readRetained = () =>
+      execute(
+        'ReadToolOutput',
+        { outputId: '22222222-2222-4222-8222-222222222222' },
+        new AbortController().signal,
+        retainedContext,
+      );
+    const pendingRetained = readRetained();
+    await vi.waitFor(() => expect(listing).toHaveBeenCalledOnce());
+    f.opts.session.activeSkillPolicy = new Set(['ReadToolOutput']);
+    releaseDiscovery();
+    await expect(pendingRetained).rejects.toThrow('permission_denied');
+    expect(peerCall).not.toHaveBeenCalled();
+    f.opts.session.activeSkillPolicy = null;
+    expect(JSON.parse((await readRetained()).content).content).toBe('retained source evidence');
+    // Codex retires the invocation before the transport runs response fences.
+    // Policy remains enforceable after that normal lifecycle transition.
+    retainedContext.assertCurrentSync.mockImplementation(() => {
+      throw Error('Original native tool callback is no longer current');
+    });
+    expect(retainedContext.registerResponseFence.mock.calls.at(-1)![0]).not.toThrow();
+    f.opts.session.activeSkillPolicy = new Set(['ReadToolOutput']);
+    expect(retainedContext.registerResponseFence.mock.calls.at(-1)![0]).toThrow(
+      'permission_denied',
+    );
+    f.opts.session.activeSkillPolicy = null;
     const call = () =>
       execute(
         'InvokeIntegrationTool',

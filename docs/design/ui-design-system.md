@@ -15,8 +15,9 @@ on phone/desktop, both themes and alternate appearance; see
 ## Claude subscription onboarding
 
 Claude uses the existing Connections grouped account rows and labelled form
-controls. Add connection and the account editor link to the same focused
-Connections destination; the approved Chat settings hierarchy stays unchanged.
+controls. Account connection and sign-in actions belong on Connections, not in
+the ordinary chat account/model picker (Dimitri's explicit direction, 11 November
+2026). The approved Chat settings hierarchy stays unchanged.
 The private code input uses a password field, disables autocomplete/capitalization,
 and clears after submission and authentication loss. Browser sign-in opens only
 through an explicit labelled link. Pending, checking, cancelled, interrupted,
@@ -177,6 +178,15 @@ and Resources. Use semantic tokens, shared motion and 44px controls; the dialog
 fills narrow phone widths. The approved mock and protected checks are recorded
 in the codex-subagents entry of the approved design ledger.
 
+The full-width phone inspection respects all four safe-area insets. Empty
+inspections keep the recovery action, explicit empty-output state and compact
+disabled composer together instead of reserving an empty transcript. Retained
+output keeps independent scrolling. An unavailable inspection has one clear
+status and Retry action; the stage and correlation reference use native Technical
+details. Connection and retry errors remain visible inside an open inspection.
+These repairs preserve the approved child row, modal navigation, targeted
+Message/Stop, drafts, theme/font preferences and authority boundaries.
+
 ## Visible agent messages
 
 Peer messages use one shared lightweight transcript-event presentation in mobile
@@ -221,9 +231,10 @@ tokens or approved controls.
 
 Ordinary chats use the approved status row above the existing composer. It has
 the shared control height, one-line overflow, semantic status colors and one
-details action. Routine autosaving is silent. Queue, recovery and error actions
-retain their existing owners inside the shared HomeDialog; opening it does not
-dispatch work. Multiple problems aggregate without growing the row. Routine busy
+details action. Routine autosaving is silent. Queued drafts use the compact inline
+tray immediately above the composer; recovery and error actions retain their
+existing owners inside the shared HomeDialog. Opening details or reordering drafts
+does not dispatch work. Multiple problems aggregate without growing the row. Routine busy
 recovery does not replace a running agent's Working label, and actual approvals
 and failures remain visible.
 
@@ -2791,6 +2802,18 @@ one prompt after each response; Stop pauses the tray. Reload and navigation neve
 automatically dispatch saved drafts. Attachments and reply references persist in
 the existing IndexedDB-backed chat storage. Admission is durable before clearing
 the edited composer; a late save cannot clear a newer draft or another chat.
+The approved compact queue uses single-line previews with a small dispatch-state
+line and no card shell. Its list scrolls within 14dvh or 2.5 shared control heights,
+whichever is smaller. Inline editing/full attachment and reply details temporarily
+allow 28dvh or five control heights. Shared MotionPresence owns disclosure motion.
+Minimize keeps one header with count, next-preview, reorder and pause controls.
+Reorder exposes direct earlier/later controls; Make next changes the first pending
+draft without sending it. Numbered order feeds the existing shared composer drain
+across engine/runtime owners. Failed order persistence holds automatic draining
+with a visible error and explicit retry. Unconfirmed rows cannot move or be crossed.
+The existing status row, toolbar, runtime capability checks and guarded steering
+adapters remain authoritative; unavailable steering displays its reason in the tray.
+See [approval, scope and validation](../features/compact-chat-queue.md).
 Each queued draft keeps one stable command identity across views. Its dispatch
 retry fence commits before any send or correction; the existing backend admission
 guard coalesces duplicate views under that identity. Definite refusals stay editable

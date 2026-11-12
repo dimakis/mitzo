@@ -10,6 +10,7 @@ import { tracer } from '../tracing.js';
 import { EventStore } from '../event-store.js';
 import {
   FrozenHostCodexBootstrapAuthority,
+  type FrozenHostCodexBootstrapLease,
   type FrozenHostQualifiedWorkspaceReadOwner,
 } from '../frozen-host-codex-bootstrap.js';
 import { FrozenHostCodexLogin } from '../frozen-host-codex-login.js';
@@ -22,7 +23,14 @@ import { assertPreparedRepositoryTaskTopology } from '../prepared-repository-wor
 import { snapshotRepositoryTaskCheckout } from '../repository-task-checkout.js';
 import { codexNativeExecutionPolicy } from '../codex-native-execution-policy.js';
 import { repositoryObservationProgram } from '../native-repository-observation.js';
-import { SessionRuntimeError } from '../session-runtime-error.js';
+import { SessionRuntimeError, findSessionRuntimeError } from '../session-runtime-error.js';
+import { codexRuntimeErrorTelemetry } from '../codex-runtime-diagnostics.js';
+import { reportRetainedRuntimeFailure } from '../retained-runtime-failure.js';
+import {
+  RuntimeFailureSchema,
+  SessionRuntimeBindingV2Schema,
+  runtimeFailureMessage,
+} from '@mitzo/protocol';
 import * as topologyTransport from '../sandboxed-command.js';
 const roots: string[] = [];
 const deployment = vi.hoisted(() => ({ controller: false }));
@@ -338,6 +346,250 @@ function fixture() {
     runtime,
   };
 }
+it.each(['subscription', 'api'] as const)(
+  'keeps a %s credential failure during initial model qualification a startup failure before consumer handoff',
+  async (account) => {
+    const f = fixture();
+    const original = Object.assign(Error('private/startup/path secret-token'), { code: 'EPERM' });
+    const operation = vi.fn(async () => {});
+    const onClose = vi.fn();
+    let expected = f.expected;
+    let claim = f.claim;
+    let commandId = 'command';
+    const options: ConstructorParameters<typeof FrozenHostCodexBootstrapAuthority>[0] = {
+      ...f.options,
+      lifecycle: { onNotification: vi.fn(), onRequest: vi.fn(async () => ({})), onClose },
+    };
+    let credentialReads = 0;
+    const request = f.rpc.request.getMockImplementation()!;
+    if (account === 'subscription') {
+      f.rpc.request.mockImplementation(async (method, params) => {
+        // First read belongs to connect(); the next is the bootstrap's initial
+        // model qualification, before the consumer receives this lease.
+        if (method === 'account/read' && ++credentialReads === 2) throw original;
+        return request(method, params);
+      });
+    } else {
+      const profiles = new AccountProfiles(
+        [
+          {
+            id: 'work',
+            label: 'Work API',
+            provider: 'openai',
+            credentialRef: { provider: 'keychain', service: 'offline-test', account: 'work' },
+            models: [{ id: 'fixture-model', label: 'Fixture', reasoningEfforts: ['low'] }],
+          },
+        ],
+        { codexEnabled: true },
+      );
+      const binding = profiles.resolve('work', 'fixture-model');
+      expected = {
+        ...f.expected,
+        binding: {
+          ...f.expected.binding,
+          account: SessionRuntimeBindingV2Schema.shape.account.parse({
+            accountId: binding.accountId,
+            provider: binding.provider,
+            profileRevision: binding.profileRevision,
+          }),
+        },
+      };
+      commandId = 'startup-api-command';
+      claim = () => {
+        f.store.admitOrdinaryLocalCommand(
+          {
+            sessionId: 'startup-api-session',
+            accountBinding: binding,
+            repositoryWorkspaceId: 'workspace',
+            cwd: expected.workspace.cwd,
+          },
+          expected.binding,
+          {
+            clientMsgId: commandId,
+            requestFingerprint: 'startup-api-fingerprint',
+            selection: expected.selection,
+            payload: { text: 'offline' },
+          },
+        );
+        return f.store.claimOrdinaryLocalCommandDispatch(commandId);
+      };
+      options.loadProfiles = () => profiles;
+      options.launchApi = async (home) => {
+        writeFileSync(
+          join(home, 'auth.json'),
+          JSON.stringify({ OPENAI_API_KEY: 'synthetic-api-key' }),
+          { mode: 0o600, flag: 'wx' },
+        );
+        return f.rpc;
+      };
+      f.rpc.request.mockImplementation(async (method, params) =>
+        method === 'account/read'
+          ? ({ account: { type: 'apiKey' }, requiresOpenaiAuth: true } as never)
+          : request(method, params),
+      );
+      apiKeys.resolveKey.mockImplementation(async () => {
+        // Capture reads once, connect reads three times, and initial model
+        // qualification starts the fifth credential read.
+        if (++credentialReads === 5) throw original;
+        return 'synthetic-api-key';
+      });
+    }
+    const owner = new FrozenHostCodexBootstrapAuthority(options);
+    try {
+      const error = await owner
+        .withBootstrap(expected, claim, operation)
+        .catch((failure: unknown) => failure);
+      expect(error).toBeInstanceOf(Error);
+      expect((error as Error).message).toBe('Host Codex bootstrap unavailable');
+      expect(findSessionRuntimeError(error)?.code).not.toBe('tool_validation_failed');
+      const causes: unknown[] = [];
+      let cause: unknown = error;
+      while (cause instanceof Error && !causes.includes(cause)) {
+        causes.push(cause);
+        cause = cause.cause;
+      }
+      expect(causes).toContain(original);
+      expect(operation).not.toHaveBeenCalled();
+      expect(credentialReads).toBe(account === 'subscription' ? 2 : 5);
+      expect(f.rpc.close).toHaveBeenCalledOnce();
+      expect(f.store.getOrdinaryLocalCommandAdmission(commandId)?.state).toBe('uncertain');
+      for (const [failure] of onClose.mock.calls)
+        expect(findSessionRuntimeError(failure)?.code).not.toBe('tool_validation_failed');
+      expect(
+        f.rpc.request.mock.calls.some(([method]) =>
+          ['thread/start', 'turn/start'].includes(method),
+        ),
+      ).toBe(false);
+    } finally {
+      owner.currentLease()?.close();
+      apiKeys.resolveKey.mockImplementation(async () => 'synthetic-api-key');
+      f.store.close();
+    }
+  },
+);
+
+it.each(['subscription', 'api'] as const)(
+  'publishes a %s credential failure after consumer handoff as live tool validation before physical close',
+  async (account) => {
+    const f = fixture();
+    const original = Object.assign(Error('private/live/path secret-token'), { code: 'EPERM' });
+    const stages: string[] = [];
+    const onClose = vi.fn((failure: unknown) => {
+      stages.push(findSessionRuntimeError(failure)?.code ?? 'physical_closure');
+    });
+    const options: ConstructorParameters<typeof FrozenHostCodexBootstrapAuthority>[0] = {
+      ...f.options,
+      lifecycle: { onNotification: vi.fn(), onRequest: vi.fn(async () => ({})), onClose },
+    };
+    let expected = f.expected;
+    let claim = f.claim;
+    let commandId = 'command';
+    const request = f.rpc.request.getMockImplementation()!;
+    if (account === 'api') {
+      const profiles = new AccountProfiles(
+        [
+          {
+            id: 'work',
+            label: 'Work API',
+            provider: 'openai',
+            credentialRef: { provider: 'keychain', service: 'offline-test', account: 'work' },
+            models: [{ id: 'fixture-model', label: 'Fixture', reasoningEfforts: ['low'] }],
+          },
+        ],
+        { codexEnabled: true },
+      );
+      const binding = profiles.resolve('work', 'fixture-model');
+      expected = {
+        ...f.expected,
+        binding: {
+          ...f.expected.binding,
+          account: SessionRuntimeBindingV2Schema.shape.account.parse({
+            accountId: binding.accountId,
+            provider: binding.provider,
+            profileRevision: binding.profileRevision,
+          }),
+        },
+      };
+      commandId = 'live-api-command';
+      claim = () => {
+        f.store.admitOrdinaryLocalCommand(
+          {
+            sessionId: 'live-api-session',
+            accountBinding: binding,
+            repositoryWorkspaceId: 'workspace',
+            cwd: expected.workspace.cwd,
+          },
+          expected.binding,
+          {
+            clientMsgId: commandId,
+            requestFingerprint: 'live-api-fingerprint',
+            selection: expected.selection,
+            payload: { text: 'offline' },
+          },
+        );
+        return f.store.claimOrdinaryLocalCommandDispatch(commandId);
+      };
+      options.loadProfiles = () => profiles;
+      options.launchApi = async (home) => {
+        writeFileSync(
+          join(home, 'auth.json'),
+          JSON.stringify({ OPENAI_API_KEY: 'synthetic-api-key' }),
+          { mode: 0o600, flag: 'wx' },
+        );
+        return f.rpc;
+      };
+      f.rpc.request.mockImplementation(async (method, params) =>
+        method === 'account/read'
+          ? ({ account: { type: 'apiKey' }, requiresOpenaiAuth: true } as never)
+          : request(method, params),
+      );
+    }
+    f.rpc.close.mockImplementation(() => {
+      stages.push('client_close');
+      onClose(Error('generic physical closure'));
+    });
+    const operation = vi.fn(async (lease: FrozenHostCodexBootstrapLease) => {
+      expect(onClose).not.toHaveBeenCalled();
+      stages.push('consumer_handoff');
+      if (account === 'api') apiKeys.resolveKey.mockRejectedValue(original);
+      else f.rpc.request.mockRejectedValue(original);
+      await lease.assertToolCurrent!(f.options.signal);
+    });
+    const owner = new FrozenHostCodexBootstrapAuthority(options);
+    try {
+      const error = await owner
+        .withBootstrap(expected, claim, operation)
+        .catch((failure: unknown) => failure);
+      expect(operation).toHaveBeenCalledOnce();
+      const failure = findSessionRuntimeError(error)!;
+      expect(failure).toMatchObject({ code: 'tool_validation_failed', cause: original });
+      expect(stages.slice(0, 4)).toEqual([
+        'consumer_handoff',
+        'tool_validation_failed',
+        'client_close',
+        'physical_closure',
+      ]);
+      expect(onClose.mock.calls[0][0]).toBe(failure);
+      expect(runtimeFailureMessage(RuntimeFailureSchema.parse(failure.telemetry()))).toBe(
+        failure.publicMessage(),
+      );
+      expect(JSON.stringify(failure.telemetry())).not.toMatch(/private\/live\/path|secret-token/);
+      expect(failure.publicMessage()).not.toMatch(/private\/live\/path|secret-token/);
+      expect(f.rpc.close).toHaveBeenCalledOnce();
+      expect(f.store.getOrdinaryLocalCommandAdmission(commandId)?.state).toBe('uncertain');
+      expect(
+        f.rpc.request.mock.calls.some(([method]) =>
+          ['thread/start', 'turn/start'].includes(method),
+        ),
+      ).toBe(false);
+    } finally {
+      owner.currentLease()?.close();
+      apiKeys.resolveKey.mockImplementation(async () => 'synthetic-api-key');
+      f.store.close();
+    }
+  },
+);
+
 it('separates qualification, login custody, executable capture and native connection timing', async () => {
   const f = fixture();
   const starting = vi.spyOn(tracer, 'startSpan');
@@ -511,7 +763,7 @@ it('loads a new profile view after an awaited workspace check and rejects change
   try {
     await f.authority.withBootstrap(f.expected, f.claim, async (lease) => {
       mutate = true;
-      await expect(lease.assertCurrent()).rejects.toThrow('Host Codex bootstrap unavailable');
+      await expect(lease.assertCurrent()).rejects.toMatchObject({ code: 'tool_validation_failed' });
       expect(f.rpc.close).toHaveBeenCalled();
     });
   } finally {
@@ -797,7 +1049,7 @@ it('rechecks actual runtime configuration drift at the final synchronous effect 
         dispatched = true;
         expect(f.options.observeRuntime).toHaveBeenCalledTimes(observations);
       }),
-    ).rejects.toThrow('Host Codex bootstrap unavailable');
+    ).rejects.toMatchObject({ code: 'tool_validation_failed' });
     expect(dispatched).toBe(false);
     expect(f.rpc.close).toHaveBeenCalledTimes(1);
     expect(f.store.getOrdinaryLocalCommandAdmission('command')?.state).toBe('uncertain');
@@ -1405,6 +1657,55 @@ it('forwards the tool admission cancellation signal to workspace validation', as
     f.store.close();
   }
 });
+
+it.each(['workspace', 'cancelled'] as const)(
+  'retains the original %s tool validation failure before closing its physical client',
+  async (scenario) => {
+    const f = fixture();
+    const secret = 'private/path secret-token';
+    const original = Object.assign(Error(secret), { code: 'EPERM' });
+    const onClose = vi.fn();
+    let invalid = false;
+    Object.assign(f.options, {
+      lifecycle: { onNotification: vi.fn(), onRequest: vi.fn(), onClose },
+      assertToolSelectionCurrent: async () => {
+        if (invalid) throw original;
+      },
+    });
+    f.rpc.close.mockImplementation(() => onClose(Error('generic physical closure')));
+    try {
+      await f.authority.withBootstrap(f.expected, f.claim, async (lease) => {
+        const admission = new AbortController();
+        invalid = true;
+        if (scenario === 'cancelled') admission.abort(original);
+        await expect(lease.assertToolCurrent!(admission.signal)).rejects.toThrow();
+        const failure = onClose.mock.calls[0]?.[0];
+        expect(failure).toMatchObject({ code: 'tool_validation_failed', cause: original });
+        expect(codexRuntimeErrorTelemetry(failure)).toMatchObject({
+          runtimeFailureCode: 'tool_validation_failed',
+          runtimeValidationStage:
+            scenario === 'workspace' ? 'workspace_check' : 'credential_refresh',
+          runtimeValidationReason: scenario === 'workspace' ? 'filesystem_denied' : 'cancelled',
+        });
+        reportRetainedRuntimeFailure({ store: f.store, sessionId: 'session', error: failure });
+        const saved = f.store.getLatestEvent('session', 'error')!.payload;
+        expect(saved.error).toMatch(/Mitzo could not validate.*tool operation/);
+        expect(saved.runtimeFailure).toMatchObject({
+          runtimeFailureCode: 'tool_validation_failed',
+        });
+        expect(runtimeFailureMessage(RuntimeFailureSchema.parse(saved.runtimeFailure))).toBe(
+          saved.error,
+        );
+        expect(JSON.stringify(saved)).not.toContain(secret);
+        expect(f.rpc.close).toHaveBeenCalledOnce();
+        expect(f.store.getOrdinaryLocalCommandAdmission('command')?.state).toBe('uncertain');
+      });
+    } finally {
+      f.authority.currentLease()?.close();
+      f.store.close();
+    }
+  },
+);
 
 it('bounds the qualified workspace physical read owner to the same real lease without recursive physical validation', async () => {
   const f = fixture();

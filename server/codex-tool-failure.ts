@@ -29,6 +29,8 @@ const FailureDetailSchema = z.strictObject({
     'filesystem_denied',
     'deadline',
     'storage_full',
+    'memory_exhausted',
+    'connection_unavailable',
     'preparation_capacity',
     'custody_changed',
     'missing_connection',
@@ -203,24 +205,39 @@ function failureProjection(
   const resourceCode = chain
     .map((failure) => ('code' in failure ? failure.code : undefined))
     .find((value) =>
-      ['EACCES', 'EPERM', 'ETIMEDOUT', 'ENOSPC', 'SQLITE_FULL'].includes(value as string),
+      [
+        'EACCES',
+        'EPERM',
+        'ETIMEDOUT',
+        'ENOSPC',
+        'SQLITE_FULL',
+        'ENOMEM',
+        'ECONNREFUSED',
+        'ECONNRESET',
+        'ENOTFOUND',
+      ].includes(value as string),
     );
-  const reason: CodexToolFailureDiagnostic['reason'] =
-    code === 'cancelled'
-      ? 'cancelled'
-      : resourceCode === 'EACCES' || resourceCode === 'EPERM'
-        ? 'filesystem_denied'
-        : resourceCode === 'ETIMEDOUT'
-          ? 'deadline'
-          : resourceCode === 'ENOSPC' || resourceCode === 'SQLITE_FULL'
-            ? 'storage_full'
-            : code === 'stale_owner'
-              ? 'custody_changed'
-              : code === 'approval_unavailable'
-                ? 'approval_unavailable'
-                : code === 'invalid_input'
-                  ? 'invalid_input'
-                  : 'unknown';
+  const reason: CodexToolFailureDiagnostic['reason'] = timeout
+    ? 'deadline'
+    : resourceCode === 'ENOMEM'
+      ? 'memory_exhausted'
+      : ['ECONNREFUSED', 'ECONNRESET', 'ENOTFOUND'].includes(String(resourceCode))
+        ? 'connection_unavailable'
+        : code === 'cancelled'
+          ? 'cancelled'
+          : resourceCode === 'EACCES' || resourceCode === 'EPERM'
+            ? 'filesystem_denied'
+            : resourceCode === 'ETIMEDOUT'
+              ? 'deadline'
+              : resourceCode === 'ENOSPC' || resourceCode === 'SQLITE_FULL'
+                ? 'storage_full'
+                : code === 'stale_owner'
+                  ? 'custody_changed'
+                  : code === 'approval_unavailable'
+                    ? 'approval_unavailable'
+                    : code === 'invalid_input'
+                      ? 'invalid_input'
+                      : 'unknown';
   const diagnostic = typed?.diagnostic ?? {
     stage: boundary ? ('repository_preparation' as const) : stage,
     reason,
@@ -271,6 +288,18 @@ export function codexToolFailureResult(
     diagnostic.effectStatus === 'not_started';
   return {
     content: JSON.stringify({
+      message:
+        diagnostic.reason === 'memory_exhausted'
+          ? 'The tool ran out of memory. Reduce its workload and inspect partial results before retrying.'
+          : diagnostic.reason === 'connection_unavailable'
+            ? 'The tool could not reach its service. Check service availability and the original operation receipt before retrying.'
+            : diagnostic.reason === 'deadline'
+              ? 'The tool exceeded its time limit. Inspect the original operation before retrying.'
+              : diagnostic.reason === 'filesystem_denied'
+                ? 'The filesystem denied the tool access. Check the permitted path and operation.'
+                : diagnostic.reason === 'storage_full'
+                  ? 'The tool could not write because storage is full. Preserve partial work and restore capacity.'
+                  : 'The tool failed. Its diagnostic and recovery action follow.',
       failure: toolFailure(
         diagnostic.reason === 'deadline' ? 'tool_timeout' : code,
         diagnostic.phase ?? (diagnostic.cleanup?.length ? 'cleanup' : 'execution'),

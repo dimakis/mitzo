@@ -3,6 +3,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { eventStore, registry, sendToChat, interruptChat } from '../chat.js';
+import { bindClaudeChildDiagnostic } from '../claude-child-diagnostics.js';
 import type { SessionTransport } from '@mitzo/harness';
 
 function mockTransport(open = true): SessionTransport & { _sent: Record<string, unknown>[] } {
@@ -401,6 +402,122 @@ describe('interruptChat emits user_message via transport', () => {
     expect(stopTaskSpy).toHaveBeenCalledWith('task-def');
     expect(interruptSpy).toHaveBeenCalledTimes(1);
   });
+
+  it.each([false, true])(
+    'retains a sanitized child stop failure and still interrupts (sync=%s)',
+    async (sync) => {
+      const transport = mockTransport();
+      registry.register(CLIENT_ID, {
+        transport,
+        abortController: new AbortController(),
+        mode: 'agent',
+        sessionAllowList: new Set(),
+      });
+      const session = registry.get(CLIENT_ID)!;
+      const sessionId = `stop-failure-${sync}-${Date.now()}`;
+      session.sessionId = sessionId;
+      session.inputQueue = { push: vi.fn(), close: vi.fn() };
+      const interrupt = vi.fn().mockResolvedValue(undefined);
+      session.queryInstance = {
+        interrupt,
+        close: vi.fn(),
+        stopTask: vi.fn(() => {
+          if (sync) throw new Error('private provider detail');
+          return Promise.reject(new Error('private provider detail'));
+        }),
+      };
+      session.activeTaskIds.set('failing-child', 'agent-call');
+      expect(await interruptChat(CLIENT_ID, 'Stop')).toBe(true);
+      expect(interrupt).toHaveBeenCalledTimes(1);
+      expect(session.activeTaskIds.get('failing-child')).toBe('agent-call');
+      const failure = transport._sent.find((e) => e.code === 'claude_child_stop_failed');
+      expect(failure).toMatchObject({
+        type: 'error',
+        nonfatal: true,
+        taskId: 'failing-child',
+        error: expect.stringContaining('Subagent cancellation could not be confirmed'),
+      });
+      expect(JSON.stringify(failure)).not.toContain('private provider detail');
+      expect(
+        eventStore
+          .getSessionEvents(sessionId)
+          .some((e) => e.payload.code === 'claude_child_stop_failed'),
+      ).toBe(true);
+    },
+  );
+
+  it('does not interrupt a replacement runtime after a child stop settles', async () => {
+    const transport = mockTransport();
+    registry.register(CLIENT_ID, {
+      transport,
+      abortController: new AbortController(),
+      mode: 'agent',
+      sessionAllowList: new Set(),
+    });
+    const session = registry.get(CLIENT_ID)!;
+    session.sessionId = `stop-owner-${Date.now()}`;
+    session.inputQueue = { push: vi.fn(), close: vi.fn() };
+    const replacement = { interrupt: vi.fn(), close: vi.fn(), stopTask: vi.fn() };
+    const original = {
+      interrupt: vi.fn(),
+      close: vi.fn(),
+      stopTask: vi.fn(async () => {
+        session.queryInstance = replacement;
+      }),
+    };
+    session.queryInstance = original;
+    session.activeTaskIds.set('child', 'agent-call');
+    expect(await interruptChat(CLIENT_ID, 'Stop')).toBe(false);
+    expect(replacement.interrupt).not.toHaveBeenCalled();
+    expect(original.interrupt).not.toHaveBeenCalled();
+    expect(session.inputQueue.push).not.toHaveBeenCalled();
+  });
+
+  it.each(['reporter', 'persistence'])(
+    'still interrupts when child feedback %s fails',
+    async (failureStage) => {
+      const transport = mockTransport();
+      registry.register(CLIENT_ID, {
+        transport,
+        abortController: new AbortController(),
+        mode: 'agent',
+        sessionAllowList: new Set(),
+      });
+      const session = registry.get(CLIENT_ID)!;
+      session.sessionId = `stop-feedback-${failureStage}-${Date.now()}`;
+      session.inputQueue = { push: vi.fn(), close: vi.fn() };
+      const interrupt = vi.fn().mockResolvedValue(undefined);
+      session.queryInstance = {
+        interrupt,
+        close: vi.fn(),
+        stopTask: vi.fn().mockRejectedValue(new Error('original stop failure')),
+      };
+      session.activeTaskIds.set('child', 'agent-call');
+      const unbind = bindClaudeChildDiagnostic(session.queryInstance, () => {
+        if (failureStage === 'reporter') throw new Error('feedback delivery failed');
+      });
+      const append = eventStore.append.bind(eventStore);
+      const appendSpy = vi
+        .spyOn(eventStore, 'append')
+        .mockImplementation((sessionId, type, payload) => {
+          if (failureStage === 'persistence' && type === 'error')
+            throw new Error('feedback storage failed');
+          return append(sessionId, type, payload);
+        });
+      try {
+        expect(await interruptChat(CLIENT_ID, 'Stop')).toBe(true);
+        expect(interrupt).toHaveBeenCalledOnce();
+        const feedback = transport._sent.find((e) => e.code === 'claude_child_stop_failed');
+        expect(feedback).toBeTruthy();
+        if (failureStage === 'persistence') expect(feedback?.retained).toBe(false);
+        expect(JSON.stringify(feedback)).not.toContain('original stop failure');
+        expect(JSON.stringify(feedback)).not.toContain('feedback storage failed');
+      } finally {
+        unbind();
+        appendSpy.mockRestore();
+      }
+    },
+  );
 
   it('rejects an active Anthropic model switch before interrupting or persisting it', async () => {
     const transport = mockTransport();

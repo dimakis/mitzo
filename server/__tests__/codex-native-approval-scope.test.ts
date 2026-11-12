@@ -11,10 +11,73 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, expect, it, vi } from 'vitest';
 import { memberScope } from '../task-execution-scope.js';
-import { nativeCommandApprovalScope } from '../codex-native-approval-scope.js';
+import {
+  nativeCommandApprovalScope,
+  nativeGithubReadCommand,
+} from '../codex-native-approval-scope.js';
 import type { NativeApprovalRequest } from '../codex-native-permission-protocol.js';
 
 const directories: string[] = [];
+it.each([
+  "/bin/zsh -lc 'gh run view 42 -R owner/repo --log'",
+  '/bin/zsh -lc "gh api repos/owner/repo/actions/jobs/42/logs"',
+  '/bin/zsh -lc "gh api repos/owner/repo --jq \'.name\'"',
+  '/bin/zsh -lc \'gh api repos/owner/repo --jq ".name"\'',
+])('recognizes the observed literal native shell envelope: %s', (command) => {
+  expect(nativeGithubReadCommand(command)).toEqual({
+    repository: 'owner/repo',
+    shell: ['/bin/zsh', '-lc'],
+  });
+});
+
+it.each([
+  '/bin/zsh -lc "gh run view 42 -R owner/repo; touch changed"',
+  '/bin/zsh -lc "gh api repos/owner/repo > changed"',
+  '/bin/zsh -lc "gh api repos/owner/repo | cat"',
+  '/bin/zsh -lc "gh run rerun 42 -R owner/repo"',
+  '/bin/zsh -lc "gh api repos/owner/repo -X POST"',
+  '/bin/zsh -lc "gh api repos/owner/repo $(touch changed)"',
+  '/bin/zsh -lc "gh api repos/owner/repo `touch changed`"',
+  '/bin/zsh -lc "gh api repos/owner/repo $OTHER"',
+  "/bin/zsh -lc 'gh api repos/owner/repo' extra",
+  "/bin/zsh -lc 'gh api repos/owner/repo'; touch changed",
+  "/bin/zsh -lc 'gh api repos/owner/'repo",
+  "/bin/zsh -lc $'gh api repos/owner/repo'",
+  "/bin/zsh -lc 'gh api repos/owner/repo",
+  '/bin/zsh -lc "gh api repos/owner/repo',
+  "/bin/zsh -c 'gh api repos/owner/repo'",
+  "/bin/bash -lc 'gh api repos/owner/repo'",
+  "/bin/zsh -lic 'gh api repos/owner/repo'",
+  "env GH_HOST=other /bin/zsh -lc 'gh api repos/owner/repo'",
+  '/bin/zsh -lc "GH_HOST=other gh api repos/owner/repo"',
+  '/bin/zsh -lc "gh api repos/owner/repo\ngh auth token"',
+  '/bin/zsh -lc "gh api repos/owner/repo\u0000"',
+  '/bin/zsh -lc "gh api repos/owner/repo\\q"',
+  '/bin/zsh -lc "gh api repos/owner/repo\\$OTHER"',
+  '/bin/zsh -lc "gh api repos/owner/repo\\`touch changed\\`"',
+  '/bin/zsh -lc "gh api repos/owner/repo\\\\"',
+  '/bin/zsh -lc "/bin/zsh -lc \'gh api repos/owner/repo\'"',
+])('retains ordinary approval for unsupported envelopes and shell effects: %s', (command) => {
+  expect(nativeGithubReadCommand(command)).toBeUndefined();
+});
+
+it('keeps native shell identity in repository consent and preserves the original command', () => {
+  const { request, owner } = fixture();
+  if (request.method !== 'item/commandExecution/requestApproval') throw Error('fixture');
+  request.params.command = 'gh run view 42 -R owner/repo --log';
+  const plain = nativeCommandApprovalScope(request, owner);
+  request.params.command = "/bin/zsh -lc 'gh run view 42 -R owner/repo --log'";
+  const original = request.params.command;
+  const wrapped = nativeCommandApprovalScope(request, owner);
+  expect(wrapped).toMatch(/^native-github-read-v2:/);
+  expect(wrapped).not.toBe(plain);
+  expect(request.params.command).toBe(original);
+  request.params.command = '/bin/zsh -lc "gh api repos/owner/repo/actions/jobs/43/logs"';
+  expect(nativeCommandApprovalScope(request, owner)).toBe(wrapped);
+  request.params.command = '/bin/zsh -c "gh api repos/owner/repo/actions/jobs/43/logs"';
+  expect(nativeCommandApprovalScope(request, owner)).not.toBe(wrapped);
+});
+
 vi.mock('node:fs', async (original) => {
   const fs = await original<typeof import('node:fs')>();
   return { ...fs, lstatSync: vi.fn(fs.lstatSync) };

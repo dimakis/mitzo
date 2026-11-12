@@ -1,4 +1,8 @@
-import { copyCallbackOutcome, retainCallbackOutcome } from './turn-callbacks.js';
+import {
+  copyCallbackOutcome,
+  retainCallbackOutcome,
+  retainedCallbackOutcome,
+} from './turn-callbacks.js';
 import {
   getRepositoryWorkspaces,
   readRepositoryWorkspaceForConversation,
@@ -20,6 +24,7 @@ import { loadAccountProfiles } from './account-profiles.js';
 import { toolInputError } from './tool-input-error.js';
 import { authorizeGitHubRead } from './github-read-approval.js';
 import { executePublicGitHubRead } from './public-github-read.js';
+import { GithubLogReadSchema, validateGithubLogRead } from './github-log-read.js';
 import { createCodexPathProtection, privateCodexRoots } from './codex-private-path.js';
 import {
   workspaceRuntimeAuthorityPaths,
@@ -56,6 +61,9 @@ const schemas = {
     .strict(),
   GitHubRead: z
     .object({
+      log: GithubLogReadSchema.optional().describe(
+        'Authenticated CI job log paging: optional literal query, UTF-16 offset and character limit (up to 16000). Use /repos/OWNER/REPO/actions/jobs/JOB_ID/logs. Source is bounded to 8 MiB; follow nextOffset until null.',
+      ),
       endpoint: z
         .string()
         .min(1)
@@ -215,6 +223,7 @@ export function createNativeToolExecutor(
     // any executor (including lazy workspace creation) starts, errors stay
     // uncertain unless that executor supplies its own settlement evidence.
     let executionStarted = false;
+    let readOnlyExecution = false;
     const canUseTool = buildPermissionHandler(clientId, registry, {
       onDemandCreate: onDemandCreate
         ? async (path) => {
@@ -278,8 +287,17 @@ export function createNativeToolExecutor(
           : refused(permission.message);
       }
       if (block.name === 'GitHubRead' && 'endpoint' in parsed.data) {
+        const log =
+          'log' in parsed.data && parsed.data.log !== undefined
+            ? validateGithubLogRead(parsed.data.endpoint, parsed.data.log)
+            : undefined;
+        if (log && parsed.data.access === 'public')
+          return refused(
+            'Log paging requires a separately authorized authenticated GitHub read; public reads never switch credentials automatically',
+          );
         const input = {
           endpoint: parsed.data.endpoint,
+          ...(log ? { log } : {}),
           ...('access' in parsed.data && parsed.data.access ? { access: parsed.data.access } : {}),
           ...('view' in parsed.data && parsed.data.view ? { view: parsed.data.view } : {}),
         };
@@ -300,6 +318,7 @@ export function createNativeToolExecutor(
         const executeRead =
           input.access === 'public' ? executePublicGitHubRead : executeTrustedGitHubRead;
         executionStarted = true;
+        readOnlyExecution = true;
         const content = await executeRead(
           input.endpoint,
           signal,
@@ -307,6 +326,7 @@ export function createNativeToolExecutor(
           options.maxOutputBytes,
           input.view,
           assertReadCurrent,
+          ...(log ? ([log] as const) : []),
         );
         assertReadCurrent();
         return result(content);
@@ -545,6 +565,7 @@ export function createNativeToolExecutor(
       await options.assertRuntimeCurrentAsync?.();
       assertCurrent();
       executionStarted = true;
+      readOnlyExecution = block.name === 'Read';
       const operation = await executeNativeFileOperation(
         {
           ...input,
@@ -566,6 +587,12 @@ export function createNativeToolExecutor(
             ? err.message
             : 'Native tool execution failed',
       );
+      if (
+        readOnlyExecution &&
+        !signal.aborted &&
+        !(err instanceof Error && retainedCallbackOutcome(err) === 'unknown')
+      )
+        return retainCallbackOutcome(failure, 'settled');
       return err instanceof Error && !signal.aborted ? copyCallbackOutcome(err, failure) : failure;
     }
   };

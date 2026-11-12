@@ -120,22 +120,32 @@ it.each(['revocation', 'cancellation', 'environment'] as const)(
     }
   },
 );
-it('rejects a changed discovered schema before exposure even without a library refresh', async () => {
+it('rejects a changed discovered schema before invocation even without a library refresh', async () => {
   const f = fixture();
   try {
     const entry = (await f.catalog.refresh(f.options))[0];
-    await expect(
-      admitConfiguredTools(f.catalog, [f.catalog.reference(entry)], {
-        ...f.options,
-        connect: async () => ({
-          listTools: async () => ({
-            tools: [{ name: 'c', inputSchema: { type: 'object', required: ['different'] } }],
-          }),
-          callTool: f.call,
-          close: f.close,
+    const admitted = await admitConfiguredTools(f.catalog, [f.catalog.reference(entry)], {
+      ...f.options,
+      connect: async () => ({
+        listTools: async () => ({
+          tools: [{ name: 'c', inputSchema: { type: 'object', required: ['different'] } }],
         }),
+        callTool: f.call,
+        close: f.close,
       }),
-    ).rejects.toThrow(/definition changed/);
+    });
+    try {
+      await expect(
+        admitted.execute(
+          admitted.definitions[0].name,
+          {},
+          async () => ({ behavior: 'allow' as const }),
+          f.abort.signal,
+        ),
+      ).rejects.toThrow(/definition changed/);
+    } finally {
+      await admitted.close();
+    }
     expect(f.call).not.toHaveBeenCalled();
     expect(f.close).toHaveBeenCalledTimes(3);
   } finally {

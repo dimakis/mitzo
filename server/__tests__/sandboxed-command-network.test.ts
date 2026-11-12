@@ -55,6 +55,8 @@ it.each([
         signal: new AbortController().signal,
       });
       expect(result.isError).toBe(true);
+      expect(result.content).toContain(code === null ? 'SIGKILL' : `exit code ${code}`);
+      expect(result.content).toContain(outcome === 'unknown' ? 'Inspect' : 'failed');
       expect(callbackOutcome(result)).toBe(outcome);
       expect(terminationLog).toHaveBeenLastCalledWith('Sandbox command terminated', {
         exitCode: code,

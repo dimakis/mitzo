@@ -97,22 +97,29 @@ it('bounds an executor that ignores abort and fences its late continuation', asy
 
 it('does not spend execution time while waiting for human approval', async () => {
   vi.useFakeTimers();
+  vi.spyOn(performance, 'now').mockImplementation(() => Date.now());
+  const observe = vi.fn();
   let approve!: () => void;
-  const work = runGuardedTool({ signal: new AbortController().signal, policy }, async () => {
-    await withToolGuardPhase(
-      'approval',
-      () =>
-        new Promise<void>((resolve) => {
-          approve = resolve;
-        }),
-    );
-    await new Promise<void>((resolve) => setTimeout(resolve, 90));
-    return 'done';
-  });
+  const work = runGuardedTool(
+    { signal: new AbortController().signal, policy, onSettled: observe },
+    async () => {
+      await withToolGuardPhase(
+        'approval',
+        () =>
+          new Promise<void>((resolve) => {
+            approve = resolve;
+          }),
+      );
+      await new Promise<void>((resolve) => setTimeout(resolve, 90));
+      return 'done';
+    },
+  );
+  const completed = expect(work).resolves.toBe('done');
   await vi.advanceTimersByTimeAsync(900);
   approve();
   await vi.advanceTimersByTimeAsync(90);
-  await expect(work).resolves.toBe('done');
+  await completed;
+  expect(observe.mock.calls[0][0].elapsedMs).toEqual({ execution: 90, approval: 900, cleanup: 0 });
 });
 
 it('bounds approval and cleanup independently', async () => {
