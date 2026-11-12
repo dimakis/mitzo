@@ -32,7 +32,7 @@ import {
   type RuntimeMigrationAdapters,
 } from '../openshell-runtime-migration.js';
 import type { CodexLifecycleTransport } from '../codex-app-server-client.js';
-import type { AccountBinding } from '@mitzo/protocol';
+import { AccountBindingSchema, type AccountBinding } from '@mitzo/protocol';
 import {
   CodexHostToolRequestError,
   CodexRequestError,
@@ -451,7 +451,7 @@ it.each(['validator', 'owned admission'])(
     if (validation === 'owned admission') {
       const events = new EventStore(':memory:');
       cleanup.push(() => events.close());
-      const account = f.getBinding();
+      const account = AccountBindingSchema.parse(f.getBinding());
       const runtime = {
         version: 2 as const,
         account: {

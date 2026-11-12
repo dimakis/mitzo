@@ -58,6 +58,7 @@ async function run(
     onStart?: () => void;
     readOnly?: boolean;
     boundedReadDiagnostics?: boolean;
+    preserveWhitespace?: boolean;
   },
 ): Promise<string> {
   await options.assertRuntimeCurrentAsync?.();
@@ -112,7 +113,7 @@ async function run(
           )
             retainCallbackOutcome(failure, 'settled');
           reject(failure);
-        } else resolveRun(stdout.trim());
+        } else resolveRun(options.preserveWhitespace ? stdout : stdout.trim());
       },
     );
     if (options.input) child.stdin?.end(options.input);
@@ -139,6 +140,7 @@ export async function executeTrustedGitHubRead(
     env: { HOME: home, GH_HOST: 'github.com' },
     readOnly: true,
     boundedReadDiagnostics: log !== undefined,
+    preserveWhitespace: log !== undefined,
     assertRuntimeCurrent: assertCurrent,
   });
   signal.throwIfAborted();

@@ -125,6 +125,44 @@ it('closes the original peer if a selected operation is absent and never substit
   expect(f.close).toHaveBeenCalledOnce();
   expect(f.call).not.toHaveBeenCalled();
 });
+it.each(['rejection', 'timeout'])(
+  'retains missing task admission and cleanup failures together on cleanup %s',
+  async (kind) => {
+    const f = fixture();
+    const cleanup = Error('private shutdown diagnostic');
+    f.close.mockImplementationOnce(() =>
+      kind === 'rejection' ? Promise.reject(cleanup) : new Promise<void>(() => {}),
+    );
+    f.connect.mockResolvedValueOnce({
+      listTools: async () => ({ tools: [{ name: 'TaskBlock', inputSchema: { type: 'object' } }] }),
+      callTool: f.call,
+      close: f.close,
+    });
+    await expect(
+      connectSelectedTaskMcpTools([ref], { 'task-board': f.config }, scope, {
+        ...f.options,
+        toolGuardPolicy: { executionMs: 100, approvalMs: 100, cleanupMs: 20 },
+      }),
+    ).rejects.toMatchObject({
+      message: 'MCP operation and cleanup failed',
+      cause: expect.objectContaining({
+        message: 'Selected task operation is unavailable on the original task server',
+      }),
+      errors: [
+        expect.objectContaining({
+          message: 'MCP cleanup failed',
+          errors: [
+            kind === 'rejection'
+              ? cleanup
+              : expect.objectContaining({ code: 'ETIMEDOUT', phase: 'cleanup' }),
+          ],
+        }),
+      ],
+    });
+    expect(f.close).toHaveBeenCalledOnce();
+    expect(f.call).not.toHaveBeenCalled();
+  },
+);
 it('keeps configured receipt tools and scoped task tools together without launching an ambient source or expanding either selection', async () => {
   const f = fixture();
   const catalog = new ConfiguredToolCatalog(':memory:');

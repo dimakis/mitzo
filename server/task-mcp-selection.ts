@@ -4,7 +4,11 @@ import type {
   AgentToolReference,
   SymposiumProfileDefinition,
 } from '@mitzo/protocol';
-import { connectCodexMcpTools, type McpToolsOptions } from './codex-mcp-tools.js';
+import {
+  closeMcpAfterFailure,
+  connectCodexMcpTools,
+  type McpToolsOptions,
+} from './codex-mcp-tools.js';
 import type { McpServerConfig } from './mcp-config.js';
 import { TASK_MCP_SERVER_NAME } from './host-mcp-servers.js';
 import { telosWorkerTaskDefinitions } from './telos-worker-task-tools.js';
@@ -96,8 +100,7 @@ export async function connectSelectedTaskMcpTools(
       },
     };
   } catch (error) {
-    await peer.close();
-    throw error;
+    return closeMcpAfterFailure(peer, error);
   }
 }
 

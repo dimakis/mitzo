@@ -35,6 +35,30 @@ it.each(['ntfy', 'pushover'] as const)(
   },
 );
 
+it.each([false, true])(
+  'delivers Unicode approval titles with reviewOnly=%s',
+  async (reviewOnly) => {
+    const title = 'Review 🦊 李雷';
+    const fetch = vi.fn(async (url: string, options: RequestInit) => {
+      const request = new Request(url, options);
+      const encoded = request.headers.get('Title')!;
+      expect(encoded).toMatch(/^=\?UTF-8\?B\?[A-Za-z0-9+/=]+\?=$/);
+      expect(Buffer.from(encoded.slice(10, -2), 'base64').toString('utf8')).toBe(
+        reviewOnly ? title : `Mitzo: ${title}`,
+      );
+      return new Response('', { status: 200 });
+    });
+    vi.stubGlobal('fetch', fetch);
+    const { sendPermissionNotification } = await import('../src/notify.js');
+    expect(
+      await sendPermissionNotification(title, 'Open Mitzo', 'permission', 'session', {
+        reviewOnly,
+      }),
+    ).toBe(true);
+    expect(fetch).toHaveBeenCalledOnce();
+  },
+);
+
 it('keeps redacted legacy alerts review-only', async () => {
   const fetch = vi.fn().mockResolvedValue(new Response('', { status: 200 }));
   vi.stubGlobal('fetch', fetch);

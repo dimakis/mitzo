@@ -45,14 +45,23 @@ export function assertClaudeSubscriptionAccount(
   info: import('@anthropic-ai/claude-agent-sdk').AccountInfo,
   env: Readonly<NodeJS.ProcessEnv>,
 ) {
+  // SDK accountInfo() uses display labels; `claude auth status --json` uses IDs.
+  // Accept only the known personal plans, never arbitrary matching strings.
+  const plan =
+    info.subscriptionType === 'Claude Max' || info.subscriptionType === 'max'
+      ? 'max'
+      : info.subscriptionType === 'Claude Pro' || info.subscriptionType === 'pro'
+        ? 'pro'
+        : undefined;
   if (
     info.apiProvider !== 'firstParty' ||
     !info.email ||
     info.email.toLowerCase() !== env.MITZO_CLAUDE_EXPECTED_EMAIL?.toLowerCase() ||
-    info.subscriptionType !== env.MITZO_CLAUDE_EXPECTED_PLAN ||
+    !plan ||
+    plan !== env.MITZO_CLAUDE_EXPECTED_PLAN ||
     (info.apiKeySource && info.apiKeySource !== 'none')
   )
-    throw unavailable();
+    throw new ClaudeSubscriptionSignInError('identity_mismatch');
 }
 export function claudeSdkExecutable(): string {
   if (process.platform !== 'darwin') throw unavailable();

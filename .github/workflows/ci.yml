@@ -198,7 +198,6 @@ jobs:
         with:
           node-version: ${{ env.MITZO_CI_NODE_VERSION }}
       - uses: ./.github/actions/ci-playwright
-        timeout-minutes: 8
         with:
           browsers: webkit chromium
       - run: bash scripts/ci-browser-container.sh node scripts/ci-browser-run.mjs test:browser
@@ -295,7 +294,6 @@ jobs:
           python3 scripts/ci-build-output.py restore server "$RUNNER_TEMP/ci-compiled/ci-server.zip"
           python3 scripts/ci-build-output.py restore frontend "$RUNNER_TEMP/ci-compiled/ci-frontend.zip"
       - uses: ./.github/actions/ci-playwright
-        timeout-minutes: 8
         with:
           browsers: ${{ matrix.browser }}
       - name: Verify shared theme and mobile layouts without a backend
