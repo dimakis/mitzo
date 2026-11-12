@@ -82,6 +82,29 @@ it('keeps injected SDK environment out of trusted bootstrap, quotes argv and fre
   handle.emit('close', 0, null);
   expect(existsSync(policy)).toBe(false);
 });
+it('allows the selected Messages endpoint inside the existing SDK sandbox', () => {
+  vi.stubEnv('ANTHROPIC_BASE_URL', 'https://ambient.example');
+  const handle = child();
+  mocked.spawn.mockReturnValue(handle);
+  vi.spyOn(process, 'kill').mockReturnValue(true);
+  try {
+    const boundary = credentialSdkBoundary('darwin', [], 'https://selected.example/anthropic')!;
+    boundary.spawnClaudeCodeProcess({
+      command: '/usr/bin/true',
+      args: [],
+      env: { ANTHROPIC_BASE_URL: 'https://selected.example/anthropic' },
+      signal: new AbortController().signal,
+    });
+    const payload = JSON.parse(
+      readFileSync(mocked.spawn.mock.calls[0][1].at(-1), 'utf8'),
+    ) as SandboxWorkerPayload;
+    expect(payload.config.network.allowedDomains).toContain('selected.example');
+    expect(payload.config.network.allowedDomains).not.toContain('ambient.example');
+    expect(() => credentialSdkBoundary('darwin', [], 'https://127.0.0.1')).toThrow();
+  } finally {
+    handle.emit('close', 0, null);
+  }
+});
 it('fails closed before provider spawn when OS sandbox dependencies are incomplete', () => {
   mocked.dependencies.mockReturnValue({ errors: [], warnings: ['seccomp missing'] });
   expect(() =>

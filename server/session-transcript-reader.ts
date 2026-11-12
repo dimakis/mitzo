@@ -77,7 +77,9 @@ export function createSessionTranscriptReader(read: Dependencies) {
     const session = store.getSession(sessionId);
     if (
       !session?.accountBinding ||
-      !['anthropic-vertex', 'anthropic-claude'].includes(session.accountBinding.provider)
+      !['anthropic-vertex', 'anthropic-claude', 'anthropic-api'].includes(
+        session.accountBinding.provider,
+      )
     )
       return { events, initialPrompt: session?.initialPrompt ?? undefined };
     const custody = store.getOrdinaryLocalVertexCustody(sessionId);
@@ -104,7 +106,12 @@ export function createSessionTranscriptReader(read: Dependencies) {
       const session = store.getSession(sessionId);
       if (session?.accountBinding?.provider === 'anthropic-claude') {
         const custody = store.getOrdinaryLocalVertexCustody(sessionId);
-        if (!custody || !('kind' in custody.credentialAuthority) || !session.cwd)
+        if (
+          !custody ||
+          !('kind' in custody.credentialAuthority) ||
+          custody.credentialAuthority.kind !== 'claude-host-login' ||
+          !session.cwd
+        )
           throw Error('Claude account history unavailable');
         const messages = await read.getAccountMessages(
           custody.sdkSessionId,

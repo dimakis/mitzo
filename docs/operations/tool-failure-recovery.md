@@ -117,6 +117,7 @@ approval failure.
 | Local Codex subscription and API accounts     | Credential-owner and bootstrap failures through the real lifecycle bridge; conversation, retained replay and client receipt rendering |
 | OpenShell Codex subscription and API accounts | Shared native conversation diagnostics and host TaskExecution receipts; sandbox built-ins remain provider-owned                       |
 | Claude SDK Vertex and personal accounts       | Registered credential callback, shared tool diagnostics and host TaskExecution receipts                                               |
+| Anthropic-compatible API accounts (EnMaaS)    | Same registered Claude SDK callback; offline account, model and permission-mode admission regressions                                 |
 | Legacy unbound Claude SDK                     | Same registered callback; no named Anthropic API account admission is implied                                                         |
 | Gemini Vertex                                 | Deferred provider loop, shared tool diagnostics, durable failed-tool history and cancellation                                         |
 | Retired custom OpenAI Responses engine        | Rejection remains enforced; supported Responses protocol accounts use the Codex harness                                               |
