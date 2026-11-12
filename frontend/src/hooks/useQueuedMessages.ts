@@ -448,8 +448,12 @@ export function useQueuedMessages(
       if (
         !original ||
         original.dispatchPending ||
+        (original.queueEntryId !== undefined && msg.queueEntryId !== original.queueEntryId) ||
         position < 0 ||
-        position >= queueRef.current.length
+        position >= queueRef.current.length ||
+        queueRef.current
+          .slice(Math.min(index, position), Math.max(index, position) + 1)
+          .some((entry) => entry.dispatchPending)
       )
         return false;
       const next = queueRef.current.filter((_, i) => i !== index);

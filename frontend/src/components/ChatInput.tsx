@@ -38,7 +38,7 @@ import { ComposerTools } from './ComposerTools';
 import type { ChatComposerCapabilities } from '../lib/chat-composer-capabilities';
 import { SessionTimersDialog } from './SessionTimersDialog';
 import { UiIcon } from './UiIcon';
-import { ComposerStatusProvider, ComposerStatusRail, ComposerStatusNotice } from './ComposerStatus';
+import { ComposerStatusProvider, ComposerStatusRail } from './ComposerStatus';
 import { useComposerStatusSink } from '../lib/composer-status-context';
 import { MicButton } from './MicButton';
 import { impactMedium } from '../lib/haptics';
@@ -1505,50 +1505,62 @@ function ChatInputContent({
         </div>
       )}
       {(queuedMessages.length > 0 || queueEditorOpen) && (
-        <ComposerStatusNotice message="Up next" queued={queuedMessages.length}>
-          <QueuedDraftTray
-            queue={queuedMessages}
-            paused={queuePaused}
-            busy={queueBusy}
-            running={running}
-            blocked={
-              !!sendDisabledReason ||
-              boundedFirstCommand ||
-              importing ||
-              (running && !!interruptDisabledReason) ||
-              (running && !onInterrupt)
+        <QueuedDraftTray
+          key={composerScope}
+          queue={queuedMessages}
+          paused={queuePaused}
+          busy={queueBusy}
+          running={running}
+          blocked={
+            !!sendDisabledReason ||
+            boundedFirstCommand ||
+            importing ||
+            (running && !!interruptDisabledReason) ||
+            (running && !onInterrupt)
+          }
+          blockedReason={
+            sendDisabledReason ||
+            (boundedFirstCommand
+              ? 'Finish preparing this chat before sending queued drafts.'
+              : importing
+                ? 'Wait for the attachment import to finish.'
+                : running
+                  ? interruptDisabledReason ||
+                    (!onInterrupt
+                      ? 'Steering is unavailable for this engine or runtime. Your queued drafts are kept.'
+                      : undefined)
+                  : undefined)
+          }
+          recoveryBlocked={
+            !!sendDisabledReason ||
+            boundedFirstCommand ||
+            importing ||
+            !!sendPending.current ||
+            !!interruptPending.current
+          }
+          nativeSteer={interruptLabel === 'Steer current turn'}
+          onPause={() => {
+            const paused = !queuePaused;
+            setQueuePaused(paused);
+            if (
+              !paused &&
+              !running &&
+              !queueBusy &&
+              !queueEditorOpen &&
+              !sendPending.current &&
+              !interruptPending.current &&
+              !sendDisabledReason &&
+              !boundedFirstCommand
+            ) {
+              const q = dequeue();
+              if (q) sendOrdinary(q, true);
             }
-            recoveryBlocked={
-              !!sendDisabledReason ||
-              boundedFirstCommand ||
-              importing ||
-              !!sendPending.current ||
-              !!interruptPending.current
-            }
-            nativeSteer={interruptLabel === 'Steer current turn'}
-            onPause={() => {
-              const paused = !queuePaused;
-              setQueuePaused(paused);
-              if (
-                !paused &&
-                !running &&
-                !queueBusy &&
-                !queueEditorOpen &&
-                !sendPending.current &&
-                !interruptPending.current &&
-                !sendDisabledReason &&
-                !boundedFirstCommand
-              ) {
-                const q = dequeue();
-                if (q) sendOrdinary(q, true);
-              }
-            }}
-            onSend={fireQueuedAsInterrupt}
-            onUpdate={updateQueued}
-            onRemove={removeQueued}
-            onEditingChange={setQueueEditorOpen}
-          />
-        </ComposerStatusNotice>
+          }}
+          onSend={fireQueuedAsInterrupt}
+          onUpdate={updateQueued}
+          onRemove={removeQueued}
+          onEditingChange={setQueueEditorOpen}
+        />
       )}
       {queueError?.scope === composerScope && <ChatStatusMessage error={queueError.text} />}
       <ChatStatusMessage status={sendDisabledReason} action={sendDisabledAction} />
