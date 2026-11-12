@@ -2823,7 +2823,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../ordinary-local-vertex-replay.ts':
     'd7ecdd21c89be167a1b627b024687df00ead20df98c349f51b114d98a8800a75',
   '../ordinary-local-vertex-sdk-query.ts':
-    'cf6616daa654552ede5285d7268f329c7104ebd2b9e53bddbd679d06160e15df',
+    '79f4b47c8b1b711179cda68dc27533667e0d2b3c79866dd0cb837ea23ceb4d33',
   '../ordinary-local-vertex-command-owner.ts':
     '21d7d64c7becf7032fb39a2603f0231a1a2cd459cf04ebf18207de45e0dc3a2d',
   '../ordinary-local-vertex-capabilities.ts':
@@ -4168,7 +4168,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/codex-conversation-rpc-cleanup.integration.test.ts':
     '25267beedb7c3a0e08eaa7c78b68e2c8adb595fd9cabe1c1b0691115283da6e9',
   '../__tests__/ordinary-local-vertex-sdk-query.test.ts':
-    'aed45e301b35adf8089716a93048a12ca4c50ff89bcb0c088a4623bbe3030dbc',
+    '3cc76c241bdbb5cfe8fb57322e503f5c510b2314c32c1937c1c488d6600b2aa7',
   '../__tests__/retained-runtime-failure.test.ts':
     'c611d50fcfee26e3217fb41ac547ca6c77cee855815bd217e82cf1f6f33ded9f',
   '../__tests__/sdk-turn-query.test.ts':
