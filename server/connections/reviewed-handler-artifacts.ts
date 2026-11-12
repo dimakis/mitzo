@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.1061-credential-validation-recovery';
+  'v1.0.1062-typed-recovery-consumer-fixture';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -3277,7 +3277,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     '4553febfe17e98cd1bf7110ec9a9a7391f3bd32808e77c8f97cfc46173be97c4',
   '../codex-tool-failure.ts': 'f155d21af7cdda491dc9c875c980c17b5c7efb3dd1604036ddeff96ed38d2657',
   '../__tests__/tool-validation-consumer.test.ts':
-    '41d1168b3c2c1394193c1660a6a9341e01c1bc4f12c0bd317f1688da7cf819f8',
+    '7cdd57ea8b0c8a26e106d70a2a707c5c49a23a0f3129fca3ed748382c12d19a1',
   '../codex-tool-validation-error.ts':
     'cce435adbf037a9032907d48d3073b709a4003a507d15cea4ffb7dbc91360b40',
   '../tool-output-projection.ts':

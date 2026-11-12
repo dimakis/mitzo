@@ -3,6 +3,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { join } from 'node:path';
 import {
   OrdinaryCodexRetainedCommandObservationSchema,
+  OrdinaryCodexFirstCommandSchema,
   RuntimeFailureSchema,
   runtimeFailureMessage,
 } from '@mitzo/protocol';
@@ -48,13 +49,16 @@ it('delivers raw tool validation failure through owned custody, conversation and
   const privateCause = Object.assign(Error('private/path secret-token'), { code: 'EPERM' });
   const validate = OrdinaryLocalCodexSelectionOwner.prototype.assertToolCurrent;
   vi.spyOn(OrdinaryLocalCodexSelectionOwner.prototype, 'assertToolCurrent').mockImplementation(
-    async function (...args) {
+    async function (this: OrdinaryLocalCodexSelectionOwner, ...args) {
       if (validationFails) throw privateCause;
       return Reflect.apply(validate, this, args);
     },
   );
   const attach = OwnedCodexLifecycleBridge.prototype.attach;
-  vi.spyOn(OwnedCodexLifecycleBridge.prototype, 'attach').mockImplementation(function (owner) {
+  vi.spyOn(OwnedCodexLifecycleBridge.prototype, 'attach').mockImplementation(function (
+    this: OwnedCodexLifecycleBridge,
+    owner,
+  ) {
     lifecycle = this.lifecycle;
     return Reflect.apply(attach, this, [owner]);
   });
@@ -208,11 +212,11 @@ it('delivers raw tool validation failure through owned custody, conversation and
     },
   });
   metadataConnection.listener({ type: '_open' });
-  const originalCommand = {
+  const originalCommand = OrdinaryCodexFirstCommandSchema.parse({
     ...f.request,
     runOn: 'local' as const,
     repositoryWorkspaceId: f.reservation.id,
-  };
+  });
   expect(
     client.getState().sendLocalFirstCommand(originalCommand, { draftId: 'retained-draft' }),
   ).toBe(true);
