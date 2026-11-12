@@ -1,4 +1,4 @@
-import { isReadOnlyBuiltinToolCall } from './builtin-tool-behavior.js';
+import { qualifyToolResult } from './tool-failure-reporting.js';
 import { ToolFailureSchema, toolFailure, type ToolFailure } from '@mitzo/protocol';
 import {
   assertToolGuardCurrent,
@@ -4489,13 +4489,7 @@ export class CodexConversation {
       );
       // Only a returned, reviewed read result can qualify a failed callback here.
       // Explicit owner uncertainty, thrown exceptions and cancellation stay fenced.
-      if (
-        result.isError &&
-        !retainedCallbackOutcome(result) &&
-        !toolSignal.aborted &&
-        isReadOnlyBuiltinToolCall(call.tool, call.arguments)
-      )
-        retainCallbackOutcome(result, 'settled');
+      qualifyToolResult(call.tool, call.arguments, toolSignal, result);
     } catch (error) {
       if (error instanceof ToolGuardTimeoutError) {
         active.callbackEffectsUnknown = true;

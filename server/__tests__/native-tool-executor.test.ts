@@ -366,7 +366,7 @@ describe('native tool execution through session permissions', () => {
     'preserves a positively settled %s GitHub refusal through the native adapter',
     async (access) => {
       const read = access === 'public' ? executePublicGitHubRead : executeTrustedGitHubRead;
-      vi.mocked(read).mockRejectedValueOnce(retainCallbackOutcome(Error('HTTP 403'), 'settled'));
+      vi.mocked(read).mockRejectedValueOnce(Error('HTTP 403'));
       const pending = createNativeToolExecutor('client', registry, { env: {}, forcePrompt: true })(
         call('GitHubRead', { endpoint: '/repos/example/project', access }),
         abort.signal,
