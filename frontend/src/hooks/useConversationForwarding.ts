@@ -86,6 +86,7 @@ export function useConversationForwarding(options: {
     window.addEventListener(AUTH_RESTORED_EVENT, restored);
     return () => {
       epoch++;
+      blocked.current = true;
       operation.current?.abort();
       operation.current = undefined;
       window.removeEventListener(AUTH_LOST_EVENT, lost);
@@ -98,6 +99,26 @@ export function useConversationForwarding(options: {
   const persist = async (next: Journal | undefined, fresh: () => boolean) => {
     const retained = await retainConversationJournal(draftId, 'collaborationForward', next, fresh);
     if (retained && fresh()) publish({ journal: retained.value });
+  };
+  const restoreUnsentConfirmation = async (original: Journal) => {
+    // No POST occurred in this attempt. Cleanup may outlive the hook/login,
+    // but owns only this exact journal and cannot erase earlier uncertainty.
+    if (original.confirmationAttempted) return;
+    const attempted = JSON.stringify({ ...original, confirmationAttempted: true });
+    const restored = JSON.stringify(original);
+    const ownsJournal = () => {
+      const saved = draftId
+        ? JSON.stringify(getChatDraft(draftId)?.collaborationForward)
+        : undefined;
+      return saved === attempted || saved === restored;
+    };
+    const retained = await retainConversationJournal(
+      draftId,
+      'collaborationForward',
+      original,
+      ownsJournal,
+    );
+    if (retained) publish({ journal: retained.value });
   };
   const perform = (action: (signal: AbortSignal, fresh: () => boolean) => Promise<void>) => {
     if (!valid() || operation.current) return;
@@ -318,13 +339,16 @@ export function useConversationForwarding(options: {
       if (!canConfirm || !group || !clientId || !journal?.confirmation)
         throw Error('Check the original request and inspect its exact context before forwarding.');
       await persist({ ...journal, confirmationAttempted: true }, fresh);
-      if (!fresh()) return;
+      if (!fresh()) {
+        await restoreUnsentConfirmation(journal);
+        return;
+      }
       if (
         !confirmationCurrent.current ||
         latest.current.view?.policySequence !== view?.policySequence
       ) {
         // No POST occurred. Retain uncertainty only for an earlier ambiguous attempt.
-        if (!journal.confirmationAttempted) await persist(journal, fresh);
+        await restoreUnsentConfirmation(journal);
         throw Error(
           'The reviewed context or audience changed. Inspect it again before forwarding.',
         );

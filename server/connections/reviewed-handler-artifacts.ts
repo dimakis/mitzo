@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.1070-symposium-forward-integration';
+  'v1.0.1071-symposium-forward-cancellation';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -32,9 +32,9 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../docs/evidence/symposium-forwarding-ui-2026-11-11.md':
     '160b7f429e0a507f6dd29acb5600541b098b1705d0aed781372c939f56977945',
   '../../frontend/src/hooks/useConversationForwarding.ts':
-    '3a54c5e7d44fd7b48d64a78c99b96c9395feccea82830d9eb14761a1f60d86e3',
+    '0eb0457eb4380ef45bdc3b11f699fc35cc1f05a6699d62307d414f828b12b881',
   '../../frontend/src/hooks/__tests__/useConversationForwarding.test.tsx':
-    '227999a51661c6f8f0cd1615d47a3be77cd8f0b9f166bef89122dd344bfee735',
+    '353d51b61a8028cb91a9d3a2c8fdeaf2e23e40c0732e4d2e2cbe718351780497',
   '../__tests__/collaboration-forward-ui.test.tsx':
     '697c23e6bc71c68f58fe5367b85096317c4eea4d97c8b8ee3b0a43787aedf823',
   '../__tests__/collaboration-application-forwarding.test.ts':
