@@ -1,0 +1,70 @@
+# Reviewed context forwarding
+
+The shared composer's existing context review now offers an explicit context-only
+forward. Users select exact source messages and saved artifact versions, inspect
+the frozen contents and recipient list, prepare the request, then confirm it.
+The reviewed brief accompanies the material. Forwarding does not send the current
+prompt or start an ordinary model turn; recipients receive the material before
+their next explicitly requested turn.
+
+The browser retains selectors, hashes and original request identities, never the
+source or artifact contents. Preparation and confirmation identities are saved
+before their respective requests. A lost confirmation remains fenced until a
+read of the original preparation establishes its result. Remount and login changes
+do not replay a POST. Confirmation requires the exact inspected selection, note,
+recipients and membership; the existing server renews authority and settings.
+Clearing accepted composer text and collection discard preserve the recovery
+receipt until the forwarding surface explicitly dismisses it.
+
+A retained forward has its own explicit original-context inspection. Its saved
+selectors recover the exact messages, artifact versions, note and recipients
+without replacing newer prompt-context edits. The preview stays in memory.
+Reinspection rejects different selectors and stale policy; a lost confirmation
+can resume with the same confirmation identity after the server reports prepared.
+Nine focused hook and production-UI tests cover this recovery, including both
+response loss before acceptance and loss after durable acceptance. The final
+focused recovery, context, frozen-artifact and design run passed 137 tests with
+one existing design skip. All 20 offline composer cases list successfully;
+listing is not browser execution or visual acceptance.
+
+The final durability correction uses one shared journal owner for forwarding,
+prompt delivery and Stop. It waits for the queued IndexedDB transaction and exact
+journal readback before issuing effects. Failed writes stay visible; authentication
+loss permanently cancels the pending operation even if the same login returns.
+Owner/context changes and Stop during persistence retire only the exact request
+proven not to have been sent. Forward confirmation rejected before POST remains
+discardable unless an earlier attempt was already uncertain.
+
+Real queued-disk regression cases failed before the correction. The final focused
+run passed 160 tests with one existing design skip: 50 hook cases, the production
+forwarding UI/application journey, and 109 design checks. Six selected TypeScript
+roots had zero diagnostics. Two independent read-only delta reviews found no
+remaining blockers. Full compilation, current-head hosted browser evidence and
+Centaur's final gate remain required; these local checks do not substitute for them.
+
+The real application journey covers the production React surface, authenticated
+application owner, exact Unicode/whitespace artifact bytes, response loss after
+durable confirmation, remount/read recovery, no duplicate forward and a later
+explicit prompt through the synthetic external native transport. Existing server
+coverage retains independently saved older-artifact and process-restart delivery.
+
+Validation before publication: 31 focused context/forwarding tests passed; a
+subsequent draft-recovery run passed 66 tests (overlapping the six forwarding
+hook cases). Design checks passed 109 with one existing skip. Scoped lint, format
+and source fingerprints passed. Local full frontend compilation exceeded the
+required 1 GiB heap limit. Local browser fixtures were blocked before page startup
+by host sandbox restrictions; hosted compile/browser validation and inspection of
+retained mobile/desktop light/dark screenshots remain required.
+
+The UI reuses HomeDialog, the existing review disclosure, frozen-artifact preview,
+recipient display and shared context controls. No palette, type, spacing or motion
+override was introduced. The offline fixture checks 320px mobile and desktop,
+light/dark themes, alternate accents/fonts, focus restoration, touch targets,
+scroll bounds and the independent explicit prompt. CI retains its forwarding
+review screenshots. This is implementation evidence, not a new approved design.
+
+This surface selects context from the current source discussion into its shared
+conversation. It does not add a cross-conversation chooser or a separate Telos
+artifact picker. API coverage of independently retained artifacts does not prove
+those additional UI journeys. Live account/device qualification and production
+activation remain separate and are not established here.
