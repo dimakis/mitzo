@@ -150,7 +150,7 @@ export function createOrdinaryLocalVertexSdkQuery<
   const states = new WeakMap<Query, State>();
   const interruptTargets = new WeakMap<
     object,
-    { run: Query; state: State; interrupt(): Promise<void> }
+    { run: Query; state: State; interrupt: Query['interrupt'] }
   >();
   const prompt = async function* (queue: AsyncQueue<SDKUserMessage>, current: () => Query) {
     for await (const message of queue) {

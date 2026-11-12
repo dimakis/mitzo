@@ -1,5 +1,5 @@
 import { expect, it, vi } from 'vitest';
-import { query, type Options } from '@anthropic-ai/claude-agent-sdk';
+import { query, type Options, type Query } from '@anthropic-ai/claude-agent-sdk';
 import { AsyncQueue } from '../async-queue.js';
 import { retainCallbackOutcome } from '../turn-callbacks.js';
 import {
@@ -51,6 +51,53 @@ it.each([
           ]);
         }
       } else expect(actual.preset).toBe('claude_code');
+    } finally {
+      controller.abort();
+    }
+  },
+);
+
+it.each([undefined, { still_queued: ['successor-input'] }] satisfies Awaited<
+  ReturnType<Query['interrupt']>
+>[])(
+  'keeps native interrupt receipt %j behind the current query and authority fences',
+  async (receipt) => {
+    const interrupt = vi.fn(async () => receipt);
+    const original = { interrupt, close: vi.fn() };
+    const successor = { interrupt: vi.fn(async () => receipt), close: vi.fn() };
+    let created = 0;
+    vi.mocked(query).mockImplementation(() => (created++ === 0 ? original : successor) as never);
+    const controller = new AbortController();
+    const owner = createOrdinaryLocalVertexSdkQuery({
+      options: {},
+      input: new AsyncQueue(),
+      controller,
+      lifetime: new SdkHookLifetime(),
+      sdkSessionId: 'original',
+      cwd: '/task',
+      authorize: async () => {},
+      authorizeSync: () => {},
+      adapt: (native) => native as never,
+      settings: (selection) => ({ model: selection.model }),
+      inputChanged: () => {},
+    });
+    try {
+      await owner.apply({ model: 'original' } as never);
+      const target = owner.captureInterruptTarget()!;
+      expect(target).toBeDefined();
+      expect(await owner.interruptIfCurrent({})).toBe(false);
+      expect(interrupt).not.toHaveBeenCalled();
+      expect(await owner.interruptIfCurrent(target)).toBe(true);
+      expect(interrupt).toHaveBeenCalledOnce();
+      expect(interrupt.mock.contexts[0]).toBe(original);
+      await owner.apply({ model: 'successor' } as never);
+      expect(await owner.interruptIfCurrent(target)).toBe(false);
+      expect(interrupt).toHaveBeenCalledOnce();
+      const nextTarget = owner.captureInterruptTarget()!;
+      expect(nextTarget).toBeDefined();
+      controller.abort();
+      expect(await owner.interruptIfCurrent(nextTarget)).toBe(false);
+      expect(successor.interrupt).not.toHaveBeenCalled();
     } finally {
       controller.abort();
     }
