@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.1081-enmaas-forwarding-integration';
+  'v1.0.1082-enmaas-claude-discovery-integration';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -2235,7 +2235,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     'e4c18146a9b1742139131c2edd4e4c28d09a072deb33c561aaacd67d65330b77',
   '../../frontend/src/components/AgentToolsEditor.tsx':
     '185739f065ba2ad81534a2b171239d086010447fe03e3669d920dcd13804b5b1',
-  '../agent-tool-catalog.ts': 'b81a2f8a8661165ca44d92a79fbe859d1450cf01fafd2a2db4616a9b48530cd0',
+  '../agent-tool-catalog.ts': 'b32230f570506a9ad13872a6e39c6cef037c037ba506b226def082b0aadd0deb',
   '../agent-tool-selection.ts': '06d50c7ace390d764e000e661642702ddb169ab44b5ddd3b42694f832bc0dd62',
   '../../packages/protocol/src/agent-tools.ts':
     'a25c3fcd8a885db213c6528fe9e07fd11da6744304420b4f3affd2e354d1af82',
@@ -2532,7 +2532,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     'c103af10de4adc81cdc474b3e69ef2b3de5e447d4dcf15da4fc1894c422b913b',
   '../../packages/protocol/src/session-output-reference-store.ts':
     'e3d0095bfe092da676eb3671f8c147500e9436a95a9438d0315b8037b14b3029',
-  '../chat.ts': '3d1d603a867c98446d2ca4d9ef73fb6657b67eef733c1f8fffd1b75995911256',
+  '../chat.ts': '8207caacf3303f936a3bcc2bfdd36fb1db62fa1600e9080c5f87b81477936965',
   '../../packages/harness/src/session-registry.ts':
     '5475d51509dd9cc8947edc57022185069b4ba8bc3dc3b253cc49c6c6c4baf07e',
   '../agent-context-binding.ts': '4917ff83899105b7ac2c537c8db18111eeb97386d1ca0a2d2b576d872e1db360',
@@ -2647,7 +2647,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     'e33bda80c8667a2e22f02f1297e054b3769621fbb7cd6921a85f591d876f8c05',
   '../credential-http.ts': '4f9934df5c9f4918618868d663ed21ae2e633411bd7e027559f6008a21b8c7e4',
   '../credential-redaction.ts': '817dda948c419deb064bc4c5298e034e5a0343972b4bf724fb6aaa869cf34403',
-  '../credential-sdk-tools.ts': '2b571b467135538abee6f6279a451b21e9243705343e459a9f6ee0abfb5221be',
+  '../credential-sdk-tools.ts': '684260f3d8c28fe4c7d07d76331addfd615ded3c4a8c5736230b2d4df02f393f',
   '../session-credential-tools.ts':
     '106f6817ae083efc8764709dc4fd3d64caa4c4e8c22aa58e7fddcc5695157c25',
   'policy-compiler.ts': '59579f9eb69a3129dd2d8e1676fa46bd21da45c07f58752183416c82c0986014',
@@ -3436,9 +3436,9 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/worktree-fetch-observation.test.ts':
     'e943335de38d924ad7ec1f9334f235bbddb0649914ed1604a27176869a9d8094',
   '../../tests/fixtures/agent-tool-catalog.json':
-    'b5049a6c054d60c0a8d94eaeed3057bb40ec6e1434257cf5a2df7bb790b8cd33',
+    'e484afc80acd72433a6de6192b2e2eddeda49a6ae3d059c45aa5c839833c5527',
   '../../tests/integration/ordinary-local-vertex-chat.test.ts':
-    'a7c04d1579d520c9a3c6213b0a68bea4969a6afa61c0c73868799396193eecc0',
+    'b84e7bdbc9e3ae86a3a3d857626aa4fd3829049d86a81fefdf79c0cce2362f85',
   '../../packages/sqlite-file-owner/package.json':
     'ba7bf5e9f0a1e20908df2eedb45243cd2ea1cd4c74e157ca80086a1a0b465029',
   '../../packages/sqlite-file-owner/binding.gyp':
