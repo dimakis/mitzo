@@ -70,6 +70,40 @@ it('collects a large CI job log with bounded literal-filter output and unchanged
   expect(current).toHaveBeenCalledTimes(2);
 });
 
+it('preserves source whitespace through log transport, filtering and pagination', async () => {
+  const body = '  FAIL 🦊 first\nPASS next\n  FAIL last  \n\n';
+  githubProcess.execute.mockReset();
+  githubProcess.execute.mockImplementation((_file, _args, _options, callback) => {
+    callback(null, body, '');
+    return {};
+  });
+  const read = async (options: { query?: string; offset?: number; limit?: number }) =>
+    JSON.parse(
+      await executeTrustedGitHubRead(
+        '/repos/example/project/actions/jobs/123/logs',
+        new AbortController().signal,
+        undefined,
+        undefined,
+        'full',
+        undefined,
+        options,
+      ),
+    );
+  expect(await read({ query: '  FAIL' })).toMatchObject({
+    content: '  FAIL 🦊 first\n  FAIL last  ',
+    sourceBytes: Buffer.byteLength(body),
+    nextOffset: null,
+  });
+  const first = await read({ limit: 12 });
+  const rest = await read({ offset: first.nextOffset });
+  expect(first.content + rest.content).toBe(body);
+  expect(rest).toMatchObject({
+    totalCharacters: body.length,
+    sourceBytes: Buffer.byteLength(body),
+    nextOffset: null,
+  });
+});
+
 it('rejects log controls on non-log reads before starting a credentialed process', async () => {
   githubProcess.execute.mockReset();
   await expect(

@@ -3,6 +3,7 @@ import { build } from 'esbuild';
 import { resolve } from 'node:path';
 import { createHash } from 'node:crypto';
 import { chatStorageBootstrap } from '../support/chat-storage-bootstrap';
+import { readChatStorage } from '../support/persisted-chat-storage';
 import {
   CollaborationMessageInputSchema,
   CollaborationMessageSchema,
@@ -568,6 +569,21 @@ for (const theme of ['dark', 'light'])
       await stop.click();
       await expect(page.getByText(/Stop could not be confirmed for every recipient/)).toBeVisible();
       await composer.fill('Keep the next draft while the other agent is uncertain.');
+      // Recovery requires a committed next draft and the original uncertain request.
+      // Edit-time save initiation alone does not prove IndexedDB committed either.
+      await expect
+        .poll(() =>
+          readChatStorage(
+            page,
+            (storage, id) => JSON.parse(storage.getItem('mitzo-chat-draft:' + id) ?? 'null'),
+            'shared:' + view.collaborationId,
+          ),
+        )
+        .toMatchObject({
+          id: 'shared:' + view.collaborationId,
+          text: 'Keep the next draft while the other agent is uncertain.',
+          collaborationSend: { input, stopRequested: true },
+        });
       await page.reload();
       await expect(composer).toHaveValue('Keep the next draft while the other agent is uncertain.');
       await expect(picker).toBeDisabled();
