@@ -1,9 +1,14 @@
 import { randomUUID } from 'node:crypto';
 import { qualifyToolResult, reportToolFailure } from './tool-failure-reporting.js';
-import { copyCallbackOutcome } from './turn-callbacks.js';
 import { findSessionRuntimeError, SessionRuntimeError } from './session-runtime-error.js';
 import { sessionPromptSchemas, sessionPromptDefinitions } from './session-prompt-definitions.js';
-import type { TurnCallbackRunner } from './turn-callbacks.js';
+import { copyCallbackOutcome, type TurnCallbackRunner } from './turn-callbacks.js';
+import {
+  AgentCommunicationSdkInput,
+  agentCommunicationDefinitions,
+  executeAgentCommunicationTool,
+  type sessionAgentCommunicationTools,
+} from './agent-communication-tools.js';
 import type { ConnectionBoundary } from './session-connection-tools.js';
 import { knowledgeToolSchemas, knowledgeToolDefinitions } from './session-knowledge-tools.js';
 import { profileToolSchemas, profileToolDefinitions } from './session-profile-tools.js';
@@ -23,6 +28,7 @@ import {
   credentialConnectionToolDefinitions,
 } from './credential-connection-tools.js';
 import { sessionCredentialTools } from './session-credential-tools.js';
+import { agentToolAllowed, filterAgentTools } from './agent-tool-selection.js';
 
 const prefix = 'mcp__mitzo-connections__';
 /** A failed authority check cannot become a recoverable application failure. */
@@ -32,6 +38,7 @@ class SdkAuthorityFailure extends SessionRuntimeError {
   }
 }
 const schemas = {
+  AgentCommunication: AgentCommunicationSdkInput,
   ...sessionPromptSchemas,
   ...credentialConnectionSchemas,
   ...repositoryChatSchemas,
@@ -58,6 +65,7 @@ export function credentialSdkPermission(
   if (
     !Object.hasOwn(schemas, short) ||
     !schemas[short].safeParse(input).success ||
+    !agentToolAllowed(session, name) ||
     registry.get(clientId) !== session ||
     session.abortController.signal.aborted ||
     checkSkillPolicy(registry, clientId, name) === 'deny'
@@ -91,6 +99,7 @@ export function createCredentialSdkServer(
     assertCurrent(signal: AbortSignal): Promise<void>;
     assertCurrentSync(signal: AbortSignal): void;
     runCallback?: TurnCallbackRunner;
+    agentCommunication?(): Pick<ReturnType<typeof sessionAgentCommunicationTools>, 'execute'>;
   },
 ) {
   const runtimeId = randomUUID();
@@ -114,10 +123,12 @@ export function createCredentialSdkServer(
   return createSdkMcpServer({
     name: 'mitzo-connections',
     version: '1.0.0',
-    tools: (boundary?.profilesOnly
-      ? [...profileToolDefinitions, ...sessionPromptDefinitions]
-      : definitions
-    ).map((definition) =>
+    tools: filterAgentTools(session, [
+      ...(boundary?.profilesOnly
+        ? [...profileToolDefinitions, ...sessionPromptDefinitions]
+        : definitions),
+      ...(boundary?.agentCommunication ? agentCommunicationDefinitions : []),
+    ]).map((definition) =>
       tool(
         definition.name,
         definition.description,
@@ -157,6 +168,29 @@ export function createCredentialSdkServer(
                     ],
                     isError: true,
                   };
+                if (definition.name === 'AgentCommunication' && boundary?.agentCommunication) {
+                  await authority!.assertCurrent(signal);
+                  const peerInput = AgentCommunicationSdkInput.parse(input);
+                  const result = await executeAgentCommunicationTool(
+                    () =>
+                      boundary.agentCommunication!().execute(peerInput, signal, {
+                        turnId: runtimeId,
+                        callId: String(
+                          (extra as { requestId?: unknown } | undefined)?.requestId ?? randomUUID(),
+                        ),
+                      }),
+                    {
+                      conversationId: id,
+                      requestId: peerInput.requestId,
+                      recipientConversationId: peerInput.recipientConversationId,
+                    },
+                  );
+                  await authority!.assertCurrent(signal);
+                  return copyCallbackOutcome(result, {
+                    content: [{ type: 'text' as const, text: result.content }],
+                    isError: result.isError,
+                  });
+                }
                 if (current?.id !== id)
                   current = {
                     id,

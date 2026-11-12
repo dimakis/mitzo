@@ -1,7 +1,7 @@
 import { closeMcpAfterFailure } from './codex-mcp-tools.js';
 import { copyCallbackOutcome, retainCallbackOutcome } from './turn-callbacks.js';
 import { retainedApplicationEffectObserver } from './retained-application-effects.js';
-import { agentMessagePrompt } from '@mitzo/protocol';
+import { steerNativeAgentMessage } from './agent-message-runtime.js';
 import { agentContextRuntimeError } from './agent-context-authority.js';
 import {
   RepositoryMaterializationSchema,
@@ -84,6 +84,7 @@ import {
   recordAgentMessageAcceptance,
   recordAgentMessageCommandOutcome,
   sessionAgentCommunicationTools,
+  executeAgentCommunicationTool,
 } from './agent-communication-tools.js';
 import {
   assertAgentToolRoute,
@@ -506,6 +507,10 @@ function store() {
 /** Reuse the private native command ledger for session-scoped Symposium threads. */
 export function getCodexConversationStore(): CodexConversationStore {
   return store();
+}
+/** Peer discovery never creates private native state on another runtime's behalf. */
+export function existingCodexConversationStore() {
+  return privateStore;
 }
 export function getCodexRuntime(session: ManagedSession) {
   return runtimes.get(session);
@@ -1907,21 +1912,9 @@ async function openCodexChatBound(
           if (!runtime) throw Error('Recipient native queue unavailable');
           await runtime.startQueued();
         },
-        steer: async (session, message, assertCurrent) => {
-          const runtime = runtimes.get(session);
-          if (!runtime) throw Error('Recipient native queue unavailable');
-          const target = runtime.captureInterruptTarget();
-          if (!target) return 'inactive';
-          const result = await runtime.steer(
-            {
-              requestId: message.commandId,
-              targetCommandId: target.commandId,
-              text: agentMessagePrompt(message),
-            },
-            assertCurrent,
-          );
-          return result.status === 'stale_target' ? 'inactive' : result.status;
-        },
+        steer: (session, message, assertCurrent) =>
+          steerNativeAgentMessage(runtimes.get(session), message, assertCurrent),
+        nativeState: (session) => runtimes.get(session)?.peerMessageState() ?? 'unavailable',
       })
     : undefined;
   const launchTools = options.ownedLocal
@@ -3902,19 +3895,14 @@ async function openCodexChatBound(
             },
             'settled',
           );
-        try {
-          return {
-            content: JSON.stringify(await communicationTools.execute(input, signal, callContext)),
-            isError: false,
-          };
-        } catch (error) {
-          const failure = {
-            content:
-              'Agent communication is unavailable under the current sender, recipient or exact-message approval. If delivery was uncertain, read the original message/request receipt before sending again.',
-            isError: true,
-          };
-          return error instanceof Error ? copyCallbackOutcome(error, failure) : failure;
-        }
+        return executeAgentCommunicationTool(
+          () => communicationTools.execute(input, signal, callContext),
+          {
+            conversationId: options.conversationId,
+            requestId: input.requestId,
+            recipientConversationId: input.recipientConversationId,
+          },
+        );
       }
       if (name === 'StartSession') {
         if (!launchTools)
