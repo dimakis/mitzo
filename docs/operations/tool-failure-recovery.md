@@ -53,6 +53,15 @@ reviewed account, workspace and policy failures keep their specific code. Strict
 client replay receives only the public failure code and reference, while the
 original operation and its uncertainty remain unchanged.
 
+Trusted Git commit preparation does not repeat full provider and workspace
+validation for every immutable object. It validates the complete owner before
+and after object preparation and before the branch update, while synchronously
+checking current authority and physical Git identities at each object write.
+Owned temporary cleanup uses its original physical identity even after
+revocation. Callers without a synchronous owner retain full asynchronous
+validation at the original object-write boundaries. This shared host executor
+does not alter provider-owned tools or settle an interrupted commit receipt.
+
 ## Verification and limits
 
 Offline regressions exercise failed reads through the native adapter, shared
