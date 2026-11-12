@@ -91,7 +91,9 @@ jobs:
         run: npm run check:source-artifacts
       - name: Test native cold-boot orchestration with offline process fixtures
         if: ${{ !cancelled() }}
-        run: python3 scripts/test-native-notification-boot.py
+        run: |
+          python3 scripts/test-native-notification-boot.py
+          python3 scripts/test-ci-native-candidate.py
       - name: Verify candidate-bound build transfer rejection tests
         if: ${{ !cancelled() }}
         run: python3 scripts/test-ci-build-output.py
@@ -313,6 +315,16 @@ jobs:
           retention-days: 7
           if-no-files-found: warn
 
+      - name: Retain complete browser partition evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: browser-partition-${{ matrix.project }}-shard-${{ matrix.shard }}-${{ github.run_id }}
+          path: test-results/offline/evidence/
+          overwrite: true
+          retention-days: 7
+          if-no-files-found: error
+
       - name: Retain conversation library visual evidence
         if: always()
         uses: actions/upload-artifact@v7
@@ -347,11 +359,11 @@ jobs:
             test-results/offline/**/agent-messages-*.png
             test-results/offline/**/timer-*.png
             test-results/offline/**/shared-composer-*.png
+            test-results/offline/**/forward-context-review-*.png
             test-results/offline/**/multiple-responders-live-*.png
             test-results/offline/**/singleton-rejoin-*.png
             test-results/offline/**/prompt-context-review-*.png
             test-results/offline/**/participant-*.png
-            test-results/offline/**/forward-context-review-*.png
             test-results/offline/**/sandbox-removal-*.png
             test-results/offline/**/reusable-access-*.png
             test-results/offline/**/native-approval-*.png
@@ -435,6 +447,15 @@ jobs:
         env:
           CI_BROWSER_NEEDS: ${{ toJSON(needs) }}
         run: node scripts/ci-browser-gate.mjs
+      - name: Download browser partition reports
+        if: needs.changes.outputs.browser == 'true'
+        uses: actions/download-artifact@v8
+        with:
+          pattern: browser-partition-*-${{ github.run_id }}
+          path: browser-partitions
+      - name: Require complete exactly-once browser inventory
+        if: needs.changes.outputs.browser == 'true'
+        run: node scripts/ci-browser-partition.mjs browser-partitions
 
   native:
     needs: [changes, preflight, frontend-build]
@@ -473,37 +494,22 @@ jobs:
           python3 scripts/ci-build-output.py restore ios-web "$RUNNER_TEMP/ci-ios-web/ci-ios-web.zip"
           cd frontend && CAPACITOR_WEB_DIR=dist-ios npx cap sync ios
 
-      - name: Test Keychain helper with disposable credentials
-        run: python3 scripts/test-keychain-helper.py
-
-      - name: Test shared native package
-        run: swift test --package-path frontend/ios/MitzoShared
-
-      - name: Test Watch receipt routing offline
-        run: python3 scripts/test-watch-chat-receipts.py
-
-      - name: Typecheck complete Watch approval UI offline
-        run: python3 scripts/test-watch-approval-ui.py
-
       - name: Build iPhone app with Watch companion
-        if: ${{ !cancelled() }}
-        run: >-
-          xcodebuild -project frontend/ios/App/App.xcodeproj -scheme App
-          -destination 'generic/platform=iOS Simulator'
-          -derivedDataPath "$RUNNER_TEMP/mitzo-ios-build"
-          CODE_SIGNING_ALLOWED=NO build
-
-      - name: Verify embedded Watch companion
-        run: python3 scripts/check-watch-bundle.py "$RUNNER_TEMP/mitzo-ios-build/Build/Products/Debug-iphonesimulator/App.app"
-
-      - name: Test real notification bridge in an offline disposable simulator
         id: native-notification
-        run: >-
-          python3 scripts/test-native-notification-bridge.py
-          "$RUNNER_TEMP/mitzo-ios-build/Build/Products/Debug-iphonesimulator/App.app"
-          --diagnostics-dir test-results/native-notification
+        if: ${{ !cancelled() }}
+        # Keep cold simulator boot after the compiler/checks until overlap is
+        # qualified; the first overlap trial hit the unchanged keychain compile
+        # deadline. One owner still cleans up on failure/cancellation.
+        run: |
+          set -o pipefail
+          mkdir -p test-results/native-notification
+          python3 scripts/ci-native-candidate.py \
+            --boot-mode sequential \
+            --derived-data "$RUNNER_TEMP/mitzo-ios-build" \
+            --diagnostics-dir test-results/native-notification \
+            2>&1 | tee test-results/native-notification/command.log
       - name: Retain native notification failure evidence
-        if: ${{ always() && steps.native-notification.outcome == 'failure' }}
+        if: always()
         uses: actions/upload-artifact@v7
         with:
           name: native-notification-failure-${{ github.run_id }}-${{ github.run_attempt }}
