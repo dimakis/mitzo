@@ -378,6 +378,10 @@ export interface Session {
   summary: string;
   /** Recorded model choice, never inferred from the engine or a global default. */
   model?: string;
+  /** A failed receipt read must not revive an older cached model. */
+  modelUnavailable?: boolean;
+  /** Server read time for display freshness only; never execution authority. */
+  modelObservedAt?: number;
   accountLabel?: string;
   lastModified: number;
   branch?: string;
@@ -402,6 +406,8 @@ export interface SessionActivity {
   clientId: string;
   title: string;
   model?: string;
+  modelUnavailable?: boolean;
+  modelObservedAt?: number;
   accountLabel?: string;
   repo?: string;
   state: SessionActivityState;
@@ -464,6 +470,8 @@ export interface SessionSearchResult {
   sessionId: string;
   summary: string | null;
   model?: string;
+  modelUnavailable?: boolean;
+  modelObservedAt?: number;
   accountLabel?: string;
   snippet: string;
   matchedAt: number; // timestamp of the matching event

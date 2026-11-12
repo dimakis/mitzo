@@ -4,6 +4,7 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import process from 'node:process';
 import console from 'node:console';
+import { partitionBrowserTests } from './ci-browser-partition.mjs';
 
 function sameIds(expected, actual) {
   const ids = (values) => values.map((value) => value.id).sort();
@@ -72,6 +73,9 @@ export function runBrowserBatches({
   size = 5,
   output = 'test-results/offline',
   html = 'playwright-report/offline',
+  weights = JSON.parse(
+    readFileSync(new URL('./ci-browser-durations.json', import.meta.url), 'utf8'),
+  ).weights,
 }) {
   const projectArg = args.find((arg) =>
     /^--project=(mobile-webkit|mobile-chromium|desktop-chromium)$/.test(arg),
@@ -115,13 +119,16 @@ export function runBrowserBatches({
       },
     );
   const discovered = invoke(
-    [...args, '--list', '--output', join(resultRoot, 'discovery')],
+    [projectArg, '--list', '--output', join(resultRoot, 'discovery')],
     discoveryPath,
     resolve(root, html, 'discovery'),
   );
   if (discovered.status !== 0 || discovered.signal || discovered.error)
     throw Error('Browser discovery process failed');
-  const selection = JSON.parse(readFileSync(discoveryPath, 'utf8'));
+  const fullSelection = JSON.parse(readFileSync(discoveryPath, 'utf8'));
+  const partition = partitionBrowserTests(fullSelection, project, index, count, weights);
+  writeFileSync(join(evidence, 'partition.json'), JSON.stringify(partition, null, 2) + '\n');
+  const selection = partition.selection;
   const batches = planBrowserBatches(selection, project, size);
   const summary = [];
   for (let index = 0; index < batches.length; index++) {

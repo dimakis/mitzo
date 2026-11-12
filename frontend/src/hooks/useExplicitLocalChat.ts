@@ -155,9 +155,11 @@ export function useExplicitLocalChat(
   } | null>(null);
   const metadataReadStarted = useRef(false);
   const [error, setError] = useState('');
-  const [metaFailure, setMetaFailure] = useState<{ sessionId: string; message: string } | null>(
-    null,
-  );
+  const [metaFailure, setMetaFailure] = useState<{
+    sessionId: string;
+    message: string;
+    cause: unknown;
+  } | null>(null);
   const [metadataLoadingForSession, setMetadataLoadingForSession] = useState<string | null>(null);
   const [meta, setMeta] = useState<{
     sessionId: string;
@@ -299,17 +301,24 @@ export function useExplicitLocalChat(
     setMetaFailure(null);
     setMetadataLoadingForSession(sessionId);
     const controller = new AbortController();
-    const fail = () => {
+    const fail = (cause: unknown) => {
       setMetaFailure({
         sessionId,
         message: 'Conversation settings are unavailable. Retry to continue.',
+        cause,
       });
       setMetadataLoadingForSession(null);
+      console.warn('[mitzo] Conversation settings unavailable', {
+        code: 'runtime_session_metadata_unavailable',
+        stage: 'metadata',
+        sessionId,
+        cause: cause instanceof Error ? cause.name : 'UnknownError',
+      });
     };
     // Cover both response headers and the body. Abort alone may never settle a
     // suspended WebView fetch; publish the existing retry state at the deadline.
     const timeout = setTimeout(() => {
-      fail();
+      fail(new DOMException('Conversation settings read timed out', 'TimeoutError'));
       controller.abort();
     }, RUNTIME_READ_TIMEOUT_MS);
     void Promise.resolve()
@@ -428,8 +437,8 @@ export function useExplicitLocalChat(
         });
         setMetadataLoadingForSession(null);
       })
-      .catch(() => {
-        if (!controller.signal.aborted && scope.current.sessionId === sessionId) fail();
+      .catch((cause: unknown) => {
+        if (!controller.signal.aborted && scope.current.sessionId === sessionId) fail(cause);
       })
       .finally(() => clearTimeout(timeout));
     return () => {
@@ -453,6 +462,12 @@ export function useExplicitLocalChat(
   const [future, setFuture] = useState<{ sessionId: string; intent: ChatRuntimeSelection } | null>(
     null,
   );
+  const retainedFuture =
+    currentMeta?.intent &&
+    retained?.selection &&
+    replaceChatRuntimeSelection(currentMeta.intent, retained.selection, currentMeta.intent).accepted
+      ? retained.selection
+      : null;
   useEffect(() => {
     if (!sessionId || !currentMeta?.intent || !inventory || metadataPending) return;
     setFuture((previous) =>
@@ -465,10 +480,13 @@ export function useExplicitLocalChat(
             }
         : {
             sessionId,
-            intent: { ...currentMeta.intent!, capabilityRevision: inventory.capabilityRevision },
+            intent: {
+              ...(retainedFuture ?? currentMeta.intent!),
+              capabilityRevision: inventory.capabilityRevision,
+            },
           },
     );
-  }, [sessionId, currentMeta, inventory, metadataPending]);
+  }, [sessionId, currentMeta, inventory, metadataPending, retainedFuture]);
   const selectedIntent =
     future?.sessionId === sessionId
       ? future.intent
@@ -600,8 +618,10 @@ export function useExplicitLocalChat(
         continuation &&
         currentMeta?.intent &&
         replaceChatRuntimeSelection(selectedIntent, reviewed, currentMeta.intent).accepted
-      )
+      ) {
         setFuture({ sessionId, intent: reviewed });
+        retained?.update(reviewed);
+      }
       return;
     }
     setChoice({ draftId, intent: reviewed });
