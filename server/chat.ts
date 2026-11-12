@@ -35,13 +35,24 @@ import {
 import { TelosWorkStore } from './telos-work-store.js';
 import { telosDatabasePath } from './telos-database.js';
 import { isAvailableTelosWorkConversation } from './telos-work-conversation.js';
-import { assertAgentToolRoute, bindAgentToolSelection } from './agent-tool-selection.js';
+import {
+  agentToolAllowed,
+  assertAgentToolRoute,
+  bindAgentToolSelection,
+} from './agent-tool-selection.js';
 import {
   createOrdinaryLocalVertexSdkQuery,
   SdkHookLifetime,
 } from './ordinary-local-vertex-sdk-query.js';
 import { LocalVertexClaudeFirstCommandSchema } from '@mitzo/protocol';
 import type { OrdinaryLocalVertexCommandOwner } from './ordinary-local-vertex-command-owner.js';
+import { SdkAgentMessageRuntime } from './sdk-agent-message-runtime.js';
+import { registerAgentMessageRuntime, steerNativeAgentMessage } from './agent-message-runtime.js';
+import { PEER_MESSAGE_INSTRUCTIONS } from './peer-message-instructions.js';
+import { sessionAgentCommunicationTools } from './agent-communication-tools.js';
+import { createAgentMessageApprover } from './agent-communication-permission.js';
+import { getOrdinarySessionPromptPort } from './session-prompt-runtime.js';
+import { agentMessagePrompt } from '@mitzo/protocol';
 import type { AccountBinding, OrdinaryLocalCommandAdmission } from '@mitzo/protocol';
 import { OrdinaryLocalVertexSdkAuthority } from './ordinary-local-vertex-sdk-authority.js';
 import {
@@ -159,6 +170,7 @@ import {
   openCodexChat,
   getCodexRuntime,
   getCodexConversationStore,
+  existingCodexConversationStore,
   trackCodexProviderAdmission,
   publicCodexRuntimeError,
   publicCodexStartupError,
@@ -1589,6 +1601,14 @@ async function _startChatInner(
         lookup: (selection) => readAgentLibraryProfile(selection, options.operatorConnectionId),
       });
     assertAgentToolRoute(agentProfile?.definition, toolRoute);
+    if (
+      toolRoute === 'claude-sdk' &&
+      agentProfile?.definition.tools !== undefined &&
+      !options.ordinarySdkAuthority
+    )
+      throw Error(
+        'Explicit SDK tool profiles require an owned ordinary Local Claude conversation.',
+      );
     // Reject unsupported context before credential preflight, workspace creation,
     // or snapshot persistence. Host Responses and SDK routes retain pack support.
     if (
@@ -2515,6 +2535,7 @@ This is an independent checkout with its own Git storage, not a linked worktree.
 
     // Resolve SDK session UUID for resume — worktree IDs are not valid SDK session IDs
     let liveOrdinarySdkOwner: OrdinaryLocalVertexCommandOwner | undefined;
+    let sdkPeerMessages: SdkAgentMessageRuntime | undefined;
     let resolvedResume: string | undefined;
     if (options.resume && !codexProfile && !apiKey && !gemini) {
       if (!BASE_REPO) {
@@ -2705,6 +2726,38 @@ This is an independent checkout with its own Git storage, not a linked worktree.
           onDemandCreate: repositoryWorkspace ? undefined : buildOnDemandCreate(wtId, clientId),
         }),
       );
+      const sdkAgentCommunication = options.ordinarySdkAuthority
+        ? () =>
+            sessionAgentCommunicationTools({
+              toolName: 'mcp__mitzo-connections__AgentCommunication',
+              events: eventStore,
+              native: existingCodexConversationStore(),
+              registry,
+              session,
+              conversationId: session.sessionId!,
+              assertRuntimeCurrent: () =>
+                options.ordinarySdkAuthority!.assertCurrent(abortController.signal),
+              assertRuntimeCurrentSync: () =>
+                options.ordinarySdkAuthority!.assertCurrentSync(abortController.signal),
+              approve: createAgentMessageApprover({
+                toolName: 'mcp__mitzo-connections__AgentCommunication',
+                events: eventStore,
+                registry,
+                conversationId: session.sessionId!,
+                assertCurrent: () =>
+                  options.ordinarySdkAuthority!.assertCurrentSync(abortController.signal),
+              }),
+              startQueued: async (recipient) => {
+                const runtime = getCodexRuntime(recipient);
+                if (!runtime) throw Error('Recipient native queue unavailable');
+                await runtime.startQueued();
+              },
+              steer: (recipient, message, assertCurrent) =>
+                steerNativeAgentMessage(getCodexRuntime(recipient), message, assertCurrent),
+              nativeState: (recipient) =>
+                getCodexRuntime(recipient)?.peerMessageState() ?? 'unavailable',
+            })
+        : undefined;
       const connectionServer = createCredentialSdkServer(
         () => session.sessionId ?? options.resume ?? newSdkSessionId,
         session,
@@ -2712,6 +2765,7 @@ This is an independent checkout with its own Git storage, not a linked worktree.
         options.ordinarySdkAuthority
           ? {
               profilesOnly: true,
+              agentCommunication: sdkAgentCommunication,
               assertCurrent: (signal) => options.ordinarySdkAuthority!.assertCurrent(signal),
               assertCurrentSync: (signal) =>
                 options.ordinarySdkAuthority!.assertCurrentSync(signal),
@@ -2739,6 +2793,11 @@ This is an independent checkout with its own Git storage, not a linked worktree.
       };
       const decide: ReturnType<typeof buildPermissionHandler> = async (name, input, opts) => {
         if (packBoundSdk) await authorizeSdkContext(opts.signal);
+        if (!agentToolAllowed(session, name))
+          return {
+            behavior: 'deny',
+            message: 'Tool is not selected by this session’s published agent profile.',
+          };
         const personalConfig = options.ordinarySdkAuthority?.configDirectory();
         if (personalConfig) {
           const refusal = claudePersonalToolPermission(name, input, cwd, personalConfig);
@@ -2750,6 +2809,7 @@ This is an independent checkout with its own Git storage, not a linked worktree.
           ![
             'mcp__mitzo-connections__SymposiumReadProfiles',
             'mcp__mitzo-connections__SymposiumProposeProfile',
+            'mcp__mitzo-connections__AgentCommunication',
           ].includes(name)
         )
           return {
@@ -2919,7 +2979,7 @@ This is an independent checkout with its own Git storage, not a linked worktree.
             systemPromptAppend +
             WEB_ACCESS_INSTRUCTIONS +
             (options.ordinarySdkAuthority
-              ? ''
+              ? '\n' + PEER_MESSAGE_INSTRUCTIONS + '\n'
               : GITHUB_PUBLISHING_INSTRUCTIONS + SESSION_TOOL_INSTRUCTIONS),
         },
         permissionMode: MODE_TO_SDK[effectivePermissionMode(session)] as 'plan' | 'default',
@@ -2927,6 +2987,7 @@ This is an independent checkout with its own Git storage, not a linked worktree.
           ? [
               'mcp__mitzo-connections__SymposiumReadProfiles',
               'mcp__mitzo-connections__SymposiumProposeProfile',
+              'mcp__mitzo-connections__AgentCommunication',
               WEB_ACCESS_SDK_TOOL,
             ]
           : [
@@ -2976,6 +3037,8 @@ This is an independent checkout with its own Git storage, not a linked worktree.
           authorize: authorizeSdkContext,
           authorizeSync: (signal) => options.ordinarySdkAuthority!.assertCurrentSync(signal),
           adapt: adaptSdkQuery,
+          getPermissionMode: () =>
+            MODE_TO_SDK[effectivePermissionMode(session)] as 'plan' | 'default',
           settings: (selection) => ({
             model: parseModelSpec(selection.model).model,
             thinking: resolveThinking(selection.model),
@@ -2984,6 +3047,7 @@ This is an independent checkout with its own Git storage, not a linked worktree.
           inputChanged: (queue) => {
             session.inputQueue = queue as { push(message: unknown): void; close(): void };
           },
+          peerMessages: () => sdkPeerMessages,
           mcpServers: (state) => ({
             'mitzo-web-access': createSdkWebAccess(state),
             'mitzo-connections': createCredentialSdkServer(
@@ -2992,6 +3056,7 @@ This is an independent checkout with its own Git storage, not a linked worktree.
               registry,
               {
                 profilesOnly: true,
+                agentCommunication: sdkAgentCommunication,
                 runCallback: state.runCallback,
                 assertCurrentSync: (signal) => {
                   if (state.retired || state.completing) throw Error('Completed SDK query retired');
@@ -3028,25 +3093,55 @@ This is an independent checkout with its own Git storage, not a linked worktree.
                     undefined,
                   );
             session.model = _admission.selection.model;
-            storeAndEchoIfNew(
-              session.sessionId!,
-              id,
-              frozenPayload.text,
-              clientId,
-              session.transport,
-              session.observers,
-              imagePreviews(frozenPayload.images),
-              undefined,
-              frozenPayload.sourceSnapshots,
-              'user',
-              false,
-            );
+            if (!eventStore.agentCommunication.forCommand(id))
+              storeAndEchoIfNew(
+                session.sessionId!,
+                id,
+                frozenPayload.text,
+                clientId,
+                session.transport,
+                session.observers,
+                imagePreviews(frozenPayload.images),
+                undefined,
+                frozenPayload.sourceSnapshots,
+                'user',
+                false,
+              );
             ownedQuery.push(
               makeUserMessage(message, 'now', id, undefined, undefined, frozenPayload.images),
             );
           },
           ownedQuery.apply,
         );
+        const sdkOwner = session.ordinaryRuntimeOwner;
+        if (!sdkOwner) throw Error('Original SDK message owner unavailable');
+        sdkPeerMessages = new SdkAgentMessageRuntime({
+          events: eventStore,
+          session,
+          identity: sdkOwner.identity,
+          operatorAuthSessionId: sdkOwner.authSessionId,
+          assertCurrent: () =>
+            options.ordinarySdkAuthority!.assertCurrentSync(abortController.signal),
+          activeCommandId: () => liveOrdinarySdkOwner?.peerTurnTarget(),
+          ordinaryCommandId: () => liveOrdinarySdkOwner?.activeCommandId(),
+          preparing: () =>
+            !!liveOrdinarySdkOwner?.activeCommandId() && !liveOrdinarySdkOwner.peerTurnTarget(),
+          stopped: () => !liveOrdinarySdkOwner?.acceptsPeerMessages(),
+          push: (input) => ownedQuery.push(input),
+          enqueue: async (message, assertCurrent, signal, auth) => {
+            await getOrdinarySessionPromptPort().deliverOrdinary(
+              {
+                sessionId: session.sessionId!,
+                commandId: message.commandId,
+                auth,
+                text: agentMessagePrompt(message),
+              },
+              signal,
+              assertCurrent,
+            );
+          },
+        });
+        registerAgentMessageRuntime(session, sdkPeerMessages);
         await liveOrdinarySdkOwner.enqueue(initialMessageId);
       } else {
         q = createSdkTurnQuery({
