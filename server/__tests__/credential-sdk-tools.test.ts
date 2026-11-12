@@ -3,7 +3,12 @@ import { createCredentialSdkServer, credentialSdkPermission } from '../credentia
 import * as credentialRuntime from '../credential-connections-runtime.js';
 import * as credentialTools from '../session-credential-tools.js';
 import { SessionRegistry, ToolGuardTimeoutError, type ToolGuardPolicy } from '@mitzo/harness';
-import { TurnCallbacks, assertTurnCallbackEffects } from '../turn-callbacks.js';
+import {
+  TurnCallbacks,
+  assertTurnCallbackEffects,
+  callbackOutcome,
+  retainCallbackOutcome,
+} from '../turn-callbacks.js';
 import { AgentCommunicationError } from '../agent-message-runtime.js';
 const mocked = vi.hoisted(() => ({
   tools: [] as Array<{
@@ -124,36 +129,45 @@ it('exposes the same discovery, session approval and request tools to SDK sessio
   expect(JSON.stringify(result)).toContain('connections');
 });
 
-it('delivers SDK callback failures as actionable tool results and permits the next call', async () => {
-  const registry = new SessionRegistry();
-  registry.register('client', {
-    sessionId: 'chat',
-    mode: 'agent',
-    abortController: new AbortController(),
-  } as never);
-  const tools = vi.spyOn(credentialTools, 'sessionCredentialTools').mockReturnValue({
-    definitions: [],
-    execute: vi
-      .fn()
-      .mockRejectedValueOnce(Object.assign(Error('private payload'), { code: 'ENOMEM' }))
-      .mockResolvedValue({ content: 'next observation', isError: false }),
-  });
-  createCredentialSdkServer(() => 'chat', registry.get('client')!, registry, {
-    assertCurrent: async () => {},
-    assertCurrentSync: () => {},
-  });
-  try {
-    const handler = mocked.tools.find((tool) => tool.name === 'ListConnections')!.handler;
-    const failed = await handler({});
-    expect(failed).toMatchObject({ isError: true });
-    expect(JSON.stringify(failed)).toContain('memory_exhausted');
-    expect(JSON.stringify(failed)).not.toContain('private payload');
-    expect(await handler({})).toMatchObject({ isError: false });
-  } finally {
-    tools.mockRestore();
-    registry.dispose();
-  }
-});
+it.each(['settled', 'unknown'] as const)(
+  'delivers %s SDK callback failures and permits the next call',
+  async (outcome) => {
+    const registry = new SessionRegistry();
+    registry.register('client', {
+      sessionId: 'chat',
+      mode: 'agent',
+      abortController: new AbortController(),
+    } as never);
+    const tools = vi.spyOn(credentialTools, 'sessionCredentialTools').mockReturnValue({
+      definitions: [],
+      execute: vi
+        .fn()
+        .mockRejectedValueOnce(
+          retainCallbackOutcome(
+            Object.assign(Error('private payload'), { code: 'ENOMEM' }),
+            outcome,
+          ),
+        )
+        .mockResolvedValue({ content: 'next observation', isError: false }),
+    });
+    createCredentialSdkServer(() => 'chat', registry.get('client')!, registry, {
+      assertCurrent: async () => {},
+      assertCurrentSync: () => {},
+    });
+    try {
+      const handler = mocked.tools.find((tool) => tool.name === 'ListConnections')!.handler;
+      const failed = await handler({});
+      expect(failed).toMatchObject({ isError: true });
+      expect(callbackOutcome(failed)).toBe(outcome);
+      expect(JSON.stringify(failed)).toContain('memory_exhausted');
+      expect(JSON.stringify(failed)).not.toContain('private payload');
+      expect(await handler({})).toMatchObject({ isError: false });
+    } finally {
+      tools.mockRestore();
+      registry.dispose();
+    }
+  },
+);
 
 function callbackSdkFixture(toolGuardPolicy?: Readonly<ToolGuardPolicy>) {
   const effect = vi.fn(async () => '{"ok":true}');

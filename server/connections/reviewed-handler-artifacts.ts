@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.1087-personal-claude-cold-polling';
+  'v1.0.1088-preserve-tool-settlement';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -592,9 +592,9 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../task-execution-failure.ts':
     'a98a54cfbf0f7fd20e97588e60f940e74eb236db733baf0ec1da99c4c41d1df6',
   '../tool-failure-reporting.ts':
-    '8b0b91a178939a58aa6a0ab4d461d6520346763b128770be857e6eb85d4de601',
+    '717c836fcde13dbed07cc26690a3a3b2aaa6d6d584095db9cd9582dcb4fc3042',
   '../__tests__/tool-failure-reporting.test.ts':
-    '10c5752076ec412d75e6dbf0b6b5125d974280124d3fef8d5dde374007063916',
+    'c5da5da442f807004ee4eb8bf597c7e265c9c5263cf00c8872b023444d2d20f7',
   '../tool-failure-continuation.ts':
     '862cb4ded99180836d53bb3578172d34bb9c7e74d5b6b998c078902ace574e1b',
   '../../packages/harness/__tests__/tool-guard.test.ts':
@@ -1735,7 +1735,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     '907f275fb0a01d79c8fe4f0c3d829015e90441c3bbbf0b5ad12577f1f77deb12',
   '../../packages/harness/__tests__/permission-decision-observation.test.ts':
     '95652995cce184b5a89d022b1e9787e3fa2576af162cf8cab44ca09fc12a84d4',
-  '../codex-tool-result.ts': '8ea5abcb14bcf305d82379a0147a3bb14e38ab74d00f2392af79d733ecfe839d',
+  '../codex-tool-result.ts': '661385da4b9a4be39b931956b9ca7ecf889d26398af30b7601727f6b83ed2991',
   '../../implementation-evidence/codex-native-macos-permission-kernel-0.160.0.json':
     '50fb0a69a01006e85558cc1cc260338c0a7e8257fab2162191337c66bb11c5b7',
   '../../scripts/qualify-codex-native-permissions.mjs':
@@ -1743,7 +1743,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/codex-chat-session.test.ts':
     '4729dbd142a7165b727c0ca701a92143f54a96d680d0d4795c30f1438f6eaef9',
   '../__tests__/codex-conversation.test.ts':
-    'c48273fc16ee1fef58b9063f5ccccb8da57da58b9a9131bff0adff1b42adda91',
+    '53e9c87144e722010e9de4180a9c4be65503749a6bc20c6241772b791c16a058',
   '../__tests__/codex-native-approvals.test.ts':
     '795e09d27b34bb573c33e7c1537971e9f77d24f1def54ff82755e66b277daa9a',
   '../__tests__/codex-native-artifact-qualification.test.ts':
@@ -2572,7 +2572,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../scripts/attest-knowledge-runtime.py':
     '5737ec8e7fc19a17b6ef5a35c1898e834d2a5d2d2a9f7593b607eaaf1971cfeb',
   '../agent-context-sandbox.ts': '8b61edc17ccc94bc95eae3796e68a0beb9540534e3bfbb348a04154c41995416',
-  '../codex-conversation.ts': 'bea2fb5e083e4e0a0801535406dccb42f49575dc5853cd9574c6d394d46cc58b',
+  '../codex-conversation.ts': '7c0a22451d730ce6ae2bbcce44b24403e0049ffc75f364869dc0c196f55f32c2',
   '../codex-conversation-store.ts':
     '2ebbf717b237fb6a136ddc170ef302557febca075cba7ff23069a61b0d9522fc',
   '../symposium-custodian-ipc.ts':
@@ -2712,7 +2712,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../protected-sdk-command.ts': '9b77fcbe62a8fb900f7ec548220345e50a6c56ebb194c1a748aaaf590812c39a',
   '../native-hooks.ts': '0d59438a3dd722e6a8e7f9955ab0af6d1959f9ac77a79f97ec190aa8fe5d1cae',
   '../__tests__/native-hooks.test.ts':
-    'f1c2042d575d03d18f1decc8e6256987b5ffb551aff94cbde55363866ca59aa9',
+    'aa0a9413a820a16dec094fb3febc13d62d163274de01241fa34d3a817ab3c65b',
   '../hook-bridge.ts': '8885c2b27079799d33958a17942bb7d8953d01540bf7cd4b3ade537ee39c2d12',
   '../native-tool-executor.ts': '53139629352e57d435f554b251e3fc24640305588c01647daf60420cd5b148ae',
   '../repository-preparation-capacity.ts':
@@ -3937,7 +3937,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/credential-sdk-boundary.test.ts':
     '3bac4bc0290ddc4091f3f1f9054caf2f7afe6f03752952c1cdad07baa1602961',
   '../__tests__/credential-sdk-tools.test.ts':
-    '302763e1db56d1f8f256c9bf02d9ecee9da95b8d02e8755dc229bb28594a7f68',
+    '490dee58f2c890da83a3d58590a03912520939060d4c4c25e6fc721048710ec8',
   '../__tests__/credential-setup-application.test.ts':
     '39683a04282c3149a17886b424218dc93bfa48bf208340f2f0a5736ad609f372',
   '../__tests__/credential-setup-continuation.test.ts':

@@ -28,9 +28,21 @@ export function qualifyToolResult<T extends CodexToolResult>(
  * upstream payloads. Reporting does not authorize retries or settle unknown work. */
 export function reportToolFailure(
   error: unknown,
-  context: { sessionId: string; tool: string; signal: AbortSignal; callId?: string },
+  context: {
+    sessionId: string;
+    tool: string;
+    signal: AbortSignal;
+    callId?: string;
+    identity?: Parameters<typeof codexToolFailureResult>[2];
+    stage?: Parameters<typeof codexToolFailureResult>[3];
+  },
 ): CodexToolResult {
-  const result = codexToolFailureResult(error, context.signal.aborted);
+  const result = codexToolFailureResult(
+    error,
+    context.signal.aborted,
+    context.identity,
+    context.stage,
+  );
   const detail = JSON.parse(result.content);
   log.warn('Tool execution failed', {
     sessionId: context.sessionId,
@@ -42,10 +54,7 @@ export function reportToolFailure(
   });
   return retainCallbackOutcome(
     result,
-    error instanceof Error && retainedCallbackOutcome(error) === 'settled'
-      ? 'settled'
-      : detail.diagnostic.effectStatus === 'not_started'
-        ? 'settled'
-        : 'unknown',
+    (error instanceof Error ? retainedCallbackOutcome(error) : undefined) ??
+      (detail.diagnostic.effectStatus === 'not_started' ? 'settled' : 'unknown'),
   );
 }
