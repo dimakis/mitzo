@@ -41,6 +41,65 @@ afterEach(async () => {
   vi.restoreAllMocks();
   vi.unstubAllEnvs();
 });
+it('consumes an exact silent preparation on the first explicit SDK command without fresh-session adoption or duplicate dispatch', async () => {
+  const fingerprint = 'a'.repeat(64);
+  const f = await ownedVertexRuntimeFixture(cleanups, { preparationFingerprint: fingerprint });
+  const catalog = (
+    await import('../ordinary-local-vertex-capabilities.js')
+  ).localVertexCapabilities(
+    (await import('../account-profiles.js')).loadAccountProfiles(),
+    new (await import('../ordinary-local-vertex-capabilities.js')).OrdinaryLocalVertexTarget(
+      f.dependencies.env,
+    ),
+    [f.agentProfile],
+  );
+  const resolved = catalog.resolve(f.request.runtime);
+  expect(resolved.status).toBe('compatible');
+  if (resolved.status !== 'compatible') throw Error('Offline SDK fixture unavailable');
+  const meta = {
+    sessionId: f.reservation.conversationId,
+    repositoryWorkspaceId: f.reservation.id,
+    cwd: f.reserved.directory!,
+    accountBinding: f.reservation.binding,
+    agentProfile: f.agentProfile,
+    selectedModel: f.request.selection.model,
+    reasoningEffort: f.request.selection.thinking,
+    mode: 'agent' as const,
+  };
+  f.events.prepareOrdinarySession(meta, {
+    allocationOperationId: 'silent-sdk',
+    preparationFingerprint: fingerprint,
+    settings: {
+      binding: resolved.binding,
+      selection: f.request.selection,
+      repositoryWorkspaceId: f.reservation.id,
+    },
+  });
+  expect(f.events.getSessionEvents(meta.sessionId)).toEqual([]);
+  expect(f.events.getOrdinaryInitialCommandId(meta.sessionId)).toBeUndefined();
+  const dispatch = vi.fn(async () => {});
+  const owner = new OrdinaryLocalVertexOwnedRuntime({
+    enabled: true,
+    eventStore: f.events,
+    library: f.library,
+    workspace: f.workspace,
+    reservation: f.reservation,
+    commandId: f.request.clientMsgId,
+    preparationOperationId: 'silent-sdk',
+    operatorConnectionId: f.dependencies.operatorConnectionId,
+    signal: f.signal.signal,
+    env: f.dependencies.env,
+    dispatch,
+    dispatchContinuation: dispatch,
+  });
+  cleanups.push(() => owner.close());
+  await expect(owner.admit(f.request)).resolves.toEqual({ dispatched: true });
+  await expect(owner.admit(f.request)).resolves.toEqual({ dispatched: false });
+  expect(dispatch).toHaveBeenCalledOnce();
+  expect(f.events.getOrdinarySessionPreparation('silent-sdk')!.firstCommandId).toBe(
+    f.request.clientMsgId,
+  );
+});
 it('shares admission, follow-ups and cold SDK continuation with a personal subscription and blocks lost sign-in', async () => {
   const f = await ownedVertexRuntimeFixture(cleanups, { personal: true });
   const capture = ClaudeSubscriptionCustody.capture;

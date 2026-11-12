@@ -11,6 +11,8 @@ import { bindAgentLibraryTransport } from './agent-library-transport.js';
 import { isAvailableTelosWorkConversation } from './telos-work-conversation.js';
 import { SessionPromptError, type SessionPromptDelivery } from './session-prompt-store.js';
 import type { CollaborationSettings } from '@mitzo/protocol';
+import { isOrdinaryRepositoryParticipantBinding } from '@mitzo/protocol';
+import { observedOrdinarySdkOutcome } from './ordinary-sdk-turn-evidence.js';
 import type { OwnedOrdinaryDispatchInput } from './ordinary-scoped-command.js';
 import type { OrdinaryTurnLifecycle } from './ordinary-turn-lifecycle.js';
 import type { SessionPromptPort } from './session-prompt-service.js';
@@ -312,7 +314,7 @@ export function createSessionPromptPort(
         ...(prompt.onQueryEvent ? { onQueryEvent: prompt.onQueryEvent } : {}),
         existingOwner: !!live,
         ...(prompt.turnLifecycle &&
-        binding.harness.implementation === 'codex' &&
+        isOrdinaryRepositoryParticipantBinding(binding) &&
         binding.execution.location === 'local'
           ? {
               ordinaryTurnLifecycle: lifecycle,
@@ -350,6 +352,39 @@ export function createSessionPromptPort(
       };
       access();
       const execution = ctx.eventStore.getSessionRuntimeBinding(sessionId);
+      if (
+        execution?.harness.implementation === 'claude-sdk' &&
+        execution.execution.location === 'local'
+      ) {
+        const binding = ctx.eventStore.getSession(sessionId)?.accountBinding;
+        if (!binding) return 'unavailable';
+        const current = () => {
+          access();
+          if (
+            !isDeepStrictEqual(ctx.eventStore.getSessionRuntimeBinding(sessionId), execution) ||
+            !isDeepStrictEqual(ctx.eventStore.getSession(sessionId)?.accountBinding, binding)
+          )
+            throw new SessionPromptError('Original ordinary custody changed.', 422);
+        };
+        const outcome = observedOrdinarySdkOutcome(ctx.eventStore, sessionId, commandId);
+        if (outcome && outcome !== 'uncertain') return 'settled';
+        if (ctx.eventStore.getOrdinarySdkInterruptReceipt(sessionId, requestId)) return 'uncertain';
+        current();
+        const live = ctx.sessionRegistry.findBySessionId(sessionId);
+        const owner = live?.session.ordinaryRuntimeOwner;
+        if (!live || !owner?.sdkTurns || owner.authSessionId !== auth.id) return 'unavailable';
+        const target = owner.sdkTurns.captureInterruptTarget();
+        if (target?.commandId !== commandId) return 'uncertain';
+        current();
+        if (
+          ctx.sessionRegistry.findBySessionId(sessionId)?.session !== live.session ||
+          live.session.ordinaryRuntimeOwner !== owner
+        )
+          return 'uncertain';
+        const result = await owner.sdkTurns.interruptIfCurrent(requestId, target);
+        current();
+        return result === 'requested' ? 'requested' : 'uncertain';
+      }
       if (execution?.harness.implementation !== 'codex' || execution.execution.location !== 'local')
         return 'unavailable';
       const binding = ctx.eventStore.getSession(sessionId)?.accountBinding;
@@ -388,6 +423,10 @@ export function createSessionPromptPort(
       if (!authorized(auth))
         throw new SessionPromptError('Session authorization expired or was revoked.', 403);
       if (ctx.eventStore.getSendCommand(commandId)?.sessionId !== sessionId) return;
+      if (
+        ctx.eventStore.getSessionRuntimeBinding(sessionId)?.harness.implementation === 'claude-sdk'
+      )
+        return observedOrdinarySdkOutcome(ctx.eventStore, sessionId, commandId);
       const terminal = ctx.eventStore.getOrdinaryProviderTurnTerminal(sessionId, commandId);
       if (!terminal) return;
       const binding = ctx.eventStore.getSession(sessionId)?.accountBinding;
@@ -402,29 +441,36 @@ export function createSessionPromptPort(
     async inspectCollaboration(prompt) {
       const { binding, live, prepared, meta } = target(prompt.sessionId, prompt.auth, prompt);
       if (
-        binding.harness.implementation !== 'codex' ||
+        !isOrdinaryRepositoryParticipantBinding(binding) ||
         binding.execution.location !== 'local' ||
         (live && !ownedSessions.has(live.session)) ||
         ctx.eventStore.hasUncertainOrdinaryCommand(prompt.sessionId)
       )
-        throw new SessionPromptError('Choose a fresh Local Codex group participant.', 422);
-      const [entry, chat] = await Promise.all([
+        throw new SessionPromptError('Choose a fresh configured group participant.', 422);
+      const [entry, chat, sdk] = await Promise.all([
         import('./ordinary-local-codex-entry.js'),
         import('./chat.js'),
+        import('./ordinary-local-vertex-entry.js'),
       ]);
       if (
         !live &&
         !prepared &&
-        !chat.canResumeOwnedLocalCodexDriver(meta.sessionId, prompt.auth.id)
+        !(binding.harness.implementation === 'claude-sdk'
+          ? sdk.canResumeOwnedLocalVertexDriver(meta.sessionId, prompt.auth.id)
+          : chat.canResumeOwnedLocalCodexDriver(meta.sessionId, prompt.auth.id))
       )
         throw new SessionPromptError(
           'Open this participant to resolve its ordinary session state.',
           422,
         );
-      const inventory = entry.ordinaryRepositoryRuntimeInventory('local', 'codex', binding);
+      const inventory = entry.ordinaryRepositoryRuntimeInventory(
+        'local',
+        binding.harness.implementation,
+        binding,
+      );
       const resolved = inventory.catalog.resolve({
         account: binding.account,
-        harness: 'codex',
+        harness: binding.harness.implementation,
         targetId: binding.execution.targetId,
         mode: prompt.settings!.selection.permission.mode,
       });

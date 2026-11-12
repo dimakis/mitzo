@@ -1,6 +1,7 @@
 import { isDeepStrictEqual } from 'node:util';
 import {
   CollaborationContractError,
+  isOrdinaryRepositoryParticipantBinding,
   CollaborationForwardPrepareInputSchema,
   CollaborationForwardConfirmInputSchema,
   CollaborationForwardPacketSchema,
@@ -91,7 +92,7 @@ export class CollaborationApplicationForwarding {
         !record.input.selection.target.sessionIds.includes(id) ||
         !membership.participantSessionIds.includes(id) ||
         !settings ||
-        settings.binding.harness.implementation !== 'codex' ||
+        !isOrdinaryRepositoryParticipantBinding(settings.binding) ||
         settings.binding.execution.location !== 'local' ||
         !isDeepStrictEqual(settings, record.settings[id])
       )
