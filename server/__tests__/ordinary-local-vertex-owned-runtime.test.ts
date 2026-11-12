@@ -7,6 +7,8 @@ import * as registries from '../skill-registry-runtime.js';
 import { assembleCommandPrompt } from '../message-reply-context.js';
 import { ownedVertexRuntimeFixture } from './fixtures/owned-local-vertex-runtime.js';
 import { ClaudeSubscriptionCustody } from '../claude-subscription-custody.js';
+import { revokeAuthSession } from '../auth.js';
+import { captureAgentLibraryAuthorization } from '../agent-library-transport.js';
 import { OrdinaryLocalCodexSelectionOwner } from '../ordinary-local-codex-selection-owner.js';
 vi.mock('../claude-account-history.js', () => ({
   readClaudeAccountHistory: vi.fn(async (sessionId: string, cwd: string) => ({
@@ -43,6 +45,7 @@ vi.mock('../keychain-rotation-credentials.js', () => ({
   },
 }));
 afterEach(async () => {
+  vi.useRealTimers();
   for (const cleanup of cleanups.splice(0).reverse()) await cleanup();
   vi.restoreAllMocks();
   vi.unstubAllEnvs();
@@ -181,6 +184,19 @@ async function fixture(options: Parameters<typeof ownedVertexRuntimeFixture>[1] 
   };
   return { f, dispatch, create };
 }
+it('continues admitted SDK effects after login expiry while rejecting new client authority and revocation', async () => {
+  const { f, create } = await fixture();
+  vi.useFakeTimers();
+  const owner = create();
+  await owner.admit(f.request);
+  await vi.advanceTimersByTimeAsync(60001);
+  expect(owner.signal.aborted).toBe(false);
+  await expect(owner.assertEffect(f.request.clientMsgId)).resolves.toBeUndefined();
+  expect(() => captureAgentLibraryAuthorization(f.dependencies.operatorConnectionId)).toThrow();
+  revokeAuthSession(f.auth);
+  expect(owner.signal.aborted).toBe(true);
+  await expect(owner.assertEffect(f.request.clientMsgId)).rejects.toThrow();
+});
 it('admits Messages accounts and blocks continuation after Keychain version drift', async () => {
   const { f, create, dispatch } = await fixture({ anthropicApi: true });
   apiKeychain.read.mockResolvedValue({

@@ -3378,13 +3378,9 @@ it('keeps scoped adviser context isolated when ordinary local discovery and effi
   }
 });
 
-it.each([
-  { code: 'auth_expired', timing: 'timer' },
-  { code: 'auth_revoked', timing: 'revoke' },
-  { code: 'auth_expired', timing: 'before-timer' },
-] as const)(
-  'retains $code after $timing invalidation and admission cleanup',
-  async ({ code, timing }) => {
+it.each(['timer', 'revoke', 'before-timer'] as const)(
+  'keeps expiry separate from revocation and retains the revocation diagnostic after %s',
+  async (timing) => {
     vi.clearAllMocks();
     mocks.initialize.mockResolvedValue(undefined);
     mocks.send.mockResolvedValue(undefined);
@@ -3405,10 +3401,16 @@ it.each([
       if (timing === 'before-timer') {
         vi.setSystemTime(auth.expiresAt);
         vi.mocked(f.lease.assertCurrentSync).mockImplementation(() => scope.assertCurrent());
-        expect(guard).toThrow('Owned local Codex chat unavailable');
-        expect(controller.signal.aborted).toBe(false);
       } else if (timing === 'timer') vi.advanceTimersByTime(60_001);
-      else revokeAuthSession(auth);
+      if (timing !== 'revoke') {
+        expect(guard).not.toThrow();
+        expect(controller.signal.aborted).toBe(false);
+        expect(scope.failure()).toBeUndefined();
+        expect(
+          f.eventStore.getEventsAfter('owned-session', 0).filter((event) => event.type === 'error'),
+        ).toEqual([]);
+      }
+      revokeAuthSession(auth);
       f.ownedLocal.close();
       expect(guard).toThrow('Owned local Codex chat unavailable');
       const onError = mocks.conversationOptions!.onError as (error: Error) => void;
@@ -3418,7 +3420,9 @@ it.each([
         .getEventsAfter('owned-session', 0)
         .filter((event) => event.type === 'error');
       expect(errors).toHaveLength(1);
-      expect(errors[0].payload.runtimeFailure).toMatchObject({ runtimeFailureCode: code });
+      expect(errors[0].payload.runtimeFailure).toMatchObject({
+        runtimeFailureCode: 'auth_revoked',
+      });
       expect(errors[0].payload.error).toContain('Sign in again');
       expect(errors[0].payload.error).not.toContain('Generic transport');
     } finally {

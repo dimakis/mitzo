@@ -865,15 +865,21 @@ it('checks changed real target configuration synchronously before later native/t
   expect(existsSync(f.reserved.directory)).toBe(true);
 });
 
-it('retains the admitted operator expiry after detach and closes without deleting task files', async () => {
+it('keeps admitted native work alive after login expiry and detach, but still enforces revocation', async () => {
   const f = await fixture();
   vi.useFakeTimers();
   const driver = f.create();
   await driver.admit(f.request);
   f.detach();
   await vi.advanceTimersByTimeAsync(60001);
+  expect(f.rpc.close).not.toHaveBeenCalled();
+  const admitted = f.dispatch.mock.calls[0][0];
+  await expect(admitted.lease.assertCurrent()).resolves.toBeUndefined();
+  expect(() => admitted.admission.assertCurrentSync()).not.toThrow();
+  expect(() => driver.reauthorize(f.dependencies.operatorConnectionId)).toThrow();
+  revokeAuthSession(f.auth);
   expect(f.rpc.close).toHaveBeenCalledOnce();
-  await expect(driver.admit(f.request)).rejects.toThrow();
+  await expect(admitted.lease.assertCurrent()).rejects.toThrow();
   expect(existsSync(f.reserved.directory)).toBe(true);
   driver.close();
   expect(f.rpc.close).toHaveBeenCalledOnce();
