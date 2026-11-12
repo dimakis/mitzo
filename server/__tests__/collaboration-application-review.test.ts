@@ -9,6 +9,7 @@ import { getAgentLibrary } from '../agent-library-runtime.js';
 import { revokeAuthSession } from '../auth.js';
 import { claimTransportConnection } from '../transport-auth-ownership.js';
 import { createCollaborationContextSource } from '../collaboration-context-source.js';
+import { registerSymposiumSourceOutput } from './fixtures/symposium-source-output.js';
 import {
   fixture,
   cleanups,
@@ -61,6 +62,29 @@ async function promptReviewFixture() {
     f.owner.reviewPrompt(f.auth, f.connectionId, f.group, raw, f.controller.signal);
   return { ...f, input, review, settings: joining.settings };
 }
+
+it('lists exact registered artifact versions through current source/transport authority without candidate bytes', async () => {
+  const f = await promptReviewFixture();
+  const text = 'Private saved artifact content';
+  const output = registerSymposiumSourceOutput(f.store, 'source', text);
+  const result = f.owner.sourceArtifacts(f.auth, f.connectionId, f.group, 'source');
+  expect(result).toEqual({
+    sourceConversationId: 'source',
+    artifacts: [
+      {
+        artifactId: output.outputId,
+        revision: 1,
+        sha256: output.source.sha256,
+        title: output.title,
+        available: true,
+      },
+    ],
+  });
+  expect(JSON.stringify(result)).not.toContain(text);
+  expect(f.store.getOrdinaryInitialCommandId('recipient')).toBe('recipient-first');
+  f.store.hideSession('source');
+  expect(() => f.owner.sourceArtifacts(f.auth, f.connectionId, f.group, 'source')).toThrow();
+});
 
 it('reviews exact per-prompt context through actual source/settings owners without another session or command', async () => {
   const f = await promptReviewFixture();
