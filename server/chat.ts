@@ -1,3 +1,4 @@
+import { ordinarySdkConnectionHelperTools } from './ordinary-sdk-helper-registration.js';
 import {
   reconcilableLocalCodexCommand,
   retainedLocalCodexRecoveryReservation,
@@ -2814,12 +2815,7 @@ This is an independent checkout with its own Git storage, not a linked worktree.
         if (
           options.ordinarySdkAuthority &&
           name.startsWith('mcp__mitzo-connections__') &&
-          ![
-            'mcp__mitzo-connections__ListConnections',
-            'mcp__mitzo-connections__SymposiumReadProfiles',
-            'mcp__mitzo-connections__SymposiumProposeProfile',
-            'mcp__mitzo-connections__AgentCommunication',
-          ].includes(name)
+          !ordinarySdkConnectionHelperTools.includes(name)
         )
           return {
             behavior: 'deny',
@@ -2993,13 +2989,7 @@ This is an independent checkout with its own Git storage, not a linked worktree.
         },
         permissionMode: MODE_TO_SDK[session.mode] as 'plan' | 'default',
         allowedTools: options.ordinarySdkAuthority
-          ? [
-              'mcp__mitzo-connections__ListConnections',
-              'mcp__mitzo-connections__SymposiumReadProfiles',
-              'mcp__mitzo-connections__SymposiumProposeProfile',
-              'mcp__mitzo-connections__AgentCommunication',
-              WEB_ACCESS_SDK_TOOL,
-            ]
+          ? [...ordinarySdkConnectionHelperTools, WEB_ACCESS_SDK_TOOL]
           : [
               ...(sdkCredentialIsolation ? [] : mcpAllowed),
               ...extraTools,

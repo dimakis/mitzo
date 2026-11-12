@@ -71,6 +71,15 @@ function AccessContent({
           value.readiness = RuntimeReadinessSchema.parse(value.readiness);
           if (value.readiness.sessionId !== sessionId)
             throw new Error('Readiness session mismatch');
+          const observed = value.readiness.session;
+          if (
+            observed.state === 'observed' &&
+            ((value.account != null &&
+              (value.account.accountId !== observed.account.accountId ||
+                value.account.provider !== observed.account.provider)) ||
+              (value.model != null && value.model !== observed.model))
+          )
+            throw new Error('Readiness account or model mismatch');
         }
         if (value.helperSupport !== undefined)
           value.helperSupport = SessionHelperSupportSchema.parse(value.helperSupport);

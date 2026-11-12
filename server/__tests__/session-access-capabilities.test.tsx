@@ -6,7 +6,7 @@ import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { SessionCapabilities } from '../../frontend/src/components/SessionCapabilities.js';
 import { SessionHelperSupportSchema } from '@mitzo/protocol';
-import { bindAgentToolSelection } from '../agent-tool-selection.js';
+import { assertAgentToolRoute, bindAgentToolSelection } from '../agent-tool-selection.js';
 import { projectSessionAccess, createSessionAccessRouter } from '../session-access.js';
 
 const { warn } = vi.hoisted(() => ({ warn: vi.fn() }));
@@ -99,6 +99,50 @@ describe('Session Access configured helper support', () => {
       ]),
     });
   });
+  it.each([
+    [
+      'anthropic-claude',
+      'AskUserQuestion',
+      'AskUserQuestion',
+      'mcp__mitzo-connections__AskUserQuestion',
+    ],
+    [
+      'anthropic-claude',
+      'RequestWebAccess',
+      'RequestWebAccess',
+      'mcp__mitzo-web-access__RequestWebAccess',
+    ],
+    ['openai-codex', 'TaskStatus', 'mcp__task-board__TaskStatus', 'TaskStatus'],
+  ])('uses the executor policy identity for %s %s', (provider, name, allowed, wrong) => {
+    const f = fixture(provider);
+    f.session.activeSkillPolicy = new Set([allowed]);
+    expect(f.read().helperSupport).toMatchObject({
+      tools: expect.arrayContaining([expect.objectContaining({ name, state: 'supported' })]),
+    });
+    f.session.activeSkillPolicy = new Set([wrong]);
+    expect(f.read().helperSupport).toMatchObject({
+      tools: expect.arrayContaining([expect.objectContaining({ name, state: 'restricted' })]),
+    });
+  });
+  it.each(['RequestWebAccess', 'SymposiumReadProfiles', 'SymposiumProposeProfile'])(
+    'distinguishes default SDK exposure from explicit-profile eligibility for %s',
+    (name) => {
+      const f = fixture();
+      expect(f.read().helperSupport).toMatchObject({
+        tools: expect.arrayContaining([expect.objectContaining({ name, state: 'supported' })]),
+      });
+      const explicit = fixture('anthropic-claude', 'local', { tools: [] });
+      expect(explicit.read().helperSupport).toMatchObject({
+        tools: expect.arrayContaining([expect.objectContaining({ name, state: 'excluded' })]),
+      });
+      expect(() =>
+        assertAgentToolRoute(
+          { tools: [{ id: `mitzo:${name}`, version: 1 }] } as never,
+          'claude-sdk',
+        ),
+      ).toThrow(/unavailable/);
+    },
+  );
   it('keeps unqualified routes, lost owners and mismatched identities unknown', () => {
     const shell = fixture('anthropic-claude', 'openshell');
     expect(shell.read().helperSupport.state).toBe('unknown');

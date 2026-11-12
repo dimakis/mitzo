@@ -9,7 +9,10 @@ owners. It changes no Chat settings hierarchy or approved-design revision.
 
 The authenticated Access projection consumes the retained runtime binding and
 the captured agent-tool selection. For guarded Local Mac Claude and Codex, the
-existing executable tool catalog supplies Mitzo helper support. A helper can be
+existing executable tool catalog and ordinary SDK registration supply Mitzo helper
+support. The SDK owner and display share its unchanged callback allowlist; default
+SDK exposure stays separate from explicit-profile eligibility in the catalog.
+A helper can be
 supported by the route, unsupported, excluded by the published agent profile,
 or blocked by the active skill restriction. An absent captured selection is
 unknown, never an unrestricted default. OpenShell, legacy bindings, other engines,
@@ -38,6 +41,14 @@ The shared protocol owns the Access types and helper-support schema, so the
 frontend does not import server implementation types. Present readiness and helper
 fields validate on receipt; older servers may omit them. An invalid refresh keeps
 the last observation and displays the existing failure/retry state.
+
+Shared readiness validation correlates nested observations with the outer session,
+observed account/profile/model and complete configured binding, including the v2
+target identity/revision. Future evidence is compared with the snapshot's original
+read time. Root Access account/model fields must agree when supplied. These checks
+do not authenticate a current owner generation or task root; the trusted server
+projector remains responsible for those facts. A malformed nested success cannot
+replace earlier valid evidence.
 
 Unexpected Access reads return a sanitized `session_access_read_failed` diagnostic
 with stage and conversation identity. The existing structured logger preserves
@@ -72,6 +83,39 @@ Work reuses readiness slice `dec417f605a93232` and capability baseline feature
 `1a3ad6c5-36b0-4744-9ea1-7bd8c18f253b`. Reviewed dedicated Telos role/session setup
 remains unavailable in the exposed catalog; implementation provenance is not a
 worker-binding receipt. Broader feature and outcome acceptance remain separate.
+
+### Review correction checkpoint, 12 November 2026
+
+Initial candidate `b6c6bc68` completed hosted compilation, frontend build, core,
+unit and Apple SDK checks in CI run `43271199053`. It did not pass combined CI.
+Centaur review `5879747523` requested fixes for the native SDK AskUserQuestion
+policy name (`CEN-960117BA3EF5`) and nested observation scope validation
+(`CEN-51993782E611`). Read-only development review additionally identified Task
+Board canonical names and default SDK exposure versus catalog profile eligibility.
+
+The correction uses bare native AskUserQuestion and inner RequestWebAccess policy
+names, canonical Task Board names and the SDK connection prefix as appropriate.
+The SDK's exact connection callback allowlist is shared with the projection;
+catalog profile admission is unchanged. New regressions reproduce both policy
+directions and preserve explicit-profile refusals. Shared protocol and mounted
+consumer tests cover nested identity/binding mismatches, future observations,
+initial refusal and retention of earlier evidence. The correction passes 270
+focused/design checks across seventeen files (one existing check skipped), plus
+package builds and focused component type checking, with one worker and 1 GiB.
+
+All three browser project failures reached the new capability fixture's exact
+status-text locator at line 385. The status and its explanation shared one element;
+the correction gives status text its own inline element without changing the
+assertion, layout or deadline. The next combined run must verify the real render.
+
+The separate native repository job failed unchanged discovery's selected-state
+assertion: it returned `ambiguous`, `truncated: true`, `limitReasons: [timeout]`.
+Retained call metrics were 483 synchronous calls/3395.684 ms and 30 asynchronous
+calls/2296.816 ms; inclusive timings can overlap and do not prove a root cause.
+An attempted local reproduction stopped during fixture setup with `EPERM` creating
+its hard-coded `/private/tmp` directory under the bounded task executor. It did
+not reproduce the hosted discovery call. The discovery source, expectations and
+deadlines remain unchanged; qualifying native CI is still required.
 
 The broader `ordinaryCodexCapabilities` inventory in
 `server/ordinary-local-codex-entry.ts` currently converts an inventory exception to

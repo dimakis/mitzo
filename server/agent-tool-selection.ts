@@ -1,6 +1,11 @@
 import { getCredentialConnectionsRuntime } from './credential-connections-runtime.js';
 import type { AgentToolReference, SymposiumProfileDefinition } from '@mitzo/protocol';
 import { agentToolCatalog } from './agent-tool-catalog.js';
+import { TASK_MCP_SERVER_NAME } from './host-mcp-servers.js';
+import {
+  SDK_CONNECTION_PREFIX,
+  ordinarySdkHelperPolicyName,
+} from './ordinary-sdk-helper-registration.js';
 
 const selections = new WeakMap<object, string | undefined>();
 const selectionRoutes = new WeakMap<object, string>();
@@ -22,7 +27,7 @@ export function bindConfiguredAgentTools(
     throw Error('Session configured selection is immutable');
   configuredSelections.set(session, names);
 }
-const sdkPrefix = 'mcp__mitzo-connections__';
+const sdkPrefix = SDK_CONNECTION_PREFIX;
 function profileSelects(
   entry: { id: string; version: number; required: boolean },
   refs?: AgentToolReference[],
@@ -125,12 +130,21 @@ export function projectAgentHelperSupport(
   return agentToolCatalog()
     .map(({ id, version, name, source, routes, required, requirement }) => {
       const selected = profileSelects({ id, version, required }, refs);
-      const wireName = route === 'claude-sdk' ? `${sdkPrefix}${name}` : name;
-      const state = !routes.includes(route)
+      const policyName =
+        route === 'claude-sdk'
+          ? ordinarySdkHelperPolicyName(name)
+          : source === 'Task Board'
+            ? `mcp__${TASK_MCP_SERVER_NAME}__${name}`
+            : name;
+      const supported = route === 'claude-sdk' ? policyName !== undefined : routes.includes(route);
+      // Existing default SDK helpers do not all support explicit profiles.
+      // Display actual default exposure without widening catalog admission.
+      const profileEligible = refs === undefined || routes.includes(route);
+      const state = !supported
         ? ('unsupported' as const)
-        : !selected
+        : !selected || !profileEligible
           ? ('excluded' as const)
-          : skillCeiling && !skillCeiling.has(wireName)
+          : skillCeiling && (!policyName || !skillCeiling.has(policyName))
             ? ('restricted' as const)
             : ('supported' as const);
       return { name, source, requirement, state };

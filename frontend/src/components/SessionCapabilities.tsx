@@ -137,7 +137,7 @@ export function SessionCapabilities({
                   <div key={tool.name}>
                     <dt>{tool.name}</dt>
                     <dd>
-                      {supportLabels[tool.state]}
+                      <span>{supportLabels[tool.state]}</span>
                       <p className="workspace-muted">{tool.requirement}</p>
                     </dd>
                   </div>

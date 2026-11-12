@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.1084-session-capability-visibility';
+  'v1.0.1085-session-capability-review-fixes';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -2237,7 +2237,9 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/components/AgentToolsEditor.tsx':
     '185739f065ba2ad81534a2b171239d086010447fe03e3669d920dcd13804b5b1',
   '../agent-tool-catalog.ts': 'b32230f570506a9ad13872a6e39c6cef037c037ba506b226def082b0aadd0deb',
-  '../agent-tool-selection.ts': '59a341e74effb5b0390d9c3969892fbc2702139e37578e95d06970695c4c229f',
+  '../agent-tool-selection.ts': '5f0df8df8ae3d451038fa30bd40a8ab95cc541dc5b93d2d1e38f4e1186c6b998',
+  '../ordinary-sdk-helper-registration.ts':
+    '071e57332ecbf073c853644f96abdff7c69bea590d13c207c36b859c2a005075',
   '../../packages/protocol/src/agent-tools.ts':
     'a25c3fcd8a885db213c6528fe9e07fd11da6744304420b4f3affd2e354d1af82',
   '../symposium-session-create.ts':
@@ -2295,9 +2297,9 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/components/SessionResourcesDialog.tsx':
     'ba19df25f11d2ddcab34c8e8dfcd7716089a11787e5d8eac4b1be8680c858f05',
   '../../frontend/src/components/SessionAccess.tsx':
-    '576cea5d612afffff7abc20edea530a6b2d8baf8558c7a06083aed9cb1e8d371',
+    '662571459a7bf09ee9cc6cf668ac68cdaad77e0fb049a75f05479fba3f7f51bc',
   '../../frontend/src/components/SessionCapabilities.tsx':
-    'b9809cbbe25fe4618e74279b6158f957720051b5a87f06b3a217462110982ca0',
+    'd6a7a9dc06f35d2c2a86e966aeb4f041c6b37edee6201daa0b762fcb3119ad54',
   '../../frontend/src/components/SessionBanner.tsx':
     '1c53c85a30dfb1898ab1d29edc9a40652c1fe7f6a2d52f4a74dad702b8854060',
   '../../frontend/src/components/TokenBar.tsx':
@@ -2535,14 +2537,14 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     'c103af10de4adc81cdc474b3e69ef2b3de5e447d4dcf15da4fc1894c422b913b',
   '../../packages/protocol/src/session-output-reference-store.ts':
     'e3d0095bfe092da676eb3671f8c147500e9436a95a9438d0315b8037b14b3029',
-  '../chat.ts': 'a69a2b642320640c194f83cbefe3f00b0faf384e9c803af72e296de57c38d9dc',
+  '../chat.ts': 'fd8b56becdc5677eb120002d4c4ec9a31072eb97c9fc631cedf5db7898248ae7',
   '../../packages/harness/src/session-registry.ts':
     '920286cff62bab7712d9e8648166e74e2c1e084f11e0fe8978d2435c4a58da74',
   '../agent-context-binding.ts': '4917ff83899105b7ac2c537c8db18111eeb97386d1ca0a2d2b576d872e1db360',
   '../symposium-personal-connection-router.ts':
     'f254cadb334bc75dbb19104fdb7ed2b3e46bf2856b81d29300fd4f45db02674e',
   '../../packages/protocol/src/runtime-readiness.ts':
-    '6be98645eb9b4467c30f5dacb3e8eee7a9c3f08cb6fc820edc872f789ef217c8',
+    '735c82d0fda67d1db30683749b3a3924bacec38de75107de79b9ae9982e98379',
   '../runtime-readiness.ts': 'ea27d8706c0ae6594b78b22436060eded2848b0cd9713e42fa51597928be3766',
   '../session-access.ts': 'b153b054e2d226ee1843eb7fdf560dbe99609d7093071ebabf75f07e2cac6e6e',
   '../../packages/protocol/src/session-access.ts':
