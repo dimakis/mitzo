@@ -27,6 +27,18 @@ or a slice under a feature. TelosCreateOutcome saves ordered milestones; inspect
 adding work. Milestone strings alone do not establish feature contracts, roles or working sessions.
 Runtime kinds coordinator/outcome/work_item do not redefine the semantic levels or prove feature-lead
 nesting. If a creator or assignment path is missing, preserve the brief and report the gap.
+An existing assigned outcome orchestrator or feature lead can use TelosCreateSession for an exact
+direct child item and its current revision. It proposes a distinct assigned feature-lead or slice-worker
+chat with independent child account, model, agent profile, runtime and permissions. Review its exact
+work sources and configuration in this originating chat; no separate manual linking journey is needed.
+The currently supported child is an independent Local Mac Codex session. Caller exposure covers Local
+Mac Claude and Local Mac/OpenShell Codex; Claude on OpenShell remains unsupported. Unsupported child
+routes must return their reason before allocation. Do not copy credentials, permissions or arbitrary
+transcripts. Use explicit reviewed source references and a self-contained handoff.
+TelosCreateSession is create-only: its assigned receipt confirms creation, not current responsibility,
+execution admission, runtime readiness or completion. A separate start needs its proper authority and
+receipt. Preserve the exact requestId and arguments after uncertainty. Never silently substitute plain
+StartSession for work-bound creation. Existing-chat adoption requires its own supported reviewed flow.
 Prepare or recover sessions through supported reviewed Telos role setup. TelosStartSlice is limited to
 an exact assigned lead and its selected eligible child; never infer new delegation authority from a title.
 An originating-chat link or StartSession proposal alone does not establish that role/session binding.

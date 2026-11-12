@@ -10,7 +10,7 @@ export function sessionLaunchFailureCause(proposalId: string): Error | undefined
 }
 export function recordSessionLaunchFailure(
   record: RetainedSessionLaunch,
-  stage: 'preflight' | 'start' | 'resume',
+  stage: 'preflight' | 'start' | 'resume' | 'create_assignment',
   cause: unknown,
 ) {
   const code = `session_launch_${stage}_failed`;

@@ -126,7 +126,8 @@ export function createOrdinaryLocalVertexSdkQuery<
   sdkSessionId: string;
   cwd: string;
   controller: AbortController;
-  authorize(signal: AbortSignal): Promise<void>;
+  /** Invoke an input's refusal reporter before retiring the owning query. */
+  authorize(signal: AbortSignal, beforeRefusal?: (cause: unknown) => never): Promise<void>;
   authorizeSync(signal: AbortSignal): void;
   /** Trusted ordinary command/source fence, after every awaited SDK account
    * check and immediately before yielding that exact frozen user input. */
@@ -189,14 +190,23 @@ export function createOrdinaryLocalVertexSdkQuery<
   const prompt = async function* (queue: AsyncQueue<SDKUserMessage>, current: () => Query) {
     let permissionRestored = false;
     for await (const message of queue) {
-      await owners.authorize(owners.controller.signal);
+      const authorizeInput = async (stage: string) => {
+        try {
+          await owners.authorize(owners.controller.signal, (cause) =>
+            refuseInput(message, cause, stage),
+          );
+        } catch (error) {
+          refuseInput(message, error, stage);
+        }
+      };
+      await authorizeInput('input_authority');
       if (restoreApiPermissionMode && !permissionRestored) {
         try {
           // SDK 0.2.141's credential scrub forces startup to default. Its normal
           // control API restores plan/default without disabling the scrub. Wait
           // for acknowledgement before the native process can see user input.
           await current().setPermissionMode(permissionMode);
-          await owners.authorize(owners.controller.signal);
+          await authorizeInput('permission_mode_authority');
           permissionRestored = true;
         } catch (error) {
           refuseInput(message, error, 'permission_mode_acknowledgement');
@@ -205,7 +215,7 @@ export function createOrdinaryLocalVertexSdkQuery<
       if (owners.options.env?.MITZO_CLAUDE_EXPECTED_EMAIL) {
         try {
           assertClaudeSubscriptionAccount(await current().accountInfo(), owners.options.env);
-          await owners.authorize(owners.controller.signal);
+          await authorizeInput('subscription_identity_authority');
         } catch (error) {
           refuseInput(message, error, 'subscription_identity');
         }

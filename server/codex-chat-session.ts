@@ -65,7 +65,7 @@ import { getTelosMainPublicationRuntime } from './telos-main-publication-runtime
 import { ordinaryOperatorOwnsConversation } from './ordinary-operator-identity.js';
 import { githubMainPublicationTool } from './telos-main-publication.js';
 import type { OrdinaryWorkspaceRecord } from './ordinary-workspace-custody.js';
-import { TelosWorkControlToolInputSchema } from '@mitzo/protocol';
+import { TelosCreateSessionInputSchema, TelosWorkControlToolInputSchema } from '@mitzo/protocol';
 import {
   TELOS_WORK_CONTROL_TOOL,
   telosWorkControlDefinitions,
@@ -78,6 +78,9 @@ import { watchAgentMessageTranscript } from './agent-message-transcript.js';
 import { createAgentMessageApprover } from './agent-communication-permission.js';
 import { sessionPromptDefinitions } from './session-prompt-definitions.js';
 import { sessionLaunchDefinitions, sessionLaunchTools } from './session-launch-tools.js';
+import { SessionLaunchError } from './session-launch-store.js';
+import { retainTelosSessionProposalFailure } from './telos-session-proposal-failure.js';
+import { retainTelosDiagnosticFailure } from './telos-operation-failure.js';
 import {
   AGENT_COMMUNICATION_TOOL,
   agentCommunicationDefinitions,
@@ -1916,7 +1919,7 @@ async function openCodexChatBound(
         nativeState: (session) => runtimes.get(session)?.peerMessageState() ?? 'unavailable',
       })
     : undefined;
-  const launchTools = options.ownedLocal
+  const launchTools = ownedHost
     ? sessionLaunchTools({
         sessionId: options.conversationId,
         session: options.session,
@@ -2479,6 +2482,9 @@ async function openCodexChatBound(
         ]
       : connectedOpenShell
         ? [
+            ...(launchTools
+              ? sessionLaunchDefinitions.filter((tool) => tool.name === 'TelosCreateSession')
+              : []),
             ...connectionTools.definitions,
             ...openShellHostTools,
             ...capabilityTools.definitions,
@@ -3919,7 +3925,7 @@ async function openCodexChatBound(
           },
         );
       }
-      if (name === 'StartSession') {
+      if (name === 'StartSession' || name === 'TelosCreateSession') {
         if (!launchTools)
           return {
             content: 'Session creation requires an ordinary Local Mac Codex session.',
@@ -3927,13 +3933,46 @@ async function openCodexChatBound(
           };
         try {
           return {
-            content: JSON.stringify(await launchTools.execute(input, signal, callContext)),
+            content: JSON.stringify(await launchTools.execute(input, signal, callContext, name)),
             isError: false,
           };
-        } catch {
+        } catch (error) {
+          if (name === 'TelosCreateSession' && !(error instanceof SessionLaunchError)) {
+            const parsed = TelosCreateSessionInputSchema.safeParse(input);
+            const requestId = parsed.success
+              ? parsed.data.requestId
+              : (callContext.callId ?? randomUUID());
+            retainTelosSessionProposalFailure(requestId, 'proposal', error);
+            const diagnostic = {
+              code: 'telos_session_proposal_failed',
+              stage: 'proposal',
+              requestId,
+              sourceSessionId: options.conversationId,
+            };
+            try {
+              log.error('Telos session proposal unavailable', diagnostic);
+            } catch (diagnosticCause) {
+              retainTelosDiagnosticFailure(error, diagnosticCause, {
+                stage: 'proposal',
+                operation: name,
+                sessionId: options.conversationId,
+              });
+            }
+            return {
+              content: JSON.stringify({
+                ...diagnostic,
+                effectStatus: 'unknown',
+                message:
+                  'The work-bound proposal is unconfirmed. Inspect the original request before retrying the same requestId and arguments; no assignment or model command is confirmed.',
+              }),
+              isError: true,
+            };
+          }
           return {
             content:
-              'The session proposal could not be saved under the current session authority. Reuse the same request ID and arguments after checking the original request. No new session is confirmed.',
+              error instanceof SessionLaunchError
+                ? error.message
+                : 'The session proposal could not be saved under the current session authority. Reuse the same request ID and arguments after checking the original request. No new session is confirmed.',
             isError: true,
           };
         }
