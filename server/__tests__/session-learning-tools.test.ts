@@ -126,3 +126,11 @@ it('registers the SDK tool without letting remember-this override Off or mutate 
   expect((await call({ ...input, mode: 'deep' }))?.isError).toBe(true);
   expect(events.getSessionLearningPolicy('chat').mode).toBe('auto');
 });
+
+it('rejects capture when the live adapter and controller source identity disagree', async () => {
+  session.cwd = '/different-runtime';
+  expect((await call())?.isError).toBe(true);
+  expect(events.getSessionEvents('chat').filter((e) => e.type === 'memory_candidate')).toHaveLength(
+    0,
+  );
+});

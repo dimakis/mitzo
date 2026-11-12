@@ -119,6 +119,17 @@ export class SessionLearningStore {
       .get(id, seq) as
       { seq: number; created_at: number; type: string; messageId: string } | undefined;
   }
+  private messageExcluded(id: string, messageId: string, throughSeq: number): boolean {
+    return Boolean(
+      this.db
+        .prepare(
+          `SELECT 1 FROM events WHERE session_id=? AND seq<=?
+      AND type IN ('user_message','message_start','block_start','block_delta','block_end','message_end')
+      AND json_extract(payload,'$.messageId')=? LIMIT 1`,
+        )
+        .get(id, throughSeq, messageId),
+    );
+  }
   sources(id: string, beforeSeq?: number) {
     const policy = this.policy(id);
     if (policy.mode === 'off') return [];
@@ -132,7 +143,9 @@ export class SessionLearningStore {
     }[];
     return rows.flatMap(({ seq }) => {
       const row = this.sourceRow(id, seq);
-      return row && typeof row.messageId === 'string'
+      return row &&
+        typeof row.messageId === 'string' &&
+        !this.messageExcluded(id, row.messageId, policy.excludedThroughSeq)
         ? [
             {
               messageId: row.messageId,
@@ -150,7 +163,10 @@ export class SessionLearningStore {
     if (JSON.stringify(this.source(id)) !== JSON.stringify(candidate.source))
       return { eligible: false, reason: 'source_changed' };
     for (const citation of candidate.sources) {
-      if (citation.eventSeq <= policy.excludedThroughSeq)
+      if (
+        citation.eventSeq <= policy.excludedThroughSeq ||
+        this.messageExcluded(id, citation.messageId, policy.excludedThroughSeq)
+      )
         return { eligible: false, reason: 'source_excluded' };
       const row = this.sourceRow(id, citation.eventSeq);
       if (!row || row.messageId !== citation.messageId)
@@ -187,12 +203,12 @@ export class SessionLearningStore {
           status: 'provisional' as const,
           policyRevision: policy.revision,
         };
-        const currentEligibility = this.eligible(id, candidate);
-        if (!currentEligibility.eligible) throw Error(currentEligibility.reason);
         const eligibility = saved
           ? this.eligibility(id, parsed.requestId)
           : this.eligible(id, candidate);
         if (!eligibility.eligible) throw Error(eligibility.reason);
+        const currentEligibility = saved ? this.eligible(id, candidate) : eligibility;
+        if (!currentEligibility.eligible) throw Error(currentEligibility.reason);
         if (saved && saved.payload_hash !== hash) throw Error('learning_request_conflict');
         if (saved) return JSON.parse(saved.receipt) as MemoryCandidateReceipt;
         const eventSeq = this.event(id, 'memory_candidate', candidate);

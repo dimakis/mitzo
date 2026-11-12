@@ -247,6 +247,32 @@ export class SessionMetadataStore {
       }
       const fields: string[] = [];
       const values: unknown[] = [];
+      // Account/workspace changes revoke queued history monotonically. Returning
+      // to the original identity must never silently re-enroll an old candidate.
+      const oldAccount = parseAccountBinding(existing.account_binding);
+      if (
+        (meta.cwd !== undefined && meta.cwd !== existing.cwd) ||
+        (meta.accountBinding !== undefined &&
+          (meta.accountBinding?.accountId ?? null) !== (oldAccount?.accountId ?? null))
+      ) {
+        const policy = parseSessionLearningPolicy(existing.learning_policy);
+        const watermark = (
+          this.db!.prepare('SELECT COALESCE(MAX(seq),0) seq FROM events WHERE session_id=?').get(
+            meta.sessionId,
+          ) as { seq: number }
+        ).seq;
+        fields.push('learning_policy = ?');
+        values.push(
+          JSON.stringify({
+            ...policy,
+            revision: policy.revision + 1,
+            excludedThroughSeq: Math.max(policy.excludedThroughSeq, watermark),
+            ...(policy.historyRequest
+              ? { historyRequest: { ...policy.historyRequest, status: 'cancelled' } }
+              : {}),
+          }),
+        );
+      }
       if (meta.ordinaryWorkspaceId !== undefined) {
         if (meta.ordinaryWorkspaceId !== (existing.ordinary_workspace_id ?? null))
           throw new Error('Ordinary workspace identity requires its original allocation');

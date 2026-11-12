@@ -173,3 +173,51 @@ it('rolls back event and receipt together when capture is interrupted before com
     store.close();
   }
 });
+
+it('does not re-enroll an assistant reply whose text crossed an Off boundary', () => {
+  const { store } = fixture();
+  try {
+    store.append('chat', 'message_start', { messageId: 'reply' });
+    store.append('chat', 'block_delta', {
+      messageId: 'reply',
+      blockType: 'text',
+      delta: 'Eligible start',
+    });
+    store.setSessionLearningMode('chat', 'off', 0);
+    store.append('chat', 'block_delta', {
+      messageId: 'reply',
+      blockType: 'text',
+      delta: 'Excluded text',
+    });
+    store.setSessionLearningMode('chat', 'auto', 1);
+    const eventSeq = store.append('chat', 'message_end', { messageId: 'reply' });
+    expect(() =>
+      store.captureMemoryCandidate('chat', candidate({ messageId: 'reply', eventSeq })),
+    ).toThrow(/source_excluded/);
+    expect(store.listSessionLearningSources('chat')).toHaveLength(0);
+  } finally {
+    store.close();
+  }
+});
+
+it('never re-enrolls old evidence by changing a workspace away and back', () => {
+  const { store } = fixture();
+  try {
+    const source = message(store, 'old-workspace');
+    const receipt = store.captureMemoryCandidate('chat', candidate(source));
+    const cwd = store.getSession('chat')!.cwd;
+    store.upsertSession({ sessionId: 'chat', cwd: '/another-workspace' });
+    store.upsertSession({ sessionId: 'chat', cwd });
+    expect(store.memoryCandidateEligibility('chat', receipt.requestId)).toMatchObject({
+      eligible: false,
+    });
+    expect(() =>
+      store.captureMemoryCandidate('chat', {
+        ...candidate(source),
+        requestId: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd',
+      }),
+    ).toThrow(/source_excluded/);
+  } finally {
+    store.close();
+  }
+});

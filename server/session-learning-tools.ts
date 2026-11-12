@@ -79,6 +79,14 @@ export function sessionLearningTools(
           )
             throw Error('learning_authority_unavailable');
           if (!selected) throw Error('learning_runtime_unavailable');
+          const persisted = selected.getSession(sessionId);
+          if (
+            !persisted ||
+            persisted.cwd !== session.cwd ||
+            (persisted.accountBinding?.accountId ?? null) !==
+              (session.accountBinding?.accountId ?? null)
+          )
+            throw Error('source_changed');
         };
         assert();
         await assertRuntimeCurrent?.();

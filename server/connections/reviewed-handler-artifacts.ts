@@ -24,17 +24,17 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../session-learning-tools.ts':
-    '02fc54d4a6b2ff7127ad207a95425a29a6f74bf03393e25ca02230c95c604643',
+    '126d48479375be6e689bbed9433169f28189f0d72cc53f117e3435dff94695fb',
   '../session-learning-router.ts':
     '718c158f5eb42c111f1e112cf6d9a790d2b7c654549d14268e0a75e8c897d27b',
   '../../packages/protocol/src/session-learning.ts':
     '3d9c05d98149e7cde5503acd65bd566379f23b18000102d15fe728d5f0582cc2',
   '../../packages/protocol/src/session-learning-store.ts':
-    '017cf7ad94ad4e9bb14d946c3e290c0286f88f4bfbea448bc5815bfc74f88c19',
+    '96a874f3fb9d124f4b35dfdb1d73c831a3640e18645b04ad7dda3d8fb7a6d036',
   '../__tests__/session-learning-policy.test.ts':
-    'b432c896d3c6ed8b8259b15f0331cb5867dfb33396f51fed958c45f2c2aed418',
+    'dfb7396888824a79af600ed910f6891dc75bb00512720d8a962f30655bdb35f7',
   '../__tests__/session-learning-tools.test.ts':
-    '08ccf50c5b01180a50fb1b3cc64fc5f5eb2fed4b6b23fba91cd4dcbcac405a6a',
+    '094216baf7044aed4f57db0bda78e922bc77af0db66a126cdc404dcf2603fc07',
   '../__tests__/session-learning-router.test.ts':
     '09f1fbdf92c53fa3a8c741572a1a74c833004eb82a744bc965a16a59b8c45f59',
   '../../frontend/src/components/__tests__/ConversationRepositoryPicker.test.tsx':
@@ -1189,7 +1189,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/native-tool-executor.test.ts':
     'd6bfc3230fac5a34822b9c5541d720f1409037751534771769315c092d8aa175',
   '../__tests__/chat-account-startup.test.ts':
-    '66642b07326ca1637303f40d866813094ff3b7e378c7bbae301d92382aefa1bd',
+    'e0ceec36d486b21b90cbae187174cf3794a6e4502a169a4a934f01068acf31de',
   '../../packages/protocol/__tests__/session-metadata.test.ts':
     'b5de78900afd0a35f44cde5dcf0f2aeeceb1aaf36e13243cc30527fa23f65b08',
   '../__tests__/request-performance.test.ts':
@@ -2761,7 +2761,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     'f042dee9fe5643e989bf229e06c532ee0f42764300583f4fc84a265730bb360b',
   '../repository-workspaces.ts': '1fba933eba4a2dad836c84ed64f3a754f7c7f64cb2e4edfc58eeacc780570afa',
   '../../packages/protocol/src/session-metadata-store.ts':
-    'c2fdb1a2b2c81b7d5b4dcc1174b01420f57a87273da4fa5faa91cefd571839d9',
+    'a1d9780e1c9d89f913f8d2ca1bc166be640bdf1076c750cafc7f41cbb67d95f3',
   '../../packages/protocol/src/event-store.ts':
     'eeafb5e13fa5c8ed70e5038af991cebe67489f49a107976512a9e4d6dd7f2fc0',
   '../../packages/protocol/src/session-lifecycle-store.ts':
