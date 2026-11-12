@@ -15,6 +15,39 @@ const approval = {
   expiresAt: 2000,
 };
 describe('durable notification state', () => {
+  it.each(['pending', 'expired', 'allowed', 'denied'] as const)(
+    'keeps a new decision due after restart when an earlier unread alert is %s',
+    (resolution) => {
+      const dir = mkdtempSync(join(tmpdir(), 'approval-delivery-'));
+      const path = join(dir, 'state.db');
+      let store = new NotificationStore(path);
+      try {
+        store.record({ ...approval, expiresAt: undefined }, 1000);
+        store.delivery(approval.id, 'accepted', undefined, ['synthetic-device']);
+        if (resolution !== 'pending') store.resolvePermission('p1', resolution, 1200);
+        store.close();
+        store = new NotificationStore(path);
+        for (const [id, permId] of [
+          ['permission:p2', 'p2'],
+          ['seat-access:request', undefined],
+        ] as const) {
+          store.record({ ...approval, id, permId, expiresAt: undefined }, 1300);
+          store.queue(id, 1400);
+        }
+        // Ingestion/requeue of the same request must still be idempotent.
+        expect(store.record({ ...approval, expiresAt: undefined }, 1500)).toBe(false);
+        store.queue(approval.id, 1500);
+        expect(store.due(1600).map((item) => item.id)).toEqual([
+          'permission:p2',
+          'seat-access:request',
+        ]);
+        expect(store.get(approval.id)?.readAt).toBeNull();
+      } finally {
+        store.close();
+        rmSync(dir, { recursive: true, force: true });
+      }
+    },
+  );
   it('deduplicates ingestion and keeps read separate from actionable state', () => {
     const store = new NotificationStore(':memory:');
     expect(store.record(approval, 1000)).toBe(true);
