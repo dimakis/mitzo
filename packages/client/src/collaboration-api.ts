@@ -22,6 +22,7 @@ import {
   CollaborationPromptReviewInputSchema,
   CollaborationPromptReviewRequestSchema,
   CollaborationPromptReviewResultSchema,
+  CollaborationSourceArtifactsSchema,
   type CollaborationPromptReviewInput,
   CollaborationSnapshotReferenceSchema,
   CollaborationSnapshotSelectionSchema,
@@ -237,6 +238,19 @@ export class CollaborationApiClient {
         method: 'POST',
         body,
       },
+    );
+  }
+  sourceArtifacts(
+    id: string,
+    sourceConversationId: string,
+    clientId: string,
+    signal?: AbortSignal,
+  ) {
+    const query = CollaborationSourceSetupQuerySchema.parse({ sourceConversationId, clientId });
+    return this.request(
+      this.path(id, 'context-source-artifacts') + '?' + new URLSearchParams(query),
+      CollaborationSourceArtifactsSchema,
+      signal,
     );
   }
   reviewPrompt(
