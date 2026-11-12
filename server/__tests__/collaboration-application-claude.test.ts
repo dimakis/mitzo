@@ -418,8 +418,10 @@ it('silently joins personal Claude alongside a separate API-key participant and 
       snapshot: null,
     };
     const continued = await restored.api.send(group, cold);
-    await vi.waitFor(async () =>
-      expect((await restored.api.observeSend(group, cold)).terminal).toBe(true),
+    // Cold restoration crosses asynchronous history, admission and SDK boundaries.
+    await vi.waitFor(
+      async () => expect((await restored.api.observeSend(group, cold)).terminal).toBe(true),
+      { timeout: 10000 },
     );
     expect(observed.inputs).toHaveLength(4);
     expect(observed.inputs[3].sessionId).toBe(observed.inputs[0].sessionId);

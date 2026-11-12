@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.1086-claude-sdk-interrupt-receipt';
+  'v1.0.1087-personal-claude-cold-polling';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -34,7 +34,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../tests/offline/symposium-joining-review.spec.ts':
     'a358613009c080cd19182eebae43bb62ebf79739ac4e8e0efee5598a1279f61d',
   '../__tests__/collaboration-application-claude.test.ts':
-    '7e631a13551a5349b0c0d3110b420932140d6a1e860287736db04c541f0253d8',
+    '410c90823efe6e3864e1794152ff92e2b5d942491259d6f557daef1867f51501',
   '../__tests__/ordinary-local-vertex-command-owner.test.ts':
     '3b975b54d6be0157211526138905908a2d36dc49d1e990be96c30b31cae34ccd',
   '../__tests__/ordinary-sdk-turn-evidence.test.ts':
