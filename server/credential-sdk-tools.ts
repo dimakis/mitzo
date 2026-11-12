@@ -187,7 +187,7 @@ export function createCredentialSdkServer(
                   );
                   await authority!.assertCurrent(signal);
                   return copyCallbackOutcome(result, {
-                    content: [{ type: 'text', text: result.content }],
+                    content: [{ type: 'text' as const, text: result.content }],
                     isError: result.isError,
                   });
                 }

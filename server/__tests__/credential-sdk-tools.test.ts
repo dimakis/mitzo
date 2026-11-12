@@ -72,7 +72,7 @@ it('propagates SDK peer authority revocation after execution instead of reportin
   let current = true;
   const execute = vi.fn(async () => {
     current = false;
-    return { content: 'Original result', isError: false };
+    return { chats: [], nextOffset: null };
   });
   const assert = () => {
     if (!current) throw Error('revoked after execution');

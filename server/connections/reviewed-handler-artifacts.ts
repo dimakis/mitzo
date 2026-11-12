@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.1056-steering-tool-failure-integration';
+  'v1.0.1057-steering-tool-failure-types';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -2551,7 +2551,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     'e33bda80c8667a2e22f02f1297e054b3769621fbb7cd6921a85f591d876f8c05',
   '../credential-http.ts': '4f9934df5c9f4918618868d663ed21ae2e633411bd7e027559f6008a21b8c7e4',
   '../credential-redaction.ts': '817dda948c419deb064bc4c5298e034e5a0343972b4bf724fb6aaa869cf34403',
-  '../credential-sdk-tools.ts': 'f7983c702a7a84ab153973c58db58c2213ca21fd88eb56f21f1d41cd99606db9',
+  '../credential-sdk-tools.ts': '2b571b467135538abee6f6279a451b21e9243705343e459a9f6ee0abfb5221be',
   '../session-credential-tools.ts':
     '106f6817ae083efc8764709dc4fd3d64caa4c4e8c22aa58e7fddcc5695157c25',
   'policy-compiler.ts': '59579f9eb69a3129dd2d8e1676fa46bd21da45c07f58752183416c82c0986014',
@@ -3833,7 +3833,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/credential-sdk-boundary.test.ts':
     '3bac4bc0290ddc4091f3f1f9054caf2f7afe6f03752952c1cdad07baa1602961',
   '../__tests__/credential-sdk-tools.test.ts':
-    'dd7edff827c157ff6e22e831cc98b1cab94e75a15bb88fea9d69330cc74b2cd5',
+    '302763e1db56d1f8f256c9bf02d9ecee9da95b8d02e8755dc229bb28594a7f68',
   '../__tests__/credential-setup-application.test.ts':
     '39683a04282c3149a17886b424218dc93bfa48bf208340f2f0a5736ad609f372',
   '../__tests__/credential-setup-continuation.test.ts':
