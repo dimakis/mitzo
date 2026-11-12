@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.1087-telos-assigned-forward-context-integration';
+  'v1.0.1088-telos-session-callback-cancellation-diagnostics';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -1751,7 +1751,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../scripts/qualify-codex-native-permissions.mjs':
     '848148f0e305800ab30aa84899798c0b4034c9fe2f062045d8a5672cfc09ae59',
   '../__tests__/codex-chat-session.test.ts':
-    '1438ed69488be6bb65f2ea40e40c5bf4084f0def68c5d286fded2938d1376634',
+    '81fa1778658c53bae63e3c9d1846dd4551326f5d1072a5b2015d4de8ed1d2b72',
   '../__tests__/codex-conversation.test.ts':
     'c48273fc16ee1fef58b9063f5ccccb8da57da58b9a9131bff0adff1b42adda91',
   '../__tests__/codex-native-approvals.test.ts':
@@ -2299,7 +2299,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../telos-item-store.ts': '923140955a99197296e91141666ff9fd07bde816b6f53f7df3a481d852b800cf',
   '../telos-item-routes.ts': 'b600aaad3c66f6221d526c6a16d11d61d99f761e640f4cc4d9c14bef84b12789',
   '../telos-item-tools.ts': '6338abf7d20c0a7ee4f68de4c85e49a75acb8a76545822fba14246d86efe6abf',
-  '../telos-mcp-server.ts': 'bd6c2b1afa4c2f36407169ba465bc078d8f75fd25813cb31d8d7c25a2ea788aa',
+  '../telos-mcp-server.ts': '06e4c5f62691696f36f387d930660704f9e56dc1a877fdc9062957bf786dd28a',
   '../../packages/harness/src/tool-tiers.ts':
     '03e9e7036f3e5d935211879f53a7c222aa6e8f8a298fa92f3e90fc850230d884',
   '../../frontend/src/components/ChatWelcome.tsx':
@@ -2763,7 +2763,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../openshell-runtime.ts': '4289834fb795911bc8952a141dd592ad695621e3e43fa590de1395094a5a1c95',
   '../codex-admission-preparation.ts':
     '0cb595a8fed20de735d4fa718544baf1a36ccebf3beecc763badd696e4af3098',
-  '../codex-chat-session.ts': '2be9dc36c4d8c747c8b03b2e42cd4add03b22010612db80fc33e9e300a3979d7',
+  '../codex-chat-session.ts': '020582283a6c21b455e8559d273cb26fe4426c9bb26125957a247f30664df4e8',
   '../connections-runtime.ts': 'c5c0da8aa548c029b1dbe7c1eb880311f35c6dfab26ff0e437db6134455089ef',
   'capabilities/operation-store.ts':
     '60c15c84c9cfddbbf30b01b215b1d7551271715f5cce5b3b4fd85092f7e575eb',
@@ -4388,7 +4388,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/agent-tool-selection.test.ts':
     'b16ecb8093c4929d319994864bc0ab8958c03fd1bff9c6486cdf2a1e596db53a',
   '../__tests__/telos-mcp-server.test.ts':
-    'b5b5c2ded25a71fb21ad66a2998c1da3a0cad6a3ef4fa16e6b5dd518767ecd0a',
+    '6d80dc711c403e57ea54a10a8b31b5012c9964fec9abb583abb80f095c82964d',
   '../__tests__/telos-ordinary-work-role-setup.test.ts':
     '94d0b9ec1c1f9b1b4a1f5a5993b8fbd5f72a72265d3824f5449cbe65e19606ca',
   '../__tests__/telos-session-launch-service.test.ts':

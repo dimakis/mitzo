@@ -65,8 +65,15 @@ if (sessionId) {
       description: telosSessionLaunchDefinition.description,
       inputSchema: TelosCreateSessionInputSchema.shape,
     },
-    async (input: Record<string, unknown>) => {
-      const result = await executeTelosCreateSession(baseUrl, clientId, sessionId, token, input);
+    async (input: Record<string, unknown>, extra) => {
+      const result = await executeTelosCreateSession(
+        baseUrl,
+        clientId,
+        sessionId,
+        token,
+        input,
+        extra.signal,
+      );
       return {
         content: [{ type: 'text' as const, text: result.content }],
         ...(result.isError ? { isError: true } : {}),

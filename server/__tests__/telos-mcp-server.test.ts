@@ -8,6 +8,7 @@ const registered = vi.hoisted(
         definition: { inputSchema: unknown };
         run(
           input: Record<string, unknown>,
+          extra?: { signal: AbortSignal },
         ): Promise<{ content: Array<{ text: string }>; isError?: boolean }>;
       }
     >(),
@@ -25,7 +26,9 @@ afterEach(() => {
   vi.unstubAllGlobals();
   vi.unstubAllEnvs();
 });
-it('offers the same read/update schemas through MCP and uses host-authenticated updates', async () => {
+async function registerTelosTools() {
+  vi.resetModules();
+  registered.clear();
   const previous = process.argv;
   process.argv = [
     'node',
@@ -43,6 +46,9 @@ it('offers the same read/update schemas through MCP and uses host-authenticated 
   } finally {
     process.argv = previous;
   }
+}
+it('offers the same read/update schemas through MCP and uses host-authenticated updates', async () => {
+  await registerTelosTools();
   expect([...registered.keys()]).toEqual(
     expect.arrayContaining([
       'TelosCreateOutcome',
@@ -72,7 +78,11 @@ it('offers the same read/update schemas through MCP and uses host-authenticated 
       ),
     );
   vi.stubGlobal('fetch', createFetch);
-  expect(await registered.get('TelosCreateSession')!.run(createInput)).toMatchObject({
+  expect(
+    await registered
+      .get('TelosCreateSession')!
+      .run(createInput, { signal: new AbortController().signal }),
+  ).toMatchObject({
     isError: true,
   });
   expect(createFetch).toHaveBeenCalledWith(
@@ -130,4 +140,41 @@ it('offers the same read/update schemas through MCP and uses host-authenticated 
       }),
     }),
   );
+});
+
+it('cancels the pending HTTP proposal through the registered MCP request signal', async () => {
+  await registerTelosTools();
+  const controller = new AbortController();
+  const cause = new Error('Offline SDK request cancelled');
+  const input = {
+    requestId: '7beb8299-121e-422c-a932-74b8cf53a27f',
+    itemId: 'selected-slice',
+    expectedRevision: 'a'.repeat(64),
+    title: 'Slice',
+    prompt: 'Reviewed work',
+  };
+  const fetch = vi.fn((_url: unknown, init?: RequestInit) => {
+    const signal = init?.signal;
+    if (!signal) return Promise.reject(new Error('Missing SDK request signal'));
+    return new Promise<Response>((_resolve, reject) => {
+      signal.addEventListener('abort', () => reject(signal.reason), { once: true });
+    });
+  });
+  vi.stubGlobal('fetch', fetch);
+  const running = registered.get('TelosCreateSession')!.run(input, { signal: controller.signal });
+  await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(1));
+  controller.abort(cause);
+  const result = await running;
+  expect(fetch.mock.calls[0][1]?.signal).toBe(controller.signal);
+  expect(result.isError).toBe(true);
+  expect(JSON.parse(result.content[0].text)).toMatchObject({
+    code: 'telos_session_proposal_delivery_cancelled',
+    stage: 'proposal_delivery',
+    requestId: input.requestId,
+    sourceSessionId: 'source-chat',
+    effectStatus: 'unknown',
+  });
+  const { telosSessionProposalFailure } = await import('../telos-session-proposal-failure.js');
+  expect(telosSessionProposalFailure(input.requestId, 'delivery')).toBe(cause);
+  expect(fetch).toHaveBeenCalledTimes(1);
 });

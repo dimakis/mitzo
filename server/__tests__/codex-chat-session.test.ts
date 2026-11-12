@@ -40,7 +40,18 @@ const mocks = vi.hoisted(() => ({
   useTls: false,
   custodianController: false,
   nativeDeniedRoots: ['/offline/owned-login'],
+  proposalLogError: vi.fn(),
 }));
+vi.mock('../logger.js', async (original) => {
+  const actual = await original<typeof import('../logger.js')>();
+  return {
+    ...actual,
+    createLogger(module: string) {
+      const log = actual.createLogger(module);
+      return module === 'codex-chat-session' ? { ...log, error: mocks.proposalLogError } : log;
+    },
+  };
+});
 // These controller tests already replace the conversation, provider and lease.
 // Use a source-faithful qualified lease marker and an explicit synthetic scope;
 // physical qualification/private-root composition have dedicated offline tests.
@@ -7792,6 +7803,72 @@ it('discovers and executes StartSession through the actual owned native default-
       childSessionId: null,
       telos: { itemId: workInput.itemId },
     });
+    expect(start).not.toHaveBeenCalled();
+    expect(mocks.send).toHaveBeenCalledTimes(sourceProviderCalls);
+    const failedInput = { ...workInput, requestId: '6680d040-cb2c-4d1b-8c5f-617d82dbe0af' };
+    const cause = Object.assign(new Error('private database path and proposal contents'), {
+      code: 'SQLITE_BUSY',
+      stdout: 'private process output',
+      stderr: 'private process diagnostic',
+    });
+    vi.mocked(controller.telos!.propose).mockRejectedValueOnce(cause);
+    const failed = await execute('TelosCreateSession', failedInput, signal, call);
+    const { telosSessionProposalFailure } = await import('../telos-session-proposal-failure.js');
+    expect(telosSessionProposalFailure(failedInput.requestId)).toBe(cause);
+    expect(mocks.proposalLogError).toHaveBeenCalledWith('Telos session proposal unavailable', {
+      code: 'telos_session_proposal_failed',
+      stage: 'proposal',
+      requestId: failedInput.requestId,
+      sourceSessionId: 'owned-session',
+    });
+    expect(failed.isError).toBe(true);
+    expect(JSON.parse(failed.content)).toMatchObject({
+      code: 'telos_session_proposal_failed',
+      stage: 'proposal',
+      requestId: failedInput.requestId,
+      sourceSessionId: 'owned-session',
+      effectStatus: 'unknown',
+    });
+    expect(failed.content).not.toMatch(/private|SQLITE_BUSY/);
+    expect(JSON.stringify(mocks.proposalLogError.mock.calls)).not.toMatch(/private|SQLITE_BUSY/);
+    const diagnosticCause = new Error('offline diagnostic sink unavailable');
+    mocks.proposalLogError.mockImplementationOnce(() => {
+      throw diagnosticCause;
+    });
+    vi.mocked(controller.telos!.propose).mockRejectedValueOnce(cause);
+    const fs = (await import('node:fs')).default;
+    const write = vi.spyOn(fs, 'write');
+    try {
+      const fallbackInput = { ...workInput, requestId: 'c365e597-5e1f-485c-a239-807b0f6b0ec4' };
+      const fallbackResult = await execute('TelosCreateSession', fallbackInput, signal, call);
+      expect(fallbackResult.isError).toBe(true);
+      expect(telosSessionProposalFailure(fallbackInput.requestId)).toBe(cause);
+      const fallback = write.mock.calls.find(
+        (args) =>
+          args[0] === 2 && String(args[1]).includes('"code":"telos_diagnostic_sink_failed"'),
+      );
+      expect(fallback).toBeDefined();
+      const diagnostic = JSON.parse(String(fallback![1]));
+      expect(diagnostic).toMatchObject({
+        stage: 'proposal',
+        operation: 'TelosCreateSession',
+        sessionId: 'owned-session',
+      });
+      const { telosDiagnosticFailure } = await import('../telos-operation-failure.js');
+      expect(telosDiagnosticFailure(diagnostic.diagnosticId)).toMatchObject({
+        operationCause: cause,
+        diagnosticCause,
+      });
+      expect(fallbackResult.content).not.toMatch(/private|SQLITE_BUSY/);
+      expect(String(fallback![1])).not.toMatch(/private/);
+      expect(diagnostic.operationFailure).toMatchObject({
+        reason: 'sqlite_busy',
+        errorCode: 'SQLITE_BUSY',
+      });
+    } finally {
+      write.mockRestore();
+    }
+    expect(controller.launches.store.forSession('owned-session', 'user')).toHaveLength(2);
     expect(start).not.toHaveBeenCalled();
     expect(mocks.send).toHaveBeenCalledTimes(sourceProviderCalls);
   } finally {

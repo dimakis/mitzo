@@ -64,7 +64,7 @@ import { getTelosMainPublicationRuntime } from './telos-main-publication-runtime
 import { ordinaryOperatorOwnsConversation } from './ordinary-operator-identity.js';
 import { githubMainPublicationTool } from './telos-main-publication.js';
 import type { OrdinaryWorkspaceRecord } from './ordinary-workspace-custody.js';
-import { TelosWorkControlToolInputSchema } from '@mitzo/protocol';
+import { TelosCreateSessionInputSchema, TelosWorkControlToolInputSchema } from '@mitzo/protocol';
 import {
   TELOS_WORK_CONTROL_TOOL,
   telosWorkControlDefinitions,
@@ -78,6 +78,8 @@ import { createAgentMessageApprover } from './agent-communication-permission.js'
 import { sessionPromptDefinitions } from './session-prompt-definitions.js';
 import { sessionLaunchDefinitions, sessionLaunchTools } from './session-launch-tools.js';
 import { SessionLaunchError } from './session-launch-store.js';
+import { retainTelosSessionProposalFailure } from './telos-session-proposal-failure.js';
+import { retainTelosDiagnosticFailure } from './telos-operation-failure.js';
 import {
   AGENT_COMMUNICATION_TOOL,
   agentCommunicationDefinitions,
@@ -3917,6 +3919,37 @@ async function openCodexChatBound(
             isError: false,
           };
         } catch (error) {
+          if (name === 'TelosCreateSession' && !(error instanceof SessionLaunchError)) {
+            const parsed = TelosCreateSessionInputSchema.safeParse(input);
+            const requestId = parsed.success
+              ? parsed.data.requestId
+              : (callContext.callId ?? randomUUID());
+            retainTelosSessionProposalFailure(requestId, 'proposal', error);
+            const diagnostic = {
+              code: 'telos_session_proposal_failed',
+              stage: 'proposal',
+              requestId,
+              sourceSessionId: options.conversationId,
+            };
+            try {
+              log.error('Telos session proposal unavailable', diagnostic);
+            } catch (diagnosticCause) {
+              retainTelosDiagnosticFailure(error, diagnosticCause, {
+                stage: 'proposal',
+                operation: name,
+                sessionId: options.conversationId,
+              });
+            }
+            return {
+              content: JSON.stringify({
+                ...diagnostic,
+                effectStatus: 'unknown',
+                message:
+                  'The work-bound proposal is unconfirmed. Inspect the original request before retrying the same requestId and arguments; no assignment or model command is confirmed.',
+              }),
+              isError: true,
+            };
+          }
           return {
             content:
               error instanceof SessionLaunchError
