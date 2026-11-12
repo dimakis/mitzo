@@ -96,6 +96,7 @@ import {
   configuredMcpSourcesForAgentSelection,
   filterAgentTools,
   hasAgentToolSelection,
+  nativeExecutionToolsAllowed,
 } from './agent-tool-selection.js';
 import { admitApiTools } from './api-tool-execution.js';
 import { getApiToolCatalog } from './api-tool-runtime.js';
@@ -1940,7 +1941,7 @@ async function openCodexChatBound(
   const nativeExecutionEnabled =
     !!options.ownedLocal &&
     process.platform === 'darwin' &&
-    ['Bash', 'Read', 'Write', 'Edit'].every((name) => agentToolAllowed(options.session, name));
+    nativeExecutionToolsAllowed(options.session);
   const localRepositoryReadDefinitions: typeof localRepositoryToolDefinitions = [];
   const localRepositoryPreparationDefinitions: typeof localRepositoryToolDefinitions = [];
   const localExecutionTools = nativeExecutionEnabled

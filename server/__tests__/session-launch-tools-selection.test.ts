@@ -7,6 +7,40 @@ const explicit: SymposiumProfileDefinition = {
   ...defaultMitzoProfileDefinition,
   tools: [{ id: 'mitzo:AgentCommunication', version: 1 }],
 };
+it('rejects the repository-chat tool on the owned native route even when explicitly selected', async () => {
+  await expect(
+    assertSessionLaunchTools(['PrepareRepositoryChat'], {
+      ...defaultMitzoProfileDefinition,
+      tools: [{ id: 'mitzo:PrepareRepositoryChat', version: 1 }],
+    }),
+  ).rejects.toThrow(/unavailable/);
+});
+it.each(['PrepareLocalRepository', 'DiscoverLocalRepository', 'InspectLocalRepository'])(
+  'qualifies native registration prerequisites for %s without widening a profile',
+  async (name) => {
+    const primitives = ['Bash', 'Read', 'Write', 'Edit'];
+    for (const missing of [null, ...primitives]) {
+      const selected = {
+        ...defaultMitzoProfileDefinition,
+        tools: [name, ...primitives.filter((primitive) => primitive !== missing)].map((tool) => ({
+          id: `mitzo:${tool}`,
+          version: 1,
+        })),
+      };
+      const before = structuredClone(selected);
+      const result = assertSessionLaunchTools([name], selected);
+      if (missing) await expect(result).rejects.toThrow(/Bash.*Read.*Write.*Edit/);
+      else await expect(result).resolves.toBeUndefined();
+      expect(selected).toEqual(before);
+    }
+    await expect(
+      assertSessionLaunchTools([name], {
+        ...defaultMitzoProfileDefinition,
+        tools: [{ id: `mitzo:${name}`, version: 1 }],
+      }),
+    ).rejects.toThrow(/Bash.*Read.*Write.*Edit/);
+  },
+);
 it.each(['TelosSaveArtifact', 'TelosReadArtifact'])(
   'requires an explicitly selected profile to expose %s in the resulting ordinary chat',
   async (name) => {

@@ -6325,6 +6325,53 @@ it('refreshes retained native initialization and only the admitted child policy 
   }
 });
 
+it.each([null, 'Bash', 'Read', 'Write', 'Edit'])(
+  'qualifies PrepareLocalRepository against actual native registration with missing %s',
+  async (missing) => {
+    const { assertSessionLaunchTools } = await import('../session-launch-tools-selection.js');
+    mocks.initialize.mockResolvedValue(undefined);
+    mocks.send.mockResolvedValue(undefined);
+    mocks.connect.mockResolvedValue({
+      definitions: [],
+      close: mocks.mcpClose,
+      displayName: (name: string) => name,
+    });
+    const definition = {
+      name: 'Exact repository preparation selection',
+      role: 'agent' as const,
+      instructions: 'Use only the selected tools',
+      expectedOutput: 'Receipt',
+      acceptanceCriteria: ['Qualification agrees with the actual registration'],
+      modelPolicyRole: 'agent' as const,
+      tools: [
+        'PrepareLocalRepository',
+        ...['Bash', 'Read', 'Write', 'Edit'].filter((name) => name !== missing),
+      ].map((name) => ({ id: `mitzo:${name}`, version: 1 })),
+    };
+    const before = structuredClone(definition);
+    const f = ownedLocalOptions('/tmp', {
+      profileId: 'exact-repository-preparation',
+      revision: 1,
+      definition,
+      contentHash: createHash('sha256').update(JSON.stringify(definition)).digest('hex'),
+    });
+    f.opts.assertAgentContextAuthorization = vi.fn();
+    let chat: Awaited<ReturnType<typeof openCodexChat>> | undefined;
+    try {
+      chat = await openCodexChat(f.opts);
+      const tools = mocks.conversationOptions!.tools as Array<{ name: string }>;
+      expect(tools.some((tool) => tool.name === 'PrepareLocalRepository')).toBe(missing === null);
+      const qualification = assertSessionLaunchTools(['PrepareLocalRepository'], definition);
+      if (missing) await expect(qualification).rejects.toThrow(/Bash.*Read.*Write.*Edit/);
+      else await expect(qualification).resolves.toBeUndefined();
+      expect(definition).toEqual(before);
+    } finally {
+      chat?.close();
+      f.eventStore.close();
+    }
+  },
+);
+
 it.each([
   { mode: 'ask', selected: true, eligible: true },
   { mode: 'agent', selected: true, eligible: true },
