@@ -16,6 +16,7 @@ it('keeps one simulator owner, offline failure tests and always-retained phase e
   const owner = workflow.jobs.native.steps.find((s) => s.id === 'native-notification')!;
   expect(owner.name).toBe('Build iPhone app with Watch companion');
   expect(owner.run).toContain('scripts/ci-native-candidate.py');
+  expect(owner.run).toContain('--boot-mode sequential');
   expect(owner.run).toContain('--derived-data "$RUNNER_TEMP/mitzo-ios-build"');
   expect(owner.run).toContain('set -o pipefail');
   expect(

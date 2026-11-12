@@ -490,12 +490,14 @@ jobs:
       - name: Build iPhone app with Watch companion
         id: native-notification
         if: ${{ !cancelled() }}
-        # One owner starts a fresh simulator, runs every Keychain/Swift/Watch/app
-        # check, joins boot before installation and cleans up on failure/cancellation.
+        # Keep cold simulator boot after the compiler/checks until overlap is
+        # qualified; the first overlap trial hit the unchanged keychain compile
+        # deadline. One owner still cleans up on failure/cancellation.
         run: |
           set -o pipefail
           mkdir -p test-results/native-notification
           python3 scripts/ci-native-candidate.py \
+            --boot-mode sequential \
             --derived-data "$RUNNER_TEMP/mitzo-ios-build" \
             --diagnostics-dir test-results/native-notification \
             2>&1 | tee test-results/native-notification/command.log

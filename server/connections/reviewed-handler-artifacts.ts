@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.1064-ci-partition-evidence';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.1065-ci-native-sequential';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -33,7 +33,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../scripts/__tests__/ci-unit-rebalance.test.ts':
     '9e35dffcf400461a73ab9730e3287e73baf9f0bf24673df1281b1ea198bf6b8a',
   '../../scripts/__tests__/ci-native-overlap.test.ts':
-    '39dba3b2ddd1761a95a8f7a8c58c05a2abe890876048c52224bd1e836a6522cc',
+    'ffacda6c101ab8ce577c8e7b098ffcc567b9635025bcf5a8a6a5d2e41cffd909',
   '../../scripts/ci-native-candidate.py':
     'd188729c059ba785715b2eb1271d765cdf7b2f88768ad7043da43b6602f3eefb',
   '../../scripts/test-ci-native-candidate.py':
@@ -4012,7 +4012,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../.github/workflows/ci-recovery.yml':
     '5d4e9a6560e549d2879ef776c2b4d321d420c25b22ec3a7741390e5bf617111a',
   '../../.github/workflows/ci.yml':
-    '7714016ebea75d80d9f9bb4f3ce186f54a49452b13815def040c96e2445eb1b9',
+    '2d0e0d6d7892f04fde2d4b1b51fdc1b321ce6e43cdb5eccdc9f9365a3673900f',
   '../../playwright.config.ts': '6c61752a4a2e9cab19d8217b46080c5898bc79c5a0fde1f2b703a254d278daa0',
   '../../playwright.offline.config.ts':
     'fb694df154a2cb402c7f46b417efb357b6d19a72210d269ad0b1580798392adc',

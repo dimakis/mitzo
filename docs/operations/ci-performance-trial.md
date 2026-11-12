@@ -51,6 +51,30 @@ Overlapping suite durations are scheduling weights, never elapsed predictions.
 No stable p95 can be inferred from this small trial. No merge or production
 activation is authorized by this document.
 
+## First hosted candidate and native mitigation
+
+The first combined candidate, `8c794e3f`, ran in CI `43141563334`. All ten
+offline lanes retained 459 selected cases per project: WebKit and mobile
+Chromium each passed 445 with 14 existing skips; desktop Chromium passed 448
+with 11 existing skips. The four unit reports retained 2,016 files and 26,001
+assertions: 25,750 passed, 250 skipped, and one failed the existing artifact-name
+contract. The new partition artifact omitted the explicit `shard-` label; the
+correction restores that label without changing the assertion or download gate.
+
+The native trial failed the disposable Keychain helper's unchanged 30-second
+`swiftc` compilation deadline while cold simulator boot ran concurrently. All
+subsequent Swift/Watch/app/bundle checks passed; the fatal helper failure
+prevented bridge admission. The earlier sequential candidate `cdb6159b`
+completed its whole Keychain fixture in 14 seconds, then separately failed the
+real bridge-origin assertion. These observations do not establish contention as
+the timeout's cause, and the two native failures are distinct.
+
+Required CI now selects the existing `--boot-mode sequential` control. It runs
+the identical six compiler/check commands before simulator allocation/boot,
+preserving every deadline, assertion, fatal result and cleanup owner. The overlap
+implementation remains available for a separately qualified trial; it is not an
+active CI speedup. No benchmark rerun was used to discard the failed attempt.
+
 ## Implemented trial and local evidence
 
 The three measured unit files move from shard 2 to shards 1, 3 and 4. Overrides
@@ -83,7 +107,7 @@ project inventories, exactly-once ownership, successful summaries and actual
 complete per-batch reports. Missing artifacts, results, duplicated cases and
 unexpected outcomes fail closed. Existing visual artifacts remain required.
 
-The native job has one Python resource owner. It creates and starts the same
+The native implementation has one Python resource owner. Its overlap mode creates and starts the same
 fresh simulator before the disposable-Keychain, Swift package, Watch receipt,
 Watch approval, app/Watch build and embedded-Watch validation commands. It joins
 that boot before installing the exact built app's offline fixture. Every command
@@ -93,8 +117,9 @@ Boot, install, launch, container lookup, bridge, build/check and cleanup stages
 have bounded waits and timestamped logs. The `readiness_observation_seconds`
 envelope includes compilation overlap; use bootstatus's own streamed elapsed
 time for actual cold-boot duration. Logs are retained on successful runs too.
-`ci-native-candidate.py --boot-mode sequential` provides an A/B control with the
-same checks, app path, fresh fixture, offline origin and bridge assertion.
+`ci-native-candidate.py --boot-mode sequential`, currently selected by required
+CI, provides the control with the same checks, app path, fresh fixture, offline
+origin and bridge assertion.
 
 Local verification used one worker and a 1 GiB Node heap. The 295-test CI-script
 suite passed 294 tests. Its unchanged macOS process-title diagnostic failed
