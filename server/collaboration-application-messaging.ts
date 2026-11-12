@@ -3,6 +3,7 @@ import { isDeepStrictEqual } from 'node:util';
 import {
   CollaborationContractError,
   CollaborationMessageInputSchema,
+  CollaborationForwardPacketSchema,
   type CollaborationProgress,
   type CollaborationMessage,
   type CollaborationSnapshot,
@@ -18,32 +19,75 @@ import {
 import { compileCollaborationContext } from './collaboration-context-compiler.js';
 import { createCollaborationContextSource } from './collaboration-context-source.js';
 import { createLogger } from './logger.js';
-import {
-  preparePromptContext,
-  type PreparedPromptContexts,
-} from './collaboration-prompt-context.js';
+import { preparePromptContext } from './collaboration-prompt-context.js';
+import { CollaborationApplicationForwarding } from './collaboration-application-forwarding.js';
 import { ordinaryOperatorOwnsConversation } from './ordinary-operator-identity.js';
-import { snapshotInputMaterial } from './collaboration-context-input.js';
+import { snapshotInputMaterial, forwardInputMaterial } from './collaboration-context-input.js';
 
 const log = createLogger('collaboration-messaging');
 const promptByteLimit = 512 * 1024;
 type DiscussionMessage = Pick<CollaborationMessage, 'sequence' | 'author' | 'text' | 'source'> &
-  Partial<Pick<CollaborationMessage, 'snapshot'>>;
-function discussionMessage(message: DiscussionMessage, snapshots: PreparedPromptContexts) {
-  const reviewed = message.snapshot && snapshots.get(message.snapshot.snapshotId);
-  return discussionMaterial(message, reviewed?.snapshot);
+  Partial<Pick<CollaborationMessage, 'snapshot' | 'forward'>>;
+type MessageContextReference =
+  | {
+      kind: 'snapshot';
+      key: string;
+      sha256: string;
+      value: NonNullable<CollaborationMessage['snapshot']>;
+    }
+  | {
+      kind: 'forward';
+      key: string;
+      sha256: string;
+      value: NonNullable<CollaborationMessage['forward']>;
+    };
+type PreparedMessageContext = {
+  sha256: string;
+  material: unknown;
+  assertCurrent(): void;
+  assertRecipient(sessionId: string, settings: CollaborationSettings): void;
+};
+type PreparedMessageContexts = Map<string, PreparedMessageContext>;
+function contextReference(
+  message: Pick<DiscussionMessage, 'snapshot' | 'forward'>,
+): MessageContextReference | undefined {
+  if (message.snapshot && message.forward) throw new CollaborationContractError('snapshot_changed');
+  if (message.snapshot)
+    return {
+      kind: 'snapshot',
+      key: 'snapshot:' + message.snapshot.snapshotId,
+      sha256: message.snapshot.sha256,
+      value: message.snapshot,
+    };
+  if (message.forward)
+    return {
+      kind: 'forward',
+      key: 'forward:' + message.forward.forwardId,
+      sha256: message.forward.packetSha256,
+      value: message.forward,
+    };
+}
+function discussionMessage(message: DiscussionMessage, contexts: PreparedMessageContexts) {
+  const reference = contextReference(message);
+  return discussionMaterial(message, reference && contexts.get(reference.key));
 }
 // The preparation inventory uses the same encoder before retaining/compiling
 // source witnesses. Raw material here grants no delivery or source capability.
-function discussionMaterial(message: DiscussionMessage, snapshot?: CollaborationSnapshot) {
-  if (message.snapshot && (!snapshot || snapshot.sha256 !== message.snapshot.sha256))
+function discussionMaterial(
+  message: DiscussionMessage,
+  context?: Pick<PreparedMessageContext, 'sha256' | 'material'>,
+) {
+  const reference = contextReference(message);
+  if (reference && (!context || context.sha256 !== reference.sha256))
     throw new CollaborationContractError('snapshot_changed');
   return {
     sequence: message.sequence,
     author: message.author,
     text: message.text,
     source: message.source,
-    ...(snapshot ? { sharedContext: snapshotInputMaterial(snapshot) } : {}),
+    ...(context && reference
+      ? { [reference.kind === 'snapshot' ? 'sharedContext' : 'forwardedContext']: context.material }
+      : {}),
   };
 }
 
@@ -54,6 +98,7 @@ export class ApplicationCollaborationMessaging {
   constructor(
     private readonly store: EventStore,
     private readonly port: OrdinarySessionPromptPort,
+    private readonly forwarding = new CollaborationApplicationForwarding(store),
   ) {}
 
   private current(auth: AuthSession, signal?: AbortSignal) {
@@ -547,18 +592,15 @@ export class ApplicationCollaborationMessaging {
   ) {
     const references = new Map<
       string,
-      { reference: NonNullable<CollaborationMessage['snapshot']>; recipients: Set<string> }
+      { reference: MessageContextReference; recipients: Set<string> }
     >();
-    const include = (
-      reference: NonNullable<CollaborationMessage['snapshot']>,
-      recipient: string,
-    ) => {
-      const old = references.get(reference.snapshotId);
+    const include = (reference: MessageContextReference, recipient: string) => {
+      const old = references.get(reference.key);
       if (old && old.reference.sha256 !== reference.sha256)
         throw new CollaborationContractError('snapshot_changed');
       const entry = old ?? { reference, recipients: new Set<string>() };
       entry.recipients.add(recipient);
-      references.set(reference.snapshotId, entry);
+      references.set(reference.key, entry);
     };
     for (const recipient of recipients) {
       let after = 0;
@@ -574,33 +616,69 @@ export class ApplicationCollaborationMessaging {
         for (const message of page) {
           // Bound every recipient's complete retained material, including each
           // repeated reference, before compiling any unique source witness.
-          // Keep at most one raw snapshot at a time. The final packet check also
+          // Keep at most one raw context at a time. The final packet check also
           // charges the wrapper, joining context and prospective prompt.
-          const snapshot =
-            message.snapshot &&
-            this.store.collaborationConversation.getSnapshot(group, message.snapshot.snapshotId);
+          const reference = contextReference(message);
+          let context: Pick<PreparedMessageContext, 'sha256' | 'material'> | undefined;
+          if (reference?.kind === 'snapshot') {
+            const snapshot = this.store.collaborationConversation.getSnapshot(
+              group,
+              reference.value.snapshotId,
+            );
+            if (!snapshot) throw new CollaborationContractError('snapshot_changed');
+            context = { sha256: snapshot.sha256, material: snapshotInputMaterial(snapshot) };
+          } else if (reference?.kind === 'forward') {
+            const saved = this.store.collaborationConversation.getForwardPacket(
+              group,
+              reference.value,
+            );
+            if (!ordinaryOperatorOwnsConversation(saved.operatorId, auth.id))
+              throw new CollaborationContractError('execution_unavailable');
+            context = {
+              sha256: saved.packetSha256,
+              material: forwardInputMaterial(
+                CollaborationForwardPacketSchema.parse(JSON.parse(saved.serialized)),
+              ),
+            };
+          }
           bytes +=
-            Buffer.byteLength(
-              JSON.stringify(discussionMaterial(message, snapshot ?? undefined)),
-              'utf8',
-            ) + 1;
+            Buffer.byteLength(JSON.stringify(discussionMaterial(message, context)), 'utf8') + 1;
           if (bytes > promptByteLimit) throw new CollaborationContractError('capacity_refused');
           after = message.sequence;
-          if (message.snapshot) include(message.snapshot, recipient);
+          if (reference) include(reference, recipient);
         }
         if (page.length < 50) break;
       }
     }
-    for (const id of additional?.sessionIds ?? []) include(additional!.reference, id);
-    const prepared: PreparedPromptContexts = new Map();
+    for (const id of additional?.sessionIds ?? [])
+      include(contextReference({ snapshot: additional!.reference })!, id);
+    const prepared: PreparedMessageContexts = new Map();
     for (const [id, selected] of references) {
-      const context = await preparePromptContext({
-        store: this.store,
-        auth,
-        group,
-        reference: selected.reference,
-        signal,
-      });
+      const reference = selected.reference;
+      let context: PreparedMessageContext;
+      if (reference.kind === 'snapshot') {
+        const snapshot = await preparePromptContext({
+          store: this.store,
+          auth,
+          group,
+          reference: reference.value,
+          signal,
+        });
+        context = {
+          ...snapshot,
+          sha256: snapshot.snapshot.sha256,
+          material: snapshotInputMaterial(snapshot.snapshot),
+        };
+      } else {
+        const forward = await this.forwarding.delivery(
+          auth,
+          group,
+          reference.value,
+          [...selected.recipients],
+          signal,
+        );
+        context = { ...forward, sha256: reference.sha256 };
+      }
       for (const recipient of selected.recipients)
         context.assertRecipient(recipient, settings.get(recipient)!);
       context.assertCurrent();
@@ -615,15 +693,14 @@ export class ApplicationCollaborationMessaging {
     sessionId: string,
     settings: CollaborationSettings,
     commandId?: string,
-    snapshots: PreparedPromptContexts = new Map(),
+    snapshots: PreparedMessageContexts = new Map(),
   ) {
     for (const shared of history) {
-      // A retained forwarding note cannot substitute for its exact packet, nor
-      // can ordinary discussion silently omit a reviewed per-message snapshot.
-      if (shared.forward) throw new CollaborationContractError('execution_unavailable');
-      if (shared.snapshot) {
-        const reviewed = snapshots.get(shared.snapshot.snapshotId);
-        if (!reviewed || reviewed.snapshot.sha256 !== shared.snapshot.sha256)
+      // Never replace retained material with its note or omit a reviewed source.
+      const reference = contextReference(shared);
+      if (reference) {
+        const reviewed = snapshots.get(reference.key);
+        if (!reviewed || reviewed.sha256 !== reference.sha256)
           throw new CollaborationContractError('snapshot_changed');
         reviewed.assertRecipient(sessionId, settings);
         reviewed.assertCurrent();
@@ -656,7 +733,7 @@ export class ApplicationCollaborationMessaging {
     snapshot: CollaborationSnapshot | null,
     text: string,
     additional?: DiscussionMessage,
-    snapshots: PreparedPromptContexts = new Map(),
+    snapshots: PreparedMessageContexts = new Map(),
   ) {
     const history: CollaborationMessage[] = [];
     // Account for the wrapper, joining snapshot, requested text and prospective
@@ -694,7 +771,7 @@ export class ApplicationCollaborationMessaging {
     history: DiscussionMessage[],
     snapshot: CollaborationSnapshot | null,
     text: string,
-    snapshots: PreparedPromptContexts = new Map(),
+    snapshots: PreparedMessageContexts = new Map(),
   ) {
     const shared = snapshot ? snapshotInputMaterial(snapshot) : null;
     return (
@@ -941,5 +1018,6 @@ export class ApplicationCollaborationMessaging {
 
   close() {
     this.port.close();
+    this.forwarding.close();
   }
 }
