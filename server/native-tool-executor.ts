@@ -8,7 +8,7 @@ import {
   readRepositoryWorkspaceForConversation,
 } from './repository-workspace-runtime.js';
 import { executeSandboxedCommand } from './sandboxed-command.js';
-import { isGwsShimCommand, type GwsBroker } from './gws-broker.js';
+import { gwsShimInvocation, gwsShimWritesFiles, type GwsBroker } from './gws-broker.js';
 import { executeNativeFileOperation } from './native-file-operation.js';
 import {
   executeTrustedGitCommit,
@@ -254,9 +254,16 @@ export function createNativeToolExecutor(
       assertCurrent();
       const session = registry.get(clientId);
       if (!session?.cwd) return refused('Session workspace is unavailable');
+      // A literal gws client command that writes no local files only reaches
+      // the broker, which refuses Google changes in Ask and asks about reads.
+      const rawCommand = (block.input as { command?: unknown } | undefined)?.command;
+      const gwsArgs =
+        options.gwsBroker && block.name === 'Bash' ? gwsShimInvocation(rawCommand) : undefined;
+      const askGwsShim = !!gwsArgs && !gwsShimWritesFiles(gwsArgs);
       if (
         effectivePermissionMode(session) === 'ask' &&
-        !['Read', 'AskUserQuestion', 'GitHubRead'].includes(block.name)
+        !['Read', 'AskUserQuestion', 'GitHubRead'].includes(block.name) &&
+        !askGwsShim
       )
         return refused('Ask mode only permits read-only native tools');
       if (!Object.hasOwn(schemas, block.name)) return refused('Native tool is unavailable');
@@ -425,7 +432,7 @@ export function createNativeToolExecutor(
         const approvalMode = effectivePermissionMode(session);
         // The gws broker asks about the Google action itself; a shell prompt
         // for the client command would duplicate that consent.
-        const gwsShim = !!options.gwsBroker && !networkAccess && isGwsShimCommand(input.command);
+        const gwsShim = !!gwsArgs && !networkAccess && input.command === rawCommand;
         const permission = gwsShim
           ? ({ behavior: 'allow', updatedInput: input } as const)
           : await canUseTool('Bash', input, {
@@ -448,7 +455,10 @@ export function createNativeToolExecutor(
         if (permission.behavior !== 'allow') return refused(permission.message);
         if (!isDeepStrictEqual(permission.updatedInput, input))
           return refused('Tool input changed during approval; retry the tool');
-        if (registry.get(clientId) !== session || effectivePermissionMode(session) === 'ask')
+        if (
+          registry.get(clientId) !== session ||
+          (effectivePermissionMode(session) === 'ask' && !(gwsShim && askGwsShim))
+        )
           return refused('Session permissions changed; retry the tool');
         // Resolve login roots anew; an unreadable account configuration fails closed.
         const deniedRoots = privateCodexRoots(loadAccountProfiles().privateCodexRoots());
@@ -499,7 +509,7 @@ export function createNativeToolExecutor(
             assertCurrent();
             if (
               registry.get(clientId) !== session ||
-              effectivePermissionMode(session) === 'ask' ||
+              (effectivePermissionMode(session) === 'ask' && !(gwsShim && askGwsShim)) ||
               (approvalMode === 'auto' && effectivePermissionMode(session) !== 'auto') ||
               checkSkillPolicy(registry, clientId, 'Bash') === 'deny'
             )

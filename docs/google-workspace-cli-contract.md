@@ -98,30 +98,50 @@ conversation's bounded `ReadToolOutput` storage and current-owner fences.
 
 Agent shells never receive Google credentials; `~/.config/gws` stays denied in
 every sandbox. Instead each local chat (native Codex, the Mitzo native
-executor, and Claude SDK routes) gets `MITZO_GWS_SOCKET` and a client at
-`~/.local/state/mitzo-gws/bin/gws` (`server/gws-broker.ts`). Agents run that
-path with normal gws arguments, so creating Docs, editing Sheets, sending Gmail
-and changing Calendar events all work. Login shells reorder `PATH`, so plain
-`gws` still resolves to the host binary and fails inside the sandbox.
+executor, and Claude SDK routes) gets `MITZO_GWS_SOCKET`, a per-chat secret
+`MITZO_GWS_TOKEN`, and a client at `~/.local/state/mitzo-gws/bin/gws`
+(`server/gws-broker.ts`). Agents run that path with normal gws arguments, so
+creating Docs, editing Sheets, sending Gmail and changing Calendar events all
+work. Login shells reorder `PATH`, so plain `gws` still resolves to the host
+binary and fails inside the sandbox.
 
-The client forwards argv over the chat's owner-only Unix socket. Mitzo runs the
-host `gws` in an empty scratch directory:
+The client sends one request line over the chat's Unix socket and keeps the
+connection open. Same-UID sandboxes can see every socket, so the broker refuses
+a request without that chat's token. Mitzo runs the host `gws` in an empty
+scratch directory:
 
 - **Auto** runs reads and changes without a prompt.
 - **Agent/Ask**: provable reads (`get`, `list`, `export`, `search`, `query`,
-  `batchGet`, `schema`, read helpers, `--help`, `--dry-run`) ask with **Allow
-  for session** scoped to this chat. Everything else is a change and asks every
-  time; changes are refused in Ask.
-- `--upload`, `--attach` and `drive +upload` files are read by the client inside
-  the sandbox and staged; `--output` is returned and written by the client.
-  Other existing host paths, `--output-dir`, `gws auth` and `gws config` are
+  `batchGet`, `schema`, read helpers) ask as `GwsRead` with **Allow for
+  session** scoped to this chat. Everything else, including `--dry-run` and
+  `--help` forms, is a change and asks every time as `Bash`. Changes are
+  refused in Ask.
+- The arguments that actually execute are classified. Staged positions are
+  validated against the parsed flags.
+- The shell skill ceiling (`Bash`) applies in every mode.
+- Runtime ownership, mode and the read grant are rechecked before execution
+  and before results are returned.
+- Closing the client, ending the chat or closing the broker cancels the host
+  command.
+- `--upload`, `--attach`/`-a` and `drive +upload` files are read by the client
+  inside the sandbox and staged. `--output`/`-o` (including `-oFILE`) is
+  returned and written by the client.
+- Other existing host paths, `--output-dir`, `gws auth` and `gws config` are
   refused.
 
-The shell layer does not prompt again for one plain client command: native
-Codex accepts its network-only escalation (Agent/Ask need it to reach the
-socket), and the native executor and Claude Bash allow it. Chained or
-substituted commands get the ordinary shell approval. Any shell that can reach
-the socket is still governed by the broker's approval rule.
+The shell layer does not prompt again for one literal client command. That
+command is parsed with a strict shell-word parser and may sit inside one
+`sh|bash|zsh -c|-lc` envelope. In that case:
+
+- native Codex accepts its network-only escalation (Agent/Ask need it to reach
+  the socket);
+- the native executor and Claude Bash allow it, subject to the Bash skill
+  ceiling;
+- in Ask, only when it writes no local files.
+
+Substitutions, variables, pipes and chained commands get the ordinary shell
+approval. The broker closes with its chat. If its socket cannot be created, the
+chat starts without it.
 
 The regression in `owned-local-codex-native-execution.test.ts` starts the actual
 admitted chat route and production Connections bootstrap, executes synthetic

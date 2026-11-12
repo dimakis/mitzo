@@ -1,4 +1,5 @@
 import { repositoryObservationProgram } from './native-repository-observation.js';
+import { GWS_SHELL_ENV_NAMES } from './gws-broker.js';
 import { createLogger } from './logger.js';
 import { joinRetainedFinalizers } from './retained-finalization.js';
 import { nativePreparationPublicationWriteRoots } from './native-preparation-publication.js';
@@ -812,7 +813,7 @@ async function runSandboxedCommand(
       if (
         ['PATH', 'LANG', 'LC_ALL'].includes(name) ||
         /^MITZO_REPO_[A-Z0-9_]+$/.test(name) ||
-        (options.unixSockets?.length && ['MITZO_GWS_SOCKET', 'MITZO_GWS'].includes(name))
+        (options.unixSockets?.length && GWS_SHELL_ENV_NAMES.includes(name))
       )
         env[name] = value;
     }

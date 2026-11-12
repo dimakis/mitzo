@@ -227,7 +227,7 @@ import { applyTierOverrides } from './tool-tiers.js';
 import { loadRepoConfig } from './repo-config.js';
 import { loadProjectHooks } from './hook-bridge.js';
 import { buildPermissionHandler } from './permission-handler.js';
-import { setSkillPolicy } from './skill-policy.js';
+import { checkSkillPolicy, setSkillPolicy } from './skill-policy.js';
 import { runQueryLoop, broadcastToObservers, deliverRetainedSessionEvent } from './query-loop.js';
 import type { SessionChangeEvent } from './session-overview.js';
 import { clearSessionImages } from './image-store.js';
@@ -418,7 +418,12 @@ import { ExecutionAdmissionError } from '@mitzo/protocol/event-store';
 import { admitCloseout, type CloseoutAdmission } from './closeout-admission.js';
 import type { ProviderAttemptToken } from '@mitzo/protocol';
 import { getAccountUseStore } from './account-use-store.js';
-import { gwsBrokerForSession, gwsShellGuidance, isGwsShimCommand } from './gws-broker.js';
+import {
+  gwsBrokerForSession,
+  gwsShellGuidance,
+  gwsShimInvocation,
+  gwsShimWritesFiles,
+} from './gws-broker.js';
 import { buildClientCapabilitiesPrompt } from '@mitzo/protocol';
 
 const log = createLogger('chat');
@@ -2291,16 +2296,17 @@ async function _startChatInner(
       sessionEnv[`MITZO_REPO_${name.toUpperCase()}`] = path;
     }
     // Shell gws reaches the host login only through this chat's Mitzo broker.
-    const gwsBroker = gwsBrokerForSession({
+    const gwsBroker = await gwsBrokerForSession({
       key: `sdk:${wtId}`,
       registry,
+      lifetime: session.abortController.signal,
       resolve: () => {
         const found = session.sessionId ? registry.findBySessionId(session.sessionId) : null;
         if (found) return found.session === session ? found : null;
         return registry.get(clientId) === session ? { clientId, session } : null;
       },
     });
-    Object.assign(sessionEnv, gwsBroker.env());
+    if (gwsBroker) Object.assign(sessionEnv, gwsBroker.env());
 
     // Merge dynamic MCP servers (task board if active)
     const taskMcp = supportsHostTaskTools(openShellSelected) ? buildTaskMcpServer(clientId) : null;
@@ -2821,10 +2827,16 @@ This is an independent checkout with its own Git storage, not a linked worktree.
         }
         // The gws broker asks about the Google action itself; a shell prompt for
         // the client command would only duplicate that consent.
+        // The shell tool ceiling still applies; in plan/Ask the client may not
+        // write local files.
+        const gwsArgs =
+          name === 'Bash' && input.dangerouslyDisableSandbox !== true
+            ? gwsShimInvocation(input.command)
+            : undefined;
         if (
-          name === 'Bash' &&
-          input.dangerouslyDisableSandbox !== true &&
-          isGwsShimCommand(input.command)
+          gwsArgs &&
+          checkSkillPolicy(registry, clientId, 'Bash') !== 'deny' &&
+          (effectivePermissionMode(session) !== 'ask' || !gwsShimWritesFiles(gwsArgs))
         )
           return { behavior: 'allow', updatedInput: input };
         if (
@@ -2981,9 +2993,10 @@ This is an independent checkout with its own Git storage, not a linked worktree.
           : {}),
         ...(options.ordinarySdkAuthority?.configDirectory()
           ? {
-              sandbox: claudePersonalSandbox(options.ordinarySdkAuthority.configDirectory()!, [
-                gwsBroker.socketPath,
-              ]),
+              sandbox: claudePersonalSandbox(
+                options.ordinarySdkAuthority.configDirectory()!,
+                gwsBroker ? [gwsBroker.socketPath] : [],
+              ),
             }
           : {}),
         abortController,
@@ -3005,7 +3018,7 @@ This is an independent checkout with its own Git storage, not a linked worktree.
           preset: 'claude_code',
           append:
             systemPromptAppend +
-            `\n${gwsShellGuidance()}\n` +
+            (gwsBroker ? `\n${gwsShellGuidance()}\n` : '') +
             WEB_ACCESS_INSTRUCTIONS +
             (options.ordinarySdkAuthority
               ? '\n' + PEER_MESSAGE_INSTRUCTIONS + '\n'

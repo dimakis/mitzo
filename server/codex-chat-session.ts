@@ -1961,9 +1961,10 @@ async function openCodexChatBound(
     : undefined;
   // Shell gws reaches the host login only through Mitzo's per-chat broker.
   const gwsBroker = options.ownedLocal
-    ? gwsBrokerForSession({
+    ? await gwsBrokerForSession({
         key: `codex:${options.conversationId}`,
         registry: options.registry,
+        lifetime: options.session.abortController.signal,
         resolve: () => {
           const found = options.registry.findBySessionId(options.conversationId);
           return found?.session === options.session ? found : null;

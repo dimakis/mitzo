@@ -1,4 +1,4 @@
-import { createHash, randomUUID } from 'node:crypto';
+import { createHash, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
 import { execFile } from 'node:child_process';
 import {
   chmodSync,
@@ -15,26 +15,36 @@ import { homedir, tmpdir } from 'node:os';
 import { basename, delimiter, dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import {
   buildPermissionHandler,
+  checkSkillPolicy,
   effectivePermissionMode,
   type ManagedSession,
   type SessionRegistry,
 } from '@mitzo/harness';
+import { agentToolAllowed } from './agent-tool-selection.js';
+import { createLogger } from './logger.js';
 
 /**
  * Shell `gws` for agent sandboxes. The sandbox never sees Google credentials:
  * a small client on disk forwards argv over a per-chat Unix socket, and Mitzo
  * runs the operator's host `gws` after the chat's approval rule:
  * Auto runs freely; elsewhere reads can be allowed once per chat and every
- * change needs its own approval. File arguments are staged by the client inside
- * the sandbox, so host gws never reads or writes caller-chosen host paths.
+ * change needs its own approval (refused in Ask). File arguments are staged by
+ * the client inside the sandbox, so host gws never reads or writes caller-chosen
+ * host paths. Same-UID sandboxes can see every socket, so each request must
+ * carry its chat's secret token; the socket path alone grants nothing.
  */
 
+const log = createLogger('gws-broker');
 const MAX_REQUEST_BYTES = 32 * 1024 * 1024;
 const MAX_OUTPUT_BYTES = 32 * 1024 * 1024;
 const RUN_TIMEOUT_MS = 120_000;
+const MAX_CONCURRENT = 4;
 
 export function gwsBrokerRoot(): string {
-  return process.env.MITZO_GWS_BROKER_DIR || join(homedir(), '.local', 'state', 'mitzo-gws');
+  const configured = process.env.MITZO_GWS_BROKER_DIR;
+  return configured && isAbsolute(configured)
+    ? configured
+    : join(homedir(), '.local', 'state', 'mitzo-gws');
 }
 /** Stable absolute client path; login shells reorder PATH, so agents call it by path. */
 export function gwsShimPath(): string {
@@ -50,10 +60,16 @@ const READ_HELPERS = new Set([
   '+meeting-prep',
   '+weekly-digest',
 ]);
+const INPUT_FLAGS = new Set(['--upload', '--attach', '-a']);
+const OUTPUT_FLAGS = new Set(['--output', '-o']);
+const STAGE_PREFIXES = new Set(['', '--upload=', '--attach=', '--output=', '-a', '-o']);
 
-/** Reads are provable single reads; everything else (including unknown shapes) is a change. */
+/**
+ * Reads are provable single reads by command shape; everything else (helpers
+ * with side effects, unknown shapes, flags such as --dry-run that a helper may
+ * ignore) is a change. Classify the arguments that will actually execute.
+ */
 export function classifyGwsArgv(argv: readonly string[]): 'read' | 'write' {
-  if (argv.some((arg) => arg === '--help' || arg === '-h' || arg === '--dry-run')) return 'read';
   const positionals: string[] = [];
   for (const arg of argv) {
     if (arg.startsWith('-')) break;
@@ -77,20 +93,78 @@ function displayCommand(argv: readonly string[]) {
 }
 
 /**
- * True for a single plain invocation of the Mitzo gws client (optionally inside
- * a `sh|bash|zsh -c|-lc` wrapper). Such commands only reach the broker, which
- * owns the Google approval, so the shell layer need not prompt as well.
+ * Strict POSIX word split for literal commands only. Single quotes are literal;
+ * double quotes allow only \\ \" escapes and refuse $ and backticks; unquoted
+ * text is limited to inert characters. Anything a shell could expand, redirect
+ * or chain returns undefined.
  */
+export function literalShellWords(text: string): string[] | undefined {
+  const words: string[] = [];
+  let word: string | undefined;
+  for (let i = 0; i < text.length; i++) {
+    const char = text[i]!;
+    if (char === ' ' || char === '\t') {
+      if (word !== undefined) words.push(word);
+      word = undefined;
+    } else if (char === "'") {
+      const end = text.indexOf("'", i + 1);
+      if (end < 0) return;
+      word = (word ?? '') + text.slice(i + 1, end);
+      i = end;
+    } else if (char === '"') {
+      let value = '';
+      let closed = false;
+      for (i++; i < text.length; i++) {
+        const inner = text[i]!;
+        if (inner === '"') {
+          closed = true;
+          break;
+        }
+        if (inner === '$' || inner === '`') return;
+        if (inner === '\\') {
+          const escaped = text[++i];
+          if (escaped !== '\\' && escaped !== '"') return;
+          value += escaped;
+        } else value += inner;
+      }
+      if (!closed) return;
+      word = (word ?? '') + value;
+    } else if (/[A-Za-z0-9_@%+=:,./-]/.test(char)) word = (word ?? '') + char;
+    else return;
+  }
+  if (word !== undefined) words.push(word);
+  return words;
+}
+
+const SHELLS = new Set(['sh', 'bash', 'zsh', '/bin/sh', '/bin/bash', '/bin/zsh', '/usr/bin/env']);
+
+/**
+ * Arguments of a single literal invocation of the Mitzo gws client, optionally
+ * inside one `sh|bash|zsh -c|-lc '<literal>'` envelope; otherwise undefined.
+ * Such commands only reach the broker, which owns the Google approval.
+ */
+export function gwsShimInvocation(command: unknown): string[] | undefined {
+  if (typeof command !== 'string' || /[\r\n\0]/.test(command)) return;
+  let words = literalShellWords(command.trim());
+  if (
+    words?.length === 3 &&
+    SHELLS.has(words[0]!) &&
+    words[0] !== '/usr/bin/env' &&
+    (words[1] === '-c' || words[1] === '-lc')
+  )
+    words = literalShellWords(words[2]!.trim());
+  if (!words?.length || words[0] !== gwsShimPath()) return;
+  return words.slice(1);
+}
 export function isGwsShimCommand(command: unknown): boolean {
-  if (typeof command !== 'string') return false;
-  let text = command.trim();
-  const wrapped = /^(?:\/(?:usr\/)?bin\/)?(?:ba|z)?sh\s+-l?c\s+(['"])([\s\S]*)\1$/.exec(text);
-  if (wrapped) text = wrapped[2]!.trim();
-  const shim = gwsShimPath();
-  if (text !== shim && !text.startsWith(shim + ' ')) return false;
-  // Quoted arguments (JSON, message text) are opaque values, not shell syntax.
-  const unquoted = text.replace(/'[^']*'|"(?:[^"\\$`]|\\.)*"/g, ' Q ');
-  return !/[;&|<>`$()\n\\'"*?[\]{}~]/.test(unquoted);
+  return gwsShimInvocation(command) !== undefined;
+}
+/** True when the client would write local files (only --output does). */
+export function gwsShimWritesFiles(argv: readonly string[]): boolean {
+  return argv.some(
+    (arg) =>
+      OUTPUT_FLAGS.has(arg) || arg.startsWith('--output') || (arg.startsWith('-o') && arg !== '-o'),
+  );
 }
 
 /** Client program. Plain Node, no dependencies; runs inside agent sandboxes. */
@@ -102,7 +176,8 @@ const net = require('node:net');
 const fs = require('node:fs');
 const path = require('node:path');
 const socket = process.env.MITZO_GWS_SOCKET;
-if (!socket) {
+const token = process.env.MITZO_GWS_TOKEN;
+if (!socket || !token) {
   process.stderr.write('gws: the Mitzo gws broker is not available in this shell.\\n');
   process.exit(2);
 }
@@ -112,6 +187,10 @@ const VALUE = new Set(['--parent', '--name', '--format', '--sanitize', '--upload
 const argv = process.argv.slice(2);
 const files = [];
 const outputs = [];
+function fail(message) {
+  process.stderr.write('gws: ' + message + '\\n');
+  process.exit(2);
+}
 function stage(index, value, prefix) {
   const file = path.resolve(value);
   files.push({ index, prefix, name: path.basename(file), data: fs.readFileSync(file).toString('base64') });
@@ -119,19 +198,25 @@ function stage(index, value, prefix) {
 let uploadHelper = false;
 for (let i = 0; i < argv.length; i++) {
   const arg = argv[i];
-  const eq = arg.indexOf('=');
-  const flag = arg.startsWith('--') && eq > 0 ? arg.slice(0, eq) : arg;
-  const inline = flag !== arg ? arg.slice(eq + 1) : undefined;
-  if (arg === '--output-dir' || flag === '--output-dir') {
-    process.stderr.write('gws: --output-dir is unavailable through Mitzo; use --output or stdout.\\n');
-    process.exit(2);
+  let flag = arg;
+  let inline;
+  let prefix = '';
+  if (arg.startsWith('--') && arg.indexOf('=') > 0) {
+    flag = arg.slice(0, arg.indexOf('='));
+    inline = arg.slice(arg.indexOf('=') + 1);
+    prefix = flag + '=';
+  } else if (/^-[ao]./.test(arg)) {
+    flag = arg.slice(0, 2);
+    inline = arg.slice(2);
+    prefix = flag;
   }
+  if (flag === '--output-dir') fail('--output-dir is unavailable through Mitzo; use --output or stdout.');
   if (IN.has(flag) || OUT.has(flag)) {
     const index = inline === undefined ? ++i : i;
     const value = inline === undefined ? argv[index] : inline;
-    if (value === undefined) break;
-    if (IN.has(flag)) stage(index, value, inline === undefined ? '' : flag + '=');
-    else outputs.push({ index, prefix: inline === undefined ? '' : flag + '=', path: path.resolve(value) });
+    if (value === undefined || value === '') fail(flag + ' needs a value.');
+    if (IN.has(flag)) stage(index, value, prefix);
+    else outputs.push({ index, prefix, path: path.resolve(value) });
     continue;
   }
   if (arg === '+upload') { uploadHelper = true; continue; }
@@ -142,16 +227,12 @@ const client = net.createConnection(socket);
 const chunks = [];
 client.on('data', (chunk) => chunks.push(chunk));
 client.on('error', (error) => {
-  process.stderr.write('gws: cannot reach the Mitzo gws broker (' + error.code + ').' +
-    (error.code === 'EPERM' ? ' Request network permission for this exact command and retry.' : '') + '\\n');
-  process.exit(2);
+  fail('cannot reach the Mitzo gws broker (' + error.code + ').' +
+    (error.code === 'EPERM' ? ' Request network permission for this exact command and retry.' : ''));
 });
 client.on('end', () => {
   let reply;
-  try { reply = JSON.parse(Buffer.concat(chunks).toString('utf8')); } catch {
-    process.stderr.write('gws: invalid broker reply.\\n');
-    process.exit(2);
-  }
+  try { reply = JSON.parse(Buffer.concat(chunks).toString('utf8')); } catch { fail('invalid broker reply.'); }
   for (const out of reply.outputs || []) {
     const target = outputs.find((entry) => entry.index === out.index);
     if (target) fs.writeFileSync(target.path, Buffer.from(out.data, 'base64'));
@@ -160,7 +241,11 @@ client.on('end', () => {
   if (reply.stderr) process.stderr.write(reply.stderr);
   process.exitCode = typeof reply.exitCode === 'number' ? reply.exitCode : 1;
 });
-client.end(JSON.stringify({ v: 1, argv, files, outputs: outputs.map(({ index, prefix }) => ({ index, prefix })) }));
+process.on('SIGINT', () => { client.destroy(); process.exit(130); });
+process.on('SIGTERM', () => { client.destroy(); process.exit(143); });
+// One newline-terminated request; the connection stays open so the broker
+// cancels the host command if this client exits.
+client.write(JSON.stringify({ v: 1, token, argv, files, outputs: outputs.map(({ index, prefix }) => ({ index, prefix })) }) + '\\n');
 `;
 }
 
@@ -197,11 +282,16 @@ function hostGwsBinary(): string | undefined {
   return undefined;
 }
 
+interface StagedEntry {
+  index: number;
+  prefix: string;
+}
 interface BrokerRequest {
   v: 1;
+  token: string;
   argv: string[];
-  files: { index: number; prefix: string; name: string; data: string }[];
-  outputs: { index: number; prefix: string }[];
+  files: (StagedEntry & { name: string; data: string })[];
+  outputs: StagedEntry[];
 }
 interface BrokerReply {
   exitCode: number;
@@ -212,24 +302,53 @@ interface BrokerReply {
 
 function parseRequest(raw: string): BrokerRequest {
   const value = JSON.parse(raw) as BrokerRequest;
-  const index = (n: unknown, length: number) =>
-    Number.isInteger(n) && (n as number) >= 0 && (n as number) < length;
   if (
     value?.v !== 1 ||
+    typeof value.token !== 'string' ||
     !Array.isArray(value.argv) ||
     value.argv.length > 256 ||
     !value.argv.every((arg) => typeof arg === 'string' && !arg.includes('\0')) ||
     !Array.isArray(value.files) ||
     !Array.isArray(value.outputs) ||
-    ![...value.files, ...value.outputs].every(
-      (entry) =>
-        index(entry?.index, value.argv.length) &&
-        ['', '--upload=', '--attach=', '--output='].includes(entry.prefix),
-    ) ||
-    !value.files.every((file) => typeof file.name === 'string' && typeof file.data === 'string')
+    !value.files.every((file) => typeof file?.name === 'string' && typeof file.data === 'string')
   )
     throw Error('Invalid gws request');
   return value;
+}
+
+/**
+ * The client chooses staging positions, so confirm each one against the parsed
+ * flags: a staged value must be the value of --upload/--attach/-a (or the
+ * `drive +upload` file) for inputs and of --output/-o for outputs.
+ */
+function stagingValid(request: BrokerRequest): boolean {
+  const { argv } = request;
+  const seen = new Set<number>();
+  const check = (entry: StagedEntry, flags: Set<string>, positionalUpload: boolean) => {
+    if (
+      !Number.isInteger(entry.index) ||
+      entry.index < 0 ||
+      entry.index >= argv.length ||
+      seen.has(entry.index) ||
+      !STAGE_PREFIXES.has(entry.prefix)
+    )
+      return false;
+    seen.add(entry.index);
+    const arg = argv[entry.index]!;
+    if (entry.prefix) {
+      const flag = entry.prefix.endsWith('=') ? entry.prefix.slice(0, -1) : entry.prefix;
+      return flags.has(flag) && arg.startsWith(entry.prefix) && arg.length > entry.prefix.length;
+    }
+    if (entry.index > 0 && flags.has(argv[entry.index - 1]!)) return true;
+    const helper = argv.indexOf('+upload');
+    // `drive +upload <file>`: always a change, so a mis-staged positional
+    // can only alter which file a separately approved upload sends.
+    return positionalUpload && helper >= 0 && helper < entry.index && !arg.startsWith('-');
+  };
+  return (
+    request.files.every((entry) => check(entry, INPUT_FLAGS, true)) &&
+    request.outputs.every((entry) => check(entry, OUTPUT_FLAGS, false))
+  );
 }
 
 const refuse = (message: string): BrokerReply => ({ exitCode: 2, stderr: `gws: ${message}\n` });
@@ -253,20 +372,17 @@ export interface GwsBrokerOwner {
   readonly registry: SessionRegistry;
   /** Live owner of the chat, resolved on every request. */
   resolve(): { clientId: string; session: ManagedSession } | null;
+  /** The chat's lifetime; the broker closes and cancels its commands when it ends. */
+  readonly lifetime: AbortSignal;
 }
 
 export interface GwsBroker {
   readonly socketPath: string;
   readonly shimPath: string;
-  /** Environment for the agent's shell. */
+  /** Environment for this chat's shell only; the token authenticates the chat. */
   env(): Record<string, string>;
   close(): void;
 }
-
-const brokers = new Map<
-  string,
-  { broker: GwsBroker; registry: SessionRegistry; owner: GwsBrokerOwner }
->();
 
 export function gwsReadSessionGrantKey(key: string): string {
   return `gws-read-v1:${createHash('sha256')
@@ -274,20 +390,45 @@ export function gwsReadSessionGrantKey(key: string): string {
     .digest('hex')}`;
 }
 
+type Authority = () => string | undefined;
+
+/** Decide consent and return a check that the same authority still holds. */
 async function authorize(
   owner: GwsBrokerOwner,
   argv: readonly string[],
   signal: AbortSignal,
-): Promise<string | undefined> {
+): Promise<{ refusal: string } | { current: Authority }> {
   const found = owner.resolve();
   if (!found || found.session.abortController.signal.aborted)
-    return 'this chat is no longer active.';
-  const mode = effectivePermissionMode(found.session);
-  if (mode === 'auto') return;
+    return { refusal: 'this chat is no longer active.' };
+  const { clientId, session } = found;
   const kind = classifyGwsArgv(argv);
+  const grantKey = gwsReadSessionGrantKey(owner.key);
+  const base = () => {
+    const now = owner.resolve();
+    if (!now || now.session !== session || session.abortController.signal.aborted)
+      return 'this chat changed.';
+    // The shell tool ceiling applies in every mode, including Auto.
+    if (
+      !agentToolAllowed(session, 'Bash') ||
+      checkSkillPolicy(owner.registry, now.clientId, 'Bash') === 'deny'
+    )
+      return 'shell commands are not allowed for this chat or skill.';
+    if (kind === 'write' && effectivePermissionMode(session) === 'ask')
+      return 'Google changes are unavailable in Ask mode. Switch to Agent or Auto.';
+    return undefined;
+  };
+  const initial = base();
+  if (initial) return { refusal: initial };
+  if (effectivePermissionMode(session) === 'auto')
+    return {
+      current: () =>
+        base() ??
+        (effectivePermissionMode(session) === 'auto' ? undefined : 'this chat left Auto mode.'),
+    };
   const command = displayCommand(argv);
-  const permission = await buildPermissionHandler(found.clientId, owner.registry)(
-    'Bash',
+  const permission = await buildPermissionHandler(clientId, owner.registry)(
+    kind === 'read' ? 'GwsRead' : 'Bash',
     { command },
     {
       signal,
@@ -296,9 +437,11 @@ async function authorize(
       ...(kind === 'read'
         ? {
             title: 'Read Google Workspace with gws',
+            // The Bash ceiling above is the skill boundary for broker reads.
+            controlPlane: true,
             allowSessionGrant: true,
             approvalScope: 'session' as const,
-            sessionGrantKey: gwsReadSessionGrantKey(owner.key),
+            sessionGrantKey: grantKey,
             sessionGrantDescription:
               'Allow for session covers gws reads (get, list, export, search) in this chat. gws changes still need approval each time.',
             description: `${command}\nRuns with your signed-in Google account. Credentials remain private to Mitzo.`,
@@ -312,22 +455,29 @@ async function authorize(
           }),
     },
   );
-  if (permission.behavior !== 'allow') return permission.message || 'not approved.';
-  const after = owner.resolve();
-  if (!after || after.session !== found.session) return 'this chat changed during approval.';
-  if (effectivePermissionMode(after.session) === 'ask' && kind === 'write')
-    return 'this chat is in Ask mode.';
-  return;
+  if (permission.behavior !== 'allow') return { refusal: permission.message || 'not approved.' };
+  const grantBacked = kind === 'read' && session.sessionAllowList.has(grantKey);
+  const current: Authority = () =>
+    base() ??
+    (grantBacked && !session.sessionAllowList.has(grantKey)
+      ? 'the gws read permission was removed.'
+      : undefined);
+  const after = current();
+  return after ? { refusal: after } : { current };
 }
 
-async function run(owner: GwsBrokerOwner, request: BrokerRequest): Promise<BrokerReply> {
+async function run(
+  owner: GwsBrokerOwner,
+  request: BrokerRequest,
+  signal: AbortSignal,
+): Promise<BrokerReply> {
+  if (!stagingValid(request)) return refuse('invalid file arguments.');
   const argv = [...request.argv];
   if (argv[0] === 'auth' || argv[0] === 'config')
     return refuse(`'${argv[0]}' is not available to agents; sign in on the Mac with gws directly.`);
   const binary = hostGwsBinary();
   if (!binary) return refuse('gws is not installed on this Mac.');
   const scratch = await mkdtemp(join(tmpdir(), 'mitzo-gws-'));
-  const signal = AbortSignal.timeout(10 * 60_000);
   try {
     for (const [n, file] of request.files.entries()) {
       const name = `in-${n}-${basename(file.name).replace(/[^\w.-]/g, '_') || 'file'}`;
@@ -341,8 +491,12 @@ async function run(owner: GwsBrokerOwner, request: BrokerRequest): Promise<Broke
       return refuse(
         'host file paths are unavailable; pass files with --upload, --attach or --output.',
       );
-    const refusal = await authorize(owner, request.argv, signal);
-    if (refusal) return refuse(refusal);
+    // Classify and approve exactly the arguments that will execute.
+    const decision = await authorize(owner, argv, signal);
+    if ('refusal' in decision) return refuse(decision.refusal);
+    signal.throwIfAborted();
+    const before = decision.current();
+    if (before) return refuse(before);
     const result = await new Promise<BrokerReply>((resolveRun) => {
       execFile(
         binary,
@@ -351,13 +505,17 @@ async function run(owner: GwsBrokerOwner, request: BrokerRequest): Promise<Broke
           cwd: scratch,
           timeout: RUN_TIMEOUT_MS,
           maxBuffer: MAX_OUTPUT_BYTES,
+          signal,
           env: { ...process.env, GOOGLE_WORKSPACE_CLI_LOG_FILE: '' },
         },
         (error, stdout, stderr) =>
           resolveRun({
             exitCode: error ? (typeof error.code === 'number' ? error.code : 1) : 0,
             stdout,
-            stderr: error && !stderr ? `gws: ${error.killed ? 'timed out' : 'failed'}\n` : stderr,
+            stderr:
+              error && !stderr
+                ? `gws: ${signal.aborted ? 'cancelled' : error.killed ? 'timed out' : 'failed'}\n`
+                : stderr,
           }),
       );
     });
@@ -369,94 +527,159 @@ async function run(owner: GwsBrokerOwner, request: BrokerRequest): Promise<Broke
       if (info.size > MAX_OUTPUT_BYTES) return refuse('output file is too large.');
       outputs.push({ index: out.index, data: (await readFile(path)).toString('base64') });
     }
+    signal.throwIfAborted();
+    const after = decision.current();
+    if (after) return refuse(`${after} The command ran; its result was withheld.`);
     return { ...result, outputs };
   } finally {
     await rm(scratch, { recursive: true, force: true });
   }
 }
 
-function socketPathFor(key: string) {
-  const id = createHash('sha256').update(key).digest('hex').slice(0, 16);
-  return join(gwsBrokerRoot(), 's', `${id}.sock`);
-}
-
-function prepareSocketDirectory(path: string) {
-  const dir = dirname(path);
+function prepareSocketDirectory(dir: string) {
   mkdirSync(dir, { recursive: true, mode: 0o700 });
   const info = lstatSync(dir);
   if (!info.isDirectory() || info.uid !== process.getuid?.())
     throw Error('Unsafe gws broker directory');
   chmodSync(dir, 0o700);
-  try {
-    unlinkSync(path);
-  } catch {
-    // absent
-  }
 }
 
-/** One broker per chat; the registry decides the live owner on every request. */
-export function gwsBrokerForSession(owner: GwsBrokerOwner): GwsBroker {
-  const existing = brokers.get(owner.key);
-  if (existing?.registry === owner.registry) {
-    existing.owner = owner;
-    return existing.broker;
+const brokers = new Set<{ owner: GwsBrokerOwner; broker: GwsBroker }>();
+
+/**
+ * One broker per chat lifetime. Resolves undefined (and logs) when the socket
+ * cannot be created, so an unavailable broker never fails the chat itself.
+ */
+export async function gwsBrokerForSession(owner: GwsBrokerOwner): Promise<GwsBroker | undefined> {
+  // Reap brokers whose chats ended without reaching their lifetime signal.
+  for (const entry of brokers) if (!entry.owner.resolve()) entry.broker.close();
+  if (owner.lifetime.aborted) return;
+  let socketPath: string;
+  let shimPath: string;
+  try {
+    shimPath = installGwsShim();
+    const dir = join(gwsBrokerRoot(), 's');
+    prepareSocketDirectory(dir);
+    socketPath = join(dir, `${randomBytes(8).toString('hex')}.sock`);
+  } catch (error) {
+    log.warn('gws broker unavailable', { error: (error as Error).message });
+    return;
   }
-  existing?.broker.close();
-  const shimPath = installGwsShim();
-  const socketPath = socketPathFor(owner.key);
-  prepareSocketDirectory(socketPath);
+  const token = randomBytes(32);
+  const closing = new AbortController();
   let active = 0;
   const server: Server = createServer({ allowHalfOpen: true }, (connection) => {
     const chunks: Buffer[] = [];
     let size = 0;
-    const reply = (value: BrokerReply) => connection.end(JSON.stringify(value));
-    connection.on('error', () => connection.destroy());
+    const cancel = new AbortController();
+    const reply = (value: BrokerReply) => {
+      if (!connection.destroyed) connection.end(JSON.stringify(value));
+    };
+    connection.on('error', () => cancel.abort());
+    // The client exiting (interrupt or shell kill) cancels its host command.
+    connection.on('close', () => cancel.abort());
+    let started = false;
+    // The request is one JSON line; afterwards the client keeps the connection
+    // open, so its exit (interrupt or shell kill) cancels the host command.
+    connection.on('end', () => cancel.abort());
     connection.on('data', (chunk: Buffer) => {
+      if (started) return;
       size += chunk.length;
       if (size > MAX_REQUEST_BYTES) {
         reply(refuse('request is too large.'));
         connection.destroy();
-      } else chunks.push(chunk);
+        return;
+      }
+      chunks.push(chunk);
+      const newline = chunk.indexOf(10);
+      if (newline < 0) return;
+      started = true;
+      const line = Buffer.concat(chunks).toString('utf8');
+      handle(line.slice(0, line.indexOf('\n')));
     });
-    connection.on('end', () => {
-      if (size > MAX_REQUEST_BYTES) return;
-      if (active >= 4) return reply(refuse('too many gws commands at once; retry.'));
-      active++;
+    const handle = (line: string) => {
       let request: BrokerRequest;
       try {
-        request = parseRequest(Buffer.concat(chunks).toString('utf8'));
+        request = parseRequest(line);
       } catch {
-        active--;
         return reply(refuse('invalid request.'));
       }
-      run(brokers.get(owner.key)?.owner ?? owner, request)
-        .catch(() => refuse('the command could not run.'))
+      const presented = Buffer.from(request.token, 'utf8');
+      if (
+        presented.length !== token.length * 2 ||
+        !timingSafeEqual(presented, Buffer.from(token.toString('hex')))
+      )
+        return reply(refuse('this shell is not authorized for this chat.'));
+      if (active >= MAX_CONCURRENT) return reply(refuse('too many gws commands at once; retry.'));
+      active++;
+      const signal = AbortSignal.any([
+        cancel.signal,
+        closing.signal,
+        owner.lifetime,
+        AbortSignal.timeout(10 * 60_000),
+      ]);
+      run(owner, request, signal)
+        .catch(() => refuse(signal.aborted ? 'cancelled.' : 'the command could not run.'))
         .then(reply)
         .finally(() => active--);
-    });
+    };
   });
-  server.listen(socketPath);
+  const listening = await new Promise<boolean>((done) => {
+    server.once('error', (error) => {
+      log.warn('gws broker could not listen', { error: error.message });
+      done(false);
+    });
+    server.listen(socketPath, () => done(true));
+  });
+  // Later socket errors must never become an unhandled EventEmitter error.
+  server.on('error', (error) => log.warn('gws broker error', { error: error.message }));
+  if (!listening) {
+    server.close();
+    return;
+  }
   server.unref();
-  const broker: GwsBroker = {
-    socketPath,
-    shimPath,
-    env: () => ({ MITZO_GWS_SOCKET: socketPath, MITZO_GWS: shimPath }),
-    close: () => {
-      if (brokers.get(owner.key)?.broker === broker) brokers.delete(owner.key);
-      server.close();
-      try {
-        unlinkSync(socketPath);
-      } catch {
-        // already removed
-      }
-    },
+  const entry = {
+    owner,
+    broker: {
+      socketPath,
+      shimPath,
+      env: () => ({
+        MITZO_GWS_SOCKET: socketPath,
+        MITZO_GWS_TOKEN: token.toString('hex'),
+        MITZO_GWS: shimPath,
+      }),
+      close: () => {
+        if (!brokers.delete(entry)) return;
+        owner.lifetime.removeEventListener('abort', onEnd);
+        closing.abort();
+        server.close();
+        try {
+          unlinkSync(socketPath);
+        } catch {
+          // already removed
+        }
+      },
+    } satisfies GwsBroker,
   };
-  brokers.set(owner.key, { broker, registry: owner.registry, owner });
-  return broker;
+  const onEnd = () => entry.broker.close();
+  brokers.add(entry);
+  owner.lifetime.addEventListener('abort', onEnd, { once: true });
+  if (owner.lifetime.aborted) {
+    entry.broker.close();
+    return;
+  }
+  return entry.broker;
 }
+
+/** Environment variables the broker adds to a chat's shell. */
+export const GWS_SHELL_ENV_NAMES = Object.freeze([
+  'MITZO_GWS_SOCKET',
+  'MITZO_GWS_TOKEN',
+  'MITZO_GWS',
+]);
 
 /** Agent guidance shared by every runtime. */
 export function gwsShellGuidance(): string {
   const shim = gwsShimPath();
-  return `Google Workspace: run the gws CLI as ${shim} with normal gws arguments (for example ${shim} docs documents create --json '{"title":"Notes"}'). Plain \`gws\` cannot reach the signed-in account from this shell. It covers Docs, Sheets, Slides, Drive, Gmail, Calendar, Tasks and the gws helpers. Pass local files with --upload, --attach or --output; other host paths are refused. Reads may be approved once per chat; every change asks for approval unless the chat is in Auto. In Agent or Ask on native Codex, request network permission for the exact ${shim} command; Mitzo accepts that automatically and asks about the Google action itself. Never print or copy credentials, and do not run gws auth.`;
+  return `Google Workspace: run the gws CLI as ${shim} with normal gws arguments (for example ${shim} docs documents create --json '{"title":"Notes"}'). Plain \`gws\` cannot reach the signed-in account from this shell. It covers Docs, Sheets, Slides, Drive, Gmail, Calendar, Tasks and the gws helpers. Run it as one plain command without pipes, substitutions or variables. Pass local files with --upload, --attach or --output; other host paths are refused. Reads may be approved once per chat; every change asks for approval unless the chat is in Auto, and changes are unavailable in Ask. In Agent or Ask on native Codex, request network permission for the exact ${shim} command; Mitzo accepts that automatically and asks about the Google action itself. Never print or copy credentials or MITZO_GWS_TOKEN, and do not run gws auth.`;
 }
