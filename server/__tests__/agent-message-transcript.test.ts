@@ -15,10 +15,62 @@ import { watchAgentMessageTranscript } from '../agent-message-transcript.js';
 import { SessionRegistry, ConnectionRegistry } from '@mitzo/harness';
 import { deliverRetainedSessionEvent } from '../query-loop.js';
 
+const diagnostics = vi.hoisted(() => ({ warn: vi.fn() }));
+vi.mock('../logger.js', () => ({
+  createLogger: () => ({ info: vi.fn(), warn: diagnostics.warn }),
+}));
+
 const stores: EventStore[] = [];
 const roots: string[] = [];
 afterEach(() => stores.splice(0).forEach((store) => store.close()));
 afterEach(() => roots.splice(0).forEach((root) => rmSync(root, { recursive: true, force: true })));
+afterEach(() => diagnostics.warn.mockClear());
+
+it('reports a sanitized publication failure once and retries retained events on a later wakeup', async () => {
+  const store = new EventStore(':memory:');
+  stores.push(store);
+  for (const id of ['a', 'b']) store.upsertSession({ sessionId: id });
+  let available = false;
+  const published: Record<string, unknown>[] = [];
+  const unwatch = watchAgentMessageTranscript(store, 'b', (event) => {
+    if (!available) throw Error('Private provider payload must stay internal');
+    published.push(event);
+  });
+  try {
+    const reserve = () =>
+      store.agentCommunication.reserve(
+        'a',
+        'operator',
+        { turnId: 'turn', callId: randomUUID() },
+        { requestId: randomUUID(), recipientConversationId: 'b', text: 'Retained peer update' },
+      );
+    const message = reserve();
+    await new Promise<void>((resolve) => queueMicrotask(resolve));
+    store.agentCommunication.recordForHost(message.messageId, 'delivered');
+    await new Promise<void>((resolve) => queueMicrotask(resolve));
+    expect(diagnostics.warn).toHaveBeenCalledExactlyOnceWith(expect.any(String), {
+      code: 'agent_message_transcript_unavailable',
+      stage: 'publication',
+      sessionId: 'b',
+    });
+    expect(JSON.stringify(diagnostics.warn.mock.calls)).not.toContain('Private provider payload');
+    expect(published).toEqual([]);
+    available = true;
+    reserve();
+    await new Promise<void>((resolve) => queueMicrotask(resolve));
+    expect(published).toContainEqual(
+      expect.objectContaining({
+        type: 'agent_message',
+        projection: expect.objectContaining({
+          message: expect.objectContaining({ messageId: message.messageId, status: 'delivered' }),
+        }),
+      }),
+    );
+    expect(diagnostics.warn).toHaveBeenCalledOnce();
+  } finally {
+    unwatch();
+  }
+});
 
 it('delivers live receipts through V2 watch and reconnect subscribers without legacy observers', async () => {
   const store = new EventStore(':memory:');

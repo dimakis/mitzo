@@ -1,17 +1,26 @@
-# S6 native Codex peer exchange
+# S6 peer exchange and ordinary runtime adapters
+
+Source proposal, 2026-11-11, based on the deployed source revision
+`58221eafa964761962ea0c949c682f11486e1575` and the operator's request to repair
+cross-runtime orchestrator coordination. Offline tests are evidence of adapter
+behavior; they do not establish acceptance, deployment or live model timing.
 
 `AgentCommunication` is installed on the enrolled ordinary Local Codex native
-route. Independent chats need no Telos ancestry or shared task. Discovery lists
-up to 1000 recent conversations with actual host custody for the same signed
+route and the enrolled owned Local Claude SDK route. Independent chats need no
+Telos ancestry or shared task. Discovery lists up to 1000 recent conversations
+with verified custody or a current ordinary runtime owner for the same signed
 operator. Inbox/read expose only retained peer messages involving the calling
 conversation. They do not share private transcripts, reasoning, tools, account
-details or filesystem paths. Other runtimes are explicitly unsupported by this
-entry; no provider fallback, enrollment or new conversation is attempted.
+details or filesystem paths. Each owned recipient reports its runtime and active
+and idle delivery capabilities. A runtime without a verified adapter stays
+discoverable with an explicit unsupported capability; no provider fallback,
+enrollment or new conversation is attempted. Hidden/imported conversations and
+Symposium internal/contributor controls do not become ordinary peer authority.
 An authorized sender's retained receipt stays readable when its recipient is
 hidden or loses new-send eligibility. That read preserves the last confirmed
 facts and uncertainty; it grants no new delivery or recipient recovery.
 
-The native driver supplies sender and verified turn/call identity. Request JSON
+The installed native or SDK callback supplies sender and verified call identity. Request JSON
 cannot select an actor, operator, receipt status or host evidence. Send requires
 the existing permission handler's approval once or a scoped session messaging
 grant. That grant covers the source chat's same-operator live peers and their
@@ -21,6 +30,13 @@ Current runtime, skill/tool selection, live owner,
 signed operator and actual recipient custody are rechecked across awaits.
 Messaging grants no coordinator, worker, credential, publication or merge
 authority. Target command admission still checks its own current scope.
+
+Existing Local Codex-only grants retain their original audience and key. The
+broader verified-adapter audience uses a distinct `adapters-v1` grant key and
+requires its own explicit approval. An old native-only grant cannot authorize a
+Claude send or correlated reply. Each reply captures the exact applicable key
+before asynchronous approval/admission; revocation cannot switch it to another
+grant while the operation is in flight.
 
 The direct exchange ledger belongs to EventStore's existing SQLite database and
 backup lifetime. It retains original sender, recipient, text, request ID,
@@ -44,6 +60,18 @@ peer prompt through native `turn/steer`, targeting the exact accepted live turn.
 Only an inactive/stale target falls back to the queue; rejection or uncertainty
 never causes another delivery attempt. Stop/recovery remains paused.
 
+The owned Local Claude SDK adapter uses `priority: now` on the existing query's
+stdin. It captures the active ordinary command and checks original source
+approval, operator, target owner, target command and Stop state immediately
+before yielding the correction. The exact replay-user-messages acknowledgement
+updates the retained peer receipt and is filtered before the ordinary
+input/result correlation owner. A second peer input therefore cannot replace
+the original command identity. Idle delivery uses the existing guarded ordinary
+prompt admission and waits for its own input acknowledgement; queue admission
+alone is not provider delivery. Missing or mismatched acknowledgements stay
+uncertain. Exact retained replay can reconcile a receipt after restart without
+resending. A stopped owner is refused rather than implicitly resumed.
+
 Every retained send and receipt transition is also an `agent_message` transcript
 event in both conversations, committed atomically with the exchange ledger.
 Live delivery and bounded/full replay use that same event stream. The shared
@@ -56,7 +84,8 @@ live owner returns an unavailable receipt; a peer send grants no cold wake or
 recovery authority. Existing queue cancellation is reflected in its receipt.
 
 Pending, uncertain, queued, delivered, unavailable and failed are distinct.
-Delivered requires a durable native turn/start or steering ACK for the exact
+Delivered requires a durable native turn/start or steering ACK, or the exact
+SDK input replay acknowledgement recorded in the durable peer ledger, for the
 conversation, request and rendered peer prompt. It does not mean the recipient
 has applied a pause, merged a PR, or otherwise acted. A positive native
 pre-dispatch witness records failure before provider submission; missing ACKs
@@ -84,3 +113,12 @@ This bounded implementation does not establish accepted S5b non-Git qualificatio
 OpenShell support, operator/group collaboration delivery, coordinator setup UI,
 shared-main publication enforcement, live qualification or feature acceptance.
 Those require their actual owning application paths and independent acceptance.
+
+Task-execution grants retain their existing command/network scope. Messaging
+does not derive native network or credential access from those grants. Runtime
+adapter registration is host-only and bound to the original ordinary owner;
+neither a peer message nor a UI attachment can install or replace an adapter.
+The shared tool consumer reports a stable diagnostic code, stage and operation
+identifiers while retaining private causes internally. Unsupported steering is
+not silently converted into a queued follow-up. Requested pauses and other
+actions still need the receiving agent's acknowledgement.

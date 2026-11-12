@@ -23,5 +23,8 @@ resetOfflineUserEnvironment();
 vi.mock('node:os', async (original) => {
   const os = await original<typeof import('node:os')>();
   const { join } = await import('node:path');
-  return { ...os, homedir: () => join(os.tmpdir(), 'mitzo-offline-user-home') };
+  const { realpathSync } = await import('node:fs');
+  // A lexical /var alias would enroll that ancestor as a protected selector
+  // and accidentally fence every sibling fixture under the physical temp root.
+  return { ...os, homedir: () => join(realpathSync(os.tmpdir()), 'mitzo-offline-user-home') };
 });

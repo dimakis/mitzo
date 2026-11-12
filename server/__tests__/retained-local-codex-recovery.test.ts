@@ -1,3 +1,4 @@
+import { resetOfflineUserEnvironment } from './fixtures/offline-user-home.js';
 import { initializeTaskExecution, closeTaskExecution } from '../task-execution-runtime.js';
 import { retainCallbackOutcome } from '../turn-callbacks.js';
 import { composeOwnedLocalNativeExecutionPolicyForWorkspace } from '../owned-local-codex-native-policy.js';
@@ -5,7 +6,7 @@ import { registerWorkspaceRuntimeAuthorityPaths } from '../workspace-runtime-pri
 import { login, authenticateToken, revokeAuthSession } from '../auth.js';
 import { bindAgentLibraryTransport } from '../agent-library-transport.js';
 import { reconcilableLocalCodexCommand } from '../retained-local-codex-effects.js';
-import { afterEach, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { createHash, randomUUID } from 'node:crypto';
 import { join } from 'node:path';
 import { readFileSync, writeFileSync } from 'node:fs';
@@ -22,12 +23,9 @@ import {
   OrdinaryLocalCodexOwnedRuntime,
   type OrdinaryLocalCodexOwnedDispatch,
 } from '../ordinary-local-codex-owned-runtime.js';
-// Recovery fixtures use synthetic credentials only; do not inspect the host's
-// denied credential home while composing fresh native protection policies.
-vi.mock('node:os', async (original) => {
-  const actual = await original<typeof import('node:os')>();
-  return { ...actual, homedir: () => `${actual.tmpdir()}/mitzo-recovery-offline-home` };
-});
+// Reuse the shared offline home and clear inherited private selectors before
+// every case, including after unstubAllEnvs restores the host environment.
+beforeEach(resetOfflineUserEnvironment);
 vi.mock('../auth.js', async (original) => ({
   ...(await original<typeof import('../auth.js')>()),
   hasPersistentRevocationAuthority: () => true,
@@ -429,6 +427,7 @@ async function reconcileRetainedColdTurn(
   nativeStatus: 'interrupted' | 'completed' | 'failed',
   policyDrift = false,
   completionPhase = true,
+  uncertainGithubRead = false,
 ) {
   const f = await ownedRuntimeFixture(cleanups);
   const first = f.create();
@@ -485,12 +484,19 @@ async function reconcileRetainedColdTurn(
     },
   );
   const arguments_: Record<string, unknown> = grant
-    ? {
-        operation: 'run',
-        command: 'exit 1',
-        grantId: grant.id,
-        requestId: randomUUID(),
-      }
+    ? uncertainGithubRead
+      ? {
+          operation: 'github_read',
+          endpoint: '/repos/example/project/pulls/1',
+          grantId: grant.id,
+          requestId: randomUUID(),
+        }
+      : {
+          operation: 'run',
+          command: 'exit 1',
+          grantId: grant.id,
+          requestId: randomUUID(),
+        }
     : policyDrift
       ? { conversationId: 'registered-past-session' }
       : {
@@ -500,11 +506,21 @@ async function reconcileRetainedColdTurn(
         };
   const retainedResult = { content: 'Original operation failed.', isError: true };
   const runFingerprint = createHash('sha256')
-    .update(JSON.stringify(['Bash', { command: 'exit 1' }, original.workspace.directory!, 60000]))
+    .update(
+      JSON.stringify([
+        uncertainGithubRead ? 'GitHubRead' : 'Bash',
+        uncertainGithubRead
+          ? { endpoint: arguments_.endpoint, access: 'authenticated' }
+          : { command: 'exit 1' },
+        original.workspace.directory!,
+        60000,
+      ]),
+    )
     .digest('hex');
   if (taskStore && grant) {
     taskStore.begin(grant.id, id, String(arguments_.requestId), runFingerprint);
-    taskStore.finish(grant.id, id, String(arguments_.requestId), retainedResult);
+    if (!uncertainGithubRead)
+      taskStore.finish(grant.id, id, String(arguments_.requestId), retainedResult);
     taskStore.revoke(grant.id, grant.operatorId, id); // Past evidence is not renewed execution authority.
   }
   const identity = {
@@ -803,8 +819,20 @@ async function reconcileRetainedColdTurn(
   for (const [column, value] of nativeStatus !== 'completed'
     ? ([
         [
-          taskStore ? 'result_content' : policyDrift ? 'tool_name' : 'result_effect_outcome',
-          taskStore ? 'changed result' : policyDrift ? 'UnreviewedMutation' : 'unknown',
+          uncertainGithubRead
+            ? 'tool_name'
+            : taskStore
+              ? 'result_content'
+              : policyDrift
+                ? 'tool_name'
+                : 'result_effect_outcome',
+          uncertainGithubRead
+            ? 'UnreviewedMutation'
+            : taskStore
+              ? 'changed result'
+              : policyDrift
+                ? 'UnreviewedMutation'
+                : 'unknown',
         ],
         ['result_content', null],
         ['request_hash', 'f'.repeat(64)],
@@ -833,11 +861,13 @@ async function reconcileRetainedColdTurn(
       string,
       unknown
     >;
-    for (const [column, value] of [
-      ['result', null],
-      ['fingerprint', 'changed'],
-      ['session_id', 'foreign'],
-    ] as const) {
+    for (const [column, value] of uncertainGithubRead
+      ? []
+      : ([
+          ['result', null],
+          ['fingerprint', 'changed'],
+          ['session_id', 'foreign'],
+        ] as const)) {
       taskDb.prepare(`UPDATE task_execution_runs SET ${column}=?`).run(value);
       await expect(driver.reconcileRetainedEffects()).rejects.toThrow();
       expect(native.read(id, binding).recovery).toBe(1);
@@ -898,6 +928,10 @@ async function reconcileRetainedColdTurn(
   expect(f.events.getSendCommand(command.id)).toEqual(before.send);
   expect(f.events.getOrdinaryLocalCommandExecutionAdmission(command.id)).toEqual(before.admission);
   expect(db.prepare('SELECT * FROM codex_tools').all()).toEqual(before.tools);
+  if (uncertainGithubRead)
+    expect(taskStore!.runStatus(grant!.id, id, String(arguments_.requestId)).state).toBe(
+      'uncertain',
+    );
   expect(probe.dispatch).not.toHaveBeenCalled();
   expect(claims).not.toHaveBeenCalled();
   expect(
@@ -910,18 +944,30 @@ async function reconcileRetainedColdTurn(
     nativeStatus !== 'completed',
   );
 }
+// These composed journeys reopen real Git/SQLite custody and exercise multiple
+// refusals. CI measured 4.6–5.0s under shard contention; retain a bounded budget
+// above the unit-test default without skipping any recovery assertions.
+const coldRecoveryTimeoutMs = 15_000;
 it.each(['interrupted', 'completed'] as const)(
   'reconciles an already dispatched cold turn observed %s without replay',
   (status) => reconcileRetainedColdTurn(status),
+  coldRecoveryTimeoutMs,
 );
 
-it('reconciles settled interrupted work after a real policy change under fresh authority without replay', () =>
-  reconcileRetainedColdTurn('interrupted', true));
+it(
+  'reconciles settled interrupted work after a real policy change under fresh authority without replay',
+  () => reconcileRetainedColdTurn('interrupted', true),
+  coldRecoveryTimeoutMs,
+);
 
 it.each([false, true])(
   'reconciles a failed capacity turn with settled receipts without replay (policy drift: %s)',
   (policyDrift) => reconcileRetainedColdTurn('failed', policyDrift, false),
+  coldRecoveryTimeoutMs,
 );
+
+it('recovers an interrupted TaskExecution GitHub read with an uncertain receipt without replay', () =>
+  reconcileRetainedColdTurn('interrupted', false, false, true));
 
 it.each(
   (['warm', 'cold'] as const).flatMap((retirement) =>
@@ -1123,5 +1169,8 @@ it.each(
   },
 );
 
-it('recovers an interrupted turn without a completion phase, retaining its original outcome and receipts', () =>
-  reconcileRetainedColdTurn('interrupted', true, false));
+it(
+  'recovers an interrupted turn without a completion phase, retaining its original outcome and receipts',
+  () => reconcileRetainedColdTurn('interrupted', true, false),
+  coldRecoveryTimeoutMs,
+);

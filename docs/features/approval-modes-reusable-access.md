@@ -45,6 +45,11 @@ existing private credential/provider owner and validates consent at reads,
 retained-page access and native response delivery. Google reads currently use
 the admitted Local Codex route.
 
+Separately from Access grants, `GoogleWorkspaceRead` follows the chat mode as of
+11 November 2026: Auto reads without a prompt, while Agent and Ask offer **Allow
+for session** scoped to the chat and Google email. Writes keep per-request
+approval. See `docs/google-workspace-cli-contract.md`.
+
 Telos progress is a distinct capability for one item: evidence notes and existing
 active/acknowledged/completed status transitions through `TelosUpdateItem`.
 It does not grant general brief edits, archive/delete, source adoption, child
@@ -101,6 +106,13 @@ commands after expiry.
 Existing exact-command consent remains separate and bound to its command,
 directory, access profile, account and thread. This feature reuses PR #1240's
 accepted directory-identity checks and redacted audit stream.
+
+The 11 November [approval notification change](approval-notification-churn.md)
+adds explicitly displayed repository-read consent for recognized GitHub CLI
+commands, shared by Codex and Claude/Vertex. Different CI jobs/logs reuse that
+scope; unrelated commands retain exact consent. It also consolidates approval
+delivery and suppresses repeated unread-chat alerts. Automatic review remains
+unqualified; source implementation and offline tests do not prove deployment.
 
 ## Recovery and validation evidence
 

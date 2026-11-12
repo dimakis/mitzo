@@ -14,6 +14,8 @@ import { z } from 'zod';
 import type { AccountBinding } from '@mitzo/protocol';
 import { AccountBindingSchema } from '@mitzo/protocol';
 import { readBoundedFile } from './bounded-file-read.js';
+import { reportCodexCredentialInvalidation } from './codex-tool-validation-error.js';
+import { findSessionRuntimeError, type SessionRuntimeError } from './session-runtime-error.js';
 import { codexPrivateDirectory, protectCodexProfileRoots } from './codex-private-path.js';
 import {
   HostCodexApiLoginCustodySchema,
@@ -202,6 +204,8 @@ export class FrozenHostCodexApiLogin {
   }
   async connect<T extends FrozenHostCodexClient>(
     launch: (home: string) => Promise<T>,
+    beforeInvalidation?: (error: SessionRuntimeError) => void,
+    isValidationLive?: () => boolean,
   ): Promise<FrozenHostCodexLoginLease<T>> {
     if (this.#attempted) throw unavailable();
     this.#attempted = true;
@@ -216,6 +220,18 @@ export class FrozenHostCodexApiLogin {
         /* Retain custody. */
       }
     };
+    const fail = (error: unknown, validation = false, signal = this.signal): never => {
+      const cause = reportCodexCredentialInvalidation(
+        error,
+        validation,
+        signal.aborted,
+        beforeInvalidation,
+        isValidationLive,
+      );
+      close();
+      throw findSessionRuntimeError(error) ?? new Error('API Codex login unavailable', { cause });
+    };
+    let issued = false;
     try {
       this.assertRoot();
       if (!this.fresh) this.assertFiles();
@@ -237,9 +253,8 @@ export class FrozenHostCodexApiLogin {
           this.assertFiles();
           await this.assertKey(signal);
           this.assertFiles();
-        } catch {
-          close();
-          throw unavailable();
+        } catch (error) {
+          fail(error, true, signal);
         }
       };
       const assertCurrent = async () => {
@@ -254,12 +269,12 @@ export class FrozenHostCodexApiLogin {
           this.assertFiles();
           await this.assertKey();
           this.assertFiles();
-        } catch {
-          close();
-          throw unavailable();
+        } catch (error) {
+          fail(error, issued);
         }
       };
       await assertCurrent();
+      issued = true;
       const bindingForLease = structuredClone(this.#saved.binding);
       return {
         client: owned,
@@ -272,15 +287,13 @@ export class FrozenHostCodexApiLogin {
         assertCurrentSync: () => {
           try {
             this.assertFiles();
-          } catch {
-            close();
-            throw unavailable();
+          } catch (error) {
+            fail(error, true);
           }
         },
       };
-    } catch {
-      close();
-      throw unavailable();
+    } catch (error) {
+      return fail(error);
     }
   }
 }

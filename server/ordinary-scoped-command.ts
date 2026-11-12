@@ -31,6 +31,8 @@ export interface OwnedOrdinaryDispatchInput {
   ownerConnectionId?: string;
   ownerAuthSessionId?: string;
   signal: AbortSignal;
+  /** Live scoped caller fence, retained by SDK continuation admission across I/O. */
+  assertCurrent?(): void;
   continuation: boolean;
   recovery?: boolean;
   existingOwner: boolean;
@@ -52,6 +54,7 @@ export interface OwnedOrdinaryDispatchInput {
  */
 export async function dispatchOwnedOrdinaryCommand(input: OwnedOrdinaryDispatchInput) {
   input.signal.throwIfAborted();
+  input.assertCurrent?.();
   const { reservation, sessionId, commandId, command, operatorConnectionId, signal } = input;
   const runtime = (
     command as {
@@ -104,7 +107,7 @@ export async function dispatchOwnedOrdinaryCommand(input: OwnedOrdinaryDispatchI
       const ownerAuthSessionId = input.ownerAuthSessionId;
       if (!ownerAuthSessionId) throw Error('Exact ordinary operator identity required');
       return continuation && existing
-        ? sendOwnedLocalVertexCommand(common)
+        ? sendOwnedLocalVertexCommand({ ...common, assertCurrent: input.assertCurrent })
         : startOwnedLocalVertexCommand(input.transport, input.clientId, {
             ...startup,
             ownerAuthSessionId,
