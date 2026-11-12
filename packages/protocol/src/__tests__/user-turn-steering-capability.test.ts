@@ -25,6 +25,7 @@ it.each([
 );
 it('does not infer an SDK owner from missing or legacy routing', () => {
   expect(supportsUserTurnSteering(undefined)).toBe(false);
+  expect(supportsUserTurnSteering(null)).toBe(false);
   expect(
     supportsUserTurnSteering({
       version: 1,

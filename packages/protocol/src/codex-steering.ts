@@ -15,7 +15,9 @@ export type CodexSteerInput = z.infer<typeof CodexSteerInputSchema>;
 
 /** Route support only. Current operator custody, query and target are checked at
  * submission and again by the native input owner immediately before dispatch. */
-export function supportsUserTurnSteering(binding: SessionRuntimeBinding | undefined): boolean {
+export function supportsUserTurnSteering(
+  binding: SessionRuntimeBinding | null | undefined,
+): boolean {
   return (
     !!binding &&
     (binding.harness.implementation === 'codex' ||

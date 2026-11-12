@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.1060-user-sdk-steering-and-queue';
+  'v1.0.1061-null-runtime-steering-capability';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -29,7 +29,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/protocol/src/user-turn-steering-store.ts':
     '31f29f7eadc9e5cdeffc8af0cae9bbfcd1eb028246827c0ebbccfcee827a63be',
   '../../packages/protocol/src/__tests__/user-turn-steering-capability.test.ts':
-    '6390c149d9b2d57de4791d5e7932359a3bab08c7208ce44b4be613105e171510',
+    'df821218ee6b8d3d47ff408e785ed40c9ee01c85a3dafbe201e054a3bcd86fbc',
   '../__tests__/configured-tool-lazy.test.ts':
     'ceaf09b6f08d436c725e6826fff815786dda12727ad150e0d3daa85d1911945f',
   '../lazy-mcp-source.ts': 'bd93f94687b160ad0df2fa761a4287a6d76d1186d6736811408c91b9dcf49dae',
@@ -552,7 +552,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/components/__tests__/ChatInputDirectInterrupt.test.tsx':
     '158933a4001e7d46782df7dcc73f9e0a8aecacf28201ac42c2f7faf6adf2ee6b',
   '../../packages/protocol/src/codex-steering.ts':
-    '09082c83a717bd7b35989518af9153de4cd57152047c6ec6581fc99ae833488e',
+    '622e7213a88e373097ca102aaec342ff8ea773fb4aa3b1fd85003ae12f1366bb',
   '../../frontend/src/components/__tests__/ChatExecutionPicker.multi-runtime.test.tsx':
     '0ed9568c63b1877f4d7a35f14b0d6f030908b931c2ee2617f20eac10a9b569ab',
   '../../frontend/src/components/__tests__/AccountModelPicker.test.tsx':
