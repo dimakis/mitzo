@@ -3836,6 +3836,7 @@ it('qualifies owned native, MCP, profile and publishing tools and rejects other 
         'SessionTimers',
         'SendSessionMessage',
         'StartSession',
+        'TelosCreateSession',
         'ReadToolOutput',
         'SearchSkills',
         'RequestWebAccess',
@@ -6794,6 +6795,65 @@ async function openOwnedOpenShellEfficiencyFixture(
   };
 }
 
+it('offers work-bound creation from owned OpenShell Codex without ordinary launch substitution', async () => {
+  const { initializeSessionLaunches, closeSessionLaunches } =
+    await import('../session-launch-controller.js');
+  const { bindAgentLibraryTransport } = await import('../agent-library-transport.js');
+  const release = bindAgentLibraryTransport('openshell-telos-owner', {
+    id: 'openshell-telos-login',
+    expiresAt: Date.now() + 60000,
+  });
+  const f = await openOwnedOpenShellEfficiencyFixture(undefined, {
+    clientId: 'openshell-telos-client',
+    ownerConnectionId: 'openshell-telos-owner',
+  });
+  const controller = initializeSessionLaunches(':memory:', vi.fn());
+  const scope = {
+    version: 1,
+    parentItemId: 'feature',
+    parentAssignmentRevision: 1,
+    itemId: 'slice',
+    expectedRevision: 'a'.repeat(64),
+    role: 'worker',
+    sourceSnapshotIds: [],
+    artifactRefs: [],
+  };
+  controller.telos = { propose: vi.fn(async () => ({ telos: scope })) } as never;
+  const start = vi.spyOn(controller.launches.port, 'start');
+  try {
+    const names = (f.captured.tools as { name: string }[]).map((tool) => tool.name);
+    expect(names).toContain('TelosCreateSession');
+    expect(names).not.toContain('StartSession');
+    const execute = f.captured
+      .executeTool as import('../codex-conversation.js').CodexConversationOptions['executeTool'];
+    const result = await execute(
+      'TelosCreateSession',
+      {
+        requestId: '13414fa4-9e0e-4ccf-895a-b68a888124fe',
+        itemId: scope.itemId,
+        expectedRevision: scope.expectedRevision,
+        title: 'Slice worker',
+        prompt: 'Reviewed slice',
+        overrides: { runtime: { execution: { location: 'local', targetId: 'child-mac' } } },
+      },
+      new AbortController().signal,
+      { turnId: 'work-turn', callId: 'work-call', assertCurrentSync: vi.fn() },
+    );
+    expect(result.isError, result.content).toBe(false);
+    expect(JSON.parse(result.content)).toMatchObject({
+      state: 'pending',
+      telos: scope,
+      configuration: { runtime: { execution: { location: 'local', targetId: 'child-mac' } } },
+    });
+    expect(start).not.toHaveBeenCalled();
+  } finally {
+    start.mockRestore();
+    closeSessionLaunches();
+    f.cleanup();
+    release();
+  }
+});
+
 it.each(['default', 'selected', 'excluded', 'unauthorized'] as const)(
   'offers reviewed Telos capture without a retained role and preserves profile scope (%s)',
   async (mode) => {
@@ -7602,7 +7662,10 @@ it('discovers and executes StartSession through the actual owned native default-
     const sourceProviderCalls = mocks.send.mock.calls.length;
     const definitions = captured.tools as import('@mitzo/harness').ToolDefinition[];
     expect(definitions).toEqual(
-      expect.arrayContaining([expect.objectContaining({ name: 'StartSession' })]),
+      expect.arrayContaining([
+        expect.objectContaining({ name: 'StartSession' }),
+        expect.objectContaining({ name: 'TelosCreateSession' }),
+      ]),
     );
     const execute =
       captured.executeTool as import('../codex-conversation.js').CodexConversationOptions['executeTool'];
@@ -7641,6 +7704,39 @@ it('discovers and executes StartSession through the actual owned native default-
     expect(workspace).not.toHaveBeenCalled();
     expect(mocks.send).toHaveBeenCalledTimes(sourceProviderCalls);
     expect(await execute('StartSession', input, signal, call)).toEqual(response);
+    const workInput = {
+      ...input,
+      requestId: '900f0550-a194-4683-b2ee-e516917781fe',
+      itemId: 'selected-slice',
+      expectedRevision: 'a'.repeat(64),
+    };
+    const unbound = await execute('TelosCreateSession', workInput, signal, call);
+    expect(unbound.isError).toBe(true);
+    expect(unbound.content).toMatch(/unavailable|Do not substitute/);
+    expect(controller.launches.store.forSession('owned-session', 'user')).toHaveLength(1);
+    controller.telos = {
+      propose: vi.fn(async () => ({
+        telos: {
+          version: 1,
+          parentItemId: 'parent-feature',
+          parentAssignmentRevision: 1,
+          itemId: workInput.itemId,
+          expectedRevision: workInput.expectedRevision,
+          role: 'worker',
+          sourceSnapshotIds: [],
+          artifactRefs: [],
+        },
+      })),
+    } as never;
+    const workResult = await execute('TelosCreateSession', workInput, signal, call);
+    expect(workResult.isError, workResult.content).toBe(false);
+    expect(JSON.parse(workResult.content)).toMatchObject({
+      state: 'pending',
+      childSessionId: null,
+      telos: { itemId: workInput.itemId },
+    });
+    expect(start).not.toHaveBeenCalled();
+    expect(mocks.send).toHaveBeenCalledTimes(sourceProviderCalls);
   } finally {
     query?.close();
     release();

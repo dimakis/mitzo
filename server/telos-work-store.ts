@@ -875,13 +875,16 @@ export class TelosWorkStore {
         if (input.role === 'lead' || input.role === 'worker') {
           const pending = this.db
             .prepare(
-              `SELECT 1 FROM telos_work_role_setups WHERE receipt IS NULL
+              `SELECT request_id FROM telos_work_role_setups WHERE receipt IS NULL
             AND json_extract(intent,'$.input.itemId')=? AND json_extract(intent,'$.input.role')=?
             AND (?=1 OR json_extract(intent,'$.input.createOnly')=1) LIMIT 1`,
             )
-            .get(input.itemId, input.role, input.createOnly ? 1 : 0);
+            .get(input.itemId, input.role, input.createOnly ? 1 : 0) as
+            { request_id: string } | undefined;
           if (pending)
-            conflict('This role is reserved by an unfinished setup. Recover its original request.');
+            conflict(
+              `This role is reserved by unfinished setup ${pending.request_id}. Recover that original request; absence of a receipt does not authorize replacement.`,
+            );
           if (
             input.createOnly &&
             this.snapshot(input.itemId).assignments.some((a) => a.role === input.role)

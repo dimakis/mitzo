@@ -7,9 +7,7 @@ import {
   type TelosSessionLaunchPort,
 } from '../session-launch-service.js';
 
-/** First delivery contract. These tests precede implementation and have not
- * been executed: the task execution approval expired before the red phase.
- * A work-aware port composes reviewed role setup, never ordinary startup plus
+/** First delivery contract. A work-aware port composes reviewed role setup, never ordinary startup plus
  * post-fact attachment. It returns only verified canonical assignment receipts.
  */
 const stores: SessionLaunchStore[] = [];
@@ -60,7 +58,7 @@ function fixture() {
     itemId: telos.itemId,
     role: telos.role,
     assignmentRevision: 1,
-    execution: 'not_started' as const,
+    creationExecution: 'not_started' as const,
   };
   const work: TelosSessionLaunchPort = {
     validate: vi.fn(async () => {}),
@@ -162,6 +160,8 @@ describe('Telos create-and-assign through originating session review', () => {
     vi.mocked(f.work.create).mockRejectedValueOnce(Error('Assignment committed; response lost'));
     const uncertain = await f.service.approve(f.record.proposalId, 'user', edits, 1, f.authority);
     expect(uncertain.state).toBe('uncertain');
+    expect(uncertain.error).toMatch(/assignment.*original.*request/i);
+    expect(uncertain.error).not.toMatch(/session and command/);
     // A new service instance has no in-memory knowledge of the first attempt.
     const restarted = new SessionLaunchService(f.store, f.ordinary, f.work);
     const recovered = await restarted.refresh(f.record.proposalId, 'user', f.authority);

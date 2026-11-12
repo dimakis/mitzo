@@ -167,7 +167,7 @@ export function createTelosSessionLaunchHost(deps: TelosSessionLaunchDependencie
       itemId: input.itemId,
       role: assigned.role,
       assignmentRevision: assigned.revision,
-      execution: 'not_started',
+      creationExecution: 'not_started',
     };
   }
   const host: TelosSessionLaunchPort = {

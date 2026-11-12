@@ -27,7 +27,16 @@ afterEach(() => {
 });
 it('offers the same read/update schemas through MCP and uses host-authenticated updates', async () => {
   const previous = process.argv;
-  process.argv = ['node', 'telos', '--base-url', 'http://host', '--client-id', 'client'];
+  process.argv = [
+    'node',
+    'telos',
+    '--base-url',
+    'http://host',
+    '--client-id',
+    'client',
+    '--session-id',
+    'source-chat',
+  ];
   vi.stubEnv('MITZO_INTERNAL_TOKEN', 'synthetic-token');
   try {
     await import('../telos-mcp-server.js');
@@ -40,7 +49,41 @@ it('offers the same read/update schemas through MCP and uses host-authenticated 
       'TelosGetItem',
       'TelosUpdateItem',
       'TelosSaveArtifact',
+      'TelosCreateSession',
     ]),
+  );
+  const createSchema = z.object(
+    registered.get('TelosCreateSession')!.definition.inputSchema as z.ZodRawShape,
+  );
+  expect(createSchema.safeParse({ requestId: 'invalid' }).success).toBe(false);
+  const createInput = {
+    requestId: '8fea0d55-cded-43a0-8ab1-34e95ca9456e',
+    itemId: 'selected-slice',
+    expectedRevision: 'a'.repeat(64),
+    title: 'Slice',
+    prompt: 'Reviewed work',
+  };
+  const createFetch = vi
+    .fn()
+    .mockResolvedValue(
+      new Response(
+        JSON.stringify({ error: 'This child runtime is unsupported; select Local Mac Codex.' }),
+        { status: 409 },
+      ),
+    );
+  vi.stubGlobal('fetch', createFetch);
+  expect(await registered.get('TelosCreateSession')!.run(createInput)).toMatchObject({
+    isError: true,
+  });
+  expect(createFetch).toHaveBeenCalledWith(
+    'http://host/api/internal/telos/session/propose',
+    expect.objectContaining({
+      body: JSON.stringify({
+        clientId: 'client',
+        sessionId: 'source-chat',
+        input: createSchema.parse(createInput),
+      }),
+    }),
   );
   const legacy = {
     summary: 'Retained outcome',

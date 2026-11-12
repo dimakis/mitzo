@@ -1,6 +1,6 @@
 import { beforeEach, expect, it, vi } from 'vitest';
 import type { SessionLaunchConfig } from '@mitzo/protocol';
-import { createSessionLaunchPort } from '../session-launch-runtime.js';
+import { createSessionLaunchPort, prepareTelosSessionSettings } from '../session-launch-runtime.js';
 import type { RetainedSessionLaunch } from '../session-launch-store.js';
 const mocks = vi.hoisted(() => ({
   prepare: vi.fn(),
@@ -185,6 +185,40 @@ it('reuses ordinary native dispatch with the approved choices and durable IDs', 
   expect(call).not.toHaveProperty('adviserScope');
   expect(mocks.upsert).toHaveBeenCalledWith({ sessionId: 'child', summary: 'Reviewed title' });
 });
+it('prepares the independent Telos child tuple without allocating a session or command', async () => {
+  const settings = await prepareTelosSessionSettings(configuration, authority);
+  expect(settings).toMatchObject({
+    version: 2,
+    binding: mocks.runtime,
+    selection: {
+      agent: configuration.runtime.agentProfile,
+      model: 'fixture-model',
+      permission: { mode: 'agent' },
+    },
+  });
+  expect(mocks.prepare).toHaveBeenCalledOnce();
+  expect(mocks.reserve).not.toHaveBeenCalled();
+  expect(mocks.prepareSession).not.toHaveBeenCalled();
+  expect(mocks.dispatch).not.toHaveBeenCalled();
+});
+it.each(['openshell', 'claude'] as const)(
+  'rejects an unsupported Telos child %s route before preparation',
+  async (route) => {
+    const selected = structuredClone(configuration);
+    if (route === 'openshell')
+      selected.runtime.execution = { location: 'openshell', targetId: 'shell' };
+    else
+      selected.runtime.accountReference = {
+        accountId: 'claude',
+        provider: 'claude',
+        profileRevision: 'v1',
+      } as never;
+    await expect(prepareTelosSessionSettings(selected, authority)).rejects.toThrow();
+    expect(mocks.prepare).not.toHaveBeenCalled();
+    expect(mocks.reserve).not.toHaveBeenCalled();
+    expect(mocks.prepareSession).not.toHaveBeenCalled();
+  },
+);
 it('starts with the coordinator tools exposed by the selected default profile', async () => {
   const selected = {
     ...record,

@@ -45,8 +45,10 @@ export interface TelosSessionAssignmentReceipt {
   preparationId: string;
   itemId: string;
   role: 'lead' | 'worker';
+  /** Revision at creation; this historical receipt does not assert current ownership. */
   assignmentRevision: number;
-  execution: 'not_started';
+  /** This operation admits no command. The child may execute separately later. */
+  creationExecution: 'not_started';
 }
 /** Composes the canonical reviewed role owner. No provider dispatch method. */
 export interface TelosSessionLaunchPort {
@@ -88,7 +90,7 @@ export class SessionLaunchService {
       !receipt.childSessionId ||
       receipt.childSessionId === record.sourceSessionId ||
       !receipt.preparationId ||
-      receipt.execution !== 'not_started' ||
+      receipt.creationExecution !== 'not_started' ||
       !Number.isSafeInteger(receipt.assignmentRevision) ||
       receipt.assignmentRevision < 1
     )
@@ -108,13 +110,23 @@ export class SessionLaunchService {
     if (this.inFlight.has(id)) return record;
     if (!['starting', 'created', 'uncertain'].includes(record.state)) return record;
     if (record.telos) {
-      const observed = await this.workPort().inspect(record, authority);
+      try {
+        const observed = await this.workPort().inspect(record, authority);
+        authority.assertCurrent();
+        authority.signal.throwIfAborted();
+        if (observed.state === 'assigned') return this.assigned(record, observed);
+      } catch (cause) {
+        // Stale work authority keeps the retained intent uncertain. Revoked
+        // authentication/cancellation still denies the read and any mutation.
+        authority.assertCurrent();
+        authority.signal.throwIfAborted();
+        recordSessionLaunchFailure(record, 'create_assignment', cause);
+      }
       authority.assertCurrent();
       authority.signal.throwIfAborted();
-      if (observed.state === 'assigned') return this.assigned(record, observed);
       return this.store.fail(
         id,
-        'Work assignment is unconfirmed. Recover this original request; do not create a replacement session.',
+        `Work assignment is unconfirmed. Recover the original request ${record.requestId} (role operation ${record.proposalId}); do not create a replacement session.`,
         true,
       );
     }
@@ -233,12 +245,19 @@ export class SessionLaunchService {
       });
       authority.assertCurrent();
     } catch (cause) {
-      recordSessionLaunchFailure(this.store.get(id, owner), resume ? 'resume' : 'start', cause);
+      const record = this.store.get(id, owner);
+      recordSessionLaunchFailure(
+        record,
+        record.telos ? 'create_assignment' : resume ? 'resume' : 'start',
+        cause,
+      );
       // Startup can fail after workspace/provider effects. Never infer absence
       // from an exception or allocate a replacement on the next approval.
       return this.store.fail(
         id,
-        'Launch acknowledgement is unavailable. The retained session and command must be reconciled before another launch.',
+        record.telos
+          ? `Work assignment is unconfirmed. Recover the original request ${record.requestId} (role operation ${record.proposalId}); do not create a replacement session.`
+          : 'Launch acknowledgement is unavailable. The retained session and command must be reconciled before another launch.',
         true,
       );
     } finally {

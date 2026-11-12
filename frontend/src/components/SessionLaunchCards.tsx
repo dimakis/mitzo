@@ -21,7 +21,7 @@ export function SessionLaunchOrigin({ origin }: { origin?: SessionLaunchOriginDa
   if (!origin) return null;
   return (
     <p className="session-launch-origin">
-      Started from{' '}
+      Created from{' '}
       <Link to={`/chat/${encodeURIComponent(origin.sessionId)}`}>
         {origin.title || 'Originating chat'} <UiIcon name="arrowUpRight" size={16} />
       </Link>

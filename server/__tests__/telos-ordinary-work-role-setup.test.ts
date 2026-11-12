@@ -53,136 +53,216 @@ afterAll(() => {
 const fixture = (role?: 'advisor' | 'lead' | 'worker') =>
   createTelosOrdinaryWorkFixture(cleanup, role);
 
-it('creates and recovers an assigned slice from its lead review without a provider command', async () => {
-  const f = await fixture();
-  const lead = await f.owner.setup(f.actor, f.input, f.native.signal.signal);
-  const sourceSessionId = lead.work.assignments.find((a) => a.role === 'lead')!.conversation
-    .conversationId;
-  const items = new TelosItemStore(f.canonical.dbPath);
-  cleanup.push(() => items.close());
-  const child = items.createChildGuarded(
-    {
-      parentId: 'studio',
-      expectedParentRevision: items.read('studio').revision,
-      requestId: 'agent-session-slice',
-      summary: 'Review panel placement',
-      intent: 'Place the acoustic panels',
-      rationale: 'Improve recorded sound',
-      acceptanceCriteria: ['Panel placement reviewed'],
-      note: 'Approved first slice',
-    },
-    sourceSessionId,
-    () => {},
-    () => {},
-  );
-  const settings = f.input.settings;
-  const configuration: SessionLaunchConfig = {
-    version: 1,
-    runtime: {
+it.each([
+  'recovery',
+  'feature lead recovery',
+  'stale before allocation',
+  'stale after reservation',
+] as const)(
+  'creates only with current parent authority and recovers original custody (%s)',
+  async (scenario) => {
+    const f = await fixture();
+    if (scenario === 'feature lead recovery') {
+      f.work.execute(
+        {
+          operation: 'classify',
+          itemId: 'studio',
+          requestId: 'outcome-level',
+          expectedRevision: f.work.read('studio', f.actor).revision,
+          kind: 'coordinator',
+        },
+        f.actor,
+      );
+      f.input.contextSelection = reviewTelosWorkRoleContext({
+        work: f.work,
+        artifacts: f.canonical.artifacts,
+        actor: f.actor,
+        itemId: 'studio',
+        role: 'lead',
+        selectedSourceSnapshotIds: [],
+        selectedArtifactRefs: f.input.contextSelection.artifacts,
+      });
+      f.input.expectedRevision = f.input.contextSelection.brief.revision;
+    }
+    const lead = await f.owner.setup(f.actor, f.input, f.native.signal.signal);
+    const sourceSessionId = lead.work.assignments.find((a) => a.role === 'lead')!.conversation
+      .conversationId;
+    const items = new TelosItemStore(f.canonical.dbPath);
+    cleanup.push(() => items.close());
+    const child = items.createChildGuarded(
+      {
+        parentId: 'studio',
+        expectedParentRevision: items.read('studio').revision,
+        requestId: 'agent-session-slice',
+        summary: 'Review panel placement',
+        intent: 'Place the acoustic panels',
+        rationale: 'Improve recorded sound',
+        acceptanceCriteria: ['Panel placement reviewed'],
+        note: 'Approved first slice',
+      },
+      sourceSessionId,
+      () => {},
+      () => {},
+    );
+    const settings = f.input.settings;
+    const replaceParent = () => {
+      const parent = f.work.read('studio', f.actor);
+      f.work.execute(
+        {
+          operation: 'setup_role',
+          itemId: 'studio',
+          requestId: 'replace-parent',
+          expectedRevision: parent.revision,
+          role: 'lead',
+          expectedAssignmentRevision: parent.assignments.find((a) => a.role === 'lead')!.revision,
+          conversationId: f.native.first.receipt.sessionId,
+        },
+        f.actor,
+      );
+    };
+    const configuration: SessionLaunchConfig = {
       version: 1,
-      account: {
-        accountId: settings.binding.account.accountId,
-        model: settings.selection.model,
-        reasoningEffort: settings.selection.thinking,
+      runtime: {
+        version: 1,
+        account: {
+          accountId: settings.binding.account.accountId,
+          model: settings.selection.model,
+          reasoningEffort: settings.selection.thinking,
+        },
+        accountReference: settings.binding.account,
+        agentProfile: settings.selection.agent,
+        execution: { location: 'local', targetId: settings.binding.execution.targetId },
       },
-      accountReference: settings.binding.account,
-      agentProfile: settings.selection.agent,
-      execution: { location: 'local', targetId: settings.binding.execution.targetId },
-    },
-    mode: settings.selection.permission.mode,
-    isolation: true,
-    repositoryWorkspaceId: null,
-    contextBlocks: [],
-    extraTools: [],
-  };
-  const store = new SessionLaunchStore(':memory:');
-  cleanup.push(() => store.close());
-  const roleHost = createTelosWorkRoleHost({
-    dbPath: () => f.canonical.dbPath,
-    events: f.native.events,
-    ordinaryConversation: (id) => isAvailableTelosWorkConversation(f.native.events.getSession(id)),
-    workspaces: () => f.native.workspaces,
-    resolvePreparation: async () => {
-      throw Error('Repository preparation must not run');
-    },
-    authorizeSettings: async () => {
-      throw Error('Repository settings must not run');
-    },
-    ordinary: {
-      resolveSelection: async () => ({
-        binding: f.native.binding,
-        agentProfile: f.native.library.version(
-          'user',
-          settings.selection.agent.profileId,
-          settings.selection.agent.revision,
-        )!,
-        taskRoot: f.native.taskRoot,
+      mode: settings.selection.permission.mode,
+      isolation: true,
+      repositoryWorkspaceId: null,
+      contextBlocks: [],
+      extraTools: [],
+    };
+    const store = new SessionLaunchStore(':memory:');
+    cleanup.push(() => store.close());
+    const roleHost = createTelosWorkRoleHost({
+      dbPath: () => f.canonical.dbPath,
+      events: f.native.events,
+      ordinaryConversation: (id) =>
+        isAvailableTelosWorkConversation(f.native.events.getSession(id)),
+      workspaces: () => f.native.workspaces,
+      resolvePreparation: async () => {
+        throw Error('Repository preparation must not run');
+      },
+      authorizeSettings: async () => {
+        throw Error('Repository settings must not run');
+      },
+      ordinary: {
+        resolveSelection: async () => ({
+          binding: f.native.binding,
+          agentProfile: f.native.library.version(
+            'user',
+            settings.selection.agent.profileId,
+            settings.selection.agent.revision,
+          )!,
+          taskRoot: f.native.taskRoot,
+        }),
+        authorizeSettings: async () => {},
+      },
+    });
+    let loseResponse = true;
+    const host = createTelosSessionLaunchHost({
+      store,
+      events: f.native.events,
+      dbPath: () => f.canonical.dbPath,
+      ordinaryConversation: (id) =>
+        isAvailableTelosWorkConversation(f.native.events.getSession(id)),
+      roleHost: () => ({
+        ...roleHost,
+        setupReviewedOrdinary: async (request) => {
+          const result = await roleHost.setupReviewedOrdinary(request);
+          if (loseResponse) {
+            loseResponse = false;
+            throw Error('Assignment response lost');
+          }
+          return result;
+        },
       }),
-      authorizeSettings: async () => {},
-    },
-  });
-  let loseResponse = true;
-  const host = createTelosSessionLaunchHost({
-    store,
-    events: f.native.events,
-    dbPath: () => f.canonical.dbPath,
-    ordinaryConversation: (id) => isAvailableTelosWorkConversation(f.native.events.getSession(id)),
-    roleHost: () => ({
-      ...roleHost,
-      setupReviewedOrdinary: async (request) => {
-        const result = await roleHost.setupReviewedOrdinary(request);
-        if (loseResponse) {
-          loseResponse = false;
-          throw Error('Assignment response lost');
-        }
-        return result;
+      qualify: async () => {},
+      prepareSettings: async () => {
+        if (scenario === 'stale before allocation') replaceParent();
+        return settings;
       },
-    }),
-    qualify: async () => {},
-    prepareSettings: async () => settings,
-  });
-  const authority = {
-    operatorConnectionId: 'reviewing-operator',
-    authSessionId: f.actor.id,
-    signal: f.native.signal.signal,
-    assertCurrent: () => {},
-  };
-  const input = {
-    requestId: randomUUID(),
-    title: 'Panel placement worker',
-    prompt: 'Review the selected slice.',
-    itemId: child.item.id,
-    expectedRevision: f.work.read(child.item.id, f.actor).revision,
-    sourceSnapshotIds: [],
-    artifactRefs: [],
-  };
-  const proposal = await host.propose(sourceSessionId, input, authority);
-  const edits = { title: input.title, prompt: input.prompt, configuration };
-  const record = store.propose({
-    ...edits,
-    ...proposal,
-    sourceSessionId,
-    requestId: input.requestId,
-    operatorId: 'user',
-    originalInput: input,
-  });
-  const ordinary = { validate: vi.fn(), start: vi.fn(), inspect: vi.fn() };
-  const service = new SessionLaunchService(store, ordinary, host);
-  const before = f.native.events.listSessions().length;
-  const uncertain = await service.approve(record.proposalId, 'user', edits, 1, authority);
-  expect(uncertain.state).toBe('uncertain');
-  const recovered = await service.refresh(record.proposalId, 'user', authority);
-  expect(recovered.state).toBe('assigned');
-  expect(recovered.childSessionId).not.toBe(sourceSessionId);
-  expect(f.native.events.listSessions()).toHaveLength(before + 1);
-  expect(f.work.read(child.item.id, f.actor).assignments[0].conversation.conversationId).toBe(
-    recovered.childSessionId,
-  );
-  expect(f.native.events.getOrdinaryInitialCommandId(recovered.childSessionId!)).toBeUndefined();
-  expect(f.native.first.launch).not.toHaveBeenCalled();
-  expect(ordinary.start).not.toHaveBeenCalled();
-  expect(await service.refresh(record.proposalId, 'user', authority)).toEqual(recovered);
-});
+    });
+    const authority = {
+      operatorConnectionId: 'reviewing-operator',
+      authSessionId: f.actor.id,
+      signal: f.native.signal.signal,
+      assertCurrent: () => {},
+    };
+    const input = {
+      requestId: randomUUID(),
+      title: 'Panel placement worker',
+      prompt: 'Review the selected slice.',
+      itemId: child.item.id,
+      expectedRevision: f.work.read(child.item.id, f.actor).revision,
+      sourceSnapshotIds: [],
+      artifactRefs: [],
+    };
+    const proposal = await host.propose(sourceSessionId, input, authority);
+    const edits = { title: input.title, prompt: input.prompt, configuration };
+    const record = store.propose({
+      ...edits,
+      ...proposal,
+      sourceSessionId,
+      requestId: input.requestId,
+      operatorId: 'user',
+      originalInput: input,
+    });
+    const ordinary = { validate: vi.fn(), start: vi.fn(), inspect: vi.fn() };
+    const service = new SessionLaunchService(store, ordinary, host);
+    const before = f.native.events.listSessions().length;
+    if (scenario === 'stale after reservation') {
+      const reserve = f.native.workspaces.reserveOrdinaryWorkspace.bind(f.native.workspaces);
+      vi.spyOn(f.native.workspaces, 'reserveOrdinaryWorkspace').mockImplementation(
+        async (input) => {
+          const reserved = await reserve(input);
+          replaceParent();
+          return reserved;
+        },
+      );
+    }
+    const uncertain = await service.approve(record.proposalId, 'user', edits, 1, authority);
+    expect(uncertain.state).toBe('uncertain');
+    if (scenario.startsWith('stale')) {
+      expect(f.native.events.listSessions()).toHaveLength(before);
+      expect(f.work.read(child.item.id, f.actor).assignments).toHaveLength(0);
+      expect(f.native.first.launch).not.toHaveBeenCalled();
+      expect(ordinary.start).not.toHaveBeenCalled();
+      const refresh = await service.refresh(record.proposalId, 'user', authority);
+      expect(refresh.state).toBe('uncertain');
+      expect(refresh.error).toContain(record.proposalId);
+      if (scenario === 'stale after reservation') {
+        const setup = store.get(record.proposalId, 'user').telosSetup!;
+        expect(() =>
+          f.work.prepareOrdinaryRoleSetup(
+            { ...setup.input, requestId: 'unsafe-replacement' },
+            f.actor,
+          ),
+        ).toThrow(record.proposalId);
+      }
+      return;
+    }
+    const recovered = await service.refresh(record.proposalId, 'user', authority);
+    expect(recovered.state).toBe('assigned');
+    expect(recovered.telos?.role).toBe(scenario === 'feature lead recovery' ? 'lead' : 'worker');
+    expect(recovered.childSessionId).not.toBe(sourceSessionId);
+    expect(f.native.events.listSessions()).toHaveLength(before + 1);
+    expect(f.work.read(child.item.id, f.actor).assignments[0].conversation.conversationId).toBe(
+      recovered.childSessionId,
+    );
+    expect(f.native.events.getOrdinaryInitialCommandId(recovered.childSessionId!)).toBeUndefined();
+    expect(f.native.first.launch).not.toHaveBeenCalled();
+    expect(ordinary.start).not.toHaveBeenCalled();
+    expect(await service.refresh(record.proposalId, 'user', authority)).toEqual(recovered);
+  },
+);
 it('takes a newly created standalone feature through independent lead and slice worker setup', async () => {
   const f = await fixture();
   const items = new TelosItemStore(f.canonical.dbPath);

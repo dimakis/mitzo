@@ -76,6 +76,7 @@ import { watchAgentMessageTranscript } from './agent-message-transcript.js';
 import { createAgentMessageApprover } from './agent-communication-permission.js';
 import { sessionPromptDefinitions } from './session-prompt-definitions.js';
 import { sessionLaunchDefinitions, sessionLaunchTools } from './session-launch-tools.js';
+import { SessionLaunchError } from './session-launch-store.js';
 import {
   AGENT_COMMUNICATION_TOOL,
   agentCommunicationDefinitions,
@@ -1920,7 +1921,7 @@ async function openCodexChatBound(
         },
       })
     : undefined;
-  const launchTools = options.ownedLocal
+  const launchTools = ownedHost
     ? sessionLaunchTools({
         sessionId: options.conversationId,
         session: options.session,
@@ -2458,6 +2459,9 @@ async function openCodexChatBound(
         ]
       : connectedOpenShell
         ? [
+            ...(launchTools
+              ? sessionLaunchDefinitions.filter((tool) => tool.name === 'TelosCreateSession')
+              : []),
             ...connectionTools.definitions,
             ...openShellHostTools,
             ...capabilityTools.definitions,
@@ -3890,7 +3894,7 @@ async function openCodexChatBound(
           return error instanceof Error ? copyCallbackOutcome(error, failure) : failure;
         }
       }
-      if (name === 'StartSession') {
+      if (name === 'StartSession' || name === 'TelosCreateSession') {
         if (!launchTools)
           return {
             content: 'Session creation requires an ordinary Local Mac Codex session.',
@@ -3898,13 +3902,15 @@ async function openCodexChatBound(
           };
         try {
           return {
-            content: JSON.stringify(await launchTools.execute(input, signal, callContext)),
+            content: JSON.stringify(await launchTools.execute(input, signal, callContext, name)),
             isError: false,
           };
-        } catch {
+        } catch (error) {
           return {
             content:
-              'The session proposal could not be saved under the current session authority. Reuse the same request ID and arguments after checking the original request. No new session is confirmed.',
+              error instanceof SessionLaunchError
+                ? error.message
+                : 'The session proposal could not be saved under the current session authority. Reuse the same request ID and arguments after checking the original request. No new session is confirmed.',
             isError: true,
           };
         }

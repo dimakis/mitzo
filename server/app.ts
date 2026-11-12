@@ -249,6 +249,7 @@ import { createSymposiumProfileRouter } from './symposium-profile-routes.js';
 import { SymposiumProfileProposalStore } from './symposium-profile-proposals.js';
 import { initializeSessionLaunches, closeSessionLaunches } from './session-launch-controller.js';
 import { createTelosSessionLaunchHost } from './telos-session-launch-host.js';
+import { createTelosSessionProposalRouter } from './telos-session-launch-adapters.js';
 import {
   qualifySessionLaunchConfig,
   prepareTelosSessionSettings,
@@ -1313,6 +1314,14 @@ const sessionLaunchController = initializeSessionLaunches(
       },
       prepareSettings: prepareTelosSessionSettings,
     }),
+);
+app.use(
+  createTelosSessionProposalRouter({
+    controller: sessionLaunchController,
+    registry,
+    verifyInternal: (req) => isValidInternalToken(req.headers['x-internal-token']),
+    ordinaryConversation: (id) => isAvailableTelosWorkConversation(eventStore.getSession(id)),
+  }),
 );
 mountObservedRouter(
   app,

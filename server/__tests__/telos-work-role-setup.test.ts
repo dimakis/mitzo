@@ -29,7 +29,7 @@ it('reserves a create-only role before allocation and blocks competing agent and
   expect(r.work.prepareRoleSetup(input, r.actor)).toEqual(first);
   expect(() =>
     r.work.prepareRoleSetup({ ...input, requestId: 'competing-agent' }, r.actor),
-  ).toThrow(/original|reserved/i);
+  ).toThrow(input.requestId);
   expect(() => r.work.prepareRoleSetup({ ...r.input, requestId: 'manual-setup' }, r.actor)).toThrow(
     /original|reserved/i,
   );

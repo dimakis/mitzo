@@ -3,9 +3,20 @@ import { AgentLibraryStore } from '../agent-library-store.js';
 import { resolveChatAgentProfile } from '../agent-library-binding.js';
 import { sessionCredentialTools } from '../session-credential-tools.js';
 import { SessionRegistry } from '@mitzo/harness';
-import { bindAgentToolSelection } from '../agent-tool-selection.js';
+import { bindAgentToolSelection, agentToolAllowed } from '../agent-tool-selection.js';
 
 const library = new AgentLibraryStore(':memory:');
+it('admits the selected Telos creation tool through its Claude MCP name only', () => {
+  const session = {};
+  bindAgentToolSelection(session, {
+    tools: [{ id: 'mitzo:TelosCreateSession', version: 1 }],
+  } as never);
+  expect(agentToolAllowed(session, 'mcp__telos__TelosCreateSession')).toBe(true);
+  expect(agentToolAllowed(session, 'mcp__untrusted__TelosCreateSession')).toBe(false);
+  const unselected = {};
+  bindAgentToolSelection(unselected, { tools: [] } as never);
+  expect(agentToolAllowed(unselected, 'mcp__telos__TelosCreateSession')).toBe(false);
+});
 afterEach(() => vi.restoreAllMocks());
 it('publishes a subset, exposes it, and rejects an unselected optional invocation', async () => {
   const draft = library.saveDraft('user', {
