@@ -399,10 +399,7 @@ for (const [name, Screen] of [
     const more = screen.queryByRole('button', { name: /^More/ });
     if (more) fireEvent.click(more);
     await waitFor(() =>
-      expect(screen.getByRole('button', { name: 'Ask', exact: true })).toHaveAttribute(
-        'aria-pressed',
-        'true',
-      ),
+      expect(screen.getByRole('button', { name: 'Ask' })).toHaveAttribute('aria-pressed', 'true'),
     );
     fireEvent.click(screen.getByRole('button', { name: 'Test send' }));
     expect(ordinarySend.mock.calls[0][0]).toMatchObject({
@@ -441,7 +438,7 @@ for (const [name, Screen] of [
       if (trigger.getAttribute('aria-expanded') !== 'true') fireEvent.click(trigger);
       const more = screen.queryByRole('button', { name: /^More/ });
       if (more) fireEvent.click(more);
-      const auto = await screen.findByRole('button', { name: 'Auto', exact: true });
+      const auto = await screen.findByRole('button', { name: 'Auto' });
       await waitFor(() => expect(auto).toBeEnabled());
       fireEvent.click(auto);
       expect(change).toHaveBeenCalledWith('auto');
