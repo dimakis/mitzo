@@ -627,6 +627,46 @@ it.each([
       'mcp__mitzo-web-access__RequestWebAccess',
     );
     expect(services.requests[0].options.disallowedTools).not.toContain('mcp__mitzo-web-access__*');
+    const inspectConnections = async (options: Options, execute = false) => {
+      const server = options.mcpServers!['mitzo-connections'] as McpSdkServerConfigWithInstance;
+      const client = new Client({ name: 'owned-claude-connections', version: '1' });
+      const [serverTransport, clientTransport] = InMemoryTransport.createLinkedPair();
+      await server.instance.connect(serverTransport);
+      await client.connect(clientTransport);
+      try {
+        const names = (await client.listTools()).tools.map((tool) => tool.name);
+        expect(names.includes('ListConnections')).toBe(!idleSuccess);
+        for (const name of [
+          'RequestConnectionAccess',
+          'ConnectionRequest',
+          'PrepareConnectionSetup',
+        ])
+          expect(names).not.toContain(name);
+        if (execute) {
+          const decision = await options.canUseTool!(
+            'mcp__mitzo-connections__ListConnections',
+            {},
+            { signal: new AbortController().signal, toolUseID: 'connection-discovery' },
+          );
+          expect(decision.behavior).toBe(idleSuccess ? 'deny' : 'allow');
+          if (!idleSuccess)
+            expect(await client.callTool({ name: 'ListConnections', arguments: {} })).toMatchObject(
+              { isError: false },
+            );
+          expect(
+            await options.canUseTool!(
+              'mcp__mitzo-connections__ConnectionRequest',
+              { connectionId: 'forged', method: 'GET', path: '/api/' },
+              { signal: new AbortController().signal, toolUseID: 'unavailable-connection-request' },
+            ),
+          ).toMatchObject({ behavior: 'deny' });
+        }
+      } finally {
+        await client.close();
+        await server.instance.close();
+      }
+    };
+    await inspectConnections(services.requests[0].options as Options, true);
     const servers = services.requests[0].options.mcpServers as Record<
       string,
       McpSdkServerConfigWithInstance
@@ -765,6 +805,10 @@ it.each([
       model: f.request.selection.model,
       ...(managed ? {} : { effort: 'low' }),
     });
+    // The actual owner recreates its MCP surface for queued and cold queries.
+    // Their terminal callbacks are retired; inspect exposure without re-executing them.
+    for (const request of services.requests.slice(1))
+      await inspectConnections(request.options as Options);
     await vi.waitFor(() =>
       expect(chat.eventStore.getSession(f.reservation.conversationId)?.executionPhase).toBe(
         'TERMINAL',
