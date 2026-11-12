@@ -113,7 +113,6 @@ export function agentToolAllowed(session: object, name: string): boolean {
 export function filterAgentTools<T extends { name: string }>(session: object, tools: T[]): T[] {
   return tools.filter((tool) => agentToolAllowed(session, tool.name));
 }
-
 /** Read-only catalog support, not the callable inventory or execution authority.
  * Reuse the captured profile; never treat an uncaptured selection as a default.
  * One catalog/selection read serves the entire projection.
@@ -150,6 +149,12 @@ export function projectAgentHelperSupport(
       return { name, source, requirement, state };
     })
     .sort((a, b) => a.source.localeCompare(b.source) || a.name.localeCompare(b.name));
+}
+
+/** Registration requires the complete native tool selection. Ownership,
+ * platform and current filesystem authority remain the adapter's checks. */
+export function nativeExecutionToolsAllowed(session: object): boolean {
+  return ['Bash', 'Read', 'Write', 'Edit'].every((name) => agentToolAllowed(session, name));
 }
 export function assertAgentToolSelected(session: object, name: string): void {
   if (!agentToolAllowed(session, name))

@@ -9,7 +9,7 @@ import type { CodexLifecycleTransport } from '../codex-app-server-client.js';
 import type { SessionSseRegistry } from '../session-sse-registry.js';
 import type { ConnectionRegistry } from '@mitzo/harness';
 
-// CT09 requires the real macOS process-isolation owner used by the artifact helper.
+// CT12 uses the qualified macOS native runtime owner.
 // Required macOS CI runs it completely; Linux separately proves fail-closed refusal.
 const it = platformTest.runIf(process.platform === 'darwin');
 
@@ -67,7 +67,7 @@ vi.mock('../goal-client.js', () => ({
   deriveGoalTitle: () => 'Offline',
 }));
 
-// CT09 composes the actual application owners. Only native provider RPCs and
+// CT12 composes the actual application owners. Only native provider RPCs and
 // unrelated notification/naming integrations are fake; no model is invoked.
 const cleanup: Array<() => void | Promise<void>> = [];
 let f: Awaited<ReturnType<typeof ownedOrdinaryRuntimeFixture>>;
@@ -112,7 +112,7 @@ afterEach(async () => {
   vi.unstubAllEnvs();
 });
 
-it('CT12: actual signed V2 coordinator setup and native controls reject additional and retired lead authority', async () => {
+it('CT12: signed V2 coordinator and feature handovers preserve scoped acknowledgements across restart', async () => {
   vi.resetModules();
   vi.stubEnv('MITZO_KNOWLEDGE_LIBRARY_CONFIG', undefined);
   vi.stubEnv('MITZO_WORKSPACE_RUNTIME_CONFIG', undefined);
@@ -431,6 +431,85 @@ it('CT12: actual signed V2 coordinator setup and native controls reject addition
     canonical.work.assertControlAction('unrelated', 'new_worker_dispatch'),
   ).not.toThrow();
 
+  const targetNative = await start(target.id);
+  const acknowledge = {
+    operation: 'acknowledge',
+    requestId: randomUUID(),
+    controlId: control.controlId,
+    itemId: 'target',
+    assignmentRevision: 1,
+  };
+  const acknowledged = await nativeTool(targetNative, target.id, acknowledge);
+  expect(acknowledged.success, JSON.stringify(acknowledged)).toBe(true);
+  expect(JSON.parse(acknowledged.contentItems[0].text)).toMatchObject({
+    stage: 'acknowledged',
+    targets: [{ itemId: 'target', leadConversationId: target.id, stage: 'acknowledged' }],
+  });
+  // A reviewed replacement gets its own chat. The original acknowledgement
+  // remains history, but cannot stand in for the new lead's receipt or application.
+  const targetReplacement = await role('target', 1);
+  expect(targetReplacement.id).not.toBe(target.id);
+  const targetReplacementNative = await start(targetReplacement.id);
+  canonical.restartOwners();
+  expect(await api.setupReviewedOrdinaryRole(target.body)).toEqual(target.receipt);
+  expect((await api.read('target')).assignments).toEqual(
+    targetReplacement.receipt.work.assignments,
+  );
+  const readControl = async () => {
+    const view = await api.control({ operation: 'read', controlId: control.controlId });
+    if (Array.isArray(view)) throw Error('Expected one selected control');
+    return view;
+  };
+  const reassigned = await readControl();
+  expect(reassigned).toMatchObject({
+    stage: 'requested',
+    targets: [
+      {
+        itemId: 'target',
+        leadConversationId: targetReplacement.id,
+        assignmentRevision: 2,
+        stage: 'requested',
+      },
+    ],
+  });
+  expect(reassigned.history).toContainEqual(
+    expect.objectContaining({
+      conversationId: target.id,
+      assignmentRevision: 1,
+      stage: 'acknowledged',
+    }),
+  );
+  expect((await nativeTool(targetNative, target.id, acknowledge)).success).toBe(false);
+  expect(
+    (
+      await nativeTool(targetReplacementNative, targetReplacement.id, {
+        ...acknowledge,
+        requestId: randomUUID(),
+      })
+    ).success,
+  ).toBe(false);
+  const currentAcknowledgement = {
+    ...acknowledge,
+    requestId: randomUUID(),
+    assignmentRevision: 2,
+  };
+  const currentReceipt = await nativeTool(
+    targetReplacementNative,
+    targetReplacement.id,
+    currentAcknowledgement,
+  );
+  expect(currentReceipt.success, JSON.stringify(currentReceipt)).toBe(true);
+  const acknowledgedCurrent = await readControl();
+  expect(acknowledgedCurrent.stage).toBe('acknowledged');
+  expect(acknowledgedCurrent.history).toHaveLength(2);
+  expect(acknowledgedCurrent.history.every((entry) => entry.stage === 'acknowledged')).toBe(true);
+  canonical.restartOwners();
+  expect(
+    (await nativeTool(targetReplacementNative, targetReplacement.id, currentAcknowledgement))
+      .success,
+  ).toBe(true);
+  expect(await readControl()).toEqual(acknowledgedCurrent);
+
   const replacement = await role('studio', 1);
   expect(replacement.receipt.work.assignments[0]).toMatchObject({
     role: 'lead',
@@ -467,7 +546,7 @@ it('CT12: actual signed V2 coordinator setup and native controls reject addition
   expect(
     resolveTelosWorkRoleContext(chat.eventStore, first.id, firstSession.accountBinding!),
   ).toEqual(first.body.input.contextSelection);
-  for (const id of [first.id, additional.id, replacement.id, target.id]) {
+  for (const id of [first.id, additional.id, replacement.id, target.id, targetReplacement.id]) {
     const session = chat.eventStore.getSession(id)!;
     expect(session.repositoryWorkspaceId).toBeUndefined();
     expect(session.ordinaryWorkspaceId).toBeTruthy();

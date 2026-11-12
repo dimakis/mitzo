@@ -218,6 +218,20 @@ export const TelosSourcePermissionReceiptSchema = z.strictObject({
   sourceSnapshotId: TelosWorkIdSchema,
   canonicalCreation: TelosCanonicalOutcomeReceiptSchema.nullable().optional(),
 });
+/** Dismissing recovery ends the waiting call; it does not undo or retry a save. */
+export const TelosSourceRecoveryDismissalSchema = z.strictObject({
+  kind: z.literal('telos_save_recovery_dismissed'),
+  permId: TelosWorkIdSchema,
+  sessionId: TelosWorkIdSchema,
+  toolUseId: z.string().min(1).max(1000),
+  saveStatus: z.enum(['completed', 'unconfirmed']),
+  itemId: TelosWorkIdSchema.optional(),
+  canonicalCreation: TelosCanonicalOutcomeReceiptSchema.nullable().optional(),
+  message: z.literal('Reviewed save dismissed; retained save results remain recoverable'),
+  nextAction: z.literal(
+    'Do not create another outcome or retry creation. Dismissal does not prove the save failed. Use the retained receipt or item identity to reconcile the original save; further creation requires a new explicit operator request.',
+  ),
+});
 export type TelosCanonicalOutcomeReceipt = z.infer<typeof TelosCanonicalOutcomeReceiptSchema>;
 export type TelosSourceChoice = z.infer<typeof TelosSourceChoiceSchema>;
 export type TelosSourcePermissionReview = z.infer<typeof TelosSourcePermissionReviewSchema>;

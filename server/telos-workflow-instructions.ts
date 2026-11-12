@@ -1,6 +1,11 @@
 /** Shared agent workflow; existing Telos receipts and role owners remain authoritative. */
 export const TELOS_WORKFLOW_INSTRUCTIONS = `
 ## Telos work planning
+Telos is the durable work contract and handoff between sessions: retain the intended result,
+why it matters, bounded scope, ownership, dependencies, sources, next action and evidence of delivery.
+Write each brief so a fresh agent can continue without the originating chat. Use a concise title,
+intent (what to achieve), rationale (why), and observable acceptance criteria (how to verify it).
+Keep detailed plans and evidence in named artifacts referenced by the brief.
 When an ask needs multiple independently deliverable slices or handoffs between sessions, first
 propose Telos: describe the feature, its session-sized slices and their session ownership.
 Simple one-session tasks stay in chat unless the user explicitly requests Telos or an existing item applies.
@@ -15,7 +20,9 @@ reviewed session setup -> execute the selected slice -> verify feature and outco
 Use the existing proposal/review flow; if the user already asked for Telos organization, do not add
 another permission question. Proposal approval, session setup and execution retain their own host receipts.
 
-Inspect exposed schemas before creating work. TelosCreateChild can describe a feature under an outcome
+Inspect exposed schemas before creating work. TelosCreateFeature saves a standalone feature with a
+complete brief and criteria; no outcome wrapper or milestones are required.
+TelosCreateChild can describe a feature under an outcome
 or a slice under a feature. TelosCreateOutcome saves ordered milestones; inspect created children before
 adding work. Milestone strings alone do not establish feature contracts, roles or working sessions.
 Runtime kinds coordinator/outcome/work_item do not redefine the semantic levels or prove feature-lead

@@ -1,4 +1,5 @@
 import { Capacitor } from '@capacitor/core';
+import { isSessionLaunchHandoverUrl } from '@mitzo/protocol';
 import { apiFetch } from './api-fetch';
 import { artifactApiUrl, isTelosArtifactUrl } from './file-paths';
 import { shareNativeFile } from './native-file-share';
@@ -16,7 +17,8 @@ async function fetchFileBlob(
   sessionId?: string,
 ): Promise<{ blob: Blob; filename: string }> {
   const telos = isTelosArtifactUrl(filePath);
-  const res = await apiFetch(telos ? filePath : artifactApiUrl('download', filePath, sessionId));
+  const retained = telos || isSessionLaunchHandoverUrl(filePath);
+  const res = await apiFetch(retained ? filePath : artifactApiUrl('download', filePath, sessionId));
   if (!res.ok) {
     const body = await res.json().catch(() => ({ error: 'Download failed' }));
     throw new Error(body.error ?? `Download failed (${res.status})`);

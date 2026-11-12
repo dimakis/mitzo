@@ -1,4 +1,5 @@
 import { afterEach, expect, it, vi } from 'vitest';
+import { z } from 'zod';
 const registered = vi.hoisted(
   () =>
     new Map<
@@ -41,6 +42,19 @@ it('offers the same read/update schemas through MCP and uses host-authenticated 
       'TelosSaveArtifact',
     ]),
   );
+  const legacy = {
+    summary: 'Retained outcome',
+    intent: 'Preserve reviewed work',
+    rationale: 'Recover without reinterpretation',
+    acceptanceCriteria: ['Receipt survives'],
+    milestones: ['One original slice'],
+    profile: 'manual',
+    __mitzoTelosApproval: '00000000-0000-4000-8000-000000000001',
+  };
+  const schema = z.object(
+    registered.get('TelosCreateOutcome')!.definition.inputSchema as z.ZodRawShape,
+  );
+  expect(schema.parse(legacy)).toEqual(legacy);
   expect(Object.keys(registered.get('TelosGetItem')!.definition.inputSchema as object)).toEqual([
     'itemId',
   ]);

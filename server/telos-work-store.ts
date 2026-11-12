@@ -1390,19 +1390,21 @@ export class TelosWorkStore {
           ])
         )
           conflict('Created outcome differs from the reviewed proposal');
+        const outcomeKind = proposal.workLevel === 'outcome' ? 'coordinator' : 'outcome';
+        const childKind = proposal.workLevel === 'outcome' ? 'outcome' : 'work_item';
         const kind = this.snapshot(itemId).kind;
-        if (kind && kind !== 'outcome') conflict('Created item classification changed');
+        if (kind && kind !== outcomeKind) conflict('Created item classification changed');
         if (!kind)
           this.db
-            .prepare("INSERT INTO telos_work_kinds(item_id,kind) VALUES(?,'outcome')")
-            .run(itemId);
+            .prepare('INSERT INTO telos_work_kinds(item_id,kind) VALUES(?,?)')
+            .run(itemId, outcomeKind);
         for (const child of childRows) {
           const kind = this.snapshot(child.id).kind;
-          if (kind && kind !== 'work_item') conflict('Created milestone classification changed');
+          if (kind && kind !== childKind) conflict('Created milestone classification changed');
           if (!kind)
             this.db
-              .prepare("INSERT INTO telos_work_kinds(item_id,kind) VALUES(?,'work_item')")
-              .run(child.id);
+              .prepare('INSERT INTO telos_work_kinds(item_id,kind) VALUES(?,?)')
+              .run(child.id, childKind);
         }
         const revision = this.snapshot(itemId).revision;
         this.db

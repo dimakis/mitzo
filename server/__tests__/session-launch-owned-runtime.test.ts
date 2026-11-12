@@ -51,6 +51,7 @@ afterEach(async () => {
 
 it.each([
   'normal',
+  'coordinator-tools',
   'before-reservation',
   'after-reservation',
   'before-dispatch',
@@ -78,7 +79,9 @@ it.each([
       await import('./fixtures/owned-ordinary-workspace-runtime.js');
     const f = await ownedOrdinaryRuntimeFixture(cleanups, {
       chatRoute: true,
-      tools: [{ id: 'mitzo:AgentCommunication', version: 1 }],
+      tools: ['AgentCommunication', 'TaskExecution', 'StartSession', 'SessionTimers'].map(
+        (name) => ({ id: `mitzo:${name}`, version: 1 }),
+      ),
     });
     services.workspace = f.workspaces;
     const chat = await import('../chat.js');
@@ -163,7 +166,10 @@ it.each([
         isolation: true,
         repositoryWorkspaceId: null,
         contextBlocks: [],
-        extraTools: [],
+        extraTools:
+          stage === 'coordinator-tools'
+            ? ['AgentCommunication', 'TaskExecution', 'StartSession', 'SessionTimers']
+            : [],
       },
     });
     const edits = {
@@ -258,7 +264,7 @@ it.each([
         expect(launch).not.toHaveBeenCalled();
         return;
       }
-      if (stage !== 'normal') {
+      if (stage !== 'normal' && stage !== 'coordinator-tools') {
         expect(created.state).toBe('uncertain');
         expect(launch).not.toHaveBeenCalled();
         const originalWorkspace = f.workspaces.getOrdinaryWorkspaceForOperation(
@@ -314,6 +320,12 @@ it.each([
         await service.approve(proposal.proposalId, 'user', edits, proposal.revision, authority),
       ).toEqual(running);
       expect(launch).toHaveBeenCalledOnce();
+      if (stage === 'coordinator-tools') {
+        const thread = f.first.rpc.request.mock.calls.find(([method]) => method === 'thread/start');
+        const tools = (thread?.[1] as { dynamicTools: Array<{ name: string }> }).dynamicTools;
+        for (const name of ['AgentCommunication', 'TaskExecution', 'StartSession', 'SessionTimers'])
+          expect(tools.map((tool) => tool.name)).toContain(name);
+      }
       expect(f.forbidden).not.toHaveBeenCalled();
     } finally {
       revokeAuthSession(f.auth);

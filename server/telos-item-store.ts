@@ -9,12 +9,16 @@ import { createHash } from 'node:crypto';
 import { mkdirSync, existsSync, chmodSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { initializeTelosSchema } from './telos-schema.js';
+import { initializeTelosWorkKinds } from './telos-work-schema.js';
 import { assertTelosItemActive } from './telos-lifecycle-facts.js';
+import { drainRejectedTelosAuthority } from './telos-authority-diagnostic.js';
 import {
   TelosEditItemInputSchema,
   type TelosEditItemInput,
   TelosCreateChildInputSchema,
   type TelosCreateChildInput,
+  TelosCreateFeatureInputSchema,
+  type TelosCreateFeatureInput,
 } from '@mitzo/protocol';
 
 export interface TelosItemUpdateInput {
@@ -46,7 +50,7 @@ function assertCurrent(assertion?: () => void): void {
   if (!assertion) return;
   const result: unknown = assertion();
   if (result === undefined) return;
-  void Promise.resolve(result).catch(() => {});
+  drainRejectedTelosAuthority(result, 'item-authority');
   throw Error('Synchronous Telos item authority required');
 }
 
@@ -98,6 +102,20 @@ export class TelosItemStore {
       .prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='telos_item_updates'")
       .get();
   }
+  private workKind(itemId: string): 'coordinator' | 'outcome' | 'work_item' | null {
+    if (
+      !this.db
+        .prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='telos_work_kinds'")
+        .get()
+    )
+      return null;
+    return (
+      (
+        this.db.prepare('SELECT kind FROM telos_work_kinds WHERE item_id=?').get(itemId) as
+          { kind: 'coordinator' | 'outcome' | 'work_item' } | undefined
+      )?.kind ?? null
+    );
+  }
   private snapshot(itemId: string, updatesExist = this.hasUpdates()) {
     const row = this.db.prepare('SELECT * FROM items WHERE id=?').get(itemId) as
       ItemRow | undefined;
@@ -112,8 +130,17 @@ export class TelosItemStore {
           )
           .all(itemId) as UpdateRow[])
       : [];
+    const kind = this.workKind(itemId);
     return {
       id: row.id,
+      workLevel:
+        kind === 'coordinator'
+          ? 'outcome'
+          : kind === 'outcome'
+            ? 'feature'
+            : kind === 'work_item'
+              ? 'slice'
+              : null,
       summary: row.summary,
       status: row.status,
       parentId: row.parent_id,
@@ -122,7 +149,7 @@ export class TelosItemStore {
       acceptanceCriteria: JSON.parse(row.acceptance_criteria || '[]') as string[],
       updatedAt: row.updated_at,
       revision: createHash('sha256')
-        .update(JSON.stringify([row, children, updates]))
+        .update(JSON.stringify([row, children, updates, kind]))
         .digest('hex'),
       children: children.map((child) => ({
         id: child.id,
@@ -250,30 +277,71 @@ export class TelosItemStore {
     assertion: () => void,
     beforeApply: () => void,
   ): TelosChildCreationReceipt {
-    if (typeof assertion !== 'function' || typeof beforeApply !== 'function' || !sessionId.trim())
-      throw Error('Synchronous Telos child authority and session required');
+    return this.createBacklogGuarded(
+      TelosCreateChildInputSchema.parse(raw),
+      sessionId,
+      assertion,
+      beforeApply,
+    ) as TelosChildCreationReceipt;
+  }
+
+  createFeatureGuarded(
+    raw: TelosCreateFeatureInput,
+    sessionId: string,
+    assertion: () => void,
+  ): TelosItemUpdateReceipt {
+    return this.createBacklogGuarded(
+      TelosCreateFeatureInputSchema.parse(raw),
+      sessionId,
+      assertion,
+    );
+  }
+
+  /** Both creators share the original canonical writer, atomic audit and replay ledger. */
+  private createBacklogGuarded(
+    input: TelosCreateFeatureInput | TelosCreateChildInput,
+    sessionId: string,
+    assertion: () => void,
+    beforeApply?: () => void,
+  ): TelosItemUpdateReceipt & { parentRevision?: string } {
+    const child = 'parentId' in input ? input : undefined;
+    if (
+      typeof assertion !== 'function' ||
+      (child && typeof beforeApply !== 'function') ||
+      !sessionId.trim()
+    )
+      throw Error('Synchronous Telos creation authority and session required');
     if (this.db.inTransaction) throw Error('Original Telos item writer required');
-    const input = TelosCreateChildInputSchema.parse(raw);
     return this.writeWithReceipt(
       sessionId,
       input.requestId,
-      { operation: 'create-child', input },
+      { operation: child ? 'create-child' : 'create-feature', input },
       assertion,
       (inputHash, updatesExist) => {
-        const parent = this.snapshot(input.parentId, updatesExist);
-        if (parent.revision !== input.expectedParentRevision)
+        const parent = child ? this.snapshot(child.parentId, updatesExist) : undefined;
+        if (child && parent?.revision !== child.expectedParentRevision)
           throw Error('Telos item changed; read the parent again before creating a child');
-        if (parent.status === 'completed')
+        if (parent?.status === 'completed')
           throw Error('Telos item is completed; reopen the parent before adding work');
         assertCurrent(assertion);
         // Eligibility checks apply to new effects, not recovery of committed receipts.
         assertCurrent(beforeApply);
         const itemId = createHash('sha256')
-          .update(JSON.stringify(['telos-child', sessionId, input.requestId]))
+          .update(
+            JSON.stringify([child ? 'telos-child' : 'telos-feature', sessionId, input.requestId]),
+          )
           .digest('hex')
           .slice(0, 16);
         const now = new Date().toISOString();
         if (!updatesExist) this.ensureUpdates();
+        const parentKind = child ? this.workKind(child.parentId) : null;
+        const kind =
+          !child || parentKind === 'coordinator'
+            ? 'outcome'
+            : parentKind === 'outcome'
+              ? 'work_item'
+              : null;
+        if (kind) initializeTelosWorkKinds(this.db);
         this.db
           .prepare(
             `INSERT INTO items(id,parent_id,summary,intent,rationale,acceptance_criteria,profile,status,
@@ -281,7 +349,7 @@ export class TelosItemStore {
           )
           .run(
             itemId,
-            input.parentId,
+            child?.parentId ?? null,
             input.summary,
             input.intent,
             input.rationale,
@@ -292,12 +360,17 @@ export class TelosItemStore {
             now,
             now,
           );
+        if (kind)
+          this.db
+            .prepare('INSERT INTO telos_work_kinds(item_id,kind) VALUES(?,?)')
+            .run(itemId, kind);
         this.db
           .prepare(
             "INSERT INTO history(item_id,old_status,new_status,changed_at) VALUES(?,NULL,'active',?)",
           )
           .run(itemId, now);
-        this.db.prepare('UPDATE items SET updated_at=? WHERE id=?').run(now, input.parentId);
+        if (child)
+          this.db.prepare('UPDATE items SET updated_at=? WHERE id=?').run(now, child.parentId);
         this.db
           .prepare(
             `INSERT INTO telos_item_updates
@@ -309,7 +382,7 @@ export class TelosItemStore {
         return {
           item,
           update: item.updates[0],
-          parentRevision: this.snapshot(input.parentId, true).revision,
+          ...(child ? { parentRevision: this.snapshot(child.parentId, true).revision } : {}),
         };
       },
     );
@@ -334,6 +407,63 @@ export class TelosItemStore {
     if (this.db.inTransaction) throw Error('Original Telos item writer required');
     const input = TelosEditItemInputSchema.parse(raw);
     return this.mutate(input, sessionId, assertion, beforeApply, input);
+  }
+
+  /** Repair an unclassified backlog item without changing retained role context.
+   * Classification shares the canonical edit transaction and replay receipt. */
+  private classifyUnassigned(itemId: string, level: NonNullable<TelosEditItemInput['workLevel']>) {
+    const kind = { outcome: 'coordinator', feature: 'outcome', slice: 'work_item' }[level];
+    const existing = this.workKind(itemId);
+    if (existing === kind) return;
+    if (existing)
+      throw Error(
+        'Telos work level is already classified; existing roles and history require a reviewed migration',
+      );
+    for (const [table, condition] of [
+      ['telos_work_assignments', 'item_id=?'],
+      ['telos_work_attempts', 'item_id=?'],
+      ['telos_work_links', "item_id=? AND role IN ('lead','worker')"],
+      [
+        'telos_work_role_setups',
+        "json_extract(intent,'$.input.itemId')=? AND json_extract(intent,'$.input.role') IN ('lead','worker')",
+      ],
+    ]) {
+      if (
+        this.db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?").get(table) &&
+        this.db.prepare(`SELECT 1 FROM ${table} WHERE ${condition} LIMIT 1`).get(itemId)
+      )
+        throw Error(
+          'Telos work level cannot change after lead or worker setup; preserve the original attempt',
+        );
+    }
+    const row = this.db.prepare('SELECT parent_id FROM items WHERE id=?').get(itemId) as {
+      parent_id: string | null;
+    };
+    const parentKind = row.parent_id ? this.workKind(row.parent_id) : null;
+    if (
+      (level === 'outcome' && row.parent_id !== null) ||
+      (level === 'feature' && row.parent_id !== null && parentKind !== 'coordinator') ||
+      (level === 'slice' && parentKind !== 'outcome')
+    )
+      throw Error(
+        'Telos work level does not match its parent; classify the outcome and feature first',
+      );
+    if (
+      level === 'slice' &&
+      this.db.prepare('SELECT 1 FROM items WHERE parent_id=? LIMIT 1').get(itemId)
+    )
+      throw Error('Telos work level slice cannot contain child work');
+    initializeTelosWorkKinds(this.db);
+    if (
+      level === 'outcome' &&
+      this.db
+        .prepare(
+          "SELECT 1 FROM items i JOIN telos_work_kinds k ON k.item_id=i.id WHERE i.parent_id=? AND k.kind='work_item' LIMIT 1",
+        )
+        .get(itemId)
+    )
+      throw Error('Telos work level outcome requires feature children');
+    this.db.prepare('INSERT INTO telos_work_kinds(item_id,kind) VALUES(?,?)').run(itemId, kind);
   }
 
   /** The original canonical owner keeps the outer writer and receipt ordering. */
@@ -381,6 +511,7 @@ export class TelosItemStore {
         // Fresh-effect eligibility must not hide a known committed receipt.
         assertCurrent(beforeApply);
         if (!updatesExist) this.ensureUpdates();
+        if (edit?.workLevel) this.classifyUnassigned(input.itemId, edit.workLevel);
         const status = input.status ?? before.status;
         const now = new Date().toISOString();
         if (edit)

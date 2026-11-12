@@ -4,7 +4,11 @@ import { SessionLaunchApprovalSchema, SessionLaunchDefaultSaveSchema } from '@mi
 import { isAuthSessionCurrent, registerAuthSession, type AuthSession } from './auth.js';
 import { requireSameOriginJson } from './connections-router.js';
 import { SessionLaunchDefaultsConflict, SESSION_LAUNCH_OWNER } from './session-launch-defaults.js';
-import { SessionLaunchError, publicSessionLaunchRecord } from './session-launch-store.js';
+import {
+  SessionLaunchError,
+  SessionLaunchPreflightError,
+  publicSessionLaunchRecord,
+} from './session-launch-store.js';
 import type { SessionLaunchController } from './session-launch-controller.js';
 import type { SessionLaunchAuthority } from './session-launch-service.js';
 
@@ -32,6 +36,9 @@ export function createSessionLaunchRouter(deps: {
     req: Request,
     res: Response,
     action: (auth: AuthSession, signal: AbortSignal) => Promise<unknown> | unknown,
+    respond: (value: unknown) => void = (value) => {
+      res.json(value);
+    },
   ) => {
     const auth = res.locals.authSession as AuthSession;
     const controller = new AbortController();
@@ -49,7 +56,7 @@ export function createSessionLaunchRouter(deps: {
       controller.signal.throwIfAborted();
       if (!isAuthSessionCurrent(auth))
         throw new SessionLaunchError('Session authorization expired.', 403);
-      res.json(result);
+      respond(result);
     } catch (error) {
       const status =
         error instanceof SessionLaunchError
@@ -60,6 +67,9 @@ export function createSessionLaunchRouter(deps: {
               ? 400
               : 503;
       res.status(status).json({
+        ...(error instanceof SessionLaunchPreflightError
+          ? { code: error.code, effectStatus: error.effectStatus }
+          : {}),
         error:
           status === 503
             ? 'Session creation is temporarily unavailable. Check the retained request before retrying.'
@@ -210,6 +220,18 @@ export function createSessionLaunchRouter(deps: {
         publicSessionLaunchRecord(await launches.refresh(id, owner, authority)),
       );
     }),
+  );
+  // The handover is retained with the reviewed request, independent of agent
+  // filesystem paths. Reading it never allocates, resumes or dispatches a chat.
+  router.get('/requests/:proposalId/handover.md', (req, res) =>
+    act(
+      req,
+      res,
+      () => source(z.uuid().parse(req.params.proposalId)).prompt,
+      (text) => {
+        res.type('text/markdown').attachment('handover.md').send(text);
+      },
+    ),
   );
   router.post('/requests/:proposalId/approve', requireSameOriginJson, (req, res) =>
     act(req, res, async (auth, signal) => {

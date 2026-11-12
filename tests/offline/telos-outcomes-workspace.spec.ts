@@ -419,6 +419,7 @@ for (const theme of ['dark', 'light'])
     });
     await navigate('/todos');
     await expect(page.getByRole('button', { name: 'All outcomes', exact: true })).toBeVisible();
+    await expect(page.getByText('Outcome → Feature → Slice', { exact: true })).toBeVisible();
     const studioRow = page.locator('.telos-tree-row').filter({
       has: page.getByRole('button', { name: records[0].summary, exact: true }),
     });

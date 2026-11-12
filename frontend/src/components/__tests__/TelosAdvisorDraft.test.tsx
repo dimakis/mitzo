@@ -19,6 +19,8 @@ function fixture(
     artifacts: [],
     sources: [],
   },
+  purpose: 'refine' | 'child' = 'refine',
+  kind: 'coordinator' | 'outcome' = 'outcome',
 ) {
   const revision = 'a'.repeat(64);
   let currentRevision = revision;
@@ -33,7 +35,7 @@ function fixture(
                   version: 1,
                   itemId: 'item',
                   role: 'advisor',
-                  advisorPurpose: 'refine',
+                  advisorPurpose: purpose,
                   brief: { revision, sha256: 'b'.repeat(64), text: 'Reviewed work' },
                   parentCriteria: [],
                   overallGoal: { itemId: 'item', revision, text: 'Goal' },
@@ -71,7 +73,7 @@ function fixture(
     itemId: 'item',
     summary: 'Home studio',
     intent: 'Record clearly',
-    kind: 'outcome',
+    kind,
     categories: ['Personal projects'],
   } as never);
   const preview = vi.fn(async (input: { expectedRevision: string }) => {
@@ -99,6 +101,12 @@ function fixture(
     },
   };
 }
+it('defaults a shared outcome child to a feature rather than an invalid leaf slice', async () => {
+  fixture(undefined, 'child', 'coordinator');
+  fireEvent.click(await screen.findByRole('button', { name: 'Suggest a draft' }));
+  expect(await screen.findByLabelText('Item type')).toHaveProperty('value', 'outcome');
+  expect(screen.getByRole('option', { name: 'Feature' })).toHaveProperty('selected', true);
+});
 it('saves a refinement using its completed message boundary despite trailing terminal bookkeeping', async () => {
   const { revision, preview, save } = fixture();
   fireEvent.click(await screen.findByRole('button', { name: 'Propose refinement' }));
