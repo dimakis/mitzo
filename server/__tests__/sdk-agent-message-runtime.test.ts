@@ -696,6 +696,127 @@ it('retains uncertainty for a mismatched ACK instead of contaminating original c
   expect(f.events.agentCommunication.read('sender', f.message.messageId).status).toBe('uncertain');
 });
 
+it.each([false, true])(
+  'preserves SDK tool output through an idle peer command and the real query consumer (error=%s)',
+  async (isError) => {
+    const f = fixture();
+    f.setActive(undefined);
+    const runtime = f.create();
+    const stream = new AsyncQueue<Record<string, unknown>>();
+    let stdin!: AsyncIterable<SDKUserMessage>;
+    vi.mocked(query).mockImplementation((request) => {
+      stdin = request.prompt as typeof stdin;
+      return {
+        close: () => stream.close(),
+        [Symbol.asyncIterator]: () => stream[Symbol.asyncIterator](),
+      } as never;
+    });
+    const controller = f.session.abortController;
+    cleanup.push(() => controller.abort());
+    const sdk = createOrdinaryLocalVertexSdkQuery<AsyncIterable<Record<string, unknown>>>({
+      options: {},
+      input: new AsyncQueue<SDKUserMessage>(),
+      lifetime: new SdkHookLifetime(),
+      sdkSessionId: 'worker',
+      cwd: '/task',
+      controller,
+      authorize: async () => {},
+      authorizeSync: () => {},
+      adapt: (q) => q as never,
+      settings: () => ({}),
+      inputChanged: () => {},
+      peerMessages: () => runtime,
+    });
+    f.enqueue.mockImplementation(async () => {
+      sdk.push({
+        type: 'user',
+        parent_tool_use_id: null,
+        mitzoMessageId: f.message.commandId,
+        message: { role: 'user', content: agentMessagePrompt(f.message) },
+      } as SDKUserMessage);
+    });
+    await runtime.enqueue(f.message, () => {}, controller.signal, {
+      id: 'operator',
+      expiresAt: Date.now() + 60000,
+    });
+    f.setActive(f.message.commandId);
+    const input = (await stdin[Symbol.asyncIterator]().next()).value!;
+    const send = vi.fn();
+    f.session.transport.send = send;
+    stream.push({ type: 'user', session_id: 'worker', uuid: input.uuid, message: input.message });
+    stream.push({
+      type: 'stream_event',
+      event: { type: 'message_start', message: { id: 'peer-turn' } },
+    });
+    stream.push({
+      type: 'stream_event',
+      event: {
+        type: 'content_block_start',
+        index: 0,
+        content_block: { type: 'tool_use', id: 'peer-tool', name: 'Read' },
+      },
+    });
+    stream.push({ type: 'stream_event', event: { type: 'content_block_stop', index: 0 } });
+    stream.push({
+      type: 'user',
+      session_id: 'worker',
+      parent_tool_use_id: null,
+      uuid: randomUUID(),
+      message: {
+        content: [
+          {
+            type: 'tool_result',
+            tool_use_id: 'peer-tool',
+            content: 'Retained tool output',
+            is_error: isError,
+          },
+        ],
+      },
+    });
+    stream.push({ type: 'result', session_id: 'worker', is_error: false });
+    async function* currentTurn() {
+      for await (const event of sdk.query) {
+        yield event;
+        if (event.type === 'result') return;
+      }
+    }
+    const onUserInput = vi.fn(),
+      onResult = vi.fn();
+    await runQueryLoop(
+      currentTurn(),
+      'operator:worker',
+      f.registry,
+      controller,
+      f.events,
+      undefined,
+      { onUserInput, onResult },
+    );
+    expect(send).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: 'tool_result',
+        toolId: 'peer-tool',
+        result: 'Retained tool output',
+        isError,
+      }),
+    );
+    expect(f.events.getSessionEvents('worker')).toContainEqual(
+      expect.objectContaining({
+        type: 'tool_result',
+        payload: expect.objectContaining({ toolId: 'peer-tool', isError }),
+      }),
+    );
+    expect(onUserInput).toHaveBeenCalledExactlyOnceWith('operator:worker', input.uuid);
+    expect(onResult).toHaveBeenCalledExactlyOnceWith(
+      'operator:worker',
+      expect.objectContaining({ is_error: false }),
+      input.uuid,
+    );
+    expect(f.events.agentCommunication.read('sender', f.message.messageId).status).toBe(
+      'delivered',
+    );
+  },
+);
+
 it('uses guarded ordinary admission for idle delivery and never resumes a stopped owner', async () => {
   const f = fixture();
   f.setActive(undefined);

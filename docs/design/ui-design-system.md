@@ -158,6 +158,15 @@ and Resources. Use semantic tokens, shared motion and 44px controls; the dialog
 fills narrow phone widths. The approved mock and protected checks are recorded
 in the codex-subagents entry of the approved design ledger.
 
+The full-width phone inspection respects all four safe-area insets. Empty
+inspections keep the recovery action, explicit empty-output state and compact
+disabled composer together instead of reserving an empty transcript. Retained
+output keeps independent scrolling. An unavailable inspection has one clear
+status and Retry action; the stage and correlation reference use native Technical
+details. Connection and retry errors remain visible inside an open inspection.
+These repairs preserve the approved child row, modal navigation, targeted
+Message/Stop, drafts, theme/font preferences and authority boundaries.
+
 ## Visible agent messages
 
 Peer messages use one shared lightweight transcript-event presentation in mobile
