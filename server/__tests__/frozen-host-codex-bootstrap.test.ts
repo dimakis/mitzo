@@ -26,7 +26,11 @@ import { repositoryObservationProgram } from '../native-repository-observation.j
 import { SessionRuntimeError, findSessionRuntimeError } from '../session-runtime-error.js';
 import { codexRuntimeErrorTelemetry } from '../codex-runtime-diagnostics.js';
 import { reportRetainedRuntimeFailure } from '../retained-runtime-failure.js';
-import { RuntimeFailureSchema, runtimeFailureMessage } from '@mitzo/protocol';
+import {
+  RuntimeFailureSchema,
+  SessionRuntimeBindingV2Schema,
+  runtimeFailureMessage,
+} from '@mitzo/protocol';
 import * as topologyTransport from '../sandboxed-command.js';
 const roots: string[] = [];
 const deployment = vi.hoisted(() => ({ controller: false }));
@@ -383,11 +387,11 @@ it.each(['subscription', 'api'] as const)(
         ...f.expected,
         binding: {
           ...f.expected.binding,
-          account: {
+          account: SessionRuntimeBindingV2Schema.shape.account.parse({
             accountId: binding.accountId,
             provider: binding.provider,
             profileRevision: binding.profileRevision,
-          },
+          }),
         },
       };
       commandId = 'startup-api-command';
@@ -499,11 +503,11 @@ it.each(['subscription', 'api'] as const)(
         ...f.expected,
         binding: {
           ...f.expected.binding,
-          account: {
+          account: SessionRuntimeBindingV2Schema.shape.account.parse({
             accountId: binding.accountId,
             provider: binding.provider,
             profileRevision: binding.profileRevision,
-          },
+          }),
         },
       };
       commandId = 'live-api-command';
