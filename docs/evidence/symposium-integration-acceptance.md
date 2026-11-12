@@ -2,6 +2,37 @@
 
 Living map owner: workstream C, `01a14bdc-d152-7912-84d4-c0012e9d5206`.
 
+## 12 November 2026 Add-agent settings regression
+
+A user report showed an absent Agent picker and empty Account & model and
+repository controls. Inspection used accepted source `9c087d0da76c`; this is a
+source reproduction, not a production account or device qualification. The real
+`WorkspaceControls` provides quick-settings navigation around its actions.
+`ConversationAgents` portals its dialog while retaining that React context, so
+the participant pickers project into the source chat's hidden settings slots.
+The standalone dialog fixtures did not exercise that composition.
+
+The candidate isolates participant controls from the source chat's navigation,
+preserving the approved fields, existing editors and joining owners. The new
+`ConversationAgents.settings-scope.test.tsx` failed on the missing Agent combobox
+before the fix. It now exercises the real profile, account/model/thinking and
+repository controls inside `WorkspaceControls`, retained setup, unchanged source
+settings, and no joining or write effects. The existing composer browser fixture
+now includes the same settings/action composition; the additional
+`symposium-dialog-controls.spec.ts` covers both themes and the three browser
+projects, including repository controls and focus restoration.
+
+Local validation: 26 focused component checks, three actual application recovery
+checks, and 109 design checks pass (one pre-existing design skip); targeted ESLint,
+formatting and the browser fixture bundle also pass. Browser discovery succeeds.
+Rendering remains **unverified locally**: the bounded executor initially lacked
+its browser-cache path; after selecting the installed cache, WebKit startup timed
+out and Chromium reported macOS Mach-port registration permission denial. The
+separately requested native host route still reported Seatbelt and stopped at
+the repository guard. No guard, browser binary or permission boundary was changed.
+Hosted browser execution and visual inspection remain required; this candidate
+does not establish source acceptance, production activation or feature completion.
+
 ## 12 November 2026 source-acceptance checkpoint
 
 This checkpoint contributes landing evidence to the existing map without changing
