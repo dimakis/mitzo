@@ -151,6 +151,11 @@
   overflow-wrap: anywhere;
 }
 .operation-card--overlay.perm-banner {
+  /* Center without a composited transform so 44px controls keep exact viewport bounds. */
+  left: var(--page-gutter);
+  right: var(--page-gutter);
+  margin-inline: auto;
+  transform: none;
   display: flex;
   flex-direction: column;
   gap: 0;

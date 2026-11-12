@@ -1,7 +1,7 @@
 import { execFileSync } from 'node:child_process';
 import type { ExecFileException, ExecFileOptions } from 'node:child_process';
-import { mkdtemp, readFile, readdir, rm, writeFile, stat } from 'node:fs/promises';
-import { writeFileSync } from 'node:fs';
+import { mkdir, mkdtemp, readFile, readdir, rm, writeFile, stat } from 'node:fs/promises';
+import { readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, expect, it, vi } from 'vitest';
@@ -60,6 +60,116 @@ async function checkout() {
   await writeFile(join(cwd, 'file.txt'), 'first edit');
   return { cwd, git, objects, index, grant, assertCurrent };
 }
+it('bounds full workspace validation for a multi-file commit with a current synchronous owner', async () => {
+  const f = await checkout();
+  const files: string[] = [];
+  for (let i = 0; i < 9; i++) {
+    const directory = `part-${i}`;
+    await mkdir(join(f.cwd, directory));
+    const file = `${directory}/change.txt`;
+    await writeFile(join(f.cwd, file), `approved ${i}`);
+    files.push(file);
+  }
+  let fullChecks = 0;
+  await executeTrustedGitCommit(
+    f.cwd,
+    files,
+    'bounded validation',
+    new AbortController().signal,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    () => {
+      if (readFileSync(f.grant, 'utf8') !== 'allowed') throw Error('Repository grant revoked');
+    },
+    async () => {
+      fullChecks++;
+      await f.assertCurrent();
+    },
+  );
+  // A valid ordinary file list must not consume the tool deadline in repeated
+  // physical/provider validation proportional to its immutable object count.
+  expect(fullChecks).toBeLessThanOrEqual(8);
+  for (let i = 0; i < files.length; i++)
+    expect(f.git('show', `HEAD:${files[i]}`)).toBe(`approved ${i}`);
+  expect(f.git('fsck', '--no-reflogs')).not.toContain('error');
+});
+
+it('stops object preparation on synchronous revocation before publishing a commit', async () => {
+  const f = await checkout();
+  const before = f.git('rev-parse', 'HEAD');
+  const index = await readFile(f.index);
+  let revoked = false;
+  await expect(
+    executeTrustedGitCommit(
+      f.cwd,
+      ['file.txt'],
+      'revoked preparation',
+      new AbortController().signal,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      () => {
+        if (
+          readdirSync(f.objects, { recursive: true }).some((path) =>
+            String(path).includes('.mitzo-object-'),
+          )
+        ) {
+          revoked = true;
+          writeFileSync(f.grant, 'revoked');
+        }
+        if (readFileSync(f.grant, 'utf8') !== 'allowed') throw Error('Repository grant revoked');
+      },
+      f.assertCurrent,
+    ),
+  ).rejects.toThrow('Repository grant revoked');
+  expect(revoked).toBe(true);
+  expect(f.git('rev-parse', 'HEAD')).toBe(before);
+  expect(await readFile(f.index)).toEqual(index);
+  expect((await readdir(f.objects, { recursive: true })).join('\n')).not.toContain(
+    '.mitzo-object-',
+  );
+  expect(f.git('fsck', '--no-reflogs')).not.toContain('error');
+});
+
+it('retains full object-write validation when the caller has no synchronous authority', async () => {
+  const f = await checkout();
+  const before = f.git('rev-parse', 'HEAD');
+  const directories = new Set(await readdir(f.objects));
+  const existingFiles = new Set(
+    (await readdir(f.objects, { recursive: true })).filter((path) => path.includes('/')),
+  );
+  let revoked = false;
+  await expect(
+    executeTrustedGitCommit(
+      f.cwd,
+      ['file.txt'],
+      'async-only preparation',
+      new AbortController().signal,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      async () => {
+        if ((await readdir(f.objects)).some((path) => !directories.has(path))) {
+          revoked = true;
+          await writeFile(f.grant, 'revoked');
+        }
+        await f.assertCurrent();
+      },
+    ),
+  ).rejects.toThrow('Repository grant revoked');
+  expect(revoked).toBe(true);
+  expect(f.git('rev-parse', 'HEAD')).toBe(before);
+  const afterFiles = (await readdir(f.objects, { recursive: true })).filter((path) =>
+    path.includes('/'),
+  );
+  expect(new Set(afterFiles)).toEqual(existingFiles);
+});
+
 it('leaves no corrupt loose object when authority revokes after a new destination is created', async () => {
   const f = await checkout();
   const originalObjects = new Set(await readdir(f.objects, { recursive: true }));

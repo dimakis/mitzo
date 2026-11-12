@@ -1,10 +1,11 @@
+import { resetOfflineUserEnvironment } from './fixtures/offline-user-home.js';
 import { OpenShellRuntimeManager } from '../openshell-runtime.js';
 import {
   SANDBOX_AGENT_COMPILER_REVISION,
   resolveSandboxAgentContext,
 } from '../agent-context-sandbox.js';
 import { contextDigest } from '../agent-context-compiler.js';
-import { afterAll, beforeAll, expect, it, vi } from 'vitest';
+import { afterAll, beforeAll, beforeEach, expect, it, vi } from 'vitest';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -25,6 +26,7 @@ vi.mock('../codex-chat-session.js', () => ({
   publicCodexStartupError: () => 'Offline native startup failure',
 }));
 vi.mock('../mcp-config.js', () => ({ loadMcpServers: () => ({}) }));
+beforeEach(resetOfflineUserEnvironment);
 const repositorySource = vi.hoisted(() => ({ release: vi.fn(async () => {}) }));
 vi.mock('../repository-workspace-runtime.js', () => ({
   getRepositoryWorkspaces: () => ({ releaseSource: repositorySource.release }),

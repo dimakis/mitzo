@@ -1057,9 +1057,9 @@ it('CT06/09/17 complete repository journey: native evidence and reviewed output,
       .find((message) => message.type === 'permission_request' && message.sessionId === workerId)!;
     expect(permission.permId).toBeTruthy();
     await browserExpect(
-      page.getByRole('button', { name: 'Allow Once', exact: true }),
+      page.getByRole('button', { name: 'Approve once', exact: true }),
     ).toBeVisible();
-    await page.getByRole('button', { name: 'Allow Once', exact: true }).click();
+    await page.getByRole('button', { name: 'Approve once', exact: true }).click();
     return pending;
   };
   const artifactResult = await nativeTool('mcp__task-board__TaskArtifact', {
@@ -1118,7 +1118,7 @@ it('CT06/09/17 complete repository journey: native evidence and reviewed output,
       await sourcePanel.getByRole('button', { name: 'Review selected source' }).click();
       await browserExpect(sourcePanel.getByText('Reviewed source', { exact: true })).toBeVisible();
       await browserExpect(
-        page.getByRole('button', { name: 'Allow Once', exact: true }),
+        page.getByRole('button', { name: 'Approve once', exact: true }),
       ).toBeEnabled();
     },
   );

@@ -117,7 +117,9 @@ for (const decision of ['once', 'always'] as const) {
             ? await approvalSecondary(page, controls, 'Approve for session')
             : primary;
         await expect(allow).toBeInViewport({ ratio: 1 });
-        expect((await allow.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+        // WebKit's viewport coordinates can round a 44px box down by 0.00003px.
+        const height = (await allow.boundingBox())!.height;
+        expect(Math.round(height * 1000) / 1000).toBeGreaterThanOrEqual(44);
         await page.screenshot({
           path: testInfo.outputPath(`inbox-direct-${decision}.png`),
           animations: 'disabled',

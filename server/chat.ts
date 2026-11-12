@@ -13,6 +13,7 @@ import {
 } from './task-worker-authority.js';
 import { assertTurnCallbackEffects, type TurnCallbackRunner } from './turn-callbacks.js';
 import { createSdkTurnQuery } from './sdk-turn-query.js';
+import { reportClaudeChildDiagnostic } from './claude-child-diagnostics.js';
 import { claudePersonalSandbox, claudePersonalToolPermission } from './claude-personal-policy.js';
 import { readClaudeAccountHistory } from './claude-account-history.js';
 import { findSessionRuntimeError, SessionRuntimeError } from './session-runtime-error.js';
@@ -47,6 +48,7 @@ import {
 import { LocalVertexClaudeFirstCommandSchema } from '@mitzo/protocol';
 import type { OrdinaryLocalVertexCommandOwner } from './ordinary-local-vertex-command-owner.js';
 import { SdkAgentMessageRuntime } from './sdk-agent-message-runtime.js';
+import { watchAgentMessageTranscript } from './agent-message-transcript.js';
 import { registerAgentMessageRuntime, steerNativeAgentMessage } from './agent-message-runtime.js';
 import { PEER_MESSAGE_INSTRUCTIONS } from './peer-message-instructions.js';
 import { sessionAgentCommunicationTools } from './agent-communication-tools.js';
@@ -2227,6 +2229,12 @@ async function _startChatInner(
   }
 
   let newSdkSessionId: string | undefined;
+  let unwatchSdkAgentMessages: (() => void) | undefined;
+  const stopSdkAgentMessageWatch = () => {
+    unwatchSdkAgentMessages?.();
+    unwatchSdkAgentMessages = undefined;
+    abortController.signal.removeEventListener('abort', stopSdkAgentMessageWatch);
+  };
   const assertStartupCurrent = () => {
     abortController.signal.throwIfAborted();
     if (registry.get(clientId) !== session) throw Error('Original startup owner changed');
@@ -3142,6 +3150,26 @@ This is an independent checkout with its own Git storage, not a linked worktree.
           },
         });
         registerAgentMessageRuntime(session, sdkPeerMessages);
+        const sdkConversationId = session.sessionId!;
+        const sdkMessageRuntime = sdkPeerMessages;
+        unwatchSdkAgentMessages = watchAgentMessageTranscript(
+          eventStore,
+          sdkConversationId,
+          (event) => {
+            if (
+              abortController.signal.aborted ||
+              registry.findBySessionId(sdkConversationId)?.session !== session ||
+              session.ordinaryRuntimeOwner?.identity !== sdkOwner.identity
+            ) {
+              stopSdkAgentMessageWatch();
+              return;
+            }
+            sdkMessageRuntime.assertCurrent(sdkOwner.authSessionId);
+            deliverRetainedSessionEvent(event, clientId, registry, _connRegistry ?? undefined);
+          },
+        );
+        abortController.signal.addEventListener('abort', stopSdkAgentMessageWatch, { once: true });
+        if (abortController.signal.aborted) stopSdkAgentMessageWatch();
         await liveOrdinarySdkOwner.enqueue(initialMessageId);
       } else {
         q = createSdkTurnQuery({
@@ -3399,6 +3427,7 @@ This is an independent checkout with its own Git storage, not a linked worktree.
       }
     }
   } finally {
+    stopSdkAgentMessageWatch();
     const current = registry.get(clientId);
     if (!current || current === session) _onSessionChange?.(clientId, 'end', session.sessionId);
   }
@@ -5341,15 +5370,88 @@ export async function interruptChat(
     // Stop all active subagent tasks before interrupting the parent query.
     // Without this, interrupt() only halts the parent — which is blocked
     // waiting for the subagent, so the session hangs.
-    if (session.activeTaskIds.size > 0) {
-      const stops = [...session.activeTaskIds.keys()].map((taskId) =>
-        session
-          .queryInstance!.stopTask(taskId)
-          .catch((err: unknown) => log.warn('stopTask failed', { taskId, err })),
-      );
-      await Promise.allSettled(stops);
+    const runtime = session.queryInstance;
+    const children = [...session.activeTaskIds];
+    const results = await Promise.allSettled(
+      children.map(async ([taskId]) => runtime.stopTask(taskId)),
+    );
+    for (const [index, result] of results.entries()) {
+      if (result.status !== 'rejected') continue;
+      const [taskId, toolId] = children[index];
+      const diagnostic = { code: 'claude_child_stop_failed' as const, correlationId: randomUUID() };
+      log.warn('subagent cancellation could not be confirmed', {
+        stage: 'child_stop',
+        ...diagnostic,
+        clientId,
+        sessionId: session.sessionId,
+        taskId,
+        toolId,
+        err: result.reason,
+      });
+      if (registry.get(clientId) !== session || session.queryInstance !== runtime) continue;
+      const feedbackFailed = (stage: string, err: unknown) => {
+        log.error('subagent cancellation feedback failed; parent interruption continues', {
+          stage,
+          code: 'claude_child_feedback_failed',
+          correlationId: diagnostic.correlationId,
+          clientId,
+          sessionId: session.sessionId,
+          taskId,
+          toolId,
+          err,
+        });
+      };
+      try {
+        reportClaudeChildDiagnostic(runtime, taskId, toolId, diagnostic);
+      } catch (err) {
+        feedbackFailed('child_stop_activity', err);
+      }
+      const failure = {
+        v: 2,
+        type: 'error',
+        nonfatal: true,
+        ts: Date.now(),
+        sessionId: session.sessionId,
+        taskId,
+        ...diagnostic,
+        error: `Subagent cancellation could not be confirmed. Check retained activity before retrying. Reference: ${diagnostic.correlationId}`,
+      };
+      let feedback: Record<string, unknown> = failure;
+      if (session.sessionId) {
+        try {
+          const seq = eventStore.append(session.sessionId, 'error', failure);
+          feedback = { ...failure, seq };
+        } catch (err) {
+          feedbackFailed('child_stop_persistence', err);
+          feedback = {
+            ...failure,
+            retained: false,
+            error: `${failure.error} This feedback could not be saved.`,
+          };
+        }
+      }
+      try {
+        if (session.sessionId)
+          deliverRetainedSessionEvent(feedback, clientId, registry, _connRegistry ?? undefined);
+        else {
+          send(session.transport, feedback);
+          broadcastToObservers(session.observers, feedback);
+        }
+      } catch (err) {
+        // Delivery may be partial; retain the original reference without a blind resend.
+        feedbackFailed('child_stop_delivery', err);
+      }
     }
-    await session.queryInstance.interrupt();
+    if (registry.get(clientId) !== session || session.queryInstance !== runtime) {
+      log.warn('interrupt runtime owner changed', {
+        stage: 'parent_interrupt',
+        code: 'claude_interrupt_owner_changed',
+        clientId,
+        sessionId: session.sessionId,
+      });
+      return false;
+    }
+    await runtime.interrupt();
     // Only push to inputQueue on first delivery — a retried interrupt should
     // still call interrupt() (to halt the agent) but not double-queue the prompt.
     if (!isDup) {

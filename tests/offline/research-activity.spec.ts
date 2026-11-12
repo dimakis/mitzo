@@ -61,7 +61,7 @@ for (const theme of ['dark', 'light'] as const)
       .first()
       .click();
     await expect(page.getByText(/Detailed speculative/)).toBeVisible();
-    await page.getByRole('button', { name: /^Website read/ }).click();
+    await page.getByRole('button', { name: /^Details for Website read/ }).click();
     await expect(
       page.getByText('External source (untrusted): Selected GitHub records'),
     ).toBeVisible();
@@ -72,7 +72,7 @@ for (const theme of ['dark', 'light'] as const)
     await activity.focus();
     await page.keyboard.press('Enter');
     await expect(activity).toHaveAttribute('aria-expanded', 'true');
-    const read = page.getByRole('button', { name: /^Website read/ });
+    const read = page.getByRole('button', { name: /^Details for Website read/ });
     await expect(read).toBeVisible();
     await read.focus();
     await page.keyboard.press('Shift+Tab');

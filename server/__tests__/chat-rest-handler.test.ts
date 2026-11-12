@@ -1421,11 +1421,9 @@ describe('chat-rest-handler', () => {
         .mockReturnValue(receipt as never);
       const record = { id: 'original', state: 'reserved' };
       let changed = false;
-      const workspace = vi
-        .spyOn(workspaceRuntime, 'getRepositoryWorkspaces')
-        .mockReturnValue({
-          get: () => (changed ? { ...record, state: 'retired' } : record),
-        } as never);
+      const workspace = vi.spyOn(workspaceRuntime, 'getRepositoryWorkspaces').mockReturnValue({
+        get: () => (changed ? { ...record, state: 'retired' } : record),
+      } as never);
       const primary = vi
         .spyOn(auth, 'isAuthenticatedOperatorSessionId')
         .mockReturnValue(state !== 'service');

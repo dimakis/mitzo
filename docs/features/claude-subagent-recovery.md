@@ -1,0 +1,64 @@
+# Claude subagent outcomes and recovery
+
+Verified against the pinned Claude Agent SDK 0.2.141 declarations and offline
+application paths on 12 November 2026. The implementation started from accepted
+main `f7a474ea9b113a4fdb40c169d3e879bf118d2d4c`. This document records source and
+offline evidence; it makes no claim about a deployed runtime or a live SDK defect.
+
+SDK `task_notification` distinguishes completed, failed and stopped. An assistant
+envelope ends one model message, so it cannot establish task success. Foreground
+Agent tool results and explicit task notifications determine child outcomes.
+Query shutdown without an outcome leaves status unavailable. Duplicate and late
+terminal events retain the first confirmed outcome and prior public output.
+Shutdown reporting failures retain their original cause and cannot prevent
+reporter unbinding, registry removal, remaining cleanup or terminal notification.
+
+The existing inline `SubagentCard` shows Complete, Failed, Cancelled or Status
+unavailable, using its existing disclosure, semantic status dots and shared motion.
+No Codex inspection dialog or child control is added. Stop failures preserve the
+parent interrupt, retain per-child uncertainty and expose a safe reference and
+next action. Raw SDK summaries, output paths and rejection details are excluded
+from public diagnostics; structured logs retain the cause and correlation.
+Feedback delivery or persistence failure cannot prevent parent interruption.
+If persistence fails, live feedback explicitly says it could not be saved;
+the original stop failure and secondary reporting failure remain correlated in logs.
+
+Child feedback remains bound to its original message and tool across later parent
+turns, including reused block IDs. An SDK event without a verified parent is
+reported once and cannot become parent text, transcript access or control authority.
+This includes lifecycle-only task events without a child message envelope. Legacy
+replay accepts unattributed child events only while parent ownership is unique;
+after block-ID reuse it requires explicit message ownership and preserves earlier output.
+The pinned SDK supports background tasks and terminal notifications; this change
+does not assert that a live resume/background correlation defect was reproduced.
+Cross-query parent recovery is unavailable rather than inferred from unverified
+events. Ordinary reconnect/replay uses the retained events of the original session.
+
+Sources and validation:
+
+- SDK `SDKTaskStartedMessage`, `SDKTaskNotificationMessage`, `Query.stopTask` and
+  `Query.backgroundTasks` declarations in the committed lockfile's SDK version.
+- `server/query-loop.ts`, `server/chat.ts`, `server/claude-child-diagnostics.ts`,
+  `packages/client/src/slices/messages.ts` and `server/conversation-transcript.ts`.
+- `tests/integration/claude-subagent-failures.test.tsx` exercises the real query
+  adapter, wire parser, reducer, SQLite replay and inline UI, including failure
+  before output, duplicates, late notifications, stop uncertainty, missing parents
+  and background completion after a newer turn reuses the same block ID.
+- `server/__tests__/send-to-chat.test.ts` covers asynchronous/synchronous stop
+  failures and a replaced runtime; the child diagnostic test covers exact owner
+  identity, replacement and cleanup. Existing SDK hook/permission tests remain.
+- `tests/offline/claude-subagent-outcomes.spec.ts` adds intercepted browser cases
+  for phone/desktop, light/dark, Mint/System and Teal/Georgia, keyboard disclosure,
+  retained output, unavailable references and the unsent draft.
+
+Local adapter/replay and design tests pass. Local browser startup was blocked by
+macOS process-registration permissions after selecting the installed browser cache;
+dependent UI cases did not run. Hosted run
+[43144378731](https://github.com/dimakis/mitzo/actions/runs/43144378731) at
+`042852d92cd5fb50f3080fb751ee3d3493be8d4c` passed the six child-outcome browser
+cases. Phone/WebKit and desktop/Chromium captures were inspected in both themes
+and appearance choices; status labels, disclosure, failure copy and retained draft
+remained readable. These captures establish rendering only. Check
+[PR #1315](https://github.com/dimakis/mitzo/pull/1315) for final combined CI and
+Centaur receipts. Broad builds and the complete suite belong to CI under the
+repository's local resource limit. No deployment, staging or provider turn ran.

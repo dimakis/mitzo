@@ -45,6 +45,33 @@ The agent is instructed to explain the reason, preserve partial work, state what
 is known or uncertain, and use the original receipt before retrying. Denial and
 cancellation do not authorize another route or an automatic retry.
 
+Host Codex tool validation publishes its failure before closing physical custody.
+An unclassified validation exception carries the reviewed `tool_validation_failed`
+message; internal telemetry retains the validation stage and sanitized failure
+reason under the existing trace. The original cause remains private. Existing
+reviewed account, workspace and policy failures keep their specific code. Strict
+client replay receives only the public failure code and reference, while the
+original operation and its uncertainty remain unchanged.
+
+Subscription and API credential owners publish before their own physical close,
+including failures below bootstrap. Existing reviewed failures retain their code;
+new live credential failures retain their private cause and report the reviewed
+validation code. Initial login failures keep their existing classification.
+Initial bootstrap refusal and cancellation also keep their startup classification
+until qualification completes and the lease is handed to its consumer.
+Both credential owners consult that same handoff state on each failure, including
+credential checks performed during initial model qualification. If the phase
+cannot be read, the original failure and physical cleanup remain intact.
+
+Trusted Git commit preparation does not repeat full provider and workspace
+validation for every immutable object. It validates the complete owner before
+and after object preparation and before the branch update, while synchronously
+checking current authority and physical Git identities at each object write.
+Owned temporary cleanup uses its original physical identity even after
+revocation. Callers without a synchronous owner retain full asynchronous
+validation at the original object-write boundaries. This shared host executor
+does not alter provider-owned tools or settle an interrupted commit receipt.
+
 ## Verification and limits
 
 Offline regressions exercise failed reads through the native adapter, shared
@@ -52,6 +79,15 @@ hooks, the registered Claude SDK callback, the Gemini provider loop and durable
 history, and cold Codex reconciliation. They also preserve unknown writes,
 cancellation, account changes, missing receipts and request-hash mismatches.
 These are synthetic tests, not live-model or production recovery evidence.
+
+| Supported route                               | Recovery coverage                                                                                                                     |
+| --------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| Local Codex subscription and API accounts     | Credential-owner and bootstrap failures through the real lifecycle bridge; conversation, retained replay and client receipt rendering |
+| OpenShell Codex subscription and API accounts | Shared native conversation diagnostics and host TaskExecution receipts; sandbox built-ins remain provider-owned                       |
+| Claude SDK Vertex and personal accounts       | Registered credential callback, shared tool diagnostics and host TaskExecution receipts                                               |
+| Legacy unbound Claude SDK                     | Same registered callback; no named Anthropic API account admission is implied                                                         |
+| Gemini Vertex                                 | Deferred provider loop, shared tool diagnostics, durable failed-tool history and cancellation                                         |
+| Retired custom OpenAI Responses engine        | Rejection remains enforced; supported Responses protocol accounts use the Codex harness                                               |
 
 Historical shell operations without adequate terminal evidence still require
 operation-specific reconciliation. This change does not recover every legacy

@@ -983,9 +983,9 @@ it('CT06/17/18 repository counterpart: actual advisor, lead and worker pages ret
       .find((message) => message.type === 'permission_request' && message.sessionId === workerId)!;
     expect(permission.permId).toBeTruthy();
     await browserExpect(
-      page.getByRole('button', { name: 'Allow Once', exact: true }),
+      page.getByRole('button', { name: 'Approve once', exact: true }),
     ).toBeVisible();
-    await page.getByRole('button', { name: 'Allow Once', exact: true }).click();
+    await page.getByRole('button', { name: 'Approve once', exact: true }).click();
     return pending;
   };
   const artifactResult = await nativeTool('mcp__task-board__TaskArtifact', {

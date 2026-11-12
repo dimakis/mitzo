@@ -510,80 +510,63 @@ export function UnifiedInboxView({ desktop = false }: { desktop?: boolean } = {}
         </>
       )}
       <div className={desktop ? 'collection-panels' : 'collection-mobile-body'}>
-        {!hideList && (
-          <div className="inbox-scroll" ref={list}>
-            <div className="inbox-list-tools">
-              <span className="workspace-muted">
+        <div className="inbox-scroll" ref={list} hidden={hideList} inert={hideList}>
+          <div className="inbox-list-tools">
+            <span className="workspace-muted">
+              {params.get('q')
+                ? `${feed?.total ?? 0} matches across all views`
+                : `${feed?.total ?? 0} items`}
+            </span>
+            <button
+              disabled={busy}
+              className="workspace-text-link"
+              onClick={() => void act('/read-updates')}
+            >
+              Mark updates read
+            </button>
+          </div>
+          {loading && !feed && <p role="status">Loading Inbox…</p>}
+          {!loading && !feed?.items.length && (
+            <div className="notification-empty">
+              <UiIcon name="check" />
+              <h2>
                 {params.get('q')
-                  ? `${feed?.total ?? 0} matches across all views`
-                  : `${feed?.total ?? 0} items`}
-              </span>
-              <button
-                disabled={busy}
-                className="workspace-text-link"
-                onClick={() => void act('/read-updates')}
-              >
-                Mark updates read
-              </button>
+                  ? 'No matches'
+                  : view === 'needs'
+                    ? 'You’re all caught up'
+                    : 'No items here'}
+              </h2>
+              <p className="workspace-muted">
+                {view === 'needs'
+                  ? 'Briefings and optional suggestions stay in their own views.'
+                  : 'Try another view or adjust your filters.'}
+              </p>
             </div>
-            {loading && !feed && <p role="status">Loading Inbox…</p>}
-            {!loading && !feed?.items.length && (
-              <div className="notification-empty">
-                <UiIcon name="check" />
-                <h2>
-                  {params.get('q')
-                    ? 'No matches'
-                    : view === 'needs'
-                      ? 'You’re all caught up'
-                      : 'No items here'}
-                </h2>
-                <p className="workspace-muted">
-                  {view === 'needs'
-                    ? 'Briefings and optional suggestions stay in their own views.'
-                    : 'Try another view or adjust your filters.'}
-                </p>
-              </div>
-            )}
-            {feed?.items.map((item) => (
-              <div className="inbox-entry" key={item.id}>
-                {item.permId && !item.resolution && inboxNeedsYou(item) ? (
-                  <>
-                    <div
-                      hidden={
-                        desktop && selectedId === item.id && !!item.request?.questions?.length
+          )}
+          {feed?.items.map((item) => (
+            <div className="inbox-entry" key={item.id}>
+              {item.permId && !item.resolution && inboxNeedsYou(item) ? (
+                <>
+                  <div
+                    hidden={desktop && selectedId === item.id && !!item.request?.questions?.length}
+                    inert={desktop && selectedId === item.id && !!item.request?.questions?.length}
+                  >
+                    <NotificationApprovalActions
+                      item={item}
+                      busy={busy}
+                      responseError={failedRecordId === item.id ? actionError : undefined}
+                      onRespond={(decision, answers) =>
+                        void act(`/${encodeURIComponent(item.id)}/respond`, {
+                          sessionId: item.sessionId,
+                          decision,
+                          ...(answers ? { answers } : {}),
+                        })
                       }
-                      inert={desktop && selectedId === item.id && !!item.request?.questions?.length}
-                    >
-                      <NotificationApprovalActions
-                        item={item}
-                        busy={busy}
-                        responseError={failedRecordId === item.id ? actionError : undefined}
-                        onRespond={(decision, answers) =>
-                          void act(`/${encodeURIComponent(item.id)}/respond`, {
-                            sessionId: item.sessionId,
-                            decision,
-                            ...(answers ? { answers } : {}),
-                          })
-                        }
-                      />
-                    </div>
-                    <button
-                      type="button"
-                      className="workspace-text-link"
-                      aria-label={inboxTitle(item)}
-                      aria-current={selectedId === item.id ? 'true' : undefined}
-                      ref={(node) => {
-                        if (node) rows.current.set(item.id, node);
-                        else rows.current.delete(item.id);
-                      }}
-                      onClick={() => open(item)}
-                    >
-                      Open request
-                    </button>
-                  </>
-                ) : (
+                    />
+                  </div>
                   <button
-                    className="collection-record proposal-record"
+                    type="button"
+                    className="workspace-text-link"
                     aria-label={inboxTitle(item)}
                     aria-current={selectedId === item.id ? 'true' : undefined}
                     ref={(node) => {
@@ -592,63 +575,76 @@ export function UnifiedInboxView({ desktop = false }: { desktop?: boolean } = {}
                     }}
                     onClick={() => open(item)}
                   >
-                    <span className="proposal-record-meta">
-                      <small>
-                        {inboxType(item)}
-                        {item.resolvedAt !== null ? ' · Resolved' : ''}
-                        {item.archivedAt != null ? ' · Archived' : ''}
-                      </small>
-                      <time dateTime={new Date(item.createdAt).toISOString()}>
-                        {new Date(item.createdAt).toLocaleDateString(undefined, {
-                          month: 'short',
-                          day: 'numeric',
-                        })}
-                      </time>
-                    </span>
-                    <strong>{inboxTitle(item)}</strong>
-                    <p>{inboxSummary(item)}</p>
-                    <span className="proposal-record-footer">
-                      <small>
-                        {item.inbox
-                          ? inboxSource(item.inbox.agent)
-                          : item.readAt === null
-                            ? 'Unread'
-                            : ''}
-                      </small>
-                      <span className="proposal-record-open">
-                        {inboxNeedsYou(item)
-                          ? 'Review request'
-                          : item.inbox?.category === 'briefing'
-                            ? 'Read briefing'
-                            : 'Open'}{' '}
-                        <UiIcon name="forward" size={16} />
-                      </span>
-                    </span>
+                    Open request
                   </button>
-                )}
-              </div>
-            ))}
-            {feed && feed.total > 50 && (
-              <div className="inbox-pagination">
+                </>
+              ) : (
                 <button
-                  disabled={offset === 0}
-                  onClick={() => update('offset', String(Math.max(0, offset - 50)))}
+                  className="collection-record proposal-record"
+                  aria-label={inboxTitle(item)}
+                  aria-current={selectedId === item.id ? 'true' : undefined}
+                  ref={(node) => {
+                    if (node) rows.current.set(item.id, node);
+                    else rows.current.delete(item.id);
+                  }}
+                  onClick={() => open(item)}
                 >
-                  Previous
+                  <span className="proposal-record-meta">
+                    <small>
+                      {inboxType(item)}
+                      {item.resolvedAt !== null ? ' · Resolved' : ''}
+                      {item.archivedAt != null ? ' · Archived' : ''}
+                    </small>
+                    <time dateTime={new Date(item.createdAt).toISOString()}>
+                      {new Date(item.createdAt).toLocaleDateString(undefined, {
+                        month: 'short',
+                        day: 'numeric',
+                      })}
+                    </time>
+                  </span>
+                  <strong>{inboxTitle(item)}</strong>
+                  <p>{inboxSummary(item)}</p>
+                  <span className="proposal-record-footer">
+                    <small>
+                      {item.inbox
+                        ? inboxSource(item.inbox.agent)
+                        : item.readAt === null
+                          ? 'Unread'
+                          : ''}
+                    </small>
+                    <span className="proposal-record-open">
+                      {inboxNeedsYou(item)
+                        ? 'Review request'
+                        : item.inbox?.category === 'briefing'
+                          ? 'Read briefing'
+                          : 'Open'}{' '}
+                      <UiIcon name="forward" size={16} />
+                    </span>
+                  </span>
                 </button>
-                <span>
-                  {offset + 1}–{Math.min(offset + 50, feed.total)} of {feed.total}
-                </span>
-                <button
-                  disabled={offset + 50 >= feed.total}
-                  onClick={() => update('offset', String(offset + 50))}
-                >
-                  Next
-                </button>
-              </div>
-            )}
-          </div>
-        )}
+              )}
+            </div>
+          ))}
+          {feed && feed.total > 50 && (
+            <div className="inbox-pagination">
+              <button
+                disabled={offset === 0}
+                onClick={() => update('offset', String(Math.max(0, offset - 50)))}
+              >
+                Previous
+              </button>
+              <span>
+                {offset + 1}–{Math.min(offset + 50, feed.total)} of {feed.total}
+              </span>
+              <button
+                disabled={offset + 50 >= feed.total}
+                onClick={() => update('offset', String(offset + 50))}
+              >
+                Next
+              </button>
+            </div>
+          )}
+        </div>
         {(desktop || hideList) && (
           <section className="collection-inspector" aria-label="Inbox details">
             {detail}

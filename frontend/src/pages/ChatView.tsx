@@ -1,6 +1,6 @@
 import { localCommandStatusMessage } from '@mitzo/client';
 import type { MessageReplyContext } from '@mitzo/protocol';
-import { SessionLaunchConfigSchema } from '@mitzo/protocol';
+import { SessionLaunchConfigSchema, supportsUserTurnSteering } from '@mitzo/protocol';
 import { SessionLaunchDefaultsControl } from '../components/SessionLaunchDefaultsControl';
 import { QuickSettingsSupplement } from '../components/QuickChatSettings';
 import {
@@ -294,7 +294,7 @@ function ChatViewContent() {
   const steerTarget = messages.messages
     .filter((message) => message.role === 'user' && message.commandState === 'running')
     .at(-1)?.messageId;
-  const supportsSteering = localBound && localRuntime.binding?.harness.implementation === 'codex';
+  const supportsSteering = localBound && supportsUserTurnSteering(localRuntime.binding);
   const turnSteering = useTurnSteering(activeSessionId, steerTarget, !!supportsSteering);
 
   const defaultWorkspaceAvailable =
@@ -2236,7 +2236,9 @@ function ChatViewContent() {
                       ? !steerTarget
                         ? 'Waiting for the active turn to be confirmed.'
                         : undefined
-                      : undefined
+                      : localBound
+                        ? 'Steering is unavailable for this engine and runtime. Your prompt remains queued.'
+                        : undefined
                   }
                   running={repositoryHandoff.present ? false : messages.running}
                   awaitingApproval={

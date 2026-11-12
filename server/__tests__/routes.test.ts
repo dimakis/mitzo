@@ -98,7 +98,7 @@ vi.mock('../chat.js', async () => {
         },
       ]),
       findBySessionId: vi.fn().mockImplementation((id: string) => {
-        if (id === 's1') return { clientId: 'conn-abc:s1', session: {} };
+        if (id === 's1') return { clientId: 'conn-abc:s1', session: { mode: 'agent' } };
         return null;
       }),
       suspend: vi.fn(),
@@ -904,6 +904,7 @@ describe('session routes', () => {
       isActive: true,
       isHidden: false,
       totalTokens: 9500,
+      commandMode: 'agent',
       totalCostUsd: 0.05,
       numTurns: 3,
     });

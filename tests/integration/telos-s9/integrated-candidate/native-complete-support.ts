@@ -1,5 +1,6 @@
 import { expect, vi } from 'vitest';
 import { expect as browserExpect, type Page } from '@playwright/test';
+import { approvalSecondary } from '../../../support/approval-actions.js';
 import type { AgentLibraryStore } from '../../../../server/agent-library-store.js';
 import { prepareNativeProviderToolCall } from '../../../../server/__tests__/fixtures/native-provider-tool-call.js';
 
@@ -156,10 +157,11 @@ export function nativeCompleteCaller(
         facts: { sessionId, name, decision, prompt },
       });
       await beforeDecision?.();
-      const button = page.getByRole('button', {
-        name: decision === 'deny' ? 'Deny' : 'Allow Once',
-        exact: true,
-      });
+      const card = page.getByRole('region', { name: 'Approval required', exact: true });
+      const button =
+        decision === 'deny'
+          ? await approvalSecondary(page, card, 'Deny')
+          : card.getByRole('button', { name: 'Approve once', exact: true });
       await browserExpect(button).toBeVisible();
       await button.click();
     }

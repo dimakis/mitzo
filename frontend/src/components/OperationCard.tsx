@@ -62,12 +62,16 @@ export function OperationCard({
         </div>
         {(actions || status) && (
           <div className="operation-actions">
-            {actions}
+            {actions && <div className="operation-action-controls">{actions}</div>}
             {status && <span className="operation-status">{status}</span>}
           </div>
         )}
       </div>
-      {children && <div className="operation-content">{children}</div>}
+      {children && (
+        <div className="operation-content" tabIndex={-1}>
+          {children}
+        </div>
+      )}
       {details && (
         <>
           <button

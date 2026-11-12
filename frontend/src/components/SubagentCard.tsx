@@ -17,10 +17,22 @@ function formatTokens(usage?: { inputTokens: number; outputTokens: number }): st
 }
 
 export function SubagentCard({ subagent, description, sessionId }: SubagentCardProps) {
-  const isRunning = 'running' in subagent && subagent.running;
+  const status =
+    subagent.status ?? ('running' in subagent && subagent.running ? 'running' : 'completed');
+  const isRunning = status === 'running';
+  const label =
+    status === 'failed'
+      ? 'Failed'
+      : status === 'cancelled'
+        ? 'Cancelled'
+        : status === 'unavailable'
+          ? 'Status unavailable'
+          : 'Complete';
   const summary = isRunning
     ? description || 'Working...'
-    : subagent.summary || description || 'Complete';
+    : status === 'completed'
+      ? subagent.summary || description || label
+      : label;
   const usage = 'usage' in subagent ? subagent.usage : undefined;
   const done = !isRunning;
 
@@ -37,11 +49,12 @@ export function SubagentCard({ subagent, description, sessionId }: SubagentCardP
       title={summary}
       kind="Agent"
       icon="agents"
-      status={isRunning ? 'Running...' : 'Done'}
+      status={isRunning ? 'Running...' : status === 'completed' ? 'Done' : undefined}
+      tone={status === 'failed' || status === 'unavailable' ? 'error' : 'normal'}
       scope={
         <>
           <span
-            className={`tool-pill-dot ${isRunning ? 'tool-pill-dot--pending' : 'tool-pill-dot--done'}`}
+            className={`tool-pill-dot ${isRunning ? 'tool-pill-dot--pending' : status === 'failed' ? 'tool-pill-dot--error' : status === 'completed' ? 'tool-pill-dot--done' : 'tool-pill-dot--interrupted'}`}
           />
           {toolCount > 0 && <span className="tool-pill-badge">{toolCount}</span>}
           {usage && <span className="tool-pill-tokens">{formatTokens(usage)}</span>}
@@ -51,6 +64,20 @@ export function SubagentCard({ subagent, description, sessionId }: SubagentCardP
       toggleLabel={`Details for Agent ${summary}`}
       details={
         <div className="tool-pill-detail">
+          {status === 'failed' && (
+            <p>Subagent failed. Review retained output before asking the parent to retry.</p>
+          )}
+          {status === 'unavailable' && (
+            <p>
+              Subagent status could not be confirmed. Check the parent conversation before retrying
+              work.
+            </p>
+          )}
+          {subagent.diagnostic && (
+            <p>
+              Reference: <code>{subagent.diagnostic.correlationId}</code>
+            </p>
+          )}
           {blocks.map((block) => {
             if (block.blockType === 'thinking' || block.blockType === 'redacted_thinking') {
               return <ThinkingBlock key={block.blockId} block={block} streaming={isRunning} />;

@@ -416,6 +416,8 @@ export interface SubagentEndMsg {
   sessionId: string;
   parentBlockId: string;
   subagentMessageId: string;
+  status?: import('@mitzo/protocol').SubagentStatus;
+  diagnostic?: import('@mitzo/protocol').SubagentDiagnostic;
   summary?: string;
   usage?: {
     inputTokens: number;

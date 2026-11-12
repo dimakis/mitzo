@@ -58,14 +58,15 @@ function ReturnToEntries() {
   const navigate = useNavigate();
   return <button onClick={() => navigate('/inbox')}>Return to entries</button>;
 }
-it('keeps one active desktop question form and preserves the hidden entry draft', async () => {
+it.each([true, false])('preserves the hidden question draft (desktop=%s)', async (desktop) => {
   render(
     <MemoryRouter initialEntries={['/inbox']}>
       <ReturnToEntries />
-      <UnifiedInboxView desktop />
+      <UnifiedInboxView desktop={desktop} />
     </MemoryRouter>,
   );
   fireEvent.click(await screen.findByRole('radio', { name: /North/ }));
+  await waitFor(() => expect(screen.getByRole('radio', { name: /North/ })).toBeChecked());
   fireEvent.click(screen.getByRole('button', { name: question.title }));
   await waitFor(() => expect(screen.getAllByRole('radio')).toHaveLength(2));
   const north = screen.getAllByRole('radio', { name: /North/, hidden: true });

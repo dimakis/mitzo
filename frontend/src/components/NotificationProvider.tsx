@@ -1,33 +1,12 @@
 import { NOTIFICATIONS_REFRESH_EVENT } from '../lib/notification-target';
-import {
-  createContext,
-  useCallback,
-  useContext,
-  useEffect,
-  useRef,
-  useState,
-  type ReactNode,
-} from 'react';
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import type { NotificationFeed, NotificationFilter } from '@mitzo/protocol';
 import { apiFetch, AUTH_LOST_EVENT, AUTH_RESTORED_EVENT } from '../lib/api-fetch';
 import { eventBus } from '../lib/event-bus-singleton';
 import { readApiJson } from '../lib/api-json-read';
 import { syncNotificationBadge } from '../lib/notification-badge';
-interface NotificationContext {
-  feed: NotificationFeed | null;
-  error: string | null;
-  loading: boolean;
-  filter: NotificationFilter;
-  offset: number;
-  setFilter: (value: NotificationFilter) => void;
-  setOffset: (value: number) => void;
-  refresh: () => Promise<void>;
-  mutate: (path: string, body?: unknown, method?: string) => Promise<void>;
-}
-const Context = createContext<NotificationContext | null>(null);
-export function useNotifications(): NotificationContext | null {
-  return useContext(Context);
-}
+import { NotificationContext as Context } from './NotificationContext';
+export { useNotifications } from './NotificationContext';
 /** One authenticated shared subscription keeps badges and every screen in agreement. */
 export function NotificationProvider({ children }: { children: ReactNode }) {
   const [feed, setFeed] = useState<NotificationFeed | null>(null);

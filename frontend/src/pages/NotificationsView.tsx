@@ -6,7 +6,7 @@ import type {
   NotificationPreferences,
   QuestionAnswers,
 } from '@mitzo/protocol';
-import { useNotifications } from '../components/NotificationProvider';
+import { useNotifications } from '../components/NotificationContext';
 import { WorkspacePageHeading } from '../components/WorkspacePageHeading';
 import { UiIcon } from '../components/UiIcon';
 import { ApprovalRequestSummary } from '../components/ApprovalRequestSummary';

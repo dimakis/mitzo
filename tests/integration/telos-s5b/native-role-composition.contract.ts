@@ -427,9 +427,9 @@ it('composes native worker evidence, explicit source review and Read Once with c
       await sourcePanel.getByRole('button', { name: 'Review selected source' }).click();
       await browserExpect(sourcePanel.getByText('Reviewed source', { exact: true })).toBeVisible();
       await browserExpect(
-        h.page.getByRole('button', { name: 'Allow Once', exact: true }),
+        h.page.getByRole('button', { name: 'Approve once', exact: true }),
       ).toBeEnabled();
-      await h.page.getByRole('button', { name: 'Allow Once', exact: true }).click();
+      await h.page.getByRole('button', { name: 'Approve once', exact: true }).click();
     },
   );
   expect(adopted.success, JSON.stringify(adopted)).toBe(true);
@@ -440,7 +440,7 @@ it('composes native worker evidence, explicit source review and Read Once with c
     { id: output.id, revision: output.revision },
     'browser-once',
     async () => {
-      await h.page.getByRole('button', { name: 'Allow Once', exact: true }).click();
+      await h.page.getByRole('button', { name: 'Approve once', exact: true }).click();
     },
   );
   expect(readOutput.success, JSON.stringify(readOutput)).toBe(true);

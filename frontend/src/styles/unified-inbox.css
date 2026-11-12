@@ -1,3 +1,7 @@
+.unified-inbox .inbox-scroll[hidden] {
+  display: none;
+}
+
 .unified-inbox .inbox-views,
 .unified-inbox .inbox-list-tools,
 .unified-inbox .inbox-pagination,

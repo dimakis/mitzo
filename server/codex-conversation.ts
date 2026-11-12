@@ -746,7 +746,15 @@ export class CodexConversation {
       executeTool: this.opts.executeTool,
       requestNativeApproval: this.opts.requestNativeApproval,
       requestUserInput: this.opts.requestUserInput,
-      validateModel: this.opts.validateModel,
+      validateModel: (model, commandId) => {
+        // Owned admissions validate the complete model/thinking pair. A child
+        // belongs to its spawning command, even after the parent moves on.
+        const command = this.opts.store
+          .commands(this.opts.conversationId, binding)
+          .find((entry) => entry.id === commandId);
+        if (!command) throw Error('Original subagent model selection unavailable');
+        this.validateModel(model, command.reasoningEffort);
+      },
       onChild: (child) => {
         if (!this.mapper) return false;
         if (this.subagentAnchors.has(child.commandId)) return true;
