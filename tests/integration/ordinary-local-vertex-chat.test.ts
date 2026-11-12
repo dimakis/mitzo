@@ -288,6 +288,7 @@ it.each([
       await vi.waitFor(() =>
         expect(chat.registry.findBySessionId(f.reservation.conversationId)).toBeNull(),
       );
+      chat.setConnectionRegistry(null);
       chat.eventStore.close();
     });
     const transport = { send: vi.fn(), isOpen: () => true };
@@ -559,6 +560,18 @@ it.each([
       },
     );
     chat.eventStore.agentCommunication.claim(peer.messageId);
+    const peerCard = (direction: string, messageId: string, status?: string) =>
+      expect.objectContaining({
+        type: 'agent_message',
+        sessionId: f.reservation.conversationId,
+        projection: expect.objectContaining({
+          direction,
+          message: expect.objectContaining({ messageId, ...(status ? { status } : {}) }),
+        }),
+      });
+    await vi.waitFor(() =>
+      expect(transport.send).toHaveBeenCalledWith(peerCard('incoming', peer.messageId)),
+    );
     const runtime = agentMessageRuntime(sdkSession, f.auth.id)!;
     expect(runtime.state()).toBe('busy');
     expect(await runtime.steer(peer, () => {}, sdkSession.abortController.signal)).toBe(
@@ -570,6 +583,38 @@ it.each([
         chat.eventStore.agentCommunication.read('offline-peer-sender', peer.messageId).status,
       ).toBe('delivered'),
     );
+    expect(transport.send).toHaveBeenCalledWith(peerCard('incoming', peer.messageId, 'delivered'));
+    const outgoingPeer = chat.eventStore.agentCommunication.reserve(
+      f.reservation.conversationId,
+      f.auth.id,
+      { turnId: 'recipient-turn', callId: 'outgoing-peer-call' },
+      {
+        requestId: randomUUID(),
+        recipientConversationId: 'offline-peer-sender',
+        text: 'Retain the outgoing card in this SDK conversation too.',
+      },
+    );
+    await vi.waitFor(() =>
+      expect(transport.send).toHaveBeenCalledWith(peerCard('outgoing', outgoingPeer.messageId)),
+    );
+    const { ConnectionRegistry } = await import('@mitzo/harness');
+    const connections = new ConnectionRegistry();
+    cleanups.push(() => connections.dispose());
+    const firstTab = { isOpen: () => true, send: vi.fn() };
+    const reconnectedTab = { isOpen: () => true, send: vi.fn() };
+    connections.register('first-peer-tab', firstTab);
+    connections.watch('first-peer-tab', f.reservation.conversationId);
+    chat.setConnectionRegistry(connections);
+    chat.eventStore.agentCommunication.claim(outgoingPeer.messageId);
+    await vi.waitFor(() =>
+      expect(firstTab.send).toHaveBeenCalledWith(
+        peerCard('outgoing', outgoingPeer.messageId, 'uncertain'),
+      ),
+    );
+    connections.remove('first-peer-tab');
+    connections.register('reconnected-peer-tab', reconnectedTab);
+    connections.watch('reconnected-peer-tab', f.reservation.conversationId);
+    expect(sdkSession.observers.size).toBe(0);
     expect(chat.eventStore.getSession(f.reservation.conversationId)?.executionPhase).toBe(
       'RUNNING',
     );
@@ -633,6 +678,13 @@ it.each([
         : { ANTHROPIC_VERTEX_PROJECT_ID: 'offline-project', CLOUD_ML_REGION: 'offline-region' },
     });
     expect(services.requests[1].options).not.toHaveProperty('sessionId');
+    chat.eventStore.agentCommunication.recordForHost(outgoingPeer.messageId, 'delivered');
+    await vi.waitFor(() =>
+      expect(reconnectedTab.send).toHaveBeenCalledWith(
+        peerCard('outgoing', outgoingPeer.messageId, 'delivered'),
+      ),
+    );
+    connections.remove('reconnected-peer-tab');
     expect(
       chat.eventStore.agentCommunication.read('offline-peer-sender', peer.messageId).status,
     ).toBe('delivered');
@@ -675,6 +727,18 @@ it.each([
     await vi.waitFor(() =>
       expect(chat.registry.findBySessionId(f.reservation.conversationId)).toBeNull(),
     );
+    const afterStopPeer = chat.eventStore.agentCommunication.reserve(
+      f.reservation.conversationId,
+      f.auth.id,
+      { turnId: 'closed-recipient-turn', callId: 'closed-peer-call' },
+      {
+        requestId: randomUUID(),
+        recipientConversationId: 'offline-peer-sender',
+        text: 'Retained after the original owner stopped.',
+      },
+    );
+    await new Promise<void>((resolve) => queueMicrotask(resolve));
+    expect(transport.send).not.toHaveBeenCalledWith(peerCard('outgoing', afterStopPeer.messageId));
     await expect(
       invoke('/continue', {
         ...wire,

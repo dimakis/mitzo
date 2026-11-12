@@ -233,6 +233,9 @@ export class SdkAgentMessageRuntime implements AgentMessageRuntime {
     if (event.type !== 'user' || typeof event.uuid !== 'string' || event.parent_tool_use_id)
       return false;
     const text = inputText((event.message as { content?: unknown } | undefined)?.content);
+    // Tool results are SDK user envelopes too. They belong to the normal query
+    // consumer, never to replay-input acknowledgement/correlation filtering.
+    if (text === undefined) return false;
     const active = this.owners.ordinaryCommandId
       ? this.owners.ordinaryCommandId()
       : this.owners.activeCommandId();
