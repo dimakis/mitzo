@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.1062-typed-recovery-consumer-fixture';
+  'v1.0.1063-startup-validation-classification';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -2356,7 +2356,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../frozen-host-codex-executable.ts':
     'ef3c54f4d877eb7fb9af2beee771f5379364c6ccb5d5656ac61d354d3fa0cfc9',
   '../frozen-host-codex-bootstrap.ts':
-    '90cf545befc56699bfb8d103500166670c2fb6a9a8fbccf1c15f0bbc8bc2a591',
+    '6c576bf5a20d55d583ad9b70957b743c86b7a6939263ffec1e7d7c234d478408',
   '../owned-codex-lifecycle-bridge.ts':
     '3f56c89e89b7f83b1de9a0b59279fb5181864ad43f6fa1372cdd19b14158004f',
   '../owned-local-codex-chat-admission.ts':
@@ -3753,7 +3753,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/configured-tool-catalog.test.ts':
     'e6540649688671acda96714eea8589b0ddbc5f28e6efe41acb0b8fd32de6c325',
   '../__tests__/frozen-host-codex-bootstrap.test.ts':
-    '65fca83f515a81e600d4e6821808f7369bf546b038bb677cbdc9c9b82df4e4ec',
+    '53c7263af75deabda810cdd53dc7c634c0e2d7bfb0d7d16ca3f4823d3897fa49',
   '../__tests__/frozen-host-codex-reuse.test.ts':
     'f9ea4b311caeb3fec512a2d95ee933766397498861f71fe5ba48e3eb8115ed3d',
   '../__tests__/host-codex-custody.test.ts':
@@ -3769,7 +3769,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/openshell-warm-pool.test.ts':
     '5bf6f6a1a46feff8bbbeae585a4794512a954d8fdffb53795f2b05bde51e3310',
   '../__tests__/ordinary-local-codex-owned-runtime.test.ts':
-    'c41846bab91fd93a1ecd9ea3952a0438032b12e944449dc73e211ed4df2e483f',
+    '4339871c489dc3f7a884d3fbafae646f92b25ec2210edcabe782f60a3cec1e46',
   '../__tests__/owned-local-codex-terminal-closure.test.ts':
     'd6901e8051b00e4ff7817748bc8e3910aa36e1455f16cc9dc055030b83b90ec7',
   '../__tests__/query-loop.test.ts':

@@ -565,6 +565,7 @@ export class FrozenHostCodexBootstrapAuthority implements OrdinaryLocalCodexBoot
       );
       const ownedLogin = loginLease;
       let retired = false;
+      let validationLive = false;
       const loginClose = ownedLogin.close;
       const closeLease = () => {
         if (retired) return;
@@ -578,6 +579,12 @@ export class FrozenHostCodexBootstrapAuthority implements OrdinaryLocalCodexBoot
         cancelled = false,
       ) => {
         const reviewed = findSessionRuntimeError(error);
+        // Initial model/account qualification has not handed a live owner to
+        // its consumer. Preserve startup refusal/cancellation classification.
+        if (!validationLive && !reviewed) {
+          closeLease();
+          return unavailable(error);
+        }
         const failure = reviewed ?? new CodexToolValidationError(stage, error, cancelled);
         if (!retired) {
           try {
@@ -889,6 +896,7 @@ export class FrozenHostCodexBootstrapAuthority implements OrdinaryLocalCodexBoot
       await observeLocalCodexPhase('model_qualification', () =>
         qualifyModels(this.selections(expected)),
       );
+      validationLive = true;
       return await operation(this.#lease);
     } catch (error) {
       loginLease?.close();

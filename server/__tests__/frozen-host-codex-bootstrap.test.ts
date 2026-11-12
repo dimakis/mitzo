@@ -772,9 +772,9 @@ it('revocation while provider discovery awaits blocks the next effect boundary',
       return response;
     });
     const operation = vi.fn();
-    await expect(f.authority.withBootstrap(f.expected, f.claim, operation)).rejects.toMatchObject({
-      code: 'tool_validation_failed',
-    });
+    await expect(f.authority.withBootstrap(f.expected, f.claim, operation)).rejects.toThrow(
+      'Host Codex bootstrap unavailable',
+    );
     expect(operation).not.toHaveBeenCalled();
     expect(f.rpc.close).toHaveBeenCalledTimes(1);
     expect(f.store.getOrdinaryLocalCommandAdmission('command')?.state).toBe('uncertain');

@@ -57,6 +57,8 @@ Subscription and API credential owners publish before their own physical close,
 including failures below bootstrap. Existing reviewed failures retain their code;
 new live credential failures retain their private cause and report the reviewed
 validation code. Initial login failures keep their existing classification.
+Initial bootstrap refusal and cancellation also keep their startup classification
+until qualification completes and the lease is handed to its consumer.
 
 Trusted Git commit preparation does not repeat full provider and workspace
 validation for every immutable object. It validates the complete owner before
