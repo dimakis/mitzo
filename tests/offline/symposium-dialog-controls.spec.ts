@@ -186,8 +186,16 @@ for (const theme of ['dark', 'light'])
     const repository = dialog.getByLabel('Local repository');
     await expect(repository).toBeVisible();
     await repository.selectOption('local:local/project');
-    await expect(dialog.getByRole('button', { name: 'Use repository', exact: true })).toBeEnabled();
-    await repository.scrollIntoViewIfNeeded();
+    const prepare = dialog.getByRole('button', { name: 'Use repository', exact: true });
+    await expect(prepare).toBeEnabled();
+    await prepare.scrollIntoViewIfNeeded();
+    await expect(prepare).toBeInViewport({ ratio: 1 });
+    await expect(repository).toBeInViewport({ ratio: 1 });
+    expect(
+      await dialog
+        .getByRole('region', { name: 'Repository for new chat' })
+        .evaluate((el) => el.scrollHeight <= el.clientHeight),
+    ).toBe(true);
     expect(
       await dialog
         .locator('.conversation-agents-body')

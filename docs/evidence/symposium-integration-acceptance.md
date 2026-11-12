@@ -42,6 +42,21 @@ field in the actual schema. The corrected fixture and the strengthened component
 check retain a real saved profile through Cancel/reopen. These corrections do
 not change the product fix or establish browser-rendered acceptance.
 
+Current-head hosted rendering exposed a second concrete defect during landing.
+Run `43323161813`, head `fc3a4987`, passed the desktop Chromium shard containing
+the new light-theme dialog case. Its retained `fresh-setup-fields-light.png`
+shows restored Agent/account/model/thinking fields; `fresh-setup-repository-light.png`
+shows the expanded repository form compressed into a narrow inner scroller, with
+its action buttons clipped. The repository component's zero minimum height and
+inner overflow allow its grid row to collapse inside the dialog. The candidate
+now retains the form's intrinsic minimum height and delegates scrolling to the
+existing dialog body. The browser regression requires the repository selector
+and enabled action to be fully in the viewport, with no clipped inner scroll area.
+This rendered failure is retained separately from the previously passing but
+insufficient enabled-button assertion. The strengthened browser assertions and
+corrected mobile/desktop captures still require a new hosted run; no local browser
+execution or completed visual acceptance is claimed for this follow-up.
+
 ## 12 November 2026 source-acceptance checkpoint
 
 This checkpoint contributes landing evidence to the existing map without changing
