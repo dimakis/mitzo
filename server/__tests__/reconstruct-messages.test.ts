@@ -1145,7 +1145,7 @@ describe('replayEventsToTranscript — bounded in-flight restore', () => {
     });
   });
 
-  it('keeps reused parent block IDs scoped to their assistant turns', () => {
+  it('keeps explicitly attributed reused parent block IDs scoped to their assistant turns', () => {
     const events = [
       evt(1, 'message_start', { messageId: 'a1' }),
       evt(2, 'block_start', { messageId: 'a1', blockId: 'b0', blockType: 'tool_use' }),
@@ -1158,13 +1158,23 @@ describe('replayEventsToTranscript — bounded in-flight restore', () => {
       evt(9, 'message_end', { messageId: 'a1' }),
       evt(10, 'message_start', { messageId: 'a2' }),
       evt(11, 'block_start', { messageId: 'a2', blockId: 'b0', blockType: 'tool_use' }),
-      evt(12, 'subagent_start', { parentBlockId: 'b0', subagentMessageId: 'second' }),
+      evt(12, 'subagent_start', {
+        messageId: 'a2',
+        parentBlockId: 'b0',
+        subagentMessageId: 'second',
+      }),
       evt(13, 'subagent_block_start', {
+        messageId: 'a2',
         parentBlockId: 'b0',
         blockId: 'nested',
         blockType: 'text',
       }),
-      evt(14, 'subagent_block_delta', { parentBlockId: 'b0', blockId: 'nested', delta: 'current' }),
+      evt(14, 'subagent_block_delta', {
+        messageId: 'a2',
+        parentBlockId: 'b0',
+        blockId: 'nested',
+        delta: 'current',
+      }),
     ];
     const restored = replayEventsToTranscript(events);
     expect(restored.messages[0].blocks[0].subagent).toMatchObject({
@@ -1179,7 +1189,7 @@ describe('replayEventsToTranscript — bounded in-flight restore', () => {
     });
   });
 
-  it('keeps reused nested tool IDs and results within each parent turn', () => {
+  it('keeps explicitly attributed reused nested tool IDs and results within each parent turn', () => {
     const events = [
       evt(1, 'message_start', { messageId: 'a1' }),
       evt(2, 'block_start', { messageId: 'a1', blockId: 'b0', blockType: 'tool_use' }),
@@ -1200,14 +1210,21 @@ describe('replayEventsToTranscript — bounded in-flight restore', () => {
       evt(9, 'message_end', { messageId: 'a1' }),
       evt(10, 'message_start', { messageId: 'a2' }),
       evt(11, 'block_start', { messageId: 'a2', blockId: 'b0', blockType: 'tool_use' }),
-      evt(12, 'subagent_start', { parentBlockId: 'b0', subagentMessageId: 's2' }),
+      evt(12, 'subagent_start', { messageId: 'a2', parentBlockId: 'b0', subagentMessageId: 's2' }),
       evt(13, 'subagent_block_start', {
+        messageId: 'a2',
         parentBlockId: 'b0',
         blockId: 'nested',
         blockType: 'tool_use',
       }),
-      evt(14, 'subagent_block_end', { parentBlockId: 'b0', blockId: 'nested', toolId: 'shared' }),
+      evt(14, 'subagent_block_end', {
+        messageId: 'a2',
+        parentBlockId: 'b0',
+        blockId: 'nested',
+        toolId: 'shared',
+      }),
       evt(15, 'subagent_tool_result', {
+        messageId: 'a2',
         parentBlockId: 'b0',
         toolId: 'shared',
         result: 'new result',

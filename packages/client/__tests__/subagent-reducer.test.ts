@@ -7,6 +7,28 @@ import type {
 } from '@mitzo/protocol';
 
 describe('Subagent Reducer Actions', () => {
+  it('refuses unattributed child events when current and retained parents reuse a block ID', () => {
+    const block = {
+      blockId: 'b1',
+      blockType: 'tool_use' as const,
+      content: '',
+      done: true,
+      toolName: 'Agent',
+      toolId: 'call',
+    };
+    const state = {
+      ...INITIAL_MESSAGES_STATE,
+      current: { messageId: 'new', blocks: new Map([['b1', block]]), blockOrder: ['b1'] },
+      messages: [{ messageId: 'old', role: 'assistant' as const, blocks: [block] }],
+    };
+    expect(
+      messagesReducer(state, {
+        type: 'SUBAGENT_START',
+        parentBlockId: 'b1',
+        subagentMessageId: 'child',
+      }),
+    ).toBe(state);
+  });
   it('SUBAGENT_START initializes subagent state on parent tool block', () => {
     const state = {
       ...INITIAL_MESSAGES_STATE,

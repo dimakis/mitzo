@@ -3,6 +3,11 @@ import { findNativeMacExecutionUnavailable } from './codex-native-artifact-quali
 import { z } from 'zod';
 import { observeLocalCodexPhase, observeLocalCodexSyncPhase } from './local-codex-observation.js';
 import { findSessionRuntimeError } from './session-runtime-error.js';
+import {
+  CodexToolValidationError,
+  type CodexToolValidationStage,
+} from './codex-tool-validation-error.js';
+import { createLogger } from './logger.js';
 import type { AccountBinding } from '@mitzo/protocol';
 import { isDeepStrictEqual } from 'node:util';
 import { custodianControllerMode } from './symposium-custodian-mode.js';
@@ -75,6 +80,7 @@ export interface FrozenHostCodexBootstrapLease extends FrozenHostCodexLoginLease
 }
 type Expected = OrdinaryLocalCodexAdmissionExpectation & { bootstrapId?: string };
 const unavailable = (cause?: unknown) => new Error('Host Codex bootstrap unavailable', { cause });
+const log = createLogger('frozen-host-codex-bootstrap');
 function strictVoid(result: unknown): void {
   if (result === undefined) return;
   void Promise.resolve(result).catch(() => {});
@@ -506,46 +512,58 @@ export class FrozenHostCodexBootstrapAuthority implements OrdinaryLocalCodexBoot
             this.owners.lifecycle,
             selected,
           ));
+      let validationLive = false;
       loginLease = await observeLocalCodexPhase('bootstrap_connect', async () =>
         login instanceof FrozenHostCodexApiLogin
-          ? await login.connect(async (home) => {
-              this.assertSync(expected, undefined, executable);
-              if (this.owners.launchApi)
-                return this.owners.launchApi(home, executable, authBinding, !!retained, connection);
-              if (!this.owners.lifecycle) throw unavailable();
-              if (retained)
-                return CodexAppServerClient.launchIsolatedApiResume(
-                  home,
-                  this.owners.baseEnv,
-                  this.owners.lifecycle,
+          ? await login.connect(
+              async (home) => {
+                this.assertSync(expected, undefined, executable);
+                if (this.owners.launchApi)
+                  return this.owners.launchApi(
+                    home,
+                    executable,
+                    authBinding,
+                    !!retained,
+                    connection,
+                  );
+                if (!this.owners.lifecycle) throw unavailable();
+                if (retained)
+                  return CodexAppServerClient.launchIsolatedApiResume(
+                    home,
+                    this.owners.baseEnv,
+                    this.owners.lifecycle,
+                    executable,
+                    connection,
+                  );
+                const result = await CodexAppServerClient.launchIsolatedApi({
+                  privateHome: home,
                   executable,
+                  binding: authBinding,
                   connection,
-                );
-              const result = await CodexAppServerClient.launchIsolatedApi({
-                privateHome: home,
-                executable,
-                binding: authBinding,
-                connection,
-                signal: this.owners.signal,
-                lifecycle: this.owners.lifecycle,
-                base: this.owners.baseEnv,
-                resolveKey: (binding, signal) =>
-                  keyAuthority!.resolveKey(binding.accountId, signal),
-                assertCurrentSync: () => this.assertSync(expected, undefined, executable),
-                assertCurrent: async () => {
-                  this.assertSync(expected, undefined, executable);
-                  await keyAuthority!.assertReady(this.owners.signal);
-                  this.assertSync(expected, undefined, executable);
-                },
-              });
-              return result.client;
-            })
+                  signal: this.owners.signal,
+                  lifecycle: this.owners.lifecycle,
+                  base: this.owners.baseEnv,
+                  resolveKey: (binding, signal) =>
+                    keyAuthority!.resolveKey(binding.accountId, signal),
+                  assertCurrentSync: () => this.assertSync(expected, undefined, executable),
+                  assertCurrent: async () => {
+                    this.assertSync(expected, undefined, executable);
+                    await keyAuthority!.assertReady(this.owners.signal);
+                    this.assertSync(expected, undefined, executable);
+                  },
+                });
+                return result.client;
+              },
+              (failure) => this.owners.lifecycle?.onClose(failure),
+              () => validationLive,
+            )
           : await login.connect(
               (home) => {
                 this.assertSync(expected, undefined, executable);
                 return launch(home, executable);
               },
               (failure) => this.owners.lifecycle?.onClose(failure),
+              () => validationLive,
             ),
       );
       const ownedLogin = loginLease;
@@ -557,25 +575,44 @@ export class FrozenHostCodexBootstrapAuthority implements OrdinaryLocalCodexBoot
         Reflect.apply(loginClose, ownedLogin, []);
       };
       this.#routingBinding = structuredClone(ownedLogin.binding);
+      const retireValidation = (
+        error: unknown,
+        stage: CodexToolValidationStage,
+        cancelled = false,
+      ) => {
+        const reviewed = findSessionRuntimeError(error);
+        // Initial model/account qualification has not handed a live owner to
+        // its consumer. Preserve startup refusal/cancellation classification.
+        if (!validationLive && !reviewed) {
+          closeLease();
+          return unavailable(error);
+        }
+        const failure = reviewed ?? new CodexToolValidationError(stage, error, cancelled);
+        if (!retired) {
+          try {
+            this.owners.lifecycle?.onClose(failure);
+          } catch {
+            log.warn('Host tool validation diagnostic delivery failed', {
+              bootstrapId: expected.bootstrapId,
+              workspaceId: expected.workspace.workspaceId,
+              ...failure.telemetry(),
+            });
+          }
+        }
+        closeLease();
+        return reviewed ?? unavailable(failure);
+      };
       const assertCurrentSync = () => {
         try {
           if (retired) throw unavailable();
           this.assertSync(expected, ownedLogin, executable);
         } catch (error) {
-          const failure = findSessionRuntimeError(error);
-          if (failure && !retired) {
-            try {
-              this.owners.lifecycle?.onClose(failure);
-            } catch {
-              /* Retire invalid custody below. */
-            }
-          }
-          closeLease();
-          throw failure ?? unavailable(error);
+          throw retireValidation(error, 'runtime_fence');
         }
       };
       let qualifiedModels: Array<{ id: string; reasoningEfforts?: string[] }> = [];
       const assertToolCurrent = async (signal: AbortSignal = this.owners.signal) => {
+        let stage: CodexToolValidationStage = 'credential_refresh';
         try {
           const workspaceCurrent =
             this.owners.assertToolSelectionCurrent ?? this.owners.assertSelectionCurrent;
@@ -602,6 +639,7 @@ export class FrozenHostCodexBootstrapAuthority implements OrdinaryLocalCodexBoot
           };
           await ownedLogin.qualifyCredentialRefresh?.(signal);
           current();
+          stage = 'workspace_check';
           strictVoid(
             await observeLocalCodexPhase('workspace_check', () =>
               Reflect.apply(workspaceCurrent, this.owners, [expected, signal]),
@@ -609,6 +647,7 @@ export class FrozenHostCodexBootstrapAuthority implements OrdinaryLocalCodexBoot
           );
           current();
           if (!full || !('value' in full) || typeof full.value !== 'function') throw unavailable();
+          stage = 'credential_check';
           strictVoid(
             await observeLocalCodexPhase('credential_check', () =>
               Reflect.apply(
@@ -620,18 +659,7 @@ export class FrozenHostCodexBootstrapAuthority implements OrdinaryLocalCodexBoot
           );
           current();
         } catch (error) {
-          const failure = findSessionRuntimeError(error);
-          // Publish the reviewed cause before physical close synchronously
-          // reenters lifecycle shutdown with a generic connection error.
-          if (failure) {
-            try {
-              this.owners.lifecycle?.onClose(failure);
-            } catch {
-              /* Diagnostic delivery cannot prevent retiring invalid custody. */
-            }
-          }
-          closeLease();
-          throw failure ?? unavailable(error);
+          throw retireValidation(error, stage, signal.aborted);
         }
       };
       const qualifyModels = async (
@@ -870,6 +898,7 @@ export class FrozenHostCodexBootstrapAuthority implements OrdinaryLocalCodexBoot
       await observeLocalCodexPhase('model_qualification', () =>
         qualifyModels(this.selections(expected)),
       );
+      validationLive = true;
       return await operation(this.#lease);
     } catch (error) {
       loginLease?.close();

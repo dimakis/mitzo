@@ -6,6 +6,8 @@ export const KNOWLEDGE_RUNTIME_UNAVAILABLE_MESSAGE =
 /** Reviewed public copy only. Both producers and consumers use this allowlist;
  * upstream exceptions and saved device text never supply a diagnostic message. */
 export const SESSION_RUNTIME_MESSAGES = {
+  tool_validation_failed:
+    'Mitzo could not validate the current tool operation. Saved work is preserved; inspect conversation recovery before continuing.',
   login_verification_unavailable:
     'ChatGPT login verification is temporarily unavailable. Try again when verification is available. Your draft, saved messages and workspace are retained.',
   login_refresh_invalid:

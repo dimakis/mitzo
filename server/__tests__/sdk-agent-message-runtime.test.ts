@@ -16,6 +16,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { runQueryLoop } from '../query-loop.js';
 import { OrdinaryLocalVertexCommandOwner } from '../ordinary-local-vertex-command-owner.js';
+import * as nativeHistory from '../ordinary-local-vertex-native-history.js';
 vi.mock('@anthropic-ai/claude-agent-sdk', () => ({ query: vi.fn() }));
 
 const cleanup: Array<() => void> = [];
@@ -321,6 +322,7 @@ async function composedFixture() {
     ...f,
     runtime,
     commands,
+    sdk,
     inputs,
     stream: events,
     observedInputs,
@@ -336,6 +338,79 @@ async function composedFixture() {
     },
   };
 }
+
+it('consumes a user correction ACK before the ordinary owner and releases its successor only on the original result', async () => {
+  const f = await composedFixture();
+  const correction = {
+    requestId: randomUUID(),
+    targetCommandId: 'original',
+    text: 'Preserve the current task and correct its order.',
+  };
+  expect(await f.runtime.steerUser(correction, f.assertCurrent)).toEqual({ status: 'uncertain' });
+  const input = (await f.inputs.next()).value!;
+  expect(input).toMatchObject({ priority: 'now', message: { content: correction.text } });
+  f.stream.push({ type: 'user', session_id: 'worker', uuid: input.uuid, message: input.message });
+  f.stream.push({
+    type: 'assistant',
+    session_id: 'worker',
+    message: { id: 'original-assistant', content: [] },
+  });
+  await vi.waitFor(() => expect(f.afterAssistant).toHaveBeenCalledOnce());
+  expect(await f.runtime.steerUser(correction, f.assertCurrent)).toEqual({ status: 'accepted' });
+  expect(f.observedInputs.mock.calls).toEqual([[originalInputId]]);
+  expect(f.commands.activeCommandId()).toBe('original');
+  expect(f.ordinaryPush.mock.calls.map(([id]) => id)).toEqual(['original']);
+  expect(f.resultIds).toEqual([]);
+  expect(f.state().completing).toBe(false);
+  f.stream.push({ type: 'result', session_id: 'worker', uuid: 'original-result', is_error: false });
+  await vi.waitFor(() => expect(f.resultIds).toEqual([originalInputId]));
+  expect(await f.settlements[0]).toBe('completed');
+  expect(f.ordinaryPush.mock.calls.map(([id]) => id)).toEqual(['original', 'successor']);
+  expect(f.abort).not.toHaveBeenCalled();
+  await f.finish();
+});
+
+it('keeps a submitted user correction uncertain when a successor SDK query replays its ACK', async () => {
+  const f = await composedFixture();
+  const correction = {
+    requestId: randomUUID(),
+    targetCommandId: 'original',
+    text: 'Keep this correction on the original query.',
+  };
+  await f.runtime.steerUser(correction, f.assertCurrent);
+  const input = (await f.inputs.next()).value!;
+  f.stream.push({ type: 'result', session_id: 'worker', uuid: 'original-result', is_error: false });
+  await vi.waitFor(() => expect(f.resultIds).toEqual([originalInputId]));
+  expect(await f.settlements[0]).toBe('completed');
+  const nextEvents = new AsyncQueue<Record<string, unknown>>();
+  vi.mocked(query).mockImplementationOnce(
+    () =>
+      ({
+        close: () => nextEvents.close(),
+        [Symbol.asyncIterator]: () => nextEvents[Symbol.asyncIterator](),
+      }) as never,
+  );
+  const selection = f.events.getOrdinaryLocalVertexCommandAdmission('successor')!.selection;
+  await f.sdk.apply(selection);
+  const history = vi
+    .spyOn(nativeHistory, 'assertOrdinaryLocalVertexHistory')
+    .mockResolvedValueOnce();
+  try {
+    await f.sdk.apply(selection);
+  } finally {
+    history.mockRestore();
+  }
+  nextEvents.push({ type: 'user', session_id: 'worker', uuid: input.uuid, message: input.message });
+  nextEvents.push({
+    type: 'assistant',
+    session_id: 'worker',
+    message: { id: 'successor-assistant', content: [] },
+  });
+  await vi.waitFor(() => expect(f.afterAssistant).toHaveBeenCalledOnce());
+  expect(await f.runtime.steerUser(correction, f.assertCurrent)).toEqual({ status: 'uncertain' });
+  expect(f.observedInputs.mock.calls).toEqual([[originalInputId]]);
+  await f.finish();
+});
 
 it.each(['exact', 'wrong-text', 'foreign-uuid'] as const)(
   'keeps the active ordinary command and successor fenced through a %s peer ACK and the original result',
@@ -620,6 +695,127 @@ it('retains uncertainty for a mismatched ACK instead of contaminating original c
   ).toBe(true);
   expect(f.events.agentCommunication.read('sender', f.message.messageId).status).toBe('uncertain');
 });
+
+it.each([false, true])(
+  'preserves SDK tool output through an idle peer command and the real query consumer (error=%s)',
+  async (isError) => {
+    const f = fixture();
+    f.setActive(undefined);
+    const runtime = f.create();
+    const stream = new AsyncQueue<Record<string, unknown>>();
+    let stdin!: AsyncIterable<SDKUserMessage>;
+    vi.mocked(query).mockImplementation((request) => {
+      stdin = request.prompt as typeof stdin;
+      return {
+        close: () => stream.close(),
+        [Symbol.asyncIterator]: () => stream[Symbol.asyncIterator](),
+      } as never;
+    });
+    const controller = f.session.abortController;
+    cleanup.push(() => controller.abort());
+    const sdk = createOrdinaryLocalVertexSdkQuery<AsyncIterable<Record<string, unknown>>>({
+      options: {},
+      input: new AsyncQueue<SDKUserMessage>(),
+      lifetime: new SdkHookLifetime(),
+      sdkSessionId: 'worker',
+      cwd: '/task',
+      controller,
+      authorize: async () => {},
+      authorizeSync: () => {},
+      adapt: (q) => q as never,
+      settings: () => ({}),
+      inputChanged: () => {},
+      peerMessages: () => runtime,
+    });
+    f.enqueue.mockImplementation(async () => {
+      sdk.push({
+        type: 'user',
+        parent_tool_use_id: null,
+        mitzoMessageId: f.message.commandId,
+        message: { role: 'user', content: agentMessagePrompt(f.message) },
+      } as SDKUserMessage);
+    });
+    await runtime.enqueue(f.message, () => {}, controller.signal, {
+      id: 'operator',
+      expiresAt: Date.now() + 60000,
+    });
+    f.setActive(f.message.commandId);
+    const input = (await stdin[Symbol.asyncIterator]().next()).value!;
+    const send = vi.fn();
+    f.session.transport.send = send;
+    stream.push({ type: 'user', session_id: 'worker', uuid: input.uuid, message: input.message });
+    stream.push({
+      type: 'stream_event',
+      event: { type: 'message_start', message: { id: 'peer-turn' } },
+    });
+    stream.push({
+      type: 'stream_event',
+      event: {
+        type: 'content_block_start',
+        index: 0,
+        content_block: { type: 'tool_use', id: 'peer-tool', name: 'Read' },
+      },
+    });
+    stream.push({ type: 'stream_event', event: { type: 'content_block_stop', index: 0 } });
+    stream.push({
+      type: 'user',
+      session_id: 'worker',
+      parent_tool_use_id: null,
+      uuid: randomUUID(),
+      message: {
+        content: [
+          {
+            type: 'tool_result',
+            tool_use_id: 'peer-tool',
+            content: 'Retained tool output',
+            is_error: isError,
+          },
+        ],
+      },
+    });
+    stream.push({ type: 'result', session_id: 'worker', is_error: false });
+    async function* currentTurn() {
+      for await (const event of sdk.query) {
+        yield event;
+        if (event.type === 'result') return;
+      }
+    }
+    const onUserInput = vi.fn(),
+      onResult = vi.fn();
+    await runQueryLoop(
+      currentTurn(),
+      'operator:worker',
+      f.registry,
+      controller,
+      f.events,
+      undefined,
+      { onUserInput, onResult },
+    );
+    expect(send).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: 'tool_result',
+        toolId: 'peer-tool',
+        result: 'Retained tool output',
+        isError,
+      }),
+    );
+    expect(f.events.getSessionEvents('worker')).toContainEqual(
+      expect.objectContaining({
+        type: 'tool_result',
+        payload: expect.objectContaining({ toolId: 'peer-tool', isError }),
+      }),
+    );
+    expect(onUserInput).toHaveBeenCalledExactlyOnceWith('operator:worker', input.uuid);
+    expect(onResult).toHaveBeenCalledExactlyOnceWith(
+      'operator:worker',
+      expect.objectContaining({ is_error: false }),
+      input.uuid,
+    );
+    expect(f.events.agentCommunication.read('sender', f.message.messageId).status).toBe(
+      'delivered',
+    );
+  },
+);
 
 it('uses guarded ordinary admission for idle delivery and never resumes a stopped owner', async () => {
   const f = fixture();

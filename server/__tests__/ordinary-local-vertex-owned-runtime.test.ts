@@ -1,4 +1,5 @@
-import { afterEach, expect, it, vi } from 'vitest';
+import { resetOfflineUserEnvironment } from './fixtures/offline-user-home.js';
+import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { writeFile, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { SkillRegistry } from '../skills.js';
@@ -33,6 +34,7 @@ vi.mock('@anthropic-ai/claude-agent-sdk', async (original) => ({
     { type: 'user', uuid: 'original-input', message: { role: 'user', content: 'retained input' } },
   ]),
 }));
+beforeEach(resetOfflineUserEnvironment);
 const cleanups: Array<() => void | Promise<void>> = [];
 afterEach(async () => {
   for (const cleanup of cleanups.splice(0).reverse()) await cleanup();

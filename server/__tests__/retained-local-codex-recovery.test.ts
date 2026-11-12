@@ -1,3 +1,4 @@
+import { resetOfflineUserEnvironment } from './fixtures/offline-user-home.js';
 import { initializeTaskExecution, closeTaskExecution } from '../task-execution-runtime.js';
 import { retainCallbackOutcome } from '../turn-callbacks.js';
 import { composeOwnedLocalNativeExecutionPolicyForWorkspace } from '../owned-local-codex-native-policy.js';
@@ -5,7 +6,7 @@ import { registerWorkspaceRuntimeAuthorityPaths } from '../workspace-runtime-pri
 import { login, authenticateToken, revokeAuthSession } from '../auth.js';
 import { bindAgentLibraryTransport } from '../agent-library-transport.js';
 import { reconcilableLocalCodexCommand } from '../retained-local-codex-effects.js';
-import { afterEach, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { createHash, randomUUID } from 'node:crypto';
 import { join } from 'node:path';
 import { readFileSync, writeFileSync } from 'node:fs';
@@ -22,12 +23,9 @@ import {
   OrdinaryLocalCodexOwnedRuntime,
   type OrdinaryLocalCodexOwnedDispatch,
 } from '../ordinary-local-codex-owned-runtime.js';
-// Recovery fixtures use synthetic credentials only; do not inspect the host's
-// denied credential home while composing fresh native protection policies.
-vi.mock('node:os', async (original) => {
-  const actual = await original<typeof import('node:os')>();
-  return { ...actual, homedir: () => `${actual.tmpdir()}/mitzo-recovery-offline-home` };
-});
+// Reuse the shared offline home and clear inherited private selectors before
+// every case, including after unstubAllEnvs restores the host environment.
+beforeEach(resetOfflineUserEnvironment);
 vi.mock('../auth.js', async (original) => ({
   ...(await original<typeof import('../auth.js')>()),
   hasPersistentRevocationAuthority: () => true,
