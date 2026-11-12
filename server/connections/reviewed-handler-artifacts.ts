@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.1071-shared-modes-api-account-integration';
+  'v1.0.1072-approval-question-identity';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -23,6 +23,8 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
+  '../../frontend/src/components/__tests__/ApprovalCardQuestionLifecycle.test.tsx':
+    '9bc7b24cc393f3c92eb06599d67b1d5d87d473f6dac61db64dcf79a5f0723d89',
   '../../tests/offline/claude-subagent-outcomes.spec.ts':
     '9c198df6221017e8eb2af7e0b30b3b478b2733091f72569812fbead9f42e2cca',
   '../../frontend/src/components/SubagentCard.tsx':
@@ -81,7 +83,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../docs/features/chat-permission-modes.md':
     '56d0e49b6f895195cc8e2fa6728d58fa5bd61215df9d04aa85625f4a55df16e6',
   '../../frontend/src/pages/__tests__/UnifiedInboxQuestions.test.tsx':
-    'ba51f882599c8a0b6ccff5fdce2a2cb26de7faa0b5bdfb242d92f745bf70192f',
+    '120b32a83d2272bb4ab8acc17384b4c3cd614363e326e79882eef09a2ab6b9c0',
   '../../tests/fixtures/chat-permission-modes.tsx':
     '54fd88e987fc661f22e812919c82cfa48a1b23b3c0e3b63f428c523f44c2f0d8',
   '../../tests/offline/chat-permission-modes.spec.ts':
@@ -91,7 +93,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../docs/design/approved/tool-operations/shared-headers-v001.html':
     '37faeb0b8f5ed9490d7dfecd8147517cc47d6b81096eab5a27a5428bdf3c2744',
   '../../frontend/src/components/ApprovalCard.tsx':
-    '489f59cad4281678eabc4d14b6894ebfb7b87cd5656209c60ddfb2c3c620c358',
+    '24f84a7b84c66ca8588f33f77b62619fdb9f2f1a3bf48684b9f1e3825eb0d666',
   '../../frontend/src/components/OperationCard.tsx':
     '317ffc80bf048c910083746f238db687df7cf14fa4667123cb756bc37b88b141',
   '../../frontend/src/components/__tests__/ApprovalCard.test.tsx':

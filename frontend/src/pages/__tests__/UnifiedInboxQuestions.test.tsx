@@ -53,7 +53,10 @@ const question = {
     ],
   },
 };
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  mutate.mockClear();
+});
 function ReturnToEntries() {
   const navigate = useNavigate();
   return <button onClick={() => navigate('/inbox')}>Return to entries</button>;

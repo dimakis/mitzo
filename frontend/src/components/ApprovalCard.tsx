@@ -45,7 +45,16 @@ const TIER_LABELS: Record<ToolTier, string> = {
   unknown: 'External tool',
 };
 
-export function ApprovalCard({
+export function ApprovalCard(props: ApprovalCardProps) {
+  return (
+    <RequestApprovalCard
+      key={JSON.stringify([props.sessionId ?? null, props.permId, props.reviewKind ?? null])}
+      {...props}
+    />
+  );
+}
+
+function RequestApprovalCard({
   presentation = 'inline',
   responseTransport = 'chat',
   busy = false,
@@ -146,13 +155,6 @@ export function ApprovalCard({
     const timer = setInterval(update, 1000);
     return () => clearInterval(timer);
   }, [deadline, permId, recoveringSource]);
-  useEffect(() => {
-    sending.current = false;
-    setSubmitting(false);
-    setSelections(new Map());
-    setWritten(new Map());
-    setDetailsOpen(reviewKind === 'telos_source');
-  }, [permId, reviewKind]);
 
   const answers = Object.fromEntries(
     (questions ?? []).map((q) => [
