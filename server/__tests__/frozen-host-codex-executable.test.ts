@@ -15,6 +15,7 @@ import {
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { createHash } from 'node:crypto';
+import { deepStrictEqual } from 'node:assert/strict';
 const reads = vi.hoisted(() => ({ readSync: vi.fn() }));
 vi.mock('node:fs', async (importOriginal) => {
   const original = await importOriginal<typeof import('node:fs')>();
@@ -66,9 +67,8 @@ it('copies and hashes short native reads without including bytes outside the ret
     );
     const frozen = FrozenHostCodexExecutable.capture(source, home);
     expect(frozen.sha256).toBe(createHash('sha256').update(bytes).digest('hex'));
-    // Compare every copied byte natively; generic deep equality walks over a
-    // million indexed properties and can exhaust the test deadline on CI.
-    expect(readFileSync(frozen.path).equals(bytes)).toBe(true);
+    // Compare every byte natively rather than walking a MiB of indexed properties.
+    deepStrictEqual(readFileSync(frozen.path), bytes);
     frozen.assertLaunchCurrent();
   } finally {
     reads.readSync.mockImplementation(originalRead);

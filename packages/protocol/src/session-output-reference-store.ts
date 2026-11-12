@@ -12,6 +12,21 @@ import {
 
 const MAX_SOURCE_EVENTS = 4096;
 const MAX_SOURCE_BYTES = 256 * 1024;
+/** A missing, malformed or no longer eligible retained source is expected.
+ * Database/programming failures are not evidence that a source disappeared. */
+class OutputSourceUnavailable extends Error {}
+function sourcePayload(text: string) {
+  try {
+    const payload = JSON.parse(text);
+    if (!payload || typeof payload !== 'object' || Array.isArray(payload))
+      throw new OutputSourceUnavailable('Source payload is malformed');
+    return payload;
+  } catch (error) {
+    if (error instanceof SyntaxError)
+      throw new OutputSourceUnavailable('Source payload is malformed');
+    throw error;
+  }
+}
 type EventRow = {
   seq: number;
   type: string;
@@ -135,7 +150,8 @@ export class SessionOutputReferenceStore {
       ORDER BY seq LIMIT 2`,
       )
       .all(sessionId, selection.messageId) as EventRow[];
-    if (starts.length > 1) throw new Error('Source message identity is ambiguous');
+    if (starts.length > 1)
+      throw new OutputSourceUnavailable('Source message identity is ambiguous');
     const start = starts[0];
     const end = this.db
       .prepare(
@@ -147,19 +163,20 @@ export class SessionOutputReferenceStore {
       start.type !== 'message_start' ||
       !end ||
       end.type !== 'message_end' ||
-      JSON.parse(end.payload).messageId !== selection.messageId ||
+      sourcePayload(end.payload).messageId !== selection.messageId ||
       end.seq <= start.seq ||
       end.seat_id !== start.seat_id ||
       end.symposium_provenance !== start.symposium_provenance
     )
-      throw new Error('Source must be an exact finalized assistant message');
+      throw new OutputSourceUnavailable('Source must be an exact finalized assistant message');
     if (start.symposium_provenance) {
       const provenance = SymposiumProvenanceSchema.safeParse(
-        JSON.parse(start.symposium_provenance),
+        sourcePayload(start.symposium_provenance),
       );
       if (!provenance.success || provenance.data.seatId !== start.seat_id)
-        throw new Error('Source provenance is invalid');
-    } else if (start.seat_id) throw new Error('Source seat attribution has no provenance');
+        throw new OutputSourceUnavailable('Source provenance is invalid');
+    } else if (start.seat_id)
+      throw new OutputSourceUnavailable('Source seat attribution has no provenance');
     const rows = this.db
       .prepare(
         `SELECT seq,type,payload,seat_id,symposium_provenance FROM events
@@ -175,19 +192,21 @@ export class SessionOutputReferenceStore {
         selection.blockId,
         MAX_SOURCE_EVENTS + 1,
       ) as EventRow[];
-    if (rows.length > MAX_SOURCE_EVENTS) throw new Error('Source exceeds bounded event limit');
+    if (rows.length > MAX_SOURCE_EVENTS)
+      throw new OutputSourceUnavailable('Source exceeds bounded event limit');
     let opened = false;
     let closed = false;
     let content = '';
     let bytes = 0;
     for (const row of rows) {
       if (row.seat_id !== start.seat_id || row.symposium_provenance !== start.symposium_provenance)
-        throw new Error('Source block attribution changed');
-      const payload = JSON.parse(row.payload);
-      if (row.type === 'message_end') throw new Error('Source message finalization is ambiguous');
+        throw new OutputSourceUnavailable('Source block attribution changed');
+      const payload = sourcePayload(row.payload);
+      if (row.type === 'message_end')
+        throw new OutputSourceUnavailable('Source message finalization is ambiguous');
       if (row.type === 'block_start') {
         if (opened || payload.blockType !== 'text')
-          throw new Error('Source must be one finalized text block');
+          throw new OutputSourceUnavailable('Source must be one finalized text block');
         opened = true;
       } else if (row.type === 'block_delta') {
         if (
@@ -196,18 +215,19 @@ export class SessionOutputReferenceStore {
           typeof payload.delta !== 'string' ||
           (payload.blockType !== undefined && payload.blockType !== 'text')
         )
-          throw new Error('Source must be one finalized text block');
+          throw new OutputSourceUnavailable('Source must be one finalized text block');
         bytes += Buffer.byteLength(payload.delta, 'utf8');
-        if (bytes > MAX_SOURCE_BYTES) throw new Error('Source text exceeds 256 KB');
+        if (bytes > MAX_SOURCE_BYTES)
+          throw new OutputSourceUnavailable('Source text exceeds 256 KB');
         content += payload.delta;
       } else if (row.type === 'block_end') {
         if (!opened || closed || payload.blockType !== 'text')
-          throw new Error('Source must be one finalized text block');
+          throw new OutputSourceUnavailable('Source must be one finalized text block');
         closed = true;
       }
     }
     if (!opened || !closed || !content.trim())
-      throw new Error('Source must be one finalized nonempty text block');
+      throw new OutputSourceUnavailable('Source must be one finalized nonempty text block');
     return { content, sha256: hash(content), provenance: start.symposium_provenance };
   }
 
@@ -220,7 +240,8 @@ export class SessionOutputReferenceStore {
         messageEndSeq: row.message_end_seq,
       });
       available = source.sha256 === row.sha256 && source.provenance === row.provenance;
-    } catch {
+    } catch (error) {
+      if (!(error instanceof OutputSourceUnavailable)) throw error;
       /* Missing source never becomes independently retained content. */
     }
     return {

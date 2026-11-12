@@ -475,6 +475,17 @@ export const CollaborationPromptReviewResultSchema = z.strictObject({
   artifactLabels: CollaborationApplicationReviewResultSchema.shape.artifactLabels,
 });
 export type CollaborationPromptReviewResult = z.infer<typeof CollaborationPromptReviewResultSchema>;
+export const CollaborationSourceArtifactsSchema = z.strictObject({
+  sourceConversationId: id,
+  artifacts: z
+    .array(
+      CollaborationApplicationReviewResultSchema.shape.artifactLabels.unwrap().element.extend({
+        available: z.boolean(),
+      }),
+    )
+    .max(50),
+});
+export type CollaborationSourceArtifacts = z.infer<typeof CollaborationSourceArtifactsSchema>;
 export const CollaborationJoinInputSchema = z.strictObject({
   ...request,
   name: z.string().trim().min(1).max(100),
@@ -624,7 +635,8 @@ export class CollaborationContractError extends Error {
       | 'execution_unavailable'
       | 'reply_conflict'
       | 'reply_unavailable',
+    message?: string,
   ) {
-    super(code);
+    super(message ?? code);
   }
 }
