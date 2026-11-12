@@ -1,4 +1,49 @@
 import { z } from 'zod';
+import fs from 'node:fs';
+import { randomUUID } from 'node:crypto';
+
+interface DiagnosticFailure {
+  operationCause: unknown;
+  diagnosticCause: unknown;
+  fallbackCause?: unknown;
+}
+const diagnosticFailures = new Map<string, DiagnosticFailure>();
+/** Host-internal inspection only; original causes never enter public responses. */
+export function telosDiagnosticFailure(id: string) {
+  return diagnosticFailures.get(id);
+}
+
+/** A failed optional logger cannot replace an operation's response. Retain both
+ * causes in a bounded host buffer and attempt one sanitized stderr diagnostic.
+ * If stderr also fails, retain that cause without recursively logging or retrying. */
+export function retainTelosDiagnosticFailure(
+  operationCause: unknown,
+  diagnosticCause: unknown,
+  context: { stage: string; operation?: string; sessionId?: string; requestHash?: string },
+) {
+  const diagnosticId = randomUUID();
+  const failure: DiagnosticFailure = { operationCause, diagnosticCause };
+  diagnosticFailures.set(diagnosticId, failure);
+  if (diagnosticFailures.size > 32)
+    diagnosticFailures.delete(diagnosticFailures.keys().next().value!);
+  const line =
+    JSON.stringify({
+      code: 'telos_diagnostic_sink_failed',
+      diagnosticId,
+      ...context,
+      operationFailure: describeTelosOperationFailure(operationCause),
+      diagnosticFailure: describeTelosOperationFailure(diagnosticCause),
+    }) + '\n';
+  try {
+    fs.write(2, line, (cause, written) => {
+      if (cause) failure.fallbackCause = cause;
+      else if (written !== Buffer.byteLength(line))
+        failure.fallbackCause = new Error('Incomplete Telos diagnostic fallback write');
+    });
+  } catch (cause) {
+    failure.fallbackCause = cause;
+  }
+}
 
 const failureCodes = new Map([
   ['SQLITE_BUSY', 'sqlite_busy'],
@@ -56,7 +101,8 @@ export function describeTelosOperationFailure(error: unknown): Record<string, st
       cause = Object.getOwnPropertyDescriptor(cause, 'cause')?.value;
     }
   } catch {
-    // Diagnostics cannot replace the original operation's outcome.
+    // Hostile/malformed diagnostic objects must remain a visible fixed result.
+    return { reason: 'diagnostic_unavailable', errorKind };
   }
   return { reason: 'unexpected', errorKind };
 }

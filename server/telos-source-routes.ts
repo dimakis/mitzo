@@ -18,7 +18,10 @@ import { TelosSourceApproval, TelosSourceSaveUncertainError } from './telos-sour
 import { TelosSourceApprovalStore } from './telos-source-approval-store.js';
 import { z } from 'zod';
 import { createLogger } from './logger.js';
-import { describeTelosOperationFailure } from './telos-operation-failure.js';
+import {
+  describeTelosOperationFailure,
+  retainTelosDiagnosticFailure,
+} from './telos-operation-failure.js';
 import { isAuthSessionCurrent, type AuthSession } from './auth.js';
 import type { Request } from 'express';
 import {
@@ -147,8 +150,8 @@ export function createTelosSourceRouter(options: {
             ...(uncertain ? { saveStatus: 'unconfirmed' } : {}),
             ...describeTelosOperationFailure(error),
           });
-        } catch {
-          // A log sink failure must preserve the original response and cause.
+        } catch (diagnosticCause) {
+          retainTelosDiagnosticFailure(error, diagnosticCause, { stage: phase });
         }
       }
       res

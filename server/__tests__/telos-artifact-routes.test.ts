@@ -4,10 +4,12 @@ import express from 'express';
 import request from 'supertest';
 import Database from 'better-sqlite3';
 import { mkdtempSync, rmSync } from 'node:fs';
+import fs from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createTelosArtifactRouter, telosArtifactSaveJson } from '../telos-artifact-routes.js';
 import { executeTelosArtifactTool } from '../telos-artifact-tools.js';
+import { telosDiagnosticFailure } from '../telos-operation-failure.js';
 import { listenOnLoopback, closeTestServer } from './loopback-test-server.js';
 const logs = vi.hoisted(() => ({ warn: vi.fn() }));
 vi.mock('../logger.js', () => ({ createLogger: () => logs }));
@@ -178,22 +180,56 @@ describe('Telos host artifact routes', () => {
     expect((await call('save', input)).status).toBe(200);
     expect((await call('find', {})).body.artifacts).toHaveLength(1);
   });
-  it('preserves the failed response if its diagnostic sink fails', async () => {
-    const { call, readFile } = setup();
-    readFile.mockRejectedValueOnce(new Error('PRIVATE failure'));
-    logs.warn.mockImplementationOnce(() => {
-      throw Error('Log sink failed');
-    });
-    const response = await call('save', {
-      itemId: 't',
-      filename: 'spec.md',
-      title: 'Spec',
-      path: '/spec.md',
-    });
-    expect(response.status).toBe(503);
-    expect(logs.warn).toHaveBeenCalledTimes(1);
-    expect((await call('find', {})).body.artifacts).toEqual([]);
-  });
+  it.each(['written', 'callback_failure', 'thrown_failure', 'short_write'] as const)(
+    'preserves both causes and the failed response when logging fails (fallback %s)',
+    async (fallbackState) => {
+      const { call, readFile } = setup();
+      const fallbackCause = new Error('PRIVATE fallback failure');
+      const fallback = vi.spyOn(fs, 'write').mockImplementation(((
+        _fd: number,
+        line: string,
+        done: (error: Error | null, written: number) => void,
+      ) => {
+        if (fallbackState === 'thrown_failure') throw fallbackCause;
+        done(
+          fallbackState === 'callback_failure' ? fallbackCause : null,
+          fallbackState === 'short_write' ? 1 : Buffer.byteLength(line),
+        );
+      }) as typeof fs.write);
+      const original = new Error('PRIVATE failure');
+      const diagnosticCause = new Error('PRIVATE log sink failed');
+      readFile.mockRejectedValueOnce(original);
+      logs.warn.mockImplementationOnce(() => {
+        throw diagnosticCause;
+      });
+      const response = await call('save', {
+        itemId: 't',
+        filename: 'spec.md',
+        title: 'Spec',
+        path: '/spec.md',
+      });
+      expect(response.status).toBe(503);
+      expect(logs.warn).toHaveBeenCalledTimes(1);
+      expect(fallback).toHaveBeenCalledTimes(1);
+      const line = String(fallback.mock.calls[0][1]);
+      const diagnostic = JSON.parse(line);
+      expect(diagnostic).toMatchObject({
+        code: 'telos_diagnostic_sink_failed',
+        stage: 'read_workspace',
+        operation: 'save',
+        sessionId: 'session-original',
+      });
+      expect(line).not.toContain('PRIVATE');
+      const retained = telosDiagnosticFailure(diagnostic.diagnosticId);
+      expect(retained?.operationCause).toBe(original);
+      expect(retained?.diagnosticCause).toBe(diagnosticCause);
+      if (fallbackState === 'written') expect(retained?.fallbackCause).toBeUndefined();
+      else if (fallbackState === 'short_write')
+        expect(retained?.fallbackCause).toBeInstanceOf(Error);
+      else expect(retained?.fallbackCause).toBe(fallbackCause);
+      expect((await call('find', {})).body.artifacts).toEqual([]);
+    },
+  );
   it('keeps reviewed source packets outside generic outputs and conversation artifact authority', async () => {
     const { app, path, call } = setup();
     const store = new TelosArtifactStore(path);
