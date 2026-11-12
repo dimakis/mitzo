@@ -3479,7 +3479,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/worktree-fetch-observation.test.ts':
     'e943335de38d924ad7ec1f9334f235bbddb0649914ed1604a27176869a9d8094',
   '../../tests/fixtures/agent-tool-catalog.json':
-    'b21bdd2bd5a42499c755c4309a14673982d3504a09c5aa0ed1a27a22abf30b34',
+    'd7ef0f66009b4d13679e9fe8eedb05ec1c394809233700a0c12abda0220c9b50',
   '../../tests/integration/ordinary-local-vertex-chat.test.ts':
     'ca7661dfc5f4d31eb2861f5126fea33ee82984a20dfe543cfc7f6fd6d940478a',
   '../../packages/sqlite-file-owner/package.json':
@@ -3979,7 +3979,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/credential-sdk-boundary.test.ts':
     '3bac4bc0290ddc4091f3f1f9054caf2f7afe6f03752952c1cdad07baa1602961',
   '../__tests__/credential-sdk-tools.test.ts':
-    '302763e1db56d1f8f256c9bf02d9ecee9da95b8d02e8755dc229bb28594a7f68',
+    '156eb64b9555aa2d898735feba1b9e7f190a5aa5e498d997c4f020bb12fca259',
   '../__tests__/credential-setup-application.test.ts':
     '39683a04282c3149a17886b424218dc93bfa48bf208340f2f0a5736ad609f372',
   '../__tests__/credential-setup-continuation.test.ts':

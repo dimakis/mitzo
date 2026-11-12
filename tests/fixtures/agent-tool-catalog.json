@@ -407,6 +407,17 @@
     "requirement": "Requires host Knowledge Library enrollment and current interactive operator authorization. Draft saves do not submit review or change accepted knowledge."
   },
   {
+    "id": "mitzo:CaptureMemoryCandidate",
+    "version": 1,
+    "name": "CaptureMemoryCandidate",
+    "description": "Preserve a sourced provisional learning candidate from this conversation. First use action sources for eligible public message identifiers, then capture with candidate and a stable UUID requestId. Returns stored only after durable commit. Retry the exact payload after interruption. Off blocks capture, including explicit remember-this requests. Does not enroll sources/accounts/audiences, change mode, accept knowledge or publish. Sources are metadata only; beforeSeq pages earlier identifiers.",
+    "source": "Session learning",
+    "required": false,
+    "behavior": "write",
+    "routes": ["local-api", "codex", "codex-owned-local", "claude-sdk"],
+    "requirement": "Existing session permissions, cancellation and runtime admission apply."
+  },
+  {
     "id": "mitzo:AgentCommunication",
     "version": 1,
     "name": "AgentCommunication",
