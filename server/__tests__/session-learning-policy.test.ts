@@ -32,6 +32,38 @@ function candidate(source: ReturnType<typeof message>) {
   };
 }
 
+it('round-trips read-only learning metadata without permitting stale or forged policy writes', () => {
+  const { store } = fixture();
+  try {
+    const initial = store.getSession('chat')!;
+    // Existing fixture/consumer copies of legacy sessions include the new default.
+    store.upsertSession({ ...initial, sessionId: 'copied', summary: 'Copied metadata' });
+    expect(store.getSessionLearningPolicy('copied')).toEqual(initial.learningPolicy);
+    store.setSessionLearningMode('chat', 'deep', 0);
+    const current = store.getSession('chat')!;
+    store.upsertSession({ ...current, summary: 'Updated name' });
+    expect(store.getSession('chat')?.summary).toBe('Updated name');
+    expect(store.getSessionLearningPolicy('chat')).toEqual(current.learningPolicy);
+    expect(() => store.upsertSession({ ...initial, summary: 'Stale write' })).toThrow(
+      /requires setSessionLearningMode/,
+    );
+    expect(() =>
+      store.upsertSession({
+        ...current,
+        learningPolicy: { ...current.learningPolicy!, mode: 'off' },
+      } as never),
+    ).toThrow(/requires setSessionLearningMode/);
+    expect(() => store.upsertSession({ ...current, sessionId: 'forged' })).toThrow(
+      /requires setSessionLearningMode/,
+    );
+    expect(store.getSession('chat')?.summary).toBe('Updated name');
+    expect(store.getSessionLearningPolicy('chat')).toEqual(current.learningPolicy);
+    expect(store.getSession('forged')).toBeNull();
+  } finally {
+    store.close();
+  }
+});
+
 it('defaults to Auto and retains controller policy through reopen and engine metadata changes', () => {
   const { path, store: initial } = fixture();
   let store = initial;

@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.1101-session-learning-router-types';
+  'v1.0.1102-session-learning-metadata-roundtrip';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -32,7 +32,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/protocol/src/session-learning-store.ts':
     'f482a074f65875afa892f574e386485acef12dd9ee0714f59c06f7e6277ef06d',
   '../__tests__/session-learning-policy.test.ts':
-    'dfb7396888824a79af600ed910f6891dc75bb00512720d8a962f30655bdb35f7',
+    '5806b3c177beecc38bf97ac6f370e8f490713a5c74bddede03d8e339889f6f7d',
   '../__tests__/session-learning-tools.test.ts':
     '094216baf7044aed4f57db0bda78e922bc77af0db66a126cdc404dcf2603fc07',
   '../__tests__/session-learning-router.test.ts':
@@ -2760,7 +2760,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     'f042dee9fe5643e989bf229e06c532ee0f42764300583f4fc84a265730bb360b',
   '../repository-workspaces.ts': '1fba933eba4a2dad836c84ed64f3a754f7c7f64cb2e4edfc58eeacc780570afa',
   '../../packages/protocol/src/session-metadata-store.ts':
-    '65f8d085b4af2787a33b1fe20767536df2f6cc52be9938463cf0bee4f2addf7a',
+    '002a1650cf1d7d6e0468609e0aaf7bb3825a02f4c9000d5715e1396d83ec72ec',
   '../../packages/protocol/src/event-store.ts':
     '73a01e5504c0734c21cbf809325303146720fb67aa452d5531b50397fd53b046',
   '../../packages/protocol/src/session-lifecycle-store.ts':

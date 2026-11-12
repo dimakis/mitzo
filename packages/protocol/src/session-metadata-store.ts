@@ -3,6 +3,7 @@ import { parseSessionLearningPolicy, revokeSessionLearningHistory } from './sess
 import type Database from 'better-sqlite3';
 import { z } from 'zod';
 import { createHash } from 'node:crypto';
+import { isDeepStrictEqual } from 'node:util';
 import { AgentLibraryVersionSchema } from './agent-library.js';
 import { AgentContextSnapshotSchema } from './agent-context-recipe.js';
 import { AccountBindingSchema } from './account-binding.js';
@@ -182,12 +183,20 @@ export class SessionMetadataStore {
   }
 
   upsertSession(meta: SessionUpsert): void {
-    if (Object.prototype.hasOwnProperty.call(meta, 'learningPolicy'))
-      throw new Error('Learning policy requires setSessionLearningMode');
     if (Object.prototype.hasOwnProperty.call(meta, 'runtimeBinding'))
       throw new Error('Runtime binding requires atomic new-session creation');
     this.owner.assertConversationIdentity(meta.sessionId);
     const existing = this.stmts.getSession.get(meta.sessionId) as SessionRow | undefined;
+    // Read/modify/write callers may carry this read-only projection. Never write
+    // it back: changed/stale policy still requires the dedicated controller CAS.
+    if (
+      Object.prototype.hasOwnProperty.call(meta, 'learningPolicy') &&
+      !isDeepStrictEqual(
+        (meta as { learningPolicy?: unknown }).learningPolicy,
+        parseSessionLearningPolicy(existing?.learning_policy),
+      )
+    )
+      throw new Error('Learning policy requires setSessionLearningMode');
     sessionWorkspaceId({
       repositoryWorkspaceId:
         meta.repositoryWorkspaceId === undefined
