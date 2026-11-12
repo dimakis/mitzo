@@ -13,9 +13,15 @@ export class SessionLaunchError extends Error {
   constructor(
     message: string,
     readonly status = 409,
+    options?: ErrorOptions,
   ) {
-    super(message);
+    super(message, options);
   }
+}
+/** Only pre-allocation validation can certify that this proposal is editable. */
+export class SessionLaunchPreflightError extends SessionLaunchError {
+  readonly code = 'session_launch_preflight_refused';
+  readonly effectStatus = 'not_started';
 }
 export type SessionLaunchEdits = {
   title: string;

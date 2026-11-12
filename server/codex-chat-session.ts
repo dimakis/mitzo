@@ -97,6 +97,7 @@ import {
   configuredMcpSourcesForAgentSelection,
   filterAgentTools,
   hasAgentToolSelection,
+  nativeExecutionToolsAllowed,
 } from './agent-tool-selection.js';
 import { admitApiTools } from './api-tool-execution.js';
 import { getApiToolCatalog } from './api-tool-runtime.js';
@@ -162,6 +163,7 @@ import {
   executeTelosArtifactTool,
   isTelosArtifactTool,
   telosArtifactDefinitions,
+  ordinaryNativeTelosArtifactTools,
   telosArtifactSchemas,
   telosArtifactInstructions,
 } from './telos-artifact-tools.js';
@@ -996,14 +998,10 @@ async function openCodexChatBound(
           telosAdoptSourceDefinition,
           // Default profiles retain reviewed capture, just like OpenShell.
           // Progress and artifact tools keep their explicit-selection contract.
-          ...(hasAgentToolSelection(options.session)
-            ? [
-                ...(selectedTelosRole?.role === 'lead' ? telosItemDefinitions : []),
-                ...telosArtifactDefinitions.filter((tool) =>
-                  ['TelosSaveArtifact', 'TelosReadArtifact'].includes(tool.name),
-                ),
-              ]
+          ...(hasAgentToolSelection(options.session) && selectedTelosRole?.role === 'lead'
+            ? telosItemDefinitions
             : []),
+          ...ordinaryNativeTelosArtifactTools(hasAgentToolSelection(options.session)),
         ].filter((tool) => agentToolAllowed(options.session, tool.name))
       : [];
   const mainPublicationTools =
@@ -1944,7 +1942,7 @@ async function openCodexChatBound(
   const nativeExecutionEnabled =
     !!options.ownedLocal &&
     process.platform === 'darwin' &&
-    ['Bash', 'Read', 'Write', 'Edit'].every((name) => agentToolAllowed(options.session, name));
+    nativeExecutionToolsAllowed(options.session);
   const localRepositoryReadDefinitions: typeof localRepositoryToolDefinitions = [];
   const localRepositoryPreparationDefinitions: typeof localRepositoryToolDefinitions = [];
   const localExecutionTools = nativeExecutionEnabled
@@ -4085,6 +4083,7 @@ async function openCodexChatBound(
                 input,
               ),
             name !== 'TelosCreateChild' &&
+              name !== 'TelosCreateFeature' &&
               (name !== 'TelosManageItem' || input.operation === 'read'),
           );
         } finally {

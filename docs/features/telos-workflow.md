@@ -1,5 +1,11 @@
 # Telos work planning
 
+Telos is the durable work contract and handoff between sessions. Each brief should
+let a fresh agent understand the intended result, why it matters, scope, ownership,
+dependencies, sources, next action and evidence of delivery. Use a concise title,
+intent (what to achieve), rationale (why) and observable acceptance criteria (how to
+verify it). Reference named artifacts for detailed plans and evidence.
+
 Reach for Telos when the ask needs multiple independently deliverable slices or
 handoffs between sessions. First propose the feature, session-sized slices and
 session ownership. Several steps in a single implementation are not several slices.
@@ -18,9 +24,27 @@ Outcome: a shared result across features
 
 Propose Telos, reuse existing work, save approved contracts using supported creators,
 then verify reviewed session setup separately. A standalone feature needs no outcome
-wrapper. `TelosCreateChild` can describe a feature under an outcome or a slice under a
-feature. `TelosCreateOutcome` saves ordered milestones; inspect its saved children
-before adding work. Milestone strings alone do not establish feature contracts.
+wrapper. `TelosCreateFeature` saves a standalone feature's complete brief, acceptance
+criteria and audit note using the canonical item writer and an exact approved request.
+It creates no milestone children. Retry uncertain delivery with the identical request
+and request ID. `TelosCreateChild` can describe a feature under an outcome or a slice under a
+feature. New `TelosCreateOutcome` proposals save a shared outcome and ordered feature
+drafts; inspect and complete their briefs before execution. Milestone strings alone
+do not establish complete feature contracts.
+
+New creators now connect these levels to the existing runtime: shared outcomes use
+`coordinator`, features use `outcome`, and session-sized slices use `work_item`.
+Classification is committed with the item and creation receipt, so a new feature
+offers reviewed lead setup and its slice offers worker setup. It grants no role or
+execution authority. Older reviewed outcome packets retain their original meaning
+and replay identity; there is no automatic migration of existing work.
+
+For existing unclassified backlog items, read `item.workLevel` using
+`TelosManageItem`. An approved edit with `workLevel: outcome|feature|slice` repairs
+classification in place with a fresh item revision and audit note. Classify parents
+first. The repair retains the item ID, brief and history, and refuses conversion of
+an existing classification or changes after lead/worker setup. Those cases need an
+explicit migration or handover contract, not a relabelled chat.
 
 Use reviewed role setup and the exact assigned lead's `TelosStartSlice` only for an
 eligible selected child. Runtime kinds (`coordinator`, `outcome`, `work_item`) do not
@@ -44,16 +68,16 @@ This adds no scheduler, global pause or implicit merge/deployment permission.
 
 ## Existing capabilities and attachment gaps
 
-Source inspection against the combined #1256 candidate and accepted #1257 base on
-9 November 2026 found these boundaries:
+Source inspection of the integrated delivery candidate on 11 November 2026 found
+these boundaries:
 
-| Capability                               | Evidence and limit                                                                                                                                                                                                                                               |
-| ---------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Related-work tree navigation             | `TelosChatWorkTree` and `TelosOutcomesTree` navigate existing work and linked chats. These are work trees, not proof of arbitrary session nesting.                                                                                                               |
-| Independent role sessions                | `TelosOrdinaryWorkRoleSetup` creates/replaces ordinary chats from reviewed settings and bounded context. `TelosStartSlice` allocates/recovers an eligible worker without starting a turn. These paths are independent sessions, not inherited runtime authority. |
-| Link/reparent and assignment foundations | `TelosWorkCommandSchema` and `TelosWorkStore` retain revisions and relationship/assignment history. `app.ts` requires retained context matching the exact item and role before assignment. A command schema is not an exposed agent tool.                        |
-| Post-fact attachment or handover         | No generic session-link/role-assignment mutation is exposed in the inspected agent catalog. `retainTelosWorkRoleContext` rejects replacement of existing immutable context; role setup does not accept any arbitrary existing chat for adoption.                 |
-| Three-level orchestration                | The intended outcome/feature/slice model remains authoritative. Runtime `work_item` is a leaf and worker scope cannot arbitrarily redelegate; successful session creation alone does not prove feature-lead nesting.                                             |
+| Capability                               | Evidence and limit                                                                                                                                                                                                                                                            |
+| ---------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Related-work tree navigation             | `TelosChatWorkTree` and `TelosOutcomesTree` navigate existing work and linked chats. These are work trees, not proof of arbitrary session nesting.                                                                                                                            |
+| Independent role sessions                | `TelosOrdinaryWorkRoleSetup` creates/replaces ordinary chats from reviewed settings and bounded context. `TelosStartSlice` allocates/recovers an eligible worker without starting a turn. These paths are independent sessions, not inherited runtime authority.              |
+| Link/reparent and assignment foundations | `TelosWorkCommandSchema` and `TelosWorkStore` retain revisions and relationship/assignment history. `app.ts` requires retained context matching the exact item and role before assignment. A command schema is not an exposed agent tool.                                     |
+| Post-fact attachment or handover         | No generic session-link/role-assignment mutation is exposed in the inspected agent catalog. `retainTelosWorkRoleContext` rejects replacement of existing immutable context; role setup does not accept any arbitrary existing chat for adoption.                              |
+| Three-level orchestration                | New creation maps outcome/feature/slice to the existing coordinator/lead/worker hierarchy. Creation and ordinary role setup are tested together. Runtime `work_item` remains a leaf; worker scope cannot arbitrarily redelegate. Live execution still needs its own evidence. |
 
 Creating independent sessions from an existing session is the intended orchestrator
 workflow. Tree navigation should show current responsibility alongside separate
