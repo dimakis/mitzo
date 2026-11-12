@@ -103,7 +103,11 @@ it.each([
         },
       } as unknown as Query;
     };
-    vi.mocked(query).mockImplementation(create);
+    vi.mocked(query).mockImplementation((request) => {
+      if (typeof request.prompt === 'string' || !request.options)
+        throw Error('Retirement fixture requires streaming SDK input and options');
+      return create({ prompt: request.prompt, options: request.options });
+    });
     const options: Options = { spawnClaudeCodeProcess: () => new EventEmitter() as never };
     const lifetime = new SdkHookLifetime();
     const owner =
