@@ -242,6 +242,9 @@ async function composedFixture() {
     adapt: (q) => q as never,
     settings: () => ({}),
     inputChanged: () => {},
+    onUnsent: (_message, error) => {
+      throw error;
+    },
     peerMessages: () => runtime,
     mcpServers: (current) => {
       state = current;
@@ -626,6 +629,9 @@ it('passes peer replay through the SDK adapter and real query consumer without c
     adapt: (q) => q as never,
     settings: () => ({}),
     inputChanged: () => {},
+    onUnsent: (_message, error) => {
+      throw error;
+    },
     peerMessages: () => runtime,
   });
   f.push.mockImplementation((message) => owner.push(message));
@@ -725,6 +731,9 @@ it.each([false, true])(
       adapt: (q) => q as never,
       settings: () => ({}),
       inputChanged: () => {},
+      onUnsent: (_message, error) => {
+        throw error;
+      },
       peerMessages: () => runtime,
     });
     f.enqueue.mockImplementation(async () => {

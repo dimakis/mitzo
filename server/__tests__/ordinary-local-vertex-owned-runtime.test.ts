@@ -36,6 +36,12 @@ vi.mock('@anthropic-ai/claude-agent-sdk', async (original) => ({
 }));
 beforeEach(resetOfflineUserEnvironment);
 const cleanups: Array<() => void | Promise<void>> = [];
+const apiKeychain = vi.hoisted(() => ({ read: vi.fn() }));
+vi.mock('../keychain-rotation-credentials.js', () => ({
+  KeychainRotationCredentials: class {
+    read = apiKeychain.read;
+  },
+}));
 afterEach(async () => {
   for (const cleanup of cleanups.splice(0).reverse()) await cleanup();
   vi.restoreAllMocks();
@@ -175,6 +181,37 @@ async function fixture(options: Parameters<typeof ownedVertexRuntimeFixture>[1] 
   };
   return { f, dispatch, create };
 }
+it('admits Messages accounts and blocks continuation after Keychain version drift', async () => {
+  const { f, create, dispatch } = await fixture({ anthropicApi: true });
+  apiKeychain.read.mockResolvedValue({
+    value: 'offline-api-key',
+    version: 'eec02914-ac1f-4369-ab86-8e4f130abc92',
+    managed: true,
+  });
+  const owner = create();
+  await expect(owner.admit(f.request)).resolves.toEqual({ dispatched: true });
+  const custody = f.events.getOrdinaryLocalVertexCustody(f.reservation.conversationId)!;
+  expect(custody.credentialAuthority).toMatchObject({
+    kind: 'anthropic-api-key',
+    credentialVersion: 'eec02914-ac1f-4369-ab86-8e4f130abc92',
+  });
+  expect(JSON.stringify(custody)).not.toContain('offline-api-key');
+  owner.commandTerminal(f.request.clientMsgId);
+  await expect(
+    owner.admitContinuation({ ...f.request, clientMsgId: 'messages-next' }),
+  ).resolves.toEqual({ dispatched: true });
+  owner.commandTerminal('messages-next');
+  apiKeychain.read.mockResolvedValue({
+    value: 'replacement',
+    version: 'eec02914-ac1f-4369-ab86-8e4f130abc93',
+    managed: true,
+  });
+  await expect(
+    owner.admitContinuation({ ...f.request, clientMsgId: 'messages-revoked' }),
+  ).rejects.toThrow();
+  expect(dispatch).toHaveBeenCalledTimes(2);
+  expect(f.events.getSendCommand('messages-revoked')).toBeUndefined();
+});
 it('rechecks the exact peer sender guard after asynchronous selection and before durable continuation admission', async () => {
   const { f, create, dispatch } = await fixture();
   const owner = create();
@@ -256,8 +293,10 @@ it('refuses changed ADC bytes and stale future settings without new workspace or
   const { f, create, dispatch } = await fixture();
   const owner = create();
   await owner.admit(f.request);
+  const adcPath = f.configuration[0].credentialRef;
+  if (typeof adcPath !== 'string') throw Error('Expected the ADC fixture');
   await writeFile(
-    f.configuration[0].credentialRef,
+    adcPath,
     JSON.stringify({
       type: 'authorized_user',
       client_id: 'offline',
