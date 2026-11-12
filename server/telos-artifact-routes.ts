@@ -1,6 +1,11 @@
 import { createHash } from 'node:crypto';
 import { z } from 'zod';
 import { isDeepStrictEqual } from 'node:util';
+import { createLogger } from './logger.js';
+import {
+  describeTelosOperationFailure,
+  retainTelosDiagnosticFailure,
+} from './telos-operation-failure.js';
 import { TelosUserUploadInput, validateUserUpload } from './telos-user-upload.js';
 import { Router, json, type Request, type RequestHandler, type Response } from 'express';
 import {
@@ -17,6 +22,7 @@ import {
 
 // A UTF-8 control byte can become six JSON bytes (\\u0000); leave bounded metadata room.
 export const telosArtifactSaveJson = json({ limit: 6 * MAX_TELOS_ARTIFACT_BYTES + 64 * 1024 });
+const log = createLogger('telos-artifact');
 
 export function createTelosArtifactRouter(options: {
   dbPath(): string;
@@ -50,6 +56,30 @@ export function createTelosArtifactRouter(options: {
       return 409;
     if (error instanceof Error && error.message === 'Artifact exceeds 5 MB') return 413;
     return 503;
+  };
+  const reportFailure = (
+    error: unknown,
+    phase: string,
+    context: { operation?: string; sessionId?: string } = {},
+  ) => {
+    try {
+      if (errorStatus(error) < 500) return;
+      log.warn('Telos artifact operation failed', {
+        code: 'telos_artifact_unavailable',
+        phase,
+        ...context,
+        ...describeTelosOperationFailure(error),
+      });
+    } catch (diagnosticCause) {
+      retainTelosDiagnosticFailure(error, diagnosticCause, { stage: phase, ...context });
+    }
+  };
+  const closeStore = (store: TelosArtifactStore | undefined) => {
+    try {
+      store?.close();
+    } catch (error) {
+      reportFailure(error, 'close_storage');
+    }
   };
   const assertResponseEligibility = (
     store: TelosArtifactStore,
@@ -135,9 +165,10 @@ export function createTelosArtifactRouter(options: {
         res.setHeader('Cache-Control', 'private, no-store');
         res.json(page);
       } catch (error) {
+        reportFailure(error, 'read_history');
         res.status(errorStatus(error)).json({ error: 'Saved artifact history unavailable' });
       } finally {
-        store?.close();
+        closeStore(store);
       }
     },
   );
@@ -171,9 +202,10 @@ export function createTelosArtifactRouter(options: {
       res.setHeader('Cache-Control', 'private, no-store');
       res.json(document);
     } catch (error) {
+      reportFailure(error, 'read_document');
       res.status(errorStatus(error)).json({ error: 'Telos document unavailable' });
     } finally {
-      store?.close();
+      closeStore(store);
     }
   });
   router.put(
@@ -205,6 +237,7 @@ export function createTelosArtifactRouter(options: {
         res.setHeader('Cache-Control', 'private, no-store');
         res.json({ ok: true, artifact });
       } catch (error) {
+        reportFailure(error, 'edit_document');
         const status = errorStatus(error);
         res.status(status).json({
           error:
@@ -215,7 +248,7 @@ export function createTelosArtifactRouter(options: {
                 : 'Save failed',
         });
       } finally {
-        store?.close();
+        closeStore(store);
       }
     },
   );
@@ -241,20 +274,24 @@ export function createTelosArtifactRouter(options: {
         return;
       }
       let store: TelosArtifactStore | undefined;
+      let phase = 'open_storage';
       try {
         store = new TelosArtifactStore(options.dbPath());
         if (operation === 'save') {
           const input = TelosSaveArtifactInput.parse(parsed.data);
           const requestInputHash = createHash('sha256').update(JSON.stringify(input)).digest('hex');
+          phase = 'recover_receipt';
           const receipt = store.retryReceipt(sessionId, input.requestId, requestInputHash);
           if (receipt) {
             res.json({ ok: true, artifact: receipt });
             return;
           }
+          phase = 'read_workspace';
           const file =
             input.path !== undefined
               ? await options.readFile(sessionId, input.path)
               : { bytes: Buffer.from(input.content!, 'utf8'), path: undefined };
+          phase = 'save_artifact';
           const artifact = store.save({
             ...input,
             requestInputHash,
@@ -264,6 +301,7 @@ export function createTelosArtifactRouter(options: {
           });
           res.json({ ok: true, artifact });
         } else if (operation === 'find') {
+          phase = 'list_artifacts';
           res.json({
             ok: true,
             artifacts: store.list({
@@ -272,6 +310,7 @@ export function createTelosArtifactRouter(options: {
             }),
           });
         } else {
+          phase = 'read_artifact';
           const input = TelosReadArtifactInput.parse(parsed.data);
           const { bytes, ...artifact } = store.read(input.id, input.revision);
           if (artifact.sourceKind === 'source_capture') {
@@ -288,6 +327,7 @@ export function createTelosArtifactRouter(options: {
           });
         }
       } catch (error) {
+        reportFailure(error, phase, { operation, sessionId });
         const status = errorStatus(error);
         res.status(status).json({
           ok: false,
@@ -299,7 +339,7 @@ export function createTelosArtifactRouter(options: {
                 : 'Telos artifact request failed',
         });
       } finally {
-        store?.close();
+        closeStore(store);
       }
     });
   }
@@ -354,6 +394,7 @@ export function createTelosArtifactRouter(options: {
         res.setHeader('Cache-Control', 'private, no-store');
         res.json({ ok: true, artifact });
       } catch (error) {
+        reportFailure(error, 'upload_artifact');
         const status = errorStatus(error);
         res.status(status).json({
           error:
@@ -364,7 +405,7 @@ export function createTelosArtifactRouter(options: {
                 : 'Upload failed',
         });
       } finally {
-        store?.close();
+        closeStore(store);
       }
     },
   );
@@ -383,10 +424,11 @@ export function createTelosArtifactRouter(options: {
         artifacts: store.list({ ...input.data, excludeSourceCaptures: true }),
         limit: 100,
       });
-    } catch {
+    } catch (error) {
+      reportFailure(error, 'list_artifacts');
       res.status(503).json({ error: 'Saved outputs unavailable' });
     } finally {
-      store?.close();
+      closeStore(store);
     }
   });
   // Mounted after Mitzo's cookie/internal-token authentication. Always download, never execute HTML.
@@ -420,9 +462,10 @@ export function createTelosArtifactRouter(options: {
       res.setHeader('X-Artifact-Sha256', artifact.sha256);
       res.send(artifact.bytes);
     } catch (error) {
+      reportFailure(error, 'download_artifact');
       res.status(errorStatus(error)).json({ error: 'Telos artifact unavailable' });
     } finally {
-      store?.close();
+      closeStore(store);
     }
   });
   return router;

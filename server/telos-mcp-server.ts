@@ -8,7 +8,7 @@ import {
   type TelosArtifactToolName,
 } from './telos-artifact-tools.js';
 /** Telos MCP server — safe, structured outcome creation through Mitzo's internal API. */
-import { TelosWorkControlToolInputSchema } from '@mitzo/protocol';
+import { TelosWorkControlToolInputSchema, TelosOutcomeProposalSchema } from '@mitzo/protocol';
 import {
   TELOS_WORK_CONTROL_TOOL,
   telosWorkControlDefinitions,
@@ -93,7 +93,13 @@ server.registerTool(
   {
     description:
       'Create one durable Telos outcome with an explicit result, rationale, evidence criteria, and ordered milestone children. This mutates Telos and requires user approval.',
-    inputSchema: { ...telosOutcomeShape, ...telosApprovalExecutionField },
+    inputSchema: {
+      ...telosOutcomeShape,
+      // Fresh proposals are normalized by the permission owner. This schema
+      // also receives already-approved historical packets, without defaults.
+      workLevel: TelosOutcomeProposalSchema.shape.workLevel,
+      ...telosApprovalExecutionField,
+    },
   },
   async (input: Record<string, unknown>) => {
     const result = await executeTelosCreateOutcome(baseUrl, clientId, token, input);

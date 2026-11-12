@@ -268,7 +268,7 @@ export function TelosOutcomesTree({
               aria-pressed={state.filter === 'Coordinators'}
               onClick={() => update({ filter: 'Coordinators' })}
             >
-              Coordinators
+              Shared outcomes
             </button>
           </nav>
           <div className="telos-pins" aria-label="Pinned categories">
@@ -370,7 +370,7 @@ export function TelosOutcomesTree({
       {!compact && (
         <div className="telos-tree-label">
           Telos tree · {state.category === 'All' ? 'all categories' : state.category}
-          <span>Coordinator → Outcome → Work item</span>
+          <span>Outcome → Feature → Slice</span>
         </div>
       )}
       {loading && <p role="status">Loading outcomes…</p>}

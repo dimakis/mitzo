@@ -9,16 +9,20 @@ import {
 } from '../telos-backlog-tools.js';
 import { createIntegrationToolDiscovery } from '../integration-tool-discovery.js';
 import { callbackOutcome, retainCallbackOutcome } from '../turn-callbacks.js';
+import * as logging from '../logger.js';
+import fs from 'node:fs';
+import { telosDiagnosticFailure } from '../telos-operation-failure.js';
 
 const cleanup: Array<() => void> = [];
-afterEach(() =>
+afterEach(() => {
+  vi.restoreAllMocks();
   cleanup
     .splice(0)
     .reverse()
-    .forEach((fn) => fn()),
-);
-function fixture() {
-  const f = createTelosCanonicalData();
+    .forEach((fn) => fn());
+});
+function fixture(variant: 'fresh' | 'upgraded' = 'fresh') {
+  const f = createTelosCanonicalData(variant);
   cleanup.push(() => f.close());
   const items = new TelosItemStore(f.dbPath);
   cleanup.push(() => items.close());
@@ -30,7 +34,11 @@ function fixture() {
     behavior: 'allow' as const,
     updatedInput: input,
   }));
-  const run = (name: TelosBacklogToolName, raw: Record<string, unknown>) =>
+  const run = (
+    name: TelosBacklogToolName,
+    raw: Record<string, unknown>,
+    guard = assertCurrentSync,
+  ) =>
     executeTelosBacklogOperation(
       {
         items,
@@ -42,7 +50,7 @@ function fixture() {
           toolName: name,
           requestHash: createHash('sha256').update(JSON.stringify(raw)).digest('hex'),
           signal: new AbortController().signal,
-          assertCurrentSync,
+          assertCurrentSync: guard,
           async assertCurrent() {
             assertCurrentSync();
           },
@@ -85,6 +93,7 @@ it('discovers list, search and maintenance contracts by their exact callable ide
     'TelosSearchItems',
     'TelosManageItem',
     'TelosCreateChild',
+    'TelosCreateFeature',
   ]);
   for (const { toolId } of list.tools) {
     const described = await discovery.execute(
@@ -99,6 +108,363 @@ it('discovers list, search and maintenance contracts by their exact callable ide
       inputSchema: { type: 'object' },
     });
   }
+});
+const featureBrief = {
+  requestId: 'standalone-feature',
+  summary: 'Create standalone Telos features',
+  intent: 'Save a complete feature contract without an outcome wrapper.',
+  rationale: 'A single feature can have its own slices.',
+  acceptanceCriteria: ['An ordinary chat can create, inspect and decompose the feature.'],
+  note: 'User authorized this standalone feature.',
+};
+it('repairs an unclassified existing feature with exact approval, stable replay and its original ID', async () => {
+  const f = fixture();
+  const original = f.items.read('studio');
+  const request = {
+    operation: 'edit',
+    itemId: 'studio',
+    requestId: 'repair-level',
+    expectedRevision: original.revision,
+    workLevel: 'feature',
+    note: 'Classify the existing feature for reviewed lead setup',
+  };
+  const result = await f.run('TelosManageItem', request);
+  expect(result.isError).toBe(false);
+  expect(JSON.parse(result.content).item).toMatchObject({
+    id: 'studio',
+    workLevel: 'feature',
+    summary: original.summary,
+  });
+  expect(f.approve).toHaveBeenCalledWith('TelosManageItem', request, expect.any(AbortSignal));
+  expect(f.work.read('studio', f.actor)).toMatchObject({
+    kind: 'outcome',
+    assignments: [],
+    attempts: [],
+  });
+  expect(await f.run('TelosManageItem', request)).toEqual(result);
+  expect(f.db.prepare('SELECT count(*) AS n FROM items').get()).toEqual({ n: 1 });
+  const changed = await f.run('TelosManageItem', {
+    ...request,
+    requestId: 'convert-existing',
+    expectedRevision: f.items.read('studio').revision,
+    workLevel: 'outcome',
+  });
+  expect(changed.isError).toBe(true);
+  expect(changed.content).toContain('already classified');
+});
+it('refuses invalid slice classification and rolls back its audit receipt', async () => {
+  const f = fixture();
+  const before = f.items.read('studio');
+  const result = await f.run('TelosManageItem', {
+    operation: 'edit',
+    itemId: 'studio',
+    requestId: 'invalid-level',
+    expectedRevision: before.revision,
+    workLevel: 'slice',
+    note: 'Invalid root slice',
+  });
+  expect(result.isError).toBe(true);
+  expect(result.content).toContain('does not match its parent');
+  expect(f.items.read('studio')).toEqual(before);
+  expect(f.work.read('studio', f.actor).kind).toBeNull();
+});
+it('preserves existing role links when an unclassified item already has a lead', async () => {
+  const f = fixture();
+  f.work.execute(
+    {
+      operation: 'link',
+      itemId: 'studio',
+      requestId: 'existing-lead',
+      expectedRevision: f.work.read('studio', f.actor).revision,
+      role: 'lead',
+      conversation: { namespace: 'mitzo', conversationId: 'planning' },
+    },
+    f.actor,
+  );
+  const before = f.items.read('studio');
+  const work = f.work.read('studio', f.actor);
+  const result = await f.run('TelosManageItem', {
+    operation: 'edit',
+    itemId: 'studio',
+    requestId: 'unsafe-level',
+    expectedRevision: before.revision,
+    workLevel: 'feature',
+    note: 'Must preserve the existing role',
+  });
+  expect(result.isError).toBe(true);
+  expect(result.content).toContain('cannot change after lead or worker setup');
+  expect(f.items.read('studio')).toEqual(before);
+  expect(f.work.read('studio', f.actor)).toEqual(work);
+});
+it('creates a feature and slice that the existing lead and worker setup can use', async () => {
+  const f = fixture();
+  const feature = JSON.parse((await f.run('TelosCreateFeature', featureBrief)).content);
+  expect(f.work.read(feature.item.id, f.actor).kind).toBe('outcome');
+  const slice = JSON.parse(
+    (
+      await f.run('TelosCreateChild', {
+        ...featureBrief,
+        requestId: 'feature-slice',
+        parentId: feature.item.id,
+        expectedParentRevision: feature.item.revision,
+        summary: 'Deliver one slice',
+      })
+    ).content,
+  );
+  expect(slice.ok).toBe(true);
+  expect(f.work.read(slice.item.id, f.actor).kind).toBe('work_item');
+  expect(f.work.read(feature.item.id, f.actor).assignments).toEqual([]);
+  expect(f.work.read(slice.item.id, f.actor).attempts).toEqual([]);
+  const replay = JSON.parse((await f.run('TelosCreateFeature', featureBrief)).content);
+  expect(replay).toEqual(feature);
+});
+it('creates a feature beneath an explicitly classified shared outcome', async () => {
+  const f = fixture();
+  f.work.execute(
+    {
+      operation: 'classify',
+      itemId: 'studio',
+      requestId: 'shared-outcome',
+      expectedRevision: f.work.read('studio', f.actor).revision,
+      kind: 'coordinator',
+    },
+    f.actor,
+  );
+  const result = JSON.parse(
+    (
+      await f.run('TelosCreateChild', {
+        ...featureBrief,
+        parentId: 'studio',
+        expectedParentRevision: f.items.read('studio').revision,
+      })
+    ).content,
+  );
+  expect(result.ok).toBe(true);
+  expect(f.work.read(result.item.id, f.actor).kind).toBe('outcome');
+});
+it('requires a fresh parent review after its work level changes', async () => {
+  const f = fixture();
+  const expectedParentRevision = f.items.read('studio').revision;
+  f.work.execute(
+    {
+      operation: 'classify',
+      itemId: 'studio',
+      requestId: 'level-change',
+      expectedRevision: f.work.read('studio', f.actor).revision,
+      kind: 'coordinator',
+    },
+    f.actor,
+  );
+  const result = await f.run('TelosCreateChild', {
+    ...featureBrief,
+    parentId: 'studio',
+    expectedParentRevision,
+  });
+  expect(result.isError).toBe(true);
+  expect(result.content).toContain('read the parent again');
+  expect(f.items.read('studio').children).toEqual([]);
+});
+it('reports rejected asynchronous backlog authority and preserves the failed operation without saving a feature', async () => {
+  const f = fixture();
+  const warn = vi.fn();
+  vi.spyOn(logging, 'createLogger').mockReturnValue({
+    debug: vi.fn(),
+    info: vi.fn(),
+    warn,
+    error: vi.fn(),
+  });
+  const result = await f.run('TelosCreateFeature', featureBrief, async () => {
+    throw Error('private upstream payload');
+  });
+  expect(result.isError).toBe(true);
+  expect(result.content).toContain('before mutation dispatch');
+  expect(callbackOutcome(result)).toBe('settled');
+  await vi.waitFor(() =>
+    expect(warn).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({
+        stage: 'backlog-authority',
+        code: 'ASYNC_AUTHORITY_REJECTED',
+        conversationId: 'ordinary-chat',
+        diagnosticId: expect.any(String),
+        requestHash: expect.stringMatching(/^[a-f0-9]{64}$/),
+      }),
+    ),
+  );
+  expect(JSON.stringify(warn.mock.calls)).not.toContain('private upstream payload');
+  expect(f.approve).not.toHaveBeenCalled();
+  expect(f.db.prepare('SELECT COUNT(*) AS n FROM items').get()).toEqual({ n: 1 });
+});
+it('retains a rejected asynchronous authority without an unhandled rejection when its logger also fails', async () => {
+  const f = fixture();
+  const original = new Error('PRIVATE authority failure');
+  const diagnosticCause = new Error('PRIVATE logger failure');
+  const fallback = vi.spyOn(fs, 'write').mockImplementation(((
+    _fd: number,
+    line: string,
+    done: (error: Error | null, written: number) => void,
+  ) => {
+    done(null, Buffer.byteLength(line));
+  }) as typeof fs.write);
+  vi.spyOn(logging, 'createLogger').mockReturnValue({
+    debug: vi.fn(),
+    info: vi.fn(),
+    error: vi.fn(),
+    warn: () => {
+      throw diagnosticCause;
+    },
+  });
+  expect(() =>
+    f.items.createFeatureGuarded(featureBrief, 'ordinary-chat', async () => {
+      throw original;
+    }),
+  ).toThrow('Synchronous Telos item authority required');
+  await vi.waitFor(() => expect(fallback).toHaveBeenCalledTimes(1));
+  const line = String(fallback.mock.calls[0][1]);
+  const diagnostic = JSON.parse(line);
+  expect(diagnostic).toMatchObject({
+    code: 'telos_diagnostic_sink_failed',
+    stage: 'item-authority',
+  });
+  expect(line).not.toContain('PRIVATE');
+  expect(telosDiagnosticFailure(diagnostic.diagnosticId)).toMatchObject({
+    operationCause: original,
+    diagnosticCause,
+  });
+  expect(f.db.prepare('SELECT COUNT(*) AS n FROM items').get()).toEqual({ n: 1 });
+});
+it('reports a rejected asynchronous item guard without leaking its private error or saving a feature', async () => {
+  const f = fixture();
+  const warn = vi.fn();
+  vi.spyOn(logging, 'createLogger').mockReturnValue({
+    debug: vi.fn(),
+    info: vi.fn(),
+    warn,
+    error: vi.fn(),
+  });
+  expect(() =>
+    f.items.createFeatureGuarded(featureBrief, 'ordinary-chat', async () => {
+      throw Error('private upstream payload');
+    }),
+  ).toThrow('Synchronous Telos item authority required');
+  await vi.waitFor(() =>
+    expect(warn).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({
+        stage: 'item-authority',
+        code: 'ASYNC_AUTHORITY_REJECTED',
+        diagnosticId: expect.any(String),
+      }),
+    ),
+  );
+  expect(JSON.stringify(warn.mock.calls)).not.toContain('private upstream payload');
+  expect(f.db.prepare('SELECT COUNT(*) AS n FROM items').get()).toEqual({ n: 1 });
+});
+it.each(['fresh', 'upgraded'] as const)(
+  'creates one standalone feature with canonical provenance, a replayable receipt and no implied session setup (%s)',
+  async (variant) => {
+    const f = fixture(variant);
+    const result = await f.run('TelosCreateFeature', featureBrief);
+    expect(result.isError).toBe(false);
+    const receipt = JSON.parse(result.content);
+    expect(receipt).toMatchObject({
+      ok: true,
+      item: { summary: featureBrief.summary, parentId: null, status: 'active' },
+      preparation: {
+        dedicatedConversationCreated: false,
+        sourceFilesSaved: false,
+        originatingConversationId: 'ordinary-chat',
+      },
+    });
+    expect(f.approve).toHaveBeenCalledWith(
+      'TelosCreateFeature',
+      featureBrief,
+      expect.any(AbortSignal),
+    );
+    expect(f.items.read(receipt.item.id)).toMatchObject({
+      intent: featureBrief.intent,
+      rationale: featureBrief.rationale,
+      acceptanceCriteria: featureBrief.acceptanceCriteria,
+      updates: [{ note: featureBrief.note, sessionId: 'ordinary-chat' }],
+    });
+    expect(await f.run('TelosCreateFeature', featureBrief)).toEqual(result);
+    expect(
+      (await f.run('TelosCreateFeature', { ...featureBrief, summary: 'Different' })).isError,
+    ).toBe(true);
+    const child = await f.run('TelosCreateChild', {
+      ...featureBrief,
+      requestId: 'feature-slice',
+      parentId: receipt.item.id,
+      expectedParentRevision: receipt.item.revision,
+      summary: 'Implement the creator',
+    });
+    expect(child.isError).toBe(false);
+    expect(JSON.parse(child.content).item.parentId).toBe(receipt.item.id);
+    expect(f.db.prepare('SELECT COUNT(*) AS n FROM items WHERE parent_id IS NULL').get()).toEqual({
+      n: 2,
+    });
+  },
+);
+it('recovers the original feature receipt after owner restart and archive without creating a duplicate', async () => {
+  const f = fixture();
+  const created = await f.run('TelosCreateFeature', featureBrief);
+  const saved = JSON.parse(created.content);
+  expect(
+    (
+      await f.run('TelosManageItem', {
+        operation: 'archive',
+        itemId: saved.item.id,
+        requestId: 'archive-feature',
+        expectedRevision: f.work.readLifecycle(saved.item.id, f.actor).revision,
+      })
+    ).isError,
+  ).toBe(false);
+  f.restartOwners();
+  const reloaded = new TelosItemStore(f.dbPath);
+  cleanup.push(() => reloaded.close());
+  expect(reloaded.createFeatureGuarded(featureBrief, 'ordinary-chat', () => {})).toEqual({
+    item: saved.item,
+    update: saved.update,
+  });
+  expect(await f.run('TelosCreateFeature', featureBrief)).toEqual(created);
+  expect(f.db.prepare('SELECT COUNT(*) AS n FROM items').get()).toEqual({ n: 2 });
+});
+it('rolls back feature, history and receipt together when the canonical writer fails', async () => {
+  const f = fixture();
+  f.db.exec(`CREATE TRIGGER refuse_feature_history BEFORE INSERT ON history
+    WHEN NEW.item_id != 'studio' BEGIN SELECT RAISE(ABORT, 'fixture history failure'); END;`);
+  const failed = await f.run('TelosCreateFeature', featureBrief);
+  expect(failed.isError).toBe(true);
+  expect(failed.content).toContain('mutation not confirmed');
+  expect(callbackOutcome(failed)).toBe('unknown');
+  expect(f.db.prepare('SELECT COUNT(*) AS n FROM items').get()).toEqual({ n: 1 });
+  f.db.exec('DROP TRIGGER refuse_feature_history');
+  expect((await f.run('TelosCreateFeature', featureBrief)).isError).toBe(false);
+});
+it('refuses invalid, denied, modified and retired feature creation before any canonical effects', async () => {
+  const f = fixture();
+  for (const extra of [
+    { parentId: 'studio' },
+    { milestones: ['Invented wrapper'] },
+    { acceptanceCriteria: [] },
+  ])
+    expect((await f.run('TelosCreateFeature', { ...featureBrief, ...extra })).isError).toBe(true);
+  expect(f.approve).not.toHaveBeenCalled();
+  f.approve.mockImplementationOnce(async () => ({ behavior: 'deny' }) as never);
+  const denied = await f.run('TelosCreateFeature', featureBrief);
+  expect(denied.content).toContain('approval');
+  expect(callbackOutcome(denied)).toBe('settled');
+  f.approve.mockImplementationOnce(async (_name, input) => ({
+    behavior: 'allow',
+    updatedInput: { ...input, summary: 'Substituted' },
+  }));
+  expect((await f.run('TelosCreateFeature', featureBrief)).isError).toBe(true);
+  f.approve.mockImplementationOnce(async (_name, input) => {
+    f.retire();
+    return { behavior: 'allow', updatedInput: input };
+  });
+  expect((await f.run('TelosCreateFeature', featureBrief)).isError).toBe(true);
+  expect(f.db.prepare('SELECT COUNT(*) AS n FROM items').get()).toEqual({ n: 1 });
 });
 it('lets an ordinary authenticated chat find and inspect an item without assigning a lead role', async () => {
   const f = fixture();

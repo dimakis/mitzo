@@ -6,6 +6,8 @@ import { createTelosOrdinaryWorkFixture } from './fixtures/telos-ordinary-work.j
 import { afterAll, afterEach, beforeAll, expect, it, vi } from 'vitest';
 import { eventStore as startupStore } from '../chat.js';
 import { setAuthRevocationStore, revokeAuthSession } from '../auth.js';
+import { TelosItemStore } from '../telos-item-store.js';
+import { reviewTelosWorkRoleContext } from '../telos-work-role-review.js';
 // Isolate chat's legacy startup metadata before imports. This is not a Git source
 // or an admitted workspace; every actual task must use its separate private ID/cwd.
 const startup = await vi.hoisted(async () => {
@@ -44,6 +46,66 @@ afterAll(() => {
 
 const fixture = (role?: 'advisor' | 'lead' | 'worker') =>
   createTelosOrdinaryWorkFixture(cleanup, role);
+it('takes a newly created standalone feature through independent lead and slice worker setup', async () => {
+  const f = await fixture();
+  const items = new TelosItemStore(f.canonical.dbPath);
+  cleanup.push(() => items.close());
+  const brief = {
+    requestId: 'first-use-feature',
+    summary: 'Deliver the acoustic plan',
+    intent: 'A useful plan',
+    rationale: 'Make the studio usable',
+    acceptanceCriteria: ['Plan reviewed'],
+    note: 'Reviewed first-use feature',
+  };
+  const feature = items.createFeatureGuarded(brief, 'planning', () => {});
+  const slice = items.createChildGuarded(
+    {
+      ...brief,
+      requestId: 'first-use-slice',
+      parentId: feature.item.id,
+      expectedParentRevision: feature.item.revision,
+    },
+    'planning',
+    () => {},
+    () => items.assertLifecycleActive(feature.item.id),
+  );
+  const conversations: string[] = [];
+  for (const [itemId, role] of [
+    [feature.item.id, 'lead'],
+    [slice.item.id, 'worker'],
+  ] as const) {
+    const contextSelection = reviewTelosWorkRoleContext({
+      work: f.work,
+      artifacts: f.canonical.artifacts,
+      actor: f.actor,
+      itemId,
+      role,
+      selectedSourceSnapshotIds: [],
+      selectedArtifactRefs: [],
+    });
+    const input = {
+      version: 2 as const,
+      itemId,
+      role,
+      requestId: randomUUID(),
+      expectedRevision: contextSelection.brief.revision,
+      expectedAssignmentRevision: 0,
+      contextSelection,
+      settings: f.input.settings,
+    };
+    const owner = f.createOwner(input);
+    const receipt = await owner.setup(f.actor, input, f.native.signal.signal);
+    const id = receipt.work.assignments.find((a) => a.role === role)!.conversation.conversationId;
+    conversations.push(id);
+    expect(f.native.events.getSession(id)?.ordinaryWorkspaceId).toBeTruthy();
+    expect(f.native.events.getOrdinaryInitialCommandId(id)).toBeUndefined();
+    expect(await owner.setup(f.actor, input, f.native.signal.signal)).toEqual(receipt);
+  }
+  expect(new Set(conversations).size).toBe(2);
+  expect(f.native.first.launch).not.toHaveBeenCalled();
+  expect(f.native.forbidden).not.toHaveBeenCalled();
+});
 it.each(['advisor', 'lead', 'worker'] as const)(
   'silently creates a %s for canonical home-studio work through non-Git ordinary owners',
   async (role) => {

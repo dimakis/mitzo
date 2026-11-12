@@ -618,6 +618,19 @@ it('offers a shared next draft before unload while preserving the original uncer
   };
   draft.images = [{ data: 'image', preview: 'preview', mediaType: 'image/png' }];
   draft.contextBlocks = ['Retained next-message context'];
+  draft.collaborationContext = {
+    collaborationId: draft.settings.collaborationResponders.collaborationId,
+    authScope: 'login',
+    form: {
+      mode: 'selected',
+      purpose: 'Next prompt',
+      brief: 'Reviewed brief',
+      messageIds: [],
+      artifacts: [{ artifactId: 'saved-review', revision: 2, sha256: 'b'.repeat(64) }],
+    },
+    snapshot: { snapshotId: '00000000-0000-4000-8000-000000000003', sha256: 'a'.repeat(64) },
+    attached: true,
+  };
   expect(saveChatDraft(draft)).toBe(true);
   const key = chatDraftStorageKey(draft.id);
   const view = renderHook(() => useDraft(undefined, undefined, key));
@@ -630,6 +643,7 @@ it('offers a shared next draft before unload while preserving the original uncer
     images: draft.images,
     contextBlocks: draft.contextBlocks,
     collaborationSend: draft.collaborationSend,
+    collaborationContext: draft.collaborationContext,
   });
   act(() => expect(view.result.current[4].consume(proof)).toBe(false));
   const restored = renderHook(() => useDraft(undefined, undefined, key));
