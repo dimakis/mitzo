@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.1081-symposium-claude-notification-integration';
+  'v1.0.1082-symposium-claude-accepted-base';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -509,9 +509,9 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../tests/offline/symposium-composer.spec.ts':
     '9867fcbd4ae751f7b53115b63b8b3914bb80e054da5970be8e35657afc6f72cb',
   '../../docs/evidence/symposium-integration-acceptance.md':
-    'c224eea2eef5479ebad3c96a2e02f66deba19f15d9882153ac86581ddf80494c',
+    '1b7237c3e556529d19939b5ce9277f38a9bb96909c7c24229b8b6159c8ad9a38',
   '../../docs/features/symposium.md':
-    'ccc168d2d4a1cca97e9d22bd6accc6da974fcb94cdd9e85773e42ba1eb2b8725',
+    '4c3e122d0780454a2519a68129bda931d42091d4201dca074d0e42e4c1527f94',
   '../repository-capability-identity.ts':
     '2e35f24342d36e21f6c559afa93758f9ef83a2e3e435eda6d46e1a6101d16392',
   '../task-capability-consent.ts':

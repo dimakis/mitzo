@@ -17,7 +17,7 @@ qualification limits and preparation-stage wording.
 | Multiple responders, independent outcomes, ordinary Stop and attributed streaming        | Accepted #1280 (`14fb28b0`).                                                                                                                                             |
 | Reviewed one-prompt context and frozen artifact preview                                  | Accepted #1281 (`0b8b94f1`).                                                                                                                                             |
 | Exact saved-artifact selection, UTF-8 delivery and recovery/navigation                   | Accepted [#1282](https://github.com/dimakis/mitzo/pull/1282), `d61ae5b25677df50a8b00470f9c01e4a15aaa661`, after green combined CI and final exact-head Centaur approval. |
-| Context-only forwarding from the current discussion                                      | [#1284](https://github.com/dimakis/mitzo/pull/1284), current candidate `cd2dada9`; accepted-parent integration is prepared and final CI/review are pending.              |
+| Context-only forwarding from the current discussion                                      | Accepted [#1284](https://github.com/dimakis/mitzo/pull/1284), `33bed3962a26d7ce21208610d11b0e85e1aa106d`, after green combined CI and final exact-head Centaur approval. |
 | Personal Claude through the ordinary SDK owner, alongside a separate API-key participant | Source in this change, [#1289](https://github.com/dimakis/mitzo/pull/1289); its current CI/review and eventual merge receipt govern source acceptance.                   |
 
 Production application fixtures exercise real authentication, stores, routing and
