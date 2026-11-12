@@ -15,6 +15,13 @@ export const nativeConsumerOwners = Object.freeze({
   'server/__tests__/prepared-repository-native-public-partial-adoption.test.ts': 4,
   'server/__tests__/prepared-repository-native-public-retained-http.test.ts': 4,
 });
+// Trial from retained 2026-11-12 timings. Keep these in the ordinary hash
+// inventory before overriding ownership so unrelated files retain their lanes.
+export const measuredUnitOwners = Object.freeze({
+  'tests/integration/prepared-repository/composer-delivery.test.tsx': 1,
+  'server/__tests__/prepared-repository-native-public-tool-rollover-queued.test.ts': 3,
+  'server/__tests__/prepared-repository-native-public-tool-rollover.test.ts': 4,
+});
 export function selectUnitShard(files, root, index, count, transferPreparedConsumers = false) {
   if (
     !Number.isSafeInteger(index) ||
@@ -31,6 +38,7 @@ export function selectUnitShard(files, root, index, count, transferPreparedConsu
     files = files.filter((file) => !transferred.has(path(file)));
   }
   const owner = (file) => (count === 4 ? nativeConsumerOwners[path(file)] : undefined);
+  const measuredOwner = (file) => (count === 4 ? measuredUnitOwners[path(file)] : undefined);
   const ordinary = files
     .filter((file) => !owner(file))
     .map((file) => ({
@@ -46,7 +54,8 @@ export function selectUnitShard(files, root, index, count, transferPreparedConsu
   return [
     ...ordinary
       .slice(start, start + size + (index <= remainder ? 1 : 0))
-      .map((entry) => entry.file),
-    ...files.filter((file) => owner(file) === index),
+      .map((entry) => entry.file)
+      .filter((file) => !measuredOwner(file)),
+    ...files.filter((file) => owner(file) === index || measuredOwner(file) === index).sort(),
   ];
 }
