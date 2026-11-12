@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.1108-enmaas-account-settings';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.1109-enmaas-account-settings';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -4120,7 +4120,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../.github/workflows/ci-recovery.yml':
     '5d4e9a6560e549d2879ef776c2b4d321d420c25b22ec3a7741390e5bf617111a',
   '../../.github/workflows/ci.yml':
-    '3b3f207865a36c619224e8dc3e8e9673178e2c1bc9d004ca001888cb3e9ad425',
+    '8f1726a8ff243222a1f97b5f94329005a3902baf4870fca53b6bacc3a92c77c5',
   '../../playwright.config.ts': '6c61752a4a2e9cab19d8217b46080c5898bc79c5a0fde1f2b703a254d278daa0',
   '../../playwright.offline.config.ts':
     'fb694df154a2cb402c7f46b417efb357b6d19a72210d269ad0b1580798392adc',
@@ -4463,7 +4463,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/openai-account-enrollment.test.ts':
     'beb3e0d26c973f84bd69e1bb03d0d831bf5a1e34b2a6ceef739b3cb9bc0a9f1a',
   '../../tests/offline/api-account-enrollment.spec.ts':
-    'a02a53855bad569d1979403f60958468ee841078419de41501a1f92c4e6a01c3',
+    '9a7ba17821fd533d6bcaddda712a9a85725da651c966f66f61d947910b19594f',
   '../../tests/offline/anthropic-account-enrollment.spec.ts':
     '6f0e6c4807a5c475f48b30f78773c9c265bb2f49ce80deacb777d4c5d76067a7',
   '../../tests/fixtures/anthropic-account-enrollment.tsx':

@@ -300,6 +300,22 @@ jobs:
         timeout-minutes: 8
         with:
           browsers: ${{ matrix.browser }}
+      # Check enrollment once per project before the larger layout partition.
+      # The complete partition remains required after this focused check passes.
+      - name: Check EnMaaS save and model settings first
+        if: ${{ matrix.shard == 1 }}
+        id: enmaas-account-check
+        run: bash scripts/ci-browser-container.sh node scripts/ci-browser-run.mjs test:browser --config=playwright.offline.config.ts tests/offline/api-account-enrollment.spec.ts --project=${{ matrix.project }} --workers=1 --retries=0
+      - name: Retain EnMaaS account evidence before the full partition
+        if: ${{ always() && matrix.shard == 1 }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: enmaas-account-visuals-${{ matrix.project }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            test-results/offline/
+            test-results/browser-diagnostics/
+          retention-days: 7
+          if-no-files-found: error
       - name: Verify shared theme and mobile layouts without a backend
         id: offline-tests
         run: bash scripts/ci-browser-container.sh node scripts/ci-browser-run.mjs test:ui:ci:prebuilt --project=${{ matrix.project }} --shard=${{ matrix.shard }}/${{ matrix.shards }}

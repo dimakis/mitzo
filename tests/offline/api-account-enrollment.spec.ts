@@ -105,9 +105,9 @@ for (const theme of ['light', 'dark'] as const) {
       await page.getByRole('button', { name: 'Confirm identity to add an account' }).click();
       await page.getByLabel('Passphrase', { exact: true }).fill('synthetic-passphrase');
       await page.getByRole('button', { name: 'Reauthorize', exact: true }).click();
-      await page.getByLabel('Provider', { exact: true }).selectOption('enmaas');
+      await page.getByRole('combobox', { name: 'Provider', exact: true }).selectOption('enmaas');
       const form = page.getByRole('region', { name: 'EnMaaS account', exact: true });
-      await form.getByLabel('Runtime', { exact: true }).selectOption(protocol);
+      await form.getByRole('combobox', { name: 'Runtime', exact: true }).selectOption(protocol);
       await form.getByLabel('API key', { exact: true }).fill('synthetic-key');
       await expect(form.getByLabel('API key', { exact: true })).toHaveAttribute('type', 'password');
       for (const control of await form.locator('input, select').all()) {
@@ -124,7 +124,9 @@ for (const theme of ['light', 'dark'] as const) {
       await expect(form.getByText('3 available · 3 shown')).toBeVisible();
       await form.getByRole('button', { name: 'Model picker settings', exact: true }).click();
       let dialog = page.getByRole('dialog', { name: 'Model picker settings', exact: true });
-      await dialog.getByRole('checkbox', { name: 'Catalog model', exact: true }).uncheck();
+      const catalogChoice = dialog.getByRole('checkbox', { name: 'Catalog model', exact: true });
+      await catalogChoice.focus();
+      await catalogChoice.uncheck();
       await expect(
         dialog.getByRole('checkbox', { name: 'Catalog model', exact: true }),
       ).toBeFocused();
