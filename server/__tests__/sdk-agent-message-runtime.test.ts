@@ -16,6 +16,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { runQueryLoop } from '../query-loop.js';
 import { OrdinaryLocalVertexCommandOwner } from '../ordinary-local-vertex-command-owner.js';
+import * as nativeHistory from '../ordinary-local-vertex-native-history.js';
 vi.mock('@anthropic-ai/claude-agent-sdk', () => ({ query: vi.fn() }));
 
 const cleanup: Array<() => void> = [];
@@ -321,6 +322,7 @@ async function composedFixture() {
     ...f,
     runtime,
     commands,
+    sdk,
     inputs,
     stream: events,
     observedInputs,
@@ -336,6 +338,79 @@ async function composedFixture() {
     },
   };
 }
+
+it('consumes a user correction ACK before the ordinary owner and releases its successor only on the original result', async () => {
+  const f = await composedFixture();
+  const correction = {
+    requestId: randomUUID(),
+    targetCommandId: 'original',
+    text: 'Preserve the current task and correct its order.',
+  };
+  expect(await f.runtime.steerUser(correction, f.assertCurrent)).toEqual({ status: 'uncertain' });
+  const input = (await f.inputs.next()).value!;
+  expect(input).toMatchObject({ priority: 'now', message: { content: correction.text } });
+  f.stream.push({ type: 'user', session_id: 'worker', uuid: input.uuid, message: input.message });
+  f.stream.push({
+    type: 'assistant',
+    session_id: 'worker',
+    message: { id: 'original-assistant', content: [] },
+  });
+  await vi.waitFor(() => expect(f.afterAssistant).toHaveBeenCalledOnce());
+  expect(await f.runtime.steerUser(correction, f.assertCurrent)).toEqual({ status: 'accepted' });
+  expect(f.observedInputs.mock.calls).toEqual([[originalInputId]]);
+  expect(f.commands.activeCommandId()).toBe('original');
+  expect(f.ordinaryPush.mock.calls.map(([id]) => id)).toEqual(['original']);
+  expect(f.resultIds).toEqual([]);
+  expect(f.state().completing).toBe(false);
+  f.stream.push({ type: 'result', session_id: 'worker', uuid: 'original-result', is_error: false });
+  await vi.waitFor(() => expect(f.resultIds).toEqual([originalInputId]));
+  expect(await f.settlements[0]).toBe('completed');
+  expect(f.ordinaryPush.mock.calls.map(([id]) => id)).toEqual(['original', 'successor']);
+  expect(f.abort).not.toHaveBeenCalled();
+  await f.finish();
+});
+
+it('keeps a submitted user correction uncertain when a successor SDK query replays its ACK', async () => {
+  const f = await composedFixture();
+  const correction = {
+    requestId: randomUUID(),
+    targetCommandId: 'original',
+    text: 'Keep this correction on the original query.',
+  };
+  await f.runtime.steerUser(correction, f.assertCurrent);
+  const input = (await f.inputs.next()).value!;
+  f.stream.push({ type: 'result', session_id: 'worker', uuid: 'original-result', is_error: false });
+  await vi.waitFor(() => expect(f.resultIds).toEqual([originalInputId]));
+  expect(await f.settlements[0]).toBe('completed');
+  const nextEvents = new AsyncQueue<Record<string, unknown>>();
+  vi.mocked(query).mockImplementationOnce(
+    () =>
+      ({
+        close: () => nextEvents.close(),
+        [Symbol.asyncIterator]: () => nextEvents[Symbol.asyncIterator](),
+      }) as never,
+  );
+  const selection = f.events.getOrdinaryLocalVertexCommandAdmission('successor')!.selection;
+  await f.sdk.apply(selection);
+  const history = vi
+    .spyOn(nativeHistory, 'assertOrdinaryLocalVertexHistory')
+    .mockResolvedValueOnce();
+  try {
+    await f.sdk.apply(selection);
+  } finally {
+    history.mockRestore();
+  }
+  nextEvents.push({ type: 'user', session_id: 'worker', uuid: input.uuid, message: input.message });
+  nextEvents.push({
+    type: 'assistant',
+    session_id: 'worker',
+    message: { id: 'successor-assistant', content: [] },
+  });
+  await vi.waitFor(() => expect(f.afterAssistant).toHaveBeenCalledOnce());
+  expect(await f.runtime.steerUser(correction, f.assertCurrent)).toEqual({ status: 'uncertain' });
+  expect(f.observedInputs.mock.calls).toEqual([[originalInputId]]);
+  await f.finish();
+});
 
 it.each(['exact', 'wrong-text', 'foreign-uuid'] as const)(
   'keeps the active ordinary command and successor fenced through a %s peer ACK and the original result',

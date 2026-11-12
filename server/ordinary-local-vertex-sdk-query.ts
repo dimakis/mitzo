@@ -152,7 +152,7 @@ export function createOrdinaryLocalVertexSdkQuery<
       if (
         owners
           .peerMessages?.()
-          ?.beforeInput(message, !!state && !state.retired && !state.completing) === false
+          ?.beforeInput(message, !!state && !state.retired && !state.completing, state) === false
       )
         continue;
       yield message;
@@ -215,7 +215,8 @@ export function createOrdinaryLocalVertexSdkQuery<
         for await (const event of owners.adapt(run)) {
           if (event.session_id !== undefined && event.session_id !== owners.sdkSessionId)
             throw Error('Original SDK thread identity changed');
-          if (owners.peerMessages?.()?.observe(event)) continue;
+          const queryState = states.get(run)!;
+          if (owners.peerMessages?.()?.observe(event, queryState, !queryState.retired)) continue;
           if (event.type === 'result') {
             const state = states.get(run)!;
             state.completing = true;

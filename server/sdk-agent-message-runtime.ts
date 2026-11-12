@@ -5,6 +5,8 @@ import type { EventStore } from './event-store.js';
 import type { AuthSession } from './auth.js';
 import { AgentCommunicationError, type AgentMessageRuntime } from './agent-message-runtime.js';
 import { createLogger } from './logger.js';
+import { SdkUserSteering } from './sdk-user-steering.js';
+import type { CodexSteerInput } from './codex-steering.js';
 
 const log = createLogger('sdk-agent-messages');
 function inputText(content: unknown): string | undefined {
@@ -30,6 +32,7 @@ type Pending = {
 export class SdkAgentMessageRuntime implements AgentMessageRuntime {
   readonly runtime = 'claude-sdk';
   readonly identity: object;
+  private readonly userCorrections: SdkUserSteering;
   readonly #inputs = new WeakMap<SDKUserMessage, Pending>();
   readonly #pending = new Map<string, Pending>();
   readonly #ordinary = new Map<string, { current(): void; signal: AbortSignal }>();
@@ -57,6 +60,19 @@ export class SdkAgentMessageRuntime implements AgentMessageRuntime {
     },
   ) {
     this.identity = owners.identity;
+    this.userCorrections = new SdkUserSteering({
+      events: owners.events,
+      sessionId: this.sessionId,
+      operator: owners.operatorAuthSessionId,
+      assertCurrent: () => this.assertCurrent(owners.operatorAuthSessionId),
+      activeCommandId: () => (this.state() === 'busy' ? owners.activeCommandId() : undefined),
+      push: (input) => owners.push(input),
+    });
+  }
+
+  async steerUser(input: CodexSteerInput, authorize: () => void) {
+    const result = await this.userCorrections.steer(input, authorize);
+    return result.status === 'uncertain' ? this.userCorrections.waitForReceipt(input) : result;
   }
 
   assertCurrent(operator: string) {
@@ -129,7 +145,9 @@ export class SdkAgentMessageRuntime implements AgentMessageRuntime {
   /** Called after asynchronous SDK authority checks and immediately before stdin yield.
    * Expected peer revocation/stale target drops only this unsubmitted correction.
    */
-  beforeInput(input: SDKUserMessage, queryAvailable = true): boolean {
+  beforeInput(input: SDKUserMessage, queryAvailable = true, query?: object): boolean {
+    const userCorrection = this.userCorrections.beforeInput(input, queryAvailable, query);
+    if (userCorrection !== undefined) return userCorrection;
     const pending = this.#inputs.get(input);
     if (!pending) {
       const commandId = (input as SDKUserMessage & { mitzoMessageId?: string }).mitzoMessageId;
@@ -229,7 +247,12 @@ export class SdkAgentMessageRuntime implements AgentMessageRuntime {
     return true;
   }
 
-  observe(event: Readonly<Record<string, unknown>>): boolean {
+  observe(
+    event: Readonly<Record<string, unknown>>,
+    query?: object,
+    queryAvailable = true,
+  ): boolean {
+    if (this.userCorrections.observe(event, query, queryAvailable)) return true;
     if (event.type !== 'user' || typeof event.uuid !== 'string' || event.parent_tool_use_id)
       return false;
     const text = inputText((event.message as { content?: unknown } | undefined)?.content);
