@@ -13,7 +13,7 @@ import tempfile
 import time
 from contextlib import contextmanager
 from datetime import datetime, timezone
-from typing import Optional
+from typing import Callable, Optional
 from pathlib import Path
 
 ORIGIN = "https://mitzo-notification-test.invalid"
@@ -47,7 +47,9 @@ class ColdBoot:
             result = self.process.wait(timeout=max(0.001, 600 - (time.perf_counter() - self.started)))
             if result:
                 raise subprocess.CalledProcessError(result, self.command)
-        print('CI_NATIVE_BOOT ' + json.dumps({'seconds': time.perf_counter() - self.started}), flush=True)
+        # Includes compilation overlap before the parent observes readiness.
+        # bootstatus's own streamed elapsed time measures the actual cold boot.
+        print('CI_NATIVE_BOOT ' + json.dumps({'readiness_observation_seconds': time.perf_counter() - self.started}), flush=True)
 
     def stop(self):
         if self.process.poll() is not None:
@@ -162,7 +164,7 @@ def capture_failure(
 
 def smoke(
     app: Path, diagnostics_root: Path = Path("test-results/native-notification"),
-    prepare=None,
+    prepare: Optional[Callable[[], None]] = None,
 ) -> None:
     failed = False
     bundle_id = None
@@ -264,9 +266,10 @@ window.addEventListener('load', async () => {{
                 except Exception as error:
                     cleanup_errors.append(f'bootstatus: {type(error).__name__}')
             try:
-                shutdown = subprocess.run(
-                    ["xcrun", "simctl", "shutdown", device], check=False, timeout=60
-                )
+                with native_stage('shutdown'):
+                    shutdown = subprocess.run(
+                        ["xcrun", "simctl", "shutdown", device], check=False, timeout=60
+                    )
                 if shutdown.returncode:
                     cleanup_errors.append("shutdown returned nonzero")
             except Exception as error:
@@ -281,7 +284,8 @@ window.addEventListener('load', async () => {{
                 except Exception as error:
                     print(f"Native evidence capture failed: {type(error).__name__}", file=sys.stderr)
             try:
-                simctl("delete", device)
+                with native_stage('delete'):
+                    simctl("delete", device)
             except Exception as error:
                 cleanup_errors.append(f"delete: {type(error).__name__}")
                 if evidence is None and not failed:
