@@ -10,7 +10,8 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.1062-queue-preview-identity';
+export const reviewedConnectionsRuntimeImplementationRevision =
+  'v1.0.1063-queue-consumer-contracts';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -4227,7 +4228,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/components/__tests__/ChatInputStatus.test.tsx':
     'f4534e3c51b092d69eaa73f4a156b6488354256765377b6ad5e7e18927d38cd5',
   '../../tests/support/composer-status.ts':
-    '0da1af7c351621c3e46e88ae40cf4cc843b2a4b67152e9caaf4301fe1ce8b671',
+    'ea1aa5a425afcf4ea883dd94ac29c606dc1eae9940b8b9339b1e8184b9a2756c',
   '../../tests/fixtures/chat-queue-steering.tsx':
     'ccdee3b2648b3d0cdc9e81a15a34d11ca8dea076e335413684c77c949e714d09',
   '../../tests/offline/chat-queue-steering.spec.ts':
