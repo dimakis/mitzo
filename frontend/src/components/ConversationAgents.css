@@ -146,11 +146,13 @@
   overscroll-behavior: contain;
   padding: var(--space-3) var(--space-4);
   display: grid;
+  grid-auto-rows: max-content;
+  align-content: start;
   gap: var(--space-4);
 }
 /* The dialog body owns scrolling; keep the full repository form in its grid row. */
 .conversation-agents-body .repository-chat-picker {
-  min-height: min-content;
+  min-height: auto;
   overflow: visible;
 }
 .conversation-agent-record {

@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.1108-symposium-dialog-event-stream-fixture';
+  'v1.0.1109-symposium-dialog-intrinsic-grid-rows';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -26,7 +26,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/components/__tests__/ConversationAgents.settings-scope.test.tsx':
     'a0d693a1b69e6cd88ff70ece610d44018966e7b72dfeab567d0ef3ae755d7216',
   '../../tests/offline/symposium-dialog-controls.spec.ts':
-    'dde628af4464024c8f5f5d3190b03cc8af4baca53fe5b9a1b0917df25cafe355',
+    '463edab4433a48a25a88a62ecd4db9024706a732979009de33883bc5da2776a9',
   '../__tests__/fixtures/telos-ordinary-work.ts':
     '0b8d81da3391063f665428627fc4eca87f9d94a5575fe3b72c3eee3239f15f3b',
   '../telos-session-proposal-failure.ts':
@@ -540,7 +540,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../tests/offline/symposium-composer.spec.ts':
     '9867fcbd4ae751f7b53115b63b8b3914bb80e054da5970be8e35657afc6f72cb',
   '../../docs/evidence/symposium-integration-acceptance.md':
-    'dfec4866f2bab9717b66428394d9d5175b0b363ddda7eb1af5e24203ee781017',
+    '3d83362710f7cb8c902d2e009268434a3793472f9d666d3e4e976f042847cbc0',
   '../../docs/features/symposium.md':
     '4c3e122d0780454a2519a68129bda931d42091d4201dca074d0e42e4c1527f94',
   '../repository-capability-identity.ts':
@@ -2215,7 +2215,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/components/ConversationAgents.tsx':
     'a5aed45759683fa3d016d3b5bfa7871f23a5f93a737b89cb6adc14e62c1cb407',
   '../../frontend/src/components/ConversationAgents.css':
-    'ab52cec7c028432b84de436a2836d433fddafe1f716781f808a69ea1c005653c',
+    '4d55b9160bc2bfed0f1a101026772fc7e5a8506b2679b12764e06e03ec972e3c',
   '../../frontend/src/components/ComposerResponders.tsx':
     'b4bd7467859874c67e8bdac851ddc94cd71f9b4abfcf4ca7fd3437775c71be36',
   '../../frontend/src/components/ComposerResponders.css':

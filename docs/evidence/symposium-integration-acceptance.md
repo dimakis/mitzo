@@ -65,6 +65,15 @@ application's existing offline SSE fixtures. The no-runtime-errors and no-write
 assertions remain intact. This is a reproduced fixture-response defect; it does
 not establish a production layout/observer failure or passing corrected renders.
 
+Run `43329548289`, head `15cd37a8`, then reproduced a remaining WebKit layout
+failure: the light-theme Add repository click timed out because Starting context
+intercepted it. The retained failed screenshot shows the collapsed repository
+border and its button overflowing into that heading. The dialog now gives each
+implicit grid row its full content height, retaining the body as scroll owner;
+the repository uses its automatic intrinsic minimum. The browser test requires
+both closed and expanded forms to contain their contents and precede Starting
+context, retaining the real button click. Corrected hosted rendering remains due.
+
 ## 12 November 2026 source-acceptance checkpoint
 
 This checkpoint contributes landing evidence to the existing map without changing

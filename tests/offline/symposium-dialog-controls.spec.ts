@@ -184,7 +184,25 @@ for (const theme of ['dark', 'light'])
     await dialog.getByRole('combobox', { name: 'Model', exact: true }).scrollIntoViewIfNeeded();
     await page.screenshot({ path: info.outputPath(`fresh-setup-fields-${theme}.png`) });
     await dialog.getByRole('radio', { name: 'Mac host' }).check();
-    await dialog.getByRole('button', { name: 'Add repository', exact: true }).click();
+    const repositorySection = dialog.getByRole('region', { name: 'Repository for new chat' });
+    const expectRepositoryLayout = async () => {
+      await expect
+        .poll(() => repositorySection.evaluate((el) => el.scrollHeight <= el.clientHeight))
+        .toBe(true);
+      await expect
+        .poll(async () => {
+          const [box, heading] = await Promise.all([
+            repositorySection.boundingBox(),
+            dialog.getByRole('heading', { name: 'Starting context' }).boundingBox(),
+          ]);
+          return !!box && !!heading && box.y + box.height <= heading.y;
+        })
+        .toBe(true);
+    };
+    const addRepository = dialog.getByRole('button', { name: 'Add repository', exact: true });
+    await addRepository.scrollIntoViewIfNeeded();
+    await expectRepositoryLayout();
+    await addRepository.click();
     const repository = dialog.getByLabel('Local repository');
     await expect(repository).toBeVisible();
     await repository.selectOption('local:local/project');
@@ -193,11 +211,7 @@ for (const theme of ['dark', 'light'])
     await prepare.scrollIntoViewIfNeeded();
     await expect(prepare).toBeInViewport({ ratio: 1 });
     await expect(repository).toBeInViewport({ ratio: 1 });
-    expect(
-      await dialog
-        .getByRole('region', { name: 'Repository for new chat' })
-        .evaluate((el) => el.scrollHeight <= el.clientHeight),
-    ).toBe(true);
+    await expectRepositoryLayout();
     expect(
       await dialog
         .locator('.conversation-agents-body')
