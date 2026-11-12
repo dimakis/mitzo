@@ -8,6 +8,12 @@ import { eventStore as startupStore } from '../chat.js';
 import { setAuthRevocationStore, revokeAuthSession } from '../auth.js';
 import { TelosItemStore } from '../telos-item-store.js';
 import { reviewTelosWorkRoleContext } from '../telos-work-role-review.js';
+import { createTelosSessionLaunchHost } from '../telos-session-launch-host.js';
+import { createTelosWorkRoleHost } from '../telos-work-role-host.js';
+import { SessionLaunchStore } from '../session-launch-store.js';
+import { SessionLaunchService } from '../session-launch-service.js';
+import { isAvailableTelosWorkConversation } from '../telos-work-conversation.js';
+import type { SessionLaunchConfig } from '@mitzo/protocol';
 // Isolate chat's legacy startup metadata before imports. This is not a Git source
 // or an admitted workspace; every actual task must use its separate private ID/cwd.
 const startup = await vi.hoisted(async () => {
@@ -46,6 +52,137 @@ afterAll(() => {
 
 const fixture = (role?: 'advisor' | 'lead' | 'worker') =>
   createTelosOrdinaryWorkFixture(cleanup, role);
+
+it('creates and recovers an assigned slice from its lead review without a provider command', async () => {
+  const f = await fixture();
+  const lead = await f.owner.setup(f.actor, f.input, f.native.signal.signal);
+  const sourceSessionId = lead.work.assignments.find((a) => a.role === 'lead')!.conversation
+    .conversationId;
+  const items = new TelosItemStore(f.canonical.dbPath);
+  cleanup.push(() => items.close());
+  const child = items.createChildGuarded(
+    {
+      parentId: 'studio',
+      expectedParentRevision: items.read('studio').revision,
+      requestId: 'agent-session-slice',
+      summary: 'Review panel placement',
+      intent: 'Place the acoustic panels',
+      rationale: 'Improve recorded sound',
+      acceptanceCriteria: ['Panel placement reviewed'],
+      note: 'Approved first slice',
+    },
+    sourceSessionId,
+    () => {},
+    () => {},
+  );
+  const settings = f.input.settings;
+  const configuration: SessionLaunchConfig = {
+    version: 1,
+    runtime: {
+      version: 1,
+      account: {
+        accountId: settings.binding.account.accountId,
+        model: settings.selection.model,
+        reasoningEffort: settings.selection.thinking,
+      },
+      accountReference: settings.binding.account,
+      agentProfile: settings.selection.agent,
+      execution: { location: 'local', targetId: settings.binding.execution.targetId },
+    },
+    mode: settings.selection.permission.mode,
+    isolation: true,
+    repositoryWorkspaceId: null,
+    contextBlocks: [],
+    extraTools: [],
+  };
+  const store = new SessionLaunchStore(':memory:');
+  cleanup.push(() => store.close());
+  const roleHost = createTelosWorkRoleHost({
+    dbPath: () => f.canonical.dbPath,
+    events: f.native.events,
+    ordinaryConversation: (id) => isAvailableTelosWorkConversation(f.native.events.getSession(id)),
+    workspaces: () => f.native.workspaces,
+    resolvePreparation: async () => {
+      throw Error('Repository preparation must not run');
+    },
+    authorizeSettings: async () => {
+      throw Error('Repository settings must not run');
+    },
+    ordinary: {
+      resolveSelection: async () => ({
+        binding: f.native.binding,
+        agentProfile: f.native.library.version(
+          'user',
+          settings.selection.agent.profileId,
+          settings.selection.agent.revision,
+        )!,
+        taskRoot: f.native.taskRoot,
+      }),
+      authorizeSettings: async () => {},
+    },
+  });
+  let loseResponse = true;
+  const host = createTelosSessionLaunchHost({
+    store,
+    events: f.native.events,
+    dbPath: () => f.canonical.dbPath,
+    ordinaryConversation: (id) => isAvailableTelosWorkConversation(f.native.events.getSession(id)),
+    roleHost: () => ({
+      ...roleHost,
+      setupReviewedOrdinary: async (request) => {
+        const result = await roleHost.setupReviewedOrdinary(request);
+        if (loseResponse) {
+          loseResponse = false;
+          throw Error('Assignment response lost');
+        }
+        return result;
+      },
+    }),
+    qualify: async () => {},
+    prepareSettings: async () => settings,
+  });
+  const authority = {
+    operatorConnectionId: 'reviewing-operator',
+    authSessionId: f.actor.id,
+    signal: f.native.signal.signal,
+    assertCurrent: () => {},
+  };
+  const input = {
+    requestId: randomUUID(),
+    title: 'Panel placement worker',
+    prompt: 'Review the selected slice.',
+    itemId: child.item.id,
+    expectedRevision: f.work.read(child.item.id, f.actor).revision,
+    sourceSnapshotIds: [],
+    artifactRefs: [],
+  };
+  const proposal = await host.propose(sourceSessionId, input, authority);
+  const edits = { title: input.title, prompt: input.prompt, configuration };
+  const record = store.propose({
+    ...edits,
+    ...proposal,
+    sourceSessionId,
+    requestId: input.requestId,
+    operatorId: 'user',
+    originalInput: input,
+  });
+  const ordinary = { validate: vi.fn(), start: vi.fn(), inspect: vi.fn() };
+  const service = new SessionLaunchService(store, ordinary, host);
+  const before = f.native.events.listSessions().length;
+  const uncertain = await service.approve(record.proposalId, 'user', edits, 1, authority);
+  expect(uncertain.state).toBe('uncertain');
+  const recovered = await service.refresh(record.proposalId, 'user', authority);
+  expect(recovered.state).toBe('assigned');
+  expect(recovered.childSessionId).not.toBe(sourceSessionId);
+  expect(f.native.events.listSessions()).toHaveLength(before + 1);
+  expect(f.work.read(child.item.id, f.actor).assignments[0].conversation.conversationId).toBe(
+    recovered.childSessionId,
+  );
+  expect(f.native.events.getOrdinaryInitialCommandId(recovered.childSessionId!)).toBeUndefined();
+  expect(f.native.first.launch).not.toHaveBeenCalled();
+  expect(ordinary.start).not.toHaveBeenCalled();
+  expect(await service.refresh(record.proposalId, 'user', authority)).toEqual(recovered);
+});
 it('takes a newly created standalone feature through independent lead and slice worker setup', async () => {
   const f = await fixture();
   const items = new TelosItemStore(f.canonical.dbPath);

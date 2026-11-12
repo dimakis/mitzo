@@ -248,6 +248,11 @@ import { readAgentLibraryProfile } from './agent-library-transport.js';
 import { createSymposiumProfileRouter } from './symposium-profile-routes.js';
 import { SymposiumProfileProposalStore } from './symposium-profile-proposals.js';
 import { initializeSessionLaunches, closeSessionLaunches } from './session-launch-controller.js';
+import { createTelosSessionLaunchHost } from './telos-session-launch-host.js';
+import {
+  qualifySessionLaunchConfig,
+  prepareTelosSessionSettings,
+} from './session-launch-runtime.js';
 import { createSessionLaunchRouter } from './session-launch-routes.js';
 import { createSymposiumProfileProposalRouter } from './symposium-profile-proposal-routes.js';
 import {
@@ -1296,6 +1301,18 @@ const symposiumProfileProposalStore = new SymposiumProfileProposalStore(
 const sessionLaunchController = initializeSessionLaunches(
   join(BASE_REPO || '.', '.mitzo', 'events.db'),
   (sessionId) => sseRegistry.broadcast('session_launch_changed', { sessionId }),
+  (store) =>
+    createTelosSessionLaunchHost({
+      store,
+      events: eventStore,
+      dbPath: () => telosDatabasePath(),
+      ordinaryConversation: (id) => isAvailableTelosWorkConversation(eventStore.getSession(id)),
+      roleHost: (authority) => telosRoleHost(authority.operatorConnectionId, true),
+      qualify: async (configuration, authority) => {
+        await qualifySessionLaunchConfig(configuration, authority);
+      },
+      prepareSettings: prepareTelosSessionSettings,
+    }),
 );
 mountObservedRouter(
   app,

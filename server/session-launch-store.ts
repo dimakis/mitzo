@@ -7,6 +7,9 @@ import {
   type SessionLaunchConfig,
   type SessionLaunchRecord,
   type TelosSessionLaunchScope,
+  TelosOrdinaryWorkReviewedRoleSetupInputSchema,
+  type TelosOrdinaryWorkReviewedRoleSetupInput,
+  type TelosWorkRoleContextReview,
 } from '@mitzo/protocol';
 import { z } from 'zod';
 
@@ -34,12 +37,16 @@ export type RetainedSessionLaunch = SessionLaunchRecord & {
   allocationId: string | null;
   commandId: string | null;
   preparationId: string | null;
+  telosReviewOwner?: string;
+  telosSetup?: TelosOrdinaryWorkReviewedRoleSetupInput;
 };
 export function publicSessionLaunchRecord(record: RetainedSessionLaunch): SessionLaunchRecord {
   const publicRecord: Partial<RetainedSessionLaunch> = { ...record };
   delete publicRecord.allocationId;
   delete publicRecord.commandId;
   delete publicRecord.preparationId;
+  delete publicRecord.telosReviewOwner;
+  delete publicRecord.telosSetup;
   return SessionLaunchRecordSchema.parse(publicRecord);
 }
 type Envelope = {
@@ -52,6 +59,8 @@ const retainedRecord = SessionLaunchRecordSchema.extend({
   allocationId: z.uuid().nullable(),
   commandId: z.uuid().nullable(),
   preparationId: z.string().min(1).nullable(),
+  telosReviewOwner: z.string().min(1).optional(),
+  telosSetup: TelosOrdinaryWorkReviewedRoleSetupInputSchema.optional(),
 });
 const envelopeSchema = z.strictObject({
   owner: z.string().min(1),
@@ -177,6 +186,8 @@ export class SessionLaunchStore {
       requestId: string;
       originalInput?: unknown;
       telos?: TelosSessionLaunchScope;
+      telosReview?: TelosWorkRoleContextReview;
+      telosReviewOwner?: string;
     },
   ): RetainedSessionLaunch {
     return this.db
@@ -214,6 +225,12 @@ export class SessionLaunchStore {
           prompt: input.prompt,
           configuration: structuredClone(input.configuration),
           ...(input.telos ? { telos: structuredClone(input.telos) } : {}),
+          ...(input.telosReview
+            ? {
+                telosReview: structuredClone(input.telosReview),
+                telosReviewOwner: input.telosReviewOwner,
+              }
+            : {}),
           revision: 1,
           state: 'pending',
           childSessionId: null,
@@ -367,6 +384,31 @@ export class SessionLaunchStore {
         updatedAt: Date.now(),
       });
     });
+  }
+  /** Freeze the bridge to the existing role owner before allocation. A racing
+   * recovery reuses the first preparation; it cannot replace its fingerprint. */
+  retainTelosSetup(id: string, owner: string, setup: TelosOrdinaryWorkReviewedRoleSetupInput) {
+    this.get(id, owner);
+    const parsed = TelosOrdinaryWorkReviewedRoleSetupInputSchema.parse(setup);
+    const record = this.mutate(id, (entry) => {
+      const r = entry.record;
+      if (
+        !r.telos ||
+        !r.telosReview ||
+        !['starting', 'uncertain'].includes(r.state) ||
+        parsed.input.requestId !== id ||
+        parsed.input.itemId !== r.telos.itemId ||
+        parsed.input.role !== r.telos.role ||
+        parsed.input.expectedRevision !== r.telos.expectedRevision ||
+        parsed.input.createOnly !== true ||
+        parsed.input.expectedAssignmentRevision !== 0 ||
+        !isDeepStrictEqual(parsed.input.contextSelection, r.telosReview.selection) ||
+        !isDeepStrictEqual(parsed.presentationRef, r.telosReview.presentationRef)
+      )
+        throw new SessionLaunchError('Original reviewed work setup required.');
+      if (!r.telosSetup) r.telosSetup = parsed;
+    });
+    return record.telosSetup!;
   }
   fail(id: string, error: string, uncertain = false) {
     return this.mutate(id, (entry) => {

@@ -723,6 +723,24 @@ export class TelosWorkStore {
       )
       .get(requestId, requestId);
   }
+  /** Read-only recovery of the existing canonical role operation. */
+  ordinaryRoleSetupForHost(requestId: string, actor: TelosWorkActor) {
+    this.operator(actor);
+    const row = this.db
+      .prepare(
+        'SELECT intent,receipt FROM telos_work_role_setups WHERE actor_id=? AND request_id=?',
+      )
+      .get(`operator:${actor.id}`, requestId) as
+      { intent: string; receipt: string | null } | undefined;
+    return row
+      ? {
+          setup: TelosOrdinaryWorkRoleSetupIntentSchema.parse(JSON.parse(row.intent)),
+          receipt: row.receipt
+            ? TelosWorkCommandReceiptSchema.parse(JSON.parse(row.receipt))
+            : null,
+        }
+      : undefined;
+  }
   rolePresentationForSetup(
     raw: unknown,
     actor: TelosWorkActor,
@@ -853,6 +871,22 @@ export class TelosWorkStore {
             )
             .run(input.requestId, actorId, fingerprint, reason);
           return { rejection: reason };
+        }
+        if (input.role === 'lead' || input.role === 'worker') {
+          const pending = this.db
+            .prepare(
+              `SELECT 1 FROM telos_work_role_setups WHERE receipt IS NULL
+            AND json_extract(intent,'$.input.itemId')=? AND json_extract(intent,'$.input.role')=?
+            AND (?=1 OR json_extract(intent,'$.input.createOnly')=1) LIMIT 1`,
+            )
+            .get(input.itemId, input.role, input.createOnly ? 1 : 0);
+          if (pending)
+            conflict('This role is reserved by an unfinished setup. Recover its original request.');
+          if (
+            input.createOnly &&
+            this.snapshot(input.itemId).assignments.some((a) => a.role === input.role)
+          )
+            conflict('Create-only cannot replace an existing assignment');
         }
         const setup = TelosWorkRoleSetupRequestIntentSchema.parse({
           actorId,
@@ -1553,6 +1587,28 @@ export class TelosWorkStore {
         if (this.snapshot(input.itemId).revision !== input.expectedRevision)
           conflict('Work revision conflict; read current work before retrying');
         this.assertLifecycleActive(input.itemId);
+        if (input.operation === 'assign' || input.operation === 'setup_role') {
+          const reserved = this.db
+            .prepare(
+              `SELECT intent FROM telos_work_role_setups WHERE receipt IS NULL
+            AND json_extract(intent,'$.input.itemId')=? AND json_extract(intent,'$.input.role')=?
+            AND json_extract(intent,'$.input.createOnly')=1`,
+            )
+            .all(input.itemId, input.role) as { intent: string }[];
+          if (
+            reserved.some((row) => {
+              const setup = TelosWorkRoleSetupRequestIntentSchema.parse(JSON.parse(row.intent));
+              return (
+                input.operation !== 'setup_role' ||
+                actorId !== setup.actorId ||
+                input.requestId !== `role:${setup.allocationOperationId}`
+              );
+            })
+          )
+            conflict(
+              'This role is reserved. Recover the original session creation before assigning another session.',
+            );
+        }
         if (input.operation === 'reparent' && input.parentId !== null)
           this.assertLifecycleActive(input.parentId);
         // Host-only denial port, never command JSON or a grant. Exact completed
