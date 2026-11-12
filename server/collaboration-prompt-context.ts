@@ -9,6 +9,8 @@ import type { EventStore } from './event-store.js';
 import { createCollaborationContextSource } from './collaboration-context-source.js';
 import { compileCollaborationContext } from './collaboration-context-compiler.js';
 import { ordinaryOperatorOwnsConversation } from './ordinary-operator-identity.js';
+import { snapshotMaterial } from './collaboration-context-input.js';
+export { snapshotMaterial } from './collaboration-context-input.js';
 
 export type PreparedPromptContext = {
   snapshot: CollaborationSnapshot;
@@ -16,29 +18,6 @@ export type PreparedPromptContext = {
   assertCurrent(): void;
 };
 export type PreparedPromptContexts = Map<string, PreparedPromptContext>;
-
-export function snapshotMaterial(
-  snapshot: Pick<
-    CollaborationSnapshot,
-    | 'sourceConversationId'
-    | 'boundary'
-    | 'purpose'
-    | 'joiningBrief'
-    | 'messages'
-    | 'artifacts'
-    | 'summary'
-  >,
-) {
-  return {
-    sourceConversationId: snapshot.sourceConversationId,
-    boundary: snapshot.boundary,
-    purpose: snapshot.purpose,
-    joiningBrief: snapshot.joiningBrief,
-    messages: snapshot.messages,
-    artifacts: snapshot.artifacts,
-    summary: snapshot.summary,
-  };
-}
 
 /** Existing source compiler + ordinary retained settings. This is a renewed
  * context capability only; it cannot dispatch or acknowledge any command. */

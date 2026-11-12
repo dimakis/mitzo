@@ -6,6 +6,7 @@ import {
   type CollaborationMessageInput,
   type CollaborationPromptReviewResult,
   type CollaborationView,
+  type CollaborationSourceArtifacts,
 } from '@mitzo/protocol';
 import { AUTH_LOST_EVENT, AUTH_RESTORED_EVENT } from '../lib/api-fetch';
 import { getChatDraft, saveChatDraft, type ChatDraft } from '../lib/chat-drafts';
@@ -55,6 +56,7 @@ export function useConversationPromptContext(options: {
     open?: boolean;
     record?: Record;
     source?: CollaborationDurableTranscript;
+    artifacts?: CollaborationSourceArtifacts['artifacts'];
     review?: CollaborationPromptReviewResult;
     busy?: boolean;
     error?: string;
@@ -169,11 +171,18 @@ export function useConversationPromptContext(options: {
   const show = () => {
     publish({ open: true });
     void perform(async (signal, fresh) => {
-      const source = await api.getDurableSessionTranscript(sourceConversationId, signal);
+      if (!group || !clientId) throw Error('Context source is unavailable.');
+      const [source, catalog] = await Promise.all([
+        api.getDurableSessionTranscript(sourceConversationId, signal),
+        api.collaborations.sourceArtifacts(group, sourceConversationId, clientId, signal),
+      ]);
       if (!fresh()) return;
-      if (source.sourceConversationId !== sourceConversationId)
+      if (
+        source.sourceConversationId !== sourceConversationId ||
+        catalog.sourceConversationId !== sourceConversationId
+      )
         throw Error('The context source changed.');
-      publish({ source });
+      publish({ source, artifacts: catalog.artifacts });
     });
   };
   const edit = (next: PromptContextForm) => {
@@ -201,7 +210,7 @@ export function useConversationPromptContext(options: {
             expectedMembershipRevision: view.membershipRevision,
             mode: form.mode,
             messageIds: form.mode === 'selected' ? form.messageIds : [],
-            artifacts: [],
+            artifacts: form.mode === 'selected' ? (form.artifacts ?? []) : [],
             purpose: form.purpose,
             joiningBrief: form.brief,
           },
@@ -226,6 +235,24 @@ export function useConversationPromptContext(options: {
         JSON.stringify(reviewed.recipientSessionIds) !== JSON.stringify(input.recipientSessionIds)
       )
         throw Error('The returned review does not match this context request.');
+      if (
+        input.selection.mode === 'selected' &&
+        (JSON.stringify(reviewed.snapshot.messages.map((message) => message.messageId).sort()) !==
+          JSON.stringify([...input.selection.messageIds].sort()) ||
+          JSON.stringify(
+            reviewed.snapshot.artifacts
+              .map(({ artifactId, revision, sha256 }) => ({ artifactId, revision, sha256 }))
+              .sort((a, b) => a.artifactId.localeCompare(b.artifactId)),
+          ) !==
+            JSON.stringify(
+              [...input.selection.artifacts].sort((a, b) =>
+                a.artifactId.localeCompare(b.artifactId),
+              ),
+            ))
+      )
+        throw Error(
+          'The returned review changed the selected messages or saved artifact versions.',
+        );
       persist({
         ...record,
         input,
@@ -296,6 +323,7 @@ export function useConversationPromptContext(options: {
     busy: !!visible.busy,
     form,
     source: visible.source,
+    artifacts: visible.artifacts,
     review: visible.review,
     error: visible.error,
     hasRetainedReview: scoped && !!record.input,

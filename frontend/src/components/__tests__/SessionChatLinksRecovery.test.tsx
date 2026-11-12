@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { SessionChatLinks } from '../SessionChatLinks';
 import { useSessionLaunch } from '../../hooks/useSessionLaunch';
@@ -52,7 +52,7 @@ beforeEach(() => {
   };
 });
 
-it('keeps an unconfirmed start locked when the inspection read fails, then retries the same input only after a successful check', async () => {
+it('keeps an unconfirmed start locked after failed inspection and retries inspection inside the open dialog', async () => {
   let inspectionFails = false;
   const writes: string[] = [];
   vi.mocked(apiFetch).mockImplementation(async (path, init) => {
@@ -82,15 +82,14 @@ it('keeps an unconfirmed start locked when the inspection read fails, then retri
   fireEvent.click(screen.getByRole('button', { name: 'Approve & start' }));
   await screen.findByRole('alert');
   fireEvent.click(screen.getByRole('button', { name: 'Check request' }));
-  await waitFor(() =>
-    expect(
-      (screen.getByRole('button', { name: /Check.*request/ }) as HTMLButtonElement).disabled,
-    ).toBe(true),
-  );
+  await within(screen.getByRole('dialog')).findByText(/Links could not be refreshed/);
+  const check = screen.getByRole('button', { name: 'Check request' }) as HTMLButtonElement;
+  expect(check.disabled).toBe(false);
+  expect(screen.getByRole('dialog').textContent).toContain('Links could not be refreshed');
   expect(screen.queryByRole('button', { name: 'Retry start' })).toBeNull();
   expect(writes).toHaveLength(1);
   inspectionFails = false;
-  fireEvent.click(screen.getByRole('button', { name: 'Refresh links' }));
+  fireEvent.click(check);
   fireEvent.click(await screen.findByRole('button', { name: 'Retry start' }));
   await waitFor(() => expect(writes).toHaveLength(2));
   expect(writes[1]).toBe(writes[0]);
