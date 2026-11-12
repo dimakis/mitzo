@@ -7,8 +7,27 @@ const explicit: SymposiumProfileDefinition = {
   ...defaultMitzoProfileDefinition,
   tools: [{ id: 'mitzo:AgentCommunication', version: 1 }],
 };
+it.each(['TelosSaveArtifact', 'TelosReadArtifact'])(
+  'requires an explicitly selected profile to expose %s in the resulting ordinary chat',
+  async (name) => {
+    await expect(assertSessionLaunchTools([name], defaultMitzoProfileDefinition)).rejects.toThrow(
+      /explicit.*select/i,
+    );
+    const selected = {
+      ...defaultMitzoProfileDefinition,
+      tools: [{ id: `mitzo:${name}`, version: 1 }],
+    };
+    const before = structuredClone(selected);
+    await expect(assertSessionLaunchTools([name], selected)).resolves.toBeUndefined();
+    expect(selected).toEqual(before);
+    await expect(assertSessionLaunchTools([name], { ...selected, tools: [] })).rejects.toThrow(
+      /not selected/,
+    );
+  },
+);
 it.each([
   'TelosStartSlice',
+  'TelosCreateSession',
   'TelosWorkControl',
   'TelosGetItem',
   'TelosUpdateItem',

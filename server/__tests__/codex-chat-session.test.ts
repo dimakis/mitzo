@@ -6911,7 +6911,7 @@ it('offers work-bound creation from owned OpenShell Codex without ordinary launc
   }
 });
 
-it.each(['default', 'selected', 'excluded', 'unauthorized'] as const)(
+it.each(['default', 'selected', 'artifacts', 'excluded', 'unauthorized'] as const)(
   'offers reviewed Telos capture without a retained role and preserves profile scope (%s)',
   async (mode) => {
     vi.clearAllMocks();
@@ -6935,7 +6935,9 @@ it.each(['default', 'selected', 'excluded', 'unauthorized'] as const)(
       modelPolicyRole: 'agent' as const,
       tools: (mode === 'selected'
         ? ['TelosCreateOutcome', 'TelosAdoptSource']
-        : ['ListConnections']
+        : mode === 'artifacts'
+          ? ['TelosSaveArtifact', 'TelosReadArtifact']
+          : ['ListConnections']
       ).map((name) => ({ id: `mitzo:${name}`, version: 1 })),
     };
     const profile = {
@@ -6946,7 +6948,7 @@ it.each(['default', 'selected', 'excluded', 'unauthorized'] as const)(
     };
     const f = ownedLocalOptions(
       '/tmp',
-      ['selected', 'excluded'].includes(mode) ? profile : undefined,
+      ['selected', 'artifacts', 'excluded'].includes(mode) ? profile : undefined,
     );
     const { SessionRegistry } = await import('@mitzo/harness');
     const registry = new SessionRegistry();
@@ -6998,14 +7000,12 @@ it.each(['default', 'selected', 'excluded', 'unauthorized'] as const)(
           expect(JSON.parse(proxied.content)).toMatchObject({ error: 'direct_tool' });
         }
       }
-      // Default capture does not grant role-scoped progress or artifact capabilities.
-      for (const name of [
-        'TelosGetItem',
-        'TelosUpdateItem',
-        'TelosSaveArtifact',
-        'TelosReadArtifact',
-      ])
+      // Fresh ordinary chats have no role-scoped progress. Artifact tools
+      // follow the exact explicit profile used by launch qualification.
+      for (const name of ['TelosGetItem', 'TelosUpdateItem'])
         expect(tools.some((tool) => tool.name === name)).toBe(false);
+      for (const name of ['TelosSaveArtifact', 'TelosReadArtifact'])
+        expect(tools.some((tool) => tool.name === name)).toBe(mode === 'artifacts');
       for (const name of [
         'TelosListItems',
         'TelosSearchItems',
