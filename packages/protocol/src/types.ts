@@ -557,18 +557,33 @@ export interface SubagentUsage {
   cacheCreationTokens: number;
 }
 
+/** Task outcome is independent of whether its parent message has finished. */
+export type SubagentStatus = 'running' | 'completed' | 'failed' | 'cancelled' | 'unavailable';
+
+export interface SubagentDiagnostic {
+  code:
+    | 'claude_child_stop_failed'
+    | 'claude_child_parent_unavailable'
+    | 'claude_child_outcome_unavailable';
+  correlationId: string;
+}
+
 /** Streaming subagent state — blocks in a Map, running flag set. */
 export interface StreamingSubagentState {
+  status?: SubagentStatus;
+  diagnostic?: SubagentDiagnostic;
   messageId: string;
   blocks: Map<string, StreamingBlock>;
   blockOrder: string[];
   running: true;
-  summary?: never;
-  usage?: never;
+  summary?: string;
+  usage?: SubagentUsage;
 }
 
 /** Finished subagent state — blocks as array, summary + usage set. */
 export interface FinishedSubagentState {
+  status?: SubagentStatus;
+  diagnostic?: SubagentDiagnostic;
   messageId: string;
   blocks: FinishedBlock[];
   summary?: string;

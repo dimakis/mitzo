@@ -209,6 +209,8 @@ type MessagesCoreAction =
   | {
       type: 'SUBAGENT_END';
       parentBlockId: string;
+      status?: import('@mitzo/protocol').SubagentStatus;
+      diagnostic?: import('@mitzo/protocol').SubagentDiagnostic;
       summary?: string;
       usage?: {
         inputTokens: number;
@@ -282,8 +284,17 @@ export type MessagesAction = MessagesCoreAction & {
 
 /** Narrow a block's subagent to StreamingSubagentState, or null if already finished. */
 function getStreamingSubagent(block: StreamingBlock): StreamingSubagentState | null {
-  if (!block.subagent || !('blockOrder' in block.subagent)) return null;
-  return block.subagent;
+  const sub = block.subagent;
+  if (!sub || (sub.status && ['completed', 'failed', 'cancelled'].includes(sub.status)))
+    return null;
+  if ('blockOrder' in sub) return sub;
+  if (sub.status !== 'running' && sub.status !== 'unavailable') return null;
+  return {
+    ...sub,
+    running: true,
+    blocks: new Map(sub.blocks.map((nested) => [nested.blockId, { ...nested, done: true }])),
+    blockOrder: sub.blocks.map((nested) => nested.blockId),
+  };
 }
 
 function finishSubagent(
@@ -296,6 +307,8 @@ function finishSubagent(
   const streaming = sub as StreamingSubagentState;
   return {
     messageId: streaming.messageId,
+    status: streaming.status ?? 'running',
+    ...(streaming.diagnostic ? { diagnostic: streaming.diagnostic } : {}),
     blocks: streaming.blockOrder
       .map((blockId) => streaming.blocks.get(blockId))
       .filter((b): b is StreamingBlock => b != null)
@@ -657,7 +670,9 @@ export function messagesReducer(state: MessagesState, action: MessagesAction): M
       ? projectTerminalTools(next, action.symposiumProvenance)
       : next;
   }
-  const next = reduceLegacyMessages(state, action);
+  const next = action.type.startsWith('SUBAGENT_')
+    ? reduceRetainedSubagent(state, action)
+    : reduceLegacyMessages(state, action);
   if (action.type === 'SESSION_END' && Object.keys(state.currentByMessage).length > 0) {
     let messages = next.messages;
     for (const current of Object.values(state.currentByMessage)) {
@@ -686,6 +701,61 @@ export function messagesReducer(state: MessagesState, action: MessagesAction): M
     return { ...next, currentByMessage, resyncRequired: false };
   }
   return action.type === 'SESSION_END' ? projectTerminalTools(next) : next;
+}
+
+/** Background child events belong to the turn that opened the tool, even after
+ * that turn is finalized. Never guess between reused/ambiguous block IDs. */
+function reduceRetainedSubagent(state: MessagesState, action: MessagesAction): MessagesState {
+  if (!('parentBlockId' in action)) return state;
+  const owns = (message: { messageId: string }) =>
+    !action.attributedMessageId || message.messageId === action.attributedMessageId;
+  if (state.current && owns(state.current) && state.current.blocks.has(action.parentBlockId))
+    return reduceLegacyMessages(state, action);
+  const candidates = state.messages.filter(
+    (message) =>
+      !message.symposiumProvenance &&
+      owns(message) &&
+      message.blocks.some((block) => block.blockId === action.parentBlockId),
+  );
+  if (candidates.length !== 1) return state;
+  const message = candidates[0];
+  const current: StreamingMessage = {
+    ...message,
+    blocks: new Map(
+      message.blocks.map((block) => {
+        const sub = block.subagent;
+        return [
+          block.blockId,
+          {
+            ...block,
+            done: true,
+            ...(sub
+              ? {
+                  subagent: {
+                    ...sub,
+                    running: true as const,
+                    blocks: new Map(
+                      sub.blocks.map((nested) => [nested.blockId, { ...nested, done: true }]),
+                    ),
+                    blockOrder: sub.blocks.map((nested) => nested.blockId),
+                  },
+                }
+              : {}),
+          },
+        ];
+      }),
+    ),
+    blockOrder: message.blocks.map((block) => block.blockId),
+  };
+  const reduced = reduceLegacyMessages({ ...state, current }, action);
+  if (reduced.current === current || !reduced.current) return state;
+  const updated = finishCurrent(reduced.current);
+  return {
+    ...state,
+    messages: state.messages.map((candidate) =>
+      candidate === message ? { ...message, blocks: updated.blocks } : candidate,
+    ),
+  };
 }
 
 function reduceLegacyMessages(state: MessagesState, action: MessagesAction): MessagesState {
@@ -873,6 +943,7 @@ function reduceLegacyMessages(state: MessagesState, action: MessagesAction): Mes
         const subagent: StreamingSubagentState | FinishedSubagentState | undefined =
           nested?.running && Array.isArray(nested.blocks)
             ? {
+                ...nested,
                 messageId: nested.messageId,
                 blocks: new Map(
                   nested.blocks.map((block) => [
@@ -1373,6 +1444,7 @@ function reduceLegacyMessages(state: MessagesState, action: MessagesAction): Mes
       if (!state.current) return state;
       const block = state.current.blocks.get(action.parentBlockId);
       if (!block) return state;
+      if (block.subagent) return state;
 
       const newBlocks = new Map(state.current.blocks);
       newBlocks.set(action.parentBlockId, {
@@ -1382,6 +1454,7 @@ function reduceLegacyMessages(state: MessagesState, action: MessagesAction): Mes
           blocks: new Map(),
           blockOrder: [],
           running: true,
+          status: 'running',
         },
       });
 
@@ -1510,29 +1583,16 @@ function reduceLegacyMessages(state: MessagesState, action: MessagesAction): Mes
       if (!state.current) return state;
       const parentBlock = state.current.blocks.get(action.parentBlockId);
       if (!parentBlock) return state;
-      const sub = getStreamingSubagent(parentBlock);
+      const sub = parentBlock.subagent;
       if (!sub) return state;
+      if (sub.status && ['completed', 'failed', 'cancelled'].includes(sub.status)) return state;
 
-      // Convert streaming subagent state to finished state
       const finished: FinishedSubagentState = {
-        messageId: sub.messageId,
-        blocks: sub.blockOrder
-          .map((blockId) => sub.blocks.get(blockId))
-          .filter((b): b is StreamingBlock => b != null)
-          .map((b) => ({
-            blockId: b.blockId,
-            blockType: b.blockType,
-            content: b.content,
-            toolName: b.toolName,
-            toolId: b.toolId,
-            toolInput: b.toolInput,
-            rawInput: b.rawInput,
-            toolResult: b.toolResult,
-            toolResultImages: b.toolResultImages,
-            toolError: b.toolError,
-          })),
-        summary: action.summary,
-        usage: action.usage,
+        ...finishSubagent(sub),
+        status: action.status ?? 'completed',
+        diagnostic: action.diagnostic,
+        summary: action.summary ?? sub.summary,
+        usage: action.usage ?? sub.usage,
       };
 
       const newBlocks = new Map(state.current.blocks);

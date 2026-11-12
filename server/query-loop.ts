@@ -337,6 +337,54 @@ async function _runQueryLoopInner(
   const toolIdToBlockId = new Map<string, string>();
   // Results may arrive after a newer assistant message has started thinking.
   const toolIdToMessageId = new Map<string, string>();
+  const parentMessageByBlock = new Map<string, string>();
+  const agentToolIds = new Set<string>();
+  const startedSubagents = new Set<string>();
+  const completedTasks = new Set<string>();
+  const terminalSubagents = new Set<string>();
+
+  function startTaskChild(toolId: string, taskId: string) {
+    const parentBlockId = toolIdToBlockId.get(toolId);
+    if (!parentBlockId || startedSubagents.has(toolId)) return;
+    startedSubagents.add(toolId);
+    emit(
+      v2('subagent_start', {
+        parentBlockId,
+        parentToolId: toolId,
+        subagentMessageId: `task-${taskId}`,
+      }),
+    );
+  }
+
+  function finishTaskChild(
+    toolId: string,
+    status: 'completed' | 'failed' | 'cancelled' | 'unavailable',
+    taskId?: string,
+  ) {
+    const parentBlockId = toolIdToBlockId.get(toolId);
+    if (!parentBlockId || terminalSubagents.has(toolId)) return;
+    if (!startedSubagents.has(toolId)) startTaskChild(toolId, taskId ?? toolId);
+    const sub = activeSubagents.get(toolId);
+    emit(
+      v2('subagent_end', {
+        parentBlockId,
+        parentToolId: toolId,
+        status,
+        taskId,
+        subagentMessageId: sub?.subagentMessageId ?? `task-${taskId ?? toolId}`,
+        usage: sub?.usage ?? undefined,
+      }),
+    );
+    if (status !== 'unavailable') terminalSubagents.add(toolId);
+    if (sub) {
+      endSubagentSpans(
+        sub,
+        status === 'completed' ? SpanStatusCode.OK : SpanStatusCode.ERROR,
+        status,
+      );
+      activeSubagents.delete(toolId);
+    }
+  }
 
   let blockCounter = 0;
   let caughtError = false;
@@ -501,6 +549,10 @@ async function _runQueryLoopInner(
 
   /** Wrapper that auto-injects store + sessionId + connRegistry into sendOrBuffer */
   function emit(data: Record<string, unknown>, eventSessionId = resolvedSessionId) {
+    if (String(data.type).startsWith('subagent_') && typeof data.parentBlockId === 'string') {
+      const messageId = parentMessageByBlock.get(data.parentBlockId);
+      if (messageId) data = { ...data, messageId };
+    }
     if (options?.onEvent && ownedSession && currentOwnerSession() === ownedSession) {
       const sessionId = eventSessionId ?? ownedSession?.sessionId;
       options.onEvent({ ...data, ...(sessionId ? { sessionId } : {}) });
@@ -691,7 +743,12 @@ async function _runQueryLoopInner(
           // An assistant envelope can contain pending tool calls; close only after their results.
           if (parentToolUseId) {
             const subagent = activeSubagents.get(parentToolUseId);
-            if (subagent && subagent.toolSpans.size === 0) {
+            if (
+              subagent &&
+              subagent.toolSpans.size === 0 &&
+              !subagent.taskId &&
+              ![...(currentSession.activeTaskIds?.values() ?? [])].includes(parentToolUseId)
+            ) {
               const durationMs = Date.now() - subagent.startedAt;
               endSubagentSpans(subagent, SpanStatusCode.OK);
 
@@ -1062,6 +1119,7 @@ async function _runQueryLoopInner(
 
             // Subagent message_start — emit subagent_start instead of normal message_start
             if (parentToolUseId) {
+              if (terminalSubagents.has(parentToolUseId)) continue;
               const parentBlockId = toolIdToBlockId.get(parentToolUseId);
               const apiMsg = evt.message as Record<string, unknown> | undefined;
               const subagentMessageId = (apiMsg?.id as string | undefined) ?? `msg-${Date.now()}`;
@@ -1134,7 +1192,8 @@ async function _runQueryLoopInner(
                   };
                 }
 
-                if (!existing) {
+                if (!existing && !startedSubagents.has(parentToolUseId)) {
+                  startedSubagents.add(parentToolUseId);
                   emit(
                     v2('subagent_start', {
                       parentBlockId,
@@ -1367,7 +1426,11 @@ async function _runQueryLoopInner(
               const toolName = contentBlock!.name as string;
               const toolId = contentBlock!.id as string;
               toolIdToBlockId.set(toolId, blockId); // Track toolId → blockId for subagent lookup
-              if (messageState.messageId) toolIdToMessageId.set(toolId, messageState.messageId);
+              if (toolName === 'Agent' || toolName === 'Task') agentToolIds.add(toolId);
+              if (messageState.messageId) {
+                toolIdToMessageId.set(toolId, messageState.messageId);
+                parentMessageByBlock.set(blockId, messageState.messageId);
+              }
 
               // Start tool child span under the current turn span
               const toolParent = currentTurnSpan
@@ -1698,8 +1761,15 @@ async function _runQueryLoopInner(
           if (subtype === 'task_started') {
             const taskId = (msg as Record<string, unknown>).task_id as string | undefined;
             const toolUseId = (msg as Record<string, unknown>).tool_use_id as string | undefined;
-            if (taskId && toolUseId) {
+            if (
+              taskId &&
+              toolUseId &&
+              agentToolIds.has(toolUseId) &&
+              !completedTasks.has(taskId) &&
+              !terminalSubagents.has(toolUseId)
+            ) {
               currentSession?.activeTaskIds.set(taskId, toolUseId);
+              startTaskChild(toolUseId, taskId);
               const subagent = activeSubagents.get(toolUseId);
               if (subagent) subagent.taskId = taskId;
               log.info('subagent task started', { clientId, taskId, toolUseId });
@@ -1709,24 +1779,26 @@ async function _runQueryLoopInner(
           } else if (subtype === 'task_notification') {
             const taskId = (msg as Record<string, unknown>).task_id as string | undefined;
             const status = (msg as Record<string, unknown>).status as string | undefined;
-            const toolUseId = taskId ? currentSession?.activeTaskIds.get(taskId) : undefined;
-            if (taskId) {
+            const toolUseId = taskId
+              ? (currentSession?.activeTaskIds.get(taskId) ??
+                (typeof msg.tool_use_id === 'string' && agentToolIds.has(msg.tool_use_id)
+                  ? msg.tool_use_id
+                  : undefined))
+              : undefined;
+            if (
+              taskId &&
+              toolUseId &&
+              !completedTasks.has(taskId) &&
+              ['completed', 'failed', 'stopped'].includes(status ?? '')
+            ) {
               currentSession?.activeTaskIds.delete(taskId);
-              log.info('subagent task finished', { clientId, taskId, status });
-            }
-            if (status === 'stopped' && toolUseId) {
-              const subagent = activeSubagents.get(toolUseId);
-              if (subagent) {
-                emit(
-                  v2('subagent_cancelled', {
-                    parentBlockId: subagent.parentBlockId,
-                    subagentMessageId: subagent.subagentMessageId,
-                    taskId,
-                  }),
-                );
-                endSubagentSpans(subagent, SpanStatusCode.ERROR, 'cancelled');
-                activeSubagents.delete(toolUseId);
-              }
+              completedTasks.add(taskId);
+              finishTaskChild(
+                toolUseId,
+                status === 'stopped' ? 'cancelled' : (status as 'completed' | 'failed'),
+                taskId,
+              );
+              log.info('subagent task finished', { clientId, taskId, toolUseId, status });
             }
           }
         } else if (msg.type === 'user') {
@@ -1932,6 +2004,13 @@ async function _runQueryLoopInner(
       const finalSession =
         currentOwnerSession() ?? (abortController.signal.aborted ? ownedSession : undefined);
       if (finalSession) {
+        // Query lifetime ending is not evidence that a background task stopped.
+        // Publish uncertainty before parent finalization, retaining its output.
+        const pendingChildren = new Set([
+          ...activeSubagents.keys(),
+          ...(finalSession.activeTaskIds?.values() ?? []),
+        ]);
+        for (const toolId of pendingChildren) finishTaskChild(toolId, 'unavailable');
         // Abort may remove registry ownership before the iterator unwinds. Use
         // the same exact-session fence as session_end for durable/watch delivery.
         closeUnconfirmedCompaction(finalSession.sessionId ?? resolvedSessionId);
