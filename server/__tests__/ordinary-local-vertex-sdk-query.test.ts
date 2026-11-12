@@ -1,5 +1,10 @@
 import { expect, it, vi } from 'vitest';
-import { query, type Options, type SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
+import {
+  query,
+  type Options,
+  type Query,
+  type SDKUserMessage,
+} from '@anthropic-ai/claude-agent-sdk';
 import type { SessionRuntimeError } from '../session-runtime-error.js';
 import { AsyncQueue } from '../async-queue.js';
 import { retainCallbackOutcome } from '../turn-callbacks.js';
@@ -12,6 +17,101 @@ vi.mock('@anthropic-ai/claude-agent-sdk', () => ({
   getSessionInfo: vi.fn(async () => ({ sessionId: 'original', cwd: '/task' })),
   getSessionMessages: vi.fn(async () => [{ uuid: 'input' }]),
 }));
+it.each([
+  { type: 'custom', prompt: 'reviewed instructions', snapshot: true },
+  { type: 'custom', prompt: ['reviewed instructions', 'second block'], snapshot: true },
+  { type: 'preset', preset: 'claude_code', append: 'reviewed instructions', snapshot: true },
+] satisfies NonNullable<Options['systemPrompt']>[])(
+  'retains the $type prompt and snapshot while adding native route guidance',
+  (systemPrompt) => {
+    vi.mocked(query).mockReturnValue({ close: vi.fn() } as never);
+    const controller = new AbortController();
+    createOrdinaryLocalVertexSdkQuery({
+      options: { systemPrompt },
+      input: new AsyncQueue(),
+      controller,
+      lifetime: new SdkHookLifetime(),
+      sdkSessionId: 'original',
+      cwd: '/task',
+      authorize: async () => {},
+      authorizeSync: () => {},
+      adapt: (native) => native as never,
+      settings: () => ({}),
+      inputChanged: () => {},
+      onUnsent: vi.fn(),
+    });
+    try {
+      const actual = vi.mocked(query).mock.calls.at(-1)![0].options!.systemPrompt;
+      expect(actual).toMatchObject({ type: systemPrompt.type, snapshot: true });
+      if (!actual || typeof actual !== 'object' || Array.isArray(actual))
+        throw Error('Original structured prompt must be retained');
+      const contents = actual.type === 'custom' ? actual.prompt : actual.append;
+      const text = Array.isArray(contents) ? contents.join('') : contents;
+      expect(text).toContain('reviewed instructions');
+      expect(text).toContain('This is the selected local Mac Claude SDK route.');
+      if (actual.type === 'custom') {
+        expect(actual).not.toHaveProperty('append');
+        if (Array.isArray(systemPrompt.prompt)) {
+          expect(actual.prompt).toEqual([
+            ...systemPrompt.prompt,
+            expect.stringContaining('This is the selected local Mac Claude SDK route.'),
+          ]);
+        }
+      } else expect(actual.preset).toBe('claude_code');
+    } finally {
+      controller.abort();
+    }
+  },
+);
+
+it.each([undefined, { still_queued: ['successor-input'] }] satisfies Awaited<
+  ReturnType<Query['interrupt']>
+>[])(
+  'keeps native interrupt receipt %j behind the current query and authority fences',
+  async (receipt) => {
+    const interrupt = vi.fn(async () => receipt);
+    const original = { interrupt, close: vi.fn() };
+    const successor = { interrupt: vi.fn(async () => receipt), close: vi.fn() };
+    let created = 0;
+    vi.mocked(query).mockImplementation(() => (created++ === 0 ? original : successor) as never);
+    const controller = new AbortController();
+    const owner = createOrdinaryLocalVertexSdkQuery({
+      options: {},
+      input: new AsyncQueue(),
+      controller,
+      lifetime: new SdkHookLifetime(),
+      sdkSessionId: 'original',
+      cwd: '/task',
+      authorize: async () => {},
+      authorizeSync: () => {},
+      adapt: (native) => native as never,
+      settings: (selection) => ({ model: selection.model }),
+      inputChanged: () => {},
+      onUnsent: vi.fn(),
+    });
+    try {
+      await owner.apply({ model: 'original' } as never);
+      const target = owner.captureInterruptTarget()!;
+      expect(target).toBeDefined();
+      expect(await owner.interruptIfCurrent({})).toBe(false);
+      expect(interrupt).not.toHaveBeenCalled();
+      expect(await owner.interruptIfCurrent(target)).toBe(true);
+      expect(interrupt).toHaveBeenCalledOnce();
+      expect(interrupt.mock.contexts[0]).toBe(original);
+      await owner.apply({ model: 'successor' } as never);
+      expect(await owner.interruptIfCurrent(target)).toBe(false);
+      expect(interrupt).toHaveBeenCalledOnce();
+      const nextTarget = owner.captureInterruptTarget()!;
+      expect(nextTarget).toBeDefined();
+      controller.abort();
+      expect(await owner.interruptIfCurrent(nextTarget)).toBe(false);
+      expect(successor.interrupt).not.toHaveBeenCalled();
+    } finally {
+      controller.abort();
+    }
+  },
+);
+
 it.each(['settled', 'unknown'] as const)(
   'retains an explicitly %s callback outcome that finishes before the native result',
   async (outcome) => {

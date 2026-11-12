@@ -12,6 +12,7 @@ import { invalidateSymposiumAccountCatalog } from '../lib/symposium-account-cata
 import { createChatDraft, saveChatDraft } from '../lib/chat-drafts';
 import { chatStorage } from '../lib/large-chat-storage';
 import { createBrowserId } from '../lib/browser-crypto';
+import { getConnectionsAccess } from '../lib/connections-access-api';
 
 const pending = (attempt?: ClaudeLoginAttempt) =>
   !!attempt && ['preparing', 'pending', 'verifying'].includes(attempt.state);
@@ -34,6 +35,8 @@ export function ClaudeAccountConnection({ accountId }: { accountId?: string }) {
   const [code, setCode] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [checking, setChecking] = useState(false);
+  const [checkResults, setCheckResults] = useState<Array<{ text: string; failed: boolean }>>([]);
   const [authority, setAuthority] = useState(true);
   const codeField = useRef<HTMLInputElement>(null);
   const mounted = useRef(false),
@@ -41,6 +44,7 @@ export function ClaudeAccountConnection({ accountId }: { accountId?: string }) {
     version = useRef(0);
   const requestId = useRef<string | null>(null),
     notified = useRef(new Set<string>());
+  const checkController = useRef<AbortController | null>(null);
   const attempt = [...(snapshot?.attempts ?? [])]
     .reverse()
     .find((row) => !accountId || row.accountId === accountId);
@@ -81,6 +85,8 @@ export function ClaudeAccountConnection({ accountId }: { accountId?: string }) {
     void refresh();
     const lost = () => {
       version.current++;
+      checkController.current?.abort();
+      setCheckResults([]);
       if (codeField.current) codeField.current.value = '';
       setCode('');
       setAuthority(false);
@@ -95,6 +101,7 @@ export function ClaudeAccountConnection({ accountId }: { accountId?: string }) {
     return () => {
       mounted.current = false;
       version.current++;
+      checkController.current?.abort();
       if (codeField.current) codeField.current.value = '';
       window.removeEventListener(AUTH_LOST_EVENT, lost);
       window.removeEventListener(AUTH_RESTORED_EVENT, restored);
@@ -107,11 +114,102 @@ export function ClaudeAccountConnection({ accountId }: { accountId?: string }) {
     }, 3000);
     return () => clearTimeout(timer);
   }, [authority, busyAttempt, error, snapshot, refresh]);
+  const checkStatus = async () => {
+    if (mutation.current || !authority) return;
+    mutation.current = true;
+    setBusy(true);
+    setChecking(true);
+    setCheckResults([]);
+    setError('');
+    const generation = ++version.current;
+    const controller = new AbortController();
+    checkController.current = controller;
+    const current = () => mounted.current && generation === version.current;
+    const timeout = setTimeout(
+      () => controller.abort(Error('Claude sign-in check timed out')),
+      15_000,
+    );
+    let cancel!: () => void;
+    const cancelled = new Promise<never>((_, reject) => {
+      cancel = () => reject(controller.signal.reason);
+      controller.signal.addEventListener('abort', cancel, { once: true });
+    });
+    try {
+      const value = await Promise.race([readClaudeAccounts(controller.signal), cancelled]);
+      if (!current()) return;
+      setSnapshot(value);
+      notify(value);
+      const selected = value.accounts.filter((row) => !accountId || row.id === accountId);
+      const latest = [...value.attempts]
+        .reverse()
+        .find((row) => !accountId || row.accountId === accountId);
+      if (!selected.length || pending(latest)) {
+        setCheckResults([
+          {
+            failed: latest?.state === 'failed' || latest?.state === 'interrupted',
+            text: latest
+              ? `Sign-in setup status checked. ${labels[latest.state]}`
+              : 'No Claude account is connected. Sign in with Claude to continue.',
+          },
+        ]);
+        return;
+      }
+      const inventory = await getConnectionsAccess(controller.signal);
+      if (!current()) return;
+      if (
+        !inventory.sources.some(
+          (source) => source.id === 'accounts' && source.state === 'available',
+        )
+      )
+        throw Error('Native account inventory unavailable');
+      setCheckResults(
+        selected.map((account) => {
+          const resource = inventory.resources.find(
+            (row) =>
+              row.kind === 'ai-account' &&
+              row.owner === 'account-profiles' &&
+              row.provider === 'anthropic-claude' &&
+              row.nativeId === account.id,
+          );
+          const verified = resource?.signIn?.status === 'verified';
+          return {
+            failed: !verified,
+            text: verified
+              ? `${account.label}: Signed in.`
+              : `${account.label}: ${resource?.signIn?.explanation ?? 'Sign-in could not be verified. Check the connection and try again.'}`,
+          };
+        }),
+      );
+    } catch (cause) {
+      if (current()) {
+        const diagnosticId = createBrowserId();
+        console.warn('Claude sign-in status check failed', {
+          code: 'claude_sign_in_check_failed',
+          stage: 'native_sign_in_check',
+          diagnosticId,
+          errorType: cause instanceof Error ? cause.name : 'unknown',
+        });
+        setError(
+          `Claude sign-in status could not be checked. Retry Check sign-in status. Reference: ${diagnosticId}`,
+        );
+      }
+    } finally {
+      clearTimeout(timeout);
+      controller.signal.removeEventListener('abort', cancel);
+      if (checkController.current === controller) checkController.current = null;
+      mutation.current = false;
+      if (mounted.current) {
+        setChecking(false);
+        setBusy(false);
+      }
+    }
+  };
   const change = async (path: string, body: unknown) => {
     if (mutation.current || !authority) return;
     mutation.current = true;
     setBusy(true);
     setError('');
+    setCheckResults([]);
     const generation = ++version.current;
     try {
       const row = await changeClaudeLogin(path, body);
@@ -314,9 +412,16 @@ export function ClaudeAccountConnection({ accountId }: { accountId?: string }) {
           before starting another sign-in.
         </p>
       )}
-      <button type="button" disabled={busy} onClick={() => void refresh()}>
-        Check sign-in status
+      <button type="button" disabled={busy || !authority} onClick={() => void checkStatus()}>
+        {checking ? 'Checking sign-in…' : 'Check sign-in status'}
       </button>
+      {checking && authority && <p role="status">Checking native Claude sign-in…</p>}
+      {authority &&
+        checkResults.map((result, index) => (
+          <p key={index} role={result.failed ? 'alert' : 'status'}>
+            {result.text}
+          </p>
+        ))}
     </section>
   );
 }

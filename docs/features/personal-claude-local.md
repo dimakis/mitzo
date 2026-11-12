@@ -21,10 +21,16 @@ Mitzo creates an isolated physical account directory, verifies the native accoun
 email and Pro/Max plan, saves account metadata, and invalidates the account picker.
 **Start chat** prepares an unsent Local Mac draft with the connected account and
 current routing identity. It does not send a prompt or change saved chat defaults.
-The account picker also links to the same Connections destination.
+Account setup and reconnect stay on Connections.
 
 Refreshing or navigating back recovers the original pending operation. After a lost
 response, **Check sign-in status** observes it without submitting the code again.
+The action shows checking progress and a completed result. For a connected account,
+it also reads the existing Connections native sign-in inventory and displays its
+current result or failure reference. Pending setup stays on its original operation;
+checking never launches another login or resubmits a code. The complete check has
+a 15-second browser deadline and a visible retry if the response cannot settle.
+Logout and navigation discard late results.
 Cancellation, expiry and logout stop native work; a small supervisor also terminates
 the native login if the controlling process disappears. A restarted host retains
 an interrupted receipt rather than claiming that the login completed. Unconfirmed
@@ -67,6 +73,26 @@ project settings, hooks, MCP servers or persisted conversation. Account identity
 and custody are checked before publishing the catalog; ordinary send admission
 still checks current authority. Failed discovery retains the last catalog (or the
 configured aliases before the first success) with a visible retry notice.
+
+Mitzo pins Agent SDK **0.3.322**, which bundles Claude Code **2.1.322**. Login,
+model discovery and chat use that bundled executable; updating a globally
+installed `claude` does not update Mitzo. Upgrade through the reviewed Mitzo
+dependency and release workflow. Retained conversations still enforce their
+original runtime and account custody; an upgrade does not authorize rebinding
+them to a different binary or account.
+
+If models cannot refresh, use **Connections → Check sign-in**, then retry
+**Refresh models** in the chat settings. The sign-in check verifies native CLI
+identity; discovery additionally verifies the running SDK's account metadata.
+An `identity_mismatch` diagnostic now identifies `native_status` or `sdk_account`
+and the failed checks (`email`, `plan`, `provider`, `billing`), without logging
+account values or credentials. A verified CLI status alone does not establish
+that SDK discovery succeeded. Preserve these checks when investigating a missing
+catalog; a version update alone is not evidence of live subscription acceptance.
+
+The 0.3 SDK custom system-prompt form retains its prompt blocks and snapshot flag
+when Mitzo adds route guidance. Preset prompts retain their existing append form.
+Permission callback fixtures carry the SDK's control-request identity.
 
 ## Three distinct Claude account routes
 

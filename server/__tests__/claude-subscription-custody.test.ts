@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import {
   assertClaudeSubscriptionAccount,
   ClaudeSubscriptionCustody,
+  ClaudeSubscriptionSignInError,
 } from '../claude-subscription-custody.js';
 
 it.each([
@@ -55,18 +56,57 @@ it('does not accept missing or unsupported plans even when both sides agree', ()
     ).toThrow();
   }
 });
+
+it.each([
+  [{ email: 'another-private@example.test' }, ['email']],
+  [{ subscriptionType: 'Claude Pro' }, ['plan']],
+  [{ apiProvider: 'vertex' as const }, ['provider']],
+  [{ apiKeySource: 'private-api-key-source' }, ['billing']],
+])(
+  'identifies the failed SDK account check without exposing its values: %j',
+  (change, mismatches) => {
+    try {
+      assertClaudeSubscriptionAccount(
+        {
+          apiProvider: 'firstParty',
+          email: 'private@example.test',
+          subscriptionType: 'Claude Max',
+          ...change,
+        },
+        { MITZO_CLAUDE_EXPECTED_EMAIL: 'private@example.test', MITZO_CLAUDE_EXPECTED_PLAN: 'max' },
+      );
+      throw Error('verification unexpectedly succeeded');
+    } catch (error) {
+      const diagnostic = (error as Error & { telemetry(): object }).telemetry();
+      expect(diagnostic).toMatchObject({
+        reason: 'identity_mismatch',
+        identitySource: 'sdk_account',
+        mismatches,
+      });
+      expect(JSON.stringify(diagnostic)).not.toMatch(/private|example|Claude Max|vertex/);
+      expect(JSON.stringify(error)).not.toMatch(/private|example|Claude Max|vertex/);
+    }
+  },
+);
 const roots: string[] = [];
 afterEach(() => {
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
 });
-function fixture() {
+function fixture(failNativeCommand = false) {
   const root = realpathSync(mkdtempSync(join(tmpdir(), 'claude-custody-')));
   roots.push(root);
   const config = join(root, 'personal');
   mkdirSync(config, { mode: 0o700 });
   const executable = join(root, 'claude');
   const status = join(root, 'status.json');
-  writeFileSync(executable, '#!/bin/sh\ncat "' + status + '"\n', { mode: 0o700 });
+  writeFileSync(
+    executable,
+    '#!/bin/sh\ncat "' +
+      status +
+      '"\n' +
+      (failNativeCommand ? 'cat "' + status + '" >&2\nexit 1\n' : ''),
+    { mode: 0o700 },
+  );
   const identity = {
     loggedIn: true,
     authMethod: 'claude.ai',
@@ -96,6 +136,23 @@ it('verifies the native CLI account without persisting tokens and permits refres
   f.writeStatus();
   await custody.verify(f.env, new AbortController().signal);
 });
+it('distinguishes a native status mismatch from an SDK metadata mismatch', async () => {
+  const f = fixture(),
+    custody = ClaudeSubscriptionCustody.capture(f.env, f.executable);
+  f.writeStatus({ ...f.identity, email: 'other@example.test', subscriptionType: 'pro' });
+  try {
+    await custody.verify(f.env, new AbortController().signal);
+    throw Error('verification unexpectedly succeeded');
+  } catch (error) {
+    const diagnostic = (error as Error & { telemetry(): object }).telemetry();
+    expect(diagnostic).toMatchObject({
+      reason: 'identity_mismatch',
+      identitySource: 'native_status',
+      mismatches: ['email', 'plan'],
+    });
+    expect(JSON.stringify(diagnostic)).not.toMatch(/other@|person@|pro|max/);
+  }
+});
 it('rejects logout, another identity, API billing, contaminated environments and replaced account roots', async () => {
   const f = fixture(),
     custody = ClaudeSubscriptionCustody.capture(f.env, f.executable);
@@ -115,6 +172,29 @@ it('rejects logout, another identity, API billing, contaminated environments and
   renameSync(f.config, f.config + '-old');
   mkdirSync(f.config, { mode: 0o700 });
   expect(() => custody.assertCurrent(f.env)).toThrow();
+});
+
+it('retains native failure output in the original cause without exposing it in serialized errors', async () => {
+  const f = fixture(true),
+    custody = ClaudeSubscriptionCustody.capture(f.env, f.executable);
+  try {
+    await custody.verify(f.env, new AbortController().signal);
+    throw Error('verification unexpectedly succeeded');
+  } catch (error) {
+    expect(error).toBeInstanceOf(ClaudeSubscriptionSignInError);
+    const failure = error as ClaudeSubscriptionSignInError;
+    expect(failure.cause).toMatchObject({
+      stdout: expect.stringContaining(f.identity.email),
+      stderr: expect.stringContaining(f.identity.email),
+    });
+    expect(Object.prototype.propertyIsEnumerable.call(failure, 'cause')).toBe(false);
+    expect(JSON.parse(JSON.stringify(failure))).toMatchObject({
+      reason: 'native_command_failed',
+      code: 'claude_subscription_sign_in_unavailable',
+      diagnosticId: expect.any(String),
+    });
+    expect(JSON.stringify(failure)).not.toMatch(/person@|stdout|stderr|loggedIn|options/);
+  }
 });
 
 it('retains original cancellation and malformed-status causes with safe correlated diagnostics', async () => {
@@ -142,5 +222,6 @@ it('retains original cancellation and malformed-status causes with safe correlat
       diagnosticId: expect.any(String),
     });
     expect(JSON.stringify(diagnostic)).not.toMatch(/private|malformed/);
+    expect(JSON.stringify(error)).not.toMatch(/private|malformed/);
   }
 });

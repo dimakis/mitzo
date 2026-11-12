@@ -1,6 +1,5 @@
 import './fixtures/offline-user-home.js';
 import { expect, it, vi } from 'vitest';
-import { execFileSync } from 'node:child_process';
 import { EventEmitter } from 'node:events';
 import { PassThrough } from 'node:stream';
 import { query } from '@anthropic-ai/claude-agent-sdk';
@@ -8,10 +7,10 @@ import { AccountProfiles } from '../account-profiles.js';
 import { AnthropicApiCustody } from '../anthropic-api-custody.js';
 import {
   lockedClaudeExecutable,
-  lockedClaudeSubprocessEnvironment,
+  lockedClaudeBashCredentialObservation,
   lockedClaudeStartupMode,
   lockedClaudeControlMode,
-} from './fixtures/locked-claude-subprocess-env.js';
+} from './fixtures/native-claude-qualification.js';
 
 const keychain = vi.hoisted(() => ({ read: vi.fn() }));
 vi.mock('../keychain-rotation-credentials.js', () => ({
@@ -85,24 +84,15 @@ it.each(['api-key', 'bearer'] as const)(
     expect(received?.[selected] === synthetic).toBe(true);
     expect(received?.ANTHROPIC_BASE_URL).toBe('https://models.example.com');
     expect(received?.CLAUDE_CODE_ENTRYPOINT).toBe('sdk-ts');
-    expect(args[args.indexOf('--model') + 1]).toBe('gateway/claude:latest');
-    const childEnv = lockedClaudeSubprocessEnvironment(received!);
-    const observed = execFileSync(
-      '/bin/bash',
-      [
-        '--noprofile',
-        '--norc',
-        '-c',
-        'if [ -z "$ANTHROPIC_API_KEY" ] && [ -z "$ANTHROPIC_AUTH_TOKEN" ]; then printf scrubbed; else printf inherited; fi',
-      ],
-      { env: childEnv, encoding: 'utf8' },
-    );
+    expect(args).toContain('--model=gateway/claude:latest');
+    const observed = await lockedClaudeBashCredentialObservation(received!);
     expect(observed).toBe('scrubbed');
     expect(received?.[selected] === synthetic).toBe(true);
     expect(() =>
       custody.assertCurrent({ ...base, CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: '0' }),
     ).toThrow();
   },
+  20000,
 );
 
 it('the installed SDK control API restores plan after scrub startup without sending model input', async () => {

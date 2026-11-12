@@ -10,7 +10,7 @@ import {
 import {
   lockedClaudeStartupMode,
   lockedClaudeControlMode,
-} from './fixtures/locked-claude-subprocess-env.js';
+} from './fixtures/native-claude-qualification.js';
 
 vi.mock('@anthropic-ai/claude-agent-sdk', () => ({
   query: vi.fn(),

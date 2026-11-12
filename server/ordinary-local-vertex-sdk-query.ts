@@ -183,7 +183,7 @@ export function createOrdinaryLocalVertexSdkQuery<
   };
   const interruptTargets = new WeakMap<
     object,
-    { run: Query; state: State; interrupt(): Promise<void> }
+    { run: Query; state: State; interrupt: Query['interrupt'] }
   >();
   const prompt = async function* (queue: AsyncQueue<SDKUserMessage>, current: () => Query) {
     let permissionRestored = false;
@@ -244,7 +244,14 @@ export function createOrdinaryLocalVertexSdkQuery<
       systemPrompt: Array.isArray(systemPrompt)
         ? [...systemPrompt, cliGuidance]
         : typeof systemPrompt === 'object'
-          ? { ...systemPrompt, append: (systemPrompt.append ?? '') + cliGuidance }
+          ? systemPrompt.type === 'custom'
+            ? {
+                ...systemPrompt,
+                prompt: Array.isArray(systemPrompt.prompt)
+                  ? [...systemPrompt.prompt, cliGuidance]
+                  : systemPrompt.prompt + cliGuidance,
+              }
+            : { ...systemPrompt, append: (systemPrompt.append ?? '') + cliGuidance }
           : (systemPrompt ?? '') + cliGuidance,
       hooks,
       canUseTool,
