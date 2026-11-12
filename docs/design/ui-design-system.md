@@ -211,9 +211,10 @@ tokens or approved controls.
 
 Ordinary chats use the approved status row above the existing composer. It has
 the shared control height, one-line overflow, semantic status colors and one
-details action. Routine autosaving is silent. Queue, recovery and error actions
-retain their existing owners inside the shared HomeDialog; opening it does not
-dispatch work. Multiple problems aggregate without growing the row. Routine busy
+details action. Routine autosaving is silent. Queued drafts use the compact inline
+tray immediately above the composer; recovery and error actions retain their
+existing owners inside the shared HomeDialog. Opening details or reordering drafts
+does not dispatch work. Multiple problems aggregate without growing the row. Routine busy
 recovery does not replace a running agent's Working label, and actual approvals
 and failures remain visible.
 
@@ -2781,6 +2782,18 @@ one prompt after each response; Stop pauses the tray. Reload and navigation neve
 automatically dispatch saved drafts. Attachments and reply references persist in
 the existing IndexedDB-backed chat storage. Admission is durable before clearing
 the edited composer; a late save cannot clear a newer draft or another chat.
+The approved compact queue uses single-line previews with a small dispatch-state
+line and no card shell. Its list scrolls within 14dvh or 2.5 shared control heights,
+whichever is smaller. Inline editing/full attachment and reply details temporarily
+allow 28dvh or five control heights. Shared MotionPresence owns disclosure motion.
+Minimize keeps one header with count, next-preview, reorder and pause controls.
+Reorder exposes direct earlier/later controls; Make next changes the first pending
+draft without sending it. Numbered order feeds the existing shared composer drain
+across engine/runtime owners. Failed order persistence holds automatic draining
+with a visible error and explicit retry. Unconfirmed rows cannot move or be crossed.
+The existing status row, toolbar, runtime capability checks and guarded steering
+adapters remain authoritative; unavailable steering displays its reason in the tray.
+See [approval, scope and validation](../features/compact-chat-queue.md).
 Each queued draft keeps one stable command identity across views. Its dispatch
 retry fence commits before any send or correction; the existing backend admission
 guard coalesces duplicate views under that identity. Definite refusals stay editable

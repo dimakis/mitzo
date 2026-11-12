@@ -1,6 +1,7 @@
 import type { ContextCompaction, SourceSnapshot } from '@mitzo/protocol';
 import type { SubagentDiagnostic } from '@mitzo/protocol';
 import { bindClaudeChildDiagnostic } from './claude-child-diagnostics.js';
+import { isSdkQueryRetiredEvent } from './sdk-query-retirement.js';
 import { ToolFailureSchema, toolFailureAction } from '@mitzo/protocol';
 import { observeSessionActivity } from './session-activity-events.js';
 import { randomUUID } from 'node:crypto';
@@ -346,6 +347,7 @@ async function _runQueryLoopInner(
   const completedTasks = new Set<string>();
   const terminalSubagents = new Set<string>();
   const childDiagnostics = new Map<string, SubagentDiagnostic>();
+  const unavailableSubagents = new Set<string>();
 
   function startTaskChild(toolId: string, taskId: string) {
     const parentBlockId = toolIdToBlockId.get(toolId);
@@ -393,6 +395,40 @@ async function _runQueryLoopInner(
         status,
       );
       activeSubagents.delete(toolId);
+    }
+  }
+
+  function retireUnresolvedChildren(
+    session: NonNullable<ReturnType<typeof currentOwnerSession>>,
+    stage: 'native_query_retirement' | 'query_close',
+    publish: (action: () => void) => void = (action) => action(),
+  ) {
+    const pendingChildren = new Set([
+      ...activeSubagents.keys(),
+      ...(session.activeTaskIds?.values() ?? []),
+    ]);
+    for (const toolId of pendingChildren) {
+      if (
+        !agentToolIds.has(toolId) ||
+        terminalSubagents.has(toolId) ||
+        unavailableSubagents.has(toolId)
+      )
+        continue;
+      const diagnostic = {
+        code: 'claude_child_outcome_unavailable' as const,
+        correlationId: randomUUID(),
+      };
+      log.warn('subagent outcome unavailable at query boundary', {
+        stage,
+        clientId,
+        sessionId: session.sessionId,
+        toolId,
+        ...diagnostic,
+      });
+      publish(() => {
+        finishTaskChild(toolId, 'unavailable', undefined, diagnostic);
+        unavailableSubagents.add(toolId);
+      });
     }
   }
 
@@ -722,6 +758,12 @@ async function _runQueryLoopInner(
     // outer try ensures span.end() always fires
     try {
       for await (const msg of q) {
+        if (isSdkQueryRetiredEvent(msg)) {
+          const session = currentOwnerSession();
+          if (!session) break;
+          retireUnresolvedChildren(session, 'native_query_retirement');
+          continue;
+        }
         if (!firstEventReceived) {
           firstEventReceived = true;
           clearTimeout(firstEventTimer);
@@ -2067,27 +2109,9 @@ async function _runQueryLoopInner(
       if (finalSession) {
         // Query lifetime ending is not evidence that a background task stopped.
         // Publish uncertainty before parent finalization, retaining its output.
-        const pendingChildren = new Set([
-          ...activeSubagents.keys(),
-          ...(finalSession.activeTaskIds?.values() ?? []),
-        ]);
-        for (const toolId of pendingChildren) {
-          if (!agentToolIds.has(toolId)) continue;
-          const diagnostic = {
-            code: 'claude_child_outcome_unavailable' as const,
-            correlationId: randomUUID(),
-          };
-          log.warn('subagent outcome unavailable at query close', {
-            stage: 'query_close',
-            clientId,
-            sessionId: finalSession.sessionId,
-            toolId,
-            ...diagnostic,
-          });
-          cleanup('child_outcome', () =>
-            finishTaskChild(toolId, 'unavailable', undefined, diagnostic),
-          );
-        }
+        retireUnresolvedChildren(finalSession, 'query_close', (action) =>
+          cleanup('child_outcome', action),
+        );
         // Abort may remove registry ownership before the iterator unwinds. Use
         // the same exact-session fence as session_end for durable/watch delivery.
         cleanup('compaction_close', () =>

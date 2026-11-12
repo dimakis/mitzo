@@ -85,6 +85,7 @@ import { isRegisteredConversation } from './conversation-identity.js';
 import { isDeepStrictEqual } from 'node:util';
 import { SessionOutputReferenceStore } from './session-output-reference-store.js';
 import { AgentCommunicationStore } from './agent-communication-store.js';
+import { UserTurnSteeringStore } from './user-turn-steering-store.js';
 import { SessionCollaborationStore } from './session-collaboration-store.js';
 import { CollaborationConversationStore } from './collaboration-conversation-store.js';
 import {
@@ -484,6 +485,7 @@ export class EventStore {
   private readonly sessionCollaborations: SessionCollaborationStore;
   readonly collaborationConversation: CollaborationConversationStore;
   readonly agentCommunication: AgentCommunicationStore;
+  readonly userSteering: UserTurnSteeringStore;
   private readonly conversationReplay: ConversationReplayStore<EventRow>;
   private readonly sessionMetadata: SessionMetadataStore;
   private readonly ordinaryWorkspaceSessions: OrdinaryWorkspaceSessionStore;
@@ -573,6 +575,8 @@ export class EventStore {
     this.db!.transaction(() => {
       this.removals.assertAdmissible(sessionId);
       this.deployment.assertAdmission(sessionId, clientMsgId);
+      if (this.userSteering.hasRequest(clientMsgId))
+        throw Error('Identity belongs to a user correction');
       this.db!.prepare(
         'INSERT INTO send_commands (client_msg_id, session_id, payload) VALUES (?, ?, ?)',
       ).run(clientMsgId, sessionId, JSON.stringify(payload));
@@ -2662,6 +2666,11 @@ export class EventStore {
   claimClientCommand(clientMsgId: string, requestFingerprint: string): void {
     validateExecutionAdmission(clientMsgId, requestFingerprint);
     this.db!.transaction(() => {
+      if (this.userSteering.hasRequest(clientMsgId))
+        throw new ExecutionAdmissionError(
+          'fingerprint_conflict',
+          'Identity belongs to a user correction',
+        );
       const existing = this.db!.prepare(
         'SELECT request_fingerprint FROM client_command_claims WHERE client_msg_id = ?',
       ).get(clientMsgId) as { request_fingerprint: string } | undefined;
@@ -2808,6 +2817,33 @@ export class EventStore {
       this.migrateConversationSource(db);
       this.migrateUserMessageIndex(db);
       this.sessionOutputs = new SessionOutputReferenceStore(db);
+      this.userSteering = new UserTurnSteeringStore(db, (sessionId, input, status) => {
+        if (status === 'steering')
+          this.append(sessionId, 'user_message', {
+            v: 2,
+            type: 'user_message',
+            ts: Date.now(),
+            messageId: input.requestId,
+            text: input.text,
+            steersMessageId: input.targetCommandId,
+            commandState: 'steering',
+            ...(input.images?.length
+              ? {
+                  images: input.images.map(
+                    (image) => `data:${image.mediaType};base64,${image.data}`,
+                  ),
+                }
+              : {}),
+            ...(input.replyToMessageId
+              ? { inReplyTo: this.getMessageReplyContext(sessionId, input.requestId) }
+              : {}),
+          });
+        else
+          this.append(sessionId, 'ordinary_command_state', {
+            messageId: input.requestId,
+            commandState: status === 'accepted' ? 'steered' : 'failed',
+          });
+      });
       this.agentCommunication = new AgentCommunicationStore(db, (message) => {
         const senderName =
           this.getSession(message.senderConversationId)?.summary ?? message.senderConversationId;
