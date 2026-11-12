@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.1070-enmaas-model-queue-integration';
+  'v1.0.1071-claude-sdk-upgrade-diagnostics';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -151,7 +151,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/lib/__tests__/account-preference.test.ts':
     '4143a4f2c597cbc62160aa07c574e3a61cb10f70e0a989b5a8200dbe70d26675',
   '../__tests__/claude-model-discovery.test.ts':
-    '9ede19578e7353011d4bf9c1fd493476b50848fe4c21c736c1eb5e9133396b05',
+    'c1a88895d9414c54046868347ece20bc60596901e14a1b09efd9fd8168bbb61d',
   '../claude-model-discovery.ts':
     '167e5a4dcd8547f1433e918707d31d92ba0d725a40483a70ab740349b628fac1',
   '../../frontend/src/components/ClaudeAccountConnection.tsx':
@@ -3847,8 +3847,8 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     '3f875e0c6b15c6e1afa35177b920b2ec3c3a0af6afc6cfd837a6ecaa6a8aaf0e',
   '../secret-relay-runtime.ts': '9cc241b6fd22ca948021e0db06346e81718e12f5eaf340742d42c7b0a172711f',
   '../secret-relay.ts': 'cb4efaae8cb99f879de787d5f2ce1c1e364b7c0abf0db333420e10e11493f95d',
-  '../../package.json': 'c8e444f0e363b8723a64551bcad7b00c278690ac10b34049164a0a3837ee152e',
-  '../../package-lock.json': '3144423abf0e4abebf72f3db1550a03d11e7daa7534a467b97800d3e582a622c',
+  '../../package.json': '423b02ded2c097cc983353b10aaa37784f2c861b8eb41d26d60c16459e44ccfa',
+  '../../package-lock.json': 'ccca6e1e72ab39971aced83fc12bb81252dd3a298fa15fb77c6d722ab03ac8ca',
   '../../packages/harness/package.json':
     '974deedfb3b496939f6c0a441048234b57bca0af746f4107d41e1406b81b1768',
   '../../scripts/build-zod3-security-backport.mjs':
@@ -4300,7 +4300,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     'ee28bc33e883e3acc74f0d2f05f7ab9893973ee129a01585915e8cf7244ce779',
   '../model-token-limits.ts': 'f45cfb2117dc520e15ca4c3638a7e518dae2a961bc2aad90b411c5b0c397cebf',
   '../claude-subscription-custody.ts':
-    '00e0a0337f7ee722eafc91132e19426ceca0a5fec4b73edf31aae89ae803898f',
+    '6d380454818f4ff0a86938861800a0fdf49f4731ada8538eb5b5ae4167371ac6',
   '../claude-sdk-credentials.ts':
     '32649b67f005e314b976b68d75ab5c5950b522f912095b87b800596b177d39fb',
   '../claude-account-history.ts':
@@ -4310,7 +4310,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/claude-personal-account.test.ts':
     '9133ceed2149dd34567169bd94637b6518a80b0b6ab62205cdbcedce77ea197d',
   '../__tests__/claude-subscription-custody.test.ts':
-    '2f90b8bf82a157ee71abac0e8346a11903f42a1aba50b9a405d6e6166176e392',
+    '4b9c01fff0698ba3180d97752cbd1fa13eda215b5e3c373235263ebab306ac45',
   '../__tests__/claude-account-history.test.ts':
     'd6436f966881065bde719731ae07639f18694465b595eaa52d611173f58b4bb0',
   '../__tests__/claude-personal-policy.test.ts':
@@ -4318,5 +4318,5 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/ordinary-local-vertex-owned-runtime.test.ts':
     '6c60a4bc7162da9b7fccd03e3a369da499db91037e372137c6b62795cf7eeccc',
   '../../docs/features/personal-claude-local.md':
-    '566ce4b1eac8e00a28cde4d92fd8bb47ac02093bf7f17a82be30dabb82063f1a',
+    'be7ec112aa4f24c561bb432bdba63b2a28be4c4b7206da1010189c8ac0ee518a',
 });

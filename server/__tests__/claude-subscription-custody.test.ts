@@ -55,6 +55,37 @@ it('does not accept missing or unsupported plans even when both sides agree', ()
     ).toThrow();
   }
 });
+
+it.each([
+  [{ email: 'another-private@example.test' }, ['email']],
+  [{ subscriptionType: 'Claude Pro' }, ['plan']],
+  [{ apiProvider: 'vertex' as const }, ['provider']],
+  [{ apiKeySource: 'private-api-key-source' }, ['billing']],
+])(
+  'identifies the failed SDK account check without exposing its values: %j',
+  (change, mismatches) => {
+    try {
+      assertClaudeSubscriptionAccount(
+        {
+          apiProvider: 'firstParty',
+          email: 'private@example.test',
+          subscriptionType: 'Claude Max',
+          ...change,
+        },
+        { MITZO_CLAUDE_EXPECTED_EMAIL: 'private@example.test', MITZO_CLAUDE_EXPECTED_PLAN: 'max' },
+      );
+      throw Error('verification unexpectedly succeeded');
+    } catch (error) {
+      const diagnostic = (error as Error & { telemetry(): object }).telemetry();
+      expect(diagnostic).toMatchObject({
+        reason: 'identity_mismatch',
+        identitySource: 'sdk_account',
+        mismatches,
+      });
+      expect(JSON.stringify(diagnostic)).not.toMatch(/private|example|Claude Max|vertex/);
+    }
+  },
+);
 const roots: string[] = [];
 afterEach(() => {
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
@@ -95,6 +126,23 @@ it('verifies the native CLI account without persisting tokens and permits refres
   expect(JSON.stringify(custody.snapshot())).not.toMatch(/accessToken|refreshToken/);
   f.writeStatus();
   await custody.verify(f.env, new AbortController().signal);
+});
+it('distinguishes a native status mismatch from an SDK metadata mismatch', async () => {
+  const f = fixture(),
+    custody = ClaudeSubscriptionCustody.capture(f.env, f.executable);
+  f.writeStatus({ ...f.identity, email: 'other@example.test', subscriptionType: 'pro' });
+  try {
+    await custody.verify(f.env, new AbortController().signal);
+    throw Error('verification unexpectedly succeeded');
+  } catch (error) {
+    const diagnostic = (error as Error & { telemetry(): object }).telemetry();
+    expect(diagnostic).toMatchObject({
+      reason: 'identity_mismatch',
+      identitySource: 'native_status',
+      mismatches: ['email', 'plan'],
+    });
+    expect(JSON.stringify(diagnostic)).not.toMatch(/other@|person@|pro|max/);
+  }
 });
 it('rejects logout, another identity, API billing, contaminated environments and replaced account roots', async () => {
   const f = fixture(),
