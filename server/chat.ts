@@ -47,6 +47,7 @@ import {
 } from './ordinary-local-vertex-sdk-query.js';
 import { LocalVertexClaudeFirstCommandSchema } from '@mitzo/protocol';
 import type { OrdinaryLocalVertexCommandOwner } from './ordinary-local-vertex-command-owner.js';
+import type { OrdinarySdkQueryControl } from './ordinary-local-vertex-sdk-query.js';
 import { SdkAgentMessageRuntime } from './sdk-agent-message-runtime.js';
 import { watchAgentMessageTranscript } from './agent-message-transcript.js';
 import { registerAgentMessageRuntime, steerNativeAgentMessage } from './agent-message-runtime.js';
@@ -1322,6 +1323,7 @@ export async function startChat(
         payload: Readonly<Record<string, unknown>>,
       ) => void,
       reopen: (selection: OrdinaryLocalCommandAdmission['selection']) => Promise<void>,
+      control: OrdinarySdkQueryControl,
     ) => OrdinaryLocalVertexCommandOwner;
   },
 ) {
@@ -1525,6 +1527,7 @@ async function _startChatInner(
         payload: Readonly<Record<string, unknown>>,
       ) => void,
       reopen: (selection: OrdinaryLocalCommandAdmission['selection']) => Promise<void>,
+      control: OrdinarySdkQueryControl,
     ) => OrdinaryLocalVertexCommandOwner;
   },
   startupGuard: ChatStartupGuard,
@@ -3079,6 +3082,10 @@ This is an independent checkout with its own Git storage, not a linked worktree.
             }),
           authorize: authorizeSdkContext,
           authorizeSync: (signal) => options.ordinarySdkAuthority!.assertCurrentSync(signal),
+          beforeInput: (commandId) => {
+            if (!liveOrdinarySdkOwner) throw Error('Original SDK command owner unavailable');
+            liveOrdinarySdkOwner.assertInputCurrent(commandId);
+          },
           adapt: adaptSdkQuery,
           settings: (selection) => ({
             model: parseModelSpec(selection.model, exactSdkModelId).model,
@@ -3154,6 +3161,7 @@ This is an independent checkout with its own Git storage, not a linked worktree.
             );
           },
           ownedQuery.apply,
+          ownedQuery,
         );
         const sdkOwner = session.ordinaryRuntimeOwner;
         if (!sdkOwner) throw Error('Original SDK message owner unavailable');
@@ -3354,7 +3362,14 @@ This is an independent checkout with its own Git storage, not a linked worktree.
         connRegistry: _connRegistry ?? undefined,
         onFirstEventOutcome: options.onFirstEventOutcome,
         onTerminalOutcome: options.onTerminalOutcome,
-        onEvent: options.onQueryEvent,
+        onEvent: (event) => {
+          if (liveOrdinarySdkOwner && event.type === 'message_start') {
+            if (typeof event.messageId !== 'string')
+              throw Error('Original SDK renderer message identity unavailable');
+            liveOrdinarySdkOwner.messageStarted(event.messageId);
+          }
+          options.onQueryEvent?.(event);
+        },
         initialClientMsgId: initialMessageId,
         initialImages: imagePreviews(options.images),
         initialContextBlocks: options.contextBlocks,
@@ -3396,9 +3411,15 @@ This is an independent checkout with its own Git storage, not a linked worktree.
           if (liveOrdinarySdkOwner)
             void liveOrdinarySdkOwner
               .resultObserved(inputUuid, result.is_error === true)
-              .catch(() =>
-                abortController.abort(Error('Original SDK result authority unavailable')),
-              );
+              .catch((err) => {
+                log.error('Original SDK result authority unavailable', {
+                  err,
+                  sessionId: active?.sessionId,
+                  code: 'ordinary_sdk_result_unavailable',
+                  stage: 'provider_terminal',
+                });
+                abortController.abort(err);
+              });
           options.adviserScope?.assertCurrent();
           options.onTurnResult?.(result, inputUuid);
         },

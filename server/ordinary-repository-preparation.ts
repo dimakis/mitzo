@@ -1,5 +1,8 @@
 import { createHash } from 'node:crypto';
-import { CollaborationSettingsSchema } from '@mitzo/protocol';
+import {
+  CollaborationSettingsSchema,
+  isOrdinaryRepositoryParticipantBinding,
+} from '@mitzo/protocol';
 import {
   AccountBindingSchema,
   SessionRuntimeBindingV2Schema,
@@ -33,11 +36,10 @@ export const OrdinaryRepositoryPreparationSchema = z.strictObject({
 });
 export type OrdinaryRepositoryPreparation = z.infer<typeof OrdinaryRepositoryPreparationSchema>;
 
-/** Exact silent-allocation selection. Queue-creating API/SDK adapters are excluded. */
+/** Exact silent allocation; the first ordinary command remains a separate action. */
 export const OrdinarySilentPreparationSelectionSchema = CollaborationSettingsSchema.refine(
   (value) =>
-    value.binding.harness.implementation === 'codex' &&
-    ['local', 'openshell'].includes(value.binding.execution.location) &&
+    isOrdinaryRepositoryParticipantBinding(value.binding) &&
     value.selection.context.source === 'none',
   'Silent ordinary preparation is unavailable for this route or context recipe',
 );

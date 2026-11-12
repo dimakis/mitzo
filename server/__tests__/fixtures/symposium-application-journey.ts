@@ -48,11 +48,19 @@ class ApplicationJourneyState {
   reviewedSnapshot?: CollaborationSnapshot;
   reviewedSettings?: CollaborationSettings;
   joinedSessionId?: string;
+  sourceBoundary?: number;
   api!: CollaborationApiClient;
   retainedArtifact?: { artifactId: string; revision: number; sha256: string };
 }
 
-export function createApplicationJourney(options: { retainedArtifactOwner?: boolean } = {}) {
+export function createApplicationJourney(
+  options: {
+    retainedArtifactOwner?: boolean;
+    participant?: { accountId: string; harness: 'codex' | 'claude-sdk'; targetId: string };
+    additionalAccountIds?: string[];
+    configureExternalTarget?(root: string, fresh: boolean): Promise<void>;
+  } = {},
+) {
   const state = new ApplicationJourneyState();
   async function loadApplication() {
     // Do not touch host credentials while the core-owned safe import seam is absent.
@@ -145,6 +153,7 @@ export function createApplicationJourney(options: { retainedArtifactOwner?: bool
     );
     const targetFixture = await import('./symposium-application-target.js');
     await targetFixture.configureApplicationReviewTarget(state.root, fresh);
+    await options.configureExternalTarget?.(state.root, fresh);
     const loaded = await import('../../app.js');
     state.app = loaded.app;
     state.close = Reflect.get(loaded, 'closeIdleApplicationResources');
@@ -153,6 +162,13 @@ export function createApplicationJourney(options: { retainedArtifactOwner?: bool
     state.connections = await targetFixture.installApplicationReviewConnections(
       state.root,
       loaded.setConnectionsRuntime,
+      [
+        ...new Set([
+          'offline-personal',
+          ...(options.participant ? [options.participant.accountId] : []),
+          ...(options.additionalAccountIds ?? []),
+        ]),
+      ],
     );
     // The listener bootstrap installs this exact production composition after
     // importing app.ts. Reuse it without starting index.ts or external services.
@@ -288,6 +304,7 @@ export function createApplicationJourney(options: { retainedArtifactOwner?: bool
       text: 'Synthetic design requirement',
       privateProviderIdentity: 'DO_NOT_LEAK',
     });
+    state.sourceBoundary = boundary;
     state.api = new CollaborationApiClient(async (url, init) => {
       const result = await state.http!.request(init?.method ?? 'GET', url, {
         headers: { cookie: state.cookie },
@@ -308,21 +325,36 @@ export function createApplicationJourney(options: { retainedArtifactOwner?: bool
       readsFutureDiscussion: true,
       repliesByDefault: true,
     });
+    const participant = options.participant ?? {
+      accountId: 'offline-personal',
+      harness: 'codex' as const,
+      targetId: 'offline-observation',
+    };
+    state.joinedSessionId = await joinReviewedParticipant(participant);
+    return getApplicationJoiningJourney();
+  }
+  async function joinReviewedParticipant(participant: {
+    accountId: string;
+    harness: 'codex' | 'claude-sdk';
+    targetId: string;
+  }) {
+    if (state.sourceBoundary === undefined) throw Error('Source selection is unavailable');
     const { ordinaryRepositoryRuntimeInventory } =
       await import('../../ordinary-local-codex-entry.js');
-    const account = ordinaryRepositoryRuntimeInventory('local', 'codex').result.accounts.find(
-      (row) => row.account.accountId === 'offline-personal',
-    )!.account;
+    const account = ordinaryRepositoryRuntimeInventory(
+      'local',
+      participant.harness,
+    ).result.accounts.find((row) => row.account.accountId === participant.accountId)!.account;
     const preview = await state.http!.request('POST', '/api/repository-workspaces/preview', {
       headers: { cookie: state.cookie },
       body: {
-        accountId: 'offline-personal',
+        accountId: participant.accountId,
         model: 'fixture-model',
         connectionId: state.connections!.connectionId,
         repository: 'example/acceptance',
         ordinaryRuntime: {
           runOn: 'local',
-          runtime: { account, harness: 'codex', targetId: 'offline-observation' },
+          runtime: { account, harness: participant.harness, targetId: participant.targetId },
         },
       },
     });
@@ -333,16 +365,17 @@ export function createApplicationJourney(options: { retainedArtifactOwner?: bool
       `/api/repository-workspaces/${previewId}/prepare`,
       {
         headers: { cookie: state.cookie },
-        body: { accountId: 'offline-personal', model: 'fixture-model' },
+        body: { accountId: participant.accountId, model: 'fixture-model' },
       },
     );
     expect(prepared.status, JSON.stringify(prepared.body)).toBe(200);
     const library = (await import('../../agent-library-runtime.js')).getAgentLibrary();
+    const profileId = `acceptance-reviewer-${participant.accountId}`;
     library.saveDraft('user', {
-      profileId: 'acceptance-reviewer',
+      profileId,
       expectedVersion: 0,
       expectedRevision: 0,
-      idempotencyKey: 'draft',
+      idempotencyKey: `draft-${profileId}`,
       definition: {
         name: 'Reviewer',
         descriptor: 'Assistant',
@@ -354,9 +387,9 @@ export function createApplicationJourney(options: { retainedArtifactOwner?: bool
       },
     });
     const published = library.publish('user', {
-      profileId: 'acceptance-reviewer',
+      profileId,
       expectedVersion: 1,
-      idempotencyKey: 'publish',
+      idempotencyKey: `publish-${profileId}`,
     });
     const auth = await (
       await import('../../auth.js')
@@ -368,9 +401,11 @@ export function createApplicationJourney(options: { retainedArtifactOwner?: bool
     const { bindAgentLibraryTransport } = await import('../../agent-library-transport.js');
     claimTransportConnection(clientId, auth.id);
     const unbind = bindAgentLibraryTransport(clientId, auth);
+    const previous = state.releaseTransport;
     state.releaseTransport = () => {
       unbind();
       releaseTransportConnection(clientId, auth.id);
+      previous?.();
     };
     const current = await state.api.view(state.group);
     const reviewed = await state.api.review(state.group, clientId, {
@@ -378,7 +413,7 @@ export function createApplicationJourney(options: { retainedArtifactOwner?: bool
         requestId: crypto.randomUUID(),
         expectedMembershipRevision: current.membershipRevision,
         sourceConversationId: 'existing-chat',
-        boundary: { sequence: boundary, messageId: 'selected-source' },
+        boundary: { sequence: state.sourceBoundary, messageId: 'selected-source' },
         mode: 'selected',
         messageIds: ['selected-source'],
         artifacts: [],
@@ -387,7 +422,7 @@ export function createApplicationJourney(options: { retainedArtifactOwner?: bool
       },
       target: {
         runOn: 'local',
-        accountId: 'offline-personal',
+        accountId: participant.accountId,
         model: 'fixture-model',
         reasoningEffort: 'low',
         agent: { profileId: published.profileId, revision: published.revision },
@@ -405,9 +440,9 @@ export function createApplicationJourney(options: { retainedArtifactOwner?: bool
       snapshot: { snapshotId: reviewed.snapshot.snapshotId, sha256: reviewed.snapshot.sha256 },
     });
     expect(joined.state).toBe('linked');
-    state.joinedSessionId = joined.sessionId ?? undefined;
-    expect(state.events.getOrdinaryInitialCommandId(state.joinedSessionId!)).toBeUndefined();
-    return getApplicationJoiningJourney();
+    expect(joined.sessionId).toBeTruthy();
+    expect(state.events.getOrdinaryInitialCommandId(joined.sessionId!)).toBeUndefined();
+    return joined.sessionId!;
   }
 
   return {
@@ -416,6 +451,7 @@ export function createApplicationJourney(options: { retainedArtifactOwner?: bool
     restartApplication,
     close: closeJourney,
     initializeReviewedJoin,
+    joinReviewedParticipant,
     getApplicationJoiningJourney,
     getApplicationUiJourney,
   };
