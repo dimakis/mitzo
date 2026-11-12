@@ -2041,6 +2041,7 @@ export class EventStore {
         old.kind === 'ordinary' ? old.id : '',
       );
       if (changed.changes !== 1) throw Error('Prepared repository primary owner changed');
+      this.sessionLearning.revokeHistoryForWorkspaceAdoption(sessionId);
       // Keep UNCERTAIN across process death until the native owner proves the
       // exact queued child. Metadata adoption alone never grants dispatch.
     }).immediate();
@@ -2189,6 +2190,7 @@ export class EventStore {
         'UPDATE sessions SET cwd=?,repository_workspace_id=?,ordinary_workspace_id=NULL WHERE session_id=? AND cwd=?',
       ).run(next.directory, next.id, sessionId, old.directory);
       if (changed.changes !== 1) throw Error('Prepared repository projection changed');
+      this.sessionLearning.revokeHistoryForWorkspaceAdoption(sessionId);
     }).immediate();
   }
   /** Select immutable execution history by both workspace and primary. A later

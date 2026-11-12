@@ -1,5 +1,5 @@
 import { OrdinaryOpenShellCommandAdmissionSchema } from './ordinary-openshell-admission.js';
-import { parseSessionLearningPolicy } from './session-learning.js';
+import { parseSessionLearningPolicy, revokeSessionLearningHistory } from './session-learning.js';
 import type Database from 'better-sqlite3';
 import { z } from 'zod';
 import { createHash } from 'node:crypto';
@@ -262,16 +262,7 @@ export class SessionMetadataStore {
           ) as { seq: number }
         ).seq;
         fields.push('learning_policy = ?');
-        values.push(
-          JSON.stringify({
-            ...policy,
-            revision: policy.revision + 1,
-            excludedThroughSeq: Math.max(policy.excludedThroughSeq, watermark),
-            ...(policy.historyRequest
-              ? { historyRequest: { ...policy.historyRequest, status: 'cancelled' } }
-              : {}),
-          }),
-        );
+        values.push(JSON.stringify(revokeSessionLearningHistory(policy, watermark)));
       }
       if (meta.ordinaryWorkspaceId !== undefined) {
         if (meta.ordinaryWorkspaceId !== (existing.ordinary_workspace_id ?? null))

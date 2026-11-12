@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.1099-session-learning-enmaas-integration';
+  'v1.0.1100-session-learning-adoption-fence';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -28,9 +28,9 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../session-learning-router.ts':
     'f1bdcfd63d9165b516330b89688b224f4766cc3f2f1f4d9f231dcc818ea5e26d',
   '../../packages/protocol/src/session-learning.ts':
-    '3d9c05d98149e7cde5503acd65bd566379f23b18000102d15fe728d5f0582cc2',
+    'f3f7fe52d32e84a3e104595b5b357407fda219e966a9e858265cd3ef9724a18e',
   '../../packages/protocol/src/session-learning-store.ts':
-    '96a874f3fb9d124f4b35dfdb1d73c831a3640e18645b04ad7dda3d8fb7a6d036',
+    'f482a074f65875afa892f574e386485acef12dd9ee0714f59c06f7e6277ef06d',
   '../__tests__/session-learning-policy.test.ts':
     'dfb7396888824a79af600ed910f6891dc75bb00512720d8a962f30655bdb35f7',
   '../__tests__/session-learning-tools.test.ts':
@@ -1759,7 +1759,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/protocol/src/prepared-repository-transition.ts':
     'c624eeb6fa3e7313b4e314532244b4d1bca27f3b87f96cdccf3cd5e90fa7ffb4',
   '../../packages/protocol/__tests__/prepared-repository-admission.test.ts':
-    'be0a79ddc3d08a00527f0bc15513a6650428a6666e8ac9235cb137cfcd362786',
+    '3f04793b46c9fa1720b6e450dfd650a1ea6d79321ddeef4aea4ff5ad3ba7b3f7',
   '../prepared-repository-transition.ts':
     '466d540ffee4222135f87cc54e97093a2a0e4ae53cdc7dbb61624dc37b79bf59',
   '../prepared-repository-barrier-read.ts':
@@ -2760,9 +2760,9 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     'f042dee9fe5643e989bf229e06c532ee0f42764300583f4fc84a265730bb360b',
   '../repository-workspaces.ts': '1fba933eba4a2dad836c84ed64f3a754f7c7f64cb2e4edfc58eeacc780570afa',
   '../../packages/protocol/src/session-metadata-store.ts':
-    'a1d9780e1c9d89f913f8d2ca1bc166be640bdf1076c750cafc7f41cbb67d95f3',
+    '65f8d085b4af2787a33b1fe20767536df2f6cc52be9938463cf0bee4f2addf7a',
   '../../packages/protocol/src/event-store.ts':
-    'eeafb5e13fa5c8ed70e5038af991cebe67489f49a107976512a9e4d6dd7f2fc0',
+    '73a01e5504c0734c21cbf809325303146720fb67aa452d5531b50397fd53b046',
   '../../packages/protocol/src/session-lifecycle-store.ts':
     '2a219b360a5fbe72b0a550c714bf76a15c6f5969cbbe4251671050257b98e267',
   '../../packages/protocol/src/conversation-replay-store.ts':

@@ -144,6 +144,21 @@ integrity update is not a Centaur approval. Workspace package typechecking passe
 The full server typecheck exhausted the required 1 GiB local heap; full server
 typecheck/build and required CI remain pending. No paid model test was run.
 
+PR preparation integrated accepted account changes and reran 115 focused tests
+across seven files. Independent privacy review found that prepared-repository
+adoption bypassed the generic metadata identity-change fence. Both atomic adoption
+and recovery transactions now advance the learning revision and exclusion
+watermark and cancel queued Deep history via the same policy helper. Two regression
+cases failed before this correction and passed afterward with the twenty existing
+repository-admission cases and seven learning-policy cases (29 tests). They cover
+fresh capture exclusion, stale revisions, recovery idempotence and new eligible
+history. Workspace package typechecking, focused lint, formatting and source
+integrity checks pass. Hosted CI and Centaur remain the merge gates.
+
+Nonblocking hardening follow-up: source identity currently binds account ID and
+workspace. Normal runtime/resume admission rejects provider/profile revision drift;
+consider binding these fields directly for legacy metadata rebinding as well.
+
 **Off is not enforced end to end yet.** The existing MGMT collector can still read
 enrolled raw conversation events without consulting `learning_policy`. Its
 current revalidation knows account/workspace/cohort scope, not this new session

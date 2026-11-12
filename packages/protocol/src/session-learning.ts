@@ -18,6 +18,20 @@ export const SessionLearningPolicySchema = z.strictObject({
     .optional(),
 });
 export type SessionLearningPolicy = z.infer<typeof SessionLearningPolicySchema>;
+/** Identity changes permanently fence old evidence and cancel queued analysis. */
+export function revokeSessionLearningHistory(
+  policy: SessionLearningPolicy,
+  watermark: number,
+): SessionLearningPolicy {
+  return {
+    ...policy,
+    revision: policy.revision + 1,
+    excludedThroughSeq: Math.max(policy.excludedThroughSeq, watermark),
+    ...(policy.historyRequest
+      ? { historyRequest: { ...policy.historyRequest, status: 'cancelled' as const } }
+      : {}),
+  };
+}
 export function parseSessionLearningPolicy(serialized?: string | null): SessionLearningPolicy {
   return SessionLearningPolicySchema.parse(
     serialized

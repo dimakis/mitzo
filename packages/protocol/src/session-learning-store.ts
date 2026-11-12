@@ -4,6 +4,8 @@ import type { SessionMeta } from './types.js';
 import {
   MemoryCandidateInputSchema,
   SessionLearningModeSchema,
+  parseSessionLearningPolicy,
+  revokeSessionLearningHistory,
   type SessionLearningMode,
   type SessionLearningPolicy,
   type MemoryCandidateReceipt,
@@ -56,6 +58,20 @@ export class SessionLearningStore {
       workspace: s.cwd,
       scope: 'unclassified',
     };
+  }
+  /** Caller owns the workspace-adoption transaction and identity checks. */
+  revokeHistoryForWorkspaceAdoption(id: string): void {
+    const row = this.db
+      .prepare('SELECT learning_policy FROM sessions WHERE session_id=?')
+      .get(id) as { learning_policy: string | null } | undefined;
+    if (!row) throw Error('learning_session_unavailable');
+    const policy = revokeSessionLearningHistory(
+      parseSessionLearningPolicy(row.learning_policy),
+      this.watermark(id),
+    );
+    this.db
+      .prepare('UPDATE sessions SET learning_policy=? WHERE session_id=?')
+      .run(JSON.stringify(policy), id);
   }
   setMode(id: string, input: SessionLearningMode, expectedRevision: number): SessionLearningPolicy {
     const mode = SessionLearningModeSchema.parse(input);
