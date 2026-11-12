@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.1059-subagent-steering-integration';
+  'v1.0.1060-sdk-peer-transcript-recovery';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -56,10 +56,10 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/ordinary-local-vertex-command-owner.test.ts':
     '18651323ee26cf8c2c30ceb4fe449440585082bd3863a91edc5df564b66605bf',
   '../__tests__/sdk-agent-message-runtime.test.ts':
-    'fabf645c306370e0da2a1f56c4fe9b20218d50cf39bdc03c66371e702bcf486c',
+    '9ed0ea72045ecc440c7de8ce2d47b5d7d29c7dcf0105cc206315017ae0785bcf',
   '../agent-message-runtime.ts': 'b42730620bc4a6930bb37fed811e57edf09d51637a31373354a7b2d0c70b8b0d',
   '../sdk-agent-message-runtime.ts':
-    '86a4bade45e16027b2e2bd9fe84f3e83f618f9c27d4b21ae605b93a4f5bf1935',
+    '5cfa9a1df2c296eab2b3a1fbcef4fa313e77bc27e21fe6e670b5f13807c6684c',
   '../__tests__/task-execution-log-consumer.test.ts':
     '54fffa910c247500fe5bed9f71075ac4cc9334ed5f2375ed36c96e5e892b92c5',
   '../github-log-read.ts': '7f6ec3cff9629e55c95442b38baacd3606b6dbba272dfeb159a1ae22b01c551a',
@@ -775,9 +775,9 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../agent-communication-permission.ts':
     'd8aa4a149b9cf2b68333be1272e61d7f016c8512f03df4d563b3e824b36b167a',
   '../agent-message-transcript.ts':
-    'de594fb78475267a5d8f2f921fbdb33a55590fc66c4e39b70516433f80880fb2',
+    '334d831e292db28446c826d5a736b7d91c74207c119b6bdfa1ad57cacd78a431',
   '../__tests__/agent-message-transcript.test.ts':
-    '07f73bc76c8f4391e7f950997e5077867597c4caee59a4b117ae8f93ee7dd3f5',
+    'dacd88b27a761804c80b143f67b0f4a76df6f2786c64cbe9812349204bd0788c',
   '../../frontend/src/lib/session-activity-store.ts':
     'a51ea58dc33c787008a609c403731ad450ff1e9a4c9c01f72c13dee7d8d1c013',
   '../../frontend/src/pages/__tests__/SessionLibraryFreshness.test.tsx':
@@ -2440,7 +2440,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     'c103af10de4adc81cdc474b3e69ef2b3de5e447d4dcf15da4fc1894c422b913b',
   '../../packages/protocol/src/session-output-reference-store.ts':
     'de139a8dae52cc0294f50e13fdb96d0666c81e376e282e84c640a0b187dc3014',
-  '../chat.ts': '698034762a13445df359ef4db342213812200e8d784a38b81b3a84411ea69144',
+  '../chat.ts': '4e3e8932886f6da0860b88bab2439ffb7d807ba5d241c8965fe627ecc5b9a1c6',
   '../../packages/harness/src/session-registry.ts':
     '5475d51509dd9cc8947edc57022185069b4ba8bc3dc3b253cc49c6c6c4baf07e',
   '../agent-context-binding.ts': '4917ff83899105b7ac2c537c8db18111eeb97386d1ca0a2d2b576d872e1db360',
@@ -3339,7 +3339,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../tests/fixtures/agent-tool-catalog.json':
     'b5049a6c054d60c0a8d94eaeed3057bb40ec6e1434257cf5a2df7bb790b8cd33',
   '../../tests/integration/ordinary-local-vertex-chat.test.ts':
-    '265194dbcfd93576ebd3ca589da52ec2a47f6f099b41654f042d21fc0484dfde',
+    '5a751b09ad8b43e4e75403239549b73fdc9738b33a8704423d310fe65693fa81',
   '../../packages/sqlite-file-owner/package.json':
     'ba7bf5e9f0a1e20908df2eedb45243cd2ea1cd4c74e157ca80086a1a0b465029',
   '../../packages/sqlite-file-owner/binding.gyp':

@@ -47,6 +47,7 @@ import {
 import { LocalVertexClaudeFirstCommandSchema } from '@mitzo/protocol';
 import type { OrdinaryLocalVertexCommandOwner } from './ordinary-local-vertex-command-owner.js';
 import { SdkAgentMessageRuntime } from './sdk-agent-message-runtime.js';
+import { watchAgentMessageTranscript } from './agent-message-transcript.js';
 import { registerAgentMessageRuntime, steerNativeAgentMessage } from './agent-message-runtime.js';
 import { PEER_MESSAGE_INSTRUCTIONS } from './peer-message-instructions.js';
 import { sessionAgentCommunicationTools } from './agent-communication-tools.js';
@@ -2223,6 +2224,12 @@ async function _startChatInner(
   }
 
   let newSdkSessionId: string | undefined;
+  let unwatchSdkAgentMessages: (() => void) | undefined;
+  const stopSdkAgentMessageWatch = () => {
+    unwatchSdkAgentMessages?.();
+    unwatchSdkAgentMessages = undefined;
+    abortController.signal.removeEventListener('abort', stopSdkAgentMessageWatch);
+  };
   const assertStartupCurrent = () => {
     abortController.signal.throwIfAborted();
     if (registry.get(clientId) !== session) throw Error('Original startup owner changed');
@@ -3136,6 +3143,26 @@ This is an independent checkout with its own Git storage, not a linked worktree.
           },
         });
         registerAgentMessageRuntime(session, sdkPeerMessages);
+        const sdkConversationId = session.sessionId!;
+        const sdkMessageRuntime = sdkPeerMessages;
+        unwatchSdkAgentMessages = watchAgentMessageTranscript(
+          eventStore,
+          sdkConversationId,
+          (event) => {
+            if (
+              abortController.signal.aborted ||
+              registry.findBySessionId(sdkConversationId)?.session !== session ||
+              session.ordinaryRuntimeOwner?.identity !== sdkOwner.identity
+            ) {
+              stopSdkAgentMessageWatch();
+              return;
+            }
+            sdkMessageRuntime.assertCurrent(sdkOwner.authSessionId);
+            deliverRetainedSessionEvent(event, clientId, registry, _connRegistry ?? undefined);
+          },
+        );
+        abortController.signal.addEventListener('abort', stopSdkAgentMessageWatch, { once: true });
+        if (abortController.signal.aborted) stopSdkAgentMessageWatch();
         await liveOrdinarySdkOwner.enqueue(initialMessageId);
       } else {
         q = createSdkTurnQuery({
@@ -3393,6 +3420,7 @@ This is an independent checkout with its own Git storage, not a linked worktree.
       }
     }
   } finally {
+    stopSdkAgentMessageWatch();
     const current = registry.get(clientId);
     if (!current || current === session) _onSessionChange?.(clientId, 'end', session.sessionId);
   }
