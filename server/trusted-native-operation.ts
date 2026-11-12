@@ -1,4 +1,11 @@
+import { retainCallbackOutcome } from './turn-callbacks.js';
 import { githubReadProjection, githubReadSummary } from './github-read-summary.js';
+import {
+  GITHUB_LOG_SOURCE_LIMIT,
+  githubLogPage,
+  validateGithubLogRead,
+  type GithubLogRead,
+} from './github-log-read.js';
 import {
   validateRepositoryTaskCheckout,
   type RepositoryTaskCheckout,
@@ -31,8 +38,10 @@ import {
 } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { basename, dirname, join, relative, resolve } from 'node:path';
+import { createLogger } from './logger.js';
 
 const pathEnv = '/usr/bin:/bin:/opt/homebrew/bin:/usr/local/bin';
+const log = createLogger('trusted-native-operation');
 
 async function run(
   file: string,
@@ -47,6 +56,9 @@ async function run(
     assertRuntimeCurrent?: () => void;
     assertRuntimeCurrentAsync?: () => Promise<void>;
     onStart?: () => void;
+    readOnly?: boolean;
+    boundedReadDiagnostics?: boolean;
+    preserveWhitespace?: boolean;
   },
 ): Promise<string> {
   await options.assertRuntimeCurrentAsync?.();
@@ -66,8 +78,42 @@ async function run(
         encoding: 'utf8',
       },
       (error, stdout, stderr) => {
-        if (error) reject(new Error((stderr || stdout || error.message).trim()));
-        else resolveRun(stdout.trim());
+        if (error) {
+          if (options.boundedReadDiagnostics)
+            log.warn('GitHub log transport failed', {
+              stage: 'github-log-read',
+              code: 'github_log_transport_failed',
+              cancelled: options.signal.aborted,
+              killed: error.killed === true,
+              exitCode: typeof error.code === 'number' ? error.code : undefined,
+            });
+          if (options.readOnly && error.code === 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER') {
+            reject(
+              new Error('GitHub response exceeds the source byte limit; request a narrower read', {
+                cause: error,
+              }),
+            );
+            return;
+          }
+          const failure = options.boundedReadDiagnostics
+            ? new Error('GitHub log transport failed; no log content was returned', {
+                cause: error,
+              })
+            : new Error((stderr || stdout || error.message).trim());
+          // Only the original read adapter can attest to a normal process exit.
+          // Cancellation, timeouts and writes retain uncertainty.
+          if (
+            options.readOnly &&
+            !options.signal.aborted &&
+            !error.killed &&
+            !error.signal &&
+            typeof error.code === 'number' &&
+            error.code > 0 &&
+            error.code < 128
+          )
+            retainCallbackOutcome(failure, 'settled');
+          reject(failure);
+        } else resolveRun(options.preserveWhitespace ? stdout : stdout.trim());
       },
     );
     if (options.input) child.stdin?.end(options.input);
@@ -81,19 +127,34 @@ export async function executeTrustedGitHubRead(
   maxOutputBytes = 64 * 1024,
   view: 'summary' | 'full' = 'summary',
   assertCurrent?: () => void,
+  logOptions?: GithubLogRead,
 ): Promise<string> {
+  const log = logOptions === undefined ? undefined : validateGithubLogRead(endpoint, logOptions);
   const home = process.env.HOME;
   if (!home) throw new Error('Trusted GitHub credentials are unavailable');
   const request = trustedGitHubReadRequest(endpoint, view);
   const body = await run(request.file, request.args, {
     signal,
     timeoutMs,
-    maxOutputBytes,
+    maxOutputBytes: log ? GITHUB_LOG_SOURCE_LIMIT : maxOutputBytes,
     env: { HOME: home, GH_HOST: 'github.com' },
+    readOnly: true,
+    boundedReadDiagnostics: log !== undefined,
+    preserveWhitespace: log !== undefined,
     assertRuntimeCurrent: assertCurrent,
   });
   signal.throwIfAborted();
   assertCurrent?.();
+  if (log) {
+    const limit = Math.min(
+      log.limit ?? 16000,
+      Math.max(1, Math.floor((maxOutputBytes - 2048) / 6)),
+    );
+    const page = JSON.stringify(githubLogPage(body, { ...log, limit }));
+    if (Buffer.byteLength(page) > maxOutputBytes)
+      throw Error('GitHub log page exceeds the output limit');
+    return page;
+  }
   return view === 'full' ? body : githubReadSummary(body, `https://api.github.com${endpoint}`);
 }
 
@@ -150,14 +211,26 @@ async function promoteQuarantinedObjects(
   objectStore: string,
   assertCurrent: () => Promise<void>,
   assertPhysical: () => void,
+  assertCurrentSync?: () => void,
 ) {
+  // The caller qualifies physical/provider custody before and after this local
+  // immutable-object phase. Retain live authority at each write; callers without
+  // a synchronous owner still need the original full asynchronous fence.
+  const current = async () => {
+    if (assertCurrentSync) assertCurrentSync();
+    else await assertCurrent();
+  };
+  const mutation = () => {
+    assertCurrentSync?.();
+    assertPhysical();
+  };
   for (const fanout of await readdir(quarantine, { withFileTypes: true })) {
     if (!/^[0-9a-f]{2}$/.test(fanout.name) || !fanout.isDirectory())
       throw new Error('Unexpected entry in quarantined Git object store');
     const sourceDirectory = join(quarantine, fanout.name);
     const targetDirectory = join(objectStore, fanout.name);
-    await assertCurrent();
-    assertPhysical();
+    await current();
+    mutation();
     await mkdir(targetDirectory).catch((error: NodeJS.ErrnoException) => {
       if (error.code !== 'EEXIST') throw error;
     });
@@ -210,7 +283,8 @@ async function promoteQuarantinedObjects(
       }
       // Only a fully written immutable inode is published under an object hash.
       const temporaryPath = join(targetDirectory, `.mitzo-object-${randomUUID()}`);
-      await assertCurrent();
+      await current();
+      mutation();
       assertDirectory();
       const temporary = await open(
         temporaryPath,
@@ -222,11 +296,14 @@ async function promoteQuarantinedObjects(
         operationError: unknown,
         cleanupError: unknown;
       try {
-        await assertCurrent();
+        await current();
+        mutation();
         await temporary.writeFile(content);
         await temporary.sync();
+        mutation();
         await temporary.chmod(0o444);
-        await assertCurrent();
+        await current();
+        mutation();
         assertDirectory();
         const currentTemporary = lstatSync(temporaryPath, { bigint: true });
         if (
@@ -645,6 +722,12 @@ export async function executeTrustedGitCommit(
       join(metadata.common, 'objects'),
       assertCurrent,
       assertPhysical,
+      assertRuntimeCurrent
+        ? () => {
+            signal.throwIfAborted();
+            assertRuntimeCurrent();
+          }
+        : undefined,
     );
     await sameIdentity(join(metadata.common, 'objects'), metadata.identities.objects);
     await validateRefUpdatePaths(metadata.common, metadata.branch);

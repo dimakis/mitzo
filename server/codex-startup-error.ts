@@ -26,6 +26,14 @@ const errorCodes = new Map([
   ['SQLITE_BUSY', 'Conversation storage is busy.'],
 ]);
 const diagnosticFiles = new Set([
+  'chat',
+  'ordinary-openshell-codex-entry',
+  'ordinary-openshell-codex-entry-owner',
+  'ordinary-openshell-codex-owned-runtime',
+  'ordinary-local-codex-owned-runtime',
+  'ordinary-local-codex-admission',
+  'frozen-host-codex-bootstrap',
+  'owned-openshell-codex-chat-admission',
   'openshell-runtime',
   'codex-chat-session',
   'codex-conversation',
@@ -49,10 +57,21 @@ export class CodexStartupError extends Error {
   }
 
   resourceErrorCode(): string | undefined {
-    if (this.cause instanceof CodexStartupError) return this.cause.resourceErrorCode();
-    if (!(this.cause instanceof Error) || !('code' in this.cause)) return undefined;
-    const code = this.cause.code;
-    return typeof code === 'string' && errorCodes.has(code) ? code : undefined;
+    for (const cause of this.causes()) {
+      const code = 'code' in cause ? cause.code : undefined;
+      if (typeof code === 'string' && errorCodes.has(code)) return code;
+    }
+    return undefined;
+  }
+
+  private *causes(): Generator<Error> {
+    const seen = new Set<Error>();
+    let cause = this.cause;
+    for (let depth = 0; depth < 16 && cause instanceof Error && !seen.has(cause); depth++) {
+      seen.add(cause);
+      yield cause;
+      cause = cause.cause;
+    }
   }
 
   publicMessage(detail?: string): string {
@@ -83,19 +102,21 @@ export class CodexStartupError extends Error {
       this.cause instanceof Error && 'signal' in this.cause ? this.cause.signal : undefined;
     // Only reviewed application filenames and numeric locations, never upstream
     // exception text, absolute paths, commands, URLs or the complete stack.
-    const location =
-      this.cause instanceof Error
-        ? this.cause.stack
-            ?.slice(0, 16_000)
-            ?.split('\n')
-            .find((line) => {
-              const frame = /\/(?:server|dist)\/([a-z-]+)\.(?:ts|js):(\d{1,6}):(\d{1,6})\)?$/.exec(
-                line,
-              );
-              return frame && diagnosticFiles.has(frame[1]);
-            })
-            ?.match(/\/(?:server|dist)\/([a-z-]+)\.(?:ts|js):(\d{1,6}):(\d{1,6})\)?$/)
-        : undefined;
+    // Prefer the original reviewed guard over a generic outer admission wrapper.
+    let location: RegExpMatchArray | null | undefined;
+    for (const cause of this.causes()) {
+      const frame = cause.stack
+        ?.slice(0, 16_000)
+        ?.split('\n')
+        .find((line) => {
+          const frame = /\/(?:server|dist)\/([a-z-]+)\.(?:ts|js):(\d{1,6}):(\d{1,6})\)?$/.exec(
+            line,
+          );
+          return frame && diagnosticFiles.has(frame[1]);
+        })
+        ?.match(/\/(?:server|dist)\/([a-z-]+)\.(?:ts|js):(\d{1,6}):(\d{1,6})\)?$/);
+      if (frame) location = frame;
+    }
     return {
       startupPhase: this.phase,
       diagnosticId: this.diagnosticId,

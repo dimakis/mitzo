@@ -27,7 +27,7 @@ const changes = [
 ] as const;
 type Change = (typeof changes)[number];
 
-async function fixture() {
+async function fixture(workLevel?: 'outcome') {
   const data = createTelosSourceApprovalData();
   cleanups.push(() => data.close());
   const db = new Database(data.dbPath);
@@ -65,6 +65,7 @@ async function fixture() {
       joiningBrief: '',
     },
     outcome: {
+      ...(workLevel ? { workLevel } : {}),
       summary: 'Reviewed studio outcome',
       intent: 'Record clearly',
       rationale: 'Make music',
@@ -121,6 +122,24 @@ async function fixture() {
   };
   return { ...data, capture, input, preview, retained, deny };
 }
+
+it('retains the reviewed outcome level across source capture and receipt recovery', async () => {
+  const f = await fixture('outcome');
+  const receipt = await f.capture.createReviewed(f.input, f.actor, f.createOutcome);
+  expect(receipt.work.kind).toBe('coordinator');
+  const db = new Database(f.dbPath);
+  try {
+    const children = db
+      .prepare('SELECT id FROM items WHERE parent_id=?')
+      .all(receipt.work.itemId) as { id: string }[];
+    expect(children).toHaveLength(1);
+    expect(f.work.read(children[0].id, f.actor).kind).toBe('outcome');
+  } finally {
+    db.close();
+  }
+  expect(await f.capture.createReviewed(f.input, f.actor, f.createOutcome)).toEqual(receipt);
+  expect(f.retained()?.packet.creation?.outcome.workLevel).toBe('outcome');
+});
 
 it.each(changes)(
   'refuses unfinished creation after %s changes, then resumes the same packet and key',

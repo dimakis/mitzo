@@ -61,3 +61,18 @@ export function isReadOnlyBuiltinToolCall(name: string, input: Record<string, un
   if (name === 'TelosManageItem') return input.operation === 'read';
   return false;
 }
+
+/** Historical unknown results need a stronger contract than HTTP GET/HEAD.
+ * Generic web/connection requests may target side-effecting endpoints. These
+ * reviewed built-ins only inspect repository metadata, files, tool definitions
+ * or bounded public conversation history. Search remains outside this contract. */
+export function isIntrinsicRecoveryRead(name: string, input?: Record<string, unknown>): boolean {
+  // TaskExecution preserves the underlying GitHubRead contract. Require the
+  // exact operation from fresh native history; a wrapper name/hash alone does
+  // not qualify run, commit, or an unavailable historical request.
+  // Generic HTTP reads can target side-effecting endpoints. Configured MCP
+  // annotations are not authority either. All reviewed built-in reads share
+  // the same default; mixed tools require their actual operation arguments.
+  if (name === 'ConnectionRequest' || name === 'RequestWebAccess') return false;
+  return isReadOnlyBuiltinToolCall(name, input ?? {});
+}

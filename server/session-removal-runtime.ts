@@ -26,6 +26,7 @@ export function createSessionRemovalRuntime(deps: {
     return value;
   };
   const assertProtected = (id: string) => {
+    deps.events.deployment.maintenance.assertControl(id);
     const value = meta(id);
     if (
       value.sessionType === 'symposium' ||
@@ -154,8 +155,10 @@ export function createSessionRemovalRuntime(deps: {
           if (!startup) assertNeverStartedPreparation(id);
         } else
           for (const command of native.commands(id, value.accountBinding!))
-            if (command.status === 'queued')
+            if (command.status === 'queued') {
+              deps.events.deployment.maintenance.assertControl(id);
               native.cancelQueued(id, value.accountBinding!, command.id);
+            }
       } else if (binding.harness.implementation === 'claude-sdk')
         for (const commandId of deps.events.getPendingOrdinaryLocalVertexCommandIds(id))
           deps.events.cancelOrdinaryLocalVertexQueuedCommand(id, commandId);

@@ -191,6 +191,12 @@ export class TelosArtifactStore {
   close() {
     this.#telosOwner?.close();
   }
+  /** Synchronous observation of this canonical owner's physical identity. A
+   * borrowed connection needs its own owner's renewal and cannot invent one. */
+  assertCurrentRead(): void {
+    if (!this.#telosOwner) throw new Error('Artifact read custody owner unavailable');
+    this.#telosOwner.assertCurrent();
+  }
   /** Match the submitted request, not mutable workspace bytes, before reading a path. */
   /** Shared task outputs are not a private LifeOps evidence vault. */
   userUploadAllowed(itemId: string): boolean {

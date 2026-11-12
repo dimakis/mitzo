@@ -10,6 +10,7 @@ import {
 } from '../permissions.js';
 import { handlePermissionResponseV2 } from '../ws-handler-v2.js';
 import { NativeCommandRegistry } from '../native-commands.js';
+import { formatTelosPermissionDenial } from '../telos-tool.js';
 import {
   claimTransportConnection,
   releaseTransportConnection,
@@ -127,6 +128,16 @@ it('dismisses authenticated uncertain recovery before restart without replaying 
   expect.soft(getPendingRequestsBySession('planning', f.actor.id)).toEqual([]);
   await vi.waitFor(() => expect(settled).toBe(true), { timeout: 100, interval: 5 }).catch(() => {});
   expect.soft(settled).toBe(true);
+  const result = formatTelosPermissionDenial(f.denialMessage()!);
+  expect(result.isError).toBe(false);
+  expect(JSON.parse(result.content)).toMatchObject({
+    kind: 'telos_save_recovery_dismissed',
+    permId,
+    sessionId: 'planning',
+    saveStatus: 'unconfirmed',
+    canonicalCreation: { created: true, item: { id: 'created-1' } },
+    nextAction: expect.stringContaining('Do not create another outcome'),
+  });
   expect.soft(f.drainEvents().filter((event) => event.type === 'permission_timeout')).toEqual([]);
   expect(sent).toContainEqual({ type: 'permission_resolved', permId, sessionId: 'planning' });
   expect(retained()).toEqual(before);

@@ -75,14 +75,17 @@ describe('ordinary local durable command admission', () => {
       const first = open(path),
         second = open(path);
       first.admitOrdinaryLocalCommand(meta, binding, input);
+      expect(first.deploymentStartupPending()).toBe(true);
       expect(second.admitOrdinaryLocalCommand(meta, binding, input).duplicate).toBe(true);
       expect(first.claimOrdinaryLocalCommandDispatch('c1')).toBe(true);
       expect(second.claimOrdinaryLocalCommandDispatch('c1')).toBe(false);
       const reopened = open(path);
       expect(reopened.getOrdinaryLocalCommandAdmission('c1')?.state).toBe('uncertain');
+      expect(reopened.deploymentStartupPending()).toBe(true);
       expect(reopened.claimOrdinaryLocalCommandDispatch('c1')).toBe(false);
       reopened.completeOrdinaryLocalCommand('c1');
       expect(first.getOrdinaryLocalCommandAdmission('c1')?.state).toBe('consumed');
+      expect(first.deploymentStartupPending()).toBe(false);
       expect(first.claimOrdinaryLocalCommandDispatch('c1')).toBe(false);
     } finally {
       for (const s of stores.splice(0)) s.close();

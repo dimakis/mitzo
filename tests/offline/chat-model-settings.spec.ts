@@ -2,6 +2,7 @@ import { expect, test } from '@playwright/test';
 import { build } from 'esbuild';
 import { resolve } from 'node:path';
 import { readFile } from 'node:fs/promises';
+import { localInventoryFixture } from '../../frontend/src/test-utils/local-inventory-fixture';
 
 const output = build({
   entryPoints: [resolve('tests/fixtures/chat-model-settings.tsx')],
@@ -34,6 +35,32 @@ for (const theme of ['dark', 'light']) {
     const files = (await output).outputFiles!;
     await page.route('**/*', (route) => {
       const path = new URL(route.request().url()).pathname;
+      if (path.startsWith('/api/')) {
+        const inventory = localInventoryFixture();
+        inventory.accounts[0].models.push({
+          id: 'sol-fixture',
+          label: 'Sol fixture',
+          reasoningEfforts: ['high'],
+        });
+        return route.fulfill({
+          json: path.endsWith('/meta')
+            ? {
+                sessionId: 'bound-session',
+                repositoryWorkspaceId: '11111111-1111-4111-8111-111111111111',
+                runtimeBinding: {
+                  version: 2,
+                  account: inventory.accounts[0].account,
+                  harness: { implementation: 'codex' },
+                  execution: { location: 'local', targetId: 'mac', targetRevision: 'target-r1' },
+                },
+                runtimeCommandScope: 'conversation',
+                mode: 'agent',
+                agentProfile: inventory.agentProfiles[0],
+                modelSelection: { model: 'luna-fixture', reasoningEffort: 'low' },
+              }
+            : inventory,
+        });
+      }
       if (path === '/')
         return route.fulfill({
           contentType: 'text/html',
@@ -100,6 +127,61 @@ for (const theme of ['dark', 'light']) {
       await page.locator('body').evaluate((e) => e.clientWidth),
     );
     await expect(page.getByRole('textbox', { name: 'Message draft' })).toHaveValue('Keep my draft');
+    // Reuse this intercepted settings journey for cross-provider choices and refreshed capabilities.
+    await page.goto('/?accounts');
+    await page.getByRole('button', { name: /^Workspace controls/ }).click();
+    await page.getByRole('button', { name: /^Account,/ }).click();
+    await expect(page.getByRole('link', { name: 'Connect Claude subscription' })).toHaveCount(0);
+    await page.screenshot({ path: info.outputPath(`quick-sheet-claude-account-${theme}.png`) });
+    await page.getByRole('button', { name: 'Personal Claude', exact: true }).click();
+    await page.getByRole('button', { name: 'Back to chat settings' }).click();
+    await expect(page.getByRole('button', { name: /^Model,/ })).toContainText('Claude Sonnet 4.6');
+    await page.getByRole('button', { name: /^Model,/ }).click();
+    await expect(page.getByRole('button', { name: 'Luna', exact: true })).toHaveCount(0);
+    await page.getByRole('button', { name: 'Refresh models', exact: true }).click();
+    await page.getByRole('button', { name: 'Claude Opus 4.8', exact: true }).click();
+    await page.getByRole('button', { name: 'Back to chat settings' }).click();
+    await page.getByRole('button', { name: /^Thinking,/ }).click();
+    await page.getByRole('button', { name: 'max', exact: true }).click();
+    await page.getByRole('button', { name: 'Back to chat settings' }).click();
+    await page.getByRole('button', { name: /^Account,/ }).click();
+    await page.getByRole('button', { name: 'Work', exact: true }).click();
+    await expect(page.getByLabel('Next message settings')).toContainText('luna / low');
+    await page.getByRole('button', { name: 'Personal Claude', exact: true }).click();
+    await expect(page.getByLabel('Next message settings')).toContainText('opus / max');
+    await page.getByRole('button', { name: 'Back to chat settings' }).click();
+    await page.screenshot({ path: info.outputPath(`account-model-settings-${theme}.png`) });
+    await page.keyboard.press('Escape');
+    await expect(page.getByRole('textbox', { name: 'Message draft' })).toHaveValue('Keep my draft');
+    await page.goto('/?retained');
+    await expect(page.getByRole('button', { name: 'Prepare next message' })).toBeEnabled();
+    await page.getByRole('button', { name: /^Workspace controls/ }).click();
+    await page.getByRole('button', { name: /^Model,/ }).click();
+    await page.getByRole('button', { name: 'Sol fixture', exact: true }).click();
+    await page.keyboard.press('Escape');
+    await page.getByRole('button', { name: /^Thinking,/ }).click();
+    await page.getByRole('button', { name: 'high', exact: true }).click();
+    await page.keyboard.press('Escape');
+    await page.keyboard.press('Escape');
+    await expect(page.getByRole('button', { name: 'Recreate chat screen' })).toBeInViewport();
+    await page.getByRole('button', { name: 'Recreate chat screen' }).click();
+    await expect(page.getByRole('button', { name: 'Prepare next message' })).toBeEnabled();
+    await expect(page.getByRole('button', { name: /^Workspace controls/ })).toHaveAccessibleName(
+      /Sol fixture/,
+    );
+    await expect(page.locator('.workspace-controls-context')).toContainText('Sol fixture');
+    await page.getByRole('button', { name: /^Workspace controls/ }).click();
+    await page.getByRole('button', { name: /^Model,/ }).click();
+    await expect(page.getByRole('button', { name: 'Sol fixture', exact: true })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
+    await page.screenshot({ path: info.outputPath(`retained-chat-model-${theme}.png`) });
+    await page.keyboard.press('Escape');
+    await page.keyboard.press('Escape');
+    await page.getByRole('button', { name: 'Prepare next message' }).click();
+    await expect(page.getByLabel('Frozen command settings')).toContainText('"model":"sol-fixture"');
+    await expect(page.getByLabel('Frozen command settings')).toContainText('"thinking":"high"');
     expect(errors).toEqual([]);
   });
 }

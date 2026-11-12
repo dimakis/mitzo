@@ -88,6 +88,7 @@ const ct09PhaseLabels = [
   'app-chat-imported',
   'owners-ready',
   'workspace-prepared',
+  'feature-source-adopted',
   'advisor-setup-start',
   'advisor-setup-complete',
   'advisor-draft-retained',
@@ -298,37 +299,197 @@ it('CT09: actual canonical non-Git advisor-to-worker journey retains file bytes,
     selection: f.first.request.selection,
     workspace: { kind: 'ordinary' as const, preparationId: prepared.preparationId },
   };
+  chat.eventStore.upsertSession({
+    ...canonical.events.getSession('planning')!,
+    accountBinding: f.binding,
+  });
+  // Enter through the approved ordinary-chat creator instead of repairing a
+  // pre-classified fixture. The resulting item must support the whole journey.
+  const { TelosItemStore: CreationItems } = await import('../telos-item-store.js');
+  const { executeTelosBacklogOperation } = await import('../telos-backlog-tools.js');
+  const creationItems = new CreationItems(canonical.dbPath);
+  cleanup.push(() => creationItems.close());
+  const createInput = {
+    requestId: randomUUID(),
+    summary: 'Home recording feature',
+    intent: 'Record music using the reviewed acoustic plan.',
+    rationale: 'Retain the discussion, delegate the work and review its result.',
+    acceptanceCriteria: ['The separate worker returns a retained result for review.'],
+    note: 'The operator approved this standalone feature.',
+  };
+  const approveCreation = vi.fn(async (_name: string, input: Record<string, unknown>) => ({
+    behavior: 'allow' as const,
+    updatedInput: input,
+  }));
+  const createFeature = () =>
+    executeTelosBacklogOperation(
+      {
+        items: creationItems,
+        work: canonical.work,
+        approve: approveCreation,
+        context: {
+          operatorId: canonical.actor.id,
+          conversationId: 'planning',
+          toolName: 'TelosCreateFeature',
+          requestHash: createHash('sha256').update(JSON.stringify(createInput)).digest('hex'),
+          signal: new AbortController().signal,
+          assertCurrentSync() {},
+          async assertCurrent() {},
+        },
+      },
+      'TelosCreateFeature',
+      createInput,
+    );
+  const created = await createFeature();
+  expect(created.isError, created.content).toBe(false);
+  expect(await createFeature()).toEqual(created);
+  expect(approveCreation).toHaveBeenCalledWith(
+    'TelosCreateFeature',
+    createInput,
+    expect.any(AbortSignal),
+  );
+  const creationReceipt = JSON.parse(created.content);
+  const featureId: string = creationReceipt.item.id;
+  expect(creationReceipt).toMatchObject({
+    item: { workLevel: 'feature', parentId: null },
+    preparation: {
+      dedicatedConversationCreated: false,
+      sourceFilesSaved: false,
+      originatingConversationId: 'planning',
+    },
+  });
+  expect(canonical.work.read(featureId, canonical.actor)).toMatchObject({
+    kind: 'outcome',
+    assignments: [],
+    attempts: [],
+  });
+  expect(nativeSessions).toHaveLength(0);
+  // The original material belongs to the existing studio item. Only an exact
+  // reviewed adoption may make it part of the new feature's role context.
   const material = {
     artifactId: canonical.material.id,
     revision: canonical.material.revision,
     sha256: canonical.material.sha256,
   };
-  canonical.work.execute(
-    {
-      operation: 'classify',
-      itemId: 'studio',
-      requestId: randomUUID(),
-      expectedRevision: canonical.work.read('studio', canonical.actor).revision,
-      kind: 'outcome',
-    },
-    canonical.actor,
-  );
-  chat.eventStore.upsertSession({
-    ...canonical.events.getSession('planning')!,
-    accountBinding: f.binding,
+  const planningSequence = chat.eventStore.append('planning', 'user_message', {
+    messageId: 'original-feature-discussion',
+    text: 'Keep the acoustic plan with this feature and review the worker result before completion.',
   });
+  const { buildPermissionHandler, getPendingRequestsBySession } = await import('@mitzo/harness');
+  const sourceClientId = 'ct09-planning-source';
+  const sourceController = new AbortController();
+  chat.registry.register(sourceClientId, {
+    transport: { isOpen: () => true, send: vi.fn() },
+    abortController: sourceController,
+    sessionId: 'planning',
+    sessionAllowList: new Set(),
+    mode: 'agent',
+  });
+  const removeSourceSession = () => {
+    sourceController.abort();
+    chat.registry.remove(sourceClientId);
+  };
+  const { featureSource, sourcePermissionId, sourceApprovalInput, sourcePreview } =
+    await (async () => {
+      try {
+        const sourceProposal = { itemId: featureId };
+        const sourcePermission = buildPermissionHandler(sourceClientId, chat.registry)(
+          'TelosAdoptSource',
+          sourceProposal,
+          {
+            signal: sourceController.signal,
+            toolUseID: 'native:' + randomUUID(),
+            forcePrompt: true,
+            allowSessionGrant: false,
+            nativeSourceScope: {
+              operatorId: f.auth.id,
+              assertCurrentSync() {
+                sourceController.signal.throwIfAborted();
+                if (!auth.isAuthSessionCurrent(f.auth)) throw Error('Planning operator retired');
+              },
+            },
+          },
+        );
+        void sourcePermission.catch(() => {});
+        await vi.waitFor(() => expect(getPendingRequestsBySession('planning')).toHaveLength(1));
+        const sourcePermissionId = getPendingRequestsBySession('planning')[0].permId;
+        const sourceReview = await api.getSourcePermission(sourcePermissionId, 'planning');
+        const sourceInput = {
+          sessionId: 'planning',
+          requestId: randomUUID(),
+          proposalSha256: sourceReview.proposalSha256,
+          selection: {
+            mode: 'selected' as const,
+            boundary: { sequence: planningSequence, messageId: 'original-feature-discussion' },
+            messageIds: ['original-feature-discussion'],
+            artifacts: [material],
+          },
+        };
+        const sourcePreview = await api.previewSourcePermission(sourcePermissionId, sourceInput);
+        const sourceApprovalInput = { ...sourceInput, previewSha256: sourcePreview.preview.sha256 };
+        const featureSource = await api.approveSourcePermission(
+          sourcePermissionId,
+          sourceApprovalInput,
+        );
+        expect(await api.approveSourcePermission(sourcePermissionId, sourceApprovalInput)).toEqual(
+          featureSource,
+        );
+        const sourceResolution = await sourcePermission;
+        expect(sourceResolution.behavior).toBe('allow');
+        if (sourceResolution.behavior !== 'allow') throw Error('Reviewed source approval required');
+        const sourceReceiptId = sourceResolution.updatedInput?.__mitzoTelosApproval;
+        expect(typeof sourceReceiptId).toBe('string');
+        expect(sourceResolution.updatedInput).toEqual({
+          ...sourceProposal,
+          __mitzoTelosApproval: sourceReceiptId,
+        });
+        const consumedSource = await request(application.app)
+          .post('/api/internal/telos/source/execute')
+          .set('X-Internal-Token', 'synthetic-only-ordinary-native-token')
+          .set('X-Client-Id', sourceClientId)
+          .send({
+            approvalReceiptId: sourceReceiptId,
+            proposal: sourceProposal,
+            operation: 'adopt',
+          });
+        expect(consumedSource.status, JSON.stringify(consumedSource.body)).toBe(200);
+        expect(consumedSource.body.receipt).toEqual(featureSource.receipt);
+        return { featureSource, sourcePermissionId, sourceApprovalInput, sourcePreview };
+      } finally {
+        removeSourceSession();
+      }
+    })();
+  const assertFeatureSource = async () => {
+    const feature = await api.read(featureId);
+    expect(feature.sources).toHaveLength(1);
+    expect(feature.sources[0]).toMatchObject({
+      snapshotId: featureSource.sourceSnapshotId,
+      itemId: featureId,
+      source: { namespace: 'mitzo', conversationId: 'planning' },
+      selection: { messageIds: ['original-feature-discussion'], throughSequence: planningSequence },
+    });
+    expect(feature.sources[0].artifacts).toContainEqual(material);
+    const retained = await api.readSource(featureId, featureSource.sourceSnapshotId);
+    expect(retained.packet).toEqual(sourcePreview.preview.packet);
+    expect(createHash('sha256').update(JSON.stringify(retained.packet)).digest('hex')).toBe(
+      sourcePreview.preview.sha256,
+    );
+  };
+  await assertFeatureSource();
+  expect(nativeSessions).toHaveLength(0);
+  markCt09Phase('feature-source-adopted');
   const role = async (kind: 'advisor' | 'lead') => {
     const reviewed = await api.reviewRoleContext({
-      itemId: 'studio',
+      itemId: featureId,
       role: kind,
       ...(kind === 'advisor' ? { advisorPurpose: 'child' as const } : {}),
-      sourceSnapshotIds: [],
+      sourceSnapshotIds: [featureSource.sourceSnapshotId],
       artifactRefs: [material],
     });
     const input = {
       version: 2 as const,
       requestId: randomUUID(),
-      itemId: 'studio',
+      itemId: featureId,
       role: kind,
       expectedRevision: reviewed.selection.brief.revision,
       expectedAssignmentRevision: kind === 'lead' ? 0 : null,
@@ -365,14 +526,14 @@ it('CT09: actual canonical non-Git advisor-to-worker journey retains file bytes,
     messageId: 'reviewed',
     text: 'Retain this reviewed acoustic plan; execution is a separate decision.',
   });
-  const revision = (await api.read('studio')).revision;
+  const revision = (await api.read(featureId)).revision;
   const draft = {
     requestId: randomUUID(),
     operation: 'child' as const,
-    itemId: 'studio',
+    itemId: featureId,
     advisorConversationId: advisorId,
     expectedRevision: revision,
-    parentId: 'studio',
+    parentId: featureId,
     expectedParentRevision: revision,
     proposed: {
       name: 'Reviewed recording plan',
@@ -666,7 +827,7 @@ it('CT09: actual canonical non-Git advisor-to-worker journey retains file bytes,
   });
   expect(verified.status).toBe(200);
   expect(items.read(childId).status).toBe('completed');
-  expect(items.read('studio').status).toBe('active');
+  expect(items.read(featureId).status).toBe('active');
   markCt09Phase('verified-complete');
   for (const session of nativeSessions)
     session.lifecycle.onNotification('turn/completed', {
@@ -711,6 +872,10 @@ it('CT09: actual canonical non-Git advisor-to-worker journey retains file bytes,
     reopenedTasks.close();
   }
   canonical.restartOwners();
+  await assertFeatureSource();
+  expect(await api.approveSourcePermission(sourcePermissionId, sourceApprovalInput)).toEqual(
+    featureSource,
+  );
   await assertOriginalSource();
   expect(
     resolveTelosWorkRoleContext(

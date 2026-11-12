@@ -22,7 +22,7 @@ import type { LoopStatus } from './task-orchestrator.js';
 import type { TaskStore } from './task-store.js';
 import { hasUncommittedWorkAsync } from './worktree.js';
 import { createLogger } from './logger.js';
-import { sessionModelIdentity } from './session-list-metadata.js';
+import { readSessionModelSelection, sessionModelIdentity } from './session-list-metadata.js';
 import { SessionActivityEvents } from './session-activity-events.js';
 
 export type { SessionActivity, SessionActivityState, WaitReason } from '@mitzo/protocol';
@@ -352,7 +352,11 @@ export class SessionOverviewEmitter {
       sessionId,
       clientId: session.clientId,
       title,
-      model: session.model,
+      ...sessionModelIdentity(
+        { selectedModel: session.model },
+        undefined,
+        readSessionModelSelection(this.deps.eventStore, sessionId),
+      ),
       accountLabel: session.accountLabel,
       repo,
       state: primaryState,
@@ -399,7 +403,11 @@ export class SessionOverviewEmitter {
       sessionId: meta.sessionId,
       clientId: meta.sessionId, // No live clientId — use sessionId
       title,
-      ...sessionModelIdentity(meta),
+      ...sessionModelIdentity(
+        meta,
+        undefined,
+        readSessionModelSelection(this.deps.eventStore, meta.sessionId),
+      ),
       repo,
       state,
       flags: [],

@@ -1,5 +1,12 @@
 # Outcome creation from chat
 
+Agents first propose Telos for multi-slice work, as described in the
+[shared planning workflow](telos-workflow.md): outcome → feature items → session-sized
+slices. The outcome orchestrator coordinates features and integration; feature leads
+coordinate their slices. Ordered milestone strings do not establish feature contracts
+or session assignments. Inspect saved children before adding work. Ordinary one-session
+work stays in chat unless the user explicitly requests Telos or an existing item applies.
+
 On 5 November 2026, Dimitri reported that outcome creation and its button did not
 work and that manually adding source messages was unusable. Source inspection
 against main `79c334fa1e640372c1f5c54cf60b24bee50a1970` confirmed that saving
@@ -76,3 +83,37 @@ Local browser execution remains unverified: the approved escalated launcher stil
 reported the macOS Seatbelt marker, so the repository guard refused before launch.
 CI browser execution and visual inspection are required before UI acceptance.
 No production deployment or live-incident recovery is established by these tests.
+
+## Save reconciliation after a lost acknowledgement
+
+On 7 November 2026, another creation report included the recovery dismissal
+message. Source inspection and offline regressions reproduced two gaps: a save
+completed by the capture owner could remain unconfirmed by the approval owner,
+and retirement of the original native call then blocked reading that completed
+result; dismissal also reached the native agent as a generic tool error.
+These reproductions establish code defects, not the exact cause of the live report.
+
+Recovery now checks the exact completed creation command before requiring
+authority for fresh writes. It repairs only the approval receipt from the existing
+source command and canonical creation acknowledgement. Current operator authority,
+original input hashes and receipt identities remain required. Incomplete saves
+still require the original live native authority for any new creation, artifact
+or source mutation. A regression loses the acknowledgement after source completion,
+retires the native call, restarts the owners, and recovers the same item without
+additional canonical calls, source captures, artifacts or allocations.
+When the original invocation is still current, reconciliation also releases its
+waiting agent with the existing approval receipt. It does not require another
+save click or dismissal to acknowledge an already completed creation.
+
+Dismissal returns a structured `telos_save_recovery_dismissed` result, including
+the retained canonical item identity when known, the source save status, and an
+instruction against another creation attempt. A known canonical item does not
+prove its source capture completed. Dismissal retains the original records and
+does not undo a save. Native agents receive this result as an operator disposition
+instead of a retryable tool error.
+
+Uncertain saves retain their internal cause for the existing bounded diagnostic
+classifier. Logs include only fixed safe classifications and an unconfirmed save
+status; responses do not expose SQL, paths, source text or exception messages.
+Focused temporary-owner, transport, permission and HTTP regressions pass locally.
+No rendered UI changes, model calls or production activation are part of this fix.

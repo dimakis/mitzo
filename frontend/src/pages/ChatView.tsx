@@ -1,5 +1,6 @@
+import { localCommandStatusMessage } from '@mitzo/client';
 import type { MessageReplyContext } from '@mitzo/protocol';
-import { SessionLaunchConfigSchema } from '@mitzo/protocol';
+import { SessionLaunchConfigSchema, supportsUserTurnSteering } from '@mitzo/protocol';
 import { SessionLaunchDefaultsControl } from '../components/SessionLaunchDefaultsControl';
 import { QuickSettingsSupplement } from '../components/QuickChatSettings';
 import {
@@ -8,7 +9,7 @@ import {
   unsupportedSessionExtraToolsReason,
   unsupportedSessionContextReason,
 } from '../lib/session-launch-defaults';
-import { SessionLaunchCards, SessionLaunchOrigin } from '../components/SessionLaunchCards';
+import { SessionLaunchOrigin } from '../components/SessionLaunchCards';
 import { useSessionLaunch } from '../hooks/useSessionLaunch';
 import { useTurnSteering } from '../hooks/useTurnSteering';
 import { chatStorage } from '../lib/large-chat-storage';
@@ -28,7 +29,7 @@ import { readTelosRoleIntent } from '../hooks/useTelosRoleSetup';
 import { AgentLibraryChatLink } from '../components/AgentLibraryChatSource';
 import { markAgentBuilderAssigned } from '../lib/agent-builder-chat';
 import { TelosSourceWorkLink } from '../components/TelosSourceWorkLink';
-import { ConversationAgents } from '../components/ConversationAgents';
+import { SharedConversationAgents as ConversationAgents } from '../components/SharedConversation';
 import { conversationRepositoryLabel } from '../lib/conversation-repository-label';
 import { useCompactionHistory } from '../hooks/useCompactionHistory';
 import { ChatWelcome } from '../components/ChatWelcome';
@@ -122,18 +123,9 @@ function ChatViewContent() {
   const [profileToolsTarget, setProfileToolsTarget] = useState<HTMLDivElement | null>(null);
   const [keyboardOpen, setKeyboardOpen] = useState(false);
 
-  useEffect(
-    () =>
-      onKeyboardToggle((visible) => {
-        setKeyboardOpen(visible);
-        if (visible) {
-          requestAnimationFrame(() => {
-            scrollRef.current?.scrollTo({ top: scrollRef.current!.scrollHeight });
-          });
-        }
-      }),
-    [],
-  );
+  // ChatArea owns scroll intent during viewport/composer resizing. Opening the
+  // keyboard must not pull a reader away from an older message.
+  useEffect(() => onKeyboardToggle(setKeyboardOpen), []);
   const { sessionId } = useParams<{ sessionId?: string }>();
   const searchParams = useChatDraftSearch(!sessionId);
   const [agentProfile, setAgentProfile] = useState<AgentProfileSelection | null>(null);
@@ -304,7 +296,7 @@ function ChatViewContent() {
   const steerTarget = messages.messages
     .filter((message) => message.role === 'user' && message.commandState === 'running')
     .at(-1)?.messageId;
-  const supportsSteering = localBound && localRuntime.binding?.harness.implementation === 'codex';
+  const supportsSteering = localBound && supportsUserTurnSteering(localRuntime.binding);
   const turnSteering = useTurnSteering(activeSessionId, steerTarget, !!supportsSteering);
 
   const defaultWorkspaceAvailable =
@@ -867,7 +859,7 @@ function ChatViewContent() {
       (!repositoryHandoff.present || repositoryHandoff.assignedConversationId === activeSessionId)
     ) {
       awaitingNewSession.current = false;
-      navigate(`/chat/${activeSessionId}`, { replace: true });
+      navigate(`/chat/${activeSessionId}`, { replace: true, state: { chatAssignment: true } });
     }
   }, [
     activeSessionId,
@@ -1321,7 +1313,7 @@ function ChatViewContent() {
                   ),
                 accountNeedsConfirmation: localRuntime.accountNeedsConfirmation,
                 accountReference: localRuntime.intent.accountReference ?? null,
-                onRefresh: localRuntime.refresh,
+                onRefresh: localRuntime.refreshModels,
                 selection: localRuntime.intent.account,
                 onAccountChange: (selection) =>
                   (!briefingOwnedDraft ||
@@ -1643,6 +1635,8 @@ function ChatViewContent() {
             />
           )}
           <SessionAccess
+            launches={isSymposium ? undefined : sessionLaunch}
+            disabled={controlsBlocked || localRuntime.metadataPending}
             sessionId={repositoryHandoff.present ? undefined : (activeSessionId ?? undefined)}
             selection={accountSelection}
             connected={connected}
@@ -1916,6 +1910,8 @@ function ChatViewContent() {
             actions: (
               <>
                 <SessionAccess
+                  launches={isSymposium ? undefined : sessionLaunch}
+                  disabled={controlsBlocked || localRuntime.metadataPending}
                   sessionId={activeSessionId ?? undefined}
                   selection={accountSelection}
                   connected={connected}
@@ -1948,6 +1944,10 @@ function ChatViewContent() {
           readOnly={controlsBlocked || localBound}
           sessionId={sessionId ?? activeSessionId}
           chat={{
+            launchRequests: !isSymposium ? sessionLaunch.requests : undefined,
+            onLaunchUpdate: sessionLaunch.refresh,
+            launchDisabled:
+              controlsBlocked || localRuntime.metadataPending || Boolean(sessionLaunch.error),
             onReply:
               !isSymposium && activeSessionId && !controlsBlocked
                 ? (message) => setReplySelection({ session: activeSessionId, message })
@@ -1957,11 +1957,18 @@ function ChatViewContent() {
             ) : undefined,
             afterMessages: !isSymposium ? (
               <>
-                <SessionLaunchCards
-                  requests={sessionLaunch.requests}
-                  onUpdate={sessionLaunch.refresh}
-                  disabled={controlsBlocked || localRuntime.metadataPending}
-                />
+                {sessionLaunch.error && (
+                  <p role="alert">
+                    {sessionLaunch.error}
+                    <button
+                      type="button"
+                      className="session-links-new"
+                      onClick={sessionLaunch.refresh}
+                    >
+                      Refresh links
+                    </button>
+                  </p>
+                )}
                 <TelosAdvisorDraft conversationId={activeSessionId ?? undefined} />
                 <TelosWorkControls data={telosRoute.data} conversationId={activeSessionId} />
               </>
@@ -2222,7 +2229,9 @@ function ChatViewContent() {
                       ? !steerTarget
                         ? 'Waiting for the active turn to be confirmed.'
                         : undefined
-                      : undefined
+                      : localBound
+                        ? 'Steering is unavailable for this engine and runtime. Your prompt remains queued.'
+                        : undefined
                   }
                   running={repositoryHandoff.present ? false : messages.running}
                   awaitingApproval={
@@ -2247,7 +2256,8 @@ function ChatViewContent() {
                             recoverLocalCommand();
                           },
                           disabled:
-                            !connected || !localCommand.request || localCommand.state === 'blocked',
+                            localCommand.state !== 'blocked' &&
+                            (!connected || !localCommand.request),
                         }
                       : undefined
                   }
@@ -2268,18 +2278,10 @@ function ChatViewContent() {
                     (localRuntime.commandAvailable &&
                     localCommand &&
                     localCommand.state !== 'consumed'
-                      ? localCommand.state === 'pending'
-                        ? 'Sending…'
-                        : ['uncertain', 'reserved', 'retained'].includes(localCommand.state)
-                          ? 'Delivery not confirmed.'
-                          : 'Something went wrong.'
+                      ? localCommandStatusMessage(localCommand.state)
                       : undefined) ??
                     (explicitNew && localCommand && localCommand.state !== 'consumed'
-                      ? localCommand.state === 'pending'
-                        ? 'Sending…'
-                        : ['uncertain', 'reserved', 'retained'].includes(localCommand.state)
-                          ? 'Delivery not confirmed.'
-                          : 'Something went wrong.'
+                      ? localCommandStatusMessage(localCommand.state)
                       : undefined) ??
                     (localFirstCommand && (!localTransportAvailable || !connected)
                       ? 'Execution connection is unavailable. Reconnect before sending.'

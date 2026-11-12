@@ -8,6 +8,16 @@ export type { TransportAdapter, WsConnection, WsHandlers } from './types.js';
 export { WS_READY_STATE } from './types.js';
 
 // Store
+export {
+  CommandDeliveryDiagnosticSchema,
+  commandDeliveryMessage,
+  localCommandStatusMessage,
+} from './command-delivery-diagnostic.js';
+export type {
+  CommandDeliveryDiagnostic,
+  CommandDeliveryDiagnosticEvent,
+  CommandDeliveryObserver,
+} from './command-delivery-diagnostic.js';
 export { createMitzoStore } from './store.js';
 export type {
   MitzoStoreState,

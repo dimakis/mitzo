@@ -1,4 +1,4 @@
-import { isReadOnlyBuiltinToolCall } from './builtin-tool-behavior.js';
+import { qualifyToolResult } from './tool-failure-reporting.js';
 import { ToolFailureSchema, toolFailure, type ToolFailure } from '@mitzo/protocol';
 import {
   assertToolGuardCurrent,
@@ -26,9 +26,17 @@ import {
 import { SessionRuntimeError, findSessionRuntimeError } from './session-runtime-error.js';
 import {
   observeNativeRecoveryTurn,
-  type SettledInterruptedEffects,
+  type SettledNativeEffects,
 } from './codex-interrupted-effects.js';
-import { startCommandTimingSpan, finishCommandTimingSpan } from './command-timing-trace.js';
+import type { RetainedHostResultObserver } from './retained-native-effect-evidence.js';
+import { beginOperationObservation } from './operation-observation.js';
+import {
+  startCommandTimingSpan,
+  finishCommandTimingSpan,
+  recordCommandQueueReason,
+  type QueueReason,
+} from './command-timing-trace.js';
+import { CodexOutputTiming } from './codex-output-timing.js';
 import {
   codexApplicationContextFragments,
   codexDynamicToolsOption,
@@ -176,6 +184,9 @@ export interface CodexConversationOptions {
   beforeEnqueue?: (input: CodexCommandInput) => void;
   /** A guarded enqueue may retain uncertainty until its outer receipt commits. */
   canClaimCommand?: (commandId: string) => boolean;
+  /** Maintenance fences new FIFO claims; active tool and terminal receipts still settle. */
+  canStartCommand?: () => boolean;
+  assertSubagentControlAdmission?: () => void;
   /** Owning physical custody must persist before the first native thread effect. */
   beforeThreadInitialization?: (store: CodexConversationStore, binding: AccountBinding) => void;
   ownerKind?: 'ordinary' | 'symposium';
@@ -310,6 +321,8 @@ export interface CodexConversationOptions {
   /** Original non-native-policy recovery owner; fresh synchronous authority
    * after acquiring the reconciliation writer lock, never supplied by JSON. */
   assertRecoveryCurrent?: () => void;
+  /** Original application receipts can settle known historical host refusals. */
+  observeRetainedHostResult?: RetainedHostResultObserver;
   onQueueChange?: () => void;
   onActivity?: () => boolean | void;
   onThreadChanged?: (threadId: string) => void | Promise<void>;
@@ -482,6 +495,7 @@ type ActiveCommand = {
   abort: AbortController;
   span?: Span;
   firstOutputSpan?: Span;
+  outputTiming?: CodexOutputTiming;
   preparationSpan?: Span;
   traceContext: Context;
   nativeExecution?: CodexNativeExecutionPolicy;
@@ -640,6 +654,7 @@ export class CodexConversation {
     const generation = this.transportGeneration;
     const binding = this.binding;
     const scope = subagentScope(this.opts.conversationId, binding);
+    let anchorsReconciled = false;
     this.subagentOwner = new CodexSubagents({
       scope,
       store: this.opts.store.subagents,
@@ -690,6 +705,8 @@ export class CodexConversation {
           generation !== this.transportGeneration
         )
           throw Error('Original subagent transport unavailable');
+        if (method === 'turn/start' || method === 'turn/steer')
+          this.opts.assertSubagentControlAdmission?.();
         beforeDispatch?.();
         return client.request(method, params);
       },
@@ -729,10 +746,31 @@ export class CodexConversation {
       executeTool: this.opts.executeTool,
       requestNativeApproval: this.opts.requestNativeApproval,
       requestUserInput: this.opts.requestUserInput,
-      validateModel: this.opts.validateModel,
+      validateModel: (model, commandId) => {
+        // Owned admissions validate the complete model/thinking pair. A child
+        // belongs to its spawning command, even after the parent moves on.
+        const command = this.opts.store
+          .commands(this.opts.conversationId, binding)
+          .find((entry) => entry.id === commandId);
+        if (!command) throw Error('Original subagent model selection unavailable');
+        this.validateModel(model, command.reasoningEffort);
+      },
       onChild: (child) => {
-        if (!this.mapper || this.subagentAnchors.has(child.commandId)) return;
-        this.subagentAnchors.add(child.commandId);
+        if (!this.mapper) return false;
+        if (this.subagentAnchors.has(child.commandId)) return true;
+        if (!anchorsReconciled) {
+          // Receipts belong to children, but one marker represents a command.
+          // Reconcile before emission, within the child's reporting boundary.
+          for (const retained of this.opts.store.subagents.list(scope))
+            if (
+              retained.rootThreadId === this.threadId &&
+              retained.policyRevision === this.opts.nativeExecution?.policyRevision &&
+              retained.activityAnchored !== false
+            )
+              this.subagentAnchors.add(retained.commandId);
+          anchorsReconciled = true;
+          if (this.subagentAnchors.has(child.commandId)) return true;
+        }
         const toolId = this.mapper.toolStart(child.threadId, 'Agent', {
           description: 'Subagents',
           subagent_type: 'Codex',
@@ -740,9 +778,11 @@ export class CodexConversation {
         });
         this.mapper.toolResult(
           toolId,
-          'Native subagent admitted. Open it to inspect output or give direction.',
+          'Native subagent activity observed. Open it to check inspection status and available output.',
           false,
         );
+        this.subagentAnchors.add(child.commandId);
+        return true;
       },
     });
     return this.subagentOwner;
@@ -882,7 +922,7 @@ export class CodexConversation {
       );
     }
     this.paused = true;
-    this.opts.onQueueChange?.();
+    this.notifyQueueChange();
     this.opts.onTransportClosed?.({
       activeTurn: !!active,
       ...failure,
@@ -1107,7 +1147,7 @@ export class CodexConversation {
     this.startupObserverInitializing = false;
     await this.getSubagents()?.restore();
     this.opts.emit({ type: 'system', subtype: 'init', session_id: this.opts.conversationId });
-    this.opts.onQueueChange?.();
+    this.notifyQueueChange();
   }
   private async contextRequest(client: Rpc, method: string, params: ObjectValue) {
     const signal =
@@ -1436,7 +1476,7 @@ export class CodexConversation {
       if (deadline !== undefined) this.capacityAdmissionDeadlines.set(child.id, deadline);
       this.clearCapacityTimer();
       this.paused = false;
-      this.opts.onQueueChange?.();
+      this.notifyQueueChange();
       await this.pump();
       return 'queued' as const;
     } catch (error) {
@@ -1454,7 +1494,7 @@ export class CodexConversation {
           current.sourceCommandId,
         );
         this.paused = true;
-        this.opts.onQueueChange?.();
+        this.notifyQueueChange();
       }
       throw error;
     } finally {
@@ -1505,7 +1545,7 @@ export class CodexConversation {
     );
     this.clearCapacityTimer();
     this.paused = true;
-    this.opts.onQueueChange?.();
+    this.notifyQueueChange();
     if (this.active?.command.id === recovery.childCommandId) await this.interrupt();
     return 'stopped' as const;
   }
@@ -1554,10 +1594,16 @@ export class CodexConversation {
       this.commandContexts.set(input.id, context.active());
       // The durable enqueue has returned; time waiting for this exact command's claim.
       const timing = startCommandTimingSpan('codex.command.queue_wait', input.id, context.active());
-      if (timing) this.queueTimingSpans.set(input.id, timing);
+      if (timing) {
+        this.queueTimingSpans.set(input.id, timing);
+        recordCommandQueueReason(
+          timing,
+          this.active ? 'active_turn' : this.paused ? 'recovery' : 'queued',
+        );
+      }
       this.opts.onCommandQueued?.(input.id);
     }
-    this.opts.onQueueChange?.();
+    this.notifyQueueChange();
     return { model, reasoningEffort };
   }
   async admitExplicitSend(
@@ -1704,7 +1750,7 @@ export class CodexConversation {
       this.commandContexts.delete(commandId);
       finishCommandTimingSpan(this.queueTimingSpans.get(commandId), 'cancelled');
       this.queueTimingSpans.delete(commandId);
-      this.opts.onQueueChange?.();
+      this.notifyQueueChange();
     }
     return result;
   }
@@ -1723,7 +1769,7 @@ export class CodexConversation {
       confirmAmbiguous,
     );
     if (result !== 'queued') return result;
-    this.opts.onQueueChange?.();
+    this.notifyQueueChange();
     await this.acknowledgeRecovery();
     return result;
   }
@@ -1748,12 +1794,12 @@ export class CodexConversation {
     const delays = [1000, 2000, 5000, 10000, 30000];
     if (attempt >= delays.length) {
       this.recoveryPhase = undefined;
-      this.opts.onQueueChange?.();
+      this.notifyQueueChange();
       return;
     }
     const epoch = this.automaticRecoveryEpoch;
     this.recoveryPhase = 'reconnecting';
-    this.opts.onQueueChange?.();
+    this.notifyQueueChange();
     this.automaticRecoveryTimer = setTimeout(() => {
       this.automaticRecoveryTimer = undefined;
       this.automaticRecoveryRunning = { epoch };
@@ -1791,19 +1837,56 @@ export class CodexConversation {
   }
   async acknowledgeRecovery(automaticEpoch?: number) {
     if (this.recovery) return this.recovery;
-    const span = tracer.startSpan('codex.transport.recovery');
-    const operation = this.continueRecovery(automaticEpoch).finally(() => span.end());
+    const observation = beginOperationObservation('codex.transport.recovery');
+    let stage = 'transport';
+    let target: CodexNativeTurnTarget | undefined;
+    const operation = observation.run(() =>
+      this.continueRecovery(automaticEpoch, (next, observed) => {
+        stage = next;
+        target = observed ?? target;
+        observation.annotate({
+          'mitzo.recovery.stage': stage,
+          ...(target ? { 'mitzo.command.id': target.commandId } : {}),
+        });
+      }).then(
+        () => {
+          observation.end();
+        },
+        (error: unknown) => {
+          const code = findSessionRuntimeError(error)?.code ?? 'recovery_unavailable';
+          observation.annotate({ 'mitzo.recovery.code': code });
+          observation.end(true);
+          log.warn('Codex recovery failed', {
+            conversationId: this.opts.conversationId,
+            stage,
+            ...(target
+              ? { commandId: target.commandId, turnId: target.turnId, attempt: target.attempt }
+              : {}),
+            runtimeFailureCode: code,
+            ...(error instanceof Error ? codexRuntimeErrorTelemetry(error) : {}),
+          });
+          throw error;
+        },
+      ),
+    );
     const shared = operation.finally(() => {
       if (this.recovery === shared) {
         this.recovery = undefined;
         this.recoveryPhase = undefined;
-        this.opts.onQueueChange?.();
+        this.notifyQueueChange();
       }
     });
     this.recovery = shared;
     return shared;
   }
-  private async continueRecovery(automaticEpoch?: number) {
+  private async continueRecovery(
+    automaticEpoch?: number,
+    observeStage?: (
+      stage: 'transport' | 'binding' | 'history' | 'effects' | 'acknowledgement' | 'dispatch',
+      target?: CodexNativeTurnTarget,
+    ) => void,
+  ) {
+    observeStage?.('transport');
     if (this.closed) throw new Error('Codex conversation unavailable');
     const recoveryControlEpoch = this.automaticRecoveryEpoch;
     this.opts.store.assertNoPendingThreadDispatch(this.opts.conversationId, this.binding!);
@@ -1832,6 +1915,13 @@ export class CodexConversation {
     const nativeTarget = exactRecovery
       ? this.opts.store.nativeRecoveryTarget(this.opts.conversationId, this.binding!)
       : undefined;
+    const inspectFailedEffects =
+      !!nativeTarget &&
+      !completionTarget &&
+      !!this.opts.nativeExecution &&
+      this.opts.store.continuationBlocker(this.opts.conversationId, this.binding!)?.commandId ===
+        nativeTarget.commandId;
+    observeStage?.('binding', nativeTarget);
     const assertRecoveryAuthority = async () => {
       const verified = await this.verifyCurrentBinding(this.binding);
       if (!isDeepStrictEqual(verified, this.binding))
@@ -1845,9 +1935,10 @@ export class CodexConversation {
     };
     await assertRecoveryAuthority();
     let nativeStatus: 'completed' | 'failed' | 'interrupted' | undefined;
-    let interruptedEffects: SettledInterruptedEffects | undefined;
+    let interruptedEffects: SettledNativeEffects | undefined;
     const recoveryThreadId = exactRecovery ? nativeTarget?.threadId : this.threadId;
     if ((automaticEpoch !== undefined || exactRecovery) && recoveryThreadId) {
+      observeStage?.('history');
       if (nativeTarget) {
         const phase =
           completionTarget &&
@@ -1867,6 +1958,8 @@ export class CodexConversation {
             await assertRecoveryAuthority();
             assertRecoveryContinuation();
           },
+          this.opts.cwd,
+          inspectFailedEffects,
         );
         nativeStatus = observed.status;
         interruptedEffects = observed.settledEffects;
@@ -1893,7 +1986,7 @@ export class CodexConversation {
     // is only for workspace startup and transport reattachment, not generation.
     if (this.recoveryPhase) {
       this.recoveryPhase = undefined;
-      this.opts.onQueueChange?.();
+      this.notifyQueueChange();
     }
     // Neither metadata nor a progress observer may release work through a
     // retired transport or undo a Stop that arrived during the reconnect.
@@ -1906,6 +1999,7 @@ export class CodexConversation {
     )
       throw new Error('Automatic recovery was cancelled');
     assertRecoveryContinuation();
+    observeStage?.('effects');
     if (nativeTarget && nativeStatus) {
       this.opts.store.reconcileNativeRecovery(
         this.opts.conversationId,
@@ -1935,14 +2029,64 @@ export class CodexConversation {
         );
       assertRecoveryContinuation();
     }
+    if (
+      nativeTarget &&
+      nativeStatus === 'failed' &&
+      inspectFailedEffects &&
+      interruptedEffects &&
+      !completionTarget &&
+      this.opts.nativeExecution
+    ) {
+      const policy = this.opts.nativeExecution;
+      const current = () => {
+        assertRecoveryContinuation();
+        this.assertNativeExecutionOwner();
+        if (!this.opts.assertRecoveryCurrent)
+          throw Error('Failed effects require a current recovery owner');
+        for (const check of [
+          () => this.opts.assertRecoveryCurrent!(),
+          () => this.opts.assertNativeExecutionCurrent!(policy, nativeTarget.commandId),
+        ]) {
+          const result: unknown = check();
+          if (result !== undefined) {
+            void Promise.resolve(result).catch((cause: unknown) => {
+              log.warn('Asynchronous recovery authority failed', {
+                conversationId: this.opts.conversationId,
+                commandId: nativeTarget.commandId,
+                stage: 'effects',
+                failureCode: 'async_recovery_authority',
+                ...(cause instanceof Error ? codexRuntimeErrorTelemetry(cause) : {}),
+              });
+            });
+            throw Error('Failed effect recovery authority must be synchronous');
+          }
+        }
+        assertRecoveryContinuation();
+      };
+      this.opts.store.reconcileRetainedNativeEffects(
+        this.opts.conversationId,
+        this.binding!,
+        nativeTarget,
+        undefined,
+        policy,
+        nativeStatus,
+        interruptedEffects,
+        current,
+        assertRecoveryContinuation,
+        undefined,
+        this.opts.observeRetainedHostResult,
+      );
+    }
     assertRecoveryContinuation();
+    observeStage?.('acknowledgement');
     this.opts.store.acknowledgeRecovery(this.opts.conversationId, this.binding!, nativeTarget);
     this.paused = false;
+    observeStage?.('dispatch');
     await this.pump();
   }
   private async reconnect() {
     this.recoveryPhase = 'reconnecting';
-    this.opts.onQueueChange?.();
+    this.notifyQueueChange();
     if (this.opts.reconnectGuard) return this.opts.reconnectGuard(() => this.reconnectBound());
     return this.reconnectBound();
   }
@@ -1950,11 +2094,11 @@ export class CodexConversation {
     if (!this.binding || !this.threadId) throw new Error('Codex recovery state is unavailable');
     if (this.opts.beforeReconnect) {
       this.recoveryPhase = 'starting_workspace';
-      this.opts.onQueueChange?.();
+      this.notifyQueueChange();
       await this.opts.beforeReconnect();
     }
     this.recoveryPhase = 'reconnecting';
-    this.opts.onQueueChange?.();
+    this.notifyQueueChange();
     const client = this.createClient();
     this.client = client;
     const startupGeneration = this.transportGeneration;
@@ -2194,7 +2338,7 @@ export class CodexConversation {
             : new Error('Codex recovery state could not be saved'),
         );
       }
-      this.opts.onQueueChange?.();
+      this.notifyQueueChange();
       throw error;
     }
   }
@@ -2231,7 +2375,7 @@ export class CodexConversation {
       )
         throw Error('Completion phase recovery owner changed before native lineage replacement');
     };
-    let interruptedEffects: SettledInterruptedEffects | undefined;
+    let interruptedEffects: SettledNativeEffects | undefined;
     const status = this.opts.store.commandStatus(
       this.opts.conversationId,
       binding,
@@ -2260,6 +2404,7 @@ export class CodexConversation {
             this.opts.assertNativeExecutionCurrent!(this.opts.nativeExecution, target.commandId);
           assertCurrent();
         },
+        this.opts.cwd,
       );
       assertCurrent();
       if (observed.status !== 'interrupted' || !observed.settledEffects)
@@ -2588,7 +2733,15 @@ export class CodexConversation {
   }
   private pump(): Promise<void> {
     if (this.pumping) return this.pumping;
-    if (this.active || this.paused || this.closed) return Promise.resolve();
+    if (this.closed) return Promise.resolve();
+    if (this.active || this.paused) {
+      this.recordQueueReason(this.active ? 'active_turn' : 'recovery');
+      return Promise.resolve();
+    }
+    if (this.opts.canStartCommand?.() === false) {
+      this.recordQueueReason('deployment');
+      return Promise.resolve();
+    }
     const next = this.queue().find((command) => command.status === 'queued');
     const commandContext = next && this.commandContexts.get(next.id);
     this.pumping = context
@@ -2598,10 +2751,22 @@ export class CodexConversation {
       });
     return this.pumping;
   }
+  private notifyQueueChange() {
+    this.recordQueueReason(this.active ? 'active_turn' : this.paused ? 'recovery' : 'queued');
+    this.opts.onQueueChange?.();
+  }
+  private recordQueueReason(reason: QueueReason) {
+    for (const span of this.queueTimingSpans.values()) recordCommandQueueReason(span, reason);
+  }
   private finishTurnSpan(
     status: 'completed' | 'interrupted' | 'failed',
     failureCategory: 'none' | 'provider' | 'dispatch' | 'transport' | 'close' | 'acknowledgment',
   ) {
+    this.active?.outputTiming?.close(
+      failureCategory === 'none' || failureCategory === 'provider'
+        ? 'terminal_before_output'
+        : 'failed_before_output',
+    );
     this.active?.firstOutputSpan?.setAttribute(
       'mitzo.first_output.result',
       failureCategory === 'none' || failureCategory === 'provider'
@@ -2625,7 +2790,10 @@ export class CodexConversation {
     // this queue again after the original coordinator commits consumption.
     if (this.opts.canClaimCommand && this.binding) {
       const next = this.opts.store.nextQueuedCommandId(this.opts.conversationId, this.binding);
-      if (next && this.opts.canClaimCommand(next) === false) return;
+      if (next && this.opts.canClaimCommand(next) === false) {
+        this.recordQueueReason('admission');
+        return;
+      }
     }
     if (this.opts.beforeRuntimeAdmission && this.binding && !this.active) {
       const boundary = this.opts.beforeRuntimeAdmission;
@@ -2692,7 +2860,7 @@ export class CodexConversation {
         // explicit recovery pause even when only our idle transport was closed.
         this.paused = true;
         this.opts.store.pauseForRecovery(this.opts.conversationId, this.binding);
-        this.opts.onQueueChange?.();
+        this.notifyQueueChange();
         throw error;
       }
     }
@@ -2708,10 +2876,18 @@ export class CodexConversation {
         this.opts.conversationId,
         this.binding!,
       );
-      if (nextQueued && this.opts.canClaimCommand(nextQueued) === false) return;
+      if (nextQueued && this.opts.canClaimCommand(nextQueued) === false) {
+        this.recordQueueReason('admission');
+        return;
+      }
+    }
+    if (this.opts.canStartCommand?.() === false) {
+      this.recordQueueReason('deployment');
+      return;
     }
     const command = this.opts.store.claimNext(this.opts.conversationId, this.binding!);
     if (!command) return;
+    recordCommandQueueReason(this.queueTimingSpans.get(command.id), 'eligible');
     finishCommandTimingSpan(this.queueTimingSpans.get(command.id), 'claimed');
     this.queueTimingSpans.delete(command.id);
     const continuation = this.opts.store.capacityContinuation(
@@ -2737,7 +2913,7 @@ export class CodexConversation {
     this.commandContexts.delete(command.id);
     this.active = active;
     let transportGeneration = this.transportGeneration;
-    this.opts.onQueueChange?.();
+    this.notifyQueueChange();
     try {
       active.preparationSpan = startCommandTimingSpan(
         'codex.command.preparation',
@@ -2862,6 +3038,9 @@ export class CodexConversation {
       const dispatchSpan = tracer.startSpan('codex.turn.dispatch', {}, turnContext);
       const ackSpan = tracer.startSpan('codex.turn.acknowledgment', {}, turnContext);
       active.firstOutputSpan = tracer.startSpan('codex.turn.first_output', {}, turnContext);
+      active.outputTiming = new CodexOutputTiming(turnContext);
+      if (command.reasoningEffort)
+        active.span.setAttribute('gen_ai.request.reasoning_effort', command.reasoningEffort);
       let response: unknown;
       let dispatched = false;
       try {
@@ -3045,7 +3224,7 @@ export class CodexConversation {
                 : new Error('Codex provider thread ownership requires recovery'),
             );
             this.retireTransportForRecovery();
-            this.opts.onQueueChange?.();
+            this.notifyQueueChange();
             return;
           }
           active.ownershipPending = false;
@@ -3116,7 +3295,7 @@ export class CodexConversation {
         this.paused = true;
         active.abort.abort();
         if (this.active === active) this.active = undefined;
-        this.opts.onQueueChange?.();
+        this.notifyQueueChange();
         throw error;
       }
       const replaceProviderThread = requiresProviderThreadReplacement(error);
@@ -3147,7 +3326,7 @@ export class CodexConversation {
       this.recordPreDispatchFailure(active);
       if (this.active === active) this.active = undefined;
       if (replaceProviderThread || active.accepted) this.retireTransportForRecovery();
-      this.opts.onQueueChange?.();
+      this.notifyQueueChange();
       throw error;
     } finally {
       finishCommandTimingSpan(active.preparationSpan, 'stopped');
@@ -3188,7 +3367,7 @@ export class CodexConversation {
     target: CodexNativeTurnTarget,
     binding: AccountBinding,
     policy?: CodexNativeExecutionPolicy,
-    interruptedEffects?: SettledInterruptedEffects,
+    interruptedEffects?: SettledNativeEffects,
     assertCurrent?: () => void,
   ) {
     const verified = await this.verifyCurrentBinding(binding);
@@ -3390,6 +3569,8 @@ export class CodexConversation {
         this.active.nativeFileChangeRevisions.set(identity.data.id, consistent ? revision : null);
       }
     }
+    if (this.active?.turnId && params.turnId === this.active.turnId)
+      this.active.outputTiming?.observe(method, params);
     if (
       this.active?.firstOutputSpan &&
       [
@@ -3785,7 +3966,7 @@ export class CodexConversation {
         this.opts.onError?.(
           new ProviderFailureError(providerFailure, codexTurnFailureDiagnostic(turn.data.error)),
         );
-      this.opts.onQueueChange?.();
+      this.notifyQueueChange();
       // Completion can arrive before turn/start resolves. Wait for that request to settle.
       Promise.resolve(this.pumping)
         .then(() => (recoverQueuedFollowUp ? this.acknowledgeRecovery() : this.pump()))
@@ -4316,13 +4497,7 @@ export class CodexConversation {
       );
       // Only a returned, reviewed read result can qualify a failed callback here.
       // Explicit owner uncertainty, thrown exceptions and cancellation stay fenced.
-      if (
-        result.isError &&
-        !retainedCallbackOutcome(result) &&
-        !toolSignal.aborted &&
-        isReadOnlyBuiltinToolCall(call.tool, call.arguments)
-      )
-        retainCallbackOutcome(result, 'settled');
+      qualifyToolResult(call.tool, call.arguments, toolSignal, result);
     } catch (error) {
       if (error instanceof ToolGuardTimeoutError) {
         active.callbackEffectsUnknown = true;
@@ -4422,7 +4597,7 @@ export class CodexConversation {
             call.callId,
           )
         )
-          this.opts.onQueueChange?.();
+          this.notifyQueueChange();
       } catch {
         result = {
           content:
@@ -4500,6 +4675,14 @@ export class CodexConversation {
       callbackOutcome(result),
     );
   }
+  /** Missing turn capture is not evidence that ordinary admission is safe. */
+  peerMessageState(): 'busy' | 'idle' | 'stopped' | 'preparing' {
+    if (this.closed || this.paused) return 'stopped';
+    if (!this.ready || !this.binding) return 'preparing';
+    if (this.active) return this.captureInterruptTarget() ? 'busy' : 'preparing';
+    return this.pumping ? 'preparing' : 'idle';
+  }
+
   /** Accepted, durably correlated live turn only; no pending/startup target. */
   captureInterruptTarget(): CodexInterruptTarget | undefined {
     const active = this.active;
@@ -4587,6 +4770,84 @@ export class CodexConversation {
     });
     return { status: 'claimed', receipt: claim.receipt, replayed: false };
   }
+  /** Deployment pauses the original parent and its owned child tree. Claims remain
+   * uncertain until separately observed terminal/effect evidence settles. */
+  async pauseForDeployment(requestId: string, target: CodexInterruptTarget, authorize: () => void) {
+    authorize();
+    const result = await this.interruptIfCurrent(requestId, target);
+    authorize();
+    if (result.status === 'claimed' && !result.replayed)
+      await this.subagentOwner?.interruptAll(authorize);
+    return result;
+  }
+  deploymentChildActivity() {
+    return this.subagentOwner?.hasPendingActivity() ?? false;
+  }
+  async observeDeploymentSettlement(rawTarget: CodexNativeTurnTarget, authorize: () => void) {
+    const target = CodexNativeTurnTargetSchema.parse(rawTarget);
+    if (!this.deploymentTurnSettled(target)) return false;
+    const client = this.client,
+      generation = this.transportGeneration,
+      binding = this.binding!;
+    const current = () => {
+      authorize();
+      if (
+        !this.deploymentTurnSettled(target) ||
+        this.client !== client ||
+        this.transportGeneration !== generation ||
+        this.binding !== binding
+      )
+        throw Error('Original deployment pause owner changed');
+      if (this.opts.nativeExecution)
+        this.opts.assertNativeExecutionCurrent?.(this.opts.nativeExecution, target.commandId);
+    };
+    current();
+    await this.verifyCurrentBinding(binding);
+    current();
+    const observed = await observeNativeRecoveryTurn(
+      (method, params) => {
+        current();
+        return client.request(method, params);
+      },
+      this.opts.conversationId,
+      target,
+      true,
+      async () => {
+        current();
+        await this.verifyCurrentBinding(binding);
+        current();
+      },
+      this.opts.cwd,
+    );
+    current();
+    if (observed.status === 'failed')
+      throw Error('Failed native deployment effects need inspection');
+    if (observed.status === 'interrupted') {
+      if (!observed.settledEffects) throw Error('Fresh interrupted native effect proof required');
+      this.opts.store.assertDeploymentHostEffects(
+        this.opts.conversationId,
+        binding,
+        target,
+        this.opts.nativeExecution?.policyRevision,
+        observed.settledEffects,
+        current,
+      );
+    }
+    current();
+    return true;
+  }
+  deploymentTurnSettled(target: CodexNativeTurnTarget) {
+    const terminal = this.terminalTurns.get(JSON.stringify([target.threadId, target.turnId]));
+    return (
+      !this.closed &&
+      !this.active &&
+      !this.deploymentChildActivity() &&
+      terminal?.commandId === target.commandId &&
+      ['completed', 'interrupted', 'failed'].includes(terminal.status) &&
+      !!this.binding &&
+      this.opts.store.deploymentTurnSettled(this.opts.conversationId, this.binding, target)
+    );
+  }
   /** A correction uses the accepted turn's unchanged settings. It never starts,
    * interrupts, retries or reorders a command. A durable claim fences lost ACKs. */
   async steer(raw: CodexSteerInput, authorize: () => void): Promise<CodexSteerResult> {
@@ -4624,7 +4885,14 @@ export class CodexConversation {
       this.opts.assertSteeringCurrent();
       if (active.nativeExecution)
         this.opts.assertNativeExecutionCurrent?.(active.nativeExecution, active.command.id);
-    } catch {
+    } catch (error) {
+      log.warn('Correction refused before native submission', {
+        conversationId: this.opts.conversationId,
+        commandId: active.command.id,
+        requestId: input.requestId,
+        phase: 'admission',
+        ...(error instanceof Error ? codexRuntimeErrorTelemetry(error) : {}),
+      });
       return { status: 'rejected' };
     }
     if (!this.opts.store.claimSteering(this.opts.conversationId, this.binding, input, target)) {
@@ -4799,7 +5067,7 @@ export class CodexConversation {
         try {
           attempt(() => this.client.close());
         } finally {
-          attempt(() => this.opts.onQueueChange?.());
+          attempt(() => this.notifyQueueChange());
           attempt(() => this.opts.onClosed?.());
         }
       }

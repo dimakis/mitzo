@@ -6,6 +6,8 @@ import type { ReactNode } from 'react';
 import { SessionLaunchCards, SessionLaunchOrigin } from '../SessionLaunchCards';
 import { apiFetch } from '../../lib/api-fetch';
 import type { SessionLaunchConfig, SessionLaunchRecord } from '@mitzo/protocol';
+import { downloadFile } from '../../lib/share-file';
+vi.mock('../../lib/share-file', () => ({ downloadFile: vi.fn(), shareFile: vi.fn() }));
 
 const render = (children: ReactNode) => renderView(children, { wrapper: MemoryRouter });
 
@@ -87,6 +89,8 @@ it('reviews without starting, then submits explicit edited approval and default 
   );
   fireEvent.click(screen.getByRole('button', { name: 'Review new session' }));
   expect(apiFetch).not.toHaveBeenCalled();
+  expect(screen.getByText('Session settings').closest('details')?.open).toBe(false);
+  expect(screen.getByRole('button', { name: 'Approve & start' }).closest('fieldset')).toBeNull();
   fireEvent.change(screen.getByLabelText('Title'), { target: { value: 'Notifications' } });
   fireEvent.change(screen.getByLabelText('Handoff prompt'), {
     target: { value: 'Reviewed handoff' },
@@ -122,6 +126,68 @@ it('shows compact linked receipt with shared svg icon and accurate startup state
   expect(screen.getByRole('link', { name: 'Open chat' }).getAttribute('href')).toBe('/chat/child');
   expect(screen.getByRole('status').textContent).toBe('Created · start not yet confirmed');
   expect(container.querySelector('[data-icon="arrowUpRight"]')).toBeTruthy();
+});
+it('saves retained Markdown through the shared authenticated file actions', async () => {
+  vi.mocked(downloadFile).mockResolvedValue(true);
+  render(<SessionLaunchCards requests={[proposal]} onUpdate={vi.fn()} />);
+  expect(screen.getByRole('group', { name: 'Handover' }).textContent).toContain('Handover.md');
+  fireEvent.click(screen.getByRole('button', { name: 'File options' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Download file' }));
+  await waitFor(() =>
+    expect(downloadFile).toHaveBeenCalledWith('/api/session-launch/requests/proposal/handover.md'),
+  );
+  expect(apiFetch).not.toHaveBeenCalled();
+});
+it('keeps definite preflight refusals editable without another request check', async () => {
+  vi.mocked(apiFetch).mockResolvedValue(
+    new Response(
+      JSON.stringify({
+        error: 'Choose a compatible profile.',
+        code: 'session_launch_preflight_refused',
+        effectStatus: 'not_started',
+      }),
+      { status: 409 },
+    ),
+  );
+  render(<SessionLaunchCards requests={[proposal]} onUpdate={vi.fn()} />);
+  fireEvent.click(screen.getByRole('button', { name: 'Review new session' }));
+  fireEvent.change(screen.getByLabelText('Handoff prompt'), {
+    target: { value: 'Keep exact handover' },
+  });
+  fireEvent.click(screen.getByRole('button', { name: 'Approve & start' }));
+  await screen.findByRole('alert');
+  expect(screen.getByRole('button', { name: 'Approve & start' }).hasAttribute('disabled')).toBe(
+    false,
+  );
+  expect(screen.queryByRole('button', { name: 'Check request' })).toBeNull();
+  expect((screen.getByLabelText('Handoff prompt') as HTMLTextAreaElement).value).toBe(
+    'Keep exact handover',
+  );
+  fireEvent.change(screen.getByLabelText('Model'), { target: { value: 'corrected-model' } });
+  expect((screen.getByLabelText('Model') as HTMLInputElement).value).toBe('corrected-model');
+  expect(apiFetch).toHaveBeenCalledTimes(1);
+});
+it('explains unsupported context before approval while preserving the handover', () => {
+  render(
+    <SessionLaunchCards
+      requests={[
+        {
+          ...proposal,
+          configuration: { ...configuration, contextBlocks: ['named-context'] },
+        },
+      ]}
+      onUpdate={vi.fn()}
+    />,
+  );
+  fireEvent.click(screen.getByRole('button', { name: 'Review new session' }));
+  expect(screen.getByText(/Put the handover text in Handoff prompt/)).toBeTruthy();
+  expect(screen.getByRole('button', { name: 'Approve & start' }).hasAttribute('disabled')).toBe(
+    true,
+  );
+  expect((screen.getByLabelText('Handoff prompt') as HTMLTextAreaElement).value).toBe(
+    proposal.prompt,
+  );
+  expect(apiFetch).not.toHaveBeenCalled();
 });
 it('resumes an interrupted startup only after an explicit action using its retained revision', async () => {
   vi.mocked(apiFetch).mockResolvedValue(

@@ -21,7 +21,7 @@ const mocks = vi.hoisted(() => ({
   turnDispatchCount: 0,
   searchSkills: vi.fn(),
   searchWeb: vi.fn(),
-  mcpClose: vi.fn(),
+  mcpClose: vi.fn(async () => {}),
   connect: vi.fn(),
   permissionHandler: vi.fn(),
   assertPermissionModeChange: vi.fn(),
@@ -35,9 +35,11 @@ const mocks = vi.hoisted(() => ({
   recordKnowledgeAdoption: vi.fn(),
   recordAgentContextAdoption: vi.fn(),
   privateDirectory: '/tmp',
-  conversationOptions: undefined as Record<string, unknown> | undefined,
+  conversationOptions: undefined as
+    (Record<string, unknown> & { systemPrompt?: string }) | undefined,
   useTls: false,
   custodianController: false,
+  nativeDeniedRoots: ['/offline/owned-login'],
 }));
 // These controller tests already replace the conversation, provider and lease.
 // Use a source-faithful qualified lease marker and an explicit synthetic scope;
@@ -57,7 +59,7 @@ vi.mock('../owned-local-codex-native-policy.js', async (original) => {
         cwd: input.session.cwd!,
         readableRoots: input.readableRoots ?? ['/'],
         writableRoots: [input.session.cwd!],
-        deniedRoots: ['/offline/owned-login'],
+        deniedRoots: mocks.nativeDeniedRoots,
       });
     },
   };
@@ -126,7 +128,10 @@ vi.mock('../codex-conversation.js', () => ({
     admitExplicitSend = mocks.send;
   },
 }));
-vi.mock('../codex-mcp-tools.js', () => ({ connectCodexMcpTools: mocks.connect }));
+vi.mock('../codex-mcp-tools.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../codex-mcp-tools.js')>()),
+  connectCodexMcpTools: mocks.connect,
+}));
 vi.mock('../codex-private-path.js', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../codex-private-path.js')>()),
   codexPrivateDirectory: () => mocks.privateDirectory,
@@ -173,6 +178,7 @@ import type { FrozenHostCodexBootstrapLease } from '../frozen-host-codex-bootstr
 import type { OrdinaryLocalCodexAdmissionExpectation } from '../ordinary-local-codex-admission.js';
 
 beforeEach(() => {
+  mocks.nativeDeniedRoots = ['/offline/owned-login'];
   vi.spyOn(OpenShellRuntimeManager.prototype, 'inspectTaskCapabilities').mockResolvedValue({
     mgmtCli: false,
     meetingPrep: false,
@@ -835,6 +841,14 @@ it('does not advertise unavailable host tools to an OpenShell runtime', async ()
     'never use a sandbox-local todo script',
   );
   expect(mocks.conversationOptions?.systemPrompt).toContain('TelosFindArtifacts');
+  expect(mocks.conversationOptions?.systemPrompt).toContain('propose Telos');
+  expect(mocks.conversationOptions?.systemPrompt).toContain(
+    'outcome -> feature items -> session-sized slices',
+  );
+  expect(mocks.conversationOptions?.systemPrompt).toContain(
+    'Simple one-session tasks stay in chat',
+  );
+  expect(mocks.conversationOptions?.systemPrompt?.split('## Telos work planning').length).toBe(2);
   expect(mocks.connect).not.toHaveBeenCalled();
   await expect(chat.setPermissionMode?.('agent')).resolves.toBeUndefined();
   await expect(chat.setPermissionMode?.('ask')).rejects.toThrow('Ask mode');
@@ -847,9 +861,13 @@ it('does not advertise unavailable host tools to an OpenShell runtime', async ()
     milestones: ['Expose the trusted host tool'],
     profile: 'manual',
   };
+  const reviewedInput = { ...input, workLevel: 'outcome' };
   mocks.permissionHandler.mockResolvedValueOnce({
     behavior: 'allow',
-    updatedInput: { ...input, __mitzoTelosApproval: '00000000-0000-4000-8000-000000000001' },
+    updatedInput: {
+      ...reviewedInput,
+      __mitzoTelosApproval: '00000000-0000-4000-8000-000000000001',
+    },
   });
   const fetch = vi.fn().mockResolvedValue(
     new Response(
@@ -862,13 +880,13 @@ it('does not advertise unavailable host tools to an OpenShell runtime', async ()
         permId: 'permission',
         sessionId: 'conversation',
         sourceSnapshotId: 'snapshot',
-        operation: { kind: 'create', outcome: input },
+        operation: { kind: 'create', outcome: reviewedInput },
         receipt: {
           commandId: 'command',
           actorId: 'operator:user',
           work: {
             itemId: 'telos-live',
-            kind: 'outcome',
+            kind: 'coordinator',
             parentId: null,
             revision: 'a'.repeat(64),
             links: [],
@@ -911,7 +929,7 @@ it('does not advertise unavailable host tools to an OpenShell runtime', async ()
   });
   expect(mocks.permissionHandler).toHaveBeenCalledWith(
     'TelosCreateOutcome',
-    input,
+    reviewedInput,
     expect.objectContaining({ forcePrompt: true, allowSessionGrant: false }),
   );
   expect(fetch).toHaveBeenCalledWith(
@@ -920,10 +938,18 @@ it('does not advertise unavailable host tools to an OpenShell runtime', async ()
       headers: expect.objectContaining({ 'X-Client-Id': 'client' }),
     }),
   );
+  expect(JSON.parse(fetch.mock.calls[0][1].body)).toEqual({
+    approvalReceiptId: '00000000-0000-4000-8000-000000000001',
+    proposal: reviewedInput,
+    operation: 'create',
+  });
   mocks.useTls = true;
   mocks.permissionHandler.mockResolvedValueOnce({
     behavior: 'allow',
-    updatedInput: { ...input, __mitzoTelosApproval: '00000000-0000-4000-8000-000000000001' },
+    updatedInput: {
+      ...reviewedInput,
+      __mitzoTelosApproval: '00000000-0000-4000-8000-000000000001',
+    },
   });
   await executeTool('TelosCreateOutcome', input, new AbortController().signal, {
     turnId: 'actual-turn',
@@ -2768,9 +2794,7 @@ it('does not require Telos outcome capture for ordinary artifact contributors in
     systemPrompt: 'Selected artifact contributor instructions.',
     contributorGuidance: 'Contribute to the selected document.',
   });
-  expect(mocks.conversationOptions?.systemPrompt).not.toContain(
-    'Telos is the de facto persistent home',
-  );
+  expect(mocks.conversationOptions?.systemPrompt).not.toContain('## Telos work planning');
   expect(mocks.conversationOptions?.systemPrompt).not.toContain(
     'Use TelosCreateOutcome for durable Telos capture',
   );
@@ -3797,6 +3821,7 @@ it('qualifies owned native, MCP, profile and publishing tools and rejects other 
     expect(config.systemPrompt).toContain(
       'Use GitHubRead for routine repository, PR, review and CI reads',
     );
+    expect(config.systemPrompt).toContain('When the user selects gh, use it');
     expect(config.systemPrompt).toContain('Run offline tests with the existing workspace');
     expect((config.tools as Array<{ name: string }>).map((tool) => tool.name).sort()).toEqual(
       [
@@ -4487,7 +4512,7 @@ it('admits selected MCP through the actual owned Local Codex lifecycle and fence
       'ListIntegrationTools',
       'ReadToolOutput',
     ]);
-    expect(sourceOptions.connect).toHaveBeenCalledOnce();
+    expect(sourceOptions.connect).not.toHaveBeenCalled();
     const execute = mocks.conversationOptions!.executeTool as (
       name: string,
       input: Record<string, unknown>,
@@ -4514,6 +4539,60 @@ it('admits selected MCP through the actual owned Local Codex lifecycle and fence
       ).content,
     );
     expect(peerCall).not.toHaveBeenCalled();
+    // A retained result from the same pinned source can reconnect lazily. Its
+    // original tool's policy must remain current across that asynchronous work.
+    let releaseDiscovery!: () => void;
+    const listing = vi.fn(async () => {
+      await new Promise<void>((resolve) => {
+        releaseDiscovery = resolve;
+      });
+      return { tools: [{ name: 'search', inputSchema: { type: 'object' } }] };
+    });
+    sourceOptions.connect.mockImplementationOnce(async () => ({
+      listTools: listing,
+      callTool: peerCall,
+      close: peerClose,
+    }));
+    mocks.readToolOutput.mockReturnValue({
+      toolName: wire,
+      content: 'retained source evidence',
+      sourceScope: actualMcp.mcpToolOutputScope(sources.selected, sourceOptions, {
+        name: 'search',
+        inputSchema: { type: 'object' },
+      }),
+    });
+    const retainedContext = {
+      turnId: 'turn',
+      callId: 'retained-reconnect',
+      assertCurrentSync: vi.fn(),
+      registerResponseFence: vi.fn(),
+    };
+    const readRetained = () =>
+      execute(
+        'ReadToolOutput',
+        { outputId: '22222222-2222-4222-8222-222222222222' },
+        new AbortController().signal,
+        retainedContext,
+      );
+    const pendingRetained = readRetained();
+    await vi.waitFor(() => expect(listing).toHaveBeenCalledOnce());
+    f.opts.session.activeSkillPolicy = new Set(['ReadToolOutput']);
+    releaseDiscovery();
+    await expect(pendingRetained).rejects.toThrow('permission_denied');
+    expect(peerCall).not.toHaveBeenCalled();
+    f.opts.session.activeSkillPolicy = null;
+    expect(JSON.parse((await readRetained()).content).content).toBe('retained source evidence');
+    // Codex retires the invocation before the transport runs response fences.
+    // Policy remains enforceable after that normal lifecycle transition.
+    retainedContext.assertCurrentSync.mockImplementation(() => {
+      throw Error('Original native tool callback is no longer current');
+    });
+    expect(retainedContext.registerResponseFence.mock.calls.at(-1)![0]).not.toThrow();
+    f.opts.session.activeSkillPolicy = new Set(['ReadToolOutput']);
+    expect(retainedContext.registerResponseFence.mock.calls.at(-1)![0]).toThrow(
+      'permission_denied',
+    );
+    f.opts.session.activeSkillPolicy = null;
     const call = () =>
       execute(
         'InvokeIntegrationTool',
@@ -4779,6 +4858,12 @@ it.each([false, true])(
       expect(mocks.conversationOptions?.tools).toContainEqual(
         expect.objectContaining({ name: 'TelosStartSlice' }),
       );
+      const prompt = mocks.conversationOptions!.systemPrompt!;
+      expect(prompt).toContain('propose Telos');
+      expect(prompt).toContain('outcome -> feature items -> session-sized slices');
+      expect(prompt).toContain('one dedicated working session');
+      expect(prompt).toContain('merge-queue orchestrator');
+      expect(prompt.split('## Telos work planning')).toHaveLength(2);
       const execute = mocks.conversationOptions!.executeTool as (
         name: string,
         input: Record<string, unknown>,
@@ -4971,6 +5056,8 @@ it('exposes slice allocation to a retained OpenShell lead without enabling selec
   expect(mocks.conversationOptions?.tools).toContainEqual(
     expect.objectContaining({ name: 'TelosStartSlice' }),
   );
+  expect(mocks.conversationOptions?.systemPrompt).toContain('propose Telos');
+  expect(mocks.conversationOptions?.systemPrompt?.split('## Telos work planning')).toHaveLength(2);
   chat.close();
   store.close();
 });
@@ -6238,6 +6325,53 @@ it('refreshes retained native initialization and only the admitted child policy 
   }
 });
 
+it.each([null, 'Bash', 'Read', 'Write', 'Edit'])(
+  'qualifies PrepareLocalRepository against actual native registration with missing %s',
+  async (missing) => {
+    const { assertSessionLaunchTools } = await import('../session-launch-tools-selection.js');
+    mocks.initialize.mockResolvedValue(undefined);
+    mocks.send.mockResolvedValue(undefined);
+    mocks.connect.mockResolvedValue({
+      definitions: [],
+      close: mocks.mcpClose,
+      displayName: (name: string) => name,
+    });
+    const definition = {
+      name: 'Exact repository preparation selection',
+      role: 'agent' as const,
+      instructions: 'Use only the selected tools',
+      expectedOutput: 'Receipt',
+      acceptanceCriteria: ['Qualification agrees with the actual registration'],
+      modelPolicyRole: 'agent' as const,
+      tools: [
+        'PrepareLocalRepository',
+        ...['Bash', 'Read', 'Write', 'Edit'].filter((name) => name !== missing),
+      ].map((name) => ({ id: `mitzo:${name}`, version: 1 })),
+    };
+    const before = structuredClone(definition);
+    const f = ownedLocalOptions('/tmp', {
+      profileId: 'exact-repository-preparation',
+      revision: 1,
+      definition,
+      contentHash: createHash('sha256').update(JSON.stringify(definition)).digest('hex'),
+    });
+    f.opts.assertAgentContextAuthorization = vi.fn();
+    let chat: Awaited<ReturnType<typeof openCodexChat>> | undefined;
+    try {
+      chat = await openCodexChat(f.opts);
+      const tools = mocks.conversationOptions!.tools as Array<{ name: string }>;
+      expect(tools.some((tool) => tool.name === 'PrepareLocalRepository')).toBe(missing === null);
+      const qualification = assertSessionLaunchTools(['PrepareLocalRepository'], definition);
+      if (missing) await expect(qualification).rejects.toThrow(/Bash.*Read.*Write.*Edit/);
+      else await expect(qualification).resolves.toBeUndefined();
+      expect(definition).toEqual(before);
+    } finally {
+      chat?.close();
+      f.eventStore.close();
+    }
+  },
+);
+
 it.each([
   { mode: 'ask', selected: true, eligible: true },
   { mode: 'agent', selected: true, eligible: true },
@@ -6764,7 +6898,7 @@ async function openOwnedOpenShellEfficiencyFixture(
   };
 }
 
-it.each(['default', 'selected', 'excluded', 'unauthorized'] as const)(
+it.each(['default', 'selected', 'artifacts', 'excluded', 'unauthorized'] as const)(
   'offers reviewed Telos capture without a retained role and preserves profile scope (%s)',
   async (mode) => {
     vi.clearAllMocks();
@@ -6788,7 +6922,9 @@ it.each(['default', 'selected', 'excluded', 'unauthorized'] as const)(
       modelPolicyRole: 'agent' as const,
       tools: (mode === 'selected'
         ? ['TelosCreateOutcome', 'TelosAdoptSource']
-        : ['ListConnections']
+        : mode === 'artifacts'
+          ? ['TelosSaveArtifact', 'TelosReadArtifact']
+          : ['ListConnections']
       ).map((name) => ({ id: `mitzo:${name}`, version: 1 })),
     };
     const profile = {
@@ -6799,7 +6935,7 @@ it.each(['default', 'selected', 'excluded', 'unauthorized'] as const)(
     };
     const f = ownedLocalOptions(
       '/tmp',
-      ['selected', 'excluded'].includes(mode) ? profile : undefined,
+      ['selected', 'artifacts', 'excluded'].includes(mode) ? profile : undefined,
     );
     const { SessionRegistry } = await import('@mitzo/harness');
     const registry = new SessionRegistry();
@@ -6851,26 +6987,25 @@ it.each(['default', 'selected', 'excluded', 'unauthorized'] as const)(
           expect(JSON.parse(proxied.content)).toMatchObject({ error: 'direct_tool' });
         }
       }
-      // Default capture does not grant role-scoped progress or artifact capabilities.
-      for (const name of [
-        'TelosGetItem',
-        'TelosUpdateItem',
-        'TelosSaveArtifact',
-        'TelosReadArtifact',
-      ])
+      // Fresh ordinary chats have no role-scoped progress. Artifact tools
+      // follow the exact explicit profile used by launch qualification.
+      for (const name of ['TelosGetItem', 'TelosUpdateItem'])
         expect(tools.some((tool) => tool.name === name)).toBe(false);
-      if (mode === 'default')
-        for (const name of [
-          'TelosListItems',
-          'TelosSearchItems',
-          'TelosManageItem',
-          'TelosCreateChild',
-        ]) {
-          expect(tools.some((tool) => tool.name === name)).toBe(true);
-          const result = await execute('DescribeIntegrationTool', { toolId: name }, signal, call);
-          expect(result.isError).toBe(false);
+      for (const name of ['TelosSaveArtifact', 'TelosReadArtifact'])
+        expect(tools.some((tool) => tool.name === name)).toBe(mode === 'artifacts');
+      for (const name of [
+        'TelosListItems',
+        'TelosSearchItems',
+        'TelosManageItem',
+        'TelosCreateChild',
+        'TelosCreateFeature',
+      ]) {
+        expect(tools.some((tool) => tool.name === name)).toBe(mode === 'default');
+        const result = await execute('DescribeIntegrationTool', { toolId: name }, signal, call);
+        expect(result.isError).toBe(mode !== 'default');
+        if (mode === 'default')
           expect(JSON.parse(result.content)).toMatchObject({ toolId: name, invocation: 'direct' });
-        }
+      }
       const inventory = JSON.parse(
         (await execute('ListIntegrationTools', { query: 'TelosCreateOutcome' }, signal, call))
           .content,
@@ -6900,6 +7035,8 @@ it.each([
   'foreign-operator',
   'child-changed-policy',
   'child-changed-viewer',
+  'feature-changed-policy',
+  'feature-changed-viewer',
 ])(
   'exposes discoverable Telos backlog maintenance in an ordinary OpenShell chat (%s)',
   async (mode) => {
@@ -6934,6 +7071,7 @@ it.each([
         'TelosSearchItems',
         'TelosManageItem',
         'TelosCreateChild',
+        'TelosCreateFeature',
       ])
         expect(tools.some((tool) => tool.name === name)).toBe(true);
       const execute = f.captured.executeTool as (
@@ -6954,6 +7092,7 @@ it.each([
           ['TelosSearchItems', { query: 'studio' }],
           ['TelosManageItem', { operation: 'read', itemId: 'studio' }],
           ['TelosCreateChild', { parentId: 'studio' }],
+          ['TelosCreateFeature', {}],
         ] as const)
           await expect(run(name, input)).rejects.toThrow(/skill|permission/i);
         return;
@@ -7023,7 +7162,11 @@ it.each([
         note: 'Clarify this outcome.',
       };
       if (mode.includes('changed-policy') || mode.includes('changed-viewer')) {
-        const toolName = mode.startsWith('child-') ? 'TelosCreateChild' : 'TelosManageItem';
+        const toolName = mode.startsWith('child-')
+          ? 'TelosCreateChild'
+          : mode.startsWith('feature-')
+            ? 'TelosCreateFeature'
+            : 'TelosManageItem';
         const exact =
           toolName === 'TelosCreateChild'
             ? {
@@ -7036,7 +7179,16 @@ it.each([
                 acceptanceCriteria: ['Dimensions recorded'],
                 note: 'Plan the next step.',
               }
-            : edit;
+            : toolName === 'TelosCreateFeature'
+              ? {
+                  requestId: 'revoked-feature',
+                  summary: 'Create the feature',
+                  intent: 'Save the feature',
+                  rationale: 'Track delivery',
+                  acceptanceCriteria: ['Feature saved'],
+                  note: 'Approved feature',
+                }
+              : edit;
         setSkillPolicy(f.registry, clientId, [toolName]);
         mocks.permissionHandler.mockImplementationOnce(async (_name, input) => {
           if (mode.endsWith('changed-policy')) setSkillPolicy(f.registry, clientId, []);
@@ -7052,6 +7204,7 @@ it.each([
         expect((await run(toolName, exact)).isError).toBe(true);
         expect(canonical.work.readRecord('studio', canonical.actor).summary).toBe('Home studio');
         expect(canonical.work.listItems({ parentId: 'studio' }, canonical.actor).items).toEqual([]);
+        expect(canonical.db.prepare('SELECT COUNT(*) AS n FROM items').get()).toEqual({ n: 1 });
         return;
       }
       expect((await run('TelosManageItem', edit)).isError).toBe(false);
@@ -7089,6 +7242,30 @@ it.each([
       expect(mocks.permissionHandler).toHaveBeenCalledWith(
         'TelosCreateChild',
         child,
+        expect.objectContaining({
+          forcePrompt: true,
+          allowSessionGrant: false,
+          approvalScope: 'request',
+        }),
+      );
+      const feature = {
+        requestId: 'ordinary-feature',
+        summary: 'Improve Telos creation',
+        intent: 'Save a standalone feature contract',
+        rationale: 'A feature can stand alone',
+        acceptanceCriteria: ['Saved without an outcome wrapper'],
+        note: 'User approved the feature.',
+      };
+      const savedFeature = await run('TelosCreateFeature', feature);
+      expect(savedFeature.isError, savedFeature.content).toBe(false);
+      expect(JSON.parse(savedFeature.content)).toMatchObject({
+        item: { parentId: null, summary: feature.summary },
+        preparation: { dedicatedConversationCreated: false },
+      });
+      expect(await run('TelosCreateFeature', feature)).toEqual(savedFeature);
+      expect(mocks.permissionHandler).toHaveBeenCalledWith(
+        'TelosCreateFeature',
+        feature,
         expect.objectContaining({
           forcePrompt: true,
           allowSessionGrant: false,
@@ -7781,3 +7958,53 @@ it.each([
     }
   },
 );
+
+it('retains the active native command across redundant global protection discovery but rejects real drift', async () => {
+  mocks.initialize.mockResolvedValue(undefined);
+  mocks.send.mockResolvedValue(undefined);
+  mocks.connect.mockResolvedValue({ definitions: [], close: mocks.mcpClose });
+  const f = ownedLocalOptions();
+  f.opts.assertAgentContextAuthorization = vi.fn();
+  const preparation = await import('../native-local-repository-preparation.js');
+  const workspaces = vi
+    .spyOn(repositoryWorkspaceRuntime, 'getRepositoryWorkspaces')
+    .mockReturnValue({} as never);
+  const prepared = vi
+    .spyOn(preparation, 'executeNativeLocalRepositoryPreparation')
+    .mockRejectedValue(Error('Reached original preparation owner'));
+  const chat = await openCodexChat(f.opts);
+  try {
+    const opts =
+      mocks.conversationOptions as unknown as import('../codex-conversation.js').CodexConversationOptions;
+    const original = opts.nativeExecution!;
+    opts.assertNativeExecutionCurrent!(original, 'owned-command');
+    mocks.nativeDeniedRoots.push('/offline/owned-login/another-chat');
+    expect(() => opts.assertNativeExecutionCurrent!(original, 'owned-command')).not.toThrow();
+    await expect(
+      opts.executeTool(
+        'PrepareLocalRepository',
+        { path: '/offline/source' },
+        new AbortController().signal,
+        { turnId: 'original-turn', callId: 'prepare-equivalent-policy' },
+      ),
+    ).rejects.toThrow('Reached original preparation owner');
+    mocks.nativeDeniedRoots.push('/offline/separate-credential');
+    expect(() => opts.assertNativeExecutionCurrent!(original, 'owned-command')).toThrow(
+      'Native execution policy changed',
+    );
+    await expect(
+      opts.executeTool(
+        'PrepareLocalRepository',
+        { path: '/offline/source' },
+        new AbortController().signal,
+        { turnId: 'original-turn', callId: 'prepare-changed-policy' },
+      ),
+    ).rejects.toThrow('Native execution policy changed');
+    expect(prepared).toHaveBeenCalledTimes(1);
+  } finally {
+    workspaces.mockRestore();
+    prepared.mockRestore();
+    chat.close();
+    f.eventStore.close();
+  }
+});

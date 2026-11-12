@@ -4,6 +4,7 @@ import { CredentialConnectionsPanel } from '../components/CredentialConnectionsP
 import { SymposiumPersonalConnections } from '../components/SymposiumPersonalConnections';
 import { OpenAIKeyControls } from '../components/OpenAIKeyControls';
 import { OpenAIAccountEnrollment } from '../components/OpenAIAccountEnrollment';
+import { ClaudeAccountConnection } from '../components/ClaudeAccountConnection';
 import { GoogleWorkspaceControls } from '../components/GoogleWorkspaceControls';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { WorkspacePageHeading } from '../components/WorkspacePageHeading';
@@ -344,23 +345,27 @@ export function ConnectionsView({ mode = 'add', connectionId }: ConnectionsViewP
   const managed =
     data?.connections.filter((item) => !connectionId || item.id === connectionId) ?? [];
   const title =
-    mode === 'openai-add'
-      ? 'Add OpenAI API account'
-      : mode === 'openai'
-        ? 'Manage OpenAI API'
-        : mode === 'add'
-          ? 'Add connection'
-          : mode === 'personal'
-            ? 'Manage ChatGPT account'
-            : mode === 'google'
-              ? 'Manage Google Workspace'
-              : mode === 'keychain'
-                ? 'Apple Keychain connections'
-                : mode === 'api'
-                  ? 'API connections'
-                  : mode === 'legacy'
-                    ? 'Provider details'
-                    : 'Manage connection';
+    mode === 'claude'
+      ? connectionId
+        ? 'Manage Claude account'
+        : 'Connect Claude'
+      : mode === 'openai-add'
+        ? 'Add AI API account'
+        : mode === 'openai'
+          ? 'Manage OpenAI API'
+          : mode === 'add'
+            ? 'Add connection'
+            : mode === 'personal'
+              ? 'Manage ChatGPT account'
+              : mode === 'google'
+                ? 'Manage Google Workspace'
+                : mode === 'keychain'
+                  ? 'Apple Keychain connections'
+                  : mode === 'api'
+                    ? 'API connections'
+                    : mode === 'legacy'
+                      ? 'Provider details'
+                      : 'Manage connection';
   const identityFields = template?.connectionFields.filter((field) => field.kind === 'email') ?? [];
   const resourceFields = template?.connectionFields.filter((field) => field.kind !== 'email') ?? [];
   const stepValid =
@@ -471,6 +476,15 @@ export function ConnectionsView({ mode = 'add', connectionId }: ConnectionsViewP
               <div className="access-row-group">
                 <article className="access-row">
                   <div className="access-row-copy">
+                    <h3>Claude</h3>
+                    <p>Use a personal Claude Pro or Max subscription on Local Mac.</p>
+                  </div>
+                  <Link className="access-row-action" to="/connections?manage=claude">
+                    Choose Claude
+                  </Link>
+                </article>
+                <article className="access-row">
+                  <div className="access-row-copy">
                     <h3>ChatGPT</h3>
                     <p>Use a personal ChatGPT subscription.</p>
                   </div>
@@ -487,11 +501,11 @@ export function ConnectionsView({ mode = 'add', connectionId }: ConnectionsViewP
                 {data?.openAIAccountsManaged && !loadError && !connectionsRefreshing && (
                   <article className="access-row">
                     <div className="access-row-copy">
-                      <h3>OpenAI API</h3>
-                      <p>Add a new work account for new chats.</p>
+                      <h3>AI API account</h3>
+                      <p>Use OpenAI, EnMaaS or a compatible API for new chats.</p>
                     </div>
                     <Link className="access-row-action" to="/connections?manage=openai-add">
-                      Choose OpenAI API
+                      Choose AI API account
                     </Link>
                   </article>
                 )}
@@ -649,6 +663,8 @@ export function ConnectionsView({ mode = 'add', connectionId }: ConnectionsViewP
             <button onClick={resetWizard}>Choose another connection</button>
           </div>
         )
+      ) : mode === 'claude' ? (
+        <ClaudeAccountConnection accountId={connectionId} />
       ) : mode === 'personal' ? (
         <SymposiumPersonalConnections mode="manage" connectionId={connectionId} />
       ) : mode === 'keychain' || mode === 'api' ? (
@@ -698,7 +714,7 @@ export function ConnectionsView({ mode = 'add', connectionId }: ConnectionsViewP
                 onReauthorizationNeeded={requireReauthorization}
               />
             ) : (
-              <p>Adding OpenAI API accounts is unavailable.</p>
+              <p>Adding AI API accounts is unavailable.</p>
             ))}
           {data &&
             mode === 'openai' &&

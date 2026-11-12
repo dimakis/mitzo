@@ -1,3 +1,4 @@
+import { retainedCallbackOutcome } from '../turn-callbacks.js';
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import {
@@ -36,6 +37,169 @@ import {
 } from '../trusted-native-operation.js';
 import { captureLocalRepository } from '../local-repository-worktree.js';
 import { snapshotRepositoryTaskCheckout } from '../repository-task-checkout.js';
+
+it('collects a large CI job log with bounded literal-filter output and unchanged GET authority', async () => {
+  githubProcess.execute.mockReset();
+  githubProcess.execute.mockImplementation((_file, _args, options, callback) => {
+    expect(options.maxBuffer).toBe(8 * 1024 * 1024);
+    callback(null, 'setup\n'.repeat(20000) + 'FAIL [literal] job failed\n', '');
+    return {};
+  });
+  const current = vi.fn();
+  const output = await executeTrustedGitHubRead(
+    '/repos/example/project/actions/jobs/123/logs',
+    new AbortController().signal,
+    undefined,
+    undefined,
+    'full',
+    current,
+    { query: '[literal]' },
+  );
+  expect(JSON.parse(output)).toMatchObject({
+    content: 'FAIL [literal] job failed',
+    nextOffset: null,
+  });
+  expect(githubProcess.execute.mock.calls[0][1]).toEqual([
+    'api',
+    '--hostname',
+    'github.com',
+    '--method',
+    'GET',
+    '/repos/example/project/actions/jobs/123/logs',
+  ]);
+  expect(current).toHaveBeenCalledTimes(2);
+});
+
+it('preserves source whitespace through log transport, filtering and pagination', async () => {
+  const body = '  FAIL 🦊 first\nPASS next\n  FAIL last  \n\n';
+  githubProcess.execute.mockReset();
+  githubProcess.execute.mockImplementation((_file, _args, _options, callback) => {
+    callback(null, body, '');
+    return {};
+  });
+  const read = async (options: { query?: string; offset?: number; limit?: number }) =>
+    JSON.parse(
+      await executeTrustedGitHubRead(
+        '/repos/example/project/actions/jobs/123/logs',
+        new AbortController().signal,
+        undefined,
+        undefined,
+        'full',
+        undefined,
+        options,
+      ),
+    );
+  expect(await read({ query: '  FAIL' })).toMatchObject({
+    content: '  FAIL 🦊 first\n  FAIL last  ',
+    sourceBytes: Buffer.byteLength(body),
+    nextOffset: null,
+  });
+  const first = await read({ limit: 12 });
+  const rest = await read({ offset: first.nextOffset });
+  expect(first.content + rest.content).toBe(body);
+  expect(rest).toMatchObject({
+    totalCharacters: body.length,
+    sourceBytes: Buffer.byteLength(body),
+    nextOffset: null,
+  });
+});
+
+it('rejects log controls on non-log reads before starting a credentialed process', async () => {
+  githubProcess.execute.mockReset();
+  await expect(
+    executeTrustedGitHubRead(
+      '/user',
+      new AbortController().signal,
+      undefined,
+      undefined,
+      'full',
+      undefined,
+      {},
+    ),
+  ).rejects.toThrow('Log controls require');
+  expect(githubProcess.execute).not.toHaveBeenCalled();
+});
+
+it('reports oversized CI logs without returning the unbounded partial stdout', async () => {
+  githubProcess.execute.mockReset();
+  githubProcess.execute.mockImplementation((_file, _args, _options, callback) => {
+    callback(
+      Object.assign(Error('buffer full'), { code: 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER' }),
+      'private log bytes'.repeat(10000),
+      '',
+    );
+    return {};
+  });
+  await expect(
+    executeTrustedGitHubRead(
+      '/repos/o/r/actions/jobs/123/logs',
+      new AbortController().signal,
+      undefined,
+      undefined,
+      'full',
+      undefined,
+      {},
+    ),
+  ).rejects.toThrow(/^GitHub response exceeds the source byte limit; request a narrower read$/);
+});
+
+it.each(['timeout', 'abort', 'exit'] as const)(
+  'bounds %s diagnostics without leaking unfiltered CI log output',
+  async (kind) => {
+    githubProcess.execute.mockReset();
+    const abort = new AbortController();
+    githubProcess.execute.mockImplementation((_file, _args, _options, callback) => {
+      if (kind === 'abort') abort.abort();
+      callback(
+        Object.assign(Error('original transport cause'), {
+          code: kind === 'exit' ? 1 : kind === 'abort' ? 'ABORT_ERR' : 'ETIMEDOUT',
+          killed: kind !== 'exit',
+          signal: kind === 'exit' ? null : 'SIGTERM',
+        }),
+        'PRIVATE LOG\n'.repeat(100000),
+        'private stderr',
+      );
+      return {};
+    });
+    const failure = await executeTrustedGitHubRead(
+      '/repos/o/r/actions/jobs/123/logs',
+      abort.signal,
+      undefined,
+      undefined,
+      'full',
+      undefined,
+      { query: 'FAIL' },
+    ).catch((error: unknown) => error);
+    expect(failure).toBeInstanceOf(Error);
+    expect((failure as Error).message).toBe(
+      'GitHub log transport failed; no log content was returned',
+    );
+    expect((failure as Error).cause).toBeInstanceOf(Error);
+    expect(retainedCallbackOutcome(failure as Error)).toBe(kind === 'exit' ? 'settled' : undefined);
+  },
+);
+
+it.each([false, true])(
+  'settles an observed GitHub CLI refusal while preserving cancellation (cancelled=%s)',
+  async (cancelled) => {
+    githubProcess.execute.mockReset();
+    const abort = new AbortController();
+    githubProcess.execute.mockImplementation((_file, _args, _options, callback) => {
+      if (cancelled) abort.abort();
+      callback(
+        Object.assign(Error('gh failed'), { code: 1, signal: null, killed: false }),
+        '',
+        'gh: Not Found (HTTP 404)',
+      );
+      return {};
+    });
+    const failure = await executeTrustedGitHubRead('/repos/example/project', abort.signal).catch(
+      (error: unknown) => error,
+    );
+    expect(failure).toBeInstanceOf(Error);
+    expect(retainedCallbackOutcome(failure as Error)).toBe(cancelled ? undefined : 'settled');
+  },
+);
 
 it.each(['dispatch', 'delivery'] as const)(
   'rechecks GitHub read authority at %s without a real network process',

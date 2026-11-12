@@ -116,6 +116,7 @@ export interface ConnectionsViewProps {
     | 'legacy'
     | 'openai'
     | 'openai-add'
+    | 'claude'
     | 'keychain'
     | 'api';
   connectionId?: string;
@@ -128,6 +129,8 @@ export interface EnrolledOpenAIAccount {
   /** User-declared purpose; not a verified project identifier. */
   projectLabel: string;
   state: string;
+  endpoint?: string;
+  errorCode?: string;
 }
 
 export interface OpenAIKeyHealth {

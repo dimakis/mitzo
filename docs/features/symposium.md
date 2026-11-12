@@ -1,9 +1,302 @@
 # Symposium: current direction and source guide
 
-Updated 7 November 2026. Start here for Symposium product work.
+Updated 12 November 2026. Start here for Symposium product work.
 Existing Telos item: `c0851ba23fcc5d04`; reuse it rather than create another parent
 or a task for every document. Tracker closure and source landing do not prove
 runtime acceptance or authorize deployment.
+
+## Source-acceptance checkpoint — 12 November 2026
+
+GitHub merge receipts were checked on 12 November. The table updates source
+acceptance; the dated checkpoints below retain their original test results,
+qualification limits and preparation-stage wording.
+
+| Behavior                                                                                 | Source change and checked state                                                                                                                                          |
+| ---------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Fresh Local Codex joining, directed replies and long-history delivery                    | Accepted #1261 (`878317bd`), #1276 (`8978f4a1`) and #1279 (`048b3e05`).                                                                                                  |
+| Multiple responders, independent outcomes, ordinary Stop and attributed streaming        | Accepted #1280 (`14fb28b0`).                                                                                                                                             |
+| Reviewed one-prompt context and frozen artifact preview                                  | Accepted #1281 (`0b8b94f1`).                                                                                                                                             |
+| Exact saved-artifact selection, UTF-8 delivery and recovery/navigation                   | Accepted [#1282](https://github.com/dimakis/mitzo/pull/1282), `d61ae5b25677df50a8b00470f9c01e4a15aaa661`, after green combined CI and final exact-head Centaur approval. |
+| Context-only forwarding from the current discussion                                      | Accepted [#1284](https://github.com/dimakis/mitzo/pull/1284), `33bed3962a26d7ce21208610d11b0e85e1aa106d`, after green combined CI and final exact-head Centaur approval. |
+| Personal Claude through the ordinary SDK owner, alongside a separate API-key participant | Source in this change, [#1289](https://github.com/dimakis/mitzo/pull/1289); its current CI/review and eventual merge receipt govern source acceptance.                   |
+
+Production application fixtures exercise real authentication, stores, routing and
+ordinary owners with external execution/account effects replaced at their boundary.
+Intercepted browser fixtures establish UI behavior and rendering separately. The
+[living evidence map](../evidence/symposium-integration-acceptance.md) records their
+sources and limits. These increments do not by themselves close every milestone
+criterion or unfinished child.
+
+Other-conversation and separate Telos-artifact picker UI remain beyond the current
+forwarding controls. Full live account/runtime parity, OpenShell qualification,
+physical iOS acceptance and production activation remain separate work.
+
+## Personal Claude alongside an API-key participant — source candidate
+
+The replacement owner's provider candidate uses the existing Local Mac ordinary
+Claude SDK owner and personal subscription custody. A fresh participant can be
+prepared silently with the selected account, agent and repository, then start
+only on an explicit request. It does not substitute an Anthropic API credential
+for personal Claude sign-in. A separate configured API-key participant keeps its
+own account, native owner and private execution evidence.
+
+Exact SDK input acceptance, final reply identity, terminal settlement and Stop
+claims are retained privately against the original ordinary command. Late events
+from a retired SDK run cannot acquire a queued successor's identity. Unknown tool
+effects remain uncertain; a cancellation acknowledgment does not prove settlement.
+Final synchronous authorization follows asynchronous credential/source checks.
+Recovered shared commands without their original source-authorization observer
+are refused before admission and final SDK input. Their retained context cannot
+silently bypass the sharing fence after restart.
+
+The offline real HTTP application journey exercises both personal Claude and a
+separate OpenAI API-key participant: silent joins, first/later attributed replies,
+exact retries without extra inputs, an exact older saved artifact, independent
+Stop claims and terminal settlement, complete restart without replay, and explicit
+cold continuation of the same personal Claude session. Only external credential
+and provider processes are synthetic; application authentication, account routing,
+admission, stores and source delivery remain real. The Add-agent repository picker
+now carries the selected supported harness instead of hard-coding Codex; remote
+SDK and unsupported routes remain unavailable.
+
+This is source qualification. Hosted CI, browser evidence, trusted current-head
+review and gated landing remain required. No real subscription/API test, account
+enrollment, deployment or runtime acceptance is claimed. The context-only forwarding
+sheet is implemented in the preceding PR; its durability correction is integrated
+here with the shared send/Stop recovery owner. Explicit requests for responses
+continue through ordinary prompt admission.
+
+## Accepted multiple-responder source
+
+[PR #1280](https://github.com/dimakis/mitzo/pull/1280) merged into main as
+`14fb28b0d03a0d780b663f1ef0697699ec546b88` on 11 November. CI run 43008032180
+attempt 2 and Centaur review 5858244434 qualified its exact source head with
+LGTM, a merge recommendation and zero blockers. The strict accepted-base,
+dedicated-App and read-only MGMT gates passed before guarded merge.
+
+The accepted source enables the approved Defaults, All and multiple `@`
+selections through the existing shared composer. Every selected recipient must
+pass ordinary readiness before a new request is accepted. The original intent
+and receipt keep their identity across selection changes, partial results,
+reload and exact retries.
+
+Per-recipient completion, failure, interruption and uncertainty are observed from
+the exact ordinary command and native effects owner. Visible answer text alone
+does not retire an outstanding request. Failed recipients remain visible beside
+successful answers; a later explicit selection can ask only the failed agent.
+Unknown native outcomes retain the original request and never automatically resend.
+
+The existing Stop control now requests interruption of each retained reply command.
+It uses the ordinary native owner's exact turn comparison and durable interruption
+claim. Repeated requests never reissue a claimed interrupt or target a successor.
+Stop intent survives reload; a cancellation ACK does not establish terminal outcome
+or release uncertain effects. Late control responses cannot affect another prompt.
+
+The shared conversation also displays attributed live text from each exact accepted ordinary
+command. A read-only, authenticated projection includes visible text and excludes
+private reasoning, tool data and provider identifiers. Partial text recovers after
+remount without inference; finalization replaces only that exact live source.
+Auth loss clears it immediately, and only verified restoration renews observation.
+
+An observer without a local send also renews the authorized finalized transcript
+on each live sample, including turns that finish entirely between samples. Remote
+membership drift discards mismatched live text and renews the view before observing
+its new audience. Background reads keep draft controls usable and yield synchronously
+to an explicit read; they grant no inference or command control. The application
+observer regression covers a live-to-final handoff, a remote membership change and
+a fast external reply with no local request journal or manual refresh.
+
+Offline application evidence covers two independent same-account sessions,
+partial failure, an explicit selected retry and uncertainty after reload. Retained
+desktop/mobile light/dark responder renders were inspected. Per-prompt reviewed
+context #1281 is accepted at main `0b8b94f1dd6519f7fcfb5b9eafdb352f03dc475e`.
+Saved-artifact selection, forwarding and personal Claude remain in the
+dependent landing sequence #1282, #1284 and #1289. Each successor must be
+integrated and qualified against actual accepted main. Broader milestone
+qualification remains open. No deployment or live inference is qualified.
+
+## Reviewed context for one prompt — source candidate
+
+The next slice connects the existing source compiler to the shared composer's
+context control. Select ordinary source messages or the conversation so far,
+enter a purpose and brief, inspect the exact frozen material and recipients, then
+attach it to one explicit prompt. Review allocates no agent and starts no turn.
+The ordinary dispatcher receives each message's exact retained context, including
+before a reader's later requested reply. Accepted context is detached from the
+next draft while the original send keeps its snapshot for uncertainty and retries.
+
+Lost review responses retain selectors and request identity rather than private
+snapshot text. Reload requires checking the original review; audience, policy or
+settings drift requires explicit review again. Source privacy, full-prefix and
+artifact witnesses are renewed before dispatch. Verified primary-operator login
+renewal preserves accepted pending context without rewriting historical provenance.
+Distinct pending snapshots are inventoried against each recipient's encoded byte
+budget before compiler witnesses are retained; the complete packet still has its
+512 KiB admission check. Capacity remains honestly unverified until ordinary admission.
+
+The actual application journey and 127 other focused checks pass locally with
+external-only synthetic transport. Browser fixtures include review/edit/refreeze,
+keyboard focus, touch controls and theme captures; hosted renders and current-head
+review/CI remain required. Explicit saved-artifact version selection, exact
+forwarding and broader milestone qualification remain open. Conversation-so-far
+review can include referenced artifact versions through the existing compiler.
+Both prompt and joining reviews display each included artifact's frozen contents,
+with the exact version label. UTF-8 text preserves whitespace and renders markup
+literally; binary or malformed historical bytes remain inspectable as Base64.
+Reference-only historical snapshots explicitly say that saved contents are absent.
+Regression checks cover the real prompt review hook and the rendered browser fixture.
+No deployment, live inference or installed-runtime acceptance is established.
+
+## Saved artifact selection — source candidate
+
+Selected prompt context now lists the source conversation's registered saved
+versions through a bounded, authenticated metadata projection. Check an exact
+version, review its frozen pin with the selected messages, then attach that
+review to one prompt. Unavailable versions stay visible and disabled. The
+browser retains selectors and original request identity, without artifact bytes.
+
+The ordinary text adapter receives exact decoded UTF-8 content, including Unicode,
+BOM and line endings, instead of opaque base64. It verifies canonical encoding,
+size and hash first. Unsupported formats, missing content or malformed bytes
+refuse visibly before prompt acceptance or command claims. The complete encoded
+packet budget and renewed source/artifact witnesses still apply. A later reader
+receives the same accepted artifact material.
+
+This is artifact selection for reviewed prompt context. Explicit forwarding from
+other conversations or retained Telos artifacts, its public application controls,
+and broader milestone qualification remain open. Offline application tests use
+synthetic external transport; hosted CI, rendered evidence and trusted review
+remain required. Source publication does not establish deployment or live acceptance.
+
+## Exact forwarding application adapter — source candidate
+
+The authenticated application can prepare and confirm exact ordinary source
+messages, registered transcript artifacts, or independently retained Telos text
+versions for selected existing participants. Preparation and confirmation start
+no model turn. Confirmation records context for the recipients' next explicit
+ordinary turn; the existing dispatcher delivers the complete verified material,
+then records the original context receipt against that exact command. Unsupported
+formats and oversized packets refuse before acceptance rather than deliver a note
+without its selected content.
+
+Retained artifacts borrow the configured canonical store in read-only mode. Every
+read and effect fence renews its actual physical owner, current operator scope,
+item eligibility, exact version and bytes. Source-capture artifacts remain outside
+this generic path. Unexpected storage failures remain observable and return a
+visible failure; they never become an empty successful selection.
+
+Lost preparation responses have a read-only request-ID observation route. Exact
+confirmation and send retries retain their original identities. The offline
+application journey covers an older retained version, a newer saved successor,
+storage failure, complete application restart and actual ordinary native input
+with synthetic external transport.
+
+The current source candidate also provides context-only forwarding in the shared
+composer's existing context review. Inspect exact source messages, frozen artifact
+versions and all reviewed recipients, prepare the forward, then explicitly confirm.
+The prompt draft stays unsent. A later explicit ordinary prompt requests a response.
+Original-context reinspection recovers a retained preparation independently of newer
+prompt edits; lost confirmation responses preserve the original request identity.
+The real application UI regression covers this path and read-only recovery with
+synthetic external transport. See the [forwarding evidence](../evidence/symposium-forwarding-ui-2026-11-11.md).
+
+This UI selects material from the current source discussion. A cross-conversation
+chooser and separate retained-Telos-artifact picker are not supplied. API coverage
+does not establish those UI paths. Final accepted-base CI, trusted review, combined
+rendered verification and broader qualification remain open. This candidate does
+not establish deployment or live acceptance.
+
+## Accepted shared composer and reply recovery
+
+Accepted PR #1279 removes the display-page limit from new sends. Pending
+discussion is enumerated per recipient in bounded keyset pages, including older
+attributed replies, and checked against the complete encoded 512 KiB packet limit
+before acceptance. Already claimed context stays with its original command; an
+older unclaimed reply request cannot be adopted by a later send. The
+[merged PR #1279](https://github.com/dimakis/mitzo/pull/1279) retains focused
+offline/application evidence and its integration with accepted Claude main `f7fd876a`.
+Defaults/multiple responders and streaming are accepted through #1280 above.
+New reviewed per-prompt context, exact forwarding and the remaining milestone
+qualification are still in progress. See the
+[current evidence](../evidence/symposium-integration-acceptance.md).
+
+PRs #1252 and #1261 are merged. Current source supports server-owned recipient
+readiness, silent joining, first and later explicit Local Codex prompts through
+the shared composer, attributed finalized replies, exact observational retries
+and retained uncertain sends. This is bounded source acceptance, not installed
+runtime or live user acceptance.
+
+The remaining unique recovery behavior from draft #1244 is ported into the
+accepted messaging owner: finalized answers recover independently of unrelated
+history size/interleaving and the recent shared-message page. Malformed or
+oversized sources refuse individually; later eligible answers remain readable.
+Full-prefix joining/snapshot qualification and ordinary provenance remain intact.
+See the dated [evidence map](../evidence/symposium-integration-acceptance.md).
+The old #1244 dispatch/UI paths are superseded; recommend retiring that draft
+after its unique recovery replacement lands. #1242's relevant production fixes
+are already accepted through #1266/#1272 and are not an outstanding prerequisite.
+
+The replacement also repairs two gaps exposed by the complete application UI
+journey: a parent echo of the pending repository ID cancelled its own preparation,
+and initial context review omitted the required joining brief. The real Add-agent
+controls now prepare the repository, review/edit/refreeze context, join silently,
+refresh stale readiness and send a directed prompt yielding an attributed answer.
+The same application UI test then explicitly addresses a second joined agent on
+the same account. Its independent native turn receives the first prompt and reply
+with attribution, and acknowledges their retained context exactly once.
+That offline application test substitutes external native metadata and RPC only;
+it does not qualify a live account. Existing request cancellation, changed-model
+restoration and exact edited/retry bytes remain covered.
+
+Hosted browser renders and independent visual comparison pass for the corrected
+mobile and desktop presentation. The approved design controls and references are
+unchanged. Hosted visual review found an
+Add-agent footer note shrinking below its approved 72px minimum at phone width;
+the component restores that readable track with shared spacing tokens and retains
+wrapping. A separate browser regression preserves the original protected checks.
+The dated evidence map links those rendered artifacts; keyboard/recovery behavior
+has separate offline interaction coverage. Screenshots do not establish live
+runtime, physical-device or complete milestone acceptance.
+No source merge establishes deployment,
+physical iOS or full runtime/account qualification. The dated candidate records
+below describe their original checkpoints.
+
+## Shared composer — 7 November candidate
+
+PRs [#1237](https://github.com/dimakis/mitzo/pull/1237) (silent joining) and
+[#1252](https://github.com/dimakis/mitzo/pull/1252) (directed prompts and replies)
+are merged. Candidate `feat/symposium-shared-composer` starts from accepted main
+`44e872c8a615e30bd75ac9738101dfbfaa1d6aa7` and connects their application owners
+to the existing Agents surface and composer. It contributes to child
+`c3ac6bfcc3b29e20` under active milestone `358d56cb7e4352ff`.
+
+The bounded route requires one explicitly selected responder. An authenticated,
+observational server check verifies current membership, settings, reviewed context
+and ordinary Local Codex availability before enabling Send. Dispatch repeats its
+existing authority checks. A fresh participant's reviewed name appears in Agents,
+the responder picker and its finalized reply. The existing repository preparation
+picker supplies the fresh target; opening a conversation allocates no session.
+
+The shared draft retains the exact request before sending. Accepted sends clear
+the text while preserving recipient intent and recovery metadata. An uncertain
+response keeps the original request across remounts: Check original request only
+observes its receipt and finalized reply, and never dispatches it again. The
+original ordinary history remains visible. Finalized replies refresh through the
+existing collaboration projection; no streaming or response loop is introduced.
+
+The actual-app UI test sends through the production composer after the real API
+review/join/restart prerequisites. It proves one native turn, exact reviewed
+content, attribution and remount retention. The complete Add agent / edited review /
+refreeze / join journey still needs a combined UI acceptance run. The offline
+browser fixture covers light/dark, desktop/mobile, refusal, send and retained
+drafts, but its local execution stopped at the host sandbox guard before launch;
+rendered acceptance remains a CI or permitted host-runner gate. See the dated
+[evidence checkpoint](../evidence/symposium-integration-acceptance.md).
+
+This candidate does not qualify an installed runtime. Defaults/fan-out, streaming,
+Stop/restart coverage, forwarding, long-history paging, other providers and physical
+iOS remain outside this slice. The approved design ledger and reference images
+are unchanged. Source review, CI, acceptance and deployment remain separate.
 
 ## Directed prompt/reply application increment — 7 November candidate
 
@@ -423,3 +716,20 @@ shared route has not been accepted by this documentation change.
 Production activation, provider enrollment and retained-owner/resource settlement
 remain separate, operation-specific requirements. Live model tests explicitly
 use a supported Luna model with the exact charged account announced beforehand.
+
+## Source review follow-up — 12 November 2026
+
+The personal Claude candidate preserves current SDK peer/user steering, ordinary
+sender checks and Symposium command lifecycle fences together. A shared command
+recovered from the durable queue cannot dispatch without its original live source
+observer. Recovery preserves the queued command and reports uncertainty; a new
+continuation does not grant permission to replay its private context.
+
+The recording-transport application journey now queues B behind A, stops and
+settles A, restarts, and requests an explicit cold continuation. It verifies that
+B gets no execution admission or provider input when its observer is unavailable.
+The owner-level refusal and application outcome were observed failing before the
+correction and passing afterward. Earlier fresh joining, independent personal/API
+participants, attributed replies, exact artifacts, Stop and normal cold continuation
+remain in the same journey. These are offline source checks, not live account,
+device, deployment or full-feature acceptance.

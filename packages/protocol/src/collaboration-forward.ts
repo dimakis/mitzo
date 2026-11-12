@@ -80,6 +80,11 @@ export const CollaborationForwardConfirmInputSchema = z.strictObject({
   forward: CollaborationForwardReferenceSchema.extend({ selectionFingerprint: digest }),
   requestReply: z.literal(false),
 });
+export const CollaborationForwardPrepareRequestSchema =
+  CollaborationForwardPrepareInputSchema.extend({ clientId: id });
+export const CollaborationForwardConfirmRequestSchema =
+  CollaborationForwardConfirmInputSchema.extend({ clientId: id });
+export const CollaborationForwardReadQuerySchema = z.strictObject({ clientId: id });
 export const CollaborationForwardConfirmationSchema = z.strictObject({
   version: z.literal(1),
   requestId: z.uuid(),

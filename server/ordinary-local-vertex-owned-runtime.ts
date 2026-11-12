@@ -31,7 +31,11 @@ import {
   type OrdinaryLocalCodexAdmissionExpectation,
 } from './ordinary-local-codex-admission.js';
 import { OrdinaryLocalCodexSelectionOwner } from './ordinary-local-codex-selection-owner.js';
-import { VertexAdcCustody } from './ordinary-local-vertex-custody.js';
+import {
+  captureClaudeSdkCredentials,
+  reopenClaudeSdkCredentials,
+  verifyClaudeSdkCredentials,
+} from './claude-sdk-credentials.js';
 import { buildAgentProfilePrompt } from './agent-library-prompt.js';
 
 const Payload = LocalVertexClaudeFirstCommandSchema.shape.payload;
@@ -53,6 +57,7 @@ interface Owners {
   workspace: RepositoryWorkspaces;
   reservation: Omit<HostRepositoryReservationInput, 'signal'>;
   commandId: string;
+  preparationOperationId?: string;
   operatorConnectionId: string;
   signal: AbortSignal;
   env?: Readonly<NodeJS.ProcessEnv>;
@@ -80,13 +85,7 @@ export class OrdinaryLocalVertexOwnedRuntime {
   #active?: string;
   #lastCompleted?: string;
   constructor(private readonly owners: Owners) {
-    if (
-      !owners.enabled ||
-      !process.env.MITZO_ACCOUNT_PROFILES_FILE ||
-      custodianControllerMode ||
-      custodianOwnerMode
-    )
-      throw unavailable();
+    if (!owners.enabled || custodianControllerMode || custodianOwnerMode) throw unavailable();
     owners.signal.throwIfAborted();
     this.owners = {
       ...owners,
@@ -137,8 +136,11 @@ export class OrdinaryLocalVertexOwnedRuntime {
     const custody = this.owners.eventStore.getOrdinaryLocalVertexCustody(
       this.owners.reservation.conversationId,
     );
-    if (custody) VertexAdcCustody.reopen(custody.credentialAuthority, env).assertCurrent(env);
-    else VertexAdcCustody.capture(env).assertCurrent(env);
+    const credential = custody
+      ? reopenClaudeSdkCredentials(custody.credentialAuthority, env)
+      : captureClaudeSdkCredentials(env);
+    credential.assertCurrent(env);
+    return credential;
   }
   async assertSetup(commandId: string) {
     this.assertOwner();
@@ -257,21 +259,28 @@ export class OrdinaryLocalVertexOwnedRuntime {
   admitResume(input: unknown) {
     return this.admitCommand(input, true, true);
   }
-  admitContinuation(input: unknown, preparationSignal?: AbortSignal) {
-    return this.admitCommand(input, true, false, preparationSignal);
+  admitContinuation(
+    input: unknown,
+    preparationSignal?: AbortSignal,
+    assertSenderCurrent?: () => void,
+  ) {
+    return this.admitCommand(input, true, false, preparationSignal, assertSenderCurrent);
   }
   private async admitCommand(
     raw: unknown,
     continuation: boolean,
     resume: boolean,
     preparationSignal?: AbortSignal,
+    assertSenderCurrent?: () => void,
   ): Promise<{ dispatched: boolean }> {
     const assertAdmissionCurrent = () => {
       preparationSignal?.throwIfAborted();
+      assertSenderCurrent?.();
       this.assertOwner();
     };
     assertAdmissionCurrent();
-    this.credentialAuthority();
+    await verifyClaudeSdkCredentials(this.credentialAuthority(), this.environment(), this.#signal);
+    assertAdmissionCurrent();
     const request = OrdinaryLocalVertexCommandRequestSchema.parse(raw);
     if ((!continuation || resume) && request.clientMsgId !== this.owners.commandId)
       throw unavailable();
@@ -297,7 +306,7 @@ export class OrdinaryLocalVertexOwnedRuntime {
         },
         request.runtime.account,
       ) ||
-      account.provider !== 'anthropic-vertex' ||
+      !['anthropic-vertex', 'anthropic-claude', 'anthropic-api'].includes(account.provider) ||
       (!continuation && !isDeepStrictEqual(account, original))
     )
       throw unavailable();
@@ -322,7 +331,11 @@ export class OrdinaryLocalVertexOwnedRuntime {
         descriptor.state !== 'claimed'
       )
         throw unavailable();
-      await assertOrdinaryLocalVertexHistory(custody.sdkSessionId, custody.cwd);
+      await assertOrdinaryLocalVertexHistory(
+        custody.sdkSessionId,
+        custody.cwd,
+        this.environment().CLAUDE_CONFIG_DIR,
+      );
       assertAdmissionCurrent();
       this.credentialAuthority();
     } else if (!continuation && descriptor.state === 'claimed') {
@@ -336,7 +349,9 @@ export class OrdinaryLocalVertexOwnedRuntime {
       !profile ||
       profile.definition.contextRecipe !== undefined ||
       (profile.definition.recipe &&
-        !profile.definition.recipe.compatibleProviders.includes('anthropic-vertex')) ||
+        !profile.definition.recipe.compatibleProviders.some(
+          (provider) => provider === original.provider,
+        )) ||
       request.selection.context.source !== 'none' ||
       request.selection.context.revision !== null ||
       request.selection.permission.revision !== 0
@@ -355,6 +370,9 @@ export class OrdinaryLocalVertexOwnedRuntime {
       commandId: request.clientMsgId,
       continuation,
       vertex: true,
+      ...(!continuation && this.owners.preparationOperationId
+        ? { preparationOperationId: this.owners.preparationOperationId }
+        : {}),
     });
     const authority = {
       withAdmission: async <T>(
@@ -402,6 +420,12 @@ export class OrdinaryLocalVertexOwnedRuntime {
       declaration: catalog.declaration,
       authority,
       store: {
+        admitPreparedOrdinaryCommand: (
+          ...args: Parameters<typeof events.admitPreparedOrdinaryCommand>
+        ) => {
+          assertAdmissionCurrent();
+          return events.admitPreparedOrdinaryCommand(...args);
+        },
         admitOrdinaryLocalCommand: (
           ...args: Parameters<typeof events.admitOrdinaryLocalVertexCommand>
         ) => {
@@ -440,9 +464,11 @@ export class OrdinaryLocalVertexOwnedRuntime {
     };
     let workspace: RepositoryWorkspace | null | undefined;
     const result = await (
-      continuation
-        ? coordinator.admitContinuation.bind(coordinator)
-        : coordinator.admit.bind(coordinator)
+      !continuation && this.owners.preparationOperationId
+        ? coordinator.admitPreparedFirst.bind(coordinator, this.owners.preparationOperationId)
+        : continuation
+          ? coordinator.admitContinuation.bind(coordinator)
+          : coordinator.admit.bind(coordinator)
     )(meta, admittedRequest, {
       prepareWorkspace: async (expected) => {
         assertAdmissionCurrent();
@@ -477,7 +503,7 @@ export class OrdinaryLocalVertexOwnedRuntime {
           repositoryWorkspaceId: expected.workspace.workspaceId,
           cwd: expected.workspace.cwd,
           binding: expected.binding,
-          credentialAuthority: VertexAdcCustody.capture(this.environment()).snapshot(),
+          credentialAuthority: captureClaudeSdkCredentials(this.environment()).snapshot(),
         };
         this.owners.eventStore.retainOrdinaryLocalVertexCustody(custody);
         this.#commands.set(commandId, {

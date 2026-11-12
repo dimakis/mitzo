@@ -5,6 +5,7 @@ import { geminiThinkingConfig } from './gemini-thinking.js';
 import { loadAccountProfiles } from './account-profiles.js';
 import type { AdviserRequest } from './terminal-adviser.js';
 import { createNativeAdviserSession, type AdviserFeatureOwner } from './adviser-harness-runtime.js';
+import { supportsScopedAdviserProvider } from './terminal-adviser-catalog.js';
 
 /** Gemini remains deferred; all supported OpenAI and Claude advice uses the shared harness owners. */
 export async function createTerminalAdviserSession(
@@ -18,6 +19,8 @@ export async function createTerminalAdviserSession(
     );
   const profiles = loadAccountProfiles();
   const binding = profiles.resolve(request.accountId, request.model);
+  if (!supportsScopedAdviserProvider(binding.provider))
+    throw Error('Personal Claude advisers are not supported; select a supported adviser account.');
   profiles.validateModelSelection(binding, request.model, request.reasoningEffort);
   if (binding.provider !== 'google-vertex') {
     if (!owner) throw Error('Authenticated adviser feature owner required');

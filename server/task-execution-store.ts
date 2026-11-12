@@ -1,5 +1,8 @@
 import Database from 'better-sqlite3';
 import { createHash, randomUUID } from 'node:crypto';
+import { isDeepStrictEqual } from 'node:util';
+import { codexStoredAccountKey } from './codex-stored-account.js';
+import type { AccountBinding } from '@mitzo/protocol';
 import { z } from 'zod';
 import { createLogger } from './logger.js';
 const log = createLogger('task-execution-store');
@@ -10,6 +13,22 @@ export const TaskExecutionScopeSchema = z.strictObject({
   repositories: z.array(z.string().regex(/^[\w.-]+\/[\w.-]+$/)).max(20),
   expiresAt: z.number().int().positive().safe(),
   durationMinutes: z.number().int().min(1).max(480).optional(),
+  inheritedGrants: z
+    .array(
+      z.strictObject({
+        sessionId: z.string().min(1).max(200),
+        grantId: z.uuid(),
+        capability: z.discriminatedUnion('kind', [
+          z.strictObject({ kind: z.literal('development') }),
+          z.strictObject({
+            kind: z.literal('github-read'),
+            repository: z.string().regex(/^[\w.-]+\/[\w.-]+$/),
+          }),
+        ]),
+      }),
+    )
+    .max(420)
+    .optional(),
   members: z
     .array(
       z.strictObject({
@@ -42,6 +61,12 @@ const GrantSchema = TaskExecutionScopeSchema.extend({
 export type TaskExecutionGrant = z.infer<typeof GrantSchema>;
 const RunResult = z.strictObject({ content: z.string().max(131072), isError: z.boolean() });
 const hash = (value: unknown) => createHash('sha256').update(JSON.stringify(value)).digest('hex');
+export const taskExecutionFingerprint = (
+  tool: string,
+  input: Record<string, unknown>,
+  cwd: string,
+  timeoutMs = 60000,
+) => hash([tool, input, cwd, timeoutMs]);
 /** An identical retry must retain the original command's unknown outcome. */
 export class UnsettledTaskExecutionError extends Error {}
 
@@ -248,6 +273,51 @@ export class TaskExecutionStore {
     return row.result === null
       ? { state: 'uncertain' }
       : { state: 'completed', result: RunResult.parse(JSON.parse(row.result)) };
+  }
+  /** Historical observation only. Revocation/expiry never authorizes another run,
+   * but does not erase the original executor's immutable completed result. */
+  observeRunForRecovery(input: {
+    grantId: string;
+    sessionId: string;
+    requestId: string;
+    fingerprint: string;
+    cwd: string;
+    binding: AccountBinding;
+  }) {
+    const row = this.db
+      .prepare(
+        `SELECT r.fingerprint,r.result,g.data FROM task_execution_runs r
+      JOIN task_execution_grants g ON g.id=r.grant_id
+      WHERE r.grant_id=? AND r.session_id=? AND r.request_id=?`,
+      )
+      .get(input.grantId, input.sessionId, input.requestId) as
+      { fingerprint: string; result: string | null; data: string } | undefined;
+    if (!row || row.fingerprint !== input.fingerprint) return undefined;
+    const grant = GrantSchema.parse(JSON.parse(row.data));
+    const member = grant.members.find((value) => value.sessionId === input.sessionId);
+    if (
+      !member?.account ||
+      codexStoredAccountKey(member.account as AccountBinding) !==
+        codexStoredAccountKey(input.binding) ||
+      !member.roots.some((root) => input.cwd === root || input.cwd.startsWith(root + '/'))
+    )
+      return undefined;
+    return {
+      grant,
+      member,
+      fingerprint: row.fingerprint,
+      result: row.result === null ? null : RunResult.parse(JSON.parse(row.result)),
+    };
+  }
+  hasMatchingCompletedRun(
+    input: Parameters<TaskExecutionStore['observeRunForRecovery']>[0] & {
+      result: z.infer<typeof RunResult>;
+    },
+  ): boolean {
+    const observed = this.observeRunForRecovery(input);
+    return (
+      !!observed && observed.result !== null && isDeepStrictEqual(observed.result, input.result)
+    );
   }
   finish(grantId: string, sessionId: string, requestId: string, result: z.infer<typeof RunResult>) {
     const applied = this.db

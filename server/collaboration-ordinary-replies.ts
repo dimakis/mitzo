@@ -2,11 +2,12 @@ import { isDeepStrictEqual } from 'node:util';
 import { z } from 'zod';
 import {
   CollaborationContractError,
+  CollaborationMessageSchema,
   CollaborationSettingsSchema,
   type CollaborationMessageSource,
 } from '@mitzo/protocol';
 import type { EventStore } from './event-store.js';
-import { ordinaryCodexCommandExecution } from './ordinary-codex-command-execution.js';
+import { ordinaryContributorCommandExecution } from './ordinary-codex-command-execution.js';
 
 const id = z.string().min(1).max(200).regex(/^\S+$/);
 const Source = z.strictObject({
@@ -26,6 +27,11 @@ const RetainedSource = z.discriminatedUnion('version', [
     executionFingerprint: Execution.shape.executionFingerprint,
   }),
 ]);
+function retainedSource(raw: unknown) {
+  const parsed = RetainedSource.safeParse(raw);
+  if (!parsed.success) throw new CollaborationContractError('reply_conflict');
+  return parsed.data;
+}
 type SourceStore = Pick<
   EventStore,
   | 'getSendCommand'
@@ -38,7 +44,7 @@ type SourceStore = Pick<
  * reference pins provenance, not authority or a cached permission decision. */
 export function captureOrdinaryReplyExecution(store: SourceStore, sessionId: string, raw: unknown) {
   const source = TurnIdentity.parse(raw);
-  const admission = ordinaryCodexCommandExecution(store, sessionId, source.commandId, {
+  const admission = ordinaryContributorCommandExecution(store, sessionId, source.commandId, {
     requireClaimed: true,
   });
   return Object.freeze({ ...source, executionFingerprint: admission.requestFingerprint });
@@ -57,7 +63,7 @@ export function recordOrdinaryReplySource(
   const execution = Execution.parse(accepted);
   const identity = TurnIdentity.parse(source);
   const { executionFingerprint, ...acceptedIdentity } = execution;
-  const admission = ordinaryCodexCommandExecution(store, sessionId, source.commandId, {
+  const admission = ordinaryContributorCommandExecution(store, sessionId, source.commandId, {
     requireClaimed: true,
   });
   if (
@@ -86,6 +92,34 @@ export class OrdinaryCollaborationReplies {
       this.read(source),
     );
   }
+  /** Live projection requires the pinned accepted execution, never a legacy
+   * unpinned mapping or unrelated session-wide text. Finalization stays separate. */
+  streaming(sessionId: string, commandId: string, messageId: string) {
+    const rows = this.store.getOrdinaryReplySourceEvents(sessionId, messageId);
+    if (!rows.length) return;
+    if (rows.length !== 1) throw new CollaborationContractError('reply_conflict');
+    const mapping = retainedSource(rows[0]);
+    if (mapping.version !== 2 || mapping.commandId !== commandId || mapping.messageId !== messageId)
+      throw new CollaborationContractError('reply_conflict');
+    const admission = ordinaryContributorCommandExecution(this.store, sessionId, commandId, {
+      historical: true,
+      fingerprint: mapping.executionFingerprint,
+    });
+    const message = this.store.readOrdinaryStreamingReply(sessionId, messageId);
+    if (!message) return;
+    const text = message.blocks.map((b) => b.content).join('\n\n');
+    if (!text.length) return;
+    if (!CollaborationMessageSchema.shape.text.safeParse(text).success)
+      throw new CollaborationContractError('capacity_refused');
+    return {
+      text,
+      settings: CollaborationSettingsSchema.parse({
+        binding: admission.binding,
+        selection: admission.selection,
+        repositoryWorkspaceId: admission.workspace.workspaceId,
+      }),
+    };
+  }
 
   private read(source: CollaborationMessageSource) {
     const mappings = this.store.getOrdinaryReplySourceEvents(
@@ -94,10 +128,10 @@ export class OrdinaryCollaborationReplies {
     );
     if (!mappings.length) return undefined;
     if (mappings.length !== 1) throw new CollaborationContractError('reply_conflict');
-    const mapping = RetainedSource.parse(mappings[0]);
+    const mapping = retainedSource(mappings[0]);
     if (mapping.commandId !== source.commandId || mapping.messageId !== source.messageId)
       throw new CollaborationContractError('reply_conflict');
-    const admission = ordinaryCodexCommandExecution(
+    const admission = ordinaryContributorCommandExecution(
       this.store,
       source.conversationId,
       source.commandId,
@@ -106,14 +140,9 @@ export class OrdinaryCollaborationReplies {
         fingerprint: mapping.version === 2 ? mapping.executionFingerprint : undefined,
       },
     );
-    const visible = this.store.openCollaborationVisibleSource(source.conversationId, {
-      sequence: source.throughSequence,
-      messageId: source.messageId,
-    });
-    const messages = visible.readSelected([source.messageId]);
-    const message = messages[0];
+    const message = this.store.readOrdinaryFinalizedReply(source.conversationId, source.messageId);
     if (
-      messages.length !== 1 ||
+      !message ||
       message.conversationId !== source.conversationId ||
       message.messageId !== source.messageId ||
       message.sequence !== source.throughSequence ||
@@ -129,9 +158,12 @@ export class OrdinaryCollaborationReplies {
       )
     )
       throw new CollaborationContractError('reply_conflict');
-    visible.assertCurrent();
+    const text = selected.map((block) => block.content).join('\n\n');
+    if (!text.length) throw new CollaborationContractError('reply_unavailable');
+    if (!CollaborationMessageSchema.shape.text.safeParse(text).success)
+      throw new CollaborationContractError('capacity_refused');
     return {
-      text: selected.map((block) => block.content).join('\n\n'),
+      text,
       settings: CollaborationSettingsSchema.parse({
         binding: admission.binding,
         selection: admission.selection,
@@ -150,5 +182,5 @@ export function ordinaryReplySourceCommand(
   const mappings = store.getOrdinaryReplySourceEvents(sessionId, messageId);
   if (!mappings.length) return undefined;
   if (mappings.length !== 1) throw new CollaborationContractError('reply_conflict');
-  return RetainedSource.parse(mappings[0]).commandId;
+  return retainedSource(mappings[0]).commandId;
 }

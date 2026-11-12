@@ -8,6 +8,7 @@ import { reviewTelosWorkRoleContext } from '../../telos-work-role-review.js';
 import { isAvailableTelosWorkConversation } from '../../telos-work-conversation.js';
 import { retainTelosWorkRoleContext } from '../../telos-work-role-context.js';
 import { isAuthSessionCurrent } from '../../auth.js';
+import type { TelosOrdinaryWorkRoleSetupInput } from '@mitzo/protocol';
 export async function createTelosOrdinaryWorkFixture(
   cleanup: Array<() => void | Promise<void>>,
   role: 'advisor' | 'lead' | 'worker' = 'lead',
@@ -92,7 +93,7 @@ export async function createTelosOrdinaryWorkFixture(
   const assertAuthorized = () => {
     if (!isAuthSessionCurrent(native.auth)) throw Error('Revoked private operator');
   };
-  const createOwner = () =>
+  const createOwner = (selectedInput: TelosOrdinaryWorkRoleSetupInput = input) =>
     new TelosOrdinaryWorkRoleSetup({
       work,
       events: native.events,
@@ -115,7 +116,7 @@ export async function createTelosOrdinaryWorkFixture(
       },
       authorize: async (scope) => {
         assertAuthorized();
-        expect(scope.setup.input).toEqual(input);
+        expect(scope.setup.input).toEqual(selectedInput);
       },
       assertBeforeApply: () => assertAuthorized(),
       retainContext: async (scope) => {
@@ -125,7 +126,7 @@ export async function createTelosOrdinaryWorkFixture(
           native.events,
           scope.conversationId,
           session.accountBinding,
-          contextSelection,
+          selectedInput.contextSelection,
         );
       },
     });
@@ -138,6 +139,7 @@ export async function createTelosOrdinaryWorkFixture(
     actor,
     db,
     input,
+    createOwner,
     get owner() {
       return createOwner();
     },

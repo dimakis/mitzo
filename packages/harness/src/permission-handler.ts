@@ -1,9 +1,20 @@
 import { createHash } from 'node:crypto';
+import { hasPermissionNotificationOwner } from './permission-notification-owner.js';
+import {
+  githubReadCommandRepository,
+  githubCommandConsentDescription,
+} from './github-command-consent.js';
 import { withToolGuardPhase } from './tool-guard.js';
 import { z } from 'zod';
 import type { PermissionRequest, UserQuestion } from '@mitzo/protocol';
 import type { PermissionResult } from '@anthropic-ai/claude-agent-sdk';
-import { registerPending, resolvePending, removePending, hasPending } from './permissions.js';
+import {
+  registerPending,
+  resolvePending,
+  removePending,
+  hasPending,
+  PERMISSION_EXPIRED_MESSAGE,
+} from './permissions.js';
 import { sendPermissionNotification, isConfigured as ntfyConfigured } from './notify.js';
 import {
   sendPermissionNotification as pushoverSendPermission,
@@ -244,6 +255,8 @@ export function buildPermissionHandler(
         assertCurrentSync(): void;
         /** Original adapter deadline; creating a card must not renew it. */
         readonly expiresAt?: number;
+        /** Retain this owner's observed timeout even if another timer or clock lags. */
+        readonly onExpiry?: () => void;
         allowSessionScope?: boolean;
         /** Adapter-owned exact scope. Absent when the provider retains its own grant. */
         sessionGrantKey?: string;
@@ -264,6 +277,7 @@ export function buildPermissionHandler(
     const nativeApproval = opts.nativeApproval;
     const nativeApprovalAssertion = nativeApproval?.assertCurrentSync;
     const nativeExpiresAt = nativeApproval?.expiresAt;
+    const onNativeExpiry = nativeApproval?.onExpiry;
     const nativeSessionGrantKey =
       nativeApproval?.allowSessionScope === true && nativeApproval.sessionGrantKey?.trim()
         ? nativeApproval.sessionGrantKey
@@ -320,6 +334,36 @@ export function buildPermissionHandler(
         worktreePath: session.worktreePath,
         cwd: session.cwd,
       });
+    // Claude and Vertex share this handler. Preserve explicit caller scopes and
+    // pre-existing broad shell grants; new CLI consent is repository-scoped.
+    const githubRepository =
+      toolName === 'Bash' &&
+      !nativeApproval &&
+      !opts.sessionGrantKey &&
+      !opts.onDecision &&
+      !session.sessionAllowList.has('Bash') &&
+      typeof _toolInput.command === 'string'
+        ? githubReadCommandRepository(_toolInput.command)
+        : undefined;
+    const githubScope = () => {
+      const { command, description: _description, timeout: _timeout, ...access } = _toolInput;
+      return JSON.stringify([
+        typeof command === 'string' ? githubReadCommandRepository(command) : undefined,
+        session.sessionId,
+        session.accountBinding,
+        session.ownedLocalAuthSessionId,
+        workspacePolicySnapshot(),
+        effectivePermissionMode(session),
+        access,
+      ]);
+    };
+    const originalGithubScope = githubRepository ? githubScope() : undefined;
+    if (githubRepository)
+      opts = {
+        ...opts,
+        sessionGrantKey: `github-cli-read-v1:${createHash('sha256').update(originalGithubScope!).digest('hex')}`,
+        sessionGrantDescription: githubCommandConsentDescription(githubRepository),
+      };
     let decisionWorkspace: string | undefined;
     const observationOptionsCurrent = () =>
       [originalOptions, opts].every(
@@ -375,6 +419,7 @@ export function buildPermissionHandler(
     const nativeOperatorId = nativeScope?.operatorId;
     const nativeAssertion = nativeScope?.assertCurrentSync;
     const nativeScopeCurrent = () => {
+      if (originalGithubScope !== undefined && githubScope() !== originalGithubScope) return false;
       if (!nativeApprovalCurrent()) return false;
       if (!nativeScope) return true;
       try {
@@ -417,6 +462,10 @@ export function buildPermissionHandler(
           message:
             'A registered conversation and fresh host invocation are required for reviewed Telos capture.',
         };
+      // Normalize a fresh shared-outcome proposal before its review and receipt
+      // are captured. Execution/recovery schemas must preserve older packets.
+      if (toolName === 'TelosCreateOutcome' || toolName === 'mcp__telos__TelosCreateOutcome')
+        _toolInput = { workLevel: 'outcome', ..._toolInput };
     }
     const currentClientId = (): string | undefined => {
       if (!session.sessionId) return registry.get(clientId) === session ? clientId : undefined;
@@ -469,9 +518,11 @@ export function buildPermissionHandler(
     // The mode may have changed while the worktree check was awaiting I/O.
     const deniedAfterWorktree = askDenial();
     if (deniedAfterWorktree) return deniedAfterWorktree;
+    if (!nativeScopeCurrent())
+      return { behavior: 'deny', message: 'Original approval scope changed' };
     if (!observationCurrent())
       return { behavior: 'deny', message: 'Original approval input or invocation changed' };
-    if (nativeApproval) {
+    if (nativeApproval || githubRepository) {
       const activeClient = currentClientId();
       if (
         originalSignal.aborted ||
@@ -736,9 +787,9 @@ export function buildPermissionHandler(
       // Lifecycle listeners may resolve synchronously during registration.
       if (settled) return;
 
-      if (ntfyConfigured() || pushoverConfigured()) {
+      if (!hasPermissionNotificationOwner() && (ntfyConfigured() || pushoverConfigured())) {
         notificationTimer = setTimeout(() => {
-          if (hasPending(permId)) {
+          if (hasPending(permId) && !hasPermissionNotificationOwner()) {
             if (ntfyConfigured())
               sendPermissionNotification(toolName, inputSummary, permId, session.sessionId);
             if (pushoverConfigured())
@@ -752,9 +803,20 @@ export function buildPermissionHandler(
           if (hasPending(permId)) {
             resolutionEvent = 'permission_timeout';
             removePending(permId);
+            try {
+              onNativeExpiry?.();
+            } catch (error) {
+              log.warn('Native approval expiry observation failed; approval remains refused', {
+                code: 'native_approval_expiry_observer_failed',
+                stage: 'permission_timeout',
+                sessionId: session.sessionId,
+                permId,
+                errorType: error instanceof Error ? error.name : 'non-Error',
+              });
+            }
             wrappedResolve({
               behavior: 'deny',
-              message: 'Tool approval expired without a response; request approval again',
+              message: PERMISSION_EXPIRED_MESSAGE,
             });
           }
         },

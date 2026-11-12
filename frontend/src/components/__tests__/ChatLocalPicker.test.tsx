@@ -91,7 +91,7 @@ it('derives software from the selected route and leaves unresolved OpenShell wit
   );
   expect(screen.queryByText(/Runs with/)).toBeNull();
 });
-it('retains unavailable selected account/model/thinking and never fetches the legacy catalog', () => {
+it('retains unavailable intent until an explicit account switch chooses that account model', () => {
   const changed = vi.fn();
   const data = localInventoryFixture();
   render(
@@ -115,8 +115,7 @@ it('retains unavailable selected account/model/thinking and never fetches the le
   });
   expect(changed).toHaveBeenCalledWith({
     accountId: 'personal',
-    model: 'old-model',
-    reasoningEffort: 'removed',
+    model: 'luna-fixture',
   });
 });
 it('retains an unavailable exact published revision and offers no Default Mitzo substitute', () => {

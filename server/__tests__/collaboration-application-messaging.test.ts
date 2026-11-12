@@ -1,83 +1,20 @@
-import { expect, it, vi } from 'vitest';
-import { createHash } from 'node:crypto';
-import { getApplicationJoiningJourney } from './collaboration-application-joining-integration.test.js';
+import { afterAll, expect, it, vi } from 'vitest';
+import { recordApplicationMessagingRuntime } from './fixtures/symposium-recording-runtime.js';
+import { createApplicationJourney } from './fixtures/symposium-application-journey.js';
+
+const journey = createApplicationJourney();
+afterAll(() => journey.close());
 
 // Only the external native process is substituted. Auth, repository preparation,
 // ordinary admission/dispatch, driver, SQLite, source provenance and routes are real.
 it('delivers a reviewed fresh agent prompt through the actual app and projects its finalized ordinary reply once', async () => {
-  const { api, events, group, joinedSessionId } = getApplicationJoiningJourney();
+  const { api, events, group, joinedSessionId } = await journey.initializeReviewedJoin();
   // index.ts installs this real durable revocation owner in production; the
   // application fixture intentionally does not start index.ts or its services.
   (await import('../auth.js')).setAuthRevocationStore(events);
-  const { CodexAppServerClient } = await import('../codex-app-server-client.js');
+  const runtime = await recordApplicationMessagingRuntime(events);
+  const { requests } = runtime;
   const { registry } = await import('../chat.js');
-  // Runtime declaration/qualification is synthetic, just like the external
-  // process below. Accept only this fixture's inert bytes, never a host artifact.
-  const qualification = await import('../codex-native-artifact-qualification.js');
-  const artifact = vi
-    .spyOn(qualification, 'assertQualifiedNativeMacExecutionArtifact')
-    .mockImplementation((sha256) =>
-      expect(sha256).toBe(
-        createHash('sha256')
-          .update(Buffer.from([0xcf, 0xfa, 0xed, 0xfe, 1, 2, 3]))
-          .digest('hex'),
-      ),
-    );
-  const requests: Array<{ method: string; params: Record<string, unknown> }> = [];
-  let revokeSourceOnQualification = false;
-  const launch = vi.spyOn(CodexAppServerClient, 'launchIsolated').mockImplementation(
-    (_home, _env, lifecycle) =>
-      ({
-        initialize: async () => {},
-        close: () => {},
-        request: async (method: string, params: Record<string, unknown>) => {
-          requests.push({ method, params });
-          if (method === 'account/read')
-            return {
-              account: { type: 'chatgpt', email: 'offline@example.invalid', planType: 'plus' },
-            };
-          if (method === 'config/read') return { config: {} };
-          if (method === 'model/list') {
-            if (revokeSourceOnQualification) events.hideSession('existing-chat');
-            return {
-              data: [
-                {
-                  model: 'fixture-model',
-                  displayName: 'Offline',
-                  supportedReasoningEfforts: [{ reasoningEffort: 'low' }],
-                },
-              ],
-              nextCursor: null,
-            };
-          }
-          if (method === 'thread/start')
-            return {
-              thread: { id: 'private-native-thread' },
-              model: 'fixture-model',
-              modelProvider: 'openai',
-            };
-          if (method === 'turn/start') {
-            setTimeout(() => {
-              lifecycle!.onNotification('item/completed', {
-                threadId: 'private-native-thread',
-                turnId: 'private-native-turn',
-                item: {
-                  id: 'native-answer',
-                  type: 'agentMessage',
-                  text: 'Reviewed the selected design.',
-                },
-              });
-              lifecycle!.onNotification('turn/completed', {
-                threadId: 'private-native-thread',
-                turn: { id: 'private-native-turn', status: 'completed' },
-              });
-            }, 10);
-            return { turn: { id: 'private-native-turn' } };
-          }
-          throw Error(`Unexpected offline native method: ${method}`);
-        },
-      }) as never,
-  );
   try {
     // The source-only observational fixture has never admitted an ordinary
     // command. Do not pretend it is a configured context reader/responder.
@@ -92,6 +29,12 @@ it('delivers a reviewed fresh agent prompt through the actual app and projects i
       repliesByDefault: false,
     });
     const before = await api.view(group);
+    expect(await api.recipientReadiness(group, joinedSessionId)).toMatchObject({
+      sessionId: joinedSessionId,
+      ready: true,
+      reason: null,
+    });
+    expect(requests).toEqual([]);
     expect(events.getOrdinaryInitialCommandId(joinedSessionId)).toBeUndefined();
     const input = {
       requestId: crypto.randomUUID(),
@@ -118,6 +61,7 @@ it('delivers a reviewed fresh agent prompt through the actual app and projects i
     expect((await api.view(group)).messages).toEqual([]);
     expect(requests).toEqual([]);
     const accepted = await api.send(group, input);
+    expect((await api.observeSend(group, input)).message?.messageId).toBe(accepted.messageId);
     expect(accepted.deliveries).toMatchObject([{ sessionId: joinedSessionId }]);
     expect(['queued', 'delivered']).toContain(accepted.deliveries[0].status);
     const commandId = accepted.deliveries[0].commandId;
@@ -144,13 +88,14 @@ it('delivers a reviewed fresh agent prompt through the actual app and projects i
     expect(JSON.stringify(turn.params)).toContain('Edited brief retained exactly');
     expect(JSON.stringify(turn.params)).toContain(input.text);
     expect(JSON.stringify(turn.params)).not.toContain('DO_NOT_LEAK');
+    await vi.waitFor(async () => expect((await api.observeSend(group, input)).terminal).toBe(true));
     const retries = await Promise.all([api.send(group, input), api.send(group, input)]);
     expect(retries.map((m) => m.messageId)).toEqual([accepted.messageId, accepted.messageId]);
     await expect(api.send(group, { ...input, text: 'Changed retry' })).rejects.toThrow();
     expect(requests.filter((r) => r.method === 'turn/start')).toHaveLength(1);
     // Revoke the shared source during actual ordinary preparation. The final
     // provider fence must refuse it even though initial group review succeeded.
-    revokeSourceOnQualification = true;
+    runtime.revokeSource();
     const next = await api.view(group);
     const refused = await api.send(group, {
       ...input,
@@ -162,6 +107,7 @@ it('delivers a reviewed fresh agent prompt through the actual app and projects i
     expect(refused.deliveries[0].status).toBe('uncertain');
     expect(requests.filter((r) => r.method === 'turn/start')).toHaveLength(1);
     events.hideSession(joinedSessionId);
+    expect((await api.recipientReadiness(group, joinedSessionId)).ready).toBe(false);
     const afterHide = await api.view(group);
     expect(afterHide.unavailableParticipantSessionIds).toContain(joinedSessionId);
     expect(
@@ -172,7 +118,6 @@ it('delivers a reviewed fresh agent prompt through the actual app and projects i
     if (live) registry.abort(live.clientId);
     const { getRepositoryWorkspaces } = await import('../repository-workspace-runtime.js');
     await vi.waitFor(() => getRepositoryWorkspaces(true).closeIdle());
-    launch.mockRestore();
-    artifact.mockRestore();
+    runtime.restore();
   }
 }, 30000);

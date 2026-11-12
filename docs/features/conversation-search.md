@@ -67,3 +67,19 @@ validated workspace metadata projection.
 Semantic retrieval, typo tolerance, structured filters, pagination and navigation
 to an individual matched message remain future work. Results may carry a stable
 message ID, but this release opens the existing conversation route.
+
+## Landing integration, 12 November 2026
+
+The landing session integrates current main while preserving its grouped Drafts
+disclosure, masthead search-focus shortcut, current model selection projection,
+ordinary turn exports and registered authorization source inventory. Search still
+hides Pins/Drafts until cleared. The mounted library fixture now supplies the
+draft fields used by the retained disclosure; an integration regression verifies
+the shortcut focus and opening All drafts. Shared design and focused search,
+navigation and library checks run with one worker and a 1 GiB heap.
+
+The previous candidate's hosted browser/layout suites passed. Its native
+repository workflow failed while preparing a repository, before its success
+assertion. That historical failure does not establish a search defect or a cause;
+the combined candidate requires fresh CI and exact-head Centaur verification.
+No staging, production configuration or live model tests are used.

@@ -1,11 +1,17 @@
 import { callbackOutcome, retainCallbackOutcome } from '../turn-callbacks.js';
-import { afterEach, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { existsSync, mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { createNativeHooks, NativeHooks } from '../native-hooks.js';
 import * as commands from '../protected-sdk-command.js';
+import { sdkProjectCommandFixture } from './fixtures/sdk-project-command.js';
 const roots: string[] = [];
+beforeEach(() => {
+  vi.spyOn(commands, 'createWorkspaceRuntimeCommandRunner').mockReturnValue(
+    sdkProjectCommandFixture,
+  );
+});
 afterEach(() => roots.splice(0).forEach((root) => rmSync(root, { recursive: true, force: true })));
 afterEach(() => vi.restoreAllMocks());
 function setup(hooks: unknown) {
@@ -15,6 +21,32 @@ function setup(hooks: unknown) {
   writeFileSync(join(root, '.claude/settings.json'), JSON.stringify({ hooks }));
   return new NativeHooks(root, 'app', { PATH: '/usr/bin:/bin' });
 }
+it('settles returned read failures by default and keeps the next tool available', async () => {
+  const hooks = setup({});
+  const signal = new AbortController().signal;
+  const failed = await hooks.executeTool('ReadKnowledge', {}, signal, async () => ({
+    content: 'Document revision unavailable',
+    isError: true,
+  }));
+  expect(callbackOutcome(failed)).toBe('settled');
+  expect(failed.content).toBe('Document revision unavailable');
+  expect(
+    await hooks.executeTool('ReadKnowledge', {}, signal, async () => ({
+      content: 'Another document',
+      isError: false,
+    })),
+  ).toMatchObject({ isError: false });
+});
+
+it('reports a thrown tool failure with a safe reason instead of ending the engine loop', async () => {
+  const hooks = setup({});
+  const result = await hooks.executeTool('AnyTool', {}, new AbortController().signal, async () => {
+    throw Object.assign(Error('sensitive upstream payload'), { code: 'ENOMEM' });
+  });
+  expect(result.isError).toBe(true);
+  expect(result.content).not.toContain('sensitive upstream payload');
+  expect(JSON.parse(result.content)).toMatchObject({ diagnostic: { reason: 'memory_exhausted' } });
+});
 it('preserves an original settled refusal when cancellation arrives before any post-tool hook', async () => {
   const hooks = setup({ PostToolUse: [{ hooks: [{ type: 'command', command: 'exit 1' }] }] });
   const run = vi.spyOn(hooks, 'run');

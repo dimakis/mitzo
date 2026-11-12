@@ -6,6 +6,7 @@ import type { AgentLibraryVersion } from '@mitzo/protocol';
 import { registerWorkspaceRuntimeAuthorityPaths } from './workspace-runtime-private-paths.js';
 import { createHash } from 'node:crypto';
 import { hostname } from 'node:os';
+import { join } from 'node:path';
 import { z } from 'zod';
 import { SessionRuntimeBindingV1Schema } from '@mitzo/protocol';
 import {
@@ -47,6 +48,13 @@ export class OrdinaryLocalVertexTarget {
       [this.env.MITZO_ORDINARY_LOCAL_VERTEX_TARGET_FILE!],
       [this.env.MITZO_ORDINARY_LOCAL_VERTEX_TARGET_FILE!],
     );
+    // Declare the same SDK state authority used at entry before any other
+    // participant freezes its native permission profile. First SDK dispatch
+    // must not add a previously unknown private root to a parallel Codex turn.
+    if (this.env.REPO_PATH && this.env.MITZO_ACCOUNT_PROFILES_FILE) {
+      const paths = [join(this.env.REPO_PATH, '.mitzo'), this.env.MITZO_ACCOUNT_PROFILES_FILE];
+      registerWorkspaceRuntimeAuthorityPaths(paths, paths);
+    }
   }
   assertCurrentSync() {
     const current = Configuration.parse(
@@ -89,23 +97,39 @@ export function localVertexCapabilities(
   retainedBinding?: unknown,
 ) {
   const accounts = profiles.ordinaryLocalVertexInventory();
-  const eligibility = ordinaryCodexAgentProfileRouteProjection(
-    ordinaryCodexAgentProfiles(published),
-    'anthropic-vertex',
-    'local',
-    undefined,
-    { contextRecipes: 'none' },
-  );
+  const eligibility = (provider: string) =>
+    ordinaryCodexAgentProfileRouteProjection(
+      ordinaryCodexAgentProfiles(published),
+      provider,
+      'local',
+      undefined,
+      { contextRecipes: 'none', toolSelection: true, toolRoute: 'claude-sdk' },
+    );
   const targets = [target.descriptor()];
   const declaration = target.admissionDeclaration();
   const reviewedLegacy = reviewedLegacyLocalApiTargetRevisions('claude-sdk', declaration);
   const catalog: OrdinarySessionRuntimeCatalog = {
     deployment: 'ordinary',
     enabledHarnesses: ['claude-sdk'],
-    accounts: accounts.map(({ account }) => ({
-      ...account,
-      auth: { kind: 'vertex-adc' },
-    })),
+    accounts: accounts.map(({ account }) =>
+      account.provider === 'anthropic-api'
+        ? {
+            ...account,
+            provider: 'anthropic-api' as const,
+            auth: { kind: 'anthropic-api-key' as const },
+          }
+        : account.provider === 'anthropic-claude'
+          ? {
+              ...account,
+              provider: 'anthropic-claude' as const,
+              auth: { kind: 'claude-host-login' as const },
+            }
+          : {
+              ...account,
+              provider: 'anthropic-vertex' as const,
+              auth: { kind: 'vertex-adc' as const },
+            },
+    ),
     targets: targets.map(({ targetId, targetRevision, location }) => ({
       targetId,
       targetRevision,
@@ -120,7 +144,7 @@ export function localVertexCapabilities(
       'ordinary-local-vertex-capabilities-v1',
       catalog,
       accounts,
-      eligibility,
+      accounts.map(({ account }) => eligibility(account.provider)),
     ]),
     accounts,
     targets,
@@ -128,7 +152,7 @@ export function localVertexCapabilities(
       account,
       targetId: targets[0].targetId,
       harness: 'claude-sdk' as const,
-      ...eligibility,
+      ...eligibility(account.provider),
       modes: ['ask', 'agent', 'auto'] as const,
       skillCeiling: 'unsupported' as const,
     })),

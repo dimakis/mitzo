@@ -68,7 +68,11 @@ const mocks = vi.hoisted(() => ({
 vi.mock('../../hooks/useSessionList', () => ({ useSessionList: () => mocks.list }));
 vi.mock('../../hooks/useSessionOverview', () => ({ useSessionOverview: () => mocks.overview }));
 vi.mock('../../hooks/useSessionSearch', () => ({ useSessionSearch: () => mocks.search }));
-vi.mock('../../hooks/useSavedChatDrafts', () => ({ useSavedChatDrafts: () => [{ id: 'unsent' }] }));
+vi.mock('../../hooks/useSavedChatDrafts', () => ({
+  useSavedChatDrafts: () => [
+    { id: 'unsent', text: 'Unsent thought', updatedAt: 1, settings: { search: '' } },
+  ],
+}));
 vi.mock('../../components/SessionInspector', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../components/SessionInspector')>();
   return {
@@ -87,6 +91,16 @@ function QueryWitness() {
   const location = useLocation();
   return <output data-testid="query-witness">{location.search}</output>;
 }
+it('keeps the masthead search shortcut focused after integrating search results', () => {
+  render(
+    <MemoryRouter initialEntries={['/sessions#conversation-search']}>
+      <SessionList />
+    </MemoryRouter>,
+  );
+  expect(document.activeElement).toBe(screen.getByRole('searchbox'));
+  fireEvent.click(screen.getByText('Drafts'));
+  expect(screen.getByRole('link', { name: /All Drafts/ })).toBeTruthy();
+});
 it('returns to the same search query and scroll position after opening a result', () => {
   const previous = { ...mocks.search };
   Object.assign(mocks.search, {
@@ -374,12 +388,12 @@ it('opens a conversation using the keyboard', () => {
   expect(screen.getByText('Selected conversation')).toBeTruthy();
 });
 
-it('uses the shared workspace page and primary action styling', () => {
+it('uses the shared workspace page and plain header action styling', () => {
   mount();
   expect(screen.getByRole('heading', { name: 'Chats' }).closest('.workspace-page')).toBeTruthy();
-  expect(
-    screen.getByRole('button', { name: 'New chat' }).classList.contains('workspace-primary'),
-  ).toBe(true);
+  expect(screen.getByRole('button', { name: 'New chat' }).classList.contains('header-action')).toBe(
+    true,
+  );
 });
 
 it('does not claim synthetic activity rows are detached when attachment is unknown', () => {

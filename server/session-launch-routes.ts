@@ -4,7 +4,11 @@ import { SessionLaunchApprovalSchema, SessionLaunchDefaultSaveSchema } from '@mi
 import { isAuthSessionCurrent, registerAuthSession, type AuthSession } from './auth.js';
 import { requireSameOriginJson } from './connections-router.js';
 import { SessionLaunchDefaultsConflict, SESSION_LAUNCH_OWNER } from './session-launch-defaults.js';
-import { SessionLaunchError, publicSessionLaunchRecord } from './session-launch-store.js';
+import {
+  SessionLaunchError,
+  SessionLaunchPreflightError,
+  publicSessionLaunchRecord,
+} from './session-launch-store.js';
 import type { SessionLaunchController } from './session-launch-controller.js';
 import type { SessionLaunchAuthority } from './session-launch-service.js';
 
@@ -32,6 +36,9 @@ export function createSessionLaunchRouter(deps: {
     req: Request,
     res: Response,
     action: (auth: AuthSession, signal: AbortSignal) => Promise<unknown> | unknown,
+    respond: (value: unknown) => void = (value) => {
+      res.json(value);
+    },
   ) => {
     const auth = res.locals.authSession as AuthSession;
     const controller = new AbortController();
@@ -49,7 +56,7 @@ export function createSessionLaunchRouter(deps: {
       controller.signal.throwIfAborted();
       if (!isAuthSessionCurrent(auth))
         throw new SessionLaunchError('Session authorization expired.', 403);
-      res.json(result);
+      respond(result);
     } catch (error) {
       const status =
         error instanceof SessionLaunchError
@@ -60,6 +67,9 @@ export function createSessionLaunchRouter(deps: {
               ? 400
               : 503;
       res.status(status).json({
+        ...(error instanceof SessionLaunchPreflightError
+          ? { code: error.code, effectStatus: error.effectStatus }
+          : {}),
         error:
           status === 503
             ? 'Session creation is temporarily unavailable. Check the retained request before retrying.'
@@ -104,6 +114,72 @@ export function createSessionLaunchRouter(deps: {
   router.put('/defaults', requireSameOriginJson, (req, res) =>
     act(req, res, () => defaults.save(owner, SessionLaunchDefaultSaveSchema.parse(req.body))),
   );
+  router.post('/requests/start', requireSameOriginJson, (req, res) =>
+    act(req, res, (auth, signal) =>
+      withAuthority(auth, signal, async (authority) => {
+        const { sourceSessionId, requestId, saveAsDefault, ...edits } =
+          SessionLaunchApprovalSchema.omit({ expectedRevision: true })
+            .extend({ sourceSessionId: reference, requestId: z.uuid() })
+            .parse(req.body);
+        if (!deps.session(sourceSessionId))
+          throw new SessionLaunchError('Originating chat is unavailable.', 404);
+        authority.assertCurrent();
+        const record = launches.store.propose({
+          ...edits,
+          operatorId: owner,
+          sourceSessionId,
+          requestId,
+          originalInput: { ...edits, saveAsDefault },
+        });
+        const defaultRevision = saveAsDefault ? defaults.get(owner).revision : undefined;
+        const approved = await launches.approve(
+          record.proposalId,
+          owner,
+          edits,
+          record.revision,
+          authority,
+          saveAsDefault
+            ? (database) => {
+                authority.assertCurrent();
+                defaults.saveInTransaction(
+                  owner,
+                  { expectedRevision: defaultRevision!, configuration: edits.configuration },
+                  database,
+                );
+              }
+            : undefined,
+        );
+        deps.controller.changed(sourceSessionId);
+        if (approved.childSessionId) deps.controller.changed(approved.childSessionId);
+        return publicSessionLaunchRecord(approved);
+      }),
+    ),
+  );
+  router.put('/links/:source/:target', requireSameOriginJson, (req, res) =>
+    act(req, res, () => {
+      const first = reference.parse(req.params.source),
+        second = reference.parse(req.params.target);
+      const a = deps.session(first),
+        b = deps.session(second);
+      if (!a || !b)
+        throw new SessionLaunchError('Chat is unavailable. Refresh before linking.', 404);
+      launches.store.link(owner, first, second, a.title, b.title);
+      deps.controller.changed(first);
+      deps.controller.changed(second);
+      return { linked: true };
+    }),
+  );
+  router.delete('/links/:source/:target', requireSameOriginJson, (req, res) =>
+    act(req, res, () => {
+      const first = reference.parse(req.params.source),
+        second = reference.parse(req.params.target);
+      if (!deps.session(first)) throw new SessionLaunchError('Chat is unavailable.', 404);
+      launches.store.unlink(owner, first, second);
+      deps.controller.changed(first);
+      deps.controller.changed(second);
+      return { linked: false };
+    }),
+  );
   router.get('/requests', (req, res) =>
     act(req, res, async (auth, signal) => {
       const sessionId = reference.parse(req.query.sessionId);
@@ -117,6 +193,11 @@ export function createSessionLaunchRouter(deps: {
       });
       const origin = refreshed.find((record) => record.childSessionId === sessionId);
       return {
+        links: launches.store.linked(sessionId, owner).map((link) => ({
+          sessionId: link.sessionId,
+          title: deps.session(link.sessionId)?.title ?? link.title,
+          available: Boolean(deps.session(link.sessionId)),
+        })),
         requests: refreshed
           .filter((record) => record.sourceSessionId === sessionId)
           .map(publicSessionLaunchRecord),
@@ -139,6 +220,18 @@ export function createSessionLaunchRouter(deps: {
         publicSessionLaunchRecord(await launches.refresh(id, owner, authority)),
       );
     }),
+  );
+  // The handover is retained with the reviewed request, independent of agent
+  // filesystem paths. Reading it never allocates, resumes or dispatches a chat.
+  router.get('/requests/:proposalId/handover.md', (req, res) =>
+    act(
+      req,
+      res,
+      () => source(z.uuid().parse(req.params.proposalId)).prompt,
+      (text) => {
+        res.type('text/markdown').attachment('handover.md').send(text);
+      },
+    ),
   );
   router.post('/requests/:proposalId/approve', requireSameOriginJson, (req, res) =>
     act(req, res, async (auth, signal) => {

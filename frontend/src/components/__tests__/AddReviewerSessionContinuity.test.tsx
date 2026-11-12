@@ -13,14 +13,25 @@ import { apiFetch } from '../../lib/api-fetch';
 type Config = Extract<SymposiumConfig, { version: 2 }>;
 type Receipt = Omit<SymposiumConfigurationOperationReceipt, 'config'> & { config: Config };
 const session = vi.hoisted(() => ({ id: 'first' }));
-vi.mock('@mitzo/client/hooks', () => ({ useMitzoStore: () => session.id }));
+vi.mock('@mitzo/client/hooks', () => ({
+  useMitzoStore: (select: (state: unknown) => unknown) =>
+    select({
+      sessions: { active: session.id },
+      chatDraftRevision: 0,
+      messages: { messages: [], running: false },
+      connection: null,
+    }),
+}));
 vi.mock('../../hooks/useMediaQuery', () => ({ useIsDesktop: () => true }));
 vi.mock('../../pages/DesktopChatView', async () => {
   const { AddAgentSheet } = await import('../AddReviewerSheet');
   return { DesktopChatView: () => <AddAgentSheet sessionId={session.id} /> };
 });
 vi.mock('../../pages/ChatView', () => ({ ChatView: () => null }));
-vi.mock('../../lib/api-fetch', () => ({ apiFetch: vi.fn() }));
+vi.mock('../../lib/api-fetch', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../lib/api-fetch')>()),
+  apiFetch: vi.fn(),
+}));
 vi.mock('../AccountModelPicker', () => ({
   AccountModelPicker: ({ onChange }: { onChange(v: unknown): void }) => (
     <button onClick={() => onChange({ accountId: 'a', model: 'luna', reasoningEffort: 'low' })}>

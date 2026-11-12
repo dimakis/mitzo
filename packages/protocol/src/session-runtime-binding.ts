@@ -26,7 +26,7 @@ function validateHarness(
 ): void {
   const providers = {
     codex: ['openai-codex', 'openai'],
-    'claude-sdk': ['anthropic-vertex'],
+    'claude-sdk': ['anthropic-vertex', 'anthropic-claude', 'anthropic-api'],
     responses: ['openai'],
     gemini: ['google-vertex'],
   };
@@ -71,5 +71,17 @@ export function isOrdinaryCodexWorkspaceBinding(binding: SessionRuntimeBinding):
     binding.harness.implementation === 'codex' &&
     ['local', 'openshell'].includes(binding.execution.location) &&
     ['openai', 'openai-codex'].includes(binding.account.provider)
+  );
+}
+
+/** Supported repository participant shape only, never account or runtime authority.
+ * SDK participation borrows the existing local ordinary Claude owner. */
+export function isOrdinaryRepositoryParticipantBinding(binding: SessionRuntimeBinding): boolean {
+  return (
+    isOrdinaryCodexWorkspaceBinding(binding) ||
+    (binding.version === 2 &&
+      binding.harness.implementation === 'claude-sdk' &&
+      binding.execution.location === 'local' &&
+      ['anthropic-claude', 'anthropic-vertex'].includes(binding.account.provider))
   );
 }

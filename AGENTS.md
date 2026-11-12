@@ -8,6 +8,44 @@ Follow [the always-on Boy Scout rule](.cursor/rules/boy-scout.mdc). Leave touche
 code easier to maintain: prefer focused shared modules, remove duplicated work
 and needless calls, and consolidate repeated fixtures. Preserve authorization,
 revocation and cancellation boundaries when reducing redundant checks.
+Fix related silent error handling encountered in touched paths within the task's
+scope. Record larger or out-of-scope defects with evidence and a next action.
+
+## Error reporting is part of the feature
+
+Unexpected failures must not disappear into empty catches, discarded promise
+rejections, empty results, missing UI or apparent success. Preserve the cause
+internally and use the existing structured logger and trace correlation to record
+the failing stage, stable error code and relevant command/session/child identity.
+Sanitize diagnostics; exclude credentials, private reasoning and sensitive
+payloads. Cleanup failures must not replace the original failure.
+
+Keep affected operations visible with an honest failed, unavailable or uncertain
+state and a safe next action. Known subagents must remain discoverable when
+inspection, subscription or recovery fails; unavailable authority disables controls
+without erasing retained activity. Preserve all admission and permission checks;
+an observed unverified child must not gain transcript access or control authority.
+Expected cancellation, absence and optional fallback require an explicit bounded
+policy and appropriate reporting; avoid duplicate or noisy error logs.
+
+Cover failure delivery through the real adapter and user-facing consumer as well
+as component fixtures. Do not claim a root cause without evidence. When existing
+code discards the diagnostic, repair the relevant observability and report the
+remaining uncertainty. Follow this rule during feature work and nearby Boy Scout
+cleanup; it is not permission for unrelated refactors or production activation.
+
+Policy direction: Dimitri, 6 November 2026, after a child completed without its
+approved activity UI. This makes failure reporting explicit; the native failure
+stage in that incident is still unverified.
+
+## Telos work planning
+
+For a multi-slice ask, first propose Telos using [the shared workflow](docs/features/telos-workflow.md).
+Simple one-session tasks stay in chat unless Telos was explicitly requested or an existing item applies.
+Use outcome → feature items → session-sized slices. The outcome orchestrator coordinates features,
+integration, merge order and CI; a feature lead coordinates its slices. A standalone feature needs no outcome wrapper.
+Runtime kinds do not redefine these levels or prove nested lead/session support.
+Use existing reviewed role/session setup. Creating an item alone does not establish session readiness.
 
 ## Symposium source selection
 
@@ -21,6 +59,29 @@ another parent/phase tree merely because an old document describes unfinished wo
 ## UI design is a repository contract
 
 For any user-facing UI change, read [the UI design contract](docs/design/ui-design-system.md) and `frontend/AGENTS.md` before implementation. It applies to new features, existing pages, mobile and web in every session. Reuse shared tokens and components; keep palette/font definitions in `frontend/src/styles/tokens.css`, and use the shared spacing/type/radius scales. UI work is incomplete without the contract's validation and PR evidence. Evolve a missing shared pattern in the same PR rather than inventing a competing page theme.
+
+## Choose the UI pattern before the container
+
+Default to the simplest existing pattern: rows for collections/navigation, transcript
+entries for conversation events, and the shared sheet/dialog for focused review.
+Do not wrap every new feature in a rounded bordered or tinted card. A card must
+represent a distinct actionable unit whose grouping helps the user; matching theme
+tokens alone does not make a new container consistent with the app.
+
+Before implementing, name the existing pattern being reused. Show new relationships
+with readable chat names and, for replies, an exact-source quote with author/time and
+navigation back to that source. Keep technical identifiers in details. Successful
+historical actions belong in the transcript or a related list, not a permanent stack
+above the composer. Keep actionable failures and uncertainty visible.
+
+Read the relevant UI design contract and approved-design entry. If the requested
+redesign changes a prescribed pattern, update that rule in the same reviewed change;
+do not leave contradictory card-first instructions. Mock proposals are not approval
+of an implementation. Preserve existing actions, drafts, status ownership, appearance
+preferences and accessibility; extend shared components instead of creating a parallel
+visual system. Theme, accent and font come from the user’s current settings;
+reference screenshots do not lock those choices. Report actual visual verification
+and any unverified rendering.
 
 ## Staging stood down on this Mac
 

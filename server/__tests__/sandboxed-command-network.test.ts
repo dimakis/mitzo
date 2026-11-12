@@ -10,6 +10,15 @@ import { executeSandboxedCommand } from '../sandboxed-command.js';
 import type { SandboxWorkerPayload } from '../sandboxed-command-worker.js';
 import { callbackOutcome } from '../turn-callbacks.js';
 
+const terminationLog = vi.hoisted(() => vi.fn());
+vi.mock('../logger.js', () => ({
+  createLogger: (name: string) => ({
+    info: name === 'sandboxed-command' ? terminationLog : vi.fn(),
+    debug: vi.fn(),
+    warn: vi.fn(),
+    error: vi.fn(),
+  }),
+}));
 vi.mock('node:child_process', async (original) => ({
   ...(await original<typeof import('node:child_process')>()),
   spawn: vi.fn(),
@@ -18,6 +27,8 @@ afterEach(() => vi.restoreAllMocks());
 
 it.each([
   [1, null, 'settled'],
+  [128, null, 'settled'],
+  [129, null, 'unknown'],
   [137, null, 'unknown'],
   [255, null, 'unknown'],
   [null, 'SIGKILL', 'unknown'],
@@ -44,7 +55,14 @@ it.each([
         signal: new AbortController().signal,
       });
       expect(result.isError).toBe(true);
+      expect(result.content).toContain(code === null ? 'SIGKILL' : `exit code ${code}`);
+      expect(result.content).toContain(outcome === 'unknown' ? 'Inspect' : 'failed');
       expect(callbackOutcome(result)).toBe(outcome);
+      expect(terminationLog).toHaveBeenLastCalledWith('Sandbox command terminated', {
+        exitCode: code,
+        exitSignal: signal,
+        effectOutcome: outcome,
+      });
     } finally {
       await rm(root, { recursive: true, force: true });
     }

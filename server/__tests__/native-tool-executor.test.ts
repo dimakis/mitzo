@@ -1,4 +1,4 @@
-import { callbackOutcome, retainCallbackOutcome } from '../turn-callbacks.js';
+import { callbackOutcome, retainCallbackOutcome, TurnCallbacks } from '../turn-callbacks.js';
 import { executeTaskOperation } from '../task-execution-operation.js';
 import { TaskExecutionStore } from '../task-execution-store.js';
 import { execFileSync } from 'node:child_process';
@@ -96,9 +96,13 @@ describe('native tool execution through session permissions', () => {
   const executor = () =>
     createNativeToolExecutor('client', registry, { env: { PATH: '/usr/bin:/bin' } });
 
-  it.each(['settled', 'unknown'] as const)(
-    'retains a failed command as %s through the real task executor adapter',
-    async (outcome) => {
+  it.each([
+    ['settled', true],
+    ['unknown', true],
+    ['unknown', false],
+  ] as const)(
+    'retains a task command as %s (executor error=%s) through the real task executor adapter',
+    async (outcome, isError) => {
       const store = new TaskExecutionStore(join(root, 'events.db'));
       try {
         const session = registry.get('client')!;
@@ -111,9 +115,11 @@ describe('native tool execution through session permissions', () => {
           members: [{ sessionId: session.sessionId!, fingerprint: 'scope', roots: [session.cwd] }],
         });
         const before = vi.mocked(executeSandboxedCommand).mock.calls.length;
-        vi.mocked(executeSandboxedCommand).mockResolvedValueOnce(
-          retainCallbackOutcome({ content: '1 test failed', isError: true }, outcome),
-        );
+        const callbacks = new TurnCallbacks();
+        vi.mocked(executeSandboxedCommand).mockImplementationOnce(async () => {
+          callbacks.seal();
+          return retainCallbackOutcome({ content: '1 test failed', isError }, outcome);
+        });
         const options = {
           input: {
             operation: 'run' as const,
@@ -132,15 +138,26 @@ describe('native tool execution through session permissions', () => {
           assertGrant: () => grant,
           assertRuntimeCurrent: async () => {},
         };
-        const result = await executeTaskOperation(options);
+        const result = await callbacks.track(() => executeTaskOperation(options));
         expect(result.isError).toBe(true);
+        expect(callbackOutcome(result)).toBe(outcome);
         expect(store.runStatus(grant.id, session.sessionId!, 'failed-test').state).toBe(
           outcome === 'settled' ? 'completed' : 'uncertain',
         );
         if (outcome === 'settled') {
+          await expect(callbacks.settle(abort.signal)).resolves.toBeUndefined();
           expect(result.content).toBe('1 test failed');
-          expect(await executeTaskOperation(options)).toEqual(result);
+          const retryCallbacks = new TurnCallbacks();
+          const retry = retryCallbacks.track(() => executeTaskOperation(options));
+          retryCallbacks.seal();
+          const replay = await retry;
+          expect(replay).toEqual(result);
+          expect(callbackOutcome(replay)).toBe('settled');
+          await expect(retryCallbacks.settle(abort.signal)).resolves.toBeUndefined();
         } else {
+          await expect(callbacks.settle(abort.signal)).rejects.toMatchObject({
+            code: 'callbacks_failed',
+          });
           expect(JSON.parse(result.content).state).toBe('uncertain');
           await expect(executeTaskOperation(options)).rejects.toThrow(/uncertain/);
         }
@@ -346,6 +363,23 @@ describe('native tool execution through session permissions', () => {
   );
 
   it.each(['authenticated', 'public'] as const)(
+    'preserves a positively settled %s GitHub refusal through the native adapter',
+    async (access) => {
+      const read = access === 'public' ? executePublicGitHubRead : executeTrustedGitHubRead;
+      vi.mocked(read).mockRejectedValueOnce(Error('HTTP 403'));
+      const pending = createNativeToolExecutor('client', registry, { env: {}, forcePrompt: true })(
+        call('GitHubRead', { endpoint: '/repos/example/project', access }),
+        abort.signal,
+      );
+      await vi.waitFor(() => expect(sent.some((e) => e.type === 'permission_request')).toBe(true));
+      resolvePending(sent.find((e) => e.type === 'permission_request')!.permId as string, 'once');
+      const response = await pending;
+      expect(response.is_error).toBe(true);
+      expect(callbackOutcome(response)).toBe('settled');
+    },
+  );
+
+  it.each(['authenticated', 'public'] as const)(
     'preserves uncertainty when an already dispatched %s GitHub read is cancelled',
     async (access) => {
       const read = access === 'public' ? executePublicGitHubRead : executeTrustedGitHubRead;
@@ -430,6 +464,42 @@ describe('native tool execution through session permissions', () => {
       undefined,
       expect.any(Function),
     );
+  });
+  it('reuses repository consent for different job logs and passes bounded log controls to the transport', async () => {
+    const read = (job: number) =>
+      executor()(
+        call('GitHubRead', {
+          endpoint: `/repos/example/project/actions/jobs/${job}/logs`,
+          log: { query: 'FAIL', limit: 2000 },
+        }),
+        abort.signal,
+      );
+    const first = read(123);
+    await vi.waitFor(() => expect(sent.some((e) => e.type === 'permission_request')).toBe(true));
+    resolvePending(sent.find((e) => e.type === 'permission_request')!.permId as string, 'always');
+    expect((await first).is_error).toBe(false);
+    sent.length = 0;
+    expect((await read(456)).is_error).toBe(false);
+    expect(sent.some((e) => e.type === 'permission_request')).toBe(false);
+    expect(executeTrustedGitHubRead).toHaveBeenLastCalledWith(
+      '/repos/example/project/actions/jobs/456/logs',
+      abort.signal,
+      undefined,
+      undefined,
+      undefined,
+      expect.any(Function),
+      { query: 'FAIL', limit: 2000 },
+    );
+  });
+  it('refuses public log paging and non-log filtering without a prompt or credential fallback', async () => {
+    const before = vi.mocked(executeTrustedGitHubRead).mock.calls.length;
+    for (const input of [
+      { endpoint: '/repos/example/project/actions/jobs/123/logs', access: 'public', log: {} },
+      { endpoint: '/repos/example/project/contents/file', log: {} },
+    ])
+      expect((await executor()(call('GitHubRead', input), abort.signal)).is_error).toBe(true);
+    expect(sent.some((e) => e.type === 'permission_request')).toBe(false);
+    expect(vi.mocked(executeTrustedGitHubRead).mock.calls).toHaveLength(before);
   });
   it('reads public GitHub data without a card or an authenticated grant', async () => {
     const before = vi.mocked(executeTrustedGitHubRead).mock.calls.length;

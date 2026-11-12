@@ -1,4 +1,6 @@
 import { repositoryObservationProgram } from './native-repository-observation.js';
+import { createLogger } from './logger.js';
+import { joinRetainedFinalizers } from './retained-finalization.js';
 import { nativePreparationPublicationWriteRoots } from './native-preparation-publication.js';
 import {
   privateRepositoryCheckoutCommand,
@@ -24,6 +26,7 @@ import {
   projectPrivateNativeFileHelperRequest,
   type NativeReadAnchor,
 } from './native-file-operation.js';
+const log = createLogger('sandboxed-command');
 
 export interface SandboxedCommandOptions {
   command: string;
@@ -117,8 +120,15 @@ function assertPrivateOwnerCurrent(receiver: object, assertion: unknown, message
   if (typeof assertion !== 'function') throw Error(message);
   const returned: unknown = Reflect.apply(assertion, receiver, []);
   if (returned !== undefined) {
-    void Promise.resolve(returned).catch(() => {});
-    throw Error(message);
+    const error = Error(message);
+    void Promise.resolve(returned).catch((cause) => {
+      error.cause = cause;
+      log.warn('Private helper synchronous owner rejected', {
+        code: 'private_helper_async_owner_rejected',
+        stage: 'synchronous_owner',
+      });
+    });
+    throw error;
   }
 }
 
@@ -145,7 +155,10 @@ export async function executePrivateNativeFileHelper(options: PrivateNativeFileH
   const deadline = privateDeadline(original, timeoutMs);
   const current = () => {
     signal.throwIfAborted();
-    if (Date.now() >= deadline) throw Error('Private helper owner unavailable');
+    if (Date.now() >= deadline)
+      throw Object.assign(Error('Private helper deadline exceeded'), {
+        code: 'private_helper_deadline_exceeded',
+      });
     assertPrivateOwnerCurrent(original, sync, 'Private helper owner unavailable');
   };
   const revalidate = async () => {
@@ -162,6 +175,27 @@ export async function executePrivateNativeFileHelper(options: PrivateNativeFileH
   const requestJson = projectPrivateNativeFileHelperRequest(suppliedRequestJson);
   const command = privateNativeFileHelperCommand(requestJson);
   const request = JSON.parse(requestJson);
+  const unavailable = (
+    stage: 'execution' | 'post_result',
+    cause: unknown,
+    postResultFailure?: { cause: unknown },
+  ) => {
+    // Keep arbitrary worker/owner details in the internal cause chain only.
+    // The existing logger supplies operation trace correlation.
+    log.warn('Private native file helper failed', {
+      code: 'private_native_file_helper_unavailable',
+      stage,
+      operation: request.operation,
+      deadlineExceeded: Date.now() >= deadline,
+    });
+    const error = Object.assign(Error('Private native file helper unavailable', { cause }), {
+      code: 'private_native_file_helper_unavailable',
+      stage,
+    });
+    if (postResultFailure)
+      Object.defineProperty(error, 'postResultCause', { value: postResultFailure.cause });
+    return error;
+  };
   const cwd = privateData(options, 'cwd');
   const phase = request.operation === 'PublishPreparedRepository';
   const phaseRoots = phase
@@ -266,7 +300,7 @@ export async function executePrivateNativeFileHelper(options: PrivateNativeFileH
   // Source/destination roots remain immutable data until worker sandbox setup,
   // after the full beforeSpawnAsync proof. Do not repeat that proof here.
   current();
-  let failed = false;
+  let executionFailure: { cause: unknown } | undefined;
   let result: Awaited<ReturnType<typeof runSandboxedCommand>> | undefined;
   try {
     result = await runSandboxedCommand(
@@ -289,9 +323,9 @@ export async function executePrivateNativeFileHelper(options: PrivateNativeFileH
         cwdIdentity: roots.find((root) => root.path === cwd)!.parentAnchor.identity,
       },
     );
-  } catch {
+  } catch (cause) {
     // Joining/cleanup can fail after a real effect. Never retry or erase it.
-    failed = true;
+    executionFailure = { cause };
   }
   try {
     // Refuse revoked original authority before starting more owner I/O. A
@@ -302,10 +336,18 @@ export async function executePrivateNativeFileHelper(options: PrivateNativeFileH
     if (!(pending instanceof Promise) || (await pending) !== undefined)
       throw Error('Private helper owner unavailable');
     current(); // ALSO after rejected joined-worker/cleanup awaits and absolute expiry.
-  } catch {
-    throw Error('Private native file helper unavailable');
+  } catch (cause) {
+    throw unavailable(
+      'post_result',
+      executionFailure ? executionFailure.cause : cause,
+      executionFailure ? { cause } : undefined,
+    );
   }
-  if (failed || !result) throw Error('Private native file helper unavailable');
+  if (executionFailure || !result)
+    throw unavailable(
+      'execution',
+      executionFailure ? executionFailure.cause : Error('Private helper result unavailable'),
+    );
   return result;
 }
 
@@ -698,6 +740,7 @@ async function runSandboxedCommand(
   );
   const workerArgs = sourceRuntime ? ['--import', require.resolve('tsx/esm'), worker] : [worker];
   const temporary = await realpath(await mkdtemp(join(tmpdir(), 'mitzo-shell-')));
+  let executionFailure: { cause: unknown } | undefined;
   try {
     const home = join(temporary, 'home');
     const scratch = join(temporary, 'tmp');
@@ -859,12 +902,19 @@ async function runSandboxedCommand(
         kill();
         let output = Buffer.concat(chunks).toString('utf8');
         const isError = !!failure || code !== 0 || signal !== null;
-        // A normal nonzero exit is a completed failure. Interrupted or missing
-        // termination evidence cannot settle effects or permit a blind retry.
+        // A normal nonzero exit, including Git's fatal-error code 128, is a
+        // completed failure. Shell signal encodings start at 129; those and
+        // missing termination evidence cannot settle effects or permit a retry.
         const outcome =
-          !failure && code !== null && code >= 0 && code < 128 && signal === null
+          !failure && code !== null && code >= 0 && code <= 128 && signal === null
             ? 'settled'
             : 'unknown';
+        log.info('Sandbox command terminated', {
+          exitCode: code,
+          exitSignal: signal,
+          effectOutcome: outcome,
+          ...(failure ? { failureReason: failure } : {}),
+        });
         if (options.privateOutput) {
           resolveResult(
             retainCallbackOutcome(
@@ -878,6 +928,18 @@ async function runSandboxedCommand(
             ),
           );
           return;
+        }
+        if (isError) {
+          const termination = signal
+            ? `signal ${signal}`
+            : code !== null
+              ? `exit code ${code}`
+              : 'no exit status';
+          output = `Command failed (${termination}). ${
+            outcome === 'unknown'
+              ? 'Outcome uncertain. Inspect the original operation and partial work before retrying; do not repeat it automatically.'
+              : 'The command completed with a failure. Inspect its output and correct the cause before retrying.'
+          }\n${output}`;
         }
         if (
           isError &&
@@ -900,7 +962,14 @@ async function runSandboxedCommand(
         );
       });
     });
+  } catch (cause) {
+    executionFailure = { cause };
+    throw cause;
   } finally {
-    await rm(temporary, { recursive: true, force: true });
+    await joinRetainedFinalizers(
+      'sandbox_command',
+      [() => rm(temporary, { recursive: true, force: true })],
+      executionFailure,
+    );
   }
 }

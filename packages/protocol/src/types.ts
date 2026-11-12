@@ -378,6 +378,10 @@ export interface Session {
   summary: string;
   /** Recorded model choice, never inferred from the engine or a global default. */
   model?: string;
+  /** A failed receipt read must not revive an older cached model. */
+  modelUnavailable?: boolean;
+  /** Server read time for display freshness only; never execution authority. */
+  modelObservedAt?: number;
   accountLabel?: string;
   lastModified: number;
   branch?: string;
@@ -402,6 +406,8 @@ export interface SessionActivity {
   clientId: string;
   title: string;
   model?: string;
+  modelUnavailable?: boolean;
+  modelObservedAt?: number;
   accountLabel?: string;
   repo?: string;
   state: SessionActivityState;
@@ -464,6 +470,8 @@ export interface SessionSearchResult {
   sessionId: string;
   summary: string | null;
   model?: string;
+  modelUnavailable?: boolean;
+  modelObservedAt?: number;
   accountLabel?: string;
   snippet: string;
   matchedFields?: Array<'title' | 'model' | 'provider' | 'account' | 'project' | 'messages'>;
@@ -559,18 +567,33 @@ export interface SubagentUsage {
   cacheCreationTokens: number;
 }
 
+/** Task outcome is independent of whether its parent message has finished. */
+export type SubagentStatus = 'running' | 'completed' | 'failed' | 'cancelled' | 'unavailable';
+
+export interface SubagentDiagnostic {
+  code:
+    | 'claude_child_stop_failed'
+    | 'claude_child_parent_unavailable'
+    | 'claude_child_outcome_unavailable';
+  correlationId: string;
+}
+
 /** Streaming subagent state — blocks in a Map, running flag set. */
 export interface StreamingSubagentState {
+  status?: SubagentStatus;
+  diagnostic?: SubagentDiagnostic;
   messageId: string;
   blocks: Map<string, StreamingBlock>;
   blockOrder: string[];
   running: true;
-  summary?: never;
-  usage?: never;
+  summary?: string;
+  usage?: SubagentUsage;
 }
 
 /** Finished subagent state — blocks as array, summary + usage set. */
 export interface FinishedSubagentState {
+  status?: SubagentStatus;
+  diagnostic?: SubagentDiagnostic;
   messageId: string;
   blocks: FinishedBlock[];
   summary?: string;

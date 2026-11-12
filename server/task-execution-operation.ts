@@ -1,16 +1,16 @@
-import { createHash } from 'node:crypto';
+import { taskExecutionFingerprint } from './task-execution-store.js';
 import { realpathSync } from 'node:fs';
 import { isAbsolute, resolve } from 'node:path';
 import type { z } from 'zod';
 import type { ManagedSession, SessionRegistry } from '@mitzo/harness';
 import { createNativeToolExecutor } from './native-tool-executor.js';
-import { callbackOutcome } from './turn-callbacks.js';
+import { callbackOutcome, copyCallbackOutcome, retainCallbackOutcome } from './turn-callbacks.js';
 import type { ProfileToolCall } from './session-profile-tools.js';
 import type { taskExecutionSchema } from './task-execution-definitions.js';
 import type { TaskExecutionGrant, TaskExecutionStore } from './task-execution-store.js';
 import { createLogger } from './logger.js';
 const log = createLogger('task-execution');
-const hash = (value: unknown) => createHash('sha256').update(JSON.stringify(value)).digest('hex');
+
 export async function executeTaskOperation(options: {
   input: z.infer<typeof taskExecutionSchema>;
   grant: TaskExecutionGrant;
@@ -62,6 +62,7 @@ export async function executeTaskOperation(options: {
       exact.endpoint = input.endpoint;
       exact.access = input.access ?? 'authenticated';
       if (input.view) exact.view = input.view;
+      if (input.log) exact.log = input.log;
     }
     const cwd = input.cwd ? realpathSync(resolve(session.cwd!, input.cwd)) : session.cwd!;
     if (
@@ -75,11 +76,12 @@ export async function executeTaskOperation(options: {
       grant.id,
       sessionId,
       input.requestId,
-      hash([toolName, exact, cwd, input.timeoutMs ?? 60000]),
+      taskExecutionFingerprint(toolName, exact, cwd, input.timeoutMs),
     );
     if (before.state === 'completed') {
       assertGrant();
-      return before.result;
+      // Only settled results reach finish; durable replay retains that evidence.
+      return retainCallbackOutcome(before.result, 'settled');
     }
     const revoked = new AbortController();
     const unsubscribe = store.onRevoked(grant.id, () =>
@@ -127,10 +129,10 @@ export async function executeTaskOperation(options: {
       { type: 'tool_use', id: call.callId, name: toolName, input: exact },
       runSignal,
     );
-    const result = {
+    const result = copyCallbackOutcome(output, {
       content: typeof output.content === 'string' ? output.content : JSON.stringify(output.content),
       isError: output.is_error === true,
-    };
+    });
     if (callbackOutcome(output) === 'unknown') {
       log.warn('Task operation outcome retained as uncertain', {
         grantId: grant.id,

@@ -1,6 +1,7 @@
 import { expect, it, vi } from 'vitest';
 import { AsyncQueue } from '../async-queue.js';
 import { createSdkTurnQuery } from '../sdk-turn-query.js';
+import { isSdkQueryRetiredEvent } from '../sdk-query-retirement.js';
 import { SdkHookLifetime } from '../ordinary-local-vertex-sdk-query.js';
 import type { Options, SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
 import { EventEmitter } from 'node:events';
@@ -218,6 +219,7 @@ it('resumes the original history only after callbacks, result delivery and actua
   await (f.q as unknown as { setMaxThinkingTokens(n: number): Promise<void> }).setMaxThinkingTokens(
     1234,
   );
+  expect(isSdkQueryRetiredEvent((await output.next()).value!)).toBe(true);
   const next = output.next();
   await vi.waitFor(() => expect(f.runs[0].close).toHaveBeenCalledOnce());
   expect(f.create).toHaveBeenCalledOnce();
@@ -269,24 +271,37 @@ it('resumes the original history only after callbacks, result delivery and actua
   await next;
   expect(f.runs[1].close).toHaveBeenCalledOnce();
 });
-it('does not create a successor when the original saved history cannot be requalified', async () => {
-  const f = fixture();
-  f.message('first');
-  f.message('second');
-  f.history.mockRejectedValue(Error('history unavailable'));
-  f.runs[0].events.push({ type: 'result', session_id: 'retained' });
-  const output = f.q[Symbol.asyncIterator]();
-  await output.next();
-  const next = expect(output.next()).rejects.toMatchObject({ code: 'input_not_dispatched' });
-  f.runs[0].child.emit('close');
-  await next;
-  expect(f.create).toHaveBeenCalledOnce();
-  expect(f.runs[0].close).toHaveBeenCalledOnce();
-  expect(f.unsent).toHaveBeenCalledWith(
-    expect.objectContaining({ mitzoMessageId: 'second' }),
-    expect.objectContaining({ code: 'input_not_dispatched' }),
-  );
-});
+it.each([false, true])(
+  'does not create a successor when history cannot be requalified (feedback throws: %s)',
+  async (feedbackThrows) => {
+    const f = fixture();
+    f.message('first');
+    f.message('second');
+    const cause = Error('history unavailable');
+    f.history.mockRejectedValue(cause);
+    if (feedbackThrows)
+      f.unsent.mockImplementation(() => {
+        throw Error('feedback failed');
+      });
+    f.runs[0].events.push({ type: 'result', session_id: 'retained' });
+    const output = f.q[Symbol.asyncIterator]();
+    await output.next();
+    expect(isSdkQueryRetiredEvent((await output.next()).value!)).toBe(true);
+    const next = expect(output.next()).rejects.toMatchObject({
+      code: 'input_not_dispatched',
+      cause,
+    });
+    f.runs[0].child.emit('close');
+    await next;
+    expect(f.create).toHaveBeenCalledOnce();
+    expect(f.runs[0].close).toHaveBeenCalledOnce();
+    expect(f.unsent).toHaveBeenCalledOnce();
+    expect(f.unsent).toHaveBeenCalledWith(
+      expect.objectContaining({ mitzoMessageId: 'second' }),
+      expect.objectContaining({ code: 'input_not_dispatched' }),
+    );
+  },
+);
 it('does not deliver a successful result or admit queued input after unknown callback failure', async () => {
   const f = fixture();
   f.message('first');
@@ -342,6 +357,7 @@ it('interrupts an idle owner without touching its closed native query, then acce
   f.runs[0].events.push({ type: 'result', session_id: 'retained' });
   const output = f.q[Symbol.asyncIterator]();
   await output.next();
+  expect(isSdkQueryRetiredEvent((await output.next()).value!)).toBe(true);
   const waiting = output.next();
   await vi.waitFor(() => expect(f.runs[0].close).toHaveBeenCalledOnce());
   f.runs[0].child.emit('close');
@@ -404,6 +420,7 @@ it('accepts interrupt and settings during callback settlement without borrowing 
   f.finish();
   await callback;
   await terminal;
+  expect(isSdkQueryRetiredEvent((await output.next()).value!)).toBe(true);
   const successor = output.next();
   await vi.waitFor(() => expect(f.runs[0].close).toHaveBeenCalledOnce());
   f.runs[0].child.emit('close');

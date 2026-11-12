@@ -1,3 +1,4 @@
+import { retainedApplicationEffectObserver } from './retained-application-effects.js';
 import { assertPreparedRepositoryAdmissionFacts } from './prepared-repository-transition.js';
 import { freezePendingHostTaskData } from './pending-host-task.js';
 import { PreparedRepositoryWorkspaceOwner } from './prepared-repository-workspace-owner.js';
@@ -25,6 +26,16 @@ import { composeOwnedLocalNativeExecutionPolicyForWorkspace } from './owned-loca
 import { observeNativeRecoveryTurn } from './codex-interrupted-effects.js';
 
 const unavailable = () => Error('Original local turn effects require further inspection');
+/** Query-loop timing can finish after the live owner retires. Those counters
+ * do not change custody; all selection, lifecycle and execution fields remain. */
+function recoveryMetadata({
+  durationMs: _durationMs,
+  lastStateChange: _lastStateChange,
+  updatedAt: _updatedAt,
+  ...meta
+}: NonNullable<ReturnType<EventStore['getSession']>>) {
+  return meta;
+}
 function capture(
   events: EventStore,
   native: CodexConversationStore,
@@ -79,16 +90,17 @@ function capture(
       binding,
     );
   const custody = native.readHostCustody(id, binding);
-  const target = native.completionPhaseRecoveryTarget(id, binding);
+  const target =
+    native.completionPhaseRecoveryTarget(id, binding) ?? native.nativeRecoveryTarget(id, binding);
   const phase = target && native.completionPhase(id, binding, target.commandId, target.attempt);
+  const retainedStatus = target && native.commandStatus(id, binding, target.commandId);
   if (
     !custody ||
     !ordinaryOperatorOwnsConversation(custody.authSessionId, auth) ||
     !target ||
-    !phase ||
-    phase.observedOutcome !== 'completed' ||
-    phase.priorEffectsUnknown ||
-    native.commandStatus(id, binding, target.commandId) !== 'interrupted' ||
+    native.continuationBlocker(id, binding)?.commandId !== target.commandId ||
+    (phase && (phase.observedOutcome !== 'completed' || phase.priorEffectsUnknown)) ||
+    (retainedStatus !== 'interrupted' && !(retainedStatus === 'failed' && !phase)) ||
     !isDeepStrictEqual(native.nativeRecoveryTarget(id, binding), target)
   )
     throw unavailable();
@@ -102,7 +114,7 @@ function capture(
     execution.turnId !== target.turnId ||
     execution.generation !== target.generation ||
     execution.policy.cwd !== meta.cwd ||
-    execution.policy.policyRevision !== phase.policyRevision
+    (phase && execution.policy.policyRevision !== phase.policyRevision)
   )
     throw unavailable();
   const admission = events.getOrdinaryLocalCommandExecutionAdmission(target.commandId);
@@ -124,7 +136,19 @@ function capture(
     native.read(id, binding).cwd !== meta.cwd
   )
     throw unavailable();
-  return { meta, binding, runtime, custody, target, phase, execution, admission, send, prepared };
+  return {
+    meta: recoveryMetadata(meta),
+    binding,
+    runtime,
+    custody,
+    target,
+    phase,
+    retainedStatus,
+    execution,
+    admission,
+    send,
+    prepared,
+  };
 }
 /** One original reservation projection for both undispatched-input recovery and
  * inspection-only recovery. Ordinary roots retain their allocation fingerprint. */
@@ -396,6 +420,8 @@ export async function reconcileRetainedLocalCodexEffects(options: {
                 await owner.revalidate();
                 current();
               },
+              original.execution.policy.cwd,
+              !original.phase,
             );
             current();
           },
@@ -404,10 +430,7 @@ export async function reconcileRetainedLocalCodexEffects(options: {
         if (
           lease.withQualifiedWorkspaceReadOwner !== withReadOwner ||
           !observed ||
-          !(
-            observed.status === 'completed' ||
-            (observed.status === 'interrupted' && observed.settledEffects)
-          )
+          (observed.status !== 'completed' && !observed.settledEffects)
         )
           throw unavailable();
         current();
@@ -428,6 +451,7 @@ export async function reconcileRetainedLocalCodexEffects(options: {
             if (observed.status === 'completed')
               preparedWitness?.observeNativeCompletion(original.target);
           },
+          retainedApplicationEffectObserver(events, id, original.binding, current),
         );
         return true;
       },

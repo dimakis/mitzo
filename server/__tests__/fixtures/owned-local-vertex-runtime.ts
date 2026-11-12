@@ -9,7 +9,9 @@ import { EventStore } from '../../event-store.js';
 import { AgentLibraryStore } from '../../agent-library-store.js';
 import { RepositoryWorkspaces } from '../../repository-workspaces.js';
 import { loadAccountProfiles } from '../../account-profiles.js';
+import { ClaudeAccountStore } from '../../claude-account-store.js';
 import { bindAgentLibraryTransport } from '../../agent-library-transport.js';
+import type { AgentToolReference } from '@mitzo/protocol';
 
 import {
   OrdinaryLocalVertexTarget,
@@ -24,6 +26,12 @@ export async function ownedVertexRuntimeFixture(
     chatRoute?: boolean;
     dual?: boolean;
     ordinaryPreparation?: boolean;
+    personal?: boolean;
+    anthropicApi?: boolean;
+    modelIds?: readonly [string, string];
+    managed?: boolean;
+    preparationFingerprint?: string;
+    tools?: AgentToolReference[];
   } = {},
 ) {
   const root = await realpath(await mkdtemp(join(tmpdir(), 'mitzo-owned-driver-')));
@@ -47,6 +55,14 @@ export async function ownedVertexRuntimeFixture(
   };
   await writeFile(targetPath, JSON.stringify(target), { mode: 0o600 });
   const configPath = join(privateRoot, 'profiles.json');
+  const personalConfig = join(root, 'personal-claude');
+  const personalExecutable = join(root, 'claude-fixture');
+  if (options.personal) {
+    await mkdir(personalConfig, { mode: 0o700 });
+    // Only identity/stat checks use this file. Model processes and auth status
+    // are mocked independently; CI never needs the Mac-only production binary.
+    await writeFile(personalExecutable, '#!/bin/sh\nexit 1\n', { mode: 0o700 });
+  }
   await writeFile(
     join(privateRoot, 'adc.json'),
     JSON.stringify({
@@ -61,26 +77,89 @@ export async function ownedVertexRuntimeFixture(
     {
       id: 'personal',
       label: 'Personal',
-      provider: 'anthropic-vertex',
-      projectId: 'offline-project',
-      region: 'offline-region',
-      ...(options.dual
-        ? { sandboxProvider: 'same-api-provider', sandboxProviderId: 'offline-api-provider-id' }
-        : {}),
-      credentialRef: join(privateRoot, 'adc.json'),
+      ...(options.anthropicApi
+        ? {
+            provider: 'anthropic-api',
+            credentialRef: {
+              provider: 'keychain',
+              service: 'mitzo.anthropic.fixture',
+              account: 'api-key',
+            },
+            credentialVersion: 'eec02914-ac1f-4369-ab86-8e4f130abc92',
+            connection: {
+              endpoint: 'https://models.example.com',
+              protocol: 'messages',
+              qualification: {
+                source: 'operator',
+                streaming: true,
+                toolCalls: true,
+                continuation: true,
+                cancellation: true,
+              },
+            },
+          }
+        : options.personal
+          ? {
+              provider: 'anthropic-claude',
+              email: 'person@example.test',
+              planType: 'max',
+              credentialRef: personalConfig,
+            }
+          : {
+              provider: 'anthropic-vertex',
+              projectId: 'offline-project',
+              region: 'offline-region',
+              ...(options.dual
+                ? {
+                    sandboxProvider: 'same-api-provider',
+                    sandboxProviderId: 'offline-api-provider-id',
+                  }
+                : {}),
+              credentialRef: join(privateRoot, 'adc.json'),
+            }),
       models: [
-        { id: 'fixture-model', label: 'Fixture model', reasoningEfforts: ['low'] },
-        { id: 'next-model', label: 'Next model', reasoningEfforts: ['high'] },
+        {
+          id: options.modelIds?.[0] ?? 'fixture-model',
+          label: 'Fixture model',
+          reasoningEfforts: ['low'],
+        },
+        {
+          id: options.modelIds?.[1] ?? 'next-model',
+          label: 'Next model',
+          reasoningEfforts: ['high'],
+        },
       ],
     },
   ];
   const writeProfiles = () =>
     writeFileSync(configPath, JSON.stringify(configuration), { mode: 0o600 });
-  writeProfiles();
-  vi.stubEnv('MITZO_ACCOUNT_PROFILES_FILE', configPath);
+  let accountId = 'personal';
+  const model = options.managed ? 'sonnet' : (options.modelIds?.[0] ?? 'fixture-model');
+  if (options.managed) {
+    if (!options.personal) throw Error('Managed fixture requires a personal Claude account');
+    const managedRoot = join(root, 'managed-claude');
+    vi.stubEnv('MITZO_CLAUDE_ACCOUNTS_DIR', managedRoot);
+    const store = new ClaudeAccountStore(managedRoot);
+    try {
+      const row = store.reserve('fixture', Date.now() + 60000, {
+        requestId: randomUUID(),
+        label: 'Personal',
+      });
+      store.connected(row, { email: 'person@example.test', planType: 'max' });
+      accountId = row.accountId;
+      configuration[0].credentialRef = store.config(accountId);
+    } finally {
+      store.close();
+    }
+    vi.stubEnv('MITZO_ACCOUNT_PROFILES_FILE', undefined);
+    vi.stubEnv('ANTHROPIC_VERTEX_PROJECT_ID', undefined);
+  } else {
+    writeProfiles();
+    vi.stubEnv('MITZO_ACCOUNT_PROFILES_FILE', configPath);
+  }
   vi.stubEnv('MITZO_OPENAI_ACCOUNT_ENROLLMENT_DB', '');
   vi.stubEnv('MITZO_CODEX_ENABLED', '1');
-  const binding = loadAccountProfiles().resolve('personal', 'fixture-model');
+  const binding = loadAccountProfiles().resolve(accountId, model);
   const eventPath = options.chatRoute ? join(root, '.mitzo', 'events.db') : join(root, 'events.db');
   const events = new EventStore(eventPath);
   const library = new AgentLibraryStore(eventPath);
@@ -101,6 +180,7 @@ export async function ownedVertexRuntimeFixture(
       expectedOutput: 'Reviewed changes',
       acceptanceCriteria: ['Use evidence'],
       modelPolicyRole: 'agent',
+      ...(options.tools ? { tools: options.tools } : {}),
       ...(options.contextRecipe
         ? { contextRecipe: { version: 1, source: 'contexgin', agentName: 'fixture-agent' } }
         : {}),
@@ -168,6 +248,9 @@ export async function ownedVertexRuntimeFixture(
       ? nativeStartupSessionId(`repository:${prepared.id}`)
       : randomUUID(),
     taskRoot,
+    ...(options.preparationFingerprint
+      ? { commandFingerprint: options.preparationFingerprint }
+      : {}),
   };
   const reserved = await workspace.reserveHostTask({ ...reservation, signal: signal.signal });
   const auth = { id: randomUUID(), expiresAt: Date.now() + 60000 },
@@ -201,8 +284,8 @@ export async function ownedVertexRuntimeFixture(
       agent: { profileId: 'developer', revision: 1 },
       context: { source: 'none' as const, revision: null },
       permission: { mode: 'agent' as const, revision: 0 },
-      model: 'fixture-model',
-      thinking: 'low',
+      model,
+      thinking: options.managed ? null : 'low',
     },
     payload: { text: 'Implement the task', intent: 'Original user intent' },
   };
@@ -216,6 +299,7 @@ export async function ownedVertexRuntimeFixture(
     agentProfile,
     root,
     targetPath,
+    personalExecutable,
     target,
     configuration,
     writeProfiles,

@@ -18,6 +18,17 @@ export function conversationMessages(view: CollaborationView): FinishedMessage[]
 }
 
 /** Presentation only: resolving Defaults or changing a read policy cannot queue work. */
+export function resolveConversationResponders(
+  view: CollaborationView,
+  responders: CollaborationMessageInput['responders'],
+) {
+  return responders.kind === 'all'
+    ? [...view.participantSessionIds]
+    : responders.kind === 'selected'
+      ? [...responders.sessionIds]
+      : view.policies.filter((policy) => policy.repliesByDefault).map((policy) => policy.sessionId);
+}
+
 export function conversationResponders(
   view: CollaborationView,
   responders: CollaborationMessageInput['responders'],
@@ -38,12 +49,7 @@ export function conversationResponders(
   return {
     members,
     responders,
-    selectedIds:
-      responders.kind === 'all'
-        ? [...view.participantSessionIds]
-        : responders.kind === 'selected'
-          ? [...responders.sessionIds]
-          : members.filter((member) => member.repliesByDefault).map((member) => member.id),
+    selectedIds: resolveConversationResponders(view, responders),
     // The actual protocol currently has no enabled execution variant. Never infer readiness.
     sendDisabledReason: view.execution.reason,
   };

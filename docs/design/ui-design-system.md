@@ -1,3 +1,15 @@
+## Account-scoped model and thinking choices
+
+Account switching and model refresh reuse `AccountModelPicker`, the approved
+`QuickSettingsField`/`QuickSettingsChoices` editors and their existing notice
+style. Each account restores its own model/thinking preference; the global
+new-chat default stays explicit. Native Claude metadata supplies supported
+thinking levels, and failed discovery stays visible with Refresh models as the
+retry action. No layout, palette, type, motion or approved-design revision changes.
+The existing intercepted `chat-model-settings` fixture covers these interactions
+on phone/desktop, both themes and alternate appearance; see
+[verification and captures](../features/personal-claude-local.md#model-controls-11-november-2026).
+
 # Mitzo UI design contract
 
 ## Conversation search
@@ -17,6 +29,71 @@ covers phone/desktop, both themes and alternate appearance without a backend or
 model. See [scope and validation](../features/conversation-search.md); rendered
 evidence remains pending CI after the host guard refused local execution.
 
+## Claude subscription onboarding
+
+Claude uses the existing Connections grouped account rows and labelled form
+controls. Account connection and sign-in actions belong on Connections, not in
+the ordinary chat account/model picker (Dimitri's explicit direction, 11 November
+2026). The approved Chat settings hierarchy stays unchanged.
+The private code input uses a password field, disables autocomplete/capitalization,
+and clears after submission and authentication loss. Browser sign-in opens only
+through an explicit labelled link. Pending, checking, cancelled, interrupted,
+failed and host-recovery states retain their original operation and diagnostic.
+Check status never starts another login or resubmits a code. Start chat saves an
+unsent Local Mac draft and leaves account defaults unchanged.
+
+An explicit Claude status check uses the existing button and status/alert text to
+show progress and its result. Connected accounts reuse the native Connections
+sign-in inventory; pending setup recovers the original operation. Reads have a
+bounded retry state, and logout or navigation suppresses late evidence. No new
+container, styling or motion pattern is introduced.
+
+The surface reuses semantic tokens, Connections spacing/type/controls and existing
+page motion, without new cards, palette or animation. The intercepted
+`claude-account-connect` fixture covers 320px phones and desktop, light/dark,
+Mint/System and Teal/Georgia, keyboard completion, 44px controls, narrow bounds,
+navigation recovery and lost acknowledgements. See
+[implementation evidence and remaining verification](../features/personal-claude-local.md#verification-status).
+
+## Heading, disclosure and icon roles
+
+Collection page titles use `--text-collection-title` on desktop and
+`--text-page-title` on phones. Focused pane headings retain the compact
+`--text-pane-title` role; Terminal, conversation headers and item navigation
+are intentionally more compact than collection pages. Section headings use
+`--text-section-title`; collection disclosure labels and list captions use
+`--text-section-label`. Keep font, theme and accent preferences effective.
+
+Buttons and native summaries that disclose equivalent collection groups use
+`collection-section-toggle`. Pinned and Drafts share label weight/line height,
+padding, count alignment, 16px inline icons and the shared control height.
+Header actions use the common 20px glyph box in `header-actions.css`, independently
+of legacy inline-size requests. Icon size does not determine touch-target size.
+Do not add a page-specific scale to repair one instance of a shared role.
+
+This consistency pass was requested and approved by Dimitri on 10 November 2026.
+The existing row/disclosure patterns and approved settings layout are preserved.
+See [scope, audit and verification](../features/ui-smoothness.md).
+
+## Resizable desktop columns
+
+DesktopShell owns the navigation, conversations and resources column widths.
+The shared ResizeDivider supports pointer capture, keyboard arrows, Home/End
+and double-click reset. Collapsed/absent panels have no divider. The conversation
+preview reuses it with its existing percentage limits. Widths persist as optional
+browser preferences; unavailable storage keeps changes in the current tab and
+shows one quiet status with a sanitized structured console diagnostic. Window
+resizing fits expanded panels around a usable center without overwriting their
+saved widths. Resizing never remounts the chat or composer.
+
+Desktop assistant responses fill the available pane inside the shared page
+gutter. Tables wrap long summaries on both desktop and phone, retaining their
+scroll wrapper for intrinsically wide content. The user explicitly requested
+these width changes on 9 November 2026; the existing settings, status, message
+actions and mobile navigation designs are preserved. Divider widths, panel
+bounds and center budget are structural geometry; surfaces, focus, spacing and
+type use the shared semantic tokens. See [scope and validation](../features/desktop-panel-layout.md).
+
 ## Native Watch approvals
 
 Watch approval details use native SwiftUI system typography, scrolling, labelled
@@ -31,12 +108,25 @@ SDK checks and the remaining physical-device/visual verification.
 
 ## Agent-created ordinary sessions
 
-An agent's session proposal appears as a compact quiet card in its originating
-chat. Review uses the shared `HomeDialog`, existing account/model, agent and
+An agent's pending session proposal uses a compact actionable transcript entry
+in its originating chat. After a confirmed start, retain a linked transcript event
+and a related-chat list entry; do not pin successful historical receipts above the
+composer. Pending or unresolved starts remain discoverable through one compact
+attention entry in the existing status owner. Review uses the shared `HomeDialog`,
+existing account/model, agent and
 execution pickers, semantic colors, type/spacing/radius scales and shared controls.
 Title, handoff and configuration are editable before **Approve & start**; saving
 the configuration as the persistent default is an explicit separate choice. The
 original composer and draft remain mounted and approval does not navigate away.
+
+The retained **Handover.md** reuses the shared filename group and `ShareButton`
+file-options sheet. Authenticated bytes use browser Download or native Share/Save
+to Files; no temporary path or raw native API anchor is used. Visible failures,
+busy/retry ownership, focus return and touch geometry remain with that shared
+component. Static startup limits appear before approval. Only a certified
+pre-allocation refusal unlocks the existing pending review for editing; uncertain
+delivery retains Check request. The offline `session-launch-recovery` fixture
+covers these states without changing the approved settings hierarchy or tokens.
 
 The existing Run on editor includes a labelled Execution host control using the
 shared native select and semantic styles. It lists only server-observed routes
@@ -62,11 +152,25 @@ availability.
 
 ## Reusable access grants
 
-The existing Access dialog contains a Reusable access disclosure using
-MotionPresence, grouped access cards and shared controls. Session checkboxes show
+Links & access uses the shared compact sheet: observed chat context, recent linked chats,
+New chat, Permissions, Connections and session details on request. The chosen
+Design A review starts a new linked chat without navigating the originating chat
+or retaining completed launch cards above its composer. An existing chat can be
+linked or unlinked without changing either chat’s permissions.
+
+Permissions opens pending approvals and reusable grants within the same sheet,
+with Back. Grant creation, scope, expiry and revocation remain explicit actions.
+Use quiet rows and progressive field editors rather than grouped access cards.
+Unknown observations remain unknown; stale or unavailable evidence retains the
+last observation while disabling access mutations until revalidation. Session
+checkboxes show
 the account, mode and workspace being approved. Capability and duration selectors
 use semantic tokens, the shared type/spacing/radius scales and control height.
 Active grants show their sessions, absolute expiry and a labelled revoke action.
+Reuse in adds repository and same-login/account scope choices inside the grant
+editor. Google account/resource and Telos item fields use the shared labelled inputs
+and selects. The active grant identifies its exact resource and reuse scope. No
+new surface, palette, spacing scale or approved-settings layout is introduced.
 Authentication changes discard observations; unavailable, expired and uncertain
 states require an explicit refresh. The approved Chat settings layout remains
 unchanged. The intercepted `session-access` fixture covers keyboard actions,
@@ -86,16 +190,31 @@ and Resources. Use semantic tokens, shared motion and 44px controls; the dialog
 fills narrow phone widths. The approved mock and protected checks are recorded
 in the codex-subagents entry of the approved design ledger.
 
+The full-width phone inspection respects all four safe-area insets. Empty
+inspections keep the recovery action, explicit empty-output state and compact
+disabled composer together instead of reserving an empty transcript. Retained
+output keeps independent scrolling. An unavailable inspection has one clear
+status and Retry action; the stage and correlation reference use native Technical
+details. Connection and retry errors remain visible inside an open inspection.
+These repairs preserve the approved child row, modal navigation, targeted
+Message/Stop, drafts, theme/font preferences and authority boundaries.
+
 ## Visible agent messages
 
-Peer messages use one shared `AgentMessageCard` in the mobile and desktop chat
-transcript. Both participants see the complete text, named conversation links,
+Peer messages use one shared lightweight transcript-event presentation in mobile
+and desktop chat; the existing `AgentMessageCard` component may retain its API.
+Show direction and a readable linked chat name. Longer messages use an explicit
+excerpt and expandable original text, without generated summaries. Replies keep
+an exact-source quote with author/time and navigation to the original message.
+If the source is unavailable, retain its reference and show that state explicitly;
+never infer a target from the nearest message. Both participants can access the
+complete original text, named conversation links,
 recorded time, copy action and delivery state. Message/reply IDs remain available
 in native details. Queued and uncertain explicitly differ from delivery to the
 agent; delivery does not claim that a requested action was applied.
 
-The card reuses the transcript surface, semantic colors, spacing/type scales,
-panel radius, shared controls and monospace identifier font. It adds no theme or
+The event reuses the transcript typography, semantic colors, shared spacing,
+controls and monospace identifier font. It adds no card shell, separate theme or
 composer controls. Receipt changes update the original row. Offline regressions
 cover both directions, failures, narrow/desktop layouts, light/dark appearance,
 larger text, focus, full text and touch-sized conversation links.
@@ -116,11 +235,18 @@ offline fixture and outstanding browser/visual verification.
 
 ## Combined composer status
 
+Uncertain ordinary message rows use **Message delivery not confirmed**. The
+existing status/details surface explains bounded delivery failures and preserves
+the original Retry owner and command identity. See [delivery recovery and
+validation](../features/command-delivery-recovery.md); this changes no layout,
+tokens or approved controls.
+
 Ordinary chats use the approved status row above the existing composer. It has
 the shared control height, one-line overflow, semantic status colors and one
-details action. Routine autosaving is silent. Queue, recovery and error actions
-retain their existing owners inside the shared HomeDialog; opening it does not
-dispatch work. Multiple problems aggregate without growing the row. Routine busy
+details action. Routine autosaving is silent. Queued drafts use the compact inline
+tray immediately above the composer; recovery and error actions retain their
+existing owners inside the shared HomeDialog. Opening details or reordering drafts
+does not dispatch work. Multiple problems aggregate without growing the row. Routine busy
 recovery does not replace a running agent's Working label, and actual approvals
 and failures remain visible.
 
@@ -346,7 +472,7 @@ with retry, empty/saved/cleared states and retained composer focus. Captures sho
 These focused renders omit the application shell; full-app offline fixtures cover
 the corresponding routes and run in CI when host pressure prevents a broad build.
 
-Chats shows a counted Drafts destination when saved drafts exist, separate from active and recent conversations. The shortcut disappears when the last draft is removed. The dedicated collection uses `WorkspacePageHeading`, `MobileShell`/`DesktopShell`, shared iconography and token-based quiet records. Each record leads with the message, shows the saved account/model/thinking context, and exposes a labelled discard action through `HomeDialog`. Draft text wraps or clamps in the list and remains editable in the ordinary composer. Save failures stay visible. New chat always starts fresh; switching drafts must never copy one draft's content or settings into another.
+Chats shows Drafts as a counted collapsible list section alongside Pinned and Recent, using the same row hierarchy and separators. It has no standalone promotional card or generic explanatory subtitle. Expand to the latest drafts and retain an All drafts destination for the complete collection. The section disappears when the last draft is removed. The dedicated collection uses `WorkspacePageHeading`, `MobileShell`/`DesktopShell`, shared iconography and token-based quiet records. Each record leads with the message, shows the saved account/model/thinking context, and exposes a labelled discard action through `HomeDialog`. Draft text wraps or clamps in the list and remains editable in the ordinary composer. Save failures stay visible. New chat always starts fresh; switching drafts must never copy one draft's content or settings into another.
 
 Empty messages with a repository preparation retain their exact receipt. Legacy preparations keep their account/model binding. New server-qualified READY preparations keep account and environment locked while allowing a supported first-message model before reservation; original source and preparation model stay recorded and the first reservation freezes the effective command. Discard confirms and releases unused preparations before removing the local draft; unavailable or uncertain cleanup keeps the draft and reports the error. Pending attachment imports remain fenced to their originating composer. Clearing an ordinary draft leaves an editable blank composer whose URL can be reloaded.
 
@@ -1599,6 +1725,15 @@ as a frozen server review. Exact artifact selection, joining-brief confirmation,
 ordinary allocation/delivery and full shared-conversation composition remain later
 integration work. Opening setup and previews does not call a model.
 
+The 7 November shared-composer candidate connects ordinary collaboration owners
+to these controls. After joining, it retains ordinary history and adds the shared
+`CollaborationTranscript` and existing `ChatInput`. It uses the existing tokens,
+focus/motion behavior and Agents dialog; no new visual variant is introduced.
+The bounded text-only route requires one explicit @ responder and current server
+readiness. Refusal leaves the draft editable; uncertain delivery exposes Check
+original request. Rendered acceptance of this integration remains outstanding.
+The approved fresh-agent ledger and reference images retain their accepted bytes.
+
 The all-intercept `symposium-approved-design` fixture renders the actual mobile /
 desktop chat screens with simulated data. It checks WebKit, mobile Chromium and
 desktop Chromium, 320/390/1280px, light/dark, Mint/Georgia and Teal/System,
@@ -2679,6 +2814,18 @@ one prompt after each response; Stop pauses the tray. Reload and navigation neve
 automatically dispatch saved drafts. Attachments and reply references persist in
 the existing IndexedDB-backed chat storage. Admission is durable before clearing
 the edited composer; a late save cannot clear a newer draft or another chat.
+The approved compact queue uses single-line previews with a small dispatch-state
+line and no card shell. Its list scrolls within 14dvh or 2.5 shared control heights,
+whichever is smaller. Inline editing/full attachment and reply details temporarily
+allow 28dvh or five control heights. Shared MotionPresence owns disclosure motion.
+Minimize keeps one header with count, next-preview, reorder and pause controls.
+Reorder exposes direct earlier/later controls; Make next changes the first pending
+draft without sending it. Numbered order feeds the existing shared composer drain
+across engine/runtime owners. Failed order persistence holds automatic draining
+with a visible error and explicit retry. Unconfirmed rows cannot move or be crossed.
+The existing status row, toolbar, runtime capability checks and guarded steering
+adapters remain authoritative; unavailable steering displays its reason in the tray.
+See [approval, scope and validation](../features/compact-chat-queue.md).
 Each queued draft keeps one stable command identity across views. Its dispatch
 retry fence commits before any send or correction; the existing backend admission
 guard coalesces duplicate views under that identity. Definite refusals stay editable

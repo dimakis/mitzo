@@ -1,13 +1,19 @@
+import { resetOfflineUserEnvironment } from './fixtures/offline-user-home.js';
 import { EventStore } from '../event-store.js';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import type { query } from '@anthropic-ai/claude-agent-sdk';
-import { afterAll, afterEach, describe, expect, it, vi } from 'vitest';
+import type { AccountInfo, query } from '@anthropic-ai/claude-agent-sdk';
+import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { searchGemini, searchSdk } from '../web-search-adapters.js';
 const executionStore = new EventStore(':memory:');
 executionStore.upsertSession({ sessionId: 'parent' });
 const workspaceRoot = mkdtempSync(join(tmpdir(), 'sdk-search-test-'));
+beforeEach(() => {
+  resetOfflineUserEnvironment();
+  vi.stubEnv('PATH', '/usr/bin:/bin:/usr/sbin:/sbin');
+  vi.stubEnv('MITZO_TELOS_DATA_DIR', join(workspaceRoot, 'telos'));
+});
 const owner = {
   executionStore,
   parentSessionId: 'parent',
@@ -20,6 +26,97 @@ afterAll(() => {
   rmSync(workspaceRoot, { recursive: true, force: true });
 });
 describe('selected-account native search adapters', () => {
+  it('retains the original identity failure when the SDK translates prompt refusal into an abort', async () => {
+    const original = Error('Private account initialization failure');
+    const sdk = (request: Parameters<typeof query>[0]) =>
+      Object.assign(
+        (async function* () {
+          try {
+            if (typeof request.prompt === 'string')
+              throw Error('Personal search input was not gated');
+            for await (const input of request.prompt) {
+              throw Error('Identity refusal released input: ' + input.type);
+            }
+          } catch {
+            // The real SDK transport replaces a rejected input stream with AbortError.
+            throw Error('Operation aborted');
+          }
+          yield { type: 'result' };
+        })(),
+        {
+          accountInfo: async () => {
+            throw original;
+          },
+        },
+      );
+    await expect(
+      searchSdk(
+        'approved query',
+        new AbortController().signal,
+        {
+          ...owner,
+          model: 'selected-claude',
+          executable: '/selected/claude',
+          env: {
+            MITZO_CLAUDE_EXPECTED_EMAIL: 'person@example.test',
+            MITZO_CLAUDE_EXPECTED_PLAN: 'max',
+          },
+        },
+        sdk,
+      ),
+    ).rejects.toMatchObject({ cause: original });
+  });
+  it.each([true, false])(
+    'gates personal search input on the actual child account and retained executable; matches=%s',
+    async (matches) => {
+      let delivered = false;
+      const accountInfo = vi.fn(async (): Promise<AccountInfo> => ({
+        apiProvider: 'firstParty',
+        email: matches ? 'person@example.test' : 'other@example.test',
+        subscriptionType: 'Claude Max',
+      }));
+      const sdk = vi.fn((request: Parameters<typeof query>[0]) =>
+        Object.assign(
+          (async function* () {
+            if (typeof request.prompt === 'string') delivered = true;
+            else
+              for await (const input of request.prompt) {
+                expect(accountInfo).toHaveBeenCalledOnce();
+                expect(input.message.content).toBe('approved query');
+                delivered = true;
+              }
+            yield {
+              type: 'assistant',
+              message: { content: [{ type: 'tool_use', name: 'WebSearch', id: 'search' }] },
+            };
+            yield {
+              type: 'user',
+              message: { content: [{ type: 'tool_result', tool_use_id: 'search' }] },
+            };
+            yield { type: 'result', subtype: 'success', result: 'Answer https://example.com' };
+          })(),
+          { accountInfo },
+        ),
+      );
+      const route = {
+        ...owner,
+        env: {
+          CLAUDE_CONFIG_DIR: '/personal/config',
+          MITZO_CLAUDE_EXPECTED_EMAIL: 'person@example.test',
+          MITZO_CLAUDE_EXPECTED_PLAN: 'max',
+        },
+        model: 'selected-claude',
+        executable: '/selected/claude',
+        assertCurrent: vi.fn(async () => {}),
+      };
+      const result = searchSdk('approved query', new AbortController().signal, route, sdk);
+      if (matches) await expect(result).resolves.toContain('https://example.com');
+      else await expect(result).rejects.toThrow('selected route');
+      expect(delivered).toBe(matches);
+      expect(sdk.mock.calls[0][0].options?.pathToClaudeCodeExecutable).toBe(route.executable);
+      expect(route.assertCurrent).toHaveBeenCalled();
+    },
+  );
   it('uses the explicit Vertex project, region, token and model, with no function tools', async () => {
     const fetch = vi.fn().mockResolvedValue(
       new Response(

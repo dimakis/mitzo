@@ -748,11 +748,26 @@ for (const theme of ['dark', 'light'] as const)
           recoveryCard.getByRole('region', { name: 'Reviewed source', exact: true }),
         ).toHaveCount(0);
         expect(host.counts().canonicalCreates).toBe(savedBeforeRestart.canonicalCreates);
+        const approvalCountBeforeRecovery = approvalRequests.length;
+        const ownersBeforeRecovery = host.retainedOwnerCounts();
+        const countsBeforeRecovery = host.counts();
         recoveryReadUnavailable = false;
         await recoveryCard.getByRole('button', { name: 'Retry recovery', exact: true }).click();
-        await expect(
-          recoveryCard.getByRole('button', { name: 'Retry same save', exact: true }),
-        ).toBeEnabled();
+        const retrySave = recoveryCard.getByRole('button', {
+          name: 'Retry same save',
+          exact: true,
+        });
+        if (responseLoss === 'source') {
+          // The completed receipt settles the save during recovery itself,
+          // even though the original source is no longer available.
+          await expect(
+            recoveryCard.getByRole('link', { name: 'Open saved item', exact: true }),
+          ).toBeVisible();
+          await expect(retrySave).toBeDisabled();
+          expect(approvalRequests).toHaveLength(approvalCountBeforeRecovery);
+          expect(host.counts()).toEqual(countsBeforeRecovery);
+          expect(host.retainedOwnerCounts()).toEqual(ownersBeforeRecovery);
+        } else await expect(retrySave).toBeEnabled();
         await expect(
           recoveryCard.getByRole('button', { name: 'Allow Once', exact: true }),
         ).toHaveCount(0);
@@ -778,8 +793,8 @@ for (const theme of ['dark', 'light'] as const)
         ).toBeInViewport();
         await page.screenshot({ path: info.outputPath(`source-approval-recovery-${theme}.png`) });
         const beforeHiddenRetry = host.retainedOwnerCounts();
-        await recoveryCard.getByRole('button', { name: 'Retry same save', exact: true }).click();
         if (responseLoss === 'canonical') {
+          await retrySave.click();
           // Canonical creation has committed, but this source save is unfinished.
           // Hiding its source cannot grant another creator/artifact/link write.
           await expect(recoveryCard.getByRole('alert')).toContainText('no longer authorized');
@@ -817,8 +832,9 @@ for (const theme of ['dark', 'light'] as const)
         await expect(
           recoveryCard.getByRole('link', { name: 'Open saved item', exact: true }),
         ).toBeVisible();
-        expect(receipts).toHaveLength(receiptsBeforeLoss + 1);
-        const recovered = receipts.at(-1)!;
+        expect(receipts).toHaveLength(receiptsBeforeLoss + (responseLoss === 'canonical' ? 1 : 0));
+        const recovered =
+          responseLoss === 'source' ? reviews.at(-1)!.recovery!.receipt! : receipts.at(-1)!;
         if (responseLoss === 'canonical')
           expect(approvalRequests.at(-1)).toEqual(approvalRequests.at(-2));
         expect(host.receiptSource(recovered).packet).toEqual(prepared.preview.packet);

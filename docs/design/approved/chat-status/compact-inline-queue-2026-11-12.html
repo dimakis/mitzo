@@ -1,0 +1,296 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Mitzo · Inline queue</title>
+<style>
+/* Standalone proposal: semantic values copied from the inspected Mitzo token source. */
+:root{color-scheme:dark;--color-bg:#131416;--color-surface:#19191f;--color-text:#f2f2f5;--color-muted:#aaaab4;--color-border:#33343d;--color-accent:#b2dea1;--color-warning:#fbbf24;--color-danger:#ff8585;--font-ui:Georgia,serif;--font-mono:ui-monospace,monospace;--space-1:4px;--space-2:8px;--space-3:12px;--space-4:16px;--space-5:24px;--space-6:32px;--radius-control:10px;--radius-panel:12px;--control-height:44px;--page-gutter:20px}
+[data-theme=light]{color-scheme:light;--color-bg:#faf9f6;--color-surface:#fff;--color-text:#202127;--color-muted:#62636b;--color-border:#dedee3;--color-accent:#397d3b;--color-warning:#916308;--color-danger:#b33939}
+*{box-sizing:border-box}body{margin:0;background:var(--color-bg);color:var(--color-text);font:16px/1.45 var(--font-ui)}button,textarea,select{font:inherit;color:inherit}button,select{min-height:var(--control-height)}button{cursor:pointer;border:0;background:none;padding:var(--space-2) var(--space-3);border-radius:var(--radius-control)}button:hover{background:color-mix(in srgb,var(--color-accent) 9%,transparent)}button:disabled{opacity:.45;cursor:default}button:focus-visible,textarea:focus-visible,select:focus-visible,summary:focus-visible{outline:2px solid var(--color-accent);outline-offset:2px}svg{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round;flex-shrink:0;vertical-align:middle}.icon{display:inline-flex;align-items:center;justify-content:center;min-width:44px;padding:var(--space-2)}.muted{color:var(--color-muted)}.accent{color:var(--color-accent)}[hidden]{display:none!important}
+.prototype{font:12px/1.5 -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;border-bottom:1px solid var(--color-border);padding:var(--space-2) var(--space-4);display:flex;gap:var(--space-3);align-items:center;flex-wrap:wrap;position:relative;z-index:2}.prototype strong{font-weight:600}.prototype .revision{color:var(--color-muted)}.prototype details{margin-left:auto}.prototype summary{cursor:pointer;min-height:32px;display:flex;align-items:center;color:var(--color-accent)}.lab{display:flex;flex-wrap:wrap;align-items:end;gap:var(--space-3);width:100%;padding-bottom:var(--space-2)}.lab label{display:grid;gap:var(--space-1)}.lab select{border:1px solid var(--color-border);background:var(--color-surface);border-radius:var(--radius-control);padding:var(--space-2);font-size:13px;max-width:100%}.lab button{border:1px solid var(--color-border);font-size:13px}.lab p{margin:0;flex-basis:100%;color:var(--color-muted)}
+.stage{padding:var(--space-5);display:flex;justify-content:center}.app{display:flex;flex-direction:column;width:430px;height:min(880px,calc(100dvh - 108px));min-height:580px;border:1px solid var(--color-border);border-radius:var(--radius-panel);overflow:hidden;background:var(--color-bg)}.stage.desktop .app{width:min(100%,1000px)}
+.header{display:flex;align-items:center;gap:var(--space-1);border-bottom:1px solid var(--color-border);padding:var(--space-2);flex-shrink:0}.header .heading{min-width:0;flex:1}.heading strong{display:block;font-size:17px;font-weight:500}.heading small{font-size:12px;color:var(--color-muted);display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.header button{color:var(--color-accent)}.transcript{flex:1;min-height:80px;overflow:auto;overscroll-behavior:contain;padding:var(--page-gutter);scroll-behavior:smooth}.date{text-align:center;font-size:11px;color:var(--color-muted);margin:0 0 var(--space-5)}.message{margin-bottom:var(--space-5);max-width:650px;overflow-wrap:anywhere}.message.user{margin-left:var(--space-6);border-left:2px solid var(--color-border);padding-left:var(--space-4)}.message p{margin:var(--space-2) 0}.byline{font-size:11px;color:var(--color-muted);display:flex;gap:var(--space-2);align-items:center}.byline strong{font-weight:500;color:var(--color-text)}.activity{font-size:12px;color:var(--color-muted);border-left:1px solid var(--color-border);padding-left:var(--space-4);display:grid;gap:var(--space-3);margin:var(--space-4) 0}.activity span{display:flex;align-items:center;gap:var(--space-2)}.dot{width:5px;height:5px;border-radius:50%;background:var(--color-accent);display:inline-block}.ongoing{display:flex;align-items:center;gap:var(--space-2);font-size:13px;color:var(--color-muted)}.bars{display:inline-flex;align-items:center;gap:3px;height:18px;color:var(--color-accent)}.bars i{display:block;background:currentColor;width:2px;height:8px}.bars i:nth-child(2){height:16px}.bars i:nth-child(3){height:11px}
+.dock{flex-shrink:0;padding:0 var(--space-3) var(--space-2);border-top:1px solid var(--color-border)}.status{display:flex;align-items:center;gap:var(--space-2);min-height:44px;color:var(--color-muted);font-size:12px;padding-left:var(--space-1)}.status #working{flex:1}.status time{font-size:11px}.status-detail{font-size:12px;padding:0 var(--space-1) var(--space-3);color:var(--color-muted)}.status-detail p{margin:var(--space-1) 0}
+/* The queue is an attached disclosure made of rows. No floating shell or modal. */
+.queue{border-top:1px solid var(--color-border);margin-bottom:var(--space-1)}
+.queue-head{display:flex;align-items:center;gap:0;min-height:44px}
+.queue-toggle{display:flex;gap:var(--space-2);align-items:center;flex:1;min-width:0;text-align:left;padding:0 var(--space-1);font-size:13px}
+.queue-toggle>span:not(.queue-summary){flex-shrink:0}
+.queue-toggle .count{font:11px var(--font-mono);color:var(--color-muted)}
+.queue-toggle svg{width:14px;height:14px}.queue-toggle .chevron{margin-left:auto}
+.pause{color:var(--color-muted);min-width:44px;padding:var(--space-2)}.pause svg{width:16px;height:16px}
+.reorder-toggle{font-size:12px;color:var(--color-accent);padding:var(--space-2)}
+.queue-summary{font-size:11px;color:var(--color-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.queue-list{max-height:min(14dvh,112px);overflow:auto;overscroll-behavior:contain;scrollbar-width:thin;scrollbar-color:var(--color-border) transparent}
+.queue-list.inspecting{max-height:min(28dvh,224px)}
+.queue-row{display:grid;grid-template-columns:18px minmax(0,1fr) auto;align-items:center;border-top:1px solid var(--color-border);gap:var(--space-1)}
+.index{color:var(--color-muted);font:11px var(--font-mono);text-align:center}
+.row-copy{min-width:0;text-align:left;display:grid;align-content:center;gap:0;padding:var(--space-1);line-height:1.3}
+.copy{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px;font-weight:400}
+.row-label{font-size:10px;color:var(--color-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.row-actions{display:flex;gap:0}.row-actions button{padding:var(--space-2)}.row-actions svg{width:16px;height:16px}
+.steer{color:var(--color-accent)}.row-actions .move{color:var(--color-muted)}
+.queue-detail{grid-column:2/-1;font-size:13px;padding:var(--space-2) var(--space-1);overflow-wrap:anywhere}
+.queue-detail p{margin:0 0 var(--space-2);white-space:pre-wrap}.queue-detail small{display:block;color:var(--color-muted);font-size:11px}
+.detail-tools{display:flex;gap:var(--space-1);flex-wrap:wrap;font-size:12px}.detail-tools button{color:var(--color-accent);padding:var(--space-2)}.detail-tools .remove{color:var(--color-danger)}
+.availability{font-size:12px;line-height:1.4;color:var(--color-warning);margin:0;padding:var(--space-1)}
+.queue-empty{font-size:12px;color:var(--color-muted);padding:var(--space-2) var(--space-1);margin:0}
+.editor{display:grid;gap:var(--space-2)}.editor label{font-size:11px;color:var(--color-muted)}
+.editor textarea{width:100%;min-height:72px;resize:vertical;padding:var(--space-2);border:1px solid var(--color-border);border-radius:var(--radius-control);background:var(--color-surface);font-size:14px}
+.sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
+.delivery{font-size:12px;border-left:2px solid var(--color-accent);padding:var(--space-1) var(--space-2);margin:0 0 var(--space-1);max-height:72px;overflow:auto}.delivery.warning{border-color:var(--color-warning)}.delivery p{margin:0}.delivery button{font-size:12px;color:var(--color-accent);padding:0 var(--space-2);margin-left:calc(-1 * var(--space-2))}.composer{border:1px solid var(--color-border);border-radius:var(--radius-panel);padding:var(--space-2);background:var(--color-surface)}.composer textarea{display:block;width:100%;min-height:36px;max-height:20dvh;resize:vertical;background:none;border:0;padding:0 var(--space-1);font-size:16px;line-height:1.4}.composer textarea::placeholder{color:var(--color-muted)}.composer-tools{display:flex;gap:var(--space-1);align-items:center}.composer-tools>.icon{color:var(--color-muted)}.composer-tools .spacer{flex:1}.composer-tools .queue-draft{color:var(--color-accent)}.composer-tools .stop{color:var(--color-danger);border:1px solid color-mix(in srgb,var(--color-danger) 30%,transparent);border-radius:50%}.compose-hint{font-size:10px;color:var(--color-muted);padding:var(--space-1) var(--space-1) 0;display:flex;justify-content:space-between;gap:var(--space-2)}
+.tabs{display:flex;align-items:center;border-top:1px solid var(--color-border);padding:var(--space-1) var(--space-2);padding-bottom:max(var(--space-1),env(safe-area-inset-bottom));flex-shrink:0}.tabs button{flex:1;color:var(--color-muted);font-size:10px;display:grid;place-items:center;gap:var(--space-1);padding:var(--space-2) var(--space-1)}.tabs .active{color:var(--color-accent);background:color-mix(in srgb,var(--color-accent) 6%,transparent)}.stage.desktop .tabs{display:none}.stage.desktop .dock{padding-inline:var(--space-5)}.stage.desktop .transcript{padding-inline:var(--space-6)}
+@media(max-width:550px){.stage{padding:0}.app{width:100%;height:calc(100dvh - 49px);min-height:560px;border:0;border-radius:0}.prototype{min-height:49px}.prototype .revision{display:none}.lab{padding-bottom:var(--space-3)}.lab label{flex:1;min-width:120px}.stage.desktop .dock,.stage.desktop .transcript{padding-inline:var(--space-3)}}
+@media(prefers-reduced-motion:reduce){.transcript{scroll-behavior:auto}}
+</style>
+</head>
+<body>
+<div class="prototype">
+  <strong>Inline queue</strong><span class="revision">Compact proposal · v3</span>
+  <details id="lab-toggle"><summary>Prototype controls</summary></details>
+  <div class="lab" id="lab" hidden>
+    <label>Preview<select id="viewport"><option value="phone">Phone</option><option value="desktop">Desktop</option></select></label>
+    <label>Appearance<select id="theme"><option value="dark">Dark</option><option value="light">Light</option></select></label>
+    <label>Font<select id="font"><option value="serif">Georgia</option><option value="system">System</option></select></label>
+    <label>Engine<select id="engine"><option value="Codex">Codex</option><option value="Claude Code">Claude Code</option></select></label>
+    <label>Runtime<select id="runtime"><option value="Local Mac">Local Mac</option><option value="OpenShell">OpenShell</option></select></label>
+    <label>Chat state<select id="scenario"><option value="ready">Steering available</option><option value="unconfirmed">Active turn unconfirmed</option><option value="unavailable">Runtime unavailable</option><option value="offline">Reconnecting</option><option value="uncertain">Correction receipt lost</option></select></label>
+    <button type="button" id="reset">Reset demo</button>
+    <button type="button" id="finish">Finish current response</button>
+    <p>Local simulation across both engines and runtimes. Reorder changes which draft dispatches next; it does not send it immediately. Tap a message for full details.</p>
+  </div>
+</div>
+<div class="stage" id="stage"><main class="app" aria-label="Mitzo chat mockup">
+  <header class="header">
+    <button type="button" class="icon" data-info="This preview stays in the current chat." aria-label="Back to chats" data-icon="back"></button>
+    <div class="heading"><strong>Chat</strong><small id="identity">Default Mitzo · Local Mac · Codex</small></div>
+    <button type="button" class="icon" aria-label="Chat settings" data-info="Appearance and chat-state options are in Prototype controls." data-icon="settings"></button>
+    <button type="button" class="icon" aria-label="Agents" data-info="No other agents are active in this demo." data-icon="bot"></button>
+    <button type="button" class="icon" aria-label="Links and access" data-info="This demo has no linked chats." data-icon="connections"></button>
+  </header>
+  <section class="transcript" id="transcript" aria-label="Conversation">
+    <p class="date">Today · 12 November</p>
+    <article class="message user"><div class="byline"><strong>You</strong><time>00:17</time></div><p>Investigate why steering has stopped working, and explore a better place for the queue.</p></article>
+    <article class="message"><div class="byline"><strong>Mitzo</strong><time>00:18</time></div><p>I’m checking how the controls connect to the active turn and how queued messages are delivered.</p><div class="activity"><span><b class="dot"></b> Read steering controls</span><span><b class="dot"></b> Trace active command state</span><span><b class="dot"></b> Check queue delivery</span></div><p class="ongoing"><span class="bars" aria-hidden="true"><i></i><i></i><i></i></span> Working on the investigation</p></article>
+  </section>
+  <div class="dock">
+    <div class="status"><span class="bars" aria-hidden="true"><i></i><i></i><i></i></span><span id="working">Thinking</span><time id="elapsed">43m 23s</time><button type="button" class="icon" id="info" aria-label="Activity details" aria-expanded="false" aria-controls="status-detail" data-icon="info"></button></div>
+    <div class="status-detail" id="status-detail" hidden><p>Agent working · Last activity just now</p><p>Last message 3 minutes ago. Activity continues while you manage the queue.</p><p>Queued drafts send one at a time after each response, in numbered order. Reordering changes pending dispatch only; steering addresses the current turn.</p></div>
+    <section class="queue" aria-label="Up next">
+      <div class="queue-head"><button type="button" class="queue-toggle" id="toggle" aria-label="Minimize queue" aria-expanded="true" aria-controls="queue-body"><span data-icon="queue"></span><span>Up next</span><span class="count" id="count">5</span><span class="queue-summary" id="queue-summary" hidden style="margin:0;flex:1;min-width:0"></span><span class="chevron" id="chevron" data-icon="up"></span></button><button type="button" class="reorder-toggle" id="reorder" aria-label="Reorder dispatch order" aria-pressed="false">Reorder</button><button type="button" id="pause" class="pause" aria-label="Pause queue"></button></div>
+      <div id="queue-body"><div class="queue-list" id="queue-list" role="list" aria-label="Messages in dispatch order"></div></div>
+      <span id="queue-announcement" class="sr-only" role="status" aria-live="polite"></span>
+      <p class="availability" id="availability" hidden></p>
+    </section>
+    <div class="delivery" id="delivery" role="status" aria-live="polite" hidden></div>
+    <div class="composer"><textarea id="draft" rows="2" aria-label="Message Mitzo" placeholder="Message Mitzo…">Focus on Codex and Claude Code first.</textarea><div class="composer-tools"><button type="button" class="icon" aria-label="More tools" data-icon="more" data-info="This is a queue layout preview. Existing composer tools stay here."></button><button type="button" class="icon" aria-label="Attach file" data-icon="files" data-info="Attachments stay on the original queued draft. Uploads are not simulated."></button><span class="spacer"></span><button type="button" class="icon queue-draft" id="add" aria-label="Queue message" title="Queue message for after this response" data-icon="queue"></button><button type="button" class="icon accent" id="steer-draft" aria-label="Steer current turn" title="Steer current turn" data-icon="interrupt"></button><button type="button" class="icon stop" id="stop" aria-label="Stop current turn" data-icon="stop"></button></div></div>
+    <div class="compose-hint"><span id="compose-hint">Queue for later, or steer the current turn.</span><span>Draft saved</span></div>
+  </div>
+  <nav class="tabs" aria-label="Main navigation"><button type="button" data-info="Today is outside this chat preview."><span data-icon="today"></span>Today</button><button type="button" class="active" aria-current="page" data-info="You are viewing Chats."><span data-icon="chats"></span>Chats</button><button type="button" data-info="Inbox is outside this chat preview."><span data-icon="proposals"></span>Inbox</button><button type="button" data-info="Work is outside this chat preview."><span data-icon="work"></span>Work</button><button type="button" data-info="More is outside this chat preview."><span data-icon="more"></span>More</button></nav>
+</main></div>
+<script>
+'use strict';
+const paths={back:'m14 6-6 6 6 6',settings:'M4 7h16M4 17h16M8 4v6m8 4v6',bot:'M12 3v3m-2-3h2M6 6h12a2 2 0 0 1 2 2v10H4V8a2 2 0 0 1 2-2ZM1 10v4m22-4v4M8 10v3m8-3v3',connections:'M10 13a5 5 0 0 0 7 0l3-3a5 5 0 0 0-7-7l-2 2M14 11a5 5 0 0 0-7 0l-3 3a5 5 0 0 0 7 7l2-2',info:'M12 2a10 10 0 1 0 0 20a10 10 0 1 0 0-20M12 11v6m0-10h.01',queue:'M4 5h16M4 10h16M4 15h7m5-1 5 4-5 4m-4-4h9',pause:'M6 4h4v16H6Zm8 0h4v16h-4Z',play:'m6 3 15 9-15 9Z',up:'m6 15 6-6 6 6',down:'m6 9 6 6 6-6',more:'M5 11h1v2H5Zm6 0h1v2h-1Zm6 0h1v2h-1Z',interrupt:'m13 2-8 12h7l-1 8 8-12h-7Z',stop:'M7 7h10v10H7Z',files:'M3 6h7l2 3h9v11H3Z',today:'M3 10 12 3l9 7v11h-6v-7H9v7H3Z',chats:'M4 4h16v12H9l-5 4Z',proposals:'M4 4h16v16H4ZM4 14h5l2 3h2l2-3h5',work:'m4 6 2 2 4-4m3 2h7M4 14l2 2 4-4m3 2h7m-7 6h7',send:'M12 20V4m-7 7 7-7 7 7',check:'m5 12 4 4L19 6'};
+const $=id=>document.getElementById(id);
+function icon(name){return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="'+paths[name]+'"/></svg>'}
+document.querySelectorAll('[data-icon]').forEach(el=>el.innerHTML=icon(el.dataset.icon));
+let queue=[],expanded=true,paused=false,running=true,stopped=false,reordering=false,selected=null,editor=null,receipt=null,serial=0,scenario='ready';
+function initial(){
+  queue=[
+    {id:++serial,text:'Does this work across execution engines? CC and Codex, and across hosts?'},
+    {id:++serial,text:'Keep the existing approvals and tool flow.'},
+    {id:++serial,text:'Check the disabled steering controls in this screenshot.',attachments:['steering-controls.png']},
+    {id:++serial,text:'Keep full message details available without covering the conversation.',reply:'Mitzo: I’m checking how queued messages are delivered.'},
+    {id:++serial,text:'Summarize what changed and how it was verified.'}
+  ];
+  expanded=true;paused=false;running=true;stopped=false;reordering=false;selected=null;editor=null;receipt=null;scenario='ready';
+  $('scenario').value='ready';$('engine').value='Codex';$('runtime').value='Local Mac';
+  $('draft').value='Focus on Codex and Claude Code first.';$('delivery').hidden=true;
+  document.querySelectorAll('.simulated').forEach(el=>el.remove());render();
+}
+function announce(text){$('queue-announcement').textContent=text}
+function notice(text,warning=false,action,label){
+  const box=$('delivery');box.replaceChildren();box.className='delivery'+(warning?' warning':'');
+  const p=document.createElement('p');p.textContent=text;box.append(p);
+  if(action)box.append(control(label,label,action));
+  box.hidden=false;
+}
+function addTranscript(text,label='Correction accepted'){
+  const item=document.createElement('article');item.className='message simulated user';
+  const byline=document.createElement('div');byline.className='byline';byline.textContent='You · '+label;
+  const p=document.createElement('p');p.textContent=text;item.append(byline,p);
+  $('transcript').append(item);$('transcript').scrollTop=$('transcript').scrollHeight;
+}
+function reason(){
+  if(scenario==='offline')return 'Reconnecting. Your queued drafts are kept.';
+  if(scenario==='unconfirmed')return 'Waiting to confirm the active turn. Editing and reordering are available.';
+  if(scenario==='unavailable')return 'Runtime unavailable. Drafts and dispatch order are kept.';
+  if(receipt)return 'Correction unconfirmed. Check its original delivery before steering again.';
+  return '';
+}
+function control(label,text,action,iconName,className=''){
+  const button=document.createElement('button');button.type='button';button.className=className;
+  button.setAttribute('aria-label',label);button.title=label;
+  if(iconName)button.innerHTML=icon(iconName);
+  else button.textContent=text;
+  button.onclick=action;return button;
+}
+function focusRow(id){
+  const trigger=document.querySelector('[data-row-id="'+id+'"] .row-copy');
+  trigger?.focus({preventScroll:true});
+  trigger?.scrollIntoView?.({block:'nearest'});
+}
+function canMove(from,to){
+  if(editor||from<0||to<0||from>=queue.length||to>=queue.length)return false;
+  return queue.slice(Math.min(from,to),Math.max(from,to)+1).every(q=>q.id!==receipt?.id);
+}
+function move(id,to){
+  const from=queue.findIndex(q=>q.id===id);
+  if(!canMove(from,to)||from===to)return;
+  const [item]=queue.splice(from,1);queue.splice(to,0,item);
+  render();focusRow(id);announce('Dispatch order changed. Position '+(to+1)+' of '+queue.length+'. Nothing was sent.');
+}
+function removeMessage(id){
+  const index=queue.findIndex(q=>q.id===id);if(index<0||receipt?.id===id)return;
+  const [removed]=queue.splice(index,1);selected=null;editor=null;render();$('toggle').focus();
+  notice('Removed from queue.',false,()=>{
+    queue.splice(Math.min(index,queue.length),0,removed);render();$('delivery').hidden=true;announce('Message restored.');
+  },'Undo');
+}
+function detailFor(q,index){
+  const detail=document.createElement('div');detail.className='queue-detail';detail.id='detail-'+q.id;
+  if(editor?.id===q.id){
+    detail.classList.add('editor');
+    const label=document.createElement('label');label.htmlFor='edit-text';label.textContent='Edit queued message';
+    const area=document.createElement('textarea');area.id='edit-text';area.value=editor.text;area.oninput=()=>editor.text=area.value;
+    const tools=document.createElement('div');tools.className='detail-tools';
+    tools.append(control('Cancel','Cancel',()=>{editor=null;render();focusRow(q.id)}),
+      control('Save changes','Save changes',()=>{
+        if(!editor.text.trim()){notice('Enter a message before saving.',true);area.focus();return}
+        q.text=editor.text.trim();editor=null;render();focusRow(q.id);announce('Queued message saved. Composer draft kept.');
+      }));
+    detail.append(label,area,tools);return detail;
+  }
+  const full=document.createElement('p');full.textContent=q.text;detail.append(full);
+  const meta=document.createElement('small');
+  meta.textContent='Position '+(index+1)+' of '+queue.length+' · '+(receipt?.id===q.id?'Delivery unconfirmed':paused?'Paused':'Sent after '+(index===0?'the current response':'earlier queued messages'));
+  detail.append(meta);
+  if(q.attachments){const files=document.createElement('small');files.textContent='Attachment · '+q.attachments.join(', ');detail.append(files)}
+  if(q.reply){const reply=document.createElement('small');reply.textContent='Reply to '+q.reply;detail.append(reply)}
+  const tools=document.createElement('div');tools.className='detail-tools';
+  const next=control('Make queued prompt '+(index+1)+' next','Make next',()=>move(q.id,0));
+  next.disabled=index===0||!canMove(index,0);
+  const edit=control('Edit queued prompt '+(index+1),'Edit',()=>{editor={id:q.id,text:q.text};render();$('edit-text').focus()});
+  edit.disabled=!!receipt;
+  const remove=control('Remove queued prompt '+(index+1),'Remove',()=>removeMessage(q.id),undefined,'remove');
+  remove.disabled=q.id===receipt?.id;
+  tools.append(next,edit,remove);detail.append(tools);return detail;
+}
+function render(){
+  $('count').textContent=queue.length;
+  $('toggle').setAttribute('aria-expanded',String(expanded));$('toggle').setAttribute('aria-label',expanded?'Minimize queue':'Expand queue');
+  $('queue-body').hidden=!expanded;$('chevron').innerHTML=icon(expanded?'up':'down');$('queue-summary').hidden=expanded;
+  $('queue-summary').textContent=queue.length?(paused?'Paused · ':'Next · ')+queue[0].text:'Nothing queued';
+  $('pause').innerHTML=icon(paused?'play':'pause');$('pause').setAttribute('aria-label',paused?'Resume queue':'Pause queue');
+  $('pause').title=paused?'Resume queue':'Pause queue';$('pause').disabled=!queue.length;
+  $('reorder').textContent=reordering?'Done':'Reorder';$('reorder').setAttribute('aria-label',reordering?'Done reordering':'Reorder dispatch order');
+  $('reorder').setAttribute('aria-pressed',String(reordering));$('reorder').disabled=queue.length<2||!!editor;
+  $('identity').textContent='Default Mitzo · '+$('runtime').value+' · '+$('engine').value;
+  $('working').textContent=scenario==='offline'?'Reconnecting':running?'Thinking':stopped?'Stopped':'Ready';
+  $('elapsed').hidden=!running;
+  const unavailable=['offline','unavailable'].includes(scenario),why=reason();
+  $('stop').disabled=!running||unavailable;
+  $('finish').disabled=!running||!!why;
+  $('availability').textContent=why;$('availability').hidden=!why;
+  $('steer-draft').disabled=!!why||!running||!!editor;$('steer-draft').title=why||'Steer current turn';
+  $('compose-hint').textContent=reordering?'Order changes dispatch; nothing is sent now.':paused?'Queue paused · Current turn is independent.':running?'Queue for later, or steer the current turn.':'Queue a message, then choose Send now.';
+  const list=$('queue-list'),scrollTop=list.scrollTop;
+  list.classList.toggle('inspecting',selected!==null);list.replaceChildren();
+  if(!queue.length){const p=document.createElement('p');p.className='queue-empty';p.textContent='Nothing queued.';list.append(p)}
+  queue.forEach((q,index)=>{
+    const row=document.createElement('div');row.className='queue-row';row.dataset.rowId=q.id;row.setAttribute('role','listitem');
+    const number=document.createElement('span');number.className='index';number.textContent=index+1;
+    const copy=control('Details for queued prompt '+(index+1),'',()=>{
+      if(editor)return;selected=selected===q.id?null:q.id;render();focusRow(q.id);
+    },undefined,'row-copy');
+    copy.setAttribute('aria-expanded',String(selected===q.id));copy.setAttribute('aria-controls','detail-'+q.id);copy.title=q.text;
+    const title=document.createElement('span');title.className='copy';title.id='preview-'+q.id;title.textContent=q.text;copy.setAttribute('aria-describedby',title.id);
+    const meta=document.createElement('span');meta.className='row-label';
+    meta.textContent=receipt?.id===q.id?'Delivery unconfirmed':paused?'Paused':index===0?'Next':'After '+index;
+    if(q.attachments)meta.textContent+=' · '+q.attachments.length+' attachment';
+    if(q.reply)meta.textContent+=' · Reply';
+    copy.append(title,meta);
+    const actions=document.createElement('div');actions.className='row-actions';
+    if(reordering){
+      for(const delta of [-1,1]){
+        const moveButton=control('Move queued prompt '+(index+1)+(delta<0?' earlier':' later'),'',()=>move(q.id,index+delta),delta<0?'up':'down','icon move');
+        moveButton.disabled=!canMove(index,index+delta);actions.append(moveButton);
+      }
+    }else{
+      const send=control((running?'Steer with':'Send')+' queued prompt '+(index+1),'',()=>deliver(q.id),running?'interrupt':'send','icon steer');
+      send.title=why||(running?'Steer current turn':'Send now');send.disabled=!!why||!!editor;actions.append(send);
+    }
+    row.append(number,copy,actions);
+    if(selected===q.id)row.append(detailFor(q,index));
+    list.append(row);
+  });
+  list.scrollTop=scrollTop;
+}
+function deliver(id){
+  const q=queue.find(q=>q.id===id);if(!q||reason()||editor)return;
+  if(scenario==='uncertain'&&running){receipt={id,text:q.text};render();notice('Correction not confirmed. Original message kept.',true,checkReceipt,'Check delivery');return}
+  queue=queue.filter(item=>item.id!==id);selected=null;
+  if(running){addTranscript(q.text);notice('Correction accepted · Agent still working.')}
+  else{running=true;stopped=false;paused=true;addTranscript(q.text,'Message sent');notice('Message sent · Remaining drafts paused.')}
+  render();$('toggle').focus();
+}
+function checkReceipt(){
+  if(!receipt)return;const original=receipt;
+  queue=queue.filter(q=>q.id!==original.id);
+  if(original.fromComposer&&$('draft').value===original.text)$('draft').value='';
+  receipt=null;selected=null;scenario='ready';$('scenario').value='ready';addTranscript(original.text);
+  render();notice('Original correction confirmed · Not sent again.');
+}
+$('toggle').onclick=()=>{expanded=!expanded;render()};
+$('reorder').onclick=()=>{reordering=!reordering;expanded=true;render();announce(reordering?'Reorder mode. Use earlier and later controls, or open details to make a message next.':'Dispatch order saved.')};
+$('pause').onclick=()=>{paused=!paused;render();announce(paused?'Queue paused. Current turn keeps running.':'Queue resumed.')};
+$('info').onclick=()=>{const open=$('status-detail').hidden;$('status-detail').hidden=!open;$('info').setAttribute('aria-expanded',String(open))};
+$('add').onclick=()=>{
+  const text=$('draft').value.trim();if(!text)return;
+  queue.push({id:++serial,text});$('draft').value='';render();announce('Message queued in position '+queue.length+'.');$('draft').focus();
+};
+$('steer-draft').onclick=()=>{
+  if(reason()||!running||editor)return;const text=$('draft').value.trim();if(!text)return;
+  if(scenario==='uncertain'){const q={id:++serial,text};queue.push(q);receipt={...q,fromComposer:true};render();notice('Correction not confirmed. Text kept.',true,checkReceipt,'Check delivery');return}
+  addTranscript(text);$('draft').value='';notice('Correction accepted · Agent still working.');$('draft').focus();
+};
+$('stop').onclick=()=>{if(['offline','unavailable'].includes(scenario))return;running=false;stopped=true;paused=true;render();notice('Stopped · Queued drafts paused and kept.')};
+$('finish').onclick=()=>{
+  if(!running||reason())return;
+  running=false;stopped=false;
+  if(!paused&&queue.length){
+    const next=queue.shift();selected=null;running=true;addTranscript(next.text,'Queued message sent');
+    notice('Dispatched next · '+next.text);announce('Dispatched first message in the current queue order.');
+  }else notice(paused?'Response finished · Queue remains paused.':'Response finished.');
+  render();
+};
+$('scenario').onchange=event=>{
+  if(receipt){event.target.value=scenario;notice('Check the original correction before changing demo state.',true,checkReceipt,'Check delivery');return}
+  scenario=event.target.value;running=true;stopped=false;$('delivery').hidden=true;render();
+};
+$('theme').onchange=event=>document.documentElement.dataset.theme=event.target.value;
+$('font').onchange=event=>document.documentElement.style.setProperty('--font-ui',event.target.value==='serif'?'Georgia,serif':"-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif");
+$('viewport').onchange=event=>$('stage').classList.toggle('desktop',event.target.value==='desktop');
+$('engine').onchange=render;$('runtime').onchange=render;
+$('lab-toggle').ontoggle=()=>{$('lab').hidden=!$('lab-toggle').open};$('reset').onclick=initial;
+document.querySelectorAll('[data-info]').forEach(button=>button.onclick=()=>notice(button.dataset.info));
+document.addEventListener('keydown',event=>{
+  if(event.key==='Escape'&&(editor||selected!==null)){editor=null;selected=null;render();$('toggle').focus()}
+  if((event.metaKey||event.ctrlKey)&&event.key==='Enter'&&document.activeElement===$('draft')){event.preventDefault();$('add').click()}
+});
+initial();
+</script>
+</body>
+</html>

@@ -57,7 +57,9 @@ export function captureSessionHistoryAuthorization(owners: {
     };
     const target = {
       assertCurrent() {
-        assertCurrent();
+        // The adapter refreshes the shared owner before checking this bounded
+        // target set. Each target only refreshes its own identity/visibility;
+        // repeating the full native policy here multiplies host I/O per row.
         assertIdentity();
       },
     };

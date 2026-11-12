@@ -14,6 +14,17 @@ const defaultEnrollmentModels = () =>
   REVIEWED_OPENAI_ENROLLMENT_MODELS.filter((model) => model.id === 'gpt-6-luna');
 import { openAIEnrollmentCredentialReference } from './openai-account-enrollment-keychain.js';
 import type { OpenAIEnrollmentProvider } from './openai-provider-enrollment-gateway.js';
+import {
+  ApiAccountModelsSchema,
+  QualifiedApiConnectionSchema,
+  discoverApiAccountModels,
+  ApiAccountSetupError,
+  type ApiModelDiscovery,
+  type QualifiedApiConnection,
+  type ApiDiscoveryOptions,
+} from './api-account-setup.js';
+import { createLogger } from './logger.js';
+const log = createLogger('api-account-enrollment');
 
 export type OpenAIEnrollmentPhase =
   'reserved' | 'keychain_created' | 'provider_creating' | 'ready' | 'failed' | 'needs_attention';
@@ -23,25 +34,42 @@ export interface OpenAIEnrollmentAccount {
   label: string;
   projectLabel: string;
   state: 'connecting' | 'ready' | 'failed' | 'needs_attention';
+  endpoint?: string;
+  errorCode?: string;
 }
 export interface OpenAIEnrollmentProfile {
   id: string;
   label: string;
-  provider: 'openai';
+  provider: 'openai' | 'anthropic-api';
   credentialRef: CredentialReference;
-  sandboxProvider: string;
-  sandboxProviderId: string;
+  sandboxProvider?: string;
+  sandboxProviderId?: string;
+  connection?: QualifiedApiConnection;
+  credentialVersion?: string;
   models: CatalogModel[];
 }
-const Input = z
+export const OpenAIAccountEnrollmentInputSchema = z
   .object({
     requestId: z.uuid(),
     label: z.string().trim().min(1).max(120),
     projectLabel: z.string().trim().min(1).max(120),
     apiKey: z.string().min(1).max(16384),
     billingConfirmed: z.literal(true),
+    connection: QualifiedApiConnectionSchema.optional(),
+    models: ApiAccountModelsSchema.optional(),
   })
-  .strict();
+  .strict()
+  .superRefine((input, ctx) => {
+    if (input.models && !input.connection)
+      ctx.addIssue({ code: 'custom', message: 'Explicit models require a custom API connection' });
+    if (
+      input.models?.some(
+        (model) => model.id.includes(input.apiKey) || model.label.includes(input.apiKey),
+      )
+    )
+      ctx.addIssue({ code: 'custom', message: 'Model metadata must not contain credentials' });
+  });
+const Input = OpenAIAccountEnrollmentInputSchema;
 const Provider = z
   .object({
     name: z.string(),
@@ -59,6 +87,8 @@ const Record = z
     label: z.string().min(1).max(120),
     projectLabel: z.string().min(1).max(120),
     controllerBinding: z.string().regex(/^[a-f0-9]{64}$/),
+    connection: QualifiedApiConnectionSchema.optional(),
+    requestedModels: ApiAccountModelsSchema.optional(),
     phase: z.enum([
       'reserved',
       'keychain_created',
@@ -68,7 +98,19 @@ const Record = z
       'needs_attention',
     ]),
     provider: Provider.nullable(),
-    models: OpenAIEnrollmentModelsSchema.nullable().default(defaultEnrollmentModels),
+    models: z
+      .array(
+        z
+          .object({
+            id: z.string(),
+            label: z.string(),
+            reasoningEfforts: z.array(z.string()).optional(),
+            defaultReasoningEffort: z.string().optional(),
+          })
+          .strict(),
+      )
+      .nullable()
+      .default(defaultEnrollmentModels),
     errorCode: z
       .enum(['VALIDATION_FAILED', 'KEYCHAIN_UNCONFIRMED', 'PROVIDER_UNCONFIRMED', 'RESOURCE_DRIFT'])
       .nullable(),
@@ -89,6 +131,8 @@ const publicAccount = (row: EnrollmentRecord): OpenAIEnrollmentAccount => ({
   requestId: row.requestId,
   label: row.label,
   projectLabel: row.projectLabel,
+  ...(row.connection ? { endpoint: row.connection.endpoint } : {}),
+  ...(row.errorCode ? { errorCode: row.errorCode } : {}),
   state:
     row.phase === 'ready'
       ? 'ready'
@@ -154,9 +198,12 @@ export class OpenAIAccountEnrollmentStore {
       if (
         row.accountId !== 'openai-' + row.operationId ||
         (row.provider && row.provider.name !== 'mitzo-openai-' + row.operationId) ||
-        (row.phase === 'ready' && (!row.provider || !row.models))
+        (row.phase === 'ready' && ((!row.connection && !row.provider) || !row.models)) ||
+        (row.connection && row.provider)
       )
         throw new Error();
+      if (row.models)
+        (row.connection ? ApiAccountModelsSchema : OpenAIEnrollmentModelsSchema).parse(row.models);
       return row;
     } catch {
       throw new Error('Enrollment journal is invalid');
@@ -175,6 +222,8 @@ export class OpenAIAccountEnrollmentStore {
   reserve(
     input: Pick<z.infer<typeof Input>, 'requestId' | 'label' | 'projectLabel'> & {
       controllerBinding: string;
+      connection?: QualifiedApiConnection;
+      requestedModels?: z.infer<typeof ApiAccountModelsSchema>;
     },
     existingIds: readonly string[],
   ) {
@@ -185,7 +234,12 @@ export class OpenAIAccountEnrollmentStore {
           .get(input.requestId) as { metadata: string } | undefined;
         if (prior) {
           const row = this.parse(prior.metadata);
-          if (row.label !== input.label || row.projectLabel !== input.projectLabel)
+          if (
+            row.label !== input.label ||
+            row.projectLabel !== input.projectLabel ||
+            !isDeepStrictEqual(row.connection, input.connection) ||
+            !isDeepStrictEqual(row.requestedModels, input.requestedModels)
+          )
             throw new Error('Enrollment request changed');
           return { row, created: false };
         }
@@ -226,10 +280,16 @@ export class OpenAIAccountEnrollmentStore {
       .map((row) => ({
         id: row.accountId,
         label: row.label,
-        provider: 'openai',
+        provider: row.connection?.protocol === 'messages' ? 'anthropic-api' : 'openai',
         credentialRef: openAIEnrollmentCredentialReference(row.operationId),
-        sandboxProvider: row.provider!.name,
-        sandboxProviderId: row.provider!.id,
+        ...(row.connection
+          ? {
+              connection: row.connection,
+              ...(row.connection.protocol === 'messages'
+                ? { credentialVersion: row.operationId }
+                : {}),
+            }
+          : { sandboxProvider: row.provider!.name, sandboxProviderId: row.provider!.id }),
         models: row.models!,
       }));
   }
@@ -325,6 +385,12 @@ export class OpenAIAccountEnrollment {
       keychain: OpenAIEnrollmentKeychain;
       validateKey: (value: string, signal: AbortSignal) => Promise<void>;
       discoverModels?: (value: string, signal: AbortSignal) => Promise<CatalogModel[]>;
+      discoverApiModels?: (
+        endpoint: string,
+        value: string,
+        signal: AbortSignal,
+        options?: ApiDiscoveryOptions,
+      ) => Promise<ApiModelDiscovery>;
       gate: <T>(work: () => Promise<T>) => Promise<T>;
       readGate?: <T>(work: () => Promise<T>, signal: AbortSignal) => Promise<T>;
       existingAccountIds: () => readonly string[];
@@ -349,6 +415,34 @@ export class OpenAIAccountEnrollment {
   manages(id: string) {
     return !!this.options.store.account(id);
   }
+  async discoverModels(
+    endpoint: string,
+    apiKey: string,
+    signal: AbortSignal,
+    options?: ApiDiscoveryOptions,
+  ): Promise<ApiModelDiscovery> {
+    try {
+      return this.options.discoverApiModels
+        ? await this.options.discoverApiModels(
+            endpoint,
+            apiKey,
+            signal,
+            ...(options ? [options] : []),
+          )
+        : await discoverApiAccountModels(endpoint, apiKey, signal, undefined, options);
+    } catch (cause) {
+      log.warn('API model discovery failed', {
+        stage: 'catalog',
+        code:
+          cause instanceof ApiAccountSetupError
+            ? cause.code
+            : signal.aborted
+              ? 'CANCELLED'
+              : 'CATALOG_UNAVAILABLE',
+      });
+      throw cause;
+    }
+  }
   async enroll(
     input: z.infer<typeof Input>,
     signal: AbortSignal,
@@ -356,9 +450,23 @@ export class OpenAIAccountEnrollment {
     const parsed = Input.safeParse(input);
     if (!parsed.success) throw new Error('Invalid OpenAI enrollment request');
     return this.options.gate(async () => {
-      const { requestId, label, projectLabel, apiKey } = parsed.data;
+      const {
+        requestId,
+        label,
+        projectLabel,
+        apiKey,
+        connection,
+        models: requestedModels,
+      } = parsed.data;
       const reservation = this.options.store.reserve(
-        { requestId, label, projectLabel, controllerBinding: this.controllerBinding() },
+        {
+          requestId,
+          label,
+          projectLabel,
+          controllerBinding: this.controllerBinding(),
+          ...(connection ? { connection } : {}),
+          ...(requestedModels ? { requestedModels } : {}),
+        },
         this.options.existingAccountIds(),
       );
       let row = reservation.row;
@@ -366,13 +474,31 @@ export class OpenAIAccountEnrollment {
       let errorCode: EnrollmentRecord['errorCode'] = 'VALIDATION_FAILED';
       try {
         signal.throwIfAborted();
-        await this.options.validateKey(apiKey, signal);
-        signal.throwIfAborted();
-        const models = OpenAIEnrollmentModelsSchema.parse(
-          this.options.discoverModels
-            ? await this.options.discoverModels(apiKey, signal)
-            : defaultEnrollmentModels(),
-        );
+        let models: CatalogModel[];
+        if (connection) {
+          if (requestedModels) models = ApiAccountModelsSchema.parse(requestedModels);
+          else {
+            const catalog = await this.discoverModels(
+              connection.endpoint,
+              apiKey,
+              signal,
+              connection.protocol === 'messages' ? connection : undefined,
+            );
+            if (catalog.partial)
+              throw new ApiAccountSetupError(
+                'CATALOG_PARTIAL',
+                'Select an explicit model list from the partial provider catalog.',
+              );
+            models = ApiAccountModelsSchema.parse(catalog.models);
+          }
+        } else {
+          await this.options.validateKey(apiKey, signal);
+          models = OpenAIEnrollmentModelsSchema.parse(
+            this.options.discoverModels
+              ? await this.options.discoverModels(apiKey, signal)
+              : defaultEnrollmentModels(),
+          );
+        }
         signal.throwIfAborted();
         row = this.options.store.update(row, { models });
         errorCode = 'KEYCHAIN_UNCONFIRMED';
@@ -386,6 +512,11 @@ export class OpenAIAccountEnrollment {
         if (saved.version !== row.operationId || saved.managed !== true || saved.value !== apiKey)
           throw new Error();
         row = this.options.store.update(row, { phase: 'keychain_created' });
+        if (connection) {
+          signal.throwIfAborted();
+          row = this.options.store.update(row, { phase: 'ready', errorCode: null });
+          return publicAccount(row);
+        }
         errorCode = 'PROVIDER_UNCONFIRMED';
         signal.throwIfAborted();
         row = this.options.store.update(row, { phase: 'provider_creating' });
@@ -408,7 +539,18 @@ export class OpenAIAccountEnrollment {
           throw new Error();
         signal.throwIfAborted();
         row = this.options.store.update(row, { phase: 'ready', provider, errorCode: null });
-      } catch {
+      } catch (cause) {
+        log.warn('API account enrollment did not complete', {
+          stage: errorCode,
+          code:
+            cause instanceof ApiAccountSetupError
+              ? cause.code
+              : signal.aborted
+                ? 'CANCELLED'
+                : errorCode,
+          operationId: row.operationId,
+          requestId: row.requestId,
+        });
         row = this.options.store.update(row, {
           phase: errorCode === 'VALIDATION_FAILED' ? 'failed' : 'needs_attention',
           errorCode,
@@ -512,9 +654,9 @@ export class OpenAIAccountEnrollment {
       if (
         !row ||
         row.phase !== 'ready' ||
-        !row.provider ||
+        (!row.connection && !row.provider) ||
         row.controllerBinding !== this.controllerBinding() ||
-        row.provider.workspace !== this.options.workspace
+        (row.provider && row.provider.workspace !== this.options.workspace)
       )
         throw new Error('OpenAI enrolled account needs attention');
       const key = await this.options.keychain.read(

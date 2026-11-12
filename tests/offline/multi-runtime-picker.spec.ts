@@ -1032,24 +1032,21 @@ for (const appearance of ['light', 'dark'] as const) {
       page.getByRole('button', { name: /^(Send message|Start session)$/, exact: true }),
     ).toBeDisabled();
 
-    // Replacement is explicit; it must not discard an unsupported thinking choice.
+    // Explicit model edits normalize unsupported thinking; metadata refresh and environment edits retain intent.
     await chooseSetting(page, 'Model', 'local-model');
-    await expect(thinking).toHaveAttribute('data-value', 'high');
+    await expect(thinking).toHaveAttribute('data-value', '');
     await expect(
       settingChoices(page, 'Thinking level').locator('[data-setting-value="high"]'),
-    ).toHaveAttribute('disabled', '');
-    await expect(
-      settingChoices(page, 'Thinking level').locator('[data-setting-value="high"]'),
-    ).toHaveText('Unavailable thinking level: high');
+    ).toHaveCount(0);
     await chooseSetting(page, 'Thinking level', 'low');
     await chooseSetting(page, 'Account', 'vertex');
     await expect(page.getByText('Runs with Claude', { exact: true })).toBeVisible();
-    await expect(model).toHaveAttribute('data-value', 'local-model');
+    await expect(model).toHaveAttribute('data-value', 'claude-model');
     await expect(
       settingChoices(page, 'Model').locator('[data-setting-value="claude-model"]'),
     ).toHaveCount(1);
     await chooseSetting(page, 'Model', 'claude-model');
-    await expect(thinking).toHaveAttribute('data-value', 'low');
+    await expect(thinking).toHaveAttribute('data-value', '');
     await chooseSetting(page, 'Thinking level', 'high');
     await openChatSetting(page, 'execution');
     await openshell.click();
@@ -1105,8 +1102,8 @@ for (const appearance of ['light', 'dark'] as const) {
     // Keep the existing Vertex identity proof above before choosing another account.
     await chooseSetting(page, 'Account', 'google');
     await expect(account).toHaveAttribute('data-value', 'google');
-    await expect(model).toHaveAttribute('data-value', 'claude-model');
-    await expect(thinking).toHaveAttribute('data-value', 'high');
+    await expect(model).toHaveAttribute('data-value', 'gemini-fixture');
+    await expect(thinking).toHaveAttribute('data-value', '');
     await expect(page.getByText(/^Runs with /)).toHaveCount(0);
     await expect(
       page.getByRole('button', { name: /^(Send message|Start session)$/, exact: true }),
@@ -1118,13 +1115,10 @@ for (const appearance of ['light', 'dark'] as const) {
     ]);
     await expect(page.getByText('Runs with Gemini', { exact: true })).toBeVisible();
     await expect(account).toHaveAttribute('data-value', 'google');
-    await expect(model).toHaveAttribute('data-value', 'claude-model');
+    await expect(model).toHaveAttribute('data-value', 'gemini-fixture');
     await expect(
       settingChoices(page, 'Model').locator('[data-setting-value="claude-model"]'),
-    ).toHaveAttribute('disabled', '');
-    await expect(
-      settingChoices(page, 'Model').locator('[data-setting-value="claude-model"]'),
-    ).toHaveText('Unavailable model: claude-model');
+    ).toHaveCount(0);
     await expect(
       settingChoices(page, 'Model').locator('[data-setting-value="gemini-fixture"]'),
     ).toHaveCount(1);
@@ -1133,10 +1127,10 @@ for (const appearance of ['light', 'dark'] as const) {
     ).toHaveCount(0);
     await expect(composer).toHaveValue('Keep this development draft across environments');
     await chooseSetting(page, 'Model', 'gemini-fixture');
-    await expect(thinking).toHaveAttribute('data-value', 'high');
+    await expect(thinking).toHaveAttribute('data-value', '');
     await expect(
       settingChoices(page, 'Thinking level').locator('[data-setting-value="high"]'),
-    ).toHaveAttribute('disabled', '');
+    ).toHaveCount(0);
     await chooseSetting(page, 'Thinking level', 'low');
     await expect
       .poll(() =>

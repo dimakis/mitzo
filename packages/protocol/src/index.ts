@@ -1,6 +1,7 @@
 export * from './markdown-paths.js';
 export { sessionSearchTerms } from './session-search-query.js';
 export { repositoryNameFromCwd } from './repository-name.js';
+export * from './ordinary-turn.js';
 export { ToolFailureSchema, toolFailure, toolFailureAction } from './tool-failure.js';
 export type { ToolFailure } from './tool-failure.js';
 export { stripMarkdownCodeBlocks } from './markdown-code-blocks.js';
@@ -65,6 +66,8 @@ export type {
   FinishedSubagentState,
   SubagentState,
   SubagentUsage,
+  SubagentStatus,
+  SubagentDiagnostic,
   AgentDefinitionSource,
   AgentDefinition,
   AgentIdentity,
@@ -302,6 +305,7 @@ export {
   SessionRuntimeBindingV1Schema,
   SessionRuntimeBindingV2Schema,
   SessionRuntimeBindingSchema,
+  isOrdinaryRepositoryParticipantBinding,
 } from './session-runtime-binding.js';
 export type {
   SessionRuntimeBindingV1,

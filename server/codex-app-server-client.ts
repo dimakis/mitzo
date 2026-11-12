@@ -32,6 +32,7 @@ import { FrozenHostCodexExecutable } from './frozen-host-codex-executable.js';
 import { createLogger } from './logger.js';
 import { tracer } from './tracing.js';
 import { SpanStatusCode } from '@opentelemetry/api';
+import { findSessionRuntimeError } from './session-runtime-error.js';
 
 export const SUPPORTED_CODEX_CLI_VERSION = readFileSync(
   new URL('../docs/spikes/openshell-codex/runtime-codex-version', import.meta.url),
@@ -212,6 +213,7 @@ export class CodexTransportError extends Error {
       frameBytes?: number;
       limitBytes?: number;
     },
+    options?: ErrorOptions,
   ) {
     super(
       {
@@ -221,6 +223,7 @@ export class CodexTransportError extends Error {
         environment_pending:
           'Approved integration environment is pending. No model turn was started.',
       }[category],
+      options,
     );
     this.name = 'CodexTransportError';
   }
@@ -1013,8 +1016,14 @@ export class CodexAppServerClient {
             throw new CodexTransportError('connection');
           }
         }
-      } catch {
-        this.close(new CodexTransportError('connection', { reason: 'host_response_fence_failed' }));
+      } catch (cause) {
+        this.close(
+          new CodexTransportError(
+            'connection',
+            { reason: 'host_response_fence_failed' },
+            { cause },
+          ),
+        );
         return false;
       } finally {
         this.checkingHostResponse = false;
@@ -1031,6 +1040,18 @@ export class CodexAppServerClient {
           if (mayReply()) this.write({ id, result });
         },
         (error: unknown) => {
+          // A policy refusal can precede response-fence registration. Returning
+          // a generic RPC error would resume inference on the stale sandbox.
+          if (findSessionRuntimeError(error)?.code === 'native_policy_changed') {
+            this.close(
+              new CodexTransportError(
+                'connection',
+                { reason: 'host_response_fence_failed' },
+                { cause: error },
+              ),
+            );
+            return;
+          }
           if (!mayReply()) return;
           if (method === 'item/tool/call') {
             const known = error instanceof CodexHostToolRequestError;
@@ -1058,7 +1079,9 @@ export class CodexAppServerClient {
           }
         },
       )
-      .catch(() => this.close())
+      .catch((cause: unknown) =>
+        this.close(new CodexTransportError('connection', undefined, { cause })),
+      )
       .finally(() => this.activeHostRequests.delete(id));
   }
 

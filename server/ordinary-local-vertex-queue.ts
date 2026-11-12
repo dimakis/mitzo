@@ -4,7 +4,12 @@ import type { AuthSession } from './auth.js';
 export function readOwnedVertexQueue(events: EventStore, sessionId: string, connected: boolean) {
   const meta = events.getSession(sessionId),
     selection = events.getLatestOrdinaryCommandAdmission(sessionId)?.selection;
-  if (!meta?.accountBinding || meta.accountBinding.provider !== 'anthropic-vertex')
+  if (
+    !meta?.accountBinding ||
+    !['anthropic-vertex', 'anthropic-claude', 'anthropic-api'].includes(
+      meta.accountBinding.provider,
+    )
+  )
     throw Error('Original SDK queue unavailable');
   return {
     paused:

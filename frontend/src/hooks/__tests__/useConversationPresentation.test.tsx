@@ -86,6 +86,61 @@ async function loaded(h: ReturnType<typeof harness>) {
   return mounted;
 }
 
+it('observes finalized discussion without disabling controls and yields to explicit refresh', async () => {
+  const h = harness();
+  const { result } = await loaded(h);
+  let release!: (response: Response) => void;
+  h.fetch.mockImplementationOnce(
+    () =>
+      new Promise<Response>((r) => {
+        release = r;
+      }),
+  );
+  let observing!: ReturnType<typeof result.current.observeTranscript>;
+  act(() => {
+    observing = result.current.observeTranscript();
+  });
+  expect(result.current.loading).toBe(false);
+  expect(result.current.policyDisabled).toBe(false);
+  const latest = { ...h.view, cursor: h.view.cursor + 1 };
+  h.view = latest;
+  await act(async () => {
+    await result.current.refresh();
+  });
+  await act(async () => {
+    release(json({ ...latest, cursor: latest.cursor - 1 }));
+    await observing;
+  });
+  expect(result.current.projection!.view.cursor).toBe(latest.cursor);
+  expect(getChatDraft(h.saved.id)!.text).toBe(h.saved.text);
+
+  h.fetch.mockImplementationOnce(
+    () =>
+      new Promise<Response>((r) => {
+        release = r;
+      }),
+  );
+  let foreground!: ReturnType<typeof result.current.refresh>;
+  const count = h.fetch.mock.calls.length;
+  let skipped!: ReturnType<typeof result.current.observeTranscript>;
+  // Both starts are inside the same React batch, before state publication.
+  act(() => {
+    foreground = result.current.refresh();
+    skipped = result.current.observeTranscript();
+  });
+  await act(async () => {
+    await skipped;
+  });
+  expect(h.fetch).toHaveBeenCalledTimes(count + 1);
+  expect(h.fetch.mock.lastCall![1]!.signal!.aborted).toBe(false);
+  expect(result.current.loading).toBe(true);
+  await act(async () => {
+    release(json(latest));
+    await foreground;
+  });
+  expect(result.current.loading).toBe(false);
+});
+
 it('binds real typed policy calls to confirmed server views without sending or optimistic policy changes', async () => {
   const h = harness();
   const { result } = await loaded(h);
@@ -174,6 +229,22 @@ it('does not select another conversation’s retained recipient intent or overwr
     uuid(999),
   );
 });
+it('stays idle without a started collaboration and makes no reads or mutations', async () => {
+  const h = harness();
+  const { result } = renderHook(() =>
+    useConversationPresentation({ ...h.props, collaborationId: null }),
+  );
+  await act(async () => {
+    await result.current.refresh();
+    await result.current.setPolicy('architect', { reads: true, replies: true });
+  });
+  expect(result.current.error).toBeNull();
+  expect(result.current.projection).toBeNull();
+  expect(result.current.draft).toBeNull();
+  expect(result.current.policyDisabled).toBe(true);
+  expect(h.fetch).not.toHaveBeenCalled();
+});
+
 it('disables reads and mutations without current proof from the existing auth owner', async () => {
   const h = harness();
   h.verified = undefined;
@@ -185,7 +256,10 @@ it('disables reads and mutations without current proof from the existing auth ow
   expect(result.current.projection).toBeNull();
   expect(result.current.draft).toBeNull();
   expect(h.fetch).not.toHaveBeenCalled();
-  expect(result.current.error).toMatch(/Sign in/);
+  // ProtectedRoute owns login recovery; collaboration must not ask for a second login.
+  expect(result.current.error).toBeNull();
+  expect(result.current.policyDisabled).toBe(true);
+  expect(result.current.setResponders({ kind: 'all' })).toBe(false);
 });
 it('does not read merely because an auth scope string exists without the current owner getter', async () => {
   const h = harness();
@@ -208,7 +282,7 @@ it('clears private projection immediately on auth loss and rejects a late respon
         resolve = done;
       }),
   );
-  let pending!: Promise<void>;
+  let pending!: ReturnType<typeof result.current.refresh>;
   act(() => {
     pending = result.current.refresh();
   });

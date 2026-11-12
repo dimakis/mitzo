@@ -94,6 +94,16 @@ const ReviewCompilationInput = z.strictObject({
     .optional(),
   selection: CollaborationSnapshotSelectionSchema,
   settings: z.array(CollaborationSettingsSchema).min(1).max(16),
+  // Host-only audience for reviewed context attached to a later explicit prompt.
+  // Historical joining reviews omit it and retain their existing contract.
+  promptAudience: z
+    .strictObject({
+      sessionIds: SessionCollaborationSchema.shape.participantSessionIds.refine(
+        (value) => value.length > 0,
+      ),
+      policySequence: z.number().int().nonnegative().safe(),
+    })
+    .optional(),
 });
 const ReviewCompilation = ReviewCompilationInput.extend({
   snapshotRequestId: z.uuid(),
@@ -479,7 +489,31 @@ export class CollaborationConversationStore {
           if (!selected) throw new ContractError('unavailable_recipient');
           settings[sessionId] = CollaborationSettingsSchema.parse(selected);
         }
-        if (input.snapshot) this.reviewedSnapshot(group, input.snapshot, Object.values(settings));
+        if (input.snapshot) {
+          const review = this.getReviewCompilationForSnapshot(group, input.snapshot.snapshotId);
+          if (review?.promptAudience) {
+            if (
+              review.selection.expectedMembershipRevision !== current.revision ||
+              review.promptAudience.policySequence !== input.expectedPolicySequence ||
+              readers.some((id) => {
+                const index = review.promptAudience!.sessionIds.indexOf(id);
+                return index < 0 || !isDeepStrictEqual(review.settings[index], settings[id]);
+              })
+            )
+              throw new ContractError('snapshot_changed');
+            this.assertCurrentSnapshotSource(group, input.snapshot.snapshotId);
+          }
+          // A host-reviewed existing-participant packet may honestly retain
+          // unavailable capacity. Only ordinary admission can authorize a turn;
+          // the application adapter checks its complete encoded packet first.
+          // Historical caller-created snapshots retain their capacity contract.
+          this.reviewedSnapshot(
+            group,
+            input.snapshot,
+            Object.values(settings),
+            !review?.promptAudience,
+          );
+        }
         const message = CollaborationMessageSchema.parse({
           version: 1,
           messageId: randomUUID(),
@@ -560,6 +594,13 @@ export class CollaborationConversationStore {
   }
   /** Host-private exact original actor/request observation, including pending state. */
   getForwardPreparation(group: string, operatorId: string, requestId: string) {
+    const record = this.getRetainedForwardPreparation(group, requestId);
+    if (record && record.operatorId !== operatorId) throw new ContractError('request_conflict');
+    return record;
+  }
+  /** Host-private original provenance for renewed ordinary-operator authorization.
+   * No access or execution grant; never return this record through a public API. */
+  getRetainedForwardPreparation(group: string, requestId: string) {
     this.group(group);
     z.uuid().parse(requestId);
     const receipt = this.db
@@ -569,9 +610,34 @@ export class CollaborationConversationStore {
       .get(group, requestId) as { result: string } | undefined;
     if (!receipt) return null;
     const initial = CollaborationForwardPreparationSchema.safeParse(JSON.parse(receipt.result));
-    if (!initial.success || initial.data.operatorId !== operatorId)
-      throw new ContractError('request_conflict');
+    if (!initial.success) throw new ContractError('request_conflict');
     return this.privateForward(group, initial.data.forwardId);
+  }
+  /** Private provenance observation; the application owner must authorize it. */
+  getRetainedForward(group: string, forwardId: string) {
+    return this.privateForward(group, forwardId);
+  }
+  /** If the source was a participant when selected, removal/rejoin cannot
+   * silently restore that original sharing grant. External sources still require
+   * the ordinary source owner's current authorization and exact material witness. */
+  assertCurrentForwardSource(group: string, forwardId: string) {
+    const record = this.privateForward(group, forwardId);
+    if (!record) throw new ContractError('snapshot_changed');
+    const source = record.input.selection.sourceConversationId;
+    if (!source) return;
+    const revision = record.input.selection.target.expectedMembershipRevision;
+    const original = this.db
+      .prepare(
+        `SELECT participant_session_ids FROM session_collaboration_revisions
+      WHERE collaboration_id=? AND revision=?`,
+      )
+      .get(group, revision) as { participant_session_ids: string } | undefined;
+    if (!original) throw new ContractError('snapshot_changed');
+    const members = SessionCollaborationSchema.shape.participantSessionIds.parse(
+      JSON.parse(original.participant_session_ids),
+    );
+    if (members.includes(source) && !this.continuousMember(this.group(group), revision, source))
+      throw new ContractError('snapshot_changed');
   }
   private privateForward(group: string, forwardId: string): CollaborationForwardPreparation | null {
     this.group(group);
@@ -885,6 +951,41 @@ export class CollaborationConversationStore {
         return next;
       },
     );
+  }
+  /** Host-only observation of the exact ordinary command; no request can supply an outcome. */
+  recordReplyOutcome(
+    group: string,
+    messageId: string,
+    deliveryId: string,
+    read: (
+      sessionId: string,
+      commandId: string,
+    ) => 'completed' | 'failed' | 'interrupted' | 'uncertain' | undefined,
+  ) {
+    return this.db
+      .transaction(() => {
+        this.group(group);
+        const message = this.current(group, 'message', messageId, CollaborationMessageSchema);
+        const delivery = message?.deliveries.find((d) => d.deliveryId === deliveryId);
+        if (!message || !delivery || delivery.purpose !== 'reply' || !delivery.commandId)
+          throw new ContractError('reply_conflict');
+        const observed = read(delivery.sessionId, delivery.commandId);
+        const outcome = observed ?? (delivery.outcome ? 'uncertain' : undefined);
+        if (!outcome || delivery.outcome === outcome) return;
+        if (delivery.outcome && delivery.outcome !== 'uncertain' && outcome !== 'uncertain')
+          throw new ContractError('reply_conflict');
+        const next = CollaborationDeliverySchema.parse({
+          ...delivery,
+          outcome,
+          revision: delivery.revision + 1,
+        });
+        message.deliveries = message.deliveries.map((d) =>
+          d.deliveryId === deliveryId ? next : d,
+        );
+        this.put(group, 'message', messageId, message);
+        this.event(group, { kind: 'delivery', messageId, delivery: next });
+      })
+      .immediate();
   }
   /** Host-only attributed projection. The trusted source port must verify the exact ordinary
    * command/message mapping and finalized visible blocks. Context receipts retain the original
@@ -1498,11 +1599,66 @@ export class CollaborationConversationStore {
     )
       throw new ContractError('reply_conflict');
   }
+  /** A removed/rejoined source cannot silently restore an old snapshot grant. */
+  assertCurrentSnapshotSource(group: string, snapshotId: string) {
+    const membership = this.group(group);
+    const record = this.getReviewCompilationForSnapshot(group, snapshotId);
+    if (
+      !record ||
+      !this.continuousMember(
+        membership,
+        record.selection.expectedMembershipRevision,
+        record.selection.sourceConversationId,
+      )
+    )
+      throw new ContractError('snapshot_changed');
+  }
   /** Exact host delivery lookup, independent of the bounded recent-message view. */
   getMessage(group: string, messageId: string) {
     this.group(group);
     z.uuid().parse(messageId);
     return this.current(group, 'message', messageId, CollaborationMessageSchema);
+  }
+  /** Host reconciliation keyset, independent of the recent display window. */
+  messagesForReplyReconciliation(group: string, after: number, through: number) {
+    this.group(group);
+    const rows = this.db
+      .prepare(
+        `SELECT r.body FROM collaboration_records r
+      WHERE collaboration_id=? AND kind='message' AND json_extract(body,'$.author')='operator'
+      AND CAST(json_extract(body,'$.sequence') AS INTEGER)>?
+      AND CAST(json_extract(body,'$.sequence') AS INTEGER)<=?
+      AND EXISTS (SELECT 1 FROM json_each(r.body,'$.deliveries') d
+        WHERE json_extract(d.value,'$.purpose')='reply' AND json_extract(d.value,'$.commandId') IS NOT NULL)
+      AND NOT EXISTS (SELECT 1 FROM collaboration_records n WHERE n.collaboration_id=r.collaboration_id
+        AND n.kind=r.kind AND n.record_id=r.record_id AND n.revision>r.revision)
+      ORDER BY CAST(json_extract(body,'$.sequence') AS INTEGER) LIMIT 50`,
+      )
+      .all(group, after, through) as Row[];
+    return rows.map((row) => CollaborationMessageSchema.parse(JSON.parse(row.body)));
+  }
+  /** Host-only pending discussion inventory; display pagination never defines delivery. */
+  pendingDeliveryPage(group: string, sessionId: string, after: number, through: number) {
+    this.group(group);
+    z.string().min(1).max(200).parse(sessionId);
+    z.number().int().nonnegative().parse(after);
+    z.number().int().nonnegative().parse(through);
+    const rows = this.db
+      .prepare(
+        `SELECT r.body FROM collaboration_records r
+      WHERE collaboration_id=? AND kind='message'
+      AND CAST(json_extract(body,'$.sequence') AS INTEGER)>?
+      AND CAST(json_extract(body,'$.sequence') AS INTEGER)<=?
+      AND NOT EXISTS (SELECT 1 FROM collaboration_records n WHERE n.collaboration_id=r.collaboration_id
+        AND n.kind=r.kind AND n.record_id=r.record_id AND n.revision>r.revision)
+      AND EXISTS (SELECT 1 FROM json_each(r.body,'$.deliveries') d
+        WHERE json_extract(d.value,'$.sessionId')=?
+        AND json_extract(d.value,'$.commandId') IS NULL
+        AND json_extract(d.value,'$.status')='pending')
+      ORDER BY CAST(json_extract(body,'$.sequence') AS INTEGER) LIMIT 50`,
+      )
+      .all(group, after, through, sessionId) as Row[];
+    return rows.map((row) => CollaborationMessageSchema.parse(JSON.parse(row.body)));
   }
   view(group: string) {
     return this.db.transaction(() => {
@@ -1524,6 +1680,15 @@ export class CollaborationConversationStore {
         messages: messages.slice(-50),
         hasEarlierMessages: messages.length > 50,
         joins: this.recent(group, 'join', CollaborationJoinSchema),
+        joinedParticipants: membership.participantSessionIds.flatMap((sessionId) => {
+          try {
+            const join = this.getLinkedJoinForSession(group, sessionId);
+            return join ? [{ sessionId, name: join.name }] : [];
+          } catch {
+            // Broken/discontinued join identity cannot grant readiness or hide retained replies.
+            return [];
+          }
+        }),
         execution: COLLABORATION_EXECUTION_DISABLED,
       });
     })();

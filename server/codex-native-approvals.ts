@@ -9,8 +9,16 @@ import { buildPermissionHandler } from './permission-handler.js';
 import type { SessionRegistry } from './session-registry.js';
 import { nativeGrantFence } from './codex-native-grant-fence.js';
 import { PERMISSION_TIMEOUT_MS } from './constants.js';
-import { checkSkillPolicy, effectivePermissionMode, recordPermissionAudit } from '@mitzo/harness';
-import { nativeCommandApprovalScope } from './codex-native-approval-scope.js';
+import {
+  checkSkillPolicy,
+  effectivePermissionMode,
+  recordPermissionAudit,
+  githubCommandConsentDescription,
+} from '@mitzo/harness';
+import {
+  nativeCommandApprovalScope,
+  nativeGithubReadCommand,
+} from './codex-native-approval-scope.js';
 import { createLogger } from './logger.js';
 import { captureNativeDevelopmentGrant } from './native-development-grant.js';
 const log = createLogger('codex-native-approvals');
@@ -87,6 +95,7 @@ export function createCodexNativeApprovalHandler(options: {
     let commandKind: 'command' | 'writeStdin' | undefined;
     let preExecutionCommand = false;
     let explicitDenial = false;
+    let expiryObserved = false;
     let grantResponse: Record<string, unknown> | undefined;
     const grant = (response: Record<string, unknown>) => {
       grantResponse = parseNativeApprovalResponse(method, response);
@@ -102,7 +111,7 @@ export function createCodexNativeApprovalHandler(options: {
                 ? 'cancelled'
                 : explicitDenial
                   ? 'permission_denied'
-                  : Date.now() >= Number(params.startedAtMs) + timeoutMs
+                  : expiryObserved || Date.now() >= Number(params.startedAtMs) + timeoutMs
                     ? 'approval_expired'
                     : 'permission_denied',
               'approval',
@@ -219,7 +228,11 @@ export function createCodexNativeApprovalHandler(options: {
         toolName,
         toolUseID,
         scopeHash: sessionGrantKey,
-        outcome: signal.aborted ? 'cancelled' : Date.now() >= expiresAt ? 'expired' : 'denied',
+        outcome: signal.aborted
+          ? 'cancelled'
+          : expiryObserved || Date.now() >= expiresAt
+            ? 'expired'
+            : 'denied',
       });
       log.warn('Native approval refused during validation or RPC delivery', {
         runtimeId,
@@ -228,7 +241,7 @@ export function createCodexNativeApprovalHandler(options: {
         requestId: identity.requestId,
         threadId: identity.threadId,
         cancelled: signal.aborted,
-        expired: Date.now() >= expiresAt,
+        expired: expiryObserved || Date.now() >= expiresAt,
         cause: error instanceof Error ? error.message : 'non-Error validation failure',
       });
     };
@@ -279,7 +292,15 @@ export function createCodexNativeApprovalHandler(options: {
         }
       };
       context.registerResponseFence?.(finalFence);
-      timer = setTimeout(() => expiry.abort(), Math.max(0, expiresAt - Date.now()));
+      timer = setTimeout(
+        () => {
+          // Timers and wall-clock reads can disagree at the deadline (or after a
+          // clock correction). Retain the observed timeout as the refusal cause.
+          expiryObserved = true;
+          expiry.abort();
+        },
+        Math.max(0, expiresAt - Date.now()),
+      );
       const developmentGrant = captureNativeDevelopmentGrant(session, request);
       if (developmentGrant) {
         assertConsentCurrent = developmentGrant;
@@ -388,6 +409,10 @@ export function createCodexNativeApprovalHandler(options: {
             throw Error('Native command directory changed during approval');
         };
       const commandRequest = request.method === 'item/commandExecution/requestApproval';
+      const githubRepository =
+        commandRequest && request.params.command
+          ? nativeGithubReadCommand(request.params.command)?.repository
+          : undefined;
       const network = commandRequest && request.params.additionalPermissions?.network?.enabled;
       const result = await permission(toolName, input, {
         signal: currentSignal,
@@ -407,8 +432,9 @@ export function createCodexNativeApprovalHandler(options: {
           'Review the displayed operation, working directory and requested access. Existing workspace and credential protections still apply. Approval that expires during validation is refused without granting permission.',
         ...(sessionGrantKey
           ? {
-              sessionGrantDescription:
-                'Allow for session repeats this exact command with the displayed access in this directory until this native thread ends. Changed commands or access require another approval.',
+              sessionGrantDescription: githubRepository
+                ? githubCommandConsentDescription(githubRepository)
+                : 'Allow for session repeats this exact command with the displayed access in this directory until this native thread ends. Changed commands or access require another approval.',
             }
           : {}),
         ...(request.method === 'item/permissions/requestApproval'
@@ -419,6 +445,9 @@ export function createCodexNativeApprovalHandler(options: {
           : {}),
         nativeApproval: {
           expiresAt,
+          onExpiry: () => {
+            expiryObserved = true;
+          },
           allowSessionScope:
             request.method === 'item/permissions/requestApproval' || sessionGrantKey !== undefined,
           sessionGrantKey,

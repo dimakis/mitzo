@@ -3,6 +3,8 @@ import { workspaceRuntimePrivateFiles } from './workspace-runtime-private-paths.
 import { realpathSync } from 'node:fs';
 import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { homedir } from 'node:os';
+import { telosPrivateStorageRoots } from './telos-private-paths.js';
+import { claudeAccountsDirectory } from './claude-account-store.js';
 export function codexPrivateDirectory() {
   const path = process.env.MITZO_CODEX_PRIVATE_DIR || join(homedir(), '.mitzo', 'private', 'codex');
   if (!isAbsolute(path)) throw new Error('Codex private directory must be absolute');
@@ -47,6 +49,8 @@ export function privateCodexRoots(
 ): string[] {
   protectCodexProfileRoots(configuredKnowledgeLibraryPrivatePaths());
   protectCodexProfileRoots(workspaceRuntimePrivateFiles());
+  protectCodexProfileRoots(telosPrivateStorageRoots());
+  protectCodexProfileRoots([claudeAccountsDirectory()]);
   return [
     codexPrivateDirectory(),
     process.env.CODEX_HOME || join(homedir(), '.codex'),

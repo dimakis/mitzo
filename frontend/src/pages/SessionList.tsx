@@ -12,12 +12,19 @@ import type { SessionActionPoint } from '../hooks/useSessionInteraction';
 import '../styles/session-library.css';
 import { SdkConversationImport } from '../components/SdkConversationImport';
 import { sessionNeedsYouReason } from '../lib/session-attention';
-import { mergeSessionActivities } from '../lib/session-activity';
+import {
+  mergeSessionActivities,
+  mergeSessionModel,
+  retainSessionModel,
+  type ModelObservation,
+} from '../lib/session-activity';
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { Link, useNavigate, useLocation, useSearchParams } from 'react-router-dom';
 import { sessionSearchTerms, type SessionSearchResult } from '@mitzo/protocol';
 import { SearchMatchText } from '../components/SearchMatchText';
 import { useSavedChatDrafts } from '../hooks/useSavedChatDrafts';
+import { chatDraftUrl } from '../lib/chat-drafts';
+import { formatRelativeTime } from '../lib/formatTime';
 import '../styles/chat-drafts.css';
 import type { Session } from '../types/chat';
 import { SessionActivityStatus } from '../components/SessionActivityStatus';
@@ -33,6 +40,7 @@ import { useSessionSearch } from '../hooks/useSessionSearch';
 import { useSessionOverview, type SessionActivity } from '../hooks/useSessionOverview';
 import { SessionPreview } from '../components/SessionPreview';
 import { UiIcon } from '../components/UiIcon';
+import { MotionDetails } from '../components/MotionDetails';
 
 function SwipeableSession({
   session,
@@ -434,6 +442,15 @@ export function SessionList() {
   } catch {
     /* Invalid queries retain the search error and editable input. */
   }
+  const focusSearch = useCallback(
+    (input: HTMLInputElement | null) => {
+      if (input && location.hash === '#conversation-search') {
+        input.focus();
+        input.scrollIntoView?.({ block: 'center' });
+      }
+    },
+    [location.hash],
+  );
   const [importOpen, setImportOpen] = useState(false);
   const conversationOptions = useRef<HTMLElement>(null);
   const scroller = useRef<HTMLDivElement>(null);
@@ -475,7 +492,15 @@ export function SessionList() {
   const displayById = new Map(
     (connected === false ? lastKnownActivities : activities).map((a) => [a.sessionId, a]),
   );
-  const combined = mergeSessionActivities(sessions, activities);
+  const modelObservations = useRef(new Map<string, ModelObservation>());
+  for (const result of search.results)
+    retainSessionModel(modelObservations.current, result.sessionId, result);
+  const combined = mergeSessionActivities(
+    sessions,
+    activities,
+    lastKnownActivities,
+    modelObservations.current,
+  );
   const {
     sessions: all,
     pendingCount,
@@ -494,7 +519,11 @@ export function SessionList() {
       id: result.sessionId,
       summary: result.summary || '',
       lastModified: result.updatedAt,
-      model: existing?.model ?? result.model,
+      ...retainSessionModel(
+        modelObservations.current,
+        result.sessionId,
+        mergeSessionModel(existing, result),
+      ),
       accountLabel: result.accountLabel ?? existing?.accountLabel,
       snippet: result.snippet,
       matchedFields: result.matchedFields,
@@ -504,14 +533,16 @@ export function SessionList() {
     ? (searchSessions.find((session) => session.id === preview.id) ?? combined.get(preview.id))
     : undefined;
   const selectedPreview = preview
-    ? currentPreview
-      ? {
-          ...preview,
-          ...currentPreview,
-          model: currentPreview.model ?? preview.model,
-          accountLabel: currentPreview.accountLabel ?? preview.accountLabel,
-        }
-      : preview
+    ? {
+        ...preview,
+        ...currentPreview,
+        ...retainSessionModel(
+          modelObservations.current,
+          preview.id,
+          mergeSessionModel(currentPreview, preview),
+        ),
+        accountLabel: currentPreview?.accountLabel ?? preview.accountLabel,
+      }
     : search.active
       ? (searchSessions[0] ?? null)
       : (visible[0] ?? null);
@@ -561,21 +592,25 @@ export function SessionList() {
         </div>
         <div className="conversation-header-actions">
           <button
-            className="hero-chat-btn workspace-primary"
+            className="hero-chat-btn header-action"
             aria-label="New chat"
             onClick={() => {
               selectionChanged();
               navigate('/chat');
             }}
           >
-            <UiIcon name="edit" size={16} />
+            <UiIcon name="edit" />
             <span className="conversation-new-label">New chat</span>
           </button>
           <details
             className="conversation-options"
             onToggle={(event) => setOptionsOpen(event.currentTarget.open)}
           >
-            <summary ref={conversationOptions} aria-label="Conversation options">
+            <summary
+              ref={conversationOptions}
+              aria-label="Conversation options"
+              className="header-action"
+            >
               <UiIcon name="more" />
             </summary>
             <div className="conversation-options-menu">
@@ -642,6 +677,8 @@ export function SessionList() {
           <div className={search.active ? 'conversation-search-header' : undefined}>
             <div className="conversation-search">
               <input
+                id="conversation-search"
+                ref={focusSearch}
                 type="search"
                 aria-label="Search conversations"
                 placeholder="Search conversations…"
@@ -691,15 +728,33 @@ export function SessionList() {
             />
           )}
           {!search.active && drafts.length > 0 && (
-            <Link to="/sessions/drafts" className="conversation-drafts-link">
-              <UiIcon name="edit" />
-              <span>
-                <strong>Drafts</strong>
-                <span className="workspace-muted">Pick up where you left off</span>
-              </span>
-              <span className="conversation-draft-count">{drafts.length}</span>
-              <UiIcon name="forward" size={16} />
-            </Link>
+            <MotionDetails
+              className="conversation-drafts-section"
+              summaryClassName="collection-section-toggle"
+              summary={
+                <>
+                  <UiIcon name="down" size={16} />
+                  <UiIcon name="edit" size={16} />
+                  <span>Drafts</span>
+                  <span className="conversation-drafts-count">{drafts.length}</span>
+                </>
+              }
+            >
+              {drafts.slice(0, 3).map((draft) => (
+                <Link key={draft.id} to={chatDraftUrl(draft)} className="conversation-draft-row">
+                  <span>{draft.text.trim().split('\n')[0].slice(0, 90) || 'Untitled draft'}</span>
+                  <small>Saved {formatRelativeTime(draft.updatedAt)}</small>
+                </Link>
+              ))}
+              <Link
+                to="/sessions/drafts"
+                className="conversation-drafts-all"
+                aria-label={`All Drafts (${drafts.length})`}
+              >
+                All drafts
+                <UiIcon name="forward" size={16} />
+              </Link>
+            </MotionDetails>
           )}
           {importOpen && (
             <SdkConversationImport

@@ -19,6 +19,12 @@ Do not introduce component-specific durations or `transition: all`.
 and future route inherits a fade on pathname changes, including history back and
 forward. Query changes, initial launch, streaming, and ordinary renders do not
 replay it. Desktop navigation and mobile tabs stay outside the animated surface.
+The first-command replacement from `/chat` to its assigned conversation URL
+sets `state.chatAssignment`. MotionRoutes suppresses the fade only for that
+exact transition; revisiting the same history entry from another page still
+animates normally. Keyboard changes preserve the reader's scroll intent, and
+streaming following is settled before paint by ChatArea. See
+[the interaction scope and evidence](../features/ui-smoothness.md).
 The boundary uses `display: contents`, preserving the existing flex/grid layout.
 
 Do not add pathname keys to page components or retain outgoing routes for motion.
@@ -68,6 +74,20 @@ tracks the manually opened popover only, and disabling presence animation for
 inline mode cancels an interrupted exit without hiding inline controls.
 
 Async picker content and native `<details>` have shared CSS entrance motion.
+Use `MotionDetails` for native disclosures that need a smooth close as well as
+an opening transition. Its summary preserves native keyboard activation; Escape
+restores summary focus. Form children remain mounted, but closing content becomes
+inert and hidden from assistive technology immediately. Drafts, backup details
+and Inbox provenance reuse this pattern. It excludes the native CSS entrance so
+the same content never receives two competing transitions.
+
+`HomeDialog` starts one shared sheet entrance after opening its native modal.
+Editing, streaming updates and title changes do not replay it. Closing retains
+the caller's immediate dismissal/busy guard and the existing focus/scroll-lock
+ownership; the shared entrance never defers a decision, send or cancellation.
+Unexpected presence-animation failures emit a sanitized `ui_motion_failed`
+diagnostic and settle to the requested state instead of stranding an inert panel.
+
 The CSS layer also provides entrance motion for approval banners and the existing
 document/access dialogs. Use the shared presence primitives for new custom menus,
 dialogs, and disclosures that need exit motion; do not add animation libraries or

@@ -8,6 +8,8 @@ export function sessionHarnessForProvider(provider: string): 'codex' | 'claude-s
     case 'openai-codex':
       return 'codex';
     case 'anthropic-vertex':
+    case 'anthropic-claude':
+    case 'anthropic-api':
       return 'claude-sdk';
     case 'google-vertex':
       // Native Gemini replacement is deferred; preserve its existing engine.

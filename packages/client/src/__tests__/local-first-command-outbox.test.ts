@@ -1,27 +1,7 @@
 import { afterEach, expect, it, vi } from 'vitest';
 import { SendOutbox } from '../send-outbox.js';
 import { runtimeFailureMessage } from '@mitzo/protocol';
-const command = {
-  runOn: 'local',
-  repositoryWorkspaceId: '11111111-1111-4111-8111-111111111111',
-  clientMsgId: 'local-first',
-  capabilityRevision: 'caps-r1',
-  runtime: {
-    account: { accountId: 'personal', provider: 'openai-codex', profileRevision: 'routing-r1' },
-    harness: 'codex',
-    targetId: 'mac',
-    mode: 'agent',
-  },
-  selection: {
-    version: 1,
-    agent: { profileId: 'agent', revision: 1 },
-    model: 'luna-fixture',
-    thinking: 'low',
-    context: { source: 'none', revision: null },
-    permission: { mode: 'agent', revision: 0 },
-  },
-  payload: { text: 'inspect' },
-};
+import { localFirstCommandFixture as command } from './fixtures/local-first-command.js';
 const disk = () => {
   let raw: string | null = null;
   return {
@@ -43,6 +23,459 @@ const receipt = (state = 'consumed') =>
     { status: 202 },
   );
 afterEach(() => vi.useRealTimers());
+
+it.each(['stop', 'rejectAll'] as const)(
+  'keeps a late storage callback inert after %s while still blocked',
+  (action) => {
+    let readable = false;
+    let changed!: () => void;
+    const getItem = vi.fn(() => {
+      if (!readable) throw Error('Storage unavailable');
+      return '[]';
+    });
+    const storage = {
+      getItem,
+      setItem: vi.fn(),
+      subscribe(listener: () => void) {
+        changed = listener;
+        return vi.fn();
+      },
+    };
+    const fetch = vi.fn();
+    const notify = vi.fn();
+    const outbox = new SendOutbox({
+      url: '/local/send',
+      storage,
+      fetch,
+      notify,
+      localFirstCommand: true,
+    });
+    outbox.start();
+    expect(notify).toHaveBeenLastCalledWith(expect.objectContaining({ state: 'blocked' }));
+    if (action === 'stop') outbox.stop();
+    else outbox.rejectAll('Authentication changed');
+    const reads = getItem.mock.calls.length;
+    const notifications = notify.mock.calls.length;
+    readable = true;
+    changed();
+    expect(getItem).toHaveBeenCalledTimes(reads);
+    expect(notify).toHaveBeenCalledTimes(notifications);
+    expect(fetch).not.toHaveBeenCalled();
+    outbox.start();
+    expect(notify).toHaveBeenLastCalledWith({ type: '_local_command_state', state: 'idle' });
+    expect(fetch).not.toHaveBeenCalled();
+    outbox.stop();
+  },
+);
+
+it.each(['start', 'wake', 'selection', 'retry'] as const)(
+  'recovers a failed initial storage read on %s without replaying retained commands',
+  async (trigger) => {
+    const saved = disk();
+    saved.setItem(
+      '',
+      JSON.stringify([{ body: command, scope: 1, uncertain: true, localDraftId: 'original' }]),
+    );
+    let readable = false;
+    const storage = {
+      ...saved,
+      getItem() {
+        if (!readable) throw Error('Saved chat storage is loading');
+        return saved.getItem();
+      },
+    };
+    const fetch = vi
+      .fn()
+      .mockResolvedValue(Response.json({ code: 'receipt_pending' }, { status: 409 }));
+    const notify = vi.fn();
+    const outbox = new SendOutbox({
+      url: '/local/send',
+      storage,
+      fetch,
+      notify,
+      localFirstCommand: true,
+    });
+    outbox.start();
+    outbox.selectLocalDraft('original');
+    expect(notify).toHaveBeenLastCalledWith(expect.objectContaining({ state: 'blocked' }));
+    const original = saved.getItem();
+    readable = true;
+    if (trigger === 'start') outbox.start();
+    else if (trigger === 'wake') outbox.wake();
+    else if (trigger === 'selection') outbox.selectLocalDraft('original');
+    else expect(outbox.retryLocalCommand()).toBe(true);
+    expect(notify).toHaveBeenLastCalledWith(
+      expect.objectContaining({ state: 'uncertain', request: command, originDraftId: 'original' }),
+    );
+    await vi.waitFor(() =>
+      expect(notify).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          state: 'uncertain',
+          deliveryDiagnostic: expect.objectContaining({ code: 'receipt_pending' }),
+        }),
+      ),
+    );
+    expect(JSON.parse(saved.getItem()!)[0]).toMatchObject(JSON.parse(original!)[0]);
+    expect(fetch).toHaveBeenCalledExactlyOnceWith(
+      '/local/send/receipt',
+      expect.objectContaining({
+        method: 'POST',
+      }),
+    );
+    expect(JSON.parse(fetch.mock.calls[0][1].body)).toEqual(command);
+    outbox.stop();
+  },
+);
+
+it('clears a startup storage block for a fresh draft only after its retained queue can be read', async () => {
+  const saved = disk();
+  let readable = false;
+  const storage = {
+    ...saved,
+    getItem() {
+      if (!readable) throw Error('Storage unavailable');
+      return saved.getItem();
+    },
+  };
+  const fetch = vi.fn().mockResolvedValue(receipt());
+  const notify = vi.fn();
+  const outbox = new SendOutbox({
+    url: '/local/send',
+    storage,
+    fetch,
+    notify,
+    localFirstCommand: true,
+  });
+  outbox.start();
+  outbox.selectLocalDraft('new-draft');
+  expect(outbox.enqueue(command, 1, 'new-draft')).toBe(false);
+  expect(outbox.getEnqueueFailure()).toBe('blocked');
+  readable = true;
+  outbox.wake();
+  expect(notify).toHaveBeenLastCalledWith({ type: '_local_command_state', state: 'idle' });
+  expect(fetch).not.toHaveBeenCalled();
+  expect(outbox.enqueue(command, 1, 'new-draft')).toBe(true);
+  await vi.waitFor(() =>
+    expect(notify).toHaveBeenLastCalledWith(expect.objectContaining({ state: 'consumed' })),
+  );
+  expect(fetch).toHaveBeenCalledExactlyOnceWith('/local/send', expect.any(Object));
+  expect(JSON.parse(fetch.mock.calls[0][1].body)).toEqual(command);
+  outbox.stop();
+});
+
+it('retains a sanitized transport failure and retries the original follow-up after approval expiry', async () => {
+  const saved = disk();
+  const notify = vi.fn();
+  const onDeliveryDiagnostic = vi.fn();
+  const cause = new TypeError('private upstream URL and payload');
+  const followUp = {
+    ...command,
+    sessionId: 'session',
+    payload: { text: 'I missed the approval. Try again.' },
+  };
+  const fetch = vi.fn().mockRejectedValueOnce(cause).mockResolvedValueOnce(receipt());
+  const config = {
+    url: '/local/send',
+    storage: saved,
+    fetch,
+    notify,
+    localFirstCommand: true,
+    onDeliveryDiagnostic,
+  };
+  const outbox = new SendOutbox(config);
+  outbox.start();
+  try {
+    expect(outbox.enqueue(followUp, 1, 'draft')).toBe(true);
+    await vi.waitFor(() =>
+      expect(notify).toHaveBeenCalledWith(
+        expect.objectContaining({
+          state: 'uncertain',
+          deliveryDiagnostic: expect.objectContaining({
+            operation: 'submit',
+            stage: 'request',
+            code: 'transport_failed',
+          }),
+        }),
+      ),
+    );
+    expect(onDeliveryDiagnostic).toHaveBeenCalledWith(
+      expect.objectContaining({
+        clientMsgId: command.clientMsgId,
+        sessionId: 'session',
+        diagnostic: expect.objectContaining({ code: 'transport_failed' }),
+      }),
+      cause,
+    );
+    expect(saved.getItem()).not.toContain('private upstream');
+    expect(JSON.parse(saved.getItem()!)[0].deliveryDiagnostic.code).toBe('transport_failed');
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(outbox.retryLocalCommand(command.clientMsgId)).toBe(true);
+    await vi.waitFor(() => expect(JSON.parse(saved.getItem()!)).toEqual([]));
+    expect(fetch).toHaveBeenCalledTimes(2);
+    for (const [url, init] of fetch.mock.calls) {
+      expect(url).toBe('/local/continue');
+      expect(JSON.parse(init.body)).toEqual(followUp);
+    }
+    expect(notify).toHaveBeenLastCalledWith(expect.objectContaining({ state: 'consumed' }));
+    expect(notify.mock.lastCall![0].deliveryDiagnostic).toBeUndefined();
+  } finally {
+    outbox.stop();
+  }
+});
+
+it.each([
+  [
+    'invalid_receipt',
+    () => new Response('<private upstream response>', { status: 502 }),
+    'response',
+    502,
+  ],
+  [
+    'http_rejected',
+    () => Response.json({ error: 'private refusal' }, { status: 403 }),
+    'response',
+    403,
+  ],
+] as const)(
+  'records %s without retaining the response body',
+  async (code, result, stage, httpStatus) => {
+    const saved = disk();
+    const notify = vi.fn();
+    const outbox = new SendOutbox({
+      url: '/local/send',
+      storage: saved,
+      fetch: async () => result(),
+      notify,
+      localFirstCommand: true,
+    });
+    outbox.start();
+    try {
+      outbox.enqueue(command, 1, 'draft');
+      await vi.waitFor(() =>
+        expect(notify).toHaveBeenCalledWith(
+          expect.objectContaining({
+            state: 'uncertain',
+            deliveryDiagnostic: expect.objectContaining({ code, stage, httpStatus }),
+          }),
+        ),
+      );
+      expect(saved.getItem()).not.toContain('private');
+    } finally {
+      outbox.stop();
+    }
+  },
+);
+
+it('distinguishes a timed-out submission from a network rejection', async () => {
+  vi.useFakeTimers();
+  const notify = vi.fn();
+  const outbox = new SendOutbox({
+    url: '/local/send',
+    storage: disk(),
+    fetch: () => new Promise(() => {}),
+    notify,
+    localFirstCommand: true,
+    timeoutMs: 50,
+  });
+  outbox.start();
+  try {
+    outbox.enqueue(command, 1, 'draft');
+    await vi.advanceTimersByTimeAsync(51);
+    expect(notify).toHaveBeenCalledWith(
+      expect.objectContaining({
+        state: 'uncertain',
+        deliveryDiagnostic: expect.objectContaining({ code: 'timeout', operation: 'submit' }),
+      }),
+    );
+  } finally {
+    outbox.stop();
+  }
+});
+
+it('reports the original storage cause without starting a request or replacing the draft', async () => {
+  const cause = new Error('private disk failure');
+  const storage = {
+    ...disk(),
+    flush: async () => {
+      throw cause;
+    },
+  };
+  const onDeliveryDiagnostic = vi.fn();
+  const fetch = vi.fn();
+  const notify = vi.fn();
+  const outbox = new SendOutbox({
+    url: '/local/send',
+    storage,
+    fetch,
+    notify,
+    localFirstCommand: true,
+    onDeliveryDiagnostic,
+  });
+  outbox.start();
+  try {
+    outbox.enqueue(command, 1, 'draft');
+    await vi.waitFor(() =>
+      expect(onDeliveryDiagnostic).toHaveBeenCalledWith(
+        expect.objectContaining({
+          diagnostic: expect.objectContaining({ stage: 'storage', code: 'storage_failed' }),
+        }),
+        cause,
+      ),
+    );
+    expect(fetch).not.toHaveBeenCalled();
+    expect(JSON.parse(storage.getItem()!)[0].body).toEqual(command);
+    expect(storage.getItem()).not.toContain('private disk failure');
+  } finally {
+    outbox.stop();
+  }
+});
+
+it('ends a stalled pre-send storage flush and ignores its late completion until explicit retry', async () => {
+  vi.useFakeTimers();
+  let release!: () => void;
+  const storage = {
+    ...disk(),
+    flush: vi
+      .fn()
+      .mockImplementationOnce(
+        () =>
+          new Promise<void>((resolve) => {
+            release = resolve;
+          }),
+      )
+      .mockResolvedValue(undefined),
+  };
+  const fetch = vi.fn().mockResolvedValue(receipt());
+  const notify = vi.fn();
+  const outbox = new SendOutbox({
+    url: '/local/send',
+    storage,
+    fetch,
+    notify,
+    localFirstCommand: true,
+  });
+  outbox.start();
+  try {
+    outbox.enqueue(command, 1, 'draft');
+    await vi.advanceTimersByTimeAsync(15_001);
+    expect(notify).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        state: 'uncertain',
+        deliveryDiagnostic: expect.objectContaining({ stage: 'storage', code: 'storage_timeout' }),
+      }),
+    );
+    expect(fetch).not.toHaveBeenCalled();
+    release();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(fetch).not.toHaveBeenCalled();
+    expect(outbox.retryLocalCommand(command.clientMsgId)).toBe(true);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(fetch).toHaveBeenCalledOnce();
+    expect(JSON.parse(fetch.mock.calls[0][1].body)).toEqual(command);
+    expect(JSON.parse(storage.getItem()!)).toEqual([]);
+  } finally {
+    outbox.stop();
+  }
+});
+
+it('reports launch-proof cleanup failure without resurrecting an accepted command', async () => {
+  const saved = disk();
+  const cause = new Error('private cleanup failure');
+  const onDeliveryDiagnostic = vi.fn();
+  const notify = vi.fn((event: Record<string, unknown>) => {
+    if (event.type === '_local_command_retired') throw cause;
+  });
+  const initial = {
+    ...command,
+    payload: {
+      ...command.payload,
+      sourceSnapshots: [
+        {
+          kind: 'briefing',
+          date: '2026-11-09',
+          revision: 'a'.repeat(64),
+          content: 'Reviewed briefing',
+        },
+      ],
+    },
+  };
+  const fetch = vi.fn().mockImplementation(async () => receipt());
+  const outbox = new SendOutbox({
+    url: '/local/send',
+    storage: saved,
+    fetch,
+    notify,
+    localFirstCommand: true,
+    onDeliveryDiagnostic,
+  });
+  outbox.start();
+  try {
+    expect(outbox.enqueue(initial, 1, 'draft')).toBe(true);
+    await vi.waitFor(() =>
+      expect(onDeliveryDiagnostic).toHaveBeenCalledWith(
+        expect.objectContaining({
+          diagnostic: expect.objectContaining({ stage: 'cleanup', code: 'cleanup_failed' }),
+        }),
+        cause,
+      ),
+    );
+    expect(JSON.parse(saved.getItem()!)).toEqual([]);
+    expect(notify).toHaveBeenCalledWith(
+      expect.objectContaining({ state: 'consumed', acknowledged: true }),
+    );
+    expect(notify).not.toHaveBeenCalledWith(expect.objectContaining({ state: 'uncertain' }));
+    expect(fetch).toHaveBeenCalledOnce();
+  } finally {
+    outbox.stop();
+  }
+});
+
+it('keeps a later storage refusal distinct from an already completed request deadline', async () => {
+  vi.useFakeTimers();
+  const cause = new Error('private quota failure');
+  const storage = {
+    ...disk(),
+    flush: vi
+      .fn()
+      .mockResolvedValueOnce(undefined)
+      .mockImplementationOnce(
+        () => new Promise<void>((_resolve, reject) => setTimeout(() => reject(cause), 2000)),
+      ),
+  };
+  const fetch = vi.fn(
+    () => new Promise<Response>((resolve) => setTimeout(() => resolve(receipt()), 14_000)),
+  );
+  const notify = vi.fn();
+  const onDeliveryDiagnostic = vi.fn();
+  const outbox = new SendOutbox({
+    url: '/local/send',
+    storage,
+    fetch,
+    notify,
+    localFirstCommand: true,
+    timeoutMs: 15_000,
+    onDeliveryDiagnostic,
+  });
+  outbox.start();
+  try {
+    outbox.enqueue(command, 1, 'draft');
+    await vi.advanceTimersByTimeAsync(16_001);
+    expect(onDeliveryDiagnostic).toHaveBeenCalledWith(
+      expect.objectContaining({
+        diagnostic: expect.objectContaining({
+          code: 'storage_failed',
+          stage: 'storage',
+          httpStatus: 202,
+        }),
+      }),
+      cause,
+    );
+    expect(fetch).toHaveBeenCalledOnce();
+    expect(JSON.parse(storage.getItem()!)[0].localReceipt.state).toBe('consumed');
+  } finally {
+    outbox.stop();
+  }
+});
 it('shows a reviewed pre-admission failure without manufacturing a receipt or acknowledging delivery', async () => {
   const saved = disk();
   const runtimeFailure = {
@@ -835,14 +1268,22 @@ it('blocks corrupt persisted intent rather than forgetting it and admitting a re
     '',
     JSON.stringify([{ body: { ...command, systemPrompt: 'forged' }, scope: 1, uncertain: true }]),
   );
+  const fetch = vi.fn();
   const outbox = new SendOutbox({
     url: '/local',
-    fetch: vi.fn(),
+    fetch,
     notify: vi.fn(),
     storage,
     localFirstCommand: true,
   });
+  const original = storage.getItem();
+  outbox.start();
+  outbox.wake();
+  outbox.selectLocalDraft('new-draft');
   expect(outbox.enqueue(command, 1)).toBe(false);
+  expect(storage.getItem()).toBe(original);
+  expect(fetch).not.toHaveBeenCalled();
+  outbox.stop();
 });
 it.each(['retained_command', 'unknown_code'])(
   'keeps409 consumed observation (%s) without accepting, erasing or replaying the request',
@@ -1243,3 +1684,114 @@ it('retains the consumed command if writes produced by its handoff fail to commi
   expect(JSON.parse(saved.getItem()!)).toEqual([expect.objectContaining({ body: command })]);
   outbox.stop();
 });
+
+it('retries blocked storage hydration once without dispatching, and fences late authentication changes', async () => {
+  let readable = false;
+  let release!: () => void;
+  const storage = {
+    getItem: vi.fn(() => {
+      if (!readable) throw Error('Storage unavailable');
+      return '[]';
+    }),
+    setItem: vi.fn(),
+    recover: vi.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          release = resolve;
+        }),
+    ),
+  };
+  const fetch = vi.fn();
+  const notify = vi.fn();
+  const outbox = new SendOutbox({
+    url: '/local/send',
+    storage,
+    fetch,
+    notify,
+    localFirstCommand: true,
+  });
+  outbox.start();
+  outbox.selectLocalDraft('fresh');
+  expect(outbox.retryLocalCommand()).toBe(true);
+  expect(outbox.retryLocalCommand()).toBe(false);
+  await vi.waitFor(() => expect(storage.recover).toHaveBeenCalledOnce());
+  outbox.rejectAll('Signed out');
+  const calls = notify.mock.calls.length;
+  readable = true;
+  release();
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  expect(notify).toHaveBeenCalledTimes(calls);
+  expect(storage.setItem).not.toHaveBeenCalled();
+  expect(fetch).not.toHaveBeenCalled();
+  outbox.start();
+  expect(notify).toHaveBeenLastCalledWith({ type: '_local_command_state', state: 'idle' });
+  outbox.stop();
+});
+
+it('keeps malformed saved intent blocked and byte-for-byte intact through Retry and sign-out', () => {
+  const storage = disk();
+  storage.setItem('', '{invalid retained intent');
+  const fetch = vi.fn();
+  const notify = vi.fn();
+  const outbox = new SendOutbox({
+    url: '/local/send',
+    storage,
+    fetch,
+    notify,
+    localFirstCommand: true,
+  });
+  outbox.start();
+  expect(outbox.retryLocalCommand()).toBe(false);
+  expect(notify).toHaveBeenLastCalledWith(expect.objectContaining({ state: 'blocked' }));
+  outbox.rejectAll('Signed out');
+  expect(storage.getItem()).toBe('{invalid retained intent');
+  expect(fetch).not.toHaveBeenCalled();
+});
+
+it.each(['failure', 'timeout'] as const)(
+  'allows another explicit recovery after hydration %s without dispatch',
+  async (outcome) => {
+    vi.useFakeTimers();
+    let readable = false;
+    let complete!: () => void;
+    const storage = {
+      getItem: () => {
+        if (!readable) throw Error('Unavailable');
+        return '[]';
+      },
+      setItem: vi.fn(),
+      recover: vi.fn(() =>
+        outcome === 'failure'
+          ? Promise.reject(Error('Private device detail'))
+          : new Promise<void>((resolve) => {
+              complete = resolve;
+            }),
+      ),
+    };
+    const fetch = vi.fn();
+    const notify = vi.fn();
+    const outbox = new SendOutbox({
+      url: '/local/send',
+      storage,
+      fetch,
+      notify,
+      localFirstCommand: true,
+    });
+    outbox.start();
+    expect(outbox.retryLocalCommand()).toBe(true);
+    await vi.advanceTimersByTimeAsync(15_000);
+    expect(notify).toHaveBeenLastCalledWith(expect.objectContaining({ state: 'blocked' }));
+    const notifications = notify.mock.calls.length;
+    readable = true;
+    complete?.();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(notify).toHaveBeenCalledTimes(notifications);
+    storage.recover.mockResolvedValue(undefined);
+    expect(outbox.retryLocalCommand()).toBe(true);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(notify).toHaveBeenLastCalledWith({ type: '_local_command_state', state: 'idle' });
+    expect(fetch).not.toHaveBeenCalled();
+    expect(storage.setItem).not.toHaveBeenCalled();
+    outbox.stop();
+  },
+);

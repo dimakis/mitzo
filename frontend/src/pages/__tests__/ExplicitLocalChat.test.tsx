@@ -1,7 +1,7 @@
 import { createChatDraft, saveChatDraft } from '../../lib/chat-drafts';
 // @vitest-environment jsdom
 import { afterEach, expect, it, vi } from 'vitest';
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter, Routes, Route, useNavigate } from 'react-router-dom';
 import { MitzoStoreProvider } from '@mitzo/client/hooks';
 import { createTestStore } from '../../test-utils/createTestStore';
@@ -492,6 +492,13 @@ for (const [name, Screen] of [
     expect(localSend).toHaveBeenCalledOnce();
     act(() => store.setState({ connection: { status: 'disconnected', clientId: null } }));
     expect(recovery).toBeDisabled();
+    // An unreadable device queue needs a local read retry even while offline.
+    act(() => store.setState({ localCommand: { state: 'blocked' } }));
+    expect(recovery).toBeEnabled();
+    expect(screen.getByText(/Saved outgoing messages are unavailable/)).toBeTruthy();
+    fireEvent.click(recovery);
+    expect(recover).toHaveBeenCalledTimes(2);
+    expect(localSend).toHaveBeenCalledOnce();
   });
   for (const apiHost of [false, true])
     it.each([
@@ -733,6 +740,17 @@ for (const [name, Screen] of [
     expect((await screen.findByText('Symposium')).closest('.workspace-controls')).toBeTruthy();
     expect(screen.queryByRole('button', { name: 'Test send' })).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: 'Close Agents' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Links & access' }));
+    const access = screen.getByRole('dialog', { name: 'Links & access' });
+    expect(within(access).queryByRole('button', { name: 'New chat' })).toBeNull();
+    expect(within(access).queryByText('Link existing chat')).toBeNull();
+    expect(
+      within(access).getByText('Linked chats are unavailable for this conversation.'),
+    ).toBeTruthy();
+    expect(within(access).getByRole('button', { name: /^Permissions/ })).toBeEnabled();
+    expect(within(access).getByRole('button', { name: /^Connections/ })).toBeEnabled();
+    fireEvent.click(within(access).getByRole('button', { name: 'Close' }));
+    expect(screen.getByRole('button', { name: 'Agents' })).toBeEnabled();
     act(() => store.setState({ switchSession: async () => {} }));
     fireEvent.click(screen.getByRole('button', { name: 'Navigate before assignment' }));
     expect(store.getState().sessions.active).toBe('symposium-session');
@@ -1147,21 +1165,21 @@ for (const [name, Screen] of [
       target: { value: 'vertex' },
     });
     expect(screen.getByText('Runs with Claude')).toBeInTheDocument();
-    expect(screen.getByRole('combobox', { name: 'Model' })).toHaveValue('shell-model');
-    expect(screen.getByRole('combobox', { name: 'Thinking level' })).toHaveValue('high');
+    expect(screen.getByRole('combobox', { name: 'Model' })).toHaveValue('claude-model');
+    expect(screen.getByRole('combobox', { name: 'Thinking level' })).toHaveValue('');
     expect(screen.getByRole('option', { name: 'Claude model' })).toBeInTheDocument();
     expect(screen.queryByRole('option', { name: 'Local model' })).toBeNull();
     expect(screen.getByRole('button', { name: 'Test send' })).toBeDisabled();
     fireEvent.click(screen.getByRole('button', { name: 'OpenShell' }));
     expect(screen.getByRole('combobox', { name: 'Account' })).toHaveValue('vertex');
-    expect(screen.getByRole('combobox', { name: 'Model' })).toHaveValue('shell-model');
-    expect(screen.getByRole('combobox', { name: 'Thinking level' })).toHaveValue('high');
+    expect(screen.getByRole('combobox', { name: 'Model' })).toHaveValue('claude-model');
+    expect(screen.getByRole('combobox', { name: 'Thinking level' })).toHaveValue('');
     expect(screen.queryByRole('option', { name: 'Shell model' })).toBeNull();
     expect(screen.queryByText('Runs with Codex')).toBeNull();
     expect(screen.getByTestId('draft')).toHaveTextContent('hello');
     expect(screen.getByRole('button', { name: 'Test send' })).toBeDisabled();
     expect(getChatDraft(draft.id)?.settings.runtimeSelection).toMatchObject({
-      account: { accountId: 'vertex', model: 'shell-model', reasoningEffort: 'high' },
+      account: { accountId: 'vertex', model: 'claude-model' },
       accountReference: {
         accountId: 'vertex',
         provider: 'anthropic-vertex',

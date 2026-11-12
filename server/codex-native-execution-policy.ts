@@ -2,6 +2,8 @@ import { createHash } from 'node:crypto';
 import { realpathSync } from 'node:fs';
 import { basename, dirname, isAbsolute, join, resolve } from 'node:path';
 import type { MitzoMode } from '@mitzo/protocol';
+import { isDeepStrictEqual } from 'node:util';
+import { SessionRuntimeError } from './session-runtime-error.js';
 
 /** Trusted selected execution policy, never a repository name, prompt or client
  * request. Configured scope is distinct from observed kernel enforcement. */
@@ -50,6 +52,85 @@ const digest = (value: unknown) => createHash('sha256').update(JSON.stringify(va
 const subtreeDenyGlob = (path: string) => `${path.replace(/[\\*?[\]{}]/g, '\\$&')}{,/**}`;
 
 const NATIVE_TEMPORARY_PATHS = [':tmpdir', ':slash_tmp'] as const;
+
+// Compare the canonical paths captured at admission. Re-resolving the old paths
+// here could conceal a symlink replacement. Redundant final subtree denies do
+// not change authority, even when discovered by another chat.
+function protectionScope(paths: readonly string[]) {
+  return [...new Set(paths)]
+    .sort()
+    .filter((path, _, all) => !all.some((parent) => parent !== path && contains(parent, path)));
+}
+function profileScope(policy: CodexNativeExecutionPolicy) {
+  return {
+    version: policy.version,
+    bindingRevision: policy.bindingRevision,
+    readableRoots: policy.readableRoots,
+    deniedRoots: protectionScope(policy.deniedRoots),
+    // Positive read entries can intersect more-specific implicit scratch writes.
+    // Their apparent subtree redundancy is not proof of equivalent enforcement.
+    writeProtectedRoots: policy.writeProtectedRoots,
+    temporaryAccess: policy.temporaryAccess,
+    profileVersion: policy.profileVersion,
+  };
+}
+type NativePolicyField = keyof CodexNativeExecutionPolicy | 'owner' | 'profile';
+export class NativeExecutionPolicyChangedError extends SessionRuntimeError {
+  readonly changedFields: readonly NativePolicyField[];
+  constructor(changedFields: readonly NativePolicyField[]) {
+    super('native_policy_changed');
+    this.changedFields = Object.freeze([...changedFields]);
+  }
+}
+function assertComparableFingerprints(
+  initial: CodexNativeExecutionPolicy,
+  next: CodexNativeExecutionPolicy,
+) {
+  if (
+    initial.profileRevision === next.profileRevision &&
+    initial.policyRevision === next.policyRevision
+  )
+    return;
+  for (const policy of [initial, next]) {
+    const profile = codexNativeProfileRevision(policy);
+    if (profile !== policy.profileRevision)
+      throw new NativeExecutionPolicyChangedError(['profileRevision']);
+    if (
+      digest([profile, policy.cwd, policy.workspaceRoots, policy.permissions]) !==
+      policy.policyRevision
+    )
+      throw new NativeExecutionPolicyChangedError(['policyRevision']);
+  }
+}
+/** Hashes retain exact historical receipts. Current authority compares effective
+ * protections as well, so redundant registry entries cannot retire other chats.
+ * New, removed or relocated protections still require fresh owning admission. */
+export function assertNativeExecutionCurrent(
+  initial: CodexNativeExecutionPolicy,
+  next: CodexNativeExecutionPolicy,
+) {
+  assertComparableFingerprints(initial, next);
+  const scope = (policy: CodexNativeExecutionPolicy) => ({
+    ...profileScope(policy),
+    cwd: policy.cwd,
+    workspaceRoots: policy.workspaceRoots,
+    writableRoots: policy.writableRoots,
+    permissions: policy.permissions,
+    networkAccess: policy.networkAccess,
+    approvalPolicy: policy.approvalPolicy,
+    reviewer: policy.reviewer,
+    reviewerAvailability: policy.reviewerAvailability,
+    enforcement: policy.enforcement,
+    scopeKind: policy.scopeKind,
+    grantState: policy.grantState,
+  });
+  const before = scope(initial),
+    after = scope(next);
+  const changed = (Object.keys(before) as Array<keyof typeof before>).filter(
+    (field) => !isDeepStrictEqual(before[field], after[field]),
+  );
+  if (changed.length) throw new NativeExecutionPolicyChangedError(changed);
+}
 
 /** Shared with retained-receipt validation; absent temporaryAccess is historical. */
 export function codexNativeProfileRevision(
@@ -186,8 +267,9 @@ export function assertNativeExecutionRefresh(
   initial: CodexNativeExecutionPolicy,
   next: CodexNativeExecutionPolicy,
 ): void {
-  if (initial.profileRevision !== next.profileRevision)
-    throw Error('Native execution policy changed; reopen through its owning admission');
+  assertComparableFingerprints(initial, next);
+  if (!isDeepStrictEqual(profileScope(initial), profileScope(next)))
+    throw new NativeExecutionPolicyChangedError(['profile']);
 }
 
 export function codexNativeExecutionParams(policy: CodexNativeExecutionPolicy) {

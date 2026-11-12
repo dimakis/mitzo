@@ -90,11 +90,9 @@
 .session-timer-prompt {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
-  padding: var(--space-4);
+  padding: var(--space-2) 0;
   margin-block: var(--space-4);
-  background: var(--color-surface);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-control);
+  background: transparent;
 }
 .session-timer-metadata {
   margin-block: var(--space-4);
@@ -126,14 +124,28 @@
 }
 @media (max-width: 48rem) {
   .session-timers-dialog {
-    margin: auto 0 0;
-    width: 100%;
-    max-width: 100%;
-    max-height: calc(100dvh - var(--page-gutter));
-    border-end-start-radius: 0;
-    border-end-end-radius: 0;
+    margin: auto auto max(var(--space-3), env(safe-area-inset-bottom));
+    width: calc(100% - 2 * var(--space-3));
+    max-height: 80dvh;
   }
   .session-timers-dialog .home-dialog-content {
-    max-height: calc(100dvh - var(--page-gutter));
+    max-height: 80dvh;
   }
+}
+.session-timer-title {
+  font-size: var(--text-base);
+  line-height: 1.5;
+  font-weight: 500;
+  overflow-wrap: anywhere;
+}
+.session-timer-full-prompt summary {
+  min-height: var(--control-height);
+  cursor: pointer;
+  color: var(--color-accent);
+}
+.session-timer-list strong {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }

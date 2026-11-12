@@ -214,12 +214,14 @@ test('Access: empty ordinary composer survives Connections and return', async ({
       'base64',
     ),
   });
-  const access = page.getByRole('button', { name: 'Access', exact: true });
+  const access = page.getByRole('button', { name: 'Links & access', exact: true });
   await expect(access).toBeVisible();
   expect((await access.boundingBox())!.height).toBeGreaterThanOrEqual(44);
   await access.click();
-  const dialog = page.getByRole('dialog', { name: 'Access', exact: true });
+  const dialog = page.locator('.chat-access-dialog');
+  await expect(dialog).toHaveAccessibleName('Links & access');
   await expect(dialog.getByText(/No session has started/)).toBeVisible();
+  await dialog.locator('.session-access-details > summary').click();
   await expect(dialog.getByText('fixture-model', { exact: true })).toBeVisible();
   for (const theme of ['dark', 'light']) {
     await page.evaluate((theme) => {
@@ -233,8 +235,21 @@ test('Access: empty ordinary composer survives Connections and return', async ({
     });
     await dialog.getByRole('button', { name: 'Connections', exact: true }).click();
     await expect(dialog.getByText('Team Jira')).toBeVisible();
-    await dialog.locator('summary').focus();
-    await dialog.locator('summary').press('Enter');
+    const connection = dialog.locator('.session-access-connection');
+    const summary = connection.locator(':scope > summary');
+    if (theme === 'light') {
+      // Back preserves the expanded pane. Verify that retention, then exercise
+      // keyboard closing before opening it again for the next appearance.
+      await expect(connection).toHaveAttribute('open', '');
+      await expect(dialog.getByText('Configured Jira reads')).toBeVisible();
+      await summary.focus();
+      await summary.press('Enter');
+      await expect(dialog.getByText('Configured Jira reads')).toBeHidden();
+    }
+    await expect(connection).not.toHaveAttribute('open', '');
+    await summary.focus();
+    await summary.press('Enter');
+    await expect(connection).toHaveAttribute('open', '');
     await expect(dialog.getByText('Configured Jira reads')).toBeVisible();
     await dialog.getByText(/google: unavailable/).scrollIntoViewIfNeeded();
     await expect(dialog.getByText(/google: unavailable/)).toBeInViewport();
@@ -242,7 +257,7 @@ test('Access: empty ordinary composer survives Connections and return', async ({
       path: testInfo.outputPath(`connections-${theme}.png`),
       animations: 'disabled',
     });
-    await dialog.getByRole('button', { name: 'Back to Access' }).click();
+    await dialog.getByRole('button', { name: 'Back to Links & access' }).click();
   }
   await dialog.press('Escape');
   await expect(dialog).not.toBeVisible();
@@ -259,13 +274,15 @@ test('Access: pending request, unknown capability and stale refresh', async ({
   await page.setViewportSize({ width: isMobile ? 320 : 1280, height: 800 });
   const errors = await fixture(page, true);
   await page.goto(`/chat/${sessionId}`);
-  await page.getByRole('button', { name: 'Access', exact: true }).click();
-  const dialog = page.getByRole('dialog', { name: 'Access' });
-  await expect(dialog.getByText('Bash · request')).toBeVisible();
+  await page.getByRole('button', { name: 'Links & access', exact: true }).click();
+  const dialog = page.locator('.chat-access-dialog');
+  await dialog.locator('.session-access-details > summary').click();
   await expect(dialog.getByText(/callable tools have not been inventoried/)).toBeVisible();
+  await dialog.getByRole('button', { name: /^Permissions/ }).click();
+  await expect(dialog.getByText('Bash · request')).toBeVisible();
   await dialog.getByRole('button', { name: 'View pending approvals' }).click();
   await expect(page.locator('.perm-banner')).toBeInViewport();
-  await page.getByRole('button', { name: 'Access', exact: true }).click();
+  await page.getByRole('button', { name: 'Links & access', exact: true }).click();
   await dialog.getByRole('button', { name: 'Refresh Access' }).click();
   await expect(dialog.getByText(/Stale — refresh failed/)).toBeVisible();
   await expect(dialog.getByRole('button', { name: 'View pending approvals' })).toHaveCount(0);
@@ -281,8 +298,8 @@ test('Access: missing runtime evidence is independent of provider', async ({
   await page.setViewportSize({ width: isMobile ? 320 : 1280, height: 800 });
   const errors = await fixture(page, true, false, true);
   await page.goto(`/chat/${sessionId}`);
-  await page.getByRole('button', { name: 'Access', exact: true }).click();
-  const dialog = page.getByRole('dialog', { name: 'Access' });
+  await page.getByRole('button', { name: 'Links & access', exact: true }).click();
+  const dialog = page.locator('.chat-access-dialog');
   await expect(
     dialog.getByText(/This runtime has not supplied current session evidence/),
   ).toBeVisible();
@@ -300,7 +317,7 @@ test('Access: missing runtime evidence is independent of provider', async ({
   }
   await dialog.getByRole('button', { name: 'Close', exact: true }).click();
   await expect(dialog).not.toBeVisible();
-  await expect(page.getByRole('button', { name: 'Access', exact: true })).toBeFocused();
+  await expect(page.getByRole('button', { name: 'Links & access', exact: true })).toBeFocused();
   expect(errors).toEqual([]);
 });
 
@@ -321,6 +338,7 @@ test('Access: selected sessions, expiry, revocation and human-review availabilit
       mode: 'agent',
       revision: '1'.repeat(64),
       development: true,
+      repository: 'fixture-repository',
     },
     {
       sessionId: 'second',
@@ -330,6 +348,7 @@ test('Access: selected sessions, expiry, revocation and human-review availabilit
       mode: 'agent',
       revision: '2'.repeat(64),
       development: true,
+      repository: 'fixture-repository',
     },
   ];
   await page.route(`**/api/sessions/${sessionId}/access-grants**`, async (route) => {
@@ -350,6 +369,7 @@ test('Access: selected sessions, expiry, revocation and human-review availabilit
           capability: body.capability,
           sessionIds: body.sessionIds,
           expiresAt: Date.now() + 15 * 60000,
+          scope: body.scope,
         },
       ];
       return route.fulfill({ status: 201, json: grants[0] });
@@ -375,10 +395,11 @@ test('Access: selected sessions, expiry, revocation and human-review availabilit
   await page.goto(`/chat/${sessionId}`);
   const composer = page.getByRole('textbox', { name: 'Message Mitzo' });
   await composer.fill('Preserve this unsent draft');
-  const access = page.getByRole('button', { name: 'Access', exact: true });
+  const access = page.getByRole('button', { name: 'Links & access', exact: true });
   await access.click();
-  const dialog = page.getByRole('dialog', { name: 'Access', exact: true });
+  const dialog = page.locator('.chat-access-dialog');
   const manage = dialog.getByRole('button', { name: 'Manage reusable access' });
+  await dialog.getByRole('button', { name: /^Permissions/ }).click();
   await manage.scrollIntoViewIfNeeded();
   await manage.click();
   await expect(dialog.getByText(/Human review handles remaining requests/)).toBeVisible();
@@ -427,11 +448,49 @@ test('Access: selected sessions, expiry, revocation and human-review availabilit
     });
     await revoke.click();
     await expect(dialog.getByText('No active reusable grants.')).toBeVisible();
+    for (const kind of ['development', 'google-read', 'telos-progress']) {
+      await dialog.getByLabel('Access type').selectOption(kind);
+      if (kind === 'google-read') {
+        await dialog.getByLabel('Google account email').fill('fixture@example.test');
+        await dialog.getByLabel('Resource ID').fill('fixture-document');
+      }
+      if (kind === 'telos-progress') await dialog.getByLabel('Telos item ID').fill('fixture-item');
+      await dialog
+        .getByLabel('Reuse in')
+        .selectOption(kind === 'development' ? 'repository' : 'operator');
+      await second.check();
+      await create.click();
+      const scopedRevoke = dialog.getByRole('button', {
+        name: /^Revoke (Development|Google Workspace|Telos progress)/,
+      });
+      await expect(scopedRevoke).toBeVisible();
+      await expect(
+        dialog
+          .locator('.reusable-access-grant')
+          .getByText(
+            kind === 'development'
+              ? 'This repository and AI account, including future chats'
+              : 'This login and AI account, including future chats',
+            { exact: true },
+          ),
+      ).toHaveCount(1);
+      await scopedRevoke.scrollIntoViewIfNeeded();
+      expect((await scopedRevoke.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+      expect(
+        await dialog.evaluate((element) => element.scrollWidth <= element.clientWidth + 1),
+      ).toBe(true);
+      await page.screenshot({
+        path: testInfo.outputPath(`reusable-access-${kind}-${theme}.png`),
+        animations: 'disabled',
+      });
+      await scopedRevoke.click();
+      await expect(dialog.getByText('No active reusable grants.')).toBeVisible();
+    }
   }
   await dialog.press('Escape');
   await expect(access).toBeFocused();
   await expect(composer).toHaveValue('Preserve this unsent draft');
-  expect(writes).toHaveLength(2);
+  expect(writes).toHaveLength(8);
   expect(errors).toEqual([]);
 });
 

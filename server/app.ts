@@ -1,3 +1,6 @@
+import { SessionRuntimeError, findSessionRuntimeError } from './session-runtime-error.js';
+import { agentMessageRuntime } from './agent-message-runtime.js';
+import { reportRetainedRuntimeFailure } from './retained-runtime-failure.js';
 import { reconcilableLocalCodexCommand } from './retained-local-codex-effects.js';
 import { sessionMetadataDiagnostic } from './session-metadata-error.js';
 import { createQueuedMessageReceiptHandler } from './queued-message-receipt.js';
@@ -42,7 +45,11 @@ import { loadMcpServers } from './mcp-config.js';
 
 import { createWarmPoolRouter, type SandboxConversation } from './openshell-warm-pool-router.js';
 import { getOpenShellWarmPool } from './openshell-warm-pool-binding.js';
-import { sessionListMetadata, sessionModelIdentity } from './session-list-metadata.js';
+import {
+  readSessionModelSelection,
+  sessionListMetadata,
+  sessionModelIdentity,
+} from './session-list-metadata.js';
 import { sessionSearchTerms } from '@mitzo/protocol';
 import { readCompactionHistory } from './compaction-history.js';
 import {
@@ -150,8 +157,6 @@ import { OPEN_SHELL_ARTIFACT_HELPER } from './openshell-artifact-reader.js';
 import { createTelosArtifactRouter, telosArtifactSaveJson } from './telos-artifact-routes.js';
 import { createTelosItemRouter } from './telos-item-routes.js';
 import { createTelosWorkRouter, type TelosWorkRoleRequest } from './telos-work-routes.js';
-import { projectCanonicalTelosLifecycleList } from './telos-lifecycle-list.js';
-import { TelosWorkLifecycleListSchema } from '@mitzo/protocol';
 import { createTelosWorkRoleHost } from './telos-work-role-host.js';
 import { createTelosWorkDelegationHost } from './telos-work-delegation-host.js';
 import type { TelosWorkDelegationScope } from './telos-work-delegation.js';
@@ -168,6 +173,9 @@ import { loadOrdinaryOpenShellCodexTarget } from './ordinary-openshell-codex-ent
 import { isDeepStrictEqual } from 'node:util';
 import { createTelosSourceRouter } from './telos-source-routes.js';
 import { createCanonicalTelosOutcome } from './telos-outcome-owner.js';
+import { telosDatabasePath as resolveTelosDatabasePath } from './telos-database.js';
+import { createTelosCrudRouter } from './telos-crud-routes.js';
+import { createTelosImportRouter } from './telos-runtime-routes.js';
 import {
   isAvailableTelosWorkConversation,
   isAvailableTelosSourceConversation,
@@ -241,6 +249,8 @@ import { createOutputContributors } from './output-contributors.js';
 import { createOutputContributorRouter } from './output-contributor-routes.js';
 import { createSessionCollaborationRouter } from './session-collaboration-router.js';
 import { CollaborationApplicationReview } from './collaboration-application-review.js';
+import { CollaborationApplicationForwarding } from './collaboration-application-forwarding.js';
+import { createCollaborationRetainedArtifactPort } from './collaboration-retained-artifact-port.js';
 import { createApplicationCollaborationJoining } from './collaboration-application-joining.js';
 import { readAgentLibraryProfile } from './agent-library-transport.js';
 import { createSymposiumProfileRouter } from './symposium-profile-routes.js';
@@ -370,6 +380,7 @@ import {
 import { createGitInfoDiscovery, createGitInfoHandler } from './git-discovery.js';
 import { isValidInternalToken } from './internal-token.js';
 import { createConnectionsRouter, recentAppReauthorizationHandlers } from './connections-router.js';
+import { createClaudeAccountRouter } from './claude-account-router.js';
 import { createConnectionsAccessRouter } from './connections-access-router.js';
 import {
   personalInventorySource,
@@ -394,6 +405,7 @@ import {
 import { createTelosSourcePermissionRecovery } from './telos-source-recovery.js';
 import { createSessionAccessRouter, projectSessionAccess } from './session-access.js';
 import { SessionCapabilityGrants } from './session-capability-grants.js';
+import { repositoryCapabilityIdentity } from './repository-capability-identity.js';
 import { createSessionCapabilityRouter } from './session-capability-router.js';
 import { createLogger } from './logger.js';
 import {
@@ -409,11 +421,6 @@ import {
   FileWriteBody,
   PermissionDecision,
   CalendarResponse,
-  TodoListResponse,
-  TodoCreateBody,
-  TodoOutcomeCreateBody,
-  TodoActionBody,
-  TodoActionResponse,
   TaskCreateBody,
   TaskUpdateBody,
   LoopStartBody,
@@ -550,6 +557,12 @@ mountObservedRouter(app, '/api/yapper', yapperHttpProxy);
 mountObservedRouter(app, '/api/yapper-ws', yapperWsProxy.http);
 
 app.use(cookieParser());
+mountObservedRouter(
+  app,
+  '/api/claude-accounts',
+  operatorAuthMiddleware,
+  createClaudeAccountRouter(),
+);
 
 // This protected route is deliberately ahead of the global 10MB JSON parser.
 // Its local parsers cap sensitive connection inputs at a few KiB. Runtime setup
@@ -762,6 +775,12 @@ mountObservedRouter(
 // Preserve ordinary authentication responses, then require an operator before large bodies.
 installChatCommandJson(app, authMiddleware, operatorAuthMiddleware);
 app.use(express.json({ limit: '10mb' }));
+app.use(
+  createTelosImportRouter({
+    dbPath: () => telosDatabasePath(),
+    token: () => process.env.MITZO_TELOS_IMPORT_TOKEN,
+  }),
+);
 
 const getKnowledgeLibraryRuntime = createKnowledgeLibraryLoader(() =>
   knowledgeLibraryFromEnvironment(process.env, {
@@ -2194,8 +2213,8 @@ app.post('/api/internal/task-tools/artifact', (req, res) => {
   });
 });
 
-const telosDatabasePath = () =>
-  resolve(process.env.TELOS_DB_PATH || join(BASE_REPO, 'command_center', 'data', 'smart_todo.db'));
+// Server bootstrap validates and initializes private storage once in index.ts.
+const telosDatabasePath = () => resolveTelosDatabasePath(BASE_REPO);
 const lifecycleCanonicalSelection = telosDatabasePath();
 let lifecycleSelectionInvalidated = false;
 function assertInstalledTelosDeletionOwners() {
@@ -2624,20 +2643,7 @@ app.use(
     ordinaryConversation: (id) => isAvailableTelosWorkConversation(eventStore.getSession(id)),
     sourceConversation: (id) => isAvailableTelosSourceConversation(eventStore.getSession(id)),
     createOutcome: (input, assertCurrentSync) =>
-      createCanonicalTelosOutcome(
-        {
-          script: TODO_SCRIPT,
-          timeoutMs: TODO_TIMEOUT_MS,
-          maxBufferBytes: TODO_MAX_BUFFER_BYTES,
-          execute: (command, args, options) =>
-            execFileAsync(command, args, {
-              ...options,
-              env: { ...process.env, TELOS_DB_PATH: telosDatabasePath() },
-            }),
-        },
-        input,
-        assertCurrentSync,
-      ),
+      createCanonicalTelosOutcome({ dbPath: telosDatabasePath }, input, assertCurrentSync),
   }),
 );
 configureTelosSourcePermissionRecovery(createTelosSourcePermissionRecovery(telosDatabasePath));
@@ -3435,8 +3441,10 @@ app.get('/api/sessions/search', async (req, res) => {
       )
     ).map((result) => ({
       ...result,
-      ...sessionModelIdentity(eventStore.getSession(result.sessionId) ?? {}, (id, fallback) =>
-        accountAliases.label(id, fallback),
+      ...sessionModelIdentity(
+        eventStore.getSession(result.sessionId) ?? {},
+        (id, fallback) => accountAliases.label(id, fallback),
+        readSessionModelSelection(eventStore, result.sessionId),
       ),
     }));
     res.json({ results });
@@ -3483,6 +3491,7 @@ app.get('/api/sessions', async (req, res) => {
           meta ?? {},
           eventStore.getLatestEvent(s.id, 'token_update'),
           (id, fallback) => accountAliases.label(id, fallback),
+          readSessionModelSelection(eventStore, s.id),
         ),
         numTurns: meta?.numTurns,
         closedBy: meta?.closedBy ?? undefined,
@@ -3540,15 +3549,21 @@ app.get(
   }),
 );
 
+const collaborationForwarding = new CollaborationApplicationForwarding(
+  eventStore,
+  createCollaborationRetainedArtifactPort(telosDatabasePath),
+);
 const collaborationMessaging = new ApplicationCollaborationMessaging(
   eventStore,
   createSessionPromptPort({
     eventStore,
+    ordinaryCommands: getCodexConversationStore,
     sessionRegistry: registry,
     connRegistry: {
       broadcast: (sessionId, event) => getConnectionRegistry()?.broadcast(sessionId, event),
     },
   }),
+  collaborationForwarding,
 );
 
 mountObservedRouter(
@@ -3558,6 +3573,7 @@ mountObservedRouter(
   createSessionCollaborationRouter({
     store: eventStore,
     messaging: collaborationMessaging,
+    forwarding: collaborationForwarding,
     joining: (auth) =>
       createApplicationCollaborationJoining(
         {
@@ -3699,7 +3715,7 @@ mountObservedRouter(
   }),
 );
 
-const sessionCapabilityGrants = new SessionCapabilityGrants(registry);
+const sessionCapabilityGrants = new SessionCapabilityGrants(registry, repositoryCapabilityIdentity);
 mountObservedRouter(
   app,
   '/api/sessions/:id/access-grants',
@@ -4129,7 +4145,8 @@ async function reattachCodexQueue(
   return runtime ? 'ready' : codexReattachments.has(id) ? 'reattaching' : 'unavailable';
 }
 
-function assertQueueOperator(id: string, authorization?: import('./auth.js').AuthSession) {
+export function assertQueueOperator(id: string, authorization?: import('./auth.js').AuthSession) {
+  eventStore.deployment.maintenance.assertControl(id);
   assertOwnedCodexQueueControl(
     {
       runtimeBinding: (sessionId) => eventStore.getSessionRuntimeBinding(sessionId),
@@ -4213,12 +4230,39 @@ mountObservedRouter(
         assertQueueOperator(id, authorization);
         assertOrdinaryContributorControlAllowed(eventStore, id, 'interrupt');
         if (
-          eventStore.getSessionRuntimeBinding(id)?.harness.implementation !== 'codex' ||
+          !['codex', 'claude-sdk'].includes(
+            eventStore.getSessionRuntimeBinding(id)?.harness.implementation ?? '',
+          ) ||
           eventStore.getSession(id)?.symposiumConfig
         )
           throw Error('Native ordinary turn required');
       };
       authorize();
+      const binding = eventStore.getSessionRuntimeBinding(id);
+      if (binding?.harness.implementation === 'claude-sdk') {
+        if (binding.version !== 2 || binding.execution.location !== 'local' || !authorization)
+          throw Error('Admitted local SDK owner required');
+        const previous = eventStore.userSteering.read(id, authorization.id, input);
+        if (previous)
+          return {
+            status:
+              previous.status === 'accepted' || previous.status === 'rejected'
+                ? previous.status
+                : 'uncertain',
+          };
+        const session = registry.findBySessionId(id)?.session;
+        if (!session) return { status: 'stale_target' };
+        const runtime = agentMessageRuntime(session, authorization.id);
+        if (!runtime?.steerUser) return { status: 'stale_target' };
+        return runtime.steerUser(input, () => {
+          authorize();
+          if (
+            registry.findBySessionId(id)?.session !== session ||
+            agentMessageRuntime(session, authorization.id) !== runtime
+          )
+            throw Error('Original SDK runtime unavailable');
+        });
+      }
       const previous = getCodexConversationStore().steeringReceipt(id, _binding, input);
       if (previous)
         return { status: previous.status === 'claimed' ? 'uncertain' : previous.status };
@@ -4337,35 +4381,35 @@ app.post('/api/sessions/:id/codex-queue/continue', async (req, res) => {
       .json({ error: 'Use the original sign-in to manage this conversation’s queue.' });
     return;
   }
-  if (
-    ['responses', 'gemini'].includes(
-      eventStore.getSessionRuntimeBinding(sessionId)?.harness.implementation ?? '',
-    )
-  ) {
+  const rejectRecovery = (error: unknown) => {
+    // Retention and delivery are authority boundaries too: a revoked operator
+    // cannot append a diagnostic or receive session-specific recovery details.
     try {
-      await continueOwnedLocalResponsesQueue(
-        sessionId,
-        res.locals.authSession,
-        typeof req.headers['x-connection-id'] === 'string'
-          ? req.headers['x-connection-id']
-          : undefined,
-      );
-      res.json({ ok: true });
+      assertQueueOperator(sessionId, res.locals.authSession);
     } catch {
-      res.status(409).json({
-        error:
-          'Saved work could not reconnect. Check the original sign-in, account, settings and prior outcome before trying again.',
-      });
+      res
+        .status(403)
+        .json({ error: 'Use the original sign-in to manage this conversation’s queue.' });
+      return;
     }
-    return;
-  }
+    const failure =
+      findSessionRuntimeError(error) ??
+      new SessionRuntimeError('recovery_unavailable', { cause: error });
+    reportRetainedRuntimeFailure({ store: eventStore, sessionId, error: failure });
+    res.status(409).json({ error: failure.publicMessage(), runtimeFailure: failure.telemetry() });
+  };
   const runtimeBinding = eventStore.getSessionRuntimeBinding(sessionId);
-  if (
-    runtimeBinding?.harness.implementation === 'codex' &&
-    runtimeBinding.execution.location === 'local'
-  ) {
+  const localContinue = ['responses', 'gemini'].includes(
+    runtimeBinding?.harness.implementation ?? '',
+  )
+    ? continueOwnedLocalResponsesQueue
+    : runtimeBinding?.harness.implementation === 'codex' &&
+        runtimeBinding.execution.location === 'local'
+      ? continueOwnedLocalCodexQueue
+      : undefined;
+  if (localContinue) {
     try {
-      await continueOwnedLocalCodexQueue(
+      await localContinue(
         sessionId,
         res.locals.authSession,
         typeof req.headers['x-connection-id'] === 'string'
@@ -4373,11 +4417,8 @@ app.post('/api/sessions/:id/codex-queue/continue', async (req, res) => {
           : undefined,
       );
       res.json({ ok: true });
-    } catch {
-      res.status(409).json({
-        error:
-          'Saved work could not reconnect. Check the original sign-in, account, settings and prior outcome before trying again.',
-      });
+    } catch (error) {
+      rejectRecovery(error);
     }
     return;
   }
@@ -4407,10 +4448,8 @@ app.post('/api/sessions/:id/codex-queue/continue', async (req, res) => {
     assertQueueOperator(sessionId, res.locals.authSession);
     await runtime.acknowledgeRecovery();
     res.json({ ok: true });
-  } catch {
-    res
-      .status(409)
-      .json({ error: 'Cannot continue this queue. Check account configuration and connection.' });
+  } catch (error) {
+    rejectRecovery(error);
   }
 });
 
@@ -5604,192 +5643,18 @@ app.get('/api/calendar', async (req, res) => {
   }
 });
 
-// --- Todo API ---
-
-const TODO_SCRIPT = join(BASE_REPO, 'command_center', 'todo_api.py');
-const TODO_TIMEOUT_MS = 30_000;
-// The todo list includes source context and can exceed Node's 1 MiB execFile default.
-// Keep the subprocess bounded while leaving headroom above the current production payload.
-const TODO_MAX_BUFFER_BYTES = 8 * 1024 * 1024;
-
-app.get(
-  '/api/todos',
-  (req, res, next) => {
-    const view = TelosWorkLifecycleListSchema.safeParse(req.query.view ?? 'active');
-    if (!view.success)
-      return res.status(400).json({ code: 'invalid', error: 'Invalid lifecycle view' });
-    return view.data === 'active' ? next() : operatorAuthMiddleware(req, res, next);
-  },
-  async (req, res) => {
-    if (req.query.refresh === 'true') {
-      res.status(400).json({
-        code: 'source_refresh_not_supported',
-        error: 'This endpoint only reloads saved Telos items.',
-      });
-      return;
-    }
-    const profile = req.query.profile as string | undefined;
-    const databasePath = telosDatabasePath();
-    const view = TelosWorkLifecycleListSchema.parse(req.query.view ?? 'active');
-
-    if (!existsSync(TODO_SCRIPT)) {
-      log.warn('todo script not found', { path: TODO_SCRIPT });
-      res.status(503).json({ error: 'Todo service unavailable' });
-      return;
-    }
-
-    try {
-      const args = [TODO_SCRIPT, '--list'];
-      if (profile) args.push('--profile', profile);
-
-      const { stdout } = await execFileAsync('python3', args, {
-        timeout: TODO_TIMEOUT_MS,
-        maxBuffer: TODO_MAX_BUFFER_BYTES,
-        env: { ...process.env, TELOS_DB_PATH: databasePath },
-      });
-      const parsed = TodoListResponse.safeParse(JSON.parse(stdout));
-      if (!parsed.success) {
-        log.warn('todo API returned unexpected shape', { error: parsed.error.message });
-        res.status(502).json({ error: 'Todo service unavailable' });
-        return;
-      }
-      res.json(
-        projectCanonicalTelosLifecycleList({
-          canonical: parsed.data,
-          databasePath,
-          view,
-          operator: res.locals.authSession as AuthSession | undefined,
-          policy: {
-            ordinaryConversation: (id) =>
-              isAvailableTelosWorkConversation(eventStore.getSession(id)),
-            sourceConversation: (id) =>
-              isAvailableTelosSourceConversation(eventStore.getSession(id)),
-          },
-        }),
-      );
-    } catch (err: unknown) {
-      if (err instanceof TelosWorkError) {
-        const status = { invalid: 400, unauthorized: 403, conflict: 409, not_found: 404 }[err.code];
-        res.status(status).json({ code: err.code, error: err.message });
-        return;
-      }
-      const message = err instanceof Error ? err.message : 'Unknown error';
-      log.warn('todo API failed', { error: message });
-      res.status(502).json({ error: 'Todo service unavailable' });
-    }
-  },
+// --- Telos API (one native owner and snapshot per request) ---
+app.use(
+  createTelosCrudRouter({
+    databasePath: telosDatabasePath,
+    operatorAuth: operatorAuthMiddleware,
+    assertCurrent: (_req, res) => {
+      const operator = res.locals.authSession as AuthSession | undefined;
+      if (!operator || !isAuthSessionCurrent(operator))
+        throw new TelosWorkError('unauthorized', 'Current interactive operator required');
+    },
+  }),
 );
-
-app.post('/api/todos', async (req, res) => {
-  const body = TodoCreateBody.safeParse(req.body);
-  if (!body.success) {
-    res.status(400).json({ ok: false, error: body.error.issues[0]?.message ?? 'Invalid input' });
-    return;
-  }
-  const { summary, profile, parentId } = body.data;
-
-  if (!existsSync(TODO_SCRIPT)) {
-    res.status(500).json({ ok: false, error: 'Todo script not found' });
-    return;
-  }
-
-  try {
-    const args = [TODO_SCRIPT, '--create', summary, '--profile', profile];
-    if (parentId) {
-      args.push('--parent', parentId);
-    }
-
-    const { stdout } = await execFileAsync('python3', args, {
-      timeout: TODO_TIMEOUT_MS,
-      maxBuffer: TODO_MAX_BUFFER_BYTES,
-    });
-    const parsed = JSON.parse(stdout);
-    if (!parsed.ok) {
-      res.status(400).json(parsed);
-      return;
-    }
-    res.status(201).json(parsed);
-  } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : 'Unknown error';
-    log.warn('todo create failed', { error: message });
-    res.status(500).json({ ok: false, error: message });
-  }
-});
-
-app.post('/api/todos/outcomes', async (req, res) => {
-  const body = TodoOutcomeCreateBody.safeParse(req.body);
-  if (!body.success) {
-    res.status(400).json({ ok: false, error: body.error.issues[0]?.message ?? 'Invalid input' });
-    return;
-  }
-
-  if (!existsSync(TODO_SCRIPT)) {
-    res.status(500).json({ ok: false, error: 'Todo script not found' });
-    return;
-  }
-
-  try {
-    const { stdout } = await execFileAsync(
-      'python3',
-      [TODO_SCRIPT, '--create-outcome-json', JSON.stringify(body.data)],
-      { timeout: TODO_TIMEOUT_MS, maxBuffer: TODO_MAX_BUFFER_BYTES },
-    );
-    const parsed = JSON.parse(stdout);
-    if (!parsed.ok) {
-      res.status(400).json(parsed);
-      return;
-    }
-    res.status(parsed.created ? 201 : 200).json(parsed);
-  } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : 'Unknown error';
-    log.warn('todo outcome create failed', { error: message });
-    res.status(500).json({ ok: false, error: message });
-  }
-});
-
-app.post('/api/todos/:id/action', async (req, res) => {
-  const { id } = req.params;
-
-  const body = TodoActionBody.safeParse(req.body);
-  if (!body.success) {
-    res.status(400).json({ ok: false, error: 'Invalid action body' });
-    return;
-  }
-
-  if (!existsSync(TODO_SCRIPT)) {
-    res.status(500).json({ ok: false, error: 'Todo script not found' });
-    return;
-  }
-
-  try {
-    const args = [TODO_SCRIPT, '--action', body.data.action, id];
-    if (body.data.action === 'snooze' && body.data.days) {
-      args.push(String(body.data.days));
-    }
-    if (body.data.action === 'priority' && body.data.priority !== undefined) {
-      args.push(String(body.data.priority));
-    }
-
-    const { stdout } = await execFileAsync('python3', args, {
-      timeout: TODO_TIMEOUT_MS,
-      maxBuffer: TODO_MAX_BUFFER_BYTES,
-    });
-    const parsed = TodoActionResponse.safeParse(JSON.parse(stdout));
-    if (!parsed.success) {
-      res.status(500).json({ ok: false, error: 'Unexpected response' });
-      return;
-    }
-    if (!parsed.data.ok) {
-      res.status(404).json(parsed.data);
-      return;
-    }
-    res.json(parsed.data);
-  } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : 'Unknown error';
-    log.warn('todo action failed', { error: message });
-    res.status(500).json({ ok: false, error: message });
-  }
-});
 
 // --- Workload API ---
 

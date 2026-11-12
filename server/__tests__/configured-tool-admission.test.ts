@@ -9,6 +9,7 @@ import { EventStore } from '../event-store.js';
 import { NativeResponsesStore } from '../native-responses-store.js';
 import { ConfiguredToolCatalog } from '../configured-tool-catalog.js';
 import { AsyncQueue } from '../async-queue.js';
+import { codexToolFailureResult } from '../codex-tool-failure.js';
 const capture = vi.hoisted(() => ({
   options: undefined as
     | {
@@ -59,8 +60,9 @@ vi.mock('../codex-conversation.js', () => ({
             });
             return { content: result.content, is_error: result.isError };
           } catch (error) {
+            const failure = codexToolFailureResult(error, signal.aborted);
             return {
-              content: error instanceof Error ? error.message : String(error),
+              content: failure.content,
               is_error: true,
             };
           }
@@ -228,6 +230,7 @@ it.each(['codex', 'google-vertex'] as const)(
       );
       expect(options.connect).toHaveBeenCalledTimes(discoveries);
       let runtime = await open(false);
+      expect(options.connect).toHaveBeenCalledTimes(discoveries);
       expect(runtime.tools).toHaveLength(2);
       expect(runtime.tools.some((tool: { name: string }) => tool.name === 'AskUserQuestion')).toBe(
         true,
@@ -322,12 +325,29 @@ it.each(['codex', 'google-vertex'] as const)(
       ]);
       expect(events.getSession('selected')!.agentProfile).toEqual(published);
       revoked = true;
-      expect(
-        await runtime.executeTool({ id: 'revoked', name: wire, input: {} }, options.signal),
-      ).toMatchObject({ is_error: true, content: 'Source authority revoked' });
+      const refused = await runtime.executeTool(
+        { id: 'revoked', name: wire, input: {} },
+        options.signal,
+      );
+      expect(refused).toMatchObject({ is_error: true });
+      expect(JSON.parse(refused.content)).toMatchObject({
+        error: 'internal_failure',
+        diagnosticId: expect.any(String),
+        diagnostic: { effectStatus: 'unknown' },
+        failure: { recovery: 'inspect_operation' },
+      });
+      expect(refused.content).not.toContain('Source authority revoked');
       expect(peers['fake-one']).toHaveBeenCalledOnce();
       revoked = false;
       schema = { type: 'object', properties: { changed: { type: 'string' } } };
+      // A cold chat exposes the pinned contract; first invocation must verify
+      // the live schema and deliver a visible error through the real adapter.
+      const changed = await runtime.executeTool(
+        { id: 'live-schema-changed', name: wire, input: {} },
+        options.signal,
+      );
+      expect(changed).toMatchObject({ is_error: true });
+      expect(peers['fake-one']).toHaveBeenCalledOnce();
       await catalog.refresh(options);
       await expect(open(true)).rejects.toThrow(/changed|unavailable/);
       expect(

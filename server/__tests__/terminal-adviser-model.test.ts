@@ -43,6 +43,13 @@ it('refuses invalid thinking before allocating a harness and never changes route
   await expect(createTerminalAdviserSession(config, request, owner)).rejects.toThrow();
   expect(mocks.native).not.toHaveBeenCalled();
 });
+it('rejects a forged personal Claude adviser selection before allocating a harness', async () => {
+  mocks.binding.provider = 'anthropic-claude';
+  await expect(createTerminalAdviserSession(config, request, owner)).rejects.toThrow(
+    'Personal Claude adviser',
+  );
+  expect(mocks.native).not.toHaveBeenCalled();
+});
 it('requires authenticated feature scope and explains separate plan-registration migration without credential access', async () => {
   await expect(createTerminalAdviserSession(config, request)).rejects.toThrow('feature');
   await expect(

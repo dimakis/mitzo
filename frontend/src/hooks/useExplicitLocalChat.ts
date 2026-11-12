@@ -147,11 +147,19 @@ export function useExplicitLocalChat(
   }, [saved, sessionId, draftId, seed, inventory]);
   const [enrollment, setEnrollment] = useState<'loading' | 'off' | 'on' | 'unknown'>('loading');
   const [attempt, setAttempt] = useState(0);
+  const modelRefresh = useRef<{
+    accountId: string;
+    attempt: number;
+    draftId: string;
+    sessionId: string | null;
+  } | null>(null);
   const metadataReadStarted = useRef(false);
   const [error, setError] = useState('');
-  const [metaFailure, setMetaFailure] = useState<{ sessionId: string; message: string } | null>(
-    null,
-  );
+  const [metaFailure, setMetaFailure] = useState<{
+    sessionId: string;
+    message: string;
+    cause: unknown;
+  } | null>(null);
   const [metadataLoadingForSession, setMetadataLoadingForSession] = useState<string | null>(null);
   const [meta, setMeta] = useState<{
     sessionId: string;
@@ -171,6 +179,13 @@ export function useExplicitLocalChat(
     agentContext?: AgentContextSnapshot;
     nativeConstraint?: NativeContinuationConstraint;
   } | null>(null);
+  const currentMeta =
+    meta?.sessionId === sessionId && meta.workspaceRevision === workspaceRevision ? meta : null;
+  const modelReference = sessionId ? currentMeta?.binding?.account : intent.accountReference;
+  const modelAccountRef = useRef(modelReference?.accountId);
+  modelAccountRef.current = modelReference?.accountId;
+  const claudeModelAccount =
+    modelReference?.provider === 'anthropic-claude' ? modelReference.accountId : null;
   const scope = useRef({ draftId, sessionId });
   scope.current = { draftId, sessionId };
   useEffect(() => {
@@ -191,9 +206,26 @@ export function useExplicitLocalChat(
     setError('');
     void Promise.resolve()
       .then(async () => {
+        controller.signal.throwIfAborted();
+        const requestedRefresh = modelRefresh.current;
+        // Retire dispatched or abandoned actions without aborting this request.
+        if (requestedRefresh && requestedRefresh.attempt <= attempt) modelRefresh.current = null;
+        const forcedAccount =
+          requestedRefresh?.attempt === attempt &&
+          requestedRefresh.draftId === draftId &&
+          requestedRefresh.sessionId === sessionId &&
+          requestedRefresh.accountId ===
+            (sessionId ? modelAccountRef.current : latestIntent.current.account?.accountId)
+            ? requestedRefresh.accountId
+            : null;
         const capabilityUrl =
           '/api/chat/runtime/capabilities?workspaceDefaults=1' +
-          (sessionId ? `&sessionId=${encodeURIComponent(sessionId)}` : '');
+          (sessionId ? `&sessionId=${encodeURIComponent(sessionId)}` : '') +
+          (forcedAccount
+            ? `&modelAccount=${encodeURIComponent(forcedAccount)}&refreshModels=1`
+            : claudeModelAccount
+              ? `&modelAccount=${encodeURIComponent(claudeModelAccount)}`
+              : '');
         const response = await apiFetch(capabilityUrl, {
           signal: controller.signal,
         });
@@ -245,15 +277,22 @@ export function useExplicitLocalChat(
           latestRetained.current?.update(resolved, 'hydrate');
         }
       })
-      .catch(() => {
-        if (!controller.signal.aborted) fail();
+      .catch((cause: unknown) => {
+        if (!controller.signal.aborted) {
+          console.warn('[mitzo] Runtime model inventory unavailable', {
+            code: 'runtime_model_inventory_unavailable',
+            stage: 'capability_read',
+            errorType: cause instanceof Error ? cause.name : 'unknown',
+          });
+          fail();
+        }
       })
       .finally(() => clearTimeout(timeout));
     return () => {
       clearTimeout(timeout);
       controller.abort();
     };
-  }, [draftId, enabled, sessionId, attempt]);
+  }, [draftId, enabled, sessionId, attempt, claudeModelAccount]);
   useEffect(() => {
     if (!sessionId) return;
     const shareMount = !metadataReadStarted.current;
@@ -261,17 +300,24 @@ export function useExplicitLocalChat(
     setMetaFailure(null);
     setMetadataLoadingForSession(sessionId);
     const controller = new AbortController();
-    const fail = () => {
+    const fail = (cause: unknown) => {
       setMetaFailure({
         sessionId,
         message: 'Conversation settings are unavailable. Retry to continue.',
+        cause,
       });
       setMetadataLoadingForSession(null);
+      console.warn('[mitzo] Conversation settings unavailable', {
+        code: 'runtime_session_metadata_unavailable',
+        stage: 'metadata',
+        sessionId,
+        cause: cause instanceof Error ? cause.name : 'UnknownError',
+      });
     };
     // Cover both response headers and the body. Abort alone may never settle a
     // suspended WebView fetch; publish the existing retry state at the deadline.
     const timeout = setTimeout(() => {
-      fail();
+      fail(new DOMException('Conversation settings read timed out', 'TimeoutError'));
       controller.abort();
     }, RUNTIME_READ_TIMEOUT_MS);
     void Promise.resolve()
@@ -389,8 +435,8 @@ export function useExplicitLocalChat(
         });
         setMetadataLoadingForSession(null);
       })
-      .catch(() => {
-        if (!controller.signal.aborted && scope.current.sessionId === sessionId) fail();
+      .catch((cause: unknown) => {
+        if (!controller.signal.aborted && scope.current.sessionId === sessionId) fail(cause);
       })
       .finally(() => clearTimeout(timeout));
     return () => {
@@ -398,8 +444,6 @@ export function useExplicitLocalChat(
       controller.abort();
     };
   }, [sessionId, attempt, workspaceRevision]);
-  const currentMeta =
-    meta?.sessionId === sessionId && meta.workspaceRevision === workspaceRevision ? meta : null;
   const metadataError = metaFailure?.sessionId === sessionId ? metaFailure.message : undefined;
   const metadataUnavailable = !!sessionId && !!metadataError;
   const metadataPending =
@@ -416,6 +460,12 @@ export function useExplicitLocalChat(
   const [future, setFuture] = useState<{ sessionId: string; intent: ChatRuntimeSelection } | null>(
     null,
   );
+  const retainedFuture =
+    currentMeta?.intent &&
+    retained?.selection &&
+    replaceChatRuntimeSelection(currentMeta.intent, retained.selection, currentMeta.intent).accepted
+      ? retained.selection
+      : null;
   useEffect(() => {
     if (!sessionId || !currentMeta?.intent || !inventory || metadataPending) return;
     setFuture((previous) =>
@@ -428,10 +478,13 @@ export function useExplicitLocalChat(
             }
         : {
             sessionId,
-            intent: { ...currentMeta.intent!, capabilityRevision: inventory.capabilityRevision },
+            intent: {
+              ...(retainedFuture ?? currentMeta.intent!),
+              capabilityRevision: inventory.capabilityRevision,
+            },
           },
     );
-  }, [sessionId, currentMeta, inventory, metadataPending]);
+  }, [sessionId, currentMeta, inventory, metadataPending, retainedFuture]);
   const selectedIntent =
     future?.sessionId === sessionId
       ? future.intent
@@ -563,8 +616,10 @@ export function useExplicitLocalChat(
         continuation &&
         currentMeta?.intent &&
         replaceChatRuntimeSelection(selectedIntent, reviewed, currentMeta.intent).accepted
-      )
+      ) {
         setFuture({ sessionId, intent: reviewed });
+        retained?.update(reviewed);
+      }
       return;
     }
     setChoice({ draftId, intent: reviewed });
@@ -596,6 +651,11 @@ export function useExplicitLocalChat(
     modelSettingsReadOnlyReason: currentMeta?.modelSettingsReadOnlyReason,
     metadataPending,
     refresh,
+    refreshModels: () => {
+      const accountId = selectedIntent.account?.accountId;
+      if (accountId) modelRefresh.current = { accountId, attempt: attempt + 1, draftId, sessionId };
+      refresh();
+    },
     update,
     review: () => {
       update({

@@ -15,6 +15,17 @@ import {
   CollaborationBeginSchema,
   CollaborationMessageInputSchema,
   CollaborationMessageSchema,
+  CollaborationRecipientReadinessSchema,
+  CollaborationStopResultSchema,
+  CollaborationProgressSchema,
+  CollaborationPromptReviewRequestSchema,
+  CollaborationPromptReviewResultSchema,
+  CollaborationSourceArtifactsSchema,
+  CollaborationForwardPrepareRequestSchema,
+  CollaborationForwardConfirmRequestSchema,
+  CollaborationForwardReadQuerySchema,
+  CollaborationForwardReadSchema,
+  CollaborationForwardConfirmationSchema,
   CollaborationSourceSetupQuerySchema,
   CollaborationSourceSetupSchema,
   COLLABORATION_EXECUTION_DISABLED,
@@ -26,11 +37,15 @@ import { captureAgentLibraryAuthorization } from './agent-library-transport.js';
 import { liveTransportAuthSessionId } from './transport-auth-ownership.js';
 import type { OrdinaryCollaborationJoiningPort } from './collaboration-joining-owner.js';
 import type { CollaborationApplicationReview } from './collaboration-application-review.js';
+import type { CollaborationApplicationForwarding } from './collaboration-application-forwarding.js';
 import type { EventStore } from './event-store.js';
 import type { ApplicationCollaborationMessaging } from './collaboration-application-messaging.js';
 import { recentAuthorizationSession, requireSameOriginJson } from './connections-router.js';
+import { createLogger } from './logger.js';
 
-function failure(res: Response, error: unknown) {
+const log = createLogger('collaboration-router');
+
+function failure(res: Response, error: unknown, dispatchNotStarted = false) {
   if (error instanceof CollaborationContractError) {
     const status =
       error.code === 'not_found'
@@ -40,15 +55,65 @@ function failure(res: Response, error: unknown) {
           : error.code === 'execution_unavailable'
             ? 503
             : 422;
-    return res.status(status).json({ error: error.message, code: error.code });
+    return res.status(status).json({
+      error: error.message,
+      code: error.code,
+      ...(dispatchNotStarted ? { dispatchNotStarted: true } : {}),
+    });
   }
   if (error instanceof SessionCollaborationError)
     return res
       .status(error.code === 'not_found' ? 404 : error.code === 'conflict' ? 409 : 400)
       .json({ error: error.message });
+  log.error('Collaboration request could not be completed', {
+    err: error,
+    code: 'collaboration_request_failed',
+    stage: 'collaboration_request',
+    route: res.req.route?.path,
+  });
   return res
     .status(503)
     .json({ error: 'Collaboration links could not be checked. Refresh before retrying.' });
+}
+/** One lifetime for source review/forwarding awaits; no caller can renew an
+ * expired request by keeping an HTTP connection or source promise alive. */
+async function authorizedRequest(
+  req: Request,
+  res: Response,
+  auth: AuthSession,
+  action: (signal: AbortSignal) => Promise<unknown>,
+) {
+  const controller = new AbortController();
+  const cancel = () => controller.abort();
+  const unregister = registerAuthSession(auth, cancel);
+  const ownerSignal = custodianRequestSignal(req);
+  ownerSignal?.addEventListener('abort', cancel, { once: true });
+  if (ownerSignal?.aborted || req.aborted) cancel();
+  const close = () => {
+    if (!res.writableEnded) cancel();
+  };
+  req.once('aborted', cancel);
+  res.once('close', close);
+  const timer = setTimeout(cancel, Math.min(120000, Math.max(0, auth.expiresAt - Date.now())));
+  try {
+    controller.signal.throwIfAborted();
+    const result = await action(controller.signal);
+    controller.signal.throwIfAborted();
+    if (!isAuthSessionCurrent(auth))
+      return res.status(403).json({ error: 'Operator authorization expired or revoked' });
+    return res.json(result);
+  } catch (error) {
+    if (res.destroyed) return;
+    if (!isAuthSessionCurrent(auth))
+      return res.status(403).json({ error: 'Operator authorization expired or revoked' });
+    return failure(res, error);
+  } finally {
+    clearTimeout(timer);
+    unregister();
+    ownerSignal?.removeEventListener('abort', cancel);
+    req.off('aborted', cancel);
+    res.off('close', close);
+  }
 }
 /** Mount behind operator auth. Linking shares no context, grants no access and dispatches no turn. */
 export function createSessionCollaborationRouter({
@@ -56,6 +121,7 @@ export function createSessionCollaborationRouter({
   joining,
   review,
   messaging,
+  forwarding,
 }: {
   store: EventStore;
   joining?:
@@ -63,6 +129,7 @@ export function createSessionCollaborationRouter({
   /** Lazy construction uses the existing real workspace owner, never caller settings. */
   review?: () => CollaborationApplicationReview;
   messaging?: ApplicationCollaborationMessaging;
+  forwarding?: CollaborationApplicationForwarding;
 }) {
   const router = Router();
   router.use((_req, res, next) => {
@@ -117,6 +184,76 @@ export function createSessionCollaborationRouter({
       return failure(res, error);
     }
   });
+  router.get('/:id/progress', (req, res) => {
+    const id = SessionCollaborationIdSchema.safeParse(req.params.id);
+    if (!id.success) return res.status(400).json({ error: 'Invalid collaboration ID' });
+    try {
+      if (!messaging) throw new CollaborationContractError('execution_unavailable');
+      return res.json(
+        CollaborationProgressSchema.parse(
+          messaging.progress(recentAuthorizationSession(res)!, id.data),
+        ),
+      );
+    } catch (error) {
+      return failure(res, error);
+    }
+  });
+  router.get('/:id/recipients/:sessionId', async (req, res) => {
+    const id = SessionCollaborationIdSchema.safeParse(req.params.id);
+    const session = CollaborationBeginSchema.shape.sessionId.safeParse(req.params.sessionId);
+    if (!id.success || !session.success)
+      return res.status(400).json({ error: 'Invalid recipient' });
+    try {
+      if (!messaging) throw new CollaborationContractError('execution_unavailable');
+      return res.json(
+        CollaborationRecipientReadinessSchema.parse(
+          await messaging.recipientReadiness(
+            recentAuthorizationSession(res)!,
+            id.data,
+            session.data,
+            new AbortController().signal,
+          ),
+        ),
+      );
+    } catch (error) {
+      return failure(res, error);
+    }
+  });
+  // Observation uses the exact retained public request; it never calls send.
+  router.post('/:id/messages/observe', requireSameOriginJson, (req, res) => {
+    const id = SessionCollaborationIdSchema.safeParse(req.params.id);
+    const input = CollaborationMessageInputSchema.safeParse(req.body);
+    if (!id.success || !input.success)
+      return res.status(400).json({ error: 'Invalid message observation' });
+    try {
+      return res.json(
+        messaging
+          ? messaging.observe(recentAuthorizationSession(res)!, id.data, input.data)
+          : {
+              message: store.collaborationConversation.getMessageForRequest(id.data, input.data),
+              terminal: false,
+            },
+      );
+    } catch (error) {
+      return failure(res, error);
+    }
+  });
+  router.post('/:id/messages/stop', requireSameOriginJson, async (req, res) => {
+    const id = SessionCollaborationIdSchema.safeParse(req.params.id);
+    const input = CollaborationMessageInputSchema.safeParse(req.body);
+    if (!id.success || !input.success)
+      return res.status(400).json({ error: 'Invalid original message control' });
+    try {
+      if (!messaging) throw new CollaborationContractError('execution_unavailable');
+      return res.json(
+        CollaborationStopResultSchema.parse(
+          await messaging.stop(recentAuthorizationSession(res)!, id.data, input.data),
+        ),
+      );
+    } catch (error) {
+      return failure(res, error);
+    }
+  });
   router.get('/:id/events', (req, res) => {
     const id = SessionCollaborationIdSchema.safeParse(req.params.id);
     const cursor = CollaborationCursorSchema.safeParse(req.query);
@@ -165,48 +302,126 @@ export function createSessionCollaborationRouter({
       error: COLLABORATION_EXECUTION_DISABLED.reason,
       execution: COLLABORATION_EXECUTION_DISABLED,
     });
-  router.post('/:id/reviews', requireSameOriginJson, async (req, res) => {
+  router.get('/:id/context-source-artifacts', (req, res) => {
     const auth = recentAuthorizationSession(res);
     if (!auth) return;
     const id = SessionCollaborationIdSchema.safeParse(req.params.id);
-    const input = CollaborationApplicationReviewRequestSchema.safeParse(req.body);
-    if (!id.success || !input.success)
-      return res.status(400).json({ error: 'Invalid collaboration review' });
-    const controller = new AbortController();
-    const cancel = () => controller.abort();
-    const unregister = registerAuthSession(auth, cancel);
-    const ownerSignal = custodianRequestSignal(req);
-    ownerSignal?.addEventListener('abort', cancel, { once: true });
-    if (ownerSignal?.aborted || req.aborted) cancel();
-    const close = () => {
-      if (!res.writableEnded) cancel();
-    };
-    req.once('aborted', cancel);
-    res.once('close', close);
-    const timer = setTimeout(cancel, Math.min(120000, Math.max(0, auth.expiresAt - Date.now())));
+    const query = CollaborationSourceSetupQuerySchema.safeParse(req.query);
+    if (!id.success || !query.success)
+      return res.status(400).json({ error: 'Invalid context source' });
     try {
-      controller.signal.throwIfAborted();
-      if (!store.getSessionCollaboration(id.data))
-        throw new CollaborationContractError('not_found');
       if (!review) return unavailable(res);
-      const { clientId, ...intent } = input.data;
-      const result = await review().review(auth, clientId, id.data, intent, controller.signal);
-      controller.signal.throwIfAborted();
-      if (!isAuthSessionCurrent(auth)) throw new Error('Authorization unavailable');
-      return res.json(CollaborationApplicationReviewResultSchema.parse(result));
+      return res.json(
+        CollaborationSourceArtifactsSchema.parse(
+          review().sourceArtifacts(
+            auth,
+            query.data.clientId,
+            id.data,
+            query.data.sourceConversationId,
+          ),
+        ),
+      );
     } catch (error) {
-      if (res.destroyed) return;
-      if (!isAuthSessionCurrent(auth))
-        return res.status(403).json({ error: 'Operator authorization expired or revoked' });
       return failure(res, error);
-    } finally {
-      clearTimeout(timer);
-      unregister();
-      ownerSignal?.removeEventListener('abort', cancel);
-      req.off('aborted', cancel);
-      res.off('close', close);
     }
   });
+  router.get('/:id/forward-preparations/:requestId', (req, res) => {
+    const auth = recentAuthorizationSession(res);
+    if (!auth) return;
+    const id = SessionCollaborationIdSchema.safeParse(req.params.id);
+    const request = z.uuid().safeParse(req.params.requestId);
+    const query = CollaborationForwardReadQuerySchema.safeParse(req.query);
+    if (!id.success || !request.success || !query.success)
+      return res.status(400).json({ error: 'Invalid forwarding observation' });
+    try {
+      if (!forwarding) return unavailable(res);
+      return res.json(
+        CollaborationForwardReadSchema.nullable().parse(
+          forwarding.observePreparation(auth, query.data.clientId, id.data, request.data),
+        ),
+      );
+    } catch (error) {
+      return failure(res, error);
+    }
+  });
+  router.get('/:id/forwards/:forwardId', (req, res) => {
+    const auth = recentAuthorizationSession(res);
+    if (!auth) return;
+    const id = SessionCollaborationIdSchema.safeParse(req.params.id);
+    const forward = z.uuid().safeParse(req.params.forwardId);
+    const query = CollaborationForwardReadQuerySchema.safeParse(req.query);
+    if (!id.success || !forward.success || !query.success)
+      return res.status(400).json({ error: 'Invalid forwarding observation' });
+    try {
+      if (!forwarding) return unavailable(res);
+      return res.json(
+        CollaborationForwardReadSchema.parse(
+          forwarding.read(auth, query.data.clientId, id.data, forward.data),
+        ),
+      );
+    } catch (error) {
+      return failure(res, error);
+    }
+  });
+  for (const confirm of [false, true])
+    router.post(
+      `/:id/forwards/${confirm ? 'confirm' : 'prepare'}`,
+      requireSameOriginJson,
+      (req, res) => {
+        const auth = recentAuthorizationSession(res);
+        if (!auth) return;
+        const id = SessionCollaborationIdSchema.safeParse(req.params.id);
+        const input = (
+          confirm
+            ? CollaborationForwardConfirmRequestSchema
+            : CollaborationForwardPrepareRequestSchema
+        ).safeParse(req.body);
+        if (!id.success || !input.success)
+          return res.status(400).json({ error: 'Invalid forwarding request' });
+        if (!forwarding) return unavailable(res);
+        const { clientId, ...intent } = input.data;
+        return authorizedRequest(req, res, auth, async (signal) =>
+          confirm
+            ? CollaborationForwardConfirmationSchema.parse(
+                await forwarding.confirm(auth, clientId, id.data, intent, signal),
+              )
+            : CollaborationForwardReadSchema.parse(
+                await forwarding.prepare(auth, clientId, id.data, intent, signal),
+              ),
+        );
+      },
+    );
+  for (const prompt of [false, true])
+    router.post(
+      `/:id/${prompt ? 'prompt-reviews' : 'reviews'}`,
+      requireSameOriginJson,
+      async (req, res) => {
+        const auth = recentAuthorizationSession(res);
+        if (!auth) return;
+        const id = SessionCollaborationIdSchema.safeParse(req.params.id);
+        const input = (
+          prompt
+            ? CollaborationPromptReviewRequestSchema
+            : CollaborationApplicationReviewRequestSchema
+        ).safeParse(req.body);
+        if (!id.success || !input.success)
+          return res.status(400).json({ error: 'Invalid collaboration review' });
+        if (!review) return unavailable(res);
+        return authorizedRequest(req, res, auth, async (signal) => {
+          if (!store.getSessionCollaboration(id.data))
+            throw new CollaborationContractError('not_found');
+          const { clientId, ...intent } = input.data;
+          const result = prompt
+            ? await review().reviewPrompt(auth, clientId, id.data, intent, signal)
+            : await review().review(auth, clientId, id.data, intent, signal);
+          return (
+            prompt
+              ? CollaborationPromptReviewResultSchema
+              : CollaborationApplicationReviewResultSchema
+          ).parse(result);
+        });
+      },
+    );
   const join = async (
     req: Request,
     res: Response,
@@ -306,7 +521,15 @@ export function createSessionCollaborationRouter({
       if (res.destroyed) return;
       if (!isAuthSessionCurrent(auth))
         return res.status(403).json({ error: 'Operator authorization expired or revoked' });
-      return failure(res, error);
+      // A definite synchronous contract refusal before retaining a message has
+      // no ordinary command owner. All retained/ambiguous outcomes stay fenced.
+      let notStarted = false;
+      try {
+        notStarted = !store.collaborationConversation.getMessageForRequest(id.data, input.data);
+      } catch {
+        /* preserve uncertainty */
+      }
+      return failure(res, error, notStarted);
     } finally {
       clearTimeout(timer);
       unregister();

@@ -87,13 +87,20 @@ bounded responses, public DNS addresses pinned before each connection, and no
 cookies, proxy environment or host credentials. They use ordinary safe-tool
 policy without a forced approval card. Skill restrictions, tier overrides,
 explicit project approval requirements and runtime/delivery fences still apply.
-Public failures never retry with credentials. `/user` requires authenticated
+The public executor never silently retries a failed request with credentials. This
+boundary applies to that request, not a separately authorized authenticated route.
+When the user selects the native `gh` CLI, use its existing signed-in account and
+native permissions for repository, PR, review and CI work. Reuse an already authorized
+CLI route when public reads are rate-limited; a public quota is not revocation of
+that authority. Do not print credentials or treat read access as merge permission.
+`/user` requires authenticated
 access; omitted `access` retains the existing authenticated behavior. Public
 and authenticated scopes remain distinct, including retained output pages.
 This does not enable web search, general shell networking, publication or merges.
 
-Authenticated PR, review and CI diagnostics use the approved GET route in `GitHubRead`,
-rather than repeated shell networking approvals. Its session choice covers one
+When native CLI is not the selected route, authenticated PR, review and CI diagnostics
+use the approved GET route in `GitHubRead`. Reuse existing grants instead of requesting
+repeated shell networking approvals. Its session choice covers one
 repository, or `/user` separately, bound to the selected account/profile, operator
 and credential runtime. Another repository or runtime requires fresh consent.
 Each read rechecks current authority before I/O; clearing consent also blocks a
@@ -106,8 +113,11 @@ reply fences recheck read consent and skill restrictions after result processing
 
 Native command cards describe the requested command/network operation. Commands
 in the current task directory can offer **Allow for session** for the exact
-command text and requested access in the current native thread. Changes to the
-command, directory, mode, policy or runtime require fresh approval. Filesystem
+command text and requested access in the current native thread. Recognized GitHub
+CLI repository reads instead retain the explicitly displayed repository-read scope,
+so another CI job/log read can reuse consent. The same classifier serves Claude
+and Vertex. See [scope and notification behavior](approval-notification-churn.md).
+Other changes to the command, directory, mode, policy or runtime require fresh approval. Filesystem
 expansions, file changes, stdin callbacks and managed-network callbacks remain
 separate exact requests. A one-time decision adds no retained consent.
 

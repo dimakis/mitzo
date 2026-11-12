@@ -6,6 +6,8 @@ export const KNOWLEDGE_RUNTIME_UNAVAILABLE_MESSAGE =
 /** Reviewed public copy only. Both producers and consumers use this allowlist;
  * upstream exceptions and saved device text never supply a diagnostic message. */
 export const SESSION_RUNTIME_MESSAGES = {
+  tool_validation_failed:
+    'Mitzo could not validate the current tool operation. Saved work is preserved; inspect conversation recovery before continuing.',
   login_verification_unavailable:
     'ChatGPT login verification is temporarily unavailable. Try again when verification is available. Your draft, saved messages and workspace are retained.',
   login_refresh_invalid:
@@ -23,6 +25,16 @@ export const SESSION_RUNTIME_MESSAGES = {
     'This historical repair could not be qualified safely. Original work and queued messages are retained; nothing was dispatched.',
   runtime_unavailable:
     'The execution runtime could not continue. The conversation, workspace and saved messages are retained.',
+  recovery_unavailable:
+    'Recovery could not verify the saved session. Your work and queued messages are preserved. Use this reference to inspect the failed recovery step before retrying.',
+  recovery_history_unavailable:
+    'Recovery could not read the original provider history. Reconnect the selected account and runtime, then retry. Saved work will not be replayed.',
+  recovery_history_limit:
+    'The interrupted turn exceeds the recovery inspection limit. Its history needs a bounded recovery review before queued messages can continue. Saved work is preserved.',
+  recovery_effects_unverified:
+    'Recovery found tool or child-agent effects it could not verify. Inspect their original outcomes before continuing. Saved work and queued messages are preserved.',
+  native_policy_changed:
+    'Native execution policy changed. Mitzo stopped this turn before granting further access. Review saved work and continue with the current policy; earlier actions will not be replayed automatically.',
   workspace_branch_changed:
     'This checkout is no longer on its assigned task branch. Saved commits and files are preserved. Restore the assigned branch while retaining the saved work, then review the interrupted turn before continuing.',
   callbacks_pending:
