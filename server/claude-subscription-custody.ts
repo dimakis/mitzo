@@ -17,19 +17,25 @@ type SignInFailureReason =
   | 'invalid_response'
   | 'native_command_failed'
   | 'cancelled';
+type IdentityDiagnostic = {
+  identitySource: 'native_status' | 'sdk_account';
+  mismatches: ('email' | 'plan' | 'provider' | 'billing')[];
+};
 export class ClaudeSubscriptionSignInError extends Error {
   readonly code = 'claude_subscription_sign_in_unavailable';
   readonly stage = 'claude_sign_in_verification';
   readonly diagnosticId = randomUUID();
+  private readonly identity?: IdentityDiagnostic;
   constructor(
     readonly reason: SignInFailureReason,
-    options?: ErrorOptions,
+    options?: ErrorOptions & { identity?: IdentityDiagnostic },
   ) {
     super(
       'Claude subscription sign-in unavailable; check the configured Claude account on this Mac',
       options,
     );
     this.name = 'ClaudeSubscriptionSignInError';
+    this.identity = options?.identity;
   }
   telemetry() {
     return {
@@ -37,6 +43,7 @@ export class ClaudeSubscriptionSignInError extends Error {
       stage: this.stage,
       diagnosticId: this.diagnosticId,
       reason: this.reason,
+      ...this.identity,
     };
   }
 }
@@ -53,15 +60,16 @@ export function assertClaudeSubscriptionAccount(
       : info.subscriptionType === 'Claude Pro' || info.subscriptionType === 'pro'
         ? 'pro'
         : undefined;
-  if (
-    info.apiProvider !== 'firstParty' ||
-    !info.email ||
-    info.email.toLowerCase() !== env.MITZO_CLAUDE_EXPECTED_EMAIL?.toLowerCase() ||
-    !plan ||
-    plan !== env.MITZO_CLAUDE_EXPECTED_PLAN ||
-    (info.apiKeySource && info.apiKeySource !== 'none')
-  )
-    throw new ClaudeSubscriptionSignInError('identity_mismatch');
+  const mismatches: IdentityDiagnostic['mismatches'] = [];
+  if (!info.email || info.email.toLowerCase() !== env.MITZO_CLAUDE_EXPECTED_EMAIL?.toLowerCase())
+    mismatches.push('email');
+  if (!plan || plan !== env.MITZO_CLAUDE_EXPECTED_PLAN) mismatches.push('plan');
+  if (info.apiProvider !== 'firstParty') mismatches.push('provider');
+  if (info.apiKeySource && info.apiKeySource !== 'none') mismatches.push('billing');
+  if (mismatches.length)
+    throw new ClaudeSubscriptionSignInError('identity_mismatch', {
+      identity: { identitySource: 'sdk_account', mismatches },
+    });
 }
 export function claudeSdkExecutable(): string {
   if (process.platform !== 'darwin') throw unavailable();
@@ -171,11 +179,14 @@ export class ClaudeSubscriptionCustody {
         },
       );
       const status = Status.parse(JSON.parse(stdout));
-      if (
-        status.email.toLowerCase() !== this.retained.email.toLowerCase() ||
-        status.subscriptionType !== this.retained.planType
-      )
-        throw new ClaudeSubscriptionSignInError('identity_mismatch');
+      const mismatches: IdentityDiagnostic['mismatches'] = [];
+      if (status.email.toLowerCase() !== this.retained.email.toLowerCase())
+        mismatches.push('email');
+      if (status.subscriptionType !== this.retained.planType) mismatches.push('plan');
+      if (mismatches.length)
+        throw new ClaudeSubscriptionSignInError('identity_mismatch', {
+          identity: { identitySource: 'native_status', mismatches },
+        });
       this.assertCurrent(env);
       signal.throwIfAborted();
     } catch (cause) {

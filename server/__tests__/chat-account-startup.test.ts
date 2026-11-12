@@ -196,6 +196,7 @@ it.each([false, true])(
           {
             signal: new AbortController().signal,
             toolUseID: 'restricted-call',
+            requestId: 'restricted-request',
           },
         ),
       );

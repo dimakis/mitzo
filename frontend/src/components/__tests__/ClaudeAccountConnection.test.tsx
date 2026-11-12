@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { webcrypto } from 'node:crypto';
 import { ClaudeAccountConnection } from '../ClaudeAccountConnection';
@@ -130,6 +130,99 @@ it('keeps uncertain code delivery visible and checks status without resubmitting
   await waitFor(() =>
     expect(mocks.fetch.mock.calls.filter(([url]) => url.endsWith('/code'))).toHaveLength(1),
   );
+});
+it.each(['verified', 'failed', 'unavailable', 'revoked'] as const)(
+  'checks connected native sign-in explicitly with visible progress and a bounded result: %s',
+  async (outcome) => {
+    const account = {
+      id: accountId,
+      label: 'Personal Claude',
+      email: 'person@example.test',
+      planType: 'max',
+      verifiedAt: Date.now(),
+    };
+    let finish!: (value: Response) => void;
+    mocks.fetch.mockImplementation(async (url: string) => {
+      if (url === '/api/connections-access')
+        return new Promise<Response>((resolve) => {
+          finish = resolve;
+        });
+      return response(snapshot([], [account]));
+    });
+    show();
+    await screen.findByText('person@example.test · Max');
+    expect(mocks.fetch.mock.calls.some(([url]) => url === '/api/connections-access')).toBe(false);
+    fireEvent.click(screen.getByRole('button', { name: 'Check sign-in status' }));
+    await screen.findByText('Checking native Claude sign-in…');
+    expect(
+      (screen.getByRole('button', { name: 'Checking sign-in…' }) as HTMLButtonElement).disabled,
+    ).toBe(true);
+    await waitFor(() => expect(finish).toBeDefined());
+    if (outcome === 'revoked') fireEvent(window, new Event('mitzo:auth-lost'));
+    finish(
+      response({
+        generatedAt: Date.now(),
+        sources: [
+          {
+            id: 'accounts',
+            state: outcome === 'unavailable' ? 'unavailable' : 'available',
+            reason: null,
+          },
+        ],
+        resources:
+          outcome === 'unavailable'
+            ? []
+            : [
+                {
+                  kind: 'ai-account',
+                  owner: 'account-profiles',
+                  nativeId: accountId,
+                  provider: 'anthropic-claude',
+                  signIn: {
+                    status: outcome === 'failed' ? 'failed' : 'verified',
+                    explanation: 'Safe native check reference.',
+                  },
+                },
+              ],
+      }),
+    );
+    if (outcome === 'revoked') {
+      await screen.findByText('Sign in to Mitzo again to continue.');
+      expect(screen.queryByText('Personal Claude: Signed in.')).toBeNull();
+    } else if (outcome === 'verified') {
+      await screen.findByText('Personal Claude: Signed in.');
+    } else if (outcome === 'failed') {
+      expect((await screen.findByRole('alert')).textContent).toContain(
+        'Safe native check reference.',
+      );
+    } else {
+      expect((await screen.findByRole('alert')).textContent).toContain('could not be checked');
+    }
+    await waitFor(() => expect(screen.queryByText('Checking native Claude sign-in…')).toBeNull());
+    expect(
+      mocks.fetch.mock.calls.every(([, options]) => !options?.method || options.method === 'GET'),
+    ).toBe(true);
+    expect(
+      mocks.fetch.mock.calls.filter(([url]) => url === '/api/connections-access'),
+    ).toHaveLength(1);
+  },
+);
+it('ends a hung status read with a visible retry instead of leaving the button busy', async () => {
+  mocks.fetch.mockImplementation(async () => response(snapshot()));
+  show();
+  await screen.findByRole('button', { name: 'Sign in with Claude' });
+  mocks.fetch.mockImplementation(() => new Promise(() => {}));
+  vi.useFakeTimers();
+  try {
+    fireEvent.click(screen.getByRole('button', { name: 'Check sign-in status' }));
+    await act(() => vi.advanceTimersByTimeAsync(15_000));
+    expect(screen.getByRole('alert').textContent).toContain('could not be checked');
+    expect(
+      (screen.getByRole('button', { name: 'Check sign-in status' }) as HTMLButtonElement).disabled,
+    ).toBe(false);
+  } finally {
+    vi.useRealTimers();
+  }
 });
 it('retains a visible host-recovery failure and disables another login', async () => {
   mocks.fetch.mockImplementation(async () =>

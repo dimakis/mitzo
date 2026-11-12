@@ -1070,7 +1070,11 @@ it.each([
                   await args.options!.canUseTool!(
                     'Read',
                     { file_path: 'task.md' },
-                    { signal: new AbortController().signal, toolUseID: 'permission-tool' },
+                    {
+                      signal: new AbortController().signal,
+                      toolUseID: 'permission-tool',
+                      requestId: 'permission-request',
+                    },
                   );
                 } catch {
                   /* SDK may continue after permission diagnostics. */

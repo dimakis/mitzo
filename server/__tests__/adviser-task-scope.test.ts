@@ -74,7 +74,11 @@ it('constrains SDK settings and every tool effect, including apparently safe rea
     await canUseTool(
       'Read',
       { file_path: '/private' },
-      { signal: new AbortController().signal, toolUseID: 'scope-test-tool' },
+      {
+        signal: new AbortController().signal,
+        toolUseID: 'scope-test-tool',
+        requestId: 'scope-request',
+      },
     ),
   ).toMatchObject({
     behavior: 'deny',

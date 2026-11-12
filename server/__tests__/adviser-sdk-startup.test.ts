@@ -90,7 +90,11 @@ it('uses the production shared SDK query with exact feature instructions and enf
       args.options!.canUseTool!(
         'Read',
         { file_path: '/private' },
-        { signal: new AbortController().signal, toolUseID: 'attempt' },
+        {
+          signal: new AbortController().signal,
+          toolUseID: 'attempt',
+          requestId: 'request-attempt',
+        },
       ),
     );
     throw Error('Controlled SDK boundary; no process or model');
