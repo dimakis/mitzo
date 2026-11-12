@@ -33,6 +33,15 @@ the repository guard. No guard, browser binary or permission boundary was change
 Hosted browser execution and visual inspection remain required; this candidate
 does not establish source acceptance, production activation or feature completion.
 
+Landing follow-up: the initial `47ddc51a` hosted source-preflight job
+`131538983986` reproduced four stale registered source fingerprints. Refresh the
+runtime revision and changed pins, retaining every existing registration and
+adding the two new regression files. Independent local review also found an
+invalid `kind: 'saved'` in the browser catalog fixture: saved profiles omit this
+field in the actual schema. The corrected fixture and the strengthened component
+check retain a real saved profile through Cancel/reopen. These corrections do
+not change the product fix or establish browser-rendered acceptance.
+
 ## 12 November 2026 source-acceptance checkpoint
 
 This checkpoint contributes landing evidence to the existing map without changing

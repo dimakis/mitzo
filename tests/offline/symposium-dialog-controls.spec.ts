@@ -82,7 +82,6 @@ for (const theme of ['dark', 'light'])
             drafts: [],
             versions: [
               {
-                kind: 'saved',
                 profileId: 'reviewer',
                 revision: 1,
                 definition: {

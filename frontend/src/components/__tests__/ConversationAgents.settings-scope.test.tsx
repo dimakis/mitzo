@@ -20,7 +20,25 @@ beforeEach(() => {
     this.open = false;
   };
   vi.mocked(apiFetch).mockImplementation(async (path) => {
-    if (path === '/api/agent-library') return Response.json({ drafts: [], versions: [] });
+    if (path === '/api/agent-library')
+      return Response.json({
+        drafts: [],
+        versions: [
+          {
+            profileId: 'reviewer',
+            revision: 1,
+            definition: {
+              name: 'Reviewer',
+              descriptor: 'Independent review',
+              role: 'agent',
+              instructions: 'Review the plan.',
+              expectedOutput: 'Findings',
+              acceptanceCriteria: ['Evidence'],
+              modelPolicyRole: 'agent',
+            },
+          },
+        ],
+      });
     if (path === '/api/accounts')
       return Response.json([
         {
@@ -134,7 +152,7 @@ it('keeps real Add agent pickers inside the dialog when opened from compact chat
   expect((account as HTMLSelectElement).value).toBe('offline-account');
   expect((model as HTMLSelectElement).value).toBe('offline-model');
   expect(within(dialog).getByRole('combobox', { name: 'Thinking level' })).toBeTruthy();
-  fireEvent.change(agent, { target: { value: '' } });
+  fireEvent.change(agent, { target: { value: '["saved","reviewer",1]' } });
   fireEvent.change(within(dialog).getByRole('textbox', { name: 'Name in this chat' }), {
     target: { value: 'Bob' },
   });
@@ -149,6 +167,9 @@ it('keeps real Add agent pickers inside the dialog when opened from compact chat
     (screen.getByRole('textbox', { name: 'Name in this chat' }) as HTMLInputElement).value,
   ).toBe('Bob');
   expect(await screen.findByRole('combobox', { name: 'Account', exact: true })).toBeTruthy();
+  expect(
+    (screen.getByRole('combobox', { name: 'Agent', exact: true }) as HTMLSelectElement).value,
+  ).toBe('["saved","reviewer",1]');
   fireEvent.click(screen.getByRole('button', { name: 'Close Agents' }));
   fireEvent.click(screen.getByRole('button', { name: /^Workspace controls/ }));
   expect((screen.getByRole('textbox', { name: 'Source setting' }) as HTMLInputElement).value).toBe(

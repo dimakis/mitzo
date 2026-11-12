@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.1098-enmaas-telos-integration';
+  'v1.0.1099-symposium-dialog-settings';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -23,6 +23,10 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
+  '../../frontend/src/components/__tests__/ConversationAgents.settings-scope.test.tsx':
+    '4a3c8a1498539013ff8a0cf53a77bc6b30b135e88601e0f8b0fe005e8f1a9b6d',
+  '../../tests/offline/symposium-dialog-controls.spec.ts':
+    '5f8b996a387acd2fcf9fc4ff27d0b623ea3f142243251386a4c64e738b37b63f',
   '../../frontend/src/components/__tests__/ConversationRepositoryPicker.test.tsx':
     'a22e84b14cdad3990308743da9aa8c6861519e5e45b96caf39d94ddc5a8561ad',
   '../../packages/protocol/__tests__/ordinary-prepared-session.test.ts':
@@ -528,11 +532,11 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/fixtures/symposium-recording-runtime.ts':
     'a4abaac2bb70cce41376bc1fe62d1bba1d6c98e6a9fdc9b93bbc265c7084390f',
   '../../tests/fixtures/symposium-composer.tsx':
-    '3e821497de4f4088e1610134821046e992e81117e897cb1c30864ccc2ff6b8ad',
+    '7c7e35320372a92967305a1751af602b4217545d0f476b8fbdd9f0555ee77598',
   '../../tests/offline/symposium-composer.spec.ts':
     '9867fcbd4ae751f7b53115b63b8b3914bb80e054da5970be8e35657afc6f72cb',
   '../../docs/evidence/symposium-integration-acceptance.md':
-    '1dcd890db409899cac120e8672a1bc3d405eae42a519def4abaca0d30e579ae4',
+    '8fc9c3d0ac5e2eaaaa57d91182b40799494398d00051ab759385737d1b4df27b',
   '../../docs/features/symposium.md':
     '4c3e122d0780454a2519a68129bda931d42091d4201dca074d0e42e4c1527f94',
   '../repository-capability-identity.ts':
@@ -1011,7 +1015,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/owned-local-auth-feedback.test.ts':
     'fa4b4dca12a655e4075c03e6c95701ac9c8c1a6607f867e27668c914e988da21',
   '../../docs/design/ui-design-system.md':
-    'f2a4a84eb5419e9cf21959567086dc6bd0f110c2ffb92bda22118a4e8e9c284e',
+    '0afcd923c4ecf95c9a977b3b493524c80a4dd31864e84cc73fc8ae3761e40ac6',
   '../../packages/protocol/src/session-prompts.ts':
     '5a3c7a567c7b4d7b5699b7405282b11c11a07e0fb7e14d73e11529a3882cbc09',
   '../__tests__/session-prompt-service.test.ts':
@@ -2205,7 +2209,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/types/account-selection.ts':
     'd866165714758849b0ac5e5d578971f5f12742494b747b04bd1d31f0045c9650',
   '../../frontend/src/components/ConversationAgents.tsx':
-    'bd7e540ae5ba585321b99e85ff2c4faa5f9b75a8fc29a7197450960d064c56f0',
+    'a5aed45759683fa3d016d3b5bfa7871f23a5f93a737b89cb6adc14e62c1cb407',
   '../../frontend/src/components/ConversationAgents.css':
     '97abcd1b2160b64af5d72959ed79c3bfdde8d802cc0825e319ecac67b73f413b',
   '../../frontend/src/components/ComposerResponders.tsx':
