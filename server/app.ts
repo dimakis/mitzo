@@ -45,7 +45,11 @@ import { loadMcpServers } from './mcp-config.js';
 
 import { createWarmPoolRouter, type SandboxConversation } from './openshell-warm-pool-router.js';
 import { getOpenShellWarmPool } from './openshell-warm-pool-binding.js';
-import { sessionListMetadata, sessionModelIdentity } from './session-list-metadata.js';
+import {
+  readSessionModelSelection,
+  sessionListMetadata,
+  sessionModelIdentity,
+} from './session-list-metadata.js';
 import { readCompactionHistory } from './compaction-history.js';
 import {
   readOwnedVertexQueue,
@@ -3426,8 +3430,10 @@ app.get('/api/sessions/search', async (req, res) => {
       await eventStore.searchSessionsAsync(q, limit, abort.signal, cacheDirectory)
     ).map((result) => ({
       ...result,
-      ...sessionModelIdentity(eventStore.getSession(result.sessionId) ?? {}, (id, fallback) =>
-        accountAliases.label(id, fallback),
+      ...sessionModelIdentity(
+        eventStore.getSession(result.sessionId) ?? {},
+        (id, fallback) => accountAliases.label(id, fallback),
+        readSessionModelSelection(eventStore, result.sessionId),
       ),
     }));
     res.json({ results });
@@ -3474,6 +3480,7 @@ app.get('/api/sessions', async (req, res) => {
           meta ?? {},
           eventStore.getLatestEvent(s.id, 'token_update'),
           (id, fallback) => accountAliases.label(id, fallback),
+          readSessionModelSelection(eventStore, s.id),
         ),
         numTurns: meta?.numTurns,
         closedBy: meta?.closedBy ?? undefined,
