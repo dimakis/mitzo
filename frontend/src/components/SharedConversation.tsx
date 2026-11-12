@@ -23,6 +23,7 @@ import { useConversationPresentation } from '../hooks/useConversationPresentatio
 import { useConversationSending } from '../hooks/useConversationSending';
 import { useConversationProgress } from '../hooks/useConversationProgress';
 import { useConversationPromptContext } from '../hooks/useConversationPromptContext';
+import { useConversationForwarding } from '../hooks/useConversationForwarding';
 import { ConversationPromptContext } from './ConversationPromptContext';
 import { ConversationAgents } from './ConversationAgents';
 import { CollaborationTranscript } from './CollaborationTranscript';
@@ -231,6 +232,17 @@ function useSharedConversation({
     authScope,
     getVerifiedAuthScope,
   });
+  const forwarding = useConversationForwarding({
+    api,
+    clientId,
+    draftId,
+    authScope,
+    getVerifiedAuthScope,
+    view,
+    review: promptContext.review,
+    reviewCurrent: promptContext.canAttach,
+    refresh: presentation.refresh,
+  });
   const sending = useConversationSending({
     api: api.collaborations,
     view,
@@ -259,6 +271,7 @@ function useSharedConversation({
     sending,
     progress,
     promptContext,
+    forwarding,
     joiningOwner,
     names,
     active,
@@ -346,7 +359,7 @@ export function SharedConversationBody({
         />
       </>
     );
-  const { presentation, sending, progress, promptContext, names } = host;
+  const { presentation, sending, progress, promptContext, forwarding, names } = host;
   const { draft, projection, composerResponders } = presentation;
   return (
     <>
@@ -395,6 +408,7 @@ export function SharedConversationBody({
                 collaboration={
                   <ConversationPromptContext
                     flow={promptContext}
+                    forwarding={forwarding}
                     names={names}
                     disabled={!!sending.pending}
                   />

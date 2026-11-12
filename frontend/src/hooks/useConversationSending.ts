@@ -5,7 +5,8 @@ import {
   type CollaborationMessageInput,
   type CollaborationView,
 } from '@mitzo/protocol';
-import { getChatDraft, saveChatDraft, type ChatDraft } from '../lib/chat-drafts';
+import { getChatDraft, type ChatDraft } from '../lib/chat-drafts';
+import { retainConversationJournal } from '../lib/conversation-journal';
 import { createBrowserId } from '../lib/browser-crypto';
 import { AUTH_LOST_EVENT } from '../lib/api-fetch';
 import { resolveConversationResponders } from '../lib/conversation-presentation';
@@ -37,6 +38,8 @@ export function useConversationSending(options: {
   } = options;
   const acceptedCallback = useRef(onAccepted);
   acceptedCallback.current = onAccepted;
+  const latest = useRef(options);
+  latest.current = options;
   const recipientKey = JSON.stringify(
     view && responders ? resolveConversationResponders(view, responders) : [],
   );
@@ -71,6 +74,8 @@ export function useConversationSending(options: {
   const busy = useRef<object | undefined>(undefined);
   const stopping = useRef<{ owner: object; requestId: string } | undefined>(undefined);
   const pending = useRef<Pending | undefined>(undefined);
+  const preparing = useRef<{ owner: object; cancelled: boolean } | undefined>(undefined);
+  const authGeneration = useRef(0);
   const [state, setState] = useState<{
     owner: object;
     ready?: boolean;
@@ -95,14 +100,52 @@ export function useConversationSending(options: {
     [owner],
   );
   const retain = useCallback(
-    (value?: Pending) => {
-      const draft = draftId ? getChatDraft(draftId) : null;
-      if (!draft || !saveChatDraft({ ...draft, collaborationSend: value }))
-        throw Error('Could not retain the original request. Your draft stays here.');
-      pending.current = value;
-      publish({ pending: value, stopStatus: undefined });
+    async (value?: Pending, fresh = valid) => {
+      const retained = await retainConversationJournal(draftId, 'collaborationSend', value, fresh);
+      if (!retained || !fresh()) return;
+      pending.current = retained.value;
+      publish({ pending: retained.value, stopStatus: undefined });
     },
-    [draftId, publish],
+    [draftId, publish, valid],
+  );
+  const retireUnsent = useCallback(
+    async (original: Pending) => {
+      // This operation has not reached api.send. Cleanup owns only its exact journal,
+      // even after unmount, auth loss or a different composer owner takes over.
+      const ownsJournal = () => {
+        const saved = draftId ? getChatDraft(draftId)?.collaborationSend : undefined;
+        return (
+          !saved ||
+          (saved.authScope === original.authScope &&
+            saved.collaborationId === original.collaborationId &&
+            saved.input.requestId === original.input.requestId)
+        );
+      };
+      const retained = await retainConversationJournal(
+        draftId,
+        'collaborationSend',
+        undefined,
+        ownsJournal,
+      );
+      if (
+        !retained ||
+        !mounted.current ||
+        current.current.draftId !== draftId ||
+        (pending.current && pending.current.input.requestId !== original.input.requestId)
+      )
+        return;
+      pending.current = undefined;
+      const activeOwner = current.current;
+      setState((s) => ({
+        ...(s.owner === activeOwner ? s : { owner: activeOwner }),
+        owner: activeOwner,
+        pending: undefined,
+        ready: false,
+        error: 'The prompt was not sent. Check readiness before sending.',
+        stopStatus: undefined,
+      }));
+    },
+    [draftId],
   );
   const check = useCallback(async () => {
     if (!valid() || !group || busy.current === owner) return;
@@ -131,7 +174,7 @@ export function useConversationSending(options: {
         )
           throw Error('The original request receipt changed. Keep its identity and inspect it.');
         acceptedCallback.current?.(original.input);
-        retain();
+        await retain();
         // Callback publication can change the owning conversation. Never
         // publish readiness into a successor after the original receipt settles.
         if (!valid()) return;
@@ -188,6 +231,7 @@ export function useConversationSending(options: {
     });
     void check();
     const lost = () => {
+      authGeneration.current += 1;
       publish({ ready: false });
     };
     window.addEventListener(AUTH_LOST_EVENT, lost);
@@ -228,6 +272,10 @@ export function useConversationSending(options: {
       )
         return false;
       busy.current = owner;
+      const preparation = { owner, cancelled: false };
+      preparing.current = preparation;
+      const generation = authGeneration.current;
+      const fresh = () => valid() && authGeneration.current === generation;
       try {
         const original: Pending = {
           collaborationId: group,
@@ -241,7 +289,29 @@ export function useConversationSending(options: {
             snapshot: snapshot ?? null,
           }),
         };
-        retain(original);
+        await retain(original, fresh);
+        if (!fresh()) {
+          await retireUnsent(original);
+          return false;
+        }
+        if (preparation.cancelled) {
+          await retireUnsent(original);
+          if (valid() && !pending.current)
+            publish({ stopStatus: 'Prompt stopped before delivery.' });
+          return false;
+        }
+        const retained = draftId ? getChatDraft(draftId)?.collaborationSend : undefined;
+        if (
+          retained?.input.requestId !== original.input.requestId ||
+          retained.stopRequested ||
+          latest.current.contextDisabledReason ||
+          JSON.stringify(latest.current.snapshot ?? null) !==
+            JSON.stringify(original.input.snapshot)
+        ) {
+          await retireUnsent(original);
+          throw Error('The reviewed context changed. Inspect it again before sending.');
+        }
+        preparing.current = undefined;
         const receipt = await api.send(group, original.input);
         if (!valid()) return false;
         if (
@@ -267,7 +337,13 @@ export function useConversationSending(options: {
         );
       } catch (cause) {
         if (valid()) {
-          if (cause instanceof CollaborationApiError && cause.dispatchNotStarted) retain();
+          if (cause instanceof CollaborationApiError && cause.dispatchNotStarted) {
+            try {
+              await retain();
+            } catch {
+              /* The storage owner reports cleanup failure; preserve the original dispatch error. */
+            }
+          }
           publish({
             error:
               cause instanceof Error
@@ -277,6 +353,7 @@ export function useConversationSending(options: {
         }
         return false;
       } finally {
+        if (preparing.current === preparation) preparing.current = undefined;
         if (busy.current === owner) busy.current = undefined;
       }
     },
@@ -291,13 +368,19 @@ export function useConversationSending(options: {
       authScope,
       api,
       retain,
+      retireUnsent,
       refresh,
       publish,
       snapshot,
+      draftId,
     ],
   );
   const stop = useCallback(async () => {
     if (!valid() || !group) return;
+    if (preparing.current?.owner === owner) {
+      preparing.current.cancelled = true;
+      return;
+    }
     const original = pending.current;
     if (!original || original.authScope !== authScope || original.collaborationId !== group) return;
     if (
@@ -308,11 +391,14 @@ export function useConversationSending(options: {
     const ownsRequest = () =>
       valid() && pending.current?.input.requestId === original.input.requestId;
     const operation = { owner, requestId: original.input.requestId };
+    const generation = authGeneration.current;
+    const fresh = () => ownsRequest() && authGeneration.current === generation;
     stopping.current = operation;
     try {
       // Persist control intent before any request; reloading never starts a new
       // send or automatically reissues a Stop with a different command identity.
-      retain({ ...original, stopRequested: true });
+      await retain({ ...original, stopRequested: true }, fresh);
+      if (!fresh()) return;
       publish({ stopStatus: 'Requesting Stop for the original prompt…' });
       const result = await api.stopSend(group, original.input);
       if (!ownsRequest()) return;

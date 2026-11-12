@@ -1,5 +1,9 @@
 import { createHash } from 'node:crypto';
-import { CollaborationContractError, type CollaborationSnapshot } from '@mitzo/protocol';
+import {
+  CollaborationContractError,
+  type CollaborationSnapshot,
+  type CollaborationForwardPacket,
+} from '@mitzo/protocol';
 
 export function snapshotMaterial(
   snapshot: Pick<
@@ -79,6 +83,26 @@ export function snapshotInputMaterial(snapshot: CollaborationSnapshot) {
       sourceConversationId: artifact.sourceConversationId,
       mediaType: artifact.mediaType,
       sizeBytes: artifact.sizeBytes,
+      content: collaborationArtifactText(artifact),
+    })),
+  };
+}
+
+/** Private custody paths and item authority are not ordinary model input. */
+export function forwardInputMaterial(packet: CollaborationForwardPacket) {
+  return {
+    sourceConversationId: packet.sourceConversationId,
+    boundary: packet.boundary,
+    messages: packet.messages,
+    artifacts: packet.artifacts.map((artifact) => ({
+      artifactId: artifact.artifactId,
+      revision: artifact.revision,
+      sha256: artifact.sha256,
+      mediaType: artifact.mediaType,
+      sizeBytes: artifact.sizeBytes,
+      ...(artifact.kind === 'retained_artifact'
+        ? { title: artifact.title, filename: artifact.filename }
+        : {}),
       content: collaborationArtifactText(artifact),
     })),
   };
