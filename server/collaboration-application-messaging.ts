@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
 import {
+  isOrdinaryRepositoryParticipantBinding,
   CollaborationContractError,
   CollaborationMessageInputSchema,
   CollaborationForwardPacketSchema,
@@ -134,10 +135,10 @@ export class ApplicationCollaborationMessaging {
       const settings = this.store.getOrdinaryConversationSettings(sessionId);
       if (
         !settings ||
-        settings.binding.harness.implementation !== 'codex' ||
+        !isOrdinaryRepositoryParticipantBinding(settings.binding) ||
         settings.binding.execution.location !== 'local'
       )
-        return result('Choose a repository-backed Local Codex participant.');
+        return result('Choose a configured repository-backed participant on this Mac.');
       const context = await this.joiningContext(auth, group, sessionId, settings, signal);
       const snapshots = await this.pendingPromptContexts(
         auth,
@@ -163,7 +164,7 @@ export class ApplicationCollaborationMessaging {
         const readerSettings = this.store.getOrdinaryConversationSettings(reader.sessionId);
         if (
           !readerSettings ||
-          readerSettings.binding.harness.implementation !== 'codex' ||
+          !isOrdinaryRepositoryParticipantBinding(readerSettings.binding) ||
           readerSettings.binding.execution.location !== 'local' ||
           view.unavailableParticipantSessionIds.includes(reader.sessionId)
         )
@@ -383,7 +384,7 @@ export class ApplicationCollaborationMessaging {
       const current = this.store.getOrdinaryConversationSettings(sessionId);
       if (
         !current ||
-        current.binding.harness.implementation !== 'codex' ||
+        !isOrdinaryRepositoryParticipantBinding(current.binding) ||
         current.binding.execution.location !== 'local'
       )
         throw new CollaborationContractError('execution_unavailable');

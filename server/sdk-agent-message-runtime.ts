@@ -145,14 +145,14 @@ export class SdkAgentMessageRuntime implements AgentMessageRuntime {
   /** Called after asynchronous SDK authority checks and immediately before stdin yield.
    * Expected peer revocation/stale target drops only this unsubmitted correction.
    */
-  beforeInput(input: SDKUserMessage, queryAvailable = true, query?: object): boolean {
+  beforeInput(input: SDKUserMessage, queryAvailable = true, query?: object): boolean | undefined {
     const userCorrection = this.userCorrections.beforeInput(input, queryAvailable, query);
     if (userCorrection !== undefined) return userCorrection;
     const pending = this.#inputs.get(input);
     if (!pending) {
       const commandId = (input as SDKUserMessage & { mitzoMessageId?: string }).mitzoMessageId;
       const retained = commandId && this.owners.events.agentCommunication.forCommand(commandId);
-      if (!retained) return true;
+      if (!retained) return undefined;
       try {
         const guard = this.#ordinary.get(commandId!);
         if (

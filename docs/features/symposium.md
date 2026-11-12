@@ -1,9 +1,70 @@
 # Symposium: current direction and source guide
 
-Updated 11 November 2026. Start here for Symposium product work.
+Updated 12 November 2026. Start here for Symposium product work.
 Existing Telos item: `c0851ba23fcc5d04`; reuse it rather than create another parent
 or a task for every document. Tracker closure and source landing do not prove
 runtime acceptance or authorize deployment.
+
+## Source-acceptance checkpoint — 12 November 2026
+
+GitHub merge receipts were checked on 12 November. The table updates source
+acceptance; the dated checkpoints below retain their original test results,
+qualification limits and preparation-stage wording.
+
+| Behavior                                                                                 | Source change and checked state                                                                                                                                          |
+| ---------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Fresh Local Codex joining, directed replies and long-history delivery                    | Accepted #1261 (`878317bd`), #1276 (`8978f4a1`) and #1279 (`048b3e05`).                                                                                                  |
+| Multiple responders, independent outcomes, ordinary Stop and attributed streaming        | Accepted #1280 (`14fb28b0`).                                                                                                                                             |
+| Reviewed one-prompt context and frozen artifact preview                                  | Accepted #1281 (`0b8b94f1`).                                                                                                                                             |
+| Exact saved-artifact selection, UTF-8 delivery and recovery/navigation                   | Accepted [#1282](https://github.com/dimakis/mitzo/pull/1282), `d61ae5b25677df50a8b00470f9c01e4a15aaa661`, after green combined CI and final exact-head Centaur approval. |
+| Context-only forwarding from the current discussion                                      | Accepted [#1284](https://github.com/dimakis/mitzo/pull/1284), `33bed3962a26d7ce21208610d11b0e85e1aa106d`, after green combined CI and final exact-head Centaur approval. |
+| Personal Claude through the ordinary SDK owner, alongside a separate API-key participant | Source in this change, [#1289](https://github.com/dimakis/mitzo/pull/1289); its current CI/review and eventual merge receipt govern source acceptance.                   |
+
+Production application fixtures exercise real authentication, stores, routing and
+ordinary owners with external execution/account effects replaced at their boundary.
+Intercepted browser fixtures establish UI behavior and rendering separately. The
+[living evidence map](../evidence/symposium-integration-acceptance.md) records their
+sources and limits. These increments do not by themselves close every milestone
+criterion or unfinished child.
+
+Other-conversation and separate Telos-artifact picker UI remain beyond the current
+forwarding controls. Full live account/runtime parity, OpenShell qualification,
+physical iOS acceptance and production activation remain separate work.
+
+## Personal Claude alongside an API-key participant — source candidate
+
+The replacement owner's provider candidate uses the existing Local Mac ordinary
+Claude SDK owner and personal subscription custody. A fresh participant can be
+prepared silently with the selected account, agent and repository, then start
+only on an explicit request. It does not substitute an Anthropic API credential
+for personal Claude sign-in. A separate configured API-key participant keeps its
+own account, native owner and private execution evidence.
+
+Exact SDK input acceptance, final reply identity, terminal settlement and Stop
+claims are retained privately against the original ordinary command. Late events
+from a retired SDK run cannot acquire a queued successor's identity. Unknown tool
+effects remain uncertain; a cancellation acknowledgment does not prove settlement.
+Final synchronous authorization follows asynchronous credential/source checks.
+Recovered shared commands without their original source-authorization observer
+are refused before admission and final SDK input. Their retained context cannot
+silently bypass the sharing fence after restart.
+
+The offline real HTTP application journey exercises both personal Claude and a
+separate OpenAI API-key participant: silent joins, first/later attributed replies,
+exact retries without extra inputs, an exact older saved artifact, independent
+Stop claims and terminal settlement, complete restart without replay, and explicit
+cold continuation of the same personal Claude session. Only external credential
+and provider processes are synthetic; application authentication, account routing,
+admission, stores and source delivery remain real. The Add-agent repository picker
+now carries the selected supported harness instead of hard-coding Codex; remote
+SDK and unsupported routes remain unavailable.
+
+This is source qualification. Hosted CI, browser evidence, trusted current-head
+review and gated landing remain required. No real subscription/API test, account
+enrollment, deployment or runtime acceptance is claimed. The context-only forwarding
+sheet is implemented in the preceding PR; its durability correction is integrated
+here with the shared send/Stop recovery owner. Explicit requests for responses
+continue through ordinary prompt admission.
 
 ## Accepted multiple-responder source
 
@@ -655,3 +716,20 @@ shared route has not been accepted by this documentation change.
 Production activation, provider enrollment and retained-owner/resource settlement
 remain separate, operation-specific requirements. Live model tests explicitly
 use a supported Luna model with the exact charged account announced beforehand.
+
+## Source review follow-up — 12 November 2026
+
+The personal Claude candidate preserves current SDK peer/user steering, ordinary
+sender checks and Symposium command lifecycle fences together. A shared command
+recovered from the durable queue cannot dispatch without its original live source
+observer. Recovery preserves the queued command and reports uncertainty; a new
+continuation does not grant permission to replay its private context.
+
+The recording-transport application journey now queues B behind A, stops and
+settles A, restarts, and requests an explicit cold continuation. It verifies that
+B gets no execution admission or provider input when its observer is unavailable.
+The owner-level refusal and application outcome were observed failing before the
+correction and passing afterward. Earlier fresh joining, independent personal/API
+participants, attributed replies, exact artifacts, Stop and normal cold continuation
+remain in the same journey. These are offline source checks, not live account,
+device, deployment or full-feature acceptance.

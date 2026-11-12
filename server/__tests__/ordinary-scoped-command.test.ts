@@ -26,7 +26,9 @@ vi.mock('../ordinary-openshell-codex-entry.js', () => ({
   sendOwnedOpenShellCodexCommand: calls.sendShell,
 }));
 
-function input(provider: 'openai' | 'openai-codex' | 'anthropic-vertex' = 'openai') {
+function input(
+  provider: 'openai' | 'openai-codex' | 'anthropic-vertex' | 'anthropic-claude' = 'openai',
+) {
   const binding = {
     accountId: 'selected',
     accountLabel: 'Selected',
@@ -38,8 +40,9 @@ function input(provider: 'openai' | 'openai-codex' | 'anthropic-vertex' = 'opena
     version: 2 as const,
     account: { accountId: binding.accountId, provider, profileRevision: binding.profileRevision },
     harness: {
-      implementation:
-        provider === 'anthropic-vertex' ? ('claude-sdk' as const) : ('codex' as const),
+      implementation: provider.startsWith('anthropic-')
+        ? ('claude-sdk' as const)
+        : ('codex' as const),
     },
     execution: {
       location: 'local' as const,
@@ -83,6 +86,47 @@ function input(provider: 'openai' | 'openai-codex' | 'anthropic-vertex' = 'opena
 }
 
 describe('ordinary feature dispatch shares the ordinary owner', () => {
+  it.each(['anthropic-claude', 'anthropic-vertex'] as const)(
+    'keeps %s prepared first dispatch and later lifecycle callbacks with the existing SDK owner',
+    async (provider) => {
+      const selected = input(provider);
+      const lifecycle = { beforeDispatch: vi.fn(), accepted: vi.fn(), terminal: vi.fn() };
+      const onSessionPrepared = vi.fn();
+      await dispatchOwnedOrdinaryCommand({
+        ...selected,
+        preparationOperationId: 'silent-sdk',
+        ordinaryTurnLifecycle: lifecycle,
+        onSessionPrepared,
+      });
+      expect(calls.startVertex).toHaveBeenLastCalledWith(
+        selected.transport,
+        selected.clientId,
+        expect.objectContaining({
+          preparationOperationId: 'silent-sdk',
+          ordinaryTurnLifecycle: lifecycle,
+          onSessionPrepared,
+        }),
+      );
+      await dispatchOwnedOrdinaryCommand({
+        ...selected,
+        continuation: true,
+        existingOwner: true,
+        ordinaryTurnLifecycle: lifecycle,
+      });
+      expect(calls.sendVertex).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          sessionId: selected.sessionId,
+          command: selected.command,
+          ordinaryTurnLifecycle: lifecycle,
+        }),
+      );
+      const before = calls.startVertex.mock.calls.length;
+      await expect(
+        dispatchOwnedOrdinaryCommand({ ...selected, onQueryEvent: vi.fn() }),
+      ).rejects.toThrow('Scoped callbacks are unavailable');
+      expect(calls.startVertex).toHaveBeenCalledTimes(before);
+    },
+  );
   it.each(['openai', 'openai-codex'] as const)(
     'dispatches %s through exact Codex admission without changing identity',
     async (provider) => {

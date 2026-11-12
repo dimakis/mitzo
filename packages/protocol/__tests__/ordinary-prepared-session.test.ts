@@ -48,6 +48,69 @@ afterEach(() => {
   for (const store of stores.splice(0)) store.close();
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
 });
+it.each(['anthropic-claude', 'anthropic-vertex'] as const)(
+  'retains a silent local %s session and admits only its exact explicit SDK first command',
+  (provider) => {
+    const store = open();
+    const sdk = {
+      ...binding,
+      account: { ...binding.account, provider },
+      harness: { implementation: 'claude-sdk' as const },
+    };
+    const sdkMeta = { ...meta, accountBinding: { ...meta.accountBinding, provider } };
+    const input = { ...preparation, settings: { ...preparation.settings, binding: sdk } };
+    const prepared = store.prepareOrdinarySession(sdkMeta, input);
+    expect(prepared.firstCommandId).toBeNull();
+    expect(store.getSessionEvents(meta.sessionId)).toEqual([]);
+    expect(store.getSendCommand(command.clientMsgId)).toBeUndefined();
+    expect(store.getOrdinaryInitialCommandId(meta.sessionId)).toBeUndefined();
+    expect(() => store.admitOrdinaryLocalVertexCommand(sdkMeta, sdk, command)).toThrow(
+      /new session/i,
+    );
+    expect(store.admitPreparedOrdinaryCommand('allocation', sdkMeta, sdk, command).duplicate).toBe(
+      false,
+    );
+    expect(store.getOrdinaryLocalVertexCommandAdmission('prompt')!.binding).toEqual(sdk);
+    expect(store.claimOrdinaryLocalVertexCommandDispatch('prompt')).toBe(true);
+    expect(store.admitPreparedOrdinaryCommand('allocation', sdkMeta, sdk, command).duplicate).toBe(
+      true,
+    );
+    expect(store.claimOrdinaryLocalVertexCommandDispatch('prompt')).toBe(false);
+    expect(() =>
+      store.admitPreparedOrdinaryCommand('allocation', sdkMeta, sdk, {
+        ...command,
+        clientMsgId: 'replacement',
+      }),
+    ).toThrow();
+    expect(store.getSendCommand('replacement')).toBeUndefined();
+    expect(store.getOrdinarySessionPreparation('allocation')!.firstCommandId).toBe('prompt');
+  },
+);
+it('does not silently allocate a remote SDK route or a context recipe', () => {
+  const store = open();
+  const sdk = {
+    ...binding,
+    account: { ...binding.account, provider: 'anthropic-claude' as const },
+    harness: { implementation: 'claude-sdk' as const },
+  };
+  const sdkMeta = {
+    ...meta,
+    accountBinding: { ...meta.accountBinding, provider: 'anthropic-claude' as const },
+  };
+  for (const settings of [
+    {
+      ...preparation.settings,
+      binding: { ...sdk, execution: { ...sdk.execution, location: 'openshell' as const } },
+    },
+    {
+      ...preparation.settings,
+      binding: sdk,
+      selection: { ...selection, context: { source: 'contexgin' as const, revision: 'recipe' } },
+    },
+  ])
+    expect(() => store.prepareOrdinarySession(sdkMeta, { ...preparation, settings })).toThrow();
+  expect(store.getSession(meta.sessionId)).toBeNull();
+});
 it('allocates durable distinct ordinary identity without a command, execution, or event through exact retries and restart', () => {
   const root = mkdtempSync(join(tmpdir(), 'prepared-session-'));
   roots.push(root);

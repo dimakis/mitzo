@@ -51,6 +51,7 @@ export async function retainReadOnlyCallbackOutcome<T extends object | undefined
 /** Original in-memory callbacks only. A reconstructed owner cannot manufacture
  * settlement, replay a tool, or treat a missing durable result as success. */
 export class TurnCallbacks {
+  constructor(private readonly options: { retainUnknownOutcomes?: boolean } = {}) {}
   private pending = new Set<Promise<unknown>>();
   private sealed = false;
   private failure?: { cause: unknown };
@@ -75,7 +76,10 @@ export class TurnCallbacks {
     const observation = work.then(
       (result) => {
         this.pending.delete(observation);
-        if (this.sealed && callbackOutcome(result) === 'unknown')
+        if (
+          (this.sealed || this.options.retainUnknownOutcomes) &&
+          callbackOutcome(result) === 'unknown'
+        )
           this.failure ??= { cause: new SessionRuntimeError('callbacks_failed') };
       },
       (cause: unknown) => {
