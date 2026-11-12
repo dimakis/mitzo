@@ -124,10 +124,10 @@ export async function createClaudeLoginProcess(
     failure: Error | undefined;
   let escalation: ReturnType<typeof setTimeout> | undefined;
   const stop = () => {
-    if (child.exitCode !== null || child.signalCode !== null) return;
+    if (child.exitCode != null || child.signalCode != null) return;
     child.kill('SIGTERM');
     escalation ??= setTimeout(() => {
-      if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL');
+      if (child.exitCode == null && child.signalCode == null) child.kill('SIGKILL');
     }, 5000);
     escalation.unref();
   };

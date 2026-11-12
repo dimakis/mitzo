@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.1099-claude-sdk-sign-in';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.1100-claude-sdk-sign-in';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -222,7 +222,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/claude-account-store.test.ts':
     '36cff4bc1481aa588c3f82e4f4232616e8b493265ed6d9a2f05280d4a9616483',
   '../__tests__/claude-login-process.test.ts':
-    '015808785e199e768bcd6a8e5a4bc599e05777b5e9e787d33edb76fcaa61ea83',
+    '083e4e398abb2b5c1b2c7324d78387f85333dc067baf5454eb8e1bec4bb46969',
   '../__tests__/claude-login-supervisor.test.ts':
     '74e89a04474829bb42121ee8904adb5cda09e4e28f4c856855987741b8328a51',
   '../__tests__/claude-managed-profiles.test.ts':
@@ -230,7 +230,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../claude-account-login.ts': 'b3bbcc7f14699ba3cd23355dc685b52bf7ce690b90ce11b0c109dc95d06d25a2',
   '../claude-account-router.ts': '05b9793ab2d514ae53e034a0ff8b156f39bf988bbb047fd3c2c5acd66078aaf6',
   '../claude-account-store.ts': '00da4a597cb473ae23dddecc717b957718b39c6ba6ce6387d44e4b603b553118',
-  '../claude-login-process.ts': 'c8753b09e4a4db316bd0c9fab65459b1a795e994eaf4207ebfa10c0ba970f246',
+  '../claude-login-process.ts': '2b4774d31e316a1b3cc1b6f8ae73ea68d4e397785497fdec210a67a8cacfb6ca',
   '../claude-login-supervisor.cjs':
     'd62c9117de7255c4087d54fa5840f382f594ee7ef4b3f35b47fcaa20bebafa94',
   '../connections-access.ts': '46b54b46f8d38d739d4bea29fcfdd25b43d831fdb63e411571925451426329d1',
@@ -2734,7 +2734,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../workspace-runtime-client.ts':
     'eb377ad70361797cb34de00c1974952b76cd81041da7668631b138cf5d44473f',
   '../credential-sdk-boundary.ts':
-    'f63e35ed27fb5c154a3d9ac3f7baced9d29c8ecbc64013e6fd4911876a21b3c9',
+    '46026e9f38116e3868a24676401b14cfa8778903d68309e4cc602b7be51a8c26',
   '../sandboxed-command-worker.ts':
     '2a573c2e8c11ffdb61a537e9b190f820bebd7ee1479bc65a3b81ba0ba2ab120e',
   '../protected-sdk-command.ts': '9b77fcbe62a8fb900f7ec548220345e50a6c56ebb194c1a748aaaf590812c39a',
