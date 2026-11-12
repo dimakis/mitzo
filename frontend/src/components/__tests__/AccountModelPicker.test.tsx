@@ -3,6 +3,41 @@ import { useState } from 'react';
 import { it, expect, vi, afterEach } from 'vitest';
 import { act, render, screen, fireEvent, cleanup, waitFor, within } from '@testing-library/react';
 import { AccountModelPicker } from '../AccountModelPicker';
+import { setHiddenPickerModels } from '../../lib/model-visibility';
+
+it.each([false, true])(
+  'filters picker choices without changing a selected binding (controlled=%s)',
+  async (controlled) => {
+    const accounts = [
+      {
+        id: 'work',
+        label: 'Work',
+        models: [
+          { id: 'sonnet', label: 'Sonnet' },
+          { id: 'hidden', label: 'Hidden model' },
+        ],
+      },
+    ];
+    vi.mocked(apiFetch).mockImplementation(async () => Response.json(accounts));
+    setHiddenPickerModels('work', ['hidden']);
+    render(
+      <AccountModelPicker
+        sessionId={null}
+        preferredModel="sonnet"
+        onChange={vi.fn()}
+        controlled={
+          controlled
+            ? { accounts, selection: { accountId: 'work', model: 'sonnet' }, onChange: vi.fn() }
+            : undefined
+        }
+      />,
+    );
+    const select = await screen.findByRole('combobox', { name: 'Model' });
+    expect(within(select).queryByRole('option', { name: 'Hidden model' })).toBeNull();
+    act(() => setHiddenPickerModels('work', []));
+    expect(within(select).getByRole('option', { name: 'Hidden model' })).toBeTruthy();
+  },
+);
 
 it.each([false, true])(
   'retains model refresh beside complete defaults (controlled=%s)',

@@ -1,6 +1,7 @@
 import { SessionRuntimeBindingV1Schema } from '@mitzo/protocol';
 import type { SessionRuntimeBindingV1 } from '@mitzo/protocol';
 import type { Account, AccountSelection } from '../components/AccountModelPicker';
+import { pickerModels } from './model-visibility';
 
 const KEY = 'mitzo-default-account-model';
 export function getDefaultAccountModel(): AccountSelection | null {
@@ -103,7 +104,10 @@ export function withAccountThinking(
 
 /** A user-selected account starts with its own settings, never another account's model. */
 export function accountModelPreference(account: Account): AccountSelection {
-  const models = account.models.length ? account.models : (account.configuredModels ?? []);
+  const models = pickerModels(
+    account.id,
+    account.models.length ? account.models : (account.configuredModels ?? []),
+  );
   let saved: AccountSelection | null = null;
   try {
     const value = JSON.parse(localStorage.getItem(ACCOUNT_SETTINGS_KEY) || '{}')?.[account.id];

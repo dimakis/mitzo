@@ -7,6 +7,8 @@ import {
   OpenAIAccountEnrollmentFailure,
 } from '../lib/connections-api';
 import type { EnrolledOpenAIAccount } from '../types/connections';
+import { MotionDetails } from './MotionDetails';
+import { EnmaasAccountSetup } from './EnmaasAccountSetup';
 
 const enmaasModels = ['rits/zai-org/glm-5-3', 'rits/deepseek-ai/DeepSeek-V4.1-Flash-1017'];
 
@@ -39,18 +41,20 @@ export function OpenAIAccountEnrollment({
   authorized,
   expiresAt,
   onReauthorizationNeeded,
+  accountId,
 }: {
   csrf: string;
   authorized: boolean;
   expiresAt?: number;
   onReauthorizationNeeded: () => void;
+  accountId?: string;
 }) {
   const [enabled, setEnabled] = useState<boolean | null>(null);
   const [accounts, setAccounts] = useState<EnrolledOpenAIAccount[]>([]);
   const [label, setLabel] = useState('');
   const [projectLabel, setProjectLabel] = useState('');
   const [apiKey, setApiKey] = useState('');
-  const [provider, setProvider] = useState('openai');
+  const [provider, setProvider] = useState(accountId ? 'enmaas' : 'openai');
   const [protocol, setProtocol] = useState<'responses' | 'messages'>('responses');
   const [authentication, setAuthentication] = useState<'api-key' | 'bearer'>('api-key');
   const [endpoint, setEndpoint] = useState('');
@@ -73,6 +77,16 @@ export function OpenAIAccountEnrollment({
   const [reviewRequired, setReviewRequired] = useState(false);
   const [created, setCreated] = useState<EnrolledOpenAIAccount | null>(null);
   const [message, setMessage] = useState('');
+  const missing = [
+    !label.trim() && 'Enter an account label',
+    !projectLabel.trim() && 'Enter a project name',
+    !apiKey.trim() && 'Enter an API key',
+    custom && !endpointValid && 'Enter a public HTTPS API base URL',
+    custom &&
+      !modelsValid &&
+      'Select or enter at least one model (up to 200 IDs, 256 characters each)',
+    !billingConfirmed && 'Confirm the authorization below',
+  ].filter(Boolean);
   const mounted = useRef(false);
   const pending = useRef(false);
   const requestId = useRef<string | null>(null);
@@ -231,14 +245,28 @@ export function OpenAIAccountEnrollment({
       pending.current = false;
     }
   };
+  if (provider === 'enmaas')
+    return (
+      <EnmaasAccountSetup
+        csrf={csrf}
+        authorized={authorized}
+        expiresAt={expiresAt}
+        onReauthorizationNeeded={onReauthorizationNeeded}
+        enabled={enabled}
+        accounts={accounts}
+        onRefresh={refresh}
+        accountId={accountId}
+        onChooseProvider={accountId ? undefined : () => setProvider('openai')}
+      />
+    );
   return (
     <section
-      className="connections-card openai-account-enrollment"
+      className="connections-setup openai-account-enrollment"
       aria-label="Add a new AI API account"
     >
       <h2>Add a new AI API account</h2>
-      <p>
-        Existing tasks keep their current account. Select this new account when starting a new chat.
+      <p className="workspace-muted">
+        Existing tasks keep their current account. Use this account in a new chat.
       </p>
       {message && <p role="alert">{message}</p>}
       {enabled === null ? (
@@ -275,7 +303,7 @@ export function OpenAIAccountEnrollment({
                 resetDiscovery();
                 setProvider(value);
                 setProtocol('responses');
-                setAuthentication(value === 'enmaas' ? 'bearer' : 'api-key');
+                setAuthentication('api-key');
                 setEndpoint(value === 'enmaas' ? 'https://api.enmaas.devshift.net/v1' : '');
                 setExplicitModels(value === 'enmaas' ? enmaasModels.join('\n') : '');
                 setApiKey('');
@@ -296,14 +324,11 @@ export function OpenAIAccountEnrollment({
                   const next = event.target.value as 'responses' | 'messages';
                   resetDiscovery();
                   setProtocol(next);
-                  setExplicitModels(
-                    provider === 'enmaas' && next === 'responses' ? enmaasModels.join('\n') : '',
-                  );
+                  setExplicitModels(provider === 'enmaas' ? enmaasModels.join('\n') : '');
                   if (provider === 'enmaas')
                     setEndpoint(
                       'https://api.enmaas.devshift.net' + (next === 'responses' ? '/v1' : ''),
                     );
-                  setApiKey('');
                 }}
               >
                 <option value="responses">Responses · Codex</option>
@@ -350,6 +375,7 @@ export function OpenAIAccountEnrollment({
             Account label
             <input
               value={label}
+              required
               maxLength={120}
               disabled={busy}
               onChange={(event) => setLabel(event.target.value)}
@@ -359,18 +385,17 @@ export function OpenAIAccountEnrollment({
             Intended work project name
             <input
               value={projectLabel}
+              required
               maxLength={120}
               disabled={busy}
               onChange={(event) => setProjectLabel(event.target.value)}
             />
           </label>
-          <p className="workspace-muted">
-            This name records your intended use. It does not verify the key’s project identity.
-          </p>
           <label className="connections-field">
             API key
             <input
               type="password"
+              required
               autoComplete="off"
               spellCheck={false}
               maxLength={16384}
@@ -385,14 +410,9 @@ export function OpenAIAccountEnrollment({
           {custom && (
             <>
               <p className="workspace-muted" id="api-provider-endpoint-help">
-                Use a public HTTPS provider hostname without credentials, query or fragment.
-              </p>
-              <p className="workspace-muted">
-                {protocol === 'messages'
-                  ? 'Uses the existing Claude Agent SDK engine with the selected provider’s API key. Enter the provider base URL before /v1/messages; Google Vertex authentication is disabled.'
-                  : 'Uses the Codex engine with a Responses-compatible API.'}{' '}
-                Get models sends this key to the selected provider for a catalog read; it makes no
-                inference call.
+                {provider === 'enmaas'
+                  ? 'The two hosted models are prefilled. Get models is optional.'
+                  : 'Select models below or enter their exact IDs. Get models is optional.'}
               </p>
               <button
                 type="button"
@@ -443,19 +463,26 @@ export function OpenAIAccountEnrollment({
                   placeholder="One model ID per line"
                 />
               </label>
-              <p className="workspace-muted">
-                Catalogs may omit working models. Explicit IDs are saved without a model call or key
-                validation. Confirm that the selected models support{' '}
-                {protocol === 'messages' ? 'Claude Messages' : 'Codex Responses'} streaming, tools,
-                follow-up turns and cancellation.
-              </p>
-              {provider === 'enmaas' && (
+              <MotionDetails className="connections-technical" summary="API setup details">
                 <p className="workspace-muted">
                   {protocol === 'messages'
-                    ? 'Choose your permitted Anthropic models from the catalog or enter their exact model IDs. These models may incur charges.'
-                    : 'The two hosted models are prefilled. Other catalog models may incur charges. GLM compatibility with Codex tools needs separate verification.'}
+                    ? 'Uses the existing Claude Agent SDK engine. Enter the provider base URL before /v1/messages. EnMaaS requires Anthropic API key authentication; Vertex authentication is disabled.'
+                    : 'Uses the Codex engine with a Responses-compatible API.'}
                 </p>
-              )}
+                <p className="workspace-muted">
+                  Use a public HTTPS provider hostname without credentials, query or fragment. Get
+                  models sends this key to that endpoint for a catalog read, with no inference call.
+                  Catalogs may omit working models. Saving explicit IDs makes no model call and does
+                  not validate the key. Project names record intended use only.
+                </p>
+                <p className="workspace-muted">
+                  Models must support streaming, tools, follow-up turns and cancellation with the
+                  selected engine. Other catalog models may incur charges.
+                  {provider === 'enmaas' &&
+                    protocol === 'responses' &&
+                    ' GLM compatibility with Codex tools needs separate verification.'}
+                </p>
+              </MotionDetails>
             </>
           )}
           {!custom && (
@@ -473,12 +500,18 @@ export function OpenAIAccountEnrollment({
             />
             <span>
               {custom
-                ? `I authorize sending this key to the selected endpoint and confirm the selected models support the ${protocol === 'messages' ? 'Claude' : 'Codex'} features listed above.`
+                ? `I authorize sending this key to the selected endpoint and confirm these models support ${protocol === 'messages' ? 'Claude' : 'Codex'} streaming, tools, follow-up turns and cancellation.`
                 : 'I authorize this validation charge to the project associated with this key.'}
             </span>
           </label>
+          {missing.length > 0 && (
+            <p className="workspace-muted" id="api-account-save-help">
+              {missing.join('. ')}.
+            </p>
+          )}
           <button
             className="workspace-primary"
+            aria-describedby={missing.length > 0 ? 'api-account-save-help' : undefined}
             disabled={
               busy ||
               discovering ||

@@ -96,6 +96,60 @@ const gatewayConnection = {
     cancellation: true,
   },
 };
+it.each(['responses', 'messages'] as const)(
+  'refreshes saved %s models with the managed key and keeps existing model bindings',
+  async (protocol) => {
+    const f = fixture();
+    const discoverApiModels = vi.fn(async () => ({
+      models: [{ id: 'new/model', label: 'New' }],
+      partial: false,
+    }));
+    const service = new OpenAIAccountEnrollment({ ...f.options, discoverApiModels });
+    const account = await service.enroll(
+      {
+        ...f.input,
+        connection: {
+          ...gatewayConnection,
+          protocol,
+          ...(protocol === 'messages' ? { authentication: 'api-key' as const } : {}),
+        },
+        models: [{ id: 'existing/model', label: 'Existing' }],
+      },
+      AbortSignal.timeout(1000),
+    );
+    const refreshed = await service.refreshAccountModels(account.id, AbortSignal.timeout(1000));
+    expect(refreshed.models?.map((model) => model.id)).toEqual(['existing/model', 'new/model']);
+    expect(service.list()[0].models).toEqual(refreshed.models);
+    expect(discoverApiModels).toHaveBeenCalledWith(
+      gatewayConnection.endpoint,
+      f.input.apiKey,
+      expect.any(AbortSignal),
+      ...(protocol === 'messages'
+        ? [expect.objectContaining({ protocol, authentication: 'api-key' })]
+        : []),
+    );
+    discoverApiModels.mockRejectedValueOnce(Error('PRIVATE provider payload'));
+    await expect(
+      service.refreshAccountModels(account.id, AbortSignal.timeout(1000)),
+    ).rejects.toThrow();
+    expect(service.list()[0].models).toEqual(refreshed.models);
+    discoverApiModels.mockImplementationOnce(async () => {
+      const [ref, value] = [...f.secrets.entries()][0];
+      f.secrets.set(ref, { ...value, value: 'changed-credential' });
+      return { models: [{ id: 'drift/model', label: 'Drift' }], partial: false };
+    });
+    await expect(
+      service.refreshAccountModels(account.id, AbortSignal.timeout(1000)),
+    ).rejects.toThrow();
+    expect(service.list()[0].models).toEqual(refreshed.models);
+    f.secrets.clear();
+    discoverApiModels.mockClear();
+    await expect(
+      service.refreshAccountModels(account.id, AbortSignal.timeout(1000)),
+    ).rejects.toThrow();
+    expect(discoverApiModels).not.toHaveBeenCalled();
+  },
+);
 it('enrolls a generic endpoint with discovered models and host-only credential custody', async () => {
   const f = fixture();
   const discoverApiModels = vi.fn(async () => ({

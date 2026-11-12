@@ -21,6 +21,8 @@ import {
   QuickSettingsSupplement,
 } from './QuickChatSettings';
 import { ModelBrandMark } from './SettingsBrandMark';
+import { pickerModels, useModelVisibility } from '../lib/model-visibility';
+import { ModelVisibilitySettings } from './ModelVisibilitySettings';
 import type { AccountSelection } from '../types/account-selection';
 export type { AccountSelection } from '../types/account-selection';
 export interface Account {
@@ -243,6 +245,7 @@ function SessionAccountModelPicker({
   onSummaryChange?: (summary: WorkspaceSummary | null) => void;
 }) {
   const quick = useQuickSettings();
+  useModelVisibility();
   const status = (value: string, children: ReactNode) => {
     // Keep inline subscription owners at the same React depth during catalog refreshes.
     if (scope !== 'chat')
@@ -692,6 +695,7 @@ function SessionAccountModelPicker({
     setSelection(next);
     onChange(explicitSelection || needsConfirmation ? null : next);
   };
+  const visibleModels = pickerModels(account.id, account.models, selection.model);
   const fieldModel = account.models.find((m) => m.id === selection.model);
   const fields = (
     <>
@@ -828,14 +832,14 @@ function SessionAccountModelPicker({
                 value: fieldModel?.label ?? `${selection.model} (unavailable)`,
                 selected: selection.model,
                 choices: fieldModel
-                  ? account.models
+                  ? visibleModels
                   : [
                       {
                         id: selection.model,
                         label: `${selection.model} (unavailable)`,
                         disabled: true,
                       },
-                      ...account.models,
+                      ...visibleModels,
                     ],
                 disabled: disabled || !!requiredSelection || lockAccountModel,
                 disabledReason:
@@ -860,7 +864,7 @@ function SessionAccountModelPicker({
               {selection.model} (unavailable)
             </option>
           )}
-          {account.models.map((m) => (
+          {visibleModels.map((m) => (
             <option key={m.id} value={m.id}>
               {m.label}
             </option>
@@ -936,6 +940,16 @@ function SessionAccountModelPicker({
           </button>
         )}
       </QuickSettingsSupplement>
+      {presentation === 'settings' && (
+        <QuickSettingsSupplement page="model">
+          <ModelVisibilitySettings
+            accountId={account.id}
+            accountLabel={account.label}
+            models={account.models}
+            disabled={disabled}
+          />
+        </QuickSettingsSupplement>
+      )}
       {quick && scope === 'chat' && !legacy && (
         <QuickSettingsSupplement page="model">
           <button disabled={disabled} onClick={() => setAttempt((n) => n + 1)}>
@@ -1052,6 +1066,7 @@ function ControlledAccountModelPicker({
   lockAccount?: boolean;
 }) {
   const quick = useQuickSettings();
+  useModelVisibility();
   const [savedDefault, setSavedDefault] = useState(getDefaultAccountModel);
   const account = accounts.find((a) => a.id === selection?.accountId);
   const model = account?.models.find((m) => m.id === selection?.model);
@@ -1164,13 +1179,28 @@ function ControlledAccountModelPicker({
         },
         pendingAccount ? `Confirm account: ${account!.label}` : undefined,
       )}
-      {field('Model', selection?.model ?? '', account?.models ?? [], (id) => {
-        if (selection && id && account) {
-          const next = withThinking({ ...selection, model: id }, account);
-          if (canSaveDefault) rememberAccountModel(next, account);
-          onChange(next);
-        }
-      })}
+      {field(
+        'Model',
+        selection?.model ?? '',
+        account ? pickerModels(account.id, account.models, selection?.model) : [],
+        (id) => {
+          if (selection && id && account) {
+            const next = withThinking({ ...selection, model: id }, account);
+            if (canSaveDefault) rememberAccountModel(next, account);
+            onChange(next);
+          }
+        },
+      )}
+      {presentation === 'settings' && account && (
+        <QuickSettingsSupplement page="model">
+          <ModelVisibilitySettings
+            accountId={account.id}
+            accountLabel={account.label}
+            models={account.models}
+            disabled={disabled}
+          />
+        </QuickSettingsSupplement>
+      )}
       {field(
         'Thinking',
         selection?.reasoningEffort ?? '',

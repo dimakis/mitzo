@@ -36,6 +36,8 @@ export interface OpenAIEnrollmentAccount {
   state: 'connecting' | 'ready' | 'failed' | 'needs_attention';
   endpoint?: string;
   errorCode?: string;
+  protocol?: 'responses' | 'messages';
+  models?: { id: string; label: string }[];
 }
 export interface OpenAIEnrollmentProfile {
   id: string;
@@ -131,7 +133,13 @@ const publicAccount = (row: EnrollmentRecord): OpenAIEnrollmentAccount => ({
   requestId: row.requestId,
   label: row.label,
   projectLabel: row.projectLabel,
-  ...(row.connection ? { endpoint: row.connection.endpoint } : {}),
+  ...(row.connection
+    ? {
+        endpoint: row.connection.endpoint,
+        protocol: row.connection.protocol,
+        ...(row.models ? { models: row.models.map(({ id, label }) => ({ id, label })) } : {}),
+      }
+    : {}),
   ...(row.errorCode ? { errorCode: row.errorCode } : {}),
   state:
     row.phase === 'ready'
@@ -648,31 +656,83 @@ export class OpenAIAccountEnrollment {
     const gate = this.options.readGate
       ? <R>(read: () => Promise<R>) => this.options.readGate!(read, signal)
       : this.options.gate;
-    return gate(async () => {
-      signal.throwIfAborted();
+    return gate(() => this.readHostKey(id, signal));
+  }
+  private async readHostKey(id: string, signal: AbortSignal): Promise<string> {
+    signal.throwIfAborted();
+    const row = this.options.store.account(id);
+    if (
+      !row ||
+      row.phase !== 'ready' ||
+      (!row.connection && !row.provider) ||
+      row.controllerBinding !== this.controllerBinding() ||
+      (row.provider && row.provider.workspace !== this.options.workspace)
+    )
+      throw new Error('OpenAI enrolled account needs attention');
+    const key = await this.options.keychain.read(
+      openAIEnrollmentCredentialReference(row.operationId),
+      signal,
+    );
+    signal.throwIfAborted();
+    if (
+      key.version !== row.operationId ||
+      key.managed !== true ||
+      !key.value.trim() ||
+      !isDeepStrictEqual(this.options.store.account(id), row) ||
+      row.controllerBinding !== this.controllerBinding()
+    )
+      throw new Error('OpenAI enrolled account needs attention');
+    return key.value;
+  }
+  /** Refresh metadata using only the saved account's current managed credential.
+   * Retain pinned/previous models: catalogs are advisory and existing chats keep
+   * their exact model binding. This never changes routing or credential identity.
+   */
+  refreshAccountModels(id: string, signal: AbortSignal): Promise<OpenAIEnrollmentAccount> {
+    return this.options.gate(async () => {
       const row = this.options.store.account(id);
-      if (
-        !row ||
-        row.phase !== 'ready' ||
-        (!row.connection && !row.provider) ||
-        row.controllerBinding !== this.controllerBinding() ||
-        (row.provider && row.provider.workspace !== this.options.workspace)
-      )
-        throw new Error('OpenAI enrolled account needs attention');
-      const key = await this.options.keychain.read(
-        openAIEnrollmentCredentialReference(row.operationId),
-        signal,
-      );
-      signal.throwIfAborted();
-      if (
-        key.version !== row.operationId ||
-        key.managed !== true ||
-        !key.value.trim() ||
-        !isDeepStrictEqual(this.options.store.account(id), row) ||
-        row.controllerBinding !== this.controllerBinding()
-      )
-        throw new Error('OpenAI enrolled account needs attention');
-      return key.value;
+      if (!row?.connection || row.phase !== 'ready')
+        throw new ApiAccountSetupError(
+          'ACCOUNT_UNAVAILABLE',
+          'This API account is unavailable. Check its saved status.',
+        );
+      let stage = 'model_refresh_credential_read';
+      try {
+        const key = await this.readHostKey(id, signal);
+        stage = 'model_refresh_catalog';
+        const catalog = await this.discoverModels(
+          row.connection.endpoint,
+          key,
+          signal,
+          ...(row.connection.protocol === 'messages' ? [row.connection] : []),
+        );
+        const models = ApiAccountModelsSchema.parse([
+          ...new Map(
+            [...(row.models ?? []), ...catalog.models].map((model) => [model.id, model]),
+          ).values(),
+        ]);
+        stage = 'model_refresh_credential_recheck';
+        if ((await this.readHostKey(id, signal)) !== key)
+          throw new Error('Credential changed during model refresh');
+        signal.throwIfAborted();
+        if (!isDeepStrictEqual(this.options.store.account(id), row))
+          throw new Error('Account changed during model refresh');
+        stage = 'model_refresh_persist';
+        return publicAccount(this.options.store.update(row, { models }));
+      } catch (cause) {
+        log.warn('Saved API model refresh failed', {
+          stage,
+          code: cause instanceof ApiAccountSetupError ? cause.code : 'MODEL_REFRESH_FAILED',
+          accountId: id,
+          operationId: row.operationId,
+          errorType: cause instanceof Error ? cause.name : 'unknown',
+        });
+        throw new ApiAccountSetupError(
+          'MODEL_REFRESH_FAILED',
+          'Could not refresh models. The saved model list is retained. Check the account and retry.',
+          cause,
+        );
+      }
     });
   }
 }

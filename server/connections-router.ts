@@ -340,6 +340,37 @@ export function createConnectionsRouter(options: {
     },
   );
   router.post(
+    '/openai-accounts/:id/models',
+    mutate,
+    requireSameOriginJson,
+    express.json({ limit: '4kb' }),
+    async (req, res) => {
+      const parsed = z
+        .object({ csrf: z.string().min(1) })
+        .strict()
+        .safeParse(req.body);
+      req.body = undefined;
+      if (!parsed.success) return res.status(400).json({ error: 'Invalid model refresh request' });
+      if (!recentAuthorizationExpiry(res, parsed.data.csrf))
+        return res.status(403).json({ error: 'Recent browser reauthorization required' });
+      if (!options.openAIAccounts)
+        return res.status(503).json({ error: 'API account setup is not configured' });
+      try {
+        const account = await options.openAIAccounts.refreshAccountModels(
+          req.params.id,
+          AbortSignal.timeout(15000),
+        );
+        return res.json({ account });
+      } catch {
+        return res.status(422).json({
+          code: 'MODEL_REFRESH_FAILED',
+          error:
+            'Could not refresh models. The saved model list is retained. Check the account and retry.',
+        });
+      }
+    },
+  );
+  router.post(
     '/api-models',
     mutate,
     requireSameOriginJson,
