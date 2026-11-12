@@ -350,7 +350,7 @@ export function ConnectionsView({ mode = 'add', connectionId }: ConnectionsViewP
         ? 'Manage Claude account'
         : 'Connect Claude'
       : mode === 'openai-add'
-        ? 'Add OpenAI API account'
+        ? 'Add AI API account'
         : mode === 'openai'
           ? 'Manage OpenAI API'
           : mode === 'add'
@@ -501,11 +501,11 @@ export function ConnectionsView({ mode = 'add', connectionId }: ConnectionsViewP
                 {data?.openAIAccountsManaged && !loadError && !connectionsRefreshing && (
                   <article className="access-row">
                     <div className="access-row-copy">
-                      <h3>OpenAI API</h3>
-                      <p>Add a new work account for new chats.</p>
+                      <h3>AI API account</h3>
+                      <p>Use OpenAI, EnMaaS or a compatible API for new chats.</p>
                     </div>
                     <Link className="access-row-action" to="/connections?manage=openai-add">
-                      Choose OpenAI API
+                      Choose AI API account
                     </Link>
                   </article>
                 )}
@@ -714,7 +714,7 @@ export function ConnectionsView({ mode = 'add', connectionId }: ConnectionsViewP
                 onReauthorizationNeeded={requireReauthorization}
               />
             ) : (
-              <p>Adding OpenAI API accounts is unavailable.</p>
+              <p>Adding AI API accounts is unavailable.</p>
             ))}
           {data &&
             mode === 'openai' &&

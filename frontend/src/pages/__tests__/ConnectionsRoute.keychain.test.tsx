@@ -37,8 +37,8 @@ it('recognizes the enrollment route without exposing existing key replacement co
       <ConnectionsRoute />
     </MemoryRouter>,
   );
-  expect(await screen.findByText('Adding OpenAI API accounts is unavailable.')).toBeTruthy();
-  expect(screen.getByRole('heading', { level: 1 }).textContent).toBe('Add OpenAI API account');
+  expect(await screen.findByText('Adding AI API accounts is unavailable.')).toBeTruthy();
+  expect(screen.getByRole('heading', { level: 1 }).textContent).toBe('Add AI API account');
   expect(screen.queryByText(/OpenAI controls/)).toBeNull();
 });
 
