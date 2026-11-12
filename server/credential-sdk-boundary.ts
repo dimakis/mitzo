@@ -59,8 +59,9 @@ function runtimeFilesystemProtection() {
 export function credentialSdkBoundary(
   platform: NodeJS.Platform = process.platform,
   selectedAuthorityWriteRoots: readonly string[] = [],
+  selectedProviderBaseUrl?: string,
 ) {
-  return createSdkBoundary(platform, false, selectedAuthorityWriteRoots);
+  return createSdkBoundary(platform, false, selectedAuthorityWriteRoots, selectedProviderBaseUrl);
 }
 
 /** Controller project commands need the runtime fence for every provider, with
@@ -73,6 +74,7 @@ function createSdkBoundary(
   platform: NodeJS.Platform,
   runtimeOnly: boolean,
   selectedAuthorityWriteRoots: readonly string[] = [],
+  selectedProviderBaseUrl?: string,
 ) {
   const selectedWriteRoots = [...new Set(selectedAuthorityWriteRoots.map(canonical))];
   selectedWriteRoots.forEach(validatePath);
@@ -116,7 +118,9 @@ function createSdkBoundary(
       ].map(canonical),
     ),
   ];
-  const providerBaseUrl = credentialIsolation ? process.env.ANTHROPIC_BASE_URL : undefined;
+  const providerBaseUrl = credentialIsolation
+    ? (selectedProviderBaseUrl ?? process.env.ANTHROPIC_BASE_URL)
+    : undefined;
   const providerDomain = providerBaseUrl ? new URL(providerBaseUrl).hostname : undefined;
   if (
     providerDomain &&

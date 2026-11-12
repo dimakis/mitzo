@@ -5,6 +5,7 @@ const providerLabels = {
   'openai-codex': 'ChatGPT subscription',
   'anthropic-vertex': 'Vertex Claude',
   'anthropic-claude': 'Claude subscription',
+  'anthropic-api': 'Anthropic API',
   'google-vertex': 'Vertex Gemini',
 };
 const initial: SymposiumProfileRecipe = {
@@ -15,6 +16,7 @@ const initial: SymposiumProfileRecipe = {
   compatibleProviders: [
     'anthropic-vertex',
     'anthropic-claude',
+    'anthropic-api',
     'google-vertex',
     'openai-codex',
     'openai',

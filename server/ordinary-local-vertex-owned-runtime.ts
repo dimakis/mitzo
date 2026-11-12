@@ -306,7 +306,7 @@ export class OrdinaryLocalVertexOwnedRuntime {
         },
         request.runtime.account,
       ) ||
-      !['anthropic-vertex', 'anthropic-claude'].includes(account.provider) ||
+      !['anthropic-vertex', 'anthropic-claude', 'anthropic-api'].includes(account.provider) ||
       (!continuation && !isDeepStrictEqual(account, original))
     )
       throw unavailable();

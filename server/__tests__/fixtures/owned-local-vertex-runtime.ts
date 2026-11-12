@@ -27,6 +27,8 @@ export async function ownedVertexRuntimeFixture(
     dual?: boolean;
     ordinaryPreparation?: boolean;
     personal?: boolean;
+    anthropicApi?: boolean;
+    modelIds?: readonly [string, string];
     managed?: boolean;
     preparationFingerprint?: string;
     tools?: AgentToolReference[];
@@ -75,35 +77,64 @@ export async function ownedVertexRuntimeFixture(
     {
       id: 'personal',
       label: 'Personal',
-      ...(options.personal
+      ...(options.anthropicApi
         ? {
-            provider: 'anthropic-claude',
-            email: 'person@example.test',
-            planType: 'max',
-            credentialRef: personalConfig,
+            provider: 'anthropic-api',
+            credentialRef: {
+              provider: 'keychain',
+              service: 'mitzo.anthropic.fixture',
+              account: 'api-key',
+            },
+            credentialVersion: 'eec02914-ac1f-4369-ab86-8e4f130abc92',
+            connection: {
+              endpoint: 'https://models.example.com',
+              protocol: 'messages',
+              qualification: {
+                source: 'operator',
+                streaming: true,
+                toolCalls: true,
+                continuation: true,
+                cancellation: true,
+              },
+            },
           }
-        : {
-            provider: 'anthropic-vertex',
-            projectId: 'offline-project',
-            region: 'offline-region',
-            ...(options.dual
-              ? {
-                  sandboxProvider: 'same-api-provider',
-                  sandboxProviderId: 'offline-api-provider-id',
-                }
-              : {}),
-            credentialRef: join(privateRoot, 'adc.json'),
-          }),
+        : options.personal
+          ? {
+              provider: 'anthropic-claude',
+              email: 'person@example.test',
+              planType: 'max',
+              credentialRef: personalConfig,
+            }
+          : {
+              provider: 'anthropic-vertex',
+              projectId: 'offline-project',
+              region: 'offline-region',
+              ...(options.dual
+                ? {
+                    sandboxProvider: 'same-api-provider',
+                    sandboxProviderId: 'offline-api-provider-id',
+                  }
+                : {}),
+              credentialRef: join(privateRoot, 'adc.json'),
+            }),
       models: [
-        { id: 'fixture-model', label: 'Fixture model', reasoningEfforts: ['low'] },
-        { id: 'next-model', label: 'Next model', reasoningEfforts: ['high'] },
+        {
+          id: options.modelIds?.[0] ?? 'fixture-model',
+          label: 'Fixture model',
+          reasoningEfforts: ['low'],
+        },
+        {
+          id: options.modelIds?.[1] ?? 'next-model',
+          label: 'Next model',
+          reasoningEfforts: ['high'],
+        },
       ],
     },
   ];
   const writeProfiles = () =>
     writeFileSync(configPath, JSON.stringify(configuration), { mode: 0o600 });
   let accountId = 'personal';
-  const model = options.managed ? 'sonnet' : 'fixture-model';
+  const model = options.managed ? 'sonnet' : (options.modelIds?.[0] ?? 'fixture-model');
   if (options.managed) {
     if (!options.personal) throw Error('Managed fixture requires a personal Claude account');
     const managedRoot = join(root, 'managed-claude');

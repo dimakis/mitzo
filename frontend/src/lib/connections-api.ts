@@ -72,7 +72,8 @@ export async function enrollOpenAIAccount(input: {
   billingConfirmed: true;
   connection?: {
     endpoint: string;
-    protocol: 'responses';
+    protocol: 'responses' | 'messages';
+    authentication?: 'api-key' | 'bearer';
     qualification: {
       source: 'operator';
       streaming: true;
@@ -122,6 +123,8 @@ export async function discoverApiModels(input: {
   csrf: string;
   endpoint: string;
   apiKey: string;
+  protocol?: 'messages';
+  authentication?: 'api-key' | 'bearer';
 }): Promise<{ models: { id: string; label: string }[]; partial: boolean }> {
   return bodyOrError(
     await apiFetch('/api/connections/api-models', json('POST', input, input.csrf)),

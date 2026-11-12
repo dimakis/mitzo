@@ -1,6 +1,12 @@
 import { expect, it, vi } from 'vitest';
 import { gwsShimPath } from '../gws-broker.js';
-import { query, type Options, type Query } from '@anthropic-ai/claude-agent-sdk';
+import {
+  query,
+  type Options,
+  type Query,
+  type SDKUserMessage,
+} from '@anthropic-ai/claude-agent-sdk';
+import type { SessionRuntimeError } from '../session-runtime-error.js';
 import { AsyncQueue } from '../async-queue.js';
 import { retainCallbackOutcome } from '../turn-callbacks.js';
 import {
@@ -33,6 +39,7 @@ it.each([
       adapt: (native) => native as never,
       settings: () => ({}),
       inputChanged: () => {},
+      onUnsent: vi.fn(),
     });
     try {
       const actual = vi.mocked(query).mock.calls.at(-1)![0].options!.systemPrompt;
@@ -81,6 +88,7 @@ it.each([undefined, { still_queued: ['successor-input'] }] satisfies Awaited<
       adapt: (native) => native as never,
       settings: (selection) => ({ model: selection.model }),
       inputChanged: () => {},
+      onUnsent: vi.fn(),
     });
     try {
       await owner.apply({ model: 'original' } as never);
@@ -131,6 +139,9 @@ it.each(['settled', 'unknown'] as const)(
         tool = state.runCallback;
         return {};
       },
+      onUnsent: (_message, error) => {
+        throw error;
+      },
     });
     await tool(async () => retainCallbackOutcome({ isError: true }, outcome));
     await new Promise<void>((resolve) => setImmediate(resolve));
@@ -171,6 +182,9 @@ it.each(['completed', 'retired'])(
       adapt: (native) => native as never,
       settings: () => ({}),
       inputChanged: () => {},
+      onUnsent: (_message, error) => {
+        throw error;
+      },
     });
     const iterator = owner.query[Symbol.asyncIterator]();
     streams[0].push({ type: 'result', session_id: 'original' });
@@ -231,6 +245,10 @@ it.each(['current', 'revoked', 'missing_identity', 'async_fence'])(
     const sync = vi.fn();
     const controller = new AbortController();
     const input = new AsyncQueue<import('@anthropic-ai/claude-agent-sdk').SDKUserMessage>();
+    const onUnsent = vi.fn((_message: SDKUserMessage, error: SessionRuntimeError) => {
+      expect(controller.signal.aborted).toBe(false);
+      expect(error).toMatchObject({ code: 'input_not_dispatched' });
+    });
     createOrdinaryLocalVertexSdkQuery({
       options: {
         env: {
@@ -249,6 +267,7 @@ it.each(['current', 'revoked', 'missing_identity', 'async_fence'])(
       adapt: (q) => q as never,
       settings: () => ({}),
       inputChanged: () => {},
+      onUnsent,
     });
     const message = {
       type: 'user' as const,
@@ -263,15 +282,22 @@ it.each(['current', 'revoked', 'missing_identity', 'async_fence'])(
     expect(beforeInput).not.toHaveBeenCalled();
     if (scenario === 'revoked') sharingCurrent = false;
     release();
-    if (scenario === 'current') expect((await pending).value).toEqual(message);
-    else {
-      await expect(pending).rejects.toThrow(
-        scenario === 'revoked'
-          ? 'shared source revoked'
-          : scenario === 'async_fence'
-            ? 'Synchronous ordinary turn authority'
-            : 'input command identity',
-      );
+    if (scenario === 'current') {
+      expect((await pending).value).toEqual(message);
+      expect(onUnsent).not.toHaveBeenCalled();
+    } else {
+      await expect(pending).rejects.toMatchObject({ code: 'input_not_dispatched' });
+      expect(onUnsent).toHaveBeenCalledOnce();
+      expect(onUnsent.mock.calls[0][0]).toBe(message);
+      expect(onUnsent.mock.calls[0][1].cause).toMatchObject({
+        message: expect.stringContaining(
+          scenario === 'revoked'
+            ? 'shared source revoked'
+            : scenario === 'async_fence'
+              ? 'Synchronous ordinary turn authority'
+              : 'input command identity',
+        ),
+      });
       expect(controller.signal.aborted).toBe(true);
     }
     expect(sync).toHaveBeenCalledOnce();
@@ -310,6 +336,9 @@ it('checks peer input immediately before stdin yield and consumes peer ACKs befo
     adapt: (q) => q as never,
     settings: () => ({}),
     inputChanged: () => {},
+    onUnsent: (_message, error) => {
+      throw error;
+    },
     peerMessages: () => ({ beforeInput, observe }),
   });
   input.push({
@@ -350,6 +379,7 @@ it.each(['person@example.test', 'other@example.test'])(
     });
     const input = new AsyncQueue<import('@anthropic-ai/claude-agent-sdk').SDKUserMessage>();
     const controller = new AbortController();
+    const onUnsent = vi.fn(() => expect(controller.signal.aborted).toBe(false));
     createOrdinaryLocalVertexSdkQuery({
       options: {
         env: {
@@ -367,6 +397,7 @@ it.each(['person@example.test', 'other@example.test'])(
       adapt: (native) => native as never,
       settings: () => ({}),
       inputChanged: () => {},
+      onUnsent,
     });
     input.push({
       type: 'user',
@@ -375,10 +406,13 @@ it.each(['person@example.test', 'other@example.test'])(
       message: { role: 'user', content: 'Private task' },
     });
     const pending = prompt[Symbol.asyncIterator]().next();
-    if (email === 'person@example.test')
+    if (email === 'person@example.test') {
       expect((await pending).value).toMatchObject({ type: 'user' });
-    else {
-      await expect(pending).rejects.toThrow('Claude subscription');
+      expect(onUnsent).not.toHaveBeenCalled();
+    } else {
+      await expect(pending).rejects.toMatchObject({ code: 'input_not_dispatched' });
+      expect(controller.signal.reason.cause.message).toContain('Claude subscription');
+      expect(onUnsent).toHaveBeenCalledOnce();
       expect(controller.signal.aborted).toBe(true);
     }
     expect(accountInfo).toHaveBeenCalledTimes(1);
@@ -427,9 +461,11 @@ it.each(['hook', 'permission', 'tool'] as const)(
       settings: () => ({}),
       inputChanged: () => {},
       mcpServers: (state) => {
+        // The fixture never refuses input, but keeps the required reporter.
         tool = state.runCallback;
         return {};
       },
+      onUnsent: vi.fn(),
     });
     const callback =
       kind === 'tool'
@@ -498,6 +534,7 @@ it.each(['hook', 'tool'] as const)(
         tool = state.runCallback;
         return {};
       },
+      onUnsent: vi.fn(),
     });
     const callback =
       kind === 'tool'
@@ -546,6 +583,7 @@ it('retires old native hooks and permissions without executing or aborting the s
     adapt: (q) => q as never,
     settings: (selection) => ({ model: selection.model, effort: selection.thinking as never }),
     inputChanged: () => {},
+    onUnsent: vi.fn(),
   });
   expect(requests[0].options.extraArgs).toEqual({
     'offline-existing-flag': null,
@@ -625,6 +663,7 @@ it('refuses old native approval completions after retirement even when the SDK r
     adapt: (q) => q as never,
     settings: (selection) => ({ model: selection.model }),
     inputChanged: () => {},
+    onUnsent: vi.fn(),
   });
   await owner.apply({ model: 'first' } as never);
   const sharedSignal = new AbortController().signal;
@@ -674,6 +713,7 @@ it('does not replace a native query until its exact spawned process closes and f
     adapt: (q) => q as never,
     settings: (selection) => ({ model: selection.model }),
     inputChanged: () => {},
+    onUnsent: vi.fn(),
   });
   await owner.apply({ model: 'first' } as never);
   const replacement = owner.apply({ model: 'second' } as never);
@@ -715,6 +755,7 @@ it('preserves segmented SDK system prompts when appending local CLI guidance', (
     adapt: (q) => q as never,
     settings: (selection) => ({ model: selection.model }),
     inputChanged: () => {},
+    onUnsent: vi.fn(),
   });
   expect(requests[0].options.systemPrompt).toEqual([
     'Original profile.',

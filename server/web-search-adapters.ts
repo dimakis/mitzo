@@ -174,7 +174,11 @@ export async function searchSdk(
     const personal = !!route.env.MITZO_CLAUDE_EXPECTED_EMAIL;
     if (personal && !route.executable)
       throw Error('Selected Claude executable custody unavailable');
-    const sdkBoundary = credentialSdkBoundary(process.platform, route.writeRoots);
+    const sdkBoundary = credentialSdkBoundary(
+      process.platform,
+      route.writeRoots,
+      route.env.ANTHROPIC_BASE_URL,
+    );
     mkdirSync(cwd, { recursive: true, mode: 0o700 });
     try {
       route.executionStore.registerInternalSdkExecution({

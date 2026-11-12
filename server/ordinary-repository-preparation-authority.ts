@@ -50,7 +50,7 @@ async function credentialDigest(
     ? privateFile(process.env.MITZO_ACCOUNT_PROFILES_FILE)
     : undefined;
   let credential: unknown;
-  if (binding.provider === 'anthropic-claude') {
+  if (binding.provider === 'anthropic-claude' || binding.provider === 'anthropic-api') {
     if (selection.runOn !== 'local') throw unavailable();
     const env = profiles.sdkEnv(
       binding,

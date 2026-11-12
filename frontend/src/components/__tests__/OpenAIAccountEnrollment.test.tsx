@@ -22,9 +22,13 @@ afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
 });
-it.each(['secure', 'http'] as const)(
-  'allows a fresh corrected request only after confirmed pre-enrollment rejection on %s hosts',
-  async (host) => {
+it.each(
+  (['responses', 'messages'] as const).flatMap((protocol) =>
+    (['secure', 'http'] as const).map((host) => ({ protocol, host })),
+  ),
+)(
+  'allows a fresh corrected $protocol request after confirmed pre-enrollment rejection on $host hosts',
+  async ({ protocol, host }) => {
     vi.stubGlobal(
       'crypto',
       host === 'secure'
@@ -36,6 +40,10 @@ it.each(['secure', 'http'] as const)(
     );
     await mount();
     fireEvent.change(screen.getByLabelText('Provider'), { target: { value: 'enmaas' } });
+    fireEvent.change(screen.getByLabelText('Model API'), { target: { value: protocol } });
+    fireEvent.change(screen.getByLabelText('Additional model IDs'), {
+      target: { value: 'vendor/model' },
+    });
     fill();
     fireEvent.click(screen.getByRole('checkbox'));
     await act(async () =>
@@ -64,52 +72,62 @@ it.each(['secure', 'http'] as const)(
     const corrected = vi.mocked(api.enrollOpenAIAccount).mock.calls[1][0];
     expect(corrected.requestId).not.toBe(rejectedId);
     expect(corrected.connection?.endpoint).toBe('https://corrected.example/v1');
+    expect(corrected.connection?.protocol).toBe(protocol);
+    if (protocol === 'messages') expect(corrected.connection?.authentication).toBe('bearer');
     expect(screen.getByText('Work API is ready for new chats.')).toBeTruthy();
   },
 );
-it.each([
-  'http://gateway.example/v1',
-  'https://localhost/v1',
-  'https://private.localhost/v1',
-  'https://localhost./v1',
-  'https://private.localhost./v1',
-  'https://./v1',
-  'https://gateway.example/' + '界'.repeat(500),
-  'https://127.0.0.1/v1',
-  'https://[::1]/v1',
-  'https://user:password@gateway.example/v1',
-  'https://gateway.example/v1?',
-  'https://gateway.example/v1#',
-])('keeps an invalid provider endpoint editable without sending its key: %s', async (endpoint) => {
-  await mount();
-  fireEvent.change(screen.getByLabelText('Provider'), { target: { value: 'enmaas' } });
-  fireEvent.change(screen.getByLabelText('API base URL'), { target: { value: endpoint } });
-  fireEvent.change(screen.getByLabelText('Additional model IDs'), {
-    target: { value: 'vendor/model' },
-  });
-  fill();
-  fireEvent.click(screen.getByRole('checkbox'));
-  const submit = screen.getByRole('button', { name: 'Save API account' }) as HTMLButtonElement;
-  expect(submit.disabled).toBe(true);
-  expect((screen.getByRole('button', { name: 'Get models' }) as HTMLButtonElement).disabled).toBe(
-    true,
-  );
-  await act(async () => fireEvent.submit(submit.closest('form')!));
-  expect(api.enrollOpenAIAccount).not.toHaveBeenCalled();
-  expect(api.discoverApiModels).not.toHaveBeenCalled();
-  expect((screen.getByLabelText('API key') as HTMLInputElement).value).toBe('PRIVATE_KEY');
-  expect((screen.getByLabelText('API base URL') as HTMLInputElement).value).toBe(endpoint);
-  fireEvent.change(screen.getByLabelText('API base URL'), {
-    target: { value: 'https://gateway.example/v1' },
-  });
-  fireEvent.change(screen.getByLabelText('Additional model IDs'), {
-    target: { value: 'vendor/model' },
-  });
-  fireEvent.click(screen.getByRole('checkbox'));
-  await act(async () => fireEvent.click(submit));
-  expect(api.enrollOpenAIAccount).toHaveBeenCalledOnce();
-  expect(screen.getByText('Work API is ready for new chats.')).toBeTruthy();
-});
+it.each(
+  [
+    'http://gateway.example/v1',
+    'https://localhost/v1',
+    'https://private.localhost/v1',
+    'https://localhost./v1',
+    'https://private.localhost./v1',
+    'https://./v1',
+    'https://gateway.example/' + '界'.repeat(500),
+    'https://127.0.0.1/v1',
+    'https://[::1]/v1',
+    'https://user:password@gateway.example/v1',
+    'https://gateway.example/v1?',
+    'https://gateway.example/v1#',
+  ].flatMap((endpoint) =>
+    (['responses', 'messages'] as const).map((protocol) => ({ endpoint, protocol })),
+  ),
+)(
+  'keeps an invalid $protocol provider endpoint editable without sending its key: $endpoint',
+  async ({ endpoint, protocol }) => {
+    await mount();
+    fireEvent.change(screen.getByLabelText('Provider'), { target: { value: 'enmaas' } });
+    fireEvent.change(screen.getByLabelText('Model API'), { target: { value: protocol } });
+    fireEvent.change(screen.getByLabelText('API base URL'), { target: { value: endpoint } });
+    fireEvent.change(screen.getByLabelText('Additional model IDs'), {
+      target: { value: 'vendor/model' },
+    });
+    fill();
+    fireEvent.click(screen.getByRole('checkbox'));
+    const submit = screen.getByRole('button', { name: 'Save API account' }) as HTMLButtonElement;
+    expect(submit.disabled).toBe(true);
+    expect((screen.getByRole('button', { name: 'Get models' }) as HTMLButtonElement).disabled).toBe(
+      true,
+    );
+    await act(async () => fireEvent.submit(submit.closest('form')!));
+    expect(api.enrollOpenAIAccount).not.toHaveBeenCalled();
+    expect(api.discoverApiModels).not.toHaveBeenCalled();
+    expect((screen.getByLabelText('API key') as HTMLInputElement).value).toBe('PRIVATE_KEY');
+    expect((screen.getByLabelText('API base URL') as HTMLInputElement).value).toBe(endpoint);
+    fireEvent.change(screen.getByLabelText('API base URL'), {
+      target: { value: 'https://gateway.example/v1' },
+    });
+    fireEvent.change(screen.getByLabelText('Additional model IDs'), {
+      target: { value: 'vendor/model' },
+    });
+    fireEvent.click(screen.getByRole('checkbox'));
+    await act(async () => fireEvent.click(submit));
+    expect(api.enrollOpenAIAccount).toHaveBeenCalledOnce();
+    expect(screen.getByText('Work API is ready for new chats.')).toBeTruthy();
+  },
+);
 it('retains a confirmed saved account when its follow-up status read fails', async () => {
   vi.mocked(api.getOpenAIAccounts)
     .mockResolvedValueOnce({ enabled: true, accounts: [] })
@@ -199,6 +217,35 @@ it('discovers generic provider models and enrolls the selected models without Op
         },
       },
       models: [{ id: 'vendor/model', label: 'Hosted model' }],
+    }),
+  );
+});
+it('discovers EnMaaS Messages models and saves a Claude SDK connection', async () => {
+  vi.mocked(api.discoverApiModels).mockResolvedValue({
+    models: [{ id: 'hosted/claude-sonnet', label: 'Hosted Sonnet' }],
+    partial: false,
+  });
+  await mount();
+  fireEvent.change(screen.getByLabelText('Provider'), { target: { value: 'enmaas' } });
+  fireEvent.change(screen.getByLabelText('Model API'), { target: { value: 'messages' } });
+  expect((screen.getByLabelText('API base URL') as HTMLInputElement).value).toBe(
+    'https://api.enmaas.devshift.net',
+  );
+  expect((screen.getByLabelText('Additional model IDs') as HTMLTextAreaElement).value).toBe('');
+  fill();
+  await act(async () => fireEvent.click(screen.getByRole('button', { name: 'Get models' })));
+  expect(api.discoverApiModels).toHaveBeenCalledWith(
+    expect.objectContaining({ protocol: 'messages', authentication: 'bearer' }),
+  );
+  const select = screen.getByLabelText('Available models') as HTMLSelectElement;
+  select.options[0].selected = true;
+  fireEvent.change(select);
+  fireEvent.click(screen.getByRole('checkbox'));
+  await act(async () => fireEvent.click(screen.getByRole('button', { name: 'Save API account' })));
+  expect(api.enrollOpenAIAccount).toHaveBeenCalledWith(
+    expect.objectContaining({
+      connection: expect.objectContaining({ protocol: 'messages', authentication: 'bearer' }),
+      models: [{ id: 'hosted/claude-sonnet', label: 'Hosted Sonnet' }],
     }),
   );
 });

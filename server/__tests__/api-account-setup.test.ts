@@ -26,23 +26,60 @@ it('discovers gateway models at the exact selected endpoint without making an in
   });
 });
 
-it.each([
-  'http://gateway.example/v1',
-  'https://user:secret@gateway.example/v1',
-  'https://127.0.0.1/v1',
-  'https://localhost/v1',
-  'https://localhost./v1',
-  'https://private.localhost./v1',
-  'https://./v1',
-  'https://gateway.example/' + '界'.repeat(500),
-  'https://gateway.example/v1?token=secret',
-])('rejects unsafe provider endpoints before sending a key: %s', async (endpoint) => {
-  const send = vi.fn();
-  await expect(
-    discoverApiAccountModels(endpoint, 'synthetic-key', AbortSignal.timeout(1000), send),
-  ).rejects.toThrow();
-  expect(send).not.toHaveBeenCalled();
-});
+it.each(['api-key', 'bearer'] as const)(
+  'uses Messages model discovery with %s authentication',
+  async (authentication) => {
+    const send = vi.fn<ConnectionSender>(async () => ({
+      status: 200,
+      body: JSON.stringify({
+        data: [{ id: 'hosted/sonnet', display_name: 'Sonnet' }],
+        has_more: false,
+      }),
+    }));
+    const result = await discoverApiAccountModels(
+      'https://gateway.example/anthropic',
+      'synthetic-key',
+      AbortSignal.timeout(1000),
+      send,
+      { protocol: 'messages', authentication },
+    );
+    expect(result).toEqual({ models: [{ id: 'hosted/sonnet', label: 'Sonnet' }], partial: false });
+    const request = send.mock.calls[0][0];
+    expect(request.url).toEqual(new URL('https://gateway.example/anthropic/v1/models'));
+    expect(request.headers).toEqual(
+      authentication === 'bearer'
+        ? { Authorization: 'Bearer synthetic-key', 'anthropic-version': '2023-06-01' }
+        : { 'x-api-key': 'synthetic-key', 'anthropic-version': '2023-06-01' },
+    );
+  },
+);
+it.each(
+  [
+    'http://gateway.example/v1',
+    'https://user:secret@gateway.example/v1',
+    'https://127.0.0.1/v1',
+    'https://localhost/v1',
+    'https://localhost./v1',
+    'https://private.localhost./v1',
+    'https://./v1',
+    'https://gateway.example/' + '界'.repeat(500),
+    'https://gateway.example/v1?token=secret',
+  ].flatMap((endpoint) =>
+    (['responses', 'messages'] as const).map((protocol) => ({ endpoint, protocol })),
+  ),
+)(
+  'rejects unsafe $protocol provider endpoint before sending a key: $endpoint',
+  async ({ endpoint, protocol }) => {
+    const send = vi.fn();
+    await expect(
+      discoverApiAccountModels(endpoint, 'synthetic-key', AbortSignal.timeout(1000), send, {
+        protocol,
+        authentication: 'bearer',
+      }),
+    ).rejects.toThrow();
+    expect(send).not.toHaveBeenCalled();
+  },
+);
 
 it.each([401, 403, 302, 500])(
   'retains a safe diagnostic for a failed catalog read (%s)',
