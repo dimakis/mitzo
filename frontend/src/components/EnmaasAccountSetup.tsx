@@ -329,13 +329,15 @@ export function EnmaasAccountSetup({
     >
       <h2>{account?.state === 'ready' ? account.label : 'Connect EnMaaS'}</h2>
       {message && <p role="alert">{message}</p>}
-      {enabled === null ? (
-        <p role="status">Loading account setup…</p>
-      ) : !enabled ? (
-        <p>Adding AI API accounts is unavailable.</p>
-      ) : account?.state === 'ready' ? (
+      {account?.state === 'ready' ? (
         <>
           <p role="status">Account saved</p>
+          {enabled !== true && (
+            <p role="status">
+              Account status is unavailable. Your saved account and model list are retained. Check
+              account status to retry.
+            </p>
+          )}
           <dl className="enmaas-account-facts">
             <dt>Provider</dt>
             <dd>EnMaaS</dd>
@@ -363,7 +365,7 @@ export function EnmaasAccountSetup({
               <button
                 type="button"
                 className="workspace-text-link"
-                disabled={busy}
+                disabled={busy || enabled !== true}
                 onClick={() => void refreshModels()}
               >
                 {busy ? 'Working…' : 'Refresh models'}
@@ -380,7 +382,7 @@ export function EnmaasAccountSetup({
           <button
             type="button"
             className="workspace-primary"
-            disabled={busy || !visible.length}
+            disabled={busy || !visible.length || enabled !== true}
             onClick={() => void startChat()}
           >
             Start a chat
@@ -392,6 +394,10 @@ export function EnmaasAccountSetup({
             A successful model reply is checked when you use the account.
           </p>
         </>
+      ) : enabled === null ? (
+        <p role="status">Loading account setup…</p>
+      ) : !enabled ? (
+        <p>Adding AI API accounts is unavailable.</p>
       ) : accountId && !account ? (
         <p role="status">This saved account is unavailable. Check account status.</p>
       ) : unresolved || review ? (
@@ -547,7 +553,7 @@ export function EnmaasAccountSetup({
           </form>
         </>
       )}
-      {(review || unresolved || accountId) && (
+      {(review || unresolved || accountId || enabled === false) && (
         <button
           type="button"
           className="workspace-text-link"

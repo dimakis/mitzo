@@ -20,6 +20,38 @@ beforeEach(() => {
 });
 afterEach(cleanup);
 const render = (children: ReactNode) => renderView(<MemoryRouter>{children}</MemoryRouter>);
+it('retains a saved account when its follow-up status read becomes unavailable', async () => {
+  vi.mocked(api.enrollOpenAIAccount).mockResolvedValue({
+    id: 'saved',
+    label: 'EnMaaS',
+    projectLabel: 'EnMaaS',
+    state: 'ready',
+    protocol: 'responses',
+    models: [{ id: 'catalog/model', label: 'Catalog model' }],
+  });
+  const props = {
+    csrf: 'csrf',
+    authorized: true,
+    enabled: true,
+    accounts: [],
+    onRefresh: vi.fn(),
+    onReauthorizationNeeded: vi.fn(),
+  };
+  const view = render(<EnmaasAccountSetup {...props} />);
+  fireEvent.change(screen.getByLabelText('API key'), { target: { value: 'synthetic-key' } });
+  await act(async () => fireEvent.click(screen.getByRole('button', { name: 'Connect EnMaaS' })));
+  view.rerender(
+    <MemoryRouter>
+      <EnmaasAccountSetup {...props} enabled={false} />
+    </MemoryRouter>,
+  );
+  expect(screen.getByText('Account saved')).toBeTruthy();
+  expect(screen.getByText('1 available · 1 shown')).toBeTruthy();
+  expect(
+    (screen.getByRole('button', { name: 'Refresh models' }) as HTMLButtonElement).disabled,
+  ).toBe(true);
+  expect(screen.getByRole('button', { name: 'Check account status' })).toBeTruthy();
+});
 it.each(['responses', 'messages'] as const)(
   'connects %s with all discovered and hosted models and correct authentication',
   async (protocol) => {

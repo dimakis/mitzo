@@ -107,6 +107,17 @@ SDK checks and the remaining physical-device/visual verification.
 
 ## Agent-created ordinary sessions
 
+Work-bound Telos requests reuse this same originating-chat review. The exact
+named work and Feature lead / Slice worker role precede the editable session
+settings. `TelosLinkedContext` shows the retained brief, parent goal and explicitly
+selected sources/materials in the existing scroll area. Missing or mismatched
+review data disables approval. **Approve & create** allocates and assigns the chat;
+it starts no model command. **Created & assigned** is a historical creation receipt,
+not evidence of current execution or completion. Uncertain assignment retains
+**Check request** and **Recover creation** for the original operation. The shared
+dialog, transcript row, settings controls, appearance and focus/draft ownership
+remain unchanged; there is no separate manual Telos linking journey.
+
 An agent's pending session proposal uses a compact actionable transcript entry
 in its originating chat. After a confirmed start, retain a linked transcript event
 and a related-chat list entry; do not pin successful historical receipts above the
