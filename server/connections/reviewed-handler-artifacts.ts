@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.1061-null-runtime-steering-capability';
+  'v1.0.1062-queue-preview-identity';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -2267,7 +2267,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/lib/keyboard.ts':
     '1e4c48c258c5e1c73be9f9df03a0491499210b9c24baf2fc6d134de41a9c3008',
   '../../frontend/src/components/ChatInput.tsx':
-    'fb24f7d49f724a2f57a648934674b6ce11c0c2c2a75d96b35919a59b6479fd7a',
+    'cf500526376d9ad2b96a2e8925cdc0efa666ef9619c919308f583f63f16765e5',
   '../../frontend/src/components/ComposerTools.tsx':
     '4d12ffa29195b6f3b60277e5e76e87120ec18da8bed6080b49a4813c052a2e6d',
   '../../frontend/src/components/ContextPanel.tsx':
@@ -3536,7 +3536,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../tests/integration/telos-s9/integrated-candidate/source-only-process-fixture.ts':
     'e634cedc805ad9215ddfaea56ba2c11bca68ecb6f9bbd30e36690e827830187d',
   '../../tests/integration/telos-s9/integrated-candidate/stop-isolation-browser.contract.ts':
-    'd35cbae81eb6733dff9b72da5a0c9be8ed72884dff7bb90d806c5a9ea05ef88d',
+    '5b4b435acc0b61892f418a0eae464aa89fb8dc1137fe9fab5e98d5e39798adad',
   '../../tests/integration/telos-s9/integrated-candidate/supplemental-shards.mjs':
     '8c8d58ddbf0c2049b8b54ec64bfb1198afdfe57744cc913f7ff2c2876a7999b0',
   '../../tests/integration/telos-s9/integrated-candidate/task-chat-read-observer.test.ts':

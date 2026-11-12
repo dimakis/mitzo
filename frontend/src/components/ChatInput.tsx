@@ -1475,7 +1475,7 @@ function ChatInputContent({
       )}
       {previewOpen && preview && (
         <ImageAttachmentEditor
-          key={imageKey(preview.image)}
+          key={`attachment-preview:${imageKey(preview.image)}`}
           image={preview.image}
           onSave={savePreview}
           onClose={() => setPreview(null)}
@@ -1507,7 +1507,7 @@ function ChatInputContent({
       )}
       {(queuedMessages.length > 0 || queueEditorOpen) && (
         <QueuedDraftTray
-          key={composerScope}
+          key={`queued-drafts:${composerScope}`}
           queue={queuedMessages}
           paused={queuePaused}
           busy={queueBusy}
