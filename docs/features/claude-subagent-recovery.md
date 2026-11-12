@@ -17,6 +17,9 @@ No Codex inspection dialog or child control is added. Stop failures preserve the
 parent interrupt, retain per-child uncertainty and expose a safe reference and
 next action. Raw SDK summaries, output paths and rejection details are excluded
 from public diagnostics; structured logs retain the cause and correlation.
+Feedback delivery or persistence failure cannot prevent parent interruption.
+If persistence fails, live feedback explicitly says it could not be saved;
+the original stop failure and secondary reporting failure remain correlated in logs.
 
 Child feedback remains bound to its original message and tool across later parent
 turns, including reused block IDs. An SDK event without a verified parent is

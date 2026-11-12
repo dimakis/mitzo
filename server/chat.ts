@@ -5354,7 +5354,23 @@ export async function interruptChat(
         err: result.reason,
       });
       if (registry.get(clientId) !== session || session.queryInstance !== runtime) continue;
-      reportClaudeChildDiagnostic(runtime, taskId, toolId, diagnostic);
+      const feedbackFailed = (stage: string, err: unknown) => {
+        log.error('subagent cancellation feedback failed; parent interruption continues', {
+          stage,
+          code: 'claude_child_feedback_failed',
+          correlationId: diagnostic.correlationId,
+          clientId,
+          sessionId: session.sessionId,
+          taskId,
+          toolId,
+          err,
+        });
+      };
+      try {
+        reportClaudeChildDiagnostic(runtime, taskId, toolId, diagnostic);
+      } catch (err) {
+        feedbackFailed('child_stop_activity', err);
+      }
       const failure = {
         v: 2,
         type: 'error',
@@ -5365,17 +5381,30 @@ export async function interruptChat(
         ...diagnostic,
         error: `Subagent cancellation could not be confirmed. Check retained activity before retrying. Reference: ${diagnostic.correlationId}`,
       };
+      let feedback: Record<string, unknown> = failure;
       if (session.sessionId) {
-        const seq = eventStore.append(session.sessionId, 'error', failure);
-        deliverRetainedSessionEvent(
-          { ...failure, seq },
-          clientId,
-          registry,
-          _connRegistry ?? undefined,
-        );
-      } else {
-        send(session.transport, failure);
-        broadcastToObservers(session.observers, failure);
+        try {
+          const seq = eventStore.append(session.sessionId, 'error', failure);
+          feedback = { ...failure, seq };
+        } catch (err) {
+          feedbackFailed('child_stop_persistence', err);
+          feedback = {
+            ...failure,
+            retained: false,
+            error: `${failure.error} This feedback could not be saved.`,
+          };
+        }
+      }
+      try {
+        if (session.sessionId)
+          deliverRetainedSessionEvent(feedback, clientId, registry, _connRegistry ?? undefined);
+        else {
+          send(session.transport, feedback);
+          broadcastToObservers(session.observers, feedback);
+        }
+      } catch (err) {
+        // Delivery may be partial; retain the original reference without a blind resend.
+        feedbackFailed('child_stop_delivery', err);
       }
     }
     if (registry.get(clientId) !== session || session.queryInstance !== runtime) {
