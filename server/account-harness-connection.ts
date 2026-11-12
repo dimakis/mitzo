@@ -36,7 +36,10 @@ export const ApiHarnessConnectionSchema = z
           return false;
         }
       }, 'Endpoint must be an HTTPS URL without credentials, query or fragment')
-      .transform((value) => new URL(value).toString().replace(/\/+$/, '')),
+      .transform((value) => new URL(value).toString().replace(/\/+$/, ''))
+      // URL serialization expands Unicode. Accepted output must pass the same
+      // bound when parsed again by the service, journal or account profile.
+      .pipe(z.string().max(2048)),
     protocol: z.enum(['responses', 'chat-completions', 'messages']),
     qualification: Qualification.optional(),
   })

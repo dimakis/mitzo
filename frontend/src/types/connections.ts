@@ -129,6 +129,8 @@ export interface EnrolledOpenAIAccount {
   /** User-declared purpose; not a verified project identifier. */
   projectLabel: string;
   state: string;
+  endpoint?: string;
+  errorCode?: string;
 }
 
 export interface OpenAIKeyHealth {
