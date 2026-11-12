@@ -594,3 +594,46 @@ it('offers plain text to asynchronous storage before the debounce or pagehide bo
   act(() => first.result.current[1]('Keep the newest unsent edit'));
   expect(localStorage.getItem('mitzo-draft-async-edit')).toBe('Keep the newest unsent edit');
 });
+
+it('offers a shared next draft before unload while preserving the original uncertain send', () => {
+  vi.useFakeTimers();
+  vi.spyOn(chatStorage, 'asynchronous', 'get').mockReturnValue(true);
+  const draft = createChatDraft();
+  draft.settings.collaborationResponders = {
+    collaborationId: '00000000-0000-4000-8000-000000000001',
+    responders: { kind: 'selected', sessionIds: ['reviewer'] },
+  };
+  draft.collaborationSend = {
+    collaborationId: draft.settings.collaborationResponders.collaborationId,
+    authScope: 'login',
+    input: {
+      requestId: '00000000-0000-4000-8000-000000000002',
+      expectedMembershipRevision: 1,
+      expectedPolicySequence: 0,
+      text: 'The original prompt remains uncertain.',
+      responders: draft.settings.collaborationResponders.responders,
+      snapshot: null,
+    },
+    stopRequested: true,
+  };
+  draft.images = [{ data: 'image', preview: 'preview', mediaType: 'image/png' }];
+  draft.contextBlocks = ['Retained next-message context'];
+  expect(saveChatDraft(draft)).toBe(true);
+  const key = chatDraftStorageKey(draft.id);
+  const view = renderHook(() => useDraft(undefined, undefined, key));
+  const proof = view.result.current[4].capture()!;
+  act(() => view.result.current[1]('Keep the next draft while the other agent is uncertain.'));
+  // No timer advancement, pagehide, unmount or explicit flush may initiate this save.
+  expect(getChatDraft(draft.id)).toMatchObject({
+    text: 'Keep the next draft while the other agent is uncertain.',
+    settings: draft.settings,
+    images: draft.images,
+    contextBlocks: draft.contextBlocks,
+    collaborationSend: draft.collaborationSend,
+  });
+  act(() => expect(view.result.current[4].consume(proof)).toBe(false));
+  const restored = renderHook(() => useDraft(undefined, undefined, key));
+  expect(restored.result.current[0]).toBe(
+    'Keep the next draft while the other agent is uncertain.',
+  );
+});

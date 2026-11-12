@@ -67,7 +67,7 @@ it.each(['person@example.test', 'other@example.test'])(
     const events = new AsyncQueue<Record<string, unknown>>();
     const accountInfo = vi.fn(async () => ({
       email,
-      subscriptionType: 'max',
+      subscriptionType: 'Claude Max',
       apiProvider: 'firstParty',
     }));
     vi.mocked(query).mockImplementation((request) => {
