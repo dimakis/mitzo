@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.1058-chat-model-journey';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.1059-approval-test-clock';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -488,7 +488,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../tool-failure-continuation.ts':
     '862cb4ded99180836d53bb3578172d34bb9c7e74d5b6b998c078902ace574e1b',
   '../../packages/harness/__tests__/tool-guard.test.ts':
-    '4b6d66bc0d58283bbd311bc00b6cffd44a4847df2cb43a997ea5a3f35a82dea3',
+    '8fcdf33c94a6369a91383cd1cff0425ed400ed3f3970b746b0d3cbdb87dd2f69',
   '../../packages/harness/src/tool-guard.ts':
     '4bf394c1361e4055f34deeeb4b94e6e18275af1d05540af9bcabfd21739f7d87',
   '../../docs/features/approval-modes-reusable-access.md':
