@@ -12,6 +12,9 @@ import { TurnCallbacks, type TurnCallbackRunner } from './turn-callbacks.js';
 import type { OrdinaryLocalCommandAdmission } from '@mitzo/protocol';
 import { assertOrdinaryLocalVertexHistory } from './ordinary-local-vertex-native-history.js';
 import { assertClaudeSubscriptionAccount } from './claude-subscription-custody.js';
+import type { SdkAgentMessageRuntime } from './sdk-agent-message-runtime.js';
+import { createLogger } from './logger.js';
+const log = createLogger('owned-sdk-query');
 /** Only the lifetime of an SDK query, not runtime/auth/history state. Retiring a
  * completed query cannot abort its successor; stale hooks always refuse effects. */
 export class SdkHookLifetime {
@@ -119,6 +122,7 @@ export function createOrdinaryLocalVertexSdkQuery<
     selection: OrdinaryLocalCommandAdmission['selection'],
   ): Pick<Options, 'model' | 'thinking' | 'effort'>;
   inputChanged(queue: AsyncQueue<SDKUserMessage>): void;
+  peerMessages?(): Pick<SdkAgentMessageRuntime, 'beforeInput' | 'observe'> | undefined;
   mcpServers?(state: {
     retired: boolean;
     completing: boolean;
@@ -129,6 +133,7 @@ export function createOrdinaryLocalVertexSdkQuery<
   const runs = new AsyncQueue<Query>();
   type State = SdkCallbackState & {
     processClose?: ReturnType<typeof observeOrdinarySdkProcessClose>;
+    postTerminalFailure?: unknown;
   };
   const states = new WeakMap<Query, State>();
   const prompt = async function* (queue: AsyncQueue<SDKUserMessage>, current: () => Query) {
@@ -143,6 +148,13 @@ export function createOrdinaryLocalVertexSdkQuery<
           throw error;
         }
       }
+      const state = states.get(current());
+      if (
+        owners
+          .peerMessages?.()
+          ?.beforeInput(message, !!state && !state.retired && !state.completing) === false
+      )
+        continue;
       yield message;
     }
   };
@@ -203,6 +215,7 @@ export function createOrdinaryLocalVertexSdkQuery<
         for await (const event of owners.adapt(run)) {
           if (event.session_id !== undefined && event.session_id !== owners.sdkSessionId)
             throw Error('Original SDK thread identity changed');
+          if (owners.peerMessages?.()?.observe(event)) continue;
           if (event.type === 'result') {
             const state = states.get(run)!;
             state.completing = true;
@@ -218,6 +231,16 @@ export function createOrdinaryLocalVertexSdkQuery<
         }
       } catch (error) {
         if (!terminal || owners.controller.signal.aborted) throw error;
+        const state = states.get(run)!;
+        state.postTerminalFailure = error;
+        // A proven terminal result stays terminal; retain and diagnose later
+        // query closure failures without replacing that outcome or losing successors.
+        log.warn('SDK query failed after its terminal result', {
+          code: 'sdk_post_terminal_failure',
+          stage: 'query_close',
+          sdkSessionId: owners.sdkSessionId,
+          retired: state.retired,
+        });
       }
     }
   };

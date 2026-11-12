@@ -28,7 +28,7 @@ export function assertAgentToolRoute(
   route: string,
 ): void {
   if (definition?.tools === undefined) return;
-  if (!['local-api', 'codex', 'codex-owned-local'].includes(route))
+  if (!['local-api', 'codex', 'codex-owned-local', 'claude-sdk'].includes(route))
     throw Error(
       'Agent tool selection is not supported on this runtime route. Choose a compatible route or a profile with legacy tools.',
     );

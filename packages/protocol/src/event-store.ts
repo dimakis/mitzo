@@ -891,6 +891,9 @@ export class EventStore {
       )
         return 'not_queued';
       this.failSendCommand(commandId, 'Cancelled before SDK dispatch');
+      const peer = this.agentCommunication.forCommand(commandId);
+      if (peer?.message.recipientConversationId === sessionId)
+        this.agentCommunication.recordForHost(peer.message.messageId, 'failed', 'cancelled');
       return 'cancelled';
     }).immediate();
   }

@@ -495,9 +495,14 @@ function createOwnedCodexEntryRouter(
                   ? {
                       contextRecipes: route.harness === 'codex' ? 'supported' : 'none',
                       toolSelection:
-                        ['responses', 'gemini', 'codex'].includes(route.harness) &&
+                        ['responses', 'gemini', 'codex', 'claude-sdk'].includes(route.harness) &&
                         target.location === 'local',
-                      toolRoute: route.harness === 'codex' ? 'codex-owned-local' : 'local-api',
+                      toolRoute:
+                        route.harness === 'codex'
+                          ? 'codex-owned-local'
+                          : route.harness === 'claude-sdk'
+                            ? 'claude-sdk'
+                            : 'local-api',
                     }
                   : undefined,
               ),
@@ -1065,8 +1070,13 @@ function createOwnedCodexEntryRouter(
               contextRecipes: 'supported',
               toolSelection:
                 input.runOn === 'local' &&
-                ['responses', 'gemini', 'codex'].includes(input.runtime.harness),
-              toolRoute: input.runtime.harness === 'codex' ? 'codex-owned-local' : 'local-api',
+                ['responses', 'gemini', 'codex', 'claude-sdk'].includes(input.runtime.harness),
+              toolRoute:
+                input.runtime.harness === 'codex'
+                  ? 'codex-owned-local'
+                  : input.runtime.harness === 'claude-sdk'
+                    ? 'claude-sdk'
+                    : 'local-api',
             },
           ).agentProfileRejections.length
         )

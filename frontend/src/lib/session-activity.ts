@@ -2,24 +2,82 @@ import type { SessionActivity } from '@mitzo/protocol';
 import type { Session } from '../types/chat';
 import { isSessionActivityActive } from './session-attention';
 
+export type ModelObservation = Pick<Session, 'model' | 'modelUnavailable' | 'modelObservedAt'>;
+function observedAt(value: ModelObservation | undefined): number | undefined {
+  const at = value?.modelObservedAt;
+  return typeof at === 'number' && Number.isSafeInteger(at) && at >= 0 ? at : undefined;
+}
+
+/** Keep the latest display observation together, including explicit uncertainty.
+ * Server read times are presentation hints, never command/admission evidence. */
+export function mergeSessionModel(
+  primary: ModelObservation | undefined,
+  fallback: ModelObservation | undefined,
+): ModelObservation {
+  const primaryAt = observedAt(primary);
+  const fallbackAt = observedAt(fallback);
+  let selected: ModelObservation | undefined;
+  if (primaryAt !== undefined || fallbackAt !== undefined) {
+    selected =
+      primaryAt === fallbackAt
+        ? fallback?.modelUnavailable
+          ? fallback
+          : primary
+        : (primaryAt ?? -1) > (fallbackAt ?? -1)
+          ? primary
+          : fallback;
+  } else {
+    selected = primary?.modelUnavailable || primary?.model !== undefined ? primary : fallback;
+  }
+  return {
+    model: selected?.modelUnavailable ? undefined : selected?.model,
+    modelUnavailable: selected?.modelUnavailable === true,
+    modelObservedAt: observedAt(selected),
+  };
+}
+
 export function mergeSessionActivities(
   sessions: Session[],
   activities: SessionActivity[],
+  lastKnownActivities: SessionActivity[] = [],
+  observations = new Map<string, ModelObservation>(),
 ): Map<string, Session> {
-  const combined = new Map(sessions.map((s) => [s.id, s]));
+  const combined = new Map(
+    sessions.map((s) => [s.id, { ...s, ...retainSessionModel(observations, s.id, s) }]),
+  );
+  // Retain model uncertainty across disconnect without reviving stale activity.
+  for (const a of lastKnownActivities) {
+    const saved = combined.get(a.sessionId);
+    if (saved)
+      combined.set(a.sessionId, {
+        ...saved,
+        ...retainSessionModel(observations, a.sessionId, a),
+      });
+  }
   for (const a of activities) {
     const saved = combined.get(a.sessionId);
     combined.set(a.sessionId, {
       ...saved,
       id: a.sessionId,
       summary: saved?.summary || a.title,
-      model: a.model ?? saved?.model,
+      ...retainSessionModel(observations, a.sessionId, a),
       accountLabel: saved?.accountLabel ?? a.accountLabel,
       lastModified: saved?.lastModified ?? a.lastMessageAt ?? a.lastEventAt,
       isActive: isSessionActivityActive(a),
     });
   }
   return combined;
+}
+
+/** A presentation cache survives search/connection transitions, never a session binding. */
+export function retainSessionModel(
+  observations: Map<string, ModelObservation>,
+  sessionId: string,
+  observation: ModelObservation,
+): ModelObservation {
+  const latest = mergeSessionModel(observation, observations.get(sessionId));
+  observations.set(sessionId, latest);
+  return latest;
 }
 export function sessionActivityLabel(activity: SessionActivity): string {
   if (activity.state === 'waiting')

@@ -90,6 +90,37 @@ describe('SessionOverviewEmitter', () => {
   let emitter: SessionOverviewEmitter;
   let deps: SessionOverviewDeps;
 
+  it.each([false, true])(
+    'shows the latest admitted model for an ordinary chat (live: %s)',
+    (live) => {
+      const meta = {
+        sessionId: 'session-1',
+        selectedModel: 'astra-fixture',
+        accountBinding: {
+          accountId: 'personal',
+          accountLabel: 'Personal',
+          provider: 'openai-codex',
+          model: 'astra-fixture',
+          profileRevision: 'fixture',
+        },
+        lastSpeaker: 'assistant',
+        lastSpeakerAt: Date.now(),
+        updatedAt: Date.now(),
+      } as SessionMeta;
+      deps = makeDeps();
+      vi.mocked(deps.registry.getActiveSessions).mockReturnValue(
+        live ? [makeActiveSession({ model: 'astra-fixture' })] : [],
+      );
+      vi.mocked(deps.eventStore.getSession).mockReturnValue(meta);
+      vi.mocked(deps.eventStore.getAttentionSessions).mockReturnValue(live ? [] : [meta]);
+      deps.eventStore.getLatestOrdinaryCommandAdmission = vi
+        .fn()
+        .mockReturnValue({ selection: { model: 'sol-fixture' } });
+      emitter = new SessionOverviewEmitter(deps);
+      expect(emitter.getSnapshot()[0]).toMatchObject({ model: 'sol-fixture' });
+    },
+  );
+
   beforeEach(() => {
     vi.useFakeTimers();
     mockGetPending.mockReturnValue(0);

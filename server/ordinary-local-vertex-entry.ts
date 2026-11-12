@@ -68,6 +68,7 @@ export async function sendOwnedLocalVertexCommand(input: {
   command: unknown;
   operatorConnectionId: string;
   signal?: AbortSignal;
+  assertCurrent?(): void;
 }) {
   const captured = captureAgentLibraryAuthorization(input.operatorConnectionId);
   captured.assertCurrent();
@@ -78,7 +79,11 @@ export async function sendOwnedLocalVertexCommand(input: {
     eventStore.getSessionRuntimeBinding(input.sessionId)?.harness.implementation !== 'claude-sdk'
   )
     throw unavailable();
-  return { ...(await owner.admit(input.command, input.signal)), sessionId: input.sessionId };
+  input.assertCurrent?.();
+  return {
+    ...(await owner.admit(input.command, input.signal, input.assertCurrent)),
+    sessionId: input.sessionId,
+  };
 }
 export async function startOwnedLocalVertexCommand(
   transport: SessionTransport,
@@ -206,7 +211,7 @@ export async function startOwnedLocalVertexCommand(
             authSessionId: owner.authSessionId,
             identity: owner,
             initialCommandId: command.clientMsgId,
-            admit: (input, signal) => owner.admitContinuation(input, signal),
+            admit: (input, signal, current) => owner.admitContinuation(input, signal, current),
             retryInitial: (input) => owner.admit(input),
             close: () => {
               session.abortController.abort();

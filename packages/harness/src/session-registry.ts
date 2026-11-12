@@ -49,7 +49,11 @@ export interface ManagedSession {
     /** Frozen server entry identity; absent resume is the ordinary first-command path. */
     initialPreparationOperationId?: string;
     initialResume?: boolean;
-    admit(command: unknown, preparationSignal?: AbortSignal): Promise<{ dispatched: boolean }>;
+    admit(
+      command: unknown,
+      preparationSignal?: AbortSignal,
+      assertAdmissionCurrent?: () => void,
+    ): Promise<{ dispatched: boolean }>;
     /** Host-only private setup receipt; never an alternative public send route. */
     notifyCredentialSetup?(input: {
       messageId: string;
