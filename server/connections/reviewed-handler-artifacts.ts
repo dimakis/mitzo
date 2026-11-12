@@ -10,8 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.1098-enmaas-telos-integration';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.1099-enmaas-model-picker';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -205,15 +204,15 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/components/__tests__/ClaudeAccountConnection.test.tsx':
     'e1c42108da7697ed566a05c76b8cae2b0afded3c633df8a85fa0cc8473341e30',
   '../../frontend/src/lib/claude-account-api.ts':
-    'f4939097e1ed55c1bbe36478d7e503792eb0edcf6f94c303611a1f0f4bd74631',
+    '1a69ade9fcf7c97440bfc4d2040a5faa8ccc5048136488a4bc4fefeeb6de063a',
   '../../frontend/src/pages/ConnectionsRoute.tsx':
     '73524a2b6ff2a19bb6a7bced8a99f7f5f3cec3aeb6d3f50957f948d7ce11e14e',
   '../../frontend/src/pages/ConnectionsView.tsx':
-    '3ca6f5574aef23cb17e8ea53452d84fdbab280e811cb9c6e43a64d4fd8638b0a',
+    'cc3c472c2659c4d39fd311e525978cf41e4679fa5dfaa9fb631dbad4ea3daabe',
   '../../frontend/src/pages/__tests__/ConnectionsRoute.claude.test.tsx':
     '28d23b2e9da80244c23b9b5d4325b9fc50a66a007d521c63bea7048b04487440',
   '../../frontend/src/types/connections.ts':
-    'e6a5e47d9da5d04a83006d7e2ef0c4ffa286386950233be72b46b45896206ec5',
+    'c1fa48b515ffd7fea0f66c9a84ef23963c3fde98734896d2b4e256c353294b37',
   '../__tests__/claude-account-login.test.ts':
     'a0860f4fbb2b9e2a8e9380d268d10d6b5cde2175778f02b9fa6ab8d77f2e5c35',
   '../__tests__/claude-account-router.test.ts':
@@ -232,7 +231,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../claude-login-process.ts': '1b63ab2e641c9fdb4e507618d4d2663fcfc5635f7e7cdc796b2057f3cd39063a',
   '../claude-login-supervisor.cjs':
     'd62c9117de7255c4087d54fa5840f382f594ee7ef4b3f35b47fcaa20bebafa94',
-  '../connections-access.ts': '46b54b46f8d38d739d4bea29fcfdd25b43d831fdb63e411571925451426329d1',
+  '../connections-access.ts': 'd8b5053d8b0c76cdbca40cb7b664e2eaefbbc3b9736c650018c8b2d014e55bf0',
   '../../tests/offline/claude-account-connect.spec.ts':
     '5c98b2408afd69e8244cfe7896b50a079c1ad8e608d5766de92f87f4aa59b43b',
   '../../packages/client/src/__tests__/fixtures/local-first-command.ts':
@@ -667,7 +666,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/components/__tests__/ChatExecutionPicker.multi-runtime.test.tsx':
     '0ed9568c63b1877f4d7a35f14b0d6f030908b931c2ee2617f20eac10a9b569ab',
   '../../frontend/src/components/__tests__/AccountModelPicker.test.tsx':
-    'c9bddb4a38d19b703032f88b491833883c3fb2cfcbbbbedd01723902ec538cad',
+    'd6c542fdc59035b62c87539bd840ff24d6b117ff322dd867f9b9971137875189',
   '../../frontend/src/test-utils/no-session-launch-defaults.ts':
     '8279916af46684d897f10d5d7d1796b3a4396d060f37f0f6329370e46dd94925',
   '../../docs/features/agent-session-launch.md':
@@ -1011,7 +1010,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/owned-local-auth-feedback.test.ts':
     'fa4b4dca12a655e4075c03e6c95701ac9c8c1a6607f867e27668c914e988da21',
   '../../docs/design/ui-design-system.md':
-    'f2a4a84eb5419e9cf21959567086dc6bd0f110c2ffb92bda22118a4e8e9c284e',
+    '7d73e1aeb2153757f1c645d902afbc2d6e398ef539c55500272d83114e74130f',
   '../../packages/protocol/src/session-prompts.ts':
     '5a3c7a567c7b4d7b5699b7405282b11c11a07e0fb7e14d73e11529a3882cbc09',
   '../__tests__/session-prompt-service.test.ts':
@@ -2374,13 +2373,13 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/client-store.ts':
     '9353d2adffa430e30aca1910ba4c580efe40b8c8b8741c8a252558674330af24',
   '../../frontend/src/components/AccountModelPicker.tsx':
-    '6d029da6615d5483f96237e5b8306e63791c2fb53a180f2a3e7c3d92f68b873a',
+    '6eace54d67b37468aa58b4b515a55f588fb4830ad83b1fc62c39c55d6e69ed8f',
   '../../frontend/src/components/ChatAgentProfilePicker.tsx':
     '7efa0466b67598cf458c3e91b12042f56189747914a85d1040146b2bf6ae7155',
   '../../frontend/src/components/ChatExecutionPicker.tsx':
     '6efb121831e74a40fe2181409b8dde78524a06d7fb222d007fe212530bca30e4',
   '../../frontend/src/lib/account-preference.ts':
-    '977cb36f9753a7b4064e18566b30d07d176c7bb881a4e035ed6eb31437c83fdc',
+    'fccb4cfb546c4213b01a5f00c593dea9abe7e7b3c0832de84d558e17ab5b75d7',
   '../../frontend/src/lib/keyboard.ts':
     '1e4c48c258c5e1c73be9f9df03a0491499210b9c24baf2fc6d134de41a9c3008',
   '../../frontend/src/components/ChatInput.tsx':
@@ -2572,7 +2571,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../session-access.ts': 'feeeea5ffcf16bb1c4542191a74d5eebde2ea2dbcac7cf0e5315d05e2249b1dc',
   '../session-metadata-error.ts':
     '377bd861f0e48e022fb49fb8c021e14f2da8d921f9d61c9fa738f31080596eae',
-  '../app.ts': 'b813e9ef945c58f1050a7398784595a1328b04bc0826d48178dcff33f2498543',
+  '../app.ts': '78c9d9efb29907f67f17d7caae6aa70ab75b8b76750a0977620370b9ad99f962',
   '../auth-check-tracing.ts': '067dc344d8ee76ffe39739a99076f614711ca3d11f96682c842c596a7bbd112e',
   '../telemetry-relay.ts': '302bf6cec2b988ae71a123a5dd04d0f2266a82c3ee51873ec64d8be452c25427',
   '../symposium-review-route-composition.ts':
@@ -2698,7 +2697,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../openai-enrollment-models.ts':
     'e36785249c67f6010bb394ab3856395d1bf341a73a84a88049a86c2ed83d6ed0',
   '../openai-account-enrollment.ts':
-    '7ee0bfb872ae0a64001f65642c0443c4aad2425e95e55842a8765881418d08f3',
+    'bddb768b400ad1c729d167923aa0f3a98588b21ed5fe968dbb0d110f787616d2',
   '../api-account-setup.ts': 'd626e799ddb80a1a58d0ec5995daf18f023543d21ea7b5f5e9d70f57a6c499b6',
   '../openai-account-enrollment-keychain.ts':
     '8bd52d66fc18bb9a573b3602f20eff4fdbdd9194ced1f30246d39584f4076cbe',
@@ -2717,7 +2716,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../native/keychain-helper/main.swift':
     '316b7aaac1027f7f94d26e093edbe39a3ccac64236bd61702c32c47419f6edb1',
   '../openai-key-controller.ts': '721a1c6a513fc5380e4a2222927cda025bf8cbd7e8d49d8c5d526470e2cff217',
-  '../connections-router.ts': 'f784434dfaa81350e63b4664095537c4a1bdcf31f005b6cac6198b995407bfbf',
+  '../connections-router.ts': 'd8acf7c0758ec657da9a84a26823fa8f620766f1101133bcc33019280668a688',
   '../connections-service.ts': '8f5cedd8b9e2a32616f3ce56d1abb9cf81ad29da8834ebd9c15c3b8470eaf57a',
   '../git-branch.ts': '6dd4fef0069e65d78fc94d047777442e4ef073596555581da536e1e39a5d3877',
   '../github-repository-source.ts':
@@ -4409,4 +4408,34 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../anthropic-api-custody.ts': '6a3cab1b144c88a54a63340e898074e1cdac2506dc97f4a2d943d0190591f468',
   '../__tests__/anthropic-api-account.test.ts':
     'bd157dabe293a7b45adf5ec6f69a3861d1b120b43d3ad87abfccc4ffad4bfe57',
+  '../../frontend/src/components/EnmaasAccountSetup.tsx':
+    '54cd4c609ad0c04c9aad4b506ca044364998aac65739fdf793a0af02d6d1da62',
+  '../../frontend/src/components/ModelVisibilitySettings.tsx':
+    'f7e3bdc950a57fea31483de5e731b8eab45de020e988e4dfb306265a33bd05bd',
+  '../../frontend/src/components/OpenAIAccountEnrollment.tsx':
+    'ce22bb505b088ea68b92591923e02df0dbb4036901d24f2fa32343518032e38c',
+  '../../frontend/src/lib/model-visibility.ts':
+    '2dc4c5632ceff82f55aa3e0c4a304fb53f65cb3c2a9a37d5148b3daf8e58a540',
+  '../../frontend/src/lib/connections-api.ts':
+    'c31e0f09a04691f21cbb7f643e4b0836f5325f2898aa6884f873ba58d0733ed1',
+  '../../frontend/src/styles/connections-setup.css':
+    '2ce9cd6a7c90d2a181608f9d65ccc1d34cab784f99354d2ab7bd954f51202724',
+  '../../frontend/src/components/__tests__/EnmaasAccountSetup.test.tsx':
+    '1c240ca8cbbd3788ff9f48f944e1c0ac53d6dabcea3184f13b2a70f59edd038e',
+  '../../frontend/src/components/__tests__/OpenAIAccountEnrollment.test.tsx':
+    '27109f9f68f9e9ed93e3d6688d86aaca5ffdf6c77b4a4bdae5a5a30563cc3a29',
+  '../../frontend/src/lib/__tests__/model-visibility.test.ts':
+    '8b188e665125f89f2036cfab8cbe3941ad9ff3f8893d7834e1eca2f914167b30',
+  '../../frontend/src/lib/__tests__/connections-api.test.ts':
+    '16f4e44b06f1694e523e58b67aead547a13ad9e81ac120f3ca485e87f383217d',
+  '../__tests__/enmaas-account-form.integration.test.tsx':
+    'fbc69660df98e9403dae7cf5cd1271b789e2ec3500b01f127dfeb991a8232685',
+  '../__tests__/openai-account-enrollment.test.ts':
+    'bd8a20c2749655b883f789b6db5987552a86c59bedec35c116573d3a76722a2f',
+  '../../tests/offline/api-account-enrollment.spec.ts':
+    'a02a53855bad569d1979403f60958468ee841078419de41501a1f92c4e6a01c3',
+  '../../tests/offline/anthropic-account-enrollment.spec.ts':
+    '6f0e6c4807a5c475f48b30f78773c9c265bb2f49ce80deacb777d4c5d76067a7',
+  '../../tests/fixtures/anthropic-account-enrollment.tsx':
+    '31331fa4a056600c2e3bba9a7c0ee28f8b1c0616eb81f0954de68424741033e0',
 });
