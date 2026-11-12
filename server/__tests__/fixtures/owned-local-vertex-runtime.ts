@@ -28,6 +28,7 @@ export async function ownedVertexRuntimeFixture(
     ordinaryPreparation?: boolean;
     personal?: boolean;
     managed?: boolean;
+    preparationFingerprint?: string;
     tools?: AgentToolReference[];
   } = {},
 ) {
@@ -216,6 +217,9 @@ export async function ownedVertexRuntimeFixture(
       ? nativeStartupSessionId(`repository:${prepared.id}`)
       : randomUUID(),
     taskRoot,
+    ...(options.preparationFingerprint
+      ? { commandFingerprint: options.preparationFingerprint }
+      : {}),
   };
   const reserved = await workspace.reserveHostTask({ ...reservation, signal: signal.signal });
   const auth = { id: randomUUID(), expiresAt: Date.now() + 60000 },

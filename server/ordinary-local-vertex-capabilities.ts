@@ -6,6 +6,7 @@ import type { AgentLibraryVersion } from '@mitzo/protocol';
 import { registerWorkspaceRuntimeAuthorityPaths } from './workspace-runtime-private-paths.js';
 import { createHash } from 'node:crypto';
 import { hostname } from 'node:os';
+import { join } from 'node:path';
 import { z } from 'zod';
 import { SessionRuntimeBindingV1Schema } from '@mitzo/protocol';
 import {
@@ -47,6 +48,13 @@ export class OrdinaryLocalVertexTarget {
       [this.env.MITZO_ORDINARY_LOCAL_VERTEX_TARGET_FILE!],
       [this.env.MITZO_ORDINARY_LOCAL_VERTEX_TARGET_FILE!],
     );
+    // Declare the same SDK state authority used at entry before any other
+    // participant freezes its native permission profile. First SDK dispatch
+    // must not add a previously unknown private root to a parallel Codex turn.
+    if (this.env.REPO_PATH && this.env.MITZO_ACCOUNT_PROFILES_FILE) {
+      const paths = [join(this.env.REPO_PATH, '.mitzo'), this.env.MITZO_ACCOUNT_PROFILES_FILE];
+      registerWorkspaceRuntimeAuthorityPaths(paths, paths);
+    }
   }
   assertCurrentSync() {
     const current = Configuration.parse(

@@ -25,6 +25,8 @@ import type {
   MessageSnapshot,
   AgentDefinitionSource,
   AgentDefinition,
+  OrdinaryTurnLifecycle,
+  OrdinarySdkInterruptTarget,
 } from '@mitzo/protocol';
 
 export interface ManagedSession {
@@ -53,7 +55,16 @@ export interface ManagedSession {
       command: unknown,
       preparationSignal?: AbortSignal,
       assertAdmissionCurrent?: () => void,
+      turnLifecycle?: OrdinaryTurnLifecycle,
     ): Promise<{ dispatched: boolean }>;
+    /** Existing owned SDK queue only; native query selection stays private. */
+    sdkTurns?: {
+      captureInterruptTarget(): OrdinarySdkInterruptTarget | undefined;
+      interruptIfCurrent(
+        requestId: string,
+        target: OrdinarySdkInterruptTarget,
+      ): Promise<'requested' | 'uncertain' | 'stale_target'>;
+    };
     /** Host-only private setup receipt; never an alternative public send route. */
     notifyCredentialSetup?(input: {
       messageId: string;

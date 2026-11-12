@@ -2,6 +2,7 @@ import { expect, it, vi } from 'vitest';
 import { gwsShimPath } from '../gws-broker.js';
 import { query, type Options } from '@anthropic-ai/claude-agent-sdk';
 import { AsyncQueue } from '../async-queue.js';
+import { retainCallbackOutcome } from '../turn-callbacks.js';
 import {
   createOrdinaryLocalVertexSdkQuery,
   SdkHookLifetime,
@@ -11,6 +12,181 @@ vi.mock('@anthropic-ai/claude-agent-sdk', () => ({
   getSessionInfo: vi.fn(async () => ({ sessionId: 'original', cwd: '/task' })),
   getSessionMessages: vi.fn(async () => [{ uuid: 'input' }]),
 }));
+it.each(['settled', 'unknown'] as const)(
+  'retains an explicitly %s callback outcome that finishes before the native result',
+  async (outcome) => {
+    const events = new AsyncQueue<Record<string, unknown>>();
+    vi.mocked(query).mockImplementation(
+      () =>
+        ({ close: vi.fn(), [Symbol.asyncIterator]: () => events[Symbol.asyncIterator]() }) as never,
+    );
+    const controller = new AbortController();
+    let tool!: <T>(work: () => Promise<T>) => Promise<T>;
+    const owner = createOrdinaryLocalVertexSdkQuery<AsyncIterable<Record<string, unknown>>>({
+      options: { sessionId: 'original' },
+      input: new AsyncQueue(),
+      lifetime: new SdkHookLifetime(),
+      sdkSessionId: 'original',
+      cwd: '/task',
+      controller,
+      authorize: async () => {},
+      authorizeSync: () => {},
+      adapt: (native) => native as never,
+      settings: () => ({}),
+      inputChanged: () => {},
+      mcpServers: (state) => {
+        tool = state.runCallback;
+        return {};
+      },
+    });
+    await tool(async () => retainCallbackOutcome({ isError: true }, outcome));
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    events.push({ type: 'result', session_id: 'original' });
+    const next = owner.query[Symbol.asyncIterator]().next();
+    if (outcome === 'unknown')
+      await expect(next).rejects.toMatchObject({ code: 'callbacks_failed' });
+    else expect((await next).value).toMatchObject({ type: 'result' });
+    controller.abort();
+    events.close();
+  },
+);
+it.each(['completed', 'retired'])(
+  'does not forward late parent input or message events from a %s query into its successor',
+  async (phase) => {
+    const streams = [
+      new AsyncQueue<Record<string, unknown>>(),
+      new AsyncQueue<Record<string, unknown>>(),
+    ];
+    let created = 0;
+    vi.mocked(query).mockImplementation(() => {
+      const stream = streams[created++];
+      return {
+        close: vi.fn(),
+        [Symbol.asyncIterator]: () => stream[Symbol.asyncIterator](),
+      } as never;
+    });
+    const controller = new AbortController();
+    const owner = createOrdinaryLocalVertexSdkQuery<AsyncIterable<Record<string, unknown>>>({
+      options: { sessionId: 'original' },
+      input: new AsyncQueue(),
+      lifetime: new SdkHookLifetime(),
+      sdkSessionId: 'original',
+      cwd: '/task',
+      controller,
+      authorize: async () => {},
+      authorizeSync: () => {},
+      adapt: (native) => native as never,
+      settings: () => ({}),
+      inputChanged: () => {},
+    });
+    const iterator = owner.query[Symbol.asyncIterator]();
+    streams[0].push({ type: 'result', session_id: 'original' });
+    expect((await iterator.next()).value).toMatchObject({ type: 'result' });
+    await owner.apply({ model: 'first' } as never);
+    if (phase === 'retired') await owner.apply({ model: 'second' } as never);
+    const next = iterator.next();
+    // These callbacks would otherwise be interpreted using the current FIFO
+    // command, falsely acknowledging or assigning old output to the successor.
+    streams[0].push({ type: 'user', uuid: 'old-input', session_id: 'original' });
+    streams[0].push({
+      type: 'stream_event',
+      event: { type: 'message_start' },
+      session_id: 'original',
+    });
+    streams[0].push({ type: 'result', session_id: 'original' });
+    streams[0].close();
+    if (phase === 'completed') {
+      await owner.apply({ model: 'second' } as never);
+    }
+    streams[1].push({ type: 'assistant', session_id: 'original', uuid: 'successor-output' });
+    expect((await next).value).toMatchObject({ type: 'sdk_query_retired' });
+    expect((await iterator.next()).value).toMatchObject({
+      type: 'assistant',
+      uuid: 'successor-output',
+    });
+    controller.abort();
+    streams[1].close();
+    await iterator.return?.();
+  },
+);
+it.each(['current', 'revoked', 'missing_identity', 'async_fence'])(
+  'checks exact sharing custody after awaited personal-account renewal, before native input: %s',
+  async (scenario) => {
+    let prompt!: AsyncIterable<unknown>;
+    let release!: () => void;
+    let sharingCurrent = true;
+    const account = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const accountInfo = vi.fn(async () => {
+      await account;
+      return { email: 'person@example.test', subscriptionType: 'max', apiProvider: 'firstParty' };
+    });
+    vi.mocked(query).mockImplementation((request) => {
+      prompt = request.prompt as AsyncIterable<unknown>;
+      return {
+        accountInfo,
+        close: vi.fn(),
+        [Symbol.asyncIterator]: () => new AsyncQueue()[Symbol.asyncIterator](),
+      } as never;
+    });
+    const beforeInput = vi.fn((id: string) => {
+      expect(id).toBe('exact-command');
+      if (!sharingCurrent) throw Error('Original shared source revoked');
+      if (scenario === 'async_fence') return Promise.resolve() as never;
+    });
+    const sync = vi.fn();
+    const controller = new AbortController();
+    const input = new AsyncQueue<import('@anthropic-ai/claude-agent-sdk').SDKUserMessage>();
+    createOrdinaryLocalVertexSdkQuery({
+      options: {
+        env: {
+          MITZO_CLAUDE_EXPECTED_EMAIL: 'person@example.test',
+          MITZO_CLAUDE_EXPECTED_PLAN: 'max',
+        },
+      },
+      input,
+      lifetime: new SdkHookLifetime(),
+      sdkSessionId: 'original',
+      cwd: '/task',
+      controller,
+      authorize: async () => {},
+      authorizeSync: sync,
+      beforeInput,
+      adapt: (q) => q as never,
+      settings: () => ({}),
+      inputChanged: () => {},
+    });
+    const message = {
+      type: 'user' as const,
+      session_id: 'original',
+      parent_tool_use_id: null,
+      message: { role: 'user' as const, content: 'Exact reviewed private context' },
+      ...(scenario === 'missing_identity' ? {} : { mitzoMessageId: 'exact-command' }),
+    };
+    input.push(message);
+    const pending = prompt[Symbol.asyncIterator]().next();
+    await vi.waitFor(() => expect(accountInfo).toHaveBeenCalledOnce());
+    expect(beforeInput).not.toHaveBeenCalled();
+    if (scenario === 'revoked') sharingCurrent = false;
+    release();
+    if (scenario === 'current') expect((await pending).value).toEqual(message);
+    else {
+      await expect(pending).rejects.toThrow(
+        scenario === 'revoked'
+          ? 'shared source revoked'
+          : scenario === 'async_fence'
+            ? 'Synchronous ordinary turn authority'
+            : 'input command identity',
+      );
+      expect(controller.signal.aborted).toBe(true);
+    }
+    expect(sync).toHaveBeenCalledOnce();
+    expect(beforeInput).toHaveBeenCalledTimes(scenario === 'missing_identity' ? 0 : 1);
+    input.close();
+    controller.abort();
+  },
+);
 it('checks peer input immediately before stdin yield and consumes peer ACKs before ordinary result correlation', async () => {
   let prompt!: AsyncIterable<import('@anthropic-ai/claude-agent-sdk').SDKUserMessage>;
   const events = new AsyncQueue<Record<string, unknown>>();
