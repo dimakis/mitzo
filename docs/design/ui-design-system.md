@@ -25,6 +25,12 @@ failed and host-recovery states retain their original operation and diagnostic.
 Check status never starts another login or resubmits a code. Start chat saves an
 unsent Local Mac draft and leaves account defaults unchanged.
 
+An explicit Claude status check uses the existing button and status/alert text to
+show progress and its result. Connected accounts reuse the native Connections
+sign-in inventory; pending setup recovers the original operation. Reads have a
+bounded retry state, and logout or navigation suppresses late evidence. No new
+container, styling or motion pattern is introduced.
+
 The surface reuses semantic tokens, Connections spacing/type/controls and existing
 page motion, without new cards, palette or animation. The intercepted
 `claude-account-connect` fixture covers 320px phones and desktop, light/dark,

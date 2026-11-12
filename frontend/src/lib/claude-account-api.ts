@@ -48,8 +48,8 @@ export const ClaudeAccountSnapshot = z.object({
 });
 export type ClaudeAccountSnapshot = z.infer<typeof ClaudeAccountSnapshot>;
 const endpoint = '/api/claude-accounts';
-export async function readClaudeAccounts() {
-  const response = await apiFetch(endpoint, { cache: 'no-store' });
+export async function readClaudeAccounts(signal?: AbortSignal) {
+  const response = await apiFetch(endpoint, { cache: 'no-store', signal });
   if (!response.ok)
     throw Error('Claude account status is unavailable. Check status before continuing.');
   return ClaudeAccountSnapshot.parse(await response.json());
