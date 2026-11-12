@@ -1,5 +1,5 @@
 import { afterEach, expect, it, vi } from 'vitest';
-import { revokeAuthSession } from '../auth.js';
+import { registerAuthSession, revokeAuthSession } from '../auth.js';
 import {
   retainAgentContextAuthority,
   agentContextRuntimeError,
@@ -24,25 +24,37 @@ it('retains the admitted operator scope across async setup and aborts immediatel
     scope.release();
   }
 });
-it('fences expiry and removes its watcher when the owning query finishes', () => {
+it('expires client access while keeping admitted work revocable until release', () => {
   vi.useFakeTimers();
+  const auth = { id: crypto.randomUUID(), expiresAt: Date.now() + 1000 };
   const controller = new AbortController();
-  const scope = retainAgentContextAuthority(
-    { id: crypto.randomUUID(), expiresAt: Date.now() + 1000 },
-    controller,
-  );
-  vi.advanceTimersByTime(1001);
-  expect(controller.signal.aborted).toBe(true);
-  expect(findSessionRuntimeError(controller.signal.reason)?.code).toBe('auth_expired');
-  expect(() => scope.assertCurrent()).toThrow();
-  scope.release();
+  const scope = retainAgentContextAuthority(auth, controller);
+  const client = vi.fn();
+  const unregister = registerAuthSession(auth, client);
+  try {
+    vi.advanceTimersByTime(1001);
+    expect(client).toHaveBeenCalledWith('expired');
+    expect(controller.signal.aborted).toBe(false);
+    expect(scope.failure()).toBeUndefined();
+    expect(() => scope.assertCurrent()).not.toThrow();
+    revokeAuthSession(auth);
+    expect(controller.signal.aborted).toBe(true);
+    expect(findSessionRuntimeError(controller.signal.reason)?.code).toBe('auth_revoked');
+    expect(() => scope.assertCurrent()).toThrow();
+  } finally {
+    scope.release();
+    unregister();
+  }
+});
+
+it('removes its watcher when the owning query finishes', () => {
+  vi.useFakeTimers();
   const fresh = new AbortController();
-  const finished = retainAgentContextAuthority(
-    { id: crypto.randomUUID(), expiresAt: Date.now() + 1000 },
-    fresh,
-  );
+  const auth = { id: crypto.randomUUID(), expiresAt: Date.now() + 1000 };
+  const finished = retainAgentContextAuthority(auth, fresh);
   finished.release();
   vi.advanceTimersByTime(1001);
+  revokeAuthSession(auth);
   expect(fresh.signal.aborted).toBe(false);
   expect(() => finished.assertCurrent()).toThrow(/released/i);
 });
@@ -57,7 +69,7 @@ it('does not relabel transport failures with unrelated or untrusted authorizatio
   ).toBe(failure);
 });
 
-it('retains one expiry diagnostic when the deadline is observed before its timer runs', () => {
+it('does not relabel a transport error when the browser deadline passes before its timer runs', () => {
   vi.useFakeTimers();
   const deadline = Date.now() + 1000;
   const controller = new AbortController();
@@ -67,12 +79,35 @@ it('retains one expiry diagnostic when the deadline is observed before its timer
   );
   try {
     vi.setSystemTime(deadline);
-    const first = agentContextRuntimeError(new Error('first closure'), scope.assertCurrent);
-    const second = agentContextRuntimeError(new Error('second closure'), scope.assertCurrent);
-    expect(findSessionRuntimeError(first)?.code).toBe('auth_expired');
-    expect(second).toBe(first);
+    const error = new Error('connection closed');
+    expect(agentContextRuntimeError(error, scope.assertCurrent)).toBe(error);
     vi.advanceTimersByTime(1000);
-    expect(controller.signal.reason).toBe(first);
+    expect(controller.signal.aborted).toBe(false);
+  } finally {
+    scope.release();
+  }
+});
+
+it('rejects an already expired login before retaining run authority', () => {
+  const controller = new AbortController();
+  expect(() =>
+    retainAgentContextAuthority({ id: crypto.randomUUID(), expiresAt: Date.now() }, controller),
+  ).toThrow(/expired/i);
+});
+
+it('preserves explicit cancellation after browser expiry', () => {
+  vi.useFakeTimers();
+  const controller = new AbortController();
+  const scope = retainAgentContextAuthority(
+    { id: crypto.randomUUID(), expiresAt: Date.now() + 1000 },
+    controller,
+  );
+  try {
+    vi.advanceTimersByTime(1001);
+    const cancellation = new Error('Operator cancelled the turn');
+    controller.abort(cancellation);
+    expect(() => scope.assertCurrent()).toThrow(cancellation);
+    expect(scope.failure()).toBeUndefined();
   } finally {
     scope.release();
   }

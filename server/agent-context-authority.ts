@@ -25,14 +25,17 @@ export function agentContextRuntimeError(
   return error;
 }
 
-/** A run retains its admitted subject, not the lifetime of one browser connection. */
+/** Admitted work outlives its browser login, but explicit revocation still stops it. */
 export function retainAgentContextAuthority(auth: AuthSession, controller: AbortController) {
+  if (auth.expiresAt <= Date.now()) throw new SessionRuntimeError('auth_expired');
   let invalidation: SessionRuntimeError | undefined;
   let released = false;
   const unregister = registerAuthSession(auth, (reason) => {
-    invalidation ??= new SessionRuntimeError(
-      reason === 'expired' ? 'auth_expired' : 'auth_revoked',
-    );
+    // Expiry closes interactive transports and blocks new admissions. It does
+    // not withdraw authority already granted to this run. Keep the listener
+    // until release so logout/revocation can still stop work after expiry.
+    if (reason === 'expired') return;
+    invalidation ??= new SessionRuntimeError('auth_revoked');
     controller.abort(invalidation);
   });
   return {
@@ -41,8 +44,7 @@ export function retainAgentContextAuthority(auth: AuthSession, controller: Abort
     assertCurrent() {
       if (released) throw Error('Agent context authorization was released');
       controller.signal.throwIfAborted();
-      if (invalidation || auth.expiresAt <= Date.now())
-        throw (invalidation ??= new SessionRuntimeError('auth_expired'));
+      if (invalidation) throw invalidation;
     },
     release() {
       if (!released) {

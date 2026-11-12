@@ -2372,10 +2372,9 @@ async function _startChatInner(
         if (packRecipe && !contextRuntime)
           throw Error('Knowledge Library is not configured for the selected agent context');
         if (openShellSelected && !packRecipe) {
-          assertSandboxContextAuthorization = () => {
-            authorization.assertCurrent();
-            scope.assertCurrent();
-          };
+          // Admission below requires a live login; ongoing context use belongs
+          // to the retained run and survives client expiry or disconnection.
+          assertSandboxContextAuthorization = scope.assertCurrent;
         } else {
           agentContext = await resolveChatAgentContext({
             profile: agentProfile,

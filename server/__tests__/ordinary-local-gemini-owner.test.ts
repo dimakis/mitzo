@@ -5,12 +5,15 @@ import { GoogleAuth } from 'google-auth-library';
 import { ownedResponsesRuntimeFixture } from './fixtures/owned-local-responses-runtime.js';
 import { OrdinaryLocalResponsesOwnedRuntime } from '../ordinary-local-responses-owned-runtime.js';
 import { NativeResponsesStore } from '../native-responses-store.js';
+import { revokeAuthSession } from '../auth.js';
+import { captureAgentLibraryAuthorization } from '../agent-library-transport.js';
 vi.mock('../auth.js', async (original) => ({
   ...(await original<object>()),
   hasPersistentRevocationAuthority: () => true,
 }));
 const cleanups: Array<() => void | Promise<void>> = [];
 afterEach(async () => {
+  vi.useRealTimers();
   for (const close of cleanups.splice(0).reverse()) await close();
   vi.restoreAllMocks();
   vi.unstubAllEnvs();
@@ -40,6 +43,21 @@ async function fixture() {
   };
   return { f, native, dispatch, create };
 }
+it('keeps admitted Gemini effects current after login expiry and still stops on revocation', async () => {
+  const { f, create } = await fixture();
+  vi.useFakeTimers();
+  const owner = create();
+  await owner.admit(f.request);
+  await owner.claimNextCommand();
+  owner.assertStart(f.request.clientMsgId);
+  await vi.advanceTimersByTimeAsync(60001);
+  expect(owner.signal.aborted).toBe(false);
+  await expect(owner.assertEffect(f.request.clientMsgId)).resolves.toBeUndefined();
+  expect(() => captureAgentLibraryAuthorization(f.dependencies.operatorConnectionId)).toThrow();
+  revokeAuthSession(f.auth);
+  expect(owner.signal.aborted).toBe(true);
+  await expect(owner.assertEffect(f.request.clientMsgId)).rejects.toThrow();
+});
 it('binds Google ADC, project, region and original native thinking before admission and rejects changed continuation without a receipt', async () => {
   const { f, native, create } = await fixture();
   const owner = create();

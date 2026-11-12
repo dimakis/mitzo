@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.17';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.1098-enmaas-telos-integration';
+  'v1.0.1099-retained-run-login-expiry';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -1764,7 +1764,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../scripts/qualify-codex-native-permissions.mjs':
     '848148f0e305800ab30aa84899798c0b4034c9fe2f062045d8a5672cfc09ae59',
   '../__tests__/codex-chat-session.test.ts':
-    'c83d20c86ed5b7b150e8731db39e32e52db7b510f700ab50b91077294d7c30ba',
+    '5f087cd93e0d575d921f677e30e8ae6adf64d647d66ba8e749687e46b3edc107',
   '../__tests__/codex-conversation.test.ts':
     'c48273fc16ee1fef58b9063f5ccccb8da57da58b9a9131bff0adff1b42adda91',
   '../__tests__/codex-native-approvals.test.ts':
@@ -2560,7 +2560,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     'c103af10de4adc81cdc474b3e69ef2b3de5e447d4dcf15da4fc1894c422b913b',
   '../../packages/protocol/src/session-output-reference-store.ts':
     'e3d0095bfe092da676eb3671f8c147500e9436a95a9438d0315b8037b14b3029',
-  '../chat.ts': 'c048607dd4036c57628b691d72581a0c378e2bacc869835fd2da7b92393f74bf',
+  '../chat.ts': 'a9f761cd68667913b4afe53a138873e97802b64957c121e23d86738867adedcb',
   '../../packages/harness/src/session-registry.ts':
     '920286cff62bab7712d9e8648166e74e2c1e084f11e0fe8978d2435c4a58da74',
   '../agent-context-binding.ts': '4917ff83899105b7ac2c537c8db18111eeb97386d1ca0a2d2b576d872e1db360',
@@ -2809,7 +2809,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/protocol/src/telos-work.ts':
     '7597f5477d2cf377474f6b0f08ee69b2c6045e1e7ba89911cd281b5d9f2b0043',
   '../agent-context-authority.ts':
-    '9a48d7c2f5dd270792881e1a486b8357e65823cfb919ff2df4565d9e57f0a7bb',
+    'a95fe1d9787cd72ff46c851cc7f8d3aa7a38b8cf89db99d5df4ff2c5531fae54',
   '../agent-context-delivery.ts':
     'ccb083988e7c0563d9080a8553d9903abc1cf5b1d669b4583c215508faaee46a',
   '../agent-context-pack-compiler.ts':
@@ -3414,7 +3414,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../unified-inbox-routes.ts': '6413398c77b9f1c62fbb1c597d5cf7c857b65338b23592ce9751cf6755e271d4',
   '../read-only-git.ts': 'b1a5c01474cba24137b3a7eb5bb4dcbd4d593ee0a25230977de6ff272fdbebab',
   '../__tests__/chat-agent-context-startup.test.ts':
-    '0c768633692a0bf38b180e62e520068f527b7433157cbd7fa6bf315bf3e715b4',
+    'c233727f7ea3ba2aea12b86e81d4827f80ca1ac8eaff3dfd1de9ad9e5fbd6624',
   '../__tests__/chat-contributor-route-admission.test.ts':
     'a19a8ee0f4424228487fefe455dca8198bfe046acf3016c16bb7029a43903edb',
   '../__tests__/chat-provider-admission.test.ts':
@@ -3894,7 +3894,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/openshell-warm-pool.test.ts':
     '5bf6f6a1a46feff8bbbeae585a4794512a954d8fdffb53795f2b05bde51e3310',
   '../__tests__/ordinary-local-codex-owned-runtime.test.ts':
-    '4339871c489dc3f7a884d3fbafae646f92b25ec2210edcabe782f60a3cec1e46',
+    '49fcd0ed58191fbc87cd214adc08e1a82ff5803411b8db0560204a26ffdd90e9',
   '../__tests__/owned-local-codex-terminal-closure.test.ts':
     'd6901e8051b00e4ff7817748bc8e3910aa36e1455f16cc9dc055030b83b90ec7',
   '../__tests__/query-loop.test.ts':
@@ -4391,7 +4391,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/claude-personal-policy.test.ts':
     'f7fc1ccde245b17a92c50176e928450e39ef5367a5cc8f49956873f308cd32ce',
   '../__tests__/ordinary-local-vertex-owned-runtime.test.ts':
-    'f54b300c69668515af4ee5a8c2d43834f4f8e40341be9a078e97ab9b1c7f9e45',
+    '3f5628706006f7d4e8d4e59233afb9211c4b052277c1cad10e92f990998e8b41',
   '../../docs/features/personal-claude-local.md':
     '708490618ab5b651f3f3972db9d4424adccf3554b1c814a7a3f769be9f1ae773',
   '../__tests__/anthropic-api-sdk-permissions.test.ts':

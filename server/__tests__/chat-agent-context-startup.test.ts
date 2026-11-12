@@ -750,63 +750,76 @@ it('fails before provider dispatch when a required context document is missing, 
     await rm(root, { recursive: true, force: true });
   }
 });
-it('routes recipe profiles to authenticated sandbox admission without compiling host files', async () => {
-  const { root, chat, transport, compiler, unbind } = await setup();
-  try {
-    vi.stubEnv('MITZO_OPENSHELL_ENABLED', '1');
-    const profiles = new AccountProfiles(
-      [
-        {
-          id: 'fixture',
-          label: 'Offline account',
-          provider: 'openai-codex',
-          email: 'fixture@example.com',
-          planType: 'pro',
-          sandboxProvider: 'fixture-openai',
-          sandboxProviderType: 'openai-codex-oauth',
-          sandboxProviderId: 'provider-id',
-          sandboxGrantId: 'grant-id',
-          models: [{ id: 'luna', label: 'Luna fixture' }],
-        },
-      ],
-      { codexEnabled: true },
-    );
-    const account = await import('../codex-account.js');
-    const verify = vi
-      .spyOn(account, 'verifyCodexAccount')
-      .mockRejectedValue(Error('Unexpected account preflight'));
-    const codex = await import('../codex-chat-session.js');
-    const open = vi.spyOn(codex, 'openCodexChat').mockImplementation(async (options) => {
-      expect(options.assertAgentContextAuthorization).toBeTypeOf('function');
-      expect(() => options.assertAgentContextAuthorization!()).not.toThrow();
-      throw Error('Offline sandbox admission intercepted; no model call');
-    });
-    const compile = vi.spyOn(compiler, 'compileAgentContext');
-    await chat.startChat(transport, 'sandbox-context', 'Review this', {
-      cwd: root,
-      accountId: 'fixture',
-      model: 'luna',
-      accountProfiles: profiles,
-      agentProfile: { profileId: 'bob', revision: 3 },
-      operatorConnectionId: 'operator',
-    });
-    expect(verify).not.toHaveBeenCalled();
-    expect(open).toHaveBeenCalledOnce();
-    expect(compile).not.toHaveBeenCalled();
-    expect(open.mock.calls[0][0]).toMatchObject({
-      agentProfile: expect.objectContaining({ profileId: 'bob', revision: 3 }),
-      assertAgentContextAuthorization: expect.any(Function),
-    });
-    expect(() => open.mock.calls[0][0].assertAgentContextAuthorization!()).toThrow(/released/i);
-    unbind();
-    expect(() => open.mock.calls[0][0].assertAgentContextAuthorization!()).toThrow(/revoked/i);
-  } finally {
-    unbind();
-    chat.registry.dispose();
-    chat.eventStore.close();
-    await rm(root, { recursive: true, force: true });
-  }
-});
+it.each([false, true])(
+  'retains sandbox context authority after admission (login expired: %s)',
+  async (expire) => {
+    const { root, chat, transport, compiler, unbind } = await setup();
+    try {
+      vi.useFakeTimers();
+      vi.stubEnv('MITZO_OPENSHELL_ENABLED', '1');
+      const profiles = new AccountProfiles(
+        [
+          {
+            id: 'fixture',
+            label: 'Offline account',
+            provider: 'openai-codex',
+            email: 'fixture@example.com',
+            planType: 'pro',
+            sandboxProvider: 'fixture-openai',
+            sandboxProviderType: 'openai-codex-oauth',
+            sandboxProviderId: 'provider-id',
+            sandboxGrantId: 'grant-id',
+            models: [{ id: 'luna', label: 'Luna fixture' }],
+          },
+        ],
+        { codexEnabled: true },
+      );
+      const account = await import('../codex-account.js');
+      const verify = vi
+        .spyOn(account, 'verifyCodexAccount')
+        .mockRejectedValue(Error('Unexpected account preflight'));
+      const codex = await import('../codex-chat-session.js');
+      let authorizedAfterExpiry = false;
+      const open = vi.spyOn(codex, 'openCodexChat').mockImplementation(async (options) => {
+        expect(options.assertAgentContextAuthorization).toBeTypeOf('function');
+        expect(() => options.assertAgentContextAuthorization!()).not.toThrow();
+        if (expire) {
+          await vi.advanceTimersByTimeAsync(60001);
+          unbind();
+          expect(() => options.assertAgentContextAuthorization!()).not.toThrow();
+          authorizedAfterExpiry = true;
+        }
+        throw Error('Offline sandbox admission intercepted; no model call');
+      });
+      const compile = vi.spyOn(compiler, 'compileAgentContext');
+      await chat.startChat(transport, 'sandbox-context', 'Review this', {
+        cwd: root,
+        accountId: 'fixture',
+        model: 'luna',
+        accountProfiles: profiles,
+        agentProfile: { profileId: 'bob', revision: 3 },
+        operatorConnectionId: 'operator',
+      });
+      expect(verify).not.toHaveBeenCalled();
+      expect(open).toHaveBeenCalledOnce();
+      expect(authorizedAfterExpiry).toBe(expire);
+      expect(compile).not.toHaveBeenCalled();
+      expect(open.mock.calls[0][0]).toMatchObject({
+        agentProfile: expect.objectContaining({ profileId: 'bob', revision: 3 }),
+        assertAgentContextAuthorization: expect.any(Function),
+      });
+      expect(() => open.mock.calls[0][0].assertAgentContextAuthorization!()).toThrow(/released/i);
+      unbind();
+      expect(() => open.mock.calls[0][0].assertAgentContextAuthorization!()).toThrow(/released/i);
+    } finally {
+      vi.useRealTimers();
+      unbind();
+      chat.registry.dispose();
+      chat.eventStore.close();
+      await rm(root, { recursive: true, force: true });
+    }
+  },
+);
 
 it('rechecks operator authorization after compilation before saving context or dispatching a model', async () => {
   const { root, chat, transport, compiler, unbind } = await setup();
